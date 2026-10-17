@@ -56,7 +56,7 @@ def provider() -> DisclosureProvider:
         (
             identities,
             "Population",
-            "Capture complete Entity primary-key tuples; keys do not prove source presence.",
+            "Capture complete resolved-Entity primary-key tuples; keys do not prove source presence.",
             "result = mv.identities(entity, keys=(('C1',),))",
             ("entity",),
             "inputs.population",
@@ -129,7 +129,7 @@ def provider() -> DisclosureProvider:
     parameter_facts = {
         "by": "Pass resolved fields, existing identity axes or correlated membership descriptors as documented by this receiver.",
         "keys": "Give complete typed tuples in declared axis or primary-key order; duplicate tuples collapse.",
-        "entity": "Resolve the exact Entity from session.catalog.entities or a finalized scope.",
+        "entity": "Pass a resolved Entity from session.catalog.entities or a finalized scope; bare EntityRef inputs are rejected.",
         "via": "Pass a nonempty ordered tuple of declared relationships; membership takes a tuple of paths, one per contribution root.",
         "unmatched": "Choose exclude or null explicitly; null retains a source Null bucket.",
         "factors": "Pass at least two Populations or CalendarAxis values with disjoint axes and compatible owners.",

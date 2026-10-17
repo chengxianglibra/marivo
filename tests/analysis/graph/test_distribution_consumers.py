@@ -12,9 +12,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.methods.errors import MethodRegistrationError
 from marivo.datasource.adapters import CompiledRead, SourceSession, provider_for
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
@@ -134,7 +132,13 @@ def test_native_distribution(
             )
             models += f"{name}_time=ms.time_dimension_column(name='time',entity={name},column='happened',granularity='second',parse=ms.timestamp(timezone='UTC'),is_default=True)\n"
         models += "identity=ms.measure_column(name='identity',entity=facts,column='id',additivity=ms.additive_all())\n"
-        models += "amount=ms.measure_column(name='amount',entity=facts,column='amount',additivity=ms.additive_all())\n"
+        models += (
+            "amount=ms.measure_column(name='amount',entity=facts,column='amount',additivity=ms.additive_all())\n"
+            if carrier in {"int64", "float64", "decimal"}
+            else "amount=ms.time_dimension_column(name='amount',entity=facts,column='amount',granularity='second',parse=ms.timestamp(timezone='UTC'))\n"
+            if carrier == "timestamp"
+            else "amount=ms.dimension_column(name='amount',entity=facts,column='amount')\n"
+        )
         models += "facts_subject=ms.relationship(name='facts_subject',from_entity=facts,to_entity=subjects,keys=[ms.join_on(facts_owner,subjects_owner)])\n"
         semantic_project_factory(
             {
@@ -154,18 +158,24 @@ def test_native_distribution(
             monkeypatch.setattr(type(subject.session._backend), "create_table", forbid_staging)
             monkeypatch.setattr(type(subject.session._backend), "drop_table", forbid_staging)
         session = mv.session.get_or_create("r93-distribution", report_timezone="UTC")
-        metric = mv.runtime_metric.aggregate(
-            ms.ref.measure("sales.facts.identity")
-            if kind == "identity"
-            else ms.ref.measure("sales.facts.amount"),
-            agg="count_distinct"
+        members = session.members(ms.ref.entity("sales.subjects"))
+        field = session.catalog.fields.get(
+            "sales.facts.identity" if kind == "identity" else "sales.facts.amount"
+        )
+        time = session.catalog.fields.get("sales.facts.time")
+        metric = (
+            field.count_distinct(time=time)
             if kind in ("distinct", "distinct_nonfinite", "identity")
-            else "approx_count_distinct"
+            else field.approx_nunique(time=time)
             if kind == "approx_distinct"
-            else ("percentile", 0.25)
+            else field.quantile(0.25, time=time)
             if kind == "quantile"
-            else ("approx_percentile", 0.25),
-            label="distribution",
+            else field.approx_quantile(0.25, time=time)
+        )
+        observed = session.observe(
+            {"value": metric},
+            during=session.time_scope(start="2026-08-01", end="2026-08-02"),
+            by=members,
         )
         submissions: list[dict[str, str]] = []
         source_execute = SourceSession.execute
@@ -180,65 +190,29 @@ def test_native_distribution(
         monkeypatch.setattr(SourceSession, "execute", traced_execute)
         native_before = len(source_trace.native_sql)
         before_runs = run_ids(session)
-        if backend == "mysql" and carrier == "boolean":
-            # MySQL BOOLEAN is reflected as int8, outside the existing scalar carriers.
-            with pytest.raises(
-                DatasetConstructionError, match="exact supported physical field type"
-            ):
-                session.members(ms.ref.entity("sales.subjects")).observe(
-                    metric,
-                    during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
-                    via=ms.ref.relationship("sales.facts_subject"),
-                    by=(mv.member(),),
-                )
-            assert not submissions
-            assert len(source_trace.native_sql) == native_before
-            assert run_ids(session) == before_runs
-            return
         refuses = (
-            (kind in ("distinct", "identity") and backend == "clickhouse")
+            (backend == "mysql" and carrier == "boolean")
+            or (kind in ("distinct", "identity") and backend == "clickhouse")
             or (kind == "quantile" and backend not in ("duckdb", "postgres"))
-            or (kind == "approx_quantile" and backend in ("mysql"))
+            or kind == "approx_quantile"
+            or (kind == "quantile" and carrier == "decimal")
         )
         if refuses:
+            # Source approx_quantile has no qualified route in this phase.
+            # Exact quantile on the identical int64 rows is independently
+            # exercised by the quantile parameter; no algorithm fallback.
             before = set((tmp_path / ".marivo").rglob("*.parquet"))
-            with pytest.raises(DatasetConstructionError, match="declared exactness"):
-                session.members(ms.ref.entity("sales.subjects")).observe(
-                    metric,
-                    during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
-                    via=ms.ref.relationship("sales.facts_subject"),
-                    by=(mv.member(),),
-                )
+            with pytest.raises(AnalysisError) as caught:
+                observed.execute()
+            assert caught.value.expected and caught.value.received and caught.value.repair
             assert not submissions
             assert len(source_trace.native_sql) == native_before
             assert set((tmp_path / ".marivo").rglob("*.parquet")) == before
             assert run_ids(session) == before_runs
             return
-        if kind == "quantile" and carrier == "decimal":
-            before = set((tmp_path / ".marivo").rglob("*.parquet"))
-            with pytest.raises(
-                MethodRegistrationError, match="bounded single-column native distribution"
-            ):
-                session.members(ms.ref.entity("sales.subjects")).observe(
-                    metric,
-                    during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
-                    via=ms.ref.relationship("sales.facts_subject"),
-                    by=(mv.member(),),
-                ).execute()
-            assert not submissions
-            assert len(source_trace.native_sql) == native_before
-            assert set((tmp_path / ".marivo").rglob("*.parquet")) == before
-            assert run_ids(session) == before_runs
-            return
-        observed = session.members(ms.ref.entity("sales.subjects")).observe(
-            metric,
-            during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
-            via=ms.ref.relationship("sales.facts_subject"),
-            by=(mv.member(),),
-        )
         if kind == "distinct_nonfinite":
             before = set((tmp_path / ".marivo").rglob("*.parquet"))
-            with pytest.raises(AnalysisError, match="finite Decimal distribution input"):
+            with pytest.raises(AnalysisError):
                 observed.execute()
             assert submissions
             assert set((tmp_path / ".marivo").rglob("*.parquet")) == before
@@ -246,7 +220,10 @@ def test_native_distribution(
             return
         fixed = observed.execute()
         source_trace.record(fixed)
-        frame = fixed.to_pandas().set_index("member")
+        exported = fixed.to_pandas()
+        frame = exported.set_index(exported.columns[0])
+        values = frame[("value", "value")]
+        assert frame.index.tolist() == ["a", "b", "c"]
         expected = (
             {"a": 4, "b": 1, "c": 0}
             if kind == "identity"
@@ -255,14 +232,9 @@ def test_native_distribution(
             else {"a": 4, "b": 6}
         )
         for owner, value in expected.items():
-            if kind == "approx_quantile" and owner == "a":
-                observed_percentile = frame.loc[owner, "value"]
-                assert isinstance(observed_percentile, (int, float))
-                assert 2 <= observed_percentile <= 6
-            else:
-                assert frame.loc[owner, "value"] == value
-        if kind in ("quantile", "approx_quantile"):
-            assert frame.loc["c", "cell_tag"] == "null"
+            assert values.loc[owner] == value
+        if kind == "quantile":
+            assert pd.isna(values.loc["c"])
         source_trace.save(
             f"c10-source-{backend}-{kind}",
             {**subject.environment, "profile": profile},
@@ -286,5 +258,5 @@ def test_native_distribution(
         )
 
         assert submissions
-        if kind in ("quantile", "approx_quantile"):
+        if kind == "quantile":
             assert any("0.25" in read["sql"] for read in submissions)

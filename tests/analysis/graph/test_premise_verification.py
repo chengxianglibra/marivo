@@ -1,4 +1,4 @@
-"""Declaration trust, exact invocation premises and actual check scheduling."""
+"""Exact invocation premises, complete pairing and source-owned checks."""
 
 from __future__ import annotations
 
@@ -11,72 +11,57 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.compiler.graph_lowering import SemanticCheck
 from marivo.analysis.core.graph import MethodNode, SourceLeaf
-from marivo.analysis.core.model import available_facts
-from marivo.analysis.core.rules import derive
-from marivo.analysis.materialization import graph_source_execution as native
+from marivo.analysis.core.model import ObservedQuantity
+from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.graph_exchange import ExchangeResult, _pandas_records
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from tests.analysis.graph.physical_workloads import workload
 from tests.shared_fixtures import DslCaseFactory
 
 
-def _exchange_rows(result: ExchangeResult) -> list[dict[str, object]]:
-    return _pandas_records(result.primary, result.contract.schema)
-
-
-def _reads(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    purposes: list[str] = []
-    original = SourceSession.execute
+def _reads(monkeypatch: pytest.MonkeyPatch) -> list[CompiledRead]:
+    reads: list[CompiledRead] = []
+    execute = SourceSession.execute
 
     def read(source: SourceSession, issued: CompiledRead) -> pd.DataFrame:
-        purposes.append(issued.purpose)
-        return original(source, issued)
+        reads.append(issued)
+        return execute(source, issued)
 
     monkeypatch.setattr(SourceSession, "execute", read)
-    return purposes
+    return reads
 
 
 def test_observation_completeness_depends_on_exact_matching_assumptions(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    values = case.session.members(ms.ref.entity("sales.customer")).observe(
-        ms.ref.metric("sales.line_revenue"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=mv.path(
-            ms.ref.relationship("sales.line_order"), ms.ref.relationship("sales.order_buyer")
-        ),
-        by=(mv.member(),),
-    )
-    signature = values._node.root.signature
-    mappings = tuple(
-        item.fact
-        for item in signature.evidence
-        if item.basis == "assumption" and item.fact.kind == "mapping_total"
-    )
-    completeness = tuple(
-        item
-        for item in signature.evidence
-        if item.fact.kind in ("contribution_partition", "complete_coverage")
-    )
-    assert mappings and len(completeness) == 2
-    assert all(set(mappings) <= set(item.dependencies) for item in completeness)
-    assert all(item.fact in available_facts(signature) for item in completeness)
-    rolled = values.rollup()._node.root
-    assert isinstance(rolled, MethodNode)
-    for mapping in mappings:
-        stripped = replace(
-            signature, evidence=tuple(item for item in signature.evidence if item.fact != mapping)
+    with duckdb.connect(str(case.database_path)) as database:
+        database.execute(
+            "INSERT INTO order_line VALUES ('a1','j1_a',100),('a2','j1_a',200),('b1','j1_b',300),('c1','j1_c',400)"
         )
-        assert all(item.fact not in available_facts(stripped) for item in completeness)
-        derivation = derive((stripped,), rolled.parameters)
-        assert {item.fact.kind for item in derivation.obligations} >= {
-            "contribution_partition",
-            "complete_coverage",
-        }
+    session = case.session
+    members = session.members(ms.ref.entity("sales.customer"))
+    values = session.observe(
+        {"value": session.catalog.metrics.get("sales.line_revenue")},
+        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
+        by=members,
+        members=members,
+    )
+    frame = values.execute().to_pandas()
+    assert dict(zip(frame.iloc[:, 0], frame[("value", "value")], strict=True)) == {
+        "A": 300,
+        "B": 300,
+        "C": 400,
+        "D": 0,
+    }
+    assert values.rollup().execute().to_pandas()[("value", "value")].tolist() == [1000]
+    route = session.catalog.relationships.get("sales.order_buyer")
+    region = session.catalog.fields.get("sales.customer.region")
+    orders = session.members(ms.ref.entity("sales.order"))
+    inferred = session.read(orders, {"region": region}).execute().to_pandas()
+    explicit = session.read(orders, {"region": region.via((route,))}).execute().to_pandas()
+    assert inferred.equals(explicit)
 
 
 def test_related_field_null_is_counted_and_missing_owner_is_rejected(
@@ -85,226 +70,171 @@ def test_related_field_null_is_counted_and_missing_owner_is_rejected(
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as database:
         database.execute("UPDATE customer SET region=NULL WHERE customer_id='B'")
-    values = case.session.members(ms.ref.entity("sales.order")).read(
-        ms.ref.dimension("sales.customer.region"), via=ms.ref.relationship("sales.order_buyer")
-    )
-    purposes = _reads(monkeypatch)
+    session = case.session
+    orders = session.members(ms.ref.entity("sales.order"))
+    region = session.catalog.fields.get("sales.customer.region")
+    buyer = session.catalog.relationships.get("sales.order_buyer")
+    values = session.read(orders, {"value": region.via((buyer,))})
+    reads = _reads(monkeypatch)
     result = values.execute()
-    assert result._dataset is not None
-    records = _exchange_rows(result._dataset.verified())
-    assert any(row["value"] is not None and row["cell_tag"] == "defined" for row in records)
-    nulls = [row for row in records if pd.isna(row["value"])]
-    assert nulls and all(
-        row["cell_tag"] == "null" and row["cell_reason"] == "source_null" for row in nulls
-    )
-    assert result._dataset.verified().completed_checks == ()
-    assert purposes == ["analysis.graph.stage"]
-    purposes.clear()
-    assert values.aggregate(mv.count()).execute().to_pandas().value.tolist() == [len(records)]
-    assert purposes == [
-        "analysis.graph.stage",
-        "analysis.graph.stage",
-    ]
+    frame = result.to_pandas()
+    assert frame[("value", "value")].notna().any()
+    assert frame[("value", "value")].isna().any()
+    assert values.reduce({"count": mv.row_count()}).execute().to_pandas()[
+        ("value", "count")
+    ].tolist() == [len(frame)]
+    assert reads
     with duckdb.connect(str(case.database_path)) as database:
         database.execute("DELETE FROM customer WHERE customer_id='A'")
-    checks: list[str] = []
-    original = native._check
-
-    def check(source, lowered, requirement):
-        if isinstance(requirement, SemanticCheck):
-            checks.append(requirement.requirement.obligation.fact.kind)
-        return original(source, lowered, requirement)
-
-    monkeypatch.setattr(native, "_check", check)
-    purposes.clear()
-    with pytest.raises(MaterializationError, match="required field owner operand is missing"):
-        values.where(values.value.eq("east")).execute()
-    assert "mapping_total" not in checks
-    # The owner lookup rejects before a value predicate can hide the missing row.
-    assert purposes == ["analysis.graph.stage"]
+    before = session.runs().items
+    with pytest.raises(AnalysisError):
+        values.where(values["value"] == "east").execute()
+    assert session.runs().items != before
+    assert session.artifact(result.id).to_pandas().equals(frame)
 
 
 def test_declared_native_inputs_need_only_one_terminal_read(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with workload("duckdb", "ordinary-table", 64, "baseline", tmp_path, monkeypatch) as work:
-        members = work.session.members(ms.ref.entity("cost.facts"))
-        logical = members.observe(
-            ms.ref.metric("cost.facts_total"),
-            during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
-            by=(mv.member(),),
-        ).rollup()
-        purposes = _reads(monkeypatch)
-        from marivo.analysis.materialization import graph_exchange
-
-        def forbidden_audit(*args: object, **kwargs: object) -> None:
-            pytest.fail("an owned producer result was subjected to a repeated business audit")
-
-        monkeypatch.setattr(graph_exchange, "_validate_exchange", forbidden_audit)
-        result = logical.execute()
-        # Entity identity and native numeric declarations remain producer-owned premises.
-        assert purposes == ["analysis.graph.stage"]
-        assert result._dataset is not None
-        exchange = result._dataset.verified()
-        rows = _exchange_rows(exchange)
-        assert rows == [
-            {
-                "value": sum(row["amount"] for row in work.rows if isinstance(row["amount"], int)),
-                "cell_tag": "defined",
-                "cell_reason": None,
-            }
-        ]
-        assert exchange.completed_checks == ()
+        reads = _reads(monkeypatch)
+        result = work.total().execute()
+        assert work.validate(result)["passed"] is True
+        assert sum("SUM(" in read.sql.upper() for read in reads) == 1
+        before = len(reads)
+        assert work.session.artifact(result.id).to_pandas().equals(result.to_pandas())
+        assert len(reads) == before
 
 
 def test_checked_pairing_checks_unknown_images_and_reuses_proven_images(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with workload("duckdb", "ordinary-table", 64, "baseline", tmp_path, monkeypatch) as work:
-        values = work.session.members(ms.ref.entity("cost.facts")).read(
-            ms.ref.measure("cost.facts.y")
+        session = work.session
+        values = session.read(
+            session.members(ms.ref.entity("cost.facts")),
+            {"value": session.catalog.fields.get("cost.facts.y")},
         )
-        assert isinstance(values, mv.LogicalNumericRelation)
-        left = values.where(values.value.gt(20))
-        unequal = values.where(values.value.gt(16))
-        matching = values.where(values.value.gt(20))
-        common = values.ratio(values)
-        assert not any(
-            item.fact.kind == "key_set_equal" for item in common._node.root.signature.obligations
-        )
-        checked = left.ratio(matching, align=mv.exact())
-        assert checked._node.root.fingerprint == left.ratio(matching)._node.root.fingerprint
-        assert any(
-            item.fact.kind == "key_set_equal" for item in checked._node.root.signature.obligations
-        )
-        assert not any(
-            item.basis == "assumption" and item.fact.kind == "key_set_equal"
-            for item in checked._node.root.signature.evidence
-        )
-        with pytest.raises(MaterializationError, match="endpoint key sets differ"):
-            left.ratio(unequal).execute()
-        result = checked.execute()
-        assert result._dataset is not None
-        assert any(
-            item.fact.kind == "key_set_equal"
-            for item in result._dataset.artifact.descriptor.completed_checks
-        )
-        assert all(row["value"] == 1.0 for row in _exchange_rows(result._dataset.verified()))
-        first, second, wrong = left.execute(), matching.execute(), unequal.execute()
-        fixed = first.ratio(second, align=mv.exact()).execute()
-        assert fixed._dataset is not None
-        assert all(row["value"] == 1.0 for row in _exchange_rows(fixed._dataset.verified()))
-        with pytest.raises(MaterializationError, match="key sets differ"):
-            first.ratio(wrong).execute()
+        left = values.where(values["value"] > 20)
+        unequal = values.where(values["value"] > 16)
+        matching = values.where(values["value"] > 20)
+        before = session.runs().items
+        paired = left.align(matching)
+        assert session.runs().items == before
+        with pytest.raises(AnalysisError, match="equal complete endpoint key images"):
+            left.align(unequal).execute()
+        ratios = paired.select({"value": paired["left.value"] / paired["right.value"]}).execute()
+        expected = sum(isinstance(row["y"], int) and row["y"] > 20 for row in work.rows)
+        assert ratios.to_pandas()[("value", "value")].tolist() == [1.0] * expected
+        # Same-domain Columns share an input; independent Queries require actual exact pairing.
+        shared = values.select({"value": values["value"] / values["value"]}).execute()
+        assert shared.to_pandas()[("value", "value")].tolist() == [1.0] * 64
+        assert session.artifact(ratios.id).to_pandas().equals(ratios.to_pandas())
 
 
 def test_shared_matching_assumption_never_becomes_completed_evidence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with workload("duckdb", "ordinary-table", 64, "baseline", tmp_path, monkeypatch) as work:
-        members = work.session.members(ms.ref.entity("cost.facts"))
-        field = ms.ref.dimension("cost.subjects.sid")
-        via = ms.ref.relationship("cost.facts_subject")
-        values = members.read(field, via=via)
-        purposes = _reads(monkeypatch)
+        session = work.session
+        members = session.members(ms.ref.entity("cost.facts"))
+        field = session.catalog.fields.get("cost.subjects.sid")
+        relation = session.catalog.relationships.get("cost.facts_subject")
+        values = session.read(members, {"value": field.via((relation,))})
         trusted = values.execute()
-        assert trusted._dataset is not None
-        assert trusted._dataset.artifact.descriptor.completed_checks == ()
-        assert purposes == ["analysis.graph.stage"]
-        assert any(
-            item.basis == "assumption" and item.fact.kind == "mapping_total"
-            for item in values._node.root.signature.evidence
-        )
-        purposes.clear()
-        result = values.where(values.value.eq(1)).execute()
-        assert result._dataset is not None
-        assert purposes.count("analysis.graph.check") == 1
-        descriptor = result._dataset.artifact.descriptor
-        assert not any(item.fact.kind == "mapping_total" for item in descriptor.completed_checks)
-        for relation in (values, work.session.artifact(result.state.artifact_ref)):
-            assert any(
-                item.basis == "assumption" and item.fact.kind == "mapping_total"
-                for item in relation._node.root.signature.evidence
-            )
-        with pytest.raises(TypeError, match="match_verification"):
-            members.read(field, via=via, **{"match_verification": "check"})
+        frame = trusted.to_pandas()
+        assert frame[("value", "value")].tolist() == [index % 15 for index in range(64)]
+        selected = values.where(values["value"] == 1).execute()
+        assert selected.to_pandas()[("value", "value")].tolist() == [1] * 5
+        assert not hasattr(trusted, "_graph") and not hasattr(trusted, "_node")
+        assert not hasattr(trusted, "rollup")
+        assert session.artifact(trusted.id).to_pandas().equals(frame)
 
 
 def test_exact_has_no_public_verification_choice() -> None:
     from inspect import signature
 
-    assert tuple(signature(mv.exact).parameters) == ("time",)
-    assert not hasattr(mv.exact(), "verification")
+    assert tuple(signature(mv.Query.align).parameters) == ("self", "other", "match", "how")
+    assert "verification" not in signature(mv.Query.compare).parameters
 
 
 @pytest.mark.slow
 def test_checked_pairing_survives_source_offline_cold_recovery(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    import json
     import os
     import subprocess
     import sys
 
+    from tests.support.paths import PROJECT_ROOT
+
     with workload("duckdb", "ordinary-table", 64, "baseline", tmp_path, monkeypatch) as work:
-        values = work.session.members(ms.ref.entity("cost.facts")).read(
-            ms.ref.measure("cost.facts.y")
+        session = work.session
+        values = session.read(
+            session.members(ms.ref.entity("cost.facts")),
+            {"value": session.catalog.fields.get("cost.facts.y")},
         )
-        assert isinstance(values, mv.LogicalNumericRelation)
-        left, right = values.where(values.value.gt(20)), values.where(values.value.gt(20))
-        saved = left.ratio(right, align=mv.exact()).execute()
-        assert saved._dataset is not None
-        descriptor = saved._dataset.artifact.descriptor
-        assert any(item.fact.kind == "key_set_equal" for item in descriptor.completed_checks)
-        expected = len(saved._dataset.verified().primary)
+        left, right = values.where(values["value"] > 20), values.where(values["value"] > 20)
+        paired = left.align(right)
+        saved = paired.select({"value": paired["left.value"] / paired["right.value"]}).execute()
+        expected = len(saved.to_pandas())
+        scalar = paired.reduce({"count": mv.row_count()}).execute()
+        assert scalar.to_pandas()[("value", "count")].tolist() == [expected]
         (tmp_path / "models").rename(tmp_path / "models.offline")
-        env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[3]))
-        worker = subprocess.run(
-            [
-                sys.executable,
-                "-c",
-                """
-import sys
+        env = dict(os.environ, PYTHONPATH=str(PROJECT_ROOT))
+        reports = []
+        for _ in range(2):
+            worker = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    """
+import json, os, sys
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
-from marivo.analysis.materialization import graph_exchange
 
 def forbidden(*args, **kwargs):
-    raise AssertionError("cold fixed continuation must not load or read sources")
+    raise AssertionError('terminal recovery touched a live source')
 ms.load = forbidden
 SourceSession.bind = forbidden
 SourceSession.execute = forbidden
-graph_exchange.collect = forbidden
-session = mv.session.resume(sys.argv[1])
+session = mv.session.resume(sys.argv[1], by='id')
+before = len(session.runs().items)
 saved = session.artifact(sys.argv[2])
-assert isinstance(saved, mv.MaterializedNumericRelation)
-evidence = saved._node.root.signature.evidence
-assert not any(item.basis == "assumption" and item.fact.kind == "key_set_equal" for item in evidence)
-assert any(item.fact.kind == "key_set_equal" for item in saved._dataset.artifact.descriptor.completed_checks)
-result = saved.aggregate(mv.sum()).execute()
-assert result._dataset.verified().primary["value"].tolist() == [float(sys.argv[3])]
+frame = saved.to_pandas()
+assert frame[('value','value')].tolist() == [1.0] * int(sys.argv[4])
+assert frame[('value','value')].sum() == int(sys.argv[4])
+assert session.artifact(sys.argv[3]).to_pandas()[('value','count')].tolist() == [int(sys.argv[4])]
+assert len(session.runs().items) == before
+print(json.dumps({'pid':os.getpid(),'rows':len(frame)}))
 """,
-                work.session.id,
-                str(saved.state.artifact_ref),
-                str(expected),
-            ],
-            cwd=tmp_path,
-            env=env,
-            text=True,
-            capture_output=True,
-            timeout=60,
-        )
-        assert worker.returncode == 0, worker.stderr
+                    session.id,
+                    saved.id,
+                    scalar.id,
+                    str(expected),
+                ],
+                cwd=tmp_path,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=60,
+            )
+            assert worker.returncode == 0, worker.stdout + worker.stderr
+            reports.append(json.loads(worker.stdout.strip().splitlines()[-1]))
+        assert len({os.getpid(), *(report["pid"] for report in reports)}) == 3
+        assert all(report["rows"] == expected for report in reports)
 
 
 def test_composite_facts_bind_ordered_objects_and_scope() -> None:
-    from dataclasses import replace
 
     from marivo.analysis.core.model import Binding, FactInput
     from marivo.analysis.core.rules import _fact
     from tests.analysis.graph.test_analysis_graph import _source
 
     left, right = _source(), _source()
+    assert isinstance(right.signature.quantity, ObservedQuantity)
     binding = left.signature.domain.binding
     fact = _fact("key_set_equal", binding, "pair", (left.signature, right.signature))
     assert fact.inputs == tuple(
@@ -344,7 +274,6 @@ def test_composite_facts_bind_ordered_objects_and_scope() -> None:
 
 
 def _cohort_premise_node() -> MethodNode:
-    from dataclasses import replace
 
     from marivo.analysis.core.graph import Edge, method_node
     from marivo.analysis.core.model import SubjectPart
@@ -411,7 +340,6 @@ def test_fact_inputs_resolve_each_cohort_premise_operands() -> None:
 
 
 def test_fact_inputs_preserve_recorded_order_and_repeated_operands() -> None:
-    from dataclasses import replace
 
     from marivo.analysis.compiler.graph_lowering import _fact_inputs
     from marivo.analysis.core.model import FactInput
@@ -441,7 +369,6 @@ def test_fact_inputs_preserve_recorded_order_and_repeated_operands() -> None:
 
 
 def test_fact_inputs_reject_mismatched_direct_operands() -> None:
-    from dataclasses import replace
 
     from marivo.analysis.compiler.graph_lowering import _fact_inputs
     from marivo.analysis.core.model import CoreRuleError

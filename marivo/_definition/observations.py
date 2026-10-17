@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
+from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.expressions import FieldPredicate, MetricNode, TimeBinding
 from marivo._definition.relations import (
     MembershipBinding,
@@ -36,7 +37,7 @@ class SampleCoverage:
 class CoordinateBinding:
     """Ordered complete output axes and each root's single-valued classification."""
 
-    axes: tuple[AxisBinding | CalendarCoordinate, ...]
+    axes: tuple[ComparisonAxis, ...]
     mode: Literal["calendar", "grouped", "singleton"]
     population: PopulationDependency | None = None
     memberships: tuple[MembershipBinding, ...] = ()
@@ -82,6 +83,8 @@ class ObservationBinding:
     condition: FieldPredicate | None
     coordinates: CoordinateBinding
     contributions: tuple[ContributionBinding, ...]
+    members: PopulationDependency | None = None
+    member_population: PopulationDependency | None = None
 
     @property
     def fingerprint(self) -> str:

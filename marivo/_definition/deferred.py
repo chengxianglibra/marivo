@@ -180,7 +180,7 @@ class DeclarationRecord:
 # runtime boundary, with the exact initializer shape used by these resolvers.
 if TYPE_CHECKING:
 
-    class _FrozenResolver:
+    class _FrozenResolver(Resolver):
         def __init__(self, **values: object) -> None: ...
 else:
 
@@ -213,6 +213,19 @@ class DeclarationResolver(_FrozenResolver):
 
     def resolve(self, context: dict[str, object]) -> NoReturn:
         invalid("Semantic declarations require Marivo binding; use the semantic consumer.")
+
+
+class ContextMetricResolver(_FrozenResolver):
+    """An immutable Metric whose identity domain is bound by observe.members."""
+
+    __slots__ = ("kind",)
+    kind: Literal["member_count"]
+
+    def __init__(self) -> None:
+        super().__init__(kind="member_count")
+
+    def resolve(self, context: dict[str, object]) -> NoReturn:
+        invalid("Context Metrics require an explicit Marivo observation binding.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -257,6 +270,14 @@ def admitted_function(value: object) -> bool:
 def semantic_input(value: SemanticInput) -> Deferred:
     """Capture frozen semantic facts without constructing a physical Ibis Value."""
     return Deferred(SemanticResolver(value))
+
+
+def attribute_name(attribute: Attr) -> str:
+    """Read Ibis's actual Just carrier despite its incorrect str annotation."""
+    name: object = attribute.name
+    if isinstance(name, Just) and isinstance(name.value, str):
+        return name.value
+    invalid("A native deferred attribute requires one constant string name.")
 
 
 def resolver_of(value: Deferred) -> Resolver:
@@ -305,6 +326,7 @@ class _Inspector:
         self.uses: list[SemanticUse] = []
         self.operations: list[RecipeUse] = []
         self.declarations: list[DeclarationRecord] = []
+        self.contextual = False
 
     def token(self, *values: str) -> None:
         self.tokens.extend(values)
@@ -313,7 +335,10 @@ class _Inspector:
         self.dependencies[_reference(value)] = value
 
     def visit(self, recipe: Resolver, path: tuple[str, ...]) -> None:
-        if type(recipe) is SemanticResolver:
+        if type(recipe) is ContextMetricResolver:
+            self.contextual = True
+            self.token("context_metric", recipe.kind)
+        elif type(recipe) is SemanticResolver:
             value = recipe.input
             self.uses.append(SemanticUse(path, value))
             self.dependency(value.reference)
@@ -571,7 +596,7 @@ def inspect_deferred(value: Deferred) -> DeferredInspection:
     recipe = resolver_of(value)
     inspector = _Inspector()
     inspector.visit(recipe, ())
-    if not inspector.uses:
+    if not inspector.uses and not inspector.contextual:
         invalid(
             "Expected a semantic dependency; a literal alone cannot declare a Measure or Metric."
         )

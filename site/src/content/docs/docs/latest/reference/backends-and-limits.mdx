@@ -24,13 +24,9 @@ The base package includes Arrow for local results. Discovery of an unselected
 provider does not import its driver. Missing selected dependencies produce a
 typed repair naming the required extra.
 
-## Choose a source form deliberately
+## Qualify a numerical source route
 
-DuckDB tables and local Parquet are the main local analysis paths. CSV and
-local JSON adapters have a narrower original sum-zero path: complete typed keys,
-admitted numeric values and an explicit UTC event axis. HTTP JSON declaration
-and preview do not grant HTTP analysis execution. Do not infer one adapter’s
-capability from another’s success.
+The current new numerical Query source path admits DuckDB. This is a method-route boundary, not a restriction of datasource access to other installed providers and not evidence that remote Runtime checks have passed. Source form, actual schema and method still need qualification within DuckDB.
 
 {/* example: csv-semantic-model */}
 
@@ -55,42 +51,21 @@ happened = finalized.resolve(happened)
 def total():
     return amount.sum(time=happened)
 ```
-This example declares source fields and a local Metric only. R1.4 has not published this Metric and R2 has not connected new expression execution; construction does not qualify CSV analysis execution. A source declaration or successful preview also does not establish that capability.
 
-## Understand execution routes
+This declares fields and a named Metric. A declaration or successful preview does not qualify every CSV/JSON/HTTP analysis shape; unsupported routes reject before their business reads. Runtime source templates are prevalidated before Run admission and actual instantiated inputs are checked again.
 
-| Inputs | Behavior |
-| --- | --- |
-| Live sources | Governed Ibis executes on the source and returns pandas data, or prepares a DataFrame for a registered local algorithm |
-| Fixed Artifacts | Persisted Result Parquet is read into pandas for registered local consumers |
+## Source and local execution
 
-Relational work expressible in the admitted Ibis plan stays at the source. Ibis
-and its provider convert returned rows to pandas; those defaults can be lossy,
-such as turning an invalid date into null. Marivo does not add a strict source
-Arrow round-trip audit. Requested row/time bounds, complete-key and Cell checks,
-and the existing Result Parquet schema checks remain in force. Source reads and
-local statistics are eager; full vectors may be materialized in memory. A failure
-does not switch implementation or retry through another executor. Remote-source
-configuration uses read-only access; native query timeouts are used when supported
-and skipped otherwise. There is no default graph deadline; cleanup and atomic
-publication remain mandatory.
+Source Ibis executes through the selected declared datasource and returns pandas. Literal/reference and local domain/value stages use pandas. PyArrow encodes and reads terminal output. An Artifact is read-only output and cannot enter the DSL; there is no fixed-Artifact execution route or hidden local SQL engine.
 
-Prepared analysis reads local Parquet from its declared path without creating a
-temporary copy. Marivo checks the file identity and content before and after the
-run and fails if it detects a change; this does not provide a filesystem
-snapshot while queries execute.
+Admitted source-to-pandas carriers preserve their actual types and reject known lossy precision changes. Signed integers are not converted through float, Duration retains exact ticks, and timestamps keep timezone/precision qualifications. Native backend conversion and source parsing retain their own contracts; output export does not prove source correctness. Local execution is eager and may retain full required vectors in memory. Failure never switches route or truncates input.
 
-## Respect numerical and method limits
+DuckDB native INTERVAL is admitted in microseconds only after a source-native check rejects year, month and day components. It cannot become elapsed time merely by casting and does not supply nanosecond precision. Arrow Duration on a qualified file route preserves the file's declared tick unit.
 
-Decimal scale, timestamp precision, Duration unit, original components, complete
-grids and per-root routes remain method and retained-state contracts. These
-contracts apply after Ibis/provider conversion; they do not promise a lossless
-source-to-pandas round trip. Compiling an Ibis expression or passing Readiness
-is insufficient physical execution evidence.
-Quantile exactness is definition-owned; unsupported exact aggregation never
-falls back to approximation. Statistical methods do not
-inherit ordinary scalar Metric backend support.
+Exact/approximate reductions keep their definition-owned algorithm and actual dtype qualification. Exact quantiles do not silently switch to approximate estimates. Typed missing mappings, nonfinite values, overflow and required coverage failures prevent publication.
 
-Follow the exact structured repair and [troubleshooting](/docs/latest/reference/troubleshooting/). Support described here is implementation scope, not a claim of full release or every remote combination qualification.
+## Resource and saved-output boundaries
 
-Committed Artifacts and legacy Materialized results are terminal reads, not DSL inputs.
+Datasource native timeouts retain their backend meanings. There is no default graph deadline or automatic alternative executor. Cancellation and close remain driver-owned; unknown remote termination stays unknown. Atomic publication and journal reconciliation preserve committed success and exactly owned resources.
+
+Store 10 records project-local output. New and reopened Artifacts read the same committed data without current Catalog/source access; old graph formats are rejected unchanged. Complete export preserves int64/Decimal, NA, presence, keys, timezone and projections. Focused local checks, remote Runtime tests and release acceptance remain different evidence. Follow [troubleshooting](/docs/latest/reference/troubleshooting/) for the concrete repair.

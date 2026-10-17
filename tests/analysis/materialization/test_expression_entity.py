@@ -15,6 +15,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.materialization.errors import MaterializationError
 from tests.support.paths import PROJECT_ROOT
 
 
@@ -44,44 +45,58 @@ def project(root: Path, predicate: str = "raw.amount > 0") -> None:
         "region = ms.dimension_column(name='region', entity=regional, column='region')\n"
         "total = ms.measure_column(name='total', entity=regional, column='total', additivity=ms.additive_all(), unit='USD')\n"
         "day = ms.time_dimension_column(name='day', entity=regional, column='day', granularity='day', is_default=True)\n"
-        "revenue = ms.aggregate(name='revenue', measure=total, agg='sum')\n"
+        "frozen = ms.finalize()\n"
+        "total_value = frozen.resolve(total)\n"
+        "@ms.metric()\n"
+        "def revenue():\n"
+        "    return total_value.sum()\n"
     )
 
 
 @pytest.mark.slow
-def test_transformed_grain_and_cold_fixed_continuation(
+def test_transformed_grain_and_cold_terminal_reads(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project(tmp_path)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     session = mv.session.get_or_create("expression-entity")
-    logical = session.members(ms.ref.entity("sales.regional")).observe(
-        ms.ref.metric("sales.revenue"), by=(ms.ref.dimension("sales.regional.region"),)
+    logical = session.observe(
+        {"value": session.catalog.metrics.get("sales.revenue")},
+        by=(session.catalog.fields.get("sales.regional.region"),),
     )
     result = logical.execute()
-    assert result.to_pandas().set_index("group")["value"].to_dict() == {"east": 30, "west": 5}
-    fingerprint = logical._node.binding.graph.leaf.definition.fingerprint
+    frame = result.to_pandas()
+    assert frame.set_index(frame.columns[0])[("value", "value")].to_dict() == {
+        "east": 30,
+        "west": 5,
+    }
+    total = logical.reduce({"value": logical["value"].sum()}).execute()
+    assert total.to_pandas()[("value", "value")].tolist() == [35]
+    fingerprint = logical._graph.fingerprint
     project(tmp_path, "raw.amount > 15")
     other = mv.session.get_or_create("changed-expression")
-    changed = other.members(ms.ref.entity("sales.regional")).observe(
-        ms.ref.metric("sales.revenue"), by=(ms.ref.dimension("sales.regional.region"),)
+    changed = other.observe(
+        {"value": other.catalog.metrics.get("sales.revenue")},
+        by=(other.catalog.fields.get("sales.regional.region"),),
     )
-    assert changed._node.binding.graph.leaf.definition.fingerprint != fingerprint
-    assert changed.execute().to_pandas()["value"].tolist() == [20]
+    assert changed._graph.fingerprint != fingerprint
+    assert changed.execute().to_pandas()[("value", "value")].tolist() == [20]
     shutil.rmtree(tmp_path / "models")
     (tmp_path / "rows.parquet").unlink()
-    assert result.rollup().execute().to_pandas()["value"].tolist() == [35]
+    assert result.to_pandas()[("value", "value")].sum() == 35
     code = """import sys
 import marivo.analysis as mv
 session = mv.session.resume(sys.argv[1], by='id')
 result = session.artifact(sys.argv[2])
-assert result.to_pandas().set_index('group')['value'].to_dict() == {'east':30, 'west':5}
-assert result.rollup().execute().to_pandas()['value'].tolist() == [35]
+frame = result.to_pandas()
+assert frame.set_index(frame.columns[0])[('value', 'value')].to_dict() == {'east':30, 'west':5}
+assert session.artifact(sys.argv[3]).to_pandas()[('value', 'value')].tolist() == [35]
+assert frame[('value', 'value')].sum() == 35
 assert session._runtime.statistics.statements == []
 """
     completed = subprocess.run(
-        [sys.executable, "-c", code, session.id, result.state.artifact_ref.ref],
+        [sys.executable, "-c", code, session.id, result.id, total.id],
         cwd=tmp_path,
         env=dict(os.environ, PYTHONPATH=str(PROJECT_ROOT), MARIVO_PROJECT_ROOT=str(tmp_path)),
         capture_output=True,
@@ -98,6 +113,10 @@ def test_output_keys_rejected_before_run(tmp_path: Path, monkeypatch: pytest.Mon
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     session = mv.session.get_or_create("invalid-output-key")
-    with pytest.raises(ms.errors.SemanticRuntimeError, match="primary_key"):
-        session.members(ms.ref.entity("sales.regional"))
+    with pytest.raises(MaterializationError) as caught:
+        session.query(session.members(ms.ref.entity("sales.regional"))).execute()
+    cause = caught.value.__cause__
+    assert isinstance(cause, ms.errors.SemanticRuntimeError)
+    assert cause.expected == "primary_key 'amount' present on the Entity output schema"
+    assert cause.received == "output columns: 'region', 'day', 'total'"
     assert session.runs().items == ()

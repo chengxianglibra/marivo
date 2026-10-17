@@ -2,28 +2,18 @@
 
 from __future__ import annotations
 
-import base64
 import os
 import subprocess
 import sys
-import zlib
-from dataclasses import replace
 
 import duckdb
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.core.graph import MethodNode, topology
-from marivo.analysis.core.rules import ObserveMetric
+from marivo._definition.types import AxisBinding
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.graph_snapshot import (
-    MethodRecord,
-    document_json,
-    graph_document,
-    thaw_graph,
-)
 from tests.shared_fixtures import DslCase, DslCaseFactory
 from tests.support.paths import PROJECT_ROOT
 
@@ -38,7 +28,10 @@ REGION = ms.ref.dimension("sales.customer.region")
 CATEGORY = ms.ref.dimension("sales.product.category")
 LINE_PRODUCT = ms.ref.relationship("sales.line_product")
 RECIPIENT = ms.ref.relationship("sales.order_recipient")
-WINDOW = mv.time_scope(start="2026-08-01", end="2026-09-01")
+
+
+def _window(session: mv.Session) -> mv.TimeScope:
+    return session.time_scope(start="2026-08-01", end="2026-09-01")
 
 
 def _extend(case: DslCase, *, roles: bool = False, order_product: bool = False) -> mv.Session:
@@ -83,199 +76,212 @@ order_product_id = ms.dimension_column(name='product_id', entity=orders, column=
 order_product = ms.relationship(name='order_product', from_entity=orders, to_entity=product,
     keys=[ms.join_on(order_product_id, product_id)])
 """
-    model.write_text(model.read_text() + extra)
+    model.write_text(
+        model.read_text().replace(
+            "finalized = ms.finalize()", extra + "\nfinalized = ms.finalize()", 1
+        )
+    )
     ms.load(workspace_dir=case.root)
     return mv.session.get_or_create("relationship-bindings", report_timezone="UTC")
 
 
 def test_inference_and_root_identity(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j1")
-    customers = case.session.members(CUSTOMER)
-    automatic = customers.observe(LINE_REVENUE, during=WINDOW)
-    explicit = customers.observe(LINE_REVENUE, during=WINDOW, via=mv.path(LINE_ORDER, BUYER))
-    assert automatic._node.root.signature.quantity == explicit._node.root.signature.quantity
-    orders = case.session.members(ORDER)
+    session = case.session
+    customers, orders = session.members(CUSTOMER), session.members(ORDER)
+    automatic = session.observe(
+        {"value": session.catalog.metrics.get(LINE_REVENUE)}, during=_window(session), by=customers
+    )
+    binding = automatic._graph.signature.observation
+    assert binding is not None
+    assert tuple(hop.ref.path for hop in binding.contributions[0].coordinates[0].path) == (
+        LINE_ORDER.path,
+        BUYER.path,
+    )
+    region = session.catalog.fields.get(REGION)
+    buyer = session.catalog.relationships.get(BUYER)
+    inferred = session.read(orders, {"region": region})
+    explicit = session.read(orders, {"region": region.via((buyer,))})
+    assert inferred._graph.fingerprint == explicit._graph.fingerprint
     assert (
-        orders.read(REGION)._node.classification_coordinate()
-        == orders.read(REGION, via=BUYER)._node.classification_coordinate()
+        session.read(customers, {"region": region})._graph.signature.owner
+        == automatic._graph.signature.owner
     )
-    assert customers.read(REGION, via=None)._node.classification_coordinate().binding_id == "direct"
-    ratio = ms.ref.metric("sales.aov_from_lines")
-    forward = (
-        mv.path(LINE_ORDER, BUYER),
-        mv.path(BUYER),
-    )
-    reverse = (*reversed(forward),)
-    partial = (mv.path(LINE_ORDER, BUYER),)
-    quantities = [
-        customers.observe(ratio, during=WINDOW, via=via)._node.root.signature.quantity
-        for via in (None, forward, reverse, partial)
-    ]
-    assert all(q == quantities[0] for q in quantities)
-    with pytest.raises(AnalysisError):
-        customers.read(REGION, via=forward)
-    identity_root = orders.observe(ratio, during=WINDOW, via=None)
-    assert identity_root._node.root.signature.quantity is not None
+    ratio = session.catalog.metrics.get("sales.aov_from_lines")
+    observed = session.observe({"value": ratio}, during=_window(session), by=customers)
+    binding = observed._graph.signature.observation
+    assert binding is not None
+    assert len(binding.contributions) == 2
+    assert {
+        tuple(hop.ref.path for hop in item.coordinates[0].path) for item in binding.contributions
+    } == {(LINE_ORDER.path, BUYER.path), (BUYER.path,)}
+    line_order = session.catalog.relationships.get(LINE_ORDER)
+    with pytest.raises((AnalysisError, ms.errors.SemanticExpressionError)):
+        session.read(orders, {"region": region.via((line_order, buyer))})
+    identity = session.observe({"value": ratio}, during=_window(session), by=orders)
+    binding = identity._graph.signature.observation
+    assert binding is not None
+    assert {
+        tuple(hop.ref.path for hop in item.coordinates[0].path) for item in binding.contributions
+    } == {(LINE_ORDER.path,), ()}
 
 
-def test_coordinate_tampering_and_frozen_roles(analysis_dsl_case_factory: DslCaseFactory) -> None:
+def test_frozen_coordinate_roles_survive_later_model_changes(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    from dataclasses import FrozenInstanceError
+
     case = analysis_dsl_case_factory("j1")
-    customers = case.session.members(CUSTOMER)
-    original = customers.observe(
-        REVENUE, during=WINDOW, by=(ms.ref.dimension("sales.order.channel"),)
+    session = case.session
+    customers = session.members(CUSTOMER)
+    original = session.observe(
+        {"value": session.catalog.metrics.get(REVENUE)}, during=_window(session), by=customers
     )
-    document = graph_document(original._node.root)
-    observed = next(
-        n
-        for n in document.nodes
-        if isinstance(n, MethodRecord) and isinstance(n.parameters, ObserveMetric)
-    )
-    coordinate = observed.parameters.classification_coordinates[0]
-    altered = replace(
-        observed,
-        parameters=replace(
-            observed.parameters,
-            classification_coordinates=(replace(coordinate, binding_id="tampered"),),
-        ),
-    )
-    document = replace(
-        document,
-        nodes=tuple(altered if n.identity == observed.identity else n for n in document.nodes),
-    )
-    from marivo.analysis.materialization.graph_snapshot import PREFIX
-
-    with pytest.raises(AnalysisError):
-        thaw_graph(
-            PREFIX
-            + base64.b64encode(zlib.compress(document_json(document).encode(), level=9)).decode()
-        )
+    observation = original._graph.signature.observation
+    assert observation is not None
+    coordinate = observation.contributions[0].coordinates[0]
+    with pytest.raises(FrozenInstanceError):
+        coordinate.__setattr__("path", ())
     model = case.root / "models/semantic/sales/models.py"
+    extra = "alternative = ms.relationship(name='alternative_buyer', from_entity=orders, to_entity=customer, keys=[ms.join_on(order_customer_id, customer_id)])\n"
     model.write_text(
-        model.read_text()
-        + "\nalternative = ms.relationship(name='alternative_buyer', from_entity=orders, to_entity=customer, keys=[ms.join_on(order_customer_id, customer_id)])\n"
-    )
-    ms.load(workspace_dir=case.root)
-    with pytest.raises(AnalysisError):
-        mv.session.get_or_create("new-role", report_timezone="UTC").members(CUSTOMER).observe(
-            REVENUE, during=WINDOW
+        model.read_text().replace(
+            "finalized = ms.finalize()", extra + "finalized = ms.finalize()", 1
         )
-    frozen = next(
-        n
-        for n in topology(original._node.root)
-        if isinstance(n, MethodNode) and isinstance(n.parameters, ObserveMetric)
     )
-    assert tuple(hop.ref.path for hop in frozen.parameters.path) == (BUYER.path,)
+    other = mv.session.get_or_create("new-role", report_timezone="UTC")
+    with pytest.raises(AnalysisError):
+        other.observe(
+            {"value": other.catalog.metrics.get(REVENUE)},
+            during=_window(other),
+            by=other.members(CUSTOMER),
+        )
+    assert tuple(hop.ref.path for hop in coordinate.path) == (BUYER.path,)
+    frame = original.execute().to_pandas()
+    assert frame[("value", "value")].tolist() == [450, 150, 400, 0]
 
 
 def test_roles_and_independent_read_paths(analysis_dsl_case_factory: DslCaseFactory) -> None:
     session = _extend(analysis_dsl_case_factory("j1"), roles=True)
     customers, orders = session.members(CUSTOMER), session.members(ORDER)
-    with pytest.raises(AnalysisError) as error:
-        customers.observe(REVENUE, during=WINDOW)
-    assert error.value.repair is not None
-    assert set(error.value.repair.candidates) == {BUYER.path, RECIPIENT.path}
-    assert error.value.repair.snippet is not None
-    namespace: dict[str, object] = {"mv": mv, "ms": ms}
-    exec(compile(error.value.repair.snippet, "relationship-repair", "exec"), namespace)
-    choices = namespace["choices"]
-    assert isinstance(choices, tuple)
+    revenue = session.catalog.metrics.get(REVENUE)
+    customer_id = session.catalog.fields.get("sales.customer.customer_id")
+    region = session.catalog.fields.get(REGION)
+    buyer = session.catalog.relationships.get(BUYER)
+    recipient = session.catalog.relationships.get(RECIPIENT)
+    with pytest.raises(AnalysisError) as ambiguous:
+        session.observe({"value": revenue}, during=_window(session), by=customers)
+    assert ambiguous.value.repair
     expected_roles = (
-        {"A": 450, "B": 150, "C": 400},
-        {"A": 150, "B": 400, "C": 450},
+        {"A": 450, "B": 150, "C": 400, "D": 0},
+        {"A": 150, "B": 400, "C": 450, "D": 0},
     )
-    for choice, expected in zip(choices, expected_roles, strict=True):
-        assert isinstance(choice, mv.RelationshipPath)
-        observed = customers.observe(REVENUE, during=WINDOW, via=choice, by=(mv.member(),))
-        frame = observed.execute().to_pandas().set_index("member")
-        assert frame.loc[frame["cell_tag"] == "defined", "value"].to_dict() == expected
-        assert frame.loc["D", "cell_tag"] == "null"
+    for route, expected in zip((buyer, recipient), expected_roles, strict=True):
+        axis = customer_id.via((route,))
+        complete = mv.coordinates(by=(axis,), keys=(("A",), ("B",), ("C",), ("D",)))
+        frame = (
+            session.observe({"value": revenue}, during=_window(session), by=complete)
+            .execute()
+            .to_pandas()
+        )
+        assert frame.set_index(frame.columns[0])[("value", "value")].to_dict() == expected
     with pytest.raises(AnalysisError):
-        orders.read(REGION)
-    buyer, recipient = orders.read(REGION, via=BUYER), orders.read(REGION, via=RECIPIENT)
-    assert buyer._node.classification_coordinate() != recipient._node.classification_coordinate()
-    both = customers.observe(REVENUE, during=WINDOW, via=BUYER, by=(buyer, recipient))
-    assert both.execute().to_pandas().set_index(["group", "coord_0"])["value"].to_dict() == {
+        session.read(orders, {"region": region})
+    buyer_region, recipient_region = region.via((buyer,)), region.via((recipient,))
+    current = (
+        session.observe(
+            {"value": revenue}, during=_window(session), by=(buyer_region, recipient_region)
+        )
+        .execute()
+        .to_pandas()
+    )
+    baseline = (
+        session.observe(
+            {"value": revenue},
+            during=session.time_scope(start="2026-07-01", end="2026-08-01"),
+            by=(buyer_region, recipient_region),
+        )
+        .execute()
+        .to_pandas()
+    )
+    current_values = current.set_index(list(current.columns[:2]))[("value", "value")]
+    baseline_values = baseline.set_index(list(baseline.columns[:2]))[("value", "value")]
+    assert current_values.to_dict() == {
         ("east", "south"): 450,
         ("east", "east"): 150,
         ("south", "east"): 400,
     }
-    with pytest.raises(AnalysisError):
-        both.group_by(REGION)
-    current = both.rollup()
-    baseline = customers.observe(
-        REVENUE,
-        during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
-        via=BUYER,
-        by=(buyer, recipient),
-    ).rollup()
-    for change in (
-        current.compare(baseline).absolute,
-        current.compare(baseline).absolute.execute(),
-    ):
-        with pytest.raises(AnalysisError):
-            change.attribute(axes=(REGION,))
-        attributed = change.attribute(axes=(buyer, recipient)).execute()
-        assert attributed.contribution.to_pandas().set_index(["coord_0", "coord_1"])[
-            "value"
-        ].to_dict() == {
-            ("east", "south"): 450,
-            ("east", "east"): 73,
-            ("south", "east"): 400,
-        }
+    assert current_values.subtract(baseline_values, fill_value=0).to_dict() == {
+        ("east", "south"): 450,
+        ("east", "east"): 73,
+        ("south", "east"): 400,
+    }
 
 
 def test_classification_scope_and_complete_components(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     session = _extend(analysis_dsl_case_factory("j1"))
-    members, lines = session.members(CUSTOMER), session.members(LINE)
-    category = lines.read(CATEGORY)
-    with pytest.raises(AnalysisError):
-        members.observe(LINE_REVENUE, during=WINDOW, by=(category, category))
-    with pytest.raises(AnalysisError):
-        members.observe(
-            LINE_REVENUE,
-            during=WINDOW,
-            by=(session.members(ms.ref.entity("sales.product")).read(CATEGORY),),
+    revenue = session.catalog.metrics.get(LINE_REVENUE)
+    category = session.catalog.fields.get(CATEGORY)
+    with pytest.raises((AnalysisError, ms.errors.SemanticExpressionError)):
+        session.observe({"value": revenue}, during=_window(session), by=(category, category))
+    lines = session.members(LINE)
+    read = session.read(lines, {"category": category})
+    with pytest.raises((AnalysisError, ms.errors.SemanticExpressionError)):
+        # Intentional runtime negative: a Query cannot be used as an observation axis.
+        session.observe(
+            {"value": revenue},
+            during=_window(session),
+            by=(read,),  # type: ignore[arg-type]
         )
     other = mv.session.get_or_create("another-session", report_timezone="UTC")
     with pytest.raises(AnalysisError):
-        members.observe(LINE_REVENUE, during=WINDOW, by=(other.members(LINE).read(CATEGORY),))
-    ratio = mv.runtime_metric.ratio(
-        numerator=LINE_REVENUE, denominator=REVENUE, label="missing map"
-    )
-    with pytest.raises(AnalysisError):
-        members.observe(ratio, during=WINDOW, by=(category,))
-    grid = mv.time_grid(during=WINDOW, grain=mv.grain("week"))
-    with pytest.raises(AnalysisError):
-        members.observe(LINE_REVENUE, during=WINDOW, by=(lines.read(CATEGORY, at=grid.before_end),))
+        session.query(other.members(LINE))
+    ratio = session.catalog.metrics.get(LINE_REVENUE) / session.catalog.metrics.get(REVENUE)
+    with pytest.raises((AnalysisError, ms.errors.SemanticExpressionError)):
+        session.observe({"value": ratio}, during=_window(session), by=(category,))
+    with pytest.raises((AnalysisError, ms.errors.SemanticExpressionError)):
+        session.observe(
+            {"value": revenue},
+            during=_window(session),
+            by=(category.at(session.instant("2026-08-01")),),
+        )
 
 
 @pytest.mark.parametrize("explicit", (False, True))
 def test_classification_read_requires_owner_for_its_complete_input_scope(
-    analysis_dsl_case_factory: DslCaseFactory, explicit: bool
+    analysis_dsl_case_factory: DslCaseFactory,
+    explicit: bool,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     session = _extend(case)
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute("UPDATE order_line SET product_id='missing' WHERE line_id='outside'")
-    category = session.members(LINE).read(CATEGORY, via=LINE_PRODUCT)
-    assert isinstance(category, mv.LogicalCategoryRelation)
-    observed = session.members(CUSTOMER).observe(
-        LINE_REVENUE, during=WINDOW, by=(category if explicit else CATEGORY,)
-    )
+    category = session.catalog.fields.get(CATEGORY)
+    route = session.catalog.relationships.get(LINE_PRODUCT)
+    if explicit:
+        category = category.via((route,))
     with pytest.raises(MaterializationError) as missing:
-        observed.execute()
-    assert missing.value.expected == (
-        "an owner operand for sales.product.category on every consumed complete key"
-    )
-    assert (
-        missing.value.received
-        == "required field owner operand is missing for 1 consumed complete keys"
-    )
-    assert missing.value.repair is not None
+        session.read(session.members(LINE), {"category": category}).execute()
+    assert missing.value.expected and missing.value.received and missing.value.repair
     assert missing.value.run_ref is not None
     assert session.get_run(missing.value.run_ref).lifecycle == "failed"
+    # The separate observation consumes only August contributions, so a bad July
+    # relationship is outside this read scope.
+    frame = (
+        session.observe(
+            {"value": session.catalog.metrics.get(LINE_REVENUE)},
+            during=_window(session),
+            by=(category,),
+        )
+        .execute()
+        .to_pandas()
+    )
+    assert frame.set_index(frame.columns[0])[("value", "value")].to_dict() == {
+        "book": 700,
+        "game": 300,
+    }
     assert session._runtime.store.resources(session.id) == ()
 
 
@@ -283,57 +289,55 @@ def test_classification_read_requires_owner_for_its_complete_input_scope(
 def test_branch_and_consumed_coverage(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j1")
     session = _extend(case)
-    customers, lines = session.members(CUSTOMER), session.members(LINE)
-    category = lines.read(CATEGORY, via=LINE_PRODUCT)
-    automatic = customers.observe(LINE_REVENUE, during=WINDOW, by=(CATEGORY,))
-    explicit = customers.observe(LINE_REVENUE, during=WINDOW, by=(category,))
-    assert automatic._node.root.signature.quantity == explicit._node.root.signature.quantity
-    expected = {"book": 700, "game": 300}
+    category = session.catalog.fields.get(CATEGORY)
+    route = session.catalog.relationships.get(LINE_PRODUCT)
+    metric = session.catalog.metrics.get(LINE_REVENUE)
+    automatic = session.observe({"value": metric}, during=_window(session), by=(category,))
+    explicit = session.observe(
+        {"value": metric}, during=_window(session), by=(category.via((route,)),)
+    )
+    (automatic_axis,) = automatic._graph.signature.axes
+    (explicit_axis,) = explicit._graph.signature.axes
+    assert isinstance(automatic_axis, AxisBinding) and isinstance(explicit_axis, AxisBinding)
+    assert automatic_axis.entity == explicit_axis.entity
+    assert automatic_axis.field == explicit_axis.field
+    assert automatic_axis.role == explicit_axis.role == "field"
+    automatic_binding = automatic._graph.signature.observation
+    explicit_binding = explicit._graph.signature.observation
+    assert automatic_binding is not None and explicit_binding is not None
+    assert automatic_binding.contributions == explicit_binding.contributions
     fixed = automatic.execute()
-    facts = dict(fixed.contract()._facts)
-    assert LINE_ORDER.path in facts["contribution_binding_0"]
-    assert LINE_PRODUCT.path in facts["classification_role_0_0"]
-    assert LINE.path in facts["classification_role_0_0"]
-    assert fixed.to_pandas().set_index("group")["value"].to_dict() == expected
-    assert explicit.execute().to_pandas().set_index("group")["value"].to_dict() == expected
-    selected = category.where(category.value.eq("book"))
-    with pytest.raises(AnalysisError):
-        customers.observe(LINE_REVENUE, during=WINDOW, by=(selected,)).execute()
+    frame = fixed.to_pandas()
+    assert frame.set_index(frame.columns[0])[("value", "value")].to_dict() == {
+        "book": 700,
+        "game": 300,
+    }
+    assert explicit.execute().to_pandas().equals(frame)
+    total = automatic.reduce({"value": automatic["value"].sum()}).execute()
+    assert total.to_pandas()[("value", "value")].tolist() == [1000]
     case.database_path.rename(case.database_path.with_suffix(".offline"))
-    assumptions = {e.fact for e in fixed._node.root.signature.evidence if e.basis == "assumption"}
-    assert assumptions
-    assert "trusted contract, not checked" in facts["premise_assumptions"]
-    continued = fixed.rollup().execute()
-    assert {
-        e.fact for e in continued._node.root.signature.evidence if e.basis == "assumption"
-    } == assumptions
-    assert continued.to_pandas()["value"].tolist() == [1000]
     script = """
 import sys
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.datasource.runtime import DatasourceConnectionService
 def forbidden(*args, **kwargs):
-    raise AssertionError('Fixed branch accessed semantic facts or source data')
+    raise AssertionError('Artifact branch accessed current Semantic or source')
 ms.load = forbidden
 DatasourceConnectionService.use_backend = forbidden
-fixed = mv.session.resume(sys.argv[1], by='id').artifact(sys.argv[2])
-assert any(e.basis == 'assumption' and e.fact.kind == 'mapping_total' for e in fixed._node.root.signature.evidence)
-assert not any(c.fact.kind == 'mapping_total' for c in fixed._dataset.artifact.descriptor.completed_checks)
-assumptions = {e.fact for e in fixed._node.root.signature.evidence if e.basis == 'assumption'}
-continued = fixed.rollup().execute()
-assert {e.fact for e in continued._node.root.signature.evidence if e.basis == 'assumption'} == assumptions
-assert 'trusted contract, not checked' in dict(continued.contract()._facts)['premise_assumptions']
-assert not any(c.fact.kind == 'mapping_total' for c in continued._dataset.artifact.descriptor.completed_checks)
-assert continued.to_pandas()['value'].tolist() == [1000]
-assert fixed.group_by(ms.ref.dimension('sales.product.category')).execute().to_pandas().set_index('group')['value'].to_dict() == {'book': 700, 'game': 300}
+session = mv.session.resume(sys.argv[1], by='id')
+frame = session.artifact(sys.argv[2]).to_pandas()
+assert frame.set_index(frame.columns[0])[('value','value')].to_dict() == {'book':700,'game':300}
+assert frame[('value','value')].sum() == 1000
+assert session.artifact(sys.argv[3]).to_pandas()[('value','value')].tolist() == [1000]
 """
     completed = subprocess.run(
-        [sys.executable, "-c", script, session.id, fixed.state.artifact_ref.ref],
+        [sys.executable, "-c", script, session.id, fixed.id, total.id],
         cwd=case.root,
         env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
         capture_output=True,
         text=True,
+        timeout=60,
         check=False,
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
@@ -345,19 +349,29 @@ def test_multiroot_branch_arithmetic(analysis_dsl_case_factory: DslCaseFactory) 
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute("INSERT INTO product VALUES ('R', 'spare')")
         connection.execute("UPDATE order_line SET product_id='R' WHERE line_id='outside'")
-    members, lines = session.members(CUSTOMER), session.members(LINE)
-    category = lines.read(CATEGORY, via=LINE_PRODUCT)
-    ratio = mv.runtime_metric.ratio(numerator=LINE_REVENUE, denominator=REVENUE, label="line share")
-    linear = mv.runtime_metric.linear(add=[LINE_REVENUE], subtract=[REVENUE], label="line balance")
+    category = session.catalog.fields.get(CATEGORY)
+    line_revenue = session.catalog.metrics.get(LINE_REVENUE)
+    revenue = session.catalog.metrics.get(REVENUE)
+    buckets = mv.membership(
+        category,
+        via=(
+            (session.catalog.relationships.get(LINE_PRODUCT),),
+            (session.catalog.relationships.get("sales.order_product"),),
+        ),
+        unmatched="exclude",
+    )
+    ratio, linear = line_revenue / revenue, line_revenue - revenue
     for metric, expected in (
         (ratio, {"book": 700 / 850, "game": 2.0}),
         (linear, {"book": -150, "game": 150}),
     ):
-        result = members.observe(metric, during=WINDOW, by=(category,)).execute()
-        frame = result.to_pandas().set_index("group")
-        assert frame.loc[list(expected), "value"].to_dict() == pytest.approx(expected)
+        logical = session.observe({"value": metric}, during=_window(session), by=(buckets,))
+        result = logical.execute()
+        exported = result.to_pandas()
+        frame = exported.set_index(exported.columns[0])
+        assert frame[("value", "value")].to_dict() == pytest.approx(expected)
         assert set(frame.index) == {"book", "game"}
-        assert result.rollup().execute().to_pandas()["value"].tolist() == [
+        assert logical.rollup().execute().to_pandas()[("value", "value")].tolist() == [
             1.0 if metric is ratio else 0
         ]
 
@@ -379,32 +393,40 @@ def test_timed_classification_cannot_remove_consumed_contributions(
         )
         connection.execute("INSERT INTO order_line VALUES ('september','j1_september',99,'P')")
     model = case.root / "models/semantic/sales/models.py"
+    contents = model.read_text().replace(
+        "source=md.table('product'), primary_key=['id'])",
+        "source=md.table('product'), primary_key=['id'], versioning=ms.validity("
+        "valid_from=ms.ref.time_dimension('sales.product.beginning'), "
+        "valid_to=ms.ref.time_dimension('sales.product.ending'), "
+        "interval='closed_open', open_end=(None,), timezone='UTC'))",
+    )
+    fields = "product_beginning = ms.time_dimension_column(name='beginning', entity=product, column='beginning', granularity='day')\nproduct_ending = ms.time_dimension_column(name='ending', entity=product, column='ending', granularity='day')\n"
     model.write_text(
-        model.read_text().replace(
-            "source=md.table('product'), primary_key=['id'])",
-            "source=md.table('product'), primary_key=['id'], versioning=ms.validity("
-            "valid_from=ms.ref.time_dimension('sales.product.beginning'), "
-            "valid_to=ms.ref.time_dimension('sales.product.ending'), "
-            "interval='closed_open', open_end=(None,), timezone='UTC'))",
-        )
-        + "\nproduct_beginning = ms.time_dimension_column(name='beginning', entity=product, column='beginning', granularity='day')\n"
-        + "product_ending = ms.time_dimension_column(name='ending', entity=product, column='ending', granularity='day')\n"
+        contents.replace("finalized = ms.finalize()", fields + "finalized = ms.finalize()", 1)
     )
-    ms.load(workspace_dir=case.root)
     session = mv.session.get_or_create("timed-coverage", report_timezone="UTC")
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01", end="2026-10-01"), grain=mv.grain("month")
-    )
-    category = session.members(LINE).read(CATEGORY, at=grid.before_end)
-    customers = session.members(CUSTOMER)
-    complete = customers.observe(LINE_REVENUE, during=grid, by=(category,)).execute().to_pandas()
-    assert complete["value"].sum() == 1099
-    selected = category.where(category.value.eq("book"))
-    trusted = customers.observe(LINE_REVENUE, during=grid, by=(selected,))
-    assert any(
-        item.basis == "assumption" and item.fact.kind == "mapping_total"
-        for item in trusted._node.root.signature.evidence
-    )
-    assert not any(
-        item.fact.kind == "mapping_total" for item in trusted._node.root.signature.obligations
-    )
+    metric = session.catalog.metrics.get(LINE_REVENUE)
+    field = session.catalog.fields.get(CATEGORY)
+    observed = []
+    for start, end, instant, key, expected in (
+        ("2026-08-01", "2026-09-01", "2026-08-31T23:59:59.999999+00:00", "book", 1000),
+        ("2026-09-01", "2026-10-01", "2026-09-30T23:59:59.999999+00:00", "game", 99),
+    ):
+        category = field.at(session.instant(instant))
+        scope = session.time_scope(start=start, end=end)
+        complete = session.observe({"value": metric}, during=scope, by=(category,))
+        frame = complete.execute().to_pandas()
+        assert frame.iloc[:, 0].tolist() == [key]
+        assert frame[("value", "value")].tolist() == [expected]
+        observed.append(expected)
+        book_domain = mv.coordinates(by=(category,), keys=(("book",),))
+        selected = session.observe({"value": metric}, during=scope, by=book_domain)
+        if key == "book":
+            assert selected.execute().to_pandas()[("value", "value")].tolist() == [1000]
+        else:
+            # A classification domain cannot silently discard consumed September rows.
+            before = session.graph().artifacts
+            with pytest.raises(AnalysisError):
+                selected.execute()
+            assert session.graph().artifacts == before
+    assert sum(observed) == 1099

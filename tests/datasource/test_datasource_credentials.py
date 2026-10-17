@@ -20,9 +20,11 @@ from ibis.backends import BaseBackend
 
 import marivo
 import marivo.datasource as md
+from marivo._help.render import help as show_help
 from marivo.datasource import backends, credentials, manage, secrets
+from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import CredentialFailureReason, DatasourceConnectionError
-from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.datasource.runtime import DatasourceConnectionService, load_datasource, open_backend
 
 
 class HostResolver:
@@ -62,9 +64,7 @@ def test_owned_backend_probes_and_no_default_cache(
     with md.credential_scope(resolver=resolver):
         assert md.test("warehouse").ok
         assert manage.test_no_persist("warehouse", project_root=tmp_path).ok
-        connection = manage.open_backend(
-            manage.load_datasource("warehouse", tmp_path), project_root=tmp_path
-        )
+        connection = open_backend(load_datasource("warehouse", tmp_path), project_root=tmp_path)
     try:
         backend = connection.backend
         assert backend.raw_sql("SELECT 1").fetchall() == [(1,)]
@@ -105,9 +105,7 @@ def test_typed_host_failures_never_fallback(
 
     with md.credential_scope(resolver=Resolver()):
         with pytest.raises(md.DatasourceCredentialError) as captured:
-            manage.open_backend(
-                manage.load_datasource("warehouse", tmp_path), project_root=tmp_path
-            )
+            open_backend(load_datasource("warehouse", tmp_path), project_root=tmp_path)
         result = md.test("warehouse")
     assert captured.value.reason == reason
     assert "provider-cause-canary" not in "".join(traceback.format_exception(captured.value))
@@ -145,7 +143,7 @@ def test_raw_sdk_failure_is_sanitized(tmp_path: Path, monkeypatch: pytest.Monkey
         md.credential_scope(resolver=Resolver()),
         pytest.raises(md.DatasourceCredentialError) as captured,
     ):
-        manage.open_backend(manage.load_datasource("warehouse", tmp_path), project_root=tmp_path)
+        open_backend(load_datasource("warehouse", tmp_path), project_root=tmp_path)
     assert "sdk-payload-canary" not in "".join(traceback.format_exception(captured.value))
     assert captured.value.reason == "unavailable"
 
@@ -164,14 +162,14 @@ def test_grouped_reference_and_runtime_binding(
         )
     )
     resolver = HostResolver()
-    profile = backends.require_profile_for_backend_type("trino")
+    profile = require_profile_for_backend_type("trino")
     seen: list[Mapping[str, object]] = []
 
     def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
         seen.append(kwargs)
         return ibis.duckdb.connect()
 
-    original = backends.require_profile_for_backend_type
+    original = require_profile_for_backend_type
     monkeypatch.setattr(
         backends,
         "require_profile_for_backend_type",
@@ -244,6 +242,7 @@ def test_host_owns_credential_service_timeout(
 
 
 def test_secret_display_copy_serialization_and_help(capsys: pytest.CaptureFixture[str]) -> None:
+    assert marivo.help is show_help
     secret = md.SecretValue("display-canary")
     assert repr(secret) == str(secret) == "SecretValue(<redacted>)"
     for operation in (pickle.dumps, copy.copy, copy.deepcopy):
@@ -257,7 +256,7 @@ def test_secret_display_copy_serialization_and_help(capsys: pytest.CaptureFixtur
         "DatasourceCredentialError",
         "DatasourceCredentialScopeError",
     ):
-        marivo.help("datasource." + target)
+        show_help("datasource." + target)
     output = capsys.readouterr().out
     assert "display-canary" not in output
     assert "invalid-response" in output
@@ -267,7 +266,7 @@ def test_secret_display_copy_serialization_and_help(capsys: pytest.CaptureFixtur
 
 def test_driver_error_redaction(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     register_project(tmp_path, monkeypatch)
-    profile = backends.require_profile_for_backend_type("duckdb")
+    profile = require_profile_for_backend_type("duckdb")
     resolver = HostResolver()
 
     def fail(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
@@ -280,7 +279,7 @@ def test_driver_error_redaction(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
         md.credential_scope(resolver=resolver),
         pytest.raises(DatasourceConnectionError) as captured,
     ):
-        manage.open_backend(manage.load_datasource("warehouse", tmp_path), project_root=tmp_path)
+        open_backend(load_datasource("warehouse", tmp_path), project_root=tmp_path)
     assert resolver.value not in "".join(traceback.format_exception(captured.value))
 
 
@@ -468,6 +467,7 @@ def test_public_semantic_analysis_and_resume(
 ) -> None:
     import marivo.analysis as mv
     import marivo.semantic as ms
+    from marivo.analysis.errors import AnalysisError
 
     project = authoring_evidence_project
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(project))
@@ -492,24 +492,25 @@ def test_public_semantic_analysis_and_resume(
         )
         assert preview.rows
         assert catalog.source_health([ms.ref.entity("sales.orders")]).status == "current"
-        frame = session.members(ms.ref.entity("sales.orders")).observe(
-            ms.ref.metric("sales.revenue"),
-            during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+        query = session.observe(
+            {"revenue": catalog.metrics.get("sales.revenue")},
+            members=session.members(ms.ref.entity("sales.orders")),
+            during=None,
         )
-        frame = frame.execute()
+        frame = query.execute()
         assert not frame.to_pandas().empty
         with (
             md.credential_scope(resolver=HostResolver()),
-            pytest.raises(md.DatasourceCredentialScopeError),
+            pytest.raises(AnalysisError) as scope_failure,
         ):
-            session.members(ms.ref.entity("sales.orders")).observe(
-                ms.ref.metric("sales.revenue"),
-                during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
-            )
+            session.observe(
+                {"revenue": catalog.metrics.get("sales.revenue")},
+                members=session.members(ms.ref.entity("sales.orders")),
+                during=None,
+            ).execute()
+        assert isinstance(scope_failure.value.__cause__, md.DatasourceCredentialScopeError)
         session_id = session.id
         from ibis.backends.duckdb import Backend
-
-        from marivo.analysis.errors import AnalysisError
 
         def fail_query(self: Backend, expr: object, **kwargs: object) -> object:
             raise RuntimeError("query echoed " + resolver.value)
@@ -517,9 +518,10 @@ def test_public_semantic_analysis_and_resume(
         with monkeypatch.context() as patched:
             patched.setattr(Backend, "raw_sql", fail_query)
             with pytest.raises((AnalysisError, DatasourceConnectionError)) as failed:
-                session.members(ms.ref.entity("sales.orders")).observe(
-                    ms.ref.metric("sales.revenue"),
-                    during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+                session.observe(
+                    {"revenue": catalog.metrics.get("sales.revenue")},
+                    members=session.members(ms.ref.entity("sales.orders")),
+                    during=None,
                 ).execute()
             assert resolver.value not in "".join(traceback.format_exception(failed.value))
     finally:
@@ -529,10 +531,10 @@ def test_public_semantic_analysis_and_resume(
         resumed = mv.session.resume(session_id)
     try:
         assert (
-            not resumed.members(ms.ref.entity("sales.orders"))
-            .observe(
-                ms.ref.metric("sales.revenue"),
-                during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+            not resumed.observe(
+                {"revenue": resumed.catalog.metrics.get("sales.revenue")},
+                members=resumed.members(ms.ref.entity("sales.orders")),
+                during=None,
             )
             .execute()
             .to_pandas()
@@ -553,7 +555,7 @@ class Resolver:
 with md.credential_scope(resolver=Resolver()):
     session = mv.session.resume(sys.argv[1])
 try:
-    frame = session.members(ms.ref.entity('sales.orders')).observe(ms.ref.metric('sales.revenue'), during=mv.time_scope(start='2026-07-01', end='2026-08-01')).execute()
+    frame = session.observe({'revenue': session.catalog.metrics.get('sales.revenue')}, members=session.members(ms.ref.entity('sales.orders')), during=None).execute()
     assert not frame.to_pandas().empty
 finally:
     pass
@@ -672,7 +674,7 @@ def test_no_refs_or_static_reads_do_not_resolve(
     with md.credential_scope(resolver=resolver):
         md.describe("warehouse")
         md.load().list()
-        marivo.help("datasource.credential_scope")
+        show_help("datasource.credential_scope")
         assert md.test("public").ok
     assert not resolver.requests
 

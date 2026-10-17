@@ -50,6 +50,7 @@ def prepare_profiles(
                 "zone": zone,
                 "calendar": calendar,
                 "followup": followup,
+                "profiles": profile_indices,
             }
         )
     )
@@ -71,6 +72,7 @@ def prepare_profiles(
             if key_profile == "KC":
                 db.execute('UPDATE "order" SET member_seq=? WHERE order_id=?', [10 + i, key])
         additions = []
+        metrics = []
         for index in profile_indices:
             profile = PROFILES[index]
             dtype = "BIGINT" if index == 0 else "DOUBLE" if index == 1 else profile.upper()
@@ -86,14 +88,19 @@ def prepare_profiles(
             )
             additions.append(
                 f"profile_{index} = ms.measure_column(name='profile_{index}', entity=orders, column='profile_{index}', additivity=ms.additive_all(), unit='CNY')\n"
-                f"maximum_{index} = ms.aggregate(name='maximum_{index}', measure=profile_{index}, agg='max', time=ordered_at)\n"
+            )
+            metrics.append(
+                f"profile_{index}_value = finalized.resolve(profile_{index})\n"
+                f"@ms.metric()\ndef maximum_{index}():\n"
+                f"    return profile_{index}_value.max(time=time_value)\n"
             )
             if followup:
-                additions.append(
-                    f"total_{index} = ms.aggregate(name='total_{index}', measure=profile_{index}, agg='sum', time=ordered_at, empty=ms.empty.zero())\n"
+                metrics.append(
+                    f"@ms.metric()\ndef total_{index}():\n"
+                    f"    return profile_{index}_value.sum(time=time_value)\n"
                 )
     models = case.root / "models/semantic/sales/models.py"
-    body = models.read_text()
+    body, composition = models.read_text().split("finalized = ms.finalize()", 1)
     if key_profile == "KC":
         body = body.replace("primary_key=['order_id']", "primary_key=['order_id', 'member_seq']")
         body = body.replace(
@@ -128,7 +135,15 @@ def prepare_profiles(
                         "INSERT INTO calendar VALUES (?, ?)",
                         [f"2026-07-{day:02}", "xyz"[0 if day == 26 else 1 if day <= 28 else 2]],
                     )
-    models.write_text(body + "\n" + "".join(additions))
+    models.write_text(
+        body
+        + "\n"
+        + "".join(additions)
+        + "\nfinalized = ms.finalize()"
+        + composition
+        + "\n"
+        + "".join(metrics)
+    )
     if form == "parquet":
         export_dsl_parquet_models(case, case.root)
         path = case.root / "source_files/order.parquet"

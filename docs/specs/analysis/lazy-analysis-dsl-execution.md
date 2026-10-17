@@ -2,8 +2,9 @@
 
 Date: 2026-10-17
 
-Status: proposed v0.37；原生 Ibis 修订尚未实施，不构成当前 API、后端能力或 Runtime 验收声明。
-v0.37 增补有序/近似/nullable sum、membership 与窗口的执行边界；仍未实施。
+Status: v0.37 目标执行合同；原生 Deferred 与基础数值/窗口路线和 Store 10 终端执行/读取已实施。
+本轮 R3–R8 扩展已接通并通过聚焦本地检查，完整独立验收及后端 Runtime 资格仍分别记录。
+v0.37 增补有序/近似/nullable sum、membership 与窗口的执行边界；具体资格由实现和执行前准入界定。
 2026-10-17 fanout 修订采用贡献语义约束，允许已证明等价且已准入的不同物理策略；新增边界见 §1.1.4。
 v0.36 复用 schema preparation 自动绑定原生 Ibis 数值图；详细语义由语义提案 §2.6/§3.6 拥有。
 v0.35 明确分阶段检查、浮点优化准入、旧 Session 拒绝与历史产物边界；移除资源预算设计。
@@ -20,14 +21,23 @@ v0.34 明确来源类型准入、多 datasource 路线、普通观察 Evidence �
 R2.5 已接通公开 Query.execute、Store 10 原子终端发布与无图输出记录；返回已提交身份。
 R2.6 接通公开元数据打开、有界预览、完整 pandas 导出和无图记录阅读。Finding 保留分页；
 evidence_digest() 不接受参数，直接返回全部 Evidence（.items）及集合摘要，.show() 保持有界。
-这些本地能力不构成后续阶段或远端 Runtime 验收声明。
+S0–S6 已实现原生 Deferred 摄入、自动类型准备、有序/近似规约、nullable sum、membership 与基础窗口。
+本轮已接通 Population、Session.read、Query 值操作、对应/广播及原指标组合；各项以当前实际测试为准。
+这些本地能力不构成完整 R3–R8、所有远端后端或 release 验收声明。
 
 ## 1. 执行、保留与恢复
 
 ### 1.1 图与来源分类
 
+Session.read(population, fields) 显式捕获属性读取所属 Session、完整身份域和命名字段。
+纯字面量域在此消费处绑定；已有 Session 归属不得转移。没有 Population.read 别名或 ambient Session 查找。
+读取与版本/路径依赖进入本次 Query 计划，构造不读业务行；必需映射缺失阻止发布。
+identities 只捕获已解析 Entity 及完整键，不接受裸 EntityRef 或隐式 Session 查找。
+Query.coord 仍无源读取地构造 Column；准备期按完整键 schema 拒绝复合坐标作单量，
+早于 Run 准入及业务 compile/read；完整键、Population 元组谓词和导出保持合法。
+
 复用当前定义图、compiler、方法注册、物化、原子发布和 Store，不建第二 Runtime。
-私有节点包含 Population 的来源身份选择/显式读取/坐标运算、Metric 域依赖/贡献过滤、
+私有节点包含 Population 的来源身份选择/坐标运算、Session.read 的显式属性读取、Metric 域依赖/贡献过滤、
 原生 Ibis 数值子图及语义注解/Measure 声明、来源规约、Metric 组合/PerReduce、membership/window 绑定、Observe、Query 变换与 Values。
 自定义 Measure/Metric 数值 AST 由 Ibis 替代；语义边界仍归共同定义图，不建镜像数值 AST。
 图不包含 ArtifactRead、FixedLeaf 或从 Artifact 派生的数据叶子；执行结果不是后继图的输入。

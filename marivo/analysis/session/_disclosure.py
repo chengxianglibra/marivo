@@ -218,6 +218,20 @@ def provider() -> DisclosureProvider:
         ),
         (
             Session,
+            "read",
+            "Query",
+            "result = session.read(population, fields)",
+            "Bind this Session explicitly and read named scalar attributes while retaining every complete identity.",
+        ),
+        (
+            Session,
+            "values",
+            "Query",
+            "result = session.values(by=(), columns={'budget': 'CNY'}, rows=(((), {'budget': 100}),))",
+            "Capture finite literal value input with one unit declaration per named column; no DataFrame import or source read.",
+        ),
+        (
+            Session,
             "artifact",
             "Artifact",
             "result = session.artifact(artifact_id)",
@@ -281,10 +295,14 @@ def provider() -> DisclosureProvider:
         "timezone": "Use None for the saved report timezone or supply an explicit boundary timezone.",
         "start": "Choose the inclusive exact boundary.",
         "end": "Choose the exclusive exact boundary, strictly after start.",
-        "where": "Pass a resolved Field predicate applied separately to every contribution occurrence.",
+        "where": "Pass a resolved Field predicate or closed PopulationPredicate. Source receivers may read fields needed for membership; Query.where only tests existing coordinates.",
         "during": "Select starts with a finite half-open TimeScope.",
         "at": "Pass an exact InstantAnchor from session.instant(...) for versioned identity selection.",
         "population": "Pass a complete Population with no owner or the same Session owner.",
+        "fields": "Pass a nonempty named mapping of resolved scalar fields with explicit paths and required version anchors.",
+        "columns": "Map each literal value name to its one declared unit, or None.",
+        "rows": "Pass finite complete key tuples paired with every declared literal value name.",
+        "members": "Pass one complete Entity identity Population from this Session or a literal identity domain; it restricts contributions independently of output grouping.",
         "max_output_bytes": "Use the default byte budget or explicitly request a tighter output bound.",
         "name": "Choose a project-local Session name from recent() or a new name for get_or_create().",
         "report_timezone": "Choose an IANA or explicit UTC-offset report timezone on first creation; existing Sessions retain their timezone.",
@@ -316,7 +334,7 @@ def provider() -> DisclosureProvider:
                 bindings=(bind(value, receiver if isinstance(receiver, type) else None),),
                 summary=effect,
                 discovery_group="entry"
-                if name in ("members", "observe", "query")
+                if name in ("members", "observe", "query", "read", "values")
                 else "inputs.time"
                 if name in ("instant", "time_scope")
                 else "methods.events"
@@ -338,7 +356,7 @@ def provider() -> DisclosureProvider:
                         n,
                         "Use an exact incomplete or failed Run id; committed success cannot be abandoned."
                         if n == "run_id" and name == "abandon_run"
-                        else "Pass ordered fields or membership descriptors, e.g. by=(region,), or a complete Population covering every observed output coordinate."
+                        else "Pass ordered fields/membership descriptors, a complete Population, or member() with explicit members=P. Identity output includes P without facts; additional identity classifications must be single-valued on P."
                         if name == "observe" and n == "by"
                         else "Pass a TimeScope or CalendarAxis; None adds no time filter."
                         if name == "observe" and n == "during"
@@ -349,7 +367,7 @@ def provider() -> DisclosureProvider:
                 ),
                 output=output,
                 constraints=(_doc_section(value, "Constraints"),)
-                if name in ("members", "observe", "query", "artifact")
+                if name in ("members", "observe", "query", "read", "values", "artifact")
                 else (effect,),
                 effects=effect,
                 telemetry=name in ("get_or_create", "resume", "abandon_run"),
@@ -376,6 +394,8 @@ def provider() -> DisclosureProvider:
                     if name == "observe"
                     else ("session", "population")
                     if name == "query"
+                    else ("session", "population", "fields")
+                    if name == "read"
                     else ("session", "run_id")
                     if name == "get_run"
                     else ("session", "entity_ref")

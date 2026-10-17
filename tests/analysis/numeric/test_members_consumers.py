@@ -1,7 +1,7 @@
 """Public source-origin complete-identity and exact-version C03 vectors."""
 
 from collections.abc import Callable
-from datetime import date, datetime, timezone
+from datetime import date
 from pathlib import Path
 
 import ibis
@@ -98,236 +98,100 @@ def test_complete_versioned_members(
         )
         session = mv.session.get_or_create("c03-versions", report_timezone="UTC")
         entity = ms.ref.entity("sales.subjects")
-        august = datetime(2026, 8, 1, tzinfo=timezone.utc)
+        august = session.instant("2026-08-01")
         before_runs = len(session.runs().items)
-        construction_calls: list[str] = []
+        calls: list[str] = []
 
         def no_construction_read(*args: object, **kwargs: object) -> None:
-            construction_calls.append("read-or-admit")
-            raise AssertionError("Missing version attempted a business read or Run admission")
+            calls.append("business-read")
+            raise AssertionError("Member construction attempted a business read")
 
         with monkeypatch.context() as construction:
-            for name in ("bind", "compile", "execute"):
-                construction.setattr(SourceSession, name, no_construction_read)
-            from marivo.analysis.materialization import graph_store
-
-            construction.setattr(graph_store, "admit", no_construction_read)
+            construction.setattr(SourceSession, "bind", no_construction_read)
+            construction.setattr(SourceSession, "execute", no_construction_read)
+            unanchored = session.members(entity)
+            unanchored_read = session.read(
+                unanchored, {"amount": session.catalog.fields.get("sales.subjects.amount")}
+            )
+            current = session.members(entity, at=august)
+        assert calls == [] and len(session.runs().items) == before_runs
+        with monkeypatch.context() as preparation:
+            preparation.setattr(SourceSession, "execute", no_construction_read)
             with pytest.raises(AnalysisError) as missing_version:
-                session.members(entity)
-        assert construction_calls == [] and len(session.runs().items) == before_runs
-        assert missing_version.value.expected and missing_version.value.received
-        assert missing_version.value.repair is not None and missing_version.value.repair.action
-        if kind == "duplicate":
-            current = session.members(entity, at=august)
-            projected = current.execute()
-            frame = projected.to_pandas()
-            assert len(frame) == 4
-            assert set(zip(frame.member, frame.coord_0, strict=True)) == {
-                (9007199254740992, "a"),
-                (9007199254740993, "a"),
-                (9007199254740993, "b"),
-            }
-            assert (
-                list(zip(frame.member, frame.coord_0, strict=True)).count((9007199254740992, "a"))
-                == 2
-            )
-            assert session._runtime.store.resources(session.id) == ()
-            trace.save(
-                f"c03-members-{kind}-{backend}",
-                case.environment,
-                {"columns": data.columns, "values": data.values},
-                {
-                    "declared_identity_version_is_trusted": True,
-                    "member_projection_rows": 4,
-                    "duplicate_identity_rows_preserved": True,
-                    "resources": 0,
-                },
-                projected,
-                (case.session,),
-            )
-            return
+                unanchored_read.execute()
+        assert calls == [] and len(session.runs().items) == before_runs
+        assert (
+            missing_version.value.expected
+            and missing_version.value.received
+            and missing_version.value.repair
+        )
+        expected = {(9007199254740992, "a"), (9007199254740993, "a"), (9007199254740993, "b")}
         if kind == "null_tenant":
-            projected = session.members(entity, at=august).execute()
-            frame = projected.to_pandas()
-            assert len(frame) == 4
-            assert frame.coord_0.isna().sum() == 1
-            assert frame.loc[frame.coord_0.isna(), "member"].tolist() == [9007199254740994]
-            assert session._runtime.store.resources(session.id) == ()
-            trace.save(
-                f"c03-members-{kind}-{backend}",
-                case.environment,
-                {"columns": data.columns, "values": data.values},
-                {
-                    "declared_identity_version_is_trusted": True,
-                    "null_identity_rows_preserved": True,
-                },
-                projected,
-                (case.session,),
-            )
-            return
-        with monkeypatch.context() as construction:
-
-            def forbidden(*args: object, **kwargs: object) -> None:
-                raise AssertionError("Member construction submitted business rows")
-
-            construction.setattr(SourceSession, "execute", forbidden)
-            construction.setattr(SourceSession, "compile", forbidden)
-            current = session.members(entity, at=august)
             with pytest.raises(AnalysisError):
-                current.read(ms.ref.measure("sales.subjects.amount"))
-        fixed = current.execute()
-        observed = fixed.to_pandas()
-        assert set(zip(observed.member, observed.coord_0, strict=True)) == {
-            (9007199254740992, "a"),
-            (9007199254740993, "a"),
-            (9007199254740993, "b"),
+                session.query(current).execute()
+            return
+        projected = session.query(current).execute()
+        frame = projected.to_pandas()
+        assert set(frame.iloc[:, 0]) == expected
+        assert len(frame) == 3
+        fields = {
+            name: session.catalog.fields.get(f"sales.subjects.{name}").at(august)
+            for name in ("amount", "tenant", "enabled", "beginning")
         }
-        numeric_result = current.read(ms.ref.measure("sales.subjects.amount"), at=august).execute()
-        trace.record(numeric_result)
-        read = numeric_result.to_pandas()
-        assert dict(zip(zip(read.member, read.coord_0, strict=True), read.value, strict=True)) == {
+        values = session.read(current, fields)
+        if kind == "duplicate":
+            with pytest.raises(AnalysisError):
+                values.execute()
+            assert session._runtime.store.resources(session.id) == ()
+            return
+        result = values.execute()
+        read = result.to_pandas()
+        keyed = read.set_index(read.columns[0])
+        assert keyed[("value", "amount")].to_dict() == {
             (9007199254740992, "a"): 10,
             (9007199254740993, "a"): 20,
             (9007199254740993, "b"): 30,
         }
-        categories = current.read(ms.ref.dimension("sales.subjects.tenant"), at=august)
-        booleans = None
-        if backend == "mysql":
-            with monkeypatch.context() as unsupported:
-
-                def no_business_rows(*args: object, **kwargs: object) -> None:
-                    raise AssertionError("Unsupported Boolean submitted business rows")
-
-                unsupported.setattr(SourceSession, "execute", no_business_rows)
-                with pytest.raises(AnalysisError, match="enabled: int8"):
-                    current.read(ms.ref.dimension("sales.subjects.enabled"), at=august)
-            booleans = current.read(ms.ref.dimension("sales.subjects.enabled_predicate"), at=august)
-        else:
-            booleans = current.read(ms.ref.dimension("sales.subjects.enabled"), at=august)
-        dates = current.read(ms.ref.time_dimension("sales.subjects.beginning"), at=august)
-        assert isinstance(categories, mv.LogicalCategoryRelation)
-        if booleans is not None:
-            assert isinstance(booleans, mv.LogicalBooleanRelation)
-        assert isinstance(dates, mv.LogicalTemporalRelation)
-        for relation, expected in (
-            (
-                categories,
-                {
-                    (9007199254740992, "a"): "a",
-                    (9007199254740993, "a"): "a",
-                    (9007199254740993, "b"): "b",
-                },
-            ),
-            (
-                booleans,
-                {
-                    (9007199254740992, "a"): False,
-                    (9007199254740993, "a"): True,
-                    (9007199254740993, "b"): True,
-                },
-            ),
-            (
-                dates,
-                {
-                    (9007199254740992, "a"): date(2026, 8, 1),
-                    (9007199254740993, "a"): date(2026, 8, 1),
-                    (9007199254740993, "b"): date(2026, 8, 1),
-                },
-            ),
-        ):
-            if relation is None:
-                continue
-            attribute_result = relation.execute()
-            trace.record(attribute_result)
-            values = attribute_result.to_pandas()
-            assert (
-                dict(
-                    zip(zip(values.member, values.coord_0, strict=True), values.value, strict=True)
-                )
-                == expected
-            )
-        if booleans is not None:
-            selected_result = booleans.where(booleans.value.eq(True)).members().execute()
-            trace.record(selected_result)
-            selected = selected_result.to_pandas()
-            assert set(zip(selected.member, selected.coord_0, strict=True)) == {
-                (9007199254740993, "a"),
-                (9007199254740993, "b"),
-            }
-        selected_category_result = categories.where(categories.value.eq("b")).members().execute()
-        trace.record(selected_category_result)
-        selected_category = selected_category_result.to_pandas()
-        assert set(zip(selected_category.member, selected_category.coord_0, strict=True)) == {
+        assert keyed[("value", "tenant")].to_dict() == {
+            (9007199254740992, "a"): "a",
+            (9007199254740993, "a"): "a",
+            (9007199254740993, "b"): "b",
+        }
+        assert keyed[("value", "enabled")].to_dict() == {
+            (9007199254740992, "a"): False,
+            (9007199254740993, "a"): True,
+            (9007199254740993, "b"): True,
+        }
+        assert set(read[("value", "beginning")]) == {date(2026, 8, 1)}
+        enabled = True
+        selected = values.where(values["enabled"] == enabled).population()
+        assert set(session.query(selected).execute().to_pandas().iloc[:, 0]) == {
+            (9007199254740993, "a"),
+            (9007199254740993, "b"),
+        }
+        selected = values.where(values["tenant"] == "b").population()
+        assert session.query(selected).execute().to_pandas().iloc[:, 0].tolist() == [
             (9007199254740993, "b")
-        }
-        selected_dates_result = dates.where(dates.value.eq(date(2026, 8, 1))).members().execute()
-        trace.record(selected_dates_result)
-        selected_dates = selected_dates_result.to_pandas()
-        assert set(zip(selected_dates.member, selected_dates.coord_0, strict=True)) == set(
-            zip(observed.member, observed.coord_0, strict=True)
-        )
-        grid = mv.time_grid(
-            during=mv.time_scope(
-                start="2026-08-01T00:00:00+00:00", end="2026-08-01T02:00:00+00:00"
-            ),
-            grain=mv.grain("hour"),
-        )
-        product = current.read(
-            ms.ref.measure("sales.subjects.amount"), at=grid.before_end
-        ).execute()
-        trace.record(product)
-        product_rows = product.to_pandas()
-        assert set(product_rows.coord_1) == {
-            "2026-08-01T00:00:00+00:00",
-            "2026-08-01T01:00:00+00:00",
-        }
-        assert product_rows.groupby(["member", "coord_0"]).size().to_dict() == {
-            (9007199254740992, "a"): 2,
-            (9007199254740993, "a"): 2,
-            (9007199254740993, "b"): 2,
-        }
-        before = mv.time_scope(start="2026-08-01", end="2026-09-01").before_end
-        left = session.members(entity, at=before).execute()
-        trace.record(left)
-        assert len(left.to_pandas()) == 0
-        end_first = mv.time_scope(start="2026-08-01", end="2026-08-02").before_end
-        first_period = session.members(entity, at=end_first).execute()
-        trace.record(first_period)
-        assert set(
-            zip(first_period.to_pandas().member, first_period.to_pandas().coord_0, strict=True)
-        ) == set(zip(observed.member, observed.coord_0, strict=True))
-        september = datetime(2026, 9, 1, tzinfo=timezone.utc)
-        later = session.members(entity, at=september).execute().to_pandas()
-        assert len(later) == 1
-        missing = (
-            session.members(entity, at=datetime(2026, 8, 2, tzinfo=timezone.utc))
-            .execute()
-            .to_pandas()
-        )
-        assert len(missing) == 0
-        assert session._runtime.store.resources(session._runtime.session_ref) == ()
-        trace.save(
-            f"c03-members-{kind}-{backend}",
-            case.environment,
-            {"columns": data.columns, "values": data.values},
-            {
-                "pairs": [
-                    [9007199254740992, "a"],
-                    [9007199254740993, "a"],
-                    [9007199254740993, "b"],
-                ],
-                "numeric": [10, 20, 30],
-                "before_end_count": 0,
-                "first_period_before_end_count": 3,
-                "missing_period_count": 0,
-                "later_period_count": 1,
-                "boolean_int8_rejected": backend == "mysql",
-                "computed_boolean_consumed": backend == "mysql",
-                "resources": 0,
-            },
-            fixed,
-            (case.session,),
-        )
+        ]
+        selected = values.where(values["beginning"] == date(2026, 8, 1)).population()
+        assert set(session.query(selected).execute().to_pandas().iloc[:, 0]) == expected
+        for point, expected_count in (
+            ("2026-08-31T23:59:59.999999+00:00", 0),
+            ("2026-08-01T23:59:59.999999+00:00", 3),
+            ("2026-09-01", 1),
+            ("2026-08-02", 0),
+        ):
+            assert (
+                len(
+                    session.query(session.members(entity, at=session.instant(point)))
+                    .execute()
+                    .to_pandas()
+                )
+                == expected_count
+            )
+        assert session._runtime.store.resources(session.id) == ()
+        assert trace.native_sql
+        assert session.artifact(result.id).to_pandas().equals(read)
 
 
 def test_no_time_key_does_not_specialize_to_float() -> None:
@@ -434,51 +298,23 @@ def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(
         root.environment["profile"] = profile
         session = mv.session.get_or_create("c03-scalar-path", report_timezone="UTC")
         members = session.members(ms.ref.entity("sales.subjects"))
-        field = ms.ref.measure("sales.attributes.amount")
-        via = ms.ref.relationship("sales.attributes_path")
-        inferred = members.read(field)
-        read = members.read(field, via=via)
-        assert inferred._node.root.signature.quantity == read._node.root.signature.quantity
-        category = members.read(ms.ref.dimension("sales.subjects.tenant"))
-        assert isinstance(category, mv.LogicalCategoryRelation)
-        selected = category.where(category.value.eq("a")).members()
-        assert isinstance(selected, mv.LogicalAnalysisDomain)
-        scoped_result = selected.read(field, via=via).execute()
+        field = session.catalog.fields.get("sales.attributes.amount")
+        via = session.catalog.relationships.get("sales.attributes_path")
+        inferred = session.read(members, {"value": field})
+        explicit = session.read(members, {"value": field.via((via,))})
+        assert inferred._graph.fingerprint == explicit._graph.fingerprint
+        category = session.read(
+            members, {"tenant": session.catalog.fields.get("sales.subjects.tenant")}
+        )
+        selected = category.where(category["tenant"] == "a").population()
+        scoped_result = session.read(selected, {"value": field.via((via,))}).execute()
         scoped = scoped_result.to_pandas()
         assert len(scoped) == 2
-        numeric = scoped.loc[scoped.cell_tag == "defined"]
-        assert numeric.value.tolist() == [10]
-        null = scoped.loc[scoped.cell_tag == "null"]
-        assert list(zip(null.member, null.coord_0, strict=True)) == [(9007199254740993, "a")]
-        complete = read.execute().to_pandas()
-        assert len(complete) == 4
-        assert sorted(complete.loc[complete.cell_tag == "defined", "value"].tolist()) == [
-            10,
-            30,
-            99,
+        assert scoped[("value", "value")].dropna().tolist() == [10]
+        assert scoped.loc[scoped[("value", "value")].isna()].iloc[:, 0].tolist() == [
+            (9007199254740993, "a")
         ]
-        assert (
-            list(zip(complete.member, complete.coord_0, strict=True)).count((9007199254740993, "b"))
-            == 2
-        )
-        assert session._runtime.store.resources(session._runtime.session_ref) == ()
-
-        trace.save(
-            f"c03-path-multiple-{backend}",
-            root.environment,
-            {
-                "columns": data(targets).columns,
-                "root_values": data(population).values,
-                "target_values": data(targets).values,
-            },
-            {
-                "mode": "multiple",
-                "scoped_rows": 2,
-                "numeric": [10],
-                "null_pairs": [[9007199254740993, "a"]],
-                "declared_cardinality_is_trusted": True,
-                "resources": 0,
-            },
-            scoped_result,
-            (root.session, target.session),
-        )
+        with pytest.raises(AnalysisError):
+            explicit.execute()
+        assert session._runtime.store.resources(session.id) == ()
+        assert trace.native_sql

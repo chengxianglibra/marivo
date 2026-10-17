@@ -11,7 +11,6 @@ from pathlib import Path
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.source_fixtures import author_source_project
 from tests.analysis.materialization.domain_recovery_worker import snapshot
@@ -56,18 +55,28 @@ def test_native_original_mean_independent_fixed_and_cold(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         author_source_project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("r94-mean", report_timezone="UTC")
-        members = session.members(ms.ref.entity("sales.facts"))
-        bucket = members.read(ms.ref.dimension("sales.facts.bucket"))
-        assert isinstance(bucket, mv.LogicalCategoryRelation)
-        values = members.observe(ms.ref.metric("sales.average"), by=(mv.member(),))
-        assert isinstance(values, mv.LogicalNumericRelation)
-        source = values.group_by(bucket).rollup().execute()
-        assert isinstance(source, mv.MaterializedGroupedNumericRelation)
-        state: dict[str, Json] = {
-            "session": session.id,
-            "source": source.state.artifact_ref.ref,
-            "original": snapshot(source),
+        bucket = session.catalog.fields.get("sales.facts.bucket")
+        amount = session.catalog.fields.get("sales.facts.amount")
+        time = session.catalog.fields.get("sales.facts.happened")
+        grouped = session.observe(
+            {
+                "value": session.catalog.metrics.get("sales.average"),
+                "sum": session.catalog.metrics.get("sales.total"),
+                "count": amount.count(time=time),
+            },
+            by=(bucket,),
+        )
+        source = grouped.execute()
+        original = grouped.rollup().execute()
+        current = grouped.reduce({"value": grouped["value"].mean()}).execute()
+        assert source.to_pandas()[("value", "value")].tolist() == [1.0, 100.0]
+        assert original.to_pandas()[("value", "value")].tolist() == [34.0]
+        assert current.to_pandas()[("value", "value")].tolist() == [50.5]
+        outputs: dict[str, Json] = {
+            name: {"artifact": result.id, "snapshot": snapshot(result)}
+            for name, result in (("groups", source), ("original", original), ("current", current))
         }
+        state: dict[str, Json] = {"session": session.id, "outputs": outputs}
         (tmp_path / "r94-mean.json").write_bytes(encode(state))
         source_trace.save(
             "mean-source-" + backend,
@@ -82,7 +91,7 @@ def test_native_original_mean_independent_fixed_and_cold(
     for path in tmp_path.glob("source.duckdb*"):
         path.unlink()
     reports: list[Json] = []
-    for phase in ("fixed", "cold"):
+    for phase in ("offline", "cold"):
         output = tmp_path / (phase + ".json")
         completed = subprocess.run(
             [

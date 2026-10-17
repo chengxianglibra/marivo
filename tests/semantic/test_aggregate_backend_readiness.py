@@ -10,10 +10,10 @@ from typing import Literal, NoReturn
 
 import pytest
 
-import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.datasource.engines.base import EngineProfile
 from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.semantic import runtime_metric as runtime_descriptors
 from marivo.semantic.check import run_check
 from marivo.semantic.reader import SemanticProject
 from marivo.semantic.runtime_metric import RuntimeMetricExpr
@@ -67,20 +67,20 @@ def test_trino_exact_percentile_blocks_before_source_access(
     monkeypatch.setattr(DatasourceConnectionService, "session_backend", _no_source_access)
     catalog = _catalog(semantic_project_factory)
     measure = ms.ref.measure("sales.orders.amount")
-    exact = mv.runtime_metric.aggregate(measure, agg=("percentile", 0.95), label="Exact p95")
+    exact = runtime_descriptors.aggregate(measure, agg=("percentile", 0.95), label="Exact p95")
     expression: RuntimeMetricExpr = exact
     if wrapper == "slice":
-        expression = mv.runtime_metric.slice(
+        expression = runtime_descriptors.slice(
             exact,
             by={ms.ref.dimension("sales.orders.region"): "north"},
             label="North p95",
         )
     elif wrapper == "ratio":
-        total = mv.runtime_metric.aggregate(measure, agg="sum", label="Total")
-        expression = mv.runtime_metric.ratio(exact, total, label="P95 ratio")
+        total = runtime_descriptors.aggregate(measure, agg="sum", label="Total")
+        expression = runtime_descriptors.ratio(exact, total, label="P95 ratio")
     elif wrapper == "linear":
-        expression = mv.runtime_metric.linear(add=(exact, exact), label="Repeated p95")
-    approximate = mv.runtime_metric.aggregate(
+        expression = runtime_descriptors.linear(add=(exact, exact), label="Repeated p95")
+    approximate = runtime_descriptors.aggregate(
         measure, agg=("approx_percentile", 0.95), label="Approximate p95"
     )
     report = catalog.readiness(refs=[expression, approximate])
@@ -112,7 +112,7 @@ def test_independent_backend_exactness_boundaries(
     blocked: bool,
 ) -> None:
     catalog = _catalog(semantic_project_factory, backend)
-    expression = mv.runtime_metric.aggregate(
+    expression = runtime_descriptors.aggregate(
         ms.ref.measure("sales.orders.amount"), agg=agg, label="Checked"
     )
     report = catalog.readiness(refs=[expression])
@@ -159,11 +159,11 @@ class NoClients(importlib.abc.MetaPathFinder):
             raise AssertionError('Optional client imported: ' + fullname)
 sys.meta_path.insert(0, NoClients())
 import marivo.semantic as ms
-import marivo.analysis as mv
+from marivo.semantic import runtime_metric as runtime_descriptors
 catalog = ms.load(workspace_dir=sys.argv[1])
 amount = ms.ref.measure('sales.orders.amount')
-exact = mv.runtime_metric.aggregate(amount, agg=('percentile',0.95), label='Exact')
-approximate = mv.runtime_metric.aggregate(amount, agg=('approx_percentile',0.95), label='Approximate')
+exact = runtime_descriptors.aggregate(amount, agg=('percentile',0.95), label='Exact')
+approximate = runtime_descriptors.aggregate(amount, agg=('approx_percentile',0.95), label='Approximate')
 report = catalog.readiness(refs=[exact, approximate])
 assert report.status == 'blocked'
 assert report.analysis_ready_inputs == (approximate,)

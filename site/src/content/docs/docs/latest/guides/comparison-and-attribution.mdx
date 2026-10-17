@@ -1,263 +1,72 @@
 ---
-title: Comparison and attribution
-description: Compare aligned quantities, build references and allocate an absolute change.
+title: Compare and inspect changes
+description: Use complete correspondence, endpoint follow-ups and explicit references.
 ---
 
-Use an existing Session and the conventional imports. Most examples use the
-customer/order model from [analysis workflow](/docs/latest/concepts/analysis-workflow/).
-A difference is an algebraic result. Its allocation explains the equation under
-the chosen axes, not the cause of a business outcome.
+This guide continues the [local tutorial](/docs/latest/guides/python-quick-start/). It compares the same named revenue quantity by region.
 
-## Choose the comparison design
+## Compare before executing
 
-`current` and `baseline` are compatible observations in one Session; `marivo` is imported for focused Help.
-
-{/* example: comparison-designs */}
+{/* example: compare-query */}
 
 ```python
-comparison = current.compare(baseline)
-absolute = comparison.absolute
-relative = comparison.relative
-union = current.compare(baseline, align=mv.outer())
-quotient = current.ratio(current, align=mv.exact())
-result = comparison.execute()
-result.show()
-marivo.help("analysis.dsl.NumericComparison.compare")
-marivo.help("analysis.dsl.one_to_one")
+change = current.compare(baseline, how="exact")
+comparison = change.execute().to_pandas()
+assert comparison[("value", "revenue.absolute")].tolist() == [-100, -100]
+assert comparison[("value", "revenue.relative")].tolist() == [-1 / 3, -1 / 7]
+outer = current.compare(baseline, how="outer")
 ```
 
-Compare infers one changed condition from frozen target/time captures: only time
-changes compare periods; only targets change compare cohorts on common Group/Singleton
-coordinates. Identical captures or changing both conditions reject. Grid comparison
-requires an explicit time descriptor through `mv.exact(time=...)` or `mv.outer(time=...)`.
-The time position contains string aligned keys with time-key kind prefixes without a time_grid; both original
-times remain correspondence projections. Exact requires equal aligned-key sets;
-outer keep permits either grid to be longer. `mv.exact()` fixes checked correspondence;
-`mv.outer()` keeps missing sides by default, with explicit `missing="empty_value"` for
-admitted Metric empty finish. Construction rejects missing time keys: an unobserved
-window differs from no data inside an observed window. Use keep or adjust the windows. Both views read one Artifact without a new Run. Choose a
-view before numeric continuations. Absolute is current-baseline; relative is
-(current-baseline)/abs(baseline), dimensionless: -100 to -50 gives +0.5. Zero baseline
-makes only relative Undefined(zero_baseline); overflow/nonfinite values fail the Run.
+Compare emits `<name>.current`, `.baseline`, `.absolute` and `.relative`. Relative is `(current-baseline)/abs(baseline)`. A common non-NA zero baseline defaults only the new relative to NA; `zero_denominator="error"` rejects that demanded division. Child policies remain in force. Business comparability still belongs to the caller.
 
-## Compare unequal periods
+Exact requires unique complete matching keys. Outer retains their union with independent current/baseline presence; an NA value does not mean its endpoint is absent. Missing sides are not zero. Only requesting the absolute difference can use align/select:
 
-Use the workflow's `customers` and `buyer`. Each group must retain its complete
-original grid; filtering cannot renumber buckets. This example outputs `ordinal:1`, `ordinal:2` and `ordinal:3`;
-the third aligned key has Undefined(missing_side) in both views. `.show()` includes
-both original time coordinates.
-
-{/* example: period-coverage */}
+{/* example: aligned-absolute-only */}
 
 ```python
-current_grid = mv.time_grid(
-    during=mv.time_scope(start="2026-08-01", end="2026-08-04"),
-    grain=mv.grain("day"), timezone="UTC",
+aligned = current.align(baseline)
+difference = aligned.select({
+    "difference": aligned["left.revenue"] - aligned["right.revenue"],
+})
+difference.execute().show()
+```
+
+## Follow up on endpoints
+
+Query comparison has no direct drill or specialized attribution method. Select the relevant original endpoint coordinates, request a new admissible breakdown with `drill(add=(field,))` or a fresh observe, then compare those endpoints. Ordinary region selection in the tutorial is:
+
+{/* example: comparison-endpoint-followup */}
+
+```python
+selected_current = current.where(current["revenue"] < 300)
+selected_baseline = baseline.where(baseline["revenue"] < 400)
+followup = selected_current.compare(selected_baseline)
+followup.execute().show()
+```
+
+A declared additional field must be single-valued at an identity axis. A raw customer_id plus channel groups contribution images; it does not assert a customer identity domain. Saved comparison rows can be inspected or grouped in pandas; they cannot be passed back as a Query.
+
+## Transport a complete reference
+
+{/* example: broadcast-reference */}
+
+```python
+budget = session.values(
+    by=(region,), columns={"budget": "CNY"},
+    rows=((("east",), {"budget": 250}), (("west",), {"budget": 750})),
 )
-baseline_grid = mv.time_grid(
-    during=mv.time_scope(start="2026-07-01", end="2026-07-03"),
-    grain=mv.grain("day"), timezone="UTC",
-)
-metric = ms.ref.metric("sales.order_count")
-current = customers.observe(metric, during=current_grid, via=buyer, by=(mv.member(),))
-baseline = customers.observe(metric, during=baseline_grid, via=buyer, by=(mv.member(),))
-periods = current.compare(baseline, align=mv.outer(time=mv.ordinal()))
-periods.execute().show()
-weekdays = current.compare(baseline, align=mv.outer(time=mv.weekday())).execute()
-selected = periods.absolute.where(periods.absolute.value.is_defined()).execute()
+reference = mv.broadcast(budget["budget"], to=current)
+vs_budget = current.select({
+    "revenue": current["revenue"],
+    "budget_variance": current["revenue"] - reference,
+})
+vs_budget.execute().show()
 ```
 
-Aligned results, including selections or row statistics retaining an aligned
-coordinate, reject TimeGrid/Grain grouping, time rollup, runs, forecast and explicit
-lag correlation. Apply those operations to original endpoints before comparing.
-Ordinary selection, current-row statistics, valid membership continuation and
-admitted exact absolute attribution follow their own contracts. A one_to_one ratio
-with `time=mv.ordinal()` uses the same output shape with exact coverage.
+Reference keys must be unique and cover all target keys. Every reference axis needs an unambiguous complete target projection; matching names or row position are insufficient. A zero-axis reference must have exactly one row. Broadcast repeats value use, not facts or additivity authority.
 
-The closed time-key family also includes `mv.weekday()`,
-`mv.holiday(current=..., baseline=...)` and `mv.holiday_then_weekday(current=..., baseline=...)`.
-Weekday pairs ISO weekdays and their occurrence within each original grid. Holiday
-pairs signed civil-day offsets; the hybrid pairs offsets inside the occurrence
-and outward weekday counts before/after it. These three mappings require single-day
-grids. Holiday inputs come from `session.catalog.temporal_sets.get(...).occurrence(key)`;
-they must have whole-day bounds in their respective grid boundary timezones.
-All four mappings output canonical strings, including `ordinal:1`, `weekday:1:1`,
-`holiday:0` and `holiday_then_weekday:holiday:0`. Unequal key images use the same
-exact/outer coverage policies. The mapping and occurrence snapshot identities
-remain captured in the unexecuted source graph and saved output metadata.
+For a genuine contribution share, use `current.share("revenue")`. Its denominator is computed from the same actual input. Filtering after share keeps that original denominator; filtering before share changes it. Ordinary reference division does not establish contribution inclusion.
 
-For the preceding daily endpoints, a model with certified `sales.holidays` occurrences
-`august` and `july` in UTC supplies both holiday descriptors.
+## Choose correspondence explicitly
 
-{/* example: holiday-period-correspondence */}
-
-```python
-holidays = session.catalog.temporal_sets.get("sales.holidays")
-current_holiday = holidays.occurrence("august")
-baseline_holiday = holidays.occurrence("july")
-holiday_key = mv.holiday(current=current_holiday, baseline=baseline_holiday)
-hybrid_key = mv.holiday_then_weekday(current=current_holiday, baseline=baseline_holiday)
-holiday_result = current.compare(baseline, align=mv.outer(time=holiday_key)).execute()
-hybrid_result = current.compare(baseline, align=mv.outer(time=hybrid_key)).execute()
-```
-
-## Continue a logical selection
-
-`customers`, `revenue`, `buyer` and `august_revenue` are defined by the workflow’s original-rollup example. Build the downstream live dependency before materializing the selection.
-
-{/* example: selected-next-month */}
-
-```python
-july = mv.time_scope(start="2026-07-01", end="2026-08-01")
-september = mv.time_scope(start="2026-09-01", end="2026-10-01")
-baseline = customers.observe(revenue, during=july, via=buyer, by=(mv.member(),))
-change = august_revenue.compare(baseline).absolute
-falling = change.where(change.value.lt(0)).members()
-next_month_mean = (
-    falling.observe(revenue, during=september, via=buyer, by=(mv.member(),))
-    .aggregate(mv.mean())
-    .execute()
-)
-```
-
-Only Defined finite compatible values can enter numeric predicates. Compose the complete Logical chain before execution; follow typed repair when a source-local route is unavailable.
-
-## Preserve ratio components
-
-The line/order model additionally declares `sales.aov_from_lines` and both relationship paths. The preceding workflow binds `customers`, `buyer` and `august`.
-
-{/* example: multi-root-ratio */}
-
-```python
-ratio_routes = (mv.path(ms.ref.relationship("sales.line_order"), buyer),mv.path(buyer),)
-channel = ms.ref.dimension("sales.order.channel")
-aov = customers.observe(
-    ms.ref.metric("sales.aov_from_lines"),
-    during=august,
-    via=ratio_routes,
-    by=(mv.member(), channel),
-)
-overall_aov = aov.rollup().execute()
-channel_aov = aov.group_by(channel).rollup().execute()
-current_row_mean = aov.aggregate(mv.mean()).execute()
-current_row_mean.show()
-```
-
-Each distinct root needs its own admitted mapping. Original ratio rollup and a mean over displayed row ratios answer different questions.
-
-## Construct a fixed reference
-
-The customer model has a categorical region and a Count Metric over order contributions. Keep reference strata and observation units explicit.
-
-{/* example: reference-standardization */}
-
-```python
-members = session.members(ms.ref.entity("sales.customer"))
-region = members.read(ms.ref.dimension("sales.customer.region"))
-counts = members.observe(
-    ms.ref.metric("sales.order_count"),
-    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-    via=ms.ref.relationship("sales.order_buyer"),
-    by=(mv.member(),),
-)
-shares = counts.share_of(counts.rollup())
-selected_shares = shares.where(shares.value.gt(0)).execute()
-penetration = counts.where(counts.value.gt(0)).members().penetration_in(members).execute()
-stratum_counts = counts.group_by(region).rollup()
-composition = stratum_counts.share_of(stratum_counts.rollup())
-weights = mv.reference_weights(composition, strata=(region,), unit=ms.ref.entity("sales.order"))
-standardized = stratum_counts.standardize(reference=weights)
-standardized.contract().show()
-```
-
-share_of, penetration_in and standardize have distinct denominators. Retained
-reference weights bind their exact strata, unit and owner; labels do not establish
-compatibility. Standardization answers a fixed-composition question.
-
-## Allocate an absolute change
-
-The customer/order model declares order count, buyer, channel and region. Both periods use the same admitted quantity meaning.
-
-{/* example: absolute-attribution */}
-
-```python
-attribution_members = session.members(ms.ref.entity("sales.customer"))
-channel = ms.ref.dimension("sales.order.channel")
-current_counts = attribution_members.observe(
-    ms.ref.metric("sales.order_count"),
-    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-    via=ms.ref.relationship("sales.order_buyer"),
-    by=(channel,),
-).rollup()
-baseline_counts = attribution_members.observe(
-    ms.ref.metric("sales.order_count"),
-    during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
-    via=ms.ref.relationship("sales.order_buyer"),
-    by=(channel,),
-).rollup()
-change = current_counts.compare(baseline_counts).absolute
-allocation = change.attribute(axes=(channel,), top_k=3)
-selected_allocation = allocation.where(allocation.contribution.value.is_defined())
-allocated_table = mv.table(
-    contribution=selected_allocation.contribution,
-    current=selected_allocation.current,
-    baseline=selected_allocation.baseline,
-).execute()
-allocation.contract().show()
-allocated_table.show()
-```
-
-Read contributions, their current/baseline endpoints, residual and reconciliation.
-Joint axes identify combinations; separate axes are separate decompositions and
-must not be summed together. Component equations and retained parts determine
-which allocation can execute. Attribution is not a causal estimate.
-
-## Rank and present
-
-`counts` and `region` are compatible relations from the reference example. Ties and partitions are explicit.
-
-{/* example: ranking-table */}
-
-```python
-ranking = counts.rank(order="descending", ties="min", partition_by=(region,))
-defined = ranking.where(ranking.ranks.value.is_defined())
-top = defined.where(defined.ranks.value.lte(3))
-prefix = ranking.limit(3)
-result = mv.table(amount=top.values, rank=top.ranks).execute()
-result.show()
-frame = result.to_pandas()
-restored = session.artifact(result.artifact_ref)
-```
-{/* example: scoped-channel-observation */}
-
-```python
-revenue = ms.ref.metric("sales.revenue")
-by_channel = (
-    session.members(ms.ref.entity("sales.orders"))
-    .observe(
-        revenue,
-        during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
-        by=(ms.ref.dimension("sales.orders.channel"),),
-    )
-)
-top_channels = by_channel.rank(order="descending", ties="ordinal").limit(5).execute()
-top_channels.show()
-```
-{/* example: unscoped-channel-observation */}
-
-```python
-revenue = ms.ref.metric("sales.revenue")
-by_channel = (
-    session.members(ms.ref.entity("sales.orders"))
-    .observe(
-        revenue,
-        by=(ms.ref.dimension("sales.orders.channel"),),
-    )
-)
-by_channel.rank(order="descending", ties="ordinal").limit(5).execute().show()
-```
-
-The last two alternatives use `sales.orders` and its channel coordinate, with
-and without a window. Tables and `to_pandas()` are terminal presentation. Recover
-the saved table by exact artifact ref; do not feed a custom DataFrame back into
-governed composition.
+Different calendars require an axis-free rule such as `match=mv.ordinal()` or `mv.previous_year()`. Ordinal uses original complete bucket order; previous_year leaves daily leap days unmatched. `match=mv.corresponding(via=(relationship,))` uses a declared one-to-one identity path, not equal-looking fields. Nonidentity output saves both endpoint projections. See [time and identities](/docs/latest/guides/time-and-cohorts/).

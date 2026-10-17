@@ -1,74 +1,95 @@
-"""Native public business coverage supplies actual full-grid Unknown consumers."""
+"""Explicit business coverage masks consume complete terminal calendar exports."""
 
 from __future__ import annotations
 
-import json
 import os
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from typing import NoReturn
 
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo._temporal import TimeScope
+from marivo._temporal import TimeScope, time_scope
 from marivo.analysis.core.business_coverage import complete, normalize
 from marivo.analysis.core.time_grid import bind_grid
-from marivo.analysis.errors import AnalysisError, StatisticalRelationError
-from marivo.analysis.materialization.fit_state import load
-from marivo.analysis.materialization.graph_exchange import ExchangePart, from_arrow
-from marivo.analysis.materialization.runs_execution import decode as _decode
-from marivo.analysis.public_dsl import LogicalNumericRelation
+from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import SourceSession
+from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.analysis.statistics.deviation_fixture import prepare_profiles
+from tests.analysis.statistics.pandas_workflows import forecast, receipt_paths
+from tests.analysis.statistics.runs_worker import segments
 from tests.shared_fixtures import DslCaseFactory
+from tests.support.json import encode
+from tests.support.paths import PROJECT_ROOT
 
 START = datetime(2026, 8, 1, tzinfo=timezone.utc)
 
 
+def _query(session: mv.Session) -> mv.Query:
+    period = session.time_scope(start=START, end=START + timedelta(days=3))
+    return session.observe(
+        {"value": session.catalog.metrics.get("sales.total_0")},
+        during=period.by(mv.grain("day")),
+        by=session.members(ms.ref.entity("sales.order")),
+    )
+
+
+def _mask(frame: pd.DataFrame) -> pd.DataFrame:
+    """Keep the original three dates and apply a separate business policy."""
+    result = frame.copy(deep=True)
+    calendar = next(axis for axis in frame.attrs["marivo"]["axes"] if axis["kind"] == "calendar")
+    name = calendar["column"]
+    assert isinstance(name, str)
+    uncovered = result[("coordinate", name)] == START + timedelta(days=1)
+    assert uncovered.sum() == 3
+    result.loc[uncovered, ("value", "value")] = pd.NA
+    return result
+
+
 def test_business_coverage_union_and_original_bucket_boundaries() -> None:
     grid = bind_grid(
-        mv.time_scope(start=START, end=START + timedelta(days=3)),
+        time_scope(start=START, end=START + timedelta(days=3)),
         mv.grain("day"),
         report_timezone="UTC",
     )
     spans = normalize(
         (
-            mv.time_scope(start=START + timedelta(hours=12), end=START + timedelta(days=1)),
-            mv.time_scope(start=START, end=START + timedelta(hours=12)),
-            mv.time_scope(start=START + timedelta(days=2), end=START + timedelta(days=3)),
+            time_scope(start=START + timedelta(hours=12), end=START + timedelta(days=1)),
+            time_scope(start=START, end=START + timedelta(hours=12)),
+            time_scope(start=START + timedelta(days=2), end=START + timedelta(days=3)),
         ),
         grid,
     )
     assert len(spans) == 2
     assert [complete(cell, spans) for cell in grid.cells] == [True, False, True]
-    inside = normalize((mv.time_scope(start=START, end=START + timedelta(hours=23)),), grid)
+    inside = normalize((time_scope(start=START, end=START + timedelta(hours=23)),), grid)
     assert not complete(grid.cells[0], inside)
     assert not any(complete(cell, ()) for cell in grid.cells)
 
 
 def test_business_coverage_refuses_unbound_claims() -> None:
     grid = bind_grid(
-        mv.time_scope(start=START, end=START + timedelta(days=3)),
+        time_scope(start=START, end=START + timedelta(days=3)),
         mv.grain("day"),
         report_timezone="UTC",
     )
     for fault in ("naive", "outside", "too_many"):
-        spans: tuple[TimeScope, ...] = (mv.time_scope(start=START, end=START + timedelta(days=1)),)
+        spans: tuple[TimeScope, ...] = (time_scope(start=START, end=START + timedelta(days=1)),)
         if fault == "naive":
             spans = (
-                mv.time_scope(
+                time_scope(
                     start=START.replace(tzinfo=None),
                     end=(START + timedelta(days=1)).replace(tzinfo=None),
                 ),
             )
         elif fault == "outside":
-            spans = (mv.time_scope(start=START - timedelta(days=1), end=START + timedelta(days=1)),)
+            spans = (time_scope(start=START - timedelta(days=1), end=START + timedelta(days=1)),)
         else:
             spans *= 65
         with pytest.raises(AnalysisError, match="complete_during"):
@@ -82,158 +103,98 @@ def test_public_full_grid_unknown(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    prepare_profiles(case, "KS", "parquet", "us", "UTC", False, followup=True)
+    prepare_profiles(case, "KS", "parquet", "us", "UTC", False, followup=True, profile_indices=(0,))
     ms.load(workspace_dir=case.root)
     session = mv.session.get_or_create("business-coverage", report_timezone="UTC")
-    members = session.members(ms.ref.entity("sales.order"))
-    grid = mv.time_grid(
-        during=mv.time_scope(start=START, end=START + timedelta(days=3)),
-        grain=mv.grain("day"),
-    )
-    windows = (
-        mv.time_scope(start=START, end=START + timedelta(days=1)),
-        mv.time_scope(start=START + timedelta(days=2), end=START + timedelta(days=3)),
-    )
-    logical = members.observe(
-        ms.ref.metric("sales.total_0"),
-        during=grid,
-        complete_during=windows,
-        by=(mv.member(),),
-    )
-    fixed = logical.execute()
-    frame = fixed.to_pandas()
-    assert frame.cell_tag.tolist().count("unknown") == 3
-    assert frame.cell_tag.tolist().count("defined") == 6
-    assert set(frame.loc[frame.cell_tag == "unknown", "cell_reason"]) == {
-        "insufficient_business_coverage"
-    }
-    assert frame.loc[frame.cell_tag == "unknown", "value"].isna().all()
-    fixed.show(n=0)
+    artifact = _query(session).execute()
+    raw = artifact.to_pandas()
+    assert len(raw) == 9 and not raw[("value", "value")].isna().any()
+    assert sorted(raw[("value", "value")].tolist()) == [0] * 6 + [1, 2, 7]
+    frame = _mask(raw)
+    assert frame[("value", "value")].isna().sum() == 3
+    assert sorted(frame[("value", "value")].dropna().tolist()) == [0] * 4 + [1, 7]
+    artifact.show(n=0)
     text = capsys.readouterr().out
-    assert "9 total; 0 shown; 9 omitted" in text
-    assert "unknown(insufficient_business_coverage)=3" in text
-    assert "observation_window: each retained grid cell" in text
-    assert fixed._dataset is not None
-    checked = fixed._dataset.verified()
-    assert not any("rollup(" in action.call for action in fixed.contract().actions)
-    assert "uncovered buckets are Unknown" in dict(fixed.contract()._facts)["business_coverage"]
-    coverage = next(p.table for p in checked.parts if p.role == "coverage")
-    assert coverage["coverage__complete"].to_pylist() == [True] * 9
-    assert coverage["coverage__business_complete"].to_pylist().count(False) == 3
-    partial = coverage.filter(pa.compute.invert(coverage["coverage__business_complete"]))
-    assert sorted(partial["coverage__partial_value"].to_pylist()) == [0, 0, 2]
-    with pytest.raises(AnalysisError, match="business"):
-        fixed.rollup().execute()
+    assert "rows: 9" in text and ".to_pandas()" in text
+    # The terminal source result has no external business-completeness claim.
+    # The mask belongs to this pandas workflow and never changes saved values.
+    assert artifact.to_pandas().equals(raw)
+    before = len(session.runs().items)
 
-    def forbidden(*args: object, **kwargs: object) -> NoReturn:
-        pytest.fail("Fixed full-grid Unknown consumer accessed its source")
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("business-mask consumer accessed its source")
 
     monkeypatch.setattr(SourceSession, "execute", forbidden)
-    before = set(case.root.rglob("*.parquet"))
-    with pytest.raises(StatisticalRelationError) as caught:
-        fixed.forecast(horizon=mv.periods(1), model=mv.naive()).execute()
-    assert caught.value.code == "r8.cell_policy"
-    assert "unknown" in str(caught.value.received)
-    assert "insufficient_business_coverage" in str(caught.value.received)
-    assert set(case.root.rglob("*.parquet")) == before
-    errors = [str(caught.value.received)]
-    assert session._runtime.store.resources(session._runtime.session_ref) == ()
-    runs = fixed.runs(where=fixed.value.gt(-1)).execute()
-    assert runs.count.to_pandas().value.tolist() == [1] * 6
-    assert runs.duration.to_pandas().value.tolist() == [timedelta(days=1)] * 6
+    runs = segments(frame, threshold=-1)
+    assert runs["count"].tolist() == [1] * 6
+    assert runs["duration"].tolist() == [timedelta(days=1)] * 6
+    assert sorted(runs["start"].tolist()) == [START] * 3 + [START + timedelta(days=2)] * 3
     assert (
-        sorted(runs.start.to_pandas().value.tolist())
-        == [START] * 3 + [START + timedelta(days=2)] * 3
-    )
-    assert (
-        sorted(runs.end.to_pandas().value.tolist())
+        sorted(runs["end"].tolist())
         == [START + timedelta(days=1)] * 3 + [START + timedelta(days=3)] * 3
     )
-    assert runs._dataset is not None
-    retained = runs._dataset.verified()
-    capture, state = _decode(retained.parts)
-    assert state.classifications.count("unavailable") == 3
-    assert capture.signature.domain.time_grid == checked.contract.signature.domain.time_grid
-    assert load(capture.inputs[0]).equals(checked.primary)
-    assert {p.role for p in retained.parts} >= {
-        "condition_cells",
-        "run_cells",
-        "grid_cells",
-        "subject",
-    }
-    for column, values in (
-        ("coverage__business_complete", [True] * 9),
-        ("coverage__partial_value", [99] * 9),
-    ):
-        corrupted = coverage.set_column(
-            coverage.schema.get_field_index(column),
-            column,
-            pa.array(values, type=coverage.schema.field(column).type),
-        )
-        with pytest.raises(AnalysisError):
-            from_arrow(
-                checked.primary,
-                checked.contract,
-                parts=tuple(
-                    ExchangePart(p.role, corrupted) if p.role == "coverage" else p
-                    for p in checked.parts
-                ),
-            )
-    assert session._runtime.store.resources(session._runtime.session_ref) == ()
-    artifact_ref = fixed.evidence_digest().artifact_ref.ref
+    # A raw forecast recipe cannot silently consume a business-masked NA.
+    with pytest.raises(ValueError):
+        forecast(frame[("value", "value")])
+    assert len(forecast(raw[("value", "value")])) == 2
+    assert len(session.runs().items) == before
+    for path in receipt_paths(case.root, artifact):
+        contents = path.read_bytes()
+        try:
+            path.write_bytes(b"invalid calendar output")
+            with pytest.raises(AnalysisError):
+                artifact.to_pandas()
+        finally:
+            path.write_bytes(contents)
+    (case.root / "business-mask.json").write_bytes(
+        encode({"session": session.id, "artifact": artifact.id, "snapshot": snapshot(artifact)})
+    )
     for path in (case.root / "source_files").glob("*.parquet"):
         path.rename(path.with_suffix(".offline"))
+    shutil.rmtree(case.root / "models")
     script = """
+import json
+from pathlib import Path
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
-def forbidden(*args: object, **kwargs: object) -> None:
-    raise AssertionError('Cold business coverage accessed its source')
+from marivo.semantic.reader import SemanticProject
+from tests.analysis.graph.test_full_grid_unknown import _mask
+from tests.analysis.statistics.runs_worker import segments
+from tests.analysis.materialization.domain_recovery_worker import snapshot
+
+def forbidden(*args, **kwargs):
+    raise AssertionError('cold business mask read live source or Semantic')
+ms.load = forbidden
+SemanticProject.load = forbidden
+SourceSession.__enter__ = forbidden
 SourceSession.execute = forbidden
-session = mv.session.get_or_create('business-coverage', report_timezone='UTC')
-fixed = session.artifact(__import__('sys').argv[1])
-assert fixed.to_pandas().cell_tag.tolist().count('unknown') == 3
-runs = fixed.runs(where=fixed.value.gt(-1)).execute()
-assert runs.count.to_pandas().value.tolist() == [1] * 6
-assert session._runtime.store.resources(session._runtime.session_ref) == ()
+state = json.loads(Path('business-mask.json').read_text())
+session = mv.session.resume(state['session'], by='id')
+before = len(session.runs().items)
+output = session.artifact(state['artifact'])
+assert snapshot(output) == state['snapshot']
+masked = _mask(output.to_pandas())
+assert masked[('value','value')].isna().sum() == 3
+assert segments(masked, threshold=-1)['count'].tolist() == [1]*6
+assert len(session.runs().items) == before
 """
     cold = subprocess.run(
-        [sys.executable, "-c", script, artifact_ref],
+        [sys.executable, "-c", script],
         cwd=case.root,
+        env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
         capture_output=True,
         text=True,
         timeout=60,
     )
     assert cold.returncode == 0, cold.stdout + cold.stderr
-    if directory := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
-        Path(directory, "full-grid-unknown-parquet.json").write_text(
-            json.dumps(
-                {
-                    "producer": "members.observe(sum_metric, during=grid, complete_during=windows)",
-                    "form": "parquet",
-                    "unknown_count": 3,
-                    "defined_count": 6,
-                    "actual_read_coverage": True,
-                    "retained_partial_values": [0, 0, 2],
-                    "forecast_cell_policy_refusals": errors,
-                    "run_segments": 6,
-                    "unavailable_cells": 3,
-                    "duration_days": [1] * 6,
-                    "original_inputs_and_grid_preserved": True,
-                    "fixed_source_reads": 0,
-                    "corruption_rejected": True,
-                    "resources": 0,
-                    "cold_source_offline": True,
-                },
-                sort_keys=True,
-            )
-        )
 
 
 def test_public_duration_business_coverage(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    prepare_profiles(case, "KS", "parquet", "us", "UTC", False, followup=True)
+    prepare_profiles(case, "KS", "parquet", "us", "UTC", False, followup=True, profile_indices=(0,))
     path = case.root / "source_files/order.parquet"
     table = pq.read_table(path)
     index = table.schema.get_field_index("profile_0")
@@ -242,70 +203,41 @@ def test_public_duration_business_coverage(
     )
     ms.load(workspace_dir=case.root)
     session = mv.session.get_or_create("duration-business-coverage", report_timezone="UTC")
-    grid = mv.time_grid(
-        during=mv.time_scope(start=START, end=START + timedelta(days=3)), grain=mv.grain("day")
-    )
-    observed = (
-        session.members(ms.ref.entity("sales.order"))
-        .observe(
-            ms.ref.metric("sales.total_0"),
-            during=grid,
-            complete_during=(
-                mv.time_scope(start=START, end=START + timedelta(days=1)),
-                mv.time_scope(start=START + timedelta(days=2), end=START + timedelta(days=3)),
-            ),
-            by=(mv.member(),),
-        )
-        .execute()
-    )
-    assert observed._node.root.value_type.name == "interval('us')"
-    assert observed.to_pandas().cell_tag.tolist().count("unknown") == 3
+    query = _query(session)
+    original = query.execute()
+    ratio = query.select({"value": query["value"] / query["value"]}).execute()
+    original_values = original.to_pandas()[("value", "value")]
+    dtype = original_values.dtype
+    assert isinstance(dtype, pd.ArrowDtype) and dtype.pyarrow_dtype == pa.duration("us")
+    assert _mask(original.to_pandas())[("value", "value")].isna().sum() == 3
+    before = len(session.runs().items)
 
-    def forbidden(*args: object, **kwargs: object) -> NoReturn:
-        pytest.fail("Duration business coverage quotient accessed its source")
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Duration business mask touched its source")
 
     monkeypatch.setattr(SourceSession, "execute", forbidden)
-    ratio = observed.ratio(observed).execute()
-    frame = ratio.to_pandas()
-    assert frame.cell_tag.tolist().count("unknown") == 3
-    assert set(frame.loc[frame.cell_tag == "unknown", "cell_reason"]) == {
-        "insufficient_business_coverage"
-    }
-    assert ratio._dataset is not None
-    ratio._dataset.verified()
-    assert session._runtime.store.resources(session._runtime.session_ref) == ()
+    frame = _mask(ratio.to_pandas())
+    assert frame[("value", "value")].isna().sum() == 7
+    assert frame[("value", "value")].dropna().tolist() == [1.0, 1.0]
+    assert len(session.runs().items) == before
 
 
 def test_business_coverage_source_selection_keeps_original_support(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    prepare_profiles(case, "KS", "parquet", "us", "UTC", False, followup=True)
+    prepare_profiles(case, "KS", "parquet", "us", "UTC", False, followup=True, profile_indices=(0,))
     ms.load(workspace_dir=case.root)
     session = mv.session.get_or_create("business-coverage-selection", report_timezone="UTC")
-    grid = mv.time_grid(
-        during=mv.time_scope(start=START, end=START + timedelta(days=3)), grain=mv.grain("day")
-    )
-    observed = session.members(ms.ref.entity("sales.order")).observe(
-        ms.ref.metric("sales.total_0"),
-        during=grid,
-        complete_during=(
-            mv.time_scope(start=START, end=START + timedelta(days=1)),
-            mv.time_scope(start=START + timedelta(days=2), end=START + timedelta(days=3)),
-        ),
-        by=(mv.member(),),
-    )
-    assert isinstance(observed, LogicalNumericRelation)
-    selected = observed.where(observed.value.is_defined())
-    fixed = selected.execute()
-    assert fixed.to_pandas().cell_tag.tolist() == ["defined"] * 6
-    assert fixed._dataset is not None
-    support = next(p.table for p in fixed._dataset.verified().parts if p.role == "coverage")
-    assert len(support) == 6
-    assert "coverage__partial_value" in support.columns
-    for receiver in (selected, fixed):
-        with pytest.raises(AnalysisError):
-            receiver.runs(where=receiver.value.gt(-1))
-        with pytest.raises(AnalysisError):
-            receiver.forecast(horizon=mv.periods(1))
-    assert session._runtime.store.resources(session._runtime.session_ref) == ()
+    original = _query(session).execute()
+    raw = original.to_pandas()
+    masked = _mask(raw)
+    selected = masked.loc[masked[("value", "value")].notna()].copy()
+    assert len(selected) == 6
+    # Selecting represented data keeps the original nominal and actual bounds;
+    # a removed middle date must never make the two surviving dates adjacent.
+    runs = segments(selected, threshold=-1)
+    assert runs["count"].tolist() == [1] * 6
+    assert runs["duration"].tolist() == [timedelta(days=1)] * 6
+    assert original.to_pandas().equals(raw)
+    assert session._runtime.store.resources(session.id) == ()

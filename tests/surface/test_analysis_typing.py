@@ -11,99 +11,59 @@ from tests.support.paths import PROJECT_ROOT
 
 def test_public_dsl_rejects_wrong_kinds_and_methods(tmp_path: Path) -> None:
     source = tmp_path / "bad_public_analysis.py"
-    source.write_text(
-        """
+    program = """
 import marivo.analysis as mv
 import marivo.semantic as ms
-mv.LogicalSelectedCategoryRelation
-mv.MaterializedSelectedCategoryRelation
-session = mv.session.get_or_create("static", report_timezone="UTC")
-population = session.members(ms.ref.entity("sales.customer"))
-members: mv.LogicalAnalysisDomain
-session.members(ms.ref.metric("sales.revenue"))
-members.read(ms.ref.entity("sales.customer"))
-members.observe(ms.ref.metric("sales.revenue"), via=ms.ref.entity("sales.order"), by=(ms.ref.dimension("sales.customer.region"),))
-members.observe(ms.ref.metric("sales.revenue"), coordinates=(ms.ref.dimension("sales.customer.region"),))
-members.observe(ms.ref.metric("sales.revenue"), by=(ms.ref.metric("sales.revenue"),))
-members.observe(ms.ref.metric("sales.revenue"), by=(ms.ref.entity("sales.customer"),))
-members.observe(ms.ref.metric("sales.revenue"), by=mv.member())
-members.group_by(ms.ref.dimension("sales.customer.region")).observe(ms.ref.metric("sales.revenue"))
-category = members.read(ms.ref.dimension("sales.customer.region"))
-assert isinstance(category, mv.LogicalCategoryRelation)
-category.compare(category)
-category.where(category.value.eq("west")).where(True)
-members.show()
-fixed = members.execute()
-fixed.execute()
-window = mv.time_scope(start="2026-08-01", end="2026-09-01")
-grid = mv.time_grid(during=window, grain=mv.grain("month"))
-members.each(grid)
-grid.window
-category.where(category.value.eq("west")).execute().members().observe(ms.ref.metric("sales.revenue"))
-observed = members.observe(ms.ref.metric("sales.revenue"), during=mv.time_scope(start="2026-08-01", end="2026-09-01"), via=ms.ref.relationship("sales.buyer"))
-assert isinstance(observed, mv.LogicalNumericRelation)
-observed.aggregate(mv.mean()).compare(category)
-observed.compare(observed).rollup()
-observed.correlate(observed, method="partial")
-mv.path(ms.ref.metric("sales.revenue"))
-mv.sum("extra")
-category.rank(order="ascending", ties="dense")
-observed.group_by(mv.member())
-observed.rank(order="up", ties="average")
-observed.rank(order="ascending", ties="dense", partition_by=(observed,))
-ranking = observed.rank(order="ascending", ties="dense")
-ranking.limit("1")
-ranking.where(True)
-table = mv.table(value=observed)
-table.contract()
-table.value
-table.where(observed.value.gt(0))
-mv.table(value=ranking)
-table.execute().execute()
+from ibis.common.deferred import Deferred
+from marivo.semantic.expressions import Relationship
 
-def rejected(
-    members: mv.LogicalAnalysisDomain,
-    fixed_members: mv.MaterializedAnalysisDomain,
-    category: mv.LogicalCategoryRelation,
-    fixed_category: mv.MaterializedCategoryRelation,
-    selected_category: mv.LogicalCategoryRelation,
-    fixed_selected_category: mv.MaterializedCategoryRelation,
-    boolean: mv.LogicalBooleanRelation,
-    fixed_boolean: mv.MaterializedBooleanRelation,
-    selected_boolean: mv.LogicalSelectedBooleanRelation,
-    fixed_selected_boolean: mv.MaterializedSelectedBooleanRelation,
-    temporal: mv.LogicalTemporalRelation,
-    fixed_temporal: mv.MaterializedTemporalRelation,
-    selected_temporal: mv.LogicalSelectedTemporalRelation,
-    fixed_selected_temporal: mv.MaterializedSelectedTemporalRelation,
-    numeric: mv.LogicalNumericRelation,
-) -> None:
-    members.group_by()
-    fixed_members.group_by()
-    members.count()
-    category.group_by()
-    fixed_category.group_by()
-    selected_category.group_by()
-    fixed_selected_category.group_by()
-    boolean.group_by()
-    fixed_boolean.group_by()
-    selected_boolean.group_by()
-    fixed_selected_boolean.group_by()
-    temporal.group_by()
-    fixed_temporal.group_by()
-    selected_temporal.group_by()
-    fixed_selected_temporal.group_by()
-    members.observe(ms.ref.metric("sales.revenue"), groups=members)
-    numeric.group_by(groups=members)
-    mv.GroupedAnalysisDomain
+mv.LogicalNumericRelation  # invalid: retired logical type
+mv.MaterializedNumericRelation  # invalid: retired materialized type
+mv.mean  # invalid: retired row factory
+mv.time_grid  # invalid: retired graph time grid
+mv.time_scope  # invalid: retired module-level time constructor
+mv.instant  # invalid: Session-only instant constructor
+session = mv.session.get_or_create('static', report_timezone='UTC')
+population = session.members(ms.ref.entity('sales.customer'))
+session.members(ms.ref.metric('sales.revenue'))  # invalid: entity kind
+mv.identities(ms.ref.entity('sales.customer'), keys=(('C1',),))  # invalid: unresolved EntityRef
+
+def rejected(query: mv.Query, artifact: mv.Artifact, field: Deferred, metric: Deferred, relationship: Relationship) -> None:
+    session.observe({'value': artifact})  # invalid: terminal metric input
+    session.observe({'value': metric}, by=(artifact,))  # invalid: grouping stage
+    session.observe({'value': metric}, via=(relationship,))  # invalid: observer route injection
+    session.observe({'value': metric}, where=query['value'] > 0)  # invalid: result predicate at source
+    session.query(artifact)  # invalid: terminal domain input
+    session.read(artifact, {'category': field})  # invalid: terminal attribute input
+    session.read(population, {'category': ms.ref.dimension('sales.customer.region')})  # invalid: bare field ref
+    session.values(by=(), columns={'budget': {'unit': 'CNY'}}, rows=(((), {'budget': 1}),))  # invalid: nested column declaration
+    query.where(True)  # invalid: ordinary boolean predicate
+    query.select({'value': field})  # invalid: source field in result selection
+    query.reduce({'value': query['value']})  # invalid: unfinished reduction shape
+    query.top('1', by=query['value'])  # invalid: rank count type
+    query.top(1, by=field)  # invalid: source score at result
+    query.compare(artifact)  # invalid: terminal compare endpoint
+    query.align(artifact)  # invalid: terminal alignment endpoint
+    query['value'].divide(1, zero_denominator='zero')  # invalid: denominator policy
+    mv.broadcast(artifact, to=query)  # invalid: reference stage
+    mv.broadcast(query['value'], to=artifact)  # invalid: target stage
+    mv.corresponding(via=relationship)  # invalid: non-tuple path
+    artifact.execute()  # invalid: terminal execution
+    artifact.contract()  # invalid: terminal continuation contract
+    artifact.population()  # invalid: terminal domain continuation
+    artifact.where(query['value'] > 0)  # invalid: terminal filtering
+    population.read({'category': field})  # invalid: duplicate attribute entry
+    population.observe({'value': metric})  # invalid: duplicate observation entry
 """
-    )
+    source.write_text(program)
     root = PROJECT_ROOT
     completed = subprocess.run(
         [
             str(root / ".venv/bin/mypy"),
             "--no-pretty",
             "--no-color-output",
+            "--cache-dir",
+            str(tmp_path / "mypy-cache"),
             "--python-version",
             "3.10",
             str(source),
@@ -115,55 +75,11 @@ def rejected(
         check=False,
     )
     assert completed.returncode != 0
-    output = completed.stdout
-    assert 'Argument 1 to "members"' in output
-    assert 'Argument 1 to "read"' in output
-    assert 'Argument "via" to "observe"' in output
-    assert 'Unexpected keyword argument "coordinates"' in output
-    assert 'Argument "by" to "observe"' in output
-    assert 'Argument 1 to "group_by"' in output
-    assert 'has no attribute "LogicalSelectedCategoryRelation"' in output
-    assert 'has no attribute "MaterializedSelectedCategoryRelation"' in output
-    assert 'LogicalAnalysisDomain" has no attribute "group_by"' in output
-    assert 'has no attribute "compare"' in output
-    assert 'Argument 1 to "where"' in output
-    assert 'has no attribute "show"' in output
-    assert 'LogicalAnalysisDomain" has no attribute "each"' in output
-    assert 'TimeGrid" has no attribute "window"' in output
-    assert 'has no attribute "execute"' in output
-    assert 'Argument 1 to "compare"' in output
-    assert 'LogicalComparisonResult" has no attribute "rollup"' in output
-    assert 'Argument "method" to "correlate"' in output
-    assert 'Argument 1 to "path"' in output
-    assert 'Too many arguments for "sum"' in output
-    assert 'Argument "order" to "rank"' in output
-    assert 'Argument "ties" to "rank"' in output
-    assert 'Argument "partition_by" to "rank"' in output
-    assert 'Argument 1 to "limit"' in output
-    assert 'LogicalTable" has no attribute "contract"' in output
-    assert 'LogicalTable" has no attribute "value"' in output
-    assert 'LogicalTable" has no attribute "where"' in output
-    assert 'MaterializedTable" has no attribute "execute"' in output
-    assert 'Argument "value" to "table"' in output
-    for owner in (
-        "LogicalAnalysisDomain",
-        "MaterializedAnalysisDomain",
-        "LogicalCategoryRelation",
-        "MaterializedCategoryRelation",
-        "LogicalBooleanRelation",
-        "MaterializedBooleanRelation",
-        "LogicalSelectedBooleanRelation",
-        "MaterializedSelectedBooleanRelation",
-        "LogicalTemporalRelation",
-        "MaterializedTemporalRelation",
-        "LogicalSelectedTemporalRelation",
-        "MaterializedSelectedTemporalRelation",
-    ):
-        assert f'{owner}" has no attribute "group_by"' in output
-    assert 'has no attribute "count"' in output
-    assert 'Unexpected keyword argument "groups" for "observe"' in output
-    assert 'Unexpected keyword argument "groups" for "group_by"' in output
-    assert 'has no attribute "GroupedAnalysisDomain"' in output
+    for line, text in enumerate(program.splitlines(), 1):
+        if "# invalid:" in text:
+            assert f"{source}:{line}: error:" in completed.stdout, (
+                text + "\n" + completed.stdout + completed.stderr
+            )
 
 
 def test_public_observation_allows_omitted_window_and_precise_narrowing(tmp_path: Path) -> None:
@@ -173,11 +89,15 @@ def test_public_observation_allows_omitted_window_and_precise_narrowing(tmp_path
 import marivo.analysis as mv
 import marivo.semantic as ms
 from ibis.common.deferred import Deferred
+from marivo.semantic.expressions import Entity
 from typing_extensions import assert_type
 
 session = mv.session.get_or_create('static', report_timezone='UTC')
 population = session.members(ms.ref.entity('sales.customer'))
 assert_type(population, mv.Population)
+resolved_entity = session.catalog.entities.get(ms.ref.entity('sales.customer'))
+assert_type(resolved_entity, Entity)
+assert_type(mv.identities(resolved_entity, keys=(('C1',),)), mv.Population)
 amount: Deferred
 region: Deferred
 query = session.observe({'revenue': amount.sum()}, by=(region,))
@@ -189,16 +109,30 @@ assert_type(population.project(by=()), mv.Population)
 assert_type(population.where(mv.in_population(population)), mv.Population)
 assert_type(session.observe({'revenue': amount.sum()}, during=None), mv.Query)
 
-def retained_receivers(numeric: mv.LogicalNumericRelation, category: mv.LogicalCategoryRelation) -> None:
-    selected = category.where(category.value.eq('east'))
-    assert_type(selected, mv.LogicalCategoryRelation)
-    assert_type(selected.execute(), mv.MaterializedCategoryRelation)
-    numeric.rollup().execute()
+def current_receivers(query: mv.Query, other: mv.Query, field: Deferred) -> None:
+    assert_type(query['revenue'], mv.Column)
+    assert_type(query.select({'net': query['revenue'] - 1}), mv.Query)
+    assert_type(query.where(query['revenue'] > 0), mv.Query)
+    assert_type(query.top(3, by=query['revenue']), mv.Query)
+    assert_type(query.reduce({'rows': mv.row_count(), 'mean': query['revenue'].mean()}), mv.Query)
+    assert_type(query.rollup(), mv.Query)
+    assert_type(query.drill(add=(field,)), mv.Query)
+    assert_type(query.compare(other, match=mv.ordinal(), how='outer'), mv.Query)
+    assert_type(mv.broadcast(other['revenue'], to=query), mv.Column)
+    assert_type(session.read(population, {'category': field}), mv.Query)
 """
     )
     root = PROJECT_ROOT
     completed = subprocess.run(
-        [str(root / ".venv/bin/mypy"), "--no-pretty", "--python-version", "3.10", str(source)],
+        [
+            str(root / ".venv/bin/mypy"),
+            "--no-pretty",
+            "--cache-dir",
+            str(tmp_path / "mypy-cache"),
+            "--python-version",
+            "3.10",
+            str(source),
+        ],
         cwd=root,
         env={**os.environ, "PYTHONPATH": str(root)},
         capture_output=True,

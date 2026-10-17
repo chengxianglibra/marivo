@@ -23,9 +23,13 @@ def test_parameter_semantics_and_real_producers() -> None:
             if descriptor.canonical_id != "Population":
                 assert "session.members" not in descriptor.producers, descriptor.canonical_id
     for target, producer in (
-        ("LogicalNumericRelation", "dsl.LogicalAnalysisDomain.observe"),
-        ("LogicalStatisticRelation", "dsl.LogicalNumericRelation.aggregate"),
-        ("LogicalSelectedNumericRelation", "dsl.LogicalNumericRelation.where"),
+        ("Query", "session.observe"),
+        ("Query", "session.read"),
+        ("Query", "session.values"),
+        ("Population", "session.members"),
+        ("Population", "Query.population"),
+        ("Artifact", "Query.execute"),
+        ("Column", "Query.__getitem__"),
     ):
         descriptor = registry.by_canonical_id(target)
         assert isinstance(descriptor, TypeInput) and producer in descriptor.producers
@@ -33,21 +37,6 @@ def test_parameter_semantics_and_real_producers() -> None:
         assert isinstance(callable_descriptor, CallableInput)
         assert target in str(
             callable_descriptor.bindings[0].implementation.__annotations__["return"]
-        )
-    for target, producer in (
-        ("dsl.NumericField", "LogicalNumericRelation"),
-        ("dsl.CategoryField", "LogicalCategoryRelation"),
-        ("dsl.BooleanField", "LogicalBooleanRelation"),
-        ("dsl.TemporalField", "LogicalTemporalRelation"),
-    ):
-        descriptor = registry.by_canonical_id(target)
-        owner = registry.by_canonical_id(producer)
-        assert isinstance(descriptor, TypeInput) and descriptor.producers == (producer,)
-        assert isinstance(owner, TypeInput)
-        assert any(
-            field.name == "value" and target.removeprefix("dsl.") in field.annotation
-            for binding in owner.bindings
-            for field in binding.fields
         )
 
 
@@ -57,41 +46,38 @@ def test_family_projection_preserves_every_canonical_member() -> None:
     for descriptor in registry.descriptors:
         if isinstance(descriptor, CallableInput) and descriptor.discovery_family:
             families.setdefault(descriptor.discovery_family, []).append(descriptor.canonical_id)
-    assert families
-    assert {family: set(members) for family, members in families.items()} == {
-        "dsl.LogicalNumericRelation.aggregate": {
-            "dsl.OriginalContinuation.aggregate",
-            "dsl.LogicalNumericRelation.aggregate",
-            "dsl.LogicalRatioRelation.aggregate",
-        },
-        "dsl.LogicalRatioRelation.rollup": {
-            "dsl.LogicalRatioRelation.rollup",
-        },
-    }
-    # Correlation receivers already share one native method, not separate variants.
-    for receiver in (mv.LogicalNumericRelation,):
-        assert (
-            registry.by_callable(receiver.correlate).canonical_id
-            == "dsl.NumericComparison.correlate"
-        )
-    for family, members in families.items():
-        descriptor = registry.by_canonical_id(family)
-        assert isinstance(descriptor, CallableInput) and descriptor.discovery_group
-        text, _, _ = render_help_text("analysis." + descriptor.discovery_group)
-        targets = re.findall(r"marivo.help\('analysis.([^']+)'\)", text)
-        assert all(targets.count(member) == 1 for member in members)
+    # Query owns each result operation once, without legacy receiver-family projections.
+    assert families == {}
+    for owner, methods in (
+        (mv.Query, ("select", "where", "reduce", "align", "compare", "rollup", "drill", "share")),
+        (mv.Column, ("sum", "mean", "divide", "is_null")),
+    ):
+        for method in methods:
+            target = owner.__name__ + "." + method
+            descriptor = registry.by_callable(getattr(owner, method))
+            assert isinstance(descriptor, CallableInput)
+            assert descriptor.canonical_id == target and descriptor.discovery_group
+            text, _, _ = render_help_text("analysis." + descriptor.discovery_group)
+            targets = re.findall(r"marivo.help\('analysis.([^']+)'\)", text)
+            assert targets.count(target) == 1
 
 
 @pytest.mark.parametrize("fault", ("input", "guidance", "family", "missing_family", "syntax"))
 def test_registration_rejects_incomplete_example_or_foreign_family(fault: str) -> None:
     registry = prepare()
     providers = list(registry.providers)
-    index, provider = next((i, p) for i, p in enumerate(providers) if p.owner == "runtime")
+    index, provider = next(
+        (i, p)
+        for i, p in enumerate(providers)
+        if any(
+            isinstance(d, CallableInput) and d.canonical_id == "Query.reduce" for d in p.descriptors
+        )
+    )
     descriptors = list(provider.descriptors)
     position, descriptor = next(
         (i, d)
         for i, d in enumerate(descriptors)
-        if isinstance(d, CallableInput) and d.canonical_id == "dsl.LogicalNumericRelation.aggregate"
+        if isinstance(d, CallableInput) and d.canonical_id == "Query.reduce"
     )
     if fault == "input":
         broken = replace(descriptor, example=replace(descriptor.example, requires=()))
@@ -100,9 +86,9 @@ def test_registration_rejects_incomplete_example_or_foreign_family(fault: str) -
             descriptor, parameters=(replace(descriptor.parameters[0], acquisition=""),)
         )
     elif fault == "family":
-        broken = replace(descriptor, discovery_family="dsl.NumericComparison.correlate")
+        broken = replace(descriptor, discovery_family="Query.compare")
     elif fault == "missing_family":
-        broken = replace(descriptor, discovery_family="dsl.Missing.aggregate")
+        broken = replace(descriptor, discovery_family="Missing.reduce")
     else:
         broken = replace(descriptor, example=replace(descriptor.example, code="result = ("))
     descriptors[position] = broken

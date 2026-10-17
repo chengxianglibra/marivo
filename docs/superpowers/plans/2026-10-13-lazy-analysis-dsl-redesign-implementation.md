@@ -118,12 +118,12 @@ ArtifactPublication 只含最终 pandas 输出和记录；writer 编码后由发
 | --- | --- | --- | --- |
 | R1 统一计算定义 | 模型和分析代码可构造、声明、收录同一表达式 | 现有语义 Ref/时间原语；本阶段无 Runtime 前置 | 已交付；原作者载体由 S0–S2 替换，历史记录仅供追溯 |
 | R2 最小观察闭环 | 多量观察 → pandas stage → 终端发布 → 按需读取 | R1 定义、政策、loader；先分开 BoundGraph 与 ArtifactData，再接 lowering/执行/存储 | 已交付普通观察本地闭环；R2.6 已提交，S2 适配新数值内核 |
-| R3 Population 与内部样本 | 字面量/逻辑名单与 (k,j) 求值可实际执行 | R1 域依赖记录；R2 观察绑定、stage、nullable 输出和 reader | 部分已交付（S3/S4）；按 R3.1–R3.5 补增量 |
-| R4 Query 组合与交接 | Column、筛选/Top-N/reduce/values、需求裁剪与完整导出 | R2 多量/检查/终端格式；R3 Population 绑定、LiteralInput 和依赖键交接 | 未开始 |
-| R5 对齐、比较与参照 | 多端点组合，presence、投影与广播 | R2 端点输出；R3 完整键/关系绑定；R4 Column/values 与 ReadLayout | 未开始 |
-| R6 原指标粒度与份额 | 合法 rollup、父选择后 drill、局部同输入 share | R2 组件/方法资格；R3 样本与键依赖；R4 选择/RequiredSlots；R5 映射与参照运输 | 未开始 |
-| R7 时间窗口 | 原指标滚动、累计、同比环比及实际日历覆盖检查 | R2 时间/来源绑定；R3 per/时间样本规约；基础窗口不依赖 R6；期间比较依赖 R5，空间上卷组合复用 R6，禁止窗口时间轴粗化 | 基础窗口已交付（S5）；期间对应与组合验收待完成 |
-| R8 公开切换与整体收尾 | 一套公开入口、同步文档和完整业务路径 | R1–R7 已贯通的行为、读取/失败边界、披露与验收记录 | 语义切换部分由 S6 完成；剩余 Query 能力与全局收尾待完成 |
+| R3 Population 与内部样本 | 字面量/逻辑名单与 (k,j) 求值可实际执行 | R1 域依赖记录；R2 观察绑定、stage、nullable 输出和 reader | 已完成本轮本地实施与验收；资格及未运行范围见 §9 |
+| R4 Query 组合与交接 | Column、筛选/Top-N/reduce/values、需求裁剪与完整导出 | R2 多量/检查/终端格式；R3 Population 绑定、LiteralInput 和依赖键交接 | 已完成本轮本地实施与验收；资格及未运行范围见 §9 |
+| R5 对齐、比较与参照 | 多端点组合，presence、投影与广播 | R2 端点输出；R3 完整键/关系绑定；R4 Column/values 与 ReadLayout | 已完成本轮本地实施与验收；资格及未运行范围见 §9 |
+| R6 原指标粒度与份额 | 合法 rollup、父选择后 drill、局部同输入 share | R2 组件/方法资格；R3 样本与键依赖；R4 选择/RequiredSlots；R5 映射与参照运输 | 已完成本轮本地实施与验收；资格及未运行范围见 §9 |
+| R7 时间窗口 | 原指标滚动、累计、同比环比及实际日历覆盖检查 | R2 时间/来源绑定；R3 per/时间样本规约；基础窗口不依赖 R6；期间比较依赖 R5，空间上卷组合复用 R6，禁止窗口时间轴粗化 | 已完成本轮本地实施与验收；资格及未运行范围见 §9 |
+| R8 公开切换与整体收尾 | 一套公开入口、同步文档和完整业务路径 | R1–R7 已贯通的行为、读取/失败边界、披露与验收记录 | 已完成本轮本地实施与验收；资格及未运行范围见 §9 |
 
 为避免阶段循环和职责后移，固定以下交接：
 
@@ -336,11 +336,11 @@ Catalog 条目/Query.contract 在构造期披露定义与依赖，Artifact 只�
 
 | 任务 | 状态 | 目标模块 | 实施内容与产物 |
 | --- | --- | --- | --- |
-| R3.1 域及唯一物化路径 | 主要入口已由 S3/S4 交付；剩余合同核对 | `analysis/dsl/population.py`、`analysis/materialization/{population_preparation,population_relations,query_population}.py` | 复用 identities、coordinates、product、集合运算、project、Query.population 和 Session.query 的当前实现及空/零轴域证据；核对完整轴/复合身份/角色版本/None 键与依赖闭包。只为后续消费者补缺，不重建域执行器；Query.population 不得因仅取键免除上游必要检查。 |
-| R3.2 明确来源域操作 | 来源选择/分类/关系像已交付；read 待实现 | `analysis/dsl/population.py`、`analysis/binding/coordinates.py`、`analysis/materialization/population_relations.py` | 复用 Session.members(where/at)、classify/image/preimage；补单身份 Population.read，保留身份并明确属性读取/版本锚点，返回新 Query。read 的 Column 选择与 R4.1 一起接通；投影已有轴不新增读取，显式关系路径仍为非空有序元组。 |
-| R3.3 绑定身份约束和域谓词 | by=Population/membership/域谓词已有路线；身份上下文待补 | `analysis/binding/{observe,membership,coordinates}.py`、`analysis/dsl/query.py`、`analysis/core/graph.py` | 补 Session.observe(members=...) 与 member_count 的显式身份域绑定；members 只限制贡献，membership 是可重叠成员分桶，两者不能互代。复用 by=Population 与 Population.where，保持无约束/空身份域/普通分组/完整输出的区别。完整闭合角色与 Session 归属进入依赖图，捕获域的选择期间不被外层观察覆盖；贡献约束遵循各自合法路径。 |
-| R3.4 执行内名单交接 | 已有 Literal/Source/Query 域路线；调度与需求传播待补 | `analysis/compiler/{graph_plan,optimization,populations}.py`、`analysis/materialization/graph_{execution,exchange,source_execution,local_execution}.py` | 复用现有域准备与 QueryKeys 的完整 pandas 键交接；将新增依赖统一纳入 stage 调度，补齐 RequiredSlots 的键/值/检查需求传播与消费者计数。计划预先记录键 schema、Ibis 类型化完整元组谓词模板和路线，上游求值后仅实例化；元组内 AND、元组间 OR，合法 None 字段键用 null-safe 相等。同源合格域可 semi-join；DuckDB datasource 先贯通实际路线。不用 memtable、裸 SQL、拆列 IN、业务临时表或拆批聚合，不静默全源拉取。只检查后端原生类型/表达式/查询限制，不加 Marivo 名单配额或预估内存准入；能力/原生限制拒绝复用架构 §9.2 的 DomainPreparationError。逐 datasource/类型准入并退役持久计算 reader；中间表在最后消费后释放。 |
-| R3.5 内部样本与状态采样规约 | 主要执行已由 S3 交付；随新增消费者补组合验收 | `analysis/binding/sampling.py`、`analysis/compiler/observation.py`、`analysis/methods/_sample_numeric.py` | 复用每个 (k,j) 完成子 Metric 后再规约/共同配对、零活动样本、状态采样与 first/last。Field 键像不因单量 NA 缩小；per(P) 排除域外贡献，by=P 仍检查覆盖。允许 product(Population, CalendarAxis) 提供权威内部完整桶样本；它不提供内部窗口端点，窗口仍由 during=CalendarAxis 绑定。Correspondence 先显式 observe/compare，再由 Query.reduce 消费。保留来源/样本方法资格，不把近似完成值视为可合并 sketch。 |
+| R3.1 域及唯一物化路径 | 已完成；本轮证据与资格见 §9 | `analysis/dsl/population.py`、`analysis/materialization/{population_preparation,population_relations,query_population}.py` | 复用 identities、coordinates、product、集合运算、project、Query.population 和 Session.query 的当前实现及空/零轴域证据；核对完整轴/复合身份/角色版本/None 键与依赖闭包。只为后续消费者补缺，不重建域执行器；Query.population 不得因仅取键免除上游必要检查。 |
+| R3.2 明确来源域操作 | 已完成；本轮证据与资格见 §9 | `analysis/session/core.py`、`analysis/dsl/population.py`、`analysis/binding/coordinates.py`、`analysis/materialization/population_relations.py` | 复用 Session.members(where/at)、classify/image/preimage；按 2026-10-17 用户决策，唯一属性读取入口为 Session.read(population, fields)，接收单身份 Population，显式绑定无主字面量域并检查已有 Session 归属。保留身份与属性读取/版本锚点，返回新 Query；不提供 Population.read，不自动选择或恢复 Session。read 的 Column 选择与 R4.1 一起接通；投影已有轴不新增读取，显式关系路径仍为非空有序元组。 |
+| R3.3 绑定身份约束和域谓词 | 已完成；本轮证据与资格见 §9 | `analysis/binding/{observe,membership,coordinates}.py`、`analysis/dsl/query.py`、`analysis/core/graph.py` | 补 Session.observe(members=...) 与 member_count 的显式身份域绑定；members 只限制贡献，membership 是可重叠成员分桶，两者不能互代。复用 by=Population 与 Population.where，保持无约束/空身份域/普通分组/完整输出的区别。完整闭合角色与 Session 归属进入依赖图，捕获域的选择期间不被外层观察覆盖；贡献约束遵循各自合法路径。 |
+| R3.4 执行内名单交接 | 已完成；本轮证据与资格见 §9 | `analysis/compiler/{graph_plan,optimization,populations}.py`、`analysis/materialization/graph_{execution,exchange,source_execution,local_execution}.py` | 复用现有域准备与 QueryKeys 的完整 pandas 键交接；将新增依赖统一纳入 stage 调度，补齐 RequiredSlots 的键/值/检查需求传播与消费者计数。计划预先记录键 schema、Ibis 类型化完整元组谓词模板和路线，上游求值后仅实例化；元组内 AND、元组间 OR，合法 None 字段键用 null-safe 相等。同源合格域可 semi-join；DuckDB datasource 先贯通实际路线。不用 memtable、裸 SQL、拆列 IN、业务临时表或拆批聚合，不静默全源拉取。只检查后端原生类型/表达式/查询限制，不加 Marivo 名单配额或预估内存准入；能力/原生限制拒绝复用架构 §9.2 的 DomainPreparationError。逐 datasource/类型准入并退役持久计算 reader；中间表在最后消费后释放。 |
+| R3.5 内部样本与状态采样规约 | 已完成；本轮证据与资格见 §9 | `analysis/binding/sampling.py`、`analysis/compiler/observation.py`、`analysis/methods/_sample_numeric.py` | 复用每个 (k,j) 完成子 Metric 后再规约/共同配对、零活动样本、状态采样与 first/last。Field 键像不因单量 NA 缩小；per(P) 排除域外贡献，by=P 仍检查覆盖。允许 product(Population, CalendarAxis) 提供权威内部完整桶样本；它不提供内部窗口端点，窗口仍由 during=CalendarAxis 绑定。Correspondence 先显式 observe/compare，再由 Query.reduce 消费。保留来源/样本方法资格，不把近似完成值视为可合并 sketch。 |
 
 **必要验收：**
 
@@ -368,11 +368,11 @@ R2 已切换的 nullable 物理布局在此扩展到全部结果表达式；删�
 
 | 任务 | 状态 | 目标模块 | 实施内容与产物 |
 | --- | --- | --- | --- |
-| R4.1 同域 Column 与选择 | 待开始 | `analysis/dsl/{column,query}.py`、`analysis/core/rules/query.py`、`analysis/compiler/queries.py` | 实现有限算术、Column.divide、比较、is_null、coord、select、where，绑定精确输入域；divide 与来源阶段共用默认 null/显式 error 的节点政策；where 只选 True、NA 不入选，保留完整键/必要检查。标量单位按使用位置解释，已知单位冲突在 Column 构造报 AnalysisError；结果域谓词只投影已有坐标。where/top 等后继的 QueryKeys 接回 R3 域依赖路径，不执行后再导入 Artifact。 |
-| R4.2 Top-N 与展示次序 | 待开始 | `analysis/methods/local.py`、`analysis/core/artifact_data.py`、`analysis/materialization/graph_storage.py` | 全局/分组 Top-N 的评分、分区和选中行消费同一实际输入；NA 排末，同分按完整键决胜。order part 只保存 receipt 绑定的主表行号排列，完整键留在主表，读取不重建键索引；where/select 保序，重 top 重排，改坐标恢复规范序。 |
-| R4.3 最小 reduce 与 values | 待开始 | `analysis/core/rules/query.py`、`analysis/methods/{registry,numeric_state,local}.py`、`analysis/compiler/queries.py` | Column.sum/mean 与无列 row_count 由 reduce 绑定，各项独立 mask，不取全列非空交集；结果 ignore-NA 不继承来源 nulls 政策。values 通过 R3 LiteralInput 规范化，columns 映射唯一声明单位，不接 DataFrame 回灌。 |
-| R4.4 有限需求传播与局部融合 | 待开始 | `analysis/compiler/{optimization,graph_plan,graph_lowering}.py`、`analysis/core/local_laws.py`、`analysis/materialization/graph_local_execution.py` | 按架构 §8.4 顺序扩展 RequiredSlots → 精确选路 → 执行内投影/局部融合 → 同根来源合并 → nullable lowering；复用 local_laws，不另建优化 IR/registry。将选择/格子规约融合组、原节点/检查位置写入计划，Runtime 只执行；保留多消费者屏障。Deferred 分支完整进入静态/schema 检查，动态数值检查按实际分支需求域执行；裁列或只取键不能免除上游必要失败，也不能强迫未选分支执行动态检查。同根组件合并限相同贡献/期间/政策及已准入数值合同，不能由实数结合律或采用 fsum 授权浮点重排，缺少依据就不融合；原指标融合在 R6 扩展。按 §8.5 实现 invocation 内编译复用，registry/绑定变化即失效，不跨 execute 缓存结果。 |
-| R4.5 次序阅读与完整 pandas 导出 | 待开始 | `analysis/materialization/{graph_reading,graph_dataset,pandas_export}.py`、`analysis/core/artifact_data.py` | PreviewRead/ExportRead 共享 ReadLayout；Top-N 预览按 order part 定位必要行组并恢复展示序，导出沿规范完整键序。固定 RangeIndex、kind/name 两层列与纯数据 attrs，精确 dtype/空表/仅键和隔离副本完整保留；读取/转换/实际分配失败沿现有错误边界处理，不截断、不刷新来源/Catalog。 |
+| R4.1 同域 Column 与选择 | 已完成；本轮证据与资格见 §9 | `analysis/dsl/{column,query}.py`、`analysis/core/rules/query.py`、`analysis/compiler/queries.py` | 实现有限算术、Column.divide、比较、is_null、coord、select、where，绑定精确输入域；divide 与来源阶段共用默认 null/显式 error 的节点政策；where 只选 True、NA 不入选，保留完整键/必要检查。标量单位按使用位置解释，已知单位冲突在 Column 构造报 AnalysisError；结果域谓词只投影已有坐标。where/top 等后继的 QueryKeys 接回 R3 域依赖路径，不执行后再导入 Artifact。 |
+| R4.2 Top-N 与展示次序 | 已完成；本轮证据与资格见 §9 | `analysis/methods/local.py`、`analysis/core/artifact_data.py`、`analysis/materialization/graph_storage.py` | 全局/分组 Top-N 的评分、分区和选中行消费同一实际输入；NA 排末，同分按完整键决胜。order part 只保存 receipt 绑定的主表行号排列，完整键留在主表，读取不重建键索引；where/select 保序，重 top 重排，改坐标恢复规范序。 |
+| R4.3 最小 reduce 与 values | 已完成；本轮证据与资格见 §9 | `analysis/core/rules/query.py`、`analysis/methods/{registry,numeric_state,local}.py`、`analysis/compiler/queries.py` | Column.sum/mean 与无列 row_count 由 reduce 绑定，各项独立 mask，不取全列非空交集；结果 ignore-NA 不继承来源 nulls 政策。values 通过 R3 LiteralInput 规范化，columns 映射唯一声明单位，不接 DataFrame 回灌。 |
+| R4.4 有限需求传播与局部融合 | 已完成；本轮证据与资格见 §9 | `analysis/compiler/{optimization,graph_plan,graph_lowering}.py`、`analysis/core/local_laws.py`、`analysis/materialization/graph_local_execution.py` | 按架构 §8.4 顺序扩展 RequiredSlots → 精确选路 → 执行内投影/局部融合 → 同根来源合并 → nullable lowering；复用 local_laws，不另建优化 IR/registry。将选择/格子规约融合组、原节点/检查位置写入计划，Runtime 只执行；保留多消费者屏障。Deferred 分支完整进入静态/schema 检查，动态数值检查按实际分支需求域执行；裁列或只取键不能免除上游必要失败，也不能强迫未选分支执行动态检查。同根组件合并限相同贡献/期间/政策及已准入数值合同，不能由实数结合律或采用 fsum 授权浮点重排，缺少依据就不融合；原指标融合在 R6 扩展。按 §8.5 实现 invocation 内编译复用，registry/绑定变化即失效，不跨 execute 缓存结果。 |
+| R4.5 次序阅读与完整 pandas 导出 | 已完成；本轮证据与资格见 §9 | `analysis/materialization/{graph_reading,graph_dataset,pandas_export}.py`、`analysis/core/artifact_data.py` | PreviewRead/ExportRead 共享 ReadLayout；Top-N 预览按 order part 定位必要行组并恢复展示序，导出沿规范完整键序。固定 RangeIndex、kind/name 两层列与纯数据 attrs，精确 dtype/空表/仅键和隔离副本完整保留；读取/转换/实际分配失败沿现有错误边界处理，不截断、不刷新来源/Catalog。 |
 
 **必要验收：**
 
@@ -394,9 +394,9 @@ R2 已切换的 nullable 物理布局在此扩展到全部结果表达式；删�
 
 | 任务 | 状态 | 目标模块 | 实施内容与产物 |
 | --- | --- | --- | --- |
-| R5.1 align 与完整对应 | 待开始 | `analysis/binding/coordinates.py`、`analysis/core/rules/query.py`、`analysis/compiler/queries.py` | 同绑定 exact/outer、日历 ordinal 和声明关系 corresponding 在消费处绑定两侧实际轴；完整键唯一/覆盖检查属于计划。ordinal 要求相同 Grain、相容日历与完整名义桶；exact 桶数相同，桶数不同时 outer 保留日历尾部；结果过滤不压缩日历序号，完整键仍按 how 检查，不重采样。关系值按 R3 明确依赖读取；保存独立 boolean presence 与端点投影，NA 值不决定 presence，Artifact 不参与绑定。 |
-| R5.2 compare 与端点权威 | 待开始 | `analysis/methods/comparison.py`、`analysis/dsl/query.py`、`analysis/core/artifact_data.py`、`analysis/materialization/graph_{storage,reading}.py` | 同名量产出 current/baseline、absolute/relative；检查类型、单位、已知语义约束和完整对应，业务可比性由脚本判断。relative 为差值除以基期绝对值，zero_denominator 默认 null、显式 error；仅控制新 relative，不覆盖输入子式，默认零基期保留有效 absolute；align 保持 left/right。输出保存值、presence/投影，不存细状态或可回放来源，compare.drill 不准入。 |
-| R5.3 broadcast 与显式参照 | 待开始 | `analysis/methods/references.py`、`analysis/core/rules/query.py`、`analysis/compiler/{queries,optimization}.py` | 以完整且唯一的目标键到参照键投影运输值；零轴/分组参照共用 R4 values 或来源 Query 路线，不按行位置或同名字段猜映射。RequiredSlots 保留映射/presence 与检查支持；普通比值不获得 share 的贡献支持证明。 |
+| R5.1 align 与完整对应 | 已完成；本轮证据与资格见 §9 | `analysis/binding/coordinates.py`、`analysis/core/rules/query.py`、`analysis/compiler/queries.py` | 同绑定 exact/outer、日历 ordinal 和声明关系 corresponding 在消费处绑定两侧实际轴；完整键唯一/覆盖检查属于计划。ordinal 要求相同 Grain、相容日历与完整名义桶；exact 桶数相同，桶数不同时 outer 保留日历尾部；结果过滤不压缩日历序号，完整键仍按 how 检查，不重采样。关系值按 R3 明确依赖读取；保存独立 boolean presence 与端点投影，NA 值不决定 presence，Artifact 不参与绑定。 |
+| R5.2 compare 与端点权威 | 已完成；本轮证据与资格见 §9 | `analysis/methods/comparison.py`、`analysis/dsl/query.py`、`analysis/core/artifact_data.py`、`analysis/materialization/graph_{storage,reading}.py` | 同名量产出 current/baseline、absolute/relative；检查类型、单位、已知语义约束和完整对应，业务可比性由脚本判断。relative 为差值除以基期绝对值，zero_denominator 默认 null、显式 error；仅控制新 relative，不覆盖输入子式，默认零基期保留有效 absolute；align 保持 left/right。输出保存值、presence/投影，不存细状态或可回放来源，compare.drill 不准入。 |
+| R5.3 broadcast 与显式参照 | 已完成；本轮证据与资格见 §9 | `analysis/methods/references.py`、`analysis/core/rules/query.py`、`analysis/compiler/{queries,optimization}.py` | 以完整且唯一的目标键到参照键投影运输值；零轴/分组参照共用 R4 values 或来源 Query 路线，不按行位置或同名字段猜映射。RequiredSlots 保留映射/presence 与检查支持；普通比值不获得 share 的贡献支持证明。 |
 
 **必要验收：**
 
@@ -421,11 +421,11 @@ R5.2 的一般 compare 不要求两侧来自同一 Metric；复用来源与字�
 
 | 任务 | 状态 | 目标模块 | 实施内容与产物 |
 | --- | --- | --- | --- |
-| R6.1 运输实际充分信息 | 待开始 | `analysis/core/model.py`、`analysis/compiler/optimization.py`、`analysis/methods/numeric_state.py`、`analysis/materialization/graph_exchange.py` | 扩展反向需求到按量组件、政策、完整键与支持事实；来源 mean/weighted_mean 的组件、Ibis 配方中的除法、PerReduce 等语义边界分别准入。只将键、绑定与运输规则相同的组件放在同一块；共享物理组件取消费者需求并集，不按标签去重。必要内部身份/细状态仅为实际消费者保留，不能凭投影恢复丢失分组名单；最后消费释放，不进入 Artifact。 |
-| R6.2 原指标 rollup | 待开始 | `analysis/core/rules/grain.py`、`analysis/compiler/{observation,queries}.py`、`analysis/methods/numeric_state.py` | 合法 coarsen/现有轴建立完整唯一映射；合并选中坐标的实际贡献/充分组件再 finish 原公式，保留细网格完成检查，不替换为粗 observe。常数平移、ratio/per 按实际配方依赖重算；窗口量仅允许合格空间上卷，必须原样保留已绑定时间轴及每个端点/W(t)，粗化、替换或删除时间轴均拒绝；完整输入合格即可直接求值，不强制所有 reducer 实现 merge。 |
-| R6.3 来源 Query drill | 待开始 | `analysis/binding/{observe,coordinates}.py`、`analysis/core/rules/grain.py`、`analysis/compiler/{observation,populations}.py` | 父域 where/top 的选择先完成，再读取所选纤维；保留父检查、上下文和参照，新分类检查限所选父纤维。来源角色进入真实 stage 依赖，Artifact/compare/任意 align/reduce/份额派生输出不借 lineage 回源。 |
-| R6.4 自动/分组 share | 待开始 | `analysis/methods/references.py`、`analysis/core/rules/query.py`、`analysis/compiler/{graph_plan,queries}.py`、`analysis/methods/local.py` | 唯一 Query.share 保留原列并新增份额列；zero_denominator 默认 null、显式 error，仅作用新份额；先将接收者及必要组件形成一个实际 pandas 输入，再构造分组原量总体、完整分母映射，检查可加性、分子贡献包含及单位/政策。后置 where/top 不改分母；缺共同输入/组件路线明确拒绝。Artifact 只保存显式输出和实际事实，份额列不继承原量 rollup/drill 权。 |
-| R6.5 扩展原量融合与同输入屏障 | 待开始 | `analysis/compiler/optimization.py`、`analysis/core/local_laws.py`、`analysis/materialization/graph_local_execution.py` | 将原量规约融合准入从 Runtime 移到计划；复用 local_laws 的实现编号 L8 等现有检查（理论对应核心 L6，编号表由核心文档拥有），编码组件需求、mask/键运输、原检查定位和同输入物化边界。保留多消费者；share/filter、per、原量完成检查不可交换。解释采用/拒绝规则及屏障，不新增公开优化开关。 |
+| R6.1 运输实际充分信息 | 已完成；本轮证据与资格见 §9 | `analysis/core/model.py`、`analysis/compiler/optimization.py`、`analysis/methods/numeric_state.py`、`analysis/materialization/graph_exchange.py` | 扩展反向需求到按量组件、政策、完整键与支持事实；来源 mean/weighted_mean 的组件、Ibis 配方中的除法、PerReduce 等语义边界分别准入。只将键、绑定与运输规则相同的组件放在同一块；共享物理组件取消费者需求并集，不按标签去重。必要内部身份/细状态仅为实际消费者保留，不能凭投影恢复丢失分组名单；最后消费释放，不进入 Artifact。 |
+| R6.2 原指标 rollup | 已完成；本轮证据与资格见 §9 | `analysis/core/rules/grain.py`、`analysis/compiler/{observation,queries}.py`、`analysis/methods/numeric_state.py` | 合法 coarsen/现有轴建立完整唯一映射；合并选中坐标的实际贡献/充分组件再 finish 原公式，保留细网格完成检查，不替换为粗 observe。常数平移、ratio/per 按实际配方依赖重算；窗口量仅允许合格空间上卷，必须原样保留已绑定时间轴及每个端点/W(t)，粗化、替换或删除时间轴均拒绝；完整输入合格即可直接求值，不强制所有 reducer 实现 merge。 |
+| R6.3 来源 Query drill | 已完成；本轮证据与资格见 §9 | `analysis/binding/{observe,coordinates}.py`、`analysis/core/rules/grain.py`、`analysis/compiler/{observation,populations}.py` | 父域 where/top 的选择先完成，再读取所选纤维；保留父检查、上下文和参照，新分类检查限所选父纤维。来源角色进入真实 stage 依赖，Artifact/compare/任意 align/reduce/份额派生输出不借 lineage 回源。 |
+| R6.4 自动/分组 share | 已完成；本轮证据与资格见 §9 | `analysis/methods/references.py`、`analysis/core/rules/query.py`、`analysis/compiler/{graph_plan,queries}.py`、`analysis/methods/local.py` | 唯一 Query.share 保留原列并新增份额列；zero_denominator 默认 null、显式 error，仅作用新份额；先将接收者及必要组件形成一个实际 pandas 输入，再构造分组原量总体、完整分母映射，检查可加性、分子贡献包含及单位/政策。后置 where/top 不改分母；缺共同输入/组件路线明确拒绝。Artifact 只保存显式输出和实际事实，份额列不继承原量 rollup/drill 权。 |
+| R6.5 扩展原量融合与同输入屏障 | 已完成；本轮证据与资格见 §9 | `analysis/compiler/optimization.py`、`analysis/core/local_laws.py`、`analysis/materialization/graph_local_execution.py` | 将原量规约融合准入从 Runtime 移到计划；复用 local_laws 的实现编号 L8 等现有检查（理论对应核心 L6，编号表由核心文档拥有），编码组件需求、mask/键运输、原检查定位和同输入物化边界。保留多消费者；share/filter、per、原量完成检查不可交换。解释采用/拒绝规则及屏障，不新增公开优化开关。 |
 
 **必要验收：**
 
@@ -447,8 +447,8 @@ R5.2 的一般 compare 不要求两侧来自同一 Metric；复用来源与字�
 
 | 任务 | 状态 | 目标模块 | 实施内容与产物 |
 | --- | --- | --- | --- |
-| R7.1 窗口与完整贡献范围 | 基础能力已由 S5 交付；剩余组合缺口待核对 | `_definition/windows.py`、`analysis/dsl/windows.py`、`analysis/binding/windows.py`、现有 observation/compiler | 复用 all_history、trailing_duration、trailing_periods、since、to_date 无轴规则与 Metric.window；observe 固定端点和 W(t)，每个端点从完整贡献重算公式。复用 Grain/PeriodCalendar/时区、重叠窗口 occurrence 与完整日历检查，只补新 Query 消费者需要的绑定/输出；不新增 Query.window、ObservationWindow during 输入或第二套窗口执行器，不以滑动摘要为前置。 |
-| R7.2 期间对应与输出边界 | 待开始 | `analysis/binding/coordinates.py`、`analysis/methods/comparison.py`、`analysis/compiler/{windows,queries}.py`、`analysis/core/artifact_data.py` | 接通 period_offset、previous_year 与受约束 current 时间轴；各端先求窗口再对应；日粒度闰日无对应时 exact 失败、outer 保留缺侧，完整月/季/年含闰日仍可同名配对，不减 365 天或夹日。非法包含/粗化失败；换窗口构造新 observe。输出保存绝对坐标、时区/实际边界与投影，不存窗口/日历对象；沿同一 reader 重开。 |
+| R7.1 窗口与完整贡献范围 | 已完成；本轮证据与资格见 §9 | `_definition/windows.py`、`analysis/dsl/windows.py`、`analysis/binding/windows.py`、现有 observation/compiler | 复用 all_history、trailing_duration、trailing_periods、since、to_date 无轴规则与 Metric.window；observe 固定端点和 W(t)，每个端点从完整贡献重算公式。复用 Grain/PeriodCalendar/时区、重叠窗口 occurrence 与完整日历检查，只补新 Query 消费者需要的绑定/输出；不新增 Query.window、ObservationWindow during 输入或第二套窗口执行器，不以滑动摘要为前置。 |
+| R7.2 期间对应与输出边界 | 已完成；本轮证据与资格见 §9 | `analysis/binding/coordinates.py`、`analysis/methods/comparison.py`、`analysis/compiler/{windows,queries}.py`、`analysis/core/artifact_data.py` | 接通 period_offset、previous_year 与受约束 current 时间轴；各端先求窗口再对应；日粒度闰日无对应时 exact 失败、outer 保留缺侧，完整月/季/年含闰日仍可同名配对，不减 365 天或夹日。非法包含/粗化失败；换窗口构造新 observe。输出保存绝对坐标、时区/实际边界与投影，不存窗口/日历对象；沿同一 reader 重开。 |
 
 **必要验收：**
 
@@ -471,10 +471,10 @@ Cum 的数学零延拓不生成期初业务格子或补缺测；细桶值求和�
 
 | 任务 | 状态 | 目标模块 | 实施内容与产物 |
 | --- | --- | --- | --- |
-| R8.1 完成公开切换和旧入口退出 | 语义切换及部分旧入口清理已完成；剩余消费者核对 | `semantic/__init__.py`、`analysis/{__init__,_public}.py`、旧 runtime_metric/public_dsl 及其实际消费者 | 收齐各阶段已替换的工厂、旧政策、包装与别名；确认 Query/Artifact/Population/Column 直接导向唯一实现。复核依赖后删除无用 fixed/Cell/图恢复路径，不批量删除仍有内部消费者的无关算法。无 Artifact DSL、MetricSamples 顶层导航或长期转发适配。 |
-| R8.2 收齐披露与类型合同 | 语义侧已同步；Query 增量待实现 | `semantic/_capabilities/`、`analysis/_capabilities/`、`_help/`；`tests/typing`、`tests/surface` | 核对各阶段 docstring/Help/错误/CLI 和 exports、可达性、Help 输出预算；目标公开 mv.TimeScope、mv.Population 支持示例注解，TimeScope 复用既有导出，支持类型仍随所属能力发现。具体参数/返回类型与跨阶段负向 typing 一致。Catalog 条目与 Population/Query.contract 读所属纯规则；Deferred 不新增 .contract/.show 包装；Artifact 只读已提交输出，无 contract/续算提示。 |
-| R8.3 同步当前文档与工作流 | 语义当前文档已同步；分析增量/受保护工作流待核对 | 当前 semantic/analysis owner、`docs/api`、英中 latest 示例；受保护文件见 §7 | 收齐随行为更新的文档，清除旧构造/保存/续算说明；核对在对应阶段准备的技能/AGENTS 同步稿，仅在明确授权范围内编辑。提案状态只随真实能力推进，未授权项保留待办。 |
-| R8.4 完成集成验收 | 待开始 | §5 的现有测试 owner、Makefile 入口及执行记录 | 六条业务链与 §5.5 架构条件收齐后执行 make check-agent；受影响远端特化路线单独补 Runtime。列明真实已验类型/输入/后端，汇总通过/失败/未运行/未完成；不追加发布或全后端矩阵。 |
+| R8.1 完成公开切换和旧入口退出 | 已完成；本轮证据与资格见 §9 | `semantic/__init__.py`、`analysis/{__init__,_public}.py`、旧 runtime_metric/public_dsl 及其实际消费者 | 收齐各阶段已替换的工厂、旧政策、包装与别名；确认 Query/Artifact/Population/Column 直接导向唯一实现。复核依赖后删除无用 fixed/Cell/图恢复路径，不批量删除仍有内部消费者的无关算法。无 Artifact DSL、MetricSamples 顶层导航或长期转发适配。 |
+| R8.2 收齐披露与类型合同 | 已完成；本轮证据与资格见 §9 | `semantic/_capabilities/`、`analysis/_capabilities/`、`_help/`；`tests/typing`、`tests/surface` | 核对各阶段 docstring/Help/错误/CLI 和 exports、可达性、Help 输出预算；目标公开 mv.TimeScope、mv.Population 支持示例注解，TimeScope 复用既有导出，支持类型仍随所属能力发现。具体参数/返回类型与跨阶段负向 typing 一致。Catalog 条目与 Population/Query.contract 读所属纯规则；Deferred 不新增 .contract/.show 包装；Artifact 只读已提交输出，无 contract/续算提示。 |
+| R8.3 同步当前文档与工作流 | 已完成；本轮证据与资格见 §9 | 当前 semantic/analysis owner、`docs/api`、英中 latest 示例；受保护文件见 §7 | 收齐随行为更新的文档，清除旧构造/保存/续算说明；核对在对应阶段准备的技能/AGENTS 同步稿，仅在明确授权范围内编辑。提案状态只随真实能力推进，未授权项保留待办。 |
+| R8.4 完成集成验收 | 已完成；本轮证据与资格见 §9 | §5 的现有测试 owner、Makefile 入口及执行记录 | 六条业务链与 §5.5 架构条件收齐后执行 make check-agent；受影响远端特化路线单独补 Runtime。列明真实已验类型/输入/后端，汇总通过/失败/未运行/未完成；不追加发布或全后端矩阵。 |
 
 **必要验收：**
 
@@ -699,3 +699,320 @@ AGENTS 及两个 packaged skills 的编辑受仓库明确授权规则保护：
 架构 §15 的条件都有收齐阶段，文件链接/锚点/围栏有效，既有工作树修改不被覆盖。
 计划检查不运行目标 DSL，不将旧 oracle 计数或历史文档检查沿用为实现验收；不据此声称默认测试、Runtime 或性能通过。
 本文件为实施台账，按路径核对当前任务和证据；历史阶段记录不代表当前验收状态。
+
+## 9. R3–R8 团队实施记录（2026-10-17）
+
+本节记录本次实际实施；上文日期化历史证据及“本次仅修改计划”描述属于上一轮计划修订，不代表本轮执行状态。
+起点为 `24bb24d8083e86815b256e425dce087baed0d3e1`，启动时工作树干净。
+
+| 职责 | 执行者 | 边界 |
+| --- | --- | --- |
+| 协调与提交 | 主 agent | 维护本台账、依赖顺序、候选冻结、审查轮次、证据与 scoped commit |
+| 实现 | implementation，gpt-6.1-sol / xhigh | 主源码、配套新测试、类型、原生 Help/exports 与跨模块集成；不自行提交 |
+| 现有测试迁移 | test_migration，gpt-6.1-sol / xhigh | 已列基线失败的现有 pytest 模块；保留业务/数值 oracle，排除主实现者的新能力测试与共享 fixture；不自行提交 |
+| 统计测试迁移 | statistics_migration，gpt-6.1-sol / xhigh | `tests/analysis/statistics/`（排除 runs 两文件）；保留数值 oracle，将退休统计 DSL 场景迁为真实 Query → Artifact → pandas |
+| 时间测试迁移 | time_migration，gpt-6.1-sol / xhigh | temporal 三模块、numeric time/period 三模块、local_check_inheritance 与 period guidance；保留时间/时区/日历业务 oracle 和实际冷读 |
+| 比较与参照测试迁移 | comparison_migration，gpt-6.1-sol / xhigh | numeric/comparison_runtime 与 references 两模块；保留各类数值、完整键、NA/presence 与冷读 oracle |
+| 对应内核与产品文档 | correspondence，gpt-6.1-sol / xhigh | 新增 correspondence 定义/DSL/绑定、query_comparison 内核及新测试；内核交付后同步 owning specs/docs/api/英中 latest，主实现者负责 Query/调度/存储集成 |
+| 原指标充分信息 | original_metrics，gpt-6.1-sol / xhigh | 新增 compiler/original、methods/query_original、materialization/query_components、query_drill 与独立新测试；负责完整版本身份的 drill 属性模板，主实现者集成实际来源/调度/Query |
+| 独立审查 | review，gpt-6-astra / high | 只读评审冻结候选；正式审查至多两轮 |
+| 独立验收 | acceptance，gpt-6-luna / max | 隔离基线与真实本地路线验收；不修改产品以使验收通过 |
+
+执行顺序为 R3/R4 → R5 → R6，并在 R5 对应能力具备后收齐 R7，最后完成 R8。
+已交付 S0–S6/R1/R2 仅按增量影响复用和复验；不重新实现旧架构。
+正式审查在完整候选冻结后启动，开发期合同核对和基线调查不计正式轮次。
+每轮记录候选、发现和修复；第二轮后如仍有未关闭 P2 及以上问题，不提交、不增加第三轮审查，交用户决策。
+
+| 阶段 | 本轮状态 | 证据 / 待办 |
+| --- | --- | --- |
+| 基线与验收准备 | 精确基线已验证 | 归档接入 `.venv` 且导入来自归档；3964 passed、504 failed、10 setup errors，82.83 秒。摘要/节点：`/tmp/marivo-r3-r8-acceptance.b0hrWX/baseline-summary.md`、`baseline-failure-nodeids.txt`，仅为本地临时证据 |
+| R3 | 已完成本轮本地实施与验收 | Session.read、resolved Entity、复合 coord 准备期拒绝、完整键/字面量修复及多日历输出均通过 |
+| R4 | 已完成本轮本地实施与验收 | Column/Top/reduce/values 与有限优化通过；Decimal、Duration 组合、NA/zero 和键排序问题关闭 |
+| R5 | 已完成本轮本地实施与验收 | 比较/presence/参照通过；直接及保留端点日历 coarsen 广播、缺侧/歧义/覆盖边界通过 |
+| R6 | 已完成本轮本地实施与验收 | 原量/rollup/drill/share、同来源读取 2→1 与 L8 stage 5→3 在有限准入路线通过 |
+| R7 | 已完成本轮本地实施与验收 | 六链时间、DST/实际边界、单及多日历独立冷读通过；不宣称远端 Runtime |
+| R8 | 已完成本轮本地实施与验收 | 精确 48 出口、Help/类型/英中文档及授权技能一致；最终 make check-agent 4588 默认通过 |
+| 正式审查 | 2 / 2 完成 | 第一轮九项及第二轮两个组合残留已修复；核心残留由独立验收关闭，无第三轮正式审查 |
+| 独立验收 | 全部通过 | 业务链与冷读 7/7、身份 6/6、发现与残留 probes 27/27；最终产品源码 SHA 等价重绑定 |
+| 提交门禁 | 已满足 | P2 及以上已关闭，正常 hooks 后仅本地提交；提交标识以 Git 记录和最终回复为准，不推送 |
+
+受保护 AGENTS.md 不需修改。用户已明确授权两个 packaged skills 的终端 Artifact/Query 工作流同步，
+correspondence 按 `/tmp/marivo-r3-r8-workflow/packaged-skills.patch` 及最终合同核对后应用；不改 AGENTS.md。
+基线失败的存在不降低 R8 的最终全绿标准；相关失败迁移、真实回归与未运行范围分别记录。
+首次归档因工具链接缺失产生的 3961/507/10 计数已撤回；修复后的 514 个失败/错误节点全部命中旧清单，
+零个清单外失败，六个旧节点当前不失败或未收集。此节点对照不证明失败原因完全相同，也不是全绿。
+旧清单的四项远端 preview 问题当前已消退：三项 Metric 参数已退出，剩余 Entity/Measure deadline 用例通过；
+本轮不因此扩张 DuckDB-only Metric preview 资格。
+
+用户已决策：R3.2 改为唯一入口 `session.read(population, fields)`，显式确定 Session 归属；
+不保留 `Population.read`，不隐式选择或恢复 Session。该决定解决无主字面量域的执行归属缺口，
+目标合同、当前文档、Help、英中示例和测试随实现同步。
+
+开发期测试迁移证据（非独立审查/验收）：`test_computation_runtime` 9 passed；
+`test_metric_observation_resolution` 与 `test_expression_entity` 含 slow 冷读共 5 passed；
+两个 semantic cumulative 模块按原生 `Metric.window` 迁移后共 36 passed。
+`test_file_admission` 7 passed / 3 failed（HTTP pre-open），runs 迁 pandas 后 2 passed / 2 failed
+（QueryKeys 到日历再观察）；失败保持暴露，由实现 owner 修复，不新增 skip/xfail。
+后续修复回归：`test_query_results.py`（八项新能力）、`test_file_admission.py` 与
+`test_analysis_runs.py` 合计 22 passed / 1 deselected，3.01 秒，已覆盖上述动态来源与 HTTP pre-open 问题。
+该 deselected 的认证日历冷读用例随后单独运行：
+`test_analysis_runs.py::test_offline_runs_keep_calendar_cold_recovery -m slow -n0` 1 passed；
+真实 Parquet、删除模型并断源、两个独立读取进程保留认证 1/2/3 日桶边界，pandas 区间结果为 count=2、duration=5 days。
+后续十一模块合并 focused run 92 passed（不含默认排除的 slow）；身份观察单项另 1 passed。
+关系测试当前四项通过、两项外部时间分类范围问题待修；members consumer 当前四项通过、一项来源空身份键待核实。
+相关 slow 后续合并 2 passed：认证日历冷读与完整机会域 cohort 冷读；不据此声明全部 slow/Runtime 通过。
+R6 内核后续 12 passed：`test_per_keeps_full_internal_identity` 明确覆盖 400/200；
+`test_original_constant_and_ratio_recompute_the_formula` 明确细格 110+310=420、原式上卷 410；
+窗口空间上卷保留两个端点为 310/340；成员身份重新分组为 2/3、share 为 2/3 与 1/3，
+组合 sum/member_count 为 340/3。完整细坐标支持仅保留于执行内 ComponentFrame.domain；公开集成与 drill 继续。
+R6 后续 16 passed，四文件 lint/format/import contracts 通过；本 owner typing 无报错，共享 Query 拼接错误待主实现修复。
+drill 核已验证父选纤维、重新分类和原量重算；公开来源模板必须消费完整 version_row_key，
+因此由 original_metrics 继续实现 schema-only query_drill 接缝，主实现负责实际读取与调度。
+开发期进一步回归：observation/公开 quantile 共 22 passed；public composition 与分布/精度
+共 22 passed / 1 slow deselected，相关冷读另补。大整数字面量能精确区分 2**63 与 2**63+1；
+NaN 和超出已准入精度的阈值在 Run 前拒绝。来源 approx_quantile 继续按 §2 明确拒绝未准入路线，
+测试另显式选择同输入 exact quantile 验证数值，不增加隐式算法回退。
+开发快照 `/tmp/marivo-r3-r8-dev-44o2fqph/snapshot` 已在三个活动实现者暂停写入时复制，
+包含 1239 个 tracked/untracked 文件，旁置逐文件 SHA-256 manifest 与基线 SHA；导入路径确认来自快照。
+该快照运行完整默认测试以定位剩余迁移，不是候选冻结、正式审查或独立验收；复制完成后实现继续。
+快照时新 Query/对应/原量测试合计 45 passed；52 个相关源码文件 focused typing 通过。
+DuckDB 原生 INTERVAL 保留现行合同：先拒绝 year/month/day 分量，再以微秒准入；正面单项已回归。
+该开发快照完整默认测试为 4162 passed、352 failed、10 setup errors（89.79 秒）。
+362 个失败节点中 354 个命中精确基线，8 个清单外；160 个原节点不再失败或已改名/未收集，不能等同于修复计数。
+清单外包含两个业务行为节点（来源 Population×日历、独立 weekday/ordinal oracle）及六个披露节点，均已分派。
+日志、JUnit、逐节点原因及清单外列表分别保存在快照父目录的 `default.log`、`default.xml`、
+`failure-details.txt`、`new-failure-nodeids.txt`。这些结果仍为开发诊断，正式审查保持 0/2。
+后续统计迁移暴露浮点 compare 的零分母/缺失端点空值误拒绝：共用 nullable 算术的
+`Series.map` 重新推断 float dtype，使被遮蔽的 NA 变为参与有限性检查的 NaN。
+实现者以保留 object dtype 的最小修复恢复原合同，新增三项回归；相关比较合计 23 passed，
+修改模块 typing、lint 与 import contracts 通过。证据 `/tmp/marivo-statistics-compare-{final,types,lint}.log`。
+R4.4 的 RequiredSlots、有限局部融合和 registry-aware invocation 编译复用尚未交付，
+已单列为可独立开发块；主实现者保留 Query/graph_plan 接入，不将它混入测试迁移或默认完成。
+公开 drill 后续真实回归：mean → where/top → 新 channel 分类 → rollup 得 20；
+同主键两个版本、选择 East 后 drill 得 Store 30 / Web 10，上卷 40，模板使用完整 version_row_key。
+新 Query/原量/对应/窗口默认测试合计 54 passed；Duration ns per(time).mean 的生产与两个独立冷读进程另 1 passed。
+R4.4 接口交接已保存 `/tmp/marivo-r3-r8-workflow/r4-optimization-handoff.md`；三项优化仍待实现，
+上述正面 drill 证据不覆盖尚未完成的需求传播、融合或编译复用。
+统计分片默认测试后续为 251 passed、13 slow deselected；slow 第二轮 12 passed / 1 failed，
+剩余测试 fixture 目录问题及后续增强用例仍在复验，尚未记为分片完整通过。
+公开入口清理交接 `/tmp/marivo-r3-r8-workflow/r8-exports-handoff.json` 列出 49 个 canonical exports；
+测试收集阶段旧运行时注解已机械迁移，未修改 conftest/shared_fixtures，主实现继续切换出口和 Help。
+身份域边界核对按 DSL §5.1：member() 与明确绑定 MemberAxis 都请求完整 P，附加字段须在 P 上单值；
+customer_id 字段 × channel 的五行贡献分类像使用真实普通字段及 members=P，不将字段轴伪装为 Entity 身份轴。
+统计分片最终同次运行 264 passed（251 默认 + 13 slow），canonical 49 出口切换后通过；
+包括三 distinct PID、删除来源/模型后的两次冷读、ns/us、纽约认证日历、四种非时间域、
+1001 成员/3003 格、事务故障及损坏边界。31 文件 typing、20 个改动文件 lint/import contracts 通过。
+映射为 `/tmp/marivo-r3-r8-acceptance.b0hrWX/statistics-migration-map.md`，最终日志为
+`/tmp/marivo-statistics-final.log`；仍不是完整候选的独立验收。
+统计分片释放并发槽后，original_metrics（gpt-6.1-sol / xhigh）接手 R4.4/R6.5 优化，
+独占 optimization.py、必要 local_laws 适配与新优化测试；主实现者负责 Query/计划/执行接线。
+旧测试后续迁移：premise 11 默认 + 1 冷读 slow；coordinates 21 默认 + 1 冷读 slow，
+重复轴静态拒绝另有真实缺口待主实现修复。保留 147/140/3、49、200/101、50.5 独立数值 oracle。
+两 Session 真实 DuckDB 阻塞重叠的 concurrency 默认四项通过；numeric_recovery 的原生生产者、
+来源/模型离线、第三进程冷读 slow 一项通过。conftest 只迁 mean 声明并补具体注解，未改变 fixture 数据/scope；
+连 coordinates/premise 共三模块 focused typing 通过。相关 slow 余项与比较消费者仍在继续。
+优化首轮已实际接入：RequiredSlots 反向合并并裁传输，宽 literal 4→2 列；L1 连续安全整数筛选
+合并为 AND 并去除中间执行 stage；invocation memo 贯穿准备/规划/降低并保留贡献 occurrence。
+首轮行为对照 10 passed / 1 测试构造错误，修正该测试跨 Query Column 引用后继续复验。
+values 的字段/身份键现以真实绑定 schema 准入；错误 kind、bool→int、NaN、naive 时间拒绝，
+合法 None、精确 Decimal 大键和数值提升正面通过。R3 动态完整元组模板实际使用 null-safe AND/OR：
+DuckDB A/Store、B/Web、C/None 结果 57，排除交叉组合 10、保留 Null 匹配 7，实际 SQL 验证通过。
+优化后续 18 项定向全部通过；与原量、local-law lowering、完整公开 DSL 联合 focused 为
+112 passed（10.03 秒）。实际覆盖宽输入 4→2、共享 consumer 4→3、nullable int 筛选少执行一个 stage、
+share/top/check/多 consumer 屏障、相同严格失败、未选分支 mask、独立 source occurrence，
+schema/registry/check 绑定/policy/kernel/slots 改变后的重编译，以及两 execute 来源变化 60→120。
+属性读取的 SourceRead 字段本身属于完整 Population 键，保留全部键和 lookup 检查，不声称该路线可裁。
+无证明的 source/reduce/原量融合继续明确拒绝。最终 typing/lint 收尾中，尚非正式审查结论。
+旧测试后续 coordinates/public DSL/concurrency 合计 39 默认通过，并补相关独立冷读；
+numeric_boundaries 仍有四个 Decimal 38 位精度正面失败，保持原 oracle，由主实现者修复。
+优化分片最终源码与新测试四文件 typing、lint/import contracts 通过，记录为
+`/tmp/marivo-r3-r8-workflow/r4-optimization-validation.md`；统计与优化分片均已结束其开发轮次。
+time_migration 接手保留的八个时间模块（旧快照 73 失败），不修改产品源码或全局 fixture；
+主实现继续 Decimal 38 位正面缺口、类型与披露收尾，原测试 owner 继续非时间旧测试。
+后续修复闭环：Decimal 边界 13 passed；观察粒度 23 passed，零轴 Population 单位行和共享依赖
+消费边计数已修；grain/Help/优化/typing surface 联合 53 passed，未放宽 Help 预算。
+members(where=PopulationPredicate) 的实际完整复合/Null 元组路线通过；来源资格模板预验证前移到 Run 准入前，
+实际实例化仍按自身表达式校验，时间 owner 正在复验原 before-Run 正面/拒绝边界。
+时间远端矩阵已核对 HEAD 的 graph_source_execution.py：新数值来源仅准入 DuckDB 属已有基线，
+不是本轮退化。保留 DuckDB 实际期间比较与 carrier 正面，未准入远端只验证 before-business-read 拒绝，
+不启动服务或计作远端 Runtime 通过；退出公开的 holiday 仅保留仍被消费的内部日历 oracle。
+时间八模块交付：最近完整分片 89 passed / 4 failed；四项随后分别定向通过（两项 encoded SQL
+结构断言迁移，两项 share/reduce 接线中间态），另两条独立进程冷读 slow 通过。八文件 focused typing、
+lint/import contracts 通过；尚须在源码稳定后重跑完整 93 项，不能将分轮结果写为最新整组全绿。
+时间 owner 释放槽后，correspondence 恢复 docs/api、当前 specs、英中 latest 收尾。
+源码新增 CalendarAxis.coarsen 纯候选构造，share/reduce/rollup 日→月实际 [60,100]，跨月周拒绝；
+复合身份轴 coord 的单量值列是否准入已交用户决策，未先行收缩目标合同。
+主源码稳定交接：186 项关键回归，随后 Duration/Help/display 定向验证；全源码及公共类型样例
+365 文件 typing、215 文件 lint/import contracts 通过。交接记录为
+`/tmp/marivo-r3-r8-workflow/implementation-source-handoff.md`。
+复核 R6.5 后确认原量 L8 及共同来源块仍需正向实施，不能以 L1 正面和其余全拒绝代替。
+original_metrics 继续按 `r6-fusion-handoff.md` 实现，并接手必要 compiler/runtime 接线；主实现停止编辑。
+用户另待决 identities 的裸 EntityRef 与已解析 Entity 输入差异：目标示例明确使用裸 Ref，尚未擅改目标。
+第二次开发快照为 `/tmp/marivo-r3-r8-dev2-ctercdoj/snapshot`：两个活动编辑者暂停后抓取 1241 文件及
+逐文件 SHA-256 manifest，导入路径确认来自归档。运行完整默认诊断，不计正式审查或独立验收。
+第二次快照默认结果为 4443 passed、85 failed、0 setup errors、1 skipped（134.55 秒）；
+85 失败中 76 命中起点失败清单、9 清单外。九项均暴露退休公开入口/Help 的旧测试消费者，已交迁移 owner；
+唯一 skip 为已退出 legacy 类型集合为空导致 pytest 自动跳过，要求清理而不计为覆盖通过。
+时间八模块在此快照确认为完整 93 passed，关闭其整组待复验项；其他完整门禁仍未通过。
+文档侧 make docs-api-agent、381 文件 verify:content、astro check/build、latest 链接及历史路由检查已通过，
+16 个英文示例完成真实临时 DuckDB 执行；最终映射/差异核对继续，用户两项输入边界决策仍 pending。
+文档分片交付 43 文件、13 对英中 latest 页面，验证与风险清单为
+`/tmp/marivo-r3-r8-workflow/docs-handoff.json`。API 文档、站点和路由门禁通过；两项用户决策仍待最终同步。
+文档 owner 释放槽后，comparison_migration 接手两个未迁比较/参照模块（第二快照 37 失败），
+原测试 owner 继续其余模块，original_metrics 继续原量与共同来源正向融合。
+原量融合首轮实际 int64/Decimal38 正面：共同 group aggregate 将两次来源读取减为一次，
+与 L8 有序原量组合将五个调度 stage 减为三个，低 Decimal context 下保持精确结果；反例/最终静态检查继续。
+比较迁移新暴露两个源码缺口：Duration compare 构造过早拒绝，以及 Decimal share 声明 float 输出但
+未完成实际载体转换而交 Arrow 失败。原独立正面 oracle 均保留，交当前源码 owner 修复。
+另外认证日历时区冲突的错误 family 和未准入跨源标量关系的 before-Run 拒绝仍按具体节点收尾。
+后续数值/披露迁移合跑 92 默认通过，空参数自动 skip 已替换为真实 Artifact 类型和新建/重开回灌拒绝。
+原上下文预算 slow 通过，保持七场景及总字符 85% 阈值，未提升预算或修改基线；multiroot 默认八项通过。
+比较/参照两个模块默认 51 passed，Duration compare 及 Decimal Column/share 载体修复已由其真实矩阵覆盖；
+Decimal 输入保留精确值，声明 float64 的除法以 Fraction 完成后一次转换，并核对 Arrow dtype。
+比较/参照分片随后完整六个 slow 通过，两文件 typing、Ruff/format 与 diff 检查通过；
+全局 import contracts 曾被中立时间层反向依赖阻断，已交源码 owner 修复，不能据此记录完整 lint-agent 通过。
+原量与共同来源融合另列其独立正确性和物理执行证据。
+独立验收者现准备六条业务链的可运行脚本与独立 oracle；候选冻结前只做脚本静态检查，
+不把开发中源码的运行结果作为最终验收。正式审查仍为 0/2，尚未提交。
+R6.5 源码分片最终交付：共同来源 exact sum/count 读取 2→1，L8 有序原量调度 5→3，
+int64/Decimal 正面与中间溢出、完整键/NA/次序、重复贡献、消费/检查屏障和物理 binding 身份隔离均有对照。
+联合 120 passed；21 源码文件 typing、lint/import contracts 通过，五项时间合同与跨源边界精确验证通过。
+来源身份由准备期 typed SourceInputContract 提供，不从 Ibis AST 等价推断；binding ID 仅限本次执行。
+完整证据为 `/tmp/marivo-r3-r8-workflow/r6-fusion-delivery.md`。源码 owner 已停止编辑，文档 owner
+同步有限资格；完整门禁、正式审查及独立验收仍未完成，不由优化分片结论替代。
+Attribution 迁移默认十项、coarsen 单项 slow 和一个既有 release 标记的本地 DuckDB 冷读节点通过；
+最后一项 Duration 冷读暴露 Session.read 将 Parquet duration[ns] 读为 int64 的产品缺口，
+保留原输入和正面 oracle，交源码 owner 修复。该单节点不等同于 release gate。
+测试迁移 owner 还列出四个 release-only 旧 API 消费文件；正核对受本次切换影响的最小迁移范围，
+不能仅因它们不在默认测试集合就把迁移记作完成。
+Duration 属性读取缺口随后闭环：保留既有 PhysicalFacts 的 duration_unit，经 JoinReference
+解析选定字段后恢复精确 Duration schema；原 duration-True slow 从失败转为通过，含独立冷读。
+另四项控制测试、两个源码文件 typing/lint/import contracts 通过，未更换输入或修改预期。
+六链独立验收 runner/fixture 已完成静态检查，尚未执行候选业务验收。
+R8 剩余真实测试消费者按文件分派：test_migration 负责 reference recovery 与关系冷读 caller；
+comparison_migration 负责 relation_journeys 四场景；implementation 负责 complete dispatcher 与
+graph/hierarchy/versioned/association 四 helper。仅迁移本次退出 API 的实际消费者和本地验证，
+不运行安装 wheel、完整 release gate 或远端服务。
+第三次默认诊断快照为 `/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/marivo-r3-r8-dev3-uolp29c_/snapshot`，
+三个编辑者暂停后复制 1242 文件，逐文件 SHA-256 manifest 与起点 SHA 同存父目录，已确认导入来自快照。
+复制完成后各 owner 恢复测试 helper 迁移；此次是开发诊断，仍不是候选冻结或独立验收。
+第三次默认诊断为 4540 passed、2 failed、0 errors、0 skipped（126.40 秒）。两项清单外失败均来自
+新时间错误转换：_AnalysisTimeScope 未获 Deferred immutable literal 准入，以及共享 TimeScope.by 的
+ValueError 合同被转换。已提交 R2.2 明确其共享时间值异常边界，当前目标未改变此合同；准备撤回
+不必要的桥接与子类，保留独立的冻结 ISO 时间持久化修复，并对齐新迁移用例的既有异常预期。
+TimeScope 修正已完成：恢复原 _SessionTimeScope 与共享 by/coarsen 的 ValueError，不扩大 Deferred
+字面量准入；两项默认失败、认证时区及冻结/民用时间往返等五项定向通过，三个源码目标 typing/lint/import
+通过。后续交付 `/tmp/marivo-r3-r8-workflow/time-scope-contract-fix-delivery.md` 废止先前 bridge 说明。
+关系四场景三进程最终四项 slow 通过，另完整性一项通过；Duration 修复后 attribution、reference 与
+损坏拒绝联合九项 slow 通过。默认 private descriptor 内核仍有实际消费者，迁为内部 owner 明确导入后
+128 项行为通过；修改文件的 typing 继续收齐。时间剩余 recovery caller/可能孤儿 worker 由 time_migration
+单独接手；并不增加性能、安装或远端验收门禁。
+为尽早暴露业务缺口，先冻结独立的产品源码/owning specs 子候选（389 文件，非完整工作树审查候选）：
+`/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/marivo-r3-r8-business-candidate-k90g6gab/source`，
+父目录 freeze.json 记录逐文件哈希，候选 ID 为 `b715fb7d140bd5f48695b312e42eba71de361d8f0db1d058188d6d6e76f9dde5`。
+acceptance（gpt-6-luna/max）开始六链独立业务执行；测试 helper 迁移、完整门禁、两项 API 决策与技能授权
+仍在候选完成边界之外。正式审查维持 0/2，此执行不能单独证明 R8 全部完成。
+六链独立执行首批：电商与固定 SaaS 通过；制造标准化广播发生 schema 错误，物流 P95 为 85.14
+而固定 oracle 为 85.15，后者仍核对精确插值/物理类型。实验轴元数据与时间 fixture 构造问题由验收者
+只在自身 runner 修正后重跑，不改产品或固定预期；其余链尚未记作通过。
+首轮六链最终为电商/固定 SaaS/时间三条通过，制造/物流/实验三条失败。时间 harness 的 since 预期
+已纠正为合同及固定 JSON 原有的 1230/1310；并非修改 oracle 迁就产品。
+制造为需求裁剪后 broadcast 仍要求原宽 endpoint schema；物流 exact Decimal P95 被 DuckDB 原生实现
+算成 85.14/66.04，而独立有理数为 85.15/66.05，错误值同样冷读；实验 Query.reduce(mean) 未按声明
+decimal(38,2) 完成最终舍入，导致 100/3 在 stage_output 发布时报 rescaling 错误。三项交源码 owner 修复。
+独立报告 `/tmp/marivo-r3-r8-acceptance.b0hrWX/business-candidate-b715fb7d-summary.md` 与同名 status JSON
+绑定候选，389 文件哈希均匹配；正式审查仍为 0/2。
+全部测试/helper 分片已停写。全工作树开发门禁快照为
+`/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/marivo-r3-r8-gate-dev-yj_pbf5w/snapshot`（1240 文件），
+首次 unrestricted make check-agent 在三个测试格式处停止；另全局 Ruff 发现一个 import 排序。
+测试纯格式已修且 AST 不变；收齐这些格式后继续开发门禁，产品语义修复完成后仍需最终门禁。
+门禁后续全量 typing 暴露唯一旧正面 ms.bind(MetricRef)，已按现行 Field/Deferred 合同迁为合法
+capture→finalize→resolve→Deferred 断言和精确负向 Metric Ref 检查。只将四处纯格式及这一 typing
+文件同步到开发快照，未混入正在修复的产品语义。该快照 unrestricted make check-agent 随后完整通过：
+788 文件格式、Ruff/import contracts、366 文件 typing、4542 默认测试（119 秒）及 API 文档构建均通过。
+完整日志 `check-agent-typing-fixed.log` 位于上述开发门禁目录。这是首次完整工程绿，仍不覆盖后续
+制造/Decimal P95/均值/literal 修复，最终候选门禁与独立业务复验仍须完成。
+上述业务修复最终联合 129 项通过，七个目标 typing/lint/import 通过；冻结完整工程/业务候选二
+`/var/folders/cx/bmfg_x3j0qsfvgsb2v8s2x5m0000gn/T/marivo-r3-r8-candidate2-78t416_q/snapshot`，
+候选 ID `e676eba42fa30a84180f84d63ecaaafa8ea90236c78ee71549fd9d3f816586ad`，1240 文件。
+luna/max 对候选二复验全部六链，root 最终工程门禁待最后合同同步后执行。
+用户现明确决定：Query.coord 在准备期拒绝复合身份轴作为单量，完整键/元组谓词/导出保留；
+mv.identities 只接已解析 Entity，不接裸 EntityRef；授权两份 packaged skills 工作流同步。
+original_metrics 收齐代码/Help/类型与负向行为，correspondence 收齐合同/示例/英中页面和授权技能。
+这批决策尚不在候选二，完成后再冻结完整正式审查候选；审查仍为 0/2，尚未提交。
+候选二六条独立业务链及 cold_read 全部 PASS：制造 50/50 的 20%/12.5%、20/80 的 26%/17% 与
+缺 Hard 层拒绝通过；物流 cell P95 85.15、network/cold 66.05、完整网格/NA/窗口/Top 通过；
+实验精确业务 mean 仍为 100/3，已声明 decimal(38,2) 的引擎 mean 33.33/33.33、差异 0.00 通过；
+时间包含 since-Sep-30-noon 的 1230/1310。运行前后 1240 文件/符号链接哈希均匹配，导入来自冻结源码。
+独立证据 `/tmp/marivo-r3-r8-acceptance.b0hrWX/business-candidate2-e676eba4-summary.md` 及同名 status JSON，
+真实日志 `logs/business-candidate2-e676eba4-attempt1.log`。该验收不代替最后两项 API 决策增量验证或正式审查。
+最终 API 边界已收齐：coord Column 仍可惰性构造，execute 准备的实际完整 key_groups 宽度检查在业务
+compile/execute/Run admit 前拒绝复合单量；完整 tuple 导出/谓词及单分量 coord 保持正面。identities 仅接
+resolved Entity，裸 Ref 给结构化修复并被类型负例拒绝。联合 81 通过、八目标 typing/七文件 lint/import 通过。
+文档 owner 已同步 43 文档及两份授权技能，完成 API 构建、381 内容检查、Astro 0 错误/警告、三技能测试、
+12 Help 路由、16 真实 DuckDB 例子及额外目标身份例子；英中代码一致，受影响链接/围栏无新错误。
+详见 `api-decisions-delivery.md`、`docs-decisions-delivery.md` 与 `docs-handoff.json`（均在本轮 workflow 临时目录）。
+所有实现者已停写；准备冻结最终工程/独立边界验收候选，通过后启动正式审查第一轮。
+
+正式第一轮候选 `ea2a0fbb6d00cd555923364056a91139ef5d0c8f4b820fe1a41b290994c91297`
+已冻结 1240 个文件/符号链接。无收窄变量的 `make check-agent` 全部通过：788 文件格式、
+Ruff/import contracts、366 文件 typing、4552 默认测试及 API 文档。luna/max 对同一候选的六条业务链、
+冷读及六项身份边界验收全部通过，执行前后哈希无漂移；这些通过不替代独立审查结论。
+astra/high 三组并行完成正式第一轮（1/2）：核心 51 文件、API/文档 67 文件、测试迁移 161 文件。
+核心报告 1 P1/3 P2，API 报告 1 P1/4 P2，测试迁移无额外发现；三组候选哈希均无漂移。
+九项待修复：Decimal38 一元负号精度、NA/0 的 error 政策、合法日→月广播、Duration sum/mean、
+日历乘积终端轴元数据、select 无时区时间字面量、Top 等分键 None 优先、模块 time_scope 退役、
+字面量 Population 错误结构。报告为本轮临时目录的 `review-round1-{core,api-docs,tests}.md`。
+其中日历保存和字面量错误含继承缺口，但属于本轮 R3/R8 的明确合同闭环，仍须修复。
+此前 canonical 49 出口清单只是开发清单，并非用户认可保留模块级 time_scope；目标 §4.3 明确
+只保留 Session.time_scope/instant。协调者纠正此前判断，要求实现、Help、测试及文档同步退出别名。
+用户确认的 Session.read、resolved Entity、复合 coord 准备期拒绝及两份技能授权均已生效，无待决问题。
+original_metrics 负责四项核心修复，implementation 负责四项 API/终端修复，correspondence 负责
+time_scope 出口及消费者同步。仅修改 live 工作树，保留第一轮冻结候选；修复后再进入最后一轮审查。
+当前未提交；九项 P2 及以上问题关闭前不 commit，不 push。
+第一轮九项功能修复已交付并停写，交接为 `round1-core-fixes.md`、`round1-api-fixes.md`、
+`round1-time-surface-fixes.md`。核心原审查五项 probe 全部通过；13 项新回归及一个旧顺序节点通过，
+九目标 typing/lint/import 通过。API 的终端/新回归 63 项、邻接 54 项通过，八目标 typing 通过；
+日历元数据按实际轴与完整键组逐轴保存，独立冷读保留不同时间范围/时区与附件 receipt。
+入口清理改为精确 48 exports，无模块 instant/time_scope；75 项 surface、163 项消费者和文档验证通过。
+已修改旧终端测试的具体类型注解仍单独收齐，不以原有类型错误豁免，也不改变数值或失败 oracle。
+上述为开发修复证据，九项正式关闭仍待独立验收和最后一轮审查。
+类型收尾完成：旧终端测试 61 项自身诊断清零，标准 typing、53 项测试与 lint/import 通过，
+142 个断言及全部参数化保持不变。时间入口消费者 17 个存续文件自身/产品 typing 诊断为零，
+70 项默认、两个直接负例和一项本地 credential slow 冷恢复通过；定向 typing 仍报告五项既有远端
+测试环境依赖诊断（ClickHouse 三项、MySQL 两项），与已验证基线一致，未加全局豁免。
+两个无当前 caller、仅测退休 graph continuation/Artifact 续算的孤儿 benchmark 已删除：
+`tests/benchmarks/graph_snapshot.py`、`tests/support/benchmark_coordinate_state.py`；不以其他指标冒名替代。
+所有实现者再次停写，准备冻结第二轮候选；本轮为最后一轮正式审查，不开启第三轮。
+第二轮候选 `26c84e2c0d651d99f618a39cff7164097e7ddc9dbe94288249e8ef11398f9980` 的
+完整 `make check-agent` 通过：4575 默认测试、366 文件 typing、格式/lint/import/API 文档通过。
+API 第二轮原五项全部关闭，无新增 P2 及以上，48 出口和 169 Help 链接可达，前后 1240 哈希一致。
+核心第二轮发现原问题的两个组合残留：Duration 二元表达式后规约丢失类型；比较结果保留端点日历
+投影后仍缺合法 coarsen 广播。它们没有被完整门禁发现，独立探针已在原候选复现，禁止计作关闭。
+测试第二轮初始增量无新增发现，24 项定向通过；等待最终小补丁的测试与哈希增量闭环，仍属第二轮。
+original_metrics 随后完成这两个确定缺口的修复：六产品文件及一个原有本轮回归文件，未引入新 registry
+或持久 IR；Duration 按二元节点保留真实类型与精确完成，日历投影携明确端点 presence/authority。
+顺带补合法零 timedelta 字面量的现行准入，混合输入保留既有单位推断，全零为 us，不放宽 None 准入。
+原 probe 八项、新 core 26 项及五文件组合 127 项通过，七目标 typing/lint/import 通过，已停写。
+交付为 `round2-core-closure.md`；最终候选仍待 luna 独立复验、第二轮测试分片增量闭环及完整门禁。
+核心/API 正式审查已用满两轮，不追加第三轮；已知修复由独立验收记录关闭，不声称最终修复未经覆盖的
+源码又通过了一轮完整审查。
+最终修复候选 `2c6f0fa0442eb91e8caaa55869f2995c64b5da12ec55ac6c62c6c09914298820` 的
+luna 独立验收完成：六条业务链及冷读 7/7、身份边界 6/6、原发现和残留组合探针 27/27 通过；
+实际导入与前后 1240 哈希均匹配。两项第二轮核心残留由独立验收关闭，非第三轮正式审查。
+第二轮测试分片完成最后 13 项新增回归核对，无新增发现，之前已审测试未发生未记录漂移。
+该候选完整默认测试为 4587 通过、1 项旧负测阶段预期失败：Duration > integer 已从运行期错误
+前移为合同要求的准备期类型拒绝。仅修正 `test_analysis_predicates.py` 的负测，精确验证 CoreRuleError
+及零业务 compile/execute、Run 不变；原 Duration 正面、Arrow ns 与历史读取保留。全模块 11 项、
+标准 typing/lint/import 通过，产品源码未改变。最终门禁将重新绑定这项测试及台账的候选，
+独立业务验收按全部产品文件 SHA 相同重绑定，不重复相同业务执行。详见 `final-duration-refusal-alignment.md`。
+
+最终工程候选为 `98c56b654261924534e7a0c022c60ab4b9a9e36634ce55dd973f3a5eb5e04f65`。
+无收窄变量的 `make check-agent` 完整通过：788 文件格式、Ruff/import contracts、366 文件 typing、
+4588 默认测试（83 项已列警告，115.35 秒）及 API 文档构建。luna 独立核对两候选全部 1240 条清单，
+确认最终差异仅为负测与本台账，全部 363 个 marivo 产品文件逐字节一致，将已执行的 7/7、6/6、27/27
+结果明确重绑定到此工程候选；不冒充再次执行业务。独立记录为 `final-source-rebinding.md`。
+本轮实现 sol-6.1/xhigh、两轮审查 astra/high、独立验收 luna/max；所有已知 P2 及以上问题均已关闭。
+本台账随后仅更新完成状态与上述证据，不改已验产品/测试；末尾负测对齐只作定向及完整工程验证，
+不增加正式审查轮次。定向 typing 的五项既有远端环境依赖诊断仍单独保留，不声称该命令全绿。
+本轮没有执行完整远端 Runtime、安装 wheel/全后端矩阵或 release-check，没有启动 MinIO，也不推送。

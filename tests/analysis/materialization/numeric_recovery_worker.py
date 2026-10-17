@@ -1,65 +1,91 @@
-"""Independent producer and offline recovery for numeric row state."""
+"""Independent native numeric publication and source-free terminal reads."""
 
 from __future__ import annotations
 
 import json
 import os
 from pathlib import Path
+from unittest.mock import patch
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.materialization.graph_protocol import SIGNATURE, encode
-from marivo.analysis.public_dsl import PublicMaterialized
+from marivo.analysis.errors import AnalysisError
+from marivo.datasource.adapters import SourceSession
+from marivo.semantic.reader import SemanticProject
+from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
+from tests.support.json import Json, obj, read
 
 
-def _snapshot(result: PublicMaterialized) -> dict[str, object]:
-    dataset = result._dataset
-    assert dataset is not None
-    verified = dataset.verified()
-    return {
-        "artifact": result.state.artifact_ref.ref,
-        "run": result.state.producing_run_ref,
-        "rows": result.to_pandas().to_dict(orient="records"),
-        "signature": encode(dataset.artifact.descriptor.signature, SIGNATURE),
-        "parts": {part.role: part.table.to_dict("records") for part in verified.parts},
-    }
-
-
-def run_process(project: str, session_id: str) -> None:
+def run_process(project: str, session_id: str, phase: str) -> None:
     root = Path(project)
     os.environ["MARIVO_PROJECT_ROOT"] = project
     os.chdir(root)
     manifest = root / "numeric-source.json"
     session = mv.session.resume(session_id, by="id")
-    members = session.members(ms.ref.entity("sales.customer"))
-    observed = members.observe(
-        ms.ref.metric("sales.revenue"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    region = members.read(ms.ref.dimension("sales.customer.region"))
-    assert isinstance(region, mv.LogicalCategoryRelation)
-    results: dict[str, PublicMaterialized] = {}
-    for name, method in (
-        ("sum", mv.sum()),
-        ("min", mv.min()),
-        ("max", mv.max()),
-        ("mean", mv.mean()),
-        ("count", mv.count()),
-        ("count_defined", mv.count_defined()),
-    ):
-        results[name] = observed.group_by(region).aggregate(method).execute()
-    for name in ("distinct", "approx_distinct", "quantile", "approx_quantile"):
-        results[name] = members.observe(
-            ms.ref.metric(f"sales.{name}"),
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
+    if phase == "produce":
+        members = session.members(ms.ref.entity("sales.customer"))
+        region = session.catalog.fields.get("sales.customer.region")
+        scope = session.time_scope(start="2026-08-01", end="2026-09-01")
+        observed = session.observe(
+            {"value": session.catalog.metrics.get("sales.revenue")},
+            during=scope,
+            by=(mv.member(), region),
+            members=members,
+        )
+        results = {
+            "sum": observed.reduce({"value": observed["value"].sum()}, by=(region,)).execute(),
+            "mean": observed.reduce({"value": observed["value"].mean()}, by=(region,)).execute(),
+            "count": observed.reduce({"value": mv.row_count()}, by=(region,)).execute(),
+            "count_defined": observed.where(~observed["value"].is_null())
+            .reduce({"value": mv.row_count()})
+            .execute(),
+        }
+        assert results["sum"].to_pandas()[("value", "value")].tolist() == [140, 7]
+        assert results["mean"].to_pandas()[("value", "value")].tolist() == [70, 7]
+        assert results["count"].to_pandas()[("value", "value")].tolist() == [2, 1]
+        raw = observed.execute().to_pandas()[("value", "value")]
+        assert raw.min() == 7 and raw.max() == 120
+        for name in ("distinct", "approx_distinct", "quantile"):
+            results[name] = session.observe(
+                {"value": session.catalog.metrics.get("sales." + name)}, during=scope, by=members
+            ).execute()
+        assert results["distinct"].to_pandas()[("value", "value")].tolist() == [2, 1, 1]
+        assert results["quantile"].to_pandas()[("value", "value")].tolist() == [60, 20, 7]
+        results["read"] = session.read(
+            session.members(ms.ref.entity("sales.order")),
+            {"value": session.catalog.fields.get("sales.order.amount")},
         ).execute()
-    orders = session.members(ms.ref.entity("sales.order"))
-    results["read"] = orders.read(ms.ref.measure("sales.order.amount")).execute()
-    results["category"] = region.execute()
-    output = {name: _snapshot(result) for name, result in results.items()}
-    manifest.write_text(json.dumps(output, default=str, sort_keys=True))
-    print(json.dumps({"pid": os.getpid(), "results": output}, default=str, sort_keys=True))
+        results["category"] = session.read(members, {"value": region}).execute()
+        before = len(session.runs().items)
+        try:
+            session.observe(
+                {"value": session.catalog.metrics.get("sales.approx_quantile")}, during=scope
+            ).execute()
+        except AnalysisError as error:
+            assert error.expected and error.received and error.repair
+        else:
+            raise AssertionError("An unqualified approximate quantile route executed")
+        assert len(session.runs().items) == before
+        output: dict[str, Json] = {
+            name: {"artifact": result.id, "snapshot": snapshot(result)}
+            for name, result in results.items()
+        }
+        manifest.write_text(json.dumps(output, sort_keys=True))
+    else:
+        output = obj(read(manifest))
+        with (
+            patch.object(ms, "load", forbidden),
+            patch.object(SemanticProject, "load", forbidden),
+            patch.object(SourceSession, "__enter__", forbidden),
+            patch.object(SourceSession, "execute", forbidden),
+        ):
+            before = len(session.runs().items)
+            for value in output.values():
+                saved = obj(value)
+                artifact = saved["artifact"]
+                assert isinstance(artifact, str)
+                result = session.artifact(artifact)
+                assert snapshot(result) == saved["snapshot"]
+            assert len(session.runs().items) == before
+    assert session._runtime.store.resources(session.id) == ()
+    print(json.dumps({"pid": os.getpid(), "results": sorted(output), "phase": phase}))

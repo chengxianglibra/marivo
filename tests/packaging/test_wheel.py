@@ -223,24 +223,24 @@ def test_installed_relations_offline_and_cold(
     project = candidate.work / ("relations-" + scenario)
     phases = [
         candidate.probe(scenario + "-" + phase, phase, str(project), scenario, "parquet")
-        for phase in ("produce", "continue", "recover")
+        for phase in ("produce", "fixed", "cold")
     ]
     assert len({item["pid"] for item in phases}) == 3
     fields = (
         ("session", "snapshots", "oracle", "facts_sha256", "edge_checks", "shared_nodes")
         if scenario.startswith("a")
-        else ("session", "artifact", "run", "rows", "contract", "descriptor", "facts_sha256")
+        else ("session", "artifact", "run", "snapshots", "derived", "oracle", "facts_sha256")
     )
     for key in fields:
         assert all(item[key] == phases[0][key] for item in phases)
-    assert phases[1]["continuations"] == phases[2]["continuations"]
+    assert phases[1]["derived"] == phases[2]["derived"]
     source_count = phases[0]["run_count"]
     fixed_count = phases[1]["run_count"]
     cold_count = phases[2]["run_count"]
     assert isinstance(source_count, int)
     assert isinstance(fixed_count, int)
     assert isinstance(cold_count, int)
-    assert fixed_count > source_count
+    assert fixed_count == source_count
     assert fixed_count == cold_count
 
 

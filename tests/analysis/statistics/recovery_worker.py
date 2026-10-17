@@ -1,205 +1,292 @@
-"""Independent producer, offline fixed kernels and cold kernels."""
+"""Independent producer and two source-offline terminal readers with pandas recipes."""
 
 from __future__ import annotations
 
 import json
 import os
 import shutil
+import subprocess
 import sys
+from datetime import datetime, timezone
+from decimal import Decimal
+from itertools import pairwise
 from pathlib import Path
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 import duckdb
 import ibis
+import pandas as pd
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.core.rules import AssociationFit, DeviationFit, ForecastFit, TimeRuns
-from marivo.analysis.materialization import (
-    deviation_execution,
-    runs_execution,
-    statistical_execution,
-)
-from marivo.analysis.methods import association_numeric, deviation_numeric, forecast_numeric
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
-from tests.analysis.statistics.journeys import (
-    Numeric,
-    Result,
-    check,
-    create,
-    graphs,
-    inputs,
-    proof,
-    snapshot,
-)
-from tests.support.json import Json
-from tests.support.json import arr as array_json
-from tests.support.json import obj as object_json
-from tests.support.json import read as read_json
-
-REPRESENTATIVE_METHODS = (
-    "deviation.zscore@v1",
-    "time.runs@v1",
-    "association.pearson@v1",
-    "forecast.naive@v1",
-)
+from tests.analysis.statistics.deviation_oracle import PROFILES, expected, forbidden
+from tests.analysis.statistics.deviation_time_worker import publish_calendar
+from tests.analysis.statistics.journeys import create
+from tests.analysis.statistics.pandas_workflows import deviation, forecast, plain
+from tests.shared_fixtures import DslCase, run_ids
+from tests.support.paths import PROJECT_ROOT
 
 
-def forbidden(*args: object, **kwargs: object) -> None:
-    raise AssertionError(
-        "offline statistical recovery touched current Semantic, calendar or source"
+def snapshot(frame: pd.DataFrame) -> dict[str, object]:
+    return {
+        "columns": [repr(column) for column in frame.columns],
+        "dtypes": [str(dtype) for dtype in frame.dtypes],
+        "rows": [
+            [None if value is pd.NA or value is None else repr(value) for value in row]
+            for row in frame.itertuples(index=False, name=None)
+        ],
+        "metadata": json.loads(json.dumps(frame.attrs, default=str)),
+    }
+
+
+def verify(frame: pd.DataFrame, mode: str, profile: dict[str, object]) -> None:
+    values = frame["value"].dropna()
+    if profile:
+        indices = profile["profiles"]
+        assert isinstance(indices, list)
+        index = indices[0]
+        assert isinstance(index, int)
+        raw = (
+            (1, 2, 7)
+            if index == 0
+            else (0.1, 0.2, 0.7)
+            if index == 1
+            else tuple(
+                Decimal((0, (digit,), -int(PROFILES[index].split(",")[1][:-1])))
+                for digit in (1, 2, 7)
+            )
+        )
+        wanted = (
+            [raw[-1]]
+            if mode == "scalar"
+            else [*raw, *([0] * 6)]
+            if mode == "category_time"
+            else list(raw)
+        )
+        assert sorted(values) == sorted(wanted)
+        if mode in ("time", "entity_time", "category_time"):
+            axes = frame.attrs["marivo"]["axes"]
+            calendar = next(axis for axis in axes if axis["kind"] == "calendar")
+            zone = profile["zone"]
+            assert isinstance(zone, str)
+            assert calendar["timezone"] == zone
+            days = (1, 2, 4, 7) if profile["calendar"] else (1, 2, 3, 4)
+            boundaries = tuple(
+                datetime(2026, 8, day, tzinfo=ZoneInfo(zone)).astimezone(timezone.utc)
+                for day in days
+            )
+            assert [(row["actual_start"], row["actual_end"]) for row in calendar["bounds"]] == list(
+                pairwise(boundaries)
+            )
+            assert len(frame) == (3 if mode == "time" else 9)
+            assert int(frame.value.isna().sum()) == (0 if mode in ("time", "category_time") else 6)
+        if mode in ("entity", "entity_time"):
+            expected_keys = (
+                [1, 2, 3]
+                if profile["key_profile"] == "KI"
+                else [("a", 11), ("b", 12), ("c", 13)]
+                if profile["key_profile"] == "KC"
+                else ["a", "b", "c"]
+            )
+            member_index = next(
+                index
+                for index, axis in enumerate(frame.attrs["marivo"]["axes"])
+                if axis["kind"] != "calendar"
+            )
+            assert frame[f"key_{member_index}"].drop_duplicates().tolist() == expected_keys
+        if mode == "category":
+            assert frame.key_0.tolist() == ["a", "b", "c"]
+        if mode == "scalar":
+            assert len(frame) == 1 and list(frame.columns) == ["value"]
+        if mode == "category_time":
+            names = ["value", *(f"profile_{index}" for index in indices[1:])]
+            for method in ("pearson", "spearman", "kendall"):
+                coefficients = frame[names].astype(float).corr(method=method)
+                assert (coefficients - 1).abs().le(1e-12).all().all()
+    for algorithm in ("zscore", "mad"):
+        output = deviation(frame, algorithm)
+        assert output.value.equals(frame.value)
+        if len(values) >= 2 and values.nunique() > 1:
+            assert output.score.dropna().tolist() == list(expected(tuple(values), algorithm)[3])
+        else:
+            assert output.score.isna().all()
+    if len(values) >= 3:
+        predicted = forecast(values)
+        assert predicted.prediction.tolist() == [float(values.iloc[-1])] * 2
+        assert (predicted.lower <= predicted.prediction).all()
+        assert (predicted.upper >= predicted.prediction).all()
+
+
+def run(root: Path, phase: str, mode: str) -> dict[str, object]:
+    assert phase in ("produce", "offline", "cold")
+    assert mode in (
+        "scalar",
+        "category",
+        "entity",
+        "display",
+        "time",
+        "entity_time",
+        "category_time",
     )
-
-
-def text(value: Json) -> str:
-    assert isinstance(value, str)
-    return value
-
-
-def run(root: Path, phase: str, form: str) -> dict[str, Json]:
     os.environ["MARIVO_PROJECT_ROOT"] = str(root)
     os.environ["MARIVO_TELEMETRY"] = "off"
-    state_path = root / "r86.json"
-    proofs: list[Json] = []
-    originals: tuple[Numeric, Numeric, Numeric]
-    connect = ibis.duckdb.connect
-    with (
-        patch.object(
-            ibis.duckdb,
-            "connect",
-            lambda *args, **kwargs: connect(*args, **{**kwargs, "threads": 1}),
-        ),
-        patch.object(deviation_execution, "execute", wraps=deviation_execution.execute) as d,
-        patch.object(runs_execution, "execute", wraps=runs_execution.execute) as r,
-        patch.object(statistical_execution, "execute", wraps=statistical_execution.execute) as s,
-    ):
-        if phase == "produce":
-            session = create(root, form)
-            originals = inputs(session)
-            # Distinct source realizations provide independent fresh cold-kernel inputs.
-            saved_inputs: list[Json] = []
-            for _ in range(2):
-                references: list[Json] = []
-                for value in originals:
-                    assert isinstance(
-                        value, (mv.LogicalNumericRelation, mv.LogicalRolledNumericRelation)
-                    )
-                    references.append(value.execute().state.artifact_ref.ref)
-                saved_inputs.append(references)
-            entries: dict[str, Json] = {}
-            for method, logical in graphs(originals).items():
-                if method not in REPRESENTATIVE_METHODS:
-                    continue
-                result = logical.execute()
-                check(result, method)
-                first = snapshot(result)
-                repeated = logical.execute()
-                check(repeated, method)
-                assert repeated.state.artifact_ref != result.state.artifact_ref
-                entries[method] = first
-                row = proof(result, method, phase, form, first)
-                row["scenarios"] = ["producer_process", "source_new_realization"]
-                proofs.append(row)
-            state: dict[str, Json] = {
-                "session": session.id,
-                "inputs": saved_inputs,
-                "source": entries,
-                "proofs": proofs,
+    os.chdir(root)
+    state_path = root / "statistics-recovery.json"
+    if phase == "produce":
+        if not (root / "marivo.toml").exists():
+            create(root, "parquet")
+        profile_path = root / "deviation-profile.json"
+        profile = json.loads(profile_path.read_text()) if profile_path.exists() else {}
+        session = mv.session.get_or_create(
+            "pandas-" + mode, report_timezone=profile.get("zone", "UTC")
+        )
+        members = session.members(ms.ref.entity("sales.order"))
+        field = session.catalog.fields.get(
+            f"sales.order.profile_{profile['profiles'][0]}" if profile else "sales.order.amount"
+        )
+        if mode == "scalar":
+            query = session.observe({"value": field.max()})
+        elif mode in ("time", "entity_time", "category_time"):
+            if profile["calendar"]:
+                publish_calendar(session.catalog, profile["zone"], baseline=profile["followup"])
+            grain = (
+                session.catalog.period_calendars.get("sales.unequal").grain("period")
+                if profile["calendar"]
+                else mv.grain("day")
+            )
+            grid = session.time_scope(
+                start="2026-08-01", end="2026-08-07" if profile["calendar"] else "2026-08-04"
+            ).by(grain)
+            time = session.catalog.fields.get("sales.order.ordered_at")
+            quantities = {
+                "value": field.sum(time=time) if mode == "category_time" else field.max(time=time)
             }
-            assert set(entries) == set(REPRESENTATIVE_METHODS)
-            (root / "warehouse.duckdb").unlink()
-            shutil.rmtree(root / "models")
-            if (root / "source_files").exists():
-                shutil.rmtree(root / "source_files")
+            if mode == "category_time":
+                quantities.update(
+                    (
+                        f"profile_{index}",
+                        session.catalog.fields.get(f"sales.order.profile_{index}").sum(time=time),
+                    )
+                    for index in profile["profiles"][1:]
+                )
+            query = session.observe(
+                quantities,
+                during=grid,
+                by=members
+                if mode == "entity_time"
+                else (session.catalog.fields.get("sales.order.channel"),)
+                if mode == "category_time"
+                else (),
+            )
+        elif mode == "category":
+            query = session.observe(
+                {"value": field.max()}, by=(session.catalog.fields.get("sales.order.channel"),)
+            )
         else:
-            state = read_json(state_path)
-            assert not (root / "warehouse.duckdb").exists()
-            assert not (root / "models").exists()
-            assert not (root / "source_files").exists()
-            with (
-                patch.object(ms, "load", forbidden),
-                patch.object(SemanticProject, "load", forbidden),
-                patch.object(SourceSession, "__init__", forbidden),
-                patch.object(duckdb, "connect", forbidden),
-                patch.object(ibis.duckdb, "connect", forbidden),
-            ):
-                session = mv.session.resume(text(state["session"]), by="id")
-                for method, raw in object_json(state["source"]).items():
-                    saved = object_json(raw)
-                    restored = session.artifact(text(saved["artifact"]))
-                    assert isinstance(restored, Result)
-                    with (
-                        patch.object(deviation_numeric, "fit", forbidden),
-                        patch.object(runs_execution, "compute", forbidden),
-                        patch.object(association_numeric, "score", forbidden),
-                        patch.object(forecast_numeric, "train", forbidden),
-                    ):
-                        assert snapshot(restored) == saved
-                        check(restored, method)
-                index = 0 if phase == "fixed" else 1
-                refs = array_json(array_json(state["inputs"])[index])
-                restored_inputs: list[Numeric] = []
-                for ref in refs:
-                    original = session.artifact(text(ref))
-                    assert isinstance(
-                        original,
-                        (mv.MaterializedNumericRelation, mv.MaterializedGroupedNumericRelation),
-                    )
-                    restored_inputs.append(original)
-                originals = restored_inputs[0], restored_inputs[1], restored_inputs[2]
-                entries = {}
-                for method, logical in graphs(originals).items():
-                    if method not in REPRESENTATIVE_METHODS:
-                        continue
-                    before = sum(
-                        isinstance(
-                            call.args[0].parameters,
-                            (DeviationFit, TimeRuns, AssociationFit, ForecastFit),
-                        )
-                        for consumer in (d, r, s)
-                        for call in consumer.call_args_list
-                    )
-                    result = logical.execute()
-                    after = sum(
-                        isinstance(
-                            call.args[0].parameters,
-                            (DeviationFit, TimeRuns, AssociationFit, ForecastFit),
-                        )
-                        for consumer in (d, r, s)
-                        for call in consumer.call_args_list
-                    )
-                    assert after == before + 1, "new fixed/cold method must execute one kernel"
-                    check(result, method)
-                    saved = snapshot(result)
-                    runs = session.runs().items
-                    with (
-                        patch.object(deviation_numeric, "fit", forbidden),
-                        patch.object(runs_execution, "compute", forbidden),
-                        patch.object(association_numeric, "score", forbidden),
-                        patch.object(forecast_numeric, "train", forbidden),
-                    ):
-                        assert snapshot(logical.execute()) == saved
-                    assert session.runs().items == runs
-                    row = proof(result, method, phase, form, saved)
-                    row["scenarios"] = [
-                        "fixed_kernel_process" if phase == "fixed" else "cold_kernel_process",
-                        "fixed_exact_hit" if phase == "fixed" else "offline_no_semantic_duckdb",
-                    ]
-                    proofs.append(row)
-                    entries[method] = saved
-                assert set(entries) == set(REPRESENTATIVE_METHODS)
-                state[phase] = entries
-                array_json(state["proofs"]).extend(proofs)
+            query = session.read(members, {"value": field})
+            if mode == "display":
+                query = query.top(7, by=query["value"])
+        artifact = query.execute()
+        frame = plain(artifact)
+        verify(frame, mode, profile)
+        state = {
+            "session": session.id,
+            "artifact": artifact.id,
+            "frame": snapshot(frame),
+            "profile": profile,
+        }
+        before = run_ids(session)
+        verify(plain(session.artifact(artifact.id)), mode, profile)
+        assert run_ids(session) == before
+        if mode == "entity_time" and profile["followup"]:
+            member_index = next(
+                index
+                for index, axis in enumerate(frame.attrs["marivo"]["axes"])
+                if axis["kind"] != "calendar"
+            )
+            fitted = deviation(frame, "zscore")
+            keys = tuple(fitted.loc[fitted.score > 0, f"key_{member_index}"].drop_duplicates())
+            assert keys == (("c", 13),)
+            selected = mv.identities(session.catalog.entities.get("sales.order"), keys=keys)
+            following = session.observe(
+                {"value": field.sum(time=session.catalog.fields.get("sales.order.ordered_at"))},
+                during=session.time_scope(start="2026-08-01", end="2026-08-07"),
+                by=selected,
+                members=selected,
+            ).execute()
+            followup = plain(following)
+            assert followup.key_0.tolist() == [("c", 13)]
+            index = profile["profiles"][0]
+            expected_value = (
+                7
+                if index == 0
+                else 0.7
+                if index == 1
+                else Decimal((0, (7,), -int(PROFILES[index].split(",")[1][:-1])))
+            )
+            assert followup.value.tolist() == [expected_value]
+            assert len(run_ids(session)) == len(before) + 1
         state_path.write_text(json.dumps(state, sort_keys=True))
+        shutil.rmtree(root / "models")
+        for path in root.glob("*.duckdb"):
+            path.unlink()
+        if (root / "source_files").exists():
+            shutil.rmtree(root / "source_files")
+    else:
+        state = json.loads(state_path.read_text())
+        assert not (root / "models").exists() and not (root / "source_files").exists()
+        with (
+            patch.object(ms, "load", forbidden),
+            patch.object(SemanticProject, "load", forbidden),
+            patch.object(SourceSession, "__init__", forbidden),
+            patch.object(duckdb, "connect", forbidden),
+            patch.object(ibis.duckdb, "connect", forbidden),
+        ):
+            session = mv.session.resume(state["session"], by="id")
+            before = run_ids(session)
+            artifact = session.artifact(state["artifact"])
+            frame = plain(artifact)
+            assert snapshot(frame) == state["frame"]
+            verify(frame, mode, state["profile"])
+            assert run_ids(session) == before
+            assert session._runtime.store.resources(session.id) == ()
     return {
-        "phase": phase,
+        "accepted": phase,
         "pid": os.getpid(),
-        "proofs": proofs,
+        "mode": mode,
         "source_offline": phase != "produce",
     }
 
 
+def subprocess_phases(case: DslCase, mode: str) -> None:
+    reports = []
+    for phase in ("produce", "offline", "cold"):
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "tests.analysis.statistics.recovery_worker",
+                str(case.root),
+                phase,
+                mode,
+            ],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=180,
+            env=dict(os.environ, MARIVO_TELEMETRY="off", PYTHONPATH=str(PROJECT_ROOT)),
+        )
+        assert completed.returncode == 0, completed.stdout + completed.stderr
+        report = json.loads(completed.stdout.strip().splitlines()[-1])
+        assert report["accepted"] == phase
+        reports.append(report)
+    assert len({report["pid"] for report in reports}) == 3
+
+
 if __name__ == "__main__":
-    report = run(Path(sys.argv[1]), sys.argv[2], sys.argv[3])
-    Path(sys.argv[4]).write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+    target = Path(sys.argv[1])
+    target.mkdir(parents=True, exist_ok=True)
+    print(json.dumps(run(target, sys.argv[2], sys.argv[3])))

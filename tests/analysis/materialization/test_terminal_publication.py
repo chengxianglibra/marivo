@@ -6,10 +6,13 @@ import os
 import sqlite3
 import subprocess
 import sys
+from collections.abc import Iterator
 from dataclasses import replace
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
+from types import TracebackType
+from typing import TYPE_CHECKING, Literal, NoReturn, overload
 
 import duckdb
 import pandas as pd
@@ -33,6 +36,7 @@ from marivo.analysis.core.artifact_data import (
     ScalarDataType,
     TimestampDataType,
 )
+from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.dsl.artifact import Artifact
 from marivo.analysis.errors import AnalysisStageUnavailableError
 from marivo.analysis.evidence._dataset_types import AssociationFindingValueV1, NoAssociationLagV1
@@ -43,6 +47,7 @@ from marivo.analysis.materialization.errors import (
     MaterializationError,
     RecoveryPendingError,
 )
+from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.resources import reserve_output
 from marivo.analysis.materialization.store import SessionStore, _new_run_ref
 from marivo.analysis.materialization.terminal_protocol import decode, encode
@@ -51,6 +56,9 @@ from marivo.analysis.materialization.terminal_storage import POLICY, read_output
 from marivo.analysis.session.core import Session
 from tests.shared_fixtures import numeric_literal_node, numeric_program_query
 
+if TYPE_CHECKING:
+    from tests.conftest import _SemanticProjectFactory
+
 
 @pytest.fixture
 def session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Session:
@@ -58,7 +66,7 @@ def session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Session:
     return mv.session.get_or_create("terminal", report_timezone="UTC")
 
 
-def constant(session: Session, value: int = 7):
+def constant(session: Session, value: int = 7) -> mv.Query:
     return numeric_program_query(session, {"answer": numeric_literal_node(value)})
 
 
@@ -70,8 +78,24 @@ def stored_frame(session: Session, artifact: Artifact) -> pd.DataFrame:
     return read_output(store.project_root, manifest.data.schema, manifest.data.rows)
 
 
-def records(session: Session, artifact: Artifact, kind="evidence"):
-    items = []
+@overload
+def records(
+    session: Session, artifact: Artifact, kind: Literal["evidence"] = "evidence"
+) -> tuple[OutputEvidence, ...]: ...
+
+
+@overload
+def records(
+    session: Session, artifact: Artifact, kind: Literal["finding"]
+) -> tuple[OutputFinding, ...]: ...
+
+
+def records(
+    session: Session,
+    artifact: Artifact,
+    kind: Literal["finding", "evidence"] = "evidence",
+) -> tuple[OutputFinding | OutputEvidence, ...]:
+    items: list[OutputFinding | OutputEvidence] = []
     cursor = None
     while True:
         page, cursor = terminal_store.records_page(
@@ -82,7 +106,9 @@ def records(session: Session, artifact: Artifact, kind="evidence"):
             return tuple(items)
 
 
-def test_public_constant_executes_each_invocation_and_reads_committed_output(session: Session):
+def test_public_constant_executes_each_invocation_and_reads_committed_output(
+    session: Session,
+) -> None:
     query = constant(session)
     first, second = query.execute(), query.execute()
     assert first.id != second.id
@@ -105,7 +131,7 @@ def test_public_constant_executes_each_invocation_and_reads_committed_output(ses
     assert session._catalog_value is None and session._sources_value is None
 
 
-def test_storage_wide_complete_keys_exact_dtypes_and_nullable_values(tmp_path: Path):
+def test_storage_wide_complete_keys_exact_dtypes_and_nullable_values(tmp_path: Path) -> None:
     keys = (
         DataColumn("k0", "region", ScalarDataType("string"), True),
         DataColumn("k1", "customer", ScalarDataType("int64"), False),
@@ -156,7 +182,7 @@ def test_storage_wide_complete_keys_exact_dtypes_and_nullable_values(tmp_path: P
         handle = write_output(tmp_path, staging, final, schema, data)
         os.rename(staging, final)
         output = read_output(tmp_path, schema, handle)
-        expected = data.sort_values(["k0", "k1"], na_position="last", kind="stable").reset_index(
+        expected = data.sort_values(["k0", "k1"], na_position="first", kind="stable").reset_index(
             drop=True
         )
         pd.testing.assert_frame_equal(output, expected, check_dtype=False)
@@ -184,7 +210,7 @@ def test_storage_wide_complete_keys_exact_dtypes_and_nullable_values(tmp_path: P
 
 
 @pytest.mark.parametrize("count", (0, 1, 2))
-def test_zero_axis_zero_value_unit_rows(tmp_path: Path, count: int):
+def test_zero_axis_zero_value_unit_rows(tmp_path: Path, count: int) -> None:
     rows = pd.DataFrame(index=pd.RangeIndex(count))
     if count == 2:
         with pytest.raises(IntegrityError):
@@ -211,7 +237,7 @@ def test_zero_axis_zero_value_unit_rows(tmp_path: Path, count: int):
     assert exported.attrs["marivo"]["quantities"] == ()
 
 
-def test_records_codec_and_transaction_are_self_contained(session: Session):
+def test_records_codec_and_transaction_are_self_contained(session: Session) -> None:
     store = session._runtime.store
     ref = _new_run_ref()
     terminal_store.admit(store, session.id, ref)
@@ -311,10 +337,12 @@ def test_records_codec_and_transaction_are_self_contained(session: Session):
         "before_commit",
     ),
 )
-def test_faults_never_expose_partial_output_or_delete_prior_commit(session: Session, point: str):
+def test_faults_never_expose_partial_output_or_delete_prior_commit(
+    session: Session, point: str
+) -> None:
     saved = constant(session).execute()
 
-    def fail(current):
+    def fail(current: str) -> None:
         if current == point:
             raise OSError(point)
 
@@ -331,10 +359,10 @@ def test_faults_never_expose_partial_output_or_delete_prior_commit(session: Sess
     assert len(list(session._runtime.store.layout.session_dir(session.id).glob("artifacts/*"))) == 1
 
 
-def test_lost_commit_ack_returns_original_without_reexecution(session: Session):
+def test_lost_commit_ack_returns_original_without_reexecution(session: Session) -> None:
     calls = []
 
-    def fail(point):
+    def fail(point: str) -> None:
         calls.append(point)
         if point == "after_commit":
             raise OSError("lost acknowledgement")
@@ -347,7 +375,11 @@ def test_lost_commit_ack_returns_original_without_reexecution(session: Session):
 
 
 @pytest.fixture
-def source_session(semantic_project_factory, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def source_session(
+    semantic_project_factory: _SemanticProjectFactory,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Session:
     database = tmp_path / "warehouse.duckdb"
     with duckdb.connect(str(database)) as conn:
         conn.execute(
@@ -379,7 +411,9 @@ def revenue():
     return mv.session.get_or_create("source", report_timezone="UTC")
 
 
-def test_real_source_repeat_execution_and_nullable_local_combination(source_session: Session):
+def test_real_source_repeat_execution_and_nullable_local_combination(
+    source_session: Session,
+) -> None:
     session = source_session
     amount = session.catalog.fields.get("sales.orders.amount")
     region = session.catalog.fields.get("sales.orders.region")
@@ -390,8 +424,8 @@ def test_real_source_repeat_execution_and_nullable_local_combination(source_sess
     )
     first = query.execute()
     frame = stored_frame(session, first)
-    assert frame["value.0"].tolist() == [9007199254740993, 5]
-    assert frame["key.0"].tolist() == ["A", pd.NA]
+    assert frame["value.0"].tolist() == [5, 9007199254740993]
+    assert frame["key.0"].tolist() == [pd.NA, "A"]
     assert frame["value.2"].isna().all()
     facts = records(session, first)
     reads = [dict(item.values) for item in facts if item.kind == "read"]
@@ -400,18 +434,18 @@ def test_real_source_repeat_execution_and_nullable_local_combination(source_sess
         conn.execute("UPDATE orders SET amount=10 WHERE id=1")
     second = query.execute()
     assert second.id != first.id
-    assert stored_frame(session, second)["value.0"].tolist() == [10, 5]
-    assert stored_frame(session, first)["value.0"].tolist() == [9007199254740993, 5]
+    assert stored_frame(session, second)["value.0"].tolist() == [5, 10]
+    assert stored_frame(session, first)["value.0"].tolist() == [5, 9007199254740993]
     assert records(session, second, "finding") == ()
 
 
-def test_calendar_bounds_are_explicit_output_attachment(source_session: Session):
+def test_calendar_bounds_are_explicit_output_attachment(source_session: Session) -> None:
     session = source_session
     metric = session.catalog.metrics.get("sales.revenue")
     axis = session.time_scope(start="2026-01-01", end="2026-01-05").by(mv.grain("day"))
     artifact = session.observe({"revenue": metric}, during=axis).execute()
     (attachment,) = artifact._manifest.data.attachments
-    assert attachment.name == "calendar_bounds"
+    assert attachment.name == "calendar_bounds.axis.0"
     frame = read_output(session.project_root, attachment.schema, attachment.rows)
     assert len(frame) == 4 and frame["actual_start"].iloc[0] == pd.Timestamp("2026-01-01", tz="UTC")
     assert len(stored_frame(session, artifact)) == 4
@@ -421,19 +455,17 @@ def test_calendar_bounds_are_explicit_output_attachment(source_session: Session)
 @pytest.mark.parametrize("from_source", (False, True))
 def test_calendar_timezone_survives_private_cold_read(
     source_session: Session, zone: str, from_source: bool
-):
+) -> None:
     session = source_session
-    metric = (
-        session.catalog.metrics.get("sales.revenue") if from_source else numeric_literal_node(7)
-    )
     axis = session.time_scope(start="2026-03-28", end="2026-03-31", timezone=zone).by(
         mv.grain("day")
     )
-    artifact = (
-        session.observe({"value": metric}, during=axis)
-        if from_source
-        else numeric_program_query(session, {"value": metric}, during=axis)
-    ).execute()
+    if from_source:
+        metric = session.catalog.metrics.get("sales.revenue")
+        artifact = session.observe({"value": metric}, during=axis).execute()
+    else:
+        literal = numeric_literal_node(7)
+        artifact = numeric_program_query(session, {"value": literal}, during=axis).execute()
     if not from_source:
         assert session._catalog_value is None
         assert not any(item.kind == "read" for item in records(session, artifact))
@@ -476,7 +508,7 @@ assert [(end-start).total_seconds()/3600 for start,end in zip(starts,ends)] == (
     assert result.returncode == 0, result.stderr
 
 
-def test_read_evidence_preserves_nested_predicate_groups(source_session: Session):
+def test_read_evidence_preserves_nested_predicate_groups(source_session: Session) -> None:
     session = source_session
     region = session.catalog.fields.get("sales.orders.region")
     amount = session.catalog.fields.get("sales.orders.amount")
@@ -500,7 +532,7 @@ def test_read_evidence_preserves_nested_predicate_groups(source_session: Session
         assert [dict(item.values)["filters"] for item in facts if item.kind == "read"] == [expected]
 
 
-def test_old_store_rejection_preserves_bytes_and_name_cannot_bypass(tmp_path: Path):
+def test_old_store_rejection_preserves_bytes_and_name_cannot_bypass(tmp_path: Path) -> None:
     old = tmp_path / ".marivo/analysis/generations/v9/session_store.db"
     old.parent.mkdir(parents=True)
     with sqlite3.connect(old) as conn:
@@ -515,7 +547,9 @@ def test_old_store_rejection_preserves_bytes_and_name_cannot_bypass(tmp_path: Pa
     assert not (old.parent.parent / "v10").exists()
 
 
-def test_private_cold_roundtrip_does_not_need_producer_or_catalog(session: Session, tmp_path: Path):
+def test_private_cold_roundtrip_does_not_need_producer_or_catalog(
+    session: Session, tmp_path: Path
+) -> None:
     artifact = constant(session).execute()
     script = """from pathlib import Path
 import sys
@@ -549,7 +583,7 @@ assert terminal_store.records_page(store,sys.argv[2],kind="evidence")[0]
         "after_commit",
     ),
 )
-def test_process_loss_reconciles_original_without_replay(session: Session, point: str):
+def test_process_loss_reconciles_original_without_replay(session: Session, point: str) -> None:
     store = session._runtime.store
     saved = constant(session).execute()
     command = [
@@ -578,7 +612,7 @@ def test_process_loss_reconciles_original_without_replay(session: Session, point
         assert conn.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == count_before
 
 
-def test_process_writer_contention_does_not_admit_contender(session: Session):
+def test_process_writer_contention_does_not_admit_contender(session: Session) -> None:
     from marivo.analysis.materialization.writer_guard import session_writer_guard
 
     store = session._runtime.store
@@ -605,14 +639,14 @@ def test_process_writer_contention_does_not_admit_contender(session: Session):
 
 def test_unknown_commit_keeps_files_and_journal_until_reconciliation(
     session: Session, monkeypatch: pytest.MonkeyPatch
-):
+) -> None:
     store = session._runtime.store
     original_read = store._read
 
-    def fail(point):
+    def fail(point: str) -> None:
         if point == "before_commit":
 
-            def unavailable():
+            def unavailable() -> NoReturn:
                 raise OSError("read-back unavailable")
 
             monkeypatch.setattr(store, "_read", unavailable)
@@ -631,7 +665,7 @@ def test_unknown_commit_keeps_files_and_journal_until_reconciliation(
     assert session.runs().items[0].lifecycle == "failed"
 
 
-def test_obsolete_output_envelope_is_rejected_without_rewrite():
+def test_obsolete_output_envelope_is_rejected_without_rewrite() -> None:
     from marivo.analysis.materialization.contracts import canonical_json
 
     text = canonical_json({"format": "marivo.graph/v10", "value": {}})
@@ -640,7 +674,7 @@ def test_obsolete_output_envelope_is_rejected_without_rewrite():
     assert text == canonical_json({"format": "marivo.graph/v10", "value": {}})
 
 
-def test_large_output_uses_bounded_row_groups(tmp_path: Path):
+def test_large_output_uses_bounded_row_groups(tmp_path: Path) -> None:
     schema = DataSchema(
         (DataAxis("key", (DataColumn("k0", "key", ScalarDataType("int64"), False),)),),
         (DataColumn("v0", "value", ScalarDataType("int64"), True),),
@@ -660,7 +694,7 @@ def test_large_output_uses_bounded_row_groups(tmp_path: Path):
     pd.testing.assert_frame_equal(read_output(tmp_path, schema, handle), rows)
 
 
-def test_pure_source_publication_has_no_synthetic_local_check(source_session: Session):
+def test_pure_source_publication_has_no_synthetic_local_check(source_session: Session) -> None:
     metric = source_session.catalog.metrics.get("sales.revenue")
     artifact = source_session.observe({"revenue": metric}).execute()
     assert stored_frame(source_session, artifact)["value.0"].tolist() == [9007199254740998]
@@ -672,7 +706,9 @@ def test_pure_source_publication_has_no_synthetic_local_check(source_session: Se
     )
 
 
-def test_explicit_numeric_error_fails_original_run_without_publication(source_session: Session):
+def test_explicit_numeric_error_fails_original_run_without_publication(
+    source_session: Session,
+) -> None:
     amount = source_session.catalog.fields.get("sales.orders.amount")
     assert isinstance(amount, Deferred)
     total = amount.sum()
@@ -686,7 +722,7 @@ def test_explicit_numeric_error_fails_original_run_without_publication(source_se
         assert conn.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == 0
 
 
-def test_preparation_failure_creates_no_run(source_session: Session):
+def test_preparation_failure_creates_no_run(source_session: Session) -> None:
     region = source_session.catalog.fields.get("sales.orders.region")
     metric = source_session.catalog.metrics.get("sales.revenue")
     with duckdb.connect(str(source_session.project_root / "warehouse.duckdb")) as conn:
@@ -697,22 +733,23 @@ def test_preparation_failure_creates_no_run(source_session: Session):
     assert source_session.runs().items == ()
 
 
-def test_legacy_publisher_is_rejected_before_admission(session: Session):
+def test_legacy_publisher_is_rejected_before_admission(session: Session) -> None:
     from marivo.analysis.materialization.graph_publication import execute
 
     with pytest.raises(AnalysisStageUnavailableError, match="retired graph"):
-        execute(session._runtime, object(), ())
+        # Exercise the retired publisher's rejection of an invalid legacy root.
+        execute(session._runtime, object(), ())  # type: ignore[arg-type]
     assert session.runs().items == ()
 
 
 def test_source_disconnect_failure_prevents_publication(
     source_session: Session, monkeypatch: pytest.MonkeyPatch
-):
+) -> None:
     from marivo.datasource._lifetime import BackendLease
 
     original = BackendLease.close
 
-    def unconfirmed(lease, *, suppress_errors=True):
+    def unconfirmed(lease: BackendLease, *, suppress_errors: bool = True) -> bool:
         assert original(lease, suppress_errors=suppress_errors)
         return False
 
@@ -727,10 +764,10 @@ def test_source_disconnect_failure_prevents_publication(
         assert conn.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == 0
 
 
-def test_lost_ack_with_missing_records_is_recovery_pending(session: Session):
+def test_lost_ack_with_missing_records_is_recovery_pending(session: Session) -> None:
     store = session._runtime.store
 
-    def corrupt(point):
+    def corrupt(point: str) -> None:
         if point == "after_commit":
             with store._write() as conn:
                 conn.execute("DELETE FROM output_evidence")
@@ -744,7 +781,7 @@ def test_lost_ack_with_missing_records_is_recovery_pending(session: Session):
 
 
 @pytest.mark.parametrize("unit", ("s", "ms", "us", "ns"))
-def test_time_units_roundtrip_exactly(tmp_path: Path, unit: str):
+def test_time_units_roundtrip_exactly(tmp_path: Path, unit: Literal["s", "ms", "us", "ns"]) -> None:
     schema = DataSchema(
         (),
         (
@@ -770,13 +807,15 @@ def test_time_units_roundtrip_exactly(tmp_path: Path, unit: str):
 
 
 def test_metadata_and_records_need_no_parquet_or_current_model(
-    source_session: Session, monkeypatch, capsys
-):
+    source_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     session = source_session
     amount = session.catalog.fields.get("sales.orders.amount")
     artifact = session.observe({"total": amount.sum()}).execute()
 
-    def forbidden(*args, **kwargs):
+    def forbidden(*args: object, **kwargs: object) -> NoReturn:
         pytest.fail("metadata and record reads must not consume Parquet or current semantics")
 
     monkeypatch.setattr(pq, "ParquetFile", forbidden)
@@ -792,7 +831,7 @@ def test_metadata_and_records_need_no_parquet_or_current_model(
     assert session.get_run(artifact._manifest.run_id).lifecycle == "succeeded"
 
 
-def test_public_read_isolated_copy_and_historical_values(source_session: Session):
+def test_public_read_isolated_copy_and_historical_values(source_session: Session) -> None:
     session = source_session
     amount = session.catalog.fields.get("sales.orders.amount")
     region = session.catalog.fields.get("sales.orders.region")
@@ -800,8 +839,8 @@ def test_public_read_isolated_copy_and_historical_values(source_session: Session
         {"total": amount.sum(), "mean": amount.mean()}, by=(region,)
     ).execute()
     before = artifact.to_pandas()
-    assert before[("value", "total")].tolist() == [9007199254740993, 5]
-    assert pd.isna(before[("coordinate", "axis.0")].iloc[-1])
+    assert before[("value", "total")].tolist() == [5, 9007199254740993]
+    assert pd.isna(before[("coordinate", "axis.0")].iloc[0])
     assert before.attrs["marivo"]["axes"][0]["kind"] == "field"
     changed = artifact.to_pandas()
     changed.iloc[0, 1] = 0
@@ -812,8 +851,8 @@ def test_public_read_isolated_copy_and_historical_values(source_session: Session
 
 
 def test_preview_decodes_only_requested_rows_and_skips_unused_parts(
-    session: Session, monkeypatch, capsys
-):
+    session: Session, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     from marivo.analysis.core.artifact_data import ArtifactPublication, OutputAttachment
     from marivo.analysis.materialization import terminal_publication
     from marivo.analysis.materialization.graph_reading import OutputRead
@@ -825,7 +864,13 @@ def test_preview_decodes_only_requested_rows_and_skips_unused_parts(
     rows = pd.DataFrame({"key.0": range(count), "value.0": range(count)})
     original = terminal_publication._publication
 
-    def output(graph, stage, artifact_id, run_id, evidence):
+    def output(
+        graph: BoundGraph,
+        stage: StageOutput,
+        artifact_id: str,
+        run_id: str,
+        evidence: tuple[OutputEvidence, ...],
+    ) -> ArtifactPublication:
         return ArtifactPublication(
             artifact_id,
             session.id,
@@ -841,23 +886,30 @@ def test_preview_decodes_only_requested_rows_and_skips_unused_parts(
     monkeypatch.setattr(terminal_publication, "_publication", original)
     (unused,) = artifact._manifest.data.attachments
     (session.project_root / unused.rows.receipt.project_relative_path / "data.parquet").unlink()
-    sizes = []
+    sizes: list[int] = []
     open_parquet = OutputRead._open
 
     class TrackedParquet:
-        def __init__(self, parquet):
+        def __init__(self, parquet: pq.ParquetFile) -> None:
             self.parquet = parquet
             self.num_row_groups = parquet.num_row_groups
             self.reader = parquet.reader
 
-        def __enter__(self):
+        def __enter__(self) -> TrackedParquet:
             return self
 
-        def __exit__(self, *args):
+        def __exit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            traceback: TracebackType | None,
+        ) -> None:
             self.parquet.close()
 
-        def iter_batches(self, **kwargs):
-            for batch in self.parquet.iter_batches(**kwargs):
+        def iter_batches(
+            self, *, batch_size: int, row_groups: list[int]
+        ) -> Iterator[pa.RecordBatch]:
+            for batch in self.parquet.iter_batches(batch_size=batch_size, row_groups=row_groups):
                 sizes.append(batch.num_rows)
                 yield batch
 
@@ -888,7 +940,9 @@ def test_preview_decodes_only_requested_rows_and_skips_unused_parts(
     artifact.evidence_digest()
 
 
-def test_wide_artifact_truncation_routes_to_callable_reads(session: Session, capsys):
+def test_wide_artifact_truncation_routes_to_callable_reads(
+    session: Session, capsys: pytest.CaptureFixture[str]
+) -> None:
     artifact = numeric_program_query(
         session,
         {f"quantity_{index}_" + "x" * 150: numeric_literal_node(index) for index in range(60)},
@@ -905,9 +959,14 @@ def test_wide_artifact_truncation_routes_to_callable_reads(session: Session, cap
 
 @pytest.mark.parametrize("zone", ("Europe/Paris", "UTC+05:30"))
 def test_public_calendar_uses_saved_instants_and_boundaries(
-    session: Session, zone: str, monkeypatch
-):
-    from marivo.analysis.materialization.graph_reading import OutputRead
+    session: Session, zone: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.analysis.materialization.graph_reading import (
+        ExportRead,
+        OutputRead,
+        PreviewRead,
+        ReadLayout,
+    )
 
     axis = session.time_scope(start="2026-03-28T06:00", end="2026-03-31", timezone=zone).by(
         mv.grain("day")
@@ -927,7 +986,9 @@ def test_public_calendar_uses_saved_instants_and_boundaries(
     original = OutputRead.read
     consumed = []
 
-    def tracked(self, layout, request):
+    def tracked(
+        self: OutputRead, layout: ReadLayout, request: PreviewRead | ExportRead
+    ) -> pd.DataFrame:
         result = original(self, layout, request)
         consumed.append(len(result))
         return result
@@ -937,7 +998,7 @@ def test_public_calendar_uses_saved_instants_and_boundaries(
     assert consumed == [1, 1]
 
 
-def test_public_produce_and_cold_read_are_independent_processes(source_session: Session):
+def test_public_produce_and_cold_read_are_independent_processes(source_session: Session) -> None:
     import shutil
 
     root = source_session.project_root
@@ -960,7 +1021,7 @@ def test_public_produce_and_cold_read_are_independent_processes(source_session: 
     assert "public-cold-ok" in reopened.stdout
 
 
-def test_open_missing_and_foreign_ids_and_invalid_evidence_arguments(session: Session):
+def test_open_missing_and_foreign_ids_and_invalid_evidence_arguments(session: Session) -> None:
     from marivo.analysis.errors import ArtifactNotFoundError
 
     artifact = constant(session).execute()
@@ -970,10 +1031,11 @@ def test_open_missing_and_foreign_ids_and_invalid_evidence_arguments(session: Se
     with pytest.raises(ArtifactNotFoundError):
         session.artifact("missing")
     with pytest.raises(TypeError):
-        artifact.evidence_digest(limit=1)
+        # The runtime contract must reject unsupported evidence pagination arguments.
+        artifact.evidence_digest(limit=1)  # type: ignore[call-arg]
 
 
-def test_composite_coordinates_remain_one_ordered_tuple(tmp_path: Path):
+def test_composite_coordinates_remain_one_ordered_tuple(tmp_path: Path) -> None:
     from marivo.analysis.materialization.graph_reading import ExportRead, OutputRead
     from marivo.analysis.materialization.pandas_export import export_frame
 
@@ -993,7 +1055,7 @@ def test_composite_coordinates_remain_one_ordered_tuple(tmp_path: Path):
     manifest = ArtifactManifest("artifact", "session", "run", ArtifactData(schema, handle))
     exported = export_frame(manifest, OutputRead(tmp_path), ExportRead())
     assert exported[("coordinate", "axis.0")].tolist() == [
-        (9007199254740993, "A"),
         (9007199254740993, None),
+        (9007199254740993, "A"),
     ]
     assert len(exported.attrs["marivo"]["axes"][0]["key_components"]) == 2

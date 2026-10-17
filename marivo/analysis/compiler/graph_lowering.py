@@ -4717,12 +4717,31 @@ def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery
                 )
             conditions.append(time < temporal_bound(time, stage.period.end, stage.period.timezone))
         filtered = table.filter(*conditions) if conditions else table
+        if stage.common_reads:
+            from marivo.analysis.compiler.original import lower_common_components
+
+            expression, checks = lower_common_components(
+                tuple(read.reduction for read in stage.common_reads if read.reduction is not None),
+                tuple(read.component_layout for read in stage.common_reads),
+                filtered,
+                columns,
+                stage.predicates,
+            )
+            lowered.append(LoweredRead(stage, expression, checks))
+            continue
         if stage.reduction is not None:
             from marivo.analysis.compiler.observation import lower_observation
 
-            expression, checks = lower_observation(
-                stage.reduction, filtered, columns, stage.predicates
-            )
+            if stage.component_layout is not None:
+                from marivo.analysis.compiler.original import lower_components
+
+                expression, checks = lower_components(
+                    stage.component_layout, filtered, columns, stage.predicates
+                )
+            else:
+                expression, checks = lower_observation(
+                    stage.reduction, filtered, columns, stage.predicates
+                )
             if stage.preparation_checks:
                 summary = table.aggregate(
                     **{

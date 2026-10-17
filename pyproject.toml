@@ -145,10 +145,24 @@ warn_redundant_casts = true
 warn_no_return = true
 show_error_codes = true
 pretty = true
+# Constructors in Ibis's untyped Resolver implementation have no signatures.
+# Keep nominal source/result distinctions without disabling checks on our calls.
+untyped_calls_exclude = ["ibis.common.deferred"]
 
 [[tool.mypy.overrides]]
 module = ["ibis.*", "pyarrow.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["ibis.common.deferred", "ibis.common.bases"]
+# Ibis does not ship py.typed. Follow its nominal Deferred class so public
+# source inputs remain distinct from Columns, artifacts and bare references.
+follow_untyped_imports = true
+follow_imports = "silent"
+
+[[tool.mypy.overrides]]
+module = "ibis"
+follow_imports = "skip"
 
 [tool.coverage.run]
 source = ["marivo"]

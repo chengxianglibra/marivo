@@ -19,8 +19,9 @@ to be resolved rather than a silently substituted Metric.
 
 The agent verifies its selected environment, reads existing catalog objects,
 constructs explicit analysis in one Session and executes when the next decision
-needs results. It reads `.show()` for committed rows, follows `.contract()` for
-legal continuations and uses focused Help for unfamiliar calls.
+needs results. It follows Query/Population `.contract()` before execution, reads Artifact
+`.show()` for committed rows and uses focused Help for unfamiliar calls.
+The Artifact is terminal; custom follow-up on saved data uses `.to_pandas()`.
 
 For a missing reusable definition, it hands off to `marivo-semantic`, certifies
 the changed roots and returns to the original question. Terminal raw SQL may

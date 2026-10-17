@@ -8,7 +8,7 @@ from dataclasses import replace
 import duckdb
 import pytest
 
-import marivo.analysis as mv
+import marivo.analysis.runtime_metric as runtime_descriptors
 import marivo.semantic as ms
 from marivo.analysis.core.model import (
     Binding,
@@ -22,12 +22,15 @@ from marivo.analysis.core.model import (
     Evidence,
     Fact,
     FactInput,
+    FactKind,
     FixedReferencePart,
     Null,
     Obligation,
     ObservedQuantity,
     OriginalStatePart,
+    Part,
     RowStatePart,
+    RowStatisticQuantity,
     Signature,
     StatisticalWeightPart,
     SubjectPart,
@@ -90,14 +93,14 @@ def _quantity(name: str = "revenue") -> ObservedQuantity:
     )
 
 
-def _evidence(kind: str, binding: Binding, subject: str) -> Evidence:
+def _evidence(kind: FactKind, binding: Binding, subject: str) -> Evidence:
     return Evidence(Fact(kind, binding, subject, "v1"), "check", "fixed-input-oracle")
 
 
 def _observed(*, state: bool = False, coverage: bool = False) -> Signature:
     domain = _domain()
     quantity = _quantity()
-    parts = []
+    parts: list[Part] = []
     if state:
         parts.append(
             OriginalStatePart(
@@ -158,6 +161,7 @@ def test_members_use_complete_declared_key_and_exact_version_without_io(
     assert tuple(item.field for item in root.domain.instance_key) == ("tenant_id", "customer_id")
     assert root.domain.version_selection == selected
     assert root.domain.target_key == root.domain.instance_key
+    assert isinstance(root.parts[0], SubjectPart)
     assert root.parts[0].injective is True
     assert root.evidence[0].basis == "declaration"
     assert root.evidence[0].fact.kind == "declared_key"
@@ -205,7 +209,7 @@ def test_bind_project_checks_exact_ref_owner_path_and_bound_quantity(
             ),
         )
     with pytest.raises(CoreRuleError, match="field or Metric Ref"):
-        derive((source,), replace(direct, ref=entity))
+        derive((source,), replace(direct, ref=entity))  # type: ignore[arg-type]  # Runtime rejection of an Entity used as a field.
     buyer = ms.ref.relationship(f"{case.names.domain}.{case.names.buyer}")
     with pytest.raises(CoreRuleError, match="complete directed Relationship path"):
         derive((source,), replace(direct, path=(buyer,)))
@@ -214,7 +218,7 @@ def test_bind_project_checks_exact_ref_owner_path_and_bound_quantity(
     (runtime_contract,) = normalize_target_metric_inputs(
         case.catalog._state.registry,
         (
-            mv.runtime_metric.aggregate(
+            runtime_descriptors.aggregate(
                 ms.ref.measure("sales.order.amount"), agg="sum", label="Amount"
             ),
         ),
@@ -291,6 +295,7 @@ def test_mapping_subject_image_full_tuple_union_and_missing_side() -> None:
     subject = SubjectPart(bound, customer, order_key, customer_key, False, True, "v1")
     mapped = derive((Signature(orders, parts=(subject,)),), MapCorrespond("subjects", customers))
     assert mapped.output.domain.instance_key == customers.instance_key
+    assert mapped.output.domain.correspondence is not None
     assert mapped.output.domain.correspondence.multiplicity == "set_image"
     assert mapped.eval_id == "map_correspond.subject_set_image@v1"
     assert mapped.output.quantity is None
@@ -336,6 +341,7 @@ def test_exact_and_group_mapping_keep_runtime_obligations_bound() -> None:
         "mapping_injective",
     }
     assert len(paired.obligations) == 3
+    assert paired.output.domain.correspondence is not None
     assert paired.output.domain.correspondence.multiplicity == "paired"
     assert all(
         item.fact.binding == source.domain.binding and item.before == "consume"
@@ -350,6 +356,7 @@ def test_exact_and_group_mapping_keep_runtime_obligations_bound() -> None:
     grouped = derive((source,), MapCorrespond("group", group, "source.group_mapping@v1"))
     assert grouped.output.domain.instance_key == group.instance_key
     assert {item.fact.kind for item in grouped.obligations} == {"mapping_total", "single_value"}
+    assert grouped.output.domain.correspondence is not None
     assert grouped.output.domain.correspondence.multiplicity == "group"
 
 
@@ -437,6 +444,9 @@ def test_current_row_state_is_not_original_rollup() -> None:
             numeric_check_id="source.finite_numeric@v1",
         ),
     )
+    assert isinstance(count.output.quantity, RowStatisticQuantity)
+    assert isinstance(defined_count.output.quantity, RowStatisticQuantity)
+    assert isinstance(mean.output.quantity, RowStatisticQuantity)
     assert count.output.quantity.definition_id == "row_count"
     assert defined_count.output.quantity.definition_id == "defined_count"
     assert count.output.quantity.method_version != defined_count.output.quantity.method_version
@@ -467,7 +477,10 @@ def test_current_row_state_is_not_original_rollup() -> None:
             numeric_check_id="source.finite_numeric@v1",
         ),
     )
-    assert require_part(weighted.output, "row_state").components == ("weighted_sum", "weight_sum")
+    weighted_state = require_part(weighted.output, "row_state")
+    assert isinstance(weighted_state, RowStatePart)
+    assert weighted_state.components == ("weighted_sum", "weight_sum")
+    assert isinstance(weighted.output.quantity, RowStatisticQuantity)
     assert weighted.output.quantity.weighting == "weight_role"
 
 
@@ -480,10 +493,15 @@ def test_original_reduce_requires_bound_components_and_coverage() -> None:
             singleton, "source.contribution_partition@v1", "source.complete_coverage@v1"
         ),
     )
+    assert rolled.output.quantity is not None
     assert rolled.output.quantity.kind == "original_rollup"
     assert rolled.eval_id == "original_reduce.merge_then_finish@v1"
-    assert require_part(rolled.output, "original_state").components == ("sum", "non_null_count")
-    assert require_part(rolled.output, "coverage").quantity_id == _quantity().definition_id
+    rolled_state = require_part(rolled.output, "original_state")
+    rolled_coverage = require_part(rolled.output, "coverage")
+    assert isinstance(rolled_state, OriginalStatePart)
+    assert isinstance(rolled_coverage, CoveragePart)
+    assert rolled_state.components == ("sum", "non_null_count")
+    assert rolled_coverage.quantity_id == _quantity().definition_id
     assert {item.fact.kind for item in rolled.obligations} == {
         "complete_coverage",
         "contribution_partition",
@@ -495,7 +513,9 @@ def test_original_reduce_requires_bound_components_and_coverage() -> None:
                 singleton, "source.contribution_partition@v1", "source.complete_coverage@v1"
             ),
         )
-    wrong_state = replace(require_part(source, "original_state"), quantity_id="metric:profit")
+    source_state = require_part(source, "original_state")
+    assert isinstance(source_state, OriginalStatePart)
+    wrong_state = replace(source_state, quantity_id="metric:profit")
     with pytest.raises(CoreRuleError, match="part bound to this quantity"):
         derive(
             (replace(source, parts=(wrong_state, require_part(source, "coverage"))),),

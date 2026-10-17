@@ -5,14 +5,40 @@ from __future__ import annotations
 from typing import Literal
 
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.graph_relation import Relation
 from marivo.semantic.ir import AggKind
-from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models
+from tests.shared_fixtures import DslCase, DslCaseFactory, export_dsl_parquet_models
 from tests.support.paths import PROJECT_ROOT
+
+
+def _distribution(case: DslCase, agg: AggKind) -> mv.Query:
+    session = case.session
+    amount = session.catalog.fields.get("sales.order.amount")
+    time = session.catalog.fields.get("sales.order.ordered_at")
+    metric: Deferred
+    if agg == "count_distinct":
+        metric = amount.count_distinct(time=time)
+    elif agg == "approx_count_distinct":
+        metric = amount.approx_nunique(time=time)
+    elif agg == "median":
+        metric = amount.median(time=time)
+    elif agg == "approx_median":
+        metric = amount.approx_median(time=time)
+    elif isinstance(agg, tuple) and agg[0] == "percentile":
+        metric = amount.quantile(agg[1], time=time)
+    elif isinstance(agg, tuple) and agg[0] == "approx_percentile":
+        metric = amount.approx_quantile(agg[1], time=time)
+    else:
+        raise AssertionError(f"Unexpected distribution fixture: {agg!r}")
+    return session.observe(
+        {"value": metric},
+        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
+        by=session.members(ms.ref.entity("sales.customer")),
+    )
 
 
 @pytest.mark.parametrize(
@@ -44,29 +70,36 @@ def test_direct_distribution(
     if parquet:
         export_dsl_parquet_models(case, case.root)
     ms.load(workspace_dir=case.root)
-    metric = mv.runtime_metric.aggregate(
-        ms.ref.measure("sales.order.amount"), agg=agg, label="distribution"
-    )
-    observed = case.session.members(ms.ref.entity("sales.customer")).observe(
-        metric,
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
+    observed = _distribution(case, agg)
+    if isinstance(agg, tuple) and agg[0] == "approx_percentile":
+        with pytest.raises(AnalysisError) as caught:
+            observed.execute()
+        assert isinstance(caught.value.__cause__, ms.errors.SemanticExpressionError)
+        assert caught.value.__cause__.expected == "a qualified approximate quantile route"
+        assert case.session.runs().items == ()
+        # Choose the supported exact algorithm explicitly on the same input rows.
+        agg = ("percentile", agg[1])
+        observed = _distribution(case, agg)
     fixed = observed.execute()
-    rows = fixed.to_pandas().set_index("member")
+    frame = fixed.to_pandas()
+    rows = frame.set_index(frame.columns[0])[("value", "value")]
     if agg in ("count_distinct", "approx_count_distinct"):
-        assert rows["value"].tolist() == [1, 1, 1, 0]
+        assert rows.tolist() == [1, 1, 1, 0]
     else:
-        assert rows.loc[["A", "B", "C"], "value"].tolist() == [450, 150, 400]
-        assert rows.loc["D", "cell_tag"] == "null"
-    assert not any(action.call == "relation.rollup()" for action in fixed.contract().actions)
-    with pytest.raises(AnalysisError):
-        fixed.rollup()
-    assert fixed.aggregate(mv.count()).execute().to_pandas()["value"].tolist() == [4]
-    for relation in (observed, fixed):
+        assert rows.loc[["A", "B", "C"]].tolist() == [450, 150, 400]
+        assert rows.loc[["D"]].isna().all()
+    assert observed.reduce({"rows": mv.row_count()}).execute().to_pandas()[
+        ("value", "rows")
+    ].tolist() == [4]
+    if agg in ("approx_count_distinct", "approx_median") or (
+        isinstance(agg, tuple) and agg[0] == "approx_percentile"
+    ):
         with pytest.raises(AnalysisError):
-            relation.group_by(ms.ref.entity("sales.customer")).rollup()
+            observed.rollup().execute()
+    else:
+        total = observed.rollup().execute().to_pandas()[("value", "value")].iloc[0]
+        expected = 3 if agg == "count_distinct" else 400 if agg == "median" else 275
+        assert total == expected
     if agg == "count_distinct" and not parquet:
         with duckdb.connect(str(case.database_path)) as db:
             db.execute('DELETE FROM "order"')
@@ -75,27 +108,14 @@ def test_direct_distribution(
                     'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?)',
                     [str(index), "A", "web", "paid", "2026-08-15", number],
                 )
-        for duplicate_agg, expected in (
+        duplicate_cases: tuple[tuple[AggKind, int | float], ...] = (
             ("count_distinct", 3),
             ("median", 1.5),
             (("percentile", 0.75), 2.5),
-        ):
-            duplicate_metric = mv.runtime_metric.aggregate(
-                ms.ref.measure("sales.order.amount"), agg=duplicate_agg, label="duplicates"
-            )
-            duplicate_result = (
-                case.session.members(ms.ref.entity("sales.customer"))
-                .observe(
-                    duplicate_metric,
-                    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-                    via=ms.ref.relationship("sales.order_buyer"),
-                    by=(mv.member(),),
-                )
-                .execute()
-            )
-            assert duplicate_result.to_pandas().loc[0, "value"] == expected
-            with pytest.raises(AnalysisError):
-                duplicate_result.rollup()
+        )
+        for duplicate_agg, duplicate_expected in duplicate_cases:
+            duplicate_result = _distribution(case, duplicate_agg).execute().to_pandas()
+            assert duplicate_result[("value", "value")].iloc[0] == duplicate_expected
 
 
 @pytest.mark.parametrize("decimal_input", [False, True])
@@ -118,31 +138,8 @@ def test_native_quantile_precision_is_source_owned(
                 'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?)',
                 [str(index), "A", "web", "paid", "2026-08-15", amount],
             )
-    models = case.root / "models/semantic/sales/models.py"
-    models.write_text(
-        models.read_text()
-        + "\nprecision = ms.aggregate(name='precision', measure=amount, agg=('percentile', 0.25), time=ordered_at)\n"
-    )
-    # Runtime aggregates use the Entity's declared default temporal axis.
-    models.write_text(
-        models.read_text().replace(
-            "granularity='second',", "granularity='second', is_default=True,"
-        )
-    )
-    ms.load(workspace_dir=case.root)
-    metric = mv.runtime_metric.aggregate(
-        ms.ref.measure("sales.order.amount"), agg=("percentile", 0.25), label="exact"
-    )
-    fixed = (
-        case.session.members(ms.ref.entity("sales.customer"))
-        .observe(
-            metric,
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
-        )
-        .execute()
-    )
-    result = fixed.to_pandas().set_index("member").loc["A", "value"]
+    result_frame = _distribution(case, ("percentile", 0.25)).execute().to_pandas()
+    result = result_frame.set_index(result_frame.columns[0]).loc["A", ("value", "value")]
     # Native DuckDB interpolation rounds int64 through double and truncates to Decimal scale.
     expected = Decimal("1.01") if decimal_input else float(2**53)
     assert result == expected
@@ -184,41 +181,46 @@ def test_float_mean_and_decimal_original_state(analysis_dsl_case_factory: DslCas
                 ],
             )
     models = case.root / "models/semantic/sales/models.py"
+    physical = "weight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\ndecimal_amount = ms.measure_column(name='decimal_amount', entity=orders, column='decimal_amount', additivity=ms.additive_all())\n"
     models.write_text(
         models.read_text().replace(
-            "granularity='second',", "granularity='second', is_default=True,"
+            "finalized = ms.finalize()", physical + "finalized = ms.finalize()", 1
         )
-        + "\nweight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\n"
-        + "decimal_amount = ms.measure_column(name='decimal_amount', entity=orders, column='decimal_amount', additivity=ms.additive_all())\n"
     )
     ms.load(workspace_dir=case.root)
-    amount = ms.ref.measure("sales.order.amount")
-    weight = ms.ref.measure("sales.order.weight")
-    decimal_amount = ms.ref.measure("sales.order.decimal_amount")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    for metric, expected in (
-        (mv.runtime_metric.aggregate(amount, agg="mean", label="mean"), 4.0),
-        (mv.runtime_metric.weighted_mean(amount, weight, label="weighted"), 20.75 / 4),
+    session = case.session
+    amount = session.catalog.fields.get("sales.order.amount")
+    weight = session.catalog.fields.get("sales.order.weight")
+    decimal_amount = session.catalog.fields.get("sales.order.decimal_amount")
+    time = session.catalog.fields.get("sales.order.ordered_at")
+    members = session.members(ms.ref.entity("sales.customer"))
+    for metric, expected, by_member in (
+        (amount.mean(time=time), 4.0, [2.0, 8.0]),
+        (amount.weighted_mean(weight=weight, time=time), 20.75 / 4, [2.375, 8.0]),
     ):
-        observed = members.observe(
-            metric, via=ms.ref.relationship("sales.order_buyer"), by=(mv.member(),)
+        observed = session.observe({"value": metric}, by=members)
+        frame = observed.execute().to_pandas()[("value", "value")]
+        assert frame.iloc[:2].tolist() == by_member
+        assert frame.iloc[2:].isna().all()
+        assert observed.rollup().execute().to_pandas()[("value", "value")].tolist() == [expected]
+    for metric, decimal_expected in (
+        (decimal_amount.sum(time=time), "1000.75"),
+        (decimal_amount.min(time=time), "150.25"),
+        (decimal_amount.max(time=time), "450.25"),
+    ):
+        logical = session.observe(
+            {"value": metric},
+            during=session.time_scope(start="2026-08-01", end="2026-09-01"),
+            by=members,
         )
-        fixed = observed.execute()
-        assert observed.rollup().execute().to_pandas()["value"].tolist() == [expected]
-        assert fixed.rollup().execute().to_pandas()["value"].tolist() == [expected]
-
-    for agg, expected in (("sum", "1000.75"), ("min", "150.25"), ("max", "450.25")):
-        metric = mv.runtime_metric.aggregate(decimal_amount, agg=agg, label="decimal")
-        logical = members.observe(
-            metric,
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
-        )
-        fixed = logical.execute()
-        assert logical.rollup().execute().to_pandas()["value"].tolist() == [Decimal(expected)]
-        assert fixed.rollup().execute().to_pandas()["value"].tolist() == [Decimal(expected)]
-        assert fixed.aggregate(mv.count()).execute().to_pandas()["value"].tolist() == [4]
+        decimal_frame = logical.execute().to_pandas()
+        assert len(decimal_frame) == 4
+        assert logical.rollup().execute().to_pandas()[("value", "value")].tolist() == [
+            Decimal(decimal_expected)
+        ]
+        assert logical.reduce({"rows": mv.row_count()}).execute().to_pandas()[
+            ("value", "rows")
+        ].tolist() == [4]
 
 
 def test_numeric_composition_matrix(analysis_dsl_case_factory: DslCaseFactory) -> None:
@@ -258,58 +260,55 @@ def test_numeric_composition_matrix(analysis_dsl_case_factory: DslCaseFactory) -
         db.execute('ALTER TABLE "order" ADD COLUMN float_amount DOUBLE')
         db.execute('UPDATE "order" SET float_amount = CAST(amount AS DOUBLE)')
     models = case.root / "models/semantic/sales/models.py"
+    physical = "weight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\nfloat_amount = ms.measure_column(name='float_amount', entity=orders, column='float_amount', additivity=ms.additive_all())\n"
     models.write_text(
         models.read_text().replace(
-            "granularity='second',", "granularity='second', is_default=True,"
+            "finalized = ms.finalize()", physical + "finalized = ms.finalize()", 1
         )
-        + "\nweight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\n"
-        + "float_amount = ms.measure_column(name='float_amount', entity=orders, column='float_amount', additivity=ms.additive_all())\n"
     )
     ms.load(workspace_dir=case.root)
-    value, weight = ms.ref.measure("sales.order.amount"), ms.ref.measure("sales.order.weight")
-    floating_value = ms.ref.measure("sales.order.float_amount")
-    base = mv.runtime_metric.aggregate(value, agg="sum", label="sum")
+    session = case.session
+    value = session.catalog.fields.get("sales.order.amount")
+    weight = session.catalog.fields.get("sales.order.weight")
+    floating_value = session.catalog.fields.get("sales.order.float_amount")
+    time = session.catalog.fields.get("sales.order.ordered_at")
+    members = session.members(ms.ref.entity("sales.customer"))
+    channel = session.catalog.fields.get("sales.order.channel")
+    customer_id = session.catalog.fields.get("sales.order.customer_id")
     numbers = [Fraction(amount) for _, amount, _ in facts if amount is not None]
     pairs = [
         (Fraction(amount), Fraction(weight))
         for _, amount, weight in facts
         if amount is not None and weight is not None
     ]
-    session = case.session.members(ms.ref.entity("sales.customer"))
-    channel = ms.ref.dimension("sales.order.channel")
-    kinds: tuple[Literal["sum", "min", "max", "mean", "weighted", "ratio", "linear"], ...] = (
-        "sum",
-        "min",
-        "max",
-        "mean",
-        "weighted",
-        "ratio",
-        "linear",
-    )
+    kinds = ("sum", "min", "max", "mean", "weighted", "ratio", "linear")
     for kind in kinds:
         floating = kind == "min"
-        coordinates = kind in ("weighted", "linear")
         source_value = floating_value if floating else value
-        source_base = (
-            mv.runtime_metric.aggregate(source_value, agg="sum", label="sum") if floating else base
-        )
-        expr = (
-            mv.runtime_metric.aggregate(source_value, agg=kind, label=kind)
-            if kind in ("sum", "min", "max", "mean")
-            else mv.runtime_metric.weighted_mean(value, weight, label="weighted")
+        base = source_value.sum(time=time)
+        expression = (
+            base
+            if kind == "sum"
+            else source_value.min(time=time)
+            if kind == "min"
+            else source_value.max(time=time)
+            if kind == "max"
+            else source_value.mean(time=time)
+            if kind == "mean"
+            else value.weighted_mean(weight=weight, time=time)
             if kind == "weighted"
-            else mv.runtime_metric.ratio(source_base, source_base, label="ratio")
+            else base / base
             if kind == "ratio"
-            else mv.runtime_metric.linear(add=[base, base], label="linear")
+            else base + base
         )
+        coordinates = kind in ("weighted", "linear")
         logical = session.observe(
-            expr,
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(), *((channel,) if coordinates else ())),
+            {"value": expression},
+            by=(customer_id, channel) if coordinates else members,
+            members=members if coordinates else None,
         )
-        fixed = logical.execute() if kind != "linear" else None
+        fine = logical.execute().to_pandas()
         if kind in ("min", "max"):
-            assert fixed is not None
             expected_by_member = (
                 {"A": 1.0, "B": 4.000001, "C": 7.0, "D": 3.0}
                 if kind == "min"
@@ -320,10 +319,11 @@ def test_numeric_composition_matrix(analysis_dsl_case_factory: DslCaseFactory) -
                     "D": Decimal("3.000000"),
                 }
             )
-            assert fixed.to_pandas().set_index("member")["value"].to_dict() == expected_by_member
+            assert (
+                fine.set_index(fine.columns[0])[("value", "value")].to_dict() == expected_by_member
+            )
         if kind == "weighted":
-            assert fixed is not None
-            assert "zero_weight_sum" in fixed.to_pandas().cell_reason.tolist()
+            assert fine.loc[fine.iloc[:, 0].isin(("C", "D")), ("value", "value")].isna().all()
         expected = (
             sum(numbers, Fraction())
             if kind == "sum"
@@ -348,20 +348,24 @@ def test_numeric_composition_matrix(analysis_dsl_case_factory: DslCaseFactory) -
                     Decimal("0.000001"), rounding=ROUND_HALF_EVEN
                 )
             )
-        results = [logical.rollup().execute()]
-        if kind in ("sum", "ratio", "weighted"):
-            assert fixed is not None
-            results.append(fixed.rollup().execute())
-        for result in results:
-            actual = result.to_pandas()["value"].tolist()
-            assert (
-                actual == pytest.approx([oracle])
-                if floating or kind in ("weighted", "ratio")
-                else actual == [oracle]
-            ), kind
+        rolled = logical.rollup()
+        actual = rolled.execute().to_pandas()[("value", "value")].tolist()
+        assert (
+            actual == pytest.approx([oracle])
+            if floating or kind in ("weighted", "ratio")
+            else actual == [oracle]
+        ), kind
+        if coordinates:
+            again = (
+                logical.rollup(by=(channel,))
+                .rollup()
+                .execute()
+                .to_pandas()[("value", "value")]
+                .tolist()
+            )
+            assert again == pytest.approx([oracle]) if kind == "weighted" else again == [oracle]
         if kind == "mean":
-            assert fixed is not None
-            assert Decimal("1.000001") in fixed.to_pandas()["value"].tolist()
+            assert Decimal("1.000001") in fine[("value", "value")].tolist()
 
 
 @pytest.mark.parametrize(
@@ -411,11 +415,11 @@ def test_duration_matrix(
                 'ALTER TABLE "order" ALTER amount TYPE INTERVAL USING to_microseconds(amount)'
             )
     models = case.root / "models/semantic/sales/models.py"
+    physical = "weight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\n"
     models.write_text(
         models.read_text().replace(
-            "granularity='second',", "granularity='second', is_default=True,"
+            "finalized = ms.finalize()", physical + "finalized = ms.finalize()", 1
         )
-        + "\nweight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\n"
     )
     if parquet:
         export_dsl_parquet_models(case, case.root)
@@ -430,31 +434,41 @@ def test_duration_matrix(
             path,
         )
     ms.load(workspace_dir=case.root)
-    measure = ms.ref.measure("sales.order.amount")
-    base = mv.runtime_metric.aggregate(measure, agg="sum", label="sum")
-    session = case.session.members(ms.ref.entity("sales.customer"))
-    channel = ms.ref.dimension("sales.order.channel")
+    session = case.session
+    value = session.catalog.fields.get("sales.order.amount")
+    weight = session.catalog.fields.get("sales.order.weight")
+    time = session.catalog.fields.get("sales.order.ordered_at")
+    base = value.sum(time=time)
+    members = session.members(ms.ref.entity("sales.customer"))
+    channel = session.catalog.fields.get("sales.order.channel")
+    customer_id = session.catalog.fields.get("sales.order.customer_id")
     for kind in kinds:
         coordinates = kind in ("weighted", "linear")
-        expr = (
-            mv.runtime_metric.weighted_mean(
-                measure, ms.ref.measure("sales.order.weight"), label="weighted"
-            )
+        expression = (
+            value.weighted_mean(weight=weight, time=time)
             if kind == "weighted"
-            else mv.runtime_metric.ratio(base, base, label="ratio")
+            else base / base
             if kind == "ratio"
-            else mv.runtime_metric.linear(add=[base, base], label="linear")
+            else base + base
             if kind == "linear"
-            else mv.runtime_metric.aggregate(measure, agg=kind, label=kind)
+            else value.mean(time=time)
+            if kind == "mean"
+            else value.min(time=time)
+            if kind == "min"
+            else value.max(time=time)
+            if kind == "max"
+            else value.count_distinct(time=time)
+            if kind == "count_distinct"
+            else base
         )
         logical = session.observe(
-            expr,
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(), *((channel,) if coordinates else ())),
+            {"value": expression},
+            by=(customer_id, channel) if coordinates else members,
+            members=members if coordinates else None,
         )
-        fixed = logical.execute()
+        fine = logical.execute().to_pandas()
         if kind == "count_distinct":
-            assert fixed.to_pandas()["value"].tolist() == [2, 2, 0, 0]
+            assert fine[("value", "value")].tolist() == [2, 2, 0, 0]
         else:
             expected = {
                 "sum": 7,
@@ -465,22 +479,22 @@ def test_duration_matrix(
                 "ratio": 1.0,
                 "linear": 14,
             }[kind]
-            results = [logical.rollup().execute(), fixed.rollup().execute()]
+            results = [logical.rollup().execute()]
             if coordinates:
-                results.append(fixed.group_by(channel).rollup().execute().rollup().execute())
+                results.append(logical.rollup(by=(channel,)).rollup().execute())
             for result in results:
                 frame = result.to_pandas()
                 if kind == "ratio":
-                    assert frame["value"].tolist() == [expected]
+                    assert frame[("value", "value")].tolist() == [expected]
                 else:
                     actual = (
-                        pa.array(frame["value"])
+                        pa.array(frame[("value", "value")])
                         .cast(pa.duration(unit))
                         .cast(pa.int64())
                         .to_pylist()
                     )
                     assert actual == [expected]
-        assert len(fixed.to_pandas()) == (5 if coordinates else 4)
+        assert len(fine) == (5 if coordinates else 4)
 
 
 @pytest.mark.parametrize(
@@ -495,7 +509,6 @@ def test_duration_matrix(
 def test_typed_temporal_matrix(
     analysis_dsl_case_factory: DslCaseFactory, family: str, kinds: tuple[str, ...]
 ) -> None:
-    from datetime import datetime, timezone
     from decimal import Decimal
 
     import duckdb
@@ -520,33 +533,33 @@ def test_typed_temporal_matrix(
             db.execute(
                 'ALTER TABLE "order" ALTER amount TYPE INTERVAL USING to_microseconds(amount)'
             )
-    path = case.root / "models/semantic/sales/models.py"
-    definitions = []
+    session = case.session
+    value = session.catalog.fields.get("sales.order.amount")
+    time = session.catalog.fields.get("sales.order.ordered_at")
+    members = session.members(ms.ref.entity("sales.customer"))
     for kind in kinds:
-        if kind == "cumulative":
-            definitions.append("running = ms.cumulative(name='running', base=revenue)")
-            continue
-        metric_name = f"status_amount_{kind}"
-        definitions.extend(
-            [
-                f"{metric_name} = ms.measure_column(name={metric_name!r}, entity=orders, column='amount',",
-                "    additivity=ms.additive_all(except_=(ordered_at,)),",
-                f"    status_time_dimension=ordered_at, status_time_fold={kind!r})",
-                f"folded_{kind} = ms.aggregate(name='folded_{kind}', measure={metric_name}, agg='sum')",
-            ]
+        base = value.sum(time=time)
+        samples = base.per(time)
+        metric = (
+            base.window(mv.all_history())
+            if kind == "cumulative"
+            else samples.first()
+            if kind == "first"
+            else samples.last()
+            if kind == "last"
+            else samples.min()
+            if kind == "min"
+            else samples.max()
+            if kind == "max"
+            else samples.mean()
         )
-    path.write_text(path.read_text() + "\n" + "\n".join(definitions) + "\n")
-    ms.load(workspace_dir=case.root)
-    for kind in kinds:
-        cumulative = kind == "cumulative"
-        logical = case.session.members(ms.ref.entity("sales.customer")).observe(
-            ms.ref.metric("sales.running" if cumulative else f"sales.folded_{kind}"),
-            at=datetime(2026, 8, 3, tzinfo=timezone.utc) if cumulative else None,
-            during=None if cumulative else mv.time_scope(start="2026-08-01", end="2026-08-03"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
+        logical = session.observe(
+            {"value": metric},
+            during=session.time_scope(start="2026-08-01", end="2026-08-03"),
+            by=members,
         )
-        fixed = logical.execute()
+        fine = logical.execute().to_pandas()
+        assert len(fine) == 2
         expected: int | float | Decimal = {
             "first": 2,
             "last": 5,
@@ -559,12 +572,15 @@ def test_typed_temporal_matrix(
             expected = round(expected)
         elif family == "decimal":
             expected = Decimal(str(expected)).quantize(Decimal("0.000001"))
-        for result in (logical.rollup().execute(), fixed.rollup().execute()):
+        for result in (logical.rollup().execute(), logical.rollup().rollup().execute()):
             frame = result.to_pandas()
             actual = (
-                pa.array(frame.value).cast(pa.duration("us")).cast(pa.int64()).to_pylist()
+                pa.array(frame[("value", "value")])
+                .cast(pa.duration("us"))
+                .cast(pa.int64())
+                .to_pylist()
                 if family == "duration"
-                else frame.value.tolist()
+                else frame[("value", "value")].tolist()
             )
             assert actual == [expected]
 
@@ -675,14 +691,11 @@ def test_numeric_states_produce_offline_and_cold(
             db.execute('ALTER TABLE "order" ALTER amount TYPE DECIMAL(30,6)')
             db.execute('ALTER TABLE "order" ALTER weight TYPE DECIMAL(30,6)')
     path = case.root / "models/semantic/sales/models.py"
+    physical = "weight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\n"
     path.write_text(
-        path.read_text().replace("granularity='second',", "granularity='second', is_default=True,")
-        + """
-weight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())
-status_amount = ms.measure_column(name='status_amount', entity=orders, column='amount',
-    additivity=ms.additive_all(except_=(ordered_at,)), status_time_dimension=ordered_at, status_time_fold='mean')
-folded = ms.aggregate(name='folded', measure=status_amount, agg='sum')
-"""
+        path.read_text().replace(
+            "finalized = ms.finalize()", physical + "finalized = ms.finalize()", 1
+        )
     )
     if parquet:
         export_dsl_parquet_models(case, case.root)
@@ -700,28 +713,20 @@ folded = ms.aggregate(name='folded', measure=status_amount, agg='sum')
     env = {**os.environ, "PYTHONPATH": str(PROJECT_ROOT)}
     producer = """
 import json, sys
+from pathlib import Path
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.materialization.terminal_protocol import encode
 ms.load(workspace_dir='.')
 session = mv.session.resume(sys.argv[1], by='id')
-amount, weight = ms.ref.measure('sales.order.amount'), ms.ref.measure('sales.order.weight')
-base = mv.runtime_metric.aggregate(amount, agg='sum', label='sum')
-metrics = {kind: mv.runtime_metric.aggregate(amount, agg=kind, label=kind) for kind in ('sum','min','max','mean')}
-metrics.update(weighted=mv.runtime_metric.weighted_mean(amount, weight, label='weighted'), ratio=mv.runtime_metric.ratio(base,base,label='ratio'), linear=mv.runtime_metric.linear(add=[base,base],label='linear'), fold=ms.ref.metric('sales.folded'))
-artifacts = {}
-contracts = {}
-from dataclasses import asdict
-from pathlib import Path
-from marivo.analysis.materialization.graph_protocol import SIGNATURE, encode
-# Cold recovery is represented once per stored Arrow scalar type. Other runtime
-# metric methods are covered by source/fixed numeric composition tests.
-selected = ('sum',) if sys.argv[2] == 'decimal' else ('mean',) if sys.argv[2] == 'float64' else ('fold',) if sys.argv[2] == 'duration' else ('sum',)
-for kind in selected:
-    metric = metrics[kind]
-    fixed = session.members(ms.ref.entity('sales.customer')).observe(metric, during=mv.time_scope(start='2026-08-01',end='2026-08-03'),via=ms.ref.relationship('sales.order_buyer'),by=(mv.member(),)).execute()
-    artifacts[kind] = fixed.state.artifact_ref.ref
-    contracts[kind] = {'K': asdict(fixed.contract()), 'signature': encode(fixed._node.root.signature, SIGNATURE)}
-Path('recovery-contracts.json').write_text(json.dumps(contracts))
+amount = session.catalog.fields.get('sales.order.amount')
+time = session.catalog.fields.get('sales.order.ordered_at')
+base = amount.sum(time=time)
+metric = base if sys.argv[2] == 'decimal' else base.per(time).mean()
+query = session.observe({'value':metric}, during=session.time_scope(start='2026-08-01',end='2026-08-03'), by=session.members(ms.ref.entity('sales.customer')))
+fine, total = query.execute(), query.rollup().execute()
+artifacts = {'fine':fine.id,'total':total.id}
+Path('recovery-manifests.json').write_text(json.dumps({name:encode(value._manifest) for name,value in (('fine',fine),('total',total))}))
 print(json.dumps(artifacts))
 """
 
@@ -732,7 +737,7 @@ print(json.dumps(artifacts))
             env=env,
             capture_output=True,
             text=True,
-            timeout=180,
+            timeout=60,
         )
         assert completed.returncode == 0, completed.stderr
         return json.loads(completed.stdout.splitlines()[-1])
@@ -744,72 +749,46 @@ print(json.dumps(artifacts))
         (case.root / "source_files").rename(case.root / "source_files.offline")
     consumer = """
 import json, sys
+from pathlib import Path
 import duckdb, ibis
+import pyarrow as pa
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.materialization.graph_exchange import numeric_primary, to_arrow
+from marivo.analysis.materialization.terminal_protocol import encode
 from marivo.datasource.runtime import DatasourceConnectionService
+from tests.shared_fixtures import run_ids
 
 def forbidden(*args, **kwargs):
-    raise AssertionError('fixed numeric continuation touched a source')
+    raise AssertionError('numeric output consulted a source')
 ms.load = forbidden
 duckdb.connect = forbidden
 ibis.duckdb.connect = forbidden
 DatasourceConnectionService.use_backend = forbidden
-from pathlib import Path
-from dataclasses import asdict
-from marivo.analysis.materialization.graph_protocol import SIGNATURE, encode
-contracts = json.loads(Path('recovery-contracts.json').read_text())
+manifests = json.loads(Path('recovery-manifests.json').read_text())
 session = mv.session.resume(sys.argv[1], by='id')
+before = run_ids(session)
 output = {}
-for kind, artifact in json.loads(sys.argv[2]).items():
-    fixed = session.artifact(artifact)
-    assert any(action.call == 'relation.rollup()' for action in fixed.contract().actions)
-    assert json.loads(json.dumps(asdict(fixed.contract()))) == contracts[kind]['K']
-    restored_signature = json.loads(encode(fixed._node.root.signature, SIGNATURE))
-    original_signature = json.loads(contracts[kind]['signature'])
-    # Restoration creates a fresh graph node over the same retained contract.
-    restored_signature.pop('node_id')
-    original_signature.pop('node_id')
-    assert restored_signature == original_signature, kind
-    result = fixed.rollup().execute()
-    again = fixed.rollup().execute()
-    assert again.state.artifact_ref == result.state.artifact_ref
-    assert session._runtime.statistics.primary_queries == 0
-    verified = result._dataset.verified()
-    result_signature = json.loads(encode(result._node.root.signature, SIGNATURE))
-    result_signature.pop('node_id')
-    output[kind] = {'value': [str(value) for value in numeric_primary(to_arrow(verified.primary, verified.contract.schema))['value'].to_pylist()], 'state': [part.table.to_dict(orient='records') for part in verified.parts if part.role == 'original_state'], 'K': asdict(result.contract()), 'signature': result_signature, 'artifact': result.state.artifact_ref.ref, 'run': result.state.producing_run_ref, 'execution_key': result._dataset.artifact.descriptor.execution_key_digest}
-print(json.dumps(output, default=str, sort_keys=True))
+for name, artifact in json.loads(sys.argv[2]).items():
+    saved = session.artifact(artifact)
+    assert encode(saved._manifest) == manifests[name]
+    frame = saved.to_pandas()
+    values = frame[('value','value')]
+    if sys.argv[3] == 'duration':
+        values = pa.array(values).cast(pa.duration('ns')).cast(pa.int64()).to_pylist()
+    output[name] = {'values':[str(value) for value in values], 'artifact':saved.id, 'run':saved._manifest.run_id}
+assert run_ids(session) == before
+print(json.dumps(output, sort_keys=True))
 """
-    first = run(consumer, json.dumps(artifacts))
-    expected = (
-        {
-            "sum": "7.000000",
-            "min": "0.000000",
-            "max": "4.000000",
-            "mean": "1.750000",
-            "weighted": "2.1666666666666665",
-            "ratio": "1.0",
-            "linear": "14.000000",
-            "fold": "3.500000",
-        }
-        if family == "decimal"
-        else {
-            "sum": "7",
-            "min": "0",
-            "max": "4",
-            "mean": "2",
-            "weighted": "2",
-            "ratio": "1.0",
-            "linear": "14",
-            "fold": "4",
-        }
-    )
+    first = run(consumer, json.dumps(artifacts), family)
+    second = run(consumer, json.dumps(artifacts), family)
+    assert first == second
     assert isinstance(first, dict)
-    assert {kind: data["value"][0] for kind, data in first.items()} == {
-        kind: value for kind, value in expected.items() if kind in first
-    }
+    expected = (
+        {"fine": ["1.000000", "6.000000"], "total": ["7.000000"]}
+        if family == "decimal"
+        else {"fine": ["0", "3"], "total": ["4"]}
+    )
+    assert {name: data["values"] for name, data in first.items()} == expected
 
 
 @pytest.mark.parametrize(
@@ -909,26 +888,30 @@ def test_fixed_numeric_merge_order_and_partition_oracle() -> None:
                 assert tree[1] == expected
 
 
-def test_definition_quantile_rejects_invalid_q() -> None:
-    cases: tuple[tuple[Literal["percentile", "approx_percentile"], float], ...] = (
-        ("percentile", True),
-        ("percentile", 0),
-        ("percentile", 1),
-        ("percentile", float("nan")),
-        ("percentile", float("inf")),
-        ("approx_percentile", 0),
-    )
-    for operation, q in cases:
-        with pytest.raises(ValueError):
-            mv.runtime_metric.aggregate(
-                ms.ref.measure("sales.order.amount"), agg=(operation, q), label="invalid"
-            )
+def test_definition_quantile_checks_q_and_accepts_endpoints(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    session = case.session
+    value = session.catalog.fields.get("sales.order.amount")
+    time = session.catalog.fields.get("sales.order.ordered_at")
+    for q in (True, -0.01, 1.01, float("nan"), float("inf")):
+        for expression in (value.quantile(q, time=time), value.approx_quantile(q, time=time)):
+            with pytest.raises(ms.errors.SemanticExpressionError):
+                session.observe({"value": expression})
+    assert session.runs().items == ()
+    for q, expected in ((0, 150), (1, 450)):
+        result = session.observe(
+            {"value": value.quantile(q, time=time)},
+            during=session.time_scope(start="2026-08-01", end="2026-09-01"),
+        ).execute()
+        assert result.to_pandas()[("value", "value")].tolist() == [expected]
 
 
-def test_exact_approximate_replay_identities_never_alias() -> None:
-    from marivo.semantic.runtime_metric import replay_payload
-
-    measure = ms.ref.measure("sales.order.amount")
+def test_exact_and_approximate_definition_identities_never_alias(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
     variants: list[AggKind] = [
         "count_distinct",
         "approx_count_distinct",
@@ -938,11 +921,9 @@ def test_exact_approximate_replay_identities_never_alias() -> None:
         ("approx_percentile", 0.25),
         ("percentile", 0.75),
     ]
-    payloads = [
-        replay_payload(mv.runtime_metric.aggregate(measure, agg=agg, label="same"))
-        for agg in variants
-    ]
-    assert len({repr(payload) for payload in payloads}) == len(variants)
+    queries = [_distribution(case, agg) for agg in variants]
+    assert len({query._graph.fingerprint for query in queries}) == len(variants)
+    assert case.session.runs().items == ()
 
 
 def test_float_linear_validator_uses_owner_error_bound() -> None:
@@ -990,28 +971,42 @@ def test_linear_cancellation_checks_final_integer_and_float_bound(
             ["one", "A", "web", "paid", "2026-08-15", large, 1, large],
         )
     path = case.root / "models/semantic/sales/models.py"
+    physical = "small = ms.measure_column(name='small', entity=orders, column='small', additivity=ms.additive_all(), unit='CNY')\ncancel = ms.measure_column(name='cancel', entity=orders, column='cancel', additivity=ms.additive_all(), unit='CNY')\n"
     path.write_text(
-        path.read_text().replace("granularity='second',", "granularity='second', is_default=True,")
-        + """
-small = ms.measure_column(name='small', entity=orders, column='small', additivity=ms.additive_all())
-cancel = ms.measure_column(name='cancel', entity=orders, column='cancel', additivity=ms.additive_all())
-"""
+        path.read_text().replace(
+            "finalized = ms.finalize()", physical + "finalized = ms.finalize()", 1
+        )
     )
     ms.load(workspace_dir=case.root)
-    leaves = [
-        mv.runtime_metric.aggregate(ms.ref.measure("sales.order." + name), agg="sum", label=name)
+    session = case.session
+    time = session.catalog.fields.get("sales.order.ordered_at")
+    first, small, cancel = (
+        session.catalog.fields.get("sales.order." + name).sum(time=time)
         for name in ("amount", "small", "cancel")
-    ]
-    expr = mv.runtime_metric.linear(
-        add=tuple(leaves[:2]), subtract=(leaves[2],), label="cancellation"
     )
-    logical = case.session.members(ms.ref.entity("sales.customer")).observe(
-        expr, via=ms.ref.relationship("sales.order_buyer"), by=(mv.member(),)
+    members = session.members(ms.ref.entity("sales.customer"))
+    original = session.observe({"value": first + small - cancel}, by=members)
+    if not floating:
+        # Each binary node checks its own domain; subtraction cannot erase the
+        # overflowing maxint+1 child.
+        for query in (original, original.rollup()):
+            before = session.graph().artifacts
+            with pytest.raises(AnalysisError) as caught:
+                query.execute()
+            assert isinstance(caught.value.__cause__, ms.errors.SemanticExpressionError)
+            assert caught.value.__cause__.expected == "signed int64 arithmetic"
+            assert session.graph().artifacts == before
+    # This distinct bounded expression preserves the business cancellation.
+    logical = (
+        original if floating else session.observe({"value": (first - cancel) + small}, by=members)
     )
-    fixed = logical.execute()
     oracle = Fraction(large) + 1 - Fraction(large)
-    for result in (fixed, logical.rollup().execute(), fixed.rollup().execute()):
-        actual = result.to_pandas().value.iloc[0]
+    for result in (
+        logical.execute(),
+        logical.rollup().execute(),
+        logical.rollup().rollup().execute(),
+    ):
+        actual = result.to_pandas()[("value", "value")].iloc[0]
         if floating:
             assert abs(actual - float(oracle)) <= (2 * abs(large) + 1) * 1e-12 + 1e-12
         else:
@@ -1043,32 +1038,36 @@ def test_native_duration_tick_rounding_ties_and_sign() -> None:
 def test_current_row_counts_keep_numeric_null_policy(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from marivo.datasource.adapters import SourceSession
+
     case = analysis_dsl_case_factory("j1")
-    ms.load(workspace_dir=case.root)
-    logical = case.session.members(ms.ref.entity("sales.customer")).observe(
-        ms.ref.metric("sales.revenue"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
+    session = case.session
+    value = session.catalog.fields.get("sales.order.amount")
+    time = session.catalog.fields.get("sales.order.ordered_at")
+    logical = session.observe(
+        {"value": value.sum(time=time, empty="null")},
+        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
+        by=session.members(ms.ref.entity("sales.customer")),
     )
-    assert isinstance(logical, mv.LogicalNumericRelation)
-    fixed = logical.execute()
-    for relation in (logical, fixed):
-        assert relation.aggregate(mv.count()).execute().to_pandas().value.tolist() == [4]
-        assert relation.aggregate(mv.count_defined()).execute().to_pandas().value.tolist() == [3]
+    frame = logical.execute().to_pandas()
+    assert len(frame) == 4 and frame[("value", "value")].notna().sum() == 3
+    assert logical.reduce({"count": mv.row_count()}).execute().to_pandas()[
+        ("value", "count")
+    ].tolist() == [4]
+    defined = logical.where(~logical["value"].is_null())
+    assert defined.reduce({"count": mv.row_count()}).execute().to_pandas()[
+        ("value", "count")
+    ].tolist() == [3]
 
-    def unexpected_dispatch(*args: object, **kwargs: object) -> None:
-        raise AssertionError("Invalid row methods must reject before graph construction.")
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Invalid statistic read business rows")
 
-    with monkeypatch.context() as context:
-        context.setattr(Relation, "summarize", unexpected_dispatch)
-        for relation in (logical, fixed):
-            with pytest.raises(AnalysisError) as caught:
-                # Deliberately cross the typed boundary to verify the concrete runtime repair.
-                relation.aggregate(object())  # type: ignore[arg-type]
-            error = caught.value
-            assert error.expected == "mv.sum/count/count_defined/min/max/mean()"
-            assert error.received == "object"
-            assert error.location == "analysis.dsl"
-            assert error.repair is not None
-            assert error.repair.action == "Select a closed row method."
+    monkeypatch.setattr(SourceSession, "execute", forbidden)
+    before = session.runs().items
+    with pytest.raises(AnalysisError) as caught:
+        logical.reduce({"invalid": object()})  # type: ignore[dict-item]  # Exercise the runtime statistic boundary.
+    error = caught.value
+    assert error.expected == "statistics from this exact Query"
+    assert error.received == "object"
+    assert error.repair is not None and "Column.sum/mean" in error.repair.action
+    assert session.runs().items == before

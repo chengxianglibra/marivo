@@ -1,88 +1,40 @@
 ---
 title: Troubleshooting
-description: Use concrete errors and owning contracts to repair configuration and analysis.
+description: Use concrete expected/received facts and the owning repair.
 ---
 
-Start with the structured error’s expected input, received facts and concrete
-repair. Keep the original business meaning while repairing the stated boundary.
-Use exact Help only when the next call is unfamiliar.
+Start with the structured error's expected input, received facts and repair. Preserve the question's business meaning while correcting the stated boundary.
 
-## Select the correct environment and project
+## Environment and semantic scope
 
-Run your selected interpreter’s `-m marivo doctor --project-root <project>`.
-Doctor is read-only. Missing optional config uses defaults; invalid TOML or
-configured missing layer roots require repair. Install the selected datasource
-extra in that same environment. Keep secrets in environment references and
-validate the requested datasource without displaying their values.
+Use the selected environment's `marivo doctor --project-root <project>` and install the requested datasource extra there. Invalid configuration and missing roots need their explicit repair. Credentials stay in environment references. Unknown names require Catalog discovery; connectivity, readiness, bounded preview and execution are different evidence.
 
-## Repair semantic inputs
+## Complete keys and Query ownership
 
-Unknown refs require catalog discovery, not guessed names. Readiness blockers
-belong to the selected semantic closure; follow their exact repairs. Missing
-business descriptions and guardrails do not block readiness. Bounded preview
-and source-health failures do not change Readiness, and successful connectivity
-cannot authorize a Metric equation.
+Columns belong to their exact Query input. Compose with that input's columns or explicitly align/broadcast before combining independent inputs. Continuing the [local tutorial](/docs/latest/guides/python-quick-start/):
 
-## Keep committed output terminal
-
-After the Python tutorial has bound `current` and `baseline`, this deliberately failing example passes committed output as a computation input.
-
-{/* example: mixed-input-setup */}
+{/* example: repair-query-domain */}
 
 ```python
-saved_current = current.execute()
+aligned = current.align(baseline, how="outer")
+difference = aligned.select({"difference": aligned["left.revenue"] - aligned["right.revenue"]})
+difference.contract().show()
 ```
 
-{/* example: mixed-input-error */}
+Exact alignment requires unique complete matching keys; outer preserves missing sides with independent presence. Missing values do not supply keys or a zero-fill policy. Field Null is a valid category. Complete tuple membership predicates preserve every component and use null-safe AND/OR semantics; they do not independently test each column's membership.
 
-```python
-# A committed result is not a DSL input; this intentionally fails.
-current.compare(saved_current).execute()
-```
+Attributes use `session.read(population, {"name": field})`. The domain must have one complete Entity identity axis and a compatible Session owner. Supply a single-valued directed field.via((relationship,)) path and exact field.at(anchor) where required. Missing required mappings fail before consumption; a later filter cannot hide that failure. There is no Population.read or implicit Session lookup. Use observe for a computed Measure expression.
 
-Compare `current` and `baseline` while both are Logical definitions, then execute
-the complete comparison. For analysis of saved rows, export with `to_pandas()`
-and continue outside the DSL. Saved results cannot be converted into Logical inputs.
+## Time and numerical policies
 
-## Repair predicates and correspondence
+Use session.instant/time_scope for exact boundaries. Naive Python datetimes, ambiguous/nonexistent wall clocks and conflicting calendar authority require explicit repair. Ordinal needs equal Grain, compatible timezone/authority and complete nominal buckets; outer cannot repair a partial bucket. Daily leap-day previous_year has no counterpart: choose outer or adjust the requested period/grain, without clamping the date.
 
-This independent commerce model declares order amount, customer region and the order_customer relationship. `current` and `reference` are compatible quantities.
+Division defaults zero_denominator to null. Use error only when the new demanded division should fail; that choice does not override input subexpressions. Nonfinite values, overflow and required coverage errors block publication. An unavailable physical route is a capability error, not permission to switch algorithm, source or engine.
 
-{/* example: verification-premises */}
+## Terminal output and failed Runs
 
-```python
-orders = session.members(ms.ref.entity("commerce.order"))
-amounts = orders.read(ms.ref.measure("commerce.order.amount"))
-regions = orders.read(
-    ms.ref.dimension("commerce.customer.region"),
-    via=ms.ref.relationship("commerce.order_customer"),
-)
-quotient = current.ratio(reference, align=mv.exact())
-change = current.compare(reference, align=mv.exact())
-quotient.contract().show()
-```
+Keep the exact Session and Artifact IDs and project-local state. `session.artifact(id)` opens committed metadata; its output cannot be passed to compare/observe or converted back to Query. Analyze those rows with to_pandas, or construct a fresh source Query.
 
-Select Defined values before numeric predicates. Complete typed key tuples,
-Session ownership and units must match. Relationship matching trusts the consuming
-contract and retains unverified assumptions; it has no automatic verification query.
-A present owner's Null field remains `Null(source_null)`; an absent owner operand
-fails when the field is consumed. Downstream filtering or reduction cannot hide
-that failure: the lookup is consumed once and its result is reused. This creates
-no matching proof or missing-value policy. Pairing is fixed checked: unknown key equality is checked and applicable
-declarations/frozen construction proofs remain authoritative. Compare can retain
-missing sides explicitly with `align=mv.outer()`.
+An admitted error's run_ref identifies the exact Run for `session.get_run(run_ref).show()`. A corrected execute creates a new invocation. Reconciliation resolves the original journal without replay; incomplete or failed Runs may be abandoned through the owning Session lifecycle API, preserving history.
 
-For period comparisons, choose ordinal, weekday, holiday or holiday_then_weekday explicitly through `align.time`. All output canonical string keys. Weekday and holiday mappings require daily grids; holiday occurrences must have whole-day bounds in the corresponding grid timezone. Exact requires equal aligned-key
-sets; outer keep allows either grid to be longer. `empty_value` cannot repair an
-unobserved time key outside the other window: use keep or adjust the windows.
-Aligned outputs retain original-time projections but have no time_grid. Group time,
-run intervals, forecast and correlate with explicit lag on original endpoints before
-comparing. Ordinary selection and current-row statistics follow their own contracts.
-
-## Repair recovery and output
-
-Keep the exact Session ID, Artifact ref and project-local state. Old generations
-reject without migration; unreadable/missing required data cannot be repaired by
-replaying an origin through recovery. If current data is needed, create a new
-explicit live result. `show(n=0)` helps inspect metadata; increase a display budget
-only when needed. A display limit does not change query or execution budgets.
+Old Stores reject unchanged. Missing/corrupt consumed output cannot be repaired by replaying a source recipe during recovery. Preserve original state and use a fresh current-format project where required. Preview limits affect display, not complete execution or export.

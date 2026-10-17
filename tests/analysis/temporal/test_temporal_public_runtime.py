@@ -7,7 +7,6 @@ import ibis
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 
 
 @pytest.mark.parametrize("representation", ["declared_utc", "native_naive", "strptime"])
@@ -54,21 +53,23 @@ def test_report_day_buckets_preserve_declared_read_time_authority(
         "'amount': 'amount'}), primary_key=['id'])\n"
         f"happened_at = ms.time_dimension_column(name='happened_at', entity=events, column='happened_at', granularity='second', is_default=True{parse})\n"
         "amount = ms.measure_column(name='amount', entity=events, column='amount', additivity=ms.additive_all())\n"
-        "revenue = ms.aggregate(name='revenue', measure=amount, agg='sum')\n"
+        "finalized = ms.finalize()\n"
+        "amount_value = finalized.resolve(amount)\n"
+        "time_value = finalized.resolve(happened_at)\n"
+        "@ms.metric()\n"
+        "def revenue():\n"
+        "    return amount_value.sum(time=time_value)\n"
     )
     monkeypatch.chdir(tmp_path)
     # The declared DuckDB source defaults to UTC for naive source timestamps.
     session = mv.session.get_or_create("report-days", report_timezone="Asia/Shanghai")
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-07-01", end="2026-07-03"), grain=mv.grain("day")
-    )
-    logical = (
-        session.members(ms.ref.entity("sales.events"))
-        .observe(ms.ref.metric("sales.revenue"), during=grid, by=(mv.member(),))
-        .group_by(grid)
-        .rollup()
-    )
+    grid = session.time_scope(start="2026-07-01", end="2026-07-03").by(mv.grain("day"))
+    logical = session.observe({"value": session.catalog.metrics.get("sales.revenue")}, during=grid)
     assert session.runs().items == ()
     result = logical.execute().to_pandas()
-    assert result["value"].tolist() == [1.0, 2.0]
-    assert result["group"].tolist() == ["2026-06-30T16:00:00+00:00", "2026-07-01T16:00:00+00:00"]
+    assert result[("value", "value")].tolist() == [1.0, 2.0]
+    assert [value.isoformat() for value in result.iloc[:, 0]] == [
+        "2026-06-30T16:00:00+00:00",
+        "2026-07-01T16:00:00+00:00",
+    ]
+    assert result.attrs["marivo"]["axes"][0]["timezone"] == "Asia/Shanghai"

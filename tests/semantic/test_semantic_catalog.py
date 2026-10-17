@@ -5,19 +5,23 @@ from __future__ import annotations
 import json
 import textwrap
 from collections.abc import Callable
-from typing import cast, get_args, get_origin, get_type_hints
+from pathlib import Path
+from typing import TYPE_CHECKING, cast, get_args, get_origin, get_type_hints
 
 import ibis
 import pytest
 from ibis.common.deferred import Deferred
 
-import marivo.analysis as mv
+import marivo.analysis.runtime_metric as runtime_descriptors
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._definition.expressions import DeclaredMetricRef
+from marivo.datasource.snapshot import DiscoverySnapshot
 from marivo.refs import (
     DatasourceKind,
+    DimensionKind,
     DomainKind,
+    MeasureKind,
     PeriodCalendarKind,
     Ref,
     SemanticKindTag,
@@ -48,14 +52,20 @@ from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from marivo.semantic.expressions import Entity
 from marivo.semantic.ir import SourceLocation
 
+if TYPE_CHECKING:
+    from ibis.backends.duckdb import Backend
+
+    from tests.conftest import _SemanticProjectFactory
+
+
 # --- SemanticKind ---
 
 
-def test_semantic_kind_is_symbol_kind_alias():
+def test_semantic_kind_is_symbol_kind_alias() -> None:
     assert SemanticKind is ms.SemanticKind
 
 
-def test_semantic_kind_has_all_required_values():
+def test_semantic_kind_has_all_required_values() -> None:
     kinds = {str(k) for k in SemanticKind}
     assert kinds >= {
         "domain",
@@ -71,32 +81,32 @@ def test_semantic_kind_has_all_required_values():
 # --- Unified Ref identity ---
 
 
-def test_semantic_ref_str_returns_ref_string():
+def test_semantic_ref_str_returns_ref_string() -> None:
     ref = make_ref("sales.revenue", SemanticKind.METRIC)
     assert str(ref) == "metric:sales.revenue"
 
 
-def test_semantic_ref_repr_includes_ref_and_kind():
+def test_semantic_ref_repr_includes_ref_and_kind() -> None:
     ref = make_ref("sales.revenue", SemanticKind.METRIC)
     assert repr(ref) == "Ref[metric](metric:sales.revenue)"
 
 
-def test_semantic_ref_equality_by_value():
+def test_semantic_ref_equality_by_value() -> None:
     a = make_ref("sales.revenue", SemanticKind.METRIC)
     b = make_ref("sales.revenue", SemanticKind.METRIC)
     assert a == b
 
 
-def test_semantic_ref_is_frozen():
+def test_semantic_ref_is_frozen() -> None:
     ref = make_ref("sales.revenue", SemanticKind.METRIC)
     with pytest.raises((AttributeError, TypeError)):
-        ref.path = "other"  # type: ignore[misc]
+        ref.path = "other"
 
 
 # --- AiContextView ---
 
 
-def test_ai_context_view_has_all_spec_fields():
+def test_ai_context_view_has_all_spec_fields() -> None:
     ctx = AiContextView(
         business_definition="Revenue from completed orders.",
         guardrails=("Exclude refunds.",),
@@ -105,7 +115,7 @@ def test_ai_context_view_has_all_spec_fields():
     assert ctx.guardrails == ("Exclude refunds.",)
 
 
-def test_ai_context_view_defaults_to_empty():
+def test_ai_context_view_defaults_to_empty() -> None:
     ctx = AiContextView(
         business_definition=None,
         guardrails=(),
@@ -153,12 +163,6 @@ def _make_loc() -> SourceLocation:
     return SourceLocation(file="models/semantic/sales/_domain.py", line=5)
 
 
-def _common_details_kwargs(*, python_symbol: str = "revenue") -> dict[str, object]:
-    return {
-        "python_symbol": python_symbol,
-    }
-
-
 # --- Kind-specific details ---
 
 
@@ -175,7 +179,7 @@ def test_datasource_details_fields() -> None:
         parents=(),
         children=(),
         dependents=(),
-        **_common_details_kwargs(python_symbol="warehouse"),
+        python_symbol="warehouse",
         backend_type="duckdb",
         fields=fields,
         env_refs=env_refs,
@@ -218,7 +222,7 @@ def test_datasource_details_fields() -> None:
     assert d.render() == rendered
 
 
-def test_domain_details_fields():
+def test_domain_details_fields() -> None:
     d = DomainDetails(
         ref=_make_ref("sales", SemanticKind.DOMAIN),
         kind=SemanticKind.DOMAIN,
@@ -229,7 +233,7 @@ def test_domain_details_fields():
         parents=(),
         children=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         dependents=(),
-        **_common_details_kwargs(python_symbol=""),
+        python_symbol="",
         owner="Mina Zhang",
         default=True,
     )
@@ -238,7 +242,7 @@ def test_domain_details_fields():
     assert d.default is True
 
 
-def test_snapshot_versioning_fields():
+def test_snapshot_versioning_fields() -> None:
     v = SnapshotVersioning(
         kind="snapshot",
         partition_field="created_date",
@@ -250,7 +254,7 @@ def test_snapshot_versioning_fields():
     assert v.grain == "day"
 
 
-def test_validity_versioning_fields():
+def test_validity_versioning_fields() -> None:
     v = ValidityVersioning(
         kind="validity",
         valid_from="valid_from",
@@ -360,7 +364,7 @@ _RICH_DETAILS_DATASETS_PY = textwrap.dedent("""\
 """)
 
 
-def _make_catalog(semantic_project_factory) -> SemanticCatalog:
+def _make_catalog(semantic_project_factory: _SemanticProjectFactory) -> SemanticCatalog:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
@@ -370,7 +374,7 @@ def _make_catalog(semantic_project_factory) -> SemanticCatalog:
     return SemanticCatalog(project)
 
 
-def _make_rich_catalog(semantic_project_factory) -> SemanticCatalog:
+def _make_rich_catalog(semantic_project_factory: _SemanticProjectFactory) -> SemanticCatalog:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
@@ -384,7 +388,7 @@ def _make_rich_catalog(semantic_project_factory) -> SemanticCatalog:
 
 
 def test_catalog_require_returns_entries_for_containers_and_values_for_members(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     catalog = _make_catalog(semantic_project_factory)
     entry_cases: tuple[tuple[str, type[CatalogEntry[SemanticKindTag]], str], ...] = (
@@ -414,19 +418,24 @@ def test_catalog_require_returns_entries_for_containers_and_values_for_members(
         value = catalog.require(ref)
 
         assert type(value) is expected_value_type
-        exact = value.ref if isinstance(value, Entity) else consume_field(value).reference
+        if isinstance(value, Entity):
+            exact = value.ref
+        else:
+            assert isinstance(value, Deferred)
+            exact = consume_field(value).reference
         assert exact.ref == ref
         assert exact.version.startswith("sha256:")
 
     revenue = catalog.require(ms.ref.metric("sales.revenue"))
     assert type(revenue) is Deferred
-    assert isinstance(consume_metric(revenue).node, DeclaredMetricRef)
-    assert consume_metric(revenue).node.ref.ref == ms.ref.metric("sales.revenue")
-    assert consume_metric(revenue).node.ref.version.startswith("sha256:")
+    node = consume_metric(revenue).node
+    assert isinstance(node, DeclaredMetricRef)
+    assert node.ref.ref == ms.ref.metric("sales.revenue")
+    assert node.ref.version.startswith("sha256:")
 
 
 def test_catalog_entry_and_value_equality_follow_identity(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     catalog = _make_catalog(semantic_project_factory)
     first = catalog.require(ms.ref.domain("sales"))
@@ -447,13 +456,15 @@ def test_catalog_entry_and_value_equality_follow_identity(
     assert consume_metric(revenue) == consume_metric(
         catalog.require(ms.ref.metric("sales.revenue"))
     )
-    assert revenue is not first
+    assert id(revenue) != id(first)
 
 
 # --- Agent result protocol ---
 
 
-def test_catalog_result_protocol_and_collection_accessors(semantic_project_factory, capsys):
+def test_catalog_result_protocol_and_collection_accessors(
+    semantic_project_factory: _SemanticProjectFactory, capsys: pytest.CaptureFixture[str]
+) -> None:
     from tests.support.result_protocol import assert_conforms
 
     catalog = _make_catalog(semantic_project_factory)
@@ -480,13 +491,13 @@ def test_catalog_result_protocol_and_collection_accessors(semantic_project_facto
     assert rendered.count("selection:") == 1
     assert capsys.readouterr().out == ""
 
-    result = collection.show()
+    result = collection.show()  # type: ignore[func-returns-value]  # Assert the terminal None return at runtime.
     assert result is None
     assert capsys.readouterr().out == f"{rendered}\n"
 
 
 def test_filtered_metric_definition_is_distinguishable_from_unfiltered(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     """A filtered count must be distinguishable from an unfiltered one: the
     filter is part of the published computation, so its definition identity differs.
@@ -534,14 +545,14 @@ def test_filtered_metric_definition_is_distinguishable_from_unfiltered(
 
 
 def test_catalog_list_xxx_attribute_error_points_to_collection_property(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     """catalog exposes collection properties (catalog.metrics), not list_xxx()
     methods. The AttributeError must teach the correct property. See issue #32.
     """
     catalog = _make_catalog(semantic_project_factory)
     with pytest.raises(AttributeError) as exc_info:
-        catalog.list_metrics()  # type: ignore[attr-defined]
+        catalog.list_metrics()
     message = str(exc_info.value)
     assert "list_metrics" in message
     # The teaching message must point at the collection property by usage.
@@ -550,7 +561,7 @@ def test_catalog_list_xxx_attribute_error_points_to_collection_property(
     assert catalog.metrics is not None
 
 
-def test_catalog_entries_publish_exact_ref_annotations():
+def test_catalog_entries_publish_exact_ref_annotations() -> None:
     expectations = (
         (DomainEntry, DomainKind),
         (DatasourceEntry, DatasourceKind),
@@ -564,7 +575,9 @@ def test_catalog_entries_publish_exact_ref_annotations():
         assert get_args(annotation) == (marker,)
 
 
-def test_catalog_domains_access_and_render_are_silent_and_bounded(semantic_project_factory, capsys):
+def test_catalog_domains_access_and_render_are_silent_and_bounded(
+    semantic_project_factory: _SemanticProjectFactory, capsys: pytest.CaptureFixture[str]
+) -> None:
     catalog = _make_catalog(semantic_project_factory)
     domains = catalog.domains
     assert capsys.readouterr().out == ""
@@ -576,7 +589,9 @@ def test_catalog_domains_access_and_render_are_silent_and_bounded(semantic_proje
     assert capsys.readouterr().out == ""
 
 
-def test_catalog_collection_render_uses_card_listing(semantic_project_factory):
+def test_catalog_collection_render_uses_card_listing(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     catalog = _make_rich_catalog(semantic_project_factory)
     cases = (
         (
@@ -609,7 +624,7 @@ def test_catalog_collection_render_uses_card_listing(semantic_project_factory):
 
 
 def test_catalog_collection_lookup_accepts_every_key_shape_and_rejects_misuse(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     catalog = _make_catalog(semantic_project_factory)
     fields = catalog.fields
@@ -628,21 +643,25 @@ def test_catalog_collection_lookup_accepts_every_key_shape_and_rejects_misuse(
     assert missing.value.kind == ErrorKind.NOT_FOUND
 
     with pytest.raises(SemanticRuntimeError) as wrong_kind:
-        fields.get(ms.ref.metric("sales.revenue"))  # type: ignore[arg-type]
+        fields.get(ms.ref.metric("sales.revenue"))
     assert wrong_kind.value.kind == ErrorKind.INVALID_REF
     assert "catalog.metrics" in str(wrong_kind.value)
 
 
-def test_catalog_unknown_attribute_raises_plain_attribute_error(semantic_project_factory):
+def test_catalog_unknown_attribute_raises_plain_attribute_error(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     catalog = _make_catalog(semantic_project_factory)
     with pytest.raises(AttributeError):
-        _ = catalog.totally_unknown_attribute  # type: ignore[attr-defined]
+        _ = catalog.totally_unknown_attribute
 
 
 # --- catalog.require() ---
 
 
-def test_catalog_require_returns_semantic_object_for_domain(semantic_project_factory):
+def test_catalog_require_returns_semantic_object_for_domain(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     catalog = _make_catalog(semantic_project_factory)
     obj = catalog.require(ms.ref.domain("sales"))
     assert obj.ref.path == "sales"
@@ -650,7 +669,9 @@ def test_catalog_require_returns_semantic_object_for_domain(semantic_project_fac
     assert obj.details().owner == "Mina Zhang"
 
 
-def test_catalog_require_returns_semantic_value_for_entity(semantic_project_factory):
+def test_catalog_require_returns_semantic_value_for_entity(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     catalog = _make_catalog(semantic_project_factory)
     obj = catalog.require(ms.ref.entity("sales.orders"))
     assert obj.ref.ref.path == "sales.orders"
@@ -658,7 +679,9 @@ def test_catalog_require_returns_semantic_value_for_entity(semantic_project_fact
     assert obj.ref.ref in catalog.domains.get("sales").entities.refs
 
 
-def test_catalog_require_rejects_untyped_string_inputs(semantic_project_factory):
+def test_catalog_require_rejects_untyped_string_inputs(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     catalog = _make_catalog(semantic_project_factory)
     cases = (
         *((raw, "exact Ref") for raw in ("sales.orders", "sales.revenue", "sales.orders.region")),
@@ -666,12 +689,14 @@ def test_catalog_require_rejects_untyped_string_inputs(semantic_project_factory)
     )
     for raw, hint in cases:
         with pytest.raises(SemanticRuntimeError) as exc_info:
-            catalog.require(raw)  # type: ignore[arg-type]
+            catalog.require(raw)  # type: ignore[call-overload]  # Exercise runtime rejection of deliberately untyped IDs.
         assert exc_info.value.kind == ErrorKind.INVALID_REF
         assert hint in str(exc_info.value)
 
 
-def test_catalog_require_kind_mismatch_raises_not_found(semantic_project_factory):
+def test_catalog_require_kind_mismatch_raises_not_found(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     catalog = _make_catalog(semantic_project_factory)
     with pytest.raises(SemanticRuntimeError) as exc_info:
         catalog.require(ms.ref.metric("sales.orders"))
@@ -679,7 +704,9 @@ def test_catalog_require_kind_mismatch_raises_not_found(semantic_project_factory
     assert "metric" in str(exc_info.value)
 
 
-def test_catalog_require_not_found_lists_same_kind_candidates(semantic_project_factory):
+def test_catalog_require_not_found_lists_same_kind_candidates(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     catalog = _make_catalog(semantic_project_factory)
     with pytest.raises(SemanticRuntimeError) as exc_info:
         catalog.require(ms.ref.metric("sales.missing"))
@@ -688,14 +715,18 @@ def test_catalog_require_not_found_lists_same_kind_candidates(semantic_project_f
     assert "ms.ref.metric('sales.revenue')" in str(exc_info.value)
 
 
-def test_catalog_get_no_stdout(semantic_project_factory, capsys):
+def test_catalog_get_no_stdout(
+    semantic_project_factory: _SemanticProjectFactory, capsys: pytest.CaptureFixture[str]
+) -> None:
     catalog = _make_catalog(semantic_project_factory)
     catalog.require(ms.ref.metric("sales.revenue"))
     catalog.describe(ms.ref.dimension("sales.orders.region"))
     assert capsys.readouterr().out == ""
 
 
-def test_catalog_contracts_expose_declared_ai_context(semantic_project_factory):
+def test_catalog_contracts_expose_declared_ai_context(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     catalog = _make_rich_catalog(semantic_project_factory)
 
     cases = {
@@ -732,7 +763,9 @@ def test_catalog_contracts_expose_declared_ai_context(semantic_project_factory):
     assert "source:" in entity_rendered
 
 
-def test_catalog_contract_render_bounds_long_business_definition(semantic_project_factory):
+def test_catalog_contract_render_bounds_long_business_definition(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
@@ -770,9 +803,9 @@ def test_catalog_contract_render_bounds_long_business_definition(semantic_projec
 
 
 def test_catalog_datasource_details_do_not_expose_secret_values(
-    semantic_project_factory,
-    monkeypatch,
-):
+    semantic_project_factory: _SemanticProjectFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("TRINO_AUTH", "plaintext-secret")
     project = semantic_project_factory(
         {
@@ -799,7 +832,9 @@ def test_catalog_datasource_details_do_not_expose_secret_values(
     assert "auth: TRINO_AUTH" in rendered
 
 
-def test_catalog_entity_value_reads_its_datasource_and_typed_source(semantic_project_factory):
+def test_catalog_entity_value_reads_its_datasource_and_typed_source(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     catalog = _make_catalog(semantic_project_factory)
 
     orders = catalog.require(ms.ref.entity("sales.orders"))
@@ -815,7 +850,9 @@ def test_catalog_entity_value_reads_its_datasource_and_typed_source(semantic_pro
     assert catalog.datasources.get("warehouse").entities.refs == (ms.ref.entity("sales.orders"),)
 
 
-def test_catalog_metric_value_roots_on_its_entity(semantic_project_factory):
+def test_catalog_metric_value_roots_on_its_entity(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     catalog = _make_catalog(semantic_project_factory)
     revenue = catalog.require(ms.ref.metric("sales.revenue"))
     orders = catalog.require(ms.ref.entity("sales.orders"))
@@ -827,8 +864,8 @@ def test_catalog_metric_value_roots_on_its_entity(semantic_project_factory):
 
 
 def test_catalog_timestamp_and_strptime_fields_disclose_sample_interval(
-    semantic_project_factory,
-):
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
@@ -878,7 +915,9 @@ def test_catalog_timestamp_and_strptime_fields_disclose_sample_interval(
     assert "sample_interval=SampleIntervalIR(count=5, unit='minute')" in strptime_facts["parse"]
 
 
-def test_catalog_domain_details_include_children(semantic_project_factory):
+def test_catalog_domain_details_include_children(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     catalog = _make_catalog(semantic_project_factory)
     domain_details = catalog.require(ms.ref.domain("sales")).details()
     assert isinstance(domain_details, DomainDetails)
@@ -890,14 +929,14 @@ def test_catalog_domain_details_include_children(semantic_project_factory):
 # --- ms.load() ---
 
 
-def test_ms_load_defaults_to_cwd(tmp_path, monkeypatch):
+def test_ms_load_defaults_to_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _write_minimal_project(tmp_path)
     monkeypatch.chdir(tmp_path)
     catalog = ms.load()
     assert isinstance(catalog, SemanticCatalog)
 
 
-def test_ms_load_failure_raises_semantic_load_error(tmp_path):
+def test_ms_load_failure_raises_semantic_load_error(tmp_path: Path) -> None:
     semantic = tmp_path / "models" / "semantic" / "sales"
     semantic.mkdir(parents=True)
     (semantic / "_domain.py").write_text(
@@ -909,13 +948,13 @@ def test_ms_load_failure_raises_semantic_load_error(tmp_path):
         ms.load(workspace_dir=tmp_path)
 
 
-def test_ms_load_does_not_print(tmp_path, capsys):
+def test_ms_load_does_not_print(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     _write_minimal_project(tmp_path)
     ms.load(workspace_dir=tmp_path)
     assert capsys.readouterr().out == ""
 
 
-def test_ms_load_catalog_can_browse(tmp_path):
+def test_ms_load_catalog_can_browse(tmp_path: Path) -> None:
     _write_minimal_project(tmp_path)
     catalog = ms.load(workspace_dir=tmp_path)
     result = catalog.domains
@@ -923,7 +962,7 @@ def test_ms_load_catalog_can_browse(tmp_path):
     assert "sales.revenue" in {ref.path for ref in catalog.metrics.refs}
 
 
-def test_ms_load_with_domains_filters_domains_and_accepts_string(tmp_path):
+def test_ms_load_with_domains_filters_domains_and_accepts_string(tmp_path: Path) -> None:
     """ms.load(domains=...) filters to the specified domain directories."""
     _write_multi_domain_project(tmp_path)
     catalog = ms.load(workspace_dir=tmp_path, domains=["sales"])
@@ -937,7 +976,9 @@ def test_ms_load_with_domains_filters_domains_and_accepts_string(tmp_path):
     assert "ops" not in string_refs
 
 
-def test_catalog_lifecycle_properties_delegate_to_project(semantic_project_factory):
+def test_catalog_lifecycle_properties_delegate_to_project(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
@@ -951,8 +992,8 @@ def test_catalog_lifecycle_properties_delegate_to_project(semantic_project_facto
 
 
 def test_ms_load_returns_fresh_catalog_without_mutating_existing_catalog(
-    semantic_project_factory,
-):
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
@@ -978,12 +1019,15 @@ def test_ms_load_returns_fresh_catalog_without_mutating_existing_catalog(
     with pytest.raises(SemanticRuntimeError):
         catalog.require(ms.ref.metric("sales.profit"))
     profit = reloaded.require(ms.ref.metric("sales.profit"))
-    assert isinstance(consume_metric(profit).node, DeclaredMetricRef)
-    assert consume_metric(profit).node.ref.ref.path == "sales.profit"
+    node = consume_metric(profit).node
+    assert isinstance(node, DeclaredMetricRef)
+    assert node.ref.ref.path == "sales.profit"
     assert reloaded is not catalog
 
 
-def test_ms_load_can_recreate_filtered_domain_scope(semantic_project_factory):
+def test_ms_load_can_recreate_filtered_domain_scope(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
@@ -1006,7 +1050,9 @@ def test_ms_load_can_recreate_filtered_domain_scope(semantic_project_factory):
     assert "ops" not in refs
 
 
-def test_ms_load_with_domains_returns_different_filtered_catalog(semantic_project_factory):
+def test_ms_load_with_domains_returns_different_filtered_catalog(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
@@ -1033,7 +1079,7 @@ def test_ms_load_with_domains_returns_different_filtered_catalog(semantic_projec
 # --- catalog.preview() ---
 
 
-def _preview_backend(path: str):
+def _preview_backend(path: str) -> Backend:
     backend = ibis.duckdb.connect(path)
     backend.con.execute(
         "CREATE TABLE orders (order_id INT, amount DOUBLE, region TEXT, created_at TIMESTAMP)"
@@ -1044,7 +1090,11 @@ def _preview_backend(path: str):
     return backend
 
 
-def _preview_catalog_and_snapshot(semantic_project_factory, tmp_path, monkeypatch):
+def _preview_catalog_and_snapshot(
+    semantic_project_factory: _SemanticProjectFactory,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[SemanticCatalog, DiscoverySnapshot]:
     database_path = tmp_path / "warehouse.duckdb"
     backend = _preview_backend(str(database_path))
     backend.disconnect()
@@ -1068,8 +1118,10 @@ def _preview_catalog_and_snapshot(semantic_project_factory, tmp_path, monkeypatc
 
 
 def test_catalog_preview_field_published_metric_and_context_boundaries(
-    semantic_project_factory, tmp_path, monkeypatch
-):
+    semantic_project_factory: _SemanticProjectFactory,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     catalog, snapshot = _preview_catalog_and_snapshot(
         semantic_project_factory, tmp_path, monkeypatch
     )
@@ -1103,7 +1155,7 @@ def test_catalog_preview_field_published_metric_and_context_boundaries(
     assert "context_columns" in str(exc_info.value)
 
 
-def _write_minimal_project(tmp_path) -> None:
+def _write_minimal_project(tmp_path: Path) -> None:
     semantic = tmp_path / "models" / "semantic" / "sales"
     ds = tmp_path / "models" / "datasources"
     semantic.mkdir(parents=True)
@@ -1131,7 +1183,7 @@ _SALES_REVENUE_PY = (
 )
 
 
-def _write_multi_domain_project(tmp_path) -> None:
+def _write_multi_domain_project(tmp_path: Path) -> None:
     """Write a project with both 'sales' and 'ops' domains."""
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     ds = tmp_path / "models" / "datasources"
@@ -1156,10 +1208,24 @@ def _write_multi_domain_project(tmp_path) -> None:
     )
 
 
+def _measure_ref(field: Deferred) -> Ref[MeasureKind]:
+    reference = consume_field(field).reference.ref
+    assert reference.kind is SemanticKind.MEASURE
+    return ref_factory.measure(reference.path)
+
+
+def _dimension_ref(field: Deferred) -> Ref[DimensionKind]:
+    reference = consume_field(field).reference.ref
+    assert reference.kind is SemanticKind.DIMENSION
+    return ref_factory.dimension(reference.path)
+
+
 # --- catalog.readiness() ---
 
 
-def test_catalog_readiness_returns_readiness_report(semantic_project_factory):
+def test_catalog_readiness_returns_readiness_report(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     from marivo.semantic.readiness import ReadinessReport
 
     catalog = _make_catalog(semantic_project_factory)
@@ -1168,7 +1234,7 @@ def test_catalog_readiness_returns_readiness_report(semantic_project_factory):
 
 
 def test_catalog_readiness_normalizes_entry_value_and_ref_to_same_public_payload(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     catalog = _make_catalog(semantic_project_factory)
     sales = catalog.domains.get("sales")
@@ -1189,7 +1255,9 @@ def test_catalog_readiness_normalizes_entry_value_and_ref_to_same_public_payload
         catalog.readiness(refs=[sales, sales.ref])
 
 
-def test_catalog_readiness_rejects_published_metric_inputs(semantic_project_factory) -> None:
+def test_catalog_readiness_rejects_published_metric_inputs(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     catalog = _make_catalog(semantic_project_factory)
 
     for value in (ms.ref.metric("sales.revenue"), catalog.metrics.get("sales.revenue")):
@@ -1200,28 +1268,28 @@ def test_catalog_readiness_rejects_published_metric_inputs(semantic_project_fact
 
 
 def test_catalog_readiness_accepts_runtime_expression_and_mixed_roots(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     catalog = _make_rich_catalog(semantic_project_factory)
     region_value = catalog.fields.get("sales.orders.region")
-    region = consume_field(region_value).reference.ref
+    region = _dimension_ref(region_value)
     amount = ms.ref.measure("sales.orders.amount")
-    runtime_total = mv.runtime_metric.aggregate(
+    runtime_total = runtime_descriptors.aggregate(
         amount,
         agg="sum",
         label="Runtime total",
     )
-    runtime_count = mv.runtime_metric.aggregate(
+    runtime_count = runtime_descriptors.aggregate(
         amount,
         agg="count",
         label="Runtime count",
     )
-    runtime_ratio = mv.runtime_metric.ratio(
+    runtime_ratio = runtime_descriptors.ratio(
         runtime_total,
         runtime_count,
         label="Runtime ratio",
     )
-    expression = mv.runtime_metric.slice(
+    expression = runtime_descriptors.slice(
         runtime_ratio,
         by={region: "north"},
         label="Runtime north ratio",
@@ -1237,18 +1305,20 @@ def test_catalog_readiness_accepts_runtime_expression_and_mixed_roots(
         "sales.orders",
         "warehouse",
     )
-    assert report.to_dict()["analysis_ready_inputs"][1]["schema"] == (
-        "marivo.runtime_metric_expr/v1"
-    )
+    inputs = report.to_dict()["analysis_ready_inputs"]
+    assert isinstance(inputs, list)
+    runtime_input = inputs[1]
+    assert isinstance(runtime_input, dict)
+    assert runtime_input["schema"] == "marivo.runtime_metric_expr/v1"
 
 
 def test_catalog_readiness_deduplicates_shared_runtime_leaves(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     catalog = _make_rich_catalog(semantic_project_factory)
-    amount = consume_field(catalog.fields.get("sales.orders.amount")).reference.ref
-    total = mv.runtime_metric.aggregate(amount, agg="sum", label="Runtime total")
-    count = mv.runtime_metric.aggregate(amount, agg="count", label="Runtime count")
+    amount = _measure_ref(catalog.fields.get("sales.orders.amount"))
+    total = runtime_descriptors.aggregate(amount, agg="sum", label="Runtime total")
+    count = runtime_descriptors.aggregate(amount, agg="count", label="Runtime count")
 
     report = catalog.readiness(refs=[total, count])
 
@@ -1259,11 +1329,11 @@ def test_catalog_readiness_deduplicates_shared_runtime_leaves(
 
 
 def test_catalog_readiness_keeps_unrelated_ref_ready_when_runtime_leaf_is_missing(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     catalog = _make_rich_catalog(semantic_project_factory)
-    region = consume_field(catalog.fields.get("sales.orders.region")).reference.ref
-    missing = mv.runtime_metric.aggregate(
+    region = _dimension_ref(catalog.fields.get("sales.orders.region"))
+    missing = runtime_descriptors.aggregate(
         ms.ref.measure("sales.orders.missing_amount"),
         agg="sum",
         label="Missing runtime total",
@@ -1281,7 +1351,7 @@ def test_catalog_readiness_keeps_unrelated_ref_ready_when_runtime_leaf_is_missin
 
 
 def test_catalog_readiness_blocks_invalid_runtime_weighted_mean(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     project = semantic_project_factory(
         {
@@ -1318,9 +1388,9 @@ def test_catalog_readiness_blocks_invalid_runtime_weighted_mean(
         }
     )
     catalog = SemanticCatalog(project)
-    value = consume_field(catalog.fields.get("sales.orders.value")).reference.ref
-    invalid_weight = consume_field(catalog.fields.get("sales.orders.invalid_weight")).reference.ref
-    expression = mv.runtime_metric.weighted_mean(
+    value = _measure_ref(catalog.fields.get("sales.orders.value"))
+    invalid_weight = _measure_ref(catalog.fields.get("sales.orders.invalid_weight"))
+    expression = runtime_descriptors.weighted_mean(
         value,
         invalid_weight,
         label="Invalid runtime weighted mean",
@@ -1335,7 +1405,7 @@ def test_catalog_readiness_blocks_invalid_runtime_weighted_mean(
 
 
 def test_catalog_readiness_blocks_cross_entity_and_cross_datasource_runtime_graphs(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     project = semantic_project_factory(
         {
@@ -1376,9 +1446,9 @@ def test_catalog_readiness_blocks_cross_entity_and_cross_datasource_runtime_grap
         }
     )
     catalog = SemanticCatalog(project)
-    cross_entity = mv.runtime_metric.weighted_mean(
-        consume_field(catalog.fields.get("sales.orders.order_value")).reference.ref,
-        consume_field(catalog.fields.get("sales.shipments.shipment_weight")).reference.ref,
+    cross_entity = runtime_descriptors.weighted_mean(
+        _measure_ref(catalog.fields.get("sales.orders.order_value")),
+        _measure_ref(catalog.fields.get("sales.shipments.shipment_weight")),
         label="Cross entity weighted mean",
     )
     cross_entity_report = catalog.readiness(refs=[cross_entity])
@@ -1389,14 +1459,14 @@ def test_catalog_readiness_blocks_cross_entity_and_cross_datasource_runtime_grap
         "runtime-weighted-mean-grain-mismatch"
     )
 
-    cross_datasource = mv.runtime_metric.ratio(
-        mv.runtime_metric.aggregate(
-            consume_field(catalog.fields.get("sales.orders.order_amount")).reference.ref,
+    cross_datasource = runtime_descriptors.ratio(
+        runtime_descriptors.aggregate(
+            _measure_ref(catalog.fields.get("sales.orders.order_amount")),
             agg="sum",
             label="Orders total",
         ),
-        mv.runtime_metric.aggregate(
-            consume_field(catalog.fields.get("sales.returns.return_amount")).reference.ref,
+        runtime_descriptors.aggregate(
+            _measure_ref(catalog.fields.get("sales.returns.return_amount")),
             agg="sum",
             label="Returns total",
         ),
@@ -1412,18 +1482,18 @@ def test_catalog_readiness_blocks_cross_entity_and_cross_datasource_runtime_grap
 
 
 def test_catalog_readiness_blocks_runtime_depth_and_forest_occurrence_limits(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     catalog = _make_rich_catalog(semantic_project_factory)
-    amount = consume_field(catalog.fields.get("sales.orders.amount")).reference.ref
-    total = mv.runtime_metric.aggregate(amount, agg="sum", label="Runtime total")
-    deep = mv.runtime_metric.slice(
+    amount = _measure_ref(catalog.fields.get("sales.orders.amount"))
+    total = runtime_descriptors.aggregate(amount, agg="sum", label="Runtime total")
+    deep: runtime_descriptors.RuntimeMetricExpr = runtime_descriptors.slice(
         total,
-        by={consume_field(catalog.fields.get("sales.orders.region")).reference.ref: "north"},
+        by={_dimension_ref(catalog.fields.get("sales.orders.region")): "north"},
         label="Depth 1",
     )
     for index in range(10):
-        deep = mv.runtime_metric.ratio(
+        deep = runtime_descriptors.ratio(
             deep,
             total,
             label=f"Depth {index + 2}",
@@ -1435,13 +1505,13 @@ def test_catalog_readiness_blocks_runtime_depth_and_forest_occurrence_limits(
     issue = next(item for item in report.blockers if item.kind == "metric_graph_invalid")
     assert issue.details["lowering_error_kind"] == "depth_limit_exceeded"
 
-    wide = mv.runtime_metric.aggregate(
+    wide: runtime_descriptors.RuntimeMetricExpr = runtime_descriptors.aggregate(
         amount,
         agg="sum",
         label="Occurrence leaf",
     )
     for index in range(8):
-        wide = mv.runtime_metric.ratio(
+        wide = runtime_descriptors.ratio(
             wide,
             wide,
             label=f"Occurrence level {index + 1}",
@@ -1454,12 +1524,12 @@ def test_catalog_readiness_blocks_runtime_depth_and_forest_occurrence_limits(
 
 
 def test_catalog_readiness_returns_json_safe_blocker_for_nonfinite_runtime_slice(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     catalog = _make_rich_catalog(semantic_project_factory)
-    amount = consume_field(catalog.fields.get("sales.orders.amount")).reference.ref
-    region = consume_field(catalog.fields.get("sales.orders.region")).reference.ref
-    expression = mv.runtime_metric.aggregate(
+    amount = _measure_ref(catalog.fields.get("sales.orders.amount"))
+    region = _dimension_ref(catalog.fields.get("sales.orders.region"))
+    expression = runtime_descriptors.aggregate(
         amount,
         agg="sum",
         slice_by={region: float("nan")},
@@ -1477,8 +1547,8 @@ def test_catalog_readiness_returns_json_safe_blocker_for_nonfinite_runtime_slice
 
 
 def test_catalog_readiness_preserves_exact_kind_when_paths_collide(
-    semantic_project_factory,
-):
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     project = semantic_project_factory(
         {
             "datasources/sales.py": (
@@ -1504,7 +1574,9 @@ def test_catalog_readiness_preserves_exact_kind_when_paths_collide(
     }
 
 
-def test_catalog_readiness_rejects_string_refs(semantic_project_factory):
+def test_catalog_readiness_rejects_string_refs(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     catalog = _make_catalog(semantic_project_factory)
     with pytest.raises(SemanticRuntimeError) as exc_info:
         catalog.readiness(refs=["sales.revenue"])  # type: ignore[list-item]
@@ -1535,7 +1607,7 @@ def test_catalog_readiness_rejects_string_refs(semantic_project_factory):
 
 
 def test_catalog_readiness_non_string_error_does_not_claim_string_input(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     catalog = _make_catalog(semantic_project_factory)
 
@@ -1552,8 +1624,8 @@ def test_catalog_readiness_non_string_error_does_not_claim_string_input(
 
 
 def test_catalog_readiness_rejects_empty_or_duplicate_explicit_scope(
-    semantic_project_factory,
-):
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     catalog = _make_catalog(semantic_project_factory)
     orders = ms.ref.entity("sales.orders")
     with pytest.raises(SemanticRuntimeError, match="non-empty"):
@@ -1563,23 +1635,25 @@ def test_catalog_readiness_rejects_empty_or_duplicate_explicit_scope(
     assert exc_info.value.semantic_refs == (orders.key,)
 
 
-def test_catalog_readiness_no_stdout(semantic_project_factory, capsys):
+def test_catalog_readiness_no_stdout(
+    semantic_project_factory: _SemanticProjectFactory, capsys: pytest.CaptureFixture[str]
+) -> None:
     catalog = _make_catalog(semantic_project_factory)
     catalog.readiness()
     assert capsys.readouterr().out == ""
 
 
 def test_metric_ref_rejects_entity_level_path(
-    semantic_project_factory,
-):
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     del semantic_project_factory
     with pytest.raises(ValueError, match="exactly 2 segments"):
         ms.ref.metric("sales.orders.revenue")
 
 
 def test_dimension_ref_rejects_domain_level_path(
-    semantic_project_factory,
-):
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     del semantic_project_factory
     with pytest.raises(ValueError, match="exactly 3 segments"):
         ms.ref.dimension("sales.region")
@@ -1615,7 +1689,9 @@ _UNIT_DATASETS_PY = (
 _WAREHOUSE_PY = "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
 
 
-def test_catalog_metric_values_preserve_declared_and_absent_units(semantic_project_factory):
+def test_catalog_metric_values_preserve_declared_and_absent_units(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,

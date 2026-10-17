@@ -1,6 +1,5 @@
 """Static contracts for Deferred observations, coordinate domains and terminal reads."""
 
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from ibis.common.deferred import Deferred
@@ -19,6 +18,8 @@ if TYPE_CHECKING:
         assert_type(scope.end, mv.InstantAnchor)
         assert_type(session.instant(scope.end), mv.InstantAnchor)
         assert_type(scope.by(mv.grain("day")), mv.CalendarAxis)
+        daily_axis = scope.by(mv.grain("day"))
+        assert_type(daily_axis.coarsen(mv.grain("month")), mv.CalendarAxis)
         query = session.observe(
             {"value": metric}, during=scope, by=(region,), where=region == "APAC"
         )
@@ -65,97 +66,57 @@ if TYPE_CHECKING:
         assert_type(digest.evidence_count, int)
         return digest
 
-    def retained_relation_contracts(
-        observed: mv.LogicalNumericRelation,
-        ratio: mv.LogicalRatioRelation,
-        category: mv.LogicalCategoryRelation,
-        temporal: mv.LogicalTemporalRelation,
-        numeric: mv.LogicalNumericRelation,
-        member_domain: mv.LogicalAnalysisDomain,
-    ) -> None:
-        """Keep unrelated receiver contracts independent of retired acquisition APIs."""
-        assert_type(member_domain.penetration_in(member_domain), mv.LogicalNumericRelation)
-        chosen = category.where(category.value.eq("west"))
-        assert_type(chosen, mv.LogicalCategoryRelation)
-        assert_type(chosen.execute(), mv.MaterializedCategoryRelation)
-        assert_type(observed.rollup(), mv.LogicalRolledNumericRelation)
+    def result_algebra(
+        query: mv.Query, other: mv.Query, axis: Deferred, field: Deferred
+    ) -> mv.Query:
+        value = query["value"]
+        assert_type(value, mv.Column)
+        assert_type(value + 1, mv.Column)
+        assert_type(value / 2, mv.Column)
+        assert_type(value.divide(2, zero_denominator="error"), mv.Column)
+        assert_type(query.coord(axis), mv.Column)
+        assert_type(query.select({"net": value - 1, "constant": 1}), mv.Query)
+        assert_type(query.where((value > 0) & ~value.is_null()), mv.Query)
+        assert_type(query.top(3, by=value, partition_by=(axis,)), mv.Query)
         assert_type(
-            observed.group_by(ms.ref.dimension("sales.order.channel")), mv.GroupedNumericRelation
+            query.reduce(
+                {"sum": value.sum(), "mean": value.mean(), "rows": mv.row_count()}, by=(axis,)
+            ),
+            mv.Query,
         )
-        assert_type(observed.aggregate(mv.mean()), mv.LogicalStatisticRelation)
-        comparison = observed.compare(observed)
-        assert_type(comparison, mv.LogicalComparisonResult)
-        assert_type(comparison.execute(), mv.MaterializedComparisonResult)
-        assert_type(comparison.relative, mv.LogicalNumericRelation)
-        difference = comparison.absolute
-        assert_type(difference, mv.LogicalDifferenceRelation)
-        assert_type(difference.where(difference.value.lt(0)), mv.LogicalSelectedDifferenceRelation)
-        assert_type(ratio.rollup(), mv.LogicalRolledRatioRelation)
-        assert_type(
-            ratio.group_by(ms.ref.dimension("sales.order.channel")), mv.GroupedRatioRelation
-        )
-        assert_type(observed.share_of(observed.rollup()), mv.LogicalNumericRelation)
-        grouped_values = observed.group_by(category).rollup()
-        composition = grouped_values.share_of(grouped_values.rollup())
-        weights = mv.reference_weights(
-            composition, strata=(category,), unit=ms.ref.entity("sales.order")
-        )
-        assert_type(weights, mv.ReferenceWeights)
-        assert_type(grouped_values.standardize(reference=weights), mv.LogicalNumericRelation)
-        fixed = observed.execute()
-        assert_type(fixed, mv.MaterializedNumericRelation)
-        assert_type(session.artifact(fixed.state.artifact_ref.ref), mv.Artifact)
-        assert_type(numeric.where(numeric.value.gt(0)), mv.LogicalSelectedNumericRelation)
-        assert_type(temporal.execute(), mv.MaterializedTemporalRelation)
-        assert_type(
-            temporal.where(temporal.value.lt(datetime(2026, 9, 1, tzinfo=timezone.utc))).members(),
-            mv.LogicalAnalysisDomain,
-        )
-        assert_type(
-            observed.compare(observed, align=mv.outer()).relative, mv.LogicalNumericRelation
-        )
-        assert_type(difference.compare(difference).absolute, mv.LogicalDifferenceRelation)
-        assert_type(observed.ratio(observed, align=mv.exact()), mv.LogicalNumericRelation)
-        pairing = mv.one_to_one(
-            left=observed, right=observed, via=ms.ref.relationship("sales.identity")
-        )
-        assert_type(pairing, mv.OneToOneCorrespondence)
-        assert_type(observed.ratio(observed, align=pairing), mv.LogicalNumericRelation)
-        ranking = observed.rank(order="descending", ties="dense", partition_by=(category,))
-        assert_type(ranking, mv.LogicalRankingResult)
-        assert_type(ranking.values, mv.LogicalNumericRelation)
-        assert_type(ranking.ranks, mv.LogicalNumericRelation)
-        assert_type(ranking.limit(5), mv.LogicalRankingResult)
-        assert_type(ranking.execute(), mv.MaterializedRankingResult)
-        terminal = mv.table(values=ranking.values, ranks=ranking.ranks, category=category)
-        assert_type(terminal, mv.LogicalTable)
-        assert_type(terminal.execute(), mv.MaterializedTable)
-        attribution = difference.attribute(
-            axes=(ms.ref.dimension("sales.order.channel"),), mode="joint", top_k=5
-        )
-        assert_type(attribution, mv.LogicalAttributionResult)
-        assert_type(attribution.contribution, mv.LogicalNumericRelation)
-        assert_type(attribution.current, mv.LogicalNumericRelation)
-        assert_type(attribution.baseline, mv.LogicalNumericRelation)
-        assert_type(attribution.execute(), mv.MaterializedAttributionResult)
+        assert_type(query.rollup(by=(axis,)), mv.Query)
+        assert_type(query.drill(add=(field,)), mv.Query)
+        assert_type(query.share("value", partition_by=(axis,)), mv.Query)
+        assert_type(query.align(other), mv.Query)
+        assert_type(query.compare(other, zero_denominator="null"), mv.Query)
+        assert_type(mv.broadcast(other["value"], to=query), mv.Column)
+        return query.select({"ratio": value / mv.broadcast(other["value"], to=query)})
 
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"), grain=mv.grain("day")
-    )
-    assert_type(grid, mv.TimeGrid)
-    assert_type(grid.end, mv.GridEndpoint)
-    assert_type(grid.before_end, mv.GridEndpoint)
+    def explicit_identity(metric: Deferred, field: Deferred, relation: Relationship) -> mv.Query:
+        people = session.members(ms.ref.entity("sales.customer"))
+        assert_type(mv.member(), mv.MemberAxis)
+        assert_type(people.classify(by=(mv.member(), field)), mv.Population)
+        assert_type(people.project(by=(mv.member(),)), mv.Population)
+        assert_type(session.read(people, {"category": field}), mv.Query)
+        assert_type(
+            session.members(ms.ref.entity("sales.customer"), where=mv.in_population(people)),
+            mv.Population,
+        )
+        assert_type(session.observe({"value": metric}, where=mv.in_population(people)), mv.Query)
+        assert_type(
+            session.observe({"value": mv.member_count()}, members=people, by=(mv.member(),)),
+            mv.Query,
+        )
+        assert_type(mv.corresponding(via=(relation,)), mv.DeclaredCorrespondence)
+        assert_type(mv.ordinal(), mv.CalendarCorrespondence)
+        assert_type(mv.period_offset(-1), mv.CalendarCorrespondence)
+        assert_type(mv.previous_year(), mv.CalendarCorrespondence)
+        query = session.values(
+            by=(field,), columns={"budget": "CNY"}, rows=(((1,), {"budget": 10}),)
+        )
+        assert_type(query, mv.Query)
+        return query
+
     assert_type(
-        mv.time_scope(start="2026-08-01", end="2026-09-01").before_end, mv.BeforeEndBoundary
+        session.time_scope(start="2026-08-01", end="2026-09-01").before_end, mv.BeforeEndBoundary
     )
-    assert_type(mv.exact(time=mv.ordinal()), mv.ExactAlignment)
-    assert_type(mv.outer(), mv.OuterAlignment)
-    assert_type(mv.ordinal(), mv.OrdinalTimeKey)
-    assert_type(mv.weekday(), mv.WeekdayTimeKey)
-    occurrence = mv.time_scope(start="2026-01-01", end="2026-01-02")
-    assert_type(mv.holiday(current=occurrence, baseline=occurrence), mv.HolidayTimeKey)
-    assert_type(
-        mv.holiday_then_weekday(current=occurrence, baseline=occurrence),
-        mv.HolidayThenWeekdayTimeKey,
-    )
-    assert_type(mv.outer(time=mv.weekday()), mv.OuterAlignment)

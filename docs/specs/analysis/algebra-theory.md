@@ -79,7 +79,7 @@ K 可以按声明取实际分组像，也可以由显式目标域规则给出，
 
 粒度映射 `h:K→J` 须同时声明坐标绑定如何变换及量是否允许这种粗化。
 天→月与天→周存在，一般没有周→月；每日库存之和也不能直接称为月库存。
-本提案允许的数学目标域不代表当前 API 均已提供；实现边界见[分析设计](python-analysis-design.md#domains-quantities-and-cells)。
+本提案允许的数学目标域不代表当前 API 均已提供；实现边界见[分析设计](python-analysis-design.md#public-objects-and-explicit-session-entry-points)。
 
 ### 2.3 求值与定义域
 
@@ -108,7 +108,7 @@ q 连同完整键及坐标绑定使用，不能退化为一列无坐标的值。
 核心不要求四态 Cell。目标 [DSL v0.35](lazy-analysis-dsl-redesign.md#54-nullable-值部分运算与谓词)
 采用 `A_m=T+{NA}`，政策归算子；零分母默认扩展为 NA，显式 error 则在定义域检查中失败。
 其它非法运算与实际日历/映射/请求域覆盖检查失败仍报错；nullable 除法政策由[语义 §3.4](../semantic/expression-model-redesign.md#34-样本政策的归属)拥有。
-当前实现仍由[现有算子合同](operators-and-frames.md#state-and-cell-contracts)约束；本提案不构成实现切换。
+当前实现仍由[现有算子合同](operators-and-frames.md#null-empty-and-arithmetic-policies)约束；本提案不构成实现切换。
 
 nullable 不改变身份、贡献出现、Population、坐标映射和信息充分性判据。
 它改变值域及有效样本规则，原来只对全定义实数成立的规律不能自动推广到带 NA 的输入。

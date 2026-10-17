@@ -15,6 +15,7 @@ import marivo
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo._authoring.model import AuthoringCapability
 from marivo._help import render as help_render
 from marivo._help.model import (
     MarivoHelpSurfaceError,
@@ -24,27 +25,43 @@ from marivo._help.model import (
     TopicHelpRoute,
 )
 from marivo._help.render import PublicHelpTarget
+from marivo._help.render import help as public_help
 from marivo._help.route import _resolve_one, route_help_target
-from marivo.analysis._capabilities.dataset_model import TypeInput
+from marivo.analysis._capabilities.dataset_model import Descriptor, TypeInput
 from marivo.analysis._capabilities.registry import REGISTRY as ANALYSIS_REGISTRY
 from marivo.analysis._capabilities.surface import ANALYSIS_LIVE_SURFACE
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
 from marivo.datasource._capabilities.registry import REGISTRY as DATASOURCE_REGISTRY
 from marivo.datasource._capabilities.surface import DATASOURCE_LIVE_SURFACE
-from marivo.introspection.live.model import SURFACE_LIMITS, HelpSurface, LiveHelpTarget
+from marivo.introspection.live.model import (
+    SURFACE_LIMITS,
+    HelpSurface,
+    LiveHelpTarget,
+    LiveSurfaceRegistry,
+    ResolvableHelpDescriptor,
+)
+from marivo.introspection.live.resolve import LiveSurface
 from marivo.ontology._capabilities.registry import REGISTRY as ONTOLOGY_REGISTRY
+from marivo.ontology._capabilities.registry import OntologyDescriptor
 from marivo.ontology._capabilities.surface import ONTOLOGY_LIVE_SURFACE
+from marivo.semantic._capabilities.model import SemanticHelpDescriptor
 from marivo.semantic._capabilities.registry import REGISTRY as SEMANTIC_REGISTRY
 from marivo.semantic._capabilities.surface import SEMANTIC_LIVE_SURFACE
 from tests.support.paths import PROJECT_ROOT
 
-_REGISTRIES = {
+_REGISTRIES: dict[HelpSurface, LiveSurfaceRegistry[ResolvableHelpDescriptor]] = {
     "datasource": DATASOURCE_REGISTRY,
     "semantic": SEMANTIC_REGISTRY,
     "analysis": ANALYSIS_REGISTRY,
     "ontology": ONTOLOGY_REGISTRY,
 }
-_SURFACES = {
+_SURFACES: dict[
+    HelpSurface,
+    LiveSurface[AuthoringCapability]
+    | LiveSurface[SemanticHelpDescriptor]
+    | LiveSurface[Descriptor]
+    | LiveSurface[OntologyDescriptor],
+] = {
     "datasource": DATASOURCE_LIVE_SURFACE,
     "semantic": SEMANTIC_LIVE_SURFACE,
     "analysis": ANALYSIS_LIVE_SURFACE,
@@ -58,6 +75,9 @@ _SURFACE_NAMES: tuple[HelpSurface, ...] = (
 )
 
 
+assert marivo.help is public_help
+
+
 def test_public_help_wraps_unexpected_surface_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -67,7 +87,7 @@ def test_public_help_wraps_unexpected_surface_failure(
     monkeypatch.setattr(help_render, "render_help_text", fail)
 
     with pytest.raises(MarivoHelpSurfaceError) as captured:
-        marivo.help("datasource.duckdb")
+        public_help("datasource.duckdb")
 
     error = captured.value
     assert error.received == "datasource.duckdb"
@@ -96,7 +116,7 @@ def test_public_help_routes_core_targets_in_a_cold_start_process() -> None:
 def test_marivo_help_is_the_only_public_help_callable() -> None:
     assert marivo.__all__ == ["__version__", "help"]
     assert callable(marivo.help)
-    assert marivo.help() is None
+    assert public_help() is None  # type: ignore[func-returns-value]  # Runtime oracle pins the public no-value return.
 
     for surface in (md, ms, mv):
         assert "help" not in surface.__all__
@@ -104,11 +124,11 @@ def test_marivo_help_is_the_only_public_help_callable() -> None:
 
 
 def test_public_help_annotation_is_one_closed_alias() -> None:
-    signature = inspect.signature(marivo.help)
+    signature = inspect.signature(public_help)
     assert tuple(signature.parameters) == ("target",)
     assert "format" not in signature.parameters
     assert "print" not in signature.parameters
-    target_hint = get_type_hints(marivo.help)["target"]
+    target_hint = get_type_hints(public_help)["target"]
     assert target_hint is PublicHelpTarget or PublicHelpTarget in get_args(target_hint)
     assert Callable[..., object] in get_args(PublicHelpTarget.__value__)
 
@@ -150,7 +170,9 @@ def test_every_unique_unqualified_registry_target_routes_to_its_only_owner() -> 
         assert route.resolved.descriptor is _REGISTRIES[owners[0]].by_canonical_id(canonical_id)
 
 
-def test_unique_unqualified_target_skips_failed_surface_suggestions(monkeypatch) -> None:
+def test_unique_unqualified_target_skips_failed_surface_suggestions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     def fail_suggestions(*_args: object, **_kwargs: object) -> tuple[str, ...]:
         raise AssertionError("exact cross-surface probes must not compute fuzzy suggestions")
 
@@ -297,12 +319,12 @@ def test_receiver_members_and_grouped_leaves_remain_exactly_resolvable() -> None
     for target in (
         "datasource.SourceInspection.sample",
         "semantic.readiness",
-        "analysis.dsl.LogicalNumericRelation.where",
-        "analysis.artifact.findings",
+        "analysis.Query.where",
+        "analysis.Artifact.findings",
         "analysis.session.artifact",
         "analysis.session.get_run",
-        "analysis.actions.to_pandas",
-        "analysis.dsl.LogicalAnalysisDomain.observe",
+        "analysis.Artifact.to_pandas",
+        "analysis.session.observe",
     ):
         assert isinstance(route_help_target(target), NativeHelpRoute)
 
@@ -315,8 +337,8 @@ def test_period_calendar_period_navigation_resolves_through_public_help() -> Non
     assert isinstance(route, NativeHelpRoute)
     assert route.owner == "analysis"
     assert route.resolved.descriptor is ANALYSIS_REGISTRY.by_canonical_id("calendar.period")
-    assert marivo.help("analysis.calendar.period") is None
-    assert marivo.help(PeriodCalendarEntry.period) is None
+    assert public_help("analysis.calendar.period") is None  # type: ignore[func-returns-value]  # Runtime oracle pins the public no-value return.
+    assert public_help(PeriodCalendarEntry.period) is None  # type: ignore[func-returns-value]  # Runtime oracle pins the public no-value return.
 
 
 @pytest.mark.parametrize(
@@ -362,7 +384,7 @@ def test_bound_method_renders_the_same_descriptor(
 
 def test_unknown_target_raises_one_bounded_global_error() -> None:
     with pytest.raises(MarivoHelpTargetError) as exc_info:
-        marivo.help("not-a-registered-target")
+        public_help("not-a-registered-target")
 
     error = exc_info.value
     assert error.outcome == "unknown"
@@ -388,7 +410,7 @@ def test_ref_briefing_is_identity_only_and_performs_no_io(
     resolved = resolve_live_target(reference, SEMANTIC_LIVE_SURFACE)
     assert resolved.kind == "reference_briefing"
     assert resolved.reference_id == "sales.revenue"
-    assert marivo.help(reference) is None
+    assert public_help(reference) is None  # type: ignore[func-returns-value]  # Runtime oracle pins the public no-value return.
 
 
 def test_catalog_entry_briefing_uses_loaded_facts_without_datasource_io(
@@ -412,11 +434,11 @@ def test_catalog_entry_briefing_uses_loaded_facts_without_datasource_io(
     resolved = resolve_live_target(entry, SEMANTIC_LIVE_SURFACE)
     assert resolved.kind == "reference_briefing"
     assert resolved.reference_id == "warehouse"
-    assert marivo.help(entry) is None
+    assert public_help(entry) is None  # type: ignore[func-returns-value]  # Runtime oracle pins the public no-value return.
     value_help = resolve_live_target(revenue, SEMANTIC_LIVE_SURFACE)
     assert value_help.kind == "type_contract"
     assert value_help.type_name == "ExpressionContract"
-    assert marivo.help(revenue) is None
+    assert public_help(revenue) is None  # type: ignore[func-returns-value]  # Runtime oracle pins the public no-value return.
 
 
 def test_error_instance_uses_qualified_repair_and_preserves_repair_free_facts() -> None:

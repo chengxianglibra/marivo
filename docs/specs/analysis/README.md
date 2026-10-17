@@ -1,70 +1,63 @@
 # Analysis Architecture
 
-Status: current architecture, 2026-10-08. This directory specifies the Python
-Analysis DSL implemented on the typed analysis graph. It describes contracts
-and ownership, not a release or backend qualification certificate.
+Status: current contracts and staged Lazy DSL implementation, 2026-10-17.
+Native Deferred expressions and S0–S6 routes are implemented. The broader R3–R8
+Population/Query integration is implemented with focused local checks; full
+independent and remote Runtime acceptance remain separately scoped.
+A design document is not a release or backend qualification certificate.
 
-## Reading order
+## Read the owning contract
 
 | Document | Owns |
 | --- | --- |
-| [Analysis Algebra Theory](algebra-theory.md) | Proposed core algebra: attributed finite sets, quantity sets, navigation, pointwise and axis operators, and their laws; it is not current API or runtime qualification |
-| [Algebra: Model Methods](algebra-methods.md) | Proposed signatures and required declarations for forecasting, resampling, attribution and reconciliation |
-| [Python Analysis Design](python-analysis-design.md) | Public entry shapes, algebra-to-graph architecture, method registration, planning, execution routes and composition boundaries |
-| [Operators and Frames](operators-and-frames.md) | Cell semantics, sufficient state, numerical policies, method equations, part transport and conditional continuations |
-| [Session State and Runtime](session-state-and-runtime.md) | Run identity, source/fixed execution, deadlines, atomic publication, Store 9 and recovery |
-| [Timezones and Calendars](timezone-and-calendar-design.md) | Report/read/calendar authority, complete grids, duration precision and temporal continuation |
-| [Analysis Evidence Access](evidence-access-surface.md) | Committed Evidence and Findings, bounded reads and interpretation limits |
+| [Python Analysis Design](python-analysis-design.md) | Population, Query, Column, terminal Artifact and the binding/compiler boundaries |
+| [Operators and Frames](operators-and-frames.md) | Nullable numerical policies, complete keys, contribution occurrences and operator meaning |
+| [Session State and Runtime](session-state-and-runtime.md) | Fresh Run identity, stage scheduling, resource ownership, atomic Store 10 publication and reads |
+| [Timezones and Calendars](timezone-and-calendar-design.md) | Exact boundaries, source/calendar/report authority, windows, periods and time output |
+| [Analysis Evidence Access](evidence-access-surface.md) | Self-contained saved Evidence/Findings and their interpretation limits |
 
-Read [Semantic and Datasource Overview](../semantic/overview.md) for reusable
-business meaning and physical access. The cross-layer temporal contract is
-[Temporal Semantics](../temporal-semantics.md). Help and result disclosure follow
+Datasource and semantic work starts at [the semantic overview](../semantic/overview.md).
+Cross-layer time follows [Temporal Semantics](../temporal-semantics.md).
+Static facts, dynamic contracts and errors follow
 [Agent-Facing Public Surface](../agent-friendly-public-surface.md).
 
-### Lazy DSL proposal
-
-The following documents describe proposed designs, not the current implementation.
-Each document states its own revision.
+## Complete design and implementation sources
 
 | Document | Owns |
 | --- | --- |
-| [Analysis Implementation Architecture](analysis-implementation-architecture.md) | Target layers, typed full-tuple predicate handoff, backend admission, pandas local stages and terminal storage/reads |
-| [Lazy Analysis DSL Definition](lazy-analysis-dsl-redesign.md) | Target objects, signatures, binding rules and evaluation semantics |
-| [Semantic Expression Proposal](../semantic/expression-model-redesign.md) | Reusable source definitions, Metric constructors, shared numerical policies, restricted authoring and explicit supersession of current contracts |
-| [Lazy DSL Execution and Result Handoff](lazy-analysis-dsl-execution.md) | Proposed check timing, numerical optimization boundaries, terminal Artifact persistence, same-generation recovery, disclosure and pandas layout |
-| [Lazy DSL Examples](lazy-analysis-dsl-examples.md) | Complete multi-round analysis and focused examples |
-| [Lazy DSL Scenario Validation](lazy-analysis-dsl-scenario-validation.md) | Operator rationale, business scenarios, numerical witnesses and future acceptance criteria |
+| [Lazy Analysis DSL](lazy-analysis-dsl-redesign.md) | Complete target signatures and evaluation semantics, including session.read(population, fields) |
+| [Semantic Expressions](../semantic/expression-model-redesign.md) | Controlled native Deferred inputs, declarations, per-sample policies and supersession |
+| [Execution and Handoff](lazy-analysis-dsl-execution.md) | Check timing, pandas stages, terminal saving and output layout |
+| [Implementation Architecture](analysis-implementation-architecture.md) | Module ownership and implementation layers |
+| [Examples](lazy-analysis-dsl-examples.md) | Multi-round scripts and focused recipes |
+| [Scenario Validation](lazy-analysis-dsl-scenario-validation.md) | Independent numerical witnesses and actual acceptance criteria |
+| [Algebra Theory](algebra-theory.md) | Mathematical definitions, laws and information requirements |
+| [Algebra Methods](algebra-methods.md) | Separate model-method proposals beyond the current minimal DSL |
 
-## Architecture at a glance
+Complete target documents state desired contracts. Their signatures and numerical
+witnesses alone do not prove every public integration or physical route is ready.
+Historical acceptance records remain evidence for their own exact scope.
+
+## Execution and output boundary
 
 ```text
-datasource: physical schema, Ibis compilation and controlled reads
-    -> semantic: typed identities, business meaning and Metric component graphs
-    -> analysis DSL: domain/relation/result definitions
-    -> analysis algebra: bound signatures, premises, parts and obligations
-    -> method registry: exact physical implementation admission
-    -> compiler: classified DAG, schedule and typed lowering
-    -> Runtime: execution, evidence and atomic publication
-    -> Store 9: immutable local Artifacts and source-free continuations
+datasource: qualified Ibis execution returning pandas
+    -> semantic: immutable native Deferred definitions and explicit domain dependencies
+    -> analysis: Population / Query / Column and exact observation bindings
+    -> compiler: physical methods, full keys, demanded slots, schedule and checks
+    -> Runtime: pandas stage outputs, resource cleanup and atomic publication
+    -> Store 10: committed values, coordinates, presence and actual output records
+    -> Artifact: bounded reads, complete export and saved facts
+    -> pandas: ordinary post-execution analysis
 ```
 
-Construction returns Logical values. `execute()` returns their paired
-Materialized values. A method on a Materialized receiver constructs new Logical
-work whose leaves remain fixed; Logical is a computation state, not a source-mode
-label. `session.members(...)` is the canonical member-domain entry.
+`session.observe` binds Metrics, `session.query` binds keys,
+`session.values` binds literal references, and `session.read(population, fields)`
+explicitly binds attribute reads to a Session. Population stays lazy; Query alone
+has execute. Artifact has no contract or DSL continuation. Definitions never
+recover from a saved Artifact; a new execute reevaluates its sources.
 
-The algebra has an active production role. It defines what a method means and
-which facts, evidence and input bindings a successor needs. It does not replace
-specialized statistical algorithms, and its local laws do
-not authorize arbitrary graph rewriting.
-
-## Contract and qualification boundaries
-
-The current-architecture documents describe the implemented contracts; the proposal
-documents above remain unimplemented. Historical designs and revision-specific
-acceptance records do not qualify current execution.
-
-Exact call signatures, examples, errors and admitted result actions are exposed
-by `marivo.help("analysis")` and each receiver's `contract()`. A semantic method,
-physical registration, focused test, real backend witness and full release
-acceptance remain distinct evidence.
+Static/type checks, local datasource acceptance, remote Runtime checks and release
+gates remain separate. Use native Help and structured errors for the exact
+admitted route; Query/Population contracts disclose valid next operations without
+reading unknown business keys or manufacturing capability.

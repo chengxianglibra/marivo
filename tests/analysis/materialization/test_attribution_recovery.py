@@ -14,11 +14,12 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.refs import DimensionKind, Ref
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.reference_fixtures import reference_data
 from tests.analysis.graph.source_fixtures import author_source_project
 from tests.analysis.materialization.domain_recovery_worker import snapshot
+from tests.analysis.numeric.attribution_workflows import allocation, basis
+from tests.analysis.statistics.pandas_workflows import plain
 from tests.datasource.source_cases import source_case
 from tests.support.json import Json, encode, obj, read
 from tests.support.paths import PROJECT_ROOT
@@ -67,60 +68,72 @@ def test_native_duckdb_attribution_independent_fixed_and_cold(
         author_source_project(backend, case, monkeypatch, semantic_project_factory)
         ms.load(workspace_dir=tmp_path)
         session = mv.session.get_or_create("r94-attribution", report_timezone="UTC")
-        originals: dict[str, Json] = {}
-        variants: list[Json] = []
-        # Source/fixed consumer tests own the metric and axis matrix; this
-        # independent recovery keeps one exact-key additive representative.
-        for metric_kind, axis_kind in (("sum", "single"),):
-            axes: tuple[Ref[DimensionKind], ...] = (ms.ref.dimension("sales.facts.bucket"),)
-            members = session.members(ms.ref.entity("sales.facts"))
-            current = members.observe(
-                ms.ref.metric("sales.total" if metric_kind == "sum" else "sales.average"),
-                during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
-                by=(mv.member(), *axes),
-            ).rollup()
-            baseline = members.observe(
-                ms.ref.metric("sales.total" if metric_kind == "sum" else "sales.average"),
-                during=mv.time_scope(start="2026-07-31", end="2026-08-01"),
-                by=(mv.member(), *axes),
-            ).rollup()
-            change = current.compare(baseline).absolute
-            difference = change.execute()
-            allocation = change.attribute(axes=axes).execute()
-            assert isinstance(difference, mv.MaterializedDifferenceRelation)
-            assert difference.to_pandas().value.tolist() == [-2]
-            expected = {"a": 2, "b": 1, "c": -5}
-            frame = allocation.contribution.to_pandas()
-            assert dict(zip(frame.coord_0, frame.value, strict=True)) == expected
-            name = metric_kind + ":" + axis_kind
-            originals[name + ":change"] = snapshot(difference)
-            originals[name + ":allocation"] = snapshot(allocation)
-            variants.append({"name": name, "metric_kind": metric_kind, "axis_kind": axis_kind})
-            source_trace.save(
-                "attribution-source-" + backend + "-" + metric_kind + "-" + axis_kind,
-                {**case.environment, "profile": profile},
+        members = session.members(ms.ref.entity("sales.facts"))
+        bucket = session.catalog.fields.get("sales.facts.bucket")
+        happened = session.catalog.fields.get("sales.facts.happened")
+
+        def endpoint(month: int) -> mv.Query:
+            return session.observe(
+                {"value": session.catalog.metrics.get("sales.total")},
+                during=session.time_scope(
+                    start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"
+                ),
+                by=(mv.member(), bucket),
+                members=members,
+            ).rollup(by=(bucket,))
+
+        def facts(month: int) -> mv.Query:
+            values = session.read(
+                members,
                 {
-                    "columns": data.columns,
-                    "facts": data.values,
-                    "identity_types": ["string", "int64", "int64"],
+                    "channel": bucket,
+                    "amount": session.catalog.fields.get("sales.facts.amount"),
+                    "time": happened,
                 },
-                {
-                    "metric_kind": metric_kind,
-                    "axis_kind": axis_kind,
-                    "target": -2,
-                    "current": [2, 4, 0],
-                    "baseline": [0, 3, 5],
-                    "contribution": [2, 1, -5],
-                },
-                allocation,
-                (case.session,),
             )
+            return values.where(
+                (values["time"] >= datetime(2026, month, 1, tzinfo=timezone.utc))
+                & (values["time"] < datetime(2026, month + 1, 1, tzinfo=timezone.utc))
+            )
+
+        current, baseline = endpoint(8), endpoint(7)
+        outputs = {
+            "groups": current.compare(baseline).execute(),
+            "difference": current.rollup().compare(baseline.rollup()).execute(),
+            "current": facts(8).execute(),
+            "baseline": facts(7).execute(),
+        }
+        grouped = plain(outputs["groups"])
+        assert dict(zip(grouped.key_0, grouped["value.absolute"], strict=True)) == {
+            "a": 2,
+            "b": 1,
+            "c": -5,
+        }
+        assert plain(outputs["difference"])["value.absolute"].tolist() == [-2]
+        allocated = allocation(basis(outputs["current"]), basis(outputs["baseline"]), parents=())
+        assert dict(zip(allocated.channel, allocated.contribution, strict=True)) == {
+            "a": 2,
+            "b": 1,
+            "c": -5,
+        }
+        source_trace.save(
+            "attribution-source-duckdb-sum-single",
+            {**case.environment, "profile": profile},
+            {
+                "columns": data.columns,
+                "facts": data.values,
+                "identity_types": ["string", "int64", "int64"],
+            },
+            {"target": -2, "current": [2, 4, 0], "baseline": [0, 3, 5], "contribution": [2, 1, -5]},
+            outputs["groups"],
+            (case.session,),
+        )
         state: dict[str, Json] = {
             "session": session.id,
-            "originals": originals,
-            "variants": variants,
-            # One cold recovery per persisted result type and selected path.
-            "cold_variants": ["sum:single"],
+            "outputs": {
+                name: {"artifact": value.id, "snapshot": snapshot(value)}
+                for name, value in outputs.items()
+            },
         }
         (tmp_path / "r94-attribution.json").write_bytes(encode(state))
     shutil.rmtree(tmp_path / "models")
@@ -129,7 +142,7 @@ def test_native_duckdb_attribution_independent_fixed_and_cold(
             path.unlink()
     repository = PROJECT_ROOT
     reports: list[Json] = []
-    for phase in ("fixed", "cold"):
+    for phase in ("offline", "cold"):
         output = tmp_path / (phase + ".json")
         completed = subprocess.run(
             [

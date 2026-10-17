@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import textwrap
+from collections.abc import Callable
 from dataclasses import fields
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -11,22 +12,29 @@ from pathlib import Path
 import ibis
 import pytest
 
-import marivo.analysis as mv
+import marivo.analysis.runtime_metric as runtime_descriptors
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo._authoring.model import AuthoringRepair, LiveHelpTarget
+from marivo._authoring.model import AuthoringRepair
 from marivo._compat import UTC
+from marivo.introspection.live.model import LiveHelpTarget
 from marivo.semantic.errors import StructuredWarning
+from marivo.semantic.reader import SemanticProject
 from marivo.semantic.readiness import (
     ReadinessInputSummary,
     ReadinessIssue,
     ReadinessReport,
 )
+from tests.support.json import arr, checked, obj
 
 _DOMAIN = "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n"
 
 
-def _ready_project(semantic_project_factory, *, datasource_path: Path | None = None):
+def _ready_project(
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    *,
+    datasource_path: Path | None = None,
+) -> SemanticProject:
     files = {
         "sales/_domain.py": _DOMAIN,
         "sales/models.py": textwrap.dedent(
@@ -99,7 +107,7 @@ def test_report_json_and_render_expose_only_analysis_ready_inputs() -> None:
         blockers=(),
         warnings=(
             ReadinessIssue(
-                kind="provenance_unverified",
+                kind="fragile_string_ref",
                 severity="warning",
                 refs=("sales.revenue",),
                 message="Historical provenance remains unverified.",
@@ -138,10 +146,12 @@ def test_report_json_and_render_expose_only_analysis_ready_inputs() -> None:
     assert "preview_required_refs" not in rendered
 
 
-def test_runtime_expression_is_the_ready_input(semantic_project_factory) -> None:
+def test_runtime_expression_is_the_ready_input(
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+) -> None:
     project = _ready_project(semantic_project_factory)
     catalog = ms.SemanticCatalog(project)
-    expression = mv.runtime_metric.aggregate(
+    expression = runtime_descriptors.aggregate(
         ms.ref.measure("sales.orders.amount"),
         agg="sum",
         label="Runtime revenue",
@@ -151,11 +161,14 @@ def test_runtime_expression_is_the_ready_input(semantic_project_factory) -> None
 
     assert report.status == "ready"
     assert report.analysis_ready_inputs == (expression,)
-    assert report.to_dict()["analysis_ready_inputs"][0]["schema"] == "marivo.runtime_metric_expr/v1"
+    payload = obj(checked(report.to_dict()))
+    assert (
+        obj(arr(payload["analysis_ready_inputs"])[0])["schema"] == "marivo.runtime_metric_expr/v1"
+    )
 
 
 def test_runtime_expression_with_unobservable_inherited_fold_is_blocked(
-    semantic_project_factory,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
     project = semantic_project_factory(
         {
@@ -195,7 +208,9 @@ def test_runtime_expression_with_unobservable_inherited_fold_is_blocked(
     assert "per(status_time_field).reducer()" in error.repair.action
 
 
-def test_direct_requests_only_are_ready_inputs(semantic_project_factory) -> None:
+def test_direct_requests_only_are_ready_inputs(
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+) -> None:
     project = _ready_project(semantic_project_factory)
 
     report = project.readiness(refs=("sales.orders.amount",))
@@ -206,7 +221,8 @@ def test_direct_requests_only_are_ready_inputs(semantic_project_factory) -> None
 
 
 def test_scoped_readiness_uses_canonical_dependencies_and_local_warnings(
-    semantic_project_factory, monkeypatch
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project = _ready_project(semantic_project_factory)
     monkeypatch.setattr(
@@ -238,7 +254,9 @@ def test_scoped_readiness_uses_canonical_dependencies_and_local_warnings(
     assert tuple(issue.refs for issue in region.warnings) == (("sales.orders.region",),)
 
 
-def test_unknown_requested_ref_is_blocked(semantic_project_factory) -> None:
+def test_unknown_requested_ref_is_blocked(
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+) -> None:
     report = _ready_project(semantic_project_factory).readiness(refs=("sales.missing",))
     assert report.status == "blocked"
     assert report.analysis_ready_inputs == ()
@@ -246,8 +264,8 @@ def test_unknown_requested_ref_is_blocked(semantic_project_factory) -> None:
 
 
 def test_readiness_never_uses_discovery_or_preview_history(
-    semantic_project_factory,
-    monkeypatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     database_path = tmp_path / "readiness.duckdb"
@@ -301,7 +319,9 @@ def test_readiness_never_uses_discovery_or_preview_history(
     assert "runtime_preview_missing" not in kinds
 
 
-def test_missing_business_context_does_not_block_readiness(semantic_project_factory) -> None:
+def test_missing_business_context_does_not_block_readiness(
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _DOMAIN,
@@ -329,7 +349,7 @@ def test_missing_business_context_does_not_block_readiness(semantic_project_fact
 
 
 def test_cross_datasource_metric_certification_checks_physical_inputs(
-    semantic_project_factory, tmp_path: Path
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject], tmp_path: Path
 ) -> None:
     project = semantic_project_factory(
         {

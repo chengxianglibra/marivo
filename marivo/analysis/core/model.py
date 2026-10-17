@@ -8,8 +8,9 @@ from decimal import Decimal
 from hashlib import sha256
 from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias
 
+from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.expressions import MetricNode
-from marivo._definition.types import AxisBinding, CalendarCoordinate, ExactRef, Owner
+from marivo._definition.types import ExactRef, Owner
 from marivo.analysis.core.time_alignment import TimeKeyMapping
 from marivo.analysis.core.time_grid import BoundTimeGrid, GridVersionSelection
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
@@ -58,6 +59,20 @@ class BoundQuantity:
 
 
 @dataclass(frozen=True, slots=True)
+class ResultQuantity:
+    """A result value has a kind and unit, without a source Metric recipe."""
+
+    name: str
+    unit: str | None
+    kind: Literal["numeric", "boolean", "string", "date", "timestamp", "duration", "unresolved"] = (
+        "numeric"
+    )
+
+    def __post_init__(self) -> None:
+        _nonempty(self.name, "query.values")
+
+
+@dataclass(frozen=True, slots=True)
 class BoundSignature:
     """Multi-output semantic contract owned exclusively by a Query invocation.
 
@@ -66,8 +81,8 @@ class BoundSignature:
     """
 
     owner: Owner
-    quantities: tuple[BoundQuantity, ...]
-    axes: tuple[AxisBinding | CalendarCoordinate, ...] = ()
+    quantities: tuple[BoundQuantity | ResultQuantity, ...]
+    axes: tuple[ComparisonAxis, ...] = ()
     declared_metrics: tuple[tuple[ExactRef, MetricNode], ...] = ()
     evidence: tuple[Evidence, ...] = ()
     obligations: tuple[Obligation, ...] = ()
@@ -75,7 +90,7 @@ class BoundSignature:
 
     def __post_init__(self) -> None:
         if type(self.quantities) is not tuple or any(
-            type(item) is not BoundQuantity for item in self.quantities
+            type(item) not in (BoundQuantity, ResultQuantity) for item in self.quantities
         ):
             reject(
                 "an immutable tuple of named Metric outputs",

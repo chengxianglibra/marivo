@@ -2171,6 +2171,16 @@ def lower_field_predicate(node: FieldPredicate, fields: Mapping[str, ir.Value]) 
     return lower_row(node, fields)
 
 
+def _source_sum(value: ir.Value) -> ir.Value:
+    result = value.sum()
+    dtype = value.type()
+    if isinstance(dtype, dt.Decimal):
+        # Ibis 12 infers scale=2 for a scale=0 SUM. DuckDB retains the
+        # original scale, so preserve that type before coalesce or transport.
+        result = ops.Cast(result, to=dt.Decimal(38, dtype.scale or 0)).to_expr()
+    return result
+
+
 def lower_source_reduction(
     node: SourceAggregate | SourceWeightedMean | EntityCount,
     table: ir.Table,
@@ -2192,12 +2202,10 @@ def lower_source_reduction(
             )
         product = numeric_binary("multiply", NumericValue(value), NumericValue(weight.value))
         checks.extend(product.checks)
-        numerator = (
-            pair.ifelse(product.value, ibis.null().cast(product.value.type())).sum().fill_null(0)
-        )
-        denominator = (
-            pair.ifelse(weight.value, ibis.null().cast(weight.value.type())).sum().fill_null(0)
-        )
+        numerator = _source_sum(pair.ifelse(product.value, ibis.null().cast(product.value.type())))
+        denominator = _source_sum(pair.ifelse(weight.value, ibis.null().cast(weight.value.type())))
+        numerator = numerator.fill_null(ibis.literal(0).cast(numerator.type()))
+        denominator = denominator.fill_null(ibis.literal(0).cast(denominator.type()))
         divided = numeric_binary(
             "divide",
             NumericValue(numerator, _finite_check(numerator, "weighted numerator sum")),
@@ -2216,7 +2224,7 @@ def lower_source_reduction(
     elif node.reducer == "count_distinct":
         result = value.nunique()
     elif node.reducer == "sum":
-        result = value.sum()
+        result = _source_sum(value)
         aggregate_checks: tuple[NumericCheck, ...] = ()
         if value.type().is_integer():
             wide = value.cast("decimal(38,0)").sum()
@@ -2226,7 +2234,7 @@ def lower_source_reduction(
             )
             result = overflow.ifelse(ibis.null().cast("int64"), wide.cast("int64"))
         if node.empty == "zero":
-            result = result.fill_null(0)
+            result = result.fill_null(ibis.literal(0).cast(result.type()))
         return NumericValue(
             result,
             (
@@ -2273,6 +2281,11 @@ def lower_metric_formula(
     """Compose completed reductions only; never join contribution rows."""
     if occurrence in values:
         return values[occurrence]
+    from marivo._definition.expressions import MemberCount
+
+    if isinstance(node, MemberCount):
+        # Type preparation only; the local member input supplies completed counts.
+        return NumericValue(ibis.literal(0).cast("int64"))
     if isinstance(node, MetricExpression):
         from marivo.semantic._numeric_recipe import lower_recipe
 

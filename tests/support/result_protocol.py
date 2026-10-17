@@ -23,4 +23,5 @@ def assert_conforms(obj: object) -> None:
         f"render() too large ({len(rendered.encode('utf-8'))} bytes)"
     )
 
-    assert obj.show() is None
+    # Check the runtime return as well as the protocol's annotated None contract.
+    assert obj.show() is None  # type: ignore[func-returns-value]

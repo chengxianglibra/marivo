@@ -10,12 +10,10 @@ from pathlib import Path
 import duckdb
 import pytest
 
-import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.semantic.ir import AggKind
+from marivo.analysis.errors import AnalysisError
 from tests.analysis.graph.distribution_carrier_worker import check_original
 from tests.analysis.materialization.domain_recovery_worker import snapshot
-from tests.analysis.numeric.attribution_carrier_worker import parts
 from tests.shared_fixtures import DslCaseFactory
 from tests.support.json import Json, checked, encode, obj, read
 from tests.support.paths import PROJECT_ROOT
@@ -56,45 +54,40 @@ def test_named_distribution_carriers_recover_independently(
     )
     ms.load(workspace_dir=case.root)
     trace = capture_source(monkeypatch)
-    methods: dict[str, AggKind] = {"quantile": ("percentile", 0.25)}
-    recovery_kinds = {"quantile"}
+    session = case.session
+    amount_field = session.catalog.fields.get("sales.order.amount")
+    time = session.catalog.fields.get("sales.order.ordered_at")
+    methods = {"quantile": amount_field.quantile(0.25, time=time)}
     if physical == "float":
-        recovery_kinds.add("distinct")
-        methods = {
-            "distinct": "count_distinct",
-            "approx_distinct": "approx_count_distinct",
-            "median": "median",
-            "approx_median": "approx_median",
-            "quantile": ("percentile", 0.25),
-            "approx_quantile": ("approx_percentile", 0.25),
-        }
+        methods.update(
+            distinct=amount_field.count_distinct(time=time),
+            approx_distinct=amount_field.approx_nunique(time=time),
+            median=amount_field.median(time=time),
+            approx_median=amount_field.approx_median(time=time),
+        )
+        before = len(session.runs().items)
+        with pytest.raises(AnalysisError):
+            session.observe(
+                {"value": amount_field.approx_quantile(0.25, time=time)},
+                by=session.members(ms.ref.entity("sales.customer")),
+            ).execute()
+        assert len(session.runs().items) == before
     originals: dict[str, Json] = {}
-    original_parts: dict[str, Json] = {}
-    for name, agg in methods.items():
-        metric = mv.runtime_metric.aggregate(
-            ms.ref.measure("sales.order.amount"), agg=agg, label=name
-        )
-        value = (
-            case.session.members(ms.ref.entity("sales.customer"))
-            .observe(
-                metric,
-                during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-                via=ms.ref.relationship("sales.order_buyer"),
-                by=(mv.member(),),
-            )
-            .execute()
-        )
-        assert isinstance(value, mv.MaterializedNumericRelation)
+    for name, metric in methods.items():
+        value = session.observe(
+            {"value": metric},
+            during=session.time_scope(start="2026-08-01", end="2026-09-01"),
+            by=session.members(ms.ref.entity("sales.customer")),
+        ).execute()
         check_original(value, physical, name)
-        originals[name], original_parts[name] = snapshot(value), parts(value)
+        originals[name] = {"artifact": value.id, "snapshot": snapshot(value)}
     state: dict[str, Json] = {
         "phase": "produce",
         "pid": os.getpid(),
         "session": case.session.id,
         "physical": physical,
         "form": "table",
-        "originals": {name: value for name, value in originals.items() if name in recovery_kinds},
-        "parts": {name: value for name, value in original_parts.items() if name in recovery_kinds},
+        "originals": originals,
         "native_sql": [*trace.native_sql],
         "source_closed": all(owner._closed for owner in trace.owners),
     }
@@ -104,7 +97,7 @@ def test_named_distribution_carriers_recover_independently(
     case.database_path.unlink()
     reports: list[Json] = [state]
     repository = PROJECT_ROOT
-    for phase in ("fixed", "cold"):
+    for phase in ("offline", "cold"):
         output = case.root / (phase + ".json")
         process = subprocess.run(
             [

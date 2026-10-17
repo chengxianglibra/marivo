@@ -1,30 +1,34 @@
-"""Current statistic actions and non-scalar units."""
+"""Independent value statistics have their own Query quantities and units."""
+
+import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
 from tests.shared_fixtures import DslCaseFactory
 
 
-def test_registered_templates_and_non_scalar_units_keep_their_actions(
+def test_reduced_count_compares_as_an_independent_quantity(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    values = case.session.members(ms.ref.entity("sales.customer")).observe(
-        ms.ref.metric("sales.order_count"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship(f"sales.{case.names.buyer}"),
-        by=(mv.member(),),
+    session = case.session
+    members = session.members(ms.ref.entity("sales.customer"))
+    values = session.observe(
+        {"value": session.catalog.metrics.get("sales.order_count")},
+        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
+        by=members,
     )
-    assert "relation.correlate(*others)" in {action.call for action in values.contract().actions}
-    statistic = values.aggregate(mv.count())
-    assert "relation.compare(baseline)" in {action.call for action in statistic.contract().actions}
-    assert "comparison_unavailable" not in dict(statistic.contract()._facts)
-    assert "relation.correlate(*others)" not in {
-        action.call for action in statistic.contract().actions
-    }
-    import pytest
-
-    from marivo.analysis.errors import AnalysisError
-
-    with pytest.raises(AnalysisError, match="identical"):
-        statistic.compare(statistic)
+    selected = values.where(values.coord(members.axes[0]) != "D")
+    current = values.reduce({"rows": mv.row_count()})
+    baseline = selected.reduce({"rows": mv.row_count()})
+    assert current.execute().to_pandas()[("value", "rows")].tolist() == [4]
+    assert baseline.execute().to_pandas()[("value", "rows")].tolist() == [3]
+    result = current.compare(baseline).execute()
+    frame = result.to_pandas()
+    assert frame[("value", "rows.absolute")].tolist() == [1]
+    assert frame[("value", "rows.relative")].tolist() == pytest.approx([1 / 3])
+    schema = result._manifest.data.schema
+    assert all(column.unit is None for column in schema.values)
+    same = current.compare(current).execute().to_pandas()
+    assert same[("value", "rows.absolute")].tolist() == [0]
+    assert same[("value", "rows.relative")].tolist() == [0.0]

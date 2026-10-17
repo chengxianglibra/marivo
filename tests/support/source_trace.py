@@ -1,8 +1,7 @@
-"""Native source witnesses shared by execution and resource regression tests."""
+"""Actual source calls and terminal output metadata for native regressions."""
 
 import json
 import os
-from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -10,85 +9,52 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.core.graph import Node
-from marivo.analysis.core.model import SubjectPart
-from marivo.analysis.materialization.graph_protocol import descriptor_plan, schema_from
-from marivo.datasource.adapters import CompiledRead, SourceSession
-from tests.support.json import key_json
+from marivo.datasource.adapters import (
+    BoundSource,
+    CompiledRead,
+    PhysicalRequirement,
+    QualifiedSource,
+    SourceSession,
+)
 
 
 @dataclass
 class SourceTrace:
     native_sql: list[str] = field(default_factory=list)
     owners: list[SourceSession] = field(default_factory=list)
-    physical_keys: list[Mapping[str, object]] = field(default_factory=list)
-    retained: list[dict[str, object]] = field(default_factory=list)
+    qualifications: list[dict[str, object]] = field(default_factory=list)
+    artifacts: list[dict[str, object]] = field(default_factory=list)
 
-    def record(
-        self,
-        result: mv.MaterializedAnalysisDomain
-        | mv.MaterializedNumericRelation
-        | mv.MaterializedSelectedNumericRelation
-        | mv.MaterializedCategoryRelation
-        | mv.MaterializedBooleanRelation
-        | mv.MaterializedTemporalRelation
-        | mv.MaterializedRatioRelation
-        | mv.MaterializedStatisticRelation
-        | mv.MaterializedGroupedNumericRelation
-        | mv.MaterializedRolledNumericRelation
-        | mv.MaterializedRolledRatioRelation
-        | mv.MaterializedDifferenceRelation
-        | mv.MaterializedAttributionResult,
-        *,
-        definition: Node | None = None,
-    ) -> None:
-        assert result._dataset is not None
-        checked = result._dataset.verified()
-        descriptor = result._dataset.artifact.descriptor
-        roles = {part.role for part in checked.parts}
-        if descriptor.method_state.kind in ("share", "penetration", "standardized"):
-            assert {"fixed_reference", "reference_proof", "stratum_values"} <= roles
-        elif descriptor.method_state.kind == "ranking":
-            assert {"values", "ranks", "ranking_domain", "partitions", "ordering"} <= roles
-        elif isinstance(result, mv.MaterializedAttributionResult):
-            assert {
-                "current_endpoint",
-                "baseline_endpoint",
-                "basis",
-                "allocation",
-                "reconciliation",
-                "selection_scope",
-            } <= roles
-        elif isinstance(
-            result,
-            (
-                mv.MaterializedStatisticRelation,
-                mv.MaterializedGroupedNumericRelation,
-                mv.MaterializedRolledNumericRelation,
-                mv.MaterializedRolledRatioRelation,
-            ),
-        ):
-            assert checked.parts
-        elif any(isinstance(part, SubjectPart) for part in checked.contract.signature.parts):
-            assert "subject" in roles
-        schema = schema_from(descriptor.realized_schema)
-        self.retained.append(
+    def record(self, result: mv.Artifact) -> None:
+        """Record committed output metadata without restoring or reading a plan."""
+        manifest = result._manifest
+        data = manifest.data
+        self.artifacts.append(
             {
-                "kind": type(result).__name__,
-                "schema": [[item.name, str(item.type)] for item in schema],
-                "parts": [
-                    {"role": part.role, "key_fields": list(part.key_fields)}
-                    for part in descriptor.parts
+                "kind": "Artifact",
+                "artifact": result.id,
+                "session": result.session_id,
+                "run": manifest.run_id,
+                "schema": asdict(data.schema),
+                "payload_digest": data.rows.payload_digest,
+                "attachments": [
+                    {
+                        "name": item.name,
+                        "schema": asdict(item.schema),
+                        "payload_digest": item.rows.payload_digest,
+                    }
+                    for item in data.attachments
                 ],
-                "verified": True,
+                "projections": [
+                    {
+                        "axis": item.axis_token,
+                        "path": item.path,
+                        "kind": item.kind,
+                        "label": item.label,
+                    }
+                    for item in data.coordinate_projections
+                ],
             }
-        )
-        self.physical_keys.extend(
-            key_json(item.key)
-            for item in descriptor_plan(
-                result._dataset.artifact.descriptor,
-                result._node.definition if definition is None else definition,
-            ).physical_requirements
         )
 
     def save(
@@ -97,17 +63,7 @@ class SourceTrace:
         environment: dict[str, object],
         inputs: dict[str, object],
         oracle: dict[str, object],
-        result: mv.MaterializedAnalysisDomain
-        | mv.MaterializedNumericRelation
-        | mv.MaterializedSelectedNumericRelation
-        | mv.MaterializedRatioRelation
-        | mv.MaterializedStatisticRelation
-        | mv.MaterializedGroupedNumericRelation
-        | mv.MaterializedRolledNumericRelation
-        | mv.MaterializedRolledRatioRelation
-        | mv.MaterializedDifferenceRelation
-        | mv.MaterializedAttributionResult
-        | None,
+        result: mv.Artifact | None,
         excluded: tuple[SourceSession, ...],
     ) -> None:
         executions = [owner for owner in self.owners if owner not in excluded]
@@ -127,12 +83,12 @@ class SourceTrace:
                         "environment": environment,
                         "input": inputs,
                         "oracle": oracle,
-                        "physical_keys": self.physical_keys,
-                        "retained": self.retained,
+                        "qualified_requirements": self.qualifications,
+                        "artifacts": self.artifacts,
                         "submissions": submissions,
                         "actual_native_submissions": self.native_sql,
                         "connection_disconnected": True,
-                        "boundary": "Ibis execute witness; independent cancellation and complete family binding remain required",
+                        "boundary": "Actual source qualification/submission and committed output metadata; no persisted graph or general backend qualification is inferred",
                     },
                     sort_keys=True,
                 )
@@ -143,6 +99,7 @@ def capture_source(monkeypatch: pytest.MonkeyPatch) -> SourceTrace:
     trace = SourceTrace()
     execute = SourceSession.execute
     enter = SourceSession.__enter__
+    qualify = SourceSession.qualify
 
     def captured_execute(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
         submitted_before = len(owner.submissions)
@@ -157,6 +114,22 @@ def capture_source(monkeypatch: pytest.MonkeyPatch) -> SourceTrace:
         trace.owners.append(owner)
         return result
 
+    def qualified(
+        owner: SourceSession, binding: BoundSource, need: PhysicalRequirement
+    ) -> QualifiedSource:
+        result = qualify(owner, binding, need)
+        trace.qualifications.append(
+            {
+                "source": binding.facts.source_identity,
+                "method": need.method_id,
+                "version": need.version,
+                "operations": sorted(need.operations),
+                "schema": [[item.name, str(item.type)] for item in binding.facts.schema],
+            }
+        )
+        return result
+
     monkeypatch.setattr(SourceSession, "execute", captured_execute)
     monkeypatch.setattr(SourceSession, "__enter__", entered)
+    monkeypatch.setattr(SourceSession, "qualify", qualified)
     return trace

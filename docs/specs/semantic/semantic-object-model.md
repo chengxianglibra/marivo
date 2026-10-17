@@ -687,7 +687,7 @@ operation-specific execution qualification, and consumers still recheck support.
 
 ## Analysis Semantic handoff
 
-The [Analysis contract](../analysis/python-analysis-design.md#observation-and-composition)
+The [Analysis contract](../analysis/python-analysis-design.md#population-and-observation-binding)
 owns consuming input shapes; [method contracts](../analysis/operators-and-frames.md)
 own sufficient state, numerical policies and conditional continuations.
 

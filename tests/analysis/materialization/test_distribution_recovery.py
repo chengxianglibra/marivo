@@ -1,23 +1,28 @@
 """One native setup binds all licensed C10 distributions to offline recovery."""
 
+import os
 import shutil
+import subprocess
+import sys
 from collections.abc import Callable
 from contextlib import ExitStack
 from pathlib import Path
 from typing import NoReturn
 
 import ibis
+import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import provider_for
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.distribution_fixtures import distribution_data
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.datasource.source_cases import Case, datasource, source_case
-from tests.support.json import Json, encode
+from tests.support.json import Json, encode, obj, read
 from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
 
@@ -89,6 +94,7 @@ def test_native_distributions_independent_fixed_and_cold(
         models += "identity=ms.measure_column(name='identity',entity=facts,column='id',additivity=ms.additive_all())\n"
         models += "amount=ms.measure_column(name='amount',entity=facts,column='amount',additivity=ms.additive_all())\n"
         models += "facts_subject=ms.relationship(name='facts_subject',from_entity=facts,to_entity=subjects,keys=[ms.join_on(facts_owner,subjects_owner)])\n"
+        models += "frozen = ms.finalize()\n"
         semantic_project_factory(
             {
                 "datasources/warehouse.py": "import marivo.datasource as md\n"
@@ -107,54 +113,41 @@ def test_native_distributions_independent_fixed_and_cold(
             monkeypatch.setattr(type(subject.session._backend), "create_table", forbid_staging)
             monkeypatch.setattr(type(subject.session._backend), "drop_table", forbid_staging)
         session = mv.session.get_or_create("r94-distribution", report_timezone="UTC")
-        originals: dict[str, Json] = {}
-        kinds = ["approx_distinct"]
-        if backend != "clickhouse":
-            kinds += ["distinct", "identity"]
-        if backend in ("duckdb", "postgres"):
-            kinds += ["quantile"]
-        if backend not in ("mysql"):
-            kinds += ["approx_quantile"]
-        for kind in kinds:
-            metric = mv.runtime_metric.aggregate(
-                ms.ref.measure(
-                    "sales.facts.identity" if kind == "identity" else "sales.facts.amount"
-                ),
-                agg="count_distinct"
+        outputs: dict[str, mv.Artifact] = {}
+        for kind in ("approx_distinct", "distinct", "identity", "quantile", "approx_quantile"):
+            field = session.catalog.fields.get(
+                "sales.facts.identity" if kind == "identity" else "sales.facts.amount"
+            )
+            time = session.catalog.fields.get("sales.facts.time")
+            metric = (
+                field.count_distinct(time=time)
                 if kind in ("distinct", "identity")
-                else "approx_count_distinct"
+                else field.approx_nunique(time=time)
                 if kind == "approx_distinct"
-                else ("percentile", 0.25)
+                else field.quantile(0.25, time=time)
                 if kind == "quantile"
-                else ("approx_percentile", 0.25),
-                label=kind,
+                else field.approx_quantile(0.25, time=time)
             )
-            value = (
-                session.members(ms.ref.entity("sales.subjects"))
-                .observe(
-                    metric,
-                    during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
-                    via=ms.ref.relationship("sales.facts_subject"),
-                    by=(mv.member(),),
-                )
-                .execute()
+            query = session.observe(
+                {"value": metric},
+                during=session.time_scope(start="2026-08-01", end="2026-08-02"),
+                by=session.members(ms.ref.entity("sales.subjects")),
             )
-            assert isinstance(value, mv.MaterializedNumericRelation)
-            frame = value.to_pandas().set_index("member")
+            if kind == "approx_quantile":
+                before = session.runs().items
+                with pytest.raises(AnalysisError) as refused:
+                    query.execute()
+                assert refused.value.expected and refused.value.received and refused.value.repair
+                assert session.runs().items == before
+                continue
+            value = query.execute()
+            frame = value.to_pandas()
+            mapped = dict(zip(frame.iloc[:, 0], frame[("value", "value")], strict=True))
             if kind in ("distinct", "identity", "approx_distinct"):
-                assert frame.value.to_dict() == {
-                    "a": 4 if kind == "identity" else 2,
-                    "b": 1,
-                    "c": 0,
-                }
+                assert mapped == {"a": 4 if kind == "identity" else 2, "b": 1, "c": 0}
             else:
-                assert frame.loc["b", "value"] == 6 and frame.loc["c", "cell_tag"] == "null"
-                if kind == "quantile":
-                    assert frame.loc["a", "value"] == 4
-                else:
-                    number = frame.loc["a", "value"]
-                    assert isinstance(number, (int, float)) and 2 <= number <= 6
-            originals[kind] = snapshot(value)
+                assert mapped["a"] == 4 and mapped["b"] == 6 and pd.isna(mapped["c"])
+            outputs[kind] = value
             source_trace.save(
                 "distribution-source-" + backend + "-" + kind,
                 {**subject.environment, "profile": profile},
@@ -173,15 +166,56 @@ def test_native_distributions_independent_fixed_and_cold(
             )
         state: dict[str, Json] = {
             "session": session.id,
-            "originals": originals,
-            # Every distribution persists through the same NumericRelation envelope.
-            # Exact quantile also retains the nullable-cell shape in the cold owner.
-            "cold_kinds": ["quantile"],
+            "outputs": {
+                name: {"artifact": value.id, "snapshot": snapshot(value)}
+                for name, value in outputs.items()
+            },
         }
         (tmp_path / "r94-distribution.json").write_bytes(encode(state))
     shutil.rmtree(tmp_path / "models")
     for pattern in ("source.duckdb*",):
         for path in tmp_path.glob(pattern):
             path.unlink()
+    script = r"""
+import os
+import sys
+from pathlib import Path
+from unittest.mock import patch
+import pandas as pd
+import marivo.analysis as mv
+import marivo.semantic as ms
+from marivo.datasource.adapters import SourceSession
+from marivo.semantic.reader import SemanticProject
+from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
+from tests.support.json import encode, obj, read
+root, phase, output = Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3])
+state = read(root / 'r94-distribution.json')
+with patch.object(ms, 'load', forbidden), patch.object(SemanticProject, 'load', forbidden), patch.object(SourceSession, '__enter__', forbidden), patch.object(SourceSession, 'execute', forbidden):
+    session = mv.session.resume(state['session'], by='id')
+    before = len(session.runs().items)
+    for name, item in obj(state['outputs']).items():
+        value = session.artifact(item['artifact'])
+        assert snapshot(value) == item['snapshot']
+        frame = value.to_pandas()
+        values = dict(zip(frame.iloc[:,0], frame[('value','value')], strict=True))
+        if name == 'quantile':
+            assert values['a'] == 4 and values['b'] == 6 and pd.isna(values['c'])
+        else:
+            assert values == {'a':4 if name=='identity' else 2,'b':1,'c':0}
+    assert len(session.runs().items) == before
+output.write_bytes(encode({'pid':os.getpid(), 'phase':phase}))
+"""
     reports: list[Json] = []
-    repository = PROJECT_ROOT
+    for phase in ("offline", "cold"):
+        output = tmp_path / (phase + ".json")
+        completed = subprocess.run(
+            [sys.executable, "-c", script, str(tmp_path), phase, str(output)],
+            cwd=tmp_path,
+            env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        assert completed.returncode == 0, completed.stdout + completed.stderr
+        reports.append(read(output))
+    assert len({os.getpid(), *(obj(report)["pid"] for report in reports)}) == 3

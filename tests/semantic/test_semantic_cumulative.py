@@ -1,4 +1,4 @@
-"""Cumulative metric semantic authoring and load validation."""
+"""Named window Metrics retain closed formulas and explicit source-time roles."""
 
 from __future__ import annotations
 
@@ -7,239 +7,204 @@ from pathlib import Path
 import pytest
 
 import marivo.semantic as ms
+from marivo._definition.expressions import (
+    DeclaredMetricRef,
+    MetricExpression,
+    MetricNode,
+    MetricWindow,
+    SourceAggregate,
+)
+from marivo._definition.windows import AllHistory
+from marivo.semantic._deferred_semantics import consume_metric
+
+_MODEL = """import marivo.datasource as md
+import marivo.semantic as ms
+import marivo.analysis as mv
+warehouse = ms.ref.datasource("warehouse")
+orders = ms.entity(name="orders", datasource=warehouse, source=md.table("orders"), primary_key=["id"])
+event_time_ref = ms.time_dimension_column(name="event_time", entity=orders, column="created_at", granularity="day", is_default=True)
+paid_time_ref = ms.time_dimension_column(name="paid_time", entity=orders, column="paid_at", granularity="day")
+amount_ref = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all())
+quantity_ref = ms.measure_column(name="quantity", entity=orders, column="quantity", additivity=ms.additive_all())
+user_ref = ms.dimension_column(name="user_id", entity=orders, column="user_id")
+shipments = ms.entity(name="shipments", datasource=warehouse, source=md.table("shipments"), primary_key=["id"])
+ship_time_ref = ms.time_dimension_column(name="ship_time", entity=shipments, column="shipped_at", granularity="day")
+frozen = ms.finalize()
+amount = frozen.resolve(amount_ref)
+quantity = frozen.resolve(quantity_ref)
+users = frozen.resolve(user_ref)
+event_time = frozen.resolve(event_time_ref)
+paid_time = frozen.resolve(paid_time_ref)
+ship_time = frozen.resolve(ship_time_ref)
+orders_value = frozen.resolve(orders)
+rule = mv.all_history()
+"""
 
 
 def _write_project(tmp_path: Path, body: str) -> Path:
-    """Bootstrap a minimal semantic project for ms.load().
-
-    Layout matches the real project conventions:
-      <root>/marivo.toml
-      <root>/models/datasources/warehouse.py
-      <root>/models/semantic/sales/_domain.py
-      <root>/models/semantic/sales/metrics.py
-    """
     root = tmp_path / "project"
-    root.mkdir(parents=True)
-    (root / "marivo.toml").write_text('[project]\nname = "test"\n', encoding="utf-8")
-    models = root / "models"
-    semantic_dir = models / "semantic" / "sales"
-    datasources_dir = models / "datasources"
-    semantic_dir.mkdir(parents=True)
-    datasources_dir.mkdir(parents=True)
-    (semantic_dir / "__init__.py").write_text("", encoding="utf-8")
-    (datasources_dir / "warehouse.py").write_text(
-        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n",
-        encoding="utf-8",
+    semantic = root / "models/semantic/sales"
+    datasource = root / "models/datasources"
+    semantic.mkdir(parents=True)
+    datasource.mkdir(parents=True)
+    (root / "marivo.toml").write_text('[project]\nname="windows"\n')
+    (datasource / "warehouse.py").write_text(
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
     )
-    (semantic_dir / "_domain.py").write_text(
-        "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n",
-        encoding="utf-8",
+    (semantic / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n"
     )
-    (semantic_dir / "metrics.py").write_text(body, encoding="utf-8")
+    (semantic / "metrics.py").write_text(body)
     return root
 
 
-def test_cumulative_load_resolves_single_time_dimension_and_non_additive(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def _metric_node(catalog: ms.SemanticCatalog, name: str) -> MetricNode:
+    facts = consume_metric(catalog.metrics.get(f"sales.{name}"))
+    node = facts.node
+    definitions = dict(facts._declared)
+    while isinstance(node, DeclaredMetricRef):
+        node = definitions[node.ref]
+    return node
+
+
+def _window(catalog: ms.SemanticCatalog, name: str) -> MetricWindow:
+    node = _metric_node(catalog, name)
+    assert isinstance(node, MetricWindow)
+    assert isinstance(node.rule, AllHistory)
+    return node
+
+
+def test_cumulative_load_retains_explicit_time_and_distinct_formula(tmp_path: Path) -> None:
     root = _write_project(
         tmp_path,
-        "import marivo.datasource as md\n"
-        "import marivo.semantic as ms\n"
-        "warehouse = ms.ref.datasource('warehouse')\n"
-        "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
-        "event_time = ms.time_dimension_column("
-        "name='event_time', entity=orders, column='created_at', granularity='day')\n"
-        "user_id = ms.measure_column("
-        "name='user_id', entity=orders, column='user_id', additivity=ms.non_additive())\n"
-        "active_users = ms.aggregate(name='active_users', measure=user_id, agg='count_distinct')\n"
-        "cum_active_users = ms.cumulative(name='cum_active_users', base=active_users)\n",
+        _MODEL
+        + """
+@ms.metric()
+def active_users():
+    return users.count_distinct(time=event_time)
+@ms.metric()
+def cum_active_users():
+    return active_users.window(rule)
+""",
     )
-    monkeypatch.chdir(root)
-
-    catalog = ms.load()
-    details = catalog.require(ms.ref.metric("sales.cum_active_users")).details()
-
-    assert details.metric_type == "derived"
-    assert details.composition == "cumulative"
-    assert details.components[0][0] == "base"
-    assert details.components[0][1].path == "sales.active_users"
-    assert details.additivity == "non_additive"
+    catalog = ms.load(workspace_dir=root)
+    window = _window(catalog, "cum_active_users")
+    base = _metric_node(catalog, "active_users")
+    assert base == window.operand
+    assert isinstance(base, SourceAggregate)
+    assert base.reducer == "count_distinct"
+    assert base.time is not None
+    assert base.time.field.ref.path == "sales.orders.event_time"
 
 
-def test_cumulative_rejects_derived_base(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cumulative_accepts_complete_derived_formula(tmp_path: Path) -> None:
     root = _write_project(
         tmp_path,
-        "import marivo.datasource as md\n"
-        "import marivo.semantic as ms\n"
-        "warehouse = ms.ref.datasource('warehouse')\n"
-        "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
-        "event_time = ms.time_dimension_column("
-        "name='event_time', entity=orders, column='created_at', granularity='day')\n"
-        "amount = ms.measure_column("
-        "name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
-        "revenue = ms.aggregate(name='revenue', measure=amount, agg='sum')\n"
-        "orders_count = ms.count(name='orders_count', entity=orders)\n"
-        "aov = ms.ratio(name='aov', numerator=revenue, denominator=orders_count)\n"
-        "bad = ms.cumulative(name='bad', base=aov, over=event_time)\n",
+        _MODEL
+        + """
+@ms.metric()
+def aov():
+    return amount.sum(time=event_time) / orders_value.count(time=event_time)
+@ms.metric()
+def cumulative_aov():
+    return aov.window(rule)
+""",
     )
-    monkeypatch.chdir(root)
-
-    with pytest.raises(ms.errors.SemanticLoadFailed) as exc_info:
-        ms.load()
-
-    message = str(exc_info.value)
-    assert "cumulative base" in message
-    assert "derived" in message
-    assert "ratio of two cumulative metrics" in message
+    catalog = ms.load(workspace_dir=root)
+    window = _window(catalog, "cumulative_aov")
+    assert window.operand == _metric_node(catalog, "aov")
+    assert isinstance(window.operand, MetricExpression)
 
 
-def test_cumulative_rejects_unsupported_base_aggregation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_cumulative_accepts_original_mean_formula(tmp_path: Path) -> None:
     root = _write_project(
         tmp_path,
-        "import marivo.datasource as md\n"
-        "import marivo.semantic as ms\n"
-        "warehouse = ms.ref.datasource('warehouse')\n"
-        "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
-        "event_time = ms.time_dimension_column("
-        "name='event_time', entity=orders, column='created_at', granularity='day')\n"
-        "amount = ms.measure_column("
-        "name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
-        "avg_amount = ms.aggregate(name='avg_amount', measure=amount, agg='mean')\n"
-        "bad = ms.cumulative(name='bad', base=avg_amount, over=event_time)\n",
+        _MODEL
+        + """
+@ms.metric()
+def average():
+    return amount.mean(time=event_time)
+@ms.metric()
+def cumulative_average():
+    return average.window(rule)
+""",
     )
-    monkeypatch.chdir(root)
-
-    with pytest.raises(ms.errors.SemanticLoadFailed) as exc_info:
-        ms.load()
-
-    message = str(exc_info.value)
-    assert "mean" in message
-    assert "cumulative sum over cumulative count" in message
+    catalog = ms.load(workspace_dir=root)
+    window = _window(catalog, "cumulative_average")
+    base = _metric_node(catalog, "average")
+    assert window.operand == base
+    assert isinstance(base, SourceAggregate)
+    assert base.reducer == "mean"
 
 
-def test_cumulative_omitted_over_rejects_multiple_time_dimensions(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_cumulative_preserves_explicit_time_with_multiple_roles(tmp_path: Path) -> None:
     root = _write_project(
         tmp_path,
-        "import marivo.datasource as md\n"
-        "import marivo.semantic as ms\n"
-        "warehouse = ms.ref.datasource('warehouse')\n"
-        "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
-        "created_at = ms.time_dimension_column("
-        "name='created_at', entity=orders, column='created_at', granularity='day', "
-        "is_default=True)\n"
-        "paid_at = ms.time_dimension_column("
-        "name='paid_at', entity=orders, column='paid_at', granularity='day')\n"
-        "amount = ms.measure_column("
-        "name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
-        "revenue = ms.aggregate(name='revenue', measure=amount, agg='sum')\n"
-        "bad = ms.cumulative(name='bad', base=revenue)\n",
+        _MODEL
+        + """
+@ms.metric()
+def paid_revenue():
+    return amount.sum(time=paid_time).window(rule)
+""",
     )
-    monkeypatch.chdir(root)
-
-    with pytest.raises(ms.errors.SemanticLoadFailed) as exc_info:
-        ms.load()
-
-    message = str(exc_info.value)
-    assert "over=" in message
-    assert "sales.orders.created_at" in message
-    assert "sales.orders.paid_at" in message
-    assert "default" in message
+    catalog = ms.load(workspace_dir=root)
+    window = _window(catalog, "paid_revenue")
+    assert isinstance(window.operand, SourceAggregate)
+    assert window.operand.time is not None
+    assert window.operand.time.field.ref.path == "sales.orders.paid_time"
 
 
-def test_cumulative_rejects_tier2_body_base(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_cumulative_accepts_closed_computed_measure_base(tmp_path: Path) -> None:
     root = _write_project(
         tmp_path,
-        "import marivo.datasource as md\n"
-        "import marivo.semantic as ms\n"
-        "warehouse = ms.ref.datasource('warehouse')\n"
-        "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
-        "event_time = ms.time_dimension_column("
-        "name='event_time', entity=orders, column='created_at', granularity='day')\n"
-        "amount = ms.measure_column("
-        "name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
-        "@ms.metric(entities=[orders], additivity=ms.additive_all())\n"
-        "def custom_revenue(orders):\n"
-        "    return (orders.amount * orders.qty).sum()\n"
-        "bad = ms.cumulative(name='bad', base=custom_revenue, over=event_time)\n",
+        _MODEL
+        + """
+@ms.measure(additivity=ms.additive_all())
+def net():
+    return amount * quantity
+@ms.metric()
+def custom_revenue():
+    return net.sum(time=event_time)
+@ms.metric()
+def cumulative_revenue():
+    return custom_revenue.window(rule)
+""",
     )
-    monkeypatch.chdir(root)
-
-    with pytest.raises(ms.errors.SemanticLoadFailed) as exc_info:
-        ms.load()
-
-    message = str(exc_info.value)
-    assert "tier-2" in message
-    assert "body" in message
-    assert "ms.aggregate(...)" in message or "ms.count(...)" in message
+    catalog = ms.load(workspace_dir=root)
+    window = _window(catalog, "cumulative_revenue")
+    assert window.operand == _metric_node(catalog, "custom_revenue")
+    assert isinstance(_metric_node(catalog, "custom_revenue"), SourceAggregate)
 
 
-def test_cumulative_rejects_unknown_over_ref(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_cumulative_rejects_unknown_time_ref(tmp_path: Path) -> None:
     root = _write_project(
         tmp_path,
-        "import marivo.datasource as md\n"
-        "import marivo.semantic as ms\n"
-        "warehouse = ms.ref.datasource('warehouse')\n"
-        "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
-        "event_time = ms.time_dimension_column("
-        "name='event_time', entity=orders, column='created_at', granularity='day')\n"
-        "amount = ms.measure_column("
-        "name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
-        "revenue = ms.aggregate(name='revenue', measure=amount, agg='sum')\n"
-        "bogus_ref = ms.ref.time_dimension('sales.orders.nonexistent')\n"
-        "bad = ms.cumulative(name='bad', base=revenue, over=bogus_ref)\n",
+        _MODEL
+        + """
+missing = frozen.resolve(ms.ref.time_dimension("sales.orders.nonexistent"))
+@ms.metric()
+def bad():
+    return amount.sum(time=missing).window(rule)
+""",
     )
-    monkeypatch.chdir(root)
-
-    with pytest.raises(ms.errors.SemanticLoadFailed) as exc_info:
-        ms.load()
-
-    message = str(exc_info.value)
-    assert "sales.orders.nonexistent" in message
-    assert "not a known time dimension" in message
-
-    load_errors = exc_info.value.errors
-    matching = [e for e in load_errors if e.kind == ms.errors.ErrorKind.MISSING_DIMENSION_REF]
-    assert matching, "expected at least one MISSING_DIMENSION_REF error"
-    details = matching[0].details
-    assert details["missing_ref"] == "sales.orders.nonexistent"
-    assert "sales.orders.event_time" in details["did_you_mean"]
+    with pytest.raises(ms.errors.SemanticLoadFailed) as caught:
+        ms.load(workspace_dir=root)
+    assert "sales.orders.nonexistent" in str(caught.value)
 
 
-def test_cumulative_rejects_non_root_over_axis(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_cumulative_rejects_non_root_time_axis(tmp_path: Path) -> None:
     root = _write_project(
         tmp_path,
-        "import marivo.datasource as md\n"
-        "import marivo.semantic as ms\n"
-        "warehouse = ms.ref.datasource('warehouse')\n"
-        "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
-        "shipments = ms.entity(name='shipments', datasource=warehouse, "
-        "source=md.table('shipments'))\n"
-        "order_time = ms.time_dimension_column("
-        "name='order_time', entity=orders, column='created_at', granularity='day')\n"
-        "ship_time = ms.time_dimension_column("
-        "name='ship_time', entity=shipments, column='shipped_at', granularity='day')\n"
-        "amount = ms.measure_column("
-        "name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
-        "revenue = ms.aggregate(name='revenue', measure=amount, agg='sum')\n"
-        "bad = ms.cumulative(name='bad', base=revenue, over=ship_time)\n",
+        _MODEL
+        + """
+@ms.metric()
+def bad():
+    return amount.sum(time=ship_time).window(rule)
+""",
     )
-    monkeypatch.chdir(root)
-
-    with pytest.raises(ms.errors.SemanticLoadFailed) as exc_info:
-        ms.load()
-
-    message = str(exc_info.value)
-    assert "ship_time" in message
+    with pytest.raises(ms.errors.SemanticLoadFailed) as caught:
+        ms.load(workspace_dir=root)
+    message = str(caught.value)
+    assert "Time field belongs to another root" in message
     assert "shipments" in message
     assert "orders" in message

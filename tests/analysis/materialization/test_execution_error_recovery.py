@@ -8,7 +8,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._help.render import render_help_text
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization import graph_publication
+from marivo.analysis.materialization import terminal_publication
 from marivo.analysis.materialization.errors import (
     IntegrityError,
     MaterializationError,
@@ -19,8 +19,10 @@ from tests.shared_fixtures import DslCase, DslCaseFactory
 from tests.support.execution_logs import execution_records
 
 
-def _members(case: DslCase) -> mv.LogicalAnalysisDomain:
-    return case.session.members(ms.ref.entity(f"{case.names.domain}.{case.names.customer}"))
+def _members(case: DslCase) -> mv.Query:
+    return case.session.query(
+        case.session.members(ms.ref.entity(f"{case.names.domain}.{case.names.customer}"))
+    )
 
 
 def test_member_construction_is_lazy_and_execution_retains_complete_keys(
@@ -40,7 +42,7 @@ def test_member_construction_is_lazy_and_execution_retains_complete_keys(
         assert case.session.runs().items == ()
     captured = logical.execute()
     frame = captured.to_pandas()
-    assert set(frame["member"]) == {"A", "B", "C", "D"}
+    assert set(frame.iloc[:, 0]) == {"A", "B", "C", "D"}
     submitted = [
         record for record in execution_records(case.root) if record["event"] == "query.submitted"
     ]
@@ -48,7 +50,9 @@ def test_member_construction_is_lazy_and_execution_retains_complete_keys(
     assert all("LIMIT" not in str(record["sql"]).upper() for record in submitted)
     capsys.readouterr()
     captured.show(n=1)
-    assert "omitted" in capsys.readouterr().out
+    preview = capsys.readouterr().out
+    assert "rows: 4" in preview
+    assert ".to_pandas()" in preview
     assert len(frame) == 4
     assert len(case.session.runs().items) == 1
 
@@ -71,13 +75,13 @@ def test_source_failure_retries_have_exact_readable_runs_and_retained_history(
             logical.execute()
         error = caught.value
         assert isinstance(error.__cause__, RuntimeError)
-        assert error.stage == "graph_source"
+        assert error.stage == "stage_execution"
         assert error.run_ref is not None
         run_ids.append(error.run_ref)
         assert case.session.get_run(error.run_ref).lifecycle == "failed"
         assert error.repair is not None
         assert error.repair.help_target.canonical_id == "session.get_run"
-        assert "create a new Run" in error.repair.action
+        assert "execute a new invocation" in error.repair.action
         for text in (str(error), render_help_text(error)[0]):
             assert error.run_ref in text
             inspection = next(
@@ -98,7 +102,7 @@ def test_source_failure_retries_have_exact_readable_runs_and_retained_history(
         received="an incompatible source",
         repair="Restore the exact synthetic source contract.",
         stage="graph_check",
-        help_target="dsl.LogicalAnalysisDomain.execute",
+        help_target="Query.execute",
     )
     repair = original.repair
 
@@ -121,23 +125,22 @@ def test_real_pairing_check_failure_is_bound_to_its_failed_run(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    members = _members(case)
-    region = members.read(ms.ref.dimension("sales.customer.region"))
-    selected = region.where(region.value.eq("east")).members()
-    scope = mv.time_scope(start="2026-08-01", end="2026-09-01")
-    metric = ms.ref.metric("sales.revenue")
-    via = ms.ref.relationship("sales.order_buyer")
-    current = selected.observe(metric, during=scope, via=via, by=(mv.member(),))
-    baseline = members.observe(metric, during=scope, via=via, by=(mv.member(),))
-    with pytest.raises(MaterializationError) as caught:
-        current.group_by(region).rollup().compare(baseline.group_by(region).rollup()).execute()
+    session = case.session
+    members = session.members(ms.ref.entity("sales.customer"))
+    region = session.read(members, {"region": session.catalog.fields.get("sales.customer.region")})
+    selected = region.where(region["region"] == "east").population()
+    scope = session.time_scope(start="2026-08-01", end="2026-09-01")
+    metric = session.catalog.metrics.get("sales.revenue")
+    current = session.observe({"value": metric}, during=scope, members=selected, by=selected)
+    baseline = session.observe({"value": metric}, during=scope, by=members)
+    with pytest.raises(AnalysisError) as caught:
+        current.compare(baseline).execute()
     error = caught.value
-    assert error.stage == "graph_local"
     assert error.expected and error.received
     assert error.run_ref is not None
-    assert case.session.get_run(error.run_ref).lifecycle == "failed"
-    assert case.session.graph().artifacts == ()
-    assert case.session._runtime.store.resources(case.session.id) == ()
+    assert session.get_run(error.run_ref).lifecycle == "failed"
+    assert session.graph().artifacts == ()
+    assert session._runtime.store.resources(session.id) == ()
 
 
 def test_pre_admission_failure_never_inherits_the_previous_run(
@@ -151,7 +154,9 @@ def test_pre_admission_failure_never_inherits_the_previous_run(
     for typed in (False, True):
         original: BaseException = (
             IntegrityError(
-                expected="a valid graph", received="invalid graph", repair="Rebuild the graph."
+                expected="a valid Query plan",
+                received="an invalid plan",
+                repair="Rebuild the Query.",
             )
             if typed
             else ValueError("synthetic admission failure")
@@ -165,7 +170,7 @@ def test_pre_admission_failure_never_inherits_the_previous_run(
             raise _original
 
         with monkeypatch.context() as patch:
-            patch.setattr(graph_publication, "graph_document", fail)
+            patch.setattr(terminal_publication, "plan_query", fail)
             with pytest.raises(AnalysisError) as caught:
                 logical.execute()
         error = caught.value
@@ -173,7 +178,7 @@ def test_pre_admission_failure_never_inherits_the_previous_run(
         assert "session.get_run(" not in str(error)
         assert "session.get_run(" not in render_help_text(error)[0]
         assert case.session.runs().items == before
-        assert case.session._runtime.last_run_ref == previous.state.producing_run_ref
+        assert case.session._runtime.last_run_ref == previous._manifest.run_id
         if typed:
             assert error is original
         else:
@@ -183,17 +188,17 @@ def test_pre_admission_failure_never_inherits_the_previous_run(
         expected="an original publication acknowledgement",
         received="unconfirmed acknowledgement",
         repair="Inspect the original Run without replaying computation.",
-        run_ref=previous.state.producing_run_ref,
+        run_ref=previous._manifest.run_id,
     )
 
     def fail_reconciliation(*args: object, **kwargs: object) -> NoReturn:
         raise original
 
-    monkeypatch.setattr(graph_publication, "reconcile_session", fail_reconciliation)
+    monkeypatch.setattr(terminal_publication, "reconcile", fail_reconciliation)
     with pytest.raises(RecoveryPendingError) as caught:
         logical.execute()
     assert caught.value is original
-    assert original.run_ref == previous.state.producing_run_ref
+    assert original.run_ref == previous._manifest.run_id
     assert len(case.session.runs().items) == 1
 
 

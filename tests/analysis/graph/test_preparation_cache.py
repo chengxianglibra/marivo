@@ -10,6 +10,7 @@ import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
+from marivo._temporal import time_scope
 from marivo.analysis.compiler.graph_lowering import LoweredLocal, canonical_layout
 from marivo.analysis.compiler.graph_plan import LocalMethodStage, RouteChoice, plan
 from marivo.analysis.core.domain_captures import DomainPreparationError
@@ -66,7 +67,7 @@ def _case() -> _Case:
     binding = Binding("session", "commerce", "subjects", "scope")
     entity = ref.entity("commerce.subjects")
     keys = (Coordinate(entity, "tenant", "identity"), Coordinate(entity, "id", "identity"))
-    grid = bind_grid(mv.time_scope(start=START, end=END), mv.grain("day"), report_timezone="UTC")
+    grid = bind_grid(time_scope(start=START, end=END), mv.grain("day"), report_timezone="UTC")
     instances = (*keys, Coordinate(entity, "time:grid", "anchor"))
     domain = DomainSignature(binding, "entity", instances, keys, "selected", time_grid=grid)
     subject = SubjectPart(binding, entity, instances, keys, False, True, "subject-v1")

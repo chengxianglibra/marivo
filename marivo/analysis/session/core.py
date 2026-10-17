@@ -26,10 +26,17 @@ from marivo.semantic.catalog import SemanticCatalog
 if TYPE_CHECKING:
     from ibis.common.deferred import Deferred
 
+    from marivo._definition.correspondence import ComparisonAxis
+    from marivo._definition.types import AxisBinding
     from marivo.analysis.core.graph import BoundGraph
     from marivo.analysis.dsl.artifact import Artifact
-    from marivo.analysis.dsl.population import MembershipAxis, Population
-    from marivo.analysis.dsl.query import Query
+    from marivo.analysis.dsl.population import (
+        MemberAxis,
+        MembershipAxis,
+        Population,
+        PopulationPredicate,
+    )
+    from marivo.analysis.dsl.query import Query, ValueRow
     from marivo.analysis.dsl.temporal import CalendarAxis
     from marivo.analysis.materialization.admission import DatasetRuntime
 
@@ -167,7 +174,7 @@ class Session:
         entity: Ref[EntityKind],
         *,
         at: InstantAnchor | None = None,
-        where: Deferred | None = None,
+        where: Deferred | PopulationPredicate | None = None,
     ) -> Population:
         """Capture a source identity Population without reading schema or rows.
 
@@ -189,12 +196,21 @@ class Session:
         from marivo._definition.relations import PopulationProgram, SourceIdentities
         from marivo._definition.types import AxisBinding, Owner
         from marivo.analysis.core.model import reject
-        from marivo.analysis.dsl.population import Population
+        from marivo.analysis.dsl.population import (
+            Population,
+            PopulationPredicate,
+            _owner,
+            condition_populations,
+        )
         from marivo.semantic._deferred_semantics import consume_predicate
         from marivo.semantic.expressions import _Resolver
 
         resolved = _Resolver(self.catalog._state).entity(entity.path)
-        predicate = consume_predicate(where) if where is not None else None
+        predicate = (
+            consume_predicate(where)
+            if where is not None and not isinstance(where, PopulationPredicate)
+            else None
+        )
         if predicate is not None and any(root.ref != resolved.ref.ref for root in predicate.roots):
             reject(
                 "a predicate on the selected Entity",
@@ -210,7 +226,25 @@ class Session:
                 "session.members",
             )
         axis = AxisBinding(resolved.ref, None, (), "identity", at)
-        node = SourceIdentities(resolved.ref, at, predicate.node if predicate is not None else None)
+        if isinstance(where, PopulationPredicate) and any(
+            _owner(domain) not in (None, Owner(self.id, self._runtime.store.store_id))
+            for domain in condition_populations(where.condition)
+        ):
+            reject(
+                "a predicate domain owned by this Session",
+                "another Session owner",
+                "Rebuild the predicate domain in this Session.",
+                "session.members",
+            )
+        node = SourceIdentities(
+            resolved.ref,
+            at,
+            where.condition
+            if isinstance(where, PopulationPredicate)
+            else predicate.node
+            if predicate is not None
+            else None,
+        )
         return Population(
             PopulationProgram(node, Owner(self.id, self._runtime.store.store_id), (axis,))
         )
@@ -267,8 +301,9 @@ class Session:
         metrics: Mapping[str, Deferred],
         *,
         during: TimeScope | CalendarAxis | None = None,
-        by: tuple[Deferred | MembershipAxis, ...] | Population = (),
-        where: Deferred | None = None,
+        by: tuple[Deferred | MembershipAxis | MemberAxis | ComparisonAxis, ...] | Population = (),
+        where: Deferred | PopulationPredicate | None = None,
+        members: Population | None = None,
     ) -> Query:
         """Capture named Metric expressions in a lazy Query.
 
@@ -293,6 +328,7 @@ class Session:
             during=during,
             by=by,
             where=where,
+            members=members,
             timezone=self.report_tz_name,
             state=self.catalog._state
             if isinstance(metrics, Mapping)
@@ -300,6 +336,7 @@ class Session:
                 any(isinstance(metric, Deferred) for metric in metrics.values())
                 or by
                 or where is not None
+                or members is not None
             )
             else None,
         )
@@ -319,12 +356,63 @@ class Session:
             population, Owner(self.id, self._runtime.store.store_id), self._execute_query
         )
 
+    def read(self, population: Population, fields: Mapping[str, Deferred]) -> Query:
+        """Read named attributes for an explicit identity domain in this Session.
+
+        Args: population: One Entity identity axis. fields: Nonempty named Fields.
+        Returns: A new lazy Query preserving every complete requested identity.
+        Example: ``q = session.read(customers, {'region': region})``.
+        Constraints: Checks Session ownership, scalar paths and exact version anchors; missing attribute mappings fail at execution.
+        """
+        from marivo._definition.types import Owner
+        from marivo.analysis.dsl.query import Query
+
+        return Query._from_read(
+            population,
+            fields,
+            Owner(self.id, self._runtime.store.store_id),
+            self._execute_query,
+            self.catalog._state,
+        )
+
+    def values(
+        self,
+        *,
+        by: tuple[Deferred | AxisBinding, ...],
+        columns: Mapping[str, str | None],
+        rows: tuple[ValueRow, ...],
+    ) -> Query:
+        """Capture explicit finite value rows with one unit declaration per column.
+
+        Args: by: Field/identity axes. columns: Names mapped to units or None.
+            rows: Complete key tuples paired with exact named literal values.
+
+        Returns: A lazy Query over literal input.
+        Example: ``session.values(by=(), columns={'budget': 'CNY'}, rows=(((), {'budget': 100}),))``.
+        Constraints: No DataFrame import, null values, duplicate keys or hand-written calendars.
+        """
+        from marivo._definition.types import Owner
+        from marivo.analysis.dsl.query import Query
+
+        return Query._from_values(
+            by=by,
+            columns=columns,
+            rows=rows,
+            owner=Owner(self.id, self._runtime.store.store_id),
+            execute=self._execute_query,
+        )
+
     def _execute_query(self, graph: BoundGraph) -> Artifact:
+        from marivo._definition.query import ResultQuery
+
         observation = graph.signature.observation
         state = (
             self.catalog._state
-            if observation is not None
-            and (observation.contributions or observation.coordinates.population is not None)
+            if isinstance(graph.root, ResultQuery)
+            or (
+                observation is not None
+                and (observation.contributions or observation.coordinates.population is not None)
+            )
             else None
         )
         return self._runtime._execute_query(graph, state)

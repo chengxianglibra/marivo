@@ -6,9 +6,8 @@ import duckdb
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 
-_MODEL = 'import marivo.datasource as md\nimport marivo.semantic as ms\norders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"),\n    source=md.table("orders", columns={\n        "order_id": "order_id",\n        "region": "region"}), primary_key=["order_id"])\nevents = ms.entity(name="events", datasource=ms.ref.datasource("warehouse"),\n    source=md.table("events", columns={\n        "event_id": "event_id",\n        "order_id": "order_id",\n        "kind": "kind",\n        "occurred_at": "occurred_at"}),\n    primary_key=["event_id"])\nsubject_key = ms.dimension_column(name="subject_key", entity=orders, column="order_id")\nparticipant_key = ms.dimension_column(name="participant_key", entity=events, column="order_id")\nregion = ms.dimension_column(name="region", entity=orders, column="region")\nevent_key = ms.dimension_column(name="event_key", entity=events, column="event_id")\nkind = ms.dimension_column(name="kind", entity=events, column="kind")\ninstant = ms.time_dimension_column(name="instant", entity=events, column="occurred_at",\n    granularity="second", parse=ms.timestamp(timezone="UTC"), is_default=True)\nevent_order = ms.relationship(name="event_order", from_entity=events, to_entity=orders,\n    keys=[ms.join_on(participant_key, subject_key)])\nevent_count = ms.count(name="event_count", entity=events, time=instant)\n'
+_MODEL = 'import marivo.datasource as md\nimport marivo.semantic as ms\norders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"),\n    source=md.table("orders", columns={\n        "order_id": "order_id",\n        "region": "region"}), primary_key=["order_id"])\nevents = ms.entity(name="events", datasource=ms.ref.datasource("warehouse"),\n    source=md.table("events", columns={\n        "event_id": "event_id",\n        "order_id": "order_id",\n        "kind": "kind",\n        "occurred_at": "occurred_at"}),\n    primary_key=["event_id"])\nsubject_key = ms.dimension_column(name="subject_key", entity=orders, column="order_id")\nparticipant_key = ms.dimension_column(name="participant_key", entity=events, column="order_id")\nregion = ms.dimension_column(name="region", entity=orders, column="region")\nevent_key = ms.dimension_column(name="event_key", entity=events, column="event_id")\nkind = ms.dimension_column(name="kind", entity=events, column="kind")\ninstant = ms.time_dimension_column(name="instant", entity=events, column="occurred_at",\n    granularity="second", parse=ms.timestamp(timezone="UTC"), is_default=True)\nevent_order = ms.relationship(name="event_order", from_entity=events, to_entity=orders,\n    keys=[ms.join_on(participant_key, subject_key)])\nfinalized = ms.finalize()\nevents_value = finalized.resolve(events)\ninstant_value = finalized.resolve(instant)\n@ms.metric()\ndef event_count():\n    return events_value.count(time=instant_value)\n'
 
 
 @pytest.fixture
@@ -44,20 +43,18 @@ def test_authored_relationship_keys_execute_metric(relationship_project: Path) -
             "(3, 2, 'created', TIMESTAMP '2026-01-02')"
         )
     session = mv.session.get_or_create("relationship", report_timezone="UTC")
+    route = session.catalog.relationships.get("sales.event_order")
+    region = session.catalog.fields.get("sales.orders.region").via((route,))
     metric = (
-        session.members(ms.ref.entity("sales.orders"))
-        .observe(
-            ms.ref.metric("sales.event_count"),
-            during=mv.time_scope(start="2026-01-01", end="2026-02-01"),
-            via=ms.ref.relationship("sales.event_order"),
-            by=(
-                mv.member(),
-                ms.ref.dimension("sales.orders.region"),
-            ),
+        session.observe(
+            {"value": session.catalog.metrics.get("sales.event_count")},
+            during=session.time_scope(start="2026-01-01", end="2026-02-01"),
+            by=(region,),
         )
-        .group_by(ms.ref.dimension("sales.orders.region"))
-        .rollup()
         .execute()
         .to_pandas()
     )
-    assert dict(zip(metric["group"], metric["value"], strict=True)) == {"east": 2, "west": 1}
+    assert dict(zip(metric.iloc[:, 0], metric[("value", "value")], strict=True)) == {
+        "east": 2,
+        "west": 1,
+    }

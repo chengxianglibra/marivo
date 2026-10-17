@@ -1,4 +1,4 @@
-"""Public C15 source realization, explicit sharing and fixed exact-hit probes."""
+"""Real source executions, explicit input sharing and terminal output reads."""
 
 from collections.abc import Callable
 from pathlib import Path
@@ -8,19 +8,44 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.core.graph import MethodNode, topology
-from marivo.analysis.materialization.graph_snapshot import freeze_graph, thaw_graph
+from marivo.analysis.core.data_types import ScalarDataType
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.reference_fixtures import reference_data
 from tests.analysis.graph.source_fixtures import author_source_project
 from tests.datasource.source_cases import source_case, source_params
-from tests.support.execution_logs import execution_records
 from tests.support.source_trace import SourceTrace
 
 
+def _values(session: mv.Session) -> mv.Query:
+    return session.observe(
+        {"value": session.catalog.metrics.get("sales.total")},
+        by=session.members(ms.ref.entity("sales.facts")),
+    )
+
+
+def _assert_values(result: mv.Artifact) -> None:
+    frame = result.to_pandas()
+    assert dict(zip(frame.iloc[:, 0], frame[("value", "value")], strict=True)) == {
+        ("a", 9007199254740992, 1): 2,
+        ("a", 9007199254740993, 2): 0,
+        ("b", 9007199254740993, 1): 4,
+    }
+    assert [column.dtype for column in result._manifest.data.schema.axes[0].columns] == [
+        ScalarDataType("string"),
+        ScalarDataType("int64"),
+        ScalarDataType("int64"),
+    ]
+
+
+def _assert_ratio(result: mv.Artifact) -> None:
+    frame = result.to_pandas()
+    assert frame[("value", "value")].dropna().tolist() == [1.0, 1.0]
+    assert frame[("value", "value")].isna().tolist() == [False, True, False]
+
+
 @pytest.mark.parametrize("backend", source_params(("duckdb",)))
-def test_public_source_reexecution_and_fixed_hit(
+def test_public_source_reexecution_and_terminal_read(
     backend: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -30,174 +55,100 @@ def test_public_source_reexecution_and_fixed_hit(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     data = reference_data(backend)
-    profile = {"trino": "iceberg", "clickhouse": "mergetree"}.get(backend, "table")
-    with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
+    with source_case(backend, "table", tmp_path, monkeypatch, data) as case:
         author_source_project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.get_or_create("r93-execution", report_timezone="UTC")
-        members = session.members(ms.ref.entity("sales.facts"))
-        values = members.observe(ms.ref.metric("sales.total"), by=(mv.member(),))
-        independent = members.observe(ms.ref.metric("sales.total"), by=(mv.member(),))
-        assert isinstance(values, mv.LogicalNumericRelation)
-        assert isinstance(independent, mv.LogicalNumericRelation)
-        shared = values.ratio(values)
-        separate = values.ratio(independent)
-        shared_root = shared._node.definition
-        assert shared_root.inputs[0].node is shared_root.inputs[1].node
-        assert (
-            separate._node.definition.inputs[0].node is not separate._node.definition.inputs[1].node
-        )
-        assert len(topology(shared_root)) < len(topology(separate._node.definition))
-        recovered_root = thaw_graph(freeze_graph(shared_root))
-        assert isinstance(recovered_root, MethodNode)
-        assert recovered_root.inputs[0].node is recovered_root.inputs[1].node
-
-        captures: list[mv.MaterializedNumericRelation] = []
-        counts: list[int] = []
+        session = mv.session.get_or_create("source-execution", report_timezone="UTC")
+        query = _values(session)
+        shared = query.select({"value": query["value"] / query["value"]})
+        captures = []
+        counts = []
         for _ in range(2):
             before = len(source_trace.native_sql)
-            captured = values.execute()
-            assert isinstance(captured, mv.MaterializedNumericRelation)
-            assert len(source_trace.native_sql) > before
+            saved = query.execute()
+            _assert_values(saved)
             counts.append(len(source_trace.native_sql) - before)
-            frame = captured.to_pandas().set_index(["member", "coord_0", "coord_1"])
-            assert frame.value.to_dict() == {
-                ("a", 9007199254740992, 1): 2,
-                ("a", 9007199254740993, 2): 0,
-                ("b", 9007199254740993, 1): 4,
-            }
-            assert set(frame.cell_tag) == {"defined"}
-            source_trace.record(captured)
-            captures.append(captured)
+            assert counts[-1] > 0
+            source_trace.record(saved)
+            captures.append(saved)
         first, second = captures
-        assert first.state.artifact_ref != second.state.artifact_ref
-        assert first._dataset is not None and second._dataset is not None
-        first_record, second_record = first._dataset.artifact, second._dataset.artifact
-        assert first_record.producing_run_ref != second_record.producing_run_ref
+        assert first.id != second.id
+        assert first._manifest.run_id != second._manifest.run_id
         shared_result = shared.execute()
-        shared_frame = shared_result.to_pandas()
-        assert shared_frame.cell_tag.tolist() == ["defined", "undefined", "defined"]
-        assert shared_frame.loc[shared_frame.cell_tag == "defined", "value"].tolist() == [1, 1]
-        source_trace.record(shared_result)
-
-        before_fixed = len(source_trace.native_sql)
+        _assert_ratio(shared_result)
+        before_native = len(source_trace.native_sql)
+        before_runs = session.runs().items
 
         def forbidden(*args: object, **kwargs: object) -> NoReturn:
-            pytest.fail("C15 fixed continuation opened a business source")
+            raise AssertionError("Terminal read opened a business source")
 
         monkeypatch.setattr(SourceSession, "execute", forbidden)
-        restored = session.artifact(first.state.artifact_ref)
-        assert isinstance(restored, mv.MaterializedNumericRelation)
-        assert restored.to_pandas().equals(first.to_pandas())
-        continuation = restored.where(restored.value.is_defined())
-        fixed = continuation.execute()
-        assert fixed.to_pandas().equals(first.to_pandas())
-        assert fixed._dataset is not None
-        fixed_record = fixed._dataset.artifact
-        before_hit = len(execution_records(tmp_path))
-        hit = continuation.execute()
-        hit_logs = execution_records(tmp_path)[before_hit:]
-        assert not any(r["event"].startswith("query.") for r in hit_logs)
-        assert any(r["event"] == "execution.reused" for r in hit_logs)
-        assert hit_logs[-1]["event"] == "execution.completed"
-        assert hit_logs[-1]["cache_hit"] is True
-        all_logs = execution_records(tmp_path)
-        assert any(r.get("stage") == "analysis.local" and r.get("row_count") == 3 for r in all_logs)
-        assert any(
-            r.get("stage") == "analysis.source" and r.get("row_count") == 3 for r in all_logs
-        )
-        assert all("operation_id" in r for r in all_logs if r["event"] == "execution.started")
-        assert hit._dataset is not None
-        assert hit.state.artifact_ref == fixed.state.artifact_ref
-        assert hit._dataset.artifact.producing_run_ref == fixed_record.producing_run_ref
-        assert len(source_trace.native_sql) == before_fixed
-        assert session._runtime.store.resources(session._runtime.session_ref) == ()
+        reopened = session.artifact(first.id)
+        _assert_values(reopened)
+        _assert_ratio(session.artifact(shared_result.id))
+        exported = reopened.to_pandas()
+        values = exported[("value", "value")]
+        assert values[values > 0].tolist() == [2, 4]
+        assert len(source_trace.native_sql) == before_native
+        assert session.runs().items == before_runs
+        assert session._runtime.store.resources(session.id) == ()
+        assert source_trace.qualifications
         source_trace.save(
-            f"c15-source-{backend}",
-            {**case.environment, "profile": profile},
+            "source-reexecution-" + backend,
+            case.environment,
             {"columns": data.columns, "values": data.values},
             {
                 "values": [2, 0, 4],
-                "complete_identity_types": ["string", "int64", "int64"],
                 "source_native_counts": counts,
-                "source_artifacts_distinct": True,
-                "source_runs_distinct": True,
-                "shared_ratio_tags": ["defined", "undefined", "defined"],
-                "shared_ratio_defined_values": [1, 1],
-                "shared_frozen_node_preserved": True,
-                "independent_equal_nodes_distinct": True,
-                "independent_work_runtime_verified": False,
-                "fixed_exact_artifact_hit": True,
-                "fixed_exact_run_hit": True,
-                "fixed_additional_native_submissions": 0,
-                "resources": 0,
+                "independent_runs": True,
+                "offline_output_reads": True,
             },
-            fixed,
+            shared_result,
             (case.session,),
         )
 
 
-def test_independent_equal_nodes_execute_distinct_source_stages(
+def test_independent_equal_queries_execute_distinct_source_stages(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     source_trace: SourceTrace,
 ) -> None:
-    """Execute the shared source scheduler risk once on a real DuckDB source."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     data = reference_data("duckdb")
     with source_case("duckdb", "table", tmp_path, monkeypatch, data) as case:
         author_source_project("duckdb", case, monkeypatch, semantic_project_factory)
-        session = mv.session.get_or_create("r93-independent-work", report_timezone="UTC")
-        members = session.members(ms.ref.entity("sales.facts"))
-        first = members.observe(ms.ref.metric("sales.total"), by=(mv.member(),))
-        second = members.observe(ms.ref.metric("sales.total"), by=(mv.member(),))
-        assert isinstance(first, mv.LogicalNumericRelation)
-        assert isinstance(second, mv.LogicalNumericRelation)
-        assert first._node.definition.fingerprint == second._node.definition.fingerprint
-        assert first._node.definition.identity != second._node.definition.identity
-        shared, independent = first.ratio(first), first.ratio(second)
-        stage_counts: list[int] = []
-        native_counts: list[int] = []
-        for relation in (shared, independent):
+        session = mv.session.get_or_create("independent-work", report_timezone="UTC")
+        first, second = _values(session), _values(session)
+        assert first is not second and first._graph.fingerprint == second._graph.fingerprint
+        shared = first.select({"value": first["value"] / first["value"]})
+        aligned = first.align(second)
+        independent = aligned.select({"value": aligned["left.value"] / aligned["right.value"]})
+        metric_reads = []
+        native_counts = []
+        for query in (shared, independent):
+            before = len(source_trace.native_sql)
             before_owners = len(source_trace.owners)
-            before_native = len(source_trace.native_sql)
-            result = relation.execute()
-            frame = result.to_pandas()
-            assert frame.cell_tag.tolist() == ["defined", "undefined", "defined"]
-            assert frame.loc[frame.cell_tag == "defined", "value"].tolist() == [1, 1]
+            result = query.execute()
+            _assert_ratio(result)
+            submitted = source_trace.native_sql[before:]
+            metric_reads.append(sum("SUM(" in sql.upper() for sql in submitted))
+            native_counts.append(len(submitted))
             owners = source_trace.owners[before_owners:]
             assert owners and all(owner._closed for owner in owners)
-            submissions = [item for owner in owners for item in owner.submissions]
-            stage_counts.append(
-                sum(
-                    item.purpose in ("analysis.graph.stage", "analysis.domain.prepare")
-                    for item in submissions
-                )
-            )
-            native_counts.append(len(source_trace.native_sql) - before_native)
-            assert all(item.state == "succeeded" for item in submissions)
-            assert result._dataset is not None
-            assert result._dataset.verified().parts
+            assert all(item.state == "succeeded" for owner in owners for item in owner.submissions)
             source_trace.record(result)
-        assert stage_counts[0] > 0
-        assert stage_counts[1] == stage_counts[0] + 1
+        assert metric_reads[0] > 0 and metric_reads[1] == metric_reads[0] + 1
         assert native_counts[1] > native_counts[0] > 0
-        assert session._runtime.store.resources(session._runtime.session_ref) == ()
+        assert session._runtime.store.resources(session.id) == ()
         source_trace.save(
-            "c15-independent-work-duckdb",
-            {**case.environment, "profile": "table"},
+            "independent-source-work",
+            case.environment,
             {"columns": data.columns, "values": data.values},
             {
-                "same_definition_fingerprint": True,
-                "distinct_node_identities": True,
-                "stage_submissions": stage_counts,
+                "sum_source_reads": metric_reads,
                 "native_submissions": native_counts,
-                "independent_extra_observation_stages": 1,
-                "ratio_tags": ["defined", "undefined", "defined"],
-                "ratio_defined_values": [1, 1],
-                "resources": 0,
-                "boundary": "Common source stage scheduler risk on DuckDB; not six native backend executions",
+                "nullable_ratio": [1, None, 1],
             },
             None,
             (case.session,),

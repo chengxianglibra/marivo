@@ -2353,7 +2353,7 @@ class LogicalAnalysisDomain(_CohortDomain):
             complete_during: Explicit business-complete scopes with aware datetime bounds.
                 Omit for the existing observation policy; an empty tuple declares no complete buckets.
         Returns: An original LogicalNumericRelation | LogicalRatioRelation at the selected grain.
-        Example: ``result = relation.observe(metric, during=mv.time_scope(start="2026-08-01", end="2026-09-01"), via=buyer)``.
+        Example: ``result = relation.observe(metric, during=session.time_scope(start="2026-08-01", end="2026-09-01"), via=buyer)``.
         Constraints: During and at are alternatives. Ambiguous roles require via or an explicitly bound read in by. Contribution and classification paths are independent; every component must bind every axis on complete keys without fanout. Versioned fields still require an explicit attribute time. By cannot introduce a time grid; timed classifications must match the bound grid. Ordinary Metric/Count paths are directed keyed to-one between unversioned Entities. Physical admission never selects another role. Completeness requires one original sum on during=grid without grouping or at; uncovered buckets are Unknown. Business-covered observations cannot roll up; production uses DuckDB table/Parquet.
         """
         if during is not None and at is not None:

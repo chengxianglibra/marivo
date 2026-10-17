@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Literal
 
+from marivo._definition.correspondence import CorrespondenceAxis
 from marivo._definition.expressions import (
     ContributionFilter,
     DeclaredMetricRef,
@@ -81,6 +82,7 @@ def bind_observation(
     state: CompiledSemanticState | None,
     memberships: tuple[MembershipBinding, ...] = (),
     population: PopulationDependency | None = None,
+    members: PopulationDependency | None = None,
 ) -> ObservationBinding:
     if during is not None and not isinstance(during, (TimeScope, CalendarAxis)):
         reject(
@@ -116,23 +118,24 @@ def bind_observation(
     axes: list[AxisBinding | CalendarCoordinate] = []
     if calendar is not None:
         grid = calendar.grid
-        axes.append(
-            CalendarCoordinate(
-                grid.identity,
-                grid.grain_token,
-                grid.boundary_timezone,
-                grid.snapshot_digest,
-                tuple(
-                    (
-                        anchor_from_datetime(c.original_start),
-                        anchor_from_datetime(c.original_end),
-                        anchor_from_datetime(c.start),
-                        anchor_from_datetime(c.end),
-                    )
-                    for c in grid.cells
-                ),
-            )
+        calendar_coordinate = CalendarCoordinate(
+            grid.identity,
+            grid.grain_token,
+            grid.boundary_timezone,
+            grid.snapshot_digest,
+            tuple(
+                (
+                    anchor_from_datetime(c.original_start),
+                    anchor_from_datetime(c.original_end),
+                    anchor_from_datetime(c.start),
+                    anchor_from_datetime(c.end),
+                )
+                for c in grid.cells
+            ),
+            grid.calendar_snapshot,
         )
+        if calendar_coordinate not in by:
+            axes.append(calendar_coordinate)
     axes.extend(
         field
         if isinstance(field, CalendarCoordinate)
@@ -149,8 +152,36 @@ def bind_observation(
         reject(
             "distinct output axes", repr(by), "Remove the repeated field axis.", "session.observe"
         )
+    if (
+        calendar is not None
+        and population is not None
+        and not any(isinstance(axis, CalendarCoordinate) for axis in population.axes)
+    ):
+        from marivo._definition.relations import CalendarKeys, PopulationProduct, PopulationProgram
+
+        calendar_axis = axes[0]
+        assert isinstance(calendar_axis, CalendarCoordinate)
+        calendar_domain = PopulationProgram(CalendarKeys(calendar_axis), None, (calendar_axis,))
+        population = PopulationProgram(
+            PopulationProduct((calendar_domain, population)),
+            population.owner if isinstance(population, PopulationProgram) else None,
+            tuple(axes),
+            memberships,
+        )
     condition = where
+    if members is not None and (
+        len(members.axes) != 1
+        or not isinstance(members.axes[0], AxisBinding)
+        or members.axes[0].field is not None
+    ):
+        reject(
+            "one complete Entity identity axis for members",
+            repr(members.axes),
+            "Project one explicit identity domain before binding members.",
+            "Session.observe",
+        )
     contributions: list[ContributionBinding] = []
+    has_member_count = False
     resolver = _Resolver(state) if state is not None else None
     paths = RelationshipResolver.build(state.registry) if state is not None else None
 
@@ -161,6 +192,7 @@ def bind_observation(
         sample_axes: tuple[AxisBinding | CalendarCoordinate, ...] = (),
         sample_memberships: tuple[MembershipBinding, ...] = (),
     ) -> None:
+        nonlocal has_member_count
         if isinstance(node, DeclaredMetricRef):
             visit(declared[node.ref], (*occurrence, 0), filters, sample_axes, sample_memberships)
             return
@@ -188,15 +220,30 @@ def bind_observation(
                 "session.observe",
             )
         if isinstance(node, MemberCount):
-            reject(
-                "ordinary source reductions",
-                "member_count",
-                "Population observation is delivered in R3.",
-                "session.observe",
-            )
+            has_member_count = True
+            if members is None:
+                reject(
+                    "an explicit members identity domain",
+                    "member_count without members",
+                    "Pass members=mv.identities(...) or a source identity Population.",
+                    "Session.observe",
+                )
+            return
         if isinstance(node, (PerReduce, PerWeightedMean)):
             domain = node.samples
-            inner_axes = domain if isinstance(domain, tuple) else domain.axes
+            inner_domain_axes = domain if isinstance(domain, tuple) else domain.axes
+            if any(isinstance(axis, CorrespondenceAxis) for axis in inner_domain_axes):
+                reject(
+                    "source field or calendar sample axes",
+                    "a correspondence axis",
+                    "Project an original endpoint axis before sampling a source Metric.",
+                    "Metric.per",
+                )
+            inner_axes = tuple(
+                axis
+                for axis in inner_domain_axes
+                if isinstance(axis, (AxisBinding, CalendarCoordinate))
+            )
             inner_memberships = () if isinstance(domain, tuple) else domain.memberships
             for edge in children(node):
                 if edge.role in ("operand", "value", "weight"):
@@ -285,7 +332,7 @@ def bind_observation(
             for predicate in population_filters:
                 for domain in condition_populations(predicate):
                     for axis in domain.axes:
-                        if isinstance(axis, CalendarCoordinate):
+                        if not isinstance(axis, AxisBinding):
                             reject(
                                 "entity or field coordinates for a source predicate",
                                 "CalendarAxis",
@@ -405,8 +452,10 @@ def bind_observation(
             visit(edge.child, (*occurrence, edge.index), filters, sample_axes, sample_memberships)
 
     for index, (_, node) in enumerate(metrics):
-        visit(node, (index,), ())
-    if not contributions and (by or where is not None):
+        from marivo._definition.relations import PopulationContains
+
+        visit(node, (index,), (PopulationContains(members),) if members is not None else ())
+    if not contributions and members is None and (by or where is not None):
         reject(
             "a contribution source for field classification or conditions",
             "source-free Metric outputs",
@@ -428,9 +477,42 @@ def bind_observation(
             replace(item, coverage=sampling_coverage(item, state, calendar=calendar))
             for item in bound_contributions
         )
+    member_population = members if has_member_count else None
+    if members is not None and has_member_count:
+        from marivo._definition.relations import PopulationClassify, PopulationProgram
+
+        identity_axis = members.axes[0]
+        assert isinstance(identity_axis, AxisBinding)
+        member_axes = tuple(
+            dict.fromkeys(
+                (identity_axis, *(axis for axis in axes if isinstance(axis, AxisBinding)))
+            )
+        )
+        if any(axis.entity != identity_axis.entity or axis.path for axis in member_axes):
+            reject(
+                "member classifications on the explicit identity Entity",
+                repr(member_axes),
+                "Read or classify the member identity domain with explicit compatible fields.",
+                "Session.observe",
+            )
+        if len(member_axes) > 1:
+            member_population = PopulationProgram(
+                PopulationClassify(
+                    members,
+                    tuple(
+                        FieldRead(axis.field, axis.entity, axis.path, axis.at)
+                        for axis in member_axes
+                        if axis.field is not None
+                    ),
+                ),
+                members.owner if isinstance(members, PopulationProgram) else None,
+                member_axes,
+            )
     return ObservationBinding(
         period,
         condition,
         CoordinateBinding(tuple(axes), mode, population, memberships),
         bound_contributions,
+        members,
+        member_population,
     )

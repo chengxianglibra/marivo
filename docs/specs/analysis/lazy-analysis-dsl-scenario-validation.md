@@ -16,7 +16,7 @@ proposed v0.37，理论依据是 [核心分析代数](algebra-theory.md) propose
 本次补齐声明改写、分阶段检查、元组谓词、浮点优化、完整期间配对和格式边界的关键反例；
 移除资源预算要求，沿用 §9 的验收入口，不扩展新的验收矩阵。
 继续采用 Ibis 源端计算、pandas 统一本地执行、PyArrow 存储/读取和终端 Artifact。
-既有数值 oracle 保持不变；附录 K 的零分母见证仍有效，新增合同条款的真实 DSL 验收仍待实施。
+既有数值 oracle 保持不变；附录 K 的零分母见证仍有效，新增合同条款的真实 DSL 验收由各阶段实际测试记录承担。
 2026-10-17 fanout 修订的表达边界与少量独立数值见证见 §9.6；不固定执行策略，不计入189项历史 oracle。
 来源使用类型化行表达式与接收者规约，指标使用同一算术与显式 per 样本规约；观察上下文只绑定一次，Query.reduce 只保留 sum/mean/row_count；普通分类、描述统计与格子窗口交 pandas。
 此前 175 项 oracle 与后续 6 项 P95/比率、8 项贡献/配对见证均保持原样，共 189 项独立数值检查；
@@ -35,7 +35,7 @@ v0.32 将 execute 的产出统一为终端 Artifact；所有 DSL 组合在 Query
 原图和内部组件不附着于产物，实际 Finding/Evidence 是自包含输出；新产物和重开产物无能力差异。
 附录历史记录中的 Artifact/fixed API 已退出目标合同；数学见证仍说明信息下界，不授权产物续算。
 仍不构成 Marivo 导出器、构造器或 Runtime 验收。
-它不修改当前实现、公开导出或 packaged skills；新增 API 的真实执行与拒绝行为仍待实施验证。
+本文不修改实现、公开导出或 packaged skills；独立数值见证与实际 API/Runtime 验收仍须分别记录。
 全部指标观察统一使用 Session.observe。电商、制造和时间分析直接从 Metric 出发；
 SaaS 固定账户与实验单位才显式绑定身份约束，并明确输出完整身份轴，以保留零活动主体。
 所有域统一为 Population；执行前身份复用是 Query 已有身份轴投影，不保留隐藏成员关系。
@@ -384,7 +384,7 @@ catalog = ms.load()
 s = mv.session.get_or_create("scenario-saas", report_timezone="Asia/Shanghai")
 august = s.time_scope(start="2026-08-01", end="2026-09-01")
 september = s.time_scope(start="2026-09-01", end="2026-10-01")
-Accounts = ms.ref.entity("saas.accounts")
+Accounts = catalog.entities.get(ms.ref.entity("saas.accounts"))
 mrr = catalog.fields.get(ms.ref.measure('saas.recurring_lines.mrr_amount')).sum(time=catalog.fields.get(ms.ref.time_dimension('saas.recurring_lines.month_at')))
 cohort = mv.identities(Accounts, keys=(("t1", "A"), ("t1", "B"), ("t2", "A")))
 baseline = s.observe({"mrr": mrr}, members=cohort, during=august, by=(mv.member(),))
@@ -481,12 +481,13 @@ Entity 采用 Asia/Shanghai 的 closed_open validity，None 表示开放结束�
 catalog = ms.load()
 attribute_s = mv.session.get_or_create("scenario-customer-versions", report_timezone="Asia/Shanghai")
 customers_ref = ms.ref.entity("crm.customers")
+customers_entity = catalog.entities.get(customers_ref)
 tier = catalog.fields.get(ms.ref.dimension("crm.customers.tier"))
 october = attribute_s.time_scope(start="2026-10-01", end="2026-11-01")
 fixed_customers = attribute_s.query(
-    mv.identities(customers_ref, keys=(("C1",), ("C2",)))
+    mv.identities(customers_entity, keys=(("C1",), ("C2",)))
 ).population()
-attributes = fixed_customers.read({
+attributes = attribute_s.read(fixed_customers, {
     "tier_at_start": tier.at(october.start),
     "tier_at_end": tier.at(october.end),
 })
@@ -540,8 +541,10 @@ catalog = ms.load()
 mapping_s = mv.session.get_or_create("scenario-account-correspondence", report_timezone="Asia/Shanghai")
 crm_ref = ms.ref.entity("saas.crm_accounts")
 billing_ref = ms.ref.entity("saas.billing_accounts")
-crm_ids = mv.identities(crm_ref, keys=(("t1", "A"), ("t2", "A")))
-billing_ids = mv.identities(billing_ref, keys=(("t1", "A"), ("t2", "A")))
+crm_entity = catalog.entities.get(crm_ref)
+billing_entity = catalog.entities.get(billing_ref)
+crm_ids = mv.identities(crm_entity, keys=(("t1", "A"), ("t2", "A")))
+billing_ids = mv.identities(billing_entity, keys=(("t1", "A"), ("t2", "A")))
 crm_amounts = mapping_s.values(
     by=crm_ids.axes,
     columns={"amount": "CNY"},
@@ -552,11 +555,11 @@ billing_amounts = mapping_s.values(
     columns={"amount": "CNY"},
     rows=(((("t1", "A"),), {"amount": 80}), ((("t2", "A"),), {"amount": 250})),
 )
-match = mv.corresponding(via=(ms.ref.relationship("saas.crm_to_billing"),))
+match = mv.corresponding(via=(catalog.relationships.get(ms.ref.relationship("saas.crm_to_billing")),))
 aligned = crm_amounts.align(billing_amounts, match=match)
 compared = crm_amounts.compare(billing_amounts, match=match)
 partial_billing = billing_amounts.where(mv.in_population(
-    mv.identities(billing_ref, keys=(("t1", "A"),))
+    mv.identities(billing_entity, keys=(("t1", "A"),))
 ))
 outer = crm_amounts.compare(partial_billing, how="outer", match=match)
 aligned.execute().show()
@@ -1449,7 +1452,7 @@ shares_query.execute().show()
 | Metric.where、算术、divide | 过滤与公式可计算；派生口径及分子分母依赖需人工保存 | 保留，在本次 Query 按原公式计算，过滤不污染其它组件 |
 | Metric.per 后规约，包括时间样本规约 | 嵌套 groupby/时间统计可表达；内部样本和空间/时间次序需维护 | 显式不可变 runtime 名单合法；依赖持久化在模型收录检查 |
 | Session.members、member、identities | 普通索引不自带 Entity 完整身份 | 保留来源身份选择与类型化身份名单（完整主键元组，空名单仍有类型）；请求完整身份输出时保留零活动主体 |
-| Population.read/classify/image/preimage；Field 比较、布尔组合、is_null/within/via/at | 筛选/join 可实现；声明路径、属性版本及新增读取需手工约束 | 保留显式属性读取、分类与关系像/逆像；不传播原贡献过滤 |
+| Session.read 与 Population.classify/image/preimage；Field 比较、布尔组合、is_null/within/via/at | 筛选/join 可实现；声明路径、属性版本及新增读取需手工约束 | 保留显式属性读取、分类与关系像/逆像；不传播原贡献过滤 |
 | member_count | len/nunique 可计数但不能自动决定业务单位 | 保留，明确计本次主体，不计贡献或格子 |
 | Query.population、Population.project/where | 去重、选列及集合筛选可实现；完整轴元组及读取依赖需维护 | 保留，复用 Query 逻辑坐标；只有明确的身份轴能作为身份约束 |
 | Population.union/intersection/difference | Index/集合运算可实现 | 统一组合身份域和一般坐标域，检查轴/角色/版本 |
@@ -1515,7 +1518,7 @@ revenue = catalog.metrics.get(ms.ref.metric("sales.revenue"))
 paid_at = catalog.fields.get(ms.ref.time_dimension("sales.orders.paid_at"))
 region = catalog.fields.get(ms.ref.dimension("sales.orders.region"))
 scope = disclosure_s.time_scope(start="2026-09-01", end="2026-10-01")
-literal_population = mv.identities(ms.ref.entity("sales.orders"), keys=(("A09",), ("B11",)))
+literal_population = mv.identities(catalog.entities.get(ms.ref.entity("sales.orders")), keys=(("A09",), ("B11",)))
 source_population = disclosure_s.members(ms.ref.entity("sales.orders"), where=paid_at.within(scope))
 query = disclosure_s.observe({"revenue": revenue}, during=scope, by=(region,))
 query_population = query.population()
@@ -1569,7 +1572,7 @@ Artifact 没有 contract，不能从 findings/evidence_digest 恢复 DSL 权限�
 
 | 完整代码位置 | §9.1 条目 / 其它验收 | 场景接通与复用阶段 |
 | --- | --- | --- |
-| §3.4 Population.read 与 Field.at | 2、13、14 | R3 |
+| §3.4 Session.read 与 Field.at | 2、13、14 | R3 |
 | §3.5 声明身份对应 | 3、20、59 | R5 |
 | §7.12 日历粗化、原上卷和月内份额 | 9、12、56、60 | R6；R7 复用时间边界 |
 | §8.7 contract 与产物阅读 | 14、24、30；§9.2 的 Finding/Evidence 阅读 | R2、R3、R4，随各算子扩展 |
@@ -1684,6 +1687,8 @@ Artifact 没有 contract，不能从 findings/evidence_digest 恢复 DSL 权限�
     /、无参数 divide 和显式 null 归一到同一政策/指纹；error 属于不同定义，行/Metric/Column 同规则。
 
 49. **统一域与引用。** 身份/字段/日历都是 Population，保留完整复合键与角色。
+    Query.coord 仍无源读取地构造 Column；复合身份作为单量在 execute 准备期、Run 准入和业务 compile/read 前拒绝。
+    完整复合键仍可输出、用 population/in_population 作元组筛选并导出；单量值改用已有单字段轴。
     query(population).execute 保存仅键 Artifact；没有恢复后 project。O404 可以作为显式身份引用，来源选择不命中，必需属性缺失仍失败。
 50. **约束与完整输出。** M={A,B}、A 有 East 贡献、B 无贡献且分类 West；
     members=M 的普通地区分组只有 East，显式 by=M.classify(by=(region,)) 才请求 East/West。
@@ -1728,7 +1733,8 @@ Artifact 没有 contract，不能从 findings/evidence_digest 恢复 DSL 权限�
     共用入口，消费者仍分别检查分桶、粗化和包含层级。五分钟使用 mv.grain("minute", count=5)，count 不重复传给消费者；
     裸字符串、by/coarsen 的独立 count、非法内建宽度和不相容日历拒绝，不能把跨月周强行归入某个月。
 61. **手写坐标类型。** coordinates 只接 Field 轴，键为 LiteralValue 或表示源 Null 分类的 None；
-    手写身份名单只用 identities(entity, keys=...)，每个键是完整主键元组，空名单仍是该 Entity 的类型化空域。
+    手写身份名单只用 identities(entity, keys=...)，entity 必须是从完成 scope 或 catalog 解析的 Entity，裸 EntityRef 明确拒绝；
+    每个键是完整主键元组，空名单仍是该 Entity 的类型化空域。
     ValueRow 的坐标按对应轴同样检查；字段 Null 可作键，不能作量值或身份键分量；普通字段值不能冒充 Entity 身份，完整复合键、有限值与 kind 检查保留。
     CalendarAxis/CorrespondenceAxis 拒绝手写键，包括空输入，不从日期标签、序号或端点元组猜绑定；
     日历域用 TimeScope.by/product，已有日历与对应域用 population/project/where 复用，保留真实轴和端点绑定。
@@ -3085,7 +3091,8 @@ print(f"v0.26 metric/domain witnesses: {len(metric_checks)} passed")
 
 v0.27 对照 [五个核心场景](lazy-analysis-dsl-examples.md#7-五个核心-metric-场景)。
 只计算有限输入上的金额、样本域、分位数和共同配对；v0.30 将 sum 空输入与全 NA 合并为 0，
-但不实现 Cell、装饰器、权限系统、政策解析或异常。模型/runtime 同图、收录及恢复仍属于未来验收。
+但不实现装饰器、权限系统、政策解析或异常。本附录不证明模型/runtime 同图、收录及恢复；
+这些能力以实际实现测试和独立执行验收为准。
 附录 A 的历史数学程序保留；当前 pandas 示例和本节 sum 见证随目标合同更新。
 
 ```python

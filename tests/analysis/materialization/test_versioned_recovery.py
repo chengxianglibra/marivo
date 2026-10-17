@@ -1,10 +1,14 @@
 """One native versioned fixture binds both clocks and four attribute families."""
 
+import os
 import shutil
+import subprocess
+import sys
 from collections.abc import Callable
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 import marivo.analysis as mv
@@ -15,7 +19,7 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
 from tests.datasource.source_cases import SourceData, source_case
-from tests.support.json import Json, encode
+from tests.support.json import Json, encode, obj, read
 from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
 
@@ -84,6 +88,7 @@ def test_native_versioned_members_independent_fixed_and_cold(
             models += f"{name}_amount=ms.measure_column(name='amount',entity={name},column='amount',additivity=ms.additive_all())\n"
             if backend == "mysql":
                 models += f"@ms.dimension(entity={name})\ndef enabled_{kind}({name}):\n    return {name}.enabled == 1\n"
+        models += "frozen = ms.finalize()\n"
         semantic_project_factory(
             {
                 "datasources/warehouse.py": "import marivo.datasource as md\n"
@@ -95,66 +100,73 @@ def test_native_versioned_members_independent_fixed_and_cold(
             }
         )
         session = mv.session.get_or_create("r94-versions", report_timezone="UTC")
-        august = datetime(2026, 8, 1, tzinfo=timezone.utc)
-        september = datetime(2026, 9, 1, tzinfo=timezone.utc)
-        originals: dict[str, Json] = {}
+        august = session.instant(datetime(2026, 8, 1, tzinfo=timezone.utc))
+        september = session.instant(datetime(2026, 9, 1, tzinfo=timezone.utc))
+        outputs: dict[str, mv.Artifact] = {}
         for kind in ("snapshot", "validity"):
             entity = ms.ref.entity("sales.subjects_" + kind)
+            before = session.runs().items
             with monkeypatch.context() as construction:
                 construction.setattr(SourceSession, "execute", forbidden)
                 construction.setattr(SourceSession, "compile", forbidden)
-                with pytest.raises(AnalysisError):
-                    session.members(entity)
+                unanchored = session.members(entity)
+                missing = session.read(
+                    unanchored,
+                    {"value": session.catalog.fields.get("sales.subjects_" + kind + ".amount")},
+                )
                 current = session.members(entity, at=august)
+                boundary = session.time_scope(start="2026-08-01", end="2026-09-01")
                 with pytest.raises(AnalysisError):
-                    current.read(ms.ref.measure("sales.subjects_" + kind + ".amount"))
+                    # The retired left-limit token is not an exact InstantAnchor.
+                    session.members(
+                        entity,
+                        at=boundary.before_end,  # type: ignore[arg-type]
+                    )
+            assert session.runs().items == before
+            with monkeypatch.context() as preparation:
+                preparation.setattr(SourceSession, "execute", forbidden)
+                with pytest.raises(AnalysisError) as refused:
+                    missing.execute()
+            assert refused.value.expected and refused.value.received and refused.value.repair
+            assert session.runs().items == before
             for label, point in (
                 ("august", august),
-                ("september", september),
-                (
-                    "before_september",
-                    mv.time_scope(start="2026-08-01", end="2026-09-01").before_end,
-                ),
-                (
-                    "before_second_day",
-                    mv.time_scope(start="2026-08-01", end="2026-08-02").before_end,
-                ),
+                ("september", boundary.end),
+                ("august_last_day", session.instant("2026-08-31")),
+                ("august_midday", session.instant("2026-08-01T12:00:00+00:00")),
             ):
-                result = session.members(entity, at=point).execute()
+                result = session.query(session.members(entity, at=point)).execute()
                 frame = result.to_pandas()
                 expected = (
                     []
-                    if kind == "snapshot" and label == "before_september"
+                    if kind == "snapshot" and label == "august_last_day"
                     else [(9007199254740992, "a")]
                     if kind == "snapshot" and label == "september"
                     else [(9007199254740992, "a"), (9007199254740993, "a"), (9007199254740993, "b")]
                 )
-                assert list(zip(frame.member, frame.coord_0, strict=True)) == expected
-                originals[kind + ":" + label] = snapshot(result)
+                assert frame.iloc[:, 0].tolist() == expected
+                outputs[kind + ":" + label] = result
                 source_trace.record(result)
             relations = {
-                "numeric": current.read(
-                    ms.ref.measure("sales.subjects_" + kind + ".amount"), at=august
-                ),
-                "category": current.read(
-                    ms.ref.dimension("sales.subjects_" + kind + ".tenant"), at=august
-                ),
-                "boolean": current.read(
-                    ms.ref.dimension(
-                        "sales.subjects_"
-                        + kind
-                        + (".enabled_" + kind if backend == "mysql" else ".enabled")
-                    ),
-                    at=august,
-                ),
-                "temporal": current.read(
-                    ms.ref.time_dimension("sales.subjects_" + kind + ".beginning"), at=august
-                ),
+                label: session.read(
+                    current,
+                    {
+                        "value": session.catalog.fields.get(
+                            "sales.subjects_" + kind + "." + field
+                        ).at(august)
+                    },
+                )
+                for label, field in (
+                    ("numeric", "amount"),
+                    ("category", "tenant"),
+                    ("boolean", "enabled"),
+                    ("temporal", "beginning"),
+                )
             }
             for label, relation in relations.items():
                 attribute = relation.execute()
                 assert (
-                    attribute.to_pandas().value.tolist()
+                    attribute.to_pandas()[("value", "value")].tolist()
                     == {
                         "numeric": [10, 20, 30],
                         "category": ["a", "a", "b"],
@@ -162,22 +174,50 @@ def test_native_versioned_members_independent_fixed_and_cold(
                         "temporal": [date(2026, 8, 1)] * 3,
                     }[label]
                 )
-                originals[kind + ":" + label] = snapshot(attribute)
+                outputs[kind + ":" + label] = attribute
                 source_trace.record(attribute)
             if kind == "snapshot":
-                grid = mv.time_grid(
-                    during=mv.time_scope(
-                        start="2026-08-01T00:00:00+00:00", end="2026-08-01T02:00:00+00:00"
-                    ),
-                    grain=mv.grain("hour"),
+                grid = session.time_scope(
+                    start="2026-08-01T00:00:00+00:00", end="2026-08-01T02:00:00+00:00"
+                ).by(mv.grain("hour"))
+                frames = []
+                for index, cell in enumerate(grid.grid.cells):
+                    point = session.instant(cell.end)
+                    product = session.read(
+                        current,
+                        {
+                            "value": session.catalog.fields.get(
+                                "sales.subjects_snapshot.amount"
+                            ).at(point)
+                        },
+                    ).execute()
+                    frame = product.to_pandas()
+                    assert frame.iloc[:, 0].tolist() == [
+                        (9007199254740992, "a"),
+                        (9007199254740993, "a"),
+                        (9007199254740993, "b"),
+                    ]
+                    assert frame[("value", "value")].tolist() == [10, 20, 30]
+                    frame[("attribute_anchor", "instant")] = point
+                    frames.append(frame)
+                    outputs[f"snapshot:grid_read:{index}"] = product
+                    source_trace.record(product)
+                # This is an explicit pandas layout of two exact-anchor reads,
+                # not an Artifact with a grid-dependent attribute continuation.
+                layout = pd.concat(frames, ignore_index=True)
+                assert len(layout) == 6
+                assert (
+                    layout[("attribute_anchor", "instant")].tolist()
+                    == [session.instant("2026-08-01T01:00:00+00:00")] * 3
+                    + [session.instant("2026-08-01T02:00:00+00:00")] * 3
                 )
-                product = current.read(
-                    ms.ref.measure("sales.subjects_snapshot.amount"), at=grid.before_end
-                ).execute()
-                assert len(product.to_pandas()) == 6
-                originals["snapshot:grid_read"] = snapshot(product)
-                source_trace.record(product)
-        state: dict[str, Json] = {"session": session.id, "originals": originals}
+        state: dict[str, Json] = {
+            "session": session.id,
+            "outputs": {
+                name: {"artifact": value.id, "snapshot": snapshot(value)}
+                for name, value in outputs.items()
+            },
+        }
         (tmp_path / "r94-versions.json").write_bytes(encode(state))
         source_trace.save(
             "versions-source-" + backend,
@@ -187,8 +227,8 @@ def test_native_versioned_members_independent_fixed_and_cold(
                 "amounts": [10, 20, 30],
                 "snapshot_september_members": 1,
                 "validity_september_members": 3,
-                "snapshot_before_september_members": 0,
-                "validity_before_september_members": 3,
+                "snapshot_august_last_day_members": 0,
+                "validity_august_last_day_members": 3,
                 "grid_read_cells": 6,
                 "construction_business_reads_forbidden": True,
             },
@@ -199,5 +239,43 @@ def test_native_versioned_members_independent_fixed_and_cold(
     for pattern in ("source.duckdb*",):
         for path in tmp_path.glob(pattern):
             path.unlink()
+    script = r"""
+import os
+import sys
+from pathlib import Path
+from unittest.mock import patch
+import marivo.analysis as mv
+import marivo.semantic as ms
+from marivo.datasource.adapters import SourceSession
+from marivo.semantic.reader import SemanticProject
+from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
+from tests.support.json import encode, obj, read
+root, phase, output = Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3])
+state = read(root / 'r94-versions.json')
+with patch.object(ms, 'load', forbidden), patch.object(SemanticProject, 'load', forbidden), patch.object(SourceSession, '__enter__', forbidden), patch.object(SourceSession, 'execute', forbidden):
+    session = mv.session.resume(state['session'], by='id')
+    before = len(session.runs().items)
+    for name, item in obj(state['outputs']).items():
+        value = session.artifact(item['artifact'])
+        assert snapshot(value) == item['snapshot']
+        if name.endswith(':numeric'):
+            assert value.to_pandas()[('value','value')].tolist() == [10,20,30]
+        if name.startswith('snapshot:grid_read:'):
+            assert value.to_pandas()[('value','value')].tolist() == [10,20,30]
+    assert len(session.runs().items) == before
+output.write_bytes(encode({'pid':os.getpid(), 'phase':phase}))
+"""
     reports: list[Json] = []
-    repository = PROJECT_ROOT
+    for phase in ("offline", "cold"):
+        output = tmp_path / (phase + ".json")
+        completed = subprocess.run(
+            [sys.executable, "-c", script, str(tmp_path), phase, str(output)],
+            cwd=tmp_path,
+            env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        assert completed.returncode == 0, completed.stdout + completed.stderr
+        reports.append(read(output))
+    assert len({os.getpid(), *(obj(report)["pid"] for report in reports)}) == 3

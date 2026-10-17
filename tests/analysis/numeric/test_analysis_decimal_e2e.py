@@ -1,4 +1,4 @@
-"""Exact Decimal publication and mixed numeric RuntimeMetric composition."""
+"""Exact Decimal publication and mixed native Metric composition."""
 
 from decimal import Decimal
 from pathlib import Path
@@ -8,6 +8,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.core.data_types import DecimalDataType, ScalarDataType
 
 
 @pytest.fixture
@@ -34,10 +35,21 @@ def decimal_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.Sessi
         "day = ms.time_dimension_column(name='day', entity=orders, column='day', granularity='day', is_default=True)\n"
         "amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
         "fee_value = ms.measure_column(name='fee_value', entity=orders, column='fee', additivity=ms.additive_all())\n"
-        "gmv = ms.aggregate(name='gmv', measure=amount, agg='sum')\n"
-        "fee = ms.aggregate(name='fee', measure=fee_value, agg='sum')\n"
         "decimal_fee = ms.measure_column(name='decimal_fee', entity=orders, column='decimal_fee', additivity=ms.additive_all())\n"
-        "normalized_fee = ms.aggregate(name='normalized_fee', measure=decimal_fee, agg='sum')\n"
+        "finalized = ms.finalize()\n"
+        "amount_value = finalized.resolve(amount)\n"
+        "fee_row = finalized.resolve(fee_value)\n"
+        "decimal_fee_row = finalized.resolve(decimal_fee)\n"
+        "time_value = finalized.resolve(day)\n"
+        "@ms.metric()\n"
+        "def gmv():\n"
+        "    return amount_value.sum(time=time_value)\n"
+        "@ms.metric()\n"
+        "def fee():\n"
+        "    return fee_row.sum(time=time_value)\n"
+        "@ms.metric()\n"
+        "def normalized_fee():\n"
+        "    return decimal_fee_row.sum(time=time_value)\n"
     )
     with duckdb.connect(str(tmp_path / "warehouse.duckdb")) as connection:
         connection.execute(
@@ -49,72 +61,52 @@ def decimal_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.Sessi
     return mv.session.get_or_create("decimal", report_timezone="UTC")
 
 
+def _observed(session: mv.Session) -> mv.Query:
+    return session.observe(
+        {
+            "gmv": session.catalog.metrics.get("sales.gmv"),
+            "fee": session.catalog.metrics.get("sales.fee"),
+        },
+        during=session.time_scope(start="2026-07-01", end="2026-07-02"),
+        by=session.members(ms.ref.entity("sales.orders")),
+    )
+
+
 def test_decimal_measure_and_retained_schema_agree(decimal_session: mv.Session) -> None:
-    result = (
-        decimal_session.members(ms.ref.entity("sales.orders"))
-        .observe(
-            ms.ref.metric("sales.gmv"),
-            during=mv.time_scope(start="2026-07-01", end="2026-07-02"),
-            by=(mv.member(),),
-        )
-        .rollup()
-        .execute()
-    )
+    result = _observed(decimal_session).rollup().execute()
     rows = result.to_pandas()
-    assert isinstance(rows["value"].iloc[0], Decimal)
-    assert rows["value"].iloc[0] == Decimal("20.00")
-    assert (
-        next(
-            column for column in result.state.realized_schema.columns if column.name == "value"
-        ).logical_type_id
-        == "decimal:38:2"
-    )
-    assert Decimal("100.00") - rows["value"].iloc[0] == Decimal("80.00")
+    assert isinstance(rows[("value", "gmv")].iloc[0], Decimal)
+    assert rows[("value", "gmv")].iloc[0] == Decimal("20.00")
+    assert result._manifest.data.schema.values[0].dtype == DecimalDataType(38, 2)
+    assert Decimal("100.00") - rows[("value", "gmv")].iloc[0] == Decimal("80.00")
 
 
-def test_runtime_ratio_accepts_independent_numeric_components(
-    decimal_session: mv.Session,
-) -> None:
-    expression = mv.runtime_metric.ratio(
-        ms.ref.metric("sales.fee"), ms.ref.metric("sales.gmv"), label="fee_rate"
-    )
-    members = decimal_session.members(ms.ref.entity("sales.orders"))
-    scope = mv.time_scope(start="2026-07-01", end="2026-07-02")
-    observed = members.observe(expression, during=scope, by=(mv.member(),))
-    mixed = observed.rollup().execute()
-    assert observed.execute().rollup().execute().to_pandas()["value"].tolist() == [0.25]
-    assert mixed.to_pandas()["value"].tolist() == [0.25]
-    expression = mv.runtime_metric.ratio(
-        ms.ref.metric("sales.normalized_fee"), ms.ref.metric("sales.gmv"), label="fee_rate"
-    )
-    result = (
-        decimal_session.members(ms.ref.entity("sales.orders"))
-        .observe(
-            expression,
-            during=mv.time_scope(start="2026-07-01", end="2026-07-02"),
-            by=(mv.member(),),
+def test_ratio_accepts_independent_numeric_components(decimal_session: mv.Session) -> None:
+    session = decimal_session
+    gmv = session.catalog.metrics.get("sales.gmv")
+    fee = session.catalog.metrics.get("sales.fee")
+    normalized_fee = session.catalog.metrics.get("sales.normalized_fee")
+    for numerator in (fee, normalized_fee):
+        observed = session.observe(
+            {"rate": numerator / gmv},
+            during=session.time_scope(start="2026-07-01", end="2026-07-02"),
+            by=session.members(ms.ref.entity("sales.orders")),
         )
-        .rollup()
-        .execute()
-    )
-    assert result.to_pandas()["value"].tolist() == [0.25]
-    assert (
-        next(
-            column for column in result.state.realized_schema.columns if column.name == "value"
-        ).logical_type_id
-        == "float64"
-    )
+        result = observed.rollup().execute()
+        assert result.to_pandas()[("value", "rate")].tolist() == [0.25]
+        assert result._manifest.data.schema.values[0].dtype == ScalarDataType("float64")
+    components = _observed(session).execute().to_pandas()
+    assert components[("value", "fee")].sum() / float(components[("value", "gmv")].sum()) == 0.25
 
 
-@pytest.mark.parametrize("fixed", [False, True])
-def test_mixed_linear_retains_each_component(decimal_session: mv.Session, fixed: bool) -> None:
-    expression = mv.runtime_metric.linear(
-        add=[ms.ref.metric("sales.gmv")], subtract=[ms.ref.metric("sales.fee")], label="net"
-    )
-    observed = decimal_session.members(ms.ref.entity("sales.orders")).observe(
-        expression,
-        during=mv.time_scope(start="2026-07-01", end="2026-07-02"),
-        by=(mv.member(),),
-    )
-    result = (observed.execute() if fixed else observed).rollup().execute()
-    assert result.to_pandas().value.tolist() == [15.0]
+@pytest.mark.parametrize("exported", [False, True])
+def test_mixed_linear_retains_each_component(decimal_session: mv.Session, exported: bool) -> None:
+    observed = _observed(decimal_session)
+    if exported:
+        frame = observed.execute().to_pandas()
+        net = frame[("value", "gmv")].map(float) - frame[("value", "fee")]
+        assert net.sum() == 15.0
+    else:
+        totals = observed.rollup()
+        result = totals.select({"net": totals["gmv"] - totals["fee"]}).execute()
+        assert result.to_pandas()[("value", "net")].tolist() == [15.0]

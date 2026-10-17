@@ -14,14 +14,13 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.core.graph import MethodNode
-from marivo.analysis.methods.physical import Backend, ScalarType, SourceShape, TimeShape
-from marivo.analysis.methods.registry import REGISTRY
+from marivo.analysis.methods.physical import Backend
 from marivo.datasource.adapters import provider_for
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
-from tests.analysis.materialization.domain_recovery_worker import snapshot
+from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case
+from tests.support.source_trace import capture_source
 
 
 @pytest.mark.slow
@@ -109,7 +108,7 @@ def test_long_path_sum_and_count(
                 for row, segment in zip(facts.rows, ("a", "a", "b", "a"), strict=True)
             ],
         )
-    outputs = {}
+    outputs: dict[str, mv.Artifact] = {}
     with ExitStack() as stack:
         names = ("facts", *(f"bridge{i}" for i in range(depth - 1)), "subjects")
         datasets = (facts, *(members for _ in range(depth)))
@@ -152,11 +151,15 @@ def test_long_path_sum_and_count(
                 models += f"{name}_segment=ms.dimension_column(name='segment',entity={name},column='segment')\n"
         models += "instant=ms.time_dimension_column(name='instant',entity=facts,column='happened',granularity='second',parse=ms.timestamp(timezone='UTC'),is_default=True)\n"
         models += "amount=ms.measure_column(name='amount',entity=facts,column='amount',additivity=ms.additive_all())\n"
-        models += "total=ms.aggregate(name='total',measure=amount,agg='sum',time=instant,empty=ms.empty.zero())\n"
-        models += "number=ms.count(name='number',entity=facts,time=instant)\n"
         for index, (left, right) in enumerate(pairwise(names)):
             extra = f",ms.join_on({left}_segment,{right}_segment)" if compound else ""
             models += f"hop{index}=ms.relationship(name='hop{index}',from_entity={left},to_entity={right},keys=[ms.join_on({left}_owner,{right}_owner){extra}])\n"
+        models += (
+            "closed=ms.finalize()\namount_value=closed.resolve(amount)\n"
+            "time_value=closed.resolve(instant)\nfacts_value=closed.resolve(facts)\n"
+            "@ms.metric()\ndef total():\n    return amount_value.sum(time=time_value)\n"
+            "@ms.metric()\ndef number():\n    return facts_value.count(time=time_value)\n"
+        )
         semantic_project_factory(
             {
                 "datasources/warehouse.py": "import marivo.datasource as md\n"
@@ -167,88 +170,52 @@ def test_long_path_sum_and_count(
                 "sales/models.py": models,
             }
         )
+        trace = capture_source(monkeypatch)
         session = mv.session.get_or_create("long-path", report_timezone="UTC")
         population = session.members(ms.ref.entity("sales.subjects"))
-        routes = (mv.path(*tuple(ms.ref.relationship(f"sales.hop{i}") for i in range(depth))),)
+        expected_keys = ((1, "a"), (1, "b"), (2, "c")) if compound else owner_values
         for metric, expected in (("total", [2**53 + 3, 7, 0]), ("number", [2, 1, 0])):
-            logical = population.observe(
-                ms.ref.metric("sales." + metric),
-                during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
-                via=routes,
-                by=(mv.member(),),
+            expression = session.catalog.metrics.get("sales." + metric)
+            logical = session.observe(
+                {"value": expression},
+                during=session.time_scope(start="2026-08-01", end="2026-08-02"),
+                by=population,
             )
-            if metric == "number":
-                node = logical._node.root
-                assert isinstance(node, MethodNode)
-                declaration = next(
-                    item
-                    for item in REGISTRY.lookup(node.method).implementations
-                    if item.key.shape
-                    == SourceShape(backend, "table", "native", TimeShape("instant", "us", "UTC"))
-                    and item.key.input_types
-                    == (ScalarType("string" if key_type == "string" else "int64"),)
-                    and item.key.input_domains == ("entity",)
-                    and item.key.route == "ibis"
-                )
-                selected_method = REGISTRY.select(
-                    declaration.key,
-                    tuple(edge.node.signature for edge in node.inputs),
-                    node.parameters,
-                )
-                assert selected_method.implementation == declaration
+            binding = logical._graph.signature.observation
+            assert binding is not None and len(binding.contributions) == 1
+            assert {
+                tuple(step.ref.path for step in read.path)
+                for read in binding.contributions[0].coordinates
+            } == {tuple(f"sales.hop{index}" for index in range(depth))}
             result = logical.execute()
-            if compound:
-                assert result._dataset is not None
-                records = result._dataset.verified().primary.to_dict("records")
-                assert {(row["key_0"], row["key_1"]): row["value"] for row in records} == dict(
-                    zip(((1, "a"), (1, "b"), (2, "c")), expected, strict=True)
-                )
-                assert all(row["cell_tag"] == "defined" for row in records)
-            else:
-                frame = result.to_pandas().sort_values("member")
-                assert frame.member.tolist() == list(owner_values)
-                assert frame.value.tolist() == expected
-                assert frame.cell_tag.tolist() == ["defined"] * 3
-            outputs[metric] = snapshot(result)
+            frame = result.to_pandas()
+            assert dict(zip(frame.iloc[:, 0], frame[("value", "value")], strict=True)) == dict(
+                zip(expected_keys, expected, strict=True)
+            )
+            outputs[metric] = result
             if metric == "number":
-                assert result._dataset is not None
-                state = next(
-                    part.table
-                    for part in result._dataset.verified().parts
-                    if part.role == "original_state"
+                field = session.catalog.fields.get(
+                    "sales.facts.segment" if compound else "sales.facts.owner"
                 )
-                counts = dict(
-                    zip(
-                        list(zip(state["key_0"].tolist(), state["key_1"].tolist(), strict=True))
-                        if compound
-                        else state["key_0"].tolist(),
-                        state["original_state__count"].tolist(),
-                        strict=True,
-                    )
-                )
-                expected_keys = ((1, "a"), (1, "b"), (2, "c")) if compound else owner_values
-                assert counts == dict(zip(expected_keys, (2, 1, 0), strict=True))
-                sliced = mv.runtime_metric.slice(
-                    ms.ref.metric("sales.number"),
-                    by={
-                        ms.ref.dimension(
-                            "sales.facts.segment" if compound else "sales.facts.owner"
-                        ): "a" if compound else owner_values[0]
-                    },
-                    label="only_one",
-                )
-                selected = population.observe(
-                    sliced,
-                    during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
-                    via=routes,
-                    by=(mv.member(),),
+                sliced = expression.where(field == ("a" if compound else owner_values[0]))
+                selected = session.observe(
+                    {"value": sliced},
+                    during=session.time_scope(start="2026-08-01", end="2026-08-02"),
+                    by=population,
                 ).execute()
-                if compound:
-                    assert selected._dataset is not None
-                    assert {
-                        (row["key_0"], row["key_1"]): row["value"]
-                        for row in selected._dataset.verified().primary.to_dict("records")
-                    } == {(1, "a"): 2, (1, "b"): 0, (2, "c"): 0}
-                else:
-                    assert selected.to_pandas().sort_values("member").value.tolist() == [2, 0, 0]
+                selected_frame = selected.to_pandas()
+                assert dict(
+                    zip(selected_frame.iloc[:, 0], selected_frame[("value", "value")], strict=True)
+                ) == dict(zip(expected_keys, (2, 0, 0), strict=True))
+                outputs["sliced"] = selected
+        assert trace.native_sql
+        assert trace.owners and all(owner._closed for owner in trace.owners)
+        before = session.runs().items
+        snapshots = {name: snapshot(value) for name, value in outputs.items()}
+        with monkeypatch.context() as offline:
+            offline.setattr(ms, "load", forbidden)
+            offline.setattr("marivo.datasource.adapters.SourceSession.execute", forbidden)
+            for name, value in outputs.items():
+                assert snapshot(session.artifact(value.id)) == snapshots[name]
+        assert session.runs().items == before
         assert session._runtime.store.resources(session.id) == ()

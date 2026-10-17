@@ -16,158 +16,31 @@ from marivo.analysis._capabilities.dataset_render import render
 from marivo.analysis.datasets.errors import DatasetRegistrationError
 from marivo.analysis.errors import HelpTargetError
 from marivo.analysis.materialization.store import SessionStore
+from tests.surface.exports import ANALYSIS_PUBLIC
 
-EXPECTED_EXPORTS = (
-    "Query",
-    "Population",
-    "PopulationPredicate",
-    "in_population",
-    "MembershipAxis",
-    "coordinates",
-    "identities",
-    "membership",
-    "product",
-    "InstantAnchor",
-    "CalendarAxis",
-    "all_history",
-    "since",
-    "to_date",
-    "trailing_duration",
-    "trailing_periods",
-    "Artifact",
-    "LogicalAttributionResult",
-    "MaterializedAttributionResult",
-    "LogicalRankingResult",
-    "MaterializedRankingResult",
-    "LogicalTable",
-    "MaterializedTable",
-    "table",
-    "ReferenceWeights",
-    "reference_weights",
-    "SubjectBinding",
-    "AnyInstance",
-    "AtLeast",
-    "AllInstances",
-    "EmptyOpportunityPolicy",
-    "empty_opportunity",
-    "any_instance",
-    "at_least",
-    "all_instances",
-    "DatasetByteCount",
-    "MaterializedDatasetState",
-    "ForecastHorizon",
-    "ForecastModel",
-    "Grain",
-    "TimeScope",
-    "BeforeEndBoundary",
-    "TimeGrid",
-    "GridEndpoint",
-    "time_grid",
-    "ArtifactDigest",
-    "ArtifactRef",
-    "ArtifactSummary",
-    "FailedRun",
-    "Finding",
-    "FindingPage",
-    "IncompleteRun",
-    "RunPage",
-    "SessionGraph",
-    "SucceededRun",
-    "Session",
-    "ExactAlignment",
-    "OuterAlignment",
-    "OrdinalTimeKey",
-    "WeekdayTimeKey",
-    "HolidayTimeKey",
-    "HolidayThenWeekdayTimeKey",
-    "weekday",
-    "holiday",
-    "holiday_then_weekday",
-    "exact",
-    "outer",
-    "ordinal",
-    "LogicalComparisonResult",
-    "MaterializedComparisonResult",
-    "OneToOneCorrespondence",
-    "one_to_one",
-    "AnalysisAction",
-    "AnalysisContract",
-    "LogicalAnalysisDomain",
-    "MaterializedAnalysisDomain",
-    "LogicalCategoryRelation",
-    "LogicalBooleanRelation",
-    "MaterializedBooleanRelation",
-    "LogicalTemporalRelation",
-    "MaterializedTemporalRelation",
-    "LogicalSelectedBooleanRelation",
-    "MaterializedSelectedBooleanRelation",
-    "LogicalSelectedTemporalRelation",
-    "MaterializedSelectedTemporalRelation",
-    "LogicalSelectedNumericRelation",
-    "MaterializedSelectedNumericRelation",
-    "MaterializedCategoryRelation",
-    "LogicalNumericRelation",
-    "MaterializedNumericRelation",
-    "MaterializedGroupedNumericRelation",
-    "LogicalRolledNumericRelation",
-    "MaterializedRolledNumericRelation",
-    "LogicalRolledRatioRelation",
-    "MaterializedRolledRatioRelation",
-    "LogicalRatioRelation",
-    "MaterializedRatioRelation",
-    "LogicalDifferenceRelation",
-    "MaterializedDifferenceRelation",
-    "LogicalSelectedDifferenceRelation",
-    "MaterializedSelectedDifferenceRelation",
-    "LogicalStatisticRelation",
-    "MaterializedStatisticRelation",
-    "MaterializedCoefficientRelation",
-    "LogicalCoefficientSelectionRelation",
-    "MaterializedCoefficientSelectionRelation",
-    "GroupedNumericRelation",
-    "GroupedRatioRelation",
-    "LogicalTimeRunResult",
-    "MaterializedTimeRunResult",
-    "LogicalDeviationResult",
-    "MaterializedDeviationResult",
-    "LogicalForecastResult",
-    "MaterializedForecastResult",
-    "LogicalCoefficientRelation",
-    "LogicalAssociationResult",
-    "MaterializedAssociationResult",
-    "RelationshipPath",
-    "MemberAxis",
-    "member",
-    "RowMethod",
-    "CountMethod",
-    "GroupedStatisticRelation",
-    "path",
-    "sum",
-    "count",
-    "mean",
-    "min",
-    "max",
-    "count_defined",
-    "all_of",
-    "any_of",
-    "not_",
-    "grain",
-    "time_scope",
-    "periods",
-    "naive",
-    "drift",
-    "seasonal_naive",
-    "runtime_metric",
-    "session",
-)
 REQUIRED_TARGETS = {
     "session.members",
     "session.query",
+    "session.observe",
+    "session.read",
+    "session.values",
+    "Query",
     "Query.population",
+    "Query.select",
+    "Query.where",
+    "Query.top",
+    "Query.reduce",
+    "Query.align",
+    "Query.compare",
+    "Query.rollup",
+    "Query.drill",
+    "Query.share",
+    "Query.execute",
     "Population",
+    "Column",
     "MembershipAxis",
+    "MemberAxis",
     "PopulationPredicate",
-    "ObservationWindow",
     "coordinates",
     "identities",
     "membership",
@@ -179,26 +52,23 @@ REQUIRED_TARGETS = {
     "trailing_duration",
     "trailing_periods",
     "Session",
-    "LogicalAnalysisDomain",
-    "MaterializedNumericRelation",
-    "actions.execute",
-    "actions.show",
-    "actions.to_pandas",
-    "artifact.findings",
-    "artifact.finding",
+    "Artifact",
+    "Artifact.show",
+    "Artifact.to_pandas",
+    "Artifact.findings",
+    "Artifact.evidence_digest",
 }
 
 
 def test_exact_export_bindings_and_required_native_targets() -> None:
     disclosure = prepare()
     actual = {e.name: e for p in disclosure.providers for e in p.exports}
-    assert set(actual) == set(EXPECTED_EXPORTS)
+    assert set(actual) == set(ANALYSIS_PUBLIC)
     assert set(disclosure.canonical_ids()) >= REQUIRED_TARGETS
-    assert tuple(mv.__all__) == EXPECTED_EXPORTS
+    assert tuple(mv.__all__) == ANALYSIS_PUBLIC
     for name, entry in actual.items():
-        if name != "runtime_metric":
-            resolved = disclosure.resolve(entry.implementation)
-            assert (resolved.canonical_id or resolved.type_name) == entry.target
+        resolved = disclosure.resolve(entry.implementation)
+        assert (resolved.canonical_id or resolved.type_name) == entry.target
 
 
 def test_shapes_methods_and_admission_links_are_derived_from_real_owners() -> None:
@@ -206,7 +76,9 @@ def test_shapes_methods_and_admission_links_are_derived_from_real_owners() -> No
     for descriptor in registry.descriptors:
         if isinstance(descriptor, TypeInput):
             for binding in descriptor.bindings:
-                if binding.implementation.__module__ == "marivo.analysis.public_dsl":
+                if binding.implementation.__module__.startswith(
+                    ("marivo.analysis.dsl", "marivo.analysis.session")
+                ):
                     for name in binding.methods:
                         method = getattr(binding.implementation, name)
                         assert isinstance(registry.by_callable(method), CallableInput)
@@ -265,21 +137,22 @@ def test_corrupt_native_input_fails_closed(fault: str) -> None:
             if any(isinstance(d, TypeInput) and d.variants for d in p.descriptors)
         )
         descriptors = list(owner.descriptors)
-        i, descriptor = next(
+        i, type_descriptor = next(
             (i, d) for i, d in enumerate(descriptors) if isinstance(d, TypeInput) and d.variants
         )
         if fault == "type_fields":
             descriptors[i] = replace(
-                descriptor, bindings=(replace(descriptor.bindings[0], methods=("fabricated",)),)
+                type_descriptor,
+                bindings=(replace(type_descriptor.bindings[0], methods=("fabricated",)),),
             )
         elif fault == "variant_fields":
             descriptors[i] = replace(
-                descriptor, variants=(replace(descriptor.variants[0], fields=()),)
+                type_descriptor, variants=(replace(type_descriptor.variants[0], fields=()),)
             )
         elif fault == "duplicate":
-            descriptors.append(descriptor)
+            descriptors.append(type_descriptor)
         elif fault == "dangling":
-            descriptors[i] = replace(descriptor, producers=("nonexistent",))
+            descriptors[i] = replace(type_descriptor, producers=("nonexistent",))
         else:
             providers[index] = replace(
                 owner, exports=(replace(owner.exports[0], target="nonexistent"), *owner.exports[1:])
@@ -309,10 +182,11 @@ def test_foreign_method_binding_with_identical_signature_is_rejected() -> None:
     )
     binding = descriptor.bindings[0]
 
-    def members(self, entity, *, at=None):
+    def members(self: object, entity: object, *, at: object = None) -> None:
         raise AssertionError("foreign callable accepted")
 
-    members.__signature__ = binding.signature
+    attribute = "__signature__"
+    setattr(members, attribute, binding.signature)
     descriptors[i] = replace(descriptor, bindings=(replace(binding, implementation=members),))
     providers[index] = replace(owner, descriptors=tuple(descriptors))
     with pytest.raises(DatasetRegistrationError, match="receiver-owned"):

@@ -6,10 +6,10 @@ import csv
 import json
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal, TypeAlias
+from typing import Literal
 
 import ibis
 import pyarrow as pa
@@ -18,18 +18,10 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.materialization.graph_protocol import descriptor_plan
 from marivo.datasource.adapters import provider_for
 from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case
-from tests.support.json import key_json
 
-Result: TypeAlias = (
-    mv.MaterializedNumericRelation
-    | mv.MaterializedRolledNumericRelation
-    | mv.MaterializedGroupedNumericRelation
-    | mv.MaterializedStatisticRelation
-)
 START = datetime(2026, 8, 1, tzinfo=timezone.utc)
 GROUPS = 16
 BATCH_ROWS = 2048
@@ -418,11 +410,22 @@ def _author(
         code += f"{name}_y=ms.measure_column(name='y', entity={name}, column='y', additivity=ms.additive_all())\n"
         code += f"{name}_time=ms.time_dimension_column(name='happened', entity={name}, column='happened', granularity='second', parse=ms.timestamp(timezone='UTC'), is_default=True)\n"
         code += f"{name}_subject=ms.relationship(name={name + '_subject'!r}, from_entity={name}, to_entity=subjects, keys=[ms.join_on({name}_tenant, subject_tenant),ms.join_on({name}_owner,subject_id)])\n"
-        code += f"{name}_total=ms.aggregate(name={name + '_total'!r}, measure={name}_amount, agg='sum', empty=ms.empty.zero())\n"
-        code += f"{name}_ysum=ms.aggregate(name={name + '_ysum'!r}, measure={name}_y, agg='sum', empty=ms.empty.zero())\n"
-    code += "average=ms.aggregate(name='average',measure=facts_amount,agg='mean')\n"
-    code += "distinct=ms.aggregate(name='distinct',measure=facts_amount,agg='count_distinct',time=facts_time,empty=ms.empty.zero())\n"
-    code += "quantile=ms.aggregate(name='quantile',measure=facts_amount,agg=('percentile',0.5),time=facts_time)\n"
+    code += "frozen=ms.finalize()\n"
+    for name in ("facts", "other"):
+        code += f"{name}_value=frozen.resolve({name}_amount)\n{name}_yvalue=frozen.resolve({name}_y)\n{name}_clock=frozen.resolve({name}_time)\n"
+        code += (
+            f"@ms.metric()\ndef {name}_total():\n    return {name}_value.sum(time={name}_clock)\n"
+        )
+        code += (
+            f"@ms.metric()\ndef {name}_ysum():\n    return {name}_yvalue.sum(time={name}_clock)\n"
+        )
+    code += "@ms.metric()\ndef average():\n    return facts_value.mean(time=facts_clock)\n"
+    code += (
+        "@ms.metric()\ndef distinct():\n    return facts_value.count_distinct(time=facts_clock)\n"
+    )
+    code += (
+        "@ms.metric()\ndef quantile():\n    return facts_value.quantile(0.5, time=facts_clock)\n"
+    )
     (models / "semantic" / "cost" / "objects.py").write_text(code)
     ms.load(workspace_dir=root)
 
@@ -439,97 +442,30 @@ class Workload:
     session: mv.Session
     rows: list[dict[str, object]]
     environment: dict[str, object]
-    outputs: list[Result] = field(default_factory=list)
-    fixed_expected: int | None = None
 
-    def _values(self) -> mv.LogicalNumericRelation:
-        values = self.session.members(ms.ref.entity("cost.facts")).observe(
-            ms.ref.metric("cost.facts_total"),
-            during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
-            by=(mv.member(),),
+    def values(self) -> mv.Query:
+        return self.session.observe(
+            {"value": self.session.catalog.metrics.get("cost.facts_total")},
+            during=self.session.time_scope(start="2026-08-01", end="2026-08-02"),
+            by=self.session.members(ms.ref.entity("cost.facts")),
         )
-        assert isinstance(values, mv.LogicalNumericRelation)
-        return values
 
-    def source(self, route: Literal["ibis", "ibis_python"]) -> Result:
-        self.outputs.clear()
-        self.fixed_expected = None
-        values = self._values()
-        if route == "ibis":
-            result = values.rollup().execute()
-        elif self.environment["backend"] == "duckdb":
-            result = values.deviation(method="zscore").observed.rollup().execute()
-        else:
-            prepared = self.session.members(ms.ref.entity("cost.facts")).observe(
-                ms.ref.metric("cost.facts_total"),
-                during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
-                by=(
-                    mv.member(),
-                    ms.ref.dimension("cost.facts.kind"),
-                ),
-            )
-            assert isinstance(prepared, mv.LogicalNumericRelation)
-            result = prepared.rollup().execute()
-        self.outputs.append(result)
-        return result
+    def total(self) -> mv.Query:
+        return self.session.observe(
+            {"value": self.session.catalog.metrics.get("cost.facts_total")},
+            during=self.session.time_scope(start="2026-08-01", end="2026-08-02"),
+        )
 
-    def fixed(self, producer: Result) -> mv.LogicalStatisticRelation:
-        assert isinstance(
-            producer,
-            (
-                mv.MaterializedNumericRelation,
-                mv.MaterializedRolledNumericRelation,
-                mv.MaterializedGroupedNumericRelation,
-            ),
-        )
-        self.validate(producer)
-        self.fixed_expected = sum(
-            _integer(row["amount"]) for row in self.rows if row["amount"] is not None
-        )
-        return producer.aggregate(mv.sum())
-
-    def validate(self, result: Result) -> dict[str, bool]:
-        assert result._dataset is not None
-        checked = result._dataset.verified()
-        assert checked.primary is not None and checked.parts
-        expected = (
-            self.fixed_expected
-            if self.fixed_expected is not None
-            and not any(value is result for value in self.outputs)
-            else sum(_integer(row["amount"]) for row in self.rows if row["amount"] is not None)
-        )
+    def validate(self, result: mv.Artifact) -> dict[str, bool]:
+        expected = sum(_integer(row["amount"]) for row in self.rows if row["amount"] is not None)
         frame = result.to_pandas()
-        assert frame.value.tolist() == [expected]
-        assert frame.cell_tag.tolist() == ["defined"]
-        return {"passed": True}
-
-    def identity(self, result: Result) -> dict[str, object]:
-        assert result._dataset is not None
-        plan = descriptor_plan(result._dataset.artifact.descriptor, result._node.definition)
-        bindings = [
-            {
-                "key": key_json(item.key),
-                "route": item.key.route,
-                "node": item.node_id,
-                "implementation": str(item.implementation.qualification),
-            }
-            for item in plan.physical_requirements
-        ]
-        own = next(
-            (
-                item
-                for item in plan.physical_requirements
-                if item.node_id == result._node.definition.identity
-            ),
-            None,
+        assert frame[("value", "value")].tolist() == [expected]
+        assert len(frame) == 1
+        assert result._manifest.data.schema.axes == ()
+        assert all(
+            attachment.name != "original_state" for attachment in result._manifest.data.attachments
         )
-        return {
-            "artifact_ref": result.state.artifact_ref.ref,
-            "actual_routes": sorted({str(item["route"]) for item in bindings}),
-            "root_route": own.key.route if own is not None else "unknown",
-            "method_bindings": bindings,
-            "parts": [part.role for part in result._dataset.verified().parts],
-        }
+        return {"passed": True}
 
 
 @contextmanager

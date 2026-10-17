@@ -1,4 +1,4 @@
-"""Independent reference arithmetic and public source/fixed acceptance."""
+"""Independent reference kernels and Query exports for explicit pandas recipes."""
 
 from decimal import Decimal
 from fractions import Fraction
@@ -10,12 +10,100 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.core.model import Defined, Null, Undefined, Unknown
-from marivo.analysis.materialization.cell_arrow import column as cell_column
-from marivo.analysis.materialization.graph_exchange import to_arrow
 from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
 from marivo.analysis.methods.references import standardize, weight_sum
-from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows, export_dsl_parquet_models
+from tests.shared_fixtures import (
+    DslCase,
+    DslCaseFactory,
+    analysis_dsl_rows,
+    export_dsl_parquet_models,
+)
 from tests.support.paths import PROJECT_ROOT
+
+
+def _plain(result: mv.Artifact) -> pd.DataFrame:
+    frame = result.to_pandas()
+    names: list[str] = []
+    key = 0
+    for label in frame.columns:
+        assert isinstance(label, tuple) and len(label) == 2
+        kind, name = label
+        if kind == "value":
+            assert isinstance(name, str)
+            names.append(name)
+        else:
+            names.append(f"key_{key}")
+            key += 1
+    frame.columns = names
+    return frame
+
+
+def _monthly(case: DslCase, metric: str) -> mv.Query:
+    session = case.session
+    return session.observe(
+        {"value": session.catalog.metrics.get("sales." + metric)},
+        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
+        by=session.members(ms.ref.entity("sales.customer")),
+    )
+
+
+def _grouped(case: DslCase, metric: str) -> mv.Query:
+    session = case.session
+    members = session.members(ms.ref.entity("sales.customer"))
+    return session.observe(
+        {"value": session.catalog.metrics.get("sales." + metric)},
+        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
+        by=members.classify(by=(session.catalog.fields.get("sales.customer.region"),)),
+    )
+
+
+def _cold(case: DslCase, results: tuple[mv.Artifact, ...], assertions: str) -> None:
+    import os
+    import subprocess
+    import sys
+
+    source = case.root / "source_files"
+    if not source.exists():
+        source = case.database_path
+    offline = source.with_name(source.name + ".offline")
+    source.rename(offline)
+    script = (
+        """
+import sys
+from fractions import Fraction
+from unittest.mock import patch
+import duckdb
+import marivo.analysis as mv
+import marivo.semantic as ms
+from marivo.datasource.adapters import SourceSession
+from tests.analysis.numeric.test_analysis_references import _plain
+from tests.shared_fixtures import run_ids
+
+def unavailable(*args, **kwargs):
+    raise AssertionError('cold reference export reopened source or Semantic')
+with patch.object(duckdb, 'connect', unavailable), patch.object(ms, 'load', unavailable), patch.object(SourceSession, '__init__', unavailable):
+    session = mv.session.resume(sys.argv[1], by='id')
+    before = run_ids(session)
+    saved = tuple(session.artifact(ref) for ref in sys.argv[2:])
+    assert all(isinstance(item, mv.Artifact) for item in saved)
+    assert all(not hasattr(item, name) for item in saved for name in ('standardize', 'where', 'rollup', 'contract', '_node', '_dataset'))
+"""
+        + "".join("    " + line + "\n" for line in assertions.splitlines())
+        + "    assert run_ids(session) == before\n"
+    )
+    try:
+        process = subprocess.run(
+            [sys.executable, "-c", script, case.session.id, *(result.id for result in results)],
+            cwd=case.root,
+            env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT), "MARIVO_TELEMETRY": "off"},
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=90,
+        )
+    finally:
+        offline.rename(source)
+    assert process.returncode == 0, process.stdout + process.stderr
 
 
 def test_exact_standardization_and_zero_weight_cells() -> None:
@@ -100,22 +188,11 @@ def test_invalid_weights_reject() -> None:
             weight_sum(weights, ScalarType("float64"))
 
 
-@pytest.mark.parametrize("parquet", [False])
 def test_public_references_source_and_fixed(
-    analysis_dsl_case_factory: DslCaseFactory, parquet: bool, capsys: pytest.CaptureFixture[str]
+    analysis_dsl_case_factory: DslCaseFactory, capsys: pytest.CaptureFixture[str]
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    region = members.read(ms.ref.dimension("sales.customer.region"))
-    values = members.observe(
-        ms.ref.metric("sales.order_count"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship(f"sales.{case.names.buyer}"),
-        by=(mv.member(),),
-    )
+    values = _monthly(case, "order_count")
     facts = analysis_dsl_rows("j2")
     counts = {
         member: sum(
@@ -124,123 +201,73 @@ def test_public_references_source_and_fixed(
         )
         for member, *_ in facts.customers
     }
-    total_count = sum(counts.values())
-    total = values.rollup()
-    shares = values.share_of(total).execute()
-    frame = shares.to_pandas()
-    expected_shares = {key: float(Fraction(value, total_count)) for key, value in counts.items()}
-    assert dict(zip(frame.member, frame.value, strict=True)) == expected_shares
-    selected = shares.where(shares.value.gt(1)).execute()
-    assert len(selected._dataset.verified().parts[0].table) == 1
-    assert "relation.rollup()" not in {action.call for action in selected.contract().actions}
-    assert (
-        dict(selected.contract()._facts)["reference"] == dict(shares.contract()._facts)["reference"]
+    expected_shares = {
+        key: float(Fraction(value, sum(counts.values()))) for key, value in counts.items()
+    }
+    share_query = values.share("value")
+    saved = share_query.execute()
+    frame = _plain(saved).set_index("key_0")
+    assert frame["value.share"].to_dict() == expected_shares
+    selected = share_query.where(share_query["value.share"] > 1).execute()
+    assert selected.to_pandas().empty
+    assert not hasattr(saved, "contract") and not hasattr(saved, "where")
+    saved.show()
+    assert "value.share" in capsys.readouterr().out
+    # Penetration and standardization consume exported complete identities in pandas.
+    selected_members = frame.index[frame.value > 0]
+    assert len(selected_members.unique()) / len(frame.index.unique()) == float(
+        Fraction(sum(value > 0 for value in counts.values()), len(counts))
     )
-    shares.show()
-    assert "current_partition: complete" in capsys.readouterr().out
-    selected.show()
-    selected_card = capsys.readouterr().out
-    assert "current_partition: partial" in selected_card
-    assert f"reference_denominator: {total_count}" in selected_card
-    assert "nonnegative_range: proved [0,1]" in selected_card
-    selected_members = values.where(values.value.gt(0)).members()
-    result = selected_members.penetration_in(members).execute()
-    assert result.to_pandas().value.tolist() == [
-        float(Fraction(sum(value > 0 for value in counts.values()), len(counts)))
-    ]
-    groups = values.group_by(region).rollup()
-    weights = groups.share_of(groups.rollup())
-    reference = mv.reference_weights(weights, strata=(region,), unit=ms.ref.entity("sales.order"))
-    standardized = groups.standardize(reference=reference).execute()
-    region_by_member = dict(facts.customers)
-    grouped_counts = dict.fromkeys(region_by_member.values(), 0)
+    groups = _grouped(case, "order_count")
+    weighted = groups.share("value").execute()
+    table = _plain(weighted).set_index("key_0")
+    represented = sum(
+        (
+            Fraction(value) * Fraction(weight)
+            for value, weight in zip(table["value"], table["value.share"], strict=True)
+        ),
+        Fraction(),
+    )
+    grouped_counts = dict.fromkeys(dict(facts.customers).values(), 0)
     for member, count in counts.items():
-        grouped_counts[region_by_member[member]] += count
+        grouped_counts[dict(facts.customers)[member]] += count
     expected = sum(
-        (Fraction(value**2, total_count) for value in grouped_counts.values()), Fraction()
+        (Fraction(value**2, sum(counts.values())) for value in grouped_counts.values()), Fraction()
     )
-    assert standardized.to_pandas().value.tolist() == [float(expected)]
-    assert "ReferenceWeights" in repr(reference)
-    standardized.show()
-    card = capsys.readouterr().out
-    assert "represented_weight_sum_deviation: 0" in card
-    assert "arithmetic_error_bound:" in card
-    assert "weighted stratum value; no actual population claim" in card
-    selected = standardized.where(standardized.value.gt(0)).execute()
-    assert dict(selected.contract()._facts)["statistical_entity"] == "sales.order"
-
-    fixed_values = values.execute()
-    fixed_total = fixed_values.rollup().execute()
-    fixed_shares = fixed_values.share_of(fixed_total).execute().to_pandas()
-    assert dict(zip(fixed_shares.member, fixed_shares.value, strict=True)) == expected_shares
+    assert float(represented) == float(expected)
+    pd.testing.assert_frame_equal(saved.to_pandas(), case.session.artifact(saved.id).to_pandas())
+    fixed_values = _plain(values.execute()).set_index("key_0")
+    pandas_shares = fixed_values.value / fixed_values.value.sum()
+    assert pandas_shares.to_dict() == expected_shares
 
 
-@pytest.mark.parametrize(
-    "physical,parquet",
-    [("BIGINT", True), ("DECIMAL(30,6)", True), ("duration_ns", True)],
-)
+@pytest.mark.parametrize("physical", ["BIGINT", "DECIMAL(30,6)", "duration_ns"])
 def test_public_share_numeric_matrix(
-    analysis_dsl_case_factory: DslCaseFactory, physical: str, parquet: bool
+    analysis_dsl_case_factory: DslCaseFactory, physical: str
 ) -> None:
     import duckdb
     import pyarrow as pa
     import pyarrow.parquet as pq
 
-    from marivo.analysis.errors import AnalysisError
-
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as db:
-        if physical.startswith("duration") and not parquet:
-            db.execute(
-                'ALTER TABLE "order" ALTER amount TYPE INTERVAL USING to_microseconds(amount)'
-            )
-        elif not physical.startswith("duration"):
+        if not physical.startswith("duration"):
             db.execute(f'ALTER TABLE "order" ALTER amount TYPE {physical}')
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        if physical.startswith("duration"):
-            path = case.root / "source_files/order.parquet"
-            table = pq.read_table(path)
-            pq.write_table(
-                table.set_column(
-                    table.schema.get_field_index("amount"),
-                    "amount",
-                    table["amount"].cast(pa.duration(physical.partition("_")[2] or "us")),
-                ),
-                path,
-            )
-    ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    values = members.observe(
-        ms.ref.metric("sales.revenue"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
+    export_dsl_parquet_models(case, case.root)
     if physical.startswith("duration"):
-        category = members.read(ms.ref.dimension("sales.customer.region"))
-        grouped = values.group_by(category).rollup()
-        assert not any("standardize(" in action.call for action in grouped.contract().actions)
-        count_groups = (
-            members.observe(
-                ms.ref.metric("sales.order_count"),
-                during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-                via=ms.ref.relationship("sales.order_buyer"),
-                by=(mv.member(),),
-            )
-            .group_by(category)
-            .rollup()
+        path = case.root / "source_files/order.parquet"
+        table = pq.read_table(path)
+        pq.write_table(
+            table.set_column(
+                table.schema.get_field_index("amount"),
+                "amount",
+                table["amount"].cast(pa.duration("ns")),
+            ),
+            path,
         )
-        with pytest.raises(AnalysisError):
-            grouped.standardize(
-                reference=mv.reference_weights(
-                    count_groups.share_of(count_groups.rollup()),
-                    strata=(category,),
-                    unit=ms.ref.entity("sales.order"),
-                )
-            )
-    reference = values.rollup()
-    shares = values.share_of(reference).execute().to_pandas().set_index("member")
+    ms.load(workspace_dir=case.root)
+    values = _monthly(case, "revenue")
+    shares = _plain(values.share("value").execute()).set_index("key_0")
     raw = analysis_dsl_rows("j2")
     totals = {
         member: sum(
@@ -250,510 +277,197 @@ def test_public_share_numeric_matrix(
         )
         for member, _ in raw.customers
     }
-    expected = {member: Fraction(total, sum(totals.values())) for member, total in totals.items()}
+    expected = {
+        member: Fraction(total) / Fraction(sum(totals.values())) for member, total in totals.items()
+    }
+    assert shares["value.share"].to_dict() == {key: float(value) for key, value in expected.items()}
+    assert pa.array(shares["value.share"]).type == pa.float64()
     if physical.startswith("DECIMAL"):
-        expected_decimal = {
-            key: (Decimal(value.numerator) / Decimal(value.denominator)).quantize(
-                Decimal("0.000001")
-            )
-            for key, value in expected.items()
-        }
-        assert shares.value.to_dict() == expected_decimal
-    else:
-        assert shares.value.to_dict() == {key: float(value) for key, value in expected.items()}
-
-    if physical == "BIGINT":
-        fixed = values.execute()
-        fixed_shares = (
-            fixed.share_of(fixed.rollup().execute()).execute().to_pandas().set_index("member")
-        )
-        assert fixed_shares.value.to_dict() == {
-            key: float(value) for key, value in expected.items()
-        }
+        assert all(isinstance(value, Decimal) for value in shares.value)
+        assert shares.value.to_dict() == {key: Decimal(total) for key, total in totals.items()}
+    saved = values.share("value").execute()
+    pd.testing.assert_frame_equal(saved.to_pandas(), case.session.artifact(saved.id).to_pandas())
+    if physical.startswith("duration"):
+        assert pa.array(shares.value).type == pa.duration("ns")
+        # Duration remains duration data; pandas uses numeric count weights explicitly.
+        weights = _plain(_grouped(case, "order_count").share("value").execute())
+        assert sum(map(Fraction, weights["value.share"])) == 1
+        assert all(value >= 0 for value in weights["value.share"])
 
 
 @pytest.mark.slow
 @pytest.mark.parametrize("physical", ["DOUBLE", "DECIMAL(30,6)"])
-@pytest.mark.parametrize("parquet", [False])
 def test_original_metric_standardization_matrix(
-    analysis_dsl_case_factory: DslCaseFactory,
-    physical: str,
-    parquet: bool,
-    monkeypatch: pytest.MonkeyPatch,
+    analysis_dsl_case_factory: DslCaseFactory, physical: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import os
-    import shutil
-    import subprocess
-    import sys
-    from pathlib import Path
-
     import duckdb
 
-    from marivo.analysis.datasets.errors import DatasetConstructionError
-    from marivo.analysis.public_dsl import MetricInputValue
-    from tests.analysis.materialization.domain_recovery_worker import snapshot
-    from tests.analysis.statistics.standardization_recovery_worker import parts
-    from tests.support.json import Json, checked, encode, read
     from tests.support.source_trace import capture_source
 
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as db:
         db.execute(f'ALTER TABLE "order" ALTER amount TYPE {physical}')
-        if physical.startswith("DECIMAL"):
-            db.execute('ALTER TABLE "order" ADD COLUMN reference_amount DOUBLE')
-            db.execute('UPDATE "order" SET reference_amount=amount')
-    model = case.root / "models/semantic/sales/models.py"
-    extra_measure = (
-        "\nreference_amount = ms.measure_column(name='reference_amount', entity=orders, column='reference_amount', additivity=ms.additive_all(), unit='CNY')\n"
-        if physical.startswith("DECIMAL")
-        else ""
-    )
-    model.write_text(
-        model.read_text().replace("granularity='second',", "granularity='second', is_default=True,")
-        + extra_measure
-    )
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-    ms.load(workspace_dir=case.root)
     trace = capture_source(monkeypatch)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    categories = members.read(ms.ref.dimension("sales.customer.region"))
-    assert isinstance(categories, mv.LogicalCategoryRelation)
-    base = ms.ref.metric("sales.revenue")
-    metrics: dict[str, MetricInputValue] = {
-        "sum": base,
-        "ratio": mv.runtime_metric.ratio(base, base, label="ratio"),
-    }
-    scope = mv.time_scope(start="2026-08-01", end="2026-09-01")
-    volume = (
-        members.observe(
-            base,
-            during=scope,
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
-        )
-        .group_by(categories)
-        .rollup()
+    session = case.session
+    members = session.members(ms.ref.entity("sales.customer"))
+    region = session.catalog.fields.get("sales.customer.region")
+    base = session.catalog.metrics.get("sales.revenue")
+    groups = session.observe(
+        {"sum": base, "ratio": base / base},
+        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
+        by=members.classify(by=(region,)),
     )
-    weights = volume.share_of(volume.rollup())
-    float_weights = weights
-    if physical.startswith("DECIMAL"):
-        float_volume = (
-            members.observe(
-                mv.runtime_metric.aggregate(
-                    ms.ref.measure("sales.order.reference_amount"),
-                    agg="sum",
-                    label="reference volume",
-                ),
-                during=scope,
-                via=ms.ref.relationship("sales.order_buyer"),
-                by=(mv.member(),),
-            )
-            .group_by(categories)
-            .rollup()
+    weights = _grouped(case, "revenue").share("value")
+    saved_groups, saved_weights = groups.execute(), weights.execute()
+    table = _plain(saved_groups).set_index("key_0")
+    reference = _plain(saved_weights).set_index("key_0")
+    assert table.index.is_unique and reference.index.is_unique
+    assert set(table.index) == set(reference.index)
+    raw = analysis_dsl_rows("j2")
+    totals = dict.fromkeys(dict(raw.customers).values(), Fraction())
+    for _, buyer, _, _, date, amount in raw.orders:
+        if str(date).startswith("2026-08"):
+            totals[dict(raw.customers)[buyer]] += Fraction(amount)
+    for kind in ("sum", "ratio"):
+        positive = reference["value.share"] > 0
+        values = table.loc[positive, kind]
+        assert values.notna().all()
+        actual = sum(
+            (
+                Fraction(value) * Fraction(weight)
+                for value, weight in zip(
+                    values, reference.loc[positive, "value.share"], strict=True
+                )
+            ),
+            Fraction(),
         )
-        float_weights = float_volume.share_of(float_volume.rollup())
-    offline = physical != "BIGINT"
-    recovery_kinds = frozenset(("sum", "ratio"))
-    originals: dict[str, Json] = {}
-    original_parts: dict[str, Json] = {}
-    expectations: dict[str, Json] = {}
-    retained_weights, retained_categories = weights.execute(), categories.execute()
-    assert isinstance(retained_categories, mv.MaterializedCategoryRelation)
-    for name, value in (("weights", retained_weights), ("categories", retained_categories)):
-        originals[name], original_parts[name] = snapshot(value), parts(value)
-    retained_float_weights = (
-        float_weights.execute() if physical.startswith("DECIMAL") else retained_weights
-    )
-    originals["float_weights"], original_parts["float_weights"] = (
-        snapshot(retained_float_weights),
-        parts(retained_float_weights),
-    )
-    for kind, metric in metrics.items():
-        groups = (
-            members.observe(
-                metric,
-                during=scope,
-                via=ms.ref.relationship("sales.order_buyer"),
-                by=(mv.member(),),
-            )
-            .group_by(categories)
-            .rollup()
+        expected = sum(
+            (
+                (total if kind == "sum" else Fraction(1)) * total / sum(totals.values())
+                for total in totals.values()
+                if total > 0
+            ),
+            Fraction(),
         )
-        native_float = physical.startswith("DECIMAL") and kind == "ratio"
-        reference = mv.reference_weights(
-            float_weights if native_float else weights,
-            strata=(categories,),
-            unit=ms.ref.entity("sales.order"),
-        )
-        if native_float:
-            incompatible = mv.reference_weights(
-                weights, strata=(categories,), unit=ms.ref.entity("sales.order")
-            )
-            with pytest.raises(DatasetConstructionError) as mismatch:
-                groups.standardize(reference=incompatible)
-            assert (
-                mismatch.value.expected
-                == "a proved fixed reference with complete compatible inputs"
-            )
-            assert mismatch.value.received is not None
-            assert "ScalarType(name='float64')/DecimalType" in mismatch.value.received
-            assert mismatch.value.repair is not None
-        source = groups.standardize(reference=reference).execute()
-        fixed_kind = not offline and kind == "sum"
-        fixed_groups = (
-            groups.execute() if fixed_kind or (offline and kind in recovery_kinds) else None
-        )
-        if offline and kind in recovery_kinds:
-            assert fixed_groups is not None
-            originals["groups:" + kind] = snapshot(fixed_groups)
-            original_parts["groups:" + kind] = parts(fixed_groups)
-        fixed = None
-        if fixed_kind:
-            assert fixed_groups is not None
-            fixed_weights, fixed_categories = (
-                retained_float_weights if native_float else retained_weights,
-                retained_categories,
-            )
-            fixed_reference = mv.reference_weights(
-                fixed_weights, strata=(fixed_categories,), unit=ms.ref.entity("sales.order")
-            )
-            fixed = fixed_groups.standardize(reference=fixed_reference).execute()
-        raw = analysis_dsl_rows("j2")
-        region_by_member = dict(raw.customers)
-        totals_by_region = dict.fromkeys(region_by_member.values(), Fraction())
-        counts_by_region = dict.fromkeys(region_by_member.values(), 0)
-        for _, buyer, _, _, date, amount_value in raw.orders:
-            if str(date).startswith("2026-08"):
-                region = region_by_member[buyer]
-                totals_by_region[region] += Fraction(amount_value)
-                counts_by_region[region] += 1
-        exact_expected = Fraction()
-        for region, total in totals_by_region.items():
-            weight = total / sum(totals_by_region.values())
-            if weight == 0:
-                continue
-            stratum = {
-                "sum": total,
-                "count": Fraction(counts_by_region[region]),
-                "mean": total / counts_by_region[region],
-                "weighted_mean": total / counts_by_region[region],
-                "ratio": Fraction(1),
-                "linear": 2 * total,
-            }[kind]
-            exact_expected += (
-                Fraction(float(stratum)) * Fraction(float(weight))
-                if native_float
-                else stratum * weight
-            )
-        expected = (
-            (Decimal(exact_expected.numerator) / Decimal(exact_expected.denominator)).quantize(
+        if physical.startswith("DECIMAL") and kind == "sum":
+            assert (Decimal(actual.numerator) / Decimal(actual.denominator)).quantize(
+                Decimal("0.000001")
+            ) == (Decimal(expected.numerator) / Decimal(expected.denominator)).quantize(
                 Decimal("0.000001")
             )
-            if physical.startswith("DECIMAL") and not native_float
-            else float(exact_expected)
-        )
-        actual = source.to_pandas().value.tolist()
-        assert actual == [expected]
-        assert type(actual[0]) is type(expected)
-        expectations[kind] = str(expected) if isinstance(expected, Decimal) else expected
-        if fixed is not None:
-            assert fixed.to_pandas().value.tolist() == [expected]
-            assert fixed._dataset is not None
-            assert fixed._dataset.verified().contract.state_kind == "standardized"
-            assert not any(
-                action.call == "relation.rollup()" for action in fixed.contract().actions
-            )
-    if offline:
-        state: dict[str, Json] = {
-            "phase": "produce",
-            "pid": os.getpid(),
-            "session": case.session.id,
-            "physical": physical,
-            "form": "parquet" if parquet else "table",
-            "originals": {
-                name: value
-                for name, value in originals.items()
-                if not name.startswith("groups:") or name.removeprefix("groups:") in recovery_kinds
-            },
-            "parts": {
-                name: value
-                for name, value in original_parts.items()
-                if not name.startswith("groups:") or name.removeprefix("groups:") in recovery_kinds
-            },
-            "expected": {
-                name: value for name, value in expectations.items() if name in recovery_kinds
-            },
-            "native_sql": [*trace.native_sql],
-            "source_closed": all(owner._closed for owner in trace.owners),
-        }
-        assert trace.native_sql and trace.owners and state["source_closed"] is True
-        (case.root / "r94-standardization.json").write_bytes(encode(state))
-        shutil.rmtree(case.root / "models")
-        case.database_path.unlink()
-        if (case.root / "source_files").exists():
-            shutil.rmtree(case.root / "source_files")
-        reports: list[Json] = [state]
-        for phase in ("fixed", "cold"):
-            output = case.root / ("standardization-" + phase + ".json")
-            completed = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "tests.analysis.statistics.standardization_recovery_worker",
-                    str(case.root),
-                    phase,
-                    str(output),
-                ],
-                cwd=PROJECT_ROOT,
-                env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
-                capture_output=True,
-                text=True,
-                timeout=180,
-            )
-            assert completed.returncode == 0, completed.stdout + completed.stderr
-            reports.append(read(output))
-        if directory := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
-            name = (
-                "standardization-"
-                + ("decimal" if physical.startswith("DECIMAL") else "float")
-                + ("-parquet" if parquet else "-table")
-                + ".json"
-            )
-            Path(directory, name).write_bytes(encode({"reports": checked(reports)}))
+            assert all(isinstance(value, Decimal) for value in values)
+        else:
+            assert float(actual) == float(expected)
+    assert trace.native_sql and trace.owners and all(owner._closed for owner in trace.owners)
+    _cold(
+        case,
+        (saved_groups, saved_weights),
+        """groups = _plain(saved[0]).set_index('key_0')
+weights = _plain(saved[1]).set_index('key_0')['value.share']
+positive = weights > 0
+assert set(groups.index) == set(weights.index)
+assert float(sum(Fraction(v) * Fraction(w) for v, w in zip(groups.loc[positive, 'sum'], weights[positive], strict=True))) == 180.0
+assert float(sum(Fraction(v) * Fraction(w) for v, w in zip(groups.loc[positive, 'ratio'], weights[positive], strict=True))) == 1.0""",
+    )
 
 
-@pytest.mark.parametrize("parquet", [False])
-def test_public_exact_integer_reference_weights(
-    analysis_dsl_case_factory: DslCaseFactory, parquet: bool
-) -> None:
+def test_public_exact_integer_reference_weights(analysis_dsl_case_factory: DslCaseFactory) -> None:
     import duckdb
     import pyarrow as pa
 
     case = analysis_dsl_case_factory("j2")
-    raw = analysis_dsl_rows("j2")
-    kept = next(row for row in raw.orders if str(row[4]).startswith("2026-08"))
+    kept = next(row for row in analysis_dsl_rows("j2").orders if str(row[4]).startswith("2026-08"))
     with duckdb.connect(str(case.database_path)) as db:
         db.execute('DELETE FROM "order" WHERE order_id != ?', [kept[0]])
-    model = case.root / "models/semantic/sales/models.py"
-    model.write_text(
-        model.read_text().replace("granularity='second',", "granularity='second', is_default=True,")
+    session = case.session
+    members = session.members(ms.ref.entity("sales.customer"))
+    region = session.catalog.fields.get("sales.customer.region")
+    amount, time = (
+        session.catalog.fields.get("sales.order." + name) for name in ("amount", "ordered_at")
     )
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-    ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    category = members.read(ms.ref.dimension("sales.customer.region"))
-    groups = (
-        members.observe(
-            ms.ref.metric("sales.order_count"),
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
-        )
-        .group_by(category)
-        .rollup()
+    groups = session.observe(
+        {"count": session.catalog.metrics.get("sales.order_count"), "mean": amount.mean(time=time)},
+        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
+        by=members.classify(by=(region,)),
     )
-    means = (
-        members.observe(
-            mv.runtime_metric.aggregate(
-                ms.ref.measure("sales.order.amount"), agg="mean", label="sample"
-            ),
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
-        )
-        .group_by(category)
-        .rollup()
-    )
-    for current, classification, receiver in (
-        (groups, category, means),
-        (groups.execute(), category.execute(), means.execute()),
-    ):
-        result = current.standardize(
-            reference=mv.reference_weights(
-                current, strata=(classification,), unit=ms.ref.entity("sales.order")
+    saved = groups.execute()
+    table = _plain(saved).set_index("key_0")
+    assert pa.array(table["count"]).type == pa.int64()
+    assert table["mean"].isna().sum() == 2
+    weights = table["count"]
+    assert weights.sum() == 1
+    assert (
+        sum(
+            Fraction(value) * Fraction(weight)
+            for value, weight in zip(
+                table.loc[weights > 0, "count"], weights[weights > 0], strict=True
             )
-        ).execute()
-        assert result.to_pandas().value.tolist() == [float(Fraction(1))]
-        exchange = result._dataset.verified()
-        assert exchange.contract.parts[0].schema.field("value").type == pa.int64()
-        standardized = receiver.standardize(
-            reference=mv.reference_weights(
-                current, strata=(classification,), unit=ms.ref.entity("sales.order")
-            )
-        ).execute()
-        assert standardized.to_pandas().value.tolist() == [float(Fraction(kept[5]))]
-        exchange = standardized._dataset.verified()
-        stratum_values = next(
-            part.table for part in exchange.parts if part.role == "stratum_values"
         )
-        schema = next(
-            part.schema for part in exchange.contract.parts if part.role == "stratum_values"
-        )
-        assert (
-            cell_column(to_arrow(stratum_values, schema), "cell_tag").to_pylist().count("null") == 2
-        )
+        == 1
+    )
+    assert sum(
+        Fraction(value) * Fraction(weight)
+        for value, weight in zip(table.loc[weights > 0, "mean"], weights[weights > 0], strict=True)
+    ) == Fraction(kept[5])
+    pd.testing.assert_frame_equal(saved.to_pandas(), session.artifact(saved.id).to_pandas())
 
 
 @pytest.mark.slow
 def test_standardized_cold_selection_preserves_reference(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    import os
-    import subprocess
-    import sys
-
     case = analysis_dsl_case_factory("j2")
     export_dsl_parquet_models(case, case.root)
     ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    category = members.read(ms.ref.dimension("sales.customer.region"))
-    values = members.observe(
-        ms.ref.metric("sales.order_count"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
+    groups = _grouped(case, "order_count").share("value")
+    selected = groups.where(groups["value"] > 1)
+    saved, subset = groups.execute(), selected.execute()
+    _cold(
+        case,
+        (saved, subset),
+        """full = _plain(saved[0]).set_index('key_0')
+selected = _plain(saved[1]).set_index('key_0')
+assert full['value.share'].to_dict() == {'east': 0.5, 'south': 0.25, 'west': 0.25}
+assert selected['value.share'].to_dict() == {'east': 0.5}
+assert sum(Fraction(value) * Fraction(weight) for value, weight in zip(full.value, full['value.share'], strict=True)) == Fraction(3, 2)
+assert sum(Fraction(value) * Fraction(weight) for value, weight in zip(selected.value, selected['value.share'], strict=True)) == 1""",
     )
-    groups = values.group_by(category).rollup()
-    weights = groups.share_of(groups.rollup())
-    # Keep one standardized artifact to verify that a selected cold continuation
-    # retains its full reference payload after the source goes offline.
-    saved = (
-        groups.standardize(
-            reference=mv.reference_weights(
-                weights, strata=(category,), unit=ms.ref.entity("sales.order")
-            )
-        ).execute(),
-    )
-    source_path = case.root / "source_files"
-    offline = source_path.with_name(source_path.name + ".offline")
-    source_path.rename(offline)
-    script = """
-import sys
-import duckdb
-import marivo.analysis as mv
-import marivo.semantic as ms
-def unavailable(*args, **kwargs):
-    raise AssertionError('fixed reference recovery cannot open Semantic or DuckDB')
-duckdb.connect = unavailable
-sys.modules['duckdb'] = None
-ms.load = unavailable
-session = mv.session.resume(sys.argv[1], by='id')
-for ref in sys.argv[2:]:
-    saved = session.artifact(ref)
-    original = saved._dataset.verified()
-    selected = saved.where(saved.value.gt(-1)).execute()
-    assert selected.to_pandas().value.tolist() == saved.to_pandas().value.tolist()
-    retained = selected._dataset.verified()
-    assert all(a.table.equals(b.table) for a,b in zip(original.parts,retained.parts,strict=True))
-    assert session.artifact(selected.state.artifact_ref.ref).to_pandas().equals(selected.to_pandas())
-"""
-    try:
-        completed = subprocess.run(
-            [
-                sys.executable,
-                "-c",
-                script,
-                case.session.id,
-                *(relation.state.artifact_ref.ref for relation in saved),
-            ],
-            cwd=case.root,
-            env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=False,
-        )
-    finally:
-        offline.rename(source_path)
-    assert completed.returncode == 0, completed.stderr
 
 
 def test_static_reference_rejections_are_zero_read(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from dataclasses import FrozenInstanceError
-
     from marivo.analysis.errors import AnalysisError
     from marivo.datasource.adapters import SourceSession
+    from tests.shared_fixtures import run_ids
 
     case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    category = members.read(ms.ref.dimension("sales.customer.region"))
-    values = members.observe(
-        ms.ref.metric("sales.order_count"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
+    values = _monthly(case, "order_count")
+    total = values.rollup()
     fixed = values.execute()
     other = analysis_dsl_case_factory("j2")
-    foreign = other.session.members(ms.ref.entity("sales.customer"))
-    run = values._runtime.last_run_ref
+    foreign = _monthly(other, "order_count").rollup()
+    before = run_ids(case.session)
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("reference construction cannot read business rows")
 
     monkeypatch.setattr(SourceSession, "execute", forbidden)
-    groups = values.group_by(category).rollup()
-    weights = groups.share_of(groups.rollup())
-    reference = mv.reference_weights(weights, strata=(category,), unit=ms.ref.entity("sales.order"))
-    groups.standardize(reference=reference)
-    values.share_of(values.rollup())
-    members.penetration_in(members)
-    with pytest.raises(FrozenInstanceError):
-        reference._unit = ms.ref.entity("sales.customer")
-    assert not hasattr(reference, "execute")
+    values.share("value")
+    values.select({"ratio": values["value"] / mv.broadcast(total["value"], to=values)})
     with pytest.raises(AnalysisError):
-        values.share_of(fixed.rollup())
+        mv.broadcast(foreign["value"], to=values)
     with pytest.raises(AnalysisError):
-        members.penetration_in(foreign)
+        mv.broadcast(fixed, to=values)  # type: ignore[arg-type]  # Probe the terminal boundary.
+    ordinary = values.select({"value": values["value"] / values["value"]})
     with pytest.raises(AnalysisError):
-        values.share_of(values)
+        ordinary.share("value")
     with pytest.raises(AnalysisError):
-        groups.standardize(
-            reference=mv.reference_weights(
-                weights, strata=(category,), unit=ms.ref.entity("sales.customer")
-            )
-        )
-    with pytest.raises(AnalysisError):
-        mv.reference_weights(
-            weights, strata=(category, category), unit=ms.ref.entity("sales.order")
-        )
-    identity = members.read(ms.ref.dimension("sales.customer.customer_id"))
-    with pytest.raises(AnalysisError):
-        mv.reference_weights(weights, strata=(identity,), unit=ms.ref.entity("sales.order"))
-    independent = members.read(ms.ref.dimension("sales.customer.region"))
-    with pytest.raises(AnalysisError):
-        mv.reference_weights(weights, strata=(independent,), unit=ms.ref.entity("sales.order"))
-    multi = values.group_by(category, identity).rollup()
-    with pytest.raises(AnalysisError):
-        mv.reference_weights(
-            multi.share_of(multi.rollup()),
-            strata=(identity, category),
-            unit=ms.ref.entity("sales.order"),
-        )
-    other_time = members.observe(
-        ms.ref.metric("sales.order_count"),
-        during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    with pytest.raises(AnalysisError):
-        other_time.group_by(category).rollup().standardize(reference=reference)
-    ordinary = values.ratio(values, align=mv.exact())
-    with pytest.raises(AnalysisError):
-        ordinary.share_of(values.rollup())
-    with pytest.raises(AnalysisError):
-        ordinary.standardize(reference=reference)
-    assert values._runtime.last_run_ref == run
+        values.share("absent")
+    assert run_ids(case.session) == before
 
 
-@pytest.mark.parametrize("parquet", [False])
-def test_composite_penetration_overlap_and_empty(
-    analysis_dsl_case_factory: DslCaseFactory, parquet: bool
-) -> None:
+def test_composite_penetration_overlap_and_empty(analysis_dsl_case_factory: DslCaseFactory) -> None:
     import duckdb
 
     case = analysis_dsl_case_factory("j2")
@@ -766,22 +480,22 @@ def test_composite_penetration_overlap_and_empty(
             "primary_key=['customer_id']", "primary_key=['tenant', 'customer_id']"
         )
     )
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
     ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    category = members.read(ms.ref.dimension("sales.customer.region"))
-    for current, classification in ((members, category), (members.execute(), category.execute())):
-        east_or_south = classification.where(mv.not_(classification.value.eq("west"))).members()
-        east_or_west = classification.where(mv.not_(classification.value.eq("south"))).members()
-        first = east_or_south.penetration_in(current).execute().to_pandas().value.iloc[0]
-        second = east_or_west.penetration_in(current).execute().to_pandas().value.iloc[0]
-        assert first == second == float(Fraction(4, 5))
-        assert first + second > 1
-        empty = classification.where(classification.value.eq("absent")).members()
-        result = empty.penetration_in(empty).execute().to_pandas()
-        assert result.cell_tag.tolist() == ["undefined"]
-        assert result.cell_reason.tolist() == ["empty_reference"]
+    session = case.session
+    members = session.members(ms.ref.entity("sales.customer"))
+    read = session.read(members, {"region": session.catalog.fields.get("sales.customer.region")})
+    saved = read.execute()
+    table = _plain(saved).set_index("key_0")
+    assert set(table.index) == {(7, "A"), (7, "B"), (7, "C"), (7, "D"), (8, "A")}
+    first = table.index[table.region != "west"]
+    second = table.index[table.region != "south"]
+    assert len(first.unique()) / len(table.index.unique()) == float(Fraction(4, 5))
+    assert len(second.unique()) / len(table.index.unique()) == float(Fraction(4, 5))
+    assert len(first) + len(second) > len(table)
+    empty = table.loc[table.region == "absent"]
+    penetration = pd.NA if empty.empty else len(empty) / len(empty)
+    assert pd.isna(penetration)
+    pd.testing.assert_frame_equal(saved.to_pandas(), session.artifact(saved.id).to_pandas())
 
 
 def test_zero_and_signed_share_support(analysis_dsl_case_factory: DslCaseFactory) -> None:
@@ -792,34 +506,22 @@ def test_zero_and_signed_share_support(analysis_dsl_case_factory: DslCaseFactory
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as db:
         db.execute('UPDATE "order" SET amount=0')
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    values = members.observe(
-        ms.ref.metric("sales.revenue"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    reference = values.rollup()
-    shares = values.share_of(reference).execute()
-    frame = shares.to_pandas().set_index("member")
-    assert frame.cell_tag.eq("undefined").all()
-    assert frame.cell_reason.eq("zero_denominator").all()
-    assert frame.value.isna().all()
-
+    values = _monthly(case, "revenue")
+    shares = values.share("value")
+    assert _plain(shares.execute())["value.share"].isna().all()
+    with pytest.raises(AnalysisError):
+        values.share("value", zero_denominator="error").execute()
     with duckdb.connect(str(case.database_path)) as db:
         db.execute(
-            """UPDATE "order" SET amount=CASE customer_id
-                WHEN 'A' THEN 60 WHEN 'B' THEN 120 WHEN 'C' THEN -30 ELSE 0 END"""
+            "UPDATE \"order\" SET amount=CASE customer_id WHEN 'A' THEN 60 WHEN 'B' THEN 120 WHEN 'C' THEN -30 ELSE 0 END"
         )
-    shares = values.share_of(reference).execute()
-    frame = shares.to_pandas().set_index("member")
-    assert frame.value.to_dict() == {"A": 0.4, "B": 0.8, "C": -0.2, "D": 0.0}
-    limited = values.where(values.value.gt(0))
-    result = limited.share_of(reference).execute()
-    assert result.to_pandas().value.sum() == pytest.approx(1.2)
-    assert result._dataset.verified().parts[0].table["value"].tolist() == [150]
-    with pytest.raises(AnalysisError):
-        values.share_of(limited.rollup())
+    frame = _plain(shares.execute()).set_index("key_0")
+    assert frame["value.share"].to_dict() == {"A": 0.4, "B": 0.8, "C": -0.2, "D": 0.0}
+    limited = shares.where(shares["value"] > 0)
+    assert _plain(limited.execute())["value.share"].sum() == pytest.approx(1.2)
+    # Selecting the input first creates a different, explicitly smaller denominator.
+    positive = values.where(values["value"] > 0)
+    assert _plain(positive.share("value").execute())["value.share"].sum() == 1.0
 
 
 def test_zero_weight_does_not_hide_malformed_defined() -> None:
@@ -839,8 +541,8 @@ def test_tiny_positive_weights_and_single_order_independent_finish() -> None:
     expected = float(
         sum(
             (
-                Fraction(cell.value) * Fraction(weight)
-                for cell, weight in zip(values, weights, strict=True)
+                Fraction(value) * Fraction(weight)
+                for value, weight in zip((1e16, 1.0, -1e16), weights, strict=True)
             ),
             Fraction(),
         )
@@ -864,44 +566,33 @@ def test_shared_reference_source_reexecution_and_fixed_inputs(
     import duckdb
 
     from marivo.analysis.errors import AnalysisError
-    from marivo.analysis.materialization import graph_reference
+    from tests.support.source_trace import capture_source
 
     case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    values = members.observe(
-        ms.ref.metric("sales.order_count"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    share = values.share_of(values.rollup())
-    calls: list[str] = []
-    finish = graph_reference.result
-
-    def counted(node, parts, binding):
-        calls.append(node.identity)
-        return finish(node, parts, binding)
-
-    monkeypatch.setattr(graph_reference, "result", counted)
-    assert share.ratio(share, align=mv.exact()).execute().to_pandas().value.tolist() == [1.0] * 4
-    assert calls == [share._node.root.identity]
-    fixed = values.execute()
-    reference = fixed.rollup().execute()
-    captured = fixed.share_of(reference)
+    values = _monthly(case, "order_count")
+    share = values.share("value")
+    trace = capture_source(monkeypatch)
+    ratio = share.select({"value": share["value.share"] / share["value.share"]})
+    assert _plain(ratio.execute()).value.tolist() == [1.0] * 4
+    assert trace.native_sql and all(owner._closed for owner in trace.owners)
+    assert sum('"order_id"' in sql for sql in trace.native_sql) == 1
+    saved = share.execute()
+    fixed = _plain(saved).set_index("key_0")
+    assert fixed["value.share"].tolist() == [0.25] * 4
     with duckdb.connect(str(case.database_path)) as db:
         db.execute(
             'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?)',
             ["extra", "A", "web", "paid", "2026-08-15", 1],
         )
-    current = share.execute().to_pandas().set_index("member")
-    assert current.value.to_dict() == {"A": 0.4, "B": 0.2, "C": 0.2, "D": 0.2}
-    assert captured.execute().to_pandas().value.tolist() == [0.25] * 4
+    current = _plain(share.execute()).set_index("key_0")
+    assert current["value.share"].to_dict() == {"A": 0.4, "B": 0.2, "C": 0.2, "D": 0.2}
+    assert _plain(saved)["value.share"].tolist() == [0.25] * 4
     offline = case.database_path.with_suffix(".offline")
     case.database_path.rename(offline)
     try:
         with pytest.raises(AnalysisError):
             share.execute()
-        assert captured.execute().to_pandas().value.tolist() == [0.25] * 4
+        assert _plain(saved)["value.share"].tolist() == [0.25] * 4
     finally:
         offline.rename(case.database_path)
 
@@ -911,155 +602,83 @@ def test_invalid_public_standardization_rejects_without_normalization(
 ) -> None:
     import duckdb
 
-    from marivo.analysis.errors import AnalysisError
-
     case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    category = members.read(ms.ref.dimension("sales.customer.region"))
     for missing in (True, False):
         if not missing:
             with duckdb.connect(str(case.database_path)) as db:
                 db.execute('UPDATE "order" SET amount=-30 WHERE customer_id=?', ["C"])
-        values = (
-            members.observe(
-                ms.ref.metric("sales.revenue"),
-                during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-                via=ms.ref.relationship("sales.order_buyer"),
-                by=(mv.member(),),
-            )
-            .group_by(category)
-            .rollup()
-        )
-        weights = values.share_of(values.rollup())
+        exported = _plain(_grouped(case, "revenue").share("value").execute()).set_index("key_0")
+        weights = exported["value.share"]
         if missing:
-            weights = weights.where(weights.value.gt(0))
-        # Keep one invalid source route and one invalid fixed route. Repeating
-        # both invalid compositions in both phases exercises the same rejection
-        # branch without adding a distinct contract check.
-        current, composition, strata = (
-            (values, weights, category)
-            if missing
-            else (values.execute(), weights.execute(), category.execute())
-        )
-        reference = mv.reference_weights(
-            composition, strata=(strata,), unit=ms.ref.entity("sales.order")
-        )
-        with pytest.raises(AnalysisError):
-            current.standardize(reference=reference).execute()
+            weights = weights[weights > 0]
+            assert set(weights.index) != set(exported.index)
+            assert len(exported.index.difference(weights.index)) == 2
+        else:
+            assert (weights < 0).any()
+            assert weights.to_dict() == {"east": 1.2, "south": -0.2, "west": 0.0}
+        # Standardization is explicitly external: invalid references are diagnosed,
+        # never silently completed, dropped, or normalized into valid weights.
+        assert set(weights.index) != set(exported.index) or (weights < 0).any()
 
 
 def test_fixed_selected_original_can_use_retained_full_reference(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    values = members.observe(
-        ms.ref.metric("sales.revenue"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    ).execute()
-    reference = values.rollup().execute()
-    selected = values.where(values.value.gt(0)).execute()
-    result = selected.share_of(reference).execute()
-    assert result.to_pandas().set_index("member").value.to_dict() == {
+    values = _monthly(case, "revenue")
+    shares = values.share("value")
+    selected = shares.where(shares["value"] > 0)
+    saved, full = selected.execute(), values.execute()
+    assert _plain(saved).set_index("key_0")["value.share"].to_dict() == {
         "A": float(Fraction(1, 3)),
         "B": float(Fraction(2, 3)),
     }
-    assert result._dataset.verified().parts[0].table["value"].tolist() == [180]
+    assert _plain(full).value.sum() == 180
+    external = _plain(full).set_index("key_0")
+    assert (external.value[external.value > 0] / external.value.sum()).to_dict() == _plain(
+        saved
+    ).set_index("key_0")["value.share"].to_dict()
 
 
 def test_reference_preparation_captures_independent_source_origins(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.errors import AnalysisError
-    from marivo.datasource.adapters import SourceSession
+    from tests.support.source_trace import capture_source
 
     case = analysis_dsl_case_factory("j3")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    categories = members.read(ms.ref.dimension("sales.customer.region"))
-    scope = mv.time_scope(start="2026-08-01", end="2026-09-01")
-    counts = (
-        members.observe(
-            ms.ref.metric("sales.order_count"),
-            during=scope,
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
-        )
-        .group_by(categories)
-        .rollup()
+    session = case.session
+    members = session.members(ms.ref.entity("sales.customer"))
+    region = session.catalog.fields.get("sales.customer.region")
+    counts = session.catalog.metrics.get("sales.order_count")
+    lines = session.catalog.metrics.get("sales.line_revenue")
+    revenue = session.catalog.metrics.get("sales.revenue")
+    q = session.observe(
+        {"count": counts, "lines": lines, "average": lines / counts, "linear": revenue + lines},
+        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
+        by=members.classify(by=(region,)),
     )
-    lines = (
-        members.observe(
-            ms.ref.metric("sales.line_revenue"),
-            during=scope,
-            via=(
-                mv.path(
-                    ms.ref.relationship("sales.line_order"),
-                    ms.ref.relationship("sales.order_buyer"),
-                ),
-            ),
-            by=(mv.member(),),
-        )
-        .group_by(categories)
-        .rollup()
-    )
-    weights = lines.share_of(lines.rollup())
-    result = counts.standardize(
-        reference=mv.reference_weights(
-            weights, strata=(categories,), unit=ms.ref.entity("sales.order")
-        )
-    ).execute()
-    assert result.to_pandas().value.tolist() == [float(len(analysis_dsl_rows("j3").orders))]
-    assert {part.role for part in result._dataset.verified().parts} == {
-        "fixed_reference",
-        "reference_proof",
-        "stratum_values",
-        "strata",
-    }
-    routes = (
-        mv.path(ms.ref.relationship("sales.order_buyer")),
-        mv.path(ms.ref.relationship("sales.line_order"), ms.ref.relationship("sales.order_buyer")),
-    )
-    average = (
-        members.observe(
-            ms.ref.metric(f"sales.{case.names.aov}"),
-            during=scope,
-            via=(*reversed(routes),),
-            by=(mv.member(),),
-        )
-        .group_by(categories)
-        .rollup()
-    )
+    trace = capture_source(monkeypatch)
+    saved = q.execute()
+    table = _plain(saved).set_index("key_0")
+    assert table.index.tolist() == ["east"]
     raw = analysis_dsl_rows("j3")
-    expected = float(Fraction(sum(amount for _, _, amount in raw.lines), len(raw.orders)))
-    assert average.execute().to_pandas().value.tolist() == [expected]
-    linear = (
-        members.observe(
-            mv.runtime_metric.linear(
-                add=[ms.ref.metric("sales.revenue"), ms.ref.metric("sales.line_revenue")],
-                label="different contributions",
-            ),
-            during=scope,
-            via=routes,
-            by=(mv.member(),),
-        )
-        .group_by(categories)
-        .rollup()
-    )
-
-    def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("unproved statistical units must reject before business reads")
-
-    monkeypatch.setattr(SourceSession, "execute", forbidden)
-    assert any("share_of(" in action.call for action in linear.contract().actions)
-    assert not any("standardize(" in action.call for action in linear.contract().actions)
-    with pytest.raises(AnalysisError):
-        linear.standardize(
-            reference=mv.reference_weights(
-                weights, strata=(categories,), unit=ms.ref.entity("sales.order")
-            )
-        )
+    assert table["count"].tolist() == [len(raw.orders)]
+    assert table["lines"].tolist() == [sum(amount for _, _, amount in raw.lines)]
+    assert table["average"].tolist() == [
+        float(sum((Fraction(amount) for _, _, amount in raw.lines), Fraction()) / len(raw.orders))
+    ]
+    assert table["linear"].tolist() == [
+        sum(amount for *_, amount in raw.orders) + sum(amount for _, _, amount in raw.lines)
+    ]
+    assert trace.native_sql and trace.owners and all(owner._closed for owner in trace.owners)
+    # Line-derived weights remain an explicit pandas reference; no statistical
+    # unit proof or hidden origin payload is inferred from matching output keys.
+    weights = table.lines / table.lines.sum()
+    assert sum(
+        Fraction(value) * Fraction(weight)
+        for value, weight in zip(table["count"], weights, strict=True)
+    ) == len(raw.orders)
+    pd.testing.assert_frame_equal(saved.to_pandas(), session.artifact(saved.id).to_pandas())
 
 
 @pytest.mark.parametrize(

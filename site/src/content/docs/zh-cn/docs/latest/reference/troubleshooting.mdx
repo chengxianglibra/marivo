@@ -1,78 +1,40 @@
 ---
-title: 问题排查
-description: 使用具体错误与自有契约修复配置和分析。
+title: 故障排查
+description: 根据具体 expected/received 事实与所属修复指引处理。
 ---
 
-先读结构化错误的 expected input、received facts 和具体 repair。
-修复所述边界时保留原业务含义；下一次调用不熟悉时再读确切 Help。
+先读结构化错误的 expected、received 与 repair，在修复边界时保持原业务含义。
 
-## 选择正确环境与项目
+## 环境和语义范围
 
-运行所选解释器的 `-m marivo doctor --project-root <project>`。Doctor 是只读的。
-缺少可选配置使用默认值；无效 TOML 或配置的 layer root 缺失需要修复。
-在同一环境安装所选 datasource extra。保持 secret 环境引用，验证所需 datasource
-时不展示凭据值。
+使用所选环境的 `marivo doctor --project-root <project>`，并在同一环境安装所需 datasource extra。无效配置或缺失根目录按具体修复指引处理，凭据保留为环境引用。未知名称通过 Catalog 发现；连通性、readiness、有界 preview 与执行是不同证据。
 
-## 修复语义输入
+## 完整键与 Query 归属
 
-未知 ref 需要通过 catalog 发现，而不是猜名称。Readiness blockers 属于所选语义闭包，
-跟随确切 repair。缺少业务描述和 guardrail 不会阻塞 readiness。有界 preview 与
-source-health 失败不改变 Readiness，连接成功不能授权 Metric 方程。
+Column 属于当前精确 Query 输入。使用该输入的列，或先明确 align/broadcast 再组合独立输入。接续[本地教程](/zh-cn/docs/latest/guides/python-quick-start/)：
 
-## 保持执行结果的终态边界
-
-Python 教程绑定 `current`、`baseline`后，此故意失败示例将已提交结果用作计算输入。
-
-{/* example: mixed-input-setup */}
+{/* example: repair-query-domain */}
 
 ```python
-saved_current = current.execute()
+aligned = current.align(baseline, how="outer")
+difference = aligned.select({"difference": aligned["left.revenue"] - aligned["right.revenue"]})
+difference.contract().show()
 ```
 
-{/* example: mixed-input-error */}
+exact 要求完整键唯一且完全对应，outer 通过独立 presence 保留缺侧。缺失值不能替代键或授权补零；字段 Null 是合法类别。完整元组成员谓词保留每个分量，使用 null-safe AND/OR，不能拆成各列独立成员测试。
 
-```python
-# A committed result is not a DSL input; this intentionally fails.
-current.compare(saved_current).execute()
-```
+属性读取使用 `session.read(population, {"name": field})`，域须为单个完整 Entity 身份轴且归属同一 Session。按需提供单值声明 field.via((relationship,)) 路径和精确 field.at(anchor)。缺少必需映射在消费前失败，后置筛选不能隐藏错误。没有 Population.read 或隐式 Session 查找；计算 Measure 应交 observe。
 
-在 `current` 与 `baseline` 都是 Logical 定义时完成比较，再执行整个表达式。
-需要分析保存行时，使用 `to_pandas()` 导出并在 DSL 外继续。已保存结果不能转回 Logical 输入。
+## 时间和数值政策
 
-## 修复谓词与对应关系
+用 session.instant/time_scope 构造精确边界。naive Python datetime、歧义/不存在墙钟时刻、冲突日历权威须明确修复。ordinal 需要相同 Grain、相容时区/日历及完整名义桶；outer 不能修复半桶。日粒度闰日 previous_year 无对应，应明确 outer 或调整期间/粒度，不夹日。
 
-这套独立 commerce 模型声明 order amount、customer region、order_customer 关系。`current`和 `reference`是兼容数量。
+除法默认 zero_denominator 为 null，仅当新被需求除法须失败时选 error；它不会覆盖输入子式政策。非有限、溢出和必要覆盖错误阻止发布。无合格物理路线是能力错误，不能改算法、来源或引擎来绕过。
 
-{/* example: verification-premises */}
+## 终端输出与失败 Run
 
-```python
-orders = session.members(ms.ref.entity("commerce.order"))
-amounts = orders.read(ms.ref.measure("commerce.order.amount"))
-regions = orders.read(
-    ms.ref.dimension("commerce.customer.region"),
-    via=ms.ref.relationship("commerce.order_customer"),
-)
-quotient = current.ratio(reference, align=mv.exact())
-change = current.compare(reference, align=mv.exact())
-quotient.contract().show()
-```
+保留精确 Session/Artifact ID 和项目本地状态。`session.artifact(id)` 打开已提交元数据，产物不能传入 compare/observe 或转回 Query。对保存行使用 to_pandas；新来源计算构造新 Query。
 
-先选择 Defined 值，再调用数值谓词。完整 typed key tuples、Session ownership 与单位
-必须匹配。关系完整匹配信任消费契约，保留为未验证前提，不自动查询验证。
-目标记录存在但字段为空时，仍返回 `Null(source_null)`；缺失目标操作数在字段消费时失败。
-后续过滤或归约不能隐藏该失败：字段读取结果只消费一次，后续计算复用该结果。
-这不构成匹配检查证明，也不新增缺失规则。
-键配对固定 checked，未知键集合相等性会检查；适用声明和冻结构造证据仍有效。
-compare 的缺侧可用 `align=mv.outer()` 显式保留。
+已准入错误的 run_ref 定位精确 Run，通过 `session.get_run(run_ref).show()` 检查。修复后 execute 是新 invocation。reconciliation 解析原 journal，不重放计算；生命周期入口可清理未完成/失败 Run 的资源并保留历史。
 
-时期比较通过 `align.time` 显式选择 ordinal、weekday、holiday 或 holiday_then_weekday，均输出规范 string 键。星期和节假日映射要求日粒度网格，节假日 occurrence 必须具有与对应网格时区一致的整日边界。exact 要求对齐键集合相等，outer keep
-允许任一侧网格更长。`empty_value` 不能修复另一窗口外未观察的时间键：应改用
-keep 或调整窗口。对齐输出保留两侧原时间投影，但不挂载 time_grid；时间分组、
-runs、forecast 和显式 lag correlate 应在原端点上完成，再比较。普通筛选与行统计
-仍遵循各自准入契约。
-
-## 修复恢复与输出
-
-保留确切 Session ID、Artifact ref 和项目本地状态。旧代拒绝读取且不迁移；
-恢复不能通过重放来源修复不可读或缺失的所需数据。需要当前数据时，显式创建新的 live 结果。
-`show(n=0)`可查看元数据，按需提高展示预算。展示限制不改变查询或执行预算。
+旧 Store 原样拒绝。缺失/损坏输出不能在恢复时重跑来源补救；保留原状态，按要求使用全新当前格式项目。preview 限制只影响展示，不截断执行或完整导出。

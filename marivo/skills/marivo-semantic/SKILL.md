@@ -134,8 +134,9 @@ parts of the task that construction and existing leaf checks can establish.
 Leave authoring when its selected exit is satisfied. For analysis handoff, pass
 the exact ready refs or `analysis_ready_inputs` to `marivo-analysis` and continue
 the original question. Kind-level Help routes identify candidate consumers;
-their focused contracts own companion inputs, and returned analysis artifacts
-own state-specific continuations.
+their focused contracts own companion inputs. Population and Query contracts
+own valid computation continuations; returned Artifacts are terminal saved
+output and do not resume typed computation.
 
 For authoring-only work, report the slice, evidence and scope, material business
 authority, checks performed, their outcomes, exact roots, and remaining risks.

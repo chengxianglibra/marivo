@@ -74,29 +74,20 @@ def test_installed_public_multisource_journey(
             phase(name)
         if engine == "mysql":
             phase("native")
-        phase("invalidate")
-        phase("invalid")
     finally:
         if (project / "prefix").exists():
             phase("remove")
-    phase("fixed")
-    phase("cold")
     phase("offline")
-    produced = read(candidate.reports / f"{engine}-produce.json")
-    cold = read(candidate.reports / f"{engine}-cold.json")
-    fixed = read(candidate.reports / f"{engine}-fixed.json")
-    result = obj(cold["result"])
-    assert result["source_tables_removed"] is True
-    assert result["source_connection_forbidden"] is True
-    receipts = arr(result["receipts"])
-    for item in receipts:
-        receipt = obj(item)
-        assert receipt["new_runs"] == 0
-        assert receipt["cache_reused"] is True
-    assert len(receipts) == 3
-    assert len({produced["pid"], fixed["pid"], cold["pid"]}) == 3
-    assert all(obj(receipt)["new_runs"] == 1 for receipt in arr(obj(fixed["result"])["receipts"]))
-    assert obj(produced["result"])["session"] == obj(cold["result"])["session"]
+    produced = obj(read(candidate.reports / f"{engine}-produce.json")["result"])
+    assert produced["query_status"] == "unqualified"
+    assert produced["remote_artifact_cold_status"] == "unqualified"
+    receipts = arr(produced["receipts"])
+    assert len(receipts) == 4
+    assert all(obj(item)["new_runs"] == 0 and obj(item)["new_artifacts"] == 0 for item in receipts)
+    assert len(arr(produced["datasource_facts"])) == 4
+    assert len(arr(produced["datasource_totals"])) == 2
+    # Remote numerical/cold production has no qualified route. Local terminal
+    # recovery is exercised independently by the installed DuckDB journeys.
 
 
 @pytest.mark.parametrize(

@@ -1,60 +1,20 @@
-"""Regression counterexamples from the adversarial review."""
+"""Calendar/rank kernels and pandas statistics retain their owning boundaries."""
 
 from datetime import datetime, timedelta
 from fractions import Fraction
 from typing import Literal
 
+import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
+from marivo._temporal import time_scope
 from marivo.analysis.core.time_grid import bind_grid, continuation
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.graph_exchange import from_pandas
 from marivo.analysis.materialization.statistical_execution import _verify_ranks
 from marivo.analysis.methods.deviation_numeric import RationalFact
-from tests.shared_fixtures import DslCaseFactory
-
-
-@pytest.mark.parametrize("family", ("association", "forecast"))
-def test_ratio_statistics_require_original_coverage(
-    analysis_dsl_case_factory: DslCaseFactory,
-    family: Literal["association", "forecast"],
-) -> None:
-    case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-07-01", end="2026-10-01"), grain=mv.grain("month")
-    )
-    history = (
-        members.observe(
-            ms.ref.metric("sales.order_count"),
-            during=grid,
-            via=ms.ref.relationship("sales." + case.names.buyer),
-            by=(mv.member(),),
-        )
-        .group_by(grid)
-        .rollup()
-        .execute()
-    )
-    ratio = history.ratio(history).execute()
-    assert ratio.to_pandas().cell_tag.tolist() == ["defined"] * 3
-    with pytest.raises(AnalysisError, match="original captured coverage fact"):
-        if family == "association":
-            revenue = (
-                members.observe(
-                    ms.ref.metric("sales.revenue"),
-                    during=grid,
-                    via=ms.ref.relationship("sales." + case.names.buyer),
-                    by=(mv.member(),),
-                )
-                .group_by(grid)
-                .rollup()
-                .execute()
-            )
-            ratio.correlate(revenue.ratio(revenue).execute(), method="pearson").execute()
-        else:
-            ratio.forecast(horizon=mv.periods(1), model=mv.naive()).execute()
+from tests.analysis.statistics.pandas_workflows import daily, forecast, monthly, plain
+from tests.shared_fixtures import DslCaseFactory, run_ids
 
 
 @pytest.mark.parametrize(
@@ -72,7 +32,7 @@ def test_future_grid_uses_actual_dst_boundaries(
     finish = datetime.fromisoformat(end)
     step = timedelta(hours=1) if unit == "hour" else timedelta(minutes=1)
     history = bind_grid(
-        mv.time_scope(start=finish - 2 * step, end=finish),
+        time_scope(start=finish - 2 * step, end=finish),
         mv.grain(unit),
         report_timezone="America/New_York",
     )
@@ -93,84 +53,53 @@ def test_rank_witness_ties_and_corruption() -> None:
 
 
 @pytest.mark.parametrize("family", ("association", "forecast"))
-@pytest.mark.parametrize("fixed", (False, True))
-def test_statistical_rank_projection_and_tables(
+def test_exported_ratio_na_limits_pandas_statistical_input(
     analysis_dsl_case_factory: DslCaseFactory,
-    family: Literal["association", "forecast"],
+    family: str,
+) -> None:
+    case = analysis_dsl_case_factory("j2")
+    query = daily(case)
+    ratio = query.select({"value": query["value"] / query["value"]}).execute()
+    frame = plain(ratio)
+    assert frame.value.iloc[0] == 1 and frame.value.iloc[1:].isna().all()
+    before = run_ids(case.session)
+    if family == "association":
+        assert pd.isna(frame.value.astype(float).corr(frame.value.astype(float)))
+    else:
+        with pytest.raises(ValueError, match="too short"):
+            forecast(frame.value.dropna())
+    assert run_ids(case.session) == before
+
+
+@pytest.mark.parametrize("family", ("association", "forecast"))
+@pytest.mark.parametrize("fixed", (False, True))
+def test_exported_statistics_use_pandas_rank_projection(
+    analysis_dsl_case_factory: DslCaseFactory,
+    family: str,
     fixed: bool,
 ) -> None:
     case = analysis_dsl_case_factory("j4_ties")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    via = ms.ref.relationship("sales." + case.names.buyer)
-    logical: mv.LogicalAssociationResult | mv.LogicalForecastResult
-    numeric: (
-        mv.MaterializedNumericRelation
-        | mv.LogicalNumericRelation
-        | mv.MaterializedCoefficientRelation
-        | mv.LogicalCoefficientRelation
+    artifact = (
+        monthly(case, "2026-08-01", "2026-09-01").execute()
+        if family == "association"
+        else daily(case).execute()
     )
-    if family == "association":
-        during = mv.time_scope(start="2026-08-01", end="2026-09-01")
-        a = members.observe(
-            ms.ref.metric("sales.revenue"),
-            during=during,
-            via=via,
-            by=(mv.member(),),
-        )
-        b = members.observe(
-            ms.ref.metric("sales.order_count"),
-            during=during,
-            via=via,
-            by=(mv.member(),),
-        )
-        logical = a.correlate(b, method="spearman")
-        numeric = logical.execute().coefficient if fixed else logical.coefficient
-    else:
-        grid = mv.time_grid(
-            during=mv.time_scope(start="2026-08-01", end="2026-08-04"), grain=mv.grain("day")
-        )
-        history = members.observe(
-            ms.ref.metric("sales.order_count"),
-            during=grid,
-            via=via,
-            by=(mv.member(),),
-        )
-        logical = history.forecast(horizon=mv.periods(2))
-        numeric = logical.execute().prediction if fixed else logical.prediction
     if fixed:
         case.database_path.rename(case.database_path.with_suffix(".offline"))
-    ranking = numeric.rank(order="descending", ties="dense")
-    ranked = ranking.ranks.execute()
-    expected = ranked.to_pandas().value.tolist()
-    assert expected and min(expected) == 1
-    findings = ranked.evidence_digest().finding_count
-    assert findings > 0
-    for combined in (False, True):
-        table = (
-            mv.table(value=ranking.values, rank=ranking.ranks)
-            if combined
-            else mv.table(rank=ranking.ranks)
-        ).execute()
-        table_frame = table.to_pandas()
-        assert table_frame["rank"].tolist() == expected
-        assert table._dataset is not None
-        assert table._dataset.evidence_digest().finding_count == findings
-        ref = table.artifact_ref
-        restored = case.session.artifact(ref.ref)
-        assert isinstance(restored, mv.MaterializedTable)
-        assert restored.to_pandas().equals(table_frame)
-        assert table._dataset is not None
-        checked = table._dataset.verified()
-        with pytest.raises(AnalysisError):
-            from_pandas(
-                checked.primary,
-                checked.contract,
-                parts=tuple(p for p in checked.parts if p.role != "table_fits"),
-                method_state=checked.method_state,
-            )
-        bad = checked.primary.copy()
-        bad["column_0__value"] = [999] * len(checked.primary)
-        with pytest.raises(AnalysisError):
-            from_pandas(
-                bad, checked.contract, parts=checked.parts, method_state=checked.method_state
-            )
+    frame = plain(case.session.artifact(artifact.id))
+    before = run_ids(case.session)
+    if family == "association":
+        coefficient = (
+            frame[["value", "count"]].astype(float).corr(method="spearman").loc["value", "count"]
+        )
+        values = pd.DataFrame({"value": [coefficient]})
+    else:
+        values = forecast(frame.value).rename(columns={"prediction": "value"})
+    values["rank"] = values.value.rank(method="dense", ascending=False)
+    selected = values.sort_values("rank", kind="stable")
+    assert not selected.empty and selected["rank"].min() == 1
+    assert selected["rank"].is_monotonic_increasing
+    pd.testing.assert_frame_equal(
+        selected[["rank"]], values[["rank"]].sort_values("rank", kind="stable")
+    )
+    assert run_ids(case.session) == before

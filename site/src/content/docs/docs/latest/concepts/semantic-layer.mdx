@@ -61,7 +61,7 @@ connection does not prove remote query termination.
 
 ## Local expressions and publication
 
-Physical constructors return typed capture Refs. After the complete scope is finalized, resolving those lookup keys produces immutable expression values with complete dependency facts. Measure/Metric are pure zero-argument declarations over constructed objects, separating names from computation. They need no active loader/Session and do not publish Catalog objects. Current R1.3 supplies construction; R1.4 owns new Metric collection and public discovery, and R2 owns the new execution path. Entity/Source and categorical/time fields retain restricted Ibis authoring.
+Physical constructors return typed capture Refs. After the complete scope is finalized, resolving those lookup keys produces immutable expression values with complete dependency facts. Measure/Metric are pure zero-argument declarations over constructed objects, separating names from computation. They need no active loader/Session and do not publish Catalog objects. Model loading collects named Metrics for current Catalog discovery. Execution automatically prepares real physical types; native Deferred arithmetic and explicit per/window policies follow the owning semantic contract. Entity/Source and categorical/time fields retain restricted Ibis authoring.
 
 Physical authoring captures typed Refs. Capture every dependency, then use `ms.finalize()` and `finalized.resolve(ref)` before composing row/Metric expressions. Finalization closes capture and does not publish Catalog Metrics or enable new execution.
 

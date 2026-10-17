@@ -2,10 +2,11 @@
 
 Date: 2026-10-17
 
-Status: proposed v0.37；本次能力补全和原生 Ibis 修订尚未实施，不构成当前 API、后端能力或 Runtime 验收声明。
+Status: v0.37 目标 DSL 与实施合同。原生 Deferred 表达式、基础窗口及既有终端执行/读取已实施；
+Population 与 Query 扩展已按本轮 R3–R8 接通并通过聚焦本地检查；完整独立验收仍单独进行。本文的目标条目不单独证明公开集成、后端资格或 Runtime 验收。
 v0.37 补齐 first/last、approx_*、membership 分桶、来源/内部样本 sum(empty=) 及命名窗口 Metric；规则与语义提案同步。
 2026-10-17 fanout 修订约束贡献身份、出现次数和规约次序，不固定 join/aggregate 顺序；
-各类表达与能力边界由[语义 §3.7.1–§3.7.2](../semantic/expression-model-redesign.md#371-fanout-的表达方式与能力边界)拥有，仍为未实施提案。
+各类表达与能力边界由[语义 §3.7.1–§3.7.2](../semantic/expression-model-redesign.md#371-fanout-的表达方式与能力边界)拥有，其物理路线以实际准入和验证为准。
 v0.36 与语义提案 §2.6/§3.6 同步：命名和匿名 Measure/Metric 直接使用受控原生 Ibis 数值表达式，execute 自动绑定物理类型。
 本文仅定义目标 DSL 的对象、签名、绑定规则与求值语义；v0.28 统一行/Metric 计算表达式，
 装饰器只负责声明，政策归各算子；显式不可变域依赖的持久解析要求归模型收录。
@@ -246,7 +247,8 @@ def get_or_create(
     name: str,
     *,
     question: str | None = None,
-    report_timezone: str = "UTC",
+    report_timezone: str | None = None,
+    domains: str | Sequence[str] | None = None,
 ) -> Session: ...
 
 
@@ -285,6 +287,7 @@ class Session:
         where: FieldPredicate | PopulationPredicate | None = None,
     ) -> Population: ...
     def query(self, population: Population) -> Query: ...
+    def read(self, population: Population, fields: Mapping[str, Field]) -> Query: ...
     def values(
         self,
         *,
@@ -435,7 +438,6 @@ class Population:
     def union(self, other: Population) -> Population: ...
     def intersection(self, other: Population) -> Population: ...
     def difference(self, other: Population) -> Population: ...
-    def read(self, fields: Mapping[str, Field]) -> Query: ...
     def classify(self, *, by: tuple[MemberAxis | Field | MembershipAxis, ...]) -> Population: ...
     def image(
         self,
@@ -453,7 +455,7 @@ class Population:
 ```
 
 所有域共用集合、已有轴投影、纯坐标筛选和唯一保存路径；不按来源拆分公开域类型。
-read、classify、image、preimage 只接受单个已绑定 Entity 身份轴的接收者；preimage 的 targets 也须为
+Session.read 的 population 参数，以及 classify、image、preimage 的接收者，只接受单个已绑定 Entity 身份轴；preimage 的 targets 也须为
 路径目标 Entity 的单身份轴域。形状不符立即指出实际轴及所需投影，不引入可空 entity 或权限标志。
 这些对象始终 lazy；Population 不提供 execute，使用 s.query(population).execute() 保存完整键。
 Population.contract 只披露定义、已有绑定/归属和可判定操作，不枚举未知键集或触发业务/schema 读取；
@@ -465,10 +467,12 @@ identities 则保留明确请求的身份引用，包括未由来源确认的键
 返回类型相同。未执行的 query(population).population() 可作为 members 输入；执行所得 Artifact 不能作为身份输入。
 
 Population.where 只接受 in_population 及其布尔组合，测试接收者已有坐标，不读取缺少的字段。
-初始来源条件放在 Session.members(..., where=...)；对固定身份读取新属性时，先 read，
-再按返回的 Column 筛选并取 population()。read 返回 Query，筛选在同一逻辑输入上组合；已导出的旧属性筛选由 pandas 处理。
+初始来源条件放在 Session.members(..., where=...)；对固定身份读取新属性时，先调用 session.read(population, fields)，
+再按返回的 Column 筛选并取 population()。Session.read 返回 Query，筛选在同一逻辑输入上组合；已导出的旧属性筛选由 pandas 处理。
 
-read 保留完整输入身份键，字段成为量列；同 customer_id 的两个订单仍两行。
+Session.read(population, fields) 是属性读取的唯一入口。它由显式 Session 绑定归属和执行服务，
+不查询 ambient Session，也不保留 Population.read 别名。它保留完整输入身份键，字段成为命名量列；
+同 customer_id 的两个订单仍两行。纯字面量身份域在该消费处绑定 Session，已有归属必须相容。
 classify(by=...) 接收 Field、接收者原有的 MemberAxis，以及 owner 与接收者完整身份/角色/版本相容的 MembershipAxis：
 它在构造目标桶域，直接读取当前成员身份的单值字段，不执行事实根到桶的分配路径；描述中的自关系路径也不在此展开。
 membership 保留下游分桶描述，事实消费者再按显式路径优先规则绑定。
@@ -482,7 +486,7 @@ image(via=...) 沿声明关系取得目标身份，preimage 只在接收者有�
 读取必需属性/版本或补足关联键才引入相应来源依赖；所需绑定缺失与合法无关联分别处理。
 路径按声明方向连续连接，空元组/反向/断端拒绝。关系映射不传递原指标贡献过滤，也不恢复原贡献出现。
 
-字面量身份域只固定键。read、classify、image 的属性或关系读取明确引入新依赖，版本锚点不能
+字面量身份域只固定键。Session.read、classify、image 的属性或关系读取明确引入新依赖，版本锚点不能
 静默替换成当前；来源不可用不能退回旧属性。实体、完整复合键、角色、属性版本和 Session 仍须检查。
 
 #### 4.2.1 像、逆像与已有坐标投影
@@ -499,7 +503,7 @@ image(via=...) 沿声明关系取得目标身份，preimage 只在接收者有�
 
 | 操作 | 结果与读取边界 |
 | --- | --- |
-| read(fields) | 保留输入身份，一身份一行，字段作为量列；显式读取属性 |
+| session.read(population, fields) | 保留输入身份，一身份一行，字段作为量列；显式读取属性 |
 | classify(by=fields) | 读取单值分类并对完整元组去重；普通字段值不会升级为另一个 Entity 的身份 |
 | image(via=(relationship,)) | 取得声明目标 Entity 的身份；可用来源关联键时不强制读目标档案 |
 | preimage(targets, via=(relationship,)) | 在接收者身份域内筛出有匹配的身份；不传播 targets 的原贡献过滤 |
@@ -657,7 +661,7 @@ def product(*factors: Population | CalendarAxis) -> Population: ...
 
 
 def identities(
-    entity: EntityRef,
+    entity: Entity,
     *,
     keys: tuple[tuple[LiteralValue, ...], ...],
 ) -> Population: ...
@@ -677,18 +681,21 @@ def in_population(population: Population) -> PopulationPredicate: ...
 
 Field 在 by 中是字段绑定轴，须有合法单值分类；按原类型形成完整元组。
 源 Null 默认归独立的 None 键，参与分组、投影、集合和对齐，不删除贡献；
-同字段绑定下按坐标相等性匹配，coord(None) 是合法空分类坐标，不是缺侧或缺映射。
+同字段绑定下按坐标相等性匹配，字段坐标值 None 是合法空分类，不是缺侧或缺映射。
 复合轴逐字段分类；缺映射、非法计算和覆盖失败不能伪装成 None。
 推导域仅在实际出现 Null 分类时产生此键；显式请求 None 时即使无贡献也按 空输入规则保留。
 
 | 操作 | 定义与约束 |
 | --- | --- |
-| identities(entity, keys) | 唯一手写身份名单入口；Entity 只给一次，每个键是按声明次序的完整主键元组，允许未经来源确认的身份引用；空 keys 仍是该 Entity 的类型化空域 |
+| identities(entity, keys) | 唯一手写身份名单入口；只接已解析 Entity，不接裸 EntityRef，也不查找隐式 Session；每个键是按声明次序的完整主键元组，允许未经来源确认的身份引用；空 keys 仍是该 Entity 的类型化空域 |
 | coordinates(by, keys) | 唯一手写字段坐标域入口，声明展开后的完整有限元组，允许稀疏域；显式 MembershipAxis 保留其分桶绑定 |
 | product(*factors) | 至少两个不重复轴因子，按参数次序拼轴并作笛卡尔积；日历因子提供完整桶，任一空因子使结果为空 |
 | Query.population() | 当前逻辑输出坐标；保留筛选、来源依赖及必要检查，不提前固定键 |
 | Population.project(by) | 从已有轴或本次图的端点投影中选取/重排并去重完整元组，不读新属性；投影须全定义，outer 缺侧先按 presence 筛选 |
 | union/intersection/difference | 按完整元组作并、交、左差；要求相同有序轴、身份类型、角色、版本/时间及相等性，不按列名合并或自动重排 |
+
+identities 的 Entity 先从已完成的 finalize scope 或 catalog.entities.get(entity_ref) 解析。
+构造身份名单不读取来源，也不由键值猜测 Entity。
 
 空域保留轴类型；投影到零轴时，非空输入得 {()}，空输入仍空。
 手写坐标按轴检查：
@@ -876,6 +883,10 @@ compare 产生的 Query 不支持直接 drill；先在明确观察端点上分�
 
 `select` 只改变量列，保留完整键和轴绑定；不能通过省略一列偷偷合并坐标。
 `coord` 定位实际保留的轴绑定；相同语义字段的多个角色或版本须明确区分。
+构造 Column 不读取来源；execute 准备期按完整键 schema 检查该轴只有一个标量分量，
+复合身份坐标作为单量列在 Run 准入和业务 compile/read 之前明确拒绝，不引入 tuple 量值类型。
+完整复合身份仍可作为输出坐标、Population 完整元组谓词及导出键；
+需要单量值时选取已有单字段轴，身份筛选使用 population 与 in_population。
 输入 Column 必须属于同一已建立的坐标域，或已通过 align/broadcast 取得对应。
 同样的 schema 或恰好相同的行数不能建立这种关系。
 

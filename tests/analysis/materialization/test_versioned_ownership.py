@@ -11,7 +11,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization import graph_store
+from marivo.analysis.materialization import terminal_store
 from marivo.datasource.adapters import SourceSession
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
@@ -80,25 +80,39 @@ def test_versioned_read_foreign_predicates_refuse_before_read_or_run(
             mv.session.get_or_create("r94-owner-right", report_timezone="UTC"),
         ]
         point = datetime(2026, 8, 1, tzinfo=timezone.utc)
-        logical = [
-            (
-                owner.members(ms.ref.entity("sales.subjects"), at=point).read(
-                    ms.ref.measure("sales.subjects.amount"), at=point
-                ),
-                owner.members(ms.ref.entity("sales.subjects"), at=point).read(
-                    ms.ref.dimension("sales.subjects.tenant"), at=point
-                ),
-                owner.members(ms.ref.entity("sales.subjects"), at=point).read(
-                    ms.ref.dimension("sales.subjects.enabled"), at=point
-                ),
-                owner.members(ms.ref.entity("sales.subjects"), at=point).read(
-                    ms.ref.time_dimension("sales.subjects.beginning"), at=point
-                ),
+        logical = []
+        for owner in sessions:
+            at = owner.instant(point)
+            members = owner.members(ms.ref.entity("sales.subjects"), at=at)
+            logical.append(
+                tuple(
+                    owner.read(members, {"value": owner.catalog.fields.get(path).at(at)})
+                    for path in (
+                        "sales.subjects.amount",
+                        "sales.subjects.tenant",
+                        "sales.subjects.enabled",
+                        "sales.subjects.beginning",
+                    )
+                )
             )
-            for owner in sessions
-        ]
         fixed = [tuple(value.execute() for value in values) for values in logical]
-        saved = [[snapshot(value) for value in values] for values in fixed]
+        frames = [[value.to_pandas() for value in values] for values in fixed]
+        for family_frames in frames:
+            assert all(
+                frame.iloc[:, 0].tolist() == [(9007199254740992, "a"), (9007199254740993, "b")]
+                for frame in family_frames
+            )
+            assert family_frames[0][("value", "value")].tolist() == [10, 20]
+            assert family_frames[1][("value", "value")].tolist() == ["a", "b"]
+            assert family_frames[2][("value", "value")].tolist() == [False, True]
+            assert family_frames[3][("value", "value")].tolist() == [date(2026, 8, 1)] * 2
+        saved = [
+            [
+                snapshot(value, frame=frame)
+                for value, frame in zip(values, family_frames, strict=True)
+            ]
+            for values, family_frames in zip(fixed, frames, strict=True)
+        ]
         before = [run_ids(owner) for owner in sessions]
         published_before = [publication_counts(owner) for owner in sessions]
         calls: list[str] = []
@@ -112,21 +126,24 @@ def test_versioned_read_foreign_predicates_refuse_before_read_or_run(
 
         for name in ("__enter__", "bind", "compile", "execute"):
             monkeypatch.setattr(SourceSession, name, tripwire("source." + name))
-        monkeypatch.setattr(graph_store, "admit", tripwire("graph_store.admit"))
+        monkeypatch.setattr(terminal_store, "admit", tripwire("terminal_store.admit"))
         errors: list[Json] = []
-        for mode, pairs in (("logical", logical), ("fixed", fixed)):
-            for left, right in ((pairs[0], pairs[1]), (pairs[1], pairs[0])):
-                for family, value, foreign in zip(
-                    ("numeric", "category", "boolean", "temporal"), left, right, strict=True
-                ):
+        for left, right in ((logical[0], logical[1]), (logical[1], logical[0])):
+            for family, value, foreign in zip(
+                ("numeric", "category", "boolean", "temporal"), left, right, strict=True
+            ):
+                for operation in ("predicate", "comparison"):
                     with pytest.raises(AnalysisError) as caught:
-                        value.where(foreign.value.is_defined()).execute()
+                        if operation == "predicate":
+                            value.where(~foreign["value"].is_null())
+                        else:
+                            value.compare(foreign)
                     error = caught.value
                     assert error.expected and error.received and error.repair is not None
                     assert error.repair.action
                     errors.append(
                         {
-                            "mode": mode,
+                            "operation": operation,
                             "family": family,
                             "type": type(error).__name__,
                             "expected": error.expected,

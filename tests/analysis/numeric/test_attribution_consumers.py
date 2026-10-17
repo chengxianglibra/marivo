@@ -1,26 +1,23 @@
 """Bounded additive and component attribution source and retained consumers."""
 
-import json
-import os
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import NoReturn
+from typing import Literal, NoReturn
 
+import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.graph_protocol import descriptor_plan
 from marivo.datasource.adapters import SourceSession
-from marivo.refs import DimensionKind, Ref
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.reference_fixtures import reference_data
 from tests.analysis.graph.source_fixtures import author_source_project
+from tests.analysis.numeric.attribution_workflows import allocation
+from tests.analysis.statistics.pandas_workflows import plain
 from tests.datasource.source_cases import source_case
-from tests.support.json import key_json
 from tests.support.source_trace import SourceTrace
 
 
@@ -71,113 +68,106 @@ def test_source_and_retained(
         author_source_project(backend, case, monkeypatch, semantic_project_factory)
         models = tmp_path / "models/semantic/sales/models.py"
         models.write_text(
-            models.read_text()
-            + "\nregion = ms.dimension_column(name='region', entity=facts, column='region')\n"
-            + "null_region = ms.dimension_column(name='null_region', entity=facts, column='null_region')\n"
+            models.read_text().replace(
+                "frozen = ms.finalize()",
+                "region = ms.dimension_column(name='region', entity=facts, column='region')\n"
+                "null_region = ms.dimension_column(name='null_region', entity=facts, column='null_region')\n"
+                "frozen = ms.finalize()",
+            )
         )
         session = mv.session.get_or_create("r93-attribution", report_timezone="UTC")
         members = session.members(ms.ref.entity("sales.facts"))
-        for metric_kind, axis_kind in (("sum", "single"), ("mean", "joint"), ("sum", "null")):
-            axes: tuple[Ref[DimensionKind], ...] = (ms.ref.dimension("sales.facts.bucket"),)
-            if axis_kind == "joint":
-                axes += (ms.ref.dimension("sales.facts.region"),)
-            elif axis_kind == "null":
-                axes += (ms.ref.dimension("sales.facts.null_region"),)
-            current = members.observe(
-                ms.ref.metric("sales.total" if metric_kind == "sum" else "sales.average"),
-                during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
-                by=(
-                    mv.member(),
-                    *axes,
-                ),
-            ).rollup()
-            baseline = members.observe(
-                ms.ref.metric("sales.total" if metric_kind == "sum" else "sales.average"),
-                during=mv.time_scope(start="2026-07-31", end="2026-08-01"),
-                by=(
-                    mv.member(),
-                    *axes,
-                ),
-            ).rollup()
-            change = current.compare(baseline).absolute
+        fields = {
+            name: session.catalog.fields.get("sales.facts." + path)
+            for name, path in (
+                ("channel", "bucket"),
+                ("region", "region"),
+                ("null_region", "null_region"),
+                ("amount", "amount"),
+                ("time", "happened"),
+            )
+        }
+        facts = session.read(members, fields)
+        current = facts.where(
+            (facts["time"] >= datetime(2026, 8, 1, tzinfo=timezone.utc))
+            & (facts["time"] < datetime(2026, 8, 2, tzinfo=timezone.utc))
+        ).execute()
+        baseline = facts.where(
+            (facts["time"] >= datetime(2026, 7, 31, tzinfo=timezone.utc))
+            & (facts["time"] < datetime(2026, 8, 1, tzinfo=timezone.utc))
+        ).execute()
+        source_trace.record(current)
+        source_trace.record(baseline)
+        current_frame, baseline_frame = plain(current), plain(baseline)
+        assert (
+            current_frame.amount.tolist()[0] == 2
+            and pd.isna(current_frame.amount.tolist()[1])
+            and current_frame.amount.tolist()[2] == 4
+        )
+        assert baseline_frame.amount.tolist() == [3, 5]
+        cases: tuple[tuple[Literal["sum", "mean"], str], ...] = (
+            ("sum", "single"),
+            ("mean", "joint"),
+            ("sum", "null"),
+        )
+        for metric_kind, axis_kind in cases:
+            axes = (
+                ("channel", "region")
+                if axis_kind == "joint"
+                else ("channel", "null_region")
+                if axis_kind == "null"
+                else ("channel",)
+            )
+            runs_before = session.runs().items
             if axis_kind == "null":
-                before = set((tmp_path / ".marivo").rglob("*.parquet"))
-                with pytest.raises(MaterializationError) as invalid_axis:
-                    change.attribute(axes=axes).execute()
-                assert invalid_axis.value.expected == "cell_policy"
-                assert invalid_axis.value.received == "5 violating rows"
-                assert invalid_axis.value.repair is not None
-                assert invalid_axis.value.run_ref is not None
-                assert session.get_run(invalid_axis.value.run_ref).lifecycle == "failed"
-                assert set((tmp_path / ".marivo").rglob("*.parquet")) == before
+                # Nullable source Fields are legal. This explicit external recipe
+                # requires a complete non-null classification for allocation.
+                assert (
+                    current_frame.null_region.isna().all()
+                    and baseline_frame.null_region.isna().all()
+                )
+                with pytest.raises(ValueError, match="non-null labels"):
+                    allocation(current_frame, baseline_frame, method="sum", axes=axes, parents=())
+                assert session.runs().items == runs_before
                 continue
-            fixed: mv.MaterializedAttributionResult | None = None
-            source = change.attribute(axes=axes).execute()
-            source_trace.record(source)
-            business_keys = [f"coord_{i}" for i in range(len(axes))]
-            source_table = (
-                mv.table(
-                    current=source.current,
-                    baseline=source.baseline,
-                    contribution=source.contribution,
-                )
-                .execute()
-                .to_pandas()
-                .sort_values(business_keys)
-                .reset_index(drop=True)
+            result = allocation(
+                current_frame, baseline_frame, method=metric_kind, axes=axes, parents=()
             )
-            source_frame = source_table.loc[:, [*business_keys, "contribution"]].rename(
-                columns={"contribution": "value"}
-            )
-            for column, expected in (
-                (
-                    "current",
-                    {"a": 2, "b": 4, "c": 0} if metric_kind == "sum" else {"a": 1, "b": 2, "c": 0},
-                ),
-                (
-                    "baseline",
-                    {"a": 0, "b": 3, "c": 5}
-                    if metric_kind == "sum"
-                    else {"a": 0, "b": 1.5, "c": 2.5},
-                ),
-            ):
-                assert (
-                    dict(zip(source_table.coord_0, source_table[column], strict=True)) == expected
-                )
-            expected_contributions = (
-                {"a": 2, "b": 1, "c": -5} if metric_kind == "sum" else {"a": 1, "b": 0.5, "c": -2.5}
-            )
-            assert source_frame.value.dtype.kind == ("i" if metric_kind == "sum" else "f")
+            divisor = 1 if metric_kind == "sum" else 2
+            assert dict(zip(result.channel, result.current, strict=True)) == {
+                "a": 2 / divisor,
+                "b": 4 / divisor,
+                "c": 0,
+            }
+            assert dict(zip(result.channel, result.baseline, strict=True)) == {
+                "a": 0,
+                "b": 3 / divisor,
+                "c": 5 / divisor,
+            }
+            assert dict(zip(result.channel, result.contribution, strict=True)) == {
+                "a": 2 / divisor,
+                "b": 1 / divisor,
+                "c": -5 / divisor,
+            }
+            if axis_kind == "joint":
+                assert result.region.tolist() == ["east"] * 3
             if axis_kind == "single":
-                assert (
-                    dict(zip(source_frame.coord_0, source_frame.value, strict=True))
-                    == expected_contributions
-                )
-            else:
-                assert {
-                    (row.coord_0, row.coord_1): row.value for row in source_frame.itertuples()
-                } == {(key, "east"): value for key, value in expected_contributions.items()}
+                with monkeypatch.context() as offline:
 
-            if axis_kind == "single":
+                    def forbid(*args: object, **kwargs: object) -> NoReturn:
+                        pytest.fail("External pandas allocation read source")
 
-                def forbid(*args: object, **kwargs: object) -> NoReturn:
-                    pytest.fail("Fixed attribution read source")
-
-                fixed_change = change.execute()
-                submissions_before = len(source_trace.native_sql)
-                original_execute = SourceSession.execute
-                monkeypatch.setattr(SourceSession, "execute", forbid)
-                fixed = fixed_change.attribute(axes=axes).execute()
-                assert (
-                    fixed.contribution.to_pandas()
-                    .loc[:, [*business_keys, "value"]]
-                    .sort_values(business_keys)
-                    .reset_index(drop=True)
-                    .equals(source_frame)
-                )
-                assert len(source_trace.native_sql) == submissions_before
-                assert session._runtime.store.resources(session._runtime.session_ref) == ()
-                monkeypatch.setattr(SourceSession, "execute", original_execute)
+                    offline.setattr(SourceSession, "execute", forbid)
+                    restored = allocation(
+                        plain(session.artifact(current.id)),
+                        plain(session.artifact(baseline.id)),
+                        method="sum",
+                        axes=axes,
+                        parents=(),
+                    )
+                    pd.testing.assert_frame_equal(restored, result)
+                assert session.runs().items == runs_before
+                assert session._runtime.store.resources(session.id) == ()
             source_trace.save(
                 f"c09-source-{backend}-{metric_kind}-{axis_kind}",
                 {**case.environment, "profile": profile},
@@ -185,44 +175,10 @@ def test_source_and_retained(
                 {
                     "metric_kind": metric_kind,
                     "axis_kind": axis_kind,
-                    "input_key_types": ["string", "int64", "int64"],
-                    "current": [2, 4, 0] if metric_kind == "sum" else [1, 2, 0],
-                    "baseline": [0, 3, 5] if metric_kind == "sum" else [0, 1.5, 2.5],
-                    "contributions": [2, 1, -5] if metric_kind == "sum" else [1, 0.5, -2.5],
-                    "fixed_attribution_passed": axis_kind == "single",
-                    "ordinary_source_snapshot_forbidden": True,
-                    "fixed_source_reads_forbidden": axis_kind == "single",
-                    "no_additional_native_submission_checked": axis_kind == "single",
-                    "resources_zero_after_fixed_checked": axis_kind == "single",
+                    "current": [2 / divisor, 4 / divisor, 0],
+                    "baseline": [0, 3 / divisor, 5 / divisor],
+                    "contributions": [2 / divisor, 1 / divisor, -5 / divisor],
                 },
-                fixed,
+                current,
                 (case.session,),
             )
-
-            evidence = os.environ.get("MARIVO_R93_EVIDENCE_DIR")
-            if evidence:
-                assert source._dataset is not None
-                Path(
-                    evidence, f"supporting-c09-{metric_kind}-{axis_kind}-{backend}.json"
-                ).write_text(
-                    json.dumps(
-                        {
-                            "backend": backend,
-                            "axis_kind": axis_kind,
-                            "metric_kind": metric_kind,
-                            "environment": case.environment,
-                            "source_oracle_passed": True,
-                            "fixed_attribution_passed": axis_kind == "single",
-                            "fixed_source_reads_forbidden": axis_kind == "single",
-                            "ordinary_source_snapshot_forbidden": True,
-                            "physical_keys": [
-                                key_json(item.key)
-                                for item in descriptor_plan(
-                                    source._dataset.artifact.descriptor, source._node.definition
-                                ).physical_requirements
-                            ],
-                            "boundary": "Bounded int64 original sum/mean attribution support; no complete C09 qualification",
-                        },
-                        sort_keys=True,
-                    )
-                )

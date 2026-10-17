@@ -4,15 +4,19 @@ from __future__ import annotations
 
 import hashlib
 import math
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field, replace
-from typing import NoReturn
+from typing import TYPE_CHECKING, NoReturn
+from uuid import uuid4
 
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 import pandas as pd
 import pyarrow as pa
+
+if TYPE_CHECKING:
+    from marivo.analysis.compiler.optimization import InvocationMemo
 
 from marivo._definition.relations import LiteralPopulation, PopulationDependency, PopulationProgram
 from marivo.analysis.compiler.cell_lowering import lower_cells
@@ -34,6 +38,7 @@ from marivo.analysis.compiler.graph_plan import (
     SourceRead,
     SourceSchema,
 )
+from marivo.analysis.compiler.query_program import QueryContext
 from marivo.analysis.core.cell_encoding import (
     CellBook,
     CellEncoding,
@@ -103,11 +108,13 @@ from marivo.datasource.adapters import (
     BoundSource,
     CompiledRead,
     PhysicalRequirement,
+    QualifiedSource,
     SourceSession,
     provider_for,
 )
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.semantic._compiled_state import CompiledSemanticState
+from marivo.semantic.metric_graph_lowering import NumericCheck
 from marivo.semantic.validator import normalize_target_entity
 
 
@@ -1324,6 +1331,8 @@ class PreparedSources:
     relations: dict[str, ir.Table]
     bound: dict[str, BoundSource]
     sources: dict[str, SourceSession] = field(default_factory=dict)
+    context: QueryContext = field(default_factory=QueryContext)
+    entities: dict[str, ir.Table] = field(default_factory=dict)
 
 
 def _preparation_error(expected: str, received: str) -> MaterializationError:
@@ -1348,9 +1357,25 @@ def _route_gap(expected: str, received: str, repair: str) -> NoReturn:
     )
 
 
+def _validate_timestamp_precision(field: pa.Field, path: str) -> None:
+    original_unit = (field.metadata or {}).get(TIMESTAMP_UNIT_METADATA_KEY)
+    if original_unit is None:
+        return
+    physical = field.type
+    units = (b"s", b"ms", b"us", b"ns")
+    if not pa.types.is_timestamp(physical) or original_unit not in units:
+        raise _preparation_error("a timestamp with an exact source unit", repr(field))
+    if units.index(original_unit) > units.index(physical.unit.encode("ascii")):
+        raise _preparation_error(
+            f"{path}: a lossless timestamp[{original_unit.decode('ascii')}] source carrier",
+            f"{path}: {physical} loses source precision",
+        )
+
+
 def admit_source_type(field: pa.Field, path: str) -> DataType:
     """Map one bound source column to its lossless stage type, before any read."""
     physical = field.type
+    _validate_timestamp_precision(field, path)
     unit = (field.metadata or {}).get(DURATION_UNIT_METADATA_KEY)
     if unit is not None:
         if physical != pa.int64() or unit not in (b"s", b"ms", b"us", b"ns"):
@@ -1374,15 +1399,6 @@ def admit_source_type(field: pa.Field, path: str) -> DataType:
     if pa.types.is_decimal128(physical):
         return DecimalDataType(physical.precision, physical.scale)
     if pa.types.is_timestamp(physical) and physical.tz is not None:
-        original_unit = (field.metadata or {}).get(TIMESTAMP_UNIT_METADATA_KEY)
-        units = (b"s", b"ms", b"us", b"ns")
-        if original_unit in units and units.index(original_unit) > units.index(
-            physical.unit.encode("ascii")
-        ):
-            raise _preparation_error(
-                f"{path}: a lossless timestamp[{original_unit.decode('ascii')}] source carrier",
-                f"{path}: {physical} loses source precision",
-            )
         return TimestampDataType(physical.unit, physical.tz)
     if pa.types.is_duration(physical):
         return DurationDataType(physical.unit)
@@ -1402,38 +1418,85 @@ def _admitted(schema: pa.Schema, path: str, column: str) -> SourceField:
     return SourceField(path, column, admit_source_type(item, path), item.nullable)
 
 
-def _query_populations(graph: BoundGraph) -> tuple[PopulationDependency, ...]:
-    from marivo._definition.graph import computation_fingerprint, walk
+def _population_field(
+    table: ir.Table, column: str, bounds: Mapping[str, BoundSource]
+) -> SourceField:
+    """Restore fixed Duration metadata through selected attribute projections."""
+    from marivo.analysis.materialization.query_preparation import physical_fields
 
-    observation = graph.signature.observation
-    roots = (graph.root,)
-    if observation is not None and observation.coordinates.population is not None:
-        closure = walk(
-            (graph.root, observation.coordinates.population),
-            resolve=dict(graph.signature.declared_metrics).get,
-        )
-    else:
-        closure = walk(roots, resolve=dict(graph.signature.declared_metrics).get)
-    populations = {
-        computation_fingerprint(node): node
-        for node in closure.order
-        if isinstance(node, (PopulationProgram, LiteralPopulation))
-    }
+    admitted = _admitted(table.schema().to_pyarrow(), column, column)
+    if admitted.dtype != ScalarDataType("int64"):
+        return admitted
+    duration: DurationDataType | None = None
+    for physical in physical_fields(table[column]):
+        for bound in bounds.values():
+            if physical.rel != bound.relation.op():
+                continue
+            field = bound.facts.schema.field(physical.name)
+            if DURATION_UNIT_METADATA_KEY not in (field.metadata or {}):
+                continue
+            dtype = admit_source_type(field, column)
+            assert isinstance(dtype, DurationDataType)
+            if duration is not None and duration != dtype:
+                raise _preparation_error("one exact Duration unit", column)
+            duration = dtype
+    return replace(admitted, dtype=duration) if duration is not None else admitted
+
+
+def _query_populations(graph: BoundGraph) -> tuple[PopulationDependency, ...]:
+    from marivo._definition.expressions import DeclaredMetricRef
+    from marivo._definition.graph import DefinitionNode, children, computation_fingerprint
+    from marivo._definition.relations import QueryKeys
+
+    populations: dict[str, PopulationDependency] = {}
+    seen: set[int] = set()
+
+    def visit(node: DefinitionNode) -> None:
+        if id(node) in seen:
+            return
+        seen.add(id(node))
+        if isinstance(node, (PopulationProgram, LiteralPopulation)):
+            populations[computation_fingerprint(node)] = node
+            if isinstance(node, PopulationProgram) and isinstance(node.root, QueryKeys):
+                return
+        if isinstance(node, DeclaredMetricRef):
+            visit(dict(graph.signature.declared_metrics)[node.ref])
+        for edge in children(node):
+            visit(edge.child)
+
+    visit(graph.root)
+    if (
+        graph.signature.observation is not None
+        and graph.signature.observation.coordinates.population is not None
+    ):
+        visit(graph.signature.observation.coordinates.population)
     return tuple(populations.values())
 
 
 def _query_entities(graph: BoundGraph, state: CompiledSemanticState) -> tuple[str, ...]:
     """Resolve every required Entity before opening connections."""
-    from marivo._definition.expressions import MemberCount
-    from marivo._definition.graph import walk
+    from marivo._definition.query import ResultQuery
 
-    closure = walk((graph.root,), resolve=dict(graph.signature.declared_metrics).get)
-    if any(isinstance(node, MemberCount) for node in closure.order):
-        _route_gap(
-            "ordinary source reductions and Metric formulas",
-            "Population/sample preparation",
-            "Population and internal sample execution are delivered in R3.",
+    if isinstance(graph.root, ResultQuery):
+        from marivo.analysis.compiler.queries import query_leaves
+        from marivo.analysis.materialization.drill_preparation import extra_entities
+        from marivo.analysis.materialization.query_correspondence import prepare_context
+
+        return tuple(
+            dict.fromkeys(
+                (
+                    *extra_entities(graph, state),
+                    *tuple(
+                        dict.fromkeys(
+                            path
+                            for leaf in query_leaves(graph, context=prepare_context(graph, state))
+                            for path in _query_entities(leaf, state)
+                        )
+                    ),
+                )
+            )
         )
+
     observation = graph.signature.observation
     entities: dict[str, None] = {}
     for contribution in () if observation is None else observation.contributions:
@@ -1444,6 +1507,14 @@ def _query_entities(graph: BoundGraph, state: CompiledSemanticState) -> tuple[st
             *contribution.coordinates,
             *(read for _, read in contribution.population_reads),
         ):
+            from marivo._definition.types import IdentityRead
+            from marivo.analysis.binding.coordinates import identity_projection
+
+            if (
+                isinstance(read, IdentityRead)
+                and identity_projection(read, contribution.root, state.registry) is not None
+            ):
+                continue
             entities[read.entity.ref.path] = None
             for step in read.path:
                 relation = state.registry.relationships[step.ref.path]
@@ -1471,8 +1542,96 @@ def prepare_query_sources(
     source: SourceSession,
     *,
     sources: dict[str, SourceSession] | None = None,
+    memo: InvocationMemo | None = None,
 ) -> PreparedSources:
     """Prepare all physical fields and checked relationships without business reads."""
+    from marivo._definition.query import ResultQuery
+
+    if isinstance(graph.root, ResultQuery):
+        from marivo.analysis.compiler.queries import query_leaves
+        from marivo.analysis.materialization.query_correspondence import prepare_context
+
+        context = prepare_context(graph, state)
+
+        prepared_inputs = tuple(
+            prepare_query_sources(leaf, state, source, sources=sources, memo=memo)
+            for leaf in query_leaves(graph, context=context)
+        )
+        combined = PreparedSources(
+            source,
+            tuple(schema for prepared in prepared_inputs for schema in prepared.schemas),
+            {
+                key: value
+                for prepared in prepared_inputs
+                for key, value in prepared.relations.items()
+            },
+            {
+                f"{index}:{key}": value
+                for index, prepared in enumerate(prepared_inputs)
+                for key, value in prepared.bound.items()
+            },
+            {
+                key: value
+                for index, prepared in enumerate(prepared_inputs)
+                for key, value in (
+                    *prepared.sources.items(),
+                    *(
+                        (f"{index}:{path}", prepared.sources.get(path, prepared.source))
+                        for path in prepared.bound
+                    ),
+                )
+            },
+            QueryContext(
+                tuple(
+                    dict.fromkeys(
+                        (
+                            *context.relations,
+                            *(
+                                item
+                                for prepared in prepared_inputs
+                                for item in prepared.context.relations
+                            ),
+                        )
+                    )
+                ),
+                tuple(item for prepared in prepared_inputs for item in prepared.context.drills),
+            ),
+            {
+                path: table
+                for prepared in prepared_inputs
+                for path, table in prepared.entities.items()
+            },
+        )
+        from marivo.analysis.materialization.drill_preparation import prepare_drills
+        from marivo.analysis.materialization.literal_preparation import literal_schemas
+
+        available = sources or {source.datasource.semantic_id: source}
+        for path in _query_entities(graph, state):
+            if path in combined.entities:
+                continue
+            contract = normalize_target_entity(state.registry, path)
+            owner = available[contract.datasource_ref.path]
+            bound = owner.bind(contract.source, source_identity=path)
+            combined.entities[path] = bind_entity_output(
+                state.registry, state.sidecar, path, owner, bound, contract.dependency_fingerprint
+            )
+            combined.bound["drill_binding:" + path] = bound
+            combined.sources["drill_binding:" + path] = owner
+            combined.sources[path] = owner
+        query_context, new_relations = prepare_drills(
+            graph, combined.schemas, combined.context, combined.entities, state, memo=memo
+        )
+        combined.relations.update(new_relations)
+        for _, drills in query_context.drills:
+            for drill in drills:
+                combined.sources[drill.source_id] = available[
+                    state.registry.entities[drill.root.ref.path].datasource
+                ]
+        return replace(
+            combined,
+            context=query_context,
+            schemas=(*combined.schemas, *literal_schemas(graph, combined.entities, state)),
+        )
     from marivo.analysis.materialization.query_preparation import physical_fields, prepare_fields
     from marivo.datasource.timezone import probe_engine_timezone
 
@@ -1498,7 +1657,15 @@ def prepare_query_sources(
         owners[path] = owner
     schemas: list[SourceSchema] = []
     relations: dict[str, ir.Table] = {}
+    from marivo.analysis.materialization.query_parameters import prepare_parameters
+
+    parameters, dependency_inputs = prepare_parameters(
+        graph, state, source, available, entities, memo
+    )
     observation = graph.signature.observation
+    from marivo.analysis.materialization.query_preparation import SourceInputContract
+
+    source_bindings: dict[SourceInputContract, str] = {}
     for contribution in () if observation is None else observation.contributions:
         root = contribution.root.ref.path
         prepared = prepare_fields(
@@ -1510,12 +1677,37 @@ def prepare_query_sources(
                     if physical.rel == bound.relation.op():
                         raw = bound.facts.schema.field(physical.name)
                         metadata = raw.metadata or {}
-                        if (
-                            DURATION_UNIT_METADATA_KEY in metadata
-                            or TIMESTAMP_UNIT_METADATA_KEY in metadata
-                        ):
+                        if TIMESTAMP_UNIT_METADATA_KEY in metadata:
+                            _validate_timestamp_precision(raw, f"{root}: {physical.name}")
+                        if DURATION_UNIT_METADATA_KEY in metadata:
                             admit_source_type(raw, f"{root}: {physical.name}")
         table = prepared.table
+        source_contract = SourceInputContract(
+            id(owners[root]),
+            owners[root].datasource.semantic_id,
+            normalize_target_entity(registry, root).dependency_fingerprint,
+            contribution.root,
+            contribution.reads,
+            contribution.coordinates,
+            contribution.time,
+            contribution.period,
+            (
+                *contribution.intrinsic_conditions,
+                *(
+                    (contribution.common_condition,)
+                    if contribution.common_condition is not None
+                    else ()
+                ),
+            ),
+            contribution.memberships,
+            contribution.population_conditions,
+            contribution.population_reads,
+            contribution.window_key,
+            contribution.sample_axes,
+            contribution.calendars,
+            contribution.coverage,
+        )
+        binding_id = source_bindings.setdefault(source_contract, f"source:{uuid4().hex}")
         schema = table.schema().to_pyarrow()
         keys = tuple(_admitted(schema, name, name) for name in registry.entities[root].primary_key)
         fields = []
@@ -1523,7 +1715,7 @@ def prepare_query_sources(
         for path, column in prepared.columns:
             admitted = _admitted(schema, path, column)
             expression = originals[column]
-            duration = None
+            duration = DurationDataType("us") if expression.type().is_interval() else None
             for physical in physical_fields(expression):
                 for bound in bounds.values():
                     if physical.rel == bound.relation.op():
@@ -1533,6 +1725,10 @@ def prepare_query_sources(
                             DURATION_UNIT_METADATA_KEY in metadata
                             or TIMESTAMP_UNIT_METADATA_KEY in metadata
                         ):
+                            continue
+                        if TIMESTAMP_UNIT_METADATA_KEY in metadata:
+                            _validate_timestamp_precision(raw, path)
+                        if DURATION_UNIT_METADATA_KEY not in metadata:
                             continue
                         dtype = admit_source_type(raw, path)
                         if isinstance(dtype, DurationDataType):
@@ -1546,7 +1742,18 @@ def prepare_query_sources(
                 admitted = replace(admitted, dtype=duration)
             fields.append(admitted)
         schemas.append(
-            SourceSchema(root, keys, tuple(fields), contribution.occurrence, prepared.checks)
+            SourceSchema(
+                root,
+                keys,
+                tuple(fields),
+                contribution.occurrence,
+                prepared.checks,
+                binding_id=binding_id,
+                original_identity=tuple(
+                    _admitted(schema, name, name)
+                    for name in normalize_target_entity(registry, root).version_row_key
+                ),
+            )
         )
         stage_id = "read:" + ".".join(str(i) for i in contribution.occurrence)
         relations[stage_id] = table
@@ -1561,7 +1768,7 @@ def prepare_query_sources(
         required = population_entities(population, state)
         datasources = {state.registry.entities[path].datasource for path in required}
         finite = population_keys(population) is not None
-        if not finite and len(datasources) != 1:
+        if not finite and len(datasources) != 1 and not parameters:
             _route_gap(
                 "one datasource for a source-driven Population",
                 "multiple datasources",
@@ -1570,7 +1777,10 @@ def prepare_query_sources(
         prepared_population = prepare_population(population, entities, state)
         source_id = "population:" + computation_fingerprint(population)
         schema = prepared_population.table.schema().to_pyarrow()
-        keys = tuple(_admitted(schema, name, name) for name in prepared_population.key_columns)
+        keys = tuple(
+            _population_field(prepared_population.table, name, bounds)
+            for name in prepared_population.key_columns
+        )
         schemas.append(
             SourceSchema(
                 source_id,
@@ -1584,7 +1794,74 @@ def prepare_query_sources(
         if not finite:
             relations[source_id] = prepared_population.table
             owners[source_id] = owners[required[0]]
-    return PreparedSources(source, tuple(schemas), relations, bounds, owners)
+    own_schemas = []
+    population_definitions = {
+        "population:" + computation_fingerprint(population): population
+        for population in _query_populations(graph)
+    }
+    for schema in schemas:
+        relation = (
+            relations.get("read:" + ".".join(str(index) for index in schema.occurrence))
+            if schema.occurrence is not None
+            else relations.get(schema.source_id)
+        )
+        names = (
+            {node.name for node in relation.op().find(ops.UnboundTable)}
+            if relation is not None
+            else set()
+        )
+        inline = (
+            population_definitions.get(schema.source_id)
+            if relation is not None
+            and not any(
+                bound.relation.op() in set(relation.op().find(ops.Relation))
+                for bound in bounds.values()
+            )
+            else None
+        )
+        own_schemas.append(
+            replace(
+                schema,
+                scope_id=graph.fingerprint,
+                parameters=tuple(
+                    parameter for parameter in parameters if parameter.placeholder in names
+                ),
+                inline_population=inline,
+            )
+        )
+    for index, dependency in enumerate(dependency_inputs):
+        relations.update(dependency.relations)
+        bounds.update(
+            {f"parameter:{index}:{path}": bound for path, bound in dependency.bound.items()}
+        )
+        owners.update(dependency.sources)
+        owners.update(
+            {
+                f"parameter:{index}:{path}": dependency.sources.get(path, dependency.source)
+                for path in dependency.bound
+            }
+        )
+    return PreparedSources(
+        source,
+        (
+            *tuple(schema for prepared in dependency_inputs for schema in prepared.schemas),
+            *own_schemas,
+        ),
+        relations,
+        bounds,
+        owners,
+        QueryContext(
+            tuple(
+                dict.fromkeys(
+                    item
+                    for dependency in dependency_inputs
+                    for item in dependency.context.relations
+                )
+            ),
+            tuple(item for dependency in dependency_inputs for item in dependency.context.drills),
+        ),
+        entities,
+    )
 
 
 def prepare_source_free_populations(
@@ -1612,10 +1889,46 @@ def prepare_source_free_populations(
 
 @contextmanager
 def open_query_sources(
-    service: DatasourceConnectionService, graph: BoundGraph, state: CompiledSemanticState
+    service: DatasourceConnectionService,
+    graph: BoundGraph,
+    state: CompiledSemanticState,
+    *,
+    memo: InvocationMemo | None = None,
 ) -> Iterator[PreparedSources]:
     """Open the declared datasource sessions used by this invocation."""
     entities = _query_entities(graph, state)
+    from marivo.analysis.materialization.graph_preflight import _local_file
+    from marivo.datasource.ir import CsvSourceIR, JsonSourceIR
+
+    for path in entities:
+        contract = normalize_target_entity(state.registry, path)
+        physical = contract.source
+        datasource = state.registry.datasources[contract.datasource_ref.path]
+        if isinstance(physical, (CsvSourceIR, JsonSourceIR)) and (
+            datasource.backend_type != "duckdb"
+            or not _local_file(physical.path)
+            or (
+                isinstance(physical, JsonSourceIR)
+                and (
+                    physical.method != "GET"
+                    or physical.query_params
+                    or physical.body_json is not None
+                    or physical.body_params
+                )
+            )
+        ):
+            facts = (
+                f", method={physical.method}, query_parameters={len(physical.query_params)}, body_parameters={len(physical.body_params)}"
+                if isinstance(physical, JsonSourceIR)
+                else ""
+            )
+            raise MaterializationError(
+                expected="an existing local CSV or unparameterized GET JSON file on DuckDB",
+                received=f"{type(physical).__name__}: existing_local_file={_local_file(physical.path)}, backend={datasource.backend_type}{facts}",
+                repair="Use an existing local file without runtime request parameters, or a qualified table/Parquet source.",
+                stage="execute_preparation",
+                help_target="Query.execute",
+            )
     datasources = tuple(
         dict.fromkeys(state.registry.entities[path].datasource for path in entities)
     )
@@ -1633,16 +1946,19 @@ def open_query_sources(
                 "source-free query",
                 "Execute the local-only plan directly.",
             )
-        yield prepare_query_sources(graph, state, next(iter(sources.values())), sources=sources)
+        yield prepare_query_sources(
+            graph, state, next(iter(sources.values())), sources=sources, memo=memo
+        )
 
 
-def read_stage(prepared: PreparedSources, lowered: LoweredRead) -> StageOutput:
-    """Submit one lowered SourceRead and normalize its pandas result."""
+def _qualify_query_read(
+    prepared: PreparedSources, lowered: LoweredRead
+) -> tuple[QualifiedSource, ...]:
     stage = lowered.stage
     expression = lowered.expression
     source = prepared.sources.get(stage.source_id, prepared.source)
     relations = set(expression.op().find(ops.Relation))
-    qualified = tuple(
+    return tuple(
         source.qualify(
             bound, PhysicalRequirement("query.source_read", 1, relation_operations(expression))
         )
@@ -1650,6 +1966,20 @@ def read_stage(prepared: PreparedSources, lowered: LoweredRead) -> StageOutput:
         if prepared.sources.get(path, prepared.source) is source
         and bound.relation.op() in relations
     )
+
+
+def qualify_query_sources(prepared: PreparedSources, lowered: LoweredQuery) -> None:
+    """Qualify every schema-bound read template before a Run is admitted."""
+    for read in lowered.reads:
+        _qualify_query_read(prepared, read)
+
+
+def read_stage(prepared: PreparedSources, lowered: LoweredRead) -> StageOutput:
+    """Submit one lowered SourceRead and normalize its pandas result."""
+    stage = lowered.stage
+    expression = lowered.expression
+    source = prepared.sources.get(stage.source_id, prepared.source)
+    qualified = _qualify_query_read(prepared, lowered)
     issued = source.compile(
         qualified,
         expression,
@@ -1657,17 +1987,36 @@ def read_stage(prepared: PreparedSources, lowered: LoweredRead) -> StageOutput:
         expected_schema=expression.schema().to_pyarrow(),
     )
     frame = source.execute(issued)
+    if stage.common_reads:
+        return _complete_common_read(stage, frame, lowered.numeric_checks)
+    return _complete_source_frame(stage, frame, lowered.numeric_checks)
+
+
+def _complete_source_frame(
+    stage: SourceRead,
+    frame: pd.DataFrame,
+    numeric_checks: tuple[tuple[str, NumericCheck], ...],
+) -> StageOutput:
+    """Complete one logical source occurrence and its original fine checks."""
+    from marivo.analysis.materialization.query_components import ComponentFrame
+
+    components: tuple[ComponentFrame, ...] = ()
+    if stage.component_layout is not None:
+        from marivo.analysis.materialization.query_components import complete_components
+
+        frame, component = complete_components(stage.component_layout, frame)
+        components = (component,)
     from marivo.semantic.metric_graph_lowering import numeric_failure
 
     retained_checks = {column.slot_id for column in stage.columns}
     for name in (
         "__numeric_present",
         "__sample_present",
-        *(name for name, _ in lowered.numeric_checks),
+        *(name for name, _ in numeric_checks),
     ):
         if name in retained_checks and name in frame.columns:
             frame[name] = frame[name].astype("boolean").fillna(False)
-    for name, check in lowered.numeric_checks:
+    for name, check in numeric_checks:
         if name in retained_checks:
             continue
         if frame[name].fillna(False).any():
@@ -1714,13 +2063,47 @@ def read_stage(prepared: PreparedSources, lowered: LoweredRead) -> StageOutput:
                 else:
                     q = 0.5 if node.reducer == "median" else node.q
                     assert q is not None
-                    position = Fraction(q * (count - 1))
+                    position = Fraction(str(q)) * (count - 1)
                     fraction = position - (position.numerator // position.denominator)
                     exact = lower + fraction * (int(row["__duration_upper"]) - lower)
                 finished.append(round(exact))
             frame[reduction.value_slot] = pd.Series(
                 finished, dtype="int64[pyarrow]", index=frame.index
             )
+    if reduction is not None and "__quantile_count" in frame.columns:
+        from decimal import Decimal
+
+        from marivo.analysis.methods.numeric_state import finish_division
+        from marivo.analysis.methods.physical import DecimalType
+
+        assert isinstance(reduction.node, SourceAggregate)
+        node = reduction.node
+        dtype = next(
+            column.dtype for column in stage.columns if column.slot_id == reduction.value_slot
+        )
+        assert isinstance(dtype, DecimalDataType)
+        q = 0.5 if node.reducer == "median" else node.q
+        assert q is not None
+        decimal_values: list[int | float | Decimal | None] = []
+        for row in frame.to_dict("records"):
+            count = int(row["__quantile_count"])
+            if count == 0:
+                decimal_values.append(None)
+                continue
+            position = Fraction(str(q)) * (count - 1)
+            fraction = position - (position.numerator // position.denominator)
+            lower = row[reduction.value_slot]
+            upper = row["__quantile_upper"]
+            assert isinstance(lower, Decimal) and isinstance(upper, Decimal)
+            exact = Fraction(lower) + fraction * (Fraction(upper) - Fraction(lower))
+            decimal_values.append(
+                finish_division(
+                    exact.numerator,
+                    exact.denominator,
+                    DecimalType(dtype.precision, dtype.scale),
+                )
+            )
+        frame[reduction.value_slot] = pd.Series(decimal_values, dtype=object, index=frame.index)
     if (
         reduction is not None
         and reduction.duration is not None
@@ -1745,8 +2128,92 @@ def read_stage(prepared: PreparedSources, lowered: LoweredRead) -> StageOutput:
                 )
             except (pa.ArrowException, OverflowError, ValueError, TypeError) as error:
                 numeric_failure("lossless signed int64 Duration ticks", str(error))
+    output = frame.loc[:, [c.slot_id for c in stage.columns]]
+    if stage.keys:
+        output = output.sort_values(
+            list(stage.keys), kind="stable", na_position="last"
+        ).reset_index(drop=True)
     return StageOutput.from_frame(
-        frame.loc[:, [c.slot_id for c in stage.columns]], stage.columns, stage.keys
+        output,
+        stage.columns,
+        stage.keys,
+        components=components,
+    )
+
+
+def _complete_common_read(
+    stage: SourceRead,
+    frame: pd.DataFrame,
+    numeric_checks: tuple[tuple[str, NumericCheck], ...],
+) -> StageOutput:
+    """Split one issued physical block into its ordered logical occurrences."""
+    from marivo.analysis.compiler.observation import common_slot
+    from marivo.analysis.materialization.query_components import ComponentFrame
+
+    tables: list[pd.DataFrame] = []
+    components: list[ComponentFrame] = []
+    for index, member in enumerate(stage.common_reads):
+        assert member.reduction is not None
+        names = {
+            column.slot_id: column.slot_id
+            if column.slot_id in member.keys or column.slot_id == member.reduction.value_slot
+            else common_slot(index, column.slot_id)
+            for column in member.columns
+        }
+        suffix = f".block{index}"
+        names.update(
+            {name.removesuffix(suffix): name for name, _ in numeric_checks if name.endswith(suffix)}
+        )
+        if member.component_layout is not None:
+            names.update(
+                {
+                    column.slot_id: common_slot(index, column.slot_id)
+                    for column in member.component_layout.raw_columns
+                    if column.slot_id not in member.keys
+                }
+            )
+            names[member.component_layout.present] = common_slot(
+                index, member.component_layout.present
+            )
+        local = (
+            frame.loc[:, list(names.values())]
+            .rename(columns={value: key for key, value in names.items()})
+            .copy()
+        )
+        checks = tuple(
+            (name.removesuffix(suffix), check)
+            for name, check in numeric_checks
+            if name.endswith(suffix)
+        )
+        output = _complete_source_frame(member, local, checks)
+        components.extend(output.components)
+        tables.append(
+            output.table.rename(
+                columns={
+                    column.slot_id: common_slot(index, column.slot_id)
+                    for column in member.columns
+                    if column.slot_id not in member.keys
+                    and column.slot_id != member.reduction.value_slot
+                }
+            )
+        )
+    result = tables[0]
+    for other in tables[1:]:
+        result = (
+            result.merge(other, on=list(stage.keys), how="outer", validate="one_to_one", sort=False)
+            if stage.keys
+            else result.join(other)
+        )
+    result = result.loc[:, [column.slot_id for column in stage.columns]]
+    if stage.keys:
+        result = result.sort_values(
+            list(stage.keys), kind="stable", na_position="last"
+        ).reset_index(drop=True)
+    return StageOutput.from_frame(
+        result,
+        stage.columns,
+        stage.keys,
+        components=tuple(components),
     )
 
 
@@ -1778,6 +2245,26 @@ def execute_numeric_query(
             "analysis.query_check",
         )
 
+    required_by_stage = {required.stage_id: required for required in lowered.plan.required_slots}
+
+    def transport(stage_id: str, output: StageOutput) -> StageOutput:
+        if not lowered.plan.required_slots:
+            return output
+        required = required_by_stage[stage_id]
+        columns = tuple(column for column in output.columns if column.slot_id in required.columns)
+        return replace(
+            output,
+            table=output.table.loc[:, [column.slot_id for column in columns]],
+            columns=columns,
+            layout=replace(output.layout, columns=columns) if output.layout is not None else None,
+            components=tuple(
+                component
+                for component in output.components
+                if component.layout.reduction.value_slot in required.components
+            ),
+            population_frames=output.population_frames if required.retain_populations else (),
+        )
+
     def read(stage: SourceRead) -> StageOutput:
         if prepared is None:
             reject(
@@ -1790,12 +2277,46 @@ def execute_numeric_query(
         output = read_stage(prepared, request)
         if observe_read is not None:
             observe_read(request, output)
-        return output
+        return transport(stage.stage_id, output)
 
     def local(stage: LocalCompute, inputs: tuple[StageOutput, ...]) -> StageOutput:
         output = run_local(stage, inputs)
         if observe_local is not None:
             observe_local(stage, output)
-        return output
+        return transport(stage.stage_id, output)
 
-    return run_query_plan(lowered.plan, read, local, check)
+    def dependent(stage: SourceRead, inputs: tuple[StageOutput, ...]) -> StageOutput:
+        from marivo.analysis.core.domain_captures import DomainPreparationError
+        from marivo.analysis.materialization.query_parameters import instantiate
+
+        assert prepared is not None
+        request = lowered.read(stage.stage_id)
+        expression = request.expression
+        for parameter in stage.parameters:
+            source = inputs[stage.inputs.index(parameter.stage_id)]
+            try:
+                expression = instantiate(
+                    expression, parameter.placeholder, parameter.columns, source
+                )
+            except (
+                TypeError,
+                ValueError,
+                OverflowError,
+                RecursionError,
+                NotImplementedError,
+            ) as error:
+                raise DomainPreparationError(
+                    "query.population_parameters",
+                    "prepare",
+                    "a native typed complete-tuple Population parameter",
+                    str(error),
+                    "Reduce the explicit domain or use a datasource/type with an admitted native expression route.",
+                ) from error
+        request = replace(request, expression=expression)
+        output = read_stage(prepared, request)
+        if observe_read is not None:
+            observe_read(request, output)
+        return transport(stage.stage_id, output)
+
+    result = run_query_plan(lowered.plan, read, local, check, dependent)
+    return replace(result, key_groups=lowered.plan.output_groups)

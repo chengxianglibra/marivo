@@ -2,11 +2,12 @@
 
 Date: 2026-10-17
 
-Status: proposed v0.12，基于语义表达式与 Lazy Analysis DSL v0.37。
-v0.12 增补有序/近似规约、nullable sum、成员分桶和命名窗口；本次仍只修订设计。
+Status: v0.12 架构与实施来源，基于语义表达式与 Lazy Analysis DSL v0.37。
+原生 Deferred、S0–S6 与本轮 R3–R8 主路线已实施并通过聚焦本地检查；完整独立验收和后端 Runtime 资格仍分别记录。
+v0.12 增补有序/近似规约、nullable sum、成员分桶和命名窗口；设计条目不单独证明每种物理路线的资格。
 2026-10-17 fanout 修订以逻辑贡献约束准入物理计划，不固定 aggregate-then-join；仍不声明新增实现或后端资格。
-v0.11 将 Measure/Metric 数值计算收敛到原生 Ibis DAG，自动延迟类型绑定；本修订尚未实施。
-本文是独立的目标实现架构，不是当前实现说明，也不表示任何重构阶段或后端验收已经完成。
+v0.11 将 Measure/Metric 数值计算收敛到原生 Ibis DAG，自动延迟类型绑定；该原生表达式路线已按 S0–S6 接通。
+本文保留完整目标架构及历史起点；具体已实现合同由 current owner 文档和原生 Help 拥有。
 本文与目标设计和实施计划同步命名；不修改实现、测试、技能或发布文档。
 v0.7 收敛执行分工：Ibis 负责源端计算，pandas 统一本地执行，PyArrow 只负责存储和读取。
 v0.7 延续 v0.6 的终端 Artifact：所有 DSL 组合在 Query 上完成，保持当时 v0.32 的 API 与数值合同。
@@ -20,7 +21,9 @@ Artifact 保存输出数据、必要描述与实际 Finding/Evidence；不携带
 解析/民用日期/naive 时间、编码 Duration 的准备；不同 datasource 根先分别规约后组合。
 普通原生字段 semantic Metric preview 复用数值内核；路径/锚点和 Population preview 在连接前拒绝。
 R2.5 已接通公开 Query.execute、Store 10 原子终端发布与无图输出记录；返回已提交身份。
-公开打开、预览、导出与 Finding/Evidence 阅读仍报告 R2.6 缺口；不构成完整 R2 或远端 Runtime 验收声明。
+R2.6 已接通元数据打开、预览、完整导出和自包含 Finding/Evidence 阅读。
+本轮已接通 Population、Session.read(population, fields)、Query 值变换/比较/广播、原量组合与期间对应。
+新数值 source 路线仅准入 DuckDB；这不限制 datasource 层其它后端的访问能力，也不声称其 Runtime 已通过。
 
 ## 1. 架构结论与文档边界
 
@@ -61,7 +64,7 @@ Population 表示分析总体，覆盖身份名单、分析坐标和内部样本
 继续拥有 R1–R8 的工作包与验收顺序。本文补足其架构决策和代码落点，不重写该计划、重复维护验收台账，
 也不把这个被 Git 忽略的文件作为分发文档的必要依赖。本文与目标语义发生分歧时，先修正架构，不反向改变语义。
 
-## 2. 当前实现：保留的基础与必须调整的结构
+## 2. 架构起草时的实现：保留的基础与必须调整的结构
 
 架构起草时的静态核对基线为 `main`，HEAD `970a5df89f7cd62b809f7b948e920a1e8cff94f0`。
 两份设计稿及关联文档含已有工作树修改，目标合同以本轮 v0.37 为准；以下代码定位是改造起点，不是目标行为。
@@ -80,8 +83,8 @@ Population 表示分析总体，覆盖身份名单、分析坐标和内部样本
 | [graph_publication.py](../../../marivo/analysis/materialization/graph_publication.py) 已管理执行、Run、资源、原子提交；[store.py](../../../marivo/analysis/materialization/store.py) 已有本地持久化 | 保留事务与资源边界，改其消费的计划和多量布局，不重建 Store 或协调器 |
 | [SourceSession.execute](../../../marivo/datasource/adapters.py) 已通过 Ibis 返回 pandas；固定执行和 Cell/Parquet 编码已有独立边界 | 保留 pandas 来源交接；统一执行内 pandas 数据合同，PyArrow 只承担产物编解码与读取；不重新引入 cursor、batch 协议或来源临时表体系 |
 
-现有闭合格式为 Store 9、graph DAG v10、descriptor v6、continuation v5。
-这些是源码核对结果；旧模块中的历史注释不能替代实际 schema。格式切换见 §12。
+起草基线的历史闭合格式为 Store 9、graph DAG v10、descriptor v6、continuation v5。
+这些是起草时的源码核对结果，当前终端输出使用 Store 10；旧模块中的历史注释不能替代实际 schema。格式切换见 §12。
 
 现有 forecasting、association 等实现不因目录重排而批量删除。它们退出本次目标公开面，
 内部仍有消费者的数值、资源或历史读取能力按实际依赖处理；没有新增这些能力的验收承诺。
@@ -629,6 +632,30 @@ Ibis 负责将关系表达式编译到目标后端，SQL 后端沿其 SQLGlot �
 将融合成员、必需 parts、键/mask 运输和原检查定位编码进编译产物后，runtime 只执行融合组，
 不再次按当前全局 registry 猜一遍能否融合。解释输出至少列明采用/拒绝的规则及物化、检查屏障，不新开一个公开优化开关。
 
+#### 8.4.1 已准入的有限正向融合
+
+R6.5 已在真实 DuckDB 来源上接通同实际输入的精确直接 sum/count 来源块，以及 L8 的相邻单消费者原量上卷。
+范围限于相同普通组件、直接保留轴映射和精确 int64/Decimal 直接来源量；不从这些正面推导一般来源或原量融合资格。
+
+同源权威由准备层的类型化 SourceInputContract 给出：实际 source-session/datasource 绑定、Entity 依赖身份与根、
+消费字段/完整身份及路径/属性锚点、坐标、时间/期间、谓词、membership 与 Population fibers、内部样本、日历、窗口和覆盖。
+Ibis AST 相等、同名 Entity 或同形表都不能代替该合同。匹配合同取得仅本次 invocation 的物理绑定 ID，
+它不进入定义指纹、语义记录或 Artifact 的计划载荷；真正的来源由 SourceRead 的已绑定权威选择。
+
+来源合并要求期间、谓词、轴、来源字段、完整身份及 null/empty 政策相同，保留检查、参数和多消费者屏障。
+一次原生聚合产生独立 value/check slots，一次联合原始投影拆回完整独立 ComponentFrames；
+每个逻辑贡献仍保留原出现位置、值槽、检查与消费者计数，不能因复用一次物理读取而合并 `m + m` 的两次使用。
+不同成员 fibers 或不同物理 datasource 文件不共享来源块。RequiredSlots 和末位组件释放继续有效。
+
+L8 的 LocalCompute.fused_steps 保存原有序阶段。物理 schedule 使用外层融合阶段，Runtime 按已选顺序执行每个成员，
+不重新咨询全局 registry 判定定律。每个中间完成和溢出检查均保留；中间组和溢出后最终总和可抵消的输入仍在原中间目标失败。
+FusionGroup 及实际成功检查 Evidence 保留逻辑成员身份，Artifact 不暴露组件或融合计划。
+
+优化/未优化对照已验证完整类型化 frame、键、次序、NA、布局、检查及失败位置一致，并实际减少来源提交和调度阶段；
+Decimal 对照包括低精度 ambient context。浮点 sum、per/内部样本、窗口、不同政策、待完成检查、Top/share/filter 屏障和共享中间结果
+继续采用其合格原路线，不因本节获得新融合权利。移除 L8 会阻止新的融合并使依赖该规则的调用内 memo 失效；
+已编译融合组仍执行其选定的有序成员。本地聚焦对照不代替完整独立验收或远端 Runtime 资格。
+
 ### 8.5 编译复用与运行结果缓存分开
 
 一个 invocation 内复用 capture、已解析语义合同、规则推导和 lowering 结果；memo key 至少包含节点身份、
@@ -1165,4 +1192,4 @@ Artifact 无计算上下文或 DSL 输入路径，后处理交 pandas；每个�
 
 该历史探针只说明存储 API 可行，不能作为本次 pandas 执行路线的验收证据。
 
-当前交付状态：**原生 Ibis 表达式及自动延迟绑定为待实施修订；已有 R1/R2 进度以 current owner 为准。源端 Ibis、pandas 本地计算、PyArrow 存储/读取及终端 Artifact 的分工不变。**
+当前交付状态：**原生 Deferred、自动延迟绑定和本轮 Population/Query 主路线已实施；聚焦本地检查不替代完整独立验收。源端 Ibis、pandas 本地计算、PyArrow 存储/读取及终端 Artifact 的分工不变。**

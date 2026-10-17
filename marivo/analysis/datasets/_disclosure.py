@@ -1,64 +1,7 @@
-"""Native disclosure of committed graph state and bounded byte-count facts."""
+"""Terminal Dataset capabilities are owned by the native Artifact provider."""
 
-from marivo.analysis._capabilities.dataset_model import (
-    DisclosureProvider,
-    ExportInput,
-    NavigationInput,
-    value_type,
-    with_sealed_variants,
-)
-from marivo.analysis.datasets import descriptors as d
-from marivo.analysis.datasets.state import MaterializedDatasetState
+from marivo.analysis._capabilities.dataset_model import DisclosureProvider
 
 
 def provider() -> DisclosureProvider:
-    """Describe the concrete state returned by current materialized results."""
-    descriptors = (
-        value_type(
-            "datasets.materialized_state",
-            MaterializedDatasetState,
-            summary="Committed Artifact state, counts and execution identity.",
-            acquisition="Read legacy result.state after execute(); terminal Artifacts have no computation state.",
-            producers=("actions.execute",),
-        ),
-        value_type(
-            "datasets.byte_count",
-            d.DatasetByteCount,
-            summary="Exact retained byte count or an explicit unavailable reason.",
-            acquisition="Read result.state.realized_byte_count.",
-            producers=("datasets.materialized_state",),
-            consumers=("actions.show",),
-        ),
-        NavigationInput(
-            "datasets",
-            "Inspect the committed state of typed graph results.",
-            ("datasets.materialized_state", "datasets.byte_count"),
-            discovery_group="artifacts",
-        ),
-        NavigationInput(
-            "actions.execute",
-            "Execute the current logical typed analysis graph.",
-            (),
-            guidance=(
-                "Legacy graph publication is unavailable in Store 10; ordinary Metrics use session.observe(metrics).execute().",
-                "Use marivo.help(logical.execute) for the exact receiver contract; construction and contract() do not execute.",
-            ),
-            related=("session.members", "dsl.LogicalAnalysisDomain.execute"),
-            discovery_group="entry",
-        ),
-    )
-    return DisclosureProvider(
-        "core",
-        with_sealed_variants(
-            descriptors,
-            {
-                "datasets.byte_count": (d._ExactByteCount, d._UnavailableByteCount),
-            },
-        ),
-        (
-            ExportInput(
-                "MaterializedDatasetState", MaterializedDatasetState, "datasets.materialized_state"
-            ),
-            ExportInput("DatasetByteCount", d.DatasetByteCount, "datasets.byte_count"),
-        ),
-    )
+    return DisclosureProvider("core", (), ())

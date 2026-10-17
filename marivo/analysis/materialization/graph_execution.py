@@ -108,6 +108,7 @@ def run_query_plan(
     read: Callable[[SourceRead], StageValue],
     local: Callable[[LocalCompute, tuple[StageValue, ...]], StageValue],
     check: Callable[[PlannedCheck, StageValue], None],
+    dependent_read: Callable[[SourceRead, tuple[StageValue, ...]], StageValue] | None = None,
 ) -> StageValue:
     """Run every planned stage once in topological order and return the published output.
 
@@ -117,8 +118,26 @@ def run_query_plan(
     outputs: dict[str, StageValue] = {}
     remaining = {stage_id: len(consumers) for stage_id, consumers in plan.consumers}
     for stage in plan.stages:
+        missing = tuple(item for item in stage.inputs if item not in outputs)
+        if missing:
+            reject(
+                "stage inputs completed earlier in topological order",
+                repr(missing),
+                "Plan producers before their consumers.",
+                "analysis.query_schedule",
+            )
         if isinstance(stage, SourceRead):
-            output = read(stage)
+            if stage.inputs:
+                if dependent_read is None:
+                    reject(
+                        "a typed parameterized read consumer",
+                        stage.stage_id,
+                        "Use the planned dependency reader.",
+                        "analysis.query_schedule",
+                    )
+                output = dependent_read(stage, tuple(outputs[item] for item in stage.inputs))
+            else:
+                output = read(stage)
         else:
             missing = tuple(item for item in stage.inputs if item not in outputs)
             if missing:
@@ -129,10 +148,10 @@ def run_query_plan(
                     "analysis.query_schedule",
                 )
             output = local(stage, tuple(outputs[item] for item in stage.inputs))
-            for item in stage.inputs:
-                remaining[item] -= 1
-                if remaining[item] == 0 and item != plan.publish:
-                    del outputs[item]
+        for item in stage.inputs:
+            remaining[item] -= 1
+            if remaining[item] == 0 and item != plan.publish:
+                del outputs[item]
         for requirement in plan.checks:
             if requirement.stage_id == stage.stage_id:
                 check(requirement, output)

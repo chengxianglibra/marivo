@@ -1,4 +1,4 @@
-"""Pure-native terminal exchanges and their retained validation boundaries."""
+"""Native terminal output, exact identity and publication failure boundaries."""
 
 from __future__ import annotations
 
@@ -12,8 +12,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.compiler.graph_plan import CheckRequirement
-from marivo.analysis.core.graph import MethodNode, topology
+from marivo.analysis.core.data_types import ScalarDataType
 from marivo.analysis.core.model import (
     Binding,
     Coordinate,
@@ -21,22 +20,20 @@ from marivo.analysis.core.model import (
     DomainSignature,
     Signature,
 )
-from marivo.analysis.materialization import graph_source_execution as native
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
-    CompletedCheck,
     ExchangeContract,
     ExchangeResult,
     _pandas_records,
     from_arrow,
 )
 from marivo.analysis.methods.semantics import MethodKey
-from marivo.analysis.session._lazy_read_model import FailedRun
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.physical_workloads import Workload, workload
 from tests.analysis.graph.reference_fixtures import reference_data
 from tests.analysis.graph.source_fixtures import author_source_project
+from tests.analysis.materialization.publication_fixtures import publication_counts
 from tests.datasource.source_cases import source_case
 
 
@@ -44,138 +41,65 @@ def _exchange_rows(result: ExchangeResult) -> list[dict[str, object]]:
     return _pandas_records(result.primary, result.contract.schema)
 
 
-def _values(work: Workload) -> mv.LogicalNumericRelation:
-    values = work.session.members(ms.ref.entity("cost.facts")).observe(
-        ms.ref.metric("cost.facts_total"),
-        during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
-        by=(mv.member(),),
+def _scalar_output(result: mv.Artifact, total: int) -> None:
+    assert result.to_pandas()[("value", "value")].tolist() == [total]
+    assert result._manifest.data.schema.axes == ()
+    assert result._manifest.data.schema.values[0].dtype == ScalarDataType("int64")
+    assert all(item.name != "original_state" for item in result._manifest.data.attachments)
+
+
+def _support(work: Workload) -> mv.Query:
+    raw = work.session.read(
+        work.session.members(ms.ref.entity("cost.facts")),
+        {"value": work.session.catalog.fields.get("cost.facts.amount")},
     )
-    assert isinstance(values, mv.LogicalNumericRelation)
-    return values
-
-
-def _sum(work: Workload) -> mv.LogicalRolledNumericRelation:
-    result = _values(work).rollup()
-    assert isinstance(result, mv.LogicalRolledNumericRelation)
-    return result
-
-
-def _publications(session: mv.Session) -> tuple[int, ...]:
-    counts = []
-    with session._runtime.store._connection() as connection:
-        for name in ("dataset_artifacts", "dataset_evidence", "findings"):
-            row = connection.execute("SELECT COUNT(*) FROM " + name).fetchone()
-            assert row is not None and isinstance(row[0], int)
-            counts.append(row[0])
-    return tuple(counts)
-
-
-def _scalar_parts(
-    result: mv.MaterializedRolledNumericRelation | mv.MaterializedGroupedNumericRelation,
-    total: int,
-    support: int,
-) -> None:
-    assert result._dataset is not None
-    checked = result._dataset.verified()
-    assert checked.primary is not None
-    assert checked.contract.schema.field("value").type == pa.int64()
-    assert _exchange_rows(checked) == [{"value": total, "cell_tag": "defined", "cell_reason": None}]
-    parts = {part.role: part.table for part in checked.parts}
-    assert {"original_state", "coverage"} <= set(parts)
-    assert parts["original_state"].to_dict("records") == [
-        {"original_state__sum": total, "original_state__non_null_count": support}
-    ]
-    assert parts["coverage"].to_dict("records") == [{"coverage__complete": True}]
+    return raw.where(~raw["value"].is_null()).reduce({"count": mv.row_count()})
 
 
 def test_native_sum_reads_only_terminal_exchange_with_all_checks_and_fresh_runs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with workload("duckdb", "ordinary-table", 64, "baseline", tmp_path, monkeypatch) as work:
-        logical = _sum(work)
-        mandatory = {
-            (node.identity, obligation.check_id, obligation.before)
-            for node in topology(logical._node.definition)
-            if isinstance(node, MethodNode)
-            for obligation in node.derivation.obligations
-        }
-        assert not mandatory
-        purposes: list[str] = []
-        proofs: list[tuple[CompletedCheck, ...]] = []
+        logical = work.total()
+        reads: list[CompiledRead] = []
         execute = SourceSession.execute
-        ordered = native._ordered_checks
 
         def read(source: SourceSession, issued: CompiledRead) -> pd.DataFrame:
-            purposes.append(issued.purpose)
+            reads.append(issued)
             return execute(source, issued)
 
-        def completed(
-            actual: list[CompletedCheck], pending: tuple[CheckRequirement, ...]
-        ) -> tuple[CompletedCheck, ...]:
-            assert {
-                (item.node_id, item.obligation.check_id, item.obligation.before) for item in pending
-            } == mandatory
-            result = ordered(actual, pending)
-            assert {item.requirement for item in result} == set(pending)
-            proofs.append(result)
-            return result
-
-        with monkeypatch.context() as patch:
-            patch.setattr(SourceSession, "execute", read)
-            patch.setattr(native, "_ordered_checks", completed)
-            results = []
-            for _ in range(2):
-                before = len(purposes)
-                result = logical.execute()
-                _scalar_parts(result, 529, 61)
-                submitted = purposes[before:]
-                assert submitted.count("analysis.graph.stage") == 1
-                assert submitted.count("analysis.graph.check") == 0
-                assert "analysis.domain.prepare" not in submitted
-                results.append(result)
-            first, second = results
-            assert len(proofs) == 2
-            assert first.state.artifact_ref != second.state.artifact_ref
-            assert first.state.producing_run_ref != second.state.producing_run_ref
-            assert len(work.session.runs().items) == 2
-            assert work.session._runtime.store.resources(work.session.id) == ()
-
-        result = _values(work).execute()
-        assert result._dataset is not None
-        checked = result._dataset.verified()
-        assert checked.primary is not None
-        keys = checked.contract.key_fields
-        assert keys == ("key_0", "key_1", "key_2")
-        assert [checked.contract.schema.field(key).type for key in keys] == [
-            pa.string(),
-            pa.int64(),
-            pa.int64(),
+        monkeypatch.setattr(SourceSession, "execute", read)
+        results = []
+        for _ in range(2):
+            before = len(reads)
+            result = logical.execute()
+            _scalar_output(result, 529)
+            submitted = reads[before:]
+            aggregates = [item for item in submitted if "SUM(" in item.sql.upper()]
+            assert len(aggregates) == 1
+            assert aggregates[0].purpose.startswith("query.")
+            assert all(item.purpose != "analysis.domain.prepare" for item in submitted)
+            results.append(result)
+        first, second = results
+        assert first.id != second.id
+        assert first._manifest.run_id != second._manifest.run_id
+        assert len(work.session.runs().items) == 2
+        assert _support(work).execute().to_pandas()[("value", "count")].tolist() == [61]
+        captured = work.values().execute()
+        frame = captured.to_pandas()
+        assert [column.dtype for column in captured._manifest.data.schema.axes[0].columns] == [
+            ScalarDataType("string"),
+            ScalarDataType("int64"),
+            ScalarDataType("int64"),
         ]
-        actual = {
-            tuple(row[key] for key in keys): (row["value"], row["cell_tag"], row["cell_reason"])
-            for row in _exchange_rows(checked)
-        }
+        actual = dict(zip(frame.iloc[:, 0], frame[("value", "value")], strict=True))
         expected = {
-            (row["tenant"], row["id"], row["revision"]): (
-                row["amount"] if row["amount"] is not None else 0,
-                "defined",
-                None,
-            )
+            (row["tenant"], row["id"], row["revision"]): row["amount"]
+            if row["amount"] is not None
+            else 0
             for row in work.rows
         }
         assert actual == expected and len(actual) == 64
-        parts = {part.role: part.table for part in checked.parts}
-        support = {
-            tuple(row[key] for key in keys): row["original_state__non_null_count"]
-            for row in parts["original_state"].to_dict("records")
-        }
-        assert support == {
-            (row["tenant"], row["id"], row["revision"]): int(row["amount"] is not None)
-            for row in work.rows
-        }
-        assert all(
-            row["coverage__complete"] is True for row in parts["coverage"].to_dict("records")
-        )
         assert work.session._runtime.store.resources(work.session.id) == ()
 
 
@@ -183,36 +107,37 @@ def test_native_sum_preserves_known_zero_for_null_and_empty_inputs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     for scenario in ("all_null", "empty"):
-        root = tmp_path / scenario
-        with workload("duckdb", "ordinary-table", 64, scenario, root, monkeypatch) as work:
-            _scalar_parts(_sum(work).execute(), 0, 0)
+        with workload(
+            "duckdb", "ordinary-table", 64, scenario, tmp_path / scenario, monkeypatch
+        ) as work:
+            _scalar_output(work.total().execute(), 0)
+            assert _support(work).execute().to_pandas()[("value", "count")].tolist() == [0]
             assert work.session._runtime.store.resources(work.session.id) == ()
 
 
 def test_native_late_invalid_source_frame_never_publishes(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with workload("duckdb", "ordinary-table", 64, "baseline", tmp_path, monkeypatch) as work:
-        logical = _sum(work)
-        before = _publications(work.session)
-        original = SourceSession.execute
+        logical = work.total()
+        before = publication_counts(work.session)
+        execute = SourceSession.execute
         corrupted: list[str] = []
 
-        def execute(source: SourceSession, read: CompiledRead) -> pd.DataFrame:
-            frame = original(source, read)
-            if read.purpose == "analysis.graph.stage":
+        def read(source: SourceSession, issued: CompiledRead) -> pd.DataFrame:
+            frame = execute(source, issued)
+            if "SUM(" in issued.sql.upper():
                 corrupted.append("schema")
-                return frame.drop(columns=["value"])
+                return frame.drop(columns=[frame.columns[-1]])
             return frame
 
-        monkeypatch.setattr(SourceSession, "execute", execute)
+        monkeypatch.setattr(SourceSession, "execute", read)
         with pytest.raises(MaterializationError):
             logical.execute()
-        assert len(corrupted) == 1
-        assert _publications(work.session) == before
+        assert corrupted == ["schema"]
+        assert publication_counts(work.session) == before
         runs = work.session.runs().items
-        assert len(runs) == 1 and isinstance(runs[0], FailedRun)
+        assert len(runs) == 1 and isinstance(runs[0], mv.FailedRun)
         assert work.session._runtime.store.resources(work.session.id) == ()
 
 
@@ -225,25 +150,17 @@ def test_source_local_comparison_keeps_its_existing_staged_prefix(
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     with source_case("duckdb", "table", tmp_path, monkeypatch, reference_data("duckdb")) as case:
         author_source_project("duckdb", case, monkeypatch, semantic_project_factory)
-        session = mv.session.get_or_create("r96-hybrid", report_timezone="UTC")
-        values = session.members(ms.ref.entity("sales.facts")).observe(
-            ms.ref.metric("sales.total"), by=(mv.member(),)
+        session = mv.session.get_or_create("native-hybrid", report_timezone="UTC")
+        values = session.observe(
+            {"value": session.catalog.metrics.get("sales.total")},
+            by=session.members(ms.ref.entity("sales.facts")),
         )
-        assert isinstance(values, mv.LogicalNumericRelation)
-        result = values.ratio(values).execute()
-        frame = result.to_pandas().set_index(["member", "coord_0", "coord_1"])
-        assert frame.value.dropna().to_dict() == {
-            ("a", 9007199254740992, 1): 1,
-            ("b", 9007199254740993, 1): 1,
-        }
-        assert frame.cell_tag.to_dict() == {
-            ("a", 9007199254740992, 1): "defined",
-            ("b", 9007199254740993, 1): "defined",
-            ("a", 9007199254740993, 2): "undefined",
-        }
-        assert frame.cell_reason.dropna().to_dict() == {
-            ("a", 9007199254740993, 2): "zero_denominator"
-        }
+        result = values.select({"ratio": values["value"] / values["value"]}).execute()
+        frame = result.to_pandas()
+        ratios = dict(zip(frame.iloc[:, 0], frame[("value", "ratio")], strict=True))
+        assert ratios[("a", 9007199254740992, 1)] == 1
+        assert ratios[("b", 9007199254740993, 1)] == 1
+        assert pd.isna(ratios[("a", 9007199254740993, 2)])
         assert session._runtime.store.resources(session.id) == ()
 
 

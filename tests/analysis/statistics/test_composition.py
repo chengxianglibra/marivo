@@ -1,13 +1,12 @@
-"""real Runtime process boundaries and public compositions."""
+"""Explicit Query, pandas selection and new business-query rounds."""
 
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import patch
+from typing import Literal
 
 import duckdb
 import pandas as pd
@@ -15,425 +14,197 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.core.graph import MethodNode
-from marivo.analysis.core.rules import AssociationFit, DeviationFit, ForecastFit, TimeRuns
-from marivo.analysis.materialization import (
-    deviation_execution,
-    runs_execution,
-    statistical_execution,
-)
-from marivo.analysis.materialization.graph_exchange import ExchangeResult
-from marivo.datasource.adapters import CompiledRead, SourceSession
 from tests.analysis.statistics.deviation_fixture import prepare_profiles
-from tests.analysis.statistics.journeys import (
-    Result,
-    check,
-    graphs,
-    inputs,
-    prepare,
-    proof,
+from tests.analysis.statistics.journeys import prepare
+from tests.analysis.statistics.pandas_workflows import deviation, forecast, plain
+from tests.analysis.statistics.runs_worker import segments
+from tests.shared_fixtures import (
+    DslCaseFactory,
+    analysis_dsl_rows,
+    export_dsl_parquet_models,
+    run_ids,
 )
-from tests.shared_fixtures import DslCaseFactory
-from tests.support.json import Json
-
-REPRESENTATIVE_METHODS = (
-    "deviation.zscore@v1",
-    "time.runs@v1",
-    "association.pearson@v1",
-    "forecast.naive@v1",
-)
+from tests.support.paths import PROJECT_ROOT
 
 
-@pytest.mark.parametrize("form", ("parquet",))
 def test_direct_score_runs_and_next_business_round(
-    analysis_dsl_case_factory: DslCaseFactory, form: str
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    """Read frozen boundaries, then prepare a separately chosen business round."""
     case = analysis_dsl_case_factory("j2")
     session = prepare(case, "table")
     with duckdb.connect(str(case.database_path)) as database:
         database.execute(
             "UPDATE \"order\" SET profile_0=CASE channel WHEN 'a' THEN -2 WHEN 'b' THEN 2 ELSE -2 END"
         )
-    if form == "parquet":
-        from tests.shared_fixtures import export_dsl_parquet_models
-
-        export_dsl_parquet_models(case, case.root)
-        ms.load(workspace_dir=case.root)
-    members = session.members(ms.ref.entity("sales.order"))
-    _, _, daily = inputs(session)
-    assert daily.execute().to_pandas().value.tolist() == [-2, 2, -2]
-    predicate = mv.any_of(daily.value.lt(-1), daily.value.gt(1))
-    direct = daily.runs(where=predicate).execute()
-    assert direct.count.to_pandas().value.tolist() == [3]
-    assert direct.duration.to_pandas().value.iloc[0].days == 3
-    assert str(direct.start.to_pandas().value.iloc[0]).startswith("2026-08-01")
-    assert str(direct.end.to_pandas().value.iloc[0]).startswith("2026-08-04")
-    for algorithm in ("mad", "zscore"):
-        scored = daily.deviation(method="mad" if algorithm == "mad" else "zscore")
-        result = scored.score.runs(where=scored.score.value.gt(0)).execute()
-        assert result.count.to_pandas().value.tolist() == [1]
-        assert str(result.start.to_pandas().value.iloc[0]).startswith("2026-08-02")
-        assert str(result.end.to_pandas().value.iloc[0]).startswith("2026-08-03")
-    constant = daily.deviation(method="mad").reference
-    unavailable = constant.deviation(method="zscore").score
-    gaps = unavailable.runs(where=unavailable.value.gt(0)).execute()
-    assert gaps.count.to_pandas().empty
-    assert dict(gaps.contract()._facts)["original_unavailable"] == "3"
-    # The next business problem uses the original additive metric and explicit
-    # windows; neither scores nor interval lengths are attribution quantities.
-    axis = ms.ref.dimension("sales.order.channel")
-    metric = ms.ref.metric("sales.total_0")
-    previous = members.observe(
-        metric,
-        during=mv.time_scope(start="2026-08-01", end="2026-08-04"),
-        by=(mv.member(), axis),
-    ).rollup()
-    following = members.observe(
-        metric,
-        during=mv.time_scope(start="2026-08-04", end="2026-08-07"),
-        by=(mv.member(), axis),
-    ).rollup()
-    comparison = following.compare(previous).absolute
-    allocation = comparison.attribute(axes=(axis,), mode="joint").execute()
-    assert isinstance(allocation, mv.MaterializedAttributionResult)
-    contributions = allocation.contribution.to_pandas()
-    assert len(contributions) == 3
-    assert contributions.set_index("coord_0").value.to_dict() == {"a": 2, "b": -2, "c": 2}
-    assert set(contributions.cell_tag) == {"defined"}
-    assert contributions.value.sum() == 2
+    export_dsl_parquet_models(case, case.root)
+    ms.load(workspace_dir=case.root)
+    field = session.catalog.fields.get("sales.order.profile_0")
+    time = session.catalog.fields.get("sales.order.ordered_at")
+    grid = session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
+    artifact = session.observe({"value": field.sum(time=time)}, during=grid).execute()
+    exported = artifact.to_pandas()
+    assert exported[("value", "value")].tolist() == [-2, 2, -2]
+    absolute = exported.copy(deep=True)
+    absolute[("value", "value")] = exported[("value", "value")].abs()
+    direct = segments(absolute, threshold=1)
+    assert direct["count"].tolist() == [3]
+    assert direct.duration.tolist() == [pd.Timedelta(days=3)]
+    assert str(direct.start.iloc[0]).startswith("2026-08-01")
+    assert str(direct.end.iloc[0]).startswith("2026-08-04")
+    before = run_ids(session)
+    for method in ("mad", "zscore"):
+        score = deviation(plain(artifact), method)
+        scored = exported.copy(deep=True)
+        scored[("value", "value")] = score.score
+        intervals = segments(scored)
+        assert intervals["count"].tolist() == [1]
+        assert str(intervals.start.iloc[0]).startswith("2026-08-02")
+        assert str(intervals.end.iloc[0]).startswith("2026-08-03")
+    constant = exported.copy(deep=True)
+    constant[("value", "value")] = 1
+    zero_scale = deviation(plain(artifact).assign(value=1), "zscore")
+    constant[("value", "value")] = zero_scale.score
+    assert segments(constant).empty
+    assert run_ids(session) == before
+    axis = session.catalog.fields.get("sales.order.channel")
+    domain = mv.coordinates(by=(axis,), keys=(("a",), ("b",), ("c",)))
+    previous = session.observe(
+        {"value": field.sum(time=time)},
+        during=session.time_scope(start="2026-08-01", end="2026-08-04"),
+        by=domain,
+    )
+    following = session.observe(
+        {"value": field.sum(time=time)},
+        during=session.time_scope(start="2026-08-04", end="2026-08-07"),
+        by=domain,
+    )
+    changes = plain(following.compare(previous).execute())
+    assert changes.set_index("key_0")["value.absolute"].to_dict() == {"a": 2, "b": -2, "c": 2}
+    assert changes["value.absolute"].sum() == 2
     assert session._runtime.store.resources(session.id) == ()
-    directory = os.environ.get("MARIVO_R86_EVIDENCE_DIR")
-    if directory:
-        row = proof(direct, "time.runs@v1", "produce", form)
-        row["scenarios"] = ["A11_next_round"]
-        row["outcome"] = "passed"
-        row["observed_business_delta"] = 2
-        row["expected_business_delta"] = 2
-        Path(directory).mkdir(parents=True, exist_ok=True)
-        (Path(directory) / f"a11-next-{form}.json").write_text(
-            json.dumps(row, sort_keys=True) + "\n"
-        )
 
 
-@pytest.mark.parametrize("method", REPRESENTATIVE_METHODS)
+@pytest.mark.parametrize("method", ("deviation", "association", "forecast", "runs"))
 def test_shared_method_and_transport_are_distinct_from_new_kernels(
-    analysis_dsl_case_factory: DslCaseFactory, method: str
+    analysis_dsl_case_factory: DslCaseFactory,
+    method: str,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = prepare(case, "table")
-    logical = graphs(inputs(session))[method]
-    if isinstance(logical, mv.LogicalDeviationResult):
-        table = mv.table(
-            observed=logical.observed,
-            reference=logical.reference,
-            deviation=logical.deviation,
-            score=logical.score,
-        )
-    elif isinstance(logical, mv.LogicalTimeRunResult):
-        table = mv.table(
-            start=logical.start, end=logical.end, count=logical.count, duration=logical.duration
-        )
-    elif isinstance(logical, mv.LogicalAssociationResult):
-        table = mv.table(coefficient=logical.coefficient, selected=logical.selected)
+    members = session.members(ms.ref.entity("sales.order"))
+    query = session.read(members, {"value": session.catalog.fields.get("sales.order.profile_0")})
+    artifact = query.execute()
+    frame = plain(artifact)
+    assert frame.value.tolist() == [1, 2, 7]
+    before = run_ids(session)
+    if method == "deviation":
+        result = deviation(frame, "zscore")
+        selected = result.loc[result.score > 0]
+        assert selected.value.tolist() == [7]
+    elif method == "association":
+        assert frame.value.astype(float).corr(frame.value.astype(float)) == 1
+    elif method == "forecast":
+        assert forecast(frame.value).prediction.tolist() == [7, 7]
     else:
-        table = mv.table(prediction=logical.prediction, lower=logical.lower, upper=logical.upper)
-    with (
-        patch.object(deviation_execution, "execute", wraps=deviation_execution.execute) as d,
-        patch.object(runs_execution, "execute", wraps=runs_execution.execute) as r,
-        patch.object(statistical_execution, "execute", wraps=statistical_execution.execute) as s,
-    ):
-        frame = table.execute().to_pandas()
-
-        def kernels() -> int:
-            return sum(
-                isinstance(
-                    call.args[0].parameters, (DeviationFit, TimeRuns, AssociationFit, ForecastFit)
-                )
-                for consumer in (d, r, s)
-                for call in consumer.call_args_list
-            )
-
-        assert kernels() == 1
-        result = logical.execute()
-        check(result, method)
-        assert len(frame) == len(result.to_pandas())
-        before = kernels()
-        selected: Result
-        if isinstance(result, mv.MaterializedDeviationResult):
-            selected = result.where(result.score.value.gt(0)).execute()
-            selected.score.rank(order="descending", ties="dense").limit(1).execute()
-        elif isinstance(result, mv.MaterializedTimeRunResult):
-            selected = result.where(result.count.value.gt(0)).execute()
-            selected.count.rank(order="descending", ties="dense").limit(1).execute()
-        elif isinstance(result, mv.MaterializedAssociationResult):
-            selected = result.where(result.selected.value.eq(True)).execute()
-            selected.coefficient.rank(order="descending", ties="dense").limit(1).execute()
-        else:
-            selected = result.where(result.prediction.value.gt(0)).execute()
-            mv.table(
-                prediction=selected.prediction, lower=selected.lower, upper=selected.upper
-            ).execute()
-        assert kernels() == before
-        assert selected.contract().required_parts == result.contract().required_parts
-    directory = os.environ.get("MARIVO_R86_EVIDENCE_DIR")
-    if directory:
-        row = proof(result, method, "produce", "table")
-        row["scenarios"] = ["shared_node", "transport_not_kernel"]
-        row["shared_kernel_calls"] = 1
-        row["transport_kernel_calls"] = 0
-        Path(directory).mkdir(parents=True, exist_ok=True)
-        (Path(directory) / f"sharing-{method}.json").write_text(
-            json.dumps(row, sort_keys=True) + "\n"
-        )
+        chosen = frame.loc[frame.value > 1]
+        assert len(chosen) == 2
+    pd.testing.assert_frame_equal(plain(session.artifact(artifact.id)), frame)
+    assert run_ids(session) == before
 
 
 def test_two_separate_axes_and_joint_keep_the_original_target(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    from tests.shared_fixtures import analysis_dsl_rows
-
     case = analysis_dsl_case_factory("j2")
-    with duckdb.connect(str(case.database_path)) as database:
-        database.execute('ALTER TABLE "order" ADD COLUMN region VARCHAR')
-        database.execute(
-            'UPDATE "order" SET region = customer.region FROM customer WHERE "order".customer_id = customer.customer_id'
-        )
-    models = case.root / "models/semantic/sales/models.py"
-    models.write_text(
-        models.read_text()
-        + "\norder_region = ms.dimension_column(name='region', entity=orders, column='region')\n"
+    session = case.session
+    axes = (
+        session.catalog.fields.get("sales.customer.region"),
+        session.catalog.fields.get("sales.order.channel"),
     )
-    ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    region = ms.ref.dimension("sales.order.region")
-    channel = ms.ref.dimension("sales.order.channel")
+    current = session.observe(
+        {"value": session.catalog.metrics.get("sales.order_count")},
+        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
+        by=axes,
+    )
+    baseline = session.observe(
+        {"value": session.catalog.metrics.get("sales.order_count")},
+        during=session.time_scope(start="2026-07-01", end="2026-08-01"),
+        by=axes,
+    )
+    frame = plain(current.compare(baseline).execute())
     facts = analysis_dsl_rows("j2")
     target = sum(
-        1 if day.startswith("2026-08") else -1 if day.startswith("2026-07") else 0
-        for _, _, _, _, day, _ in facts.orders
+        1 if row[4].startswith("2026-08") else -1 if row[4].startswith("2026-07") else 0
+        for row in facts.orders
     )
-    axes = (region, channel)
-    endpoints = []
-    for month in (8, 7):
-        observed = members.observe(
-            ms.ref.metric("sales.order_count"),
-            during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(
-                mv.member(),
-                *axes,
-            ),
-        )
-        endpoints.append(observed.group_by(ms.ref.entity("sales.customer")).rollup())
-    changed = endpoints[0].compare(endpoints[1]).absolute
-    result = changed.attribute(axes=axes, mode="joint").execute()
-    assert sum(result.contribution.to_pandas().value) == target
-    assert dict(result.contract()._facts)["complete_partition"] == "True"
+    assert frame["value.absolute"].sum() == target
+    before = run_ids(session)
+    for axis in ("key_0", "key_1"):
+        assert frame.groupby(axis, dropna=False)["value.absolute"].sum().sum() == target
+    joint = frame.groupby(["key_0", "key_1"], dropna=False)["value.absolute"].sum()
+    assert joint.sum() == target
+    assert run_ids(session) == before
 
 
-@pytest.mark.parametrize("form", ("parquet",))
 @pytest.mark.slow
-def test_representative_result_families_three_independent_processes(
-    tmp_path: Path, form: str
-) -> None:
-    project = tmp_path / "project"
-    reports: list[Json] = []
-    for phase in ("produce", "fixed", "cold"):
-        report = tmp_path / f"{phase}.json"
+def test_representative_result_families_three_independent_processes(tmp_path: Path) -> None:
+    root = tmp_path / "project"
+    reports = []
+    for phase in ("produce", "offline", "cold"):
         completed = subprocess.run(
             [
                 sys.executable,
                 "-m",
                 "tests.analysis.statistics.recovery_worker",
-                str(project),
+                str(root),
                 phase,
-                form,
-                str(report),
+                "entity",
             ],
+            cwd=PROJECT_ROOT,
             capture_output=True,
             text=True,
-            timeout=240,
-            check=False,
+            timeout=180,
         )
         assert completed.returncode == 0, completed.stdout + completed.stderr
-        reports.append(json.loads(report.read_text()))
-    assert len({row["pid"] for row in reports if isinstance(row, dict)}) == 3
-    directory = os.environ.get("MARIVO_R86_EVIDENCE_DIR")
-    if directory:
-        destination = Path(directory)
-        destination.mkdir(parents=True, exist_ok=True)
-        (destination / f"{form}-processes.json").write_text(
-            json.dumps({"reports": reports}, indent=2, sort_keys=True) + "\n"
-        )
+        reports.append(json.loads(completed.stdout.strip().splitlines()[-1]))
+    assert len({report["pid"] for report in reports}) == 3
 
 
-@pytest.mark.parametrize("form", ("parquet",))
-@pytest.mark.parametrize("method", ("zscore",))
-def test_score_select_members_followup_one_dag(
-    analysis_dsl_case_factory: DslCaseFactory, form: str, method: str
+@pytest.mark.parametrize("method", ("zscore", "mad"))
+def test_pandas_score_selection_starts_an_explicit_followup_query(
+    analysis_dsl_case_factory: DslCaseFactory,
+    method: Literal["zscore", "mad"],
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    session = prepare(case, form)
+    session = prepare(case, "parquet")
     members = session.members(ms.ref.entity("sales.order"))
-    current = members.observe(
-        ms.ref.metric("sales.total_0"),
-        during=mv.time_scope(start="2026-08-01", end="2026-08-04"),
-        by=(mv.member(),),
+    field = session.catalog.fields.get("sales.order.profile_0")
+    captured = session.read(members, {"value": field}).execute()
+    frame = deviation(plain(captured), method)
+    before = run_ids(session)
+    selected = frame.loc[frame.score > 0, "key_0"].tolist()
+    assert selected == [("c", 13)]
+    assert run_ids(session) == before
+    population = mv.identities(session.catalog.entities.get("sales.order"), keys=tuple(selected))
+    followup = session.observe(
+        {"value": field.sum(time=session.catalog.fields.get("sales.order.ordered_at"))},
+        during=session.time_scope(start="2026-08-03", end="2026-08-04"),
+        by=population,
+        members=population,
     )
-    baseline = members.observe(
-        ms.ref.metric("sales.total_0"),
-        during=mv.time_scope(start="2026-07-29", end="2026-08-01"),
-        by=(mv.member(),),
-    )
-    assert isinstance(current, mv.LogicalNumericRelation)
-    assert isinstance(baseline, mv.LogicalNumericRelation)
-    scored = current.compare(baseline).absolute.deviation(
-        method="zscore" if method == "zscore" else "mad"
-    )
-    defined = scored.where(scored.score.value.is_defined())
-    positive = defined.where(defined.score.value.gt(0))
-    selected = positive.observed.members()
-    assert isinstance(selected, mv.LogicalAnalysisDomain)
-    followup = selected.observe(
-        ms.ref.metric("sales.total_0"),
-        during=mv.time_scope(start="2026-08-03", end="2026-08-04"),
-        by=(mv.member(),),
-    )
-    trace: list[str] = []
-    execute_source, compute = SourceSession.execute, deviation_execution.execute
-
-    def read(source: SourceSession, compiled: CompiledRead) -> pd.DataFrame:
-        result = execute_source(source, compiled)
-        trace.append("source")
-        return result
-
-    def score(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str) -> ExchangeResult:
-        if isinstance(node.parameters, DeviationFit):
-            trace.append("fit")
-        return compute(node, values, binding)
-
-    with (
-        patch.object(SourceSession, "execute", read),
-        patch.object(deviation_execution, "execute", score),
-    ):
-        result = followup.aggregate(mv.count_defined()).execute()
-    assert result.to_pandas().value.tolist() == [1]
-    assert trace.count("fit") == 1
-    assert max(i for i, item in enumerate(trace) if item == "source") < trace.index("fit")
-    assert session._runtime.store.resources(session.id) == ()
-    followed = followup.execute().to_pandas()
-    assert followed.value.tolist() == [7]
-    assert followed.member.tolist() == ["c"]
-    directory = os.environ.get("MARIVO_R86_EVIDENCE_DIR")
-    if directory:
-        row = proof(scored.execute(), f"deviation.{method}@v1", "produce", form)
-        row["scenarios"] = ["A11_score_members_observe"]
-        row["source_prefix_trace"] = list(trace)
-        row["summary_artifact"] = result.state.artifact_ref.ref
-        row["observed_members"] = ["c"]
-        Path(directory).mkdir(parents=True, exist_ok=True)
-        (Path(directory) / f"a11-members-{method}-{form}.json").write_text(
-            json.dumps(row, sort_keys=True) + "\n"
-        )
+    output = plain(followup.execute())
+    assert output.key_0.tolist() == [("c", 13)] and output.value.tolist() == [7]
+    assert len(run_ids(session)) == len(before) + 1
 
 
-@pytest.mark.parametrize("form", ("parquet",))
 @pytest.mark.slow
 def test_category_time_representative_correlation_and_forecast(
-    analysis_dsl_case_factory: DslCaseFactory, form: str
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
+    from tests.analysis.statistics.recovery_worker import subprocess_phases
+
     case = analysis_dsl_case_factory("j2")
     prepare_profiles(
-        case,
-        "KC",
-        form,
-        "us",
-        "UTC",
-        False,
-        followup=True,
-        profile_indices=(0, 1, 5),
+        case, "KC", "parquet", "us", "UTC", False, followup=True, profile_indices=(0, 1, 5)
     )
-    models = case.root / "models/semantic/sales/models.py"
-    models.write_text(
-        models.read_text()
-        + "\ncopy_0 = ms.measure_column(name='copy_0', entity=orders, column='profile_0', "
-        "additivity=ms.additive_all(), unit='CNY')\n"
-    )
-    ms.load(workspace_dir=case.root)
-    session = mv.session.get_or_create("r86", report_timezone="UTC")
-    members = session.members(ms.ref.entity("sales.order"))
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01", end="2026-08-04"), grain=mv.grain("day")
-    )
-    timed_members = members
-    category = timed_members.read(ms.ref.dimension("sales.order.channel"), at=grid.before_end)
-    assert isinstance(category, mv.LogicalCategoryRelation)
-    values = tuple(
-        timed_members.observe(
-            ms.ref.metric(f"sales.total_{i}"),
-            during=grid,
-            by=(mv.member(),),
-        )
-        .group_by(category, grid)
-        .rollup()
-        for i in (0, 1, 5)
-    )
-    for algorithm in ("pearson",):
-        logical = values[0].correlate(
-            *values[1:],
-            method="pearson"
-            if algorithm == "pearson"
-            else "spearman"
-            if algorithm == "spearman"
-            else "kendall",
-            lag_range=range(-1, 2),
-        )
-        selected = logical.where(logical.selected.value.eq(True))
-        result = mv.table(
-            coefficient=selected.coefficient.rank(order="descending", ties="dense").values
-        ).execute()
-        assert result.to_pandas().coefficient.tolist() == [1.0] * 9
-        assert result._dataset is not None
-        # Each pair has three valid zero-lag series and two valid shifted
-        # candidates in the middle series; boundary constants remain unavailable.
-        assert result._dataset.evidence_digest().finding_count == 15
-        directory = os.environ.get("MARIVO_R86_EVIDENCE_DIR")
-        if directory:
-            row = proof(logical.execute(), f"association.{algorithm}@v1", "produce", form)
-            row.update(
-                domain="category_time",
-                key_profile="typed_complete_tuple",
-                time_profile="builtin_day:grid_us:UTC",
-                origin_profile=("TABLE" if form == "table" else "PARQUET") + "-US-UTC-builtin_day",
-                scenarios=["A11_multi_correlation"],
-            )
-            (Path(directory) / f"a11-correlation-{algorithm}-{form}.json").write_text(
-                json.dumps(row, sort_keys=True) + "\n"
-            )
-    for model in (mv.naive(),):
-        logical_f = values[0].forecast(horizon=mv.periods(2), model=model)
-        selected_f = logical_f.where(logical_f.prediction.value.gte(0))
-        result = mv.table(
-            prediction=selected_f.prediction, lower=selected_f.lower, upper=selected_f.upper
-        ).execute()
-        frame = result.to_pandas()
-        assert all(frame.lower <= frame.prediction) and all(frame.prediction <= frame.upper)
-        assert frame.prediction.tolist() == (
-            [0.0, 0.0, 0.0, 0.0, 7.0, 7.0]
-            if model.model_id == "naive@v1"
-            else [0.0, 0.0, 10.5, 14.0]
-            if model.model_id == "drift@v1"
-            else [0.0, 0.0, 2.0, 0.0, 0.0, 7.0]
-        )
-        directory = os.environ.get("MARIVO_R86_EVIDENCE_DIR")
-        if directory:
-            row = proof(logical_f.execute(), "forecast." + model.model_id, "produce", form)
-            row.update(
-                domain="category_time",
-                key_profile="typed_complete_tuple",
-                scenarios=["A11_three_forecasts"],
-            )
-            (Path(directory) / f"a11-forecast-{model.model_id}-{form}.json").write_text(
-                json.dumps(row, sort_keys=True) + "\n"
-            )
+    subprocess_phases(case, "category_time")

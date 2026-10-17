@@ -74,7 +74,7 @@ the complete daily acceptance matrix. Removing generic service replay does not
 establish qualification for an untested exact backend/method shape.
 
 Local trust and publication behavior follow the
-[Runtime contract](../specs/analysis/session-state-and-runtime.md#store-9-publication-and-local-trust).
+[Runtime contract](../specs/analysis/session-state-and-runtime.md#concurrent-writers-and-atomic-publication).
 Test producer validation, malformed/unreadable inputs, missing payloads,
 ownership, atomicity and recovery at their owning boundary.
 

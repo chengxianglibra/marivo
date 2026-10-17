@@ -1,39 +1,65 @@
-"""Recover named float/Decimal distributions with complete retained parts."""
+"""Exact typed distribution exports survive independent terminal reads."""
 
+from __future__ import annotations
+
+import os
+import sys
 from decimal import Decimal
+from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 
 import marivo.analysis as mv
-from marivo.analysis.materialization.cell_arrow import required
+import marivo.semantic as ms
+from marivo.datasource.adapters import SourceSession
+from marivo.semantic.reader import SemanticProject
+from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
+from tests.support.json import encode, obj, read
 
 
-def _records(frame: pd.DataFrame) -> list[dict[str, object]]:
-    return [
-        {str(name): None if pd.isna(value) else value for name, value in row.items()}
-        for row in frame.to_dict("records")
-    ]
-
-
-def check_original(value: mv.MaterializedNumericRelation, physical: str, kind: str) -> None:
-    assert value._dataset is not None
-    table = value._dataset.verified().primary
-    records = sorted(_records(table), key=lambda record: required(record["key_0"], str))
-    assert [record["key_0"] for record in records] == ["A", "B", "C", "D"]
+def check_original(value: mv.Artifact, physical: str, kind: str) -> None:
+    exported = value.to_pandas()
+    frame = exported.set_index(exported.columns[0])
+    assert frame.index.tolist() == ["A", "B", "C", "D"]
+    values = frame[("value", "value")]
     if physical == "decimal":
         assert kind == "quantile"
-        assert [record["value"] for record in records[:3]] == [
-            Decimal("1.01"),
-            Decimal("1.02"),
-            Decimal("1.04"),
-        ]
-        assert all(isinstance(record["value"], Decimal) for record in records[:3])
-        assert [record["cell_tag"] for record in records] == ["defined"] * 3 + ["null"]
+        assert values.iloc[:3].tolist() == [Decimal("1.01"), Decimal("1.02"), Decimal("1.04")]
+        assert all(isinstance(item, Decimal) for item in values.iloc[:3])
     elif "distinct" in kind:
-        assert [record["value"] for record in records] == [1, 1, 1, 0]
-        assert all(record["cell_tag"] == "defined" for record in records)
+        assert values.tolist() == [1, 1, 1, 0]
+        assert not values.isna().any()
     else:
-        assert [record["value"] for record in records[:3]] == [450, 150, 400]
-        assert [record["cell_tag"] for record in records] == ["defined"] * 3 + ["null"]
-    assert all(record["value"] is None for record in records if record["cell_tag"] == "null")
-    assert "relation.rollup()" not in {action.call for action in value.contract().actions}
+        assert values.iloc[:3].tolist() == [450, 150, 400]
+    if "distinct" not in kind:
+        assert pd.isna(values.iloc[3])
+    assert not hasattr(value, "rollup")
+
+
+def run(root: Path, phase: str, output: Path) -> None:
+    os.chdir(root)
+    state = read(root / "r94-distribution-carrier.json")
+    session_id, physical = state["session"], state["physical"]
+    assert isinstance(session_id, str) and isinstance(physical, str)
+    with (
+        patch.object(ms, "load", forbidden),
+        patch.object(SemanticProject, "load", forbidden),
+        patch.object(SourceSession, "__enter__", forbidden),
+        patch.object(SourceSession, "execute", forbidden),
+    ):
+        session = mv.session.resume(session_id, by="id")
+        before = len(session.runs().items)
+        for name, item in obj(state["originals"]).items():
+            saved = obj(item)
+            artifact = saved["artifact"]
+            assert isinstance(artifact, str)
+            result = session.artifact(artifact)
+            assert snapshot(result) == saved["snapshot"]
+            check_original(result, physical, name)
+        assert len(session.runs().items) == before
+    output.write_bytes(encode({"pid": os.getpid(), "phase": phase}))
+
+
+if __name__ == "__main__":
+    run(Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3]))

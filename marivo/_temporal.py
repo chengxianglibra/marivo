@@ -539,6 +539,22 @@ class TimeScopeContractV1(BaseModel):
     key: _JSON_SCALAR | None = None
     occurrence_category: str | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _preserve_frozen_instants(cls, data: object) -> object:
+        if (
+            not isinstance(data, Mapping)
+            or data.get("kind") != "absolute"
+            or data.get("boundary_timezone") is None
+        ):
+            return data
+        payload = dict(data)
+        for name in ("start", "end"):
+            bound: object = payload.get(name)
+            if isinstance(bound, str) and len(bound) > 10:
+                payload[name] = datetime.fromisoformat(bound.replace("Z", "+00:00"))
+        return payload
+
     @model_validator(mode="after")
     def _validate_contract(self) -> TimeScopeContractV1:
         if type(self.start) is not type(self.end) or self.start >= self.end:
@@ -736,7 +752,7 @@ class TimeScope(BaseModel):
     def __init__(self, **data: Any) -> None:
         if not _TIME_SCOPE_INTERNAL.get():
             raise TypeError(
-                "TimeScope values are returned by marivo.analysis.time_scope(...) "
+                "TimeScope values are returned by session.time_scope(...) "
                 "or an exact catalog lookup; direct construction is not supported"
             )
         super().__init__(**data)
@@ -3440,6 +3456,18 @@ class CalendarAxis:
 
     def __repr__(self) -> str:
         return f"<CalendarAxis id={self.grid.identity[:16]} buckets={len(self.grid.cells)}; use .show()>"
+
+    def coarsen(self, grain: Grain) -> CalendarAxis:
+        """Construct a candidate coarser binding over this exact frozen scope.
+
+        Args: grain: A builtin or certified Grain.
+        Returns: A CalendarAxis with the same scope, timezone and clipped bounds.
+        Example: ``month = day.coarsen(mv.grain('month'))``.
+        Constraints: Consumers require each whole original bucket to map to one target
+        bucket; construction grants no Metric merge permission.
+        """
+        candidate = calendar_axis(self.scope, grain)
+        return self if candidate.grid.identity == self.grid.identity else candidate
 
     def show(self) -> None:
         """Display a bounded calendar summary.

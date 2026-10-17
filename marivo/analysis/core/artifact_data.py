@@ -6,7 +6,9 @@ receipts; neither representation retains execution state or an Arrow table.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Literal
 
 import pandas as pd
 
@@ -45,6 +47,7 @@ class DataAxis:
 
     token: str
     columns: tuple[DataColumn, ...]
+    kind: Literal["field", "member", "correspondence"] = field(default="field", kw_only=True)
 
     def __post_init__(self) -> None:
         _text(self.token, "data.axis")
@@ -52,6 +55,7 @@ class DataAxis:
             type(self.columns) is not tuple
             or not self.columns
             or any(type(c) is not DataColumn for c in self.columns)
+            or self.kind not in ("field", "member", "correspondence")
         ):
             reject(
                 "complete immutable axis columns",
@@ -77,6 +81,7 @@ class DataSchema:
     axes: tuple[DataAxis | CalendarDataAxis, ...]
     values: tuple[DataColumn, ...]
     presence: tuple[DataColumn, ...] = ()
+    projection_columns: tuple[DataColumn, ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -84,7 +89,7 @@ class DataSchema:
             or any(type(a) not in (DataAxis, CalendarDataAxis) for a in self.axes)
             or any(
                 type(columns) is not tuple or any(type(c) is not DataColumn for c in columns)
-                for columns in (self.values, self.presence)
+                for columns in (self.values, self.presence, self.projection_columns)
             )
         ):
             reject(
@@ -119,7 +124,12 @@ class DataSchema:
 
     @property
     def columns(self) -> tuple[DataColumn, ...]:
-        return (*tuple(c for axis in self.axes for c in axis.columns), *self.values, *self.presence)
+        return (
+            *tuple(c for axis in self.axes for c in axis.columns),
+            *self.values,
+            *self.presence,
+            *self.projection_columns,
+        )
 
     @property
     def key_fields(self) -> tuple[str, ...]:
@@ -150,6 +160,11 @@ class OutputFinding:
 class DataProjection:
     axis_token: str
     columns: tuple[str, ...]
+    path: tuple[str, ...] = ()
+    kind: Literal["field", "identity", "calendar", "correspondence"] = "field"
+    label: str = ""
+    timezone: str | None = None
+    bounds: tuple[tuple[datetime, datetime, datetime, datetime], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -314,6 +329,7 @@ class ArtifactPublication:
     attachments: tuple[OutputAttachment, ...] = ()
     findings: tuple[OutputFinding, ...] = ()
     evidence: tuple[OutputEvidence, ...] = ()
+    coordinate_projections: tuple[DataProjection, ...] = ()
 
     def __post_init__(self) -> None:
         for name in ("artifact_id", "session_id", "run_id"):

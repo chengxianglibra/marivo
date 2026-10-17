@@ -1,6 +1,5 @@
-"""Deviation public execution and independent exact-fact regression oracles."""
+"""Deviation exports preserve raw carriers; statistical recipes belong to pandas."""
 
-import subprocess
 import sys
 from decimal import Decimal, localcontext
 from fractions import Fraction
@@ -11,11 +10,18 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.methods import deviation_numeric as numeric
 from marivo.analysis.methods.physical import DecimalType, ScalarType
 from tests.analysis.statistics.deviation_oracle import decimal_finish, expected
-from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models
+from tests.analysis.statistics.pandas_workflows import (
+    assert_clean,
+    daily,
+    deviation,
+    monthly,
+    orders,
+    plain,
+)
+from tests.shared_fixtures import DslCaseFactory, run_ids
 
 
 @pytest.mark.parametrize("method", ["zscore", "mad"])
@@ -76,140 +82,6 @@ def test_every_decimal_profile_preserves_original_and_half_even() -> None:
 def test_nonfinite_or_wrong_original_carrier_rejects(value: float | bool) -> None:
     with pytest.raises(ValueError):
         numeric.exact(value, ScalarType("float64"))
-
-
-def test_public_source_fixed_views_and_selection(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    method: numeric.DeviationMethod = "zscore"
-    case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    metric, via = ms.ref.metric("sales.revenue"), ms.ref.relationship("sales." + case.names.buyer)
-    current = members.observe(
-        metric,
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=via,
-        by=(mv.member(),),
-    )
-    baseline = members.observe(
-        metric,
-        during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
-        via=via,
-        by=(mv.member(),),
-    )
-    change = current.compare(baseline).absolute
-    source = change.deviation(method=method)
-    fixed = source.execute()
-    observed = fixed.observed.to_pandas()
-    reference = fixed.reference.to_pandas()
-    deviations = fixed.deviation.to_pandas()
-    scores = fixed.score.to_pandas()
-    assert (
-        list(observed.member)
-        == list(reference.member)
-        == list(deviations.member)
-        == list(scores.member)
-    )
-    assert observed.value.tolist() == change.execute().to_pandas().value.tolist()
-    values = tuple(Fraction(float(x)) for x in observed.value)
-    center = (
-        sum(values) / len(values)
-        if method == "zscore"
-        else (sorted(values)[(len(values) - 1) // 2] + sorted(values)[len(values) // 2]) / 2
-    )
-    assert reference.value.tolist() == [float(center)] * len(values)
-    assert deviations.value.tolist() == [float(x - center) for x in values]
-    selected = fixed.where(fixed.score.value.is_defined())
-    positive = selected.where(selected.score.value.gt(0)).execute()
-    assert (
-        positive.observed.to_pandas().member.tolist()
-        == scores.loc[scores.value > 0, "member"].tolist()
-    )
-    again = change.execute().deviation(method=method).execute()
-    assert again.score.to_pandas().value.tolist() == scores.value.tolist()
-    ranking = fixed.score.rank(order="descending", ties="dense").limit(2).execute()
-    assert (
-        ranking.values.to_pandas().value.tolist() == sorted(scores.value.tolist(), reverse=True)[:2]
-    )
-    table = mv.table(
-        observed=fixed.observed,
-        reference=fixed.reference,
-        deviation=fixed.deviation,
-        score=fixed.score,
-    ).execute()
-    assert len(table.to_pandas()) == len(scores)
-
-
-@pytest.mark.parametrize(
-    "method,profile",
-    [("mad", "DOUBLE"), ("zscore", "DECIMAL(38,38)")],
-)
-def test_f11_complete_source_chain(
-    analysis_dsl_case_factory: DslCaseFactory,
-    method: numeric.DeviationMethod,
-    profile: str,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from marivo.datasource.adapters import CompiledRead, SourceSession
-
-    case = analysis_dsl_case_factory("j2")
-    with duckdb.connect(str(case.database_path)) as db:
-        factor = "0.001" if profile == "DECIMAL(38,38)" else "1"
-        if profile == "DECIMAL(38,38)":
-            # The dual comparison must also represent C's relative value above -1.
-            db.execute('UPDATE "order" SET amount = 10 WHERE order_id = ?', ["j2_ac"])
-        db.execute(
-            f'ALTER TABLE "order" ALTER amount TYPE {profile} USING CAST(amount * {factor} AS {profile})'
-        )
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    metric, via = ms.ref.metric("sales.revenue"), ms.ref.relationship("sales." + case.names.buyer)
-    current = members.observe(
-        metric,
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=via,
-        by=(mv.member(),),
-    )
-    baseline = members.observe(
-        metric,
-        during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
-        via=via,
-        by=(mv.member(),),
-    )
-    deviation = current.compare(baseline).absolute.deviation(method=method)
-    defined = deviation.where(deviation.score.value.is_defined())
-    positive = defined.where(defined.score.value.gt(0))
-    selected = positive.observed.members()
-    assert isinstance(selected, mv.LogicalAnalysisDomain)
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"), grain=mv.grain("day")
-    )
-    followup = selected.observe(metric, during=grid, via=via, by=(mv.member(),))
-    trace: list[str] = []
-    source_execute, original_fit = SourceSession.execute, numeric.fit
-
-    def execute(self: SourceSession, read: CompiledRead) -> pd.DataFrame:
-        frame = source_execute(self, read)
-        trace.append("source")
-        return frame
-
-    def fitting(xs: tuple[Fraction, ...], algorithm: numeric.DeviationMethod) -> numeric.Fit:
-        trace.append("local")
-        return original_fit(xs, algorithm)
-
-    monkeypatch.setattr(SourceSession, "execute", execute)
-    monkeypatch.setattr(numeric, "fit", fitting)
-    assert followup.aggregate(method=mv.count_defined()).execute().to_pandas().value.tolist() == [2]
-    assert trace.count("local") == 1
-    assert max(i for i, event in enumerate(trace) if event == "source") < trace.index("local")
-    trace.clear()
-    values = followup.execute().to_pandas()
-    assert trace.count("local") == 1
-    assert max(i for i, event in enumerate(trace) if event == "source") < trace.index("local")
-    assert values.loc[values.cell_tag == "defined", "value"].tolist() == (
-        [Decimal("0.12"), Decimal("0")] if profile == "DECIMAL(38,38)" else [120, 0]
-    )
-    assert len(values) == 62
-    assert values.cell_tag.value_counts().to_dict() == {"null": 60, "defined": 2}
 
 
 @pytest.mark.parametrize("method", ("zscore", "mad"))
@@ -283,110 +155,125 @@ def test_root_certificate_refines_a_rounding_boundary_without_execution_deadline
     assert numeric.verify_score(delta, fitted, scored.value, scored.root)
 
 
+def test_exported_comparison_supports_pandas_deviation_selection(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j2")
+    current = monthly(case, "2026-08-01", "2026-09-01")
+    baseline = monthly(case, "2026-07-01", "2026-08-01")
+    comparison = current.compare(baseline)
+    artifact = comparison.execute()
+    frame = plain(artifact).rename(columns={"value.absolute": "value"})
+    before = run_ids(case.session)
+    result = deviation(frame, "zscore")
+    values = tuple(frame.value)
+    center, _, _, scores = expected(values, "zscore")
+    assert result.value.tolist() == list(values)
+    assert result.reference.tolist() == [center] * len(values)
+    assert result.deviation.tolist() == [Fraction(value) - center for value in values]
+    assert result.score.tolist() == list(scores)
+    positive = result.loc[result.score > 0]
+    assert positive.key_0.tolist() == result.loc[result.score > 0, "key_0"].tolist()
+    ranked = result.sort_values(["score", "key_0"], ascending=[False, True]).head(2)
+    assert ranked.score.tolist() == sorted(scores, reverse=True)[:2]
+    pd.testing.assert_frame_equal(plain(case.session.artifact(artifact.id)), plain(artifact))
+    assert run_ids(case.session) == before
+
+
+@pytest.mark.parametrize("method,profile", [("mad", "DOUBLE"), ("zscore", "DECIMAL(38,38)")])
+def test_exported_scores_select_an_explicit_followup_query(
+    analysis_dsl_case_factory: DslCaseFactory,
+    method: numeric.DeviationMethod,
+    profile: str,
+) -> None:
+    case = analysis_dsl_case_factory("j2")
+    with duckdb.connect(str(case.database_path)) as db:
+        if profile == "DECIMAL(38,38)":
+            db.execute("UPDATE \"order\" SET amount=10 WHERE order_id='j2_ac'")
+        factor = "0.001" if profile.startswith("DECIMAL") else "1"
+        db.execute(
+            f'ALTER TABLE "order" ALTER amount TYPE {profile} USING CAST(amount * {factor} AS {profile})'
+        )
+    comparison = monthly(case, "2026-08-01", "2026-09-01").compare(
+        monthly(case, "2026-07-01", "2026-08-01")
+    )
+    frame = plain(comparison.execute()).rename(columns={"value.absolute": "value"})
+    before = run_ids(case.session)
+    scores = deviation(frame, method)
+    selected = scores.loc[scores.score > 0, "key_0"].tolist()
+    assert selected == ["B", "D"]
+    assert run_ids(case.session) == before
+    population = mv.identities(
+        case.session.catalog.entities.get("sales.customer"), keys=tuple((key,) for key in selected)
+    )
+    scope = case.session.time_scope(start="2026-08-01", end="2026-09-01")
+    following = case.session.observe(
+        {"value": case.session.catalog.metrics.get("sales.revenue")},
+        during=scope.by(mv.grain("day")),
+        by=population,
+        members=population,
+    )
+    output = plain(following.execute())
+    assert len(output) == 62
+    assert output.value.sum() == (Decimal("0.12") if profile.startswith("DECIMAL") else 120)
+    assert output.value.eq(0).sum() == 61
+    assert case.session._runtime.store.resources(case.session.id) == ()
+
+
 def test_null_partitions_selection_boundary_and_shared_fit(
     analysis_dsl_case_factory: DslCaseFactory,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    method: numeric.DeviationMethod = "mad"
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as db:
         db.execute('UPDATE "order" SET channel=NULL WHERE amount=0')
-    members = case.session.members(ms.ref.entity("sales.order"))
-    values = members.read(ms.ref.measure("sales.order.amount"))
-    categories = members.read(ms.ref.dimension("sales.order.channel"))
-    assert isinstance(categories, mv.LogicalCategoryRelation)
-    calls: list[tuple[Fraction, ...]] = []
-    original_fit = numeric.fit
-
-    def fitting(xs: tuple[Fraction, ...], algorithm: numeric.DeviationMethod) -> numeric.Fit:
-        calls.append(xs)
-        return original_fit(xs, algorithm)
-
-    monkeypatch.setattr(numeric, "fit", fitting)
-    fitted = values.deviation(method=method, partition_by=(categories,))
-    result = mv.table(
-        observed=fitted.observed, reference=fitted.reference, score=fitted.score
-    ).execute()
-    frame = result.to_pandas()
-    assert len(calls) == 2
-    assert sorted(len(xs) for xs in calls) == [4, 7]
-    assert len(frame) == 11
-    first = values.deviation(method=method)
-    second = values.deviation(method=method)
-    calls.clear()
-    mv.table(first=first.score, second=second.score).execute()
-    assert len(calls) == 2
-    calls.clear()
-    selected = values.where(values.value.gt(50))
-    new_fit = selected.deviation(method=method).execute()
-    assert len(calls) == 1 and len(calls[0]) == 5
-    all_fit = values.deviation(method=method).execute()
-    retained = all_fit.where(all_fit.observed.value.gt(50)).execute()
-    assert dict(retained.contract()._facts)["original_count"] == "11"
-    assert dict(new_fit.contract()._facts)["original_count"] == "5"
+    artifact = orders(case).execute()
+    frame = plain(artifact)
+    before = run_ids(case.session)
+    groups = tuple((key, group) for key, group in frame.groupby("category", dropna=False))
+    assert sorted(len(group) for _, group in groups) == [4, 7]
+    partitions = pd.concat([deviation(group, "mad") for _, group in groups]).sort_index()
+    assert len(partitions) == 11
+    selected = frame.loc[frame.value > 50]
+    assert len(selected) == 5
+    selected_fit = deviation(selected, "mad")
+    original_fit = deviation(frame, "mad")
+    retained = original_fit.loc[original_fit.value > 50]
+    assert selected_fit.reference.iloc[0] != retained.reference.iloc[0]
+    assert len(original_fit) == 11 and len(selected_fit) == 5
+    assert run_ids(case.session) == before
 
 
 @pytest.mark.parametrize("empty", (False, True))
-def test_selected_time_score_can_establish_a_new_fixed_fit(
+def test_exported_time_scores_allow_explicit_pandas_refit(
     analysis_dsl_case_factory: DslCaseFactory,
     empty: bool,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    method: numeric.DeviationMethod = "mad"
     from marivo.datasource.adapters import SourceSession
     from tests.analysis.statistics.deviation_oracle import forbidden
 
     case = analysis_dsl_case_factory("j2")
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"), grain=mv.grain("day")
-    )
-    original = (
-        case.session.members(ms.ref.entity("sales.customer"))
-        .observe(
-            ms.ref.metric("sales.revenue"),
-            during=grid,
-            via=ms.ref.relationship("sales." + case.names.buyer),
-            by=(mv.member(),),
-        )
-        .deviation(method=method)
-        .execute()
-    )
-    defined = original.where(original.score.value.is_defined())
-    values = defined.score
-    selected = values.where(values.value.gt(10 if empty else 0))
-    input_column = selected.execute().to_pandas().value.tolist()
-    assert all(isinstance(value, float) for value in input_column)
-    input_values = tuple(value for value in input_column if isinstance(value, float))
-    assert bool(input_values) is not empty
+    artifact = daily(case, end="2026-09-01").execute()
+    before = run_ids(case.session)
     monkeypatch.setattr(SourceSession, "__enter__", forbidden)
     monkeypatch.setattr(ms, "load", forbidden)
-    logical = selected.deviation(method=method)
-    result = logical.execute()
-    assert dict(result.contract()._facts)["original_count"] == str(len(input_values))
-    assert result.observed.to_pandas().value.tolist() == list(input_values)
-    actual = result.score.to_pandas()
-    if not input_values:
-        assert actual.empty
-    elif len(input_values) == 1:
-        assert actual.cell_reason.tolist() == ["insufficient_samples"]
-    elif len(set(input_values)) == 1:
-        assert actual.cell_reason.tolist() == ["zero_scale"] * len(input_values)
+    scores = deviation(plain(artifact), "mad")
+    chosen = scores.loc[scores.score > (scores.score.max() + 1 if empty else 0), ["key_0", "score"]]
+    assert chosen.empty is empty
+    refit = deviation(chosen.rename(columns={"score": "value"}), "mad")
+    assert len(refit) == len(chosen)
+    if chosen.empty:
+        assert refit.empty
+    elif chosen.score.nunique() == 1:
+        assert refit.score.isna().all()
     else:
-        _, _, _, wanted = expected(input_values, method)
-        assert actual.value.tolist() == list(wanted)
-    restored = case.session.artifact(result.evidence_digest().artifact_ref)
-    assert isinstance(restored, mv.MaterializedDeviationResult)
-    assert restored.score.to_pandas().equals(actual)
-    runs = case.session.runs().items
-    assert logical.execute().evidence_digest().artifact_ref == result.evidence_digest().artifact_ref
-    assert case.session.runs().items == runs
+        assert refit.score.tolist() == list(expected(tuple(chosen.score), "mad")[3])
+    assert run_ids(case.session) == before
 
 
 def test_observed_nullable_large_int64_dataframe_preserves_captured_values(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    method: numeric.DeviationMethod = "zscore"
-    import pandas as pd
     import pyarrow as pa
 
     case = analysis_dsl_case_factory("j2")
@@ -396,176 +283,92 @@ def test_observed_nullable_large_int64_dataframe_preserves_captured_values(
         db.execute('ALTER TABLE "order" ALTER amount TYPE BIGINT')
         for key, value in zip(("a", "b", "c", "null"), (*values, None), strict=True):
             db.execute('INSERT INTO "order" (order_id, amount) VALUES (?, ?)', [key, value])
-    source = case.session.members(ms.ref.entity("sales.order")).read(
-        ms.ref.measure("sales.order.amount")
-    )
-    captured = source.execute().to_pandas().sort_values("member")
-    result = source.deviation(method=method).execute()
-    observed = result.observed.to_pandas().sort_values("member")
-    assert observed.value.iloc[:3].tolist() == captured.value.iloc[:3].tolist()
-    assert observed.value.iloc[3] is pd.NA
-    assert observed.value.dtype == pd.ArrowDtype(pa.int64())
-    assert observed.cell_tag.tolist() == ["defined", "defined", "defined", "null"]
-    restored = case.session.artifact(result.evidence_digest().artifact_ref)
-    assert isinstance(restored, mv.MaterializedDeviationResult)
-    assert restored.observed.to_pandas().sort_values("member").equals(observed)
+    artifact = orders(case).execute()
+    frame = plain(artifact)
+    assert frame.value.iloc[:3].tolist() == list(values)
+    assert frame.value.iloc[3] is pd.NA
+    assert frame.value.dtype == pd.ArrowDtype(pa.int64())
+    scored = deviation(frame, "zscore")
+    assert scored.value.iloc[:3].tolist() == list(values)
+    assert scored.score.iloc[:3].tolist() == list(expected(values, "zscore")[3])
+    assert scored.score.iloc[3] is pd.NA
+    pd.testing.assert_frame_equal(plain(case.session.artifact(artifact.id)), frame)
 
 
-def test_extreme_binary64_fit_card_preserves_bounded_continuations(
+def test_extreme_binary64_export_supports_bounded_preview(
     analysis_dsl_case_factory: DslCaseFactory,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    method: numeric.DeviationMethod = "mad"
     case = analysis_dsl_case_factory("j2")
+    values = (sys.float_info.max, float.fromhex("0x0.0000000000001p-1022"))
     with duckdb.connect(str(case.database_path)) as db:
         db.execute('DELETE FROM "order"')
         db.execute('ALTER TABLE "order" ALTER amount TYPE DOUBLE')
-        for channel in ("a", "b", "c"):
-            for index, value in enumerate(
-                (sys.float_info.max, float.fromhex("0x0.0000000000001p-1022"))
-            ):
+        for category in "abc":
+            for index, value in enumerate(values):
                 db.execute(
                     'INSERT INTO "order" (order_id, channel, amount) VALUES (?, ?, ?)',
-                    [channel + str(index), channel, value],
+                    [category + str(index), category, value],
                 )
-    members = case.session.members(ms.ref.entity("sales.order"))
-    values = members.read(ms.ref.measure("sales.order.amount"))
-    category = members.read(ms.ref.dimension("sales.order.channel"))
-    assert isinstance(category, mv.LogicalCategoryRelation)
-    result = values.deviation(method=method, partition_by=(category,)).execute()
-    contract = result.contract()
-    assert "excerpt" in dict(contract._facts)["fit_partition_0"]
-    contract.show()
-    text = capsys.readouterr().out
-    assert len(text.encode()) <= 8192
-    assert contract.actions and contract.actions[-1].help_target in text
-    _, _, _, scores = expected(
-        (sys.float_info.max, float.fromhex("0x0.0000000000001p-1022")), method
-    )
-    assert result.score.to_pandas().value.tolist().count(scores[0]) == 3
+    artifact = orders(case).execute()
+    frame = plain(artifact)
+    result = pd.concat([deviation(group, "mad") for _, group in frame.groupby("category")])
+    assert result.score.tolist().count(expected(values, "mad")[3][0]) == 3
+    artifact.show(n=2)
+    assert len(capsys.readouterr().out.encode()) <= 8192
+    assert not hasattr(artifact, "contract")
 
 
 def test_construction_mode_identity_and_zero_business_reads(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    method: numeric.DeviationMethod = "zscore"
-    import marivo
-    from marivo.analysis.errors import StatisticalRelationError
+    from marivo.analysis.errors import AnalysisError
     from marivo.datasource.adapters import SourceSession
+    from tests.analysis.statistics.deviation_oracle import forbidden
 
     case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.order"))
-    values = members.read(ms.ref.measure("sales.order.amount"))
-    category = members.read(ms.ref.dimension("sales.order.channel"))
-    assert isinstance(category, mv.LogicalCategoryRelation)
-    foreign_case = analysis_dsl_case_factory("j2")
-    foreign = foreign_case.session.members(ms.ref.entity("sales.order")).read(
-        ms.ref.dimension("sales.order.channel")
-    )
-    assert isinstance(foreign, mv.LogicalCategoryRelation)
-    fixed = values.execute()
-
-    def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("construction read business rows")
-
+    query = orders(case)
+    before = run_ids(case.session)
     monkeypatch.setattr(SourceSession, "execute", forbidden)
-    logical = values.deviation(method=method, partition_by=(category,))
-    assert isinstance(logical, mv.LogicalDeviationResult)
-    assert "fit_scope" in dict(logical.contract()._facts)
-    help_api = marivo.help
-    assert callable(help_api)
-    help_api("analysis.dsl.NumericComparison.deviation")
-    with pytest.raises(StatisticalRelationError) as raised:
-        values.deviation(method=method, partition_by=(foreign,))
-    assert raised.value.code == "r8.input_identity"
-    with pytest.raises(StatisticalRelationError):
-        fixed.deviation(method=method, partition_by=(category,))
+    selected = query.where(query["value"] > 0)
+    selected.contract()
+    assert run_ids(case.session) == before
+    for name in ("deviation", "correlate", "forecast", "runs", "rank"):
+        assert not hasattr(query, name)
+    with pytest.raises(AnalysisError):
+        query.select({"foreign": selected["value"]})
 
 
-@pytest.mark.parametrize("method", ("zscore",))
-@pytest.mark.parametrize(
-    "phase", ("fit_complete", "graph_admitted", "graph_receipts_verified", "before_commit")
-)
-def test_deviation_phase_failure_is_atomic(
+@pytest.mark.parametrize("phase", ("query_admitted", "terminal_primary_written", "before_commit"))
+def test_export_phase_failure_is_atomic(
     analysis_dsl_case_factory: DslCaseFactory,
-    monkeypatch: pytest.MonkeyPatch,
-    method: numeric.DeviationMethod,
     phase: str,
 ) -> None:
+    from marivo.analysis.errors import AnalysisError
 
     case = analysis_dsl_case_factory("j2")
-    logical = (
-        case.session.members(ms.ref.entity("sales.order"))
-        .read(ms.ref.measure("sales.order.amount"))
-        .deviation(method=method)
-    )
+    query = orders(case)
     runtime = case.session._runtime
-    now = [0.0]
-    original_event, original_fit = runtime._event, numeric.fit
 
-    def event(point: str) -> None:
-        original_event(point)
-        if point == phase:
-            raise RuntimeError("injected deviation phase failure")
+    def inject(actual: str) -> None:
+        if actual == phase:
+            raise RuntimeError("injected export phase failure")
 
-    def fitting(xs: tuple[Fraction, ...], algorithm: numeric.DeviationMethod) -> numeric.Fit:
-        result = original_fit(xs, algorithm)
-        if phase == "fit_complete":
-            raise RuntimeError("injected deviation phase failure")
-        return result
-
-    monkeypatch.setattr(runtime, "_event", event)
-    monkeypatch.setattr(numeric, "fit", fitting)
-    with pytest.raises(MaterializationError):
-        logical.execute()
-    assert runtime.last_run_ref is not None
-    failed_run = runtime.store._graph_run(runtime.last_run_ref)
-    assert failed_run is not None and failed_run.lifecycle == "failed"
-    with runtime.store._connection() as connection:
-        for table in ("dataset_artifacts", "dataset_evidence", "findings"):
-            assert connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
-    assert runtime.store.resources(runtime.session_ref) == ()
+    runtime._hook = inject
+    try:
+        with pytest.raises(AnalysisError):
+            query.execute()
+    finally:
+        runtime._hook = None
+    assert_clean(case.session, artifacts=0)
 
 
-@pytest.mark.parametrize(
-    "profile,form,method",
-    [
-        ("BIGINT", "table", "zscore"),
-    ],
-)
 @pytest.mark.slow
-def test_scalar_carriers_separate_producer_and_fixed(
+def test_scalar_export_recovers_in_independent_processes(
     analysis_dsl_case_factory: DslCaseFactory,
-    profile: str,
-    form: str,
-    method: numeric.DeviationMethod,
 ) -> None:
+    from tests.analysis.statistics.recovery_worker import subprocess_phases
+
     case = analysis_dsl_case_factory("j2")
-    with duckdb.connect(str(case.database_path)) as db:
-        factor = "0.001" if profile == "DECIMAL(38,38)" else "1"
-        db.execute(
-            f'ALTER TABLE "order" ALTER amount TYPE {profile} USING CAST(amount * {factor} AS {profile})'
-        )
-    if form == "parquet":
-        export_dsl_parquet_models(case, case.root)
-    for phase in ("produce", "fixed"):
-        if phase == "fixed":
-            case.database_path.rename(case.database_path.with_suffix(".offline"))
-            for source in (case.root / "source_files").glob("*.parquet"):
-                source.rename(source.with_suffix(".offline"))
-        process = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "tests.analysis.statistics.deviation_worker",
-                str(case.root),
-                phase,
-                method,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=180,
-        )
-        assert process.returncode == 0, process.stdout + process.stderr
-        assert f'"accepted": "{phase}"' in process.stdout
+    subprocess_phases(case, "scalar")

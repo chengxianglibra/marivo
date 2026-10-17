@@ -14,12 +14,11 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.core.model import ObservedQuantity
 from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
-from tests.analysis.materialization.multiroot_recovery_worker import components
+from tests.analysis.materialization.multiroot_recovery_worker import verify
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case
 from tests.support.json import Json, encode, obj, read
 from tests.support.paths import PROJECT_ROOT
@@ -129,8 +128,10 @@ def test_native_independent_multiroot_fixed_and_cold(
             models += f"{name}_time=ms.time_dimension_column(name='time',entity={name},column='happened',granularity='second',parse=ms.timestamp(timezone='UTC'),is_default=True)\n"
             if name != "subjects":
                 models += f"{name}_amount=ms.measure_column(name='amount',entity={name},column='amount',additivity=ms.additive_all())\n"
-                models += f"{name}_total=ms.aggregate(name={name + '_total'!r},measure={name}_amount,agg='sum',empty=ms.empty.zero())\n"
                 models += f"{name}_subject=ms.relationship(name={name + '_subject'!r},from_entity={name},to_entity=subjects,keys=[ms.join_on({name}_owner,subjects_owner),ms.join_on({name}_tenant,subjects_tenant)])\n"
+        models += "frozen=ms.finalize()\n"
+        for name in ("left", "right"):
+            models += f"{name}_value=frozen.resolve({name}_amount)\n{name}_clock=frozen.resolve({name}_time)\n@ms.metric()\ndef {name}_total():\n    return {name}_value.sum(time={name}_clock)\n"
         semantic_project_factory(
             {
                 "datasources/warehouse.py": "import marivo.datasource as md\n"
@@ -143,67 +144,41 @@ def test_native_independent_multiroot_fixed_and_cold(
         )
         session = mv.session.get_or_create("r94-multiroot", report_timezone="UTC")
         members = session.members(ms.ref.entity("sales.subjects"))
-        routes = (
-            mv.path(ms.ref.relationship("sales.left_subject")),
-            mv.path(ms.ref.relationship("sales.right_subject")),
-        )
         with monkeypatch.context() as construction:
             construction.setattr(SourceSession, "compile", forbidden)
             construction.setattr(SourceSession, "execute", forbidden)
+            left = session.catalog.metrics.get("sales.left_total")
+            right = session.catalog.metrics.get("sales.right_total")
             relations = {
-                "linear": members.observe(
-                    mv.runtime_metric.linear(
-                        add=[ms.ref.metric("sales.left_total"), ms.ref.metric("sales.right_total")],
-                        label="combined",
-                    ),
-                    via=routes,
-                    by=(mv.member(),),
-                ),
-                "ratio": members.observe(
-                    mv.runtime_metric.ratio(
-                        ms.ref.metric("sales.left_total"),
-                        ms.ref.metric("sales.right_total"),
-                        label="ratio",
-                    ),
-                    via=routes,
-                    by=(mv.member(),),
-                ),
+                "linear": session.observe({"value": left + right}, by=members),
+                "ratio": session.observe({"value": left / right}, by=members),
+                "components": session.observe({"left": left, "right": right}, by=members),
             }
-            for relation in relations.values():
-                quantity = relation._node.root.signature.quantity
-                assert isinstance(quantity, ObservedQuantity)
-                automatic = members.observe(quantity.metric_ref, by=(mv.member(),))
-                assert automatic._node.root.signature.quantity == quantity
-            auto_read = session.members(ms.ref.entity("sales.left")).read(
-                ms.ref.dimension("sales.subjects.owner")
+            relations["linear_total"] = relations["linear"].rollup()
+            relations["ratio_total"] = relations["ratio"].rollup()
+            owner_field = session.catalog.fields.get("sales.subjects.owner")
+            left_members = session.members(ms.ref.entity("sales.left"))
+            auto_read = session.read(left_members, {"value": owner_field})
+            explicit_read = session.read(
+                left_members,
+                {
+                    "value": owner_field.via(
+                        (session.catalog.relationships.get("sales.left_subject"),)
+                    )
+                },
             )
-            explicit_read = session.members(ms.ref.entity("sales.left")).read(
-                ms.ref.dimension("sales.subjects.owner"),
-                via=mv.path(ms.ref.relationship("sales.left_subject")),
-            )
-            assert (
-                auto_read._node.classification_coordinate()
-                == explicit_read._node.classification_coordinate()
-            )
-        assert auto_read.execute().to_pandas()["value"].tolist() == ["a"] * 4
-        originals: dict[str, Json] = {}
-        parts: dict[str, Json] = {}
-        for kind, relation in relations.items():
-            quantity = relation._node.root.signature.quantity
-            assert isinstance(quantity, ObservedQuantity)
-            result = members.observe(quantity.metric_ref, by=(mv.member(),)).execute()
-            assert isinstance(
-                result, (mv.MaterializedNumericRelation, mv.MaterializedRatioRelation)
-            )
-            originals[kind], parts[kind] = snapshot(result), components(result)
+        relations["auto_read"], relations["explicit_read"] = auto_read, explicit_read
+        outputs = {name: relation.execute() for name, relation in relations.items()}
+        derived = verify(outputs)
+        for result in outputs.values():
             source_trace.record(result)
         state: dict[str, Json] = {
             "session": session.id,
-            "originals": originals,
-            "components": parts,
-            # Cold recovery needs one representative for each persisted result type:
-            # a multi-root NumericRelation and the distinct RatioRelation.
-            "cold_kinds": ["linear", "ratio"],
+            "outputs": {
+                name: {"artifact": value.id, "snapshot": snapshot(value)}
+                for name, value in outputs.items()
+            },
+            "derived": derived,
         }
         (tmp_path / "r94-multiroot.json").write_bytes(encode(state))
         source_trace.save(
@@ -226,7 +201,7 @@ def test_native_independent_multiroot_fixed_and_cold(
             path.unlink()
     reports: list[Json] = []
     repository = PROJECT_ROOT
-    for phase in ("fixed", "cold"):
+    for phase in ("offline", "cold"):
         output = tmp_path / (phase + ".json")
         completed = subprocess.run(
             [

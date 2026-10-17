@@ -8,6 +8,7 @@ from typing import Literal
 
 from ibis.common.deferred import Deferred
 
+from marivo._definition.correspondence import ComparisonAxis, CorrespondenceAxis
 from marivo._definition.deferred import RelationshipParameter
 from marivo._definition.graph import computation_fingerprint
 from marivo._definition.relations import (
@@ -29,6 +30,7 @@ from marivo._definition.relations import (
     PopulationProgram,
     PopulationProject,
     PopulationSet,
+    QueryKeys,
 )
 from marivo._definition.relations import (
     condition_populations as condition_populations,
@@ -40,15 +42,35 @@ from marivo._definition.types import (
     AxisBinding,
     CalendarCoordinate,
     CoordinateValue,
+    DefinitionGraphError,
     FieldRead,
     LiteralValue,
     Owner,
 )
 from marivo._temporal import CalendarAxis, InstantAnchor, anchor_from_datetime
 from marivo.analysis.core.model import reject
-from marivo.analysis.public_dsl import AnalysisContract
+from marivo.analysis.public_dsl import AnalysisAction, AnalysisContract
 from marivo.semantic._deferred_semantics import consume_field
 from marivo.semantic.expressions import Entity
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class MemberAxis:
+    """Locate the unique compatible complete identity axis on a receiver."""
+
+    def __repr__(self) -> str:
+        return "<MemberAxis kind=member; use marivo.help('analysis.member')>"
+
+
+def member() -> MemberAxis:
+    """Locate a complete identity already provided by the receiving domain.
+
+    Args: None.
+    Returns: An immutable MemberAxis marker.
+    Example: ``session.observe({'sales':sales},members=people,by=(mv.member(),))``.
+    Constraints: Requires one compatible bound identity; it never guesses an Entity.
+    """
+    return MemberAxis()
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -68,22 +90,36 @@ def _axis(read: FieldRead) -> AxisBinding:
 
 
 def _axes(
-    by: tuple[Deferred | MembershipAxis | AxisBinding | CalendarCoordinate, ...],
-) -> tuple[tuple[AxisBinding | CalendarCoordinate, ...], tuple[MembershipBinding, ...]]:
-    axes: list[AxisBinding | CalendarCoordinate] = []
+    by: tuple[Deferred | MembershipAxis | MemberAxis | ComparisonAxis, ...],
+    *,
+    available: tuple[ComparisonAxis, ...] = (),
+) -> tuple[tuple[ComparisonAxis, ...], tuple[MembershipBinding, ...]]:
+    axes: list[ComparisonAxis] = []
     memberships: list[MembershipBinding] = []
     for item in by:
-        if isinstance(item, MembershipAxis):
+        if isinstance(item, MemberAxis):
+            candidates = tuple(
+                axis for axis in available if isinstance(axis, AxisBinding) and axis.field is None
+            )
+            if len(candidates) != 1:
+                reject(
+                    "one compatible bound identity axis",
+                    repr(available),
+                    "Provide explicit members=population or select one exact identity binding.",
+                    "analysis.member",
+                )
+            axes.append(candidates[0])
+        elif isinstance(item, MembershipAxis):
             memberships.append(item)
             axes.extend(_axis(read) for read in item.fields)
-        elif isinstance(item, (AxisBinding, CalendarCoordinate)):
+        elif isinstance(item, (AxisBinding, CalendarCoordinate, CorrespondenceAxis)):
             axes.append(item)
         else:
             field = consume_field(item)
             axes.append(_axis(field.field_read or FieldRead(field.reference, field.root)))
     identities = tuple(
         ("calendar", axis.identity)
-        if isinstance(axis, CalendarCoordinate)
+        if isinstance(axis, (CalendarCoordinate, CorrespondenceAxis))
         else (axis.entity.ref, axis.field.ref if axis.field else None, axis.path, axis.at)
         for axis in axes
     )
@@ -118,7 +154,7 @@ class Population(PopulationParameter):
     """A lazy finite set of complete coordinates; use a Session to execute it."""
 
     @property
-    def axes(self) -> tuple[AxisBinding | CalendarCoordinate, ...]:
+    def axes(self) -> tuple[ComparisonAxis, ...]:
         """Return the ordered bound axes without reading any source."""
         return self.definition.axes
 
@@ -136,7 +172,7 @@ class Population(PopulationParameter):
                 repr(self),
                 *(
                     axis.identity
-                    if isinstance(axis, CalendarCoordinate)
+                    if isinstance(axis, (CalendarCoordinate, CorrespondenceAxis))
                     else axis.field.ref.key
                     if axis.field
                     else axis.entity.ref.key
@@ -155,7 +191,19 @@ class Population(PopulationParameter):
         return AnalysisContract(
             kind="Population",
             phase="logical",
-            actions=(),
+            actions=(
+                AnalysisAction("session.query(population)", "analysis.session.query"),
+                AnalysisAction(
+                    "population.project(by=population.axes)", "analysis.Population.project"
+                ),
+                AnalysisAction("population.union(population)", "analysis.Population.union"),
+                AnalysisAction(
+                    "population.intersection(population)", "analysis.Population.intersection"
+                ),
+                AnalysisAction(
+                    "population.difference(population)", "analysis.Population.difference"
+                ),
+            ),
             domain="complete coordinates",
             quantity="keys only",
             required_parts=(),
@@ -163,6 +211,14 @@ class Population(PopulationParameter):
             _facts=(
                 ("axes", str(len(self.axes))),
                 ("definition", computation_fingerprint(self.definition)),
+                ("owner", repr(_owner(self.definition))),
+                (
+                    "keys",
+                    f"{len(self.definition.keys)} captured complete literal coordinates"
+                    if isinstance(self.definition, LiteralPopulation)
+                    else "unevaluated program; contract does not enumerate keys",
+                ),
+                *((f"axis[{index}]", repr(axis)[:400]) for index, axis in enumerate(self.axes[:6])),
                 (
                     "next",
                     "project, union, intersection, difference, product; session.query(population)",
@@ -171,7 +227,7 @@ class Population(PopulationParameter):
         )
 
     def project(
-        self, *, by: tuple[Deferred | MembershipAxis | AxisBinding | CalendarCoordinate, ...]
+        self, *, by: tuple[Deferred | MembershipAxis | MemberAxis | ComparisonAxis, ...]
     ) -> Population:
         """Select/reorder existing axes, preserving membership bindings.
 
@@ -180,7 +236,54 @@ class Population(PopulationParameter):
         Example: ``population.project(by=(population.axes[0],))``.
         Constraints: Projection cannot read new attributes.
         """
-        axes, _ = _axes(by)
+        axes, _ = _axes(by, available=self.axes)
+        if any(axis not in self.axes for axis in axes):
+            endpoint_positions: list[int] = []
+            paths: list[tuple[str, ...] | None] = []
+            for axis in axes:
+                if axis in self.axes:
+                    endpoint_positions.append(self.axes.index(axis))
+                    paths.append(None)
+                    continue
+                candidates = tuple(
+                    (index, path)
+                    for index, source in enumerate(self.axes)
+                    if isinstance(source, CorrespondenceAxis)
+                    for path, target in source.projections.items()
+                    if target == axis
+                )
+                if len(candidates) != 1:
+                    reject(
+                        "one retained axis or existing endpoint projection",
+                        repr(axis),
+                        "Choose an unambiguous original endpoint binding.",
+                        "Population.project",
+                    )
+                index, path = candidates[0]
+                endpoint_positions.append(index)
+                paths.append(path)
+            if isinstance(self.definition, PopulationProgram) and isinstance(
+                self.definition.root, QueryKeys
+            ):
+                from marivo._definition.query import ProjectKeys, ResultQuery
+
+                captured = self.definition.root
+                assert self.definition.owner is not None
+                root = ResultQuery(
+                    (captured,),
+                    ProjectKeys(tuple(endpoint_positions), tuple(paths)),
+                    axes,
+                    self.definition.owner,
+                )
+                return Population(
+                    PopulationProgram(QueryKeys(root, axes), self.definition.owner, axes)
+                )
+            reject(
+                "a captured Query endpoint domain",
+                type(self.definition).__name__,
+                "Apply selection on the Query, then project its population endpoint.",
+                "Population.project",
+            )
         if any(axis not in self.axes for axis in axes):
             reject(
                 "existing axes",
@@ -237,7 +340,7 @@ class Population(PopulationParameter):
         return self._set(other, "difference")
 
     def classify(
-        self, *, by: tuple[Deferred | MembershipAxis | AxisBinding | CalendarCoordinate, ...]
+        self, *, by: tuple[Deferred | MembershipAxis | MemberAxis | ComparisonAxis, ...]
     ) -> Population:
         """Read member classifications directly and retain allocation bindings.
 
@@ -257,7 +360,7 @@ class Population(PopulationParameter):
                 "Project a single identity axis first.",
                 "population.classify",
             )
-        axes, memberships = _axes(by)
+        axes, memberships = _axes(by, available=self.axes)
         entity = self.axes[0].entity
         if any(isinstance(axis, CalendarCoordinate) for axis in axes):
             reject(
@@ -454,6 +557,7 @@ def _calendar_population(calendar: CalendarAxis) -> Population:
             )
             for cell in grid.cells
         ),
+        grid.calendar_snapshot,
     )
     return Population(PopulationProgram(CalendarKeys(coordinate), None, (coordinate,)))
 
@@ -468,6 +572,7 @@ def membership(
 
     Args: by: One field or nonempty tuple from one member Entity. via: Ordered
         directed paths, possibly empty. unmatched: ``exclude`` or ``null``.
+
     Returns: An immutable MembershipAxis for observe or Metric.per.
     Example: ``mv.membership(tag, via=((order_tags,),), unmatched='exclude')``.
     Constraints: Captures metadata only; no source or Session is opened.
@@ -522,11 +627,27 @@ def identities(entity: Entity, *, keys: tuple[tuple[LiteralValue, ...], ...]) ->
     Args: entity: A resolved Entity. keys: Complete primary-key tuples.
     Returns: An immutable lazy Population with one identity axis.
     Example: ``mv.identities(customers, keys=(('C1',), ('C2',)))``.
-    Constraints: Keys do not prove source presence; null primary keys are invalid.
+    Constraints: Pass a resolved Entity, not an EntityRef. Keys do not prove
+    source presence; null primary keys are invalid.
     """
+    if not isinstance(entity, Entity):
+        reject(
+            "a resolved Entity",
+            type(entity).__name__,
+            "Resolve the Entity with session.catalog.entities.get(entity_ref), then pass that Entity.",
+            "identities",
+        )
     axis = AxisBinding(entity.ref, None, (), "identity")
     rows: tuple[tuple[CoordinateValue, ...], ...] = tuple((key,) for key in keys)
-    return Population(LiteralPopulation((axis,), rows, "coordinates-v1"))
+    try:
+        return Population(LiteralPopulation((axis,), rows, "coordinates-v1"))
+    except DefinitionGraphError as error:
+        reject(
+            "complete non-null Entity primary-key tuples",
+            str(error),
+            "Pass every primary-key component in declared order, without null identity components.",
+            "identities",
+        )
 
 
 def coordinates(
@@ -540,14 +661,22 @@ def coordinates(
     Constraints: The external observe domain must cover consumed contributions.
     """
     axes, memberships = _axes(by)
-    return Population(
-        LiteralPopulation(
-            tuple(axis for axis in axes if isinstance(axis, AxisBinding)),
-            keys,
-            "coordinates-v1",
-            memberships,
+    try:
+        return Population(
+            LiteralPopulation(
+                tuple(axis for axis in axes if isinstance(axis, AxisBinding)),
+                keys,
+                "coordinates-v1",
+                memberships,
+            )
         )
-    )
+    except DefinitionGraphError as error:
+        reject(
+            "complete literal coordinate tuples matching the ordered fields",
+            str(error),
+            "Give one supported literal per field in each key tuple; use None only for field null categories.",
+            "coordinates",
+        )
 
 
 def product(*factors: Population | CalendarAxis) -> Population:

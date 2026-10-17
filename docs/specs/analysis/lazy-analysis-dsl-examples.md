@@ -2,7 +2,8 @@
 
 Date: 2026-10-17
 
-Status: proposed v0.37 examples；使用目标 API，不能直接在当前 Marivo 版本运行。
+Status: v0.37 目标组合示例。原生表达式与基础执行已实施；完整多轮组合的可运行范围由本轮
+R3–R8 集成及其实际测试界定，本文示例不代替执行验收。
 本文演示 [DSL 定义](lazy-analysis-dsl-redesign.md) 的组合方式，不另行定义算子合同。
 执行与导出布局见 [执行、保存与结果交接](lazy-analysis-dsl-execution.md)，
 独立数值 oracle 与待实施验收见 [场景验证](lazy-analysis-dsl-scenario-validation.md)。
@@ -34,7 +35,7 @@ fanout 的语义表达对照见 §7.7；示例不固定物理 join/aggregate 顺
 
 ## 2. 完整多轮分析示例
 
-代码使用目标 v0.37 API，不是当前版本可运行示例。§2 各块按顺序构成会话；
+代码使用 v0.37 API；完整链条须具备相应已准入的来源、绑定与 Query 实现。§2 各块按顺序构成会话；
 命名可在模型或分析代码中构造，loader 才收录模型。§6 单独对照两种使用位置。
 不变模拟输入用于手算，不要求真实来源跨读取不变。
 首先粗比较再选异常；第二轮分别细化端点，不提前预知客户细键。
@@ -53,24 +54,32 @@ Orders = ms.entity(
 )
 CustomerId = ms.dimension_column(
     name="customer_id",
-    entity=Orders.ref,
+    entity=Orders,
     column="customer_id",
 )
-Region = ms.dimension_column(name="region", entity=Orders.ref, column="region")
-Status = ms.dimension_column(name="status", entity=Orders.ref, column="status")
+Region = ms.dimension_column(name="region", entity=Orders, column="region")
+Status = ms.dimension_column(name="status", entity=Orders, column="status")
 PaidAt = ms.time_dimension_column(
     name="paid_at",
-    entity=Orders.ref,
+    entity=Orders,
     column="paid_at",
     granularity="second",
 )
 Amount = ms.measure_column(
     name="amount",
-    entity=Orders.ref,
+    entity=Orders,
     column="amount",
     unit="CNY",
     additivity=ms.additive_all(),
 )
+
+finalized = ms.finalize()
+Orders = finalized.resolve(Orders)
+CustomerId = finalized.resolve(CustomerId)
+Region = finalized.resolve(Region)
+Status = finalized.resolve(Status)
+PaidAt = finalized.resolve(PaidAt)
+Amount = finalized.resolve(Amount)
 
 @ms.metric()
 def revenue():
@@ -107,6 +116,7 @@ import marivo.semantic as ms
 catalog = ms.load()
 s = mv.session.get_or_create("buyer-analysis", report_timezone="Asia/Shanghai")
 OrdersRef = ms.ref.entity("sales.orders")
+OrdersEntity = catalog.entities.get(OrdersRef)
 customer_axis = catalog.fields.get(ms.ref.dimension("sales.orders.customer_id"))
 region_axis = catalog.fields.get(ms.ref.dimension("sales.orders.region"))
 status = catalog.fields.get(ms.ref.dimension("sales.orders.status"))
@@ -247,7 +257,7 @@ saved_order_classification = s.query(
 ).execute()
 
 requested_order_keys = mv.identities(
-    OrdersRef,
+    OrdersEntity,
     keys=(("A09",), ("B11",), ("O404",)),
 )
 requested_order_result = s.query(requested_order_keys).execute()
@@ -360,7 +370,7 @@ saved_high_order_keys = tuple(selected_orders[("coordinate", order_column)].toli
 
 high_ids 是脚本从已见值明确选择的 A，上期收入50；后续来源仍可包含 A 的新订单。
 pandas 从已输出订单身份/客户分类中选得 A08/A09 完整键，不从收入汇总恢复隐藏名单。
-若要观察这些订单，脚本可明确构造 mv.identities(OrdersRef, keys=saved_high_order_keys)；
+若要观察这些订单，脚本可明确构造 mv.identities(OrdersEntity, keys=saved_high_order_keys)；
 这是新字面量定义，不是 Artifact 的自动转换或历史语义恢复。
 
 ### 2.8 第七轮：固定 ID 域与重新选择 ID 域
@@ -637,10 +647,11 @@ C1 在 11 月 1 日零点从 Silver 换成 Gold，C2 保持 Bronze，新增 C3 �
 ```python
 version_catalog = ms.load()
 tier = version_catalog.fields.get(ms.ref.dimension("crm.customers.tier"))
+VersionCustomers = version_catalog.entities.get(ms.ref.entity("crm.customers"))
 fixed_customers = anchor_s.query(
-    mv.identities(ms.ref.entity("crm.customers"), keys=(("C1",), ("C2",)))
+    mv.identities(VersionCustomers, keys=(("C1",), ("C2",)))
 ).population()
-attributes = fixed_customers.read({"tier": tier.at(october.end)})
+attributes = anchor_s.read(fixed_customers, {"tier": tier.at(october.end)})
 gold_customers = attributes.where(attributes["tier"] == "Gold").population()
 gold_query = anchor_s.query(gold_customers)
 attributes.contract().show()
@@ -664,16 +675,18 @@ Session.members 的 at 与关系像所需的版本选择遵守同一种边界解
 relation_s = mv.session.get_or_create("relation-example", report_timezone="Asia/Shanghai")
 orders_ref = ms.ref.entity("sales.orders")
 customers_ref = ms.ref.entity("sales.customers")
-buyer = ms.ref.relationship("sales.buyer")
+order_entity = catalog.entities.get(orders_ref)
+customer_entity = catalog.entities.get(customers_ref)
+buyer = catalog.relationships.get(ms.ref.relationship("sales.buyer"))
 customer_id = catalog.fields.get(ms.ref.dimension("sales.orders.customer_id"))
 orders = relation_s.members(orders_ref)
-customers_a = mv.identities(customers_ref, keys=(("A",),))
+customers_a = mv.identities(customer_entity, keys=(("A",),))
 buyers = orders.image(via=(buyer,))
 matched_orders = orders.preimage(customers_a, via=(buyer,))
 customer_values = orders.classify(by=(customer_id,))
 first_order = relation_s.members(
     orders_ref,
-    where=mv.in_population(mv.identities(orders_ref, keys=(("O1",),))),
+    where=mv.in_population(mv.identities(order_entity, keys=(("O1",),))),
 )
 expanded_orders = orders.preimage(first_order.image(via=(buyer,)), via=(buyer,))
 relation_s.query(matched_orders).execute().show()

@@ -1,40 +1,40 @@
-"""Period coverage uses frozen aligned keys, retaining both original coordinates."""
+"""Period correspondence retains complete keys, endpoint projections and presence."""
 
 from __future__ import annotations
 
-import pyarrow as pa
+from dataclasses import replace
+from typing import Literal
+
+import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.core.model import CorrespondencePart
+from marivo._temporal import CalendarAxis
 from marivo.analysis.errors import AnalysisError
 from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models
 
 
 def period(
-    members: mv.LogicalAnalysisDomain,
+    session: mv.Session,
     month: int,
     length: int,
     *,
     metric: str = "order_count",
     grouped: bool = False,
-) -> tuple[mv.TimeGrid, mv.LogicalNumericRelation]:
-    grid = mv.time_grid(
-        during=mv.time_scope(
-            start=f"2026-{month:02d}-01", end=f"2026-{month:02d}-{length + 1:02d}"
-        ),
-        grain=mv.grain("day"),
-        timezone="UTC",
+) -> tuple[CalendarAxis, mv.Query]:
+    axis = session.time_scope(
+        start=f"2026-{month:02d}-01", end=f"2026-{month:02d}-{length + 1:02d}"
+    ).by(mv.grain("day"))
+    members = session.members(ms.ref.entity("sales.customer"))
+    domain = (
+        members.classify(by=(session.catalog.fields.get("sales.customer.region"),))
+        if grouped
+        else members
     )
-    result = members.observe(
-        ms.ref.metric("sales." + metric),
-        during=grid,
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(), *((ms.ref.dimension("sales.customer.region"),) if grouped else ())),
+    return axis, session.observe(
+        {"value": session.catalog.metrics.get("sales." + metric)}, during=axis, by=domain
     )
-    assert isinstance(result, mv.LogicalNumericRelation)
-    return grid, result
 
 
 @pytest.mark.parametrize("lengths", [(3, 2), (2, 3)])
@@ -43,208 +43,106 @@ def test_period_outer_keeps_time_missing_and_original_keys(
     analysis_dsl_case_factory: DslCaseFactory,
     lengths: tuple[int, int],
     parquet: bool,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     if parquet:
         export_dsl_parquet_models(case, case.root)
         ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    _, current = period(members, 8, lengths[0])
-    _, baseline = period(members, 7, lengths[1])
-    alignment = mv.outer(time=mv.ordinal())
-    results = [current.compare(baseline, align=alignment).execute()]
-    results.append(current.execute().compare(baseline.execute(), align=alignment).execute())
-    for result in results:
-        frame = result.to_pandas()
-        assert set(frame.coord_0) == {"ordinal:1", "ordinal:2", "ordinal:3"}
-        assert len(frame) == 12
-        missing = frame[frame.coord_0 == "ordinal:3"]
-        for field in ("absolute", "relative"):
-            assert set(missing[field + "_cell_tag"]) == {"undefined"}
-            assert set(missing[field + "_cell_reason"]) == {"missing_side"}
-        assert result._dataset is not None
-        exchange = result._dataset.verified()
-        assert exchange.contract.signature.domain.time_grid is None
-        assert exchange.contract.signature.domain.instance_key[1].role == "aligned"
-        assert exchange.contract.schema.field("key_1").type == pa.string()
-        mapping = next(p.table for p in exchange.parts if p.role == "correspondence")
-        mapping_schema = next(
-            p.schema for p in exchange.contract.parts if p.role == "correspondence"
-        )
-        declaration = next(
-            p for p in exchange.contract.signature.parts if isinstance(p, CorrespondencePart)
-        )
-        assert declaration.time_keys is not None
-        for side, length, table in zip(
-            ("current", "baseline"),
-            lengths,
-            (declaration.time_keys.current, declaration.time_keys.baseline),
-            strict=True,
-        ):
-            original = {aligned: bucket for bucket, aligned in table}
-            assert mapping_schema.field(f"correspondence__{side}_key_1").type == pa.string()
-            for row in mapping.to_dict(orient="records"):
-                assert row[f"correspondence__{side}_present"] == (row["key_1"] in original)
-                assert row[f"correspondence__{side}_key_1"] == original.get(row["key_1"])
-                if row["key_1"] not in original:
-                    assert row[f"correspondence__{side}_key_0"] is None
-        result.show()
-        text = capsys.readouterr().out
-        assert "aligned" in text and "current_time" in text and "baseline_time" in text
-        selected = result.absolute.where(result.absolute.value.is_defined())
-        assert len(selected.members().execute().to_pandas()) == 4
-    assert results[0].to_pandas().equals(results[1].to_pandas())
-    first, second = (result._dataset for result in results)
-    assert first is not None and second is not None
-    left_parts = {part.role: part.table for part in first.verified().parts}
-    right_parts = {part.role: part.table for part in second.verified().parts}
-    assert left_parts.keys() == right_parts.keys()
-    assert all(table.equals(right_parts[role]) for role, table in left_parts.items())
+    _, current = period(case.session, 8, lengths[0])
+    _, baseline = period(case.session, 7, lengths[1])
+    result = current.compare(baseline, match=mv.ordinal(), how="outer").execute()
+    frame = result.to_pandas()
+    assert len(frame) == 12
+    axes = frame.attrs["marivo"]["axes"]
+    assert [axis["kind"] for axis in axes] == ["correspondence", "member"]
+    expected_keys = {
+        str((i if i < lengths[0] else None, i if i < lengths[1] else None)) for i in range(3)
+    }
+    assert set(frame.iloc[:, 0]) == expected_keys
+    assert set(frame.iloc[:, 1]) == {"A", "B", "C", "D"}
+    tail_key = str((2 if lengths[0] == 3 else None, 2 if lengths[1] == 3 else None))
+    tail = frame[frame.iloc[:, 0] == tail_key]
+    for field in ("absolute", "relative"):
+        assert tail[("value", "value." + field)].isna().all()
+    for side, length in zip(("current", "baseline"), lengths, strict=True):
+        assert frame[("presence", (side,))].sum() == length * 4
+        projections = {projection["path"]: projection for projection in axes[0]["projections"]}
+        original = projections[(side,)]
+        present = [value[0] for value in original["values"] if value[0] is not None]
+        assert set(present) == set(range(length))
+        assert len(original["bounds"]) == length
+    assert frame[("value", "value.absolute")].dropna().sum() == 1
+    recovered = case.session.artifact(result.id)
+    pd.testing.assert_frame_equal(recovered.to_pandas(), frame)
 
 
-def test_period_exact_and_empty_finish_reject_time_missing_at_construction(
+def test_period_exact_rejects_unequal_calendars_before_execution(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    _, current = period(members, 8, 3)
-    _, baseline = period(members, 7, 2)
-    with pytest.raises(AnalysisError, match=r"equal.*aligned|equal-length"):
-        current.compare(baseline, align=mv.exact(time=mv.ordinal()))
-    with pytest.raises(AnalysisError, match=r"unobserved|outside.*window") as failure:
-        current.compare(baseline, align=mv.outer(missing="empty_value", time=mv.ordinal()))
-    assert "keep" in str(failure.value) and "window" in str(failure.value)
+    _, current = period(case.session, 8, 3)
+    _, baseline = period(case.session, 7, 2)
+    with pytest.raises(AnalysisError, match="equal complete calendar bucket counts"):
+        current.compare(baseline, match=mv.ordinal()).execute()
+    assert case.session.runs().items == ()
 
 
-def test_aligned_views_reject_real_time_operations_after_selection(
+def test_selected_periods_keep_original_positions_and_nullable_values(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    grid, current = period(members, 8, 3)
-    _, baseline = period(members, 7, 3)
-    logical = current.compare(baseline, align=mv.exact(time=mv.ordinal()))
-    fixed = logical.execute()
-    for view in (logical.absolute, logical.relative, fixed.absolute, fixed.relative):
-        for selected in (view, view.where(view.value.is_defined())):
-            if isinstance(
-                selected,
-                (
-                    mv.LogicalNumericRelation,
-                    mv.MaterializedNumericRelation,
-                    mv.LogicalSelectedNumericRelation,
-                ),
-            ):
-                with pytest.raises(AnalysisError, match="aligned"):
-                    selected.group_by(grid)
-                with pytest.raises(AnalysisError, match="aligned"):
-                    selected.group_by(mv.grain("month"))
-        with pytest.raises(AnalysisError, match="aligned"):
-            view.runs(where=view.value.gt(0))
-        with pytest.raises(AnalysisError, match="aligned"):
-            view.forecast(horizon=mv.periods(1))
-        with pytest.raises(AnalysisError, match="aligned"):
-            view.correlate(logical.relative, lag_range=range(1))
-        assert all(
-            "forecast(" not in a.call and "runs(" not in a.call for a in view.contract().actions
-        )
-
-    # Without lag, association admission uses only the shared paired domain.
-    for absolute, relative in (
-        (logical.absolute, logical.relative),
-        (fixed.absolute, fixed.relative),
-    ):
-        association = absolute.correlate(relative)
-        assert association._node.root.signature.domain.time_grid is None
-
-    from marivo.analysis.public_dsl import _TOKEN
-
-    # Retained-row statistics keep aligned coordinates after dropping comparison Parts.
-    for view in (logical.absolute, fixed.absolute):
-        node = view._node.summarize(
-            "count", coordinates=view._node.root.signature.domain.instance_key
-        )
-        statistic = mv.LogicalStatisticRelation(_TOKEN, node, view._runtime, inputs=(view,))
-        for receiver in (statistic, statistic.execute()):
-            assert any(
-                c.role == "aligned" for c in receiver._node.root.signature.domain.instance_key
-            )
-            with pytest.raises(AnalysisError, match="aligned"):
-                receiver._group_nodes((grid,))
-            with pytest.raises(AnalysisError, match="aligned"):
-                receiver.runs(where=receiver.value.gt(0))
-            with pytest.raises(AnalysisError, match="aligned"):
-                receiver.forecast(horizon=mv.periods(1))
-            with pytest.raises(AnalysisError, match="aligned"):
-                receiver.correlate(receiver, lag_range=range(1))
+    _, current = period(case.session, 8, 3)
+    _, baseline = period(case.session, 7, 3)
+    selected = current.where(current["value"] > 0)
+    paired = selected.compare(baseline, match=mv.ordinal(), how="outer")
+    frame = paired.execute().to_pandas()
+    assert len(frame) == 12
+    assert frame[("presence", ("current",))].sum() == 1
+    assert frame[("presence", ("baseline",))].all()
+    assert frame[("value", "value.absolute")].dropna().tolist() == [1]
+    for field in ("absolute", "relative"):
+        view = paired.select({"value": paired["value." + field]})
+        defined = view.where(~view["value"].is_null())
+        assert len(defined.execute().to_pandas()) == (1 if field == "absolute" else 0)
 
 
-@pytest.mark.parametrize("metric", ["order_count", "revenue_zero", "revenue"])
-def test_grouped_grid_includes_empty_groups_and_propagates_both_cells(
-    analysis_dsl_case_factory: DslCaseFactory, metric: str
+@pytest.mark.parametrize("metric", ["order_count", "revenue"])
+@pytest.mark.parametrize("how", ["exact", "outer"])
+def test_grouped_grid_includes_empty_groups_and_propagates_both_values(
+    analysis_dsl_case_factory: DslCaseFactory, metric: str, how: Literal["exact", "outer"]
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    if metric == "revenue_zero":
-        model = case.root / "models/semantic/sales/models.py"
-        model.write_text(
-            model.read_text()
-            + "\nrevenue_zero = ms.aggregate(name='revenue_zero', measure=amount, agg='sum', time=ordered_at, empty=ms.empty.zero())\n"
-        )
-        ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    current_grid, current = period(members, 8, 3, metric=metric, grouped=True)
-    baseline_grid, baseline = period(members, 7, 3, metric=metric, grouped=True)
-    region = ms.ref.dimension("sales.customer.region")
-    current_grouped = current.group_by(region, current_grid).rollup()
-    baseline_grouped = baseline.group_by(region, baseline_grid).rollup()
-    observed = current_grouped.execute().to_pandas()
+    _, current = period(case.session, 8, 3, metric=metric, grouped=True)
+    _, baseline = period(case.session, 7, 3, metric=metric, grouped=True)
+    observed = current.execute().to_pandas()
     assert len(observed) == 9
-    empty = observed[observed.group.isin(("south", "west"))]
-    assert len(empty) == 6
-    if metric == "revenue":
-        assert set(empty.cell_tag) == {"null"}
-        assert set(empty.cell_reason) == {"empty_contribution"}
-    else:
-        assert set(empty.cell_tag) == {"defined"}
-        assert set(empty.value) == {0}
-    for alignment in (
-        mv.exact(time=mv.ordinal()),
-        mv.outer(time=mv.ordinal()),
-        mv.outer(missing="empty_value", time=mv.ordinal()),
-    ):
-        result = current_grouped.compare(baseline_grouped, align=alignment).execute()
-        frame = result.to_pandas()
-        assert len(frame) == 9
-        if metric == "revenue":
-            for field in ("absolute", "relative"):
-                assert set(frame[field + "_cell_tag"]) == {"null"}
-                assert set(frame[field + "_cell_reason"]) == {"empty_contribution"}
-        else:
-            assert set(frame.absolute_cell_tag) == {"defined"}
-            assert set(frame.relative_cell_reason) == {"zero_baseline"}
+    assert set(observed.iloc[:, 1]) == {"east", "south", "west"}
+    empty = observed[observed.iloc[:, 1].isin(("south", "west"))]
+    assert len(empty) == 6 and empty[("value", "value")].eq(0).all()
+    comparison = current.compare(baseline, match=mv.ordinal(), how=how)
+    frame = comparison.execute().to_pandas()
+    assert len(frame) == 9 and frame["presence"].all().all()
+    assert frame[("value", "value.absolute")].sum() == (1 if metric == "order_count" else 60)
+    assert frame[("value", "value.relative")].isna().all()
 
 
-def test_exact_period_retains_current_and_baseline_original_allocation_states(
+def test_period_comparison_preserves_independent_spatial_endpoint_oracles(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    current_grid, current = period(members, 8, 3, grouped=True)
-    baseline_grid, baseline = period(members, 7, 3, grouped=True)
-    region = ms.ref.dimension("sales.customer.region")
-    current_rollup = current.group_by(current_grid).rollup()
-    baseline_rollup = baseline.group_by(baseline_grid).rollup()
-    for left, right in (
-        (current_rollup, baseline_rollup),
-        (current_rollup.execute(), baseline_rollup.execute()),
-    ):
-        comparison = left.compare(right, align=mv.exact(time=mv.ordinal())).execute()
-        allocation = comparison.absolute.attribute(axes=(region,)).execute()
-        assert allocation.contribution.to_pandas().value.sum() == 1
+    current_axis, current = period(case.session, 8, 3, grouped=True)
+    baseline_axis, baseline = period(case.session, 7, 3, grouped=True)
+    current_totals = current.rollup(by=(current_axis,))
+    baseline_totals = baseline.rollup(by=(baseline_axis,))
+    comparison = current_totals.compare(baseline_totals, match=mv.ordinal())
+    frame = comparison.execute().to_pandas()
+    assert frame[("value", "value.current")].tolist() == [1, 0, 0]
+    assert frame[("value", "value.baseline")].tolist() == [0, 0, 0]
+    assert frame[("value", "value.absolute")].tolist() == [1, 0, 0]
+    assert frame[("value", "value.relative")].isna().all()
 
 
-def test_equal_period_empty_finish_allows_missing_non_time_groups(
+def test_period_outer_distinguishes_absent_groups_from_zero_activity(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     import duckdb
@@ -252,93 +150,72 @@ def test_equal_period_empty_finish_allows_missing_non_time_groups(
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute("UPDATE \"order\" SET channel='mobile' WHERE order_id='j2_aa'")
-    members = case.session.members(ms.ref.entity("sales.customer"))
+    session = case.session
+    channel = session.catalog.fields.get("sales.order.channel")
 
-    def observe(month: int, start: int) -> mv.LogicalNumericRelation:
-        grid = mv.time_grid(
-            during=mv.time_scope(
-                start=f"2026-{month:02d}-{start:02d}",
-                end=f"2026-{month:02d}-{start + 3:02d}",
-            ),
-            grain=mv.grain("day"),
-            timezone="UTC",
+    def observe(month: int, start: int) -> mv.Query:
+        axis = session.time_scope(
+            start=f"2026-{month:02}-{start:02}", end=f"2026-{month:02}-{start + 3:02}"
+        ).by(mv.grain("day"))
+        return session.observe(
+            {"value": session.catalog.metrics.get("sales.order_count")}, during=axis, by=(channel,)
         )
-        result = members.observe(
-            ms.ref.metric("sales.order_count"),
-            during=grid,
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(ms.ref.dimension("sales.order.channel"),),
-        )
-        assert isinstance(result, mv.LogicalNumericRelation)
-        return result
 
     current, baseline = observe(8, 1), observe(7, 9)
-    alignment = mv.outer(missing="empty_value", time=mv.ordinal())
-    for left, right in ((current, baseline), (current.execute(), baseline.execute())):
-        result = left.compare(right, align=alignment).execute()
-        frame = result.to_pandas()
-        assert len(frame) == 6 and set(frame.group) == {"mobile", "web"}
-        assert set(frame.absolute_cell_tag) == {"defined"}
-        assert sorted(frame.absolute.tolist()) == [-4, 0, 0, 0, 0, 1]
-        assert "missing_side" not in set(frame.relative_cell_reason)
-        assert result._dataset is not None
-        correspondence = next(
-            p.table for p in result._dataset.verified().parts if p.role == "correspondence"
-        )
-        assert correspondence["correspondence__current_present"].tolist().count(False) == 3
-        assert correspondence["correspondence__baseline_present"].tolist().count(False) == 3
+    frame = current.compare(baseline, match=mv.ordinal(), how="outer").execute().to_pandas()
+    assert len(frame) == 6 and set(frame.iloc[:, 1]) == {"mobile", "web"}
+    assert frame[("value", "value.absolute")].isna().all()
+    assert frame[("presence", ("current",))].sum() == 3
+    assert frame[("presence", ("baseline",))].sum() == 3
 
 
-def test_period_exchange_checks_original_projections_presence_and_both_views(
+def test_period_saved_output_checks_endpoint_projections_and_presence(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    from dataclasses import replace
-
-    from marivo.analysis.materialization.errors import MaterializationError
-    from marivo.analysis.materialization.graph_exchange import from_pandas
+    from marivo.analysis.materialization.terminal_storage import read_output
 
     case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    _, current = period(members, 8, 2)
-    _, baseline = period(members, 7, 3)
-    saved = current.compare(baseline, align=mv.outer(time=mv.ordinal())).execute()
-    assert saved._dataset is not None
-    checked = saved._dataset.verified()
-    primary = checked.primary
-    contract = checked.contract
-    from_pandas(primary, contract, parts=checked.parts, completed_checks=checked.completed_checks)
-    correspondence = next(p for p in checked.parts if p.role == "correspondence")
-    table = correspondence.table
-    for field, values in (
-        ("correspondence__current_key_1", ["forged"] * len(table)),
-        ("correspondence__baseline_key_1", [1] * len(table)),
-        ("correspondence__current_present", [True] * len(table)),
-    ):
-        changed = table.copy()
-        changed[field] = values
-        parts = tuple(
-            replace(p, table=changed) if p.role == "correspondence" else p for p in checked.parts
+    _, current = period(case.session, 8, 2)
+    _, baseline = period(case.session, 7, 3)
+    saved = current.compare(baseline, match=mv.ordinal(), how="outer").execute()
+    data = saved._manifest.data
+    read_output(case.root, data.schema, data.rows)
+    with pytest.raises(AnalysisError):
+        replace(
+            data,
+            coordinate_projections=(replace(data.coordinate_projections[0], columns=("forged",)),),
         )
-        with pytest.raises(MaterializationError):
-            from_pandas(primary, contract, parts=parts, completed_checks=checked.completed_checks)
-    for field in ("absolute", "relative"):
-        column = field + "__cell_reason"
-        changed = primary.copy()
-        changed[column] = ["forged"] * len(primary)
-        with pytest.raises(MaterializationError):
-            from_pandas(
-                changed, contract, parts=checked.parts, completed_checks=checked.completed_checks
-            )
+    with pytest.raises(AnalysisError):
+        replace(data.schema, presence=(replace(data.schema.presence[0], nullable=True),))
+    assert len(data.schema.values) == 4 and len(data.schema.presence) == 2
 
 
-def test_frozen_time_tables_are_injective_and_match_each_original_grid(
-    analysis_dsl_case_factory: DslCaseFactory,
+@pytest.mark.parametrize("lengths", [(3, 2), (2, 3)])
+def test_period_source_values_match_independent_count_oracle(
+    analysis_dsl_case_factory: DslCaseFactory, lengths: tuple[int, int]
 ) -> None:
-    from dataclasses import replace
+    case = analysis_dsl_case_factory("j2")
+    _, current = period(case.session, 8, lengths[0])
+    _, baseline = period(case.session, 7, lengths[1])
+    comparison = current.compare(baseline, match=mv.ordinal(), how="outer")
+    frame = comparison.execute().to_pandas()
+    for _, row in frame.iterrows():
+        import ast
 
-    from marivo.analysis.core.graph import MethodNode, method_node
+        left, right = ast.literal_eval(row.iloc[0])
+        position, customer = (left if left is not None else right), row.iloc[1]
+        a, b = left is not None, right is not None
+        assert row[("presence", ("current",))] == a
+        assert row[("presence", ("baseline",))] == b
+        expected = int(position == 0 and customer == "A")
+        if a and b:
+            assert row[("value", "value.absolute")] == expected
+        else:
+            assert pd.isna(row[("value", "value.absolute")])
+
+
+def test_private_time_key_tables_reject_noninjective_images() -> None:
     from marivo.analysis.core.model import TimeKeys
-    from marivo.analysis.core.rules import CellCompare
     from marivo.analysis.core.time_alignment import OrdinalTimeMapping
 
     for table in (
@@ -348,72 +225,3 @@ def test_frozen_time_tables_are_injective_and_match_each_original_grid(
     ):
         with pytest.raises(AnalysisError, match="injective"):
             TimeKeys(table, (("c", "ordinal:1"),), OrdinalTimeMapping())
-    case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    _, current = period(members, 8, 2)
-    _, baseline = period(members, 7, 2)
-    comparison = current.compare(baseline, align=mv.exact(time=mv.ordinal()))
-    node = comparison._node.root
-    assert isinstance(node, MethodNode) and isinstance(node.parameters, CellCompare)
-    original = node.parameters.time_keys
-    assert original is not None
-    for changed in (
-        TimeKeys(original.current[:-1], original.baseline, original.mapping),
-        TimeKeys(
-            (("forged", "ordinal:1"), original.current[1]), original.baseline, original.mapping
-        ),
-        TimeKeys(
-            tuple((bucket, f"ordinal:{i}") for i, (bucket, _) in enumerate(original.current, 2)),
-            original.baseline,
-            original.mapping,
-        ),
-    ):
-        with pytest.raises(AnalysisError, match="complete frozen time-key"):
-            method_node(
-                node.inputs, replace(node.parameters, time_keys=changed), value_type=node.value_type
-            )
-
-
-@pytest.mark.parametrize("lengths", [(3, 2), (2, 3)])
-def test_period_sql_lowering_matches_dual_local_finish(
-    analysis_dsl_case_factory: DslCaseFactory, lengths: tuple[int, int]
-) -> None:
-    case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    _, current = period(members, 8, lengths[0])
-    _, baseline = period(members, 7, lengths[1])
-    comparison = current.compare(baseline, align=mv.outer(time=mv.ordinal()))
-    expected = comparison.execute().absolute.to_pandas()
-    assert single_sql_difference(comparison).to_pandas().equals(expected)
-
-
-def single_sql_difference(
-    comparison: mv.LogicalComparisonResult,
-) -> mv.MaterializedDifferenceRelation:
-    """Exercise the single-quantity native SQL boundary with the same frozen pairing."""
-    from marivo.analysis.core.graph import MethodNode, method_node
-    from marivo.analysis.core.rules import CellCompare, CellDerive
-    from marivo.analysis.public_dsl import _TOKEN
-
-    root = comparison._node.root
-    assert isinstance(root, MethodNode) and isinstance(root.parameters, CellCompare)
-    params = root.parameters
-    single = CellDerive(
-        params.method,
-        params.definition_id,
-        params.value_policy,
-        params.unit,
-        params.time_scope,
-        params.pairing_check_id,
-        params.numeric_check_id,
-        params.design,
-        params.pairing,
-        params.empty_rules,
-        params.time_index,
-        params.time_keys,
-        params.relationship,
-        params.verification,
-    )
-    node = method_node(root.inputs, single, value_type=root.value_type)
-    relation = comparison._node._with(node)
-    return mv.LogicalDifferenceRelation(_TOKEN, relation, comparison._runtime).execute()

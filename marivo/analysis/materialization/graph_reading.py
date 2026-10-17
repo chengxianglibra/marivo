@@ -51,6 +51,7 @@ class ExportRead:
 class ReadLayout:
     schema: DataSchema
     handle: ParquetHandle
+    positions: tuple[int, ...] | None = None
 
 
 class OutputRead:
@@ -85,6 +86,39 @@ class OutputRead:
     def read(self, layout: ReadLayout, request: PreviewRead | ExportRead) -> pd.DataFrame:
         schema = layout.schema
         count = layout.handle.receipt.realized_row_count
+        if layout.positions is not None:
+            positions = layout.positions
+            if any(type(index) is not int or not 0 <= index < count for index in positions) or len(
+                set(positions)
+            ) != len(positions):
+                raise invalid(
+                    "display order contains duplicate or out-of-range primary row positions"
+                )
+            if not positions:
+                return normalize_stage_frame(
+                    pd.DataFrame(columns=[column.slot_id for column in schema.columns]),
+                    schema.columns,
+                    schema.key_fields,
+                )
+            chunks: list[pd.DataFrame] = []
+            with self._open(layout) as parquet:
+                offset = 0
+                requested = set(positions)
+                for group in range(parquet.num_row_groups):
+                    length = parquet.metadata.row_group(group).num_rows
+                    selected = sorted(
+                        index for index in requested if offset <= index < offset + length
+                    )
+                    if selected:
+                        table = parquet.read_row_group(group).cast(arrow_schema(schema), safe=True)
+                        chunk = table.take(
+                            pa.array([index - offset for index in selected], type=pa.int64())
+                        ).to_pandas(types_mapper=pd.ArrowDtype)
+                        chunk.index = pd.Index(selected)
+                        chunks.append(chunk)
+                    offset += length
+            frame = pd.concat(chunks).loc[list(positions)].reset_index(drop=True)
+            return normalize_stage_frame(frame, schema.columns, schema.key_fields)
         remaining = min(request.n, count) if isinstance(request, PreviewRead) else count
         batches: list[pa.RecordBatch] = []
         # A zero-row preview is metadata-only, including zero-column outputs.
@@ -122,7 +156,7 @@ class OutputRead:
         for key in schema.key_fields:
             left = frame[key].iloc[:-1].reset_index(drop=True)
             right = frame[key].iloc[1:].reset_index(drop=True)
-            if (tied & ((left.isna() & right.notna()) | (left > right).fillna(False))).any():
+            if (tied & ((left.notna() & right.isna()) | (left > right).fillna(False))).any():
                 raise invalid("decoded terminal rows are not in canonical complete-key order")
             tied &= (left == right).fillna(False) | (left.isna() & right.isna())
         return normalized

@@ -11,7 +11,9 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, TypeAlias
 
+from marivo._definition.correspondence import ComparisonAxis, CorrespondenceAxis
 from marivo._definition.deferred import RelationshipParameter
+from marivo._definition.query import ResultQuery
 from marivo._definition.types import (
     AxisBinding,
     CalendarCoordinate,
@@ -49,11 +51,15 @@ class SampleDomain:
 
 
 def _coordinate_token(
-    axis: AxisBinding | CalendarCoordinate,
+    axis: ComparisonAxis,
     value: CoordinateValue,
     position: int,
     lengths: dict[int, int],
 ) -> tuple[str, str]:
+    if isinstance(axis, CorrespondenceAxis):
+        if not isinstance(value, str):
+            invalid("correspondence coordinates must come from their bound Query")
+        return (axis.identity, value)
     if isinstance(axis, CalendarCoordinate):
         if type(value) is not int or not 0 <= value < len(axis.cells):
             invalid("calendar coordinates must come from their frozen CalendarAxis")
@@ -125,7 +131,7 @@ class SourceIdentities:
 
     entity: ExactRef
     at: InstantAnchor | None = None
-    predicate: FieldPredicate | None = None
+    predicate: FieldPredicate | PopulationCondition | None = None
 
     def __post_init__(self) -> None:
         if self.entity.ref.kind is not SemanticKind.ENTITY:
@@ -140,12 +146,13 @@ class ObserveQuery:
     """Lazy observation of labelled metrics over output axes."""
 
     metrics: tuple[tuple[str, MetricNode], ...]
-    by: tuple[AxisBinding | CalendarCoordinate, ...]
+    by: tuple[ComparisonAxis, ...]
     owner: Owner | None
     population: PopulationDependency | None = None
+    members: PopulationDependency | None = None
 
 
-QueryNode: TypeAlias = ObserveQuery
+QueryNode: TypeAlias = ObserveQuery | ResultQuery
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,10 +160,14 @@ class QueryKeys:
     """Keys of a Query's output coordinates projected onto the given axes."""
 
     query: QueryNode
-    axes: tuple[AxisBinding | CalendarCoordinate, ...]
+    axes: tuple[ComparisonAxis, ...]
     observation: ObservationBinding | None = None
     declared: tuple[tuple[ExactRef, MetricNode], ...] = ()
     units: tuple[str | None, ...] = ()
+    names: tuple[str, ...] = ()
+    kinds: tuple[
+        Literal["numeric", "boolean", "string", "date", "timestamp", "duration", "unresolved"], ...
+    ] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -253,7 +264,7 @@ class PopulationProgram:
 
     root: PopulationNode
     owner: Owner | None
-    axes: tuple[AxisBinding | CalendarCoordinate, ...] = ()
+    axes: tuple[ComparisonAxis, ...] = ()
     memberships: tuple[MembershipBinding, ...] = ()
 
 

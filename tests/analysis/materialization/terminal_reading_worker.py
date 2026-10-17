@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import os
 import sys
+from contextlib import ExitStack
 from pathlib import Path
+from unittest.mock import patch
 
 import marivo.analysis as mv
 from marivo.analysis.materialization import graph_protocol, graph_store
 from marivo.analysis.session.core import Session
+from marivo.datasource.adapters import SourceSession
 
 
 def forbidden(*args: object, **kwargs: object) -> None:
@@ -25,26 +28,34 @@ def main() -> None:
         artifact = session.observe(
             {"total": amount.sum(), "mean": amount.mean()}, by=(region,)
         ).execute()
-        assert artifact.to_pandas()[("value", "total")].tolist() == [9007199254740993, 5]
+        assert artifact.to_pandas()[("value", "total")].tolist() == [5, 9007199254740993]
         print(artifact.id)
         return
-    Session.catalog = property(forbidden)
-    Session.sources = property(forbidden)
-    graph_protocol.decode = forbidden
-    graph_store.artifact = forbidden
-    session = mv.session.resume(name, by="name")
-    artifact = session.artifact(sys.argv[4])
-    assert artifact.id in repr(artifact)
-    artifact.show(n=1)
-    frame = artifact.to_pandas()
-    assert frame[("value", "total")].tolist() == [9007199254740993, 5]
-    assert frame.attrs["marivo"]["quantities"][0]["unit"] == "CNY"
-    assert artifact.findings().items == ()
-    facts = artifact.evidence_digest()
-    assert any(item.kind == "read" for item in facts.items)
-    facts.show()
-    assert len(session.graph().artifacts) == 1
-    print("public-cold-ok")
+    with ExitStack() as patches:
+        for owner, attribute, replacement in (
+            (Session, "catalog", property(forbidden)),
+            (SourceSession, "__init__", forbidden),
+            (SourceSession, "execute", forbidden),
+            (graph_protocol, "decode", forbidden),
+            (graph_store, "artifact", forbidden),
+        ):
+            patches.enter_context(patch.object(owner, attribute, replacement))
+        session = mv.session.resume(name, by="name")
+        before = len(session.runs().items)
+        artifact = session.artifact(sys.argv[4])
+        assert artifact.id in repr(artifact)
+        artifact.show(n=1)
+        frame = artifact.to_pandas()
+        assert frame[("value", "total")].tolist() == [5, 9007199254740993]
+        assert frame.attrs["marivo"]["quantities"][0]["unit"] == "CNY"
+        assert artifact.findings().items == ()
+        facts = artifact.evidence_digest()
+        assert any(item.kind == "read" for item in facts.items)
+        facts.show()
+        assert len(session.graph().artifacts) == 1
+        assert len(session.runs().items) == before
+        assert session._runtime.store.resources(session.id) == ()
+        print("public-cold-ok")
 
 
 if __name__ == "__main__":

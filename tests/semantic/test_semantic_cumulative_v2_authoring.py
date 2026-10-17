@@ -2,6 +2,7 @@
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import timedelta
 from typing import Literal
 
 import ibis.expr.types as ibis_ir
@@ -10,39 +11,35 @@ import pytest
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo._definition.expressions import MetricWindow, SourceAggregate
+from marivo._definition.windows import AllHistory, ToDate, TrailingDuration
 from marivo._temporal import Grain
-from marivo.refs import MeasureKind, MetricKind, Ref, TimeDimensionKind
+from marivo.refs import MeasureKind, Ref, TimeDimensionKind
 from marivo.semantic._authoring_metrics import (
     _GRAIN_TO_DATE_INTERNAL,
     GrainToDate,
     Trailing,
     _compute_composition_hash,
 )
+from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic._dsl_authoring import AdditivityPolicy
 from marivo.semantic.errors import SemanticDecoratorError, SemanticExpressionError
-from marivo.semantic.ir import CumulativeComposition, MetricIR
+from marivo.semantic.ir import CumulativeComposition
 from marivo.semantic.loader import _LOADER_CTX, LoaderContext
+from tests.shared_fixtures import in_memory_datasource_ir
 
 
 @contextmanager
 def _session(domain: str = "sales") -> Iterator[LoaderContext]:
     """Enter a LoaderContext with a default domain for cumulative authoring."""
-    ctx = LoaderContext(default_domain=domain)
+    ctx = LoaderContext(
+        default_domain=domain, datasource_irs=(in_memory_datasource_ir("warehouse"),)
+    )
     token = _LOADER_CTX.set(ctx)
     try:
         yield ctx
     finally:
         _LOADER_CTX.reset(token)
-
-
-def _pending_metric(ctx: LoaderContext, semantic_id: str) -> MetricIR:
-    for pending in ctx.pending_definitions:
-        if (
-            isinstance(pending.definition, MetricIR)
-            and pending.definition.semantic_id == semantic_id
-        ):
-            return pending.definition
-    raise KeyError(f"no pending MetricIR with semantic_id={semantic_id!r}")
 
 
 def _build_event_time_axis() -> Ref[TimeDimensionKind]:
@@ -187,41 +184,35 @@ def test_cumulative_accepts_grain_to_date_anchor() -> None:
     with _session(domain="sales"):
         event_time = _build_event_time_axis()
         amt = _measure("amt", "sales.events")
-        gmv: Ref[MetricKind] = ms.aggregate(name="gmv", measure=amt, agg="sum")
-        cum = ms.cumulative(
-            name="mtd_gmv",
-            base=gmv,
-            over=event_time,
-            anchor=ms.grain_to_date(grain=mv.grain("month")),
-        )
-        assert cum is not None
+        frozen = ms.finalize()
+        gmv = frozen.resolve(amt).sum(time=frozen.resolve(event_time))
+        node = consume_metric(gmv.window(mv.to_date(grain=mv.grain("month")))).node
+        assert isinstance(node, MetricWindow)
+        assert isinstance(node.rule, ToDate)
+        assert node.rule.grain == mv.grain("month")
 
 
 def test_cumulative_accepts_trailing_anchor() -> None:
     with _session(domain="sales"):
         event_time = _build_event_time_axis()
         uid = _measure("uid", "sales.events", additivity=ms.non_additive())
-        active: Ref[MetricKind] = ms.aggregate(name="active", measure=uid, agg="count_distinct")
-        cum = ms.cumulative(
-            name="rolling7_active",
-            base=active,
-            over=event_time,
-            anchor=ms.trailing(count=7, unit="day"),
-        )
-        assert cum is not None
+        frozen = ms.finalize()
+        active = frozen.resolve(uid).count_distinct(time=frozen.resolve(event_time))
+        node = consume_metric(active.window(mv.trailing_duration(duration=timedelta(days=7)))).node
+        assert isinstance(node, MetricWindow)
+        assert isinstance(node.rule, TrailingDuration)
+        assert node.rule.duration == timedelta(days=7)
 
 
-def test_cumulative_anchor_defaults_to_all_history() -> None:
-    with _session(domain="sales") as ctx:
+def test_cumulative_explicit_all_history_anchor() -> None:
+    with _session(domain="sales"):
         event_time = _build_event_time_axis()
         amt = _measure("amt", "sales.events")
-        gmv: Ref[MetricKind] = ms.aggregate(name="gmv", measure=amt, agg="sum")
-        ms.cumulative(name="all_gmv", base=gmv, over=event_time)
-        # Anchor defaults to all_history: read back the authored MetricIR and
-        # assert the resolved CumulativeComposition.anchor directly.
-        m = _pending_metric(ctx, "sales.all_gmv")
-        assert isinstance(m.composition, CumulativeComposition)
-        assert m.composition.anchor == "all_history"
+        frozen = ms.finalize()
+        gmv = frozen.resolve(amt).sum(time=frozen.resolve(event_time))
+        node = consume_metric(gmv.window(mv.all_history())).node
+        assert isinstance(node, MetricWindow)
+        assert isinstance(node.rule, AllHistory)
 
 
 def test_grain_to_date_hash_differs_from_all_history() -> None:
@@ -294,13 +285,9 @@ def test_cumulative_anchor_hashes_are_deterministic() -> None:
 
 
 # ---------------------------------------------------------------------------
-# validator + loader behavior under the new anchors.
-#
-# The v1 validator/loader were written for the single all_history anchor.
-# These tests prove the base-whitelist (sum/count/count_distinct), the
-# cumulative-over-derived rejection, and the over-omission resolution all
-# key on ``composition.kind == "cumulative"`` and run unchanged for the
-# grain_to_date and trailing anchors.
+# Native declaration loading retains complete formulas and explicit time
+# roles under each window rule. Output-grain compatibility belongs to the
+# consuming observation, after its actual calendar is available.
 # ---------------------------------------------------------------------------
 
 _CUMULATIVE_PROJECT = """\
@@ -310,100 +297,79 @@ import marivo.semantic as ms
 wh = ms.ref.datasource("wh")
 orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 event_time = ms.time_dimension_column(
-    name="event_time", entity=orders, column="created_at", granularity="day")
+    name="event_time", entity=orders, column="created_at", granularity="day", is_default=True)
 amount = ms.measure_column(
     name="amount", entity=orders, column="amount", additivity=ms.additive_all())
-revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
+frozen = ms.finalize()
+amount_value = frozen.resolve(amount)
+time_value = frozen.resolve(event_time)
+orders_value = frozen.resolve(orders)
+@ms.metric()
+def revenue():
+    return amount_value.sum(time=time_value)
 """
 
 
-def test_validator_rejects_cumulative_over_derived_base() -> None:
-    """cumulative-over-derived is rejected for all anchors (v1 rule carries over).
-
-    The cumulative-over-derived rejection lives in
-    ``_validate_cumulative_metric`` and keys on
-    ``base.metric_type == "derived"`` with no anchor branch. Authoring a
-    cumulative metric with a ratio (derived) base under each anchor must fail
-    load identically with the cumulative-base-derived teaching error.
-    """
+def test_validator_accepts_complete_derived_formula_for_all_window_rules() -> None:
     from tests.shared_fixtures import load_inline_semantic
 
-    anchors = [
-        None,  # all_history
-        "ms.grain_to_date(grain=mv.grain('month'))",
-        "ms.trailing(count=7, unit='day')",
-    ]
-    for anchor_expr in anchors:
-        anchor_arg = "" if anchor_expr is None else f", anchor={anchor_expr}"
+    rules = (
+        "mv.all_history()",
+        "mv.to_date(grain=mv.grain('month'))",
+        "mv.trailing_duration(duration=timedelta(days=7))",
+    )
+    for rule_expr in rules:
         source = _CUMULATIVE_PROJECT + (
-            "import marivo.analysis as mv\n"
-            "order_count = ms.count(name='order_count', entity=orders)\n"
-            "aov = ms.ratio(name='aov', numerator=revenue, denominator=order_count)\n"
-            f"bad = ms.cumulative(name='bad', base=aov, over=event_time{anchor_arg})\n"
+            "from datetime import timedelta\nimport marivo.analysis as mv\n"
+            "@ms.metric()\ndef aov():\n    return revenue / orders_value.count(time=time_value)\n"
+            f"rule = {rule_expr}\n"
+            "@ms.metric()\ndef cumulative_aov():\n    return aov.window(rule)\n"
         )
         with load_inline_semantic(source) as result:
-            assert result.status == "errored", f"expected load to fail for anchor={anchor_expr!r}"
-            messages = " ".join(str(e) for e in result.errors)
-            assert "cumulative base" in messages
-            assert "derived" in messages
-            assert "ratio of two cumulative metrics" in messages
-            assert "same" in messages
-            assert "anchor" in messages
+            assert result.status == "ready", result.errors
+            assert result.registry is not None
+            node = consume_metric(result.registry.declared_metrics["test.cumulative_aov"]).node
+            assert isinstance(node, MetricWindow)
+            assert node.operand == consume_metric(result.registry.declared_metrics["test.aov"]).node
 
 
-def test_loader_resolves_grain_to_date_anchor_over_from_single_time_entity() -> None:
-    """over= omission resolves from the single base-root-entity time dimension
-    for grain_to_date and trailing anchors exactly as for all_history.
-
-    The over-omission resolver (``_resolve_cumulative_over``) keys on
-    ``isinstance(comp, CumulativeComposition)`` and ``comp.over is None`` with
-    no anchor branch, so all three anchors resolve identically. Each metric
-    omits ``over=``; load must succeed and the resolved
-    ``MetricIR.composition.over`` must equal the single time dimension id,
-    while ``anchor`` preserves the authored payload.
-    """
+def test_loader_retains_explicit_time_role_and_window_rule() -> None:
     from tests.shared_fixtures import load_inline_semantic
 
-    cases = [
-        (None, "all_history"),
-        ("ms.grain_to_date(grain=mv.grain('month'))", ("grain_to_date", mv.grain("month"))),
-        ("ms.trailing(count=7, unit='day')", ("trailing", 7, "day")),
-    ]
-    for anchor_expr, expected_anchor in cases:
-        anchor_arg = "" if anchor_expr is None else f", anchor={anchor_expr}"
-        metric_name = f"cum_{abs(hash(expected_anchor)) % 100000}"
+    cases = (
+        ("mv.all_history()", AllHistory),
+        ("mv.to_date(grain=mv.grain('month'))", ToDate),
+        ("mv.trailing_duration(duration=timedelta(days=7))", TrailingDuration),
+    )
+    for rule_expr, rule_type in cases:
         source = _CUMULATIVE_PROJECT + (
-            "import marivo.analysis as mv\n"
-            f"cum = ms.cumulative(name='{metric_name}', base=revenue{anchor_arg})\n"
+            "from datetime import timedelta\nimport marivo.analysis as mv\n"
+            f"rule = {rule_expr}\n"
+            "@ms.metric()\ndef cumulative_revenue():\n    return revenue.window(rule)\n"
         )
         with load_inline_semantic(source) as result:
-            assert result.status == "ready", (
-                f"expected load to succeed for anchor={anchor_expr!r}; errors={result.errors}"
-            )
-            reg = result.registry
-            assert reg is not None
-            metric_ir = reg.metrics[f"test.{metric_name}"]
-            comp = metric_ir.composition
-            assert isinstance(comp, CumulativeComposition)
-            assert comp.anchor == expected_anchor
-            assert comp.over == "test.orders.event_time"
+            assert result.status == "ready", result.errors
+            assert result.registry is not None
+            node = consume_metric(result.registry.declared_metrics["test.cumulative_revenue"]).node
+            assert isinstance(node, MetricWindow)
+            assert isinstance(node.rule, rule_type)
+            revenue_node = consume_metric(result.registry.declared_metrics["test.revenue"]).node
+            assert isinstance(revenue_node, SourceAggregate)
+            assert revenue_node.time is not None
+            assert revenue_node.time.field.ref.path == "test.orders.event_time"
 
 
-def test_loader_smoke_accepts_week_grain_under_month_reset_at_load_time() -> None:
-    """The loader accepts month resets before the consuming query chooses a grain."""
+def test_loader_defers_output_grain_compatibility_until_observation() -> None:
     from tests.shared_fixtures import load_inline_semantic
 
     source = _CUMULATIVE_PROJECT + (
-        "import marivo.analysis as mv\n"
-        "mtd = ms.cumulative(name='mtd_revenue', base=revenue, over=event_time, "
-        "anchor=ms.grain_to_date(grain=mv.grain('month')))\n"
+        "import marivo.analysis as mv\nrule = mv.to_date(grain=mv.grain('month'))\n"
+        "@ms.metric()\ndef mtd_revenue():\n    return revenue.window(rule)\n"
     )
     with load_inline_semantic(source) as result:
-        assert result.status == "ready", (
-            f"loader must not enforce grain-compat; errors={result.errors}"
-        )
-        reg = result.registry
-        assert reg is not None
-        comp = reg.metrics["test.mtd_revenue"].composition
-        assert isinstance(comp, CumulativeComposition)
-        assert comp.anchor == ("grain_to_date", mv.grain("month"))
+        assert result.status == "ready", result.errors
+        assert result.registry is not None
+        node = consume_metric(result.registry.declared_metrics["test.mtd_revenue"]).node
+        assert isinstance(node, MetricWindow)
+        assert isinstance(node.rule, ToDate)
+        assert node.rule.grain == mv.grain("month")

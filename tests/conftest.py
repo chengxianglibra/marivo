@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 import ibis
 import pytest
@@ -25,6 +25,20 @@ from tests.shared_fixtures import (
     seed_analysis_dsl_database,
 )
 from tests.support.source_trace import SourceTrace
+
+if TYPE_CHECKING:
+    from marivo.semantic.reader import SemanticProject
+
+
+class _SemanticProjectFactory(Protocol):
+    def __call__(
+        self,
+        files: dict[str, str],
+        load: bool = True,
+        models: list[str] | None = None,
+        workspace_dir: Path | None = None,
+    ) -> SemanticProject: ...
+
 
 # Cap DuckDB to a single thread per connection. DuckDB defaults to
 # hardware_concurrency() threads; with one pytest-xdist worker per CPU that
@@ -127,13 +141,13 @@ def installer_env(tmp_path: Path, installer_toolchain: InstallerToolchain) -> In
 
 
 @pytest.fixture(scope="session")
-def _sales_orders_template_path():
+def _sales_orders_template_path() -> Path:
     """Session-scoped: ensure the DuckDB template is built once per worker."""
     return sales_orders_template()
 
 
 @pytest.fixture
-def authoring_evidence_project(tmp_path, monkeypatch):
+def authoring_evidence_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Create a real DuckDB project covering authoring through analysis handoff."""
     import shutil
 
@@ -218,15 +232,15 @@ def authoring_evidence_project(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def semantic_project_factory(tmp_path):
+def semantic_project_factory(tmp_path: Path) -> _SemanticProjectFactory:
     """Create a SemanticProject from a mapping of project-relative files."""
 
     def _make(
         files: dict[str, str],
         load: bool = True,
         models: list[str] | None = None,
-        workspace_dir=None,
-    ):
+        workspace_dir: Path | None = None,
+    ) -> SemanticProject:
         from marivo.semantic.reader import SemanticProject
 
         effective_dir = workspace_dir if workspace_dir is not None else tmp_path
@@ -282,7 +296,7 @@ def plan_tier_entry(funnel_session: Any) -> Any:
     return funnel_session.catalog.dimensions.get("plan_tier")
 
 
-def bootstrap_sales_project(tmp_path, *, with_time: bool = True) -> None:
+def bootstrap_sales_project(tmp_path: Path, *, with_time: bool = True) -> None:
     """Create a ready semantic project on disk for analysis tests."""
     # Write project manifest for discovery
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
@@ -391,7 +405,7 @@ def retained_coordinates_case(analysis_dsl_case_factory: DslCaseFactory) -> DslC
     model = case.root / "models/semantic/sales/models.py"
     model.write_text(
         model.read_text()
-        + "\nmean_amount = ms.aggregate(name='mean_amount', measure=amount, agg='mean', time=ordered_at)\n"
+        + "\n@ms.metric()\ndef mean_amount():\n    return amount_value.mean(time=time_value)\n"
     )
     ms.load(workspace_dir=case.root)
     return case

@@ -7,6 +7,14 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias
 
 from marivo._definition.expressions import FieldPredicate
+from marivo._definition.relations import PopulationDependency
+from marivo.analysis.compiler.query_program import (
+    EMPTY_QUERY_CONTEXT,
+    QueryContext,
+    QueryParameter,
+    ResultProgram,
+    SourceParameter,
+)
 from marivo.analysis.core.data_types import DataColumn, DataType, DurationDataType, ScalarDataType
 from marivo.analysis.core.graph import (
     BoundGraph,
@@ -62,6 +70,13 @@ from marivo.analysis.methods.registry import REGISTRY, MethodRegistry
 
 if TYPE_CHECKING:
     from marivo.analysis.compiler.observation import FormulaProgram, ReductionInput
+    from marivo.analysis.compiler.optimization import (
+        FusionGroup,
+        InvocationMemo,
+        RequiredSlots,
+        RuleDecision,
+    )
+    from marivo.analysis.compiler.original import ComponentLayout
 
 
 @dataclass(frozen=True, slots=True)
@@ -505,6 +520,11 @@ class SourceSchema:
     preparation_checks: tuple[tuple[str, str, str], ...] = ()
     key_groups: tuple[tuple[str, ...], ...] = ()
     presence: str | None = None
+    scope_id: str = ""
+    parameters: tuple[QueryParameter, ...] = ()
+    inline_population: PopulationDependency | None = None
+    original_identity: tuple[SourceField, ...] = ()
+    binding_id: str = ""
 
     def field(self, path: str) -> SourceField:
         for item in self.fields:
@@ -544,6 +564,11 @@ class SourceRead:
     reduction: ReductionInput | None = None
     preparation_checks: tuple[tuple[str, str, str], ...] = ()
     presence: str | None = None
+    inputs: tuple[str, ...] = ()
+    parameters: tuple[SourceParameter, ...] = ()
+    component_layout: ComponentLayout | None = None
+    binding_id: str = ""
+    common_reads: tuple[SourceRead, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -556,6 +581,8 @@ class LocalCompute:
     columns: tuple[DataColumn, ...]
     keys: tuple[str, ...]
     program: FormulaProgram | None = None
+    result: ResultProgram | None = None
+    fused_steps: tuple[LocalCompute, ...] = ()
 
 
 QueryStage: TypeAlias = SourceRead | LocalCompute
@@ -593,6 +620,11 @@ class QueryPlan:
     checks: tuple[PlannedCheck, ...]
     consumers: tuple[tuple[str, tuple[str, ...]], ...]
     publish: str
+    output_groups: tuple[tuple[str, ...], ...] = ()
+    original: FormulaProgram | None = None
+    required_slots: tuple[RequiredSlots, ...] = ()
+    fusion_groups: tuple[FusionGroup, ...] = ()
+    optimization_decisions: tuple[RuleDecision, ...] = ()
 
     def consumers_of(self, stage_id: str) -> tuple[str, ...]:
         return dict(self.consumers).get(stage_id, ())
@@ -716,6 +748,7 @@ def _plan_source_reads(
                 ),
                 period,
                 preparation_checks=schema.preparation_checks,
+                binding_id=schema.binding_id,
             )
         )
     stages: tuple[QueryStage, ...] = tuple(reads)
@@ -762,9 +795,88 @@ def plan_query(
     schemas: tuple[SourceSchema, ...],
     *,
     checks: tuple[SourceCheckRoute, ...] = (),
+    context: QueryContext = EMPTY_QUERY_CONTEXT,
+    require_original: bool = False,
+    memo: InvocationMemo | None = None,
+    prefix: tuple[int, ...] = (),
+) -> QueryPlan:
+    """Plan dependency producers before every parameterized source consumer."""
+    if memo is not None:
+        from marivo.analysis.compiler.optimization import compilation_key
+        from marivo.analysis.methods import registry
+
+        return memo.plan(
+            compilation_key(
+                graph,
+                schemas,
+                context,
+                required=("prefix:" + repr(prefix),),
+                require_original=require_original,
+                checks=checks,
+            ),
+            lambda: _plan_bound_query(
+                graph,
+                schemas,
+                checks=checks,
+                context=context,
+                require_original=require_original,
+                memo=memo,
+                prefix=prefix,
+            ),
+            registry.REGISTRY,
+        )
+    return _plan_bound_query(
+        graph,
+        schemas,
+        checks=checks,
+        context=context,
+        require_original=require_original,
+        memo=None,
+        prefix=prefix,
+    )
+
+
+def _plan_bound_query(
+    graph: BoundGraph,
+    schemas: tuple[SourceSchema, ...],
+    *,
+    checks: tuple[SourceCheckRoute, ...],
+    context: QueryContext,
+    require_original: bool,
+    memo: InvocationMemo | None,
+    prefix: tuple[int, ...],
+) -> QueryPlan:
+    from marivo._definition.query import ResultQuery
+
+    if isinstance(graph.root, ResultQuery):
+        from marivo.analysis.compiler.queries import plan_result
+
+        return plan_result(
+            graph, schemas, prefix, context=context, require_original=require_original, memo=memo
+        )
+
+    from marivo.analysis.compiler.parameters import plan_parameters
+
+    planned = plan_parameters(graph, schemas, checks, context, memo=memo)
+    if require_original:
+        from marivo.analysis.compiler.optimization import retain_components
+
+        return retain_components(planned, schemas)
+    return planned
+
+
+def _plan_query(
+    graph: BoundGraph,
+    schemas: tuple[SourceSchema, ...],
+    *,
+    checks: tuple[SourceCheckRoute, ...] = (),
 ) -> QueryPlan:
     """Fix ordinary numeric source and local routes before any business read."""
     import ibis
+
+    from marivo._definition.relations import ObserveQuery
+
+    assert isinstance(graph.root, ObserveQuery)
 
     from marivo._definition.expressions import (
         ContributionFilter,
@@ -1011,6 +1123,47 @@ def plan_query(
         output_population=observation.coordinates.population if observation is not None else None,
         calendar_key=calendar_key,
     )
+    if observation is not None and observation.member_population is not None:
+        from marivo.analysis.compiler.observation import MemberInput
+
+        member_population = observation.member_population
+        member_schema = next(
+            item
+            for item in schemas
+            if item.source_id == "population:" + computation_fingerprint(member_population)
+        )
+        member_slots = tuple(f"member.{index}" for index in range(len(member_schema.keys)))
+        member_groups = tuple(
+            tuple(
+                member_slots[tuple(key.column for key in member_schema.keys).index(name)]
+                for name in group
+            )
+            for group in member_schema.key_groups
+        )
+        mapping = []
+        output_columns: list[DataColumn] = []
+        for axis in graph.signature.axes:
+            if isinstance(axis, CalendarCoordinate):
+                output_columns.append(
+                    DataColumn(
+                        f"key.{len(output_columns)}",
+                        f"calendar:{axis.grain}",
+                        ScalarDataType("int64"),
+                        False,
+                    )
+                )
+                continue
+            group = member_groups[member_population.axes.index(axis)]
+            for name in group:
+                slot = f"key.{len(output_columns)}"
+                mapping.append((slot, name))
+                item = member_schema.keys[member_slots.index(name)]
+                output_columns.append(DataColumn(slot, item.field, item.dtype, item.nullable))
+        if not reads:
+            keys = tuple(output_columns)
+        program = replace(
+            program, members=MemberInput(member_population, member_slots, tuple(mapping))
+        )
     columns = tuple(
         replace(column, unit=quantity.unit)
         for column, quantity in zip(
@@ -1039,9 +1192,15 @@ def plan_query(
             columns=(*keys, columns[0]),
             reduction=replace(stage.reduction, value_slot=columns[0].slot_id),
         )
-        return replace(base, stages=(stage,), consumers=(), publish=stage.stage_id)
+        return replace(
+            base,
+            stages=(stage,),
+            consumers=(),
+            publish=stage.stage_id,
+            original=replace(program, values=(replace(program.values[0], column=columns[0]),)),
+        )
     combine = LocalCompute(
-        "local:combine",
+        "local:combine:" + graph.fingerprint,
         tuple(stage.stage_id for stage in (*reads, *population_reads)),
         QUERY_COMBINE_KERNEL,
         (*keys, *columns),
@@ -1053,4 +1212,5 @@ def plan_query(
         base.checks,
         tuple((stage.stage_id, (combine.stage_id,)) for stage in (*reads, *population_reads)),
         combine.stage_id,
+        original=program,
     )

@@ -1,18 +1,19 @@
-"""Minimal native period boundary: integer aligned keys and string original buckets."""
+"""Qualified source carriers feed paired periods without losing endpoint presence."""
 
 from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
-import pyarrow as pa
+import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.core.data_types import ScalarDataType
+from marivo.analysis.errors import AnalysisError
+from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.source_fixtures import author_source_project
-from tests.analysis.numeric.test_period_alignment import single_sql_difference
-from tests.analysis.numeric.test_time_alignment import time_key
 from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.support.source_trace import SourceTrace
 
@@ -20,10 +21,10 @@ from tests.support.source_trace import SourceTrace
 @pytest.mark.parametrize(
     "backend", source_params(("duckdb", "postgres", "mysql", "trino", "clickhouse"))
 )
-@pytest.mark.parametrize("kind", ["ordinal", "holiday_then_weekday"])
+@pytest.mark.parametrize("kind", ["ordinal", "period_offset"])
 def test_period_alignment_native_carriers(
     backend: str,
-    kind: Literal["ordinal", "holiday_then_weekday"],
+    kind: Literal["ordinal", "period_offset"],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -49,59 +50,45 @@ def test_period_alignment_native_carriers(
         )
         session = mv.session.get_or_create("period-native", report_timezone="UTC")
         members = session.members(ms.ref.entity("sales.facts"))
-
-        def observe(month: int, count: int) -> mv.LogicalNumericRelation:
-            result = members.observe(
-                ms.ref.metric("sales.total"),
-                during=mv.time_grid(
-                    during=mv.time_scope(
-                        start=f"2026-{month:02d}-01", end=f"2026-{month:02d}-{count + 1:02d}"
-                    ),
-                    grain=mv.grain("day"),
-                    timezone="UTC",
-                ),
-                by=(mv.member(),),
-            )
-            assert isinstance(result, mv.LogicalNumericRelation)
-            return result
-
-        current, baseline = observe(8, 2), observe(7, 3)
-        comparison = current.compare(baseline, align=mv.outer(time=time_key(kind)))
-        result = comparison.execute()
-        single = single_sql_difference(comparison)
-        assert single.to_pandas().equals(result.absolute.to_pandas())
-        frame = result.to_pandas()
-        expected = (
-            {"ordinal:1", "ordinal:2", "ordinal:3"}
+        metric = session.catalog.metrics.get("sales.total")
+        current_axis = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
+        baseline_axis = (
+            session.time_scope(start="2026-07-01", end="2026-07-04").by(mv.grain("day"))
             if kind == "ordinal"
-            else {
-                "holiday_then_weekday:before:6:1",
-                "holiday_then_weekday:before:3:1",
-                "holiday_then_weekday:holiday:0",
-                "holiday_then_weekday:holiday:1",
-            }
+            else session.time_scope(start="2026-07-31", end="2026-08-03").by(mv.grain("day"))
         )
-        assert len(frame) == 2 * len(expected) and set(frame.coord_2) == expected
-        missing = frame[frame.absolute_cell_reason == "missing_side"]
-        for field in ("absolute", "relative"):
-            assert set(missing[field + "_cell_reason"]) == {"missing_side"}
-        assert result._dataset is not None
-        exchange = result._dataset.verified()
-        assert exchange.contract.schema.field("key_3").type == pa.string()
-        correspondence = next(p.table for p in exchange.parts if p.role == "correspondence")
-        correspondence_schema = next(
-            p.schema for p in exchange.contract.parts if p.role == "correspondence"
+        current = session.observe({"value": metric}, during=current_axis, by=members)
+        baseline = session.observe({"value": metric}, during=baseline_axis, by=members)
+        comparison = current.compare(
+            baseline, match=mv.ordinal() if kind == "ordinal" else mv.period_offset(-1), how="outer"
         )
-        assert correspondence_schema.field("correspondence__baseline_key_3").type == pa.string()
-        assert (
-            correspondence.loc[
-                correspondence["key_3"]
-                == ("ordinal:3" if kind == "ordinal" else "holiday_then_weekday:holiday:1"),
-                "correspondence__current_key_3",
-            ]
-            .isna()
-            .sum()
-            == 2
+        if backend != "duckdb":
+            # HEAD already limited this numeric route to DuckDB. External nodes
+            # qualify refusal boundaries, not remote numeric acceptance.
+            def forbidden(*args: object, **kwargs: object) -> pd.DataFrame:
+                raise AssertionError("unqualified backend submitted business reads")
+
+            monkeypatch.setattr(SourceSession, "execute", forbidden)
+            with pytest.raises(AnalysisError, match="qualified numeric datasource route"):
+                comparison.execute()
+            assert session.runs().items == ()
+            return
+        result = comparison.execute()
+        frame = result.to_pandas()
+        assert len(frame) == 6
+        assert set(frame.iloc[:, 1]) == {("a", 1, 1), ("b", 2, 1)}
+        assert result._manifest.data.schema.axes[0].columns[0].dtype == ScalarDataType("string")
+        assert frame[("presence", ("current",))].sum() == 4
+        assert frame[("presence", ("baseline",))].sum() == 6
+        assert frame[("value", "value.absolute")].dropna().tolist() == (
+            [2, -4, 0, 0] if kind == "ordinal" else [2, 0, -2, 0]
         )
-        source_trace.record(single)
+        missing = frame[~frame[("presence", ("current",))]]
+        assert len(missing) == 2
+        assert missing[("value", "value.absolute")].isna().all()
+        projection = next(
+            p for p in frame.attrs["marivo"]["axes"][0]["projections"] if p["path"] == ("current",)
+        )
+        assert sum(row[0] is None for row in projection["values"]) == 2
+        source_trace.record(result)
         assert source_trace.native_sql

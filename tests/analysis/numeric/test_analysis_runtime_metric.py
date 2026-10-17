@@ -5,21 +5,25 @@ from dataclasses import FrozenInstanceError
 import pytest
 
 import marivo.analysis as mv
+import marivo.analysis.runtime_metric as runtime_descriptors
 from marivo.analysis.runtime_metric import (
     FrozenSliceMap,
     RuntimeAggregateExpr,
     RuntimeLinearExpr,
+    RuntimeMetricExpr,
     RuntimeRatioExpr,
     RuntimeSliceExpr,
     RuntimeWeightedMeanExpr,
     from_replay_payload,
     replay_payload,
 )
+from marivo.refs import FieldKind, MetricKind, Ref
 from marivo.refs import ref as ref_factory
+from marivo.semantic.runtime_metric import SliceScalar
 
 
 def test_runtime_metric_namespace_exposes_only_closed_constructors() -> None:
-    assert mv.runtime_metric.__all__ == [
+    assert runtime_descriptors.__all__ == [
         "FrozenSliceMap",
         "RuntimeAggregateExpr",
         "RuntimeLinearExpr",
@@ -40,9 +44,9 @@ def test_runtime_metric_namespace_exposes_only_closed_constructors() -> None:
 def test_runtime_aggregate_aligns_authoring_fold_and_freezes_slice_copy() -> None:
     measure = ref_factory.measure("sales.orders.amount")
     country = ref_factory.dimension("sales.orders.country")
-    source = {country: ["CN", "US"]}
+    source: dict[Ref[FieldKind], list[SliceScalar]] = {country: ["CN", "US"]}
 
-    expression = mv.runtime_metric.aggregate(
+    expression = runtime_descriptors.aggregate(
         measure,
         agg=("percentile", 0.95),
         fold=("percentile", 0.5),
@@ -65,7 +69,7 @@ def test_runtime_slice_accepts_metric_ref_and_time_dimension() -> None:
     metric = ref_factory.metric("sales.revenue")
     day = ref_factory.time_dimension("sales.orders.created_at")
 
-    expression = mv.runtime_metric.slice(
+    expression = runtime_descriptors.slice(
         metric,
         by={day: {"op": ">=", "value": "2026-01-01"}},
         label="recent revenue",
@@ -78,11 +82,11 @@ def test_runtime_slice_accepts_metric_ref_and_time_dimension() -> None:
 
 def test_runtime_ratio_is_recursive_and_label_is_not_value_equality() -> None:
     measure = ref_factory.measure("sales.orders.amount")
-    total = mv.runtime_metric.aggregate(measure, agg="sum", label="total")
-    count = mv.runtime_metric.aggregate(measure, agg="count", label="count")
-    inner = mv.runtime_metric.ratio(total, count, label="average")
-    first = mv.runtime_metric.ratio(inner, ref_factory.metric("sales.baseline"), label="first")
-    second = mv.runtime_metric.ratio(inner, ref_factory.metric("sales.baseline"), label="second")
+    total = runtime_descriptors.aggregate(measure, agg="sum", label="total")
+    count = runtime_descriptors.aggregate(measure, agg="count", label="count")
+    inner = runtime_descriptors.ratio(total, count, label="average")
+    first = runtime_descriptors.ratio(inner, ref_factory.metric("sales.baseline"), label="first")
+    second = runtime_descriptors.ratio(inner, ref_factory.metric("sales.baseline"), label="second")
 
     assert isinstance(first, RuntimeRatioExpr)
     assert isinstance(first.numerator, RuntimeRatioExpr)
@@ -94,10 +98,10 @@ def test_runtime_linear_freezes_ordered_terms_and_round_trips_replay() -> None:
     revenue = ref_factory.metric("sales.revenue")
     cogs = ref_factory.metric("sales.cogs")
     discounts = ref_factory.metric("sales.discounts")
-    add = [revenue]
-    subtract = [cogs, discounts]
+    add: list[Ref[MetricKind] | RuntimeMetricExpr] = [revenue]
+    subtract: list[Ref[MetricKind] | RuntimeMetricExpr] = [cogs, discounts]
 
-    expression = mv.runtime_metric.linear(
+    expression = runtime_descriptors.linear(
         add=add,
         subtract=subtract,
         label="  Gross margin  ",
@@ -116,12 +120,12 @@ def test_runtime_linear_freezes_ordered_terms_and_round_trips_replay() -> None:
 def test_runtime_linear_accepts_nested_runtime_expressions() -> None:
     revenue = ref_factory.metric("sales.revenue")
     discounts = ref_factory.metric("sales.discounts")
-    net = mv.runtime_metric.linear(
+    net = runtime_descriptors.linear(
         add=[revenue],
         subtract=[discounts],
         label="Net revenue",
     )
-    rate = mv.runtime_metric.ratio(
+    rate = runtime_descriptors.ratio(
         net,
         revenue,
         label="Net revenue rate",
@@ -135,9 +139,9 @@ def test_runtime_weighted_mean_freezes_slice_and_round_trips_replay() -> None:
     value = ref_factory.measure("sales.orders.latency")
     weight = ref_factory.measure("sales.orders.requests")
     region = ref_factory.dimension("sales.orders.region")
-    source = {region: ["CN", "US"]}
+    source: dict[Ref[FieldKind], list[SliceScalar]] = {region: ["CN", "US"]}
 
-    expression = mv.runtime_metric.weighted_mean(
+    expression = runtime_descriptors.weighted_mean(
         value,
         weight,
         slice_by=source,
@@ -156,7 +160,7 @@ def test_runtime_weighted_mean_freezes_slice_and_round_trips_replay() -> None:
 
 @pytest.mark.parametrize("bad_label", [None, ""])
 def test_runtime_replay_rejects_missing_or_empty_labels(bad_label: object) -> None:
-    expression = mv.runtime_metric.aggregate(
+    expression = runtime_descriptors.aggregate(
         ref_factory.measure("sales.orders.amount"),
         agg="sum",
         label="total",
@@ -169,22 +173,22 @@ def test_runtime_replay_rejects_missing_or_empty_labels(bad_label: object) -> No
 
 
 @pytest.mark.parametrize("bad", ["sum_all", ("percentile", 0.0), ("percentile", True)])
-def test_runtime_aggregate_rejects_invalid_closed_agg(bad) -> None:
+def test_runtime_aggregate_rejects_invalid_closed_agg(bad: str | tuple[str, float | bool]) -> None:
     with pytest.raises(ValueError):
-        mv.runtime_metric.aggregate(
+        runtime_descriptors.aggregate(
             ref_factory.measure("sales.orders.amount"),
-            agg=bad,
+            agg=bad,  # type: ignore[arg-type]  # Exercise closed runtime reducer rejection.
             label="invalid aggregate",
         )
 
 
 @pytest.mark.parametrize("bad", ["auto", ("percentile", 1.0), ("percentile", False)])
-def test_runtime_aggregate_rejects_invalid_shared_fold(bad) -> None:
+def test_runtime_aggregate_rejects_invalid_shared_fold(bad: str | tuple[str, float | bool]) -> None:
     with pytest.raises(Exception):
-        mv.runtime_metric.aggregate(
+        runtime_descriptors.aggregate(
             ref_factory.measure("sales.orders.amount"),
             agg="sum",
-            fold=bad,
+            fold=bad,  # type: ignore[arg-type]  # Exercise closed runtime fold rejection.
             label="invalid fold",
         )
 
@@ -195,22 +199,22 @@ def test_runtime_constructors_require_nonempty_labels() -> None:
     dimension = ref_factory.dimension("sales.orders.country")
 
     with pytest.raises(TypeError, match="missing 1 required keyword-only argument: 'label'"):
-        mv.runtime_metric.aggregate(measure, agg="sum")  # type: ignore[call-arg]
+        runtime_descriptors.aggregate(measure, agg="sum")  # type: ignore[call-arg]
     with pytest.raises(TypeError, match="missing 1 required keyword-only argument: 'label'"):
-        mv.runtime_metric.weighted_mean(measure, measure)  # type: ignore[call-arg]
+        runtime_descriptors.weighted_mean(measure, measure)  # type: ignore[call-arg]
     with pytest.raises(TypeError, match="missing 1 required keyword-only argument: 'label'"):
-        mv.runtime_metric.slice(metric, by={dimension: "CN"})  # type: ignore[call-arg]
+        runtime_descriptors.slice(metric, by={dimension: "CN"})  # type: ignore[call-arg]
     with pytest.raises(TypeError, match="missing 1 required keyword-only argument: 'label'"):
-        mv.runtime_metric.ratio(metric, metric)  # type: ignore[call-arg]
+        runtime_descriptors.ratio(metric, metric)  # type: ignore[call-arg]
     with pytest.raises(TypeError, match="missing 1 required keyword-only argument: 'label'"):
-        mv.runtime_metric.linear(add=[metric, metric])  # type: ignore[call-arg]
+        runtime_descriptors.linear(add=[metric, metric])  # type: ignore[call-arg]
 
     for constructor in (
-        lambda: mv.runtime_metric.aggregate(measure, agg="sum", label=""),
-        lambda: mv.runtime_metric.weighted_mean(measure, measure, label=" "),
-        lambda: mv.runtime_metric.slice(metric, by={dimension: "CN"}, label=""),
-        lambda: mv.runtime_metric.ratio(metric, metric, label=" "),
-        lambda: mv.runtime_metric.linear(add=[metric, metric], label=" "),
+        lambda: runtime_descriptors.aggregate(measure, agg="sum", label=""),
+        lambda: runtime_descriptors.weighted_mean(measure, measure, label=" "),
+        lambda: runtime_descriptors.slice(metric, by={dimension: "CN"}, label=""),
+        lambda: runtime_descriptors.ratio(metric, metric, label=" "),
+        lambda: runtime_descriptors.linear(add=[metric, metric], label=" "),
     ):
         with pytest.raises(ValueError, match="label must not be empty"):
             constructor()
@@ -272,52 +276,55 @@ def test_public_runtime_descriptor_classes_enforce_label_invariant() -> None:
 
 def test_runtime_constructors_reject_wrong_ref_and_operand_kinds() -> None:
     with pytest.raises(TypeError, match=r"exact Ref\[measure\]"):
-        mv.runtime_metric.aggregate(  # type: ignore[arg-type]
-            ref_factory.metric("sales.revenue"),
+        runtime_descriptors.aggregate(
+            ref_factory.metric("sales.revenue"),  # type: ignore[arg-type]  # Runtime wrong-kind rejection.
             agg="sum",
             label="wrong aggregate",
         )
     with pytest.raises(TypeError, match=r"exact Ref\[metric\]"):
-        mv.runtime_metric.ratio(
-            ref_factory.measure("sales.orders.amount"),
+        runtime_descriptors.ratio(
+            ref_factory.measure("sales.orders.amount"),  # type: ignore[arg-type]  # Runtime wrong-kind rejection.
             ref_factory.metric("sales.total"),
             label="wrong ratio",
-        )  # type: ignore[arg-type]
+        )
     with pytest.raises(TypeError, match=r"exact Ref\[dimension"):
-        mv.runtime_metric.slice(
+        runtime_descriptors.slice(
             ref_factory.metric("sales.revenue"),
             by={"country": "CN"},  # type: ignore[dict-item]
             label="wrong slice",
         )
     with pytest.raises(TypeError, match=r"weighted_mean value requires exact Ref\[measure\]"):
-        mv.runtime_metric.weighted_mean(  # type: ignore[arg-type]
-            ref_factory.metric("sales.revenue"),
+        runtime_descriptors.weighted_mean(
+            ref_factory.metric("sales.revenue"),  # type: ignore[arg-type]  # Runtime wrong-kind rejection.
             ref_factory.measure("sales.orders.requests"),
             label="wrong weighted mean",
         )
     with pytest.raises(TypeError, match=r"weighted_mean weight requires exact Ref\[measure\]"):
-        mv.runtime_metric.weighted_mean(  # type: ignore[arg-type]
+        runtime_descriptors.weighted_mean(
             ref_factory.measure("sales.orders.latency"),
-            ref_factory.metric("sales.requests"),
+            ref_factory.metric("sales.requests"),  # type: ignore[arg-type]  # Runtime wrong-kind rejection.
             label="wrong weighted mean",
         )
     with pytest.raises(TypeError, match=r"exact Ref\[metric\]"):
-        mv.runtime_metric.linear(
+        runtime_descriptors.linear(
             add=[
                 ref_factory.metric("sales.revenue"),
-                ref_factory.measure("sales.orders.amount"),
+                ref_factory.measure("sales.orders.amount"),  # type: ignore[list-item]  # Runtime wrong-kind rejection.
             ],
             label="wrong linear",
-        )  # type: ignore[list-item]
+        )
 
 
 @pytest.mark.parametrize(
     ("add", "subtract"),
     [([], []), ([ref_factory.metric("sales.revenue")], [])],
 )
-def test_runtime_linear_requires_at_least_two_terms(add, subtract) -> None:
+def test_runtime_linear_requires_at_least_two_terms(
+    add: list[Ref[MetricKind] | RuntimeMetricExpr],
+    subtract: list[Ref[MetricKind] | RuntimeMetricExpr],
+) -> None:
     with pytest.raises(ValueError, match="at least two metric terms"):
-        mv.runtime_metric.linear(
+        runtime_descriptors.linear(
             add=add,
             subtract=subtract,
             label="invalid linear",
@@ -328,7 +335,7 @@ def test_runtime_linear_requires_list_or_tuple_inputs() -> None:
     revenue = ref_factory.metric("sales.revenue")
 
     with pytest.raises(TypeError, match="add requires list or tuple"):
-        mv.runtime_metric.linear(
+        runtime_descriptors.linear(
             add={revenue},  # type: ignore[arg-type]
             subtract=[revenue],
             label="invalid linear",
@@ -337,7 +344,7 @@ def test_runtime_linear_requires_list_or_tuple_inputs() -> None:
 
 def test_runtime_slice_requires_nonempty_mapping() -> None:
     with pytest.raises(ValueError, match="must not be empty"):
-        mv.runtime_metric.slice(
+        runtime_descriptors.slice(
             ref_factory.metric("sales.revenue"),
             by={},
             label="empty slice",

@@ -50,8 +50,13 @@ keys_only.execute().show()
 来源 Null 类别与缺少坐标保持区别。
 
 `session.members(ms.ref.entity("sales.customers"))` 从来源选择实际存在的完整 Entity 身份。
-`mv.identities(entity, keys=(("C1",),))` 则捕获明确的身份引用，不证明来源档案存在。
-复合主键仍是一个身份轴，包含按声明顺序排列的全部分量。
+`mv.identities(session.catalog.entities.get("sales.customers"), keys=(("C1",),))` 则捕获明确的身份引用，不证明来源档案存在。
+复合主键仍是一个身份轴，包含按声明顺序排列的全部分量。identities 只接已解析 Entity，
+裸 Ref 须先通过 catalog 解析。
+
+`query.coord(axis)` 定位标量坐标 Column；构造不读取来源，准备期在 Run 准入和业务编译/读取前
+拒绝把复合身份作为单量。完整身份仍保留为输出键，元组筛选用
+`query.population()` 与 `mv.in_population(...)`；需要单量坐标值时使用已有单字段轴。
 
 Population 支持 `project(by=...)`、`union`、`intersection`、`difference`，以及
 `where(mv.in_population(other))`；谓词使用 `&`、`|`、`~` 组合。
@@ -61,11 +66,15 @@ Population 支持 `project(by=...)`、`union`、`intersection`、`difference`，
 缺少必需属性或关系映射会失败；能由完整外键确定的目标引用不会因目标档案缺失而被删除。
 
 `mv.product(regions, calendar)` 按因子顺序形成完整笛卡尔坐标域。
-使用日历域的观察还必须传入相容的 `during`，不会从域反推观察期间。
+日历坐标绑定与观察期间必须相容，窗口端点仍需显式观察时间绑定。
 
 `query.population()` 捕获该 Query 自己的坐标选择、期间、条件、声明闭包和 Session。
 它仍保持惰性，另一次观察不会覆盖已捕获的选择上下文。
 通过 `session.query(population)` 发布完整键；Population 没有 `execute()` 方法。
+
+## 通过 Session 读取属性
+
+`session.read(population, {"region": region})` 返回保留完整输入身份键及命名属性量的 lazy Query。读取由显式 Session 拥有，没有 Population.read 别名或 ambient Session 查找。版本字段用 field.at(anchor)，标量路径用 field.via((relationship,))。缺少或重复必需映射在消费时失败，计算 Measure 应交 observe。
 
 ## 显式分配重叠成员桶
 

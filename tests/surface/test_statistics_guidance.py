@@ -1,4 +1,4 @@
-"""Statistical Help reachability and typing."""
+"""Current result statistics and comparison Help remain reachable."""
 
 import subprocess
 
@@ -9,12 +9,12 @@ from tests.support.paths import PROJECT_ROOT
 ROOT = PROJECT_ROOT
 
 
-def test_nine_methods_are_reachable_through_existing_groups() -> None:
+def test_nine_current_methods_are_reachable_through_existing_groups() -> None:
     registry = prepare()
     groups = {
-        "methods.rows": ("dsl.NumericComparison.deviation", "dsl.NumericComparison.runs"),
-        "methods.association": ("dsl.NumericComparison.correlate",),
-        "methods.forecast": ("dsl.NumericComparison.forecast",),
+        "methods.rows": ("Query.select", "Query.where", "Query.top"),
+        "methods.metric.summary": ("row_count", "Query.reduce", "Column.sum", "Column.mean"),
+        "methods.compare": ("Query.align", "Query.compare"),
     }
     for group, targets in groups.items():
         owner = registry.by_canonical_id(group)

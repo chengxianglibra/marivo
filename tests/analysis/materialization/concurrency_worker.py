@@ -35,15 +35,12 @@ def snapshot(runtime: DatasetRuntime) -> dict[str, int]:
         }
 
 
-def observation(session: Session, metric: str) -> mv.LogicalNumericRelation:
-    result = session.members(ms.ref.entity("sales.customer")).observe(
-        ms.ref.metric(metric),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
+def observation(session: Session, metric: str) -> mv.Query:
+    return session.observe(
+        {"value": session.catalog.metrics.get(metric)},
+        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
+        by=session.members(ms.ref.entity("sales.customer")),
     )
-    assert isinstance(result, mv.LogicalNumericRelation)
-    return result
 
 
 def contend(project: Path, session: str, metric: str, artifact: str) -> dict[str, object]:
@@ -63,7 +60,7 @@ def contend(project: Path, session: str, metric: str, artifact: str) -> dict[str
             "after": snapshot(runtime),
             "statistics": asdict(runtime.statistics),
             "last_run_ref": runtime.last_run_ref,
-            "artifact": retained.state.artifact_ref.ref,
+            "artifact": retained.id,
         }
     raise AssertionError("contender was admitted")
 

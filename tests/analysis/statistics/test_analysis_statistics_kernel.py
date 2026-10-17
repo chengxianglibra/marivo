@@ -150,16 +150,21 @@ def test_short_histories_reject_instead_of_zero_variance(
 
 
 @pytest.mark.parametrize("bad", (0, 1001, True))
-def test_horizon_factory_boundaries(bad: int) -> None:
-    import marivo.analysis as mv
-    from marivo.analysis.errors import AnalysisError
+def test_pandas_recipe_horizon_boundaries(bad: int) -> None:
+    import pandas as pd
 
-    with pytest.raises(AnalysisError):
-        mv.periods(bad)
+    from tests.analysis.statistics.pandas_workflows import forecast as pandas_forecast
+
+    with pytest.raises(ValueError):
+        pandas_forecast(pd.Series([1, 2, 7]), horizon=bad)
 
 
-def test_horizon_and_season_factory_endpoints() -> None:
-    import marivo.analysis as mv
+def test_pandas_recipe_horizon_and_season_endpoints() -> None:
+    import pandas as pd
 
-    assert (mv.periods(1).count, mv.periods(1000).count) == (1, 1000)
-    assert mv.seasonal_naive(periods=2).season_length == 2
+    from tests.analysis.statistics.pandas_workflows import forecast as pandas_forecast
+
+    values = pd.Series([1, 2, 7])
+    assert len(pandas_forecast(values, horizon=1)) == 1
+    assert len(pandas_forecast(values, horizon=1000)) == 1000
+    assert pandas_forecast(values, "seasonal_naive", season=2).prediction.tolist() == [2, 7]

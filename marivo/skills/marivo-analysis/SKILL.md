@@ -15,8 +15,9 @@ answer is sufficient.
 Governed semantic objects own reusable business meaning. The Analysis DSL owns
 typed computation and Evidence. `marivo.help("analysis")` provides progressive
 discovery; focused Help owns signatures, constraints, and examples. `.show()`
-exposes committed result state, `.contract()` owns mechanically valid
-continuations, and structured errors own repair. A valid continuation need not
+exposes committed result state. Population and Query `.contract()` own
+mechanically valid continuations; terminal Artifacts have no computation
+contract. Structured errors own repair. A valid continuation need not
 be useful to the question; successful execution alone does not answer it.
 
 Use the host-selected verified environment. Consult live guidance when the next
@@ -71,8 +72,9 @@ Before choosing an operation, establish the distinctions that affect the answer:
 - Establish the comparison baseline and comparability before interpreting a
   difference. Algebraic attribution and association do not establish cause;
   forecasts describe model outputs under assumptions, not observed outcomes.
-- Distinguish recovering a past result, continuing over retained data, and
-  observing current sources. Choose according to the question's freshness need.
+- Distinguish reopening committed output, postprocessing exported values, and
+  executing a new Query against current sources. Choose according to the
+  question's freshness need; an Artifact is not an input to typed computation.
 
 Use these distinctions where they matter. Exact methods and admitted inputs
 come from live Help and the current object's contract, not a fixed operator recipe.
@@ -102,22 +104,22 @@ limitation. Prefer the smallest sufficient typed analysis chain and batch known,
 compatible work into one decision round.
 
 For an unknown capability, start with `marivo.help("analysis")` and follow the
-selected intent and its prerequisites. For an existing object, use its contract
-and exact Help target when the next action is uncertain. Stop browsing once the
+selected intent and its prerequisites. For a Population or Query, use its
+contract and exact Help target when the next action is uncertain. Read a
+terminal Artifact through its output and evidence interfaces. Stop browsing once the
 available guidance supports the next useful operation. Connectivity and semantic
 readiness alone do not establish method execution support.
 
-Identify known downstream input needs before executing. Do not assume that a
-materialized selection can accept a new live-source observation; follow the
-current contract to construct the required dependencies. Execute when results
-are needed for interpretation, delivery, an intentional recovery boundary, or a
-required execution boundary. If the next choice depends on those results, read
-them before expanding the graph. Logical construction is planned work, not
-evidence that business rows were read or a result exists.
+Compose known Population and Query dependencies before executing. Execute
+when values are needed for interpretation or delivery. If the next choice
+depends on those values, read the terminal output, then construct a new Query
+from semantic inputs and explicit chosen keys. Reusing a Query executes its
+sources again; reopening an Artifact only reads saved output. Logical
+construction is not evidence that business rows were read or a result exists.
 
 ### Read the result and update the answer
 
-Inspect the materialized result with `.show()`. Follow
+Inspect the terminal Artifact with `.show()`. Follow
 `marivo.help("analysis.evidence")` when additional evidence detail is needed.
 Assess the facts that could change the conclusion: exact identity and scope,
 comparison alignment, completeness, missingness, reconciliation,
@@ -159,13 +161,16 @@ unsupported method; follow structured repair and disclose a blocked branch when
 the public contract cannot produce its required evidence. Do not bypass it with
 direct Ibis, DuckDB, pandas readers, backend handles, ad hoc SQL, or uploads.
 
-Before exporting, read `marivo.help("analysis.actions.to_pandas")`. Presentation
+Before exporting, read `marivo.help("analysis.Artifact.to_pandas")`. Presentation
 may arrange, plot, label, or format existing results. Changing population,
 metric meaning, aggregation, or comparison is analytical work. For a method
 outside the installed surface, first complete supported upstream work, then
 preserve exact inputs, assumptions, and rerunnable external calculations.
-External outputs do not inherit typed Evidence guarantees. Exported rows and
-derivatives cannot re-enter typed analysis; the original Artifact remains usable.
+External outputs do not inherit typed Evidence guarantees. An exported table
+cannot restore the computation graph. Chosen complete keys or explicit literal
+references may become ordinary inputs to a new Query, without inheriting the
+exported result's semantic or Evidence authority. The saved Artifact remains
+readable and cannot supply a computation graph.
 
 Use `md.raw_sql(...)` only for a concrete source-specific question public
 inspection cannot answer, or provisional terminal analysis when typed inputs

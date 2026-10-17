@@ -60,21 +60,25 @@ def author_source_project(
             + "revision = ms.dimension_column(name='revision', entity=facts, column='revision')\n"
             + "amount = ms.measure_column(name='amount', entity=facts, column='amount', additivity=ms.additive_all())\n"
             + f"happened = ms.time_dimension_column(name='happened', entity=facts, column='happened', granularity={granularity!r}, parse={parse}, is_default=True)\n"
-            + "total = ms.aggregate(name='total', measure=amount, agg='sum', empty=ms.empty.zero())\n"
-            + "average = ms.aggregate(name='average', measure=amount, agg='mean')\n"
-            + (
-                "import marivo.analysis as mv\n"
-                "running = ms.cumulative(name='running', base=total, over=happened, "
-                f"anchor={cumulative_anchor})\n"
-                if cumulative_anchor is not None
-                else ""
-            )
             + (
                 "from datetime import date\n"
                 "calendar_day = ms.time_dimension_column(name='calendar_day', entity=facts, column='calendar_day', granularity='day')\n"
                 "period = ms.dimension_column(name='period', entity=facts, column='period')\n"
                 "fiscal = ms.period_calendar(name='fiscal', date=calendar_day, boundary_timezone='Asia/Shanghai', coverage=(date(2026, 8, 1), date(2026, 8, 6)), levels={'period': period})\n"
                 if certified_calendar
+                else ""
+            )
+            + "frozen = ms.finalize()\n"
+            + "amount_value = frozen.resolve(amount)\n"
+            + "happened_value = frozen.resolve(happened)\n"
+            + "@ms.metric()\ndef total():\n    return amount_value.sum(time=happened_value)\n"
+            + "@ms.metric()\ndef average():\n    return amount_value.mean(time=happened_value)\n"
+            + (
+                "import marivo.analysis as mv\nfrom datetime import timedelta\n"
+                f"window_rule = {cumulative_anchor}\n"
+                "@ms.metric()\ndef running():\n"
+                "    return total.window(window_rule)\n"
+                if cumulative_anchor is not None
                 else ""
             ),
         }

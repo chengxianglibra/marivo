@@ -1,19 +1,24 @@
-"""Native nested, union and ratio producers bind separate fixed/cold processes."""
+"""Nested, outer and ratio outputs survive independent source-offline readers."""
 
+import json
+import os
 import shutil
+import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.reference_fixtures import reference_data
 from tests.analysis.graph.source_fixtures import author_source_project
 from tests.analysis.materialization.domain_recovery_worker import snapshot
+from tests.analysis.numeric.comparison_fixtures import assert_comparison, comparison_queries
 from tests.datasource.source_cases import source_case
-from tests.support.json import Json, checked, encode
+from tests.support.json import Json, encode
+from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
 
 
@@ -24,64 +29,67 @@ def test_native_comparison_independent_fixed_and_cold(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     source_trace: SourceTrace,
 ) -> None:
-    backend = "duckdb"
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
-    profile = {"trino": "iceberg", "clickhouse": "mergetree"}.get(backend, "table")
-    with source_case(backend, profile, tmp_path, monkeypatch, reference_data(backend)) as case:
-        author_source_project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.get_or_create("r94-comparison", report_timezone="UTC")
-        members = session.members(ms.ref.entity("sales.facts"))
-
-        def observe(month: int) -> mv.LogicalNumericRelation:
-            value = members.observe(
-                ms.ref.metric("sales.total"),
-                during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
-                by=(mv.member(),),
-            )
-            assert isinstance(value, mv.LogicalNumericRelation)
-            return value
-
-        current, baseline, earlier = observe(8), observe(7), observe(6)
-        first, second = current.compare(baseline).absolute, baseline.compare(earlier).absolute
-        left, right = current.where(current.value.gt(0)), baseline.where(baseline.value.gt(0))
-        design = mv.outer(missing="keep")
+    data = reference_data("duckdb")
+    with source_case("duckdb", "table", tmp_path, monkeypatch, data) as case:
+        author_source_project("duckdb", case, monkeypatch, semantic_project_factory)
+        session = mv.session.get_or_create("comparison-recovery", report_timezone="UTC")
         originals: dict[str, Json] = {}
-        for name, logical in (
-            ("current", current),
-            ("first", first),
-            ("second", second),
-            ("left", left),
-            ("right", right),
-            ("nested", first.compare(second).absolute),
-            ("union", left.compare(right, align=design).absolute),
-            ("ratio", current.ratio(current)),
-        ):
-            result = logical.execute()
-            originals[name] = snapshot(result)
+        for name, query in comparison_queries(session).items():
+            result = query.execute()
+            assert_comparison(result, name)
+            originals[name] = {"artifact": result.id, "snapshot": snapshot(result)}
             source_trace.record(result)
         state: dict[str, Json] = {"session": session.id, "originals": originals}
-        (tmp_path / "r94-comparison.json").write_bytes(encode(state))
+        (tmp_path / "comparison-recovery.json").write_bytes(encode(state))
         source_trace.save(
-            "comparison-source-" + backend,
-            {**case.environment, "profile": profile},
+            "comparison-source-duckdb",
+            case.environment,
             {"rows": 3},
-            {
-                "keys": [
-                    ["a", 9007199254740992, 1],
-                    ["a", 9007199254740993, 2],
-                    ["b", 9007199254740993, 1],
-                ],
-                "nested": [2, 0, 4],
-                "ratio": [1, None, 1],
-                "union": [None, None],
-            },
+            {"nested": [2, 0, 4], "ratio": [1, None, 1], "outer": [None, None]},
             None,
             (case.session,),
         )
-        environment = checked({**case.environment, "profile": profile})
     shutil.rmtree(tmp_path / "models")
-    for pattern in ("source.duckdb*",):
-        for path in tmp_path.glob(pattern):
-            path.unlink()
-    reports: list[Json] = []
+    for path in tmp_path.glob("source.duckdb*"):
+        path.unlink()
+    script = """
+import json, os, sys
+from pathlib import Path
+import marivo.analysis as mv
+import marivo.semantic as ms
+from marivo.datasource.adapters import SourceSession
+from marivo.semantic.reader import SemanticProject
+from tests.analysis.materialization.domain_recovery_worker import snapshot
+from tests.analysis.numeric.comparison_fixtures import assert_comparison
+
+def forbidden(*args, **kwargs):
+    raise AssertionError('cold comparison read touched live source or Semantic')
+ms.load = forbidden
+SemanticProject.load = forbidden
+SourceSession.__enter__ = forbidden
+SourceSession.execute = forbidden
+state = json.loads(Path('comparison-recovery.json').read_text())
+session = mv.session.resume(state['session'], by='id')
+before = len(session.runs().items)
+for name, item in state['originals'].items():
+    result = session.artifact(item['artifact'])
+    assert snapshot(result) == item['snapshot']
+    assert_comparison(result, name)
+assert len(session.runs().items) == before
+print(json.dumps({'pid':os.getpid(),'phase':sys.argv[1]}))
+"""
+    reports = []
+    for phase in ("offline", "cold"):
+        completed = subprocess.run(
+            [sys.executable, "-c", script, phase],
+            cwd=tmp_path,
+            env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert completed.returncode == 0, completed.stdout + completed.stderr
+        reports.append(json.loads(completed.stdout.strip().splitlines()[-1]))
+    assert len({os.getpid(), *(report["pid"] for report in reports)}) == 3

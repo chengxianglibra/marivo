@@ -13,7 +13,7 @@ import marivo.analysis as mv
 import sys
 assert 'scipy.stats' not in sys.modules
 from marivo.analysis._capabilities.registry import REGISTRY
-names = ('LogicalAnalysisDomain', 'LogicalNumericRelation', 'MaterializedNumericRelation', 'MaterializedDatasetState', 'DatasetByteCount')
+names = ('Population', 'Query', 'Column', 'Artifact', 'ArtifactSummary')
 bindings = tuple(getattr(mv, name) for name in names)
 exports = tuple(mv.__all__)
 help_targets = REGISTRY.canonical_ids()
@@ -23,7 +23,7 @@ assert bindings == tuple(getattr(mv, name) for name in names)
 assert all(name in mv.__all__ for name in names)
 assert tuple(mv.__all__) == exports
 assert REGISTRY.canonical_ids() == help_targets
-assert {'datasets', 'datasets.materialized_state', 'actions.execute'} <= set(help_targets)
+assert {'Query', 'Artifact', 'Query.execute'} <= set(help_targets)
 from marivo.analysis.session.core import Session
 
 exports = tuple(mv.__all__)
@@ -113,24 +113,39 @@ assert not result.kept, result.metadata
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_analysis_keeps_typed_dataset_operator_values():
+def test_analysis_keeps_typed_correspondence_and_member_values() -> None:
     import marivo.analysis as mv
 
-    assert isinstance(mv.ordinal(), mv.OrdinalTimeKey)
-    assert callable(mv.naive)
-    assert callable(mv.seasonal_naive)
-    assert callable(mv.drift)
-    assert callable(mv.periods)
+    assert isinstance(mv.ordinal(), mv.CalendarCorrespondence)
+    assert isinstance(mv.period_offset(1), mv.CalendarCorrespondence)
+    assert isinstance(mv.previous_year(), mv.CalendarCorrespondence)
+    assert isinstance(mv.member(), mv.MemberAxis)
+    assert callable(mv.member_count)
+    assert callable(mv.row_count)
 
 
-def test_session_class_exposes_sources_and_dataset_owned_operators():
+def test_session_class_exposes_sources_and_query_owned_operators() -> None:
     import marivo.analysis as mv
 
-    assert callable(mv.LogicalNumericRelation.compare)
-    assert callable(mv.Session.members)
-    for name in ("correlate", "forecast"):
-        assert not hasattr(mv.Session, name)
-        assert callable(getattr(mv.LogicalNumericRelation, name))
+    for name in ("members", "read", "observe", "query", "values"):
+        assert callable(getattr(mv.Session, name))
+    for name in (
+        "select",
+        "where",
+        "top",
+        "reduce",
+        "align",
+        "compare",
+        "rollup",
+        "drill",
+        "share",
+        "execute",
+    ):
+        assert callable(getattr(mv.Query, name))
+    for name in ("correlate", "forecast", "deviation", "runs", "attribute"):
+        if name != "runs":
+            assert not hasattr(mv.Session, name)
+        assert not hasattr(mv.Query, name)
 
 
 def test_analysis_keeps_subdomain_dtos_out_of_top_level() -> None:
@@ -172,3 +187,13 @@ assert mv.grain('day').unit == 'day'
         check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_analysis_time_construction_is_session_owned() -> None:
+    import marivo.analysis as mv
+    from marivo.analysis import _public
+
+    for name in ("instant", "time_scope"):
+        assert name not in mv.__all__ and name not in dir(mv)
+        assert not hasattr(mv, name) and not hasattr(_public, name)
+        assert callable(getattr(mv.Session, name))

@@ -11,7 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from decimal import Decimal
 from itertools import pairwise
-from typing import TYPE_CHECKING, Literal, TypeAlias, cast
+from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias, cast
 
 from ibis.common.deferred import (
     Attr,
@@ -26,11 +26,13 @@ from ibis.common.deferred import (
 )
 
 from marivo._definition.deferred import (
+    ContextMetricResolver,
     DeclarationResolver,
     DeferredInspection,
     RelationshipParameter,
     SemanticInput,
     SemanticResolver,
+    attribute_name,
     inspect_deferred,
 )
 from marivo._definition.expressions import (
@@ -39,6 +41,7 @@ from marivo._definition.expressions import (
     EntityCount,
     FieldPredicate,
     MeasureAssertion,
+    MemberCount,
     MetricExpression,
     MetricNode,
     MetricWindow,
@@ -143,7 +146,7 @@ def _fail(
     expected: str,
     received: str,
     kind: ErrorKind = ErrorKind.INVALID_EXPRESSION_STAGE,
-) -> None:
+) -> NoReturn:
     raise SemanticExpressionError(
         kind=kind,
         message=message,
@@ -528,7 +531,7 @@ def _reduce(
             expected="sum(empty='zero' or 'null')",
             received=str(empty_value),
         )
-    empty = cast("Literal['zero', 'null']", empty_value)
+    empty: Literal["zero", "null"] = empty_value
     reducer = cast("Reducer", name)
     if isinstance(receiver, _Samples):
         metric = receiver.metric
@@ -605,7 +608,7 @@ def _reduce(
             nulls=policy,
             empty=empty,
             order_by=order_by,
-            include_null=cast("bool", include_null),
+            include_null=include_null,
         )
         return MetricFacts(
             node,
@@ -695,6 +698,8 @@ def _reduce(
 
 
 def _consume(recipe: Resolver) -> _Facts:
+    if isinstance(recipe, ContextMetricResolver):
+        return MetricFacts(MemberCount(), (), "1")
     if isinstance(recipe, SemanticResolver):
         item = recipe.input
         if item.reference.ref.kind is SemanticKind.ENTITY:
@@ -793,7 +798,7 @@ def _consume(recipe: Resolver) -> _Facts:
         )
     if isinstance(recipe, Call):
         if isinstance(recipe.func, Attr):
-            name = str(_constant(recipe.func.name))
+            name = attribute_name(recipe.func)
             receiver = _consume(recipe.func.obj)
             if name == "window":
                 from marivo._definition.graph import walk

@@ -9,7 +9,7 @@ import pytest
 
 import marivo.analysis as ma
 from marivo._compat import UTC
-from marivo._temporal import TimeScopeContractV1
+from marivo._temporal import TimeScopeContractV1, time_scope
 from marivo.analysis.evidence._dataset_types import ArtifactDigest
 from marivo.analysis.session._lazy_read_model import SessionSummary
 from marivo.datasource.errors import repair as datasource_repair
@@ -29,6 +29,7 @@ from marivo.semantic.dtos import (
     PreviewBatchResult,
 )
 from marivo.semantic.readiness import ReadinessInputSummary, ReadinessReport
+from tests.shared_fixtures import DslCaseFactory
 
 datasource_ref = ref_factory.datasource
 
@@ -68,7 +69,7 @@ def assert_conforms(obj: object) -> None:
     assert len(r) <= REPR_MAX_LEN, f"repr too long ({len(r)}): {r!r}"
     assert type(obj).__name__ in r, f"repr must name the type: {r!r}"
 
-    rendered = obj.render()  # type: ignore[attr-defined]
+    rendered = obj.render()
     assert isinstance(rendered, str)
     assert not rendered.endswith("\n"), "render() must not end with newline"
     assert len(rendered.splitlines()) <= RENDER_MAX_LINES
@@ -76,7 +77,8 @@ def assert_conforms(obj: object) -> None:
         f"render() too large ({len(rendered.encode('utf-8'))} bytes)"
     )
 
-    assert obj.show() is None  # type: ignore[attr-defined]
+    show: Callable[[], object] = obj.show
+    assert show() is None
 
 
 def _preview_result() -> PreviewResult:
@@ -145,7 +147,16 @@ def test_session_summary_rejects_positional_construction() -> None:
     # "positional args rejected", not "the field values are invalid".
     _session_summary()
     with pytest.raises(TypeError):
-        SessionSummary("sess_1", "q2", None, "2026-06-13T00:00:00Z", "2026-06-13T00:00:00Z", 1, 2)  # type: ignore[misc, call-arg]
+        # Intentional runtime negative: this constructor accepts keyword arguments only.
+        SessionSummary(  # type: ignore[call-arg]
+            "sess_1",
+            "q2",
+            None,
+            datetime(2026, 6, 13, tzinfo=UTC),
+            datetime(2026, 6, 13, tzinfo=UTC),
+            1,
+            2,
+        )
 
 
 def _session_summary() -> SessionSummary:
@@ -186,7 +197,7 @@ def _readiness_report() -> ReadinessReport:
     )
 
 
-TERMINAL_BUILDERS: list = [
+TERMINAL_BUILDERS = [
     pytest.param(_preview_result, id="PreviewResult"),
     pytest.param(_preview_batch_result, id="PreviewBatchResult"),
     pytest.param(_datasource_description, id="DatasourceDescription"),
@@ -210,7 +221,9 @@ def test_terminal_type_protocol_and_byte_contract(builder: Callable[[], object])
         obj.render(max_output_bytes=1)  # type: ignore[attr-defined]
 
 
-def test_committed_runtime_projections_satisfy_terminal_protocol(analysis_dsl_case_factory) -> None:
+def test_committed_runtime_projections_satisfy_terminal_protocol(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
     from marivo.analysis.materialization import terminal_store
     from marivo.analysis.materialization.contracts import RunFailure
 
@@ -379,7 +392,7 @@ def _time_scope_contract() -> TimeScopeContractV1:
     )
 
 
-CONTRACT_BUILDERS: list = [
+CONTRACT_BUILDERS = [
     pytest.param(_time_scope_contract, id="TimeScopeContractV1"),
 ]
 
@@ -410,7 +423,7 @@ def test_contract_result_protocol_is_structural_and_side_effect_free(
 
 
 def test_time_scope_render_honors_output_budget(capsys: pytest.CaptureFixture[str]) -> None:
-    scope = ma.time_scope(start="2026-07-01", end="2026-08-01")
+    scope = time_scope(start="2026-07-01", end="2026-08-01")
 
     assert scope.render() == "TimeScope(kind=absolute, start=2026-07-01, end=2026-08-01)"
     assert scope.render(max_output_bytes=None) == scope.render()

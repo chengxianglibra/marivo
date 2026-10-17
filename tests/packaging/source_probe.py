@@ -4,19 +4,22 @@ from __future__ import annotations
 
 import hashlib
 import importlib
-import json
-import sqlite3
-from collections import Counter
+import os
+import sys
+import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
 import marivo.analysis as mv
+import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.analysis.errors import AnalysisError
-from tests.support.source_trace import capture_source
+from marivo.analysis.errors import AnalysisStageUnavailableError
+from marivo.datasource.adapters import SourceSession
+from tests.support.json import Json, checked, encode
 
 
 @contextmanager
@@ -111,16 +114,31 @@ region = ms.dimension_column(name="region", entity=customers, column="region")
 channel = ms.dimension_column(name="channel", entity=orders, column="channel")
 order_day = ms.time_dimension_column(name="order_day", entity=orders, column="day",
     granularity="day", is_default=True)
-ms.relationship(name="customer", from_entity=orders, to_entity=customers,
+customer = ms.relationship(name="customer", from_entity=orders, to_entity=customers,
     keys=[ms.join_on(order_customer, customer_key)])
 amount = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all())
 weight = ms.measure_column(name="weight", entity=orders, column="weight", additivity=ms.additive_all())
 unit = ms.measure_column(name="unit", entity=orders, column="unit", additivity=ms.additive_all())
-revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
-count = ms.aggregate(name="count", measure=unit, agg="sum")
-ms.aggregate(name="mean_amount", measure=amount, agg="mean")
-ms.weighted_mean(name="weighted_amount", value=amount, weight=weight)
-ms.ratio(name="ratio_amount", numerator=revenue, denominator=count)
+finalized = ms.finalize()
+a = finalized.resolve(amount)
+w = finalized.resolve(weight)
+u = finalized.resolve(unit)
+t = finalized.resolve(order_day)
+@ms.metric()
+def revenue():
+    return a.sum(time=t)
+@ms.metric()
+def count():
+    return u.sum(time=t)
+@ms.metric()
+def mean_amount():
+    return a.mean(time=t)
+@ms.metric()
+def weighted_amount():
+    return a.weighted_mean(weight=w, time=t)
+@ms.metric()
+def ratio_amount():
+    return a.sum(time=t) / u.sum(time=t)
 ''')
 
 
@@ -165,211 +183,200 @@ def remove(engine: str, project: Path, prefix: str) -> None:
             execute(f"DROP TABLE IF EXISTS {prefix}{table}")
 
 
-def observed_rows(
-    session: mv.Session, name: str
-) -> mv.LogicalNumericRelation | mv.LogicalRatioRelation:
-    return session.members(ms.ref.entity("sales.customers")).observe(
-        ms.ref.metric("sales." + name), via=ms.ref.relationship("sales.customer")
+# These are retained business oracles, not claimed remote Query execution evidence.
+UNQUALIFIED_NUMERIC: dict[str, Json] = {
+    "member_values": {
+        "revenue": [30, 70],
+        "mean_amount": [15, 35],
+        "weighted_amount": [17.5, 30],
+        "ratio_amount": [15, 35],
+    },
+    "original_rollups": {"mean_amount": 25, "weighted_amount": "130/6", "ratio_amount": 25},
+    "pandas_naive_forecast": [40, 40],
+    "classification_failure": "mapping_total",
+    "qualification": "remote numerical Query and Artifact cold production are not admitted",
+}
+
+
+def observed_rows(session: mv.Session, name: str) -> mv.Query:
+    members = session.members(ms.ref.entity("sales.customers"))
+    return session.observe(
+        {"value": session.catalog.metrics.get("sales." + name)}, by=members, members=members
     )
+
+
+def _integer(value: object) -> int:
+    assert isinstance(value, (int, Decimal))
+    return int(value)
+
+
+def _artifact_count(session: mv.Session) -> int:
+    with session._runtime.store._read() as connection:
+        value = connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0]
+    assert isinstance(value, int)
+    return value
+
+
+def _raw(project: Path) -> tuple[tuple[dict[str, object], ...], tuple[dict[str, object], ...]]:
+    """Read the original facts and independent SQL totals through the datasource API."""
+    prefix = (project / "prefix").read_text()
+    rows = md.raw_sql(
+        ms.ref.datasource("warehouse"),
+        f"SELECT id, customer_id, amount, weight, unit, channel, day FROM {prefix}orders ORDER BY id",
+        reason="verify installed datasource fixture facts",
+    )
+    assert [
+        (
+            _integer(row["id"]),
+            str(row["customer_id"]),
+            _integer(row["amount"]),
+            _integer(row["weight"]),
+            _integer(row["unit"]),
+            str(row["channel"]),
+            str(row["day"])[:10],
+        )
+        for row in rows.rows
+    ] == [
+        (1, "1", 10, 1, 1, "a", "2026-02-01"),
+        (2, "1", 20, 3, 1, "a", "2026-02-02"),
+        (3, "2", 30, 2, 1, "b", "2026-02-03"),
+        (4, "2", 40, 0, 1, "b", "2026-02-04"),
+    ]
+    customers = md.raw_sql(
+        ms.ref.datasource("warehouse"),
+        f"SELECT id, region FROM {prefix}customers ORDER BY id",
+        reason="verify installed datasource identity mapping facts",
+    )
+    assert [(str(row["id"]), str(row["region"])) for row in customers.rows] == [
+        ("1", "EU"),
+        ("2", "US"),
+    ]
+    totals = md.raw_sql(
+        ms.ref.datasource("warehouse"),
+        f"SELECT customer_id, SUM(amount) AS amount FROM {prefix}orders GROUP BY customer_id ORDER BY customer_id",
+        reason="verify installed datasource native SQL totals",
+    )
+    assert [(str(row["customer_id"]), _integer(row["amount"])) for row in totals.rows] == [
+        ("1", 30),
+        ("2", 70),
+    ]
+    return rows.rows, totals.rows
 
 
 def produce(project: Path) -> dict[str, object]:
+    """Preserve datasource positives and prove unsupported Query refusal before business I/O."""
     ms.load()
+    rows, totals = _raw(project)
     session = mv.session.get_or_create("installed", report_timezone="UTC")
-    logical = observed_rows(session, "revenue")
-    assert session.runs().items == ()
+    assert session.runs().items == () and _artifact_count(session) == 0
     receipts: list[dict[str, object]] = []
-    artifacts: dict[str, str] = {}
-    for name, expected in (
-        ("revenue", [30.0, 70.0]),
-        ("mean_amount", [15.0, 35.0]),
-        ("weighted_amount", [17.5, 30.0]),
-        ("ratio_amount", [15.0, 35.0]),
-    ):
-        result = observed_rows(session, name).execute()
-        values = result.to_pandas().sort_values("member")["value"].tolist()
-        assert values == pytest.approx(expected)
-        artifacts[name] = result.state.artifact_ref.ref
-        receipts.append(
-            {
-                "method": name,
-                "expected": expected,
-                "actual": values,
-            }
-        )
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-02-01", end="2026-02-05"),
-        grain=mv.grain("day"),
-        timezone="UTC",
-    )
-    history = (
-        session.members(ms.ref.entity("sales.orders"))
-        .observe(
-            ms.ref.metric("sales.revenue"),
-            during=grid,
-        )
-        .group_by(grid)
-        .rollup()
-    )
-    forecast = (
-        history.execute().forecast(horizon=mv.periods(2), model=mv.naive()).execute().to_pandas()
-    )
-    assert forecast["value"].tolist() == [40.0, 40.0]
-    receipts.append(
-        {
-            "method": "native-date-fixed-forecast",
-            "expected": [40.0, 40.0],
-        }
-    )
-    saved = {"session": session.id, "artifacts": artifacts}
-    (project / "saved.json").write_text(json.dumps(saved))
-    return {**saved, "receipts": receipts}
+    with pytest.MonkeyPatch.context() as patch:
+
+        def forbidden(*args: object, **kwargs: object) -> None:
+            raise AssertionError("unqualified remote Query submitted a business source read")
+
+        patch.setattr(SourceSession, "execute", forbidden)
+        for name in ("revenue", "mean_amount", "weighted_amount", "ratio_amount"):
+            query = observed_rows(session, name)
+            with pytest.raises(AnalysisStageUnavailableError) as caught:
+                query.execute()
+            assert "duckdb" in str(caught.value).lower()
+            receipts.append(
+                {
+                    "method": name,
+                    "error_type": type(caught.value).__name__,
+                    "error": str(caught.value),
+                    "new_runs": 0,
+                    "new_artifacts": 0,
+                }
+            )
+    assert session.runs().items == () and _artifact_count(session) == 0
+    return {
+        "session": session.id,
+        "datasource_facts": [{**row, "day": str(row["day"])[:10]} for row in rows],
+        "datasource_totals": [
+            {"customer_id": str(row["customer_id"]), "amount": _integer(row["amount"])}
+            for row in totals
+        ],
+        "query_status": "unqualified",
+        "remote_artifact_cold_status": "unqualified",
+        "receipts": receipts,
+        "retained_unqualified_oracles": UNQUALIFIED_NUMERIC,
+    }
 
 
 def native_audit(engine: str, project: Path) -> dict[str, object]:
-    """Compare one installed scalar journey with native driver submissions."""
-    observed: list[str] = []
+    """Match the datasource's native SQL with the real MySQL driver submission."""
+    if engine != "mysql":
+        raise ValueError(engine)
     ms.load()
+    prefix = (project / "prefix").read_text()
+    statement = f"SELECT customer_id, SUM(amount) AS amount FROM {prefix}orders GROUP BY customer_id ORDER BY customer_id"
+    observed: list[str] = []
     with pytest.MonkeyPatch.context() as patch:
-        trace = capture_source(patch)
-        if engine == "mysql":
-            ss_cursor_type = importlib.import_module("MySQLdb.cursors").SSCursor
-            original_execute = ss_cursor_type.execute
+        cursors = importlib.import_module("MySQLdb.cursors")
+        # Ibis versions may choose either buffered or streaming cursors for raw SQL.
+        for cursor_type in (cursors.Cursor, cursors.SSCursor):
+            original = cursor_type.execute
 
-            def execute(cursor: object, query: str | bytes, args: object = None) -> int:
+            def execute(
+                cursor: object,
+                query: str | bytes,
+                args: object = None,
+                *,
+                original: Callable[..., object] = original,
+            ) -> object:
                 observed.append(query.decode() if isinstance(query, bytes) else query)
-                count = original_execute(cursor, query, args)
-                assert isinstance(count, int)
-                return count
+                return original(cursor, query, args)
 
-            patch.setattr(ss_cursor_type, "execute", execute)
-        else:
-            raise ValueError(engine)
-        session = mv.session.get_or_create("native-audit", report_timezone="UTC")
-        result = observed_rows(session, "revenue").execute().to_pandas().sort_values("member")
-        assert result["value"].tolist() == [30.0, 70.0]
-        submitted = [item for owner in trace.owners for item in owner.submissions]
-    assert sum(item.purpose == "analysis.graph.stage" for item in submitted) == 1
-    assert all(owner._closed for owner in trace.owners)
-    assert all(item.state == "succeeded" and item.connection_disconnected for item in submitted)
-    expected = Counter(item.sql for item in submitted)
-    actual = Counter(observed)
-    missing = {sql: count - actual[sql] for sql, count in expected.items() if actual[sql] < count}
-    assert not missing, {"unmatched_purposes": [item.purpose for item in submitted]}
+            patch.setattr(cursor_type, "execute", execute)
+        result = md.raw_sql(
+            ms.ref.datasource("warehouse"),
+            statement,
+            reason="audit installed native datasource submissions",
+        )
+    assert [(str(row["customer_id"]), _integer(row["amount"])) for row in result.rows] == [
+        ("1", 30),
+        ("2", 70),
+    ]
+    assert observed.count(statement) == 1
     return {
-        "boundary": "MySQLdb SSCursor.execute",
-        "matched": [
-            {
-                "purpose": item.purpose,
-                "state": item.state,
-                "sql_sha256": hashlib.sha256(item.sql.encode()).hexdigest(),
-            }
-            for item in submitted
-        ],
+        "boundary": "MySQLdb Cursor/SSCursor.execute",
+        "purpose": "datasource.raw_sql",
         "native_statement_count": len(observed),
-        "source_statement_count": len(submitted),
+        "matched_business_statements": 1,
+        "sql_sha256": hashlib.sha256(statement.encode()).hexdigest(),
     }
 
 
-def failure(kind: str) -> dict[str, object]:
-    from ibis.common.exceptions import TableNotFound
-
-    from marivo.analysis.materialization.errors import MaterializationError
-
-    session = mv.session.get_or_create("failure-" + kind, report_timezone="UTC")
-    with sqlite3.connect(session._runtime.store.db_path) as connection:
-        before = connection.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0]
-    logical: mv.LogicalNumericRelation | mv.LogicalRatioRelation | mv.LogicalCategoryRelation
-    # Missing-table metadata lookup can fail before the typed analysis boundary.
-    with pytest.raises(Exception if kind == "offline" else AnalysisError) as caught:
-        if kind == "invalid":
-            missing_match = session.members(ms.ref.entity("sales.orders")).read(
-                ms.ref.dimension("sales.customers.region"),
-                via=ms.ref.relationship("sales.customer"),
-            )
-            assert isinstance(missing_match, mv.LogicalCategoryRelation)
-            logical = missing_match
-        else:
-            logical = observed_rows(session, "mean_amount")
-        logical.execute()
-    if kind == "offline":
-        # Drivers can reject missing metadata before materialization begins.
-        message = str(caught.value).lower()
-        missing_table = isinstance(
-            caught.value, (KeyError, TableNotFound)
-        ) and caught.value.args in (
-            (Path("prefix").read_text() + "orders",),
-            (Path("prefix").read_text() + "customers",),
+def failure(project: Path) -> dict[str, object]:
+    """The datasource still reports a missing physical table after fixture removal."""
+    ms.load()
+    prefix = (project / "prefix").read_text()
+    with pytest.raises(Exception) as caught:
+        md.raw_sql(
+            ms.ref.datasource("warehouse"),
+            f"SELECT amount FROM {prefix}orders",
+            reason="verify removed source table failure",
         )
-        assert missing_table or any(
-            token in message
-            for token in (
-                "non-scalar result",
-                "does not exist",
-                "doesn't exist",
-                "not found",
-                "unknown table",
-                "no such table",
-                "no columns were found for the requested relation",
-                "missing_column",
-                "no information_schema.tables row",
-            )
-        ), message
-    if kind == "invalid":
-        assert isinstance(caught.value, MaterializationError)
-        assert "mapping_total" in str(caught.value)
-    with sqlite3.connect(session._runtime.store.db_path) as connection:
-        assert connection.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == before
+    message = str(caught.value).lower()
+    assert any(
+        token in message
+        for token in (
+            "does not exist",
+            "doesn't exist",
+            "not found",
+            "unknown table",
+            "no such table",
+            "unknown_table",
+            "unknown identifier",
+        )
+    ), message
     return {
-        "failure": kind,
+        "boundary": "datasource.raw_sql",
+        "failure": "missing physical table",
         "error_type": type(caught.value).__name__,
         "error": str(caught.value),
-        "new_artifacts": 0,
-    }
-
-
-def cold_retained(project: Path, phase: str) -> dict[str, object]:
-    saved = json.loads((project / "saved.json").read_text())
-    session = mv.session.resume(saved["session"], by="id")
-    results = {}
-    receipts: list[dict[str, object]] = []
-    for name, expected in (
-        ("mean_amount", 25.0),
-        ("weighted_amount", 130 / 6),
-        ("ratio_amount", 25.0),
-    ):
-        result = session.artifact(saved["artifacts"][name])
-        assert isinstance(
-            result,
-            (
-                mv.MaterializedNumericRelation,
-                mv.MaterializedRatioRelation,
-                mv.MaterializedRolledNumericRelation,
-                mv.MaterializedRolledRatioRelation,
-            ),
-        )
-        before = len(session.runs().items)
-        continuation = result.rollup()
-        rolled = continuation.execute()
-        assert continuation.execute().state.artifact_ref == rolled.state.artifact_ref
-        new_runs = 1 if phase == "fixed" else 0
-        assert len(session.runs().items) == before + new_runs
-        values = rolled.to_pandas()["value"].tolist()
-        assert values == pytest.approx([expected])
-        results[name] = values
-        receipts.append(
-            {
-                "method": name,
-                "new_runs": new_runs,
-                "cache_reused": True,
-            }
-        )
-    return {
-        "session": session.id,
-        "source_tables_removed": True,
-        "source_connection_forbidden": True,
-        "rollups": results,
-        "receipts": receipts,
     }
 
 
@@ -406,7 +413,8 @@ def privileges(engine: str, project: Path) -> dict[str, object]:
 
         with mysql.connection() as connection_mysql, connection_mysql.cursor() as cursor:
             cursor.execute("SELECT CURRENT_USER()")
-            assert str(cursor.fetchone()[0]).startswith("analysis_reader@")
+            row = cursor.fetchone()
+            assert row is not None and str(row[0]).startswith("analysis_reader@")
             error = denied(cursor.execute)
     elif engine == "trino":
         from tests.datasource.environment import trino_analysis as trino
@@ -434,3 +442,47 @@ def privileges(engine: str, project: Path) -> dict[str, object]:
     else:
         raise ValueError(engine)
     return {"account": "analysis_reader", "insert_denied": error}
+
+
+def run(phase: str, engine: str, project: Path) -> dict[str, object]:
+    """Run only currently owned source and qualification phases; never synthesize cold Artifacts."""
+    assert engine in ("postgres", "mysql", "trino", "clickhouse")
+    assert phase in ("prepare", "privileges", "produce", "native", "remove", "offline")
+    project = project.resolve()
+    project.mkdir(parents=True, exist_ok=True)
+    os.environ["MARIVO_PROJECT_ROOT"] = str(project)
+    os.environ["MARIVO_WHEEL_READER"] = "analysis_reader"
+    if engine != "trino" and "MARIVO_WHEEL_PASSWORD" not in os.environ:
+        from tests.datasource.environment.credentials import password
+
+        os.environ["MARIVO_WHEEL_PASSWORD"] = password()
+    os.chdir(project)
+    prefix_path = project / "prefix"
+    if phase == "prepare":
+        prefix = "wheel_" + uuid.uuid4().hex[:12] + "_"
+        prefix_path.write_text(prefix)
+        prepare(engine, project, prefix)
+        configure(engine, project, prefix)
+        result: dict[str, object] = {"prefix": prefix}
+    elif phase == "privileges":
+        result = privileges(engine, project)
+    elif phase == "produce":
+        result = produce(project)
+    elif phase == "native":
+        result = native_audit(engine, project)
+    elif phase == "remove":
+        remove(engine, project, prefix_path.read_text())
+        result = {"source_tables_removed": True}
+    else:
+        result = failure(project)
+    return {"pid": os.getpid(), "phase": phase, "engine": engine, "result": result}
+
+
+if __name__ == "__main__":
+    from tests.packaging.wheel_probe import assert_installed_origin
+
+    assert_installed_origin()
+    phase, engine, project_path, destination = sys.argv[1:]
+    report = run(phase, engine, Path(project_path))
+    report["origin"] = assert_installed_origin()
+    Path(destination).write_bytes(encode(checked(report)))

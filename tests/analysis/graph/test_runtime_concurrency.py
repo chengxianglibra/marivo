@@ -74,7 +74,7 @@ def test_busy_contender_preserves_real_producer(
         return execute(source, read)
 
     monkeypatch.setattr(SourceSession, "execute", capture)
-    committed = case.session.members(ms.ref.entity("sales.customer")).execute()
+    committed = case.session.query(case.session.members(ms.ref.entity("sales.customer"))).execute()
     logical = observation(case.session, "sales.revenue")
     metric = "sales.revenue" if key == "same" else "sales.order_count"
     contender = observation(case.session, metric)
@@ -87,7 +87,7 @@ def test_busy_contender_preserves_real_producer(
         assert run is not None
         read_count = len(reads)
         assert read_count > initial_reads
-        assert any("original_state__sum" in read.schema.names for read in reads[initial_reads:])
+        assert any("SUM(" in read.sql.upper() for read in reads[initial_reads:])
         if mode == "process":
             child = subprocess.run(
                 [
@@ -102,7 +102,7 @@ def test_busy_contender_preserves_real_producer(
                     "--metric",
                     metric,
                     "--artifact",
-                    committed._run().state.artifact_ref.ref,
+                    committed.id,
                 ],
                 capture_output=True,
                 text=True,
@@ -126,11 +126,11 @@ def test_busy_contender_preserves_real_producer(
         assert snapshot(runtime) == before
         assert len(reads) == read_count
         assert asdict(runtime.statistics) == stats and runtime.last_run_ref == run
-        assert case.session.artifact(committed.state.artifact_ref.ref).to_pandas().shape[0] == 3
+        assert case.session.artifact(committed.id).to_pandas().shape[0] == 3
         evidence.update({"before": before, "producer_statistics": stats, "run": run})
 
     def pause(point: str) -> None:
-        if point == "graph_primary_written":
+        if point == "terminal_primary_written":
             if mode == "reentrant":
                 check_contender()
             else:
@@ -152,32 +152,31 @@ def test_busy_contender_preserves_real_producer(
     runtime._hook = None
     completed = snapshot(runtime)
     assert completed["analysis_action_runs"] == completed["analysis_action_run_terminals"] == 2
-    assert completed["dataset_artifacts"] == completed["dataset_evidence"] == 2
+    assert completed["dataset_artifacts"] == 2
+    assert completed["dataset_evidence"] == 2
+    assert (
+        committed.evidence_digest().evidence_count > 0
+        and produced.evidence_digest().evidence_count > 0
+    )
     assert completed["action_resource_journal"] == 0
     produced_reads = len(reads) - initial_reads
     retry = logical.execute()
-    assert retry._run().state.artifact_ref != produced._run().state.artifact_ref
-    assert retry.to_pandas()["value"].sum() == 147
+    assert retry.id != produced.id
+    assert retry.to_pandas()[("value", "value")].sum() == 147
     assert len(reads) == initial_reads + 2 * produced_reads
-    fixed = produced.rollup()
-    first_fixed = fixed.execute()
-    assert first_fixed.to_pandas()["value"].tolist() == [147]
-    fixed_snapshot = snapshot(runtime)
+    rolled = logical.rollup().execute()
+    assert rolled.to_pandas()[("value", "value")].tolist() == [147]
     read_count = len(reads)
-    fixed_retry = fixed.execute()
-    assert len(reads) == read_count
-    assert fixed_retry._run().state.artifact_ref == first_fixed._run().state.artifact_ref
-    assert snapshot(runtime) == fixed_snapshot
-    assert runtime.statistics.primary_queries == runtime.statistics.transferred_rows == 0
-    assert runtime.statistics.events.get("local_execution_started", 0) == 0
-    different_fixed = produced.where(produced.value.gt(10)).rollup().execute()
-    assert different_fixed.state.artifact_ref != first_fixed.state.artifact_ref
-    assert different_fixed.to_pandas()["value"].tolist() == [140]
-    assert len(reads) == read_count
+    before_offline = snapshot(runtime)
+    # Terminal outputs hand data to pandas and never resume the execution graph.
+    exported = case.session.artifact(produced.id).to_pandas()
+    assert exported[("value", "value")].sum() == 147
+    assert exported[("value", "value")].loc[exported[("value", "value")] > 10].sum() == 140
+    assert len(reads) == read_count and snapshot(runtime) == before_offline
     evidence.update(
         {
             "session": runtime.session_ref,
-            "artifact": produced._run().state.artifact_ref.ref,
+            "artifact": produced.id,
             "completed": completed,
             "retry_statistics": asdict(runtime.statistics),
         }
@@ -185,13 +184,13 @@ def test_busy_contender_preserves_real_producer(
     if key == "different":
         before_contender = snapshot(runtime)
         retried_contender = contender.execute()
-        assert retried_contender._run().state.artifact_ref != produced._run().state.artifact_ref
+        assert retried_contender.id != produced.id
         assert (
             snapshot(runtime)["analysis_action_runs"]
             == before_contender["analysis_action_runs"] + 1
         )
-        assert retried_contender.to_pandas()["value"].sum() == 4
-        evidence["contender_retry_artifact"] = retried_contender._run().state.artifact_ref.ref
+        assert retried_contender.to_pandas()[("value", "value")].sum() == 4
+        evidence["contender_retry_artifact"] = retried_contender.id
         evidence["contender_retry_run"] = runtime.last_run_ref
     _evidence(f"contention-{key}-{mode}", evidence)
 
@@ -370,7 +369,7 @@ def test_activation_is_guarded_and_existing_handle_owner_is_stable(
     current = first.store.current()
     assert current is not None and current.session_ref in (first.session_ref, second.session_ref)
     result = logical.execute()
-    assert result._run().runtime.session_ref == first.session_ref
+    assert result.session_id == first.session_ref
     assert first.store.current() == current
 
 
@@ -442,11 +441,10 @@ def test_different_sessions_overlap_inside_real_duckdb_queries(
         finally:
             release.set()
         results = [future.result(timeout=30) for future in futures]
-    assert {value._run().runtime.session_ref for value in results} == {
-        runtime.session_ref for runtime in runtimes
-    }
-    assert all(result.to_pandas()["value"].sum() == 147.0 for result in results)
+    assert {value.session_id for value in results} == {runtime.session_ref for runtime in runtimes}
+    assert all(result.to_pandas()[("value", "value")].sum() == 147.0 for result in results)
     assert all(snapshot(runtime)["analysis_action_run_terminals"] == 2 for runtime in runtimes)
+    assert all(len(session.runs().items) == 1 for session in sessions)
     _evidence(
         "backend-overlap",
         {

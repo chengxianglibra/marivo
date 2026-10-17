@@ -8,7 +8,7 @@ import pytest
 from ibis.backends.duckdb import Backend
 
 import marivo.analysis as mv
-import marivo.semantic as ms
+from marivo.analysis.core.data_types import DecimalDataType, ScalarDataType
 
 
 def _bootstrap_project(tmp_path: Path) -> None:
@@ -39,17 +39,35 @@ def _bootstrap_project(tmp_path: Path) -> None:
         "name='amount', entity=orders, column='amount', additivity=ms.additive_all(), unit='USD')\n"
         "user_id = ms.measure_column("
         "name='user_id', entity=orders, column='user_id', additivity=ms.non_additive())\n"
-        "gmv = ms.aggregate(name='gmv', measure=amount, agg='sum')\n"
-        "cum_gmv = ms.cumulative(name='cum_gmv', base=gmv, over=order_date)\n"
-        "mtd_gmv = ms.cumulative(name='mtd_gmv', base=gmv, over=order_date, "
-        "anchor=ms.grain_to_date(grain=mv.grain('month')))\n"
-        "trailing_2d_gmv = ms.cumulative(name='trailing_2d_gmv', base=gmv, "
-        "over=order_date, anchor=ms.trailing(count=2, unit='day'))\n"
         "decimal_user_id = ms.measure_column(name='decimal_user_id', entity=orders, column='decimal_user_id', additivity=ms.non_additive())\n"
         "decimal_amount = ms.measure_column(name='decimal_amount', entity=orders, column='decimal_amount', additivity=ms.additive_all(), unit='USD')\n"
-        "weighted_user = ms.weighted_mean(name='weighted_user', value=decimal_user_id, weight=decimal_amount)\n"
-        "cum_weighted_user = ms.cumulative("
-        "name='cum_weighted_user', base=weighted_user, over=order_date)\n",
+        "finalized = ms.finalize()\n"
+        "amount_value = finalized.resolve(amount)\n"
+        "user_value = finalized.resolve(decimal_user_id)\n"
+        "weight_value = finalized.resolve(decimal_amount)\n"
+        "time_value = finalized.resolve(order_date)\n"
+        "history = mv.all_history()\n"
+        "month_rule = mv.to_date(grain=mv.grain('month'))\n"
+        "from datetime import timedelta\n"
+        "trailing_rule = mv.trailing_duration(duration=timedelta(days=2))\n"
+        "@ms.metric()\n"
+        "def gmv():\n"
+        "    return amount_value.sum(time=time_value)\n"
+        "@ms.metric()\n"
+        "def cum_gmv():\n"
+        "    return gmv.window(history)\n"
+        "@ms.metric()\n"
+        "def mtd_gmv():\n"
+        "    return gmv.window(month_rule)\n"
+        "@ms.metric()\n"
+        "def trailing_2d_gmv():\n"
+        "    return gmv.window(trailing_rule)\n"
+        "@ms.metric()\n"
+        "def weighted_user():\n"
+        "    return user_value.weighted_mean(weight=weight_value, time=time_value)\n"
+        "@ms.metric()\n"
+        "def cum_weighted_user():\n"
+        "    return weighted_user.window(history)\n",
         encoding="utf-8",
     )
 
@@ -86,32 +104,23 @@ def _session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.Session:
     return mv.session.get_or_create("cum_decimal", report_timezone="UTC")
 
 
-def _by_day(frame: mv.MaterializedGroupedNumericRelation) -> dict[str, Decimal | float | int]:
+def _by_day(frame: mv.Artifact) -> dict[str, Decimal | float | int]:
     rows = frame.to_pandas()
-    value_type = next(
-        column.logical_type_id
-        for column in frame.state.realized_schema.columns
-        if column.name == "value"
-    )
-    if value_type.startswith("decimal:"):
-        assert all(isinstance(value, Decimal) for value in rows["value"])
-    return {str(day)[:10]: value for day, value in zip(rows["group"], rows["value"], strict=True)}
+    if isinstance(frame._manifest.data.schema.values[0].dtype, DecimalDataType):
+        assert all(isinstance(value, Decimal) for value in rows[("value", "value")])
+    return {
+        str(day)[:10]: value
+        for day, value in zip(rows.iloc[:, 0], rows[("value", "value")], strict=True)
+    }
 
 
 def _observe(
     session: mv.Session, metric: str, start: str = "2026-07-01", end: str = "2026-07-04"
-) -> mv.MaterializedGroupedNumericRelation:
-    grid = mv.time_grid(during=mv.time_scope(start=start, end=end), grain=mv.grain("day"))
-    result = (
-        session.members(ms.ref.entity("sales.orders"))
-        .observe(ms.ref.metric(metric), at=grid.end, by=(mv.member(),))
-        .group_by(grid)
-        .rollup()
-        .execute()
-    )
-
-    assert isinstance(result, mv.MaterializedGroupedNumericRelation)
-    return result
+) -> mv.Artifact:
+    return session.observe(
+        {"value": session.catalog.metrics.get(metric)},
+        during=session.time_scope(start=start, end=end).by(mv.grain("day")),
+    ).execute()
 
 
 def test_decimal_all_history_cumulative_succeeds(
@@ -126,14 +135,7 @@ def test_decimal_all_history_cumulative_succeeds(
         "2026-07-02": pytest.approx(37.0),
         "2026-07-03": pytest.approx(62.0),
     }
-    assert (
-        next(
-            column.logical_type_id
-            for column in frame.state.realized_schema.columns
-            if column.name == "value"
-        )
-        == "decimal:38:2"
-    )
+    assert frame._manifest.data.schema.values[0].dtype == DecimalDataType(38, 2)
 
 
 def test_decimal_grain_to_date_cumulative_boundaries(
@@ -148,14 +150,7 @@ def test_decimal_grain_to_date_cumulative_boundaries(
         "2026-07-02": pytest.approx(27.0),
         "2026-07-03": pytest.approx(52.0),
     }
-    assert (
-        next(
-            column.logical_type_id
-            for column in frame.state.realized_schema.columns
-            if column.name == "value"
-        )
-        == "decimal:38:2"
-    )
+    assert frame._manifest.data.schema.values[0].dtype == DecimalDataType(38, 2)
 
     partial_frame = _observe(session, "sales.mtd_gmv", "2026-07-02", "2026-07-04")
     partial_by_day = _by_day(partial_frame)
@@ -179,14 +174,7 @@ def test_decimal_trailing_cumulative_succeeds(
         "2026-07-02": pytest.approx(27.0),
         "2026-07-03": pytest.approx(42.0),
     }
-    assert (
-        next(
-            column.logical_type_id
-            for column in frame.state.realized_schema.columns
-            if column.name == "value"
-        )
-        == "decimal:38:2"
-    )
+    assert frame._manifest.data.schema.values[0].dtype == DecimalDataType(38, 2)
 
 
 def test_decimal_weighted_mean_cumulative_succeeds(
@@ -199,11 +187,4 @@ def test_decimal_weighted_mean_cumulative_succeeds(
     # is 4 + 6 = 10 and June numerator is 100*4 + 100*6 = 1000.
     assert by_day["2026-07-01"] == Decimal("100.500000")
     assert by_day["2026-07-02"] == pytest.approx(3739 / 37)
-    assert (
-        next(
-            column.logical_type_id
-            for column in frame.state.realized_schema.columns
-            if column.name == "value"
-        )
-        == "float64"
-    )
+    assert frame._manifest.data.schema.values[0].dtype == ScalarDataType("float64")

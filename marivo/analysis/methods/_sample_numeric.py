@@ -140,14 +140,15 @@ def reduce_samples(
                     else:
                         ordered_values = sorted(present)
                         q = node.q if node.q is not None else 0.5
-                        position = (len(ordered_values) - 1) * q
+                        position = (len(ordered_values) - 1) * Fraction(str(q))
                         low, high = math.floor(position), math.ceil(position)
                         fraction = (
-                            Decimal(str(position - low))
+                            Decimal((position - low).numerator)
+                            / Decimal((position - low).denominator)
                             if isinstance(ordered_values[low], Decimal)
-                            else Fraction(str(position - low))
-                            if exact_duration
                             else position - low
+                            if exact_duration
+                            else float(position - low)
                         )
                         result = (
                             ordered_values[low]
@@ -166,7 +167,7 @@ def reduce_samples(
                     finished = Decimal(str(result)).quantize(
                         Decimal(1).scaleb(-output_type.scale), rounding=ROUND_HALF_EVEN
                     )
-                record["sample.numeric"] = abs(finished) >= Decimal(10) ** (
+                record["sample.numeric"] = finished.copy_abs() >= Decimal(1).scaleb(
                     output_type.precision - output_type.scale
                 )
                 result = finished

@@ -1,61 +1,73 @@
 # Analysis Evidence Access
 
-Status: current Store 9 evidence read contract, 2026-10-09.
+Status: current Store 10 output-record contract, 2026-10-17.
+Evidence and Findings describe an exact committed Artifact. Runtime commits them
+with its output manifest and successful Run. They are output facts, not an
+executable derivation graph or a business narrative.
 
-Evidence records deterministic facts about a committed Dataset. It does not
-choose the next analysis step or make causal or business judgments. The owning
-Runtime publishes Artifact, Evidence and Findings in the same transaction.
+## Read saved records
 
-## Artifact digest
-
-A Materialized Dataset exposes `evidence_digest`, `findings(limit=..., cursor=...)`
-and `finding(finding_id)`. A Logical Dataset has no evidence reads before execution.
+Query has no Evidence reads before execution. Artifact exposes
+`findings(limit=20, cursor=None)` and `evidence_digest()`:
 
 ```python
-artifact = current.compare(baseline).execute()
-artifact.show()
-digest = artifact.evidence_digest
+artifact = query.execute()
+artifact.show(n=20)
+digest = artifact.evidence_digest()
+print(digest.items)
 print(digest.finding_count)
 page = artifact.findings(limit=20)
-if page.items:
-    finding = artifact.finding(page.items[0].finding_id)
+for finding in page.items:
     finding.show()
 ```
 
-The current ArtifactDigest is version `v3` with Evidence schema
-`marivo.dataset_evidence/v1`. It retains exact Artifact identity, extractor
-contract versions, quality summary digest, typed issue digest, Evidence digest,
-Finding count and Finding-set digest. These are committed extraction facts, not
-a generated narrative or a second mutable evidence model.
+The Evidence digest takes no limit or cursor. `.items` contains every saved
+Evidence fact, while `.show()` is bounded and deterministic. Collection digests
+and Finding counts describe committed records. They do not encode a formula,
+semantic Ref, node fingerprint, proof dependency graph or hidden value state.
 
-Findings retain typed subject, coordinate, input/derivation and value facts.
-Projection checks the exact owning Artifact and registered extractor schema.
-A bounded FindingPage has immutable items, limit, has_more and next_cursor; its
-cursor is valid only for the owning read. Empty Findings mean an empty committed
-set, not an unreadable or unavailable Store.
+A FindingPage retains immutable items, limit, has_more and next_cursor. Its cursor
+belongs to that Artifact/read; invalid ownership fails. An empty committed set
+is distinct from unavailable or unreadable records. The Artifact has no separate
+finding(id) method; consume its typed paged items.
+
+## Actual observation facts
+
+Ordinary observe produces an empty Finding set. It still records actual source
+read summaries and actual completed checks. A read summary preserves its source,
+contribution role, requested scope and fact origin. Omitted during explicitly
+means no added time condition. Nested Boolean grouping is preserved as readable
+scope text, without storing an executable predicate or SQL program.
+
+A completed check states its kind/version, consumed scope and outcome. A failed
+required check prevents success publication; an unexecuted audit cannot appear
+as completed Evidence. Output coordinates and required numeric facts are
+self-contained. Internal sum/count components are not saved merely because they
+would be useful to an unspecified later question.
 
 ## Recovery and integrity
 
-Recover through `session.artifact(reference)` or a SucceededRun's
-`output_artifact_ref`. Session Run/graph reads report committed runtime history;
-Artifact lookup does not execute an origin recipe or resolve a current source.
+`session.artifact(artifact_id)` opens exact Session-owned committed metadata.
+It does not query current sources, load the Catalog, restore a Query or replay
+an origin. Saved record reads need no Parquet data; preview/export verify the
+parts they consume. New and reopened handles expose the same records and values.
 
-Committed local Evidence and Findings are trusted. Reads decode their typed
-records without re-extracting Findings or comparing content hashes. Recovery
-does not establish freshness, causality or suitability for the current question.
-Missing data, unreadable formats, incompatible Store generations and invalid
-cursor or Session ownership still fail through structured errors. Old-generation
-reads preserve existing bytes.
+Typed decoding and saved collection checks preserve record identity and format.
+Missing/unreadable records, incompatible Store generations and invalid Session
+or cursor ownership remain structured errors. Earlier formats are rejected
+without changing their bytes. Reconciliation resolves the original transaction,
+not an automatic replacement calculation.
 
-## Interpretation boundaries
+## Interpretation and disclosure
 
-- Observation values describe their retained scope and authority.
-- Delta and Attribution are algebraic, not causal.
-- Association is descriptive and may reflect selected/search inputs.
-- Forecast is a model result, not an observed outcome or calibrated guarantee.
-- Deviation scores and runs retain explicit fit/condition scope; they do not
-  certify business anomalies or recommendations.
+Observation values describe their requested scope and method. Arithmetic change,
+classification or descriptive statistics do not establish a cause. Source trust
+is not an executed completeness audit; calendar certification does not certify
+business capture, and a saved result does not certify freshness or suitability
+for the current question.
 
-Start at `marivo.help("analysis.evidence")` and follow its native focused routes.
-The packaged analysis skill owns investigation judgment; it does not duplicate
-these schema facts or introduce a parallel evidence store.
+Use `marivo.help("analysis.evidence")`, `marivo.help(fact)` or
+`marivo.help(coordinate)` for the owning static contract. Query/Population
+contracts describe legal work before execution; Artifact cards disclose actual
+saved output and read actions. The packaged analysis workflow owns investigation
+judgment and does not introduce another evidence store.

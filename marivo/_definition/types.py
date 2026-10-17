@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Final, Literal, NoReturn, TypeAlias
 
-from marivo._temporal import InstantAnchor
+from marivo._temporal import InstantAnchor, PeriodCalendarSnapshotV1
 from marivo.refs import Ref, SemanticKind, SemanticKindTag
 
 DefinitionErrorKind: TypeAlias = Literal[
@@ -55,7 +55,7 @@ ZeroDenominator: TypeAlias = Literal["null", "error"]
 NullPolicy: TypeAlias = Literal["ignore", "error"]
 
 FiniteNumber: TypeAlias = int | float | Decimal
-LiteralValue: TypeAlias = str | int | float | Decimal | bool | date | datetime | None
+LiteralValue: TypeAlias = str | int | float | Decimal | bool | date | datetime | timedelta | None
 # One literal coordinate: a field value (or None), or a complete primary-key tuple on an
 # identity axis.
 CoordinateValue: TypeAlias = LiteralValue | tuple[LiteralValue, ...]
@@ -77,7 +77,7 @@ def check_finite_number(value: FiniteNumber, *, role: str) -> FiniteNumber:
 
 def check_literal(value: LiteralValue, *, role: str) -> LiteralValue:
     """Return ``value`` when it is an immutable, encodable literal key or constant."""
-    if value is None or isinstance(value, (str, bool, date)):
+    if value is None or isinstance(value, (str, bool, date, timedelta)):
         return value
     if isinstance(value, (int, float, Decimal)):
         check_finite_number(value, role=role)
@@ -117,6 +117,11 @@ def literal_token(value: LiteralValue) -> tuple[str, str]:
         return ("datetime", value.isoformat())
     if isinstance(value, date):
         return ("date", value.isoformat())
+    if isinstance(value, timedelta):
+        return (
+            "duration",
+            str((value.days * 86400 + value.seconds) * 1_000_000 + value.microseconds),
+        )
     return ("str", value)
 
 
@@ -237,6 +242,7 @@ class CalendarCoordinate:
     timezone: str
     snapshot_digest: str | None
     cells: tuple[tuple[InstantAnchor, InstantAnchor, InstantAnchor, InstantAnchor], ...]
+    snapshot: PeriodCalendarSnapshotV1 | None = None
 
 
 @dataclass(frozen=True, slots=True)

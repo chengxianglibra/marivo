@@ -1,13 +1,13 @@
 ---
-title: Local Python declaration example
-description: Seed six orders and construct row and Metric expressions.
+title: A complete local Python analysis
+description: Create six orders, compare named Metrics and reopen terminal output.
 ---
 
-This page covers current R1.3 source and declaration construction. New Catalog Metric publication and analysis execution remain R1.4/R2 work; this is not an end-to-end execution, save or recovery tutorial.
+Use a fresh project directory with the development package and DuckDB extra installed. This complete local example creates its data, declares a Metric, executes a Query and reopens the committed Artifact. It is a local example, not a qualification of every backend or release.
 
-## Create the source and datasource
+## Create the source
 
-Save the following code as seed.py and models/datasources/warehouse.py respectively. Run .venv/bin/python seed.py in the selected environment to create the demo database.
+Save as `seed.py` and run `.venv/bin/python seed.py`. The six completed orders are the entire demo scope, in CNY, without refunds or currency conversion. July totals 1,000 and August 800; each region falls by 100.
 
 {/* example: demo-seed */}
 
@@ -40,14 +40,9 @@ with duckdb.connect("warehouse.duckdb") as connection:
     )
 ```
 
-The approved demo meaning is revenue from exactly these six completed orders,
-in CNY, without refund or currency conversion. July totals 1,000 and August 800.
-East changes from 300 to 200; west from 700 to 600. This synthetic definition is
-not a template for deciding production revenue meaning.
-
 ## Declare the datasource
 
-Save as `models/datasources/warehouse.py`. The database exists before the read-only connection is loaded.
+Save as `models/datasources/warehouse.py`.
 
 {/* example: demo-datasource */}
 
@@ -57,8 +52,9 @@ import marivo.datasource as md
 md.duckdb(name="warehouse", path="warehouse.duckdb", read_only=True)
 ```
 
+## Author the semantic model
 
-## Author source fields and a local Metric
+Save as `models/semantic/sales/_domain.py`. Constructors capture Refs; finalize the full scope before composing resolved fields. Model loading publishes the named Metric.
 
 {/* example: demo-model */}
 
@@ -66,7 +62,7 @@ md.duckdb(name="warehouse", path="warehouse.duckdb", read_only=True)
 import marivo.datasource as md
 import marivo.semantic as ms
 
-ms.domain(name="sales", owner="Mina Zhang")
+ms.domain(name="sales", owner="Mina Zhang", default=True)
 orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"),
                    source=md.table("orders"), primary_key=["order_id"])
 order_date = ms.time_dimension_column(name="order_date", entity=orders,
@@ -89,17 +85,35 @@ def revenue():
     return amount.sum(time=order_date)
 ```
 
-Save as models/semantic/sales/_domain.py. Model loading can validate the physical Entity/Field declarations; this slice does not publish local revenue into catalog.metrics.
+## Execute and reopen
 
-{/* example: demo-readiness */}
+Save as `analysis.py` and run it from the project root with `.venv/bin/python analysis.py`.
+
+{/* example: demo-analysis */}
 
 ```python
+import marivo.analysis as mv
 import marivo.semantic as ms
+
 catalog = ms.load(workspace_dir=".")
-amount_entry = catalog.require(ms.ref.measure("sales.orders.amount"))
-amount_entry.show()
-report = catalog.readiness(refs=[amount_entry])
-report.show()
+session = mv.session.get_or_create("demo-revenue", report_timezone="UTC")
+revenue = session.catalog.metrics.get("sales.revenue")
+amount = session.catalog.fields.get("sales.orders.amount")
+region = session.catalog.fields.get("sales.orders.region")
+july = session.time_scope(start="2026-07-01", end="2026-08-01")
+august = session.time_scope(start="2026-08-01", end="2026-09-01")
+baseline = session.observe({"revenue": revenue}, during=july, by=(region,))
+current = session.observe({"revenue": revenue}, during=august, by=(region,))
+change = current.compare(baseline)
+change.contract().show()
+artifact = change.execute()
+frame = artifact.to_pandas()
+assert frame[("value", "revenue.absolute")].tolist() == [-100, -100]
+assert frame[("presence", ("current",))].all()
+assert frame[("presence", ("baseline",))].all()
+artifact.show(n=20)
+reopened = session.artifact(artifact.id)
+assert reopened.to_pandas().equals(frame)
 ```
 
-This check does not compute revenue. The independent seed-data expectation is 1000 in July and 800 in August; those values are not Runtime acceptance for the new expression path. A local revenue declaration or leaf readiness is not an observable Catalog Metric. Execution requires the later publication and execution path and its live Help.
+`execute()` is a fresh evaluation. The Artifact is terminal: complete additional Query composition first; after export, use pandas for custom analysis. Reopening requires saved output, not a current source or model. The next guides reuse `session`, `revenue`, `amount`, `region`, `current` and `baseline` from this script.

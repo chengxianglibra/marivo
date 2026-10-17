@@ -21,9 +21,9 @@ def provider() -> DisclosureProvider:
         value_type(
             "Query",
             Query,
-            summary="Immutable named Metric definition; only Query owns computation.",
-            acquisition="Call session.observe(metrics) or session.query(population); no direct constructor.",
-            producers=("session.observe", "session.query"),
+            summary="Immutable lazy definition of complete coordinates and named values; only Query owns computation.",
+            acquisition="Call session.observe(metrics), session.query(population), session.read(population, fields) or session.values(...).",
+            producers=("session.observe", "session.query", "session.read", "session.values"),
             consumers=("Query.contract", "Query.execute", "Query.population"),
             constraints=(
                 "Ordinary context binds without reads; execute evaluates numeric stages and atomically publishes Store 10 terminal output. Committed output is opened and read without restoring computation.",
@@ -69,6 +69,16 @@ def provider() -> DisclosureProvider:
             "Display the exact frozen UTC instant.",
             "result = anchor.show()",
             ("anchor",),
+            "inputs.time",
+        ),
+        (
+            CalendarAxis,
+            "coarsen",
+            (ParameterInput("grain", "A builtin or certified Grain over this same frozen scope."),),
+            "CalendarAxis",
+            "Construct a candidate coarsening; each consumer checks complete whole-bucket mapping and Metric merge permission.",
+            "result = axis.coarsen(grain)",
+            ("axis", "grain"),
             "inputs.time",
         ),
         (
@@ -165,8 +175,18 @@ def provider() -> DisclosureProvider:
                 value,
                 summary=f"Immutable {value.__name__} temporal binding.",
                 acquisition=f"Call {producer}(...).",
-                producers=(producer,),
-                consumers=(consumer,),
+                producers=(producer, "CalendarAxis.coarsen")
+                if value is CalendarAxis
+                else (producer,),
+                consumers=(
+                    consumer,
+                    "CalendarAxis.coarsen",
+                    "Query.rollup",
+                    "Query.reduce",
+                    "Query.share",
+                )
+                if value is CalendarAxis
+                else (consumer,),
                 constraints=("Frozen metadata only; no source or schema reads.",),
             )
         )
@@ -199,14 +219,18 @@ def provider() -> DisclosureProvider:
     from marivo.analysis.dsl._population_disclosure import provider as population_provider
 
     populations = population_provider()
+    from marivo.analysis.dsl._result_disclosure import provider as result_provider
+
+    results = result_provider()
     return DisclosureProvider(
         "analysis.dsl",
-        (*descriptors, *populations.descriptors),
+        (*descriptors, *populations.descriptors, *results.descriptors),
         (
             ExportInput("Query", Query, "Query"),
             ExportInput("Artifact", Artifact, "Artifact"),
             ExportInput("InstantAnchor", InstantAnchor, "InstantAnchor"),
             ExportInput("CalendarAxis", CalendarAxis, "CalendarAxis"),
             *populations.exports,
+            *results.exports,
         ),
     )

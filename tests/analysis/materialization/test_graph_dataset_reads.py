@@ -1,203 +1,204 @@
-"""Single-call retained reads preserve projections and independent recovery."""
+"""One-call terminal receipt reads, bounded record paging and cold output reads."""
 
-import sqlite3
+from __future__ import annotations
+
+import os
 import subprocess
 import sys
 from collections import Counter
-from dataclasses import replace
-from pathlib import Path
 from typing import Literal
+from uuid import uuid4
 
 import pandas as pd
-import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.errors import FindingNotFoundError
-from marivo.analysis.evidence import _dataset_types as t
-from marivo.analysis.materialization import graph_dataset, graph_findings, graph_storage
-from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.contracts import LocalReceipt
-from marivo.analysis.materialization.errors import IntegrityError
-from marivo.analysis.materialization.graph_dataset import GraphDataset
-from marivo.analysis.materialization.graph_exchange import ExchangeResult
-from marivo.analysis.materialization.graph_protocol import Descriptor, ValidatedDescriptor
-from marivo.analysis.materialization.store import SessionStore
+from marivo.analysis.core.artifact_data import (
+    ArtifactData,
+    ArtifactManifest,
+    DataColumn,
+    DataSchema,
+    OutputEvidence,
+    OutputFinding,
+    ScalarDataType,
+)
+from marivo.analysis.errors import AnalysisError
+from marivo.analysis.evidence._dataset_types import AssociationFindingValueV1, NoAssociationLagV1
+from marivo.analysis.materialization import terminal_store
+from marivo.analysis.materialization.graph_reading import OutputRead, ReadLayout
+from marivo.analysis.materialization.resources import reserve_output
+from marivo.analysis.materialization.store import SessionStore, _new_run_ref
+from marivo.analysis.materialization.terminal_storage import write_output
 from tests.shared_fixtures import DslCase, DslCaseFactory
+from tests.support.paths import PROJECT_ROOT
 
-_Kind = Literal["association", "forecast", "runs", "deviation"]
+_Kind = Literal["numeric", "comparison", "calendar", "top"]
 
 
-def _capture(case: DslCase, kind: _Kind) -> tuple[GraphDataset, tuple[GraphDataset, ...]]:
-    if kind == "deviation":
-        orders = case.session.members(ms.ref.entity("sales.order"))
-        deviation = (
-            orders.read(ms.ref.measure("sales.order.amount")).deviation(method="zscore").execute()
+def _capture(case: DslCase, kind: _Kind) -> mv.Artifact:
+    session = case.session
+    members = session.members(ms.ref.entity("sales.customer"))
+    metric = session.catalog.metrics.get("sales.revenue")
+    scope = session.time_scope(start="2026-08-01", end="2026-09-01")
+    query = session.observe({"value": metric}, during=scope, by=members)
+    if kind == "comparison":
+        baseline = session.observe(
+            {"value": metric},
+            during=session.time_scope(start="2026-07-01", end="2026-08-01"),
+            by=members,
         )
-        assert deviation._dataset is not None
-        dataset = deviation._dataset
-        return dataset, (
-            replace(dataset, projection="observed"),
-            replace(dataset, projection="reference"),
-            replace(dataset, projection="deviation"),
-            replace(dataset, projection="score"),
+        query = query.compare(baseline)
+    elif kind == "calendar":
+        query = session.observe(
+            {"value": metric},
+            during=session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day")),
         )
-
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    via = ms.ref.relationship("sales." + case.names.buyer)
-    if kind == "association":
-        during = mv.time_scope(start="2026-08-01", end="2026-09-01")
-        revenue = members.observe(
-            ms.ref.metric("sales.revenue"),
-            during=during,
-            via=via,
-            by=(mv.member(),),
-        )
-        count = members.observe(
-            ms.ref.metric("sales.order_count"),
-            during=during,
-            via=via,
-            by=(mv.member(),),
-        )
-        association = revenue.correlate(count, method="pearson").execute()
-        assert association._dataset is not None
-        dataset = association._dataset
-        return dataset, (
-            replace(dataset, projection="coefficient"),
-            replace(dataset, projection="selected"),
-        )
-
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01", end="2026-08-04"), grain=mv.grain("day")
-    )
-    history = members.observe(
-        ms.ref.metric("sales.order_count"),
-        during=grid,
-        via=via,
-        by=(mv.member(),),
-    )
-    if kind == "forecast":
-        forecast = history.forecast(horizon=mv.periods(2), model=mv.naive()).execute()
-        assert forecast._dataset is not None
-        dataset = forecast._dataset
-        return dataset, (
-            replace(dataset, projection="prediction"),
-            replace(dataset, projection="lower"),
-            replace(dataset, projection="upper"),
-        )
-    runs = history.runs(where=history.value.gt(-1)).execute()
-    assert runs._dataset is not None
-    dataset = runs._dataset
-    return dataset, (
-        replace(dataset, projection="start"),
-        replace(dataset, projection="end"),
-        replace(dataset, projection="count"),
-        replace(dataset, projection="duration"),
-    )
+    elif kind == "top":
+        query = query.top(2, by=query["value"])
+    else:
+        query = query.select({"value": query["value"], "twice": query["value"] * 2})
+    return query.execute()
 
 
-@pytest.mark.parametrize("kind", ("association", "forecast", "runs", "deviation"))
+@pytest.mark.parametrize("kind", ("numeric", "comparison", "calendar", "top"))
 def test_projection_reads_each_receipt_once_per_call(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch, kind: _Kind
 ) -> None:
-    case = analysis_dsl_case_factory("j4" if kind == "association" else "j2")
-    dataset, projections = _capture(case, kind)
-    expected = tuple(projected.to_pandas() for projected in projections)
-    receipts = (
-        dataset.artifact.descriptor.primary_receipt.local,
-        *(part.local for part in dataset.artifact.descriptor.parts),
-    )
-    wanted = Counter(receipt.project_relative_path for receipt in receipts)
-    reads: list[Descriptor] = []
-    tables: list[str] = []
-    read_result = graph_storage.read_result
-    read_table = graph_storage._read_pandas_payload
+    case = analysis_dsl_case_factory("j2")
+    artifact = _capture(case, kind)
+    expected = artifact.to_pandas()
+    data = artifact._manifest.data
+    handles = (data.rows, *(part.rows for part in data.attachments if part.name != "display_order"))
+    wanted = Counter(handle.receipt.project_relative_path for handle in handles)
+    opened: list[str] = []
+    original = OutputRead._open
 
-    def counted_result(
-        root: Path, descriptor: Descriptor, *, _validated: ValidatedDescriptor | None = None
-    ) -> ExchangeResult:
-        reads.append(descriptor)
-        return read_result(root, descriptor, _validated=_validated)
+    def counted(reader: OutputRead, layout: ReadLayout) -> pq.ParquetFile:
+        opened.append(layout.handle.receipt.project_relative_path)
+        return original(reader, layout)
 
-    def counted_table(
-        root: Path, receipt: LocalReceipt, *, expected_schema: pa.Schema | None = None
-    ) -> tuple[pd.DataFrame, pa.Schema]:
-        tables.append(receipt.project_relative_path)
-        return read_table(root, receipt, expected_schema=expected_schema)
-
-    monkeypatch.setattr(graph_dataset, "read_result", counted_result)
-    monkeypatch.setattr(graph_storage, "_read_pandas_payload", counted_table)
+    monkeypatch.setattr(OutputRead, "_open", counted)
     before = case.session.runs().items
     case.database_path.rename(case.database_path.with_suffix(".offline"))
-    for projected, frame in zip(projections, expected, strict=True):
-        for _ in range(2):
-            reads.clear()
-            tables.clear()
-            pd.testing.assert_frame_equal(projected.to_pandas(), frame)
-            assert len(reads) == 1
-            assert Counter(tables) == wanted
+    for _ in range(2):
+        opened.clear()
+        frame = case.session.artifact(artifact.id).to_pandas()
+        pd.testing.assert_frame_equal(frame, expected)
+        assert Counter(opened) == wanted
+        count = len(opened)
+        # Post-export projection is pandas work and performs no second receipt read.
+        assert frame["value"].equals(expected["value"])
+        assert len(opened) == count
     assert case.session.runs().items == before
-
-    for receipt in (receipts[0], *receipts[1:2]):
-        path = case.root / receipt.project_relative_path / "data.parquet"
-        original = path.read_bytes()
+    for handle in handles:
+        path = (
+            case.root
+            / handle.receipt.project_relative_path
+            / handle.receipt.file_manifest[0].relative_path
+        )
+        original_bytes = path.read_bytes()
         try:
-            path.write_bytes(b"damaged retained projection")
-            with pytest.raises(IntegrityError):
-                projections[0].to_pandas()
+            path.write_bytes(b"damaged committed output projection")
+            with pytest.raises(AnalysisError):
+                artifact.to_pandas()
         finally:
-            path.write_bytes(original)
-    other = dataset.runtime.store.create_session("foreign-reader")
-    foreign = DatasetRuntime(dataset.runtime.store, other.session_ref)
-    with pytest.raises(IntegrityError, match="another Session"):
-        replace(projections[0], runtime=foreign).to_pandas()
-    assert case.session.runs().items == before
+            path.write_bytes(original_bytes)
+    foreign = mv.session.get_or_create("foreign-reader", report_timezone="UTC")
+    opened.clear()
+    with pytest.raises(AnalysisError):
+        foreign.artifact(artifact.id)
+    assert opened == [] and case.session.runs().items == before
+
+
+def _finding_output(session: mv.Session) -> mv.Artifact:
+    """Seed only the production terminal writer boundary targeted by paging tests."""
+    store = session._runtime.store
+    run = _new_run_ref()
+    terminal_store.admit(store, session.id, run)
+    nonce = uuid4().hex
+    artifact_id = "artifact_" + nonce
+    staging, final, resources = reserve_output(
+        store, run_ref=run, session_ref=session.id, artifact_ref=artifact_id, nonce=nonce
+    )
+    schema = DataSchema(
+        (), (DataColumn("value.0", "coefficient", ScalarDataType("float64"), True),)
+    )
+    primary = write_output(
+        store.project_root,
+        staging / "primary",
+        final / "primary",
+        schema,
+        pd.DataFrame({"value.0": [0.5]}),
+    )
+    final.parent.mkdir(parents=True, exist_ok=True)
+    os.rename(staging, final)
+    findings = tuple(
+        OutputFinding(
+            "finding_" + nonce + "_" + str(index),
+            AssociationFindingValueV1(
+                method="pearson",
+                coefficient=0.5,
+                input_observation_count=3,
+                null_pair_count=0,
+                complete_pair_count=3,
+                lag=NoAssociationLagV1(),
+            ),
+        )
+        for index in range(8)
+    )
+    evidence = (OutputEvidence("check", "Explicit reader fixture", (("result", "passed"),)),)
+    manifest = ArtifactManifest(artifact_id, session.id, run, ArtifactData(schema, primary))
+    terminal_store.publish(store, manifest, findings, evidence, resources, lambda point: None)
+    return session.artifact(artifact_id)
 
 
 def test_multiple_findings_read_once_and_keep_owned_paging(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    dataset, _ = _capture(case, "forecast")
-    collection = graph_findings.collection
+    artifact = _finding_output(case.session)
+    other = _finding_output(case.session)
     calls = 0
+    page_reader = terminal_store.records_page
 
-    def counted_collection(
+    def counted(
         store: SessionStore,
-        connection: sqlite3.Connection,
-        descriptor: Descriptor,
-        artifact_ref: str,
+        ref: str,
         *,
-        _validated: ValidatedDescriptor | None = None,
-    ) -> tuple[tuple[t.Finding, ...], t.ArtifactDigest]:
+        kind: Literal["finding", "evidence"],
+        limit: int = 20,
+        cursor: str | None = None,
+    ) -> tuple[tuple[OutputFinding | OutputEvidence, ...], str | None]:
         nonlocal calls
         calls += 1
-        return collection(store, connection, descriptor, artifact_ref, _validated=_validated)
+        return page_reader(store, ref, kind=kind, limit=limit, cursor=cursor)
 
-    monkeypatch.setattr(graph_findings, "collection", counted_collection)
-    digest = dataset.evidence_digest()
-    assert calls == 1 and digest.finding_count == 8
+    monkeypatch.setattr(terminal_store, "records_page", counted)
+    assert artifact.evidence_digest().finding_count == 8
+    assert calls == 0
+    seen: list[str] = []
+    cursor = None
+    while True:
+        calls = 0
+        page = artifact.findings(limit=3, cursor=cursor)
+        assert calls == 1 and len(page.items) <= 3
+        seen.extend(item.finding_id for item in page.items)
+        if not page.has_more:
+            assert page.next_cursor is None
+            break
+        assert page.next_cursor is not None
+        cursor = page.next_cursor
+    assert len(seen) == len(set(seen)) == 8
+    first = artifact.findings(limit=3)
     calls = 0
-    first = dataset.findings(limit=3)
-    assert calls == 1 and len(first.items) == 3 and first.has_more
-    assert first.next_cursor is not None
-    calls = 0
-    second = dataset.findings(limit=3, cursor=first.next_cursor)
-    assert calls == 1 and len(second.items) == 3
-    assert not {item.finding_id for item in first.items}.intersection(
-        item.finding_id for item in second.items
-    )
-    calls = 0
-    assert dataset.finding(first.items[0].finding_id) == first.items[0]
+    with pytest.raises(AnalysisError):
+        artifact.findings(cursor="invalid")
     assert calls == 1
     calls = 0
-    with pytest.raises(FindingNotFoundError):
-        dataset.finding("foreign-finding")
-    assert calls == 1
-    calls = 0
-    with pytest.raises(IntegrityError, match="cursor"):
-        dataset.findings(cursor="invalid")
+    with pytest.raises(AnalysisError):
+        other.findings(cursor=first.next_cursor)
     assert calls == 1
 
 
@@ -206,39 +207,45 @@ def test_cold_projection_reads_once_without_source(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    dataset, projections = _capture(case, "forecast")
-    expected = projections[0].to_pandas().to_json(orient="split", date_format="iso")
+    artifact = _capture(case, "top")
+    expected = artifact.to_pandas().to_json(orient="split", date_format="iso")
     before = case.session.runs().items
     case.database_path.rename(case.database_path.with_suffix(".offline"))
+    (case.root / "models").rename(case.root / "models.offline")
     code = """
 import sys
-from pathlib import Path
 import marivo.analysis as mv
-from marivo.analysis.materialization import graph_dataset, graph_storage
-from marivo.analysis.materialization.graph_exchange import ExchangeResult
-from marivo.analysis.materialization.graph_protocol import Descriptor, ValidatedDescriptor
+import marivo.semantic as ms
+from marivo.datasource.adapters import SourceSession
+from marivo.analysis.materialization.graph_reading import OutputRead
 
-session = mv.session.resume(sys.argv[1], by="id")
-result = session.artifact(sys.argv[2])
+def forbidden(*args, **kwargs):
+    raise AssertionError('cold committed read touched a source')
+ms.load = forbidden
+SourceSession.__enter__ = forbidden
+SourceSession.execute = forbidden
+session = mv.session.resume(sys.argv[1],by='id')
+artifact = session.artifact(sys.argv[2])
 reads = []
-original = graph_storage.read_result
-def counted(root: Path, descriptor: Descriptor, *, _validated: ValidatedDescriptor | None = None) -> ExchangeResult:
-    reads.append(descriptor)
-    return original(root, descriptor, _validated=_validated)
-graph_dataset.read_result = counted
+original = OutputRead._open
+def counted(reader,layout):
+    reads.append(layout.handle)
+    return original(reader,layout)
+OutputRead._open = counted
+before = len(session.runs().items)
 for _ in range(2):
     reads.clear()
-    frame = result.prediction.to_pandas()
+    assert artifact.to_pandas().to_json(orient='split',date_format='iso') == sys.argv[3]
     assert len(reads) == 1
-print(frame.to_json(orient="split", date_format="iso"))
+assert len(session.runs().items) == before
 """
     completed = subprocess.run(
-        [sys.executable, "-c", code, case.session.id, dataset.artifact.artifact_ref],
+        [sys.executable, "-c", code, case.session.id, artifact.id, expected],
+        cwd=case.root,
+        env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
         capture_output=True,
         text=True,
         timeout=60,
-        check=False,
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
-    assert completed.stdout.strip() == expected
     assert case.session.runs().items == before

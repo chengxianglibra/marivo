@@ -15,6 +15,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.reference_fixtures import reference_data
 from tests.analysis.graph.source_fixtures import author_source_project
 from tests.analysis.materialization.domain_recovery_worker import snapshot
+from tests.analysis.materialization.reference_recovery_worker import recipes
 from tests.datasource.source_cases import source_case
 from tests.support.json import Json, checked, encode, obj, read
 from tests.support.paths import PROJECT_ROOT
@@ -37,48 +38,49 @@ def test_native_reference_independent_fixed_and_cold(
         session = mv.session.get_or_create("r94-reference", report_timezone="UTC")
         members = session.members(ms.ref.entity("sales.facts"))
 
-        values = members.observe(ms.ref.metric("sales.total"), by=(mv.member(),))
-        bucket = members.read(ms.ref.dimension("sales.facts.bucket"))
-        assert isinstance(values, mv.LogicalNumericRelation)
-        assert isinstance(bucket, mv.LogicalCategoryRelation)
-        groups = values.group_by(bucket).rollup()
-        weights = groups.share_of(groups.rollup())
-        reference = mv.reference_weights(
-            weights, strata=(bucket,), unit=ms.ref.entity("sales.facts")
+        bucket = session.catalog.fields.get("sales.facts.bucket")
+        values = session.observe({"value": session.catalog.metrics.get("sales.total")}, by=members)
+        classified = session.observe(
+            {"value": session.catalog.metrics.get("sales.total")},
+            by=(mv.member(), bucket),
+            members=members,
         )
-        grid = mv.time_grid(
-            during=mv.time_scope(start="2026-08-01", end="2026-08-03"), grain=mv.grain("day")
+        groups = classified.rollup(by=(bucket,))
+        calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
+        opportunities = session.observe(
+            {"value": session.catalog.metrics.get("sales.total")}, during=calendar, by=members
         )
-        opportunities = members.observe(
-            ms.ref.metric("sales.total"), during=grid, by=(mv.member(),)
-        )
-        assert isinstance(opportunities, mv.LogicalNumericRelation)
-        empty = bucket.where(bucket.value.eq("absent")).members()
-        originals: dict[str, Json] = {}
-        logicals = (
-            ("current", values),
-            ("members", members),
-            ("bucket", bucket),
-            ("groups", groups),
-            ("weights", weights),
-            ("opportunities", opportunities),
-            ("share", values.share_of(values.rollup())),
-            ("ranking", values.rank(order="descending", ties="dense")),
-            ("cohort", members.cohort(opportunities.value.gt(0), rule=mv.any_instance())),
-            ("empty_penetration", empty.penetration_in(empty)),
-            ("standardized", groups.standardize(reference=reference)),
-        )
-        for name, logical in logicals:
-            result = logical.execute()
-            originals[name] = snapshot(result)
-            if isinstance(result, mv.MaterializedRankingResult):
-                source_trace.record(result.ranks, definition=result._node.definition)
-            elif isinstance(result, mv.MaterializedCategoryRelation):
-                source_trace.record(result)
-            else:
-                source_trace.record(result)
-        state: dict[str, Json] = {"session": session.id, "originals": originals}
+        category = session.read(members, {"bucket": bucket})
+        selected = values.where(values["value"] > 0).population()
+        queries = {
+            "current": values,
+            "bucket": category,
+            "basis": session.read(
+                members,
+                {"amount": session.catalog.fields.get("sales.facts.amount"), "bucket": bucket},
+            ),
+            "groups": groups,
+            "weights": groups.share("value"),
+            "opportunities": opportunities,
+            "share": values.share("value"),
+            "selected": session.read(selected, {"bucket": bucket}),
+            "empty": category.where(category["bucket"] == "absent"),
+        }
+        outputs = {name: query.execute() for name, query in queries.items()}
+        derived = recipes(outputs)
+        assert derived["ranks"] == [2, 3, 1]
+        assert derived["opportunity_count"] == 6
+        state: dict[str, Json] = {
+            "session": session.id,
+            "outputs": {
+                name: {"artifact": value.id, "snapshot": snapshot(value)}
+                for name, value in outputs.items()
+            },
+            "derived": derived,
+        }
         (tmp_path / "r94-reference.json").write_bytes(encode(state))
+        for value in outputs.values():
+            source_trace.record(value)
         source_trace.save(
             "reference-source-" + backend,
             {**case.environment, "profile": profile},
@@ -105,7 +107,7 @@ def test_native_reference_independent_fixed_and_cold(
         for path in tmp_path.glob(pattern):
             path.unlink()
     reports: list[Json] = []
-    for phase in ("fixed", "cold"):
+    for phase in ("offline", "cold"):
         output = tmp_path / (phase + ".json")
         completed = subprocess.run(
             [
@@ -130,6 +132,8 @@ def test_native_reference_independent_fixed_and_cold(
         assert completed.returncode == 0, completed.stdout + completed.stderr
         reports.append(read(output))
     assert len({os.getpid(), *(obj(report)["pid"] for report in reports)}) == 3
+    assert all(obj(report)["derived"] == derived for report in reports)
+    assert all(obj(report)["run_count"] == len(session.runs().items) for report in reports)
     if destination := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
         Path(destination, "reference-recovery-" + backend + ".json").write_bytes(
             encode(

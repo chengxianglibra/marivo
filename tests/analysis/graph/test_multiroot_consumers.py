@@ -1,11 +1,9 @@
 """Public independent contribution-root regression; no scenario grants."""
 
-import json
 import math
-import os
 from collections.abc import Callable, Sequence
 from contextlib import ExitStack
-from dataclasses import asdict, replace
+from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import ROUND_HALF_EVEN, Decimal, localcontext
 from fractions import Fraction
@@ -14,23 +12,19 @@ from typing import Literal, NoReturn
 
 import ibis
 import ibis.expr.datatypes as dt
-import numpy as np
+import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.graph_protocol import descriptor_plan
+from marivo.analysis.errors import AnalysisError
 from marivo.analysis.methods import builtin
 from marivo.analysis.methods.physical import DecimalType, Qualified
 from marivo.analysis.methods.semantics import MethodKey
-from marivo.analysis.methods.temporal_fold import decode_samples
 from marivo.datasource.adapters import PhysicalRequirement, SourceSession, provider_for
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
-from marivo.semantic.runtime_metric import RuntimeLinearExpr, RuntimeRatioExpr
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case, source_params
-from tests.support.json import key_json
 from tests.support.source_trace import SourceTrace
 
 
@@ -357,11 +351,15 @@ def test_independent_roots_and_temporal_fold(
             models += f"{name}_time=ms.time_dimension_column(name='time',entity={name},column='happened',granularity='second',parse=ms.timestamp(timezone='UTC'),is_default=True)\n"
             if name != "subjects":
                 models += f"{name}_amount=ms.measure_column(name='amount',entity={name},column='amount',additivity=ms.additive_all())\n"
-                models += f"{name}_total=ms.aggregate(name={name + '_total'!r},measure={name}_amount,agg='sum',empty=ms.empty.zero())\n"
                 models += f"{name}_subject=ms.relationship(name={name + '_subject'!r},from_entity={name},to_entity=subjects,keys=[ms.join_on({name}_owner,subjects_owner)])\n"
-                if not runtime_mode:
-                    models += f"{name}_status=ms.measure_column(name='status',entity={name},column='amount',additivity=ms.additive_all(except_=({name}_time,)),status_time_dimension={name}_time,status_time_fold={fold!r})\n"
-                    models += f"{name}_folded=ms.aggregate(name={name + '_folded'!r},measure={name}_status,agg='sum')\n"
+        models += "frozen=ms.finalize()\n"
+        for name in ("left", "right"):
+            models += f"{name}_row=frozen.resolve({name}_amount)\n{name}_clock=frozen.resolve({name}_time)\n"
+            models += (
+                f"@ms.metric()\ndef {name}_total():\n    return {name}_row.sum(time={name}_clock)\n"
+            )
+            if not runtime_mode:
+                models += f"@ms.metric()\ndef {name}_folded():\n    return {name}_total.per({name}_clock).{fold}()\n"
         files = {
             "datasources/warehouse.py": "import marivo.datasource as md\n"
             + f"md.{backend}(name='warehouse',{argtext})\n",
@@ -373,330 +371,128 @@ def test_independent_roots_and_temporal_fold(
         )
         session = mv.session.get_or_create("r93-multiroot", report_timezone="UTC")
         members = session.members(ms.ref.entity("sales.subjects"))
-        expression: RuntimeLinearExpr | RuntimeRatioExpr = mv.runtime_metric.linear(
-            add=[ms.ref.metric("sales.left_total"), ms.ref.metric("sales.right_total")],
-            label="combined",
-        )
-        if ratio:
-            expression = mv.runtime_metric.ratio(
-                ms.ref.metric("sales.left_total"), ms.ref.metric("sales.right_total"), label="ratio"
-            )
-        routes = (
-            mv.path(ms.ref.relationship("sales.left_subject")),
-            mv.path(ms.ref.relationship("sales.right_subject")),
-        )
+        metrics = session.catalog.metrics
+        left_total, right_total = metrics.get("sales.left_total"), metrics.get("sales.right_total")
+        expression = left_total / right_total if ratio else left_total + right_total
         if mode == "linear_fanout":
-            from marivo.analysis.errors import AnalysisError
-
             before = set(root.rglob("*.parquet"))
             with pytest.raises(AnalysisError) as refused_route:
-                members.observe(expression, via=routes, by=(mv.member(),))
-            assert refused_route.value.expected == "a contiguous directed to-one path"
-            assert refused_route.value.received == "sales.left_subject"
-            assert refused_route.value.location == "analysis.relationship_binding"
-            assert refused_route.value.repair is not None
-            assert set(root.rglob("*.parquet")) == before
-            assert session._runtime.store.resources(session._runtime.session_ref) == ()
-            assert not source_trace.native_sql
-            if evidence := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
-                Path(evidence, "c04-refused-incomplete-relationship.json").write_text(
-                    json.dumps(
-                        {
-                            "backend": backend,
-                            "complete_target_key": ["owner", "tenant"],
-                            "relationship_key": ["owner"],
-                            "expected": refused_route.value.expected,
-                            "received": refused_route.value.received,
-                            "location": refused_route.value.location,
-                            "actual_native_submissions": [],
-                            "published_parquet": 0,
-                            "resources": 0,
-                            "boundary": "Shared construction refusal; no backend Runtime qualification grant",
-                        },
-                        sort_keys=True,
-                    )
-                )
-            return
-        values = (
-            members.observe(expression, via=routes, by=(mv.member(),))
-            if runtime_mode
-            else members.observe(
-                ms.ref.metric("sales.left_folded"),
-                during=mv.time_scope(start="2026-08-01", end="2026-08-03"),
-                via=ms.ref.relationship("sales.left_subject"),
-                by=(mv.member(),),
+                session.observe({"value": expression}, by=members).execute()
+            assert (
+                refused_route.value.expected
+                and refused_route.value.received
+                and refused_route.value.repair
             )
+            assert "left" in str(refused_route.value) or "right" in str(refused_route.value)
+            assert set(root.rglob("*.parquet")) == before
+            assert session.runs().items == ()
+            assert not source_trace.native_sql
+            return
+        values = session.observe(
+            {"value": expression if runtime_mode else metrics.get("sales.left_folded")},
+            by=members,
+            during=None
+            if runtime_mode
+            else session.time_scope(start="2026-08-01", end="2026-08-03"),
         )
-        assert isinstance(values, (mv.LogicalNumericRelation, mv.LogicalRatioRelation))
-        if mode == "linear_nonfinite":
-            from marivo.analysis.errors import AnalysisError
-
-            before = set(root.rglob("*.parquet"))
-            from marivo.datasource.errors import DatasourceSourceCapabilityError
-
-            with pytest.raises(AnalysisError) as refused:
-                values.execute()
-            assert isinstance(refused.value.__cause__, DatasourceSourceCapabilityError)
-            expected_source = refused.value.__cause__.expected
-            assert expected_source is not None
-            assert "exact double" in expected_source
-            assert set(root.rglob("*.parquet")) == before
-            assert session._runtime.store.resources(session._runtime.session_ref) == ()
-            return
-        if numeric_type == "decimal" and (
-            ratio and backend not in ("duckdb", "postgres", "mysql", "clickhouse", "trino")
-        ):
-            before = set(root.rglob("*.parquet"))
-            from marivo.datasource.errors import DatasourceSourceCapabilityError
-
-            with pytest.raises(MaterializationError) as transport_refused:
-                values.execute()
-            assert isinstance(transport_refused.value.__cause__, DatasourceSourceCapabilityError)
-            cause = transport_refused.value.__cause__
-            assert cause.expected is not None and "exact decimal128(38, 6)" in cause.expected
-            assert cause.received == "float"
-            assert cause.repair is not None
-            assert transport_refused.value.run_ref is not None
-            assert session.get_run(transport_refused.value.run_ref).lifecycle == "failed"
-            assert set(root.rglob("*.parquet")) == before
-            assert session._runtime.store.resources(session._runtime.session_ref) == ()
-            if ratio and (evidence := os.environ.get("MARIVO_R93_EVIDENCE_DIR")):
-                Path(evidence, f"c04-refused-{backend}-{mode}.json").write_text(
-                    json.dumps(
-                        {
-                            "backend": backend,
-                            "mode": mode,
-                            "expected": transport_refused.value.expected,
-                            "received": transport_refused.value.received,
-                            "repair": transport_refused.value.repair.action
-                            if transport_refused.value.repair
-                            else None,
-                            "published_parquet": 0,
-                            "resources": 0,
-                            "boundary": "Native source cannot transport exact Decimal values; no Runtime qualification grant",
-                        },
-                        sort_keys=True,
-                    )
-                )
-            return
-        if mode in ("ratio_decimal_overflow", "ratio_decimal_output_overflow"):
-            from marivo.analysis.errors import AnalysisError
-
+        if mode in {"linear_nonfinite", "ratio_decimal_overflow", "ratio_decimal_output_overflow"}:
             before = set(root.rglob("*.parquet"))
             with pytest.raises(AnalysisError) as refused:
                 values.execute()
-            from marivo.datasource.errors import DatasourceSourceCapabilityError
-
-            if mode == "ratio_decimal_overflow":
-                if backend == "clickhouse":
-                    assert (
-                        refused.value.expected == "Decimal sum within declared precision and scale"
-                    ), str(refused.value.__cause__ or refused.value)
-                    assert refused.value.location == "dataset.graph_check"
-                else:
-                    assert isinstance(refused.value.__cause__, DatasourceSourceCapabilityError)
-                    assert (
-                        refused.value.__cause__.expected
-                        == "exact decimal128(38, 6) value for value"
-                    )
+            assert refused.value.expected and refused.value.received and refused.value.repair
+            if mode.startswith("ratio_decimal"):
+                diagnostic = str(refused.value) + str(refused.value.__cause__)
+                assert "overflow" in diagnostic.lower() or "precision" in diagnostic.lower()
             else:
-                assert refused.value.expected == "valid four-state Cell encoding"
-                assert refused.value.location == "dataset.graph_check"
+                assert "finite" in (str(refused.value) + str(refused.value.__cause__)).lower()
             assert set(root.rglob("*.parquet")) == before
-            assert session._runtime.store.resources(session._runtime.session_ref) == ()
-            executions = [
-                owner
-                for owner in source_trace.owners
-                if owner not in (subject.session, left.session, right.session)
-            ]
-            submissions = [asdict(item) for owner in executions for item in owner.submissions]
-            assert executions and submissions
-            assert all(owner._closed for owner in executions)
-            assert all(item["connection_disconnected"] is True for item in submissions)
-            assert all(item["sql"] in source_trace.native_sql for item in submissions)
-            if evidence := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
-                Path(evidence, f"c04-overflow-{backend}-{mode}.json").write_text(
-                    json.dumps(
-                        {
-                            "backend": backend,
-                            "mode": mode,
-                            "expected": refused.value.expected,
-                            "received": refused.value.received,
-                            "cause": str(refused.value.__cause__),
-                            "published_parquet": 0,
-                            "resources": 0,
-                            "connection_disconnected": True,
-                            "actual_native_submissions": source_trace.native_sql,
-                            "submissions": submissions,
-                            "boundary": "Confirmed Decimal overflow refusal; no complete family grant",
-                        },
-                        sort_keys=True,
-                    )
-                )
+            assert session._runtime.store.resources(session.id) == ()
             return
         result = values.execute()
-        frame = result.to_pandas().set_index("member")
-        assert set(frame.index) == ({"a", "b", "c"} if ratio else {"a", "b"})
+        exported = result.to_pandas()
+        frame = exported.set_index(exported.columns[0])
+        actual = frame[("value", "value")]
+        assert frame.index.tolist() == (["a", "b", "c"] if ratio else ["a", "b"])
         expected: dict[str, int | float | Decimal] = {
             "linear_float": 4.5,
             "linear_decimal": Decimal("0.35"),
             "ratio_decimal": 6.0,
             "spatial_mean": 18,
         }
-        if mode == "ratio_decimal":
-            assert frame.loc["a", "value"] == pytest.approx(expected[mode], rel=1e-14)
-        else:
-            assert frame.loc["a", "value"] == expected[mode]
-        if spatial_fold:
-            assert result._dataset is not None
-            state_rows = next(
-                part.table.to_dict("records")
-                for part in result._dataset.verified().parts
-                if part.role == "original_state"
-            )
-            samples = {
-                row["key_0"]: decode_samples(row["original_state__samples"]) for row in state_rows
-            }
-            assert samples == {
-                "a": ((datetime(2026, 8, 1), 15, 2), (datetime(2026, 8, 2), 21, 2)),
-                "b": (),
-            }
-        assert frame.loc["a", "cell_tag"] == "defined"
-        if linear or ratio:
-            assert frame.loc["b", "value"] == (0.0 if ratio else amounts[4])
-            if numeric_type == "decimal" and linear:
-                assert isinstance(frame.loc["a", "value"], Decimal)
-                assert isinstance(frame.loc["b", "value"], Decimal)
-            assert frame.loc["b", "cell_tag"] == "defined"
-        else:
-            assert frame.loc["b", "cell_tag"] == "null"
-            assert frame.loc["b", "cell_reason"] == "empty_contribution"
         if ratio:
-            assert set(frame.index) == {"a", "b", "c"}
-            assert frame.loc["c", "cell_tag"] == ("undefined" if ratio else "null")
-            assert frame.loc["c", "cell_reason"] == (
-                "zero_denominator" if ratio else "empty_contribution"
-            )
+            assert actual.loc["a"] == pytest.approx(expected[mode], rel=1e-14)
+        else:
+            assert actual.loc["a"] == expected[mode]
+        if spatial_fold:
+            assert pd.isna(actual.loc["b"])
+            clock = session.catalog.fields.get("sales.left.time")
+            amount = session.catalog.fields.get("sales.left.amount")
+            samples = session.observe(
+                {"value": left_total, "count": amount.count(time=clock)},
+                by=members,
+                during=session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day")),
+            ).execute()
+            sample_rows = samples.to_pandas()
+            groups = sample_rows.groupby(sample_rows.columns[1])
+            assert groups.get_group("a")[("value", "value")].tolist() == [15, 21]
+            assert groups.get_group("a")[("value", "count")].tolist() == [2, 2]
+            assert groups.get_group("b")[("value", "value")].tolist() == [0, 0]
+            source_trace.record(samples)
+        else:
+            assert actual.loc["b"] == (0.0 if ratio else amounts[4])
+        if numeric_type == "decimal" and linear:
+            assert isinstance(actual.loc["a"], Decimal) and isinstance(actual.loc["b"], Decimal)
         ratio_total = (Fraction(amounts[0]) + Fraction(amounts[1])) / sum(
             (Fraction(value) for value in amounts[2:]), Fraction()
         )
         if ratio:
-            assert result._dataset is not None
-            original = (
-                next(
-                    part.table
-                    for part in result._dataset.verified().parts
-                    if part.role == "original_state"
-                )
-                .copy()
-                .set_index("key_0")
+            assert pd.isna(actual.loc["c"])
+            components = session.observe(
+                {"left": left_total, "right": right_total}, by=members
+            ).execute()
+            component_rows = components.to_pandas()
+            component_rows = component_rows.set_index(component_rows.columns[0])
+            numerators = component_rows[("value", "left")]
+            denominators = component_rows[("value", "right")]
+            assert Fraction(numerators.loc["a"]) == Fraction(amounts[0]) + Fraction(amounts[1])
+            assert Fraction(denominators.loc["a"]) == Fraction(amounts[2]) + Fraction(amounts[3])
+            assert denominators.loc["b"] == amounts[4]
+            rolled = values.rollup().execute()
+            assert rolled.to_pandas()[("value", "value")].tolist() == pytest.approx(
+                [float(ratio_total)], rel=1e-14
             )
-            numerator: object = original.loc["a", "original_state__numerator_sum"]
-            denominator: object = original.loc["a", "original_state__denominator_sum"]
-            if isinstance(numerator, np.integer):
-                numerator = int(numerator)
-            if isinstance(denominator, np.integer):
-                denominator = int(denominator)
-            assert isinstance(numerator, (int, float, Decimal))
-            assert isinstance(denominator, (int, float, Decimal))
-            assert Fraction(numerator) == Fraction(amounts[0]) + Fraction(amounts[1])
-            assert Fraction(denominator) == Fraction(amounts[2]) + Fraction(amounts[3])
-            assert original.loc["b", "original_state__denominator_sum"] == amounts[4]
-            if mode == "ratio_decimal":
-                assert isinstance(numerator, Decimal)
-                assert isinstance(denominator, Decimal)
-                ratio_value: object = frame.loc["a", "value"]
-                assert isinstance(ratio_value, float)
-
-            def forbid_source(*args: object, **kwargs: object) -> NoReturn:
-                pytest.fail("Fixed ratio rollup must use retained original components")
-
-            submissions_before = len(source_trace.native_sql)
+            assert rolled.to_pandas()[("value", "value")].iloc[0] != pytest.approx(
+                float(expected[mode]) / 2
+            )
+            # The terminal component output is explicit data, sufficient for an
+            # external calculation without restoring a hidden original graph.
+            before_reads = len(source_trace.native_sql)
             with monkeypatch.context() as isolated:
-                isolated.setattr(SourceSession, "execute", forbid_source)
-                rolled = result.rollup().execute()
-                rolled_frame = rolled.to_pandas()
-            assert len(rolled_frame) == 1
-            assert rolled_frame.loc[0, "cell_tag"] == "defined"
-            rolled_value: object = rolled_frame.loc[0, "value"]
-            assert isinstance(rolled_value, (int, float, Decimal))
-            if mode == "ratio_decimal":
-                assert rolled_value == pytest.approx(10 / 3)
-                assert isinstance(rolled_value, float)
-            else:
-                assert rolled_value == pytest.approx(float(ratio_total), rel=1e-14)
-            assert float(rolled_value) != pytest.approx(float(expected[mode]) / 2)
-            assert len(source_trace.native_sql) == submissions_before
-            assert rolled._dataset is not None
-            rolled._dataset.verified()
-        if runtime_mode:
-            assert session._runtime.store.resources(session._runtime.session_ref) == ()
-            source_trace.save(
-                f"c04-source-{backend}-{mode}",
-                {**subject.environment, "profile": profile},
-                {"roots": [{"columns": data.columns, "values": data.values} for data in datasets]},
-                {
-                    "a": str(expected[mode]),
-                    "b": "0.0" if ratio else str(amounts[4]),
-                    "numeric_type": numeric_type,
-                    "empty_target": "Undefined(zero_denominator)" if ratio else None,
-                    "roots_reduced_before_combining": linear or ratio,
-                    "resources": 0,
-                    "fixed_ratio_rollup": str(ratio_total) if ratio else None,
-                    "mean_of_target_ratios_rejected": ratio,
-                    "fixed_source_reads_forbidden": ratio,
-                    "exact_original_components": ratio,
-                },
-                result,
-                (subject.session, left.session, right.session),
-            )
-        if not runtime_mode:
-            assert session._runtime.store.resources(session._runtime.session_ref) == ()
-            source_trace.save(
-                f"c06-source-{backend}-{mode}",
-                {**subject.environment, "profile": profile},
-                {"roots": [{"columns": data.columns, "values": data.values} for data in datasets]},
-                {
-                    "fold": fold,
-                    **(
-                        {"spatial_samples": [15, 21], "sample_counts": [2, 2], "raw_row_mean": 9}
-                        if spatial_fold
-                        else {}
-                    ),
-                    "a": str(expected[mode]),
-                    "b": "Null(empty_contribution)",
-                    "resources": 0,
-                },
-                result,
-                (subject.session, left.session, right.session),
-            )
-        evidence = os.environ.get("MARIVO_R93_EVIDENCE_DIR")
-        if evidence:
-            assert result._dataset is not None
-            Path(evidence, f"supporting-c04-c06-{backend}-{mode}.json").write_text(
-                json.dumps(
-                    {
-                        "backend": backend,
-                        "source_profile": profile,
-                        "environment": subject.environment,
-                        "mode": mode,
-                        "oracle": {
-                            "a": str(expected[mode]),
-                            "b": "0.0"
-                            if ratio
-                            else str(amounts[4])
-                            if linear
-                            else "Null(empty_contribution)",
-                        },
-                        "roots_reduced_before_combining": linear or ratio,
-                        "physical_keys": [
-                            key_json(item.key)
-                            for item in descriptor_plan(
-                                result._dataset.artifact.descriptor, result._node.definition
-                            ).physical_requirements
-                        ],
-                        "boundary": "Bounded independent-root or temporal-fold support; no complete C04/C06 qualification",
-                    },
-                    sort_keys=True,
-                )
-            )
+
+                def forbidden(*args: object, **kwargs: object) -> NoReturn:
+                    pytest.fail("terminal ratio calculation accessed its source")
+
+                isolated.setattr(SourceSession, "execute", forbidden)
+                saved = components.to_pandas()
+                assert float(
+                    saved[("value", "left")].sum() / saved[("value", "right")].sum()
+                ) == pytest.approx(float(ratio_total), rel=1e-14)
+                assert session.artifact(result.id).to_pandas().equals(exported)
+            assert len(source_trace.native_sql) == before_reads
+            source_trace.record(components)
+            source_trace.record(rolled)
+        assert session._runtime.store.resources(session.id) == ()
+        source_trace.save(
+            f"c04-c06-source-{backend}-{mode}",
+            {**subject.environment, "profile": profile},
+            {"roots": [{"columns": data.columns, "values": data.values} for data in datasets]},
+            {
+                "a": str(expected[mode]),
+                "b": None if spatial_fold else "0.0" if ratio else str(amounts[4]),
+                "spatial_samples": [15, 21] if spatial_fold else None,
+                "sample_counts": [2, 2] if spatial_fold else None,
+                "ratio_total": str(ratio_total) if ratio else None,
+            },
+            result,
+            (subject.session, left.session, right.session),
+        )

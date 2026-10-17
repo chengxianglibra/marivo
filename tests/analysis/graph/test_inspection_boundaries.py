@@ -20,9 +20,8 @@ def test_missing_backing_discards_native_exception_and_locator(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    result = case.session.members(ms.ref.entity("sales.customer")).execute()
-    assert result._dataset is not None
-    receipt = result._dataset.artifact.descriptor.primary_receipt.local
+    result = case.session.query(case.session.members(ms.ref.entity("sales.customer"))).execute()
+    receipt = result._manifest.data.rows.receipt
     path = case.root / receipt.project_relative_path / receipt.file_manifest[0].relative_path
     path.unlink()
     store = case.session._runtime.store

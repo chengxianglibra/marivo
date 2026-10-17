@@ -1,35 +1,44 @@
-"""Selection guidance requires retained Subject authority."""
+"""Selection continuations follow explicit complete coordinate authority."""
 
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.datasets.errors import DatasetConstructionError
+from marivo.analysis.errors import AnalysisError
 from tests.shared_fixtures import DslCaseFactory
 
 
-def test_selection_discloses_members_only_with_retained_subject_map(
+def test_selection_discloses_population_for_retained_complete_identity(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    values = members.observe(
-        ms.ref.metric("sales.order_count"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship(f"sales.{case.names.buyer}"),
-        by=(mv.member(),),
+    session = case.session
+    members = session.members(ms.ref.entity("sales.customer"))
+    values = session.observe(
+        {"value": session.catalog.metrics.get("sales.order_count")},
+        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
+        by=members,
     )
-    assert isinstance(values, mv.LogicalNumericRelation)
-    selected = values.where(values.value.gt(0))
-    assert "relation.members()" in {action.call for action in selected.contract().actions}
-    assert isinstance(selected.members(), mv.LogicalAnalysisDomain)
-    shares = values.share_of(values.rollup())
-    selected_share = shares.where(shares.value.gt(0.5))
-    assert "relation.members()" not in {action.call for action in selected_share.contract().actions}
-    assert "relation.aggregate(method)" in {
-        action.call for action in selected_share.contract().actions
-    }
-    with pytest.raises(DatasetConstructionError) as refusal:
-        selected_share.members()
-    assert refusal.value.received == "current result has no verified Subject map"
-    assert refusal.value.expected and refusal.value.repair
+    selected = values.where(values["value"] > 0)
+    assert "query.population()" in {action.call for action in selected.contract().actions}
+    assert isinstance(selected.population(), mv.Population)
+    assert session.query(selected.population()).execute().to_pandas().iloc[:, 0].tolist() == [
+        "A",
+        "B",
+        "C",
+        "D",
+    ]
+    shares = values.share("value")
+    selected_share = shares.where(shares["value.share"] > 0.2)
+    # Derived values retain their complete coordinates; original authority is separate.
+    assert isinstance(selected_share.population(), mv.Population)
+    assert session.query(selected_share.population()).execute().to_pandas().iloc[:, 0].tolist() == [
+        "A",
+        "B",
+        "C",
+        "D",
+    ]
+    statistic = values.reduce({"count": mv.row_count()})
+    with pytest.raises(AnalysisError) as refusal:
+        statistic.population().project(by=(mv.member(),))
+    assert refusal.value.expected and refusal.value.received and refusal.value.repair

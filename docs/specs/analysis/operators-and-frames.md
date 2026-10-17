@@ -1,871 +1,201 @@
 # Operators and Frames
 
-Status: current method contracts, 2026-10-08. This document owns the analysis
-algebra's method equations, Cell policies, sufficient state, numerical rules and
-conditional continuations. [Analysis Design](python-analysis-design.md) owns the
-public model and compiler path; [Runtime](session-state-and-runtime.md) owns
-execution, publication and Store 9 recovery.
+Status: current nullable-value and terminal-output contracts, 2026-10-17.
+The complete target surface is defined by [Lazy DSL](lazy-analysis-dsl-redesign.md).
+Native expressions and existing source/local numerical kernels are implemented;
+R3–R8 integrates the corresponding public Query routes. Focused local checks do
+not by themselves establish full independent acceptance or remote Runtime qualification.
+[Analysis Design](python-analysis-design.md) owns objects and compilation;
+[Runtime](session-state-and-runtime.md) owns invocation and publication.
 
-## Results and continuations
+## Immutable coordinates and values
 
-The current families are AnalysisDomain; Category/Boolean/Temporal/Numeric/Ratio/
-Difference/Statistic/Coefficient relations; and Ranking, Attribution,
-Deviation, TimeRun, Association and Forecast
-results. Each admitted shape has concrete Logical/Materialized variants.
-Unsuffixed family names here are prose, not additional exported constructors.
+Population describes finite complete coordinate tuples. Query binds named values
+to those coordinates; Column locates an expression on that exact input. Output
+axes remain ordered. An Entity identity includes every primary-key component in
+declared order; roles, paths and version anchors remain part of its binding.
+A Field Null is a valid category and must not be lost by default grouping behavior.
 
-`session.members(...)` constructs the member domain. Domain/relation/result
-methods construct Logical work; `execute()` returns its Materialized pair.
-Materialized receivers construct fixed continuations from their saved graph and
-parts. The old Population/Metric Dataset construction and axis-mutation methods
-are absent.
+Artifact contains final typed nullable values and actual output coordinates.
+It is terminal and offers bounded display, complete isolated pandas export and
+saved fact reads. It contains no executable graph, sufficient-state continuation
+or authority to recompute a Metric. Only Query owns DSL transformations.
 
-Every result has immutable identity, owned fields and a bounded repr. Results
-that enter typed analysis expose `contract()` with exact actions and Help targets.
-Materialized inspection uses bounded `show()` and isolated `to_pandas()` copies.
-Terminal tables have export/read operations, without analysis continuation.
+## Null, empty and arithmetic policies
 
-A continuation depends on the exact domain, quantity, input binding and required
-parts. Missing Subject maps, coverage, original components or temporal authority
-cannot be reconstructed from values or inferred from a family name. New successor
-construction and execution enforce their own method contracts; recovery trusts
-locally committed results under Store 9.
+Values use normal nullable carriers. There are no per-cell Defined/Null/Undefined/
+Unknown tags or reason columns. Missing correspondence endpoints are represented
+by independent nonnullable boolean presence, never inferred from value NA.
 
-K denotes the continuations admitted by those bound facts and parts. It is not a
-family-wide method list or a permission to reconstruct lost state.
-
-## Reusable algebra
-
-BindProject, MapCorrespond, CellDerive, RowState, OriginalReduce and PartsTransport
-are the shared meta-rule families. Concrete methods have their own versioned
-identity and are derived through the single MethodRegistry. Specialized allocation and statistical rules retain their own algorithmic owners.
-
-Current-row `aggregate` constructs a new RowStatistic quantity over represented
-rows. Original `rollup` merges the retained Metric components and finishes under
-the same governed equation. Empty state can be mergeable even when its finished
-mean or ratio is Undefined. An absent/unknown component is never that empty state.
-
-Selection transports the same primary/part key mapping. It can preserve some
-capabilities and revoke others, including complete grids or full partitions.
-Projection/display cannot manufacture a contribution partition, Subject binding
-or original aggregation state.
-
-Each physical implementation must qualify the exact ordered input types, domains,
-source/fixed shape, time authority, checks, retained/output parts and numerical
-policy. The semantic tables below do not claim every type/backend combination
-is executable. Unsupported shapes reject explicitly before work; they do not
-retry a different numerical or execution route.
-
-Native-table Count original reductions admit int64 retained counts over Entity,
-Group and Singleton inputs on PostgreSQL, MySQL, Trino and ClickHouse through
-the Ibis route with an instant/us/UTC physical shape. They merge original
-occurrence counts and coverage in the database; current-row `aggregate` remains
-a different quantity. The registry owns the exact keys. Missing-key errors retain
-the requested key and disclose at most three admitted physical profiles for the
-same types, domains and time. These are explicit reconstruction choices, not
-automatic retries; an empty candidate list directs the caller to report missing
-library support. Other physical shapes still require their own registration.
-Contribution coordinates use the same flat retained layouts on all five backends,
-including categorical Count on PostgreSQL. This removes only the former array
-state restriction; every method, carrier, time and physical profile still needs
-its exact registered qualification.
-Count observations explicitly preserve the signed int64 carrier before further
-aggregation, including backends whose native count and literal sums are unsigned.
-
-## Physical contribution coordinates
-
-The complete result key statically selects one private layout. When every
-contribution coordinate is in that key, the coordinate part stores only the
-complete key and a non-null boolean presence marker; original components remain
-in `original_state`. Otherwise a flat partition is uniquely keyed by the complete
-result key plus each coordinate absent from it. Every component keeps its own
-exact numeric carrier. Logical coordinate identities, roles, versions and time
-bindings still own recomposition and attribution authority.
-
-Presence records actual aggregate groups, independently of component values,
-non-null support counts and coordinate nullability. Empty targets have no
-contribution entries; all-Null real contributions still have entries. Missing
-classification rejects. Full coordinate tuples are preserved, without Cartesian
-expansion of correlated axes. Endpoint scalar state keeps its complete endpoint
-key; its coordinate receipt names that endpoint receipt as owner.
-Endpoint presence is a non-null boolean. In partition layouts it must equal
-whether that complete endpoint key owns any contribution rows, including real
-all-Null groups; numeric support does not determine presence.
-
-Every lowered source node has a unique-key primary relation and separate
-contribution relations. Current-row statistics, filtering and display consume the
-primary relation. Observations and rollups finish complete target windows over
-one partition aggregation, with a left join preserving empty targets. Other
-independent relations use a closed row-kind, typed `UNION ALL` transport with
-explicit typed Null slots. Neither path packs contribution `list<struct>` values.
-Only the terminal result is read on the pure Ibis route. Checks remain independent
-reads, without a shared-snapshot claim. Fixed execution indexes the retained flat
-parts and uses the existing component merge and finish rules.
-
-## Evidence and field matching
-
-Entity identity/version grain and source parsing are trusted declarations.
-Constructor guarantees, call assumptions and completed invocation checks remain
-distinct. Selection preserves unique keys; grouping constructs unique targets.
-To-one structure proves single-valuedness, not total matching.
-Contribution coordinates are independent flat relations. MySQL and
-ClickHouse do not require arrays or structs for this state. Relationship inference
-does not change backend admission or substitute a path.
-
-`LogicalAnalysisDomain.read(field, *, at=None, via=None)` and its governed variants use declared field owner,
-complete relationship keys and captured version facts. Both scalar reads and
-ordinary member observations infer unique directed keyed to-one paths when via
-is omitted or None. Explicit routes bind roles by root identity, independent of
-argument order; partial observation overrides leave other roots automatic.
-Contribution attribution and complete-key classification are independent bindings.
-Versioned fields still require their own explicit attribute instant; the observation
-window does not choose their version. Same-owner/same-version
-reads establish matching by construction. Unknown path/version totality retains
-an exact `mapping_total` assumption. Relationship matching has no verification
-switch or automatic query. Trust adds no missing-value policy or completed proof.
-
-`mv.exact()` fixes checked complete-key correspondence. Applicable declarations and
-frozen constructor proofs still establish equality; unknown images are checked.
-Comparison and ordinary ratio expose no verification or trust choice. Actual
-finite-value, missing-operand, denominator and coverage rules remain mandatory.
-
-## State and Cell contracts
-
-Each row is a distinct semantic method family. Method, implementation and state
-versions have separate owners; a changed contract is never silently interpreted
-as an old version. These component names describe semantics, not a second codec:
-physical columns and bound part roles belong to the shared graph protocol.
-The four semantic states and method-owned reasons are unchanged by compact
-storage: Known/Validity/Encoded carriers preserve Defined zero, present Null,
-Undefined and Unknown distinctly. The value's Arrow validity may identify one
-statically declared missing state; it cannot infer a reason from row values.
-See [Runtime](session-state-and-runtime.md#retained-schemas-and-method-state)
-for the exact encoding and recovery boundary.
-
-All state carries exact quantity/contribution identity, input binding, full output
-keys, coverage, Cell policy, type and method/state versions. Component state and
-primary output agree under finish. A missing state is never a valid empty state.
-A semantic allowance below still requires a qualified physical implementation.
-
-| Method family | Input Cell / empty policy | Sufficient state and required parts | Permitted original-state K |
-| --- | --- | --- | --- |
-| Metric sum | Declared Null/empty policy; ignore Null only when declared; admitted empty zero or Null is explicit | sum, non-null count, row count; original contribution/coverage and component part | Merge sum/counts across proven disjoint contributions, then finish under same policy |
-| Metric Entity/Measure count | Entity count counts represented identities; Measure count follows declared non-null policy; empty 0 | checked int64 count, row count and exact counted unit | Merge counts only over disjoint original contributions |
-| Metric min/max | Declared non-null support; empty/all-null follows Metric Null policy | typed extremum plus non-null and row counts | Same extremum method over admitted contributions; temporal restrictions still apply |
-| Metric mean | Declared non-null support; empty/all-null follows Metric Null policy | sum, non-null count, row count | Merge sum/counts, never means |
-| Metric weighted mean | Same non-null value/weight pairs; existing Metric zero/missing-weight-sum policy | weighted sum, paired weight sum, paired and row counts, original value/weight refs and units | Merge original paired components; no substitution of current-row weights |
-| Metric ratio | Named numerator/denominator policies; zero denominator Undefined or error as declared | Every named original component with its own state, binding and coverage | Merge components independently then finish; no sum/mean of finished ratios |
-| Metric linear | Ordered signed components, compatible units and explicit component policies | Every ordered occurrence's state and sign | Merge components independently then finish; retain branch distinctions |
-| Metric occurrence combine | One occurrence per canonical component with its own root, filter, route and time range; no cross-occurrence Cell substitution | Every occurrence's original component state, coverage and complete target key; no retained set/sketch promise | Merge each occurrence independently, then combine on the complete target key; never a per-column projection product, root intersection or row-order alignment |
-| Current-row count | Every current instance, including Null/Undefined/Unknown; empty 0 | checked int64 count, current instance unit/domain | RowStatistic count-state merge on disjoint retained row contributions |
-| Current-row count_defined | Inspect Cell tag; only Defined counts; empty 0 | checked int64 count, current instance unit/domain and original tag policy | Merge this statistic's counts, never recast as count_all |
-| Current-row sum | All consumed values Defined and finite; admitted empty 0 | sum and row count, new RowStatistic identity | Same statistic's sum-state merge, disjoint current-row contributions |
-| Current-row min/max | All consumed values Defined and finite; empty Undefined(empty_min/empty_max) | optional extremum and row count | Same statistic's extrema merge; empty state is neutral |
-| Current-row mean | All consumed values Defined and finite; empty Undefined(empty_mean) | sum and row count, including valid (0,0) | Same statistic's sum/count merge; Undefined empty Cell is not a zero input to aggregate |
-| Direct count_distinct | Declared value identity; Null excluded; empty 0 | Final value and input/method evidence only; no retained set/sketch promise | No original rollup or attribution |
-| Direct median/percentile | Finite non-null values; Metric empty policy; exact linear interpolation | Final value, q, defined operation and actual algorithm/precision evidence; no distribution/sketch promise | No original rollup or attribution |
-| Semi-additive time fold | Per declared spatial-before-time order, sample/time policy and coverage | Exact ordered evaluation keys plus pre-fold components sufficient to restore that order; method identity includes first/last/min/max/mean/percentile | Only qualified fold/reduction with retained state and order/disjointness proof; finished values alone insufficient |
-| Cumulative | Each endpoint consumes [anchor(e), e), independent of display start | Endpoint, anchor, base components, interval coverage and ordering | Spatial merge with matching endpoints/base policy; no summing overlapping cumulative endpoints |
-
-Subject/member maps, classification maps, full coordinate tuples and temporal
-parts are required whenever the successor consumes them; scalar components alone
-cannot reconstruct them. Original contribution overlap or non-commuting folds
-reject absent a registered proof/restoration method. A RowStatistic is a new
-quantity and cannot acquire the original Metric's units of contribution or K.
-Current-row weighted mean and its named StatisticalWeight surface are not public
-capabilities; existing private rules do not activate them.
-
-## Numeric carriers and ordinary Metrics
-
-The physical value families are signed int64, finite float64, Decimal(p,s) with
-1 <= p <= 38 and 0 <= s <= p, and fixed-duration values in s/ms/us/ns. Boolean
-is not numeric. Every qualification records the exact input/output/state type,
-not merely the family name. Invalid values and overflow reject before publication;
-there is no saturation, wrapping, silent float coercion or route retry.
-
-| Method | int64 | float64 | Decimal | Duration / date / timestamp |
-| --- | --- | --- | --- | --- |
-| count/count_defined/count_distinct | checked int64 result/count state; count_distinct retains full declared identity | Same count result; nonfinite distinct input rejected | Exact decimal equality for distinct, checked count | Duration distinct preserves unit and exact ticks; date/instant distinct preserves typed identity; count methods may count these relations without numeric coercion |
-| sum / linear | checked int64 output/state | finite float64 output/state | native Decimal sum; linear components use Ibis promotion and minimal scale adaptation | Duration sum/linear preserve tick unit with checked int64 ticks; date/timestamp numeric sum rejected |
-| min/max/first/last | preserve input type | preserve finite input type | preserve (p,s) | Duration preserves unit; time-valued read/selection preserves physical type, no timestamp-to-float numerical aggregation |
-| mean | native Ibis mean, float64; retain sum/count | native Ibis mean, finite float64 | Ibis Decimal result type with an explicit transport cast; retain widened sum/count independently | Duration keeps checked tick state and nearest-even tick finish |
-| Metric weighted mean | native product/sums, float64 finish | independent numeric value/weight types; finite float64 | Decimal/int, Decimal/float and different Decimal scales admitted through Ibis and minimal adaptation; numerator and weight sum retain separate types | Duration values still require nonnegative int64 weights and nearest-even tick finish |
-| Metric ratio | independent checked component states, Ibis division | finite native result | independent Decimal/int/float components; float64 result, no custom Decimal quotient algorithm | Same-unit Duration inputs retain their unit checks |
-| source-native median/percentile | native continuous quantile; float64 output may lose large-integer precision | native continuous quantile, finite float64 output | native continuous quantile with source-owned output precision/scale; precision loss is disclosed | Duration/date/timestamp quantile rejected by the direct-observation methods; no implicit float route |
-| semi-additive / cumulative | Base method's matrix plus exact time keys | Base method's matrix plus exact time keys | Base method's matrix plus exact time keys | Temporal keys retain physical precision; cumulative Duration sum follows sum, calendar months cannot become fixed seconds |
-
-Duration is a closed physical type with an explicit s/ms/us/ns tick unit in the
-graph, execution key and receipt. Local Parquet sources preserve Arrow Duration
-metadata and int64 ticks; DuckDB native INTERVAL is admitted as microseconds only
-after a source-native check rejects year/month/day components. Native INTERVAL
-does not invent nanosecond precision. No fixed-duration operation casts ticks to
-float or turns calendar intervals into elapsed time. Ordinary numeric Metric
-sum/mean/weighted mean/ratio/linear use standard Ibis arithmetic. Their result and
-retained-state schemas are bound before execution and checked by the existing
-provider batch transport. Decimal/int/float operands keep independent types;
-different Decimal scales use a common Ibis Decimal only when necessary. Narrow
-signed integer and float measures widen once at the graph carrier boundary.
-Identity and join keys are never widened through float.
-
-Signed linear finishing promotes components before negation and addition.
-Integer and Duration tick intermediates use Decimal(38,0), with the final int64
-carrier checked after cancellation. A mixed floating result uses its floating
-carrier before arithmetic; integer terms in a Decimal result widen at its scale
-before negation, preserving fractional Decimal terms on native engines. These
-casts protect intermediate arithmetic without widening saved
-component types or converting raw source columns.
-Decimal Cell difference operands widen to the comparison method's declared
-Decimal(38,s) carrier when native mean produces a narrower Decimal. Source and
-fixed difference artifacts therefore retain the same physical schema.
-
-Native rounding, truncation, cancellation and backend-dependent numerical
-results are accepted. Ordinary Metric methods do not promise a universal relative
-error bound, exact rational finishing, or HALF_EVEN. Mean's native primary may
-differ from a sum/count continuation. Ratio and weighted mean still apply their
-actual zero-denominator policy; small finite nonzero denominators are not rejected
-because an old error interval spans zero. Nonfinite values, transport overflow,
-invalid Cells and missing required state remain errors. There is no retry with a
-different numerical algorithm.
-
-The bounds of downstream comparison/reference/statistical methods apply to their
-represented input Cells. They do not certify native aggregation error against raw
-facts. Independently stricter attribution, Duration, temporal-fold and current-row
-statistic methods retain their own admission and numerical contracts. Exact and
-approximate quantile identities remain distinct: native rounding never authorizes
-switching to a sketch. Retained sum/count and paired numerator/weight components
-continue to own rollup; averaging projected means or ratios remains invalid.
-
-### Native arithmetic and retained state
-
-Ordinary Metric mean, weighted mean, ratio and linear implementations and their
-rollups use contract version 5 and `native_numeric` precision. Source mean uses
-Ibis `mean`; ratio uses `/`; weighted mean uses the same non-null pair mask for
-both sums. Sum, min/max and direct quantiles already use standard Ibis operations.
-A scalar numerator cast works around SQL dialect rewriting of a shared division
-operand; it does not rewrite stored components. Explicit output casts reconcile
-Ibis's inferred types with the declared result schema. Source values arrive as
-pandas through Ibis/provider conversion, which may be lossy; key, Cell, time,
-and persisted-schema checks remain at their owning boundaries.
-
-Coordinate state records component types independently. Fixed consumers merge
-those actual saved types locally, then project to the captured result type. Cold
-reads preserve the saved primary without recomputation. New continuations may
-round differently from source execution. Store 9's committed-state trust boundary
-is unchanged; there is no compatibility migration or new content audit on reads.
-Duration and temporal-fold helpers with independent callers remain available.
-
-Fixed original-state consumers share `numeric_state.merge_components` and
-`finish_original`; `merge_original` composes these internal operations. Sum,
-sum_zero, count, mean, ratio and weighted mean no longer maintain separate scalar
-merge/empty/finish implementations. Linear and extrema keep their existing
-method policies in the same kernel. Each component, support count and absolute
-magnitude keeps its actual saved Arrow type, independently of the display type.
-Coordinate-part transport that needs only totals merges components without
-finishing a discarded display value. State layout, quantity, units, contribution
-bindings, weighting and empty policies remain owned by the registered method.
-
-Consumption still indexes complete primary/state/coverage keys, rejects duplicate
-insertions and missing components, and checks retained coverage and Cell/state
-agreement. Numerical failures are structured execution failures. Current-row
-`aggregate` continues to aggregate represented result rows; it does not replace
-original-quantity `rollup`.
-
-ClickHouse native weighted products and retained sums widen exact intermediates
-where its ordinary carriers can wrap. Product/state carrier checks remain
-mandatory; backend overflow is a structured execution failure, not accepted
-rounding. Other routes retain native operations and their necessary output casts.
-Downstream error bounds for native Metric Cells start at their represented values;
-they do not certify the error of the original raw-fact aggregation.
-
-## Composition and conditional continuations
-
-All methods require exact ordered input bindings, full typed keys, input Cell
-policies, units, and actual physical qualification. Every transported part is
-restricted by the same key mapping as its primary; a value-only result cannot
-claim a continuation that requires a missing part. In this table S means strict
-selection and admitted current-row statistics; F means source-free fixed
-continuation with all required parts. Current-row statistics require their independently qualified type matrix;
-this table does not activate additional reducers or numerical carriers.
-
-| Method identity | RequiredParts and consumption | Output / permitted K |
+| Operation | Effective samples | Empty/all-NA result |
 | --- | --- | --- |
-| map_correspond (exact, outer, one-to-one, closed time-key variants) | Complete ordered typed keys; design and target binding; one-to-one relation/time evidence or complete bucket map as applicable | Exact matched/missing-side map and original endpoints; correspondence is not original-state rollup |
-| cell.compare | One ordered endpoint pair, exact/outer correspondence and both type admissions | One root without quantity; two independent Cells and error bounds; one atomic Artifact |
-| comparison.read | ComparisonPart and field absolute/relative | Typed projection of the same root/Artifact; original endpoint authority is retained |
-| cell.difference | Correspondence, ordered endpoint Cells and recursively frozen quantity templates; matched values Defined/finite | current−baseline; endpoints, presence and policies retained; S/F, members only with Subject map, attribute only under its separate rule |
-| cell.relative_change | Same as difference | (current−baseline)/abs(baseline); dimensionless; zero baseline Undefined(zero_baseline); S/F, no automatic attribution |
-| cell.ratio | Exact or bound one-to-one correspondence; ordered endpoints and quotient-unit proof | Zero denominator Undefined(zero_denominator); explicit missing-side yields Undefined(missing_side); S/F, never original rollup/share |
-| parts_transport (where/view/limit/member projection) | Every referenced predicate input, exact same-domain or retained inclusion mapping, Subject when requested | Same quantity and precisely restricted parts; membership retains selection basis, no reread/reselection; K derived from retained state |
-| domain.cohort | Full target Subject domain, complete opportunity domain and coverage, SubjectBinding, all predicate inputs | Exact selected Subject set plus quantifier/decision evidence; F, source observation only for source members, no unknown qualification silently dropped |
-| reference.share | Same-measure Singleton reference, support inclusion and additive/allocation proof; full-partition proof only if claimed | Same-key dimensionless share with frozen reference; S/F, no original rollup |
-| reference.penetration | Complete member reference Ω, selected member set B, exact identities and intersection | Singleton intersection-count / reference-count; empty reference Undefined(empty_reference); S/F |
-| reference.standardize | ReferenceWeights, exact complete unique strata, compatible statistical Entity proved from original Metric/runtime Metric sum/count/linear/mean/weighted_mean/ratio | Singleton weighted standardized value and frozen strata/reference; S/F, no original rollup |
-| display.rank | Numeric input and exact Category partition maps, full original ranking domain | Same-key values/ranks plus deterministic order, partition/tie policy; S/F and global limit, no recomputation on selection |
-| display.table | Ordered complete-key Relations, exact input/view bindings and key proof | Terminal table; export/read only, no analysis K |
-| attribution.additive_difference | Absolute Difference with complete endpoint states, additive partition/allocation proof, axes, coverage and target reproduction | C_i−B_i, allocated side views and scope/resolution reconciliation; S/F and ranking views; filtered output loses complete-partition K |
-| attribution.component_mix | Absolute Difference over original mean/weighted_mean/ratio; per-side additive N/W, complete partition, valid totals and original policies | N_i/W_total side terms, their difference, independent scope/resolution checks; same K restrictions as additive attribution |
-
-Reference-weight construction is a pure binding operation, not a second
-arithmetic method. Predicate methods are closed tag/scalar/composite variants
-consumed by parts_transport or domain.cohort. Their result is a predicate, not
-an independently published Relation. Logical attribution axis expansion adds
-explicit observation dependencies; Materialized expansion uses retained parts
-only. Relative or nested Difference, ordinary ratio, standardized quantities,
-distinct and quantile do not receive attribution merely because endpoints exist.
-Additive original linear components may qualify only with complete additive
-partition and endpoint reproduction; no general FormulaBasis is introduced.
-Attribution axes accept corresponding classifications to select retained roles.
-A bare Dimension Ref requires one retained binding on each endpoint, and the
-complete ordered axis bindings must agree across endpoints.
-
-`mv.exact()` requires unique full typed keys and equal images; double empty is
-valid. Entity identity and constructor guarantees are trusted. A shared captured
-key domain supplies equality only through nodes that preserve that domain; equal
-DomainSignatures, row counts or Entity refs do not suffice. Unknown equality is
-checked on source and fixed routes. `mv.outer()` keeps missing coordinates as
-Undefined(missing_side) by default, separately from Present non-Defined Cells.
-`mv.outer(missing="empty_value")` requires complete original Metric observation
-and coverage and uses that Metric's empty finish. Filtered/ranked/limited or
-missing-version rows are not empty contributions. Synthesis never overwrites a
-present Null/Undefined/Unknown Cell; unknown coverage cannot authorize it.
-
-`current.compare(baseline, align=mv.exact())` returns a LogicalComparisonResult
-with mandatory absolute and relative views, published as one
-MaterializedComparisonResult Artifact. The root has no scalar value or numeric
-continuations. `absolute` is a DifferenceRelation with current-baseline and its
-original unit and separately admitted attribution. `relative` is a NumericRelation
-with (current-baseline)/abs(baseline), unit 1, and no original rollup or attribution.
-Both formulas read the original operands independently. Zero baseline makes only
-relative Undefined(zero_baseline); overflow or NaN/inf fails the entire Run.
-Both type admissions apply, including equal Decimal scales. Materialized views
-read the same Artifact without allocating a Run. The root exports keys plus
-absolute/relative and their separate cell_tag/cell_reason columns.
-
-Frozen target and observation-time captures determine one design: only time
-changes give time comparison (period for two grids); only targets change give
-cohort comparison on common Group/Singleton coordinates. Identical captures or
-changes to both conditions reject. Period requires
-an explicit ordinal, weekday, holiday or holiday_then_weekday descriptor
-on `align.time`. Other comparisons
-forbid align.time. Period output uses string aligned keys with time-key kind prefixes and no time_grid;
-both original time coordinates remain in correspondence projections. Exact requires
-equal aligned-key sets; outer keep unions complete composite keys even when either
-grid is longer. Empty finish rejects time keys outside the other observation window.
-Apply time grouping/rollup, runs, forecast and explicit lag correlation to original
-endpoints before comparing; selections retain this restriction while aligned keys
-survive. See [Period correspondence](timezone-and-calendar-design.md#period-correspondence).
-
-Present non-Defined operands propagate per Cell under every pairing (value
-policy `propagate`). When either operand is Null, Undefined or Unknown, the
-result does no arithmetic and takes that operand's tag and reason with a zero
-error bound. When both are non-Defined, the higher priority tag wins
-(Unknown > Undefined > Null) and a tie keeps the current side; both original
-reasons remain in the current_endpoint and baseline_endpoint projections. A
-missing Keep row is still Undefined(missing_side). Malformed Cells and
-nonfinite Defined values still fail the whole Run.
-
-### Predicate and cohort consumption
-
-Before selection, every actual input must correspond to the receiver's complete
-consumption domain; a retained inclusion may restrict an ancestor input but
-cannot supply missing rows. All child checks run before truth composition.
-where's ordinary numeric predicates require Defined finite values. Category,
-Boolean and Temporal comparisons require Defined values of the stated type;
-there is no implicit truth conversion. is_defined is total on the four Cell tags
-and returns false for Null/Undefined/Unknown. No tag check masks another child's
-consumption error. Thus all_of(x.is_defined(), x.gt(0)) fails on Undefined while
-an explicit first selection followed by a comparison on the selected view can
-succeed. L1 applies only to the common fully defined domain.
-
-cohort uses the same type/finite/unit checks over the full opportunity domain.
-Ordinary scalar comparisons may produce unknown for an existing Unknown Cell;
-Null/Undefined remain hard errors. State predicates remain total. Missing keys,
-opportunities or coverage are errors, not new Unknown Cells. AllOf is false if
-any child is false, true if all are true, otherwise unknown; AnyOf is true if
-any is true, false if all are false, otherwise unknown; Not preserves unknown.
-These rules apply after every child passes its consumption checks.
-
-For each target Subject let t/u/f count all true/unknown/false opportunities.
-any_instance is true if t>0, false if t=u=0, otherwise unknown. at_least(k) is
-true if t>=k, false if t+u<k, otherwise unknown. Both are false on complete empty
-opportunity domains. Nonempty all_instances is false if f>0, true if f=u=0,
-otherwise unknown. Empty all_instances follows its explicit true/false/undefined
-policy. Every target Subject must have decidable qualification before producing
-an exact AnalysisDomain; unknown or undefined rejects the whole result. Retain
-targets with zero opportunities to evaluate that policy. These truth rules do
-not grant global arithmetic on Unknown Cells or relax where.
-
-### Comparison and reference numerical contracts
-
-I=int64, F=finite float64, D=Decimal(p,s), T=fixed Duration(s/ms/us/ns).
-Homogeneous operand families are required unless explicitly stated.
-Boolean/date/timestamp are not numeric. These are method-specific contracts,
-distinct from ordinary Metric native arithmetic above. Every source/fixed route
-needs its own exact qualification. No cross-family coercion, Decimal rescaling
-or Duration unit conversion is implicit.
-
-| Method | I | F | D | T |
-| --- | --- | --- | --- | --- |
-| absolute difference / additive attribution | Checked int64 difference and published state | Finite float64 difference | Same-scale inputs; exact Decimal(38,s) result/state | Same-unit exact checked ticks, unit preserved |
-| relative change / ordinary ratio / share | Exact integer numerator/denominator until one float64 finish | Finite float64 finish with denominator stability check | Decimal(38,max(s_left,s_right,6)), one HALF_EVEN finish | Same-unit tick ratio, exact until float64 finish; relative change likewise dimensionless |
-| scalar/state predicates | Exact comparisons; bool excluded | Finite exact binary64 comparison | Exact equal-scale comparison | Exact same-unit ticks |
-| ranking | Exact ordering, int64 defined ranks | Finite value ordering, int64 ranks | Exact decimal ordering, int64 ranks | Exact tick ordering, int64 ranks |
-| standardize | I values with I/F dimensionless weights, float64 finish | F values with I/F weights, float64 finish | D values with same-scale D weights within weight input; Decimal(38,max(s_value,6)) finish | Rejected: no standardized Duration quantity method |
-| component_mix | Exact N/W until float64 side finish, float64 contributions | Finite float64 side/contribution | Exact Decimal components; Decimal(38,max(s_N,s_W,6)) side/contribution | Rejected: no tick-rounded component allocation method |
-| penetration / cohort counts | Checked exact int64 identity counts; penetration finishes float64 once | Not a numeric-input algorithm | Not a numeric-input algorithm | Not a numeric-input algorithm |
-| table / transport | Preserve | Preserve (reject malformed nonfinite Defined payload) | Preserve | Preserve |
-
-These restrictions belong to standardization/allocation and do not change
-independently admitted Metric/Duration methods. Current-row reducers likewise
-need their exact consumer qualification.
-
-Integer/Decimal/tick intermediates must not pass through float. Mathematical
-intermediate numerator/difference/score may use exact widened arithmetic; each
-stored int64/tick state or output and every declared Decimal precision is range
-checked. In particular abs(-2**63) for a score or denominator must not wrap.
-Overflow, nonfinite values, unsupported scale and incompatible units reject
-before publication. Negative baseline uses abs(baseline) only for relative
-change; ordinary ratio keeps denominator sign. Zero policies precede division.
-Float results use the represented-input error model: propagate operand bounds through
-subtraction, plus R(r); for division use its denominator-interval bound. Exact
-integer operands enter with zero error and finish once. Float comparison/rank
-operate on represented values without epsilon ties. Numeric qualification tests
-use independent Fraction/Decimal or raw-fact oracles and vary row order/batching.
-
-share requires support inclusion and compatible additive measure or admitted
-allocated side terms. It promises [0,1] only with nonnegative terms and positive
-reference; signed shares otherwise remain signed and make no such promise.
-Zero denominator is Undefined(zero_denominator). Complete partition is an
-independent proof, not inferred from a sum close to one. penetration counts
-B∩Ω using complete identities, not overlapping category sums.
-
-Standardization freezes the following choices. Every stratum key must exist
-exactly once on both sides, including zero-weight strata. Weights must all be
-Defined, finite, nonnegative and dimensionless. I/D weights sum to exactly one
-using exact arithmetic. F weights use an order-independent exact sum of their
-binary64 values for validation, accepted iff abs(sum−1)<=1e-12; the represented
-weights are used unchanged, never normalized. The unit is the statistical-unit
-Entity, distinct from measurement units. Empty strata and zero total reject.
-Every positive-weight value must be Defined and finite. At exactly zero weight,
-Null/Undefined/Unknown values remain retained but are not multiplied or consumed
-as numbers; malformed/nonfinite Defined values still reject. Positive weights,
-however small, get no epsilon exemption. The receiver quantity must explicitly
-admit averaging comparable stratum values with one common measurement unit;
-it cannot smuggle unlike denominators/units into a mean.
-
-Products/sums for I/D use exact widened arithmetic until the single result
-finish; checked stored D state preserves s_value+s_weight (<=38). F products
-and sums propagate the method sum/product bounds and the weight-sum acceptance
-error is disclosed separately, not corrected. The result retains all weights,
-values, zero-weight statuses, keys and fixed reference identity. It is a new
-standardized quantity; no original Metric merge or actual-population claim.
-
-### Rank, attribution arithmetic and reconciliation
-
-Ranking partitions by complete Category tuples; empty tuple means one partition.
-Within a partition Defined finite values sort by requested order, exact ties by
-canonical typed instance key. ordinal assigns 1..n; dense increments by one per
-distinct value; min/max use the first/last occupied ordinal of each tied block.
-Non-Defined values/ranks retain their tag and reason, sort after Defined values,
-and tie-break by instance key (no artificial ordering of missingness severity).
-Global output order is canonical partition tuple, Defined before non-Defined,
-numeric rank, instance key. This is display order, not business event order.
-limit takes its global prefix, integer 1..100000 excluding bool. Each partition's
-Top-K requires explicit defined-rank filtering then rank<=k; dense/min/max may
-retain more than k rows. Neither operation recomputes ranks or fixed references.
-Canonical keys compare typed components in declared order, native exact numeric/
-temporal order and Unicode codepoint string order; no repr/hash order. Typed
-real-null and Other have separate tags; Other sorts after ordinary coordinates.
-
-Attribution accepts nonempty unique ordered axes; hierarchy requires >=2 axes.
-joint emits full tuples; hierarchy emits every authored prefix with resolution
-in the key. Each scope/resolution is separately complete and reconciled. Both
-endpoint quantities must reproduce from retained complete components before
-allocation. Unknown coverage, overlapping contributions, illegal folds or
-missing states reject independently of residual. Relative/nested changes do
-not inherit these methods automatically.
-
-additive_difference publishes C_i−B_i. component_mix publishes N_i/W_total on
-each side, then their difference; it never subtracts unallocated group ratios.
-Both overall endpoints must be Defined and totals valid under original policies.
-Zero W_total rejects, including 0/0; for float a denominator error interval
-spanning zero also rejects. A structural N_i=W_i=0 contributes zero; W_i=0 with
-nonzero N_i rejects as contradictory, preserving the accepted typed-operators
-rule rather than broadening it from algebraic cancellation. Negative basis is
-permitted only where the original component policy admits it. Endpoint/partition
-proof is independent of this numerical check.
-
-Numerator and denominator error bounds follow their independent component
-carriers. An integer or Decimal component has zero floating roundoff bound;
-a floating component requires its own retained finite nonnegative magnitude.
-A floating numerator does not require a floating denominator, and an exact
-numerator does not suppress a floating denominator's error interval.
-
-top_k is None or integer 1..1000 excluding bool. Before arithmetic, select once
-on the union of both sides' full basis using descending abs(C_i)+abs(B_i) for
-additive, abs(W_i,current)+abs(W_i,baseline) for component_mix; typed coordinates
-break ties. Multi-axis mapping follows authored order within each mapped parent,
-including Other. A typed Other tag and mask distinguish a mapped remainder from
-a real string "Other" or null category. Hierarchy reuses the same mapping;
-never independently select each side or resolution.
-
-For complete scope/resolution let D be the independently computed input target
-and S the sum of published contributions. Additive I/D/T must reconcile exactly
-in their exact carrier, without float conversion. Float arithmetic retains the
-accepted threshold abs(D−S)<=max(1e-12,1e-9*max(abs(D),abs(S),1)); numerical-oracle
-bounds above must also pass, so reconciliation is not a substitute for precision
-qualification. Decimal component_mix checks exact rational component identities
-before finish and applies that same threshold using exact Decimal arithmetic
-to rounded published side differences; it does not widen the tolerance or cast
-to float. Each side is rounded once at its declared scale, its contribution is
-the exact difference of published side terms, and D is the reproduced endpoint
-difference at that scale. Excess rounding residual rejects; no balancing row or
-residual redistribution is allowed. Tests must include high-precision and
-many-small-partition examples at this bound.
-
-Selection transports original target/basis/rule, original reconciliation scope,
-complete Other mapping and selected keys. It unconditionally revokes current
-subdomain completeness, even if selected contributions happen to sum to D.
-No shared helper, legacy registration or residual grants distinct_membership,
-distribution_shapley or a second attribution executor public qualification.
-
-## Statistical methods
-
-The following method/state contracts are version 1 unless the registered
-physical implementation states its separate contract version. Statistical
-numerical certification is independent of ordinary Metric native arithmetic.
-
-### Deviation fit, Cell table and irreversible scope
-
-`deviation.zscore@v1` fits c=mean(x) and s=sqrt(mean((x-c)^2)) over Defined finite
-values in each explicitly authored category tuple. `deviation.mad@v1` fits the
-median c and s=(7413/5000)*median(abs(x-c)). If raw MAD is exactly zero, s is the
-mean absolute deviation around the same c, with no 1.4826 factor. The scale
-branch is closed: population_stddev, scaled_mad, mean_absolute_deviation.
-Even-sample medians are exact means of the two central original values.
-Empty partition_by means one fit over the entire current receiver domain;
-Null categories are real partition coordinates and other coordinates never
-implicitly partition the fit. Every row has equal weight.
-
-| Original Cell / fit | observed | reference | deviation | score |
-| --- | --- | --- | --- | --- |
-| Defined finite, n>=2 and raw scale>0 | original Defined | Defined c | Defined x-c | Defined (x-c)/s |
-| Defined finite, n=1 | original Defined | Defined c=x | Defined zero | Undefined(insufficient_samples) |
-| Defined finite, n>=2 and raw scale=0 | original Defined | Defined c | Defined x-c | Undefined(zero_scale) |
-| Null / Undefined / Unknown, n>0 | original tag/reason | Defined c | original tag/reason | original tag/reason |
-| Null / Undefined / Unknown, n=0 | original tag/reason | Undefined(no_valid_samples) | original tag/reason | original tag/reason |
-
-An empty receiver has no synthetic row. Its fit scope records original_count=0,
-n=0 and no_valid_samples. Nonfinite Defined, malformed/duplicate identity,
-foreign correspondence or false coverage claims are hard failures, not excluded
-samples. Per-partition original_count equals defined+null+undefined+unknown;
-n equals finite Defined count. original_count and n are separately disclosed.
-observed retains original unit, quantity/identity, Subject and actual authorized
-parts; reference/deviation retain the unit but have new fitted quantities; score
-is dimensionless. The three derived quantities have no original rollup/attribute.
-
-Fit scope is frozen at the node. where on the result selects all four views;
-rank/limit uses existing RankingResult and preserves n/c/s/branch/input bindings.
-Neither rewrites the original fitted domain. where-before-deviation creates a
-new fit. Explicit shared input/fit nodes execute once per DAG/Run; separately
-constructed equal definitions are not common-subexpression merged. Subject
-projection from selected observed uses its real original mapping, never scores
-or display row positions.
-
-### r8_numeric_v1: widened arithmetic and one finish
-
-Required input families are int64, finite float64 and Decimal(p,s),
-1<=p<=38 and 0<=s<=p. Each vector retains one exact physical input type; bool,
-Duration/date/timestamp are not statistical numerics. Counts and horizon/lag
-ordinals are checked int64. Integer sums, differences, squares, products,
-medians, means, covariance, innovations and variance use widened integer/Fraction
-state before finishing. Decimal inputs are validated at their captured (p,s),
-then converted losslessly to scaled-integer/rational intermediates. 1.4826 is the
-exact rational 7413/5000, not a binary float literal. No input rounding or ambient
-process Decimal context is permitted.
-
-| Input / output | observed | reference/deviation and forecast prediction/lower/upper | score / coefficient |
-| --- | --- | --- | --- |
-| int64 | int64 | finite float64, one nearest representable finish from widened intermediates | finite float64 |
-| float64 | exact captured binary64 | finite float64, stable centered/scaled arithmetic | finite float64 |
-| Decimal(p,s) | original Decimal(p,s) | Decimal(38,max(s,6)), one ROUND_HALF_EVEN finish | finite float64, one explicit final projection |
-
-Center and x-c, innovations and point predictions use unrounded internal values;
-rounding the displayed center before scoring is forbidden. The raw exact
-variance/MAD/fallback value decides scale=0, never its displayed rounded value.
-For float64, constant/zero tests compare original finite binary64 values and
-exact centered identities. Exact binary64-as-rational raw facts are the independent
-oracle; stable floating implementations must prove the final bound below for
-extreme/near-cancelling/subnormal inputs, row orders and batching.
-
-Irrational sqrt and inverse-normal finish use an isolated ROUND_HALF_EVEN Decimal
-working context with Emin=-999999, Emax=999999 and at least 120 significant digits.
-For inverse-normal probability p=(1+level)/2, level is its exact binary64 ratio;
-start precision is 120+max(0,-floor(log10(min(level,1-level)))). Do not round p to
-0, 0.5 or 1 before inversion. Directed enclosing bounds certify the published
-rounding/error. If a final rounding boundary is unresolved, refine this same
-numeric algorithm by 40 digits under the existing execute deadline; this is not
-an implementation/route retry. No unproved exact irrational claim is allowed.
-
-For independent mathematical result r, float64 acceptance is
-abs(actual-r)<=R(r), R(r)=1e-12*(1+abs(r)), evaluated without float overflow.
-Decimal acceptance requires the specified HALF_EVEN value at output scale;
-the disclosed error is at most half the output quantum plus the certified
-transcendental enclosure error. Exact rational finishes settle ties exactly;
-transcendental rounding is certified before publication. Numerical bounds are
-separate from upstream sampling/semantic approximation and business Unknown.
-A finite output that cannot meet its bound remains unqualified. Stored precision,
-nonfinite output, count overflow or unrepresentable final unit value reject the
-whole action. No saturation, epsilon clamp or implicit Decimal rescale repairs a numerical
-failure; unsupported physical keys reject before execution.
-
-Correlation permits all ordered pairs of I/F/D input families, including
-unequal Decimal precision/scale across endpoints: each endpoint retains its own
-original type. Cross-endpoint products/centerings use lossless rational
-intermediates, not a common float input cast. Spearman/Kendall rank/compare each
-vector in its original exact order; ranks are exact half-integers. This does not
-authorize within-vector mixed values or cross-family predicate/partition coercion.
-Unary deviation/forecast have no heterogeneous-vector overload. A source-native
-physical route must qualify the same exact ordered types and error contract.
-The physical precision variant certified_statistical binds r8_numeric_v1
-to the eight deviation/association/forecast methods, exact ordered input types,
-widened state and declared rounded outputs. It is distinct from exact,
-checked_int64, finite_float64 and native_numeric. time.runs retains exact
-classification/tick facts with checked counts. Registration does not establish
-full backend/type/shape or release acceptance.
-
-Independent oracles use original integers/Decimals/binary64 ratios, sorted order
-statistics, centered rational sums, pair counts and the model equations below.
-They do not import product numeric helpers, use absolute scores as a
-signed-score oracle, or compare implementations sharing one arithmetic helper.
-Root/quantile oracle enclosures use separately authored high-precision definitions.
-
-### Runs classification and maximal segments
-
-`time.runs@v1` consumes the complete original grid and every predicate dependency
-with corresponding complete typed keys. Pure Entity/scalar or arbitrary timestamp
-columns do not qualify. Each non-time tuple is a separate sequence. Validate
-physical missing/duplicate/partial cells and false coverage as hard violations;
-only an explicitly retained unavailable original cell is a legal gap. Ordinary
-where that removed time cells revokes completeness and blocks subsequent runs,
-even if surviving coordinates happen to look consecutive.
-
-Each predicate leaf is evaluated before composition. Numeric comparison of a
-non-Defined required Cell is unavailable with that Cell's reason; state predicates
-are total according to their existing tag semantics. Type/unit/owner/correspondence
-errors remain hard failures. Composition is closed: if any dependency is
-unavailable, the composite is unavailable; otherwise evaluate the Boolean tree
-normally. There is no short-circuit masking of an unavailable sibling. This
-classifier is specific to runs and does not weaken ordinary where's strict rule.
-
-Enumerate all original cells in grid order. false, unavailable or a recorded gap
-ends the current true segment. Emit every maximal true segment as
-[first_cell.start,last_cell.end), count=number of cells, duration=end-start in
-exact grid microsecond ticks. Crossing a reader batch carries the unfinished
-segment and last grid identity; a batch boundary is not a terminator. DST and
-certified unequal periods use actual UTC boundaries, never count*24h.
-Run identity binds series/grid, condition definition/version and all dependency
-bindings, plus start/end cell identities. Closed left/right termination kinds
-are false, unavailable and scope_boundary, with the terminating cell/reason when
-present. scope_boundary means observation ended, not that the business condition
-resolved. Two-sided adjacent opposite-sign true cells remain one segment.
-
-Retain true/false/unavailable counts for the whole grid, including zero output;
-all-unavailable and evaluated-zero are distinct. Post-run where/rank/table selects
-segments and never resegments. count can rank; duration supports existing
-unitized predicates, with no new Duration ranking directory. Subject images
-exist only through original retained SubjectBinding and run->cell->Subject parts.
-Projection deduplicates Subjects under existing set rules without changing run
-multiplicity; global Time sequences have no members capability.
-
-### Association pairing, statuses, lag and selection
-
-`association.pearson@v1`, `association.spearman@v1` and
-`association.kendall@v1` consume 2..16 distinct single-quantity inputs in request
-order. Every unordered index pair a<b is evaluated. Quantity identity, not label,
-establishes distinctness. Require the same exact complete observation instance
-set/coordinate authority and realized unique composite keys; independent source
-captures with merely equal row counts/Entity declarations do not prove pairing.
-Entity/category rows are statistical units. Time is paired by point, and each
-category*time tuple is a separate series. Scalar is rejected.
-
-The disclosed pairing_key follows the retained PairInputsPart.input_domain
-instance_key in original order, naming each component's Entity, field and
-coordinate role. Pairing uses the complete original observation tuple. For a
-composite Entity key, both order_id and member_seq identify the observation;
-neither component alone is its identity. Association output keys identify
-evaluated candidates, not the original paired observations. The parent,
-coefficient/selected views and terminal table columns share this frozen fact
-without disclosing identity values or adding Runs.
-Terminal tables share identical interpretation facts across an ordered list of
-column labels. Different fact values remain separate, so shared disclosure never
-conflates different units or pairing keys. Default display budgets still apply.
-
-None means one zero lag. A nonempty range supplies signed int64 offsets only;
-explicit lag is rejected on Entity/category even for range(0,1). +k pairs A(t)
-with B(t+k) on original grid ordinals and certified coordinates, without crossing
-series or collapsing missing rows. Input request order determines direction.
-For each pair/lag/series: input-matched=boundary_drop and null+complete=matched.
-Only ordinary Null is pairwise deleted after alignment. Undefined/Unknown,
-nonfinite Defined, duplicate keys or malformed domains fail atomically.
-
-For complete pairs x,y, Pearson is Sxy/sqrt(Sxx*Syy), where Sxy is the centered
-cross-product sum and Sxx/Syy are centered square sums. Spearman is this Pearson
-formula on globally assigned average ranks of each complete paired vector.
-Frozen Spearman witnesses are validated by one ordered tie-block scan after
-sorting, in O(n log n) comparisons, without calling the rank estimator.
-Kendall tau-b is (C-D)/sqrt((C+D+T_x)*(C+D+T_y)); C/D count concordant/discordant
-unordered observation pairs, T_x/T_y count ties in only that endpoint, and pairs
-tied in both are excluded from both factors. Batch-local ranks/coefficient merges
-and quadratic source SQL pair joins are forbidden substitutes.
-
-Status precedence is insufficient_pairs when complete<2, then constant_both,
-constant_a, constant_b, otherwise valid. Invalid candidates carry Undefined
-coefficient with their closed reason and selected=False, never NaN or zero.
-A valid candidate requires finite coefficient in [-1,1]; any rounding enclosure
-used to finish an endpoint coefficient must be retained, with no arbitrary
-near-one clamp. Every pair/series needs >=1 valid lag or the entire call rejects.
-Exactly one valid lag wins by (-abs(coefficient),abs(lag),lag), selection version
-association.max_abs_coefficient_min_abs_lag_min_signed_lag@v1. All invalid and
-valid candidates remain. Pair*lag*series ceiling is 4096, checked statically when
-known and at execution otherwise; it is unrelated to input rows/bytes/memory.
-where does not recompute coefficients, selected flags or original search_summary.
-Coefficient aggregate describes current coefficient rows; it is not pooled
-correlation, original rollup, Entity selection, causality or inference.
-
-### Forecast model and interval equations
-
-`forecast.naive@v1`, `forecast.drift@v1` and `forecast.seasonal_naive@v1` consume
-one complete consecutive time or category*time quantity. All series share the
-same captured training grid and approved future grid. Every required training
-Cell is Defined/finite. Reject duplicates, missing/partial cells, all other Cell
-tags, unapproved continuation and pooling across series. Horizon is periods(1..1000),
-level is a finite float in (0,1), seasonal length is an integer s>1 excluding bool.
-Minimum n is 2, 3 and s+1 respectively.
-
-For series y[1..n] and future ordinal h>=1, normal_residual@v1 is normative:
-
-```text
-naive:
-  prediction[h] = y[n]
-  innovation[t] = y[t]-y[t-1], t=2..n
-  df=n-1; sigma2=sum(innovation[t]^2)/df
-  variance[h]=sigma2*h
-
-drift:
-  slope=(y[n]-y[1])/(n-1)
-  prediction[h]=y[n]+h*slope
-  innovation[t]=y[t]-y[t-1]-slope, t=2..n
-  df=n-2; sigma2=sum(innovation[t]^2)/df
-  variance[h]=sigma2*h*(1+h/(n-1))
-
-seasonal_naive(s):
-  prediction[h]=y[n-s+((h-1) mod s)+1]
-  innovation[t]=y[t]-y[t-s], t=s+1..n
-  df=n-s; sigma2=sum(innovation[t]^2)/df
-  variance[h]=sigma2*(floor((h-1)/s)+1)
-
-z=Phi^-1((1+level)/2)
-margin[h]=z*sqrt(variance[h])
-lower[h]=prediction[h]-margin[h]; upper[h]=prediction[h]+margin[h]
-```
-
-Naive/seasonal innovations are not demeaned, including a constant nonzero vector.
-Drift removes only its first/last fitted increment and uses df=n-2, not residuals
-of a regression on levels. Exact-zero variance is allowed only when every required
-innovation is exactly zero. Unavailable/negative variance or a nonfinite required
-point/bound aborts all horizons and series. A rounded interval can coincide at a
-coarse Decimal quantum without asserting zero innovation: retain nonzero raw
-variance and rounding error, never label it exact_zero. Missing variance never
-becomes a zero-width interval.
-
-Prediction is ModelPrediction; bounds are PredictionIntervalBound. Their domain
-is the same captured future grid. where synchronizes the three views while
-retaining original training authority; prediction rank/table and current-row
-descriptive statistics do not authorize summing bounds into a total interval.
-Association and forecast rank projections retain their original statistical
-parts and Finding policy. Same-scope tables containing those ranks capture each column
-and its display witnesses through `table_fits`; rank values are verified by
-the display owner, not interpreted as coefficients or predictions. Builtin
-future-grid lookahead uses absolute instants and enumerates actual civil
-boundaries, including repeated and skipped DST boundaries; unused lookahead
-must not reject an otherwise complete requested horizon.
-Assumption contract is zero_mean_uncorrelated_homoskedastic_normal_innovations@v1,
-with drift mean-increment estimation uncertainty. These are nominal prediction
-intervals for future observations, not mean confidence intervals, empirical
-calibration, causal effects or a guarantee from numerical admission.
-
-### RequiredParts, transformations and closed failures
-
-Part schemas are frozen under r8.<role>/v1, with typed composite keys, explicit
-binding/definition/scope/version and separate schema/row-count/receipt. Rational
-facts use reduced signed numerator and positive denominator decimal strings;
-bounded-root facts bind the exact radicand and directed Decimal endpoints. These
-are closed scalar records, not arbitrary reason dictionaries or public exports.
-Every single-row retained payload (fit, runs, association and forecast state) decodes
-strictly and must re-encode to its exact canonical JSON; a non-canonical or loosely typed
-payload is rejected as an integrity failure, never coerced.
-
-| Role | Required columns/facts and keys | Producer / transport |
-| --- | --- | --- |
-| fit_inputs | original key, partition tuple, Cell value/tag/reason, input/grid/Subject binding; full original scope | Deviation captures once; selection retains full authority |
-| fit_state | partition key, original/tag counts/n, center, raw scale/variance, scale branch, numeric policy, median/order witnesses and input digest | Deviation; immutable through where/rank/limit |
-| grid_cells | grid/cell identity, ordinal, original/actual start/end, partial, precision, coverage; per-series complete coordinate map | shared temporal capture; numeric/difference/score transport only if completeness survives |
-| condition_cells | series/cell key, dependency bindings, true/false/unavailable and closed reasons | Runs; full classification scope survives selected outputs |
-| run_cells | run identity, ordered cell identities, start/end/count/duration and two termination witnesses | Runs; select by run identity, never resegment |
-| subject_map | original complete Subject tuple, input cell/instance and run/observed mapping when available | actual Subject owner; never synthesize from public numeric keys |
-| pair_inputs | ordered quantity/pair/series/lag, full correspondence bindings, captured pair values/tags and pairing counts | Association within the source invocation; transport-only does not qualify the kernel |
-| association_state | every candidate key, counts/status/coefficient/selected, input quantity contracts and original search_summary/selection version | Association; selected current rows retain original search authority |
-| training_inputs | series/cell key, full training values, training grid and quantity binding | Forecast; no source/calendar reconstruction |
-| forecast_state | series key, model/season/n/innovation count/df/slope/sigma2/zero flag/numeric policy; each horizon variance | Forecast; per-series facts, not only min/max summaries |
-| future_cells | approved future grid/cell keys, ordinal/start/end, horizon mapping and continuation authority | temporal owner; immutable through forecast selection |
-| finding_policy | exact producer/state/extractor/policy/input/scope and count/digest authority | common Runtime owner, including no-Findings policy |
-
-Selected main rows and selected field tables have the same typed current keys;
-full fit/classification/search/training authority tables keep their original keys
-and explicit scope. Their PartTransform is select_output_retain_scope@v1.
-Original observed parts transport only when their existing rule remains true.
-Selection revokes complete-time-grid admission for a new runs/forecast kernel;
-output transport cannot manufacture lost full inputs. Production and new consumers enforce their input/state contracts. Store 9
-recovery decodes committed types and data without replaying numeric proofs;
-it must not refit, rerank, resegment, reselect lag or reforecast to replace
-missing data. Actual K is the intersection of these parts,
-quantity and requested parameters, not the Result family name.
-
-StatisticalRelationError subclasses AnalysisError with code, operation,
-method/version, exact input identity, expected, received and repair. Closed codes
-are r8.input_identity, r8.input_mode, r8.cell_policy, r8.grid_incomplete,
-r8.correspondence, r8.numeric_unqualified, r8.numeric_overflow,
-r8.no_valid_candidate, r8.candidate_ceiling, r8.forecast_history,
-r8.future_grid, r8.retained_part and r8.numeric_precision. Unavailable scoring is
-Cell state, not an execution error. Each code binds actual missing parts/types,
-keys, counts or registered qualification; repair uses current state and names
-an exact reconstruction/parameter action. Timeout/cancel/resource errors reuse
-the existing Runtime owner. There is no generic ValueError or hardcoded repair
-catalog substituted for these structured facts.
-
-## Numerical admission and interpretation
-
-Ordinary Metric native arithmetic, exact Duration/Decimal methods, represented
-Cell comparisons/references, allocation reconciliation and r8_numeric_v1 are
-different numerical contracts. None certifies source sampling, business
-completeness or approximation error outside its own scope.
-
-Current-row source consumers and qualified Duration mean consumers keep their
-exact declared input/output/state types. Local Decimal arithmetic helpers retain
-their numeric equations without granting saved-result execution. The Decimal sum state widens to
-Decimal(38,2); its mean finishes once to Decimal(38,6) with HALF_EVEN while
-retaining scale-2 sum state. This is not blanket Decimal group/time admission.
-
-Errors carry the expected contract, received facts and concrete repair.
-Nonfinite values, overflow, incompatible ownership/types, missing consumed parts
-and contradictory coverage fail through AnalysisError subclasses.
-Unknown remains a result Cell only where its method explicitly owns
-that meaning. No silent fallback, truncation, imputation or balancing allocation
-repairs the computation.
-
-Attribution is algebraic, association is descriptive, and forecast intervals
-depend on their stated innovation assumptions. Deviation scores and runs retain
-chosen fitting/condition scope; they do not classify business anomalies or
-choose the next analysis step. Evidence reads and Findings follow
-[Analysis Evidence Access](evidence-access-surface.md).
+| Source or internal sum | Non-NA child values, subject to nulls policy | 0 by default; NA for explicit `empty="null"` |
+| count / count_distinct | Method's declared complete occurrences or non-NA values | 0 |
+| min/max/mean/median/quantile | Effective non-NA samples | NA |
+| weighted_mean | One common non-NA value/weight pair mask for both sums | The operator's denominator policy |
+| Query Column sum | Current non-NA represented cells | 0 |
+| Query Column mean | Current non-NA represented cells | NA |
+| row_count | All current coordinate rows, including NA values | 0 |
+
+Strict `nulls="error"` belongs to the source/internal reduction that captures it.
+Checks cover its demanded sample/contribution domain. A later where, select, zero
+multiplier or empty output cannot suppress a required error.
+
+Division uses `zero_denominator="null"` by default and masks zero before dividing.
+Explicit `"error"` fails only the demanded non-NA division. The parameter belongs
+to that new operation; a parent comparison or formula cannot overwrite a child's
+strict policy. Nonfinite values, invalid arithmetic and overflow are errors,
+not additional missing states or a reason to retry another algorithm.
+
+## Physical numeric and temporal carriers
+
+Admitted physical columns use signed int64, finite float64, Decimal(p,s) with
+1 <= p <= 38 and 0 <= s <= p, boolean, string, date, exact timezone-aware timestamp
+and fixed-duration s/ms/us/ns ticks. Boolean is not a numeric quantity. Every
+physical route fixes its actual input and output types before business execution.
+Keys are never passed through float, including integers above 2**53.
+`Query.coord(axis)` can supply a scalar Column only for a single-component axis.
+Construction remains source-free; preparation rejects a composite identity as a
+single quantity before Run admission and business compilation/reads. The complete
+identity remains available in output keys, Population tuple predicates and export;
+select an existing single-field axis when a scalar coordinate value is needed.
+
+Nullable pandas/Arrow carriers preserve integer and Decimal precision. Stage
+normalization checks complete column order, types, nullability, timezones and
+unique full keys. Safe storage conversion rejects lossy values rather than
+casting them back after loss. Datasource schema metadata remains authoritative
+when a provider exposes a different Timestamp or Duration carrier. Source
+admission and saved-output export are separate guarantees.
+
+Source arithmetic uses admitted native Ibis operations. Local arithmetic preserves
+exact integer/Decimal intermediates until its declared output conversion and
+checks finite results and signed overflow. Duration keeps its exact tick unit;
+a calendar month is not an elapsed duration. DuckDB native INTERVAL is admitted
+as microseconds only after a source-native check rejects year, month and day
+components. It does not invent nanosecond precision. Arrow Duration metadata and
+integer ticks retain their declared unit on admitted file routes. Decimal precision/scale, quantile
+interpolation and any native approximation are method contracts, not promises of
+universal rational arithmetic or a global error bound.
+
+Exact median/quantile uses linear interpolation h=(n-1)q; [0,10] at q=.95 gives
+9.5. Native approximate reductions require an explicit approximate definition,
+qualified actual type/backend and algorithm identity. An unavailable exact route
+never falls back to approximation, and the reverse is also prohibited.
+
+Ordered first/last uses a unique declared time order after completing each child
+sample. It must not substitute an unordered backend first/last. include_null and
+strict sample policy remain attached to the original occurrence. Window overlap,
+per-sample keys and ordered sampling checks survive any legal optimization.
+
+## Contribution occurrences and internal samples
+
+Independent fact roots reduce independently under their own filters and time
+roles, then combine on complete target keys. One root's facts cannot be multiplied
+by another root's rows. Existence selection, overlapping membership allocation
+and modeled association events retain different contribution meanings.
+
+A membership descriptor preserves correlated fields within one tuple. Separate
+descriptors form independent factors. Repeated `(contribution identity, bucket)`
+pairs are set occurrences; equal-valued distinct contributions remain separate.
+unmatched is explicit exclude or Null. Complete requested output K is independent
+of allocation and must cover the contributions it claims to represent.
+
+`Metric.per(samples)` completes the entire child Metric within each external and
+internal key pair before applying the sample reducer. An average of per-customer
+ratios is not an overall ratio. A complete explicit internal domain retains empty
+samples under the child's empty policy; it may deliberately select a subset.
+
+## Current cells, original Metrics and windows
+
+`Query.reduce` computes new statistics from current represented cells. `rollup`
+recomputes the original Metric at a coarser coordinate domain only where its
+business additivity and sufficient information permit. Finished means, ratios,
+quantiles and approximate estimates cannot be summed to manufacture an original
+coarser value. A source route may reevaluate qualified original contributions;
+execution-only components never become Artifact continuation state.
+
+Filtering and Top-N select existing coordinates. Moving a selection across
+rollup, reduce, share or a window requires proof that demanded input, policies,
+complete keys and checks remain equivalent. A parent selection cannot infer fine
+members that were never requested; drill constructs explicit new endpoint work.
+Comparison results do not gain direct drill or relative-value rollup authority.
+
+The qualified L8 rollup fusion is limited to adjacent single-consumer original
+rollups over identical ordinary exact int64/Decimal direct sum/count components
+and direct retained-axis maps. It preserves the original ordered intermediate
+finishes and checks: an overflowing middle group still fails even if a later
+scalar total would cancel it. Same-input source fusion keeps independent logical
+occurrences and complete component/check slots; typed preparation authority owns
+that sameness. Float sums, per/window inputs, differing policies, pending checks,
+selection/share boundaries and shared intermediates receive no general fusion
+grant. These optimizations do not replace the operator's original semantics.
+
+Metric.window attaches one axis-free rule. Each endpoint evaluates its own full
+W(t) before a comparison. Display boundaries, nominal buckets, actual clipped
+intervals and contribution windows remain distinct. Windowed original rollup may
+change spatial grain only while preserving the original calendar and endpoints.
+Changing or removing that time binding requires a new observe.
+
+## Complete correspondence and comparison
+
+`align(other, how="exact", match=None)` retains left/right roles. Same-binding
+identity correspondence preserves shared axes. exact checks unique complete keys
+and equal images; outer retains their union and records real missing sides as NA
+plus False presence. It never substitutes zero or claims empty business activity.
+
+Axis-free ordinal uses each endpoint's original full calendar order. Both sides
+need equal resolved Grain, boundary timezone and compatible calendar authority,
+and every actual bucket must equal its nominal bucket. Filtering does not compress
+positions. exact requires equal bucket counts and complete key pairing; outer
+retains the longer tail without relaxing completeness or resampling.
+
+Declared corresponding uses exactly one identity axis per side and an explicit
+left-to-right one-to-one path. The path must explain all identity components and
+required version anchors. Equal field names do not prove identity. Direct full-PK
+equalities require no extra data; other mappings are explicit plan dependencies.
+One-to-one structure does not prove this invocation's domain coverage.
+
+`compare` requires equal nonempty quantity-name sets and compatible numeric types
+and units. It emits each name's current, baseline, absolute and relative values.
+Absolute is current-baseline; relative is that difference divided by abs(baseline).
+A zero baseline defaults only the new relative to NA, preserving a valid absolute;
+explicit error fails the invocation. Input subexpression policies remain in force.
+General comparison does not require the same Metric definition at both endpoints;
+business comparability remains the caller's responsibility.
+
+Nonidentity correspondence retains its own coordinate and actual endpoint
+projections, including missing endpoints. Presence paths preserve nested left/right
+or current/baseline roles. A projected current time axis requires an actual current
+coordinate on every represented row; a baseline-only row cannot be dropped or given
+a fabricated date. Period mappings and leap-day behavior belong to
+[Timezones and Calendars](timezone-and-calendar-design.md#period-correspondence).
+
+## Reference transport and share
+
+Broadcast transports any compatible value kind over a complete unique target-key
+to reference-key projection. A zero-axis reference must have exactly one row;
+a one-row grouped reference remains grouped. Every reference axis must match a
+bound target axis, retained projection or legal coarsening; names and row positions
+cannot supply a mapping. Reference keys must be unique and cover every target key.
+Transport repeats value use, not original facts or contribution authority.
+
+Share is numerical and requires a valid contribution quantity and compatible
+unit. Its numerator and denominator consume one actual input under the requested
+partition. Share followed by filtering retains the original denominator; filtering
+before share changes that denominator. General broadcast division is not a proof
+of contribution inclusion. No common-input route means an explicit capability
+error, not independent reevaluation disguised as the same input.
+
+## Export and interpretation
+
+Pandas export has RangeIndex and `(kind, name)` columns: coordinate, named value
+and presence. Axis metadata preserves kind, stable column token, complete key
+components, dtype, timezone/bounds and actual projections. It contains no semantic
+Ref, formula, graph or hidden state. Empty and keys-only results keep their schema.
+Follow complete business keys when pairing exported tables; preserve Field Null
+with `dropna=False` where appropriate. A valid zero and NA remain different.
+
+Ordinary classification, descriptive/paired statistics, cell-level rolling and
+forecasting belong in pandas after export. A computed difference is arithmetic
+evidence, not a causal explanation. Neither output values nor restored metadata
+prove source completeness, freshness or suitability for a new question.

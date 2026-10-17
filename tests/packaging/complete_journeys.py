@@ -40,15 +40,12 @@ def run(root: Path, journey: str, phase: str) -> dict[str, Json]:
     assert journey in JOURNEYS and phase in ("produce", "fixed", "cold")
     root = root.resolve()
     os.environ["MARIVO_PROJECT_ROOT"] = str(root)
-    legacy_phase = {"produce": "produce", "fixed": "continue", "cold": "recover"}[phase]
     result: dict[str, Json]
     if journey == "a01":
         result = hierarchy_journey.run(root, phase)
     elif journey == "a03":
         result = obj(
-            checked(
-                json.loads(json.dumps(graph_journeys.journey(legacy_phase, root, "j3", "parquet")))
-            )
+            checked(json.loads(json.dumps(graph_journeys.journey(phase, root, "j3", "parquet"))))
         )
     elif journey == "a04":
         result = {
@@ -56,9 +53,7 @@ def run(root: Path, journey: str, phase: str) -> dict[str, Json]:
                 checked(
                     json.loads(
                         json.dumps(
-                            graph_journeys.journey(
-                                legacy_phase, root / scenario, scenario, "parquet"
-                            )
+                            graph_journeys.journey(phase, root / scenario, scenario, "parquet")
                         )
                     )
                 )
@@ -68,12 +63,15 @@ def run(root: Path, journey: str, phase: str) -> dict[str, Json]:
         result["null_pairs"] = association_edges_journey.run(root / "null_pairs", phase)
     elif journey in ("a02", "a06", "a07", "a08", "a12"):
         scenario = "a06" if journey == "a12" else journey
-        result = obj(checked(relation_journeys.journey(legacy_phase, root, scenario, "parquet")))
+        result = obj(checked(relation_journeys.journey(phase, root, scenario, "parquet")))
     elif journey == "a05":
         _project(root)
         result = versioned_journey.run(root, phase)
     elif journey == "a11":
-        result = recovery_worker.run(root, phase, "parquet")
+        _project(root)
+        result = obj(
+            checked(recovery_worker.run(root, "offline" if phase == "fixed" else phase, "entity"))
+        )
     else:
         raise AssertionError(f"Unknown installed journey: {journey}")
     return {"journey": journey, "phase": phase, "pid": os.getpid(), "result": result}

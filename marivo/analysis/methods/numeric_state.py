@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
+from datetime import timedelta
 from decimal import ROUND_HALF_EVEN, Decimal, localcontext
 from fractions import Fraction
 from typing import Literal, TypeAlias
@@ -11,6 +12,7 @@ from typing import Literal, TypeAlias
 import pandas as pd
 import pyarrow as pa
 
+from marivo.analysis.core.data_types import DataType, DurationDataType, ScalarDataType
 from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType, ValueType
 
 Number: TypeAlias = int | float | Decimal
@@ -204,11 +206,15 @@ def nullable_arithmetic(
             [Fraction(v) if pd.notna(v) else pd.NA for v in b], dtype=object, index=b.index
         )
     if any(isinstance(value, float) for value in a) or any(isinstance(value, float) for value in b):
-        a = a.map(lambda value: float(value) if isinstance(value, Decimal) else value)
-        b = b.map(lambda value: float(value) if isinstance(value, Decimal) else value)
+        a = a.map(lambda value: float(value) if isinstance(value, Decimal) else value).astype(
+            object
+        )
+        b = b.map(lambda value: float(value) if isinstance(value, Decimal) else value).astype(
+            object
+        )
     if operation == "divide":
-        zero = b.notna() & (b == 0).fillna(False)
-        if zero_denominator == "error" and zero.any():
+        zero = b.notna() & ((b == 0) | (b == timedelta(0))).fillna(False)
+        if zero_denominator == "error" and (a.notna() & zero).any():
             numeric_failure("a nonzero denominator", "metric.divide(zero_denominator='error')")
         b = b.mask(zero, pd.NA)
     try:
@@ -226,6 +232,7 @@ def nullable_arithmetic(
                 numeric_failure("an admitted nullable arithmetic operator", operation)
     except (ArithmeticError, TypeError, ValueError) as error:
         numeric_failure("valid numeric arithmetic", f"{operation}: {error}")
+    result = result.astype(object).mask(a.isna() | b.isna(), pd.NA)
     if any(isinstance(value, int) and not -(2**63) <= value < 2**63 for value in result):
         numeric_failure("signed int64 arithmetic", f"{operation}: integer overflow")
     if any(
@@ -235,3 +242,76 @@ def nullable_arithmetic(
     ):
         numeric_failure("finite numeric output", operation)
     return result
+
+
+def finish_float64(values: pd.Series, operation: str) -> pd.Series:
+    """Convert an exact completed expression once to its declared float carrier."""
+    from marivo.semantic.metric_graph_lowering import numeric_failure
+
+    finished: list[float] = []
+    for value in values:
+        if pd.isna(value):
+            finished.append(math.nan)
+            continue
+        try:
+            converted = float(value)
+        except (ValueError, TypeError, OverflowError):
+            numeric_failure("a finite float64 output", f"{operation}: {value!r}")
+        if not math.isfinite(converted):
+            numeric_failure("a finite float64 output", f"{operation}: output overflow")
+        finished.append(converted)
+    return pd.Series(finished, dtype="float64", index=values.index)
+
+
+def duration_arithmetic(
+    operation: str,
+    left: pd.Series,
+    right: pd.Series,
+    *,
+    left_type: DataType,
+    right_type: DataType,
+    output: DurationDataType | ScalarDataType,
+    zero_denominator: str,
+) -> pd.Series:
+    """Execute already typed Duration arithmetic in its exact original ticks."""
+    from marivo.semantic.metric_graph_lowering import numeric_failure
+
+    def operand(series: pd.Series, dtype: DataType) -> pd.Series:
+        if not isinstance(dtype, DurationDataType):
+            return series
+        ticks = pa.array(series, type=pa.duration(dtype.unit), from_pandas=True).cast(pa.int64())
+        return pd.Series(
+            [int(value) if value is not None else pd.NA for value in ticks.to_pylist()],
+            dtype=object,
+            index=series.index,
+        )
+
+    result = nullable_arithmetic(
+        operation,
+        operand(left, left_type),
+        operand(right, right_type),
+        zero_denominator=zero_denominator,
+        exact_duration=True,
+    )
+    if not isinstance(output, DurationDataType):
+        return finish_float64(result, "Duration ratio")
+    finished: list[int | None] = []
+    try:
+        for value in result:
+            if pd.isna(value):
+                finished.append(None)
+            else:
+                exact = Fraction(value)
+                tick = finish_division(
+                    exact.numerator, exact.denominator, DurationType(output.unit)
+                )
+                assert isinstance(tick, int)
+                finished.append(tick)
+    except (ArithmeticError, ValueError, TypeError) as error:
+        numeric_failure("exact signed int64 Duration arithmetic", str(error))
+    return pd.Series(
+        pd.arrays.ArrowExtensionArray(
+            pa.array(finished, type=pa.int64()).cast(pa.duration(output.unit))
+        ),
+        index=result.index,
+    )

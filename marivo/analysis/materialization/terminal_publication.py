@@ -6,7 +6,7 @@ import os
 from collections.abc import Callable
 from contextlib import ExitStack
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
 
 import pandas as pd
@@ -17,6 +17,7 @@ from marivo._definition.expressions import (
 from marivo._definition.types import CalendarCoordinate
 from marivo.analysis.compiler.graph_lowering import LoweredQuery, LoweredRead, lower_query
 from marivo.analysis.compiler.graph_plan import LocalCompute, SourceSchema, plan_query
+from marivo.analysis.compiler.query_program import QueryContext
 from marivo.analysis.core.artifact_data import (
     ArtifactData,
     ArtifactManifest,
@@ -24,6 +25,7 @@ from marivo.analysis.core.artifact_data import (
     CalendarDataAxis,
     DataAxis,
     DataColumn,
+    DataProjection,
     DataSchema,
     OutputAttachment,
     OutputEvidence,
@@ -45,7 +47,9 @@ from marivo.analysis.materialization.graph_source_execution import (
     execute_numeric_query,
     open_query_sources,
     prepare_source_free_populations,
+    qualify_query_sources,
 )
+from marivo.analysis.materialization.query_correspondence import prepare_context
 from marivo.analysis.materialization.resources import (
     backend_reservation,
     discharge_resources,
@@ -183,6 +187,16 @@ def _compute(
                     ),
                     ("timezone", None if period is None else period.timezone),
                     ("contribution", stage.stage_id),
+                    *(
+                        (
+                            (
+                                "logical_contributions",
+                                ";".join(member.stage_id for member in stage.common_reads),
+                            ),
+                        )
+                        if stage.common_reads
+                        else ()
+                    ),
                     ("time_constraint", "none added" if period is None else "half-open period"),
                     (
                         "period_start",
@@ -219,13 +233,14 @@ def _compute(
             )
 
     def record_local(stage: LocalCompute, output: StageOutput) -> None:
-        evidence.append(
-            OutputEvidence(
-                "check",
-                "Demanded numeric values and branch-scoped checks passed; output types validated.",
-                (("version", 1), ("scope", stage.stage_id), ("result", "passed")),
+        for member in stage.fused_steps or (stage,):
+            evidence.append(
+                OutputEvidence(
+                    "check",
+                    "Demanded numeric values and branch-scoped checks passed; output types validated.",
+                    (("version", 1), ("scope", member.stage_id), ("result", "passed")),
+                )
             )
-        )
 
     return execute_numeric_query(
         prepared, lowered, observe_read=record_read, observe_local=record_local
@@ -240,39 +255,141 @@ def _publication(
     evidence: tuple[OutputEvidence, ...],
 ) -> ArtifactPublication:
     key_columns = tuple(column for column in output.columns if column.slot_id in output.keys)
-    values = tuple(column for column in output.columns if column.slot_id not in output.keys)
+    layout = output.layout
+    values = (
+        layout.values
+        if layout is not None
+        else tuple(column for column in output.columns if column.slot_id not in output.keys)
+    )
+    presence = (
+        tuple(layout.column(item.column) for item in layout.presence) if layout is not None else ()
+    )
+    projection_columns = tuple(
+        column
+        for column in output.columns
+        if column.slot_id not in output.keys and column not in values and column not in presence
+    )
+    projections: list[DataProjection] = []
+    if layout is not None:
+        from marivo._definition.correspondence import CorrespondenceAxis
+
+        for projection in layout.projections:
+            candidates = tuple(
+                index
+                for index, axis in enumerate(layout.axes)
+                if axis == projection.axis
+                or (
+                    isinstance(axis, CorrespondenceAxis)
+                    and projection.axis in axis.projections.values()
+                )
+            )
+            axis_index = candidates[0] if len(candidates) == 1 else 0
+            axis = projection.axis
+            projections.append(
+                DataProjection(
+                    f"axis.{axis_index}",
+                    projection.columns,
+                    projection.path,
+                    "calendar"
+                    if isinstance(axis, CalendarCoordinate)
+                    else "correspondence"
+                    if isinstance(axis, CorrespondenceAxis)
+                    else "identity"
+                    if axis.field is None
+                    else "field",
+                    layout.column(projection.columns[0]).name,
+                    axis.timezone if isinstance(axis, CalendarCoordinate) else None,
+                    tuple(
+                        (
+                            datetime.fromisoformat(cell[0].isoformat()),
+                            datetime.fromisoformat(cell[1].isoformat()),
+                            datetime.fromisoformat(cell[2].isoformat()),
+                            datetime.fromisoformat(cell[3].isoformat()),
+                        )
+                        for cell in axis.cells
+                    )
+                    if isinstance(axis, CalendarCoordinate)
+                    else (),
+                )
+            )
     attachments: list[OutputAttachment] = []
-    calendar = next(
-        (axis for axis in graph.signature.axes if isinstance(axis, CalendarCoordinate)), None
+    from marivo._definition.query import (
+        FilterValues,
+        ResultQuery,
+        SelectValues,
+        ShareValues,
+        TopValues,
     )
-    calendar_key = next(
-        (
-            column.slot_id
-            for column in key_columns
-            if calendar is not None and column.name == f"calendar:{calendar.grain}"
-        ),
-        "key.0",
-    )
-    calendar_axis = next(
-        (index for index, column in enumerate(key_columns) if column.slot_id == calendar_key), 0
-    )
-    axes = tuple(
-        CalendarDataAxis(f"axis.{index}", (column,), calendar.timezone)
-        if calendar is not None and column.slot_id == calendar_key
-        else DataAxis(f"axis.{index}", (column,))
-        for index, column in enumerate(key_columns)
-    )
-    if calendar is not None:
-        columns = (
-            DataColumn(calendar_key, f"calendar:{calendar.grain}", ScalarDataType("int64"), False),
+
+    def ordered(root: object) -> bool:
+        return isinstance(root, ResultQuery) and (
+            isinstance(root.operation, TopValues)
+            or (
+                isinstance(root.operation, (SelectValues, FilterValues, ShareValues))
+                and ordered(root.inputs[0].query)
+            )
         )
+
+    if ordered(graph.root) and output.keys:
+        canonical = output.table.sort_values(list(output.keys), kind="stable", na_position="first")
+        positions = {int(original): index for index, original in enumerate(canonical.index)}
+        position = DataColumn("position", "position", ScalarDataType("int64"), False)
+        row_index = DataColumn("row_index", "row_index", ScalarDataType("int64"), False)
+        order_schema = DataSchema((DataAxis("display_position", (position,)),), (row_index,))
+        attachments.append(
+            OutputAttachment(
+                "display_order",
+                order_schema,
+                pd.DataFrame(
+                    {
+                        "position": range(len(output.table)),
+                        "row_index": pd.Series(
+                            [positions[index] for index in range(len(output.table))],
+                            dtype="int64[pyarrow]",
+                        ),
+                    }
+                ),
+            )
+        )
+    axis_groups = output.key_groups or tuple((column.slot_id,) for column in key_columns)
+    axis_columns = tuple(
+        tuple(next(column for column in key_columns if column.slot_id == key) for key in group)
+        for group in axis_groups
+    )
+    if len(axis_columns) != len(graph.signature.axes):
+        raise invalid("output key groups do not match the declared logical axes")
+    from marivo._definition.correspondence import CorrespondenceAxis
+    from marivo._definition.types import AxisBinding
+
+    def axis_kind(index: int) -> Literal["field", "member", "correspondence"]:
+        axis = graph.signature.axes[index]
+        return (
+            "correspondence"
+            if isinstance(axis, CorrespondenceAxis)
+            else "member"
+            if isinstance(axis, AxisBinding) and axis.field is None
+            else "field"
+        )
+
+    axes = tuple(
+        CalendarDataAxis(f"axis.{index}", columns, logical.timezone)
+        if isinstance(logical, CalendarCoordinate)
+        else DataAxis(f"axis.{index}", columns, kind=axis_kind(index))
+        for index, (columns, logical) in enumerate(
+            zip(axis_columns, graph.signature.axes, strict=True)
+        )
+    )
+    for saved_axis, calendar in zip(axes, graph.signature.axes, strict=True):
+        if not isinstance(calendar, CalendarCoordinate):
+            continue
+        if len(saved_axis.columns) != 1:
+            raise invalid("calendar output must preserve exactly one complete bucket key")
+        calendar_key = saved_axis.columns[0].slot_id
         bounds = tuple(
             DataColumn(name, name, TimestampDataType("us", "UTC"), False)
             for name in ("nominal_start", "nominal_end", "actual_start", "actual_end")
         )
-        schema = DataSchema(
-            (CalendarDataAxis(f"axis.{calendar_axis}", columns, calendar.timezone),), bounds
-        )
+        schema = DataSchema((saved_axis,), bounds)
         rows = pd.DataFrame(
             {
                 calendar_key: pd.Series(range(len(calendar.cells)), dtype="int64[pyarrow]"),
@@ -285,15 +402,22 @@ def _publication(
                 },
             }
         )
-        attachments.append(OutputAttachment("calendar_bounds", schema, rows))
+        attachments.append(OutputAttachment(f"calendar_bounds.{saved_axis.token}", schema, rows))
     return ArtifactPublication(
         artifact,
         graph.signature.owner.session_id,
         run,
-        DataSchema(axes, values),
-        output.table,
+        DataSchema(axes, values, presence, projection_columns),
+        output.table.loc[
+            :,
+            [
+                column.slot_id
+                for column in DataSchema(axes, values, presence, projection_columns).columns
+            ],
+        ],
         tuple(attachments),
         evidence=evidence,
+        coordinate_projections=tuple(projections),
     )
 
 
@@ -314,9 +438,22 @@ def execute(
         reconcile(store, session, event)
         try:
             with ExitStack() as stack:
+                from marivo.analysis.compiler.optimization import (
+                    InvocationMemo,
+                    compilation_key,
+                    optimize_query,
+                )
+                from marivo.analysis.methods import registry
+
+                memo = InvocationMemo()
                 observation = graph.signature.observation
-                has_sources = observation is not None and bool(
-                    observation.contributions or observation.coordinates.population is not None
+                from marivo._definition.query import ResultQuery
+
+                has_sources = isinstance(graph.root, ResultQuery) or (
+                    observation is not None
+                    and bool(
+                        observation.contributions or observation.coordinates.population is not None
+                    )
                 )
                 prepared = None
                 local_schemas: tuple[SourceSchema, ...] = ()
@@ -325,16 +462,47 @@ def execute(
                         raise invalid("source Query requires its prepared semantic scope")
                     if _query_entities(graph, state):
                         prepared = stack.enter_context(
-                            open_query_sources(runtime.connection_service(), graph, state)
+                            open_query_sources(
+                                runtime.connection_service(), graph, state, memo=memo
+                            )
                         )
                     else:
                         local_schemas = prepare_source_free_populations(graph, state)
-                lowered = lower_query(
-                    plan_query(graph, local_schemas if prepared is None else prepared.schemas),
-                    {} if prepared is None else prepared.relations,
+                schemas = local_schemas if prepared is None else prepared.schemas
+                context = (
+                    (prepare_context(graph, state) if state is not None else QueryContext())
+                    if prepared is None
+                    else prepared.context
+                )
+                relations = {} if prepared is None else prepared.relations
+                plan = optimize_query(
+                    plan_query(
+                        graph,
+                        schemas,
+                        context=context,
+                        memo=memo,
+                    ),
+                    registry.REGISTRY,
+                )
+                lowered = memo.lower(
+                    compilation_key(
+                        graph,
+                        schemas,
+                        context,
+                        required=tuple(
+                            f"{item.stage_id}:{slot}"
+                            for item in plan.required_slots
+                            for slot in item.columns
+                        ),
+                        relations=relations,
+                    ),
+                    lambda: lower_query(plan, relations),
+                    registry.REGISTRY,
                 )
                 if lowered.plan.checks:
                     raise invalid("Query check route is not implemented; no business row was read")
+                if prepared is not None:
+                    qualify_query_sources(prepared, lowered)
                 run_ref = _new_run_ref()
                 terminal_store.admit(store, session, run_ref)
                 runtime.last_run_ref = run_ref
@@ -382,7 +550,12 @@ def execute(
                 artifact,
                 session,
                 run_ref,
-                ArtifactData(publication.schema, primary, attachments=tuple(attachments)),
+                ArtifactData(
+                    publication.schema,
+                    primary,
+                    coordinate_projections=publication.coordinate_projections,
+                    attachments=tuple(attachments),
+                ),
             )
             _fsync_directory(staging)
             final.parent.mkdir(parents=True, exist_ok=True)

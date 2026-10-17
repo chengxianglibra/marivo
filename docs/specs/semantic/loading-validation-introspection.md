@@ -824,7 +824,7 @@ The current Analysis boundary preserves these independently owned contracts:
 ## Analysis resolution handoff
 
 Resolution consumes the [Semantic handoff](semantic-object-model.md#analysis-semantic-handoff)
-and [Analysis input contract](../analysis/python-analysis-design.md#observation-and-composition).
+and [Analysis input contract](../analysis/python-analysis-design.md#population-and-observation-binding).
 It does not add a second catalog, readiness object, or named statistical-weight
 role. `ms.statistical_weight` was withdrawn; neither it nor the dependent
 `mv.statistical_weight` is reactivated by this handoff.

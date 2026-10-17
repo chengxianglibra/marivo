@@ -1,8 +1,7 @@
-"""Deviation Runtime failures and admission boundaries."""
+"""Terminal reader and publication failures preserve statistical input artifacts."""
 
 from collections.abc import Iterator
 from decimal import Decimal
-from fractions import Fraction
 from pathlib import Path
 
 import duckdb
@@ -11,27 +10,22 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-import marivo.semantic as ms
-from marivo.analysis.errors import AnalysisError, StatisticalRelationError
+from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.contracts import LocalReceipt
-from marivo.analysis.methods import deviation_numeric as numeric
-from tests.shared_fixtures import DslCaseFactory
+from marivo.analysis.materialization.storage import _open_payload
+from tests.analysis.statistics.pandas_workflows import assert_clean, deviation, orders, plain
+from tests.shared_fixtures import DslCaseFactory, run_ids
 
 
-def test_fixed_reader_failure_cannot_admit_or_publish_scoring(
+def test_terminal_reader_failure_stops_pandas_scoring_without_run(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import marivo.analysis.materialization.graph_storage as storage
-    from marivo.analysis.materialization.storage import _open_payload
+    from marivo.analysis.materialization import graph_reading as reading
 
     case = analysis_dsl_case_factory("j2")
-    original = (
-        case.session.members(ms.ref.entity("sales.order"))
-        .read(ms.ref.measure("sales.order.amount"))
-        .execute()
-    )
-    runs = case.session.runs().items
+    artifact = orders(case).execute()
+    before = run_ids(case.session)
     opened = _open_payload
     for fault in ("iteration", "close"):
         closed: list[bool] = []
@@ -40,42 +34,43 @@ def test_fixed_reader_failure_cannot_admit_or_publish_scoring(
             def __init__(self, inner: pq.ParquetFile) -> None:
                 self.inner = inner
                 self.schema_arrow = inner.schema_arrow
+                self.metadata = inner.metadata
+                self.num_row_groups = inner.num_row_groups
+
+            def __enter__(self) -> "Reader":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                self.close()
 
             def iter_batches(
                 self,
                 *,
                 batch_size: int = 65536,
                 row_groups: list[int] | None = None,
-                columns: list[str] | None = None,
-                use_threads: bool = True,
                 _fault: str = fault,
             ) -> Iterator[pa.RecordBatch]:
                 if _fault == "iteration":
-                    raise pa.ArrowInvalid("injected scoring input reader failure")
-                yield from self.inner.iter_batches(
-                    batch_size=batch_size,
-                    row_groups=row_groups,
-                    columns=columns,
-                    use_threads=use_threads,
-                )
+                    raise pa.ArrowInvalid("injected statistics input reader failure")
+                yield from self.inner.iter_batches(batch_size=batch_size, row_groups=row_groups)
 
             def close(self, _fault: str = fault, _closed: list[bool] = closed) -> None:
                 self.inner.close()
                 _closed.append(True)
                 if _fault == "close":
-                    raise pa.ArrowInvalid("injected scoring input close failure")
+                    raise pa.ArrowInvalid("injected statistics input close failure")
 
         def open_payload(root: Path, receipt: LocalReceipt) -> tuple[Reader, Path]:
             inner, path = opened(root, receipt)
             return Reader(inner), path
 
         with monkeypatch.context() as scoped:
-            scoped.setattr(storage, "_open_payload", open_payload)
+            scoped.setattr(reading, "_open_payload", open_payload)
             with pytest.raises(AnalysisError):
-                original.deviation(method="zscore").execute()
+                deviation(plain(artifact), "zscore")
         assert closed == [True]
-        assert case.session.runs().items == runs
-        assert case.session._runtime.store.resources(case.session.id) == ()
+        assert run_ids(case.session) == before
+        assert_clean(case.session, artifacts=1)
 
 
 def test_decimal_output_overflow_is_rejection_not_positive_qualification(
@@ -88,117 +83,87 @@ def test_decimal_output_overflow_is_rejection_not_positive_qualification(
             'ALTER TABLE "order" ALTER amount TYPE DECIMAL(38,0) USING CAST(amount AS DECIMAL(38,0))'
         )
         connection.execute('UPDATE "order" SET amount=?', [maximum])
-    source = case.session.members(ms.ref.entity("sales.order")).read(
-        ms.ref.measure("sales.order.amount")
-    )
-    previous = source.execute()
-    with pytest.raises(StatisticalRelationError) as error:
-        source.deviation(method="zscore").execute()
-    assert error.value.code == "r8.numeric_overflow"
-    runtime = case.session._runtime
-    assert runtime.store.resources(runtime.session_ref) == ()
-    assert previous.to_pandas().value.tolist() == [maximum] * 11
-    with runtime.store._connection() as connection:
-        assert connection.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == 1
-        assert connection.execute("SELECT count(*) FROM dataset_evidence").fetchone()[0] == 1
+    query = orders(case)
+    previous = query.execute()
+    assert plain(previous).value.tolist() == [maximum] * 11
+    with pytest.raises(AnalysisError):
+        query.reduce({"total": query["value"].sum()}).execute()
+    assert_clean(case.session, artifacts=1)
 
 
-def test_fixed_selected_subject_requires_retained_observation_contract(
+def test_exported_subject_selection_has_no_artifact_continuation(
     analysis_dsl_case_factory: DslCaseFactory,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.datasource.adapters import SourceSession
-    from tests.analysis.statistics.deviation_worker import forbidden
-
     case = analysis_dsl_case_factory("j2")
-    result = (
-        case.session.members(ms.ref.entity("sales.order"))
-        .read(ms.ref.measure("sales.order.amount"))
-        .deviation(method="zscore")
-        .execute()
-    )
-    fixed_members = result.where(result.score.value.gt(0)).execute().observed.members()
-    runs = case.session.runs().items
-    monkeypatch.setattr(SourceSession, "__enter__", forbidden)
-    with pytest.raises(
-        StatisticalRelationError, match="no retained observation contract"
-    ) as failure:
-        operation = "observe"
-        _ = getattr(fixed_members, operation)
-    assert failure.value.code == "r8.retained_part"
-    assert case.session.runs().items == runs
+    artifact = orders(case).execute()
+    before = run_ids(case.session)
+    scores = deviation(plain(artifact), "zscore")
+    selected = scores.loc[scores.score > 0]
+    assert not selected.empty
+    assert not hasattr(artifact, "population")
+    assert not hasattr(artifact, "observe")
+    assert not hasattr(artifact, "deviation")
+    assert run_ids(case.session) == before
 
 
+@pytest.mark.parametrize("cancel", (False, True))
 def test_local_failure_releases_prepared_sources_and_preserves_prior_artifact(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
+    cancel: bool,
 ) -> None:
+    from marivo.analysis.materialization import terminal_publication
+
     case = analysis_dsl_case_factory("j2")
-    source = case.session.members(ms.ref.entity("sales.order")).read(
-        ms.ref.measure("sales.order.amount")
-    )
-    previous = source.execute()
-    previous_ref = previous.evidence_digest().artifact_ref
+    query = orders(case)
+    previous = query.execute()
+    saved = previous.to_pandas()
 
-    for fault in ("cancel", "consumer_error"):
+    def fail(*args: object, **kwargs: object) -> None:
+        if cancel:
+            raise KeyboardInterrupt("cancelled after source preparation")
+        raise RuntimeError("local consumer failed")
 
-        def fail(
-            xs: tuple[Fraction, ...],
-            algorithm: numeric.DeviationMethod,
-            injected_fault: str = fault,
-        ) -> numeric.Fit:
-            if injected_fault == "cancel":
-                raise KeyboardInterrupt("cancelled after source preparation")
-            raise RuntimeError("scoring consumer failed")
-
-        with monkeypatch.context() as scoped:
-            scoped.setattr(numeric, "fit", fail)
-            with pytest.raises((AnalysisError, KeyboardInterrupt)):
-                source.deviation(method="zscore").execute()
-        assert len(case.session.artifact(previous_ref).to_pandas()) == 11
-        runtime = case.session._runtime
-        assert runtime.store.resources(runtime.session_ref) == ()
-        with runtime.store._connection() as connection:
-            assert connection.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == 1
-            assert connection.execute("SELECT count(*) FROM dataset_evidence").fetchone()[0] == 1
-            assert connection.execute("SELECT count(*) FROM findings").fetchone()[0] == 0
+    with monkeypatch.context() as scoped:
+        scoped.setattr(terminal_publication, "execute_numeric_query", fail)
+        with pytest.raises((AnalysisError, KeyboardInterrupt)):
+            query.execute()
+    pd.testing.assert_frame_equal(case.session.artifact(previous.id).to_pandas(), saved)
+    assert_clean(case.session, artifacts=1)
 
 
+@pytest.mark.parametrize("point", ("insert_findings", "before_commit"))
 def test_transaction_failure_has_no_partial_success(
     analysis_dsl_case_factory: DslCaseFactory,
+    point: str,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     runtime = case.session._runtime
-    for point in ("insert_findings", "before_commit"):
-        injected: list[str] = []
+    injected: list[str] = []
 
-        def inject(
-            actual: str, injected_point: str = point, recorded: list[str] = injected
-        ) -> None:
-            if actual == injected_point:
-                recorded.append(actual)
-                raise RuntimeError("injected terminal publication failure")
+    def inject(actual: str) -> None:
+        if actual == point:
+            injected.append(actual)
+            raise RuntimeError("injected terminal publication failure")
 
-        runtime._hook = inject
-        try:
-            with pytest.raises(AnalysisError):
-                case.session.query(case.session.members(ms.ref.entity("sales.order"))).execute()
-        finally:
-            runtime._hook = None
-        assert injected == [point]
-        assert runtime.store.resources(runtime.session_ref) == ()
-        with runtime.store._connection() as connection:
-            for table in ("dataset_artifacts", "dataset_evidence", "findings"):
-                assert connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
-            assert (
-                connection.execute(
-                    "SELECT count(*) FROM analysis_action_run_terminals WHERE outcome='succeeded'"
-                ).fetchone()[0]
-                == 0
-            )
+    runtime._hook = inject
+    try:
+        with pytest.raises(AnalysisError):
+            orders(case).execute()
+    finally:
+        runtime._hook = None
+    assert injected == [point]
+    assert_clean(case.session, artifacts=0)
+    with runtime.store._read() as connection:
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM analysis_action_run_terminals WHERE outcome='succeeded'"
+            ).fetchone()[0]
+            == 0
+        )
 
 
-def test_lost_commit_ack_returns_verified_fit_without_source_replay(
+def test_lost_commit_ack_returns_committed_output_without_source_replay(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -207,7 +172,7 @@ def test_lost_commit_ack_returns_verified_fit_without_source_replay(
     case = analysis_dsl_case_factory("j2")
     execute = SourceSession.execute
     reads: list[bool] = []
-    committed_read_counts: list[int] = []
+    committed: list[int] = []
 
     def read(source: SourceSession, compiled: CompiledRead) -> pd.DataFrame:
         frame = execute(source, compiled)
@@ -216,37 +181,21 @@ def test_lost_commit_ack_returns_verified_fit_without_source_replay(
 
     def lose_ack(point: str) -> None:
         if point == "after_commit":
-            committed_read_counts.append(len(reads))
-            raise OSError("lost scoring commit acknowledgement")
+            committed.append(len(reads))
+            raise OSError("lost terminal commit acknowledgement")
 
     monkeypatch.setattr(SourceSession, "execute", read)
     runtime = case.session._runtime
     runtime._hook = lose_ack
-    result = (
-        case.session.members(ms.ref.entity("sales.order"))
-        .read(ms.ref.measure("sales.order.amount"))
-        .deviation(method="zscore")
-        .execute()
-    )
-    assert result._dataset is not None
-    checked = result._dataset.verified()
-    assert len(checked.primary) == 11
-    assert {part.role for part in checked.parts} >= {
-        "fit_inputs",
-        "fit_state",
-        "finding_policy",
-        "subject_map",
-    }
-    assert reads and committed_read_counts == [len(reads)]
-    assert result._dataset.artifact.producing_run_ref == runtime.last_run_ref
-    assert result.evidence_digest().finding_count == 0
-    assert runtime.store.resources(runtime.session_ref) == ()
-    with runtime.store._connection() as connection:
-        assert connection.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == 1
-        assert connection.execute("SELECT count(*) FROM dataset_evidence").fetchone()[0] == 1
-        assert (
-            connection.execute(
-                "SELECT count(*) FROM analysis_action_run_terminals WHERE outcome='succeeded'"
-            ).fetchone()[0]
-            == 1
-        )
+    try:
+        artifact = orders(case).execute()
+    finally:
+        runtime._hook = None
+    assert reads and committed == [len(reads)]
+    assert len(plain(artifact)) == 11
+    assert artifact._manifest.run_id == runtime.last_run_ref
+    assert artifact.evidence_digest().finding_count == 0
+    assert_clean(case.session, artifacts=1)
+    before = run_ids(case.session)
+    deviation(plain(artifact), "zscore")
+    assert run_ids(case.session) == before

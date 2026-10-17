@@ -1,261 +1,149 @@
-"""Fitted display authority, owned ranks and isolated offline recovery."""
+"""Pandas display selection keeps complete keys and the original fitted scope."""
 
-import subprocess
-import sys
 from decimal import Decimal
+from fractions import Fraction
 from typing import Literal
 
+import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.core.model import TableFitsPart
-from marivo.analysis.errors import AnalysisError, StatisticalRelationError
-from marivo.analysis.materialization.graph_exchange import ExchangePart, from_pandas
-from marivo.analysis.methods.deviation_numeric import DeviationMethod
-from tests.analysis.statistics.deviation_display_worker import run as run_display
+from marivo.analysis.errors import AnalysisError
 from tests.analysis.statistics.deviation_oracle import expected
-from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows, export_dsl_parquet_models
-from tests.support.paths import PROJECT_ROOT
+from tests.analysis.statistics.pandas_workflows import (
+    deviation,
+    orders,
+    plain,
+    receipt_paths,
+)
+from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows, run_ids
 
 
 def test_local_display_pairing_rejects_different_current_keys(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.order"))
-    raw = members.read(ms.ref.measure("sales.order.amount"))
-    score = raw.deviation(method="zscore").score
-    selected = score.rank(order="descending", ties="ordinal").limit(3).values
-    with pytest.raises(AnalysisError, match="display input complete keys differ"):
-        mv.table(score=selected, original=raw).execute()
+    query = orders(case)
+    selected = query.top(3, by=query["value"])
+    with pytest.raises(AnalysisError):
+        query.select({"current": selected["value"]})
 
 
 @pytest.mark.parametrize(
     "method,mode,reverse",
-    [
-        ("zscore", "category", False),
-        ("zscore", "other_fit", True),
-        ("mad", "ranks", False),
-    ],
+    [("zscore", "category", False), ("zscore", "other_fit", True), ("mad", "ranks", False)],
 )
 def test_mixed_table_preserves_each_current_value_and_original_fit(
     analysis_dsl_case_factory: DslCaseFactory,
-    method: DeviationMethod,
-    mode: Literal["category", "original", "other_fit", "ranks"],
+    method: Literal["zscore", "mad"],
+    mode: str,
     reverse: bool,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.order"))
-    raw = members.read(ms.ref.measure("sales.order.amount"))
-    fit = raw.deviation(method=method)
-    score = fit.score
-    other: mv.LogicalNumericRelation | mv.LogicalCategoryRelation
+    artifact = orders(case).execute()
+    frame = plain(artifact)
+    fitted = deviation(frame, method)
     if mode == "category":
-        category = members.read(ms.ref.dimension("sales.order.channel"))
-        assert isinstance(category, mv.LogicalCategoryRelation)
-        other = category
-    elif mode == "original":
-        other = raw
+        fitted["other"] = frame.category
     elif mode == "other_fit":
-        other = raw.deviation(method="mad" if method == "zscore" else "zscore").score
+        fitted["other"] = deviation(frame, "mad" if method == "zscore" else "zscore").score
     else:
-        ranking = score.rank(order="descending", ties="dense").limit(3)
-        score, other = ranking.values, ranking.ranks
-    columns = {"other": other, "score": score} if reverse else {"score": score, "other": other}
-    result = mv.table(**columns).execute()
-    result.show(n=0)
-    shown = capsys.readouterr().out
-    fit_owner = "[" + ", ".join(columns) + "]" if mode == "ranks" else "score"
-    assert f"{fit_owner}.fit: deviation.{method}; original fit retained" in shown
-    assert "selection does not refit" in shown
+        fitted = fitted.sort_values(["score", "key_0"], ascending=[False, True]).head(3).copy()
+        fitted["other"] = fitted.score.rank(method="dense", ascending=False)
+    columns = ["key_0", "other", "score"] if reverse else ["key_0", "score", "other"]
+    display = fitted[columns]
     facts = analysis_dsl_rows("j2").orders
-    oracle = expected(tuple(row[-1] for row in facts), method)[3]
-    wanted = dict(zip((row[0] for row in facts), oracle, strict=True))
-    frame = result.to_pandas()
-    assert dict(zip(frame.member, frame.score, strict=True)) == {
-        key: wanted[key] for key in frame.member
+    scores = expected(tuple(row[-1] for row in facts), method)[3]
+    wanted = dict(zip((row[0] for row in facts), scores, strict=True))
+    assert dict(zip(display.key_0, display.score, strict=True)) == {
+        key: wanted[key] for key in display.key_0
     }
     if mode == "ranks":
-        assert sorted(frame.other) == [1, 2, 3]
-    restored = case.session.artifact(result.artifact_ref)
-    assert isinstance(restored, mv.MaterializedTable)
-    assert restored.to_pandas().equals(frame)
-    assert result._dataset is not None
-    checked = result._dataset.verified()
-    declaration = next(p for p in checked.contract.signature.parts if isinstance(p, TableFitsPart))
-    score_index = 1 if reverse else 0
-    assert tuple(c.index for c in declaration.columns) == (
-        (0, 1) if mode in ("ranks", "other_fit") else (score_index,)
-    )
-    from_pandas(
-        checked.primary, checked.contract, parts=checked.parts, method_state=checked.method_state
-    )
-    name = f"column_{score_index}__value"
-    bad = [1.0] * len(checked.primary)
-    primary = checked.primary.copy()
-    primary[name] = bad
-    parts = tuple(
-        ExchangePart(
-            p.role,
-            p.table.assign(**{"columns__" + name: bad}),
-        )
-        if p.role == "columns"
-        else p
-        for p in checked.parts
-    )
-    with pytest.raises(StatisticalRelationError) as failure:
-        from_pandas(primary, checked.contract, parts=parts, method_state=checked.method_state)
-    assert failure.value.code == "r8.retained_part"
+        assert sorted(display.other) == [1, 2, 3]
+    pd.testing.assert_frame_equal(plain(case.session.artifact(artifact.id)), frame)
 
 
-@pytest.mark.parametrize("method", ("zscore",))
-def test_rank_projection_disclosure_and_fixed_table_keep_fit_scope(
-    analysis_dsl_case_factory: DslCaseFactory, method: DeviationMethod
-) -> None:
-    case = analysis_dsl_case_factory("j2")
-    raw = case.session.members(ms.ref.entity("sales.order")).read(
-        ms.ref.measure("sales.order.amount")
-    )
-    logical = raw.deviation(method=method).score.rank(order="descending", ties="dense").limit(3)
-    logical_ranks = logical.ranks.execute()
-    ranking = logical.execute()
-    for ranks in (logical_ranks, ranking.ranks):
-        frame = ranks.to_pandas()
-        assert frame.value.tolist() == [1, 2, 3]
-        facts = dict(ranks.contract()._facts)
-        assert facts["original_count"] == "11"
-        assert facts["method"] == "display.ranks"
-        ranks.show()
-        assert ranks._dataset is not None
-        assert ranks.contract().retained_parts == tuple(
-            p.role for p in ranks._dataset.verified().parts
-        )
-        logical_table = mv.table(rank=ranks)
-        table = logical_table.execute()
-        assert sorted(table.to_pandas()["rank"]) == [1, 2, 3]
-        runs = case.session.runs().items
-        assert logical_table.execute().artifact_ref == table.artifact_ref
-        assert case.session.runs().items == runs
-
-
-def test_table_fit_receipt_is_required_for_recovery_and_exact_hit(
+def test_pandas_rank_projection_retains_original_fit_scope(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.order"))
-    raw = members.read(ms.ref.measure("sales.order.amount")).execute()
-    fit = raw.deviation(method="mad").execute()
-    logical = mv.table(original=raw, score=fit.score)
-    table = logical.execute()
-    case.session.artifact(table.artifact_ref).to_pandas()
-    assert table._dataset is not None
-    receipt = next(
-        p.local for p in table._dataset.artifact.descriptor.parts if p.role == "table_fits"
-    )
-    path = case.root / receipt.project_relative_path / receipt.file_manifest[0].relative_path
+    frame = plain(orders(case).execute())
+    before = run_ids(case.session)
+    scores = deviation(frame, "zscore")
+    rank = scores.score.rank(method="dense", ascending=False)
+    display = scores.assign(rank=rank).sort_values(["rank", "key_0"]).head(3)
+    assert display["rank"].tolist() == [1, 2, 3]
+    assert len(scores) == 11
+    assert display.reference.nunique() == 1
+    assert display.reference.iloc[0] == sum(map(Fraction, frame.value)) / 11
+    assert run_ids(case.session) == before
+
+
+@pytest.mark.parametrize("fault", ("missing", "corrupt"))
+def test_saved_display_order_receipt_is_required_for_preview(
+    analysis_dsl_case_factory: DslCaseFactory,
+    fault: str,
+) -> None:
+    case = analysis_dsl_case_factory("j2")
+    query = orders(case)
+    artifact = query.top(3, by=query["value"]).execute()
+    paths = receipt_paths(case.root, artifact)
+    assert len(paths) == 2
+    path = paths[1]
     payload = path.read_bytes()
-    for fault in ("missing", "corrupt"):
-        if fault == "missing":
-            path.unlink()
-        else:
-            path.write_bytes(payload[:-1] + bytes((payload[-1] ^ 1,)))
-        runs = case.session.runs().items
-        try:
-            with pytest.raises(AnalysisError):
-                case.session.artifact(table.artifact_ref)
-            with pytest.raises(AnalysisError):
-                logical.execute()
-            assert case.session.runs().items == runs
-        finally:
-            path.write_bytes(payload)
+    before = run_ids(case.session)
+    if fault == "missing":
+        path.unlink()
+    else:
+        path.write_bytes(payload[:-1] + bytes((payload[-1] ^ 1,)))
+    try:
+        reopened = case.session.artifact(artifact.id)
+        with pytest.raises(AnalysisError):
+            reopened.show(n=3)
+        assert run_ids(case.session) == before
+    finally:
+        path.write_bytes(payload)
+    assert len(plain(artifact)) == 3
     assert case.session._runtime.store.resources(case.session.id) == ()
 
 
 @pytest.mark.slow
-def test_source_fixed_and_fresh_process_cold_display(
+def test_display_export_recovers_in_fresh_processes(
     analysis_dsl_case_factory: DslCaseFactory,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from tests.analysis.statistics.recovery_worker import subprocess_phases
+
     case = analysis_dsl_case_factory("j2")
-    export_dsl_parquet_models(case, case.root)
-    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(case.root))
-    monkeypatch.setenv("MARIVO_TELEMETRY", "off")
-    run_display(case.root, "produce")
-    case.database_path.rename(case.database_path.with_suffix(".offline"))
-    for source in (case.root / "source_files").glob("*.parquet"):
-        source.rename(source.with_suffix(".offline"))
-    run_display(case.root, "fixed")
-    completed = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "tests.analysis.statistics.deviation_display_worker",
-            str(case.root),
-            "cold",
-        ],
-        cwd=PROJECT_ROOT,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    assert completed.returncode == 0, completed.stdout + completed.stderr
+    subprocess_phases(case, "display")
 
 
-@pytest.mark.parametrize("method", ("zscore",))
 def test_decimal_grid_tables_retain_current_keys_and_full_fit(
-    analysis_dsl_case_factory: DslCaseFactory, method: DeviationMethod
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     import duckdb
 
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as db:
         db.execute('ALTER TABLE "order" ALTER amount TYPE DECIMAL(30,6)')
-    ms.load(workspace_dir=case.root)
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01", end="2026-08-16"), grain=mv.grain("day")
-    )
-    raw = case.session.members(ms.ref.entity("sales.customer")).observe(
-        ms.ref.metric("sales.revenue"),
+    session = case.session
+    grid = session.time_scope(start="2026-08-01", end="2026-08-16").by(mv.grain("day"))
+    artifact = session.observe(
+        {"value": session.catalog.metrics.get("sales.revenue")},
         during=grid,
-        via=ms.ref.relationship("sales." + case.names.buyer),
-        by=(mv.member(),),
+        by=session.members(ms.ref.entity("sales.customer")),
+    ).execute()
+    frame = plain(artifact)
+    assert len(frame) == 60 and frame.value.notna().all()
+    assert all(isinstance(value, Decimal) for value in frame.value)
+    assert frame.value.sum() == Decimal("180")
+    fitted = deviation(frame, "zscore")
+    center, _, _, scores = expected(tuple(frame.value), "zscore")
+    assert fitted.reference.tolist() == [center] * 60
+    assert fitted.score.tolist() == list(scores)
+    selected = fitted.sort_values(["score", "key_0", "key_1"], ascending=[False, True, True]).head(
+        7
     )
-    original = raw.execute()
-    input_frame = original.to_pandas()
-    assert len(input_frame) == 60
-    defined = input_frame.loc[input_frame.cell_tag == "defined"]
-    assert input_frame.cell_tag.eq("null").any()
-    assert all(isinstance(value, Decimal) for value in defined.value)
-    inputs = tuple(value for value in defined.value if isinstance(value, Decimal))
-    scores = expected(inputs, method)[3]
-    wanted = dict(zip(zip(defined.member, defined.coord_0, strict=True), scores, strict=True))
-    logical = raw.deviation(method=method)
-    fixed = logical.execute()
-    for receiver, observed in ((logical, raw), (fixed, original)):
-        mixed = mv.table(original=observed, score=receiver.score).execute()
-        frame = mixed.to_pandas()
-        assert frame.original.isna().tolist() == input_frame.value.isna().tolist()
-        assert frame.original.dropna().tolist() == defined.value.tolist()
-        current = frame.loc[frame.score.notna()]
-        assert (
-            dict(zip(zip(current.member, current.coord_0, strict=True), current.score, strict=True))
-            == wanted
-        )
-
-    ranking = fixed.score.rank(order="descending", ties="dense").limit(7).execute()
-    assert dict(ranking.ranks.contract()._facts)["original_count"] == "60"
-    ranked_frame = mv.table(rank=ranking.ranks, score=ranking.values).execute().to_pandas()
-    assert len(ranked_frame) == 7
-    current = ranked_frame.loc[ranked_frame.score.notna()]
-    assert dict(
-        zip(
-            zip(current.member, current.coord_0, strict=True),
-            current.score,
-            strict=True,
-        )
-    ) == {
-        (member, time): wanted[(member, time)]
-        for member, time in zip(current.member, current.coord_0, strict=True)
-    }
+    assert len(selected) == 7 and selected.reference.tolist() == [center] * 7
+    assert not selected[["key_0", "key_1"]].duplicated().any()
+    pd.testing.assert_frame_equal(plain(session.artifact(artifact.id)), frame)

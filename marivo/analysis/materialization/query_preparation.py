@@ -5,18 +5,41 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
+import ibis
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
-from marivo._definition.types import FieldRead, IdentityRead, coordinate_read_keys, field_read_key
+from marivo._definition.expressions import FieldPredicate, TimeBinding
+from marivo._definition.observations import ObservationPeriod, SampleCoverage
+from marivo._definition.relations import MembershipBinding, PopulationCondition
+from marivo._definition.types import (
+    AxisBinding,
+    CalendarCoordinate,
+    ExactRef,
+    FieldRead,
+    IdentityRead,
+    coordinate_read_keys,
+    field_read_key,
+)
 from marivo.analysis.binding.observe import ContributionBinding
 from marivo.analysis.compiler.member_version import version_predicate
-from marivo.analysis.compiler.source_time import localize, source_time, timestamp
+from marivo.analysis.compiler.source_time import (
+    encoded_time_predicate,
+    localize,
+    source_time,
+    timestamp,
+)
+from marivo.analysis.core.time_authority import SourceTimeAuthority, time_zone
 from marivo.datasource.timezone import DatasourceEngineTimezone
 from marivo.refs import SemanticKind, ref
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._expression_binding import evaluate_expression_body
-from marivo.semantic.ir import HourPrefixParse, TargetSnapshotVersion, TargetValidityVersion
+from marivo.semantic.ir import (
+    HourPrefixParse,
+    TargetDimensionContract,
+    TargetSnapshotVersion,
+    TargetValidityVersion,
+)
 from marivo.semantic.metric_graph_lowering import numeric_failure
 from marivo.semantic.validator import (
     normalize_target_dimension,
@@ -35,15 +58,84 @@ class PreparedFields:
     dependencies: tuple[ir.Value, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class SourceInputContract:
+    """Explicit consumed source binding, independent of reduction occurrences."""
+
+    source_owner: int
+    datasource: str
+    source_fingerprint: str
+    root: ExactRef
+    reads: tuple[FieldRead, ...]
+    coordinates: tuple[FieldRead | IdentityRead, ...]
+    time: TimeBinding | None
+    period: ObservationPeriod | None
+    predicates: tuple[FieldPredicate, ...]
+    memberships: tuple[MembershipBinding, ...]
+    population_conditions: tuple[PopulationCondition, ...]
+    population_reads: tuple[tuple[AxisBinding, FieldRead | IdentityRead], ...]
+    window_key: int | None
+    sample_axes: tuple[AxisBinding | CalendarCoordinate, ...]
+    calendars: tuple[tuple[str, CalendarCoordinate], ...]
+    coverage: tuple[SampleCoverage, ...]
+
+
 def prepare_fields(
     contribution: ContributionBinding,
     entities: Mapping[str, ir.Table],
     state: CompiledSemanticState,
     reader: DatasourceEngineTimezone,
+    *,
+    root_table: ir.Table | None = None,
+    defer_population_conditions: bool = False,
 ) -> PreparedFields:
     """Prepare expressions and checked many-to-one joins without reading values."""
     registry = state.registry
+    from marivo.analysis.core.domain_captures import DomainPreparationError
+
+    root_datasource = registry.entities[contribution.root.ref.path].datasource
+    scalar_reads = (
+        *contribution.reads,
+        *contribution.coordinates,
+    )
+    from marivo.analysis.binding.coordinates import identity_projection
+
+    scalar_reads = (
+        *scalar_reads,
+        *(
+            read
+            for _, read in contribution.population_reads
+            if not isinstance(read, IdentityRead)
+            or identity_projection(read, contribution.root, registry) is None
+        ),
+    )
+    for read in scalar_reads:
+        if registry.entities[read.entity.ref.path].datasource != root_datasource:
+            raise DomainPreparationError(
+                "query.scalar_datasource",
+                "prepare",
+                "scalar relationship endpoints on one datasource",
+                read.entity.ref.path,
+                "Read and select the other datasource independently, then pass its complete typed Query keys as a Population parameter.",
+            )
+        for path_ref in read.path:
+            scalar_relationship = normalize_target_relationship(registry, path_ref.ref.path)
+            if any(
+                registry.entities[endpoint.path].datasource != root_datasource
+                for endpoint in (
+                    scalar_relationship.from_entity_ref,
+                    scalar_relationship.to_entity_ref,
+                )
+            ):
+                raise DomainPreparationError(
+                    "query.scalar_datasource",
+                    "prepare",
+                    "scalar relationship endpoints on one datasource",
+                    read.entity.ref.path,
+                    "Use an independently selected Query-key Population across datasources instead of a scalar relationship read.",
+                )
     dependencies: list[ir.Value] = []
+    time_encodings: dict[str, tuple[ir.Value, TargetDimensionContract, SourceTimeAuthority]] = {}
     zone = contribution.period.timezone if contribution.period is not None else "UTC"
 
     def value(path: str, table: ir.Table, authority_zone: str | None = None) -> ir.Value:
@@ -77,6 +169,7 @@ def prepare_fields(
             prefix = (
                 value(axis.parse.prefix, table) if isinstance(axis.parse, HourPrefixParse) else None
             )
+            raw = result
             result, authority = source_time(
                 result,
                 axis,
@@ -86,6 +179,7 @@ def prepare_fields(
                 engine="duckdb",
                 prefix=prefix,
             )
+            time_encodings[path] = (raw, axis, authority)
             if authority.kind != "civil_date" and result.type().timezone is None:
                 result = localize(authority_zone or zone, timestamp(result))
         return result
@@ -98,7 +192,7 @@ def prepare_fields(
         reserved.add(name)
         return name
 
-    table = entities[contribution.root.ref.path].view()
+    table = entities[contribution.root.ref.path].view() if root_table is None else root_table
     if (
         contribution.period is not None
         and contribution.time is not None
@@ -108,10 +202,32 @@ def prepare_fields(
         from marivo.analysis.compiler.observation import temporal_bound
 
         time = value(contribution.time.field.ref.path, table)
-        conditions = [time < temporal_bound(time, contribution.period.end, zone)]
-        if contribution.period.start is not None:
-            conditions.append(time >= temporal_bound(time, contribution.period.start, zone))
-        table = table.filter(*conditions)
+        encoding = time_encodings.get(contribution.time.field.ref.path)
+        raw_condition = None
+        if encoding is not None:
+            raw, axis, authority = encoding
+            raw_condition = encoded_time_predicate(
+                raw,
+                axis,
+                authority,
+                start=(
+                    contribution.period.start.astimezone(time_zone(zone)).date()
+                    if authority.kind == "civil_date"
+                    else contribution.period.start
+                )
+                if contribution.period.start is not None
+                else None,
+                end=contribution.period.end.astimezone(time_zone(zone)).date()
+                if authority.kind == "civil_date"
+                else contribution.period.end,
+            )
+        if raw_condition is not None:
+            table = table.filter(raw_condition)
+        else:
+            conditions = [time < temporal_bound(time, contribution.period.end, zone)]
+            if contribution.period.start is not None:
+                conditions.append(time >= temporal_bound(time, contribution.period.start, zone))
+            table = table.filter(*conditions)
     columns: list[tuple[str, str]] = []
     originals: list[tuple[str, ir.Value]] = []
     checks: list[tuple[str, str, str]] = []
@@ -134,6 +250,18 @@ def prepare_fields(
         )
         if read not in member_reads
     )
+    time_read = next(
+        (
+            read
+            for read in reads
+            if isinstance(read, FieldRead)
+            and contribution.time is not None
+            and read.field == contribution.time.field
+        ),
+        None,
+    )
+    if time_read is not None and time_read in reads:
+        reads = (time_read, *(read for read in reads if read != time_read))
     parts = tuple(
         (read, component, key)
         for read in reads
@@ -156,7 +284,20 @@ def prepare_fields(
             return value(read.field.ref.path, relation)
 
         slot = unique(f"__field_{index}")
-        if not read.path and read.at is None:
+        from marivo.analysis.binding.coordinates import identity_projection
+
+        projection = (
+            identity_projection(read, contribution.root, registry)
+            if isinstance(read, IdentityRead)
+            else None
+        )
+        if projection is not None and component is not None:
+            assert isinstance(read, IdentityRead)
+            expression = table[projection[read.components.index(component)]]
+            dependencies.append(expression)
+            originals.append((slot, expression))
+            table = table.mutate(**{slot: expression})
+        elif not read.path and read.at is None:
             expression = read_value(table)
             dependencies.append(expression)
             originals.append((slot, expression))
@@ -243,6 +384,29 @@ def prepare_fields(
                 if final:
                     table = table.mutate(**{slot: table[renamed[slot]]})
         columns.append((read_key, slot))
+        if read == time_read and contribution.period is not None:
+            from marivo.analysis.compiler.observation import temporal_bound
+
+            time = table[slot]
+            period_conditions = [time < temporal_bound(time, contribution.period.end, zone)]
+            if contribution.period.start is not None:
+                period_conditions.append(
+                    time >= temporal_bound(time, contribution.period.start, zone)
+                )
+            table = table.filter(*period_conditions)
+    for _, slot in columns:
+        if table[slot].type().is_interval():
+            from marivo.analysis.compiler.numeric_sql import duration_ticks, interval_part
+
+            amount = table[slot]
+            check = unique(f"__duration_check_{len(checks)}")
+            invalid = (
+                (interval_part(ibis.literal("year"), amount) != 0)
+                | (interval_part(ibis.literal("month"), amount) != 0)
+                | (interval_part(ibis.literal("day"), amount) != 0)
+            )
+            table = table.mutate(**{check: invalid, slot: duration_ticks(amount)})
+            checks.append((check, "fixed elapsed Duration without calendar components", slot))
     members = prepare_memberships(
         table, contribution.root, contribution.memberships, entities, state, value, unique
     )
@@ -250,7 +414,7 @@ def prepare_fields(
     columns.extend(members.columns)
     originals.extend(members.originals)
     dependencies.extend(members.dependencies)
-    if contribution.population_conditions:
+    if contribution.population_conditions and not defer_population_conditions:
         from marivo.analysis.materialization.population_condition import filter_contribution
 
         table = filter_contribution(table, contribution, dict(columns), entities, state)
@@ -268,7 +432,7 @@ def physical_fields(value: ir.Value) -> tuple[ops.Field, ...]:
             definition = node.rel.values.get(node.name)
             if definition is not None:
                 visit(definition)
-            elif isinstance(node.rel, ops.SelfReference):
+            elif isinstance(node.rel, ops.Reference):
                 visit(ops.Field(node.rel.parent, node.name))
             else:
                 found[node] = None

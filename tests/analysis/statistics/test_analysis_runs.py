@@ -1,62 +1,50 @@
-"""Public complete-grid runs and independent interval expectations."""
+"""Calendar interval recipes use complete exported values and saved bounds."""
+
+from datetime import timedelta
 
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.errors import AnalysisError
-from tests.shared_fixtures import DslCaseFactory
+from tests.analysis.statistics.runs_worker import segments
+from tests.shared_fixtures import DslCase, DslCaseFactory
 
 
-def test_ratio_without_retained_coverage_rejects_with_typed_error(
+def _daily(case: DslCase) -> mv.Query:
+    grid = case.session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
+    return case.session.observe(
+        {"value": case.session.catalog.metrics.get("sales.revenue")}, during=grid
+    )
+
+
+def test_ratio_exports_na_without_requiring_retained_coverage(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01", end="2026-08-04"), grain=mv.grain("day")
-    )
-    history = members.observe(
-        ms.ref.metric("sales.order_count"),
-        during=grid,
-        via=ms.ref.relationship("sales." + case.names.buyer),
-        by=(mv.member(),),
-    ).execute()
-    ratio = history.ratio(history).execute()
-    with pytest.raises(AnalysisError, match="original captured coverage fact"):
-        ratio.runs(where=ratio.value.gt(0)).execute()
+    history = _daily(case)
+    ratio = history.select({"value": history["value"] / history["value"]}).execute()
+    frame = ratio.to_pandas()
+    assert frame[("value", "value")].iloc[0] == 1
+    assert frame[("value", "value")].iloc[1:].isna().all()
+    result = segments(frame)
+    assert result["count"].tolist() == [1]
+    assert result["duration"].tolist() == [timedelta(days=1)]
 
 
 def test_public_runs(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01", end="2026-08-04"), grain=mv.grain("day")
-    )
-    daily = members.observe(
-        ms.ref.metric("sales.revenue"),
-        during=grid,
-        via=ms.ref.relationship("sales." + case.names.buyer),
-        by=(mv.member(),),
-    )
-    assert isinstance(daily, mv.LogicalNumericRelation)
-    segments = daily.runs(where=daily.value.gt(-1))
-    fixed = segments.execute()
-    assert fixed.count.to_pandas().value.tolist() == [1]
-    assert all(value.days == 1 for value in fixed.duration.to_pandas().value)
-    selected = fixed.where(fixed.count.value.gt(0)).execute()
-    assert selected.count.to_pandas().value.tolist() == fixed.count.to_pandas().value.tolist()
-    from datetime import timedelta
-
-    duration_selected = fixed.where(fixed.duration.value.gt(timedelta(hours=12))).execute()
-    assert duration_selected.start.to_pandas().equals(fixed.start.to_pandas())
-    fixed_daily = daily.execute()
-    for observation in (daily, fixed_daily):
-        filtered = observation.where(observation.value.is_defined())
-        with pytest.raises(AnalysisError):
-            filtered.runs(where=filtered.value.gt(0))
-    with pytest.raises(AnalysisError):
-        fixed.duration.rank(order="descending", ties="dense")
+    daily = _daily(case)
+    fixed = daily.execute()
+    frame = fixed.to_pandas()
+    assert frame[("value", "value")].tolist() == [60, 0, 0]
+    before = len(case.session.runs().items)
+    result = segments(frame)
+    assert result["count"].tolist() == [1]
+    assert result["duration"].tolist() == [timedelta(days=1)]
+    assert result.loc[result["count"] > 0].equals(result)
+    assert result.loc[result["duration"] > timedelta(hours=12), "start"].equals(result["start"])
+    assert segments(frame, threshold=-1)["count"].tolist() == [3]
+    assert len(case.session.runs().items) == before
 
 
 @pytest.mark.slow
@@ -66,21 +54,22 @@ def test_offline_runs_keep_calendar_cold_recovery(
     import subprocess
     import sys
 
-    from tests.analysis.statistics.deviation_fixture import prepare_profiles
-
     case = analysis_dsl_case_factory("j2")
-    prepare_profiles(case, "KS", "parquet", "us", "UTC", True, followup=True, profile_indices=(0,))
+    root = case.root / "calendar-recipe"
+    root.mkdir()
     for phase in ("produce", "fixed", "cold"):
         if phase == "fixed":
-            case.database_path.rename(case.database_path.with_suffix(".offline"))
-            for path in (case.root / "source_files").glob("*.parquet"):
+            for path in root.glob("*.parquet"):
                 path.rename(path.with_suffix(".offline"))
+            import shutil
+
+            shutil.rmtree(root / "models")
         completed = subprocess.run(
             [
                 sys.executable,
                 "-m",
                 "tests.analysis.statistics.runs_worker",
-                str(case.root),
+                str(root),
                 phase,
                 "calendar",
             ],
@@ -96,30 +85,21 @@ def test_new_grid_after_subject_selection(
     analysis_dsl_case_factory: DslCaseFactory, fixed: bool
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    scope = mv.time_scope(start="2026-08-01", end="2026-08-04")
-    via = ms.ref.relationship("sales." + case.names.buyer)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    values = members.observe(
-        ms.ref.metric("sales.revenue"), during=scope, via=via, by=(mv.member(),)
+    session = case.session
+    scope = session.time_scope(start="2026-08-01", end="2026-08-04")
+    members = session.members(ms.ref.entity("sales.customer"))
+    revenue = session.catalog.metrics.get("sales.revenue")
+    values = session.observe({"value": revenue}, during=scope, by=members)
+    selected = values.where(values["value"] > 0).population()
+    fresh = session.observe(
+        {"value": revenue}, by=mv.product(selected, scope.by(mv.grain("day"))), members=selected
     )
-    assert isinstance(values, mv.LogicalNumericRelation)
-    selected = values.where(values.value.is_defined()).members()
-    assert isinstance(selected, mv.LogicalAnalysisDomain)
-    grid = mv.time_grid(during=scope, grain=mv.grain("day"))
-    fresh = selected.observe(
-        ms.ref.metric("sales.revenue"),
-        during=grid,
-        via=via,
-        by=(mv.member(),),
-    )
-    assert isinstance(fresh, mv.LogicalNumericRelation)
-    receiver = fresh.execute() if fixed else fresh
-    result = receiver.runs(where=receiver.value.is_defined()).execute()
-    assert result.count.to_pandas().value.tolist() == [1]
-    limited = receiver.rank(order="descending", ties="dense").limit(1).values
-    before = case.session.runs().items
-    with pytest.raises(AnalysisError) as failure:
-        limited.runs(where=limited.value.is_defined())
-    assert "analysis.dsl.NumericComparison.runs" in str(failure.value)
-    assert case.session.runs().items == before
-    assert not any(".runs(" in action.call for action in limited.contract().actions)
+    artifact = fresh.execute()
+    receiver = session.artifact(artifact.id) if fixed else artifact
+    frame = receiver.to_pandas()
+    assert frame[("value", "value")].tolist() == [60, 0, 0]
+    before = len(session.runs().items)
+    assert segments(frame)["count"].tolist() == [1]
+    ranked = frame.assign(rank=frame[("value", "value")].rank(method="dense", ascending=False))
+    assert ranked[("value", "value")].loc[ranked["rank"] == 1].tolist() == [60]
+    assert len(session.runs().items) == before

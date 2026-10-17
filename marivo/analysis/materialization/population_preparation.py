@@ -9,6 +9,8 @@ import ibis
 import ibis.expr.datatypes as dt
 import ibis.expr.types as ir
 
+from marivo._definition.expressions import ContributionFilter, EntityCount, RowExpression
+from marivo._definition.observations import ContributionBinding
 from marivo._definition.relations import (
     PopulationAnd,
     PopulationClassify,
@@ -25,6 +27,8 @@ from marivo._definition.relations import (
     PopulationSet,
     QueryKeys,
     SourceIdentities,
+    condition_populations,
+    population_keys,
 )
 from marivo._definition.types import (
     AxisBinding,
@@ -35,7 +39,6 @@ from marivo._definition.types import (
 )
 from marivo.analysis.compiler.member_version import version_predicate
 from marivo.analysis.core.model import reject
-from marivo.analysis.dsl.population import condition_populations, population_keys
 from marivo.refs import ref
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._expression_binding import evaluate_expression_body
@@ -73,11 +76,33 @@ def population_entities(
         node = definition.root
         if isinstance(node, SourceIdentities):
             entities.add(node.entity.ref.path)
+            if node.predicate is not None and not isinstance(node.predicate, RowExpression):
+                for domain in condition_populations(node.predicate):
+                    entities.update(population_entities(domain, state))
+                if state is not None:
+                    contribution = _identity_condition(node, state)
+                    for read in (
+                        *contribution.reads,
+                        *(read for _, read in contribution.population_reads),
+                    ):
+                        entities.add(read.entity.ref.path)
+                        for identity_step in read.path:
+                            lookup_relation = state.registry.relationships[identity_step.ref.path]
+                            entities.update(
+                                (lookup_relation.from_entity, lookup_relation.to_entity)
+                            )
         elif isinstance(node, PopulationSet):
             entities.update(population_entities(node.left, state))
             entities.update(population_entities(node.right, state))
         elif isinstance(node, (PopulationProject, PopulationClassify)):
             entities.update(population_entities(node.operand, state))
+            if isinstance(node, PopulationClassify):
+                for read in node.fields:
+                    entities.add(read.entity.ref.path)
+                    if state is not None:
+                        for field_step in read.path:
+                            relation = state.registry.relationships[field_step.ref.path]
+                            entities.update((relation.from_entity, relation.to_entity))
         elif isinstance(node, QueryKeys) and state is not None:
             from marivo.analysis.materialization.query_population import query_population_entities
 
@@ -96,6 +121,25 @@ def population_entities(
             for factor in node.factors:
                 entities.update(population_entities(factor, state))
     return tuple(sorted(entities))
+
+
+def _identity_condition(
+    node: SourceIdentities, state: CompiledSemanticState
+) -> ContributionBinding:
+    from marivo.analysis.binding.observe import bind_observation
+
+    assert node.predicate is not None and not isinstance(node.predicate, RowExpression)
+    binding = bind_observation(
+        (("identity", ContributionFilter(EntityCount(node.entity, None), node.predicate)),),
+        {},
+        during=None,
+        by=(),
+        where=None,
+        timezone="UTC",
+        state=state,
+    )
+    assert len(binding.contributions) == 1
+    return binding.contributions[0]
 
 
 def _field(read: FieldRead, table: ir.Table, state: CompiledSemanticState) -> ir.Value:
@@ -137,6 +181,13 @@ def prepare_population(
             types[group[0]] = dt.int64
             groups.append(group)
             continue
+        if not isinstance(axis, AxisBinding):
+            reject(
+                "source field or identity axes",
+                "a correspondence axis",
+                "Select a complete original endpoint projection before reading a source.",
+                "population.prepare",
+            )
         table = entities[axis.entity.ref.path]
         if axis.field is None:
             keys = state.registry.entities[axis.entity.ref.path].primary_key
@@ -151,6 +202,11 @@ def prepare_population(
         groups.append(group)
     key_groups = tuple(groups)
     columns = tuple(column for group in groups for column in group)
+    from marivo._definition.graph import computation_fingerprint
+
+    parameter = entities.get("population-parameter:" + computation_fingerprint(definition))
+    if parameter is not None:
+        return PreparedPopulation(parameter, key_groups)
     finite = population_keys(definition)
     if finite is not None:
         data: dict[str, list[LiteralValue]] = {column: [] for column in columns}
@@ -281,7 +337,9 @@ def prepare_population(
                 contract, boundary=node.at, interpretation="instant"
             )
             source = source.filter(version_predicate(source, contract.version, selection))
-        if node.predicate is not None:
+        checks: tuple[tuple[str, str, str], ...] = ()
+        summary: ir.Table | None = None
+        if isinstance(node.predicate, RowExpression):
             from marivo._definition.graph import direct_refs
             from marivo.refs import SemanticKind
             from marivo.semantic.metric_graph_lowering import lower_field_predicate
@@ -305,12 +363,46 @@ def prepare_population(
                     "population.prepare",
                 )
             source = source.filter(lowered.value)
+        elif node.predicate is not None:
+            from marivo.analysis.materialization.population_condition import filter_contribution
+            from marivo.analysis.materialization.query_preparation import prepare_fields
+            from marivo.datasource.timezone import probe_engine_timezone
+
+            contribution = _identity_condition(node, state)
+            identity_fields = prepare_fields(
+                contribution,
+                entities,
+                state,
+                probe_engine_timezone(source._find_backend()),
+                root_table=source,
+                defer_population_conditions=True,
+            )
+            source = identity_fields.table
+            checks = identity_fields.checks
+            if checks:
+                summary = source.aggregate(
+                    **{name: source[name].any().fill_null(False) for name, _, _ in checks}
+                )
+            source = filter_contribution(
+                source, contribution, dict(identity_fields.columns), entities, state
+            )
         keys = state.registry.entities[node.entity.ref.path].primary_key
+        null_key = "__identity_null"
+        output = source.select(
+            **{slot: source[key] for slot, key in zip(columns, keys, strict=True)},
+            **{null_key: ibis.or_(*(source[key].isnull() for key in keys))},
+        ).distinct()
+        presence = None
+        if summary is not None:
+            presence = "__identity_selected"
+            output = summary.left_join(
+                output.mutate(**{presence: ibis.literal(True)}), ibis.literal(True)
+            )
         return PreparedPopulation(
-            source.select(
-                **{slot: source[key] for slot, key in zip(columns, keys, strict=True)}
-            ).distinct(),
+            output,
             key_groups,
+            (*checks, (null_key, "non-null complete identity keys", node.entity.ref.path)),
+            presence,
         )
     if isinstance(node, PopulationSet):
         left = _domain_table(prepare_population(node.left, entities, state))
@@ -370,65 +462,9 @@ def prepare_population(
             )
         return PreparedPopulation(table.select(*columns).distinct(), key_groups)
     if isinstance(node, PopulationClassify):
-        identities = prepare_population(node.operand, entities, state)
-        identity_axis = node.operand.axes[0]
-        assert isinstance(identity_axis, AxisBinding)
-        entity = identity_axis.entity.ref.path
-        source = entities[entity].view()
-        contract = normalize_target_entity(state.registry, entity)
-        if contract.version is not None:
-            anchors = {read.at or identity_axis.at for read in node.fields}
-            if len(anchors) != 1 or None in anchors:
-                reject(
-                    "one exact member attribute anchor",
-                    entity,
-                    "Select identities or fields at the same explicit instant.",
-                    "population.prepare",
-                )
-            anchor = next(iter(anchors))
-            assert anchor is not None
-            selection = normalize_target_version_selection(
-                contract, boundary=anchor, interpretation="instant"
-            )
-            source = source.filter(version_predicate(source, contract.version, selection))
-        keys = state.registry.entities[entity].primary_key
-        classifications = {
-            f"__classify_value_{index}": _field(read, source, state)
-            for index, read in enumerate(node.fields)
-        }
-        source = source.mutate(**classifications)
-        grouped = source.group_by(*keys).aggregate(
-            **{name: source[name].arbitrary() for name in classifications},
-            __classify_count=source.count(),
-        )
-        joined = identities.table.left_join(
-            grouped,
-            [
-                identities.table[slot] == grouped[key]
-                for slot, key in zip(identities.key_groups[0], keys, strict=True)
-            ],
-        )
-        check = "__population_classify_invalid"
-        output_fields: dict[str, ir.Value] = {}
-        field_index = 0
-        for axis, group in zip(definition.axes, groups, strict=True):
-            assert isinstance(axis, AxisBinding)
-            if axis.role == "identity":
-                output_fields.update(
-                    {slot: grouped[key] for slot, key in zip(group, keys, strict=True)}
-                )
-            else:
-                output_fields[group[0]] = grouped[f"__classify_value_{field_index}"]
-                field_index += 1
-        output = joined.select(
-            **output_fields,
-            **{check: grouped.__classify_count.fill_null(0) != 1},
-        ).distinct()
-        return PreparedPopulation(
-            output,
-            key_groups,
-            ((check, "exactly one attribute row for every requested identity", entity),),
-        )
+        from marivo.analysis.materialization.population_relations import prepare_member_fields
+
+        return prepare_member_fields(definition, node, entities, state, key_groups)
     reject(
         "an executable captured population program",
         type(node).__name__,

@@ -1,10 +1,11 @@
-"""Public source and fixed comparison journeys with independent raw-fact oracles."""
+"""Source Query comparisons with raw-fact oracles and terminal cold reads."""
 
 from __future__ import annotations
 
 import os
 import subprocess
 import sys
+from dataclasses import replace
 from decimal import Decimal
 from fractions import Fraction
 
@@ -13,41 +14,52 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.core.graph import MethodNode
-from marivo.analysis.materialization.cell_arrow import column as cell_column
-from marivo.analysis.materialization.graph_exchange import to_arrow
-from tests.shared_fixtures import DslCase, DslCaseFactory, export_dsl_parquet_models
+from marivo.analysis.errors import AnalysisError
+from tests.shared_fixtures import (
+    DslCase,
+    DslCaseFactory,
+    analysis_dsl_rows,
+    export_dsl_parquet_models,
+)
 from tests.support.paths import PROJECT_ROOT
 
 
-def _comparison_operands(node: MethodNode) -> tuple[MethodNode, ...]:
-    from marivo.analysis.core.rules import ComparisonRead
-    from marivo.analysis.materialization.graph_composition import comparison_endpoints
+def _plain(result: mv.Artifact) -> pd.DataFrame:
+    frame = result.to_pandas()
+    names: list[str] = []
+    key = 0
+    for label in frame.columns:
+        assert isinstance(label, tuple) and len(label) == 2
+        kind, name = label
+        if kind == "value":
+            assert isinstance(name, str)
+            names.append(name)
+        elif kind == "presence":
+            assert isinstance(name, tuple)
+            names.append("presence." + ".".join(name))
+        else:
+            names.append(f"key_{key}")
+            key += 1
+    frame.columns = names
+    return frame
 
-    assert isinstance(node.parameters, ComparisonRead)
-    parent = comparison_endpoints(node)[0]
-    return comparison_endpoints(parent)
 
-
-_NUMERIC_SOURCES = [
-    ("BIGINT", True),
-    ("DOUBLE", True),
-    ("DECIMAL(30,6)", True),
-    ("duration", True),
-]
+def _monthly(case: DslCase, month: int, metric: str = "revenue") -> mv.Query:
+    session = case.session
+    return session.observe(
+        {"value": session.catalog.metrics.get("sales." + metric)},
+        during=session.time_scope(start=f"2026-{month:02}-01", end=f"2026-{month + 1:02}-01"),
+        by=session.members(ms.ref.entity("sales.customer")),
+    )
 
 
 def _numeric_source(case: DslCase, physical: str, parquet: bool) -> None:
     with duckdb.connect(str(case.database_path)) as connection:
-        if physical.startswith("duration"):
-            if not parquet:
-                connection.execute(
-                    'ALTER TABLE "order" ALTER amount TYPE INTERVAL USING to_microseconds(amount)'
-                )
-        else:
+        if not physical.startswith("duration"):
             connection.execute(f'ALTER TABLE "order" ALTER amount TYPE {physical}')
     if parquet:
         export_dsl_parquet_models(case, case.root)
@@ -63,770 +75,441 @@ def _numeric_source(case: DslCase, physical: str, parquet: bool) -> None:
     ms.load(workspace_dir=case.root)
 
 
-@pytest.mark.parametrize("physical,parquet", _NUMERIC_SOURCES)
-def test_public_numeric_difference_source_and_fixed(
-    analysis_dsl_case_factory: DslCaseFactory, physical: str, parquet: bool
-) -> None:
-    unit = physical.partition("_")[2] or "us"
-    case = analysis_dsl_case_factory("j2")
-    names = case.names
-    with duckdb.connect(str(case.database_path)) as connection:
-        if not physical.startswith("duration"):
-            connection.execute(
-                f'ALTER TABLE "{names.order}" ALTER "{names.amount}" TYPE {physical}'
-            )
-        raw = connection.execute(
-            f'SELECT "{names.customer_id}", "{names.ordered_at}", "{names.amount}" FROM "{names.order}"'
-        ).fetchall()
-        if physical.startswith("duration") and not parquet:
-            connection.execute(
-                f'ALTER TABLE "{names.order}" ALTER "{names.amount}" TYPE INTERVAL USING to_microseconds("{names.amount}")'
-            )
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        if physical.startswith("duration"):
-            path = case.root / "source_files/order.parquet"
-            data = pq.read_table(path)
-            pq.write_table(
-                data.set_column(
-                    data.schema.get_field_index(names.amount),
-                    names.amount,
-                    data[names.amount].cast(pa.duration(unit)),
-                ),
-                path,
-            )
-    ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity(f"{names.domain}.{names.customer}"))
-    metric = ms.ref.metric(f"{names.domain}.{names.revenue}")
-    buyer = ms.ref.relationship(f"{names.domain}.{names.buyer}")
-    current = members.observe(
-        metric,
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=buyer,
-        by=(mv.member(),),
-    )
-    baseline = members.observe(
-        metric,
-        during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
-        via=buyer,
-        by=(mv.member(),),
-    )
-    source = current.compare(baseline).absolute.execute().to_pandas().set_index("member")
-    first, second = current.execute(), baseline.execute()
-    fixed = first.compare(second).absolute.execute().to_pandas().set_index("member")
-    expected: dict[str, Fraction] = {}
-    for member, occurred, amount in raw:
-        month = str(occurred)[:7]
-        if month in ("2026-07", "2026-08"):
-            expected[member] = expected.get(member, Fraction(0)) + Fraction(amount) * (
-                1 if month == "2026-08" else -1
-            )
-    if physical.startswith("duration"):
-        for frame in (source, fixed):
-            frame["value"] = (
-                pa.array(frame["value"]).cast(pa.duration(unit)).cast(pa.int64()).to_pylist()
-            )
-        current_values = first.to_pandas().set_index("member")["value"]
-        baseline_values = second.to_pandas().set_index("member")["value"]
-        for left, right in ((current, baseline), (first, second)):
-            relative = left.compare(right).relative.execute().to_pandas().set_index("member")
-            for member in relative.index:
-                numerator = current_values[member].value
-                denominator = baseline_values[member].value
-                if denominator == 0:
-                    assert relative.loc[member, "cell_tag"] == "undefined"
-                    assert relative.loc[member, "cell_reason"] == "zero_baseline"
-                else:
-                    assert relative.loc[member, "value"] == (numerator - denominator) / abs(
-                        denominator
-                    )
-    assert source["value"].to_dict() == expected
-    assert fixed["value"].to_dict() == expected
-    assert source["cell_tag"].eq("defined").all()
-    assert fixed["cell_tag"].eq("defined").all()
-    if physical.startswith("DECIMAL"):
-        assert all(type(value) is Decimal for value in fixed["value"])
-
-
-@pytest.mark.slow
-@pytest.mark.parametrize("parquet", [True])
-def test_comparison_v2_cold_continuation_and_correspondence_integrity(
-    analysis_dsl_case_factory: DslCaseFactory, parquet: bool
-) -> None:
-    from marivo.analysis.materialization.errors import MaterializationError
-    from marivo.analysis.materialization.graph_exchange import ExchangePart, from_pandas
-
-    case = analysis_dsl_case_factory("j2")
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    current = members.observe(
-        ms.ref.metric("sales.revenue"),
-        during=mv.time_scope(start="2026-09-01", end="2026-10-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    baseline = members.observe(
-        ms.ref.metric("sales.revenue"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    saved = current.compare(baseline).absolute.execute()
-    dataset = saved._dataset
-    assert dataset is not None
-    descriptor = dataset.artifact.descriptor
-    assert descriptor.method_state.kind == "none"
-    assert all(
-        part.method_state_version == descriptor.method_state.contract_version
-        for part in descriptor.parts
-    )
-    checked = dataset.verified()
-    mapping = next(part.table for part in checked.parts if part.role == "correspondence")
-    corrupted = mapping.copy()
-    corrupted["correspondence__baseline_present"] = [False] * len(mapping)
-    with pytest.raises(MaterializationError, match="correspondence"):
-        from_pandas(
-            checked.primary,
-            checked.contract,
-            parts=tuple(
-                ExchangePart(part.role, corrupted) if part.role == "correspondence" else part
-                for part in checked.parts
-            ),
-            completed_checks=checked.completed_checks,
-            method_state=checked.method_state,
-        )
-    source_path = case.root / "source_files" if parquet else case.database_path
-    offline = source_path.with_name(source_path.name + ".offline")
-    source_path.rename(offline)
-    script = """
+def _cold(case: DslCase, results: tuple[mv.Artifact, ...], assertions: str) -> None:
+    source = case.root / "source_files"
+    if not source.exists():
+        source = case.database_path
+    offline = source.with_name(source.name + ".offline")
+    source.rename(offline)
+    script = (
+        """
 import sys
+from unittest.mock import patch
 import duckdb
+import pandas as pd
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.datasource.adapters import SourceSession
+from tests.analysis.numeric.test_analysis_comparison_runtime import _plain
+from tests.shared_fixtures import run_ids
+
 def unavailable(*args, **kwargs):
-    raise AssertionError("cold comparison cannot reopen sources or Semantic")
-duckdb.connect = unavailable
-ms.load = unavailable
-saved = mv.session.resume(sys.argv[1], by="id").artifact(sys.argv[2])
-assert isinstance(saved, mv.MaterializedDifferenceRelation)
-frame = saved.to_pandas().set_index("member")
-assert frame.loc["D", "cell_tag"] == "null"
-assert frame.loc["D", "cell_reason"] == "empty_contribution"
-selected = saved.where(saved.value.is_defined()).execute()
-assert sorted(selected.to_pandas()["member"].tolist()) == ["A", "B", "C"]
-assert selected._dataset.artifact.descriptor.method_state.kind == "none"
+    raise AssertionError('terminal comparison reopened source or Semantic')
+with patch.object(duckdb, 'connect', unavailable), patch.object(ms, 'load', unavailable), patch.object(SourceSession, '__init__', unavailable):
+    session = mv.session.resume(sys.argv[1], by='id')
+    before = run_ids(session)
+    saved = tuple(session.artifact(ref) for ref in sys.argv[2:])
+    assert all(isinstance(item, mv.Artifact) for item in saved)
+    assert all(not hasattr(item, name) for item in saved for name in ('compare', 'where', 'rollup', 'contract', '_node', '_dataset'))
 """
+        + "".join("    " + line + "\n" for line in assertions.splitlines())
+        + "    assert run_ids(session) == before\n"
+    )
     try:
-        completed = subprocess.run(
-            [sys.executable, "-c", script, case.session.id, saved.state.artifact_ref.ref],
+        process = subprocess.run(
+            [sys.executable, "-c", script, case.session.id, *(result.id for result in results)],
             cwd=case.root,
-            env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
+            env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT), "MARIVO_TELEMETRY": "off"},
             capture_output=True,
             text=True,
             check=False,
-            timeout=60,
+            timeout=90,
         )
     finally:
-        offline.rename(source_path)
-    assert completed.returncode == 0, completed.stderr
+        offline.rename(source)
+    assert process.returncode == 0, process.stdout + process.stderr
+
+
+@pytest.mark.parametrize("physical", ["BIGINT", "DOUBLE", "DECIMAL(30,6)", "duration"])
+def test_public_numeric_difference_source_and_fixed(
+    analysis_dsl_case_factory: DslCaseFactory, physical: str
+) -> None:
+    case = analysis_dsl_case_factory("j2")
+    with duckdb.connect(str(case.database_path)) as connection:
+        raw = connection.execute('SELECT customer_id, ordered_at, amount FROM "order"').fetchall()
+    _numeric_source(case, physical, True)
+    current, baseline = _monthly(case, 8), _monthly(case, 7)
+    comparison = current.compare(baseline)
+    saved = comparison.execute()
+    source = _plain(saved).set_index("key_0")
+    recovered = _plain(case.session.artifact(saved.id)).set_index("key_0")
+    expected: dict[str, Fraction] = {}
+    totals: dict[tuple[str, str], Fraction] = {}
+    for member, occurred, amount in raw:
+        month = str(occurred)[:7]
+        if month in ("2026-07", "2026-08"):
+            totals[member, month] = totals.get((member, month), Fraction()) + Fraction(amount)
+            expected[member] = expected.get(member, Fraction()) + Fraction(amount) * (
+                1 if month == "2026-08" else -1
+            )
+    for frame in (source, recovered):
+        absolute = frame["value.absolute"]
+        if physical.startswith("duration"):
+            absolute = pd.Series(
+                pa.array(absolute).cast(pa.duration("us")).cast(pa.int64()).to_pylist(),
+                index=absolute.index,
+            )
+        assert absolute.to_dict() == expected
+        assert frame[["presence.current", "presence.baseline"]].all().all()
+        for member in frame.index:
+            denominator = totals[member, "2026-07"]
+            if denominator == 0:
+                assert pd.isna(frame.loc[member, "value.relative"])
+            else:
+                assert frame.loc[member, "value.relative"] == float(
+                    expected[member] / abs(denominator)
+                )
+    if physical.startswith("DECIMAL"):
+        assert all(type(value) is Decimal for value in recovered["value.absolute"])
+    with pytest.raises(AnalysisError, match="nonzero denominator"):
+        current.compare(baseline, zero_denominator="error").execute()
+    if physical.startswith("duration"):
+        session = case.session
+        amount = session.catalog.fields.get("sales.order.amount")
+        time = session.catalog.fields.get("sales.order.ordered_at")
+        nullable = session.observe(
+            {"value": amount.sum(time=time, empty="null")},
+            during=session.time_scope(start="2026-09-01", end="2026-10-01"),
+            by=session.members(ms.ref.entity("sales.customer")),
+        )
+        null_saved = nullable.compare(current).execute()
+        nulls = _plain(null_saved).set_index("key_0")
+        assert pd.isna(nulls.loc["D", "value.current"])
+        assert pd.isna(nulls.loc["D", "value.absolute"])
+        assert pd.isna(nulls.loc["D", "value.relative"])
+        assert nulls.loc["D", "presence.current"] and nulls.loc["D", "presence.baseline"]
+        assert pa.array(nulls["value.absolute"]).type == pa.duration("us")
+        pd.testing.assert_frame_equal(
+            null_saved.to_pandas(), session.artifact(null_saved.id).to_pandas()
+        )
+    # Both saved endpoints are ordinary data; their independent pandas comparison agrees.
+    first, second = _plain(current.execute()), _plain(baseline.execute())
+    assert first.key_0.tolist() == second.key_0.tolist()
+    if not physical.startswith("duration"):
+        assert (
+            dict(
+                zip(
+                    first.key_0,
+                    (
+                        Fraction(left) - Fraction(right)
+                        for left, right in zip(first.value, second.value, strict=True)
+                    ),
+                    strict=True,
+                )
+            )
+            == expected
+        )
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("parquet", [True])
-def test_nested_difference_keeps_independent_captures(
-    analysis_dsl_case_factory: DslCaseFactory, parquet: bool
+def test_comparison_v2_cold_continuation_and_correspondence_integrity(
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    from tests.analysis.numeric.test_analysis_comparison_runtime import _comparison_operands
+    case = analysis_dsl_case_factory("j2")
+    _numeric_source(case, "BIGINT", True)
+    current, baseline = _monthly(case, 9), _monthly(case, 8)
+    comparison = current.compare(baseline)
+    selected = comparison.where(~comparison["value.relative"].is_null())
+    saved, filtered = comparison.execute(), selected.execute()
+    data = saved._manifest.data
+    assert len(data.schema.presence) == 2
+    with pytest.raises(AnalysisError):
+        replace(data.schema, presence=(replace(data.schema.presence[0], nullable=True),))
+    with pytest.raises(AnalysisError):
+        replace(
+            data,
+            coordinate_projections=(replace(data.coordinate_projections[0], columns=("forged",)),),
+        )
+    _cold(
+        case,
+        (saved, filtered),
+        """frame = _plain(saved[0]).set_index('key_0')
+assert frame.loc['D', 'value.current'] == 0
+assert frame.loc['D', 'value.absolute'] == 0
+assert pd.isna(frame.loc['D', 'value.relative'])
+assert frame[['presence.current', 'presence.baseline']].all().all()
+assert _plain(saved[1]).key_0.tolist() == ['A', 'B']""",
+    )
 
+
+@pytest.mark.slow
+def test_nested_difference_keeps_independent_captures(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as connection:
         connection.executemany(
             'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?)',
-            [
-                (f"june_{member}", member, "web", "paid", "2026-06-10T12:00:00+00:00", 0)
-                for member in ("A", "B", "C", "D")
-            ],
+            [(f"june_{member}", member, "web", "paid", "2026-06-10", 0) for member in "ABCD"],
         )
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-
-    def observe(month: int) -> mv.LogicalNumericRelation:
-        result = members.observe(
-            ms.ref.metric("sales.revenue"),
-            during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
-        )
-        assert isinstance(result, mv.LogicalNumericRelation)
-        return result
-
-    august, july_first, july_second, june = observe(8), observe(7), observe(7), observe(6)
-    first, second = august.compare(july_first).absolute, july_second.compare(june).absolute
-    nested = first.compare(second).absolute
-    definition = nested._node.definition
-    inner = _comparison_operands(definition)
-    assert _comparison_operands(inner[0])[1].identity != _comparison_operands(inner[1])[0].identity
+    _numeric_source(case, "BIGINT", True)
+    august, july_first, july_second, june = (_monthly(case, month) for month in (8, 7, 7, 6))
+    first = august.compare(july_first)
+    first = first.select({"value": first["value.absolute"]})
+    second = july_second.compare(june)
+    second = second.select({"value": second["value.absolute"]})
+    nested = first.compare(second)
+    saved = nested.execute()
     expected = {"A": -140, "B": -80, "C": -100, "D": 0}
-    assert nested.execute().to_pandas().set_index("member")["value"].to_dict() == expected
-    fixed_first, fixed_second = first.execute(), second.execute()
-    fixed = fixed_first.compare(fixed_second).absolute.execute()
-    assert fixed.to_pandas().set_index("member")["value"].to_dict() == expected
-    assert "compare" in {
-        item.call.split("(")[0].removeprefix("relation.") for item in fixed.contract().actions
-    }
-    assert not hasattr(fixed, "rollup")
-    assert (
-        _comparison_operands(_comparison_operands(fixed._node.definition)[0])[1].identity
-        == july_first._node.root.identity
+    assert _plain(saved).set_index("key_0")["value.absolute"].to_dict() == expected
+    # Each endpoint is reevaluated from its Query, with no retained result graph.
+    assert saved.id != nested.execute().id
+    _cold(
+        case,
+        (saved,),
+        """frame = _plain(saved[0]).set_index('key_0')
+assert frame['value.absolute'].to_dict() == {'A': -140, 'B': -80, 'C': -100, 'D': 0}
+assert frame[['presence.current', 'presence.baseline']].all().all()""",
     )
 
-    # The retained nested endpoints must survive a fresh process without any source access.
-    from marivo.analysis.materialization.graph_protocol import freeze_graph
 
-    assert fixed._dataset is not None
-    verified = fixed._dataset.verified()
-    (case.root / "expected-definition.txt").write_text(freeze_graph(fixed._node.definition))
-    for name, table in [
-        ("primary", verified.primary),
-        *((part.role, part.table) for part in verified.parts),
-    ]:
-        with (
-            pa.OSFile(str(case.root / f"expected-{name}.arrow"), "wb") as sink,
-            pa.ipc.new_file(sink, table.schema) as writer,
-        ):
-            writer.write_table(table)
-    source_path = case.root / "source_files" if parquet else case.database_path
-    offline = source_path.with_name(source_path.name + ".offline")
-    source_path.rename(offline)
-    script = """
-import sys
-from pathlib import Path
-import duckdb
-import pyarrow as pa
-import marivo.analysis as mv
-import marivo.semantic as ms
-from marivo.datasource.adapters import SourceSession
-from marivo.analysis.materialization.graph_protocol import freeze_graph
-from tests.analysis.numeric.test_analysis_comparison_runtime import _comparison_operands
-
-def unavailable(*args, **kwargs):
-    raise AssertionError("nested cold recovery cannot reopen sources or Semantic")
-duckdb.connect = unavailable
-ms.load = unavailable
-SourceSession.execute = unavailable
-saved = mv.session.resume(sys.argv[1], by="id").artifact(sys.argv[2])
-assert freeze_graph(saved._node.definition) == Path("expected-definition.txt").read_text()
-first, second = _comparison_operands(saved._node.definition)
-assert _comparison_operands(first)[1].identity != _comparison_operands(second)[0].identity
-checked = saved._dataset.verified()
-for name, table in [("primary", checked.primary), *((part.role, part.table) for part in checked.parts)]:
-    with pa.memory_map(f"expected-{name}.arrow", "r") as source:
-        assert table.equals(pa.ipc.open_file(source).read_all())
-assert not hasattr(saved, "rollup")
-selected = saved.where(saved.value.lt(0)).execute()
-assert selected.to_pandas().set_index("member")["value"].to_dict() == {"A": -140, "B": -80, "C": -100}
-assert selected._dataset.verified().contract.signature.quantity == checked.contract.signature.quantity
-"""
-    try:
-        completed = subprocess.run(
-            [sys.executable, "-c", script, case.session.id, fixed.state.artifact_ref.ref],
-            cwd=case.root,
-            env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=60,
-        )
-    finally:
-        offline.rename(source_path)
-    assert completed.returncode == 0, completed.stderr
-
-
-@pytest.mark.parametrize("parquet", [True])
-def test_ordinary_ratio_and_cohort_singleton(
-    analysis_dsl_case_factory: DslCaseFactory, parquet: bool
-) -> None:
+def test_ordinary_ratio_and_cohort_singleton(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j2")
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    metric, via = ms.ref.metric("sales.revenue"), ms.ref.relationship("sales.order_buyer")
-    current = members.observe(
-        metric,
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=via,
-        by=(mv.member(),),
-    )
-    assert isinstance(current, mv.LogicalNumericRelation)
-    for left in (current, current.execute()):
-        result = left.ratio(left).execute()
-        frame = result.to_pandas().set_index("member")
-        assert frame.loc["A", "value"] == 1.0
-        assert frame.loc["B", "value"] == 1.0
-        assert frame.loc["C", "cell_reason"] == "zero_denominator"
-        assert frame.loc["D", "cell_reason"] == "zero_denominator"
-        assert "rollup" not in {
-            action.call.split("(")[0].removeprefix("relation.")
-            for action in result.contract().actions
-        }
-    first = current.rollup()
-    second_members = case.session.members(ms.ref.entity("sales.customer"))
-    second_observed = second_members.observe(
-        metric,
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=via,
-        by=(mv.member(),),
-    )
-    second = second_observed.rollup()
-    for left, right in ((first, second), (first.execute(), second.execute())):
-        result = left.compare(right, align=mv.exact()).absolute.execute()
-        assert result.to_pandas()["value"].tolist() == [0]
+    _numeric_source(case, "BIGINT", True)
+    current = _monthly(case, 8)
+    ratio = current.select({"value": current["value"] / current["value"]})
+    saved = ratio.execute()
+    frame = _plain(saved).set_index("key_0")
+    assert frame.loc[["A", "B"], "value"].tolist() == [1.0, 1.0]
+    assert frame.loc[["C", "D"], "value"].isna().all()
+    assert not hasattr(saved, "rollup") and not hasattr(saved, "contract")
+    first, second = current.rollup(), _monthly(case, 8).rollup()
+    assert _plain(first.compare(second).execute())["value.absolute"].tolist() == [0]
 
 
-@pytest.mark.parametrize("parquet", [True])
 def test_union_keep_distinguishes_missing_coordinate_and_rejects_filtered_empty(
-    analysis_dsl_case_factory: DslCaseFactory, parquet: bool
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    from marivo.analysis.errors import AnalysisError
-
     case = analysis_dsl_case_factory("j2")
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    metric, via = ms.ref.metric("sales.revenue"), ms.ref.relationship("sales.order_buyer")
-    current = members.observe(
-        metric,
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=via,
-        by=(mv.member(),),
-    )
-    baseline = members.observe(
-        metric,
-        during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
-        via=via,
-        by=(mv.member(),),
-    )
-    assert isinstance(current, mv.LogicalNumericRelation)
-    assert isinstance(baseline, mv.LogicalNumericRelation)
-    current_selected = current.where(current.value.gt(0))
-    baseline_selected = baseline.where(baseline.value.gt(0))
-    design = mv.outer(missing="keep")
-    for left, right in (
-        (current_selected, baseline_selected),
-        (current_selected.execute(), baseline_selected.execute()),
-    ):
-        result = left.compare(right, align=design).absolute.execute()
-        frame = result.to_pandas().set_index("member")
-        assert frame.loc["A", "value"] == -40
-        assert frame.loc["B", "value"] == 20
-        assert frame.loc["C", "cell_tag"] == "undefined"
-        assert frame.loc["C", "cell_reason"] == "missing_side"
-        assert result._dataset is not None
-        checked = result._dataset.verified()
-        correspondence = next(
-            part.table.to_dict(orient="records")
-            for part in checked.parts
-            if part.role == "correspondence"
-        )
-        missing = next(row for row in correspondence if row["key_0"] == "C")
-        assert missing["correspondence__current_present"] is False
-        assert missing["correspondence__baseline_present"] is True
-        with pytest.raises(AnalysisError, match="complete raw observations"):
-            left.compare(right, align=mv.outer(missing="empty_value"))
+    _numeric_source(case, "BIGINT", True)
+    current, baseline = _monthly(case, 8), _monthly(case, 7)
+    left, right = current.where(current["value"] > 0), baseline.where(baseline["value"] > 0)
+    with pytest.raises(AnalysisError, match="equal complete endpoint key images"):
+        left.compare(right).execute()
+    saved = left.compare(right, how="outer").execute()
+    frame = _plain(saved).set_index("key_0")
+    assert frame.loc["A", "value.absolute"] == -40
+    assert frame.loc["B", "value.absolute"] == 20
+    assert pd.isna(frame.loc["C", "value.absolute"])
+    assert not frame.loc["C", "presence.current"]
+    assert frame.loc["C", "presence.baseline"]
+    pd.testing.assert_frame_equal(saved.to_pandas(), case.session.artifact(saved.id).to_pandas())
 
 
 def test_cohort_group_metric_empty_preserves_metric_null_policy(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    export_dsl_parquet_models(case, case.root)
-    ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    region = ms.ref.dimension("sales.customer.region")
-    categories = members.read(region)
-    assert isinstance(categories, mv.LogicalCategoryRelation)
-    eastern = categories.where(categories.value.eq("east")).members()
-    via = ms.ref.relationship("sales.order_buyer")
-    scope = mv.time_scope(start="2026-07-01", end="2026-08-01")
-    design = mv.outer(missing="empty_value")
-    for metric_name in ("revenue", "order_count", "count_ratio"):
-        metric = (
-            mv.runtime_metric.ratio(
-                ms.ref.metric("sales.order_count"),
-                ms.ref.metric("sales.order_count"),
-                label="count_ratio",
-            )
-            if metric_name == "count_ratio"
-            else ms.ref.metric("sales." + metric_name)
-        )
-        first = members.observe(metric, during=scope, via=via, by=(region,))
-        second = eastern.observe(metric, during=scope, via=via, by=(region,))
-        operands = [(first, second)]
-        if metric_name == "revenue":
-            # Keep one fixed-endpoint continuation; the source pass covers all
-            # three distinct metric null policies below.
-            operands.append((first.execute(), second.execute()))
-        for left, right in operands:
-            result = left.compare(right, align=design).absolute.execute().to_pandas()
-            if metric_name == "count_ratio":
-                assert result["cell_tag"].tolist().count("defined") == 1
-                assert result["cell_reason"].tolist().count("zero_denominator") == 2
-                continue
-            if metric_name == "order_count":
-                assert result["cell_tag"].eq("defined").all()
-                assert sorted(result["value"].tolist()) == [0, 1, 1]
-                continue
-            assert result["cell_tag"].tolist().count("defined") == 1
-            assert result["cell_tag"].tolist().count("null") == 2
-            assert (
-                result.loc[result["cell_tag"] == "null", "cell_reason"]
-                .eq("empty_contribution")
-                .all()
+    _numeric_source(case, "BIGINT", True)
+    session = case.session
+    members = session.members(ms.ref.entity("sales.customer"))
+    region = session.catalog.fields.get("sales.customer.region")
+    categories = session.read(members, {"region": region})
+    eastern = categories.where(categories["region"] == "east").population()
+    amount, time = (
+        session.catalog.fields.get("sales.order." + name) for name in ("amount", "ordered_at")
+    )
+    metrics = {
+        "revenue": amount.sum(time=time, empty="null"),
+        "order_count": session.catalog.metrics.get("sales.order_count"),
+    }
+    metrics["count_ratio"] = metrics["order_count"] / metrics["order_count"]
+    for name, metric in metrics.items():
+
+        def observe(population: mv.Population, metric: Deferred = metric) -> mv.Query:
+            return session.observe(
+                {"value": metric},
+                during=session.time_scope(start="2026-07-01", end="2026-08-01"),
+                by=population.classify(by=(region,)),
+                members=population,
             )
 
+        first, second = observe(members), observe(eastern)
+        result = _plain(first.compare(second, how="outer").execute()).set_index("key_0")
+        assert result.index.tolist() == ["east", "south", "west"]
+        assert result.loc["east", "value.absolute"] == 0
+        assert result.loc[["south", "west"], "value.absolute"].isna().all()
+        assert not result.loc[["south", "west"], "presence.baseline"].any()
+        if name == "count_ratio":
+            assert result["value.current"].tolist() == [1.0, 1.0, 1.0]
+        elif name == "order_count":
+            assert result.loc[["south", "west"], "value.current"].tolist() == [1, 1]
 
-@pytest.mark.parametrize("parquet", [True])
+
 def test_period_change_retains_original_buckets_and_rejects_renumbering(
-    analysis_dsl_case_factory: DslCaseFactory, parquet: bool
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    from marivo.analysis.errors import AnalysisError
-
     case = analysis_dsl_case_factory("j2")
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    metric, via = ms.ref.metric("sales.order_count"), ms.ref.relationship("sales.order_buyer")
+    _numeric_source(case, "BIGINT", True)
+    session = case.session
 
-    def observe(month: int, day: int, length: int) -> mv.LogicalNumericRelation:
-        grid = mv.time_grid(
-            during=mv.time_scope(
-                start=f"2026-{month:02d}-{day:02d}",
-                end=f"2026-{month:02d}-{day + length:02d}",
-            ),
-            grain=mv.grain("day"),
-            timezone="UTC",
+    def observe(month: int, day: int, length: int) -> mv.Query:
+        axis = session.time_scope(
+            start=f"2026-{month:02}-{day:02}", end=f"2026-{month:02}-{day + length:02}"
+        ).by(mv.grain("day"))
+        return session.observe(
+            {"value": session.catalog.metrics.get("sales.order_count")},
+            during=axis,
+            by=session.members(ms.ref.entity("sales.customer")),
         )
-        result = members.observe(metric, during=grid, via=via, by=(mv.member(),))
-        assert isinstance(result, mv.LogicalNumericRelation)
-        return result
 
     current, baseline = observe(8, 14, 3), observe(7, 9, 3)
-    design = mv.exact(time=mv.ordinal())
-    with pytest.raises(AnalysisError, match="equal aligned"):
-        current.compare(observe(7, 9, 2), align=design)
-    for left, right in ((current, baseline), (current.execute(), baseline.execute())):
-        saved = left.compare(right, align=design).absolute.execute()
-        frame = saved.to_pandas()
-        assert len(frame) == 12
-        assert sorted(frame["value"].tolist()) == [-1] + [0] * 11
-        assert saved._dataset is not None
-        mapping = next(
-            part.table for part in saved._dataset.verified().parts if part.role == "correspondence"
-        )
-        assert (
-            mapping["correspondence__current_key_1"].tolist()
-            != mapping["correspondence__baseline_key_1"].tolist()
-        )
-        selected = left.where(left.value.gt(0))
-        with pytest.raises(AnalysisError, match=r"period buckets|endpoint key|key_set_equal"):
-            selected.compare(right, align=design).absolute.execute()
+    with pytest.raises(AnalysisError, match="equal complete calendar bucket counts"):
+        current.compare(observe(7, 9, 2), match=mv.ordinal()).execute()
+    saved = current.compare(baseline, match=mv.ordinal()).execute()
+    frame = _plain(saved)
+    assert len(frame) == 12
+    assert sorted(frame["value.absolute"].tolist()) == [-1] + [0] * 11
+    axes = saved.to_pandas().attrs["marivo"]["axes"]
+    projection = axes[0]["projections"]
+    assert projection[0]["bounds"] != projection[1]["bounds"]
+    selected = current.where(current["value"] > 0)
+    with pytest.raises(AnalysisError, match="equal complete endpoint key images"):
+        selected.compare(baseline, match=mv.ordinal()).execute()
+    outer = _plain(selected.compare(baseline, match=mv.ordinal(), how="outer").execute())
+    assert set(outer.key_0) == {"(0, 0)", "(1, 1)", "(2, 2)"}
 
 
-@pytest.mark.parametrize("parquet", [True])
-@pytest.mark.parametrize("time", ["none", "ordinal", "weekday", "holiday", "holiday_then_weekday"])
+@pytest.mark.parametrize("calendar", [False, True])
 def test_one_to_one_binds_exact_ordered_nodes_and_retained_relationship(
-    analysis_dsl_case_factory: DslCaseFactory, parquet: bool, time: str
+    analysis_dsl_case_factory: DslCaseFactory, calendar: bool
 ) -> None:
-    from marivo.analysis.errors import AnalysisError
-
     case = analysis_dsl_case_factory("j2")
-    from tests.analysis.numeric.test_time_alignment import occurrences
-
-    occurrence = occurrences()[1]
-    key = (
-        mv.ordinal()
-        if time == "ordinal"
-        else mv.weekday()
-        if time == "weekday"
-        else mv.holiday(current=occurrence, baseline=occurrence)
-        if time == "holiday"
-        else mv.holiday_then_weekday(current=occurrence, baseline=occurrence)
-        if time == "holiday_then_weekday"
-        else None
-    )
-
-    model = case.root / "models" / "semantic" / "sales" / "models.py"
+    model = case.root / "models/semantic/sales/models.py"
     model.write_text(
-        model.read_text()
-        + """
+        model.read_text().replace(
+            "finalized = ms.finalize()",
+            """
 account = ms.entity(name='account', datasource=warehouse, source=md.table('customer'), primary_key=['customer_id'])
 account_id = ms.dimension_column(name='customer_id', entity=account, column='customer_id')
 customer_account = ms.relationship(name='customer_account', from_entity=customer, to_entity=account, keys=[ms.join_on(customer_id, account_id)])
-"""
-    )
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        model.write_text(
-            model.read_text().replace(
-                "source=md.table('customer')", "source=md.parquet('source_files/customer.parquet')"
-            )
+finalized = ms.finalize()
+""",
+            1,
         )
+    )
     ms.load(workspace_dir=case.root)
-    metric, buyer = ms.ref.metric("sales.revenue"), ms.ref.relationship("sales.order_buyer")
-    relationship = ms.ref.relationship("sales.customer_account")
+    session = case.session
+    customer, account = (
+        session.members(ms.ref.entity("sales." + name)) for name in ("customer", "account")
+    )
     scope = (
-        mv.time_grid(
-            during=mv.time_scope(start="2026-07-09", end="2026-07-12"),
-            grain=mv.grain("day"),
-            timezone="UTC",
-        )
-        if time != "none"
-        else mv.time_scope(start="2026-07-01", end="2026-08-01")
+        session.time_scope(start="2026-07-09", end="2026-07-12")
+        if calendar
+        else session.time_scope(start="2026-07-01", end="2026-08-01")
     )
-    left = case.session.members(ms.ref.entity("sales.customer")).observe(
-        metric, during=scope, via=buyer, by=(mv.member(),)
-    )
-    right = case.session.members(ms.ref.entity("sales.account")).observe(
-        metric,
-        during=scope,
-        via=(mv.path(buyer, relationship),),
-        by=(mv.member(),),
-    )
-    pairing = mv.one_to_one(left=left, right=right, via=relationship, time=key)
-    with pytest.raises(AnalysisError, match="one-to-one"):
-        mv.one_to_one(left=left, right=right, via=buyer)
-    with pytest.raises(AnalysisError, match="reused"):
-        right.ratio(left, align=pairing)
-    for first, second in ((left, right), (left.execute(), right.execute())):
-        pairing = mv.one_to_one(left=first, right=second, via=relationship, time=key)
-        logical_ratio = first.ratio(second, align=pairing)
-        saved = logical_ratio.execute()
-        result = saved.to_pandas()
-        assert result["value"].dropna().tolist() == [1.0, 1.0, 1.0]
-        if time != "none":
-            assert isinstance(scope, mv.TimeGrid)
-            assert len(set(result.coord_0)) == 3
-            assert all(value.startswith(time + ":") for value in result.coord_0)
-            assert saved._node.root.signature.domain.time_grid is None
-            assert saved._node.root.signature.domain.instance_key[1].role == "aligned"
-            for view in (logical_ratio, saved):
-                for selected in (view, view.where(view.value.is_defined())):
-                    with pytest.raises(AnalysisError, match="aligned"):
-                        selected.group_by(scope)
-                    with pytest.raises(AnalysisError, match="aligned"):
-                        selected.group_by(mv.grain("month"))
-                    with pytest.raises(AnalysisError, match="aligned"):
-                        selected.runs(where=selected.value.gt(0))
-                    with pytest.raises(AnalysisError, match="aligned"):
-                        selected.forecast(horizon=mv.periods(1))
-                    with pytest.raises(AnalysisError, match="aligned"):
-                        selected.correlate(view, lag_range=range(1))
-                row_count = view.where(view.value.is_defined()).aggregate(mv.count()).execute()
-                assert row_count.to_pandas().value.tolist() == [3]
-    if time != "none":
-        short = case.session.members(ms.ref.entity("sales.account")).observe(
-            metric,
-            during=mv.time_grid(
-                during=mv.time_scope(start="2026-07-09", end="2026-07-11"),
-                grain=mv.grain("day"),
-                timezone="UTC",
-            ),
-            via=(mv.path(buyer, relationship),),
-            by=(mv.member(),),
-        )
-        with pytest.raises(AnalysisError, match="equal aligned"):
-            mv.one_to_one(left=left, right=short, via=relationship, time=key)
+    during = scope.by(mv.grain("day")) if calendar else scope
+    metric = session.catalog.metrics.get("sales.revenue")
+    left = session.observe({"value": metric}, during=during, by=customer)
+    right = session.observe({"value": metric}, during=during, by=account)
+    relation = session.catalog.relationships.get("sales.customer_account")
+    pairing = mv.corresponding(via=(relation,))
+    aligned = left.align(right, match=pairing)
+    ratio = aligned.select({"value": aligned["left.value"] / aligned["right.value"]})
+    result = _plain(ratio.execute())
+    assert result.value.dropna().tolist() == [1.0, 1.0, 1.0]
+    assert len(result) == (12 if calendar else 4)
+    with pytest.raises(AnalysisError):
+        right.align(left, match=pairing).execute()
+    invalid = mv.corresponding(via=(session.catalog.relationships.get("sales.order_buyer"),))
+    with pytest.raises(AnalysisError):
+        left.align(right, match=invalid).execute()
+    if calendar:
+        assert result.key_0.nunique() == 3
+        assert ratio.reduce({"count": mv.row_count()}).execute().to_pandas()[
+            ("value", "count")
+        ].tolist() == [12]
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("parquet", [True])
 def test_relative_and_ratio_cold_fixed_composition(
-    analysis_dsl_case_factory: DslCaseFactory, parquet: bool
-) -> None:
-    case = analysis_dsl_case_factory("j2")
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    current = members.observe(
-        ms.ref.metric("sales.revenue"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    baseline = members.observe(
-        ms.ref.metric("sales.revenue"),
-        during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    first, second = current.execute(), baseline.execute()
-    relative = current.rollup().compare(baseline.rollup()).relative.execute()
-    positive = current.where(current.value.gt(0))
-    ratio = positive.ratio(positive).execute()
-    refs = [item.state.artifact_ref.ref for item in (first, second, relative, ratio)]
-    source = case.root / "source_files" if parquet else case.database_path
-    offline = source.with_name(source.name + ".offline")
-    source.rename(offline)
-    script = """
-import sys
-import duckdb
-import marivo.analysis as mv
-import marivo.semantic as ms
-def unavailable(*args, **kwargs):
-    raise AssertionError("fixed comparison reopened a source or Semantic")
-duckdb.connect = unavailable
-ms.load = unavailable
-session = mv.session.resume(sys.argv[1], by="id")
-first, second, relative, ratio = [session.artifact(ref) for ref in sys.argv[2:]]
-assert isinstance(relative, mv.MaterializedNumericRelation)
-assert isinstance(ratio, mv.MaterializedNumericRelation)
-for saved in (relative, ratio):
-    selected = saved.where(saved.value.gt(0)).execute()
-    assert "rollup" not in {action.call.split("(")[0].removeprefix("relation.") for action in saved.contract().actions}
-result = first.compare(second).relative.execute().to_pandas().set_index("member")
-assert result.loc["A", "value"] == -0.4
-assert result.loc["B", "value"] == 0.2
-assert result.loc["D", "cell_reason"] == "zero_baseline"
-result = first.ratio(first).execute().to_pandas().set_index("member")
-assert result.loc["A", "value"] == 1.0
-assert result.loc["D", "cell_reason"] == "zero_denominator"
-"""
-    try:
-        process = subprocess.run(
-            [sys.executable, "-c", script, case.session.id, *refs],
-            cwd=case.root,
-            env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=False,
-        )
-    finally:
-        offline.rename(source)
-    assert process.returncode == 0, process.stderr
-
-
-def test_float_sum_envelope_and_native_mean_cell_boundary(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    from marivo.analysis.errors import AnalysisError
+    case = analysis_dsl_case_factory("j2")
+    _numeric_source(case, "BIGINT", True)
+    current, baseline = _monthly(case, 8), _monthly(case, 7)
+    totals = current.rollup().compare(baseline.rollup())
+    positive = current.where(current["value"] > 0)
+    ratio = positive.select({"value": positive["value"] / positive["value"]})
+    individual = current.compare(baseline)
+    _cold(
+        case,
+        (totals.execute(), ratio.execute(), individual.execute()),
+        """assert _plain(saved[0])['value.relative'].tolist() == [-0.28]
+assert _plain(saved[1]).value.tolist() == [1.0, 1.0]
+frame = _plain(saved[2]).set_index('key_0')
+assert frame.loc['A', 'value.relative'] == -0.4
+assert frame.loc['B', 'value.relative'] == 0.2
+assert pd.isna(frame.loc['D', 'value.relative'])""",
+    )
 
+
+def test_float_sum_and_native_mean_comparison_values(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute('ALTER TABLE "order" ALTER amount TYPE DOUBLE')
         connection.execute('DELETE FROM "order"')
         connection.executemany(
-            'INSERT INTO "order" (order_id, customer_id, channel, status, ordered_at, amount) VALUES (?, ?, ?, ?, ?, ?)',
+            'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?)',
             [
                 ("old-1", "A", "web", "paid", "2026-07-10", 1.0),
                 ("old-2", "A", "web", "paid", "2026-07-10", -1.0 + 1e-13),
                 ("new", "A", "web", "paid", "2026-08-10", 2.0),
             ],
         )
-    model = case.root / "models/semantic/sales/models.py"
-    model.write_text(
-        model.read_text()
-        + "\naverage = ms.aggregate(name='average', measure=amount, agg='mean', time=ordered_at)\n"
+    session = case.session
+    identities = session.read(
+        session.members(ms.ref.entity("sales.customer")),
+        {"id": session.catalog.fields.get("sales.customer.customer_id")},
     )
-    ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    ids = members.read(ms.ref.dimension("sales.customer.customer_id"))
-    members = ids.where(ids.value.eq("A")).members()
-    for metric in ("revenue", "average"):
-        current = members.observe(
-            ms.ref.metric("sales." + metric),
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
+    members = identities.where(identities["id"] == "A").population()
+    amount, time = (
+        session.catalog.fields.get("sales.order." + name) for name in ("amount", "ordered_at")
+    )
+    for metric, denominator in (
+        (amount.sum(time=time), 1.0 + (-1.0 + 1e-13)),
+        (amount.mean(time=time), (1.0 + (-1.0 + 1e-13)) / 2),
+    ):
+
+        def observe(month: int, metric: Deferred = metric) -> mv.Query:
+            return session.observe(
+                {"value": metric},
+                during=session.time_scope(
+                    start=f"2026-{month:02}-01", end=f"2026-{month + 1:02}-01"
+                ),
+                by=members,
+                members=members,
+            )
+
+        frame = _plain(observe(8).compare(observe(7)).execute())
+        assert frame["value.baseline"].tolist() == [denominator]
+        assert frame["value.relative"].tolist() == pytest.approx(
+            [(2.0 - denominator) / abs(denominator)]
         )
-        baseline = members.observe(
-            ms.ref.metric("sales." + metric),
-            during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
-        )
-        first, second = current.execute(), baseline.execute()
-        for left, right in ((current, baseline), (first, second)):
-            if metric == "revenue":
-                with pytest.raises(AnalysisError):
-                    left.compare(right).execute()
-            else:
-                result = left.compare(right).execute()
-                mapping = next(
-                    part.table
-                    for part in result._dataset.verified().parts
-                    if part.role == "correspondence"
-                )
-                assert mapping["correspondence__baseline_error_bound"][0] == 0.0
-                relative = result.relative.to_pandas()
-                mean = (1.0 + (-1.0 + 1e-13)) / 2
-                assert relative.value.tolist() == pytest.approx([(2.0 - mean) / abs(mean)])
-                assert relative.cell_tag.tolist() == ["defined"]
 
 
 def test_comparison_construction_is_lazy_and_shared_source_runs_once(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.errors import AnalysisError
-    from marivo.datasource.adapters import CompiledRead, SourceSession
+    from tests.support.source_trace import capture_source
 
     case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    observed = members.observe(
-        ms.ref.metric("sales.revenue"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    independent = case.session.members(ms.ref.entity("sales.customer")).observe(
-        ms.ref.metric("sales.revenue"),
-        during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    original = SourceSession.execute
-    captured: list[tuple[str, str, str, tuple[str, ...], tuple[str, ...], int]] = []
-
-    def execute(session: SourceSession, read: CompiledRead) -> pd.DataFrame:
-        frame = original(session, read)
-        if "original_state__sum" in read.schema.names:
-            captured.append(
-                (
-                    read.purpose,
-                    read.source_identity,
-                    read.sql,
-                    tuple(read.schema.names),
-                    tuple(frame.columns),
-                    len(frame),
-                )
-            )
-        return frame
-
-    monkeypatch.setattr(SourceSession, "execute", execute)
-    ratio = observed.ratio(observed)
-    with pytest.raises(AnalysisError, match="only one comparison condition"):
-        observed.compare(independent)
-    assert not captured
+    observed, independent = _monthly(case, 8), _monthly(case, 7)
+    trace = capture_source(monkeypatch)
+    ratio = observed.select({"value": observed["value"] / observed["value"]})
+    comparison = observed.compare(independent)
+    assert not trace.native_sql and not trace.owners
     first = ratio.execute()
-    assert len(captured) == 1
-    assert captured[0][0] == "analysis.domain.prepare"
-    assert captured[0][1] and captured[0][2]
-    assert captured[0][3] == captured[0][4]
+    first_reads = len(trace.native_sql)
+    assert first_reads > 0 and all(owner._closed for owner in trace.owners)
+    assert sum('"amount"' in sql for sql in trace.native_sql) == 1
     second = ratio.execute()
-    assert len(captured) == 2
-    assert captured[1][0] == "analysis.domain.prepare"
-    assert captured[1][1] and captured[1][2]
-    assert captured[1][3] == captured[1][4]
-    assert first.state.artifact_ref != second.state.artifact_ref
-    assert first.to_pandas().equals(second.to_pandas())
+    assert len(trace.native_sql) == first_reads * 2
+    assert first.id != second.id
+    pd.testing.assert_frame_equal(first.to_pandas(), second.to_pandas())
+    assert _plain(comparison.execute())["value.absolute"].tolist() == [-40, 20, -50, 0]
 
 
 @pytest.mark.parametrize("kind", ["ratio", "linear", "weighted"])
@@ -834,109 +517,75 @@ def test_comparison_of_float_original_expression_operands(
     analysis_dsl_case_factory: DslCaseFactory, kind: str
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    with duckdb.connect(str(case.database_path)) as connection:
-        connection.execute('ALTER TABLE "order" ALTER amount TYPE DOUBLE')
-    model = case.root / "models/semantic/sales/models.py"
-    model.write_text(
-        model.read_text().replace("granularity='second',", "granularity='second', is_default=True,")
+    _numeric_source(case, "DOUBLE", False)
+    session = case.session
+    identities = session.read(
+        session.members(ms.ref.entity("sales.customer")),
+        {"id": session.catalog.fields.get("sales.customer.customer_id")},
     )
-    ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    ids = members.read(ms.ref.dimension("sales.customer.customer_id"))
-    members = ids.where(ids.value.eq("A")).members()
-    base = ms.ref.metric("sales.revenue")
-    amount = ms.ref.measure("sales.order.amount")
+    members = identities.where(identities["id"] == "A").population()
+    amount, time = (
+        session.catalog.fields.get("sales.order." + name) for name in ("amount", "ordered_at")
+    )
+    base = session.catalog.metrics.get("sales.revenue")
     metric = (
-        mv.runtime_metric.ratio(base, base, label="ratio")
+        base / base
         if kind == "ratio"
-        else mv.runtime_metric.linear(add=[base, base], label="linear")
+        else base + base
         if kind == "linear"
-        else mv.runtime_metric.weighted_mean(amount, amount, label="weighted")
+        else amount.weighted_mean(weight=amount, time=time)
     )
-    current = members.observe(
-        metric,
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    baseline = members.observe(
-        metric,
-        during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    first, second = current.execute(), baseline.execute()
-    expected = {"ratio": 0.0, "linear": -80.0, "weighted": -40.0}[kind]
-    for left, right in ((current, baseline), (first, second)):
-        result = left.compare(right).absolute.execute()
-        assert result.to_pandas()["value"].tolist() == [expected]
-        assert result._dataset is not None
-        mapping = next(
-            part.table for part in result._dataset.verified().parts if part.role == "correspondence"
+
+    def observe(month: int, metric: Deferred = metric) -> mv.Query:
+        return session.observe(
+            {"value": metric},
+            during=session.time_scope(start=f"2026-{month:02}-01", end=f"2026-{month + 1:02}-01"),
+            by=members,
+            members=members,
         )
-        assert mapping["correspondence__current_error_bound"][0] == 0.0
-        assert mapping["correspondence__baseline_error_bound"][0] == 0.0
-        assert mapping["correspondence__result_error_bound"][0] > 0
+
+    result = observe(8).compare(observe(7)).execute()
+    assert _plain(result)["value.absolute"].tolist() == [
+        {"ratio": 0.0, "linear": -80.0, "weighted": -40.0}[kind]
+    ]
+    pd.testing.assert_frame_equal(result.to_pandas(), session.artifact(result.id).to_pandas())
 
 
 def test_union_keeps_present_nondefined_cell_separate_from_absence(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    region = ms.ref.dimension("sales.customer.region")
-    categories = members.read(region)
-    eastern = categories.where(categories.value.eq("east")).members()
+    session = case.session
+    members = session.members(ms.ref.entity("sales.customer"))
+    region = session.catalog.fields.get("sales.customer.region")
+    categories = session.read(members, {"region": region})
+    eastern = categories.where(categories["region"] == "east").population()
+    amount, time = (
+        session.catalog.fields.get("sales.order." + name) for name in ("amount", "ordered_at")
+    )
+    for metric in (
+        amount.sum(time=time, empty="null"),
+        session.catalog.metrics.get("sales.order_count") / amount.sum(time=time),
+    ):
 
-    def compare(kind: str, *, fixed: bool) -> None:
-        count = ms.ref.metric("sales.order_count")
-        metric = (
-            ms.ref.metric("sales.revenue")
-            if kind == "null"
-            else mv.runtime_metric.ratio(count, ms.ref.metric("sales.revenue"), label="count_ratio")
-        )
-        scope = mv.time_scope(start="2026-08-01", end="2026-09-01")
-        via = ms.ref.relationship("sales.order_buyer")
-        current = (
-            eastern.observe(metric, during=scope, via=via, by=(mv.member(), region))
-            .group_by(region)
-            .rollup()
-        )
-        baseline = (
-            members.observe(metric, during=scope, via=via, by=(mv.member(), region))
-            .group_by(region)
-            .rollup()
-        )
-        left, right = (current.execute(), baseline.execute()) if fixed else (current, baseline)
-        saved = left.compare(right, align=mv.outer(missing="keep")).absolute.execute()
-        frame = saved.to_pandas()
-        assert frame["cell_reason"].eq("missing_side").sum() == 2
-        assert saved._dataset is not None
-        checked = saved._dataset.verified()
-        endpoint_part = next(part for part in checked.parts if part.role == "baseline_endpoint")
-        endpoint_schema = next(
-            part.schema for part in checked.contract.parts if part.role == "baseline_endpoint"
-        )
-        endpoint = to_arrow(endpoint_part.table, endpoint_schema)
-        assert kind in cell_column(endpoint, "baseline_endpoint__cell_tag").to_pylist()
-        empty = left.compare(right, align=mv.outer(missing="empty_value")).absolute.execute()
-        empty_frame = empty.to_pandas().set_index("group")
-        assert empty_frame.loc["south", "cell_reason"] == "empty_contribution"
-        assert empty_frame.loc["west", "cell_tag"] == kind
-        assert empty_frame.loc["west", "cell_reason"] == (
-            "empty_contribution" if kind == "null" else "zero_denominator"
-        )
+        def observe(population: mv.Population, metric: Deferred = metric) -> mv.Query:
+            return session.observe(
+                {"value": metric},
+                during=session.time_scope(start="2026-08-01", end="2026-09-01"),
+                by=population.classify(by=(region,)),
+                members=population,
+            )
 
-    compare("null", fixed=False)
-    with duckdb.connect(str(case.database_path)) as connection:
-        connection.execute(
-            'INSERT INTO "order" VALUES '
-            "('zero_d', 'D', 'web', 'paid', '2026-08-15T12:00:00+00:00', 0)"
-        )
-    compare("undefined", fixed=True)
+        result = observe(eastern).compare(observe(members), how="outer").execute()
+        frame = _plain(result).set_index("key_0")
+        assert frame.loc[["south", "west"], "value.absolute"].isna().all()
+        assert not frame.loc[["south", "west"], "presence.current"].any()
+        assert frame.loc[["south", "west"], "presence.baseline"].all()
+        assert pd.isna(frame.loc["west", "value.baseline"])
+        pd.testing.assert_frame_equal(result.to_pandas(), session.artifact(result.id).to_pandas())
 
 
-def test_public_decimal_ratio_rounds_once_half_even(
+def test_public_decimal_ratio_uses_declared_float_carrier(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
@@ -948,90 +597,85 @@ def test_public_decimal_ratio_rounds_once_half_even(
         )
     model = case.root / "models/semantic/sales/models.py"
     model.write_text(
-        model.read_text()
-        + "\ndenominator_value = ms.measure_column(name='denominator', entity=orders, column='denominator', additivity=ms.additive_all(), unit='CNY')\ndenominator_metric = ms.aggregate(name='denominator', measure=denominator_value, agg='sum', time=ordered_at)\n"
+        model.read_text().replace(
+            "finalized = ms.finalize()",
+            "denominator_value = ms.measure_column(name='denominator', entity=orders, column='denominator', additivity=ms.additive_all(), unit='CNY')\nfinalized = ms.finalize()",
+            1,
+        )
     )
     ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    scope = mv.time_scope(start="2026-08-01", end="2026-09-01")
-    via = ms.ref.relationship("sales.order_buyer")
-    numerator = members.observe(
-        ms.ref.metric("sales.revenue"), during=scope, via=via, by=(mv.member(),)
+    session = case.session
+    members = session.members(ms.ref.entity("sales.customer"))
+    time = session.catalog.fields.get("sales.order.ordered_at")
+    denominator = session.catalog.fields.get("sales.order.denominator").sum(time=time)
+    q = session.observe(
+        {"numerator": session.catalog.metrics.get("sales.revenue"), "denominator": denominator},
+        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
+        by=members,
+        members=members,
     )
-    denominator = members.observe(
-        ms.ref.metric("sales.denominator"),
-        during=scope,
-        via=via,
-        by=(mv.member(),),
-    )
-    first, second = numerator.execute(), denominator.execute()
-    for left, right in ((numerator, denominator), (first, second)):
-        values = left.ratio(right).execute().to_pandas().set_index("member")["value"].to_dict()
-        assert values == {
-            "A": Decimal("0.000000"),
-            "B": Decimal("0.000002"),
-            "C": Decimal("0.000002"),
-            "D": Decimal("0.000002"),
-        }
+    result = q.select({"value": q["numerator"] / q["denominator"]}).execute()
+    values = _plain(result).set_index("key_0").value.to_dict()
+    assert values == {
+        member: float(Fraction(Decimal("0.000001") if member == "A" else Decimal("0.000003")) / 2)
+        for member in "ABCD"
+    }
+    assert pa.array(result.to_pandas()[("value", "value")]).type == pa.float64()
+    pd.testing.assert_frame_equal(result.to_pandas(), session.artifact(result.id).to_pandas())
 
 
 def test_ordinary_ratio_over_untimed_numeric_read(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    values = case.session.members(ms.ref.entity("sales.order")).read(
-        ms.ref.measure("sales.order.amount")
+    session = case.session
+    values = session.read(
+        session.members(ms.ref.entity("sales.order")),
+        {"value": session.catalog.fields.get("sales.order.amount")},
     )
-    fixed = values.execute()
-    for operand in (values, fixed):
-        result = operand.ratio(operand).execute().to_pandas()
-        defined = result.loc[result["cell_tag"] == "defined", "value"]
-        assert len(defined) > 0 and defined.eq(1).all()
-        assert (
-            result.loc[result["cell_tag"] == "undefined", "cell_reason"]
-            .eq("zero_denominator")
-            .all()
-        )
+    saved = values.select({"value": values["value"] / values["value"]}).execute()
+    result = _plain(saved)
+    assert result.value.notna().sum() > 0 and result.value.dropna().eq(1).all()
+    assert result.value.isna().sum() == sum(
+        amount == 0 for *_, amount in analysis_dsl_rows("j2").orders
+    )
+    pd.testing.assert_frame_equal(saved.to_pandas(), session.artifact(saved.id).to_pandas())
 
 
-def test_float_fold_comparison_without_error_envelope_rejects_statically(
+def test_float_status_fold_comparison_uses_native_values(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    from marivo.analysis.errors import AnalysisError
-
     case = analysis_dsl_case_factory("j1")
-    with duckdb.connect(str(case.database_path)) as connection:
-        connection.execute('ALTER TABLE "order" ALTER COLUMN amount TYPE DOUBLE')
-    path = case.root / "models" / "semantic" / "sales" / "models.py"
+    _numeric_source(case, "DOUBLE", False)
+    path = case.root / "models/semantic/sales/models.py"
     path.write_text(
-        path.read_text()
-        + "\nstatus_amount = ms.measure_column(name='status_amount', entity=orders, "
-        "column='amount', additivity=ms.additive_all(except_=(ordered_at,)), "
-        "status_time_dimension=ordered_at, status_time_fold='mean', unit='CNY')\n"
-        "folded = ms.aggregate(name='folded', measure=status_amount, agg='sum')\n"
+        path.read_text().replace(
+            "finalized = ms.finalize()",
+            "status_amount = ms.measure_column(name='status_amount', entity=orders, column='amount', additivity=ms.additive_all(except_=(ordered_at,)), status_time_dimension=ordered_at, unit='CNY')\nfinalized = ms.finalize()",
+            1,
+        )
     )
     ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    observed = members.observe(
-        ms.ref.metric("sales.folded"),
-        during=mv.time_scope(start="2026-08-01", end="2026-08-03"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
+    session = case.session
+    observed = session.observe(
+        {
+            "value": session.catalog.fields.get("sales.order.status_amount")
+            .sum(time=session.catalog.fields.get("sales.order.ordered_at"))
+            .per(session.catalog.fields.get("sales.order.ordered_at"))
+            .mean()
+        },
+        during=session.time_scope(start="2026-08-01", end="2026-08-03"),
+        by=session.members(ms.ref.entity("sales.customer")),
     )
-    with pytest.raises(AnalysisError, match="retained operand error envelope"):
-        observed.ratio(observed)
-    actions = {
-        action.call.split("(")[0].removeprefix("relation.")
-        for action in observed.contract().actions
-    }
-    assert "compare" not in actions and "ratio" not in actions
+    comparison = observed.compare(observed)
+    result = _plain(comparison.execute())
+    assert result["value.absolute"].dropna().eq(0).all()
+    assert result["value.relative"].dropna().eq(0).all()
 
 
-def test_float_row_statistic_comparison_retains_error_state(
+def test_float_row_statistic_comparison_uses_stable_value_reduction(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    from marivo.analysis.errors import AnalysisError
-
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute('ALTER TABLE "order" ALTER amount TYPE DOUBLE')
@@ -1045,89 +689,50 @@ def test_float_row_statistic_comparison_retains_error_state(
                 )
             ],
         )
-    export_dsl_parquet_models(case, case.root)
-    ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    observed = members.observe(
-        ms.ref.metric("sales.revenue"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    for descriptor in (mv.sum(), mv.mean()):
-        grouped = observed.group_by(ms.ref.entity("sales.customer")).aggregate(descriptor)
-        for statistic in (
-            observed.aggregate(descriptor),
-            grouped.rollup(),
-            grouped.execute().rollup(),
-        ):
-            fixed = statistic.execute()
-            assert fixed._dataset is not None
-            state = next(
-                part.table for part in fixed._dataset.verified().parts if part.role == "row_state"
-            )
-            assert state["row_state__error_bound"][0] >= 20000.0
-            for operand in (statistic, fixed):
-                with pytest.raises(AnalysisError, match="denominator interval"):
-                    operand.ratio(operand).execute()
+    _numeric_source(case, "DOUBLE", True)
+    observed = _monthly(case, 8)
+    for name, statistic in (("sum", observed["value"].sum()), ("mean", observed["value"].mean())):
+        reduced = observed.reduce({"value": statistic})
+        value = _plain(reduced.execute()).value.iloc[0]
+        assert value == (2.0 if name == "sum" else 0.5)
+        compared = _plain(reduced.compare(reduced).execute())
+        assert compared["value.absolute"].tolist() == [0.0]
+        assert compared["value.relative"].tolist() == [0.0]
 
 
-def test_stable_float_row_statistic_comparison_propagates_bounds(
+def test_stable_float_row_statistics_and_pandas_handoff(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     _numeric_source(case, "DOUBLE", True)
-    observed = case.session.members(ms.ref.entity("sales.customer")).observe(
-        ms.ref.metric("sales.order_count"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    # Ordinary division produces float Cells with retained nonzero bounds.
-    assert isinstance(observed, mv.LogicalNumericRelation)
-    positive = observed.where(observed.value.gt(0))
-    floating = positive.ratio(positive)
-    for descriptor in (mv.sum(), mv.mean(), mv.min(), mv.max()):
-        statistic = floating.aggregate(descriptor)
-        fixed = statistic.execute()
-        result = fixed.ratio(fixed).execute()
-        assert result.to_pandas()["value"].tolist() == [1.0]
-        assert result._dataset is not None
-        correspondence = next(
-            part.table for part in result._dataset.verified().parts if part.role == "correspondence"
-        )
-        assert correspondence["correspondence__baseline_error_bound"][0] > 0
+    observed = _monthly(case, 8, "order_count")
+    positive = observed.where(observed["value"] > 0)
+    floating = positive.select({"value": positive["value"] / positive["value"]})
+    for statistic, expected in ((floating["value"].sum(), 4.0), (floating["value"].mean(), 1.0)):
+        reduced = floating.reduce({"value": statistic})
+        assert _plain(reduced.execute()).value.tolist() == [expected]
+        result = reduced.select({"value": reduced["value"] / reduced["value"]}).execute()
+        assert _plain(result).value.tolist() == [1.0]
+    # Further statistics are an explicit pandas handoff from the same terminal values.
+    values = _plain(floating.execute()).value
+    assert values.min() == values.max() == 1.0
 
 
-@pytest.mark.parametrize("parquet", [True])
-def test_period_change_after_bucket_rollup(
-    analysis_dsl_case_factory: DslCaseFactory,
-    parquet: bool,
-) -> None:
+def test_period_change_after_bucket_rollup(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j2")
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
+    _numeric_source(case, "BIGINT", True)
+    session = case.session
 
-    def grouped(month: int, day: int) -> mv.LogicalRolledNumericRelation:
-        grid = mv.time_grid(
-            during=mv.time_scope(
-                start=f"2026-{month:02d}-{day:02d}", end=f"2026-{month:02d}-{day + 3:02d}"
-            ),
-            grain=mv.grain("day"),
-            timezone="UTC",
+    def grouped(month: int, day: int) -> mv.Query:
+        axis = session.time_scope(
+            start=f"2026-{month:02}-{day:02}", end=f"2026-{month:02}-{day + 3:02}"
+        ).by(mv.grain("day"))
+        observed = session.observe(
+            {"value": session.catalog.metrics.get("sales.order_count")},
+            during=axis,
+            by=session.members(ms.ref.entity("sales.customer")),
         )
-        observed = members.observe(
-            ms.ref.metric("sales.order_count"),
-            during=grid,
-            via=ms.ref.relationship("sales.order_buyer"),
-        )
-        rolled = observed.group_by(grid).rollup()
-        assert isinstance(rolled, mv.LogicalRolledNumericRelation)
-        return rolled
+        return observed.rollup(by=(axis,))
 
-    current, baseline = grouped(8, 14), grouped(7, 9)
-    for left, right in ((current, baseline), (current.execute(), baseline.execute())):
-        saved = left.compare(right, align=mv.exact(time=mv.ordinal())).absolute.execute()
-        assert sorted(saved.to_pandas()["value"].tolist()) == [-1, 0, 0]
+    saved = grouped(8, 14).compare(grouped(7, 9), match=mv.ordinal()).execute()
+    assert sorted(_plain(saved)["value.absolute"].tolist()) == [-1, 0, 0]

@@ -100,17 +100,10 @@ not production `EXPLAIN` queries.
 ## Dataset construction and continuation
 
 ```python
-grid = mv.time_grid(
-    during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
-    grain=mv.grain("day"),
-)
-logical = (
-    session.members(ms.ref.entity("sales.orders"))
-    .observe(revenue, during=grid)
-    .group_by(grid)
-    .rollup()
-)
-result = logical.execute()
+days = session.time_scope(start="2026-07-01", end="2026-08-01").by(mv.grain("day"))
+orders = session.members(ms.ref.entity("sales.orders"))
+query = session.observe({"revenue": revenue}, members=orders, during=days)
+result = query.execute()
 result.show()
 ```
 
@@ -402,8 +395,9 @@ rendered for a semantic value. They are variant contract fields, not optional
 common attributes that callers probe with `None` checks.
 
 `TimeScope` is the one public immutable selection-window abstraction. Absolute
-windows come from `mv.time_scope(...)`; exact calendar periods and temporal
-occurrences come directly from the loaded catalog. The three internal variants
+windows come from `session.time_scope(...)`, which freezes the saved or explicit
+boundary timezone; there is no module-level analysis constructor. Exact calendar periods and temporal
+occurrences come directly from the loaded catalog. The private concrete variants
 are defined under [Unified grain and time scopes](#unified-grain-and-time-scopes), but their concrete classes are not
 top-level exports. There is no public handle type, input union, dict input,
 `ms.calendar_period(...)`, or `ms.temporal_occurrence(...)`.
@@ -879,7 +873,7 @@ Current registrations and independent passing witnesses govern support;
 a named timezone or an old suite result cannot grant it.
 
 See [timezone and calendar design](analysis/timezone-and-calendar-design.md),
-[observation contract](analysis/python-analysis-design.md#observation-and-composition)
+[observation contract](analysis/python-analysis-design.md#population-and-observation-binding)
 and [Runtime contract](analysis/session-state-and-runtime.md)
 for detailed owning rules.
 
@@ -893,7 +887,7 @@ from query execution; source values that violate the declaration can affect resu
 
 ## Certified time dependency handoff
 
-The [Analysis temporal owner](analysis/timezone-and-calendar-design.md#temporal-binding)
+The [Analysis temporal owner](analysis/timezone-and-calendar-design.md#exact-boundary-construction)
 owns grid, endpoint and consumer contracts. This document owns certification and
 normalized calendar/set snapshots. Analysis does not create another calendar
 store or public period/occurrence factory; certification is distinct from

@@ -10,6 +10,7 @@ from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 import marivo
@@ -69,8 +70,8 @@ class Trace:
 
 def test_repeated_reads_are_charged(tmp_path: Path) -> None:
     trace = Trace(tmp_path)
-    first = trace.help(mv.mean)
-    trace.help("analysis.dsl.mean")
+    first = trace.help(mv.Column.mean)
+    trace.help("analysis.Column.mean")
     assert trace.metrics() == {
         "raw_characters": len(first) * 2,
         "characters": len(first) * 2,
@@ -92,100 +93,82 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
     members = session.members(ms.ref.entity("sales.customer"))
-    metric = ms.ref.metric("sales.order_count")
-    buyer = ms.ref.relationship("sales.order_buyer")
-    august = mv.time_scope(start="2026-08-01", end="2026-09-01")
-    values = members.observe(metric, during=august, via=buyer, by=(mv.member(),))
-    assert isinstance(values, mv.LogicalNumericRelation)
+    metric = session.catalog.metrics.get("sales.order_count")
+    august = session.time_scope(start="2026-08-01", end="2026-09-01")
+    values = session.observe({"value": metric}, during=august, by=members)
     traces: dict[str, Trace] = {}
 
     trace = traces["observation_rollup"] = Trace(case.root)
     trace.help("analysis")
     trace.help("analysis.entry")
-    trace.help("analysis.session.members")
+    trace.help(session.members)
     trace.read("members contract", members.contract().show)
-    trace.help(members.observe)
+    trace.help(session.observe)
     trace.read("observation contract", values.contract().show)
     trace.help(values.rollup)
     logical_total = values.rollup()
     trace.help(logical_total.execute)
     total = logical_total.execute()
-    trace.identities[total.state.artifact_ref.ref] = "<artifact>"
-    trace.identities[total.state.producing_run_ref] = "<run>"
+    trace.identities[total.id] = "<artifact>"
+    trace.identities[total._manifest.run_id] = "<run>"
     trace.read("total result", total.show)
-    assert total.to_pandas()["value"].tolist() == [4]
+    assert total.to_pandas()[("value", "value")].tolist() == [4]
 
     trace = traces["current_mean"] = Trace(case.root)
-    trace.help("analysis")
-    methods = trace.help("analysis.methods")
-    if "analysis.methods.metric.summary" not in methods:
-        trace.help("analysis.methods.metric")
-    summary = trace.help("analysis.methods.metric.summary")
-    assert "analysis.dsl.LogicalNumericRelation.aggregate" in summary
-    trace.help(values.aggregate)
-    mean = values.aggregate(mv.mean()).execute()
-    trace.identities[mean.state.artifact_ref.ref] = "<artifact>"
-    trace.identities[mean.state.producing_run_ref] = "<run>"
+    trace.help("analysis.methods.metric.summary")
+    trace.help(values.reduce)
+    trace.help(mv.Column.mean)
+    mean = values.reduce({"value": values["value"].mean()}).execute()
+    trace.identities[mean.id] = "<artifact>"
+    trace.identities[mean._manifest.run_id] = "<run>"
     trace.read("mean result", mean.show)
-    assert mean.to_pandas()["value"].tolist() == [1.0]
+    assert mean.to_pandas()[("value", "value")].tolist() == [1.0]
 
     trace = traces["comparison_ratio"] = Trace(case.root)
-    contract = values.contract()
-    trace.read("observation contract", contract.show)
-    compare_action = next(
-        action for action in contract.actions if action.call.startswith("relation.compare(")
+    trace.read("observation contract", values.contract().show)
+    trace.help(values.compare)
+    earlier = session.observe(
+        {"value": metric},
+        during=session.time_scope(start="2026-07-01", end="2026-08-01"),
+        by=members,
     )
-    trace.help(compare_action.help_target)
-    earlier = members.observe(
-        metric,
-        during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
-        via=buyer,
-        by=(mv.member(),),
-    )
-    change = values.compare(earlier).absolute
-    trace.help(values.ratio)
-    revenue = members.observe(
-        ms.ref.metric("sales.revenue"),
+    change = values.compare(earlier)
+    assert isinstance(change, mv.Query)
+    amounts = session.observe(
+        {"count": metric, "revenue": session.catalog.metrics.get("sales.revenue")},
         during=august,
-        via=buyer,
-        by=(mv.member(),),
+        by=members,
     )
-    quotient = values.ratio(revenue)
-    assert isinstance(change, mv.LogicalDifferenceRelation)
-    assert isinstance(quotient, mv.LogicalNumericRelation)
+    trace.help(mv.Column.divide)
+    quotient = amounts.select({"value": amounts["count"] / amounts["revenue"]})
     trace.read("ratio contract", quotient.contract().show)
 
     trace = traces["selected_members"] = Trace(case.root)
     trace.help(values.where)
-    selected = values.where(values.value.gt(0))
+    selected = values.where(values["value"] > 0)
     trace.read("selection contract", selected.contract().show)
-    trace.help(selected.members)
-    selected_members = selected.members()
+    trace.help(selected.population)
+    selected_members = selected.population()
     trace.read("selected members contract", selected_members.contract().show)
-    assert isinstance(selected_members, mv.LogicalAnalysisDomain)
+    assert isinstance(selected_members, mv.Population)
 
     trace = traces["spearman"] = Trace(case.root)
-    trace.help("analysis")
-    trace.help("analysis.methods")
-    trace.help("analysis.methods.association")
-    trace.help(values.correlate)
-    revenue = members.observe(
-        ms.ref.metric("sales.revenue"),
-        during=august,
-        via=buyer,
-        by=(mv.member(),),
+    trace.help("analysis.Artifact.to_pandas")
+    trace.help("analysis.Query.select")
+    exported = amounts.execute().to_pandas()
+    association = exported[("value", "count")].corr(
+        exported[("value", "revenue")], method="spearman"
     )
-    association = values.correlate(revenue, method="spearman")
-    assert isinstance(association, mv.LogicalAssociationResult)
-    trace.read("association contract", association.contract().show)
+    trace.read("pandas association", lambda: print(association))
+    # All four August counts equal1; represented Spearman is undefined.
+    assert pd.isna(association)
 
     trace = traces["missing_subject"] = Trace(case.root)
-    share = values.share_of(values.rollup())
-    selected_share = share.where(share.value.gt(0.5))
-    trace.read("share selection contract", selected_share.contract().show)
-    trace.help(selected_share.members)
+    scalar = values.reduce({"value": values["value"].sum()})
+    trace.read("scalar contract", scalar.contract().show)
+    trace.help(scalar.population)
     with pytest.raises(AnalysisError) as captured:
-        selected_share.members()
+        scalar.population().project(by=(mv.member(),))
     trace.read("error", lambda: print(captured.value))
     trace.help(captured.value)
     assert captured.value.repair is not None
@@ -195,23 +178,20 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     prepare_profiles(case, "KS", "table", "us", "UTC", False, followup=True, profile_indices=(0,))
     ms.load(workspace_dir=case.root)
     forecast_session = mv.session.get_or_create("context-budget-forecast", report_timezone="UTC")
-    orders = forecast_session.members(ms.ref.entity("sales.order"))
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01", end="2026-08-04"), grain=mv.grain("day")
-    )
-    daily = (
-        orders.observe(ms.ref.metric("sales.total_0"), during=grid, by=(mv.member(),))
-        .group_by(grid)
-        .rollup()
+    daily = forecast_session.observe(
+        {"value": forecast_session.catalog.metrics.get("sales.total_0")},
+        during=forecast_session.time_scope(start="2026-08-01", end="2026-08-04").by(
+            mv.grain("day")
+        ),
     )
     trace = traces["drift"] = Trace(case.root)
-    trace.help("analysis")
-    trace.help("analysis.methods")
-    trace.help("analysis.methods.forecast")
-    trace.help(daily.forecast)
-    future = daily.forecast(horizon=mv.periods(2), model=mv.drift())
-    assert isinstance(future, mv.LogicalForecastResult)
-    trace.read("forecast contract", future.contract().show)
+    trace.help("analysis.session.observe")
+    trace.help("analysis.Artifact.to_pandas")
+    from tests.analysis.statistics.pandas_workflows import forecast
+
+    future = forecast(daily.execute().to_pandas()[("value", "value")], model="drift")
+    trace.read("pandas forecast", lambda: print(future.to_string(index=False)))
+    assert future["prediction"].tolist() == [10.0, 13.0]
 
     measured = {name: trace.metrics() for name, trace in traces.items()}
     recording = os.environ.get("MARIVO_HELP_BUDGET_RECORD")

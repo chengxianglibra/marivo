@@ -4,9 +4,9 @@ from decimal import Decimal
 from typing import Literal
 
 import duckdb
+import pandas as pd
 import pytest
 
-import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.methods.state_validation import state_matches
 from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models
@@ -49,38 +49,35 @@ def test_native_float_nonzero_denominator_survives_cancellation(
     models = case.root / "models/semantic/sales/models.py"
     models.write_text(
         models.read_text().replace(
-            "granularity='second',", "granularity='second', is_default=True,"
+            "finalized = ms.finalize()",
+            "weight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\nfinalized = ms.finalize()",
         )
-        + "\nweight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\n"
     )
     if parquet:
         export_dsl_parquet_models(case, case.root)
     ms.load(workspace_dir=case.root)
-    value, weight = ms.ref.measure("sales.order.amount"), ms.ref.measure("sales.order.weight")
-    numerator = mv.runtime_metric.aggregate(value, agg="sum", label="numerator")
-    denominator = mv.runtime_metric.aggregate(weight, agg="sum", label="denominator")
+    session = case.session
+    value = session.catalog.fields.get("sales.order.amount")
+    weight = session.catalog.fields.get("sales.order.weight")
+    time = session.catalog.fields.get("sales.order.ordered_at")
+    numerator, denominator = value.sum(time=time), weight.sum(time=time)
     metric = (
-        mv.runtime_metric.ratio(numerator, denominator, label="ratio")
+        numerator / denominator
         if kind == "ratio"
-        else mv.runtime_metric.weighted_mean(value, weight, label="weighted")
+        else value.weighted_mean(weight=weight, time=time)
     )
-    logical = case.session.members(ms.ref.entity("sales.customer")).observe(
-        metric,
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(
-            mv.member(),
-            *((ms.ref.dimension("sales.order.channel"),) if coordinates else ()),
-        ),
+    members = session.members(ms.ref.entity("sales.customer"))
+    customer = session.catalog.fields.get("sales.order.customer_id")
+    channel = session.catalog.fields.get("sales.order.channel")
+    logical = session.observe(
+        {"value": metric}, by=(customer, channel) if coordinates else members, members=members
     )
     # Native sums retain a nonzero denominator of 16 despite cancellation.
     expected_total = 3.0 / 16.0 if kind == "ratio" else 1.0
     fixed = logical.execute()
     rows = fixed.to_pandas()
-    defined = (
-        rows.loc[rows.cell_tag == "defined"]
-        .set_index("group" if coordinates else "member")
-        .value.to_dict()
-    )
+    defined = dict(zip(rows.iloc[:, 0], rows[("value", "value")], strict=True))
+    defined = {key: value for key, value in defined.items() if not pd.isna(value)}
     expected = (
         {"A": 1.0 / 1e16, "B": -1.0 / 1e16, "C": 1.0 / 16.0}
         if split and kind == "ratio"
@@ -90,13 +87,12 @@ def test_native_float_nonzero_denominator_survives_cancellation(
     )
     assert defined == expected
     assert all(isinstance(value, float) for value in defined.values())
-    results = [logical.rollup().execute(), fixed.rollup().execute()]
+    assert session.artifact(fixed.id).to_pandas().equals(rows)
+    results = [logical.rollup().execute(), logical.rollup().rollup().execute()]
     if coordinates:
-        results.append(fixed.group_by(ms.ref.dimension("sales.order.channel")).rollup().execute())
+        results.append(logical.rollup(by=(channel,)).rollup().execute())
     for result in results:
-        frame = result.to_pandas()
-        assert frame.value.tolist() == [expected_total]
-        assert frame.cell_tag.tolist() == ["defined"]
+        assert result.to_pandas()[("value", "value")].tolist() == [expected_total]
 
 
 @pytest.mark.parametrize(
@@ -118,28 +114,23 @@ def test_decimal_fold_retains_widened_sample_type(
                 'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?)',
                 [str(index), "A", "web", "paid", "2026-08-02T00:00:00Z", 900],
             )
-    models = case.root / "models/semantic/sales/models.py"
-    models.write_text(
-        models.read_text()
-        + f"""
-status_amount = ms.measure_column(name='status_amount', entity=orders, column='amount',
-    additivity=ms.additive_all(except_=(ordered_at,)),
-    status_time_dimension=ordered_at, status_time_fold={kind!r})
-folded = ms.aggregate(name='folded', measure=status_amount, agg='sum')
-"""
-    )
     if parquet:
         export_dsl_parquet_models(case, case.root)
     ms.load(workspace_dir=case.root)
-    logical = case.session.members(ms.ref.entity("sales.customer")).observe(
-        ms.ref.metric("sales.folded"),
-        during=mv.time_scope(start="2026-08-01", end="2026-08-03"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
+    session = case.session
+    value = session.catalog.fields.get("sales.order.amount")
+    time = session.catalog.fields.get("sales.order.ordered_at")
+    # The sample sum widens DECIMAL(3,0) before the ordinary mean finish.
+    folded = value.sum(time=time).per(time).mean()
+    logical = session.observe(
+        {"value": folded},
+        during=session.time_scope(start="2026-08-01", end="2026-08-03"),
+        by=session.members(ms.ref.entity("sales.customer")),
     )
     fixed = logical.execute()
-    for result in (fixed, logical.rollup().execute(), fixed.rollup().execute()):
-        assert result.to_pandas().value.tolist() == [Decimal(1800)]
+    for result in (fixed, logical.rollup().execute(), logical.rollup().rollup().execute()):
+        assert result.to_pandas()[("value", "value")].tolist() == [Decimal(1800)]
+    assert session.artifact(fixed.id).to_pandas().equals(fixed.to_pandas())
 
 
 @pytest.mark.parametrize(
@@ -168,14 +159,23 @@ def test_decimal_boundary_fixed_rollup_does_not_round_range_check(
         )
     )
     ms.load(workspace_dir=case.root)
-    logical = case.session.members(ms.ref.entity("sales.customer")).observe(
-        mv.runtime_metric.aggregate(ms.ref.measure("sales.order.amount"), agg=kind, label=kind),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
+    session = case.session
+    amount = session.catalog.fields.get("sales.order.amount")
+    time = session.catalog.fields.get("sales.order.ordered_at")
+    metric = (
+        amount.sum(time=time)
+        if kind == "sum"
+        else amount.min(time=time)
+        if kind == "min"
+        else amount.max(time=time)
+    )
+    logical = session.observe(
+        {"value": metric}, by=session.members(ms.ref.entity("sales.customer"))
     )
     fixed = logical.execute()
-    for result in (logical.rollup().execute(), fixed.rollup().execute()):
-        assert result.to_pandas().value.tolist() == [value]
+    for result in (logical.rollup().execute(), logical.rollup().rollup().execute()):
+        assert result.to_pandas()[("value", "value")].tolist() == [value]
+    assert session.artifact(fixed.id).to_pandas().equals(fixed.to_pandas())
 
 
 def test_float_sum_requires_finite_complete_absolute_state() -> None:
@@ -214,13 +214,15 @@ def test_numeric_raw_order_and_exchange_batches(
         )
     )
     ms.load(workspace_dir=case.root)
-    logical = case.session.members(ms.ref.entity("sales.customer")).observe(
-        mv.runtime_metric.aggregate(ms.ref.measure("sales.order.amount"), agg="sum", label="sum"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
+    session = case.session
+    amount_field = session.catalog.fields.get("sales.order.amount")
+    time = session.catalog.fields.get("sales.order.ordered_at")
+    logical = session.observe(
+        {"value": amount_field.sum(time=time)}, by=session.members(ms.ref.entity("sales.customer"))
     )
     fixed = logical.execute()
+    assert session.artifact(fixed.id).to_pandas().equals(fixed.to_pandas())
     exact = sum(Fraction(value) for _, value in facts)
     bound = sum(abs(value) for _, value in facts) * 1e-12 + 1e-12
-    for result in (logical.rollup().execute(), fixed.rollup().execute()):
-        assert abs(result.to_pandas().value.iloc[0] - float(exact)) <= bound
+    for result in (logical.rollup().execute(), logical.rollup().rollup().execute()):
+        assert abs(result.to_pandas()[("value", "value")].iloc[0] - float(exact)) <= bound

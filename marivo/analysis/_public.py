@@ -1,62 +1,34 @@
-"""The single immutable Dataset analysis surface."""
+"""Canonical lazy Query construction and terminal output reading surface."""
 
-import marivo.analysis.runtime_metric as runtime_metric
 import marivo.analysis.session as session
+from marivo._definition.correspondence import CalendarCorrespondence as CalendarCorrespondence
+from marivo._definition.correspondence import CorrespondenceAxis as CorrespondenceAxis
+from marivo._definition.correspondence import DeclaredCorrespondence as DeclaredCorrespondence
 from marivo._temporal import BeforeEndBoundary as BeforeEndBoundary
 from marivo._temporal import Grain as Grain
 from marivo._temporal import InstantAnchor as InstantAnchor
 from marivo._temporal import TimeScope as TimeScope
 from marivo.analysis import grain as grain
-from marivo.analysis import time_scope as time_scope
-from marivo.analysis._cohort import AllInstances as AllInstances
-from marivo.analysis._cohort import AnyInstance as AnyInstance
-from marivo.analysis._cohort import AtLeast as AtLeast
-from marivo.analysis._cohort import EmptyOpportunityPolicy as EmptyOpportunityPolicy
-from marivo.analysis._cohort import all_instances as all_instances
-from marivo.analysis._cohort import any_instance as any_instance
-from marivo.analysis._cohort import at_least as at_least
-from marivo.analysis._cohort import empty_opportunity as empty_opportunity
-from marivo.analysis._comparison import ExactAlignment as ExactAlignment
-from marivo.analysis._comparison import HolidayThenWeekdayTimeKey as HolidayThenWeekdayTimeKey
-from marivo.analysis._comparison import HolidayTimeKey as HolidayTimeKey
-from marivo.analysis._comparison import OrdinalTimeKey as OrdinalTimeKey
-from marivo.analysis._comparison import OuterAlignment as OuterAlignment
-from marivo.analysis._comparison import WeekdayTimeKey as WeekdayTimeKey
-from marivo.analysis._comparison import exact as exact
-from marivo.analysis._comparison import holiday as holiday
-from marivo.analysis._comparison import holiday_then_weekday as holiday_then_weekday
-from marivo.analysis._comparison import ordinal as ordinal
-from marivo.analysis._comparison import outer as outer
-from marivo.analysis._comparison import weekday as weekday
-from marivo.analysis._subject import SubjectBinding as SubjectBinding
-from marivo.analysis.datasets.descriptors import DatasetByteCount as DatasetByteCount
-from marivo.analysis.datasets.state import MaterializedDatasetState as MaterializedDatasetState
 from marivo.analysis.dsl.artifact import Artifact as Artifact
-from marivo.analysis.dsl.population import (
-    MembershipAxis as MembershipAxis,
-)
-from marivo.analysis.dsl.population import (
-    Population as Population,
-)
-from marivo.analysis.dsl.population import (
-    PopulationPredicate as PopulationPredicate,
-)
-from marivo.analysis.dsl.population import (
-    coordinates as coordinates,
-)
-from marivo.analysis.dsl.population import (
-    identities as identities,
-)
-from marivo.analysis.dsl.population import (
-    in_population as in_population,
-)
-from marivo.analysis.dsl.population import (
-    membership as membership,
-)
-from marivo.analysis.dsl.population import (
-    product as product,
-)
+from marivo.analysis.dsl.column import Column as Column
+from marivo.analysis.dsl.column import row_count as row_count
+from marivo.analysis.dsl.correspondence import corresponding as corresponding
+from marivo.analysis.dsl.correspondence import ordinal as ordinal
+from marivo.analysis.dsl.correspondence import period_offset as period_offset
+from marivo.analysis.dsl.correspondence import previous_year as previous_year
+from marivo.analysis.dsl.metrics import member_count as member_count
+from marivo.analysis.dsl.population import MemberAxis as MemberAxis
+from marivo.analysis.dsl.population import MembershipAxis as MembershipAxis
+from marivo.analysis.dsl.population import Population as Population
+from marivo.analysis.dsl.population import PopulationPredicate as PopulationPredicate
+from marivo.analysis.dsl.population import coordinates as coordinates
+from marivo.analysis.dsl.population import identities as identities
+from marivo.analysis.dsl.population import in_population as in_population
+from marivo.analysis.dsl.population import member as member
+from marivo.analysis.dsl.population import membership as membership
+from marivo.analysis.dsl.population import product as product
 from marivo.analysis.dsl.query import Query as Query
+from marivo.analysis.dsl.references import broadcast as broadcast
 from marivo.analysis.dsl.temporal import CalendarAxis as CalendarAxis
 from marivo.analysis.dsl.windows import all_history as all_history
 from marivo.analysis.dsl.windows import since as since
@@ -66,125 +38,8 @@ from marivo.analysis.dsl.windows import trailing_periods as trailing_periods
 from marivo.analysis.evidence._dataset_types import ArtifactDigest as ArtifactDigest
 from marivo.analysis.evidence._dataset_types import Finding as Finding
 from marivo.analysis.evidence._dataset_types import FindingPage as FindingPage
-from marivo.analysis.forecast_models import ForecastHorizon as ForecastHorizon
-from marivo.analysis.forecast_models import ForecastModel as ForecastModel
-from marivo.analysis.forecast_models import drift as drift
-from marivo.analysis.forecast_models import naive as naive
-from marivo.analysis.forecast_models import periods as periods
-from marivo.analysis.forecast_models import seasonal_naive as seasonal_naive
-from marivo.analysis.materialization.graph_fields import all_of as all_of
-from marivo.analysis.materialization.graph_fields import any_of as any_of
-from marivo.analysis.materialization.graph_fields import not_ as not_
 from marivo.analysis.public_dsl import AnalysisAction as AnalysisAction
 from marivo.analysis.public_dsl import AnalysisContract as AnalysisContract
-from marivo.analysis.public_dsl import CountMethod as CountMethod
-from marivo.analysis.public_dsl import GridEndpoint as GridEndpoint
-from marivo.analysis.public_dsl import GroupedNumericRelation as GroupedNumericRelation
-from marivo.analysis.public_dsl import GroupedRatioRelation as GroupedRatioRelation
-from marivo.analysis.public_dsl import GroupedStatisticRelation as GroupedStatisticRelation
-from marivo.analysis.public_dsl import LogicalAnalysisDomain as LogicalAnalysisDomain
-from marivo.analysis.public_dsl import LogicalAssociationResult as LogicalAssociationResult
-from marivo.analysis.public_dsl import LogicalAttributionResult as LogicalAttributionResult
-from marivo.analysis.public_dsl import LogicalBooleanRelation as LogicalBooleanRelation
-from marivo.analysis.public_dsl import LogicalCategoryRelation as LogicalCategoryRelation
-from marivo.analysis.public_dsl import LogicalCoefficientRelation as LogicalCoefficientRelation
-from marivo.analysis.public_dsl import (
-    LogicalCoefficientSelectionRelation as LogicalCoefficientSelectionRelation,
-)
-from marivo.analysis.public_dsl import LogicalComparisonResult as LogicalComparisonResult
-from marivo.analysis.public_dsl import LogicalDeviationResult as LogicalDeviationResult
-from marivo.analysis.public_dsl import LogicalDifferenceRelation as LogicalDifferenceRelation
-from marivo.analysis.public_dsl import LogicalForecastResult as LogicalForecastResult
-from marivo.analysis.public_dsl import LogicalNumericRelation as LogicalNumericRelation
-from marivo.analysis.public_dsl import LogicalRankingResult as LogicalRankingResult
-from marivo.analysis.public_dsl import LogicalRatioRelation as LogicalRatioRelation
-from marivo.analysis.public_dsl import LogicalRolledNumericRelation as LogicalRolledNumericRelation
-from marivo.analysis.public_dsl import LogicalRolledRatioRelation as LogicalRolledRatioRelation
-from marivo.analysis.public_dsl import (
-    LogicalSelectedBooleanRelation as LogicalSelectedBooleanRelation,
-)
-from marivo.analysis.public_dsl import (
-    LogicalSelectedDifferenceRelation as LogicalSelectedDifferenceRelation,
-)
-from marivo.analysis.public_dsl import (
-    LogicalSelectedNumericRelation as LogicalSelectedNumericRelation,
-)
-from marivo.analysis.public_dsl import (
-    LogicalSelectedTemporalRelation as LogicalSelectedTemporalRelation,
-)
-from marivo.analysis.public_dsl import LogicalStatisticRelation as LogicalStatisticRelation
-from marivo.analysis.public_dsl import LogicalTable as LogicalTable
-from marivo.analysis.public_dsl import LogicalTemporalRelation as LogicalTemporalRelation
-from marivo.analysis.public_dsl import LogicalTimeRunResult as LogicalTimeRunResult
-from marivo.analysis.public_dsl import MaterializedAnalysisDomain as MaterializedAnalysisDomain
-from marivo.analysis.public_dsl import (
-    MaterializedAssociationResult as MaterializedAssociationResult,
-)
-from marivo.analysis.public_dsl import (
-    MaterializedAttributionResult as MaterializedAttributionResult,
-)
-from marivo.analysis.public_dsl import MaterializedBooleanRelation as MaterializedBooleanRelation
-from marivo.analysis.public_dsl import MaterializedCategoryRelation as MaterializedCategoryRelation
-from marivo.analysis.public_dsl import (
-    MaterializedCoefficientRelation as MaterializedCoefficientRelation,
-)
-from marivo.analysis.public_dsl import (
-    MaterializedCoefficientSelectionRelation as MaterializedCoefficientSelectionRelation,
-)
-from marivo.analysis.public_dsl import MaterializedComparisonResult as MaterializedComparisonResult
-from marivo.analysis.public_dsl import MaterializedDeviationResult as MaterializedDeviationResult
-from marivo.analysis.public_dsl import (
-    MaterializedDifferenceRelation as MaterializedDifferenceRelation,
-)
-from marivo.analysis.public_dsl import MaterializedForecastResult as MaterializedForecastResult
-from marivo.analysis.public_dsl import (
-    MaterializedGroupedNumericRelation as MaterializedGroupedNumericRelation,
-)
-from marivo.analysis.public_dsl import MaterializedNumericRelation as MaterializedNumericRelation
-from marivo.analysis.public_dsl import MaterializedRankingResult as MaterializedRankingResult
-from marivo.analysis.public_dsl import MaterializedRatioRelation as MaterializedRatioRelation
-from marivo.analysis.public_dsl import (
-    MaterializedRolledNumericRelation as MaterializedRolledNumericRelation,
-)
-from marivo.analysis.public_dsl import (
-    MaterializedRolledRatioRelation as MaterializedRolledRatioRelation,
-)
-from marivo.analysis.public_dsl import (
-    MaterializedSelectedBooleanRelation as MaterializedSelectedBooleanRelation,
-)
-from marivo.analysis.public_dsl import (
-    MaterializedSelectedDifferenceRelation as MaterializedSelectedDifferenceRelation,
-)
-from marivo.analysis.public_dsl import (
-    MaterializedSelectedNumericRelation as MaterializedSelectedNumericRelation,
-)
-from marivo.analysis.public_dsl import (
-    MaterializedSelectedTemporalRelation as MaterializedSelectedTemporalRelation,
-)
-from marivo.analysis.public_dsl import (
-    MaterializedStatisticRelation as MaterializedStatisticRelation,
-)
-from marivo.analysis.public_dsl import MaterializedTable as MaterializedTable
-from marivo.analysis.public_dsl import MaterializedTemporalRelation as MaterializedTemporalRelation
-from marivo.analysis.public_dsl import MaterializedTimeRunResult as MaterializedTimeRunResult
-from marivo.analysis.public_dsl import MemberAxis as MemberAxis
-from marivo.analysis.public_dsl import OneToOneCorrespondence as OneToOneCorrespondence
-from marivo.analysis.public_dsl import ReferenceWeights as ReferenceWeights
-from marivo.analysis.public_dsl import RelationshipPath as RelationshipPath
-from marivo.analysis.public_dsl import RowMethod as RowMethod
-from marivo.analysis.public_dsl import TimeGrid as TimeGrid
-from marivo.analysis.public_dsl import count as count
-from marivo.analysis.public_dsl import count_defined as count_defined
-from marivo.analysis.public_dsl import max as max
-from marivo.analysis.public_dsl import mean as mean
-from marivo.analysis.public_dsl import member as member
-from marivo.analysis.public_dsl import min as min
-from marivo.analysis.public_dsl import one_to_one as one_to_one
-from marivo.analysis.public_dsl import path as path
-from marivo.analysis.public_dsl import reference_weights as reference_weights
-from marivo.analysis.public_dsl import sum as sum
-from marivo.analysis.public_dsl import table as table
-from marivo.analysis.public_dsl import time_grid as time_grid
 from marivo.analysis.refs import ArtifactRef as ArtifactRef
 from marivo.analysis.session._lazy_read_model import ArtifactSummary as ArtifactSummary
 from marivo.analysis.session._lazy_read_model import FailedRun as FailedRun
@@ -194,17 +49,34 @@ from marivo.analysis.session._lazy_read_model import SessionGraph as SessionGrap
 from marivo.analysis.session._lazy_read_model import SucceededRun as SucceededRun
 from marivo.analysis.session.core import Session as Session
 
-__all__ = [  # noqa: RUF022 - accepted public export order is contractual
+__all__ = [  # noqa: RUF022 - public order is contractual
     "Query",
+    "Column",
     "Population",
     "PopulationPredicate",
-    "in_population",
     "MembershipAxis",
-    "coordinates",
+    "MemberAxis",
+    "CorrespondenceAxis",
+    "CalendarCorrespondence",
+    "DeclaredCorrespondence",
     "identities",
+    "coordinates",
     "membership",
     "product",
+    "in_population",
+    "member",
+    "member_count",
+    "row_count",
+    "broadcast",
+    "corresponding",
+    "ordinal",
+    "period_offset",
+    "previous_year",
+    "grain",
+    "Grain",
+    "TimeScope",
     "InstantAnchor",
+    "BeforeEndBoundary",
     "CalendarAxis",
     "all_history",
     "since",
@@ -212,129 +84,19 @@ __all__ = [  # noqa: RUF022 - accepted public export order is contractual
     "trailing_duration",
     "trailing_periods",
     "Artifact",
-    "LogicalAttributionResult",
-    "MaterializedAttributionResult",
-    "LogicalRankingResult",
-    "MaterializedRankingResult",
-    "LogicalTable",
-    "MaterializedTable",
-    "table",
-    "ReferenceWeights",
-    "reference_weights",
-    "SubjectBinding",
-    "AnyInstance",
-    "AtLeast",
-    "AllInstances",
-    "EmptyOpportunityPolicy",
-    "empty_opportunity",
-    "any_instance",
-    "at_least",
-    "all_instances",
-    "DatasetByteCount",
-    "MaterializedDatasetState",
-    "ForecastHorizon",
-    "ForecastModel",
-    "Grain",
-    "TimeScope",
-    "BeforeEndBoundary",
-    "TimeGrid",
-    "GridEndpoint",
-    "time_grid",
     "ArtifactDigest",
     "ArtifactRef",
     "ArtifactSummary",
-    "FailedRun",
     "Finding",
     "FindingPage",
+    "FailedRun",
     "IncompleteRun",
+    "SucceededRun",
     "RunPage",
     "SessionGraph",
-    "SucceededRun",
     "Session",
-    "ExactAlignment",
-    "OuterAlignment",
-    "OrdinalTimeKey",
-    "WeekdayTimeKey",
-    "HolidayTimeKey",
-    "HolidayThenWeekdayTimeKey",
-    "weekday",
-    "holiday",
-    "holiday_then_weekday",
-    "exact",
-    "outer",
-    "ordinal",
-    "LogicalComparisonResult",
-    "MaterializedComparisonResult",
-    "OneToOneCorrespondence",
-    "one_to_one",
     "AnalysisAction",
     "AnalysisContract",
-    "LogicalAnalysisDomain",
-    "MaterializedAnalysisDomain",
-    "LogicalCategoryRelation",
-    "LogicalBooleanRelation",
-    "MaterializedBooleanRelation",
-    "LogicalTemporalRelation",
-    "MaterializedTemporalRelation",
-    "LogicalSelectedBooleanRelation",
-    "MaterializedSelectedBooleanRelation",
-    "LogicalSelectedTemporalRelation",
-    "MaterializedSelectedTemporalRelation",
-    "LogicalSelectedNumericRelation",
-    "MaterializedSelectedNumericRelation",
-    "MaterializedCategoryRelation",
-    "LogicalNumericRelation",
-    "MaterializedNumericRelation",
-    "MaterializedGroupedNumericRelation",
-    "LogicalRolledNumericRelation",
-    "MaterializedRolledNumericRelation",
-    "LogicalRolledRatioRelation",
-    "MaterializedRolledRatioRelation",
-    "LogicalRatioRelation",
-    "MaterializedRatioRelation",
-    "LogicalDifferenceRelation",
-    "MaterializedDifferenceRelation",
-    "LogicalSelectedDifferenceRelation",
-    "MaterializedSelectedDifferenceRelation",
-    "LogicalStatisticRelation",
-    "MaterializedStatisticRelation",
-    "MaterializedCoefficientRelation",
-    "LogicalCoefficientSelectionRelation",
-    "MaterializedCoefficientSelectionRelation",
-    "GroupedNumericRelation",
-    "GroupedRatioRelation",
-    "LogicalTimeRunResult",
-    "MaterializedTimeRunResult",
-    "LogicalDeviationResult",
-    "MaterializedDeviationResult",
-    "LogicalForecastResult",
-    "MaterializedForecastResult",
-    "LogicalCoefficientRelation",
-    "LogicalAssociationResult",
-    "MaterializedAssociationResult",
-    "RelationshipPath",
-    "MemberAxis",
-    "member",
-    "RowMethod",
-    "CountMethod",
-    "GroupedStatisticRelation",
-    "path",
-    "sum",
-    "count",
-    "mean",
-    "min",
-    "max",
-    "count_defined",
-    "all_of",
-    "any_of",
-    "not_",
-    "grain",
-    "time_scope",
-    "periods",
-    "naive",
-    "drift",
-    "seasonal_naive",
-    "runtime_metric",
     "session",
 ]
 

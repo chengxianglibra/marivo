@@ -1,583 +1,220 @@
 # Python Analysis Design
 
-Pending expression amendment (2026-10-17):
-[Expression redesign v0.37](../semantic/expression-model-redesign.md#26-原生-ibis-与自动延迟绑定)
-proposes native Ibis numeric graphs for named and anonymous Measure/Metric inputs, replacing
-their custom numeric AST. It reuses execute-time schema preparation for automatic dtype
-binding and preserves semantic boundaries plus qualified pandas local execution. No ms.ibis,
-ms.require, hidden local engine or Artifact graph is introduced. Current R2 execution does
-not establish support for this proposed input language; live APIs below retain their contracts.
-
-The same pending v0.37 design adds ordered first/last, native approximate reductions,
-explicit overlapping membership buckets, operator-local sum empty policy, and reusable named
-window Metrics. Named and anonymous inputs share the same deferred capture and checks;
-[semantic boundaries](../semantic/expression-model-redesign.md#39-五项能力共用的检查边界) and
-[conditional migration equivalence](../semantic/expression-model-redesign.md#a11-等价迁移的判定条件)
-are proposal contracts. Retired APIs and unsupported capabilities described below remain current
-until implementation and disclosure cutover; this note does not enable those APIs.
-The reviewed v0.37 proposal gives explicit membership paths priority and infers identity only
-when no path is supplied. Member-set products and complete target domains retain their bindings;
-classifying target identities does not traverse contribution-assignment paths. Axis-free rules
-use Metric.window; observe fixes the logical time binding, without freezing source data. Window
-Metrics allow qualified spatial rollup with that binding preserved; time-axis coarsening,
-replacement or removal is rejected. Scalar to-date uses the endpoint. The ordinary H/W recipe
-for legacy first-seen is equivalent only under consistent inputs; it adds no general window
-sharing requirement or runtime rejection policy. Ordered first/last retains its sampling checks.
-
-The pending [fanout amendment](../semantic/expression-model-redesign.md#371-fanout-的表达方式与能力边界)
-specifies logical contribution semantics instead of a fixed aggregate-then-join execution order.
-Existence, overlapping buckets, association events and modeled allocations remain distinct;
-general cross-root matching is not a Metric operation. Equivalent plans preserve complete keys,
-multiplicity, policies, checks and sufficient information. Current R2 progress does not qualify this proposal.
-
-Status: R2.6 terminal output reading, 2026-10-16; legacy execution sections remain
-until their owning R2 work packages replace them. This document owns the implemented
-Analysis DSL's public model and the path from algebraic definition to execution.
-Method equations and numerical contracts belong to
-[Operators and Frames](operators-and-frames.md); persistence and recovery belong
-to [Session State and Runtime](session-state-and-runtime.md).
+Status: current expression and terminal execution architecture, 2026-10-17.
+Native Deferred expressions and the S0–S6 source, sampling, membership and window
+routes and the R3–R8 Population/Query operations are implemented. Focused local
+checks cover the principal routes; full independent acceptance and any remote
+Runtime qualification remain separate gates.
+[Lazy DSL](lazy-analysis-dsl-redesign.md) owns the complete target signatures;
+this document owns the current objects, boundaries and implementation path.
 
 ## Layer ownership
 
-The public Python surfaces are `marivo.datasource`, `marivo.semantic` and
-`marivo.analysis`. Import them as `md`, `ms` and `mv`, and import `marivo` for
-the shared Help coordinator.
-
 | Owner | Responsibility |
 | --- | --- |
-| Datasource | Connections, physical sources/schema, Ibis compilation/execution, pandas handoff, native settings, cleanup and source-health evidence |
-| Semantic | Entity identity/versioning, field and relationship meaning, Metric equations, source-time roles, units, intrinsic aggregation and business order |
-| Analysis DSL | Explicit membership, observation scope, coordinates, comparisons, predicates, references and requested result views |
-| Analysis algebra | Bound domains/quantities, Cell policies, sufficient parts, premises, transported facts and pending obligations |
-| Method registry | One semantic method owner and exact qualified physical implementations |
-| Compiler | Actual graph dependencies, source dependency binding, implementation selection, stage/check schedule and typed lowering |
-| Runtime | Invocation checks, execution, retained state, Evidence/Findings and atomic publication |
-| Agent | Business question, interpretation, choice of next question and conclusions |
+| Datasource | Physical schema, credentials, declared source forms, Ibis execution returning pandas |
+| Semantic | Entity identity, fields, units, additivity, restricted declarations and native Deferred recipes |
+| Private definition graph | Immutable captured expressions, domains, policies and explicit dependencies |
+| Analysis binding | This Session's contribution occurrences, complete coordinates, periods, paths and versions |
+| Compiler and method registry | Schema-qualified physical routes, demanded slots, dependencies and check deadlines |
+| Runtime | Execute the fixed stage schedule, release resources and publish atomically |
+| Store 10 and reader | Committed output data and self-contained records; metadata opening and requested reads |
 
-Analysis consumes reusable declared meaning. It cannot infer a Metric equation,
-business order or historical version rule from column names, physical row order,
-sample values or natural-language labels.
+Semantic and datasource authoring begin at [the semantic overview](../semantic/overview.md).
+The [implementation architecture](analysis-implementation-architecture.md) describes
+module ownership; it does not independently qualify every proposed operation.
 
-## Construct, execute, inspect
+## Public objects and explicit Session entry points
 
-The Metric-first entry is `session.observe({"revenue": revenue, "aov": aov},
-during=scope, by=(region,), where=region == "APAC")`, using resolved semantic
-expressions. It returns immutable `Query`; `BoundSignature` and captured R1
-definitions remain separate from terminal output schema. ObservationBinding
-captures the frozen period and complete output axes; ContributionBinding preserves
-each source reduction occurrence, intrinsic filters, common conditions, time role
-and per-root scalar paths. Different fact roots are never joined or collapsed at
-binding. Omitted `during` and `None` add no time filter, including ordinary
-reductions with a time role. Sampling and temporal sample reductions require an
-explicit period throughout the captured dependency closure.
-
-`session.instant(...)` returns an exact UTC InstantAnchor. `session.time_scope(...)`
-returns the shared TimeScope's exact-boundary variant; its start/end are statically
-and dynamically InstantAnchor values. It freezes the parsing/calendar timezone,
-defaulting to the saved report timezone. `scope.by(mv.grain("day"))` creates a
-complete CalendarAxis with nominal and clipped actual buckets; catalog calendar
-grains capture their current certified snapshot. Naive Python datetimes and
-ambiguous/nonexistent wall clocks reject. Offset inputs keep their instant.
-`mv.product(population, calendar_axis)` captures the complete field/identity and
-calendar domain in argument order. It can supply `by=` or internal `per(...)`
-samples. Source contributions group by the captured calendar's actual half-open
-buckets; no-activity buckets retain the child Metric's empty policy. A captured
-calendar supplies its finite source period when `during` is omitted. Calendar
-metadata follows its position in the output axes. Internal calendar samples do
-not establish window endpoints; window output still binds through an explicit
-`during=CalendarAxis`.
-
-Legacy civil scopes bind once when consumed by the new observe path; their
-existing constructors/consumers remain until the R8 cutover.
-
-Resolved fields support directed single-valued `via((relationship, ...))`, and
-versioned fields support `at(session.instant(...))` without reading attributes.
-Field predicates and output coordinates retain these bindings. Scope filters and
-attribute anchors do not replace a sampling period. Missing/ambiguous paths,
-fanout and unbound versioned attributes fail with concrete typed repair.
-Population, members and observation windows are not new observe parameters in
-R2.2. `contract()` reports bound context and explicitly unresolved physical dtype
-without schema/business reads or Run admission. `execute()` performs R2.3
-schema-only preparation (lossless type admission) and pure stage planning before
-admitting a Run. R2.5 connects ordinary numeric execution to atomic Store 10
-publication. Every execute reevaluates its inputs and returns a committed terminal
-identity with metadata opening, bounded preview, complete pandas export and saved output records. R2.4 supplies the numeric routes: source reductions return nullable pandas values,
-then local formulas combine complete coordinate keys. Sum/count use zero for
-empty contributions; weighted means use common non-NA pairs. Division masks
-zero denominators before calculation; explicit error and strict NA policies
-produce temporary checks, and invalid arithmetic fails. Null field coordinates
-are valid keys. Preparation resolves computed physical fields, single-valued paths,
-exact snapshot/validity anchors, parsed/civil/naive business time and encoded
-Duration ticks. Separate datasource roots reduce independently before pandas
-combination. There is no old-executor fallback.
-The shared semantic kernel takes physical Row/Metric inputs without Signature,
-Session or Cell carriers. Bounded ordinary semantic Metric previews reuse it;
-Population/sample and path/anchored previews reject before opening a source;
-qualified native previews do not inherit analysis preparation capabilities.
-
-Preparation validates each field occurrence before sharing a physical column, so
-an earlier native read cannot hide a later path or attribute anchor. Original
-datasource Duration and Timestamp metadata remains authoritative across Entity
-projections: Duration keeps its exact tick unit; precision-losing timestamp
-carriers reject before business reads. Per-occurrence physical slots retain
-path and anchor identity. Scalar joins validate encountered missing/duplicate
-matches before consuming reduced values; native period filters exclude unrelated
-rows before those joins. Weighted means check both reduced components for
-nonfinite values, and source-free calendars retain every declared bucket. Internal check routes bind the complete obligation to an
-exact source contribution occurrence. The scheduler checks that output as soon
-as it is ready, before consumption or release, for both consume and publish
-deadlines; an unbound check route rejects during planning.
-
-`Artifact` is a distinct terminal wrapper: exact ID, manifest and read service.
-It exposes `show(n=20)`, `to_pandas()`, `findings()` and `evidence_digest()`;
-it has no `contract()`, DSL methods or conversion to Query. `Session.artifact(id)`
-accepts an exact string and rejects old graph output without decoding it or
-changing files. R2.5 publishes a wide nullable primary, explicit attachments and
-self-contained Finding/Evidence records in Store 10. Ordinary observations have
-empty Findings and actual read/check Evidence. The new manifest contains no
-semantic objects, graph, definition fingerprints, hidden components or continuation;
-Run records retain only invocation identity and lifecycle. Metadata opening and repr
-read no Parquet. New and reopened Artifacts use the same committed-output reader.
-Preview decodes bounded rows, although receipt hashing may read a full consumed part.
-Export returns a complete isolated DataFrame with RangeIndex, kind/name columns and
-data-only attrs. Findings are paged; evidence_digest() takes no arguments and returns
-all actual saved facts in .items, with bounded .show(). Output summaries in Session
-graphs contain no definition fingerprint or semantic derivation. Earlier Stores are
-preserved and rejected without migration or Session-name bypass. Session identity,
-timezone and same-generation `get_or_create`/`resume` contracts remain in force.
-
-A Session owns one investigation and project-local Run/Artifact history.
-`mv.session.get_or_create(...)`, `current()` and `resume(...)` retain their
-native identity and timezone contracts. The member-domain entry is
-`session.members(entity_ref)` remains the legacy member-domain entry;
-Session-level `observe` now captures the new Query contract above, without
-reviving former Dataset families or forwarding aliases.
+`Population` is a finite logical coordinate domain. `Query` is a lazy, fully
+bound calculation with named quantities. `Column` locates a value or coordinate
+on one exact Query input. `Artifact` is committed terminal output.
 
 ```python
+import marivo
 import marivo.analysis as mv
 import marivo.semantic as ms
 
 session = mv.session.get_or_create("revenue-review", report_timezone="UTC")
-members = session.members(ms.ref.entity("sales.orders"))
-revenue = ms.ref.metric("sales.revenue")
-current = members.observe(
-    revenue, during=mv.time_scope(start="2026-07-01", end="2026-08-01")
-)
-baseline = members.observe(
-    revenue, during=mv.time_scope(start="2026-06-01", end="2026-07-01")
-)
-change = current.compare(baseline).execute()
-change.show()
+revenue = session.catalog.metrics.get("sales.revenue")
+region = session.catalog.fields.get("sales.orders.region")
+period = session.time_scope(start="2026-08-01", end="2026-09-01")
+query = session.observe({"revenue": revenue}, during=period, by=(region,))
+query.contract().show()
+artifact = query.execute()
+artifact.show(n=20)
+exported = artifact.to_pandas()
 ```
 
-The example requires a loaded, authored `sales.orders` Entity and
-`sales.revenue` Metric with admitted source/time contracts. It describes an
-absolute change; business or causal interpretation remains the caller's work.
+The example requires an authored project and a qualified source. A bare Metric
+Ref is a lookup key, not an executable expression. Named and anonymous inputs
+use the same controlled native Ibis Deferred carrier. Model loading owns naming
+and persistent dependency closure; `@ms.metric()` does not create an executor.
+No top-level `marivo.session`, fixed-result input or manual type-preparation API
+substitutes for these entry points.
 
-Constructors and transformations return concrete Logical values silently.
-Logical values expose bounded identity and `contract()`; `execute()` admits
-work and returns the matching Materialized type. Materialized values expose
-bounded `show()`, isolated `to_pandas()` copies and committed evidence reads.
-Only Logical values provide DSL composition. Materialized results are terminal reads;
-they expose no computation, predicate fields or conversion back to a Logical value. No implicit iteration,
-truth conversion, indexing or arithmetic substitutes for a registered method.
+`session.members(entity, at=..., where=...)` selects existing complete identities;
+`mv.identities(entity, keys=...)` requires a resolved Entity from the completed
+finalization scope or `session.catalog.entities.get(entity_ref)`. A bare EntityRef
+is a lookup key and is rejected here. Explicit identity references do not prove
+source presence. `session.query(population)` creates a keys-only Query.
+`session.values(by=..., columns=..., rows=...)` captures typed literal references
+on Field or complete identity coordinates; Calendar and Correspondence axes are
+not writable scalar keys. A zero-axis singleton and a zero-row empty domain
+remain different inputs.
 
-Construction and planning do not query business rows or allocate a Run.
-Schema-only preflight may connect before Run admission to resolve unknown
-Entity key or value types. This is separate from business execution, and the
-schema is checked again at execution. Repr and contract inspection do not
-perform source or retained-row reads.
+`session.read(population, fields)` is the sole attribute-read entry. It accepts
+one complete Entity identity axis and a nonempty named field mapping, retains
+every requested identity, and returns a Query. It binds a pure literal domain to
+the explicit Session and rejects an incompatible existing owner. It never looks
+up an ambient Session. There is no `Population.read` alias. Direct declared Fields
+are admitted here; computed Measure expressions belong in observe.
 
-Executing `session.members(entity_ref)` alone reads and saves the complete
-member key set. It may scan the entire Entity source and has no default row
-truncation. Primary-key uniqueness and unversioned identity establish grain,
-not a bound on member count. `show(n=...)` limits display only. Execution has no default graph deadline; datasource-declared native settings
-retain their backend semantics.
+```python
+customers = session.members(ms.ref.entity("sales.customers"))
+tier = session.catalog.fields.get("sales.customers.tier")
+attributes = session.read(customers, {"tier": tier})
+gold = attributes.where(attributes["tier"] == "Gold").population()
+```
 
-## Domains, quantities and Cells
+For a versioned field, bind `tier.at(session.instant(...))` explicitly. Scalar
+paths use `field.via((relationship, ...))`; ambiguous, missing or fanout paths
+reject. Version selection and observation periods are independent. A required
+attribute mapping that is missing or nonunique fails when consumed, rather than
+silently dropping identities or replacing the lookup with ordinary NA.
 
-An analysis Signature binds a domain, optional quantity, retained parts,
-evidence and obligations to exact Session/owner/input/scope identities.
+## Population and observation binding
 
-A domain has complete typed instance keys. Entity identity K is all ordered
-primary-key components; snapshot and validity coordinates identify historical
-representations and do not replace K. Entity, group and singleton domains retain their own complete keys and realization bindings; time grids add explicit coordinates.
+A Population preserves ordered, complete axis tuples, Session ownership and its
+own selection context. Projection, set operations and membership predicates
+operate on those coordinates. `Query.coord(axis)` constructs a Column without
+source access; preparation rejects an axis with multiple key components as a
+scalar quantity before Run admission or business compilation/reads. Complete
+composite identities remain valid output coordinates, Population tuple predicates
+and export keys. Use an existing single-field axis for a scalar value Column.
+`classify` explicitly reads single-valued member fields; `image` and `preimage`
+use declared directed identity paths. Ordinary fields never become Entity
+identities merely because their values resemble keys.
 
-A quantity owns its unit, computation/contribution identity and state policy.
-Observed Metric, derived quantity, current-row statistic and rolled quantity
-are distinct kinds. Equal displayed values or units do not make quantities
-interchangeable. Labels are presentation, not identity.
+`Query.population()` captures the Query's current keys and selection as a lazy
+dependency. Reusing it does not fix a previous execution's rows. Its period,
+conditions and attribute anchors are not overwritten by the consuming observe.
+Population has no `execute`; publish through `session.query(population)`.
 
-A Cell is Defined, Null, Undefined or Unknown, with an owned reason where
-required. A missing coordinate is a separate correspondence fact, not a fifth
-Cell or a physical NULL. Each method declares which states it can consume.
-Empty original state, absent state and incomplete coverage are distinct.
+`session.observe(metrics, during=..., by=..., where=..., members=...)` binds the
+observation once. A tuple `by` classifies observed coordinates; a Population
+requests a complete output domain. The requested domain must cover every consumed
+contribution coordinate. `members` is a separate single-identity constraint and
+does not imply that this identity is an output axis.
 
-Full Subject maps, coordinate tuples, original components and coverage are
-retained parts. A scalar cannot recreate any of them. `members()` takes the
-set image of an actual Subject mapping; it does not turn instance multiplicity
-into Subject counts or infer identities from displayed numbers.
+Each source reduction occurrence retains its intrinsic conditions and receives
+common conditions independently. Multi-root Metrics reduce each fact root under
+its own identity and time role before combining complete output keys. Relations
+must not multiply a fact root's contribution merely because another root has more
+rows. Membership descriptors retain correlated tuples within one descriptor and
+independent allocation factors between descriptors. Repeated mappings of one
+contribution identity to one bucket count once; equal-valued distinct facts do not.
 
-## Algebra and method registration
+`Metric.per(samples)` evaluates its entire child Metric at each internal sample
+before reducing. An explicit sample Population selects complete internal samples,
+including empty samples under the child policy. Internal subset selection does
+not imply external output-domain coverage. Boolean predicates retain ordinary NA
+logic; source Null Field coordinates remain valid complete keys.
 
-`analysis/core/model.py` owns signatures, domains, quantities, parts and
-evidence. `core/rules.py` and specialized domain rule modules own derivation.
-`analysis/methods` is the single registration and physical admission owner.
+## Time and window authority
 
-The six reusable meta-rule families are:
+`session.instant` and `session.time_scope` are the only analysis time constructors;
+there are no module-level aliases. They freeze the Session or explicit timezone.
+Scope boundaries are exact UTC `InstantAnchor` values. Dates and offset-free
+strings use that zone; aware inputs preserve their instant. Naive Python
+datetimes and ambiguous or nonexistent wall clocks reject.
 
-| Rule family | Meaning |
-| --- | --- |
-| BindProject | Bind governed source/field meaning to an explicit subject domain |
-| MapCorrespond | Construct an exact, union, one-to-one or temporal correspondence |
-| CellDerive | Derive values from bound endpoint Cells under an explicit policy |
-| RowState | Construct a new statistic from current represented rows |
-| OriginalReduce | Merge retained original components and finish the governed quantity |
-| PartsTransport | Project/select views while preserving or restricting their actual state |
+`scope.by(mv.grain("day"))` captures nominal buckets, clipped actual intervals,
+order, timezone, Grain and any certified calendar snapshot. Calendar products
+retain factor order and exact bindings. A calendar does not infer a Metric
+window: window endpoints are bound through the observation's `during`.
+`during=None` adds no ordinary time filter, while temporal sampling and window
+closures still require their own explicit period or endpoint.
 
-Concrete methods remain distinct versioned identities. Shared rules coexist
-with dedicated deviation, runs,
-association, forecast, display and allocation rules. Domain algorithms are not
-automatically reducible to the six generic rules.
+Metric.window is the only window attachment. `all_history`, `trailing_duration`,
+`trailing_periods`, `since` and `to_date` are axis-free immutable rules. Each
+endpoint evaluates the full child formula over its own half-open W(t); the display
+start does not clip an earlier contribution window. Fixed durations use elapsed
+time; periods use the complete civil or certified calendar. Scalar to-date selects
+the reset period with `left < endpoint <= right`. Nominal calendar buckets also
+require unique containment. Windowed original rollup must preserve the same
+calendar axis and endpoints; changing the window requires a new observation.
 
-`MethodNode` construction invokes `MethodRegistry.derive()`, which resolves
-the sole method semantic owner. `core.rules.derive()` delegates to that same
-registry. The resulting `RuleDerivation` carries:
+## Query values and composition
 
-- output Signature and bound preconditions;
-- RequiredParts and their PartTransform;
-- post facts and transported evidence;
-- evaluation identity and pending consume/publish obligations.
+Query owns value selection, filtering, Top-N and result reduction. A Column can
+be used only on its exact input; cross-input arithmetic requires explicit
+alignment or complete reference transport. `select` preserves output names and
+units. `top` breaks ties by complete keys and preserves its selected display
+order. `reduce` provides sum, mean and row_count over current represented cells;
+it does not recompute the original Metric.
 
-Derivation is conditional: a post fact, check ID or successful construction
-does not prove a physical implementation exists or that a runtime check passed.
-The planner and execution consumers use these contracts; they are not a
-documentation-only algebra layer.
-
-Physical selection uses the exact method/version, ordered input value types
-(including Decimal precision/scale and Duration unit), ordered domain kinds,
-source shape, time authority and route. It also requires declared
-checks, output/retained parts and precision contracts. Selection does not
-execute the method or discharge its pending obligations.
-
-For ordinary observations, the common temporal normalizer binds timestamp input
-shapes to UTC while retaining actual source precision. Civil DATE interpretation
-is preserved. Required observation parameters retain the original parser and
-resolved source/report authority; window and grid/calendar authority retain their
-own bindings. These facts enter fingerprints and execution identity independently
-of the normalized physical shape. A report timezone is not a source read timezone
-or a reason to relax exact implementation selection.
-
-Implementation IDs and evidence are provenance, not capability predicates.
-Typed consumer rules own numerical specialization, input-arity expansion,
-check placement and consumer-specific shape restrictions. No method-ID prefix,
-legacy resolver or successful old route grants new admission.
-
-## Semantic definition updates
-
-Semantic objects need not remain bound to their original definition versions.
-A same-path definition change alone does not reject an input; the agent/user
-accepts the consequences of semantic changes during analysis. Reference-resolving
-consumers use their complete scope; already closed expressions keep their stored
-immutable definitions and facts, without live refresh or module replay.
-
-This removes original-version enforcement, not computation identity. The graph,
-dependency fingerprints and compiler/cache keys must describe the definitions,
-policies and bindings actually consumed. A changed definition cannot be served
-from a cache keyed as an unchanged computation. Persisted graph/provenance and
-validation records below retain their existing integrity contracts; this decision
-does not authorize their removal or add new persistence to the target terminal
-Artifact. Session ownership, kind/root/grain/unit/time-role/null and business
-snapshot/validity selection checks remain independently required.
+Alignment, comparison, broadcast, original rollup, endpoint drill and share follow
+the [target operator contract](lazy-analysis-dsl-redesign.md#46-查询结果与值表达式)
+and require their qualified physical route. Correspondence checks complete unique keys;
+presence is independent of nullable values. A relative comparison divides the
+absolute difference by the absolute baseline and owns only its new denominator
+policy. General arithmetic never acquires a share contribution proof.
 
 ## Definition graph and compiler
 
-`core/graph.py` owns the definition DAG:
+Construction, repr, Help and contract inspection read no business rows or schemas
+and create no Run. Captured definitions remain immutable. At a reference-resolving
+consumer, same-path definition changes alone do not reject the input; kind, root,
+complete grain, unit, time and null constraints still apply. No live refresh,
+module replay or source snapshot is inferred. Fingerprints describe the definitions
+and policies actually consumed and are not saved in the Artifact.
 
-| Node | Captured authority |
-| --- | --- |
-| SourceLeaf | Exact Semantic/source definition, dependency fingerprint, declared Signature and physical value type |
-| MethodNode | Versioned rule parameters, ordered role-bearing inputs, derivation and explicit additional source/retained references |
+Execution preparation resolves real source schemas, lossless physical carriers,
+connections and per-use paths before passing source-free facts to the compiler.
+Each field occurrence is validated before sharing its physical column, so a native
+read cannot hide a later invalid anchor or route. Datasource Timestamp and Duration
+metadata remains authoritative across Entity projections. Precision-losing source
+carriers reject before the affected business read.
 
-Frozen graph v7 pools Binding, DomainSignature, Fact and Evidence by exact
-canonical content. Typed references share immutable contract values while
-preserving ordered inputs, full derivations and definition fingerprints. Graph
-records remain the same typed logical authority after decoding; pooling does not
-merge independent node captures or remove retained history.
+The compiler fixes source IDs, demand slots, complete keys, stage dependencies,
+method routes and consume/publish checks. Source Ibis executes through the selected
+datasource and returns pandas. Local stages use pandas and the existing numerical
+kernels. PyArrow belongs to terminal encoding and reading. No hidden local SQL
+engine, Artifact scan, alternate executor or runtime route retry is introduced.
+Current optimization qualification includes finite filter fusion, RequiredSlots,
+invocation-scoped reuse, same-input exact direct-source sum/count blocks and L8
+adjacent single-consumer original rollups over identical ordinary components.
+The latter routes admit exact int64/Decimal components and direct retained-axis
+maps; they preserve every ordered intermediate finish and overflow check. Typed
+prepared input authority, not Ibis AST equality or Entity names, establishes a
+common source. Independent occurrence/value/check slots and consumer counts
+survive one physical read. Float sums, internal samples, windows, differing
+policies, pending checks and selection/share or multi-consumer barriers retain
+their separately qualified routes. This is finite positive qualification, not
+general permission to fuse source computations or original reductions.
+A required check consumes its actual producer output before the declared deadline;
+selection or projection cannot erase that obligation.
 
-Committed output is never a data-dependency edge. Graph inputs are SourceLeaf
-or MethodNode; saved Artifact IDs, objects and legacy Materialized results cannot
-enter DSL composition. Additional field, predicate, comparison, grouping and
-domain-method dependencies remain explicit source graph edges.
+## Terminal publication, reading and acceptance
 
-Definition fingerprints identify normalized meaning and explicit bindings.
-Node identities control sharing in one invocation: one shared node has one
-realization; separately constructed lookalikes are not common-subexpression
-merged. One logical realization is not a promise of one physical scan.
+Every admitted execute is a new Run evaluating its inputs. Shared definitions do
+not promise common reads, stable source versions or a cross-source snapshot.
+A successful invocation atomically publishes typed output, necessary attachments,
+Findings and actual Evidence. Mean components, internal sample relations and other
+execution-only state are released, not made into a saved continuation.
 
-`compiler/graph_plan.py` captures dependency order, classifies the root and
-selects qualified stages. `compiler/graph_lowering.py` lowers the admitted
-schedule to typed Ibis relations, local stages and deadline-bound checks.
-Compiler handoff reuses captured static graph/registry facts. Private in-process
-compiler objects are trusted; this path does not maintain deep anti-mutation
-snapshots or audit local objects as hostile data.
+Artifact exposes `id`, `session_id`, `show(n=20)`, `to_pandas()`, `findings()` and
+`evidence_digest()`. It has no contract, Column, Population conversion or DSL
+method. `session.artifact(id)` opens exact committed metadata without current
+Catalog/source access or Parquet scans. New and reopened handles share the same
+reader; preview is bounded, complete export is isolated, and consumed receipt
+verification can still read a whole part. Store 10 rejects older graph formats
+without rewriting them. Detailed transaction, concurrency and resource contracts
+belong to [Runtime](session-state-and-runtime.md).
 
-Construction validates each new MethodNode and derives its semantics once.
-`topology()` only traverses execution dependencies. Invocation capture fingerprints
-the constructed definitions and checks the complete structural closure, ownership
-and retained endpoint correspondence without reinitializing leaves or rederiving
-methods. GraphPlan holds this capture directly and lowering preserves
-its selected registry interpretation. Exact implementation selection owns one
-parameter admission per method, including methods with preparation and local
-stages; preparation, lowering and local consumption do not repeat that admission.
-Legacy source graph decoding remains an integrity-validation detail; it provides
-no result-to-definition conversion or saved-input execution route.
-
-Logical lowered layouts retain complete typed keys, Cell slots and declared
-part schemas. Before a source read is issued, `compiler/cell_lowering.py` lowers
-those slots to their closed physical carriers. Known Cells carry only their value
-and frozen state; Validity Cells carry only their value and one frozen missing
-state; Encoded Cells carry their value and a non-null int16 state column.
-Carrier selection follows declared policies and construction, never sampled
-rows. `core/cell_encoding.py` owns the canonical per-slot reason dictionaries;
-`materialization/cell_arrow.py` owns their Arrow operations and public decoding.
-Source-local stages and retained storage use the same bindings. Scalar algorithms
-may decode individual Cells; public rendering/export restores the existing
-string tag/reason columns and their ordering. Each emitted expression has exact
-SourceLeaf provenance;
-provenance is not reconstructed by comparing Ibis expressions. The compiler
-does not submit SQL, consume source rows, allocate a Run or publish an Artifact.
-
-## Execution routes and qualification
-
-| Classified graph / route | Execution contract |
-| --- | --- |
-| Source-only / ibis | Governed Ibis expressions execute on the datasource and return pandas data |
-| Source-only / ibis_python | Governed Ibis preparation returns the required input as pandas, then a registered local algorithm consumes it |
-
-Local stages consume outputs from their current source invocation. Committed
-results have no physical input shape or execution route.
-
-Backend, table form, exact type, domain, time shape, method and complete-read/cleanup
-authority all participate in admission. DuckDB tables, local Parquet, local
-CSV/JSON adapters, PostgreSQL, MySQL, Trino and ClickHouse do not inherit
-one another's method qualifications. A backend name or successfully compiled
-expression is not blanket support.
-
-Ordinary contribution coordinates use flat primary/partition relations and one
-terminal pandas materialization. Complete result keys select keyed component
-reuse or a flat partition at compilation, shared across backends, exchange,
-persistence and source-local execution. `operators-and-frames.md` owns these layouts
-and numeric semantics; `session-state-and-runtime.md` owns their receipt
-versions. Source execution returns pandas frames through Ibis/provider conversion;
-the persisted Cell/Parquet representation remains Arrow.
-
-Relational operations supported by the admitted expression stay in governed
-Ibis expressions. Retained-state reduction and statistical kernels use their
-registered local consumers. Source preparation may materialize full vectors in
-pandas and is eager, not a streaming algorithm. Route choice is complete before
-execution; a failure never triggers another implementation.
-
-## Premises, assumptions and checks
-
-Evidence has four distinct sources: semantic declarations, constructor-derived
-facts, exact call assumptions and actual completed checks.
-
-Entity identity/version grain and declared source parsing are trusted premises.
-Selection preserves key uniqueness; grouping constructs unique output keys.
-Field ownership and to-one cardinality establish single-valuedness, but
-cardinality alone does not prove every target has a match. Equal Entity refs,
-DomainSignatures or row counts do not prove equal realized input key sets.
-
-`mv.exact()` fixes checked pairing for compare and ordinary ratio; unknown
-complete-key equality is checked, while applicable declarations and frozen
-constructor proofs remain authoritative. No trust/verification option is public.
-Field and relationship matching retain unknown owner/path/version totality as
-unverified assumptions. Those assumptions omit only their corresponding checks;
-they do not introduce missing values or completed source proof. Materialized
-contracts disclose retained assumptions as not checked.
-
-Compare infers the sole changed target/time condition and returns
-LogicalComparisonResult, whose absolute DifferenceRelation and relative
-NumericRelation read one shared endpoint pair. Execution publishes one
-MaterializedComparisonResult with two independently tagged Cells. Use
-`current.compare(baseline).absolute` for selection and attribution, or `.relative`
-for dimensionless current-row statistics before executing. Logical roots have
-execute/contract; committed roots provide show/evidence/to_pandas only.
-
-Field Cells are constructed on the owner side of a lookup. A present owner's
-Null field is `Null(source_null)`; an absent owner supplies no operand and rejects
-at consumption. An unknown field lookup is consumed once before downstream SQL
-can discard rows, with later operations using its owned staged result. This is
-operand consumption, not a relationship matching query or completed proof.
-Observation partition and completeness facts depend on the exact matching
-assumptions used to construct them; removing a premise invalidates those facts.
-
-Unknown field/captured-path matching remains a scoped assumption. Independent
-key pairing and actual method consumption requirements remain typed obligations.
-Checks retain the originating ordered input nodes,
-scope and consume/publish deadline. A check may bind a subset of a method's
-direct inputs; lowering resolves each exact domain, quantity and node identity
-in the recorded order, including repeated operands. Local cohort consumption
-checks the full opportunity domain and records its own completed coverage
-proof only after successful consumption. An originating completed check is
-required before an inherited consumer runs. Completing a later local stage
-does not establish an earlier input check.
-
-Business completeness, version availability, target-grid authority and retained
-coverage have separate owners. `source_health` is an explicit data-audit
-operation, not an implicit prerequisite of ordinary analysis. Independent source
-queries have no transaction-snapshot guarantee; a check proves its own read.
-
-## Observation and composition
-
-`observe` accepts a Metric Ref or the closed RuntimeMetricExpr union. Runtime
-factories live under `mv.runtime_metric` and share Semantic's component-graph
-owner. SQL, callbacks, arbitrary formulas, coefficients and unit overrides are
-not alternative expression bodies.
-
-Observation supplies either a range or an exact endpoint when required by the
-Metric's temporal role. Membership selection, observation scope and output time
-coordinates remain separate. Routes bind each distinct computation root;
-occurrences sharing a root keep independent filters/state. Identity binds the same Entity. Other roots and scalar reads infer a unique
-directed keyed to-one path from normalized semantic facts, preserving declared
-Metric time-path prefixes. No shortest-path, declaration-order or physical-cost
-choice selects a business role. Ambiguity rejects with real bounded candidates.
-`via=None` and omission both infer; a Relationship Ref, `mv.path(first, *rest)`,
-or a nonempty tuple of paths selects explicit roles. `mv.path` is the sole
-constructor of immutable `RelationshipPath`: it stores only nonempty ordered
-Relationship Refs, with the source determined by the first hop's declaration.
-`mv.path(a, b)` composes hops; `via=(a, b)` selects independent root paths.
-Path tuples bind by root identity in any order and may cover only ambiguous
-roots; duplicate, extra and incorrect endpoints reject.
-A read accepts exactly one path from its current member to the field owner.
-Physical schema/type/version/admission failures never try another semantic path.
-
-Each component occurrence reduces independently on its complete target key
-before combination. Component domains combine as complete tuples, never as a
-Cartesian product of projected columns, root intersection or row-order alignment.
-Only proven empty contributions receive their method's empty state.
-
-First member observation directly computes the complete Metric at the requested
-`by` grain. The default `by=()` produces Singleton, or one overall value per
-retained time bucket with `during=grid` or `at=grid.end`. Membership decides which
-contributions
-participate; `by` selects only spatial keys. It accepts an ordered tuple containing
-`mv.member()` to retain the receiver's full Subject identity and all primary-key
-components, categorical member or
-contribution-path or independently reachable scalar Dimensions, and same-Session
-logical classifications, including explicit version reads. Member Dimensions
-classify complete member keys. On-route fields inherit the selected role; outside
-that route, each root resolves its own single-valued field binding. Equivalent
-complete semantic paths deduplicate; distinct legal roles remain ambiguous.
-A classification read on a computation root attaches by that root's complete
-contribution keys before aggregation, separately from contribution attribution.
-Its read path may differ from observe's path. Every component binds every axis;
-missing mapping cannot discard a component or allocate its overall value.
-Classification matching and Defined-value checks cover actual consumed keys;
-a filtered classification cannot implicitly filter contributions. The consumed contribution/member-time keys are fixed before classification is attached; missing classifications retain those keys until coverage validation rejects them. Duplicate or unbound axes and mismatched classifications
-reject. There is no explicit target-domain completion. Member domains and
-Category, Boolean and Temporal reads have no `group_by`; nonnumeric reads retain
-overall `aggregate(count()/count_defined())`. Numeric, ratio and statistic results
-retain grouping and their admitted original or current-row reductions. Public
-`coordinates` and standalone grouped-domain observation are removed.
-Only retained full Subject identity permits a subsequent `members()`.
-The member marker resolves against the receiver during construction; it is not
-a new persisted axis kind. Repeated member markers and Entity Refs in `by`
-reject. Primary-key Dimensions remain ordinary classification axes and do not
-implicitly acquire Subject identity.
-
-Category reads and category `where()` return the same LogicalCategoryRelation;
-legacy execution returns terminal MaterializedCategoryRelation; cold opening returns Artifact. Selection remains
-in the definition graph with its exact predicates, member scope and Dimension
-binding. The former SelectedCategoryRelation types are removed without aliases.
-Coordinate identity retains the original Dimension Ref, classification origin,
-role path, version/time grid and a distinct binding identifier, never a fabricated
-semantic Ref. Two explicit roles of the same field form separate axes; repeating
-the same binding rejects. Raw Refs select only one retained binding; corresponding
-classification objects disambiguate grouping, statistic rollup and retained-axis
-attribution without source reads. Attribution preserves the complete ordered
-endpoint axes; it does not choose another relationship role or recover removed axes.
-Multiple member classifications align on the complete member/time key before
-their group axes are attached. Comparisons and temporal-fold samples retain their
-original state within source execution. Complete member domains, contribution
-windows, empty time buckets and Metric empty-set rules remain independent of
-explicit report rows. Reports with prescribed rows may complete their exported
-`to_pandas()` result externally; external results cannot re-enter typed analysis.
-Saved Artifacts containing removed completion nodes or standalone group domains
-raise structured recovery errors requiring source re-execution, preserving the
-saved files. Other Artifacts keep the current recovery format.
-
-Time grain is expressed by `observe(..., during=time_grid(..., grain=grain("day")))`.
-Endpoint attribute reads use `members.read(field, at=grid.start/end/before_end)`;
-cumulative observations use `members.observe(metric, at=grid.end)`. These inputs
-bind the complete member/time product internally before classification and target
-keys. Every bucket remains, including empty buckets; `by` never removes time or
-introduces an independent time axis. Time-dependent classifications must use the
-observation's exact grid and complete member/time keys. The public `each`,
-`grid.window`, and standalone time-domain result types are removed without aliases.
-Existing result grouping and original `rollup` express time coarsening.
-
-`group_by` on numeric, ratio and statistic results binds classification; `rollup` merges sufficient original state;
-`aggregate` creates a new current-row statistic. Means retain sum/count, ratios
-retain all original components, and linear expressions retain signed ordered
-occurrences. Averaging finished means/ratios is not original rollup. Direct
-distinct/quantile values retain no set/sketch or distribution rollup authority.
-
-Comparisons require compatible quantities, temporal design and complete typed
-correspondence. Period comparison and time-mapped one_to_one ratios use aligned
-string keys with time-key kind prefixes without an output time_grid, retaining both original-time
-projections. Apply real-time operations to original endpoints before comparing;
-[Period correspondence](timezone-and-calendar-design.md#period-correspondence)
-owns coverage and continuation admission. Predicates carry every referenced input, evaluate all children
-and use method-specific Cell policies. References remain frozen. Ranking and
-tables are display operations; attribution is an algebraic allocation with
-complete endpoint/partition proof and independent reconciliation.
-
-Statistical selection preserves original fit/classification/search/training scope. Their equations and conditional continuations are owned by
-[Operators and Frames](operators-and-frames.md).
-
-## Local execution optimization
-
-Source observation lowering projects complete Entity instance keys without
-`DISTINCT` when the exact member Signature carries their uniqueness evidence.
-Projection to Group keys still constructs a distinct target set. A direct
-observation of an unchanged, unversioned complete member domain can aggregate
-contributions under their own identity keys without joining them back to the
-same SourceLeaf. This rewrite requires the exact shared leaf, complete identity
-keys and declared uniqueness; selected members, foreign routes and time products
-retain their contribution mapping. The complete target domain, empty-contribution
-Cells, retained parts, source provenance and pending checks remain unchanged.
-Observation windows and Metric slice predicates restrict contributions only;
-these rewrites do not restrict the member domain or guarantee one source scan.
-
-The implementation-local identifiers L1/L7/L8/L9 in
-[`core/local_laws.py`](../../../marivo/analysis/core/local_laws.py) state
-conditional equivalences. These identifiers are independent of the proposed
-theory's numbering; its [mapping table](algebra-theory.md#实现编号与理论定律的对应)
-is a cross-reference, not authority to expand current execution. Registration does not
-grant arbitrary semantic rewrites, source pushdown or additional public K.
-The explicit sum StateEquation helpers keep their own narrow premises.
-
-The retired saved-input A2/A3 execution groups are removed. Algebraic laws and
-in-flight source kernels retain their own contracts; they do not admit persisted
-results as computation inputs.
-
-## Disclosure and acceptance
-
-`marivo.help("analysis")` owns static API discovery and exact callable contracts.
-Logical definitions own `contract()` actions; terminal results own bounded
-`show()` data, complete pandas export and saved facts.
-Structured errors own concrete repair, and packaged skills own workflow judgment.
-
-A continuation is admitted from the actual quantity, domain, state and bindings;
-a result family name or saved list of actions cannot authorize it. Public result
-types have bounded single-line reprs, immutable fields and deterministic reads.
-`RawSqlResult` and MaterializedTable are terminal boundaries without typed
-analysis continuation. Analysis Evidence and Findings describe deterministic
-retained facts, not causal or business judgments.
-
-Current specs, public signatures and qualification evidence are separate.
-Focused tests and native backend witnesses do not establish complete backend,
-installed-wheel, real-Agent or release acceptance. Historical designs and phase
-evidence remain in Git history; they do not expand the current route.
+Static/type checks, local DuckDB tests, remote Runtime tests and release acceptance
+are different evidence. Source capability follows the exact backend, dtype and
+method route; a successful preview or an API signature does not qualify all routes.
+The current DSL excludes specialized statistical/forecast/attribution result
+families. Export to pandas for those tasks, preserving full keys and NA/presence.

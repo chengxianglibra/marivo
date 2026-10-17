@@ -1,13 +1,13 @@
 ---
-title: 本地 Python 声明示例
-description: 创建六笔订单并构造同一套行与 Metric 表达式。
+title: 完整本地 Python 分析
+description: 创建六笔订单、比较命名 Metric 并重开终端输出。
 ---
 
-本页覆盖当前 R1.3 的来源与声明构造。新的 Catalog Metric 发布和分析执行仍待 R1.4/R2；不把声明示例称为可运行的完整分析、保存或恢复流程。
+使用已安装开发版本和 DuckDB extra 的环境，在全新项目目录运行。本例完整创建数据、声明 Metric、执行 Query 并重开已提交 Artifact；本地示例不代表所有后端或发布验收。
 
-## 创建来源与 datasource
+## 创建来源
 
-分别将以下代码保存为 seed.py 与 models/datasources/warehouse.py。使用所选环境的 .venv/bin/python seed.py 创建 demo 数据库。
+保存为 `seed.py`，运行 `.venv/bin/python seed.py`。Demo 仅包括这六笔已完成订单，单位人民币，不含退款或汇率转换。7 月总额 1,000，8 月 800；两个地区各减少 100。
 
 {/* example: demo-seed */}
 
@@ -40,13 +40,9 @@ with duckdb.connect("warehouse.duckdb") as connection:
     )
 ```
 
-Demo 的已确认含义是仅这六笔已完成订单的人民币收入，不处理退款或汇率转换。
-7 月总额 1,000，8 月 800；east 从 300 变为 200，west 从 700 变为 600。
-此合成定义不是决定生产收入口径的模板。
-
 ## 声明 datasource
 
-保存为 `models/datasources/warehouse.py`。在加载只读连接之前数据库已存在。
+保存为 `models/datasources/warehouse.py`。
 
 {/* example: demo-datasource */}
 
@@ -56,8 +52,9 @@ import marivo.datasource as md
 md.duckdb(name="warehouse", path="warehouse.duckdb", read_only=True)
 ```
 
+## 创作语义模型
 
-## 创作来源字段和局部 Metric
+保存为 `models/semantic/sales/_domain.py`。构造器捕获 Ref；完整作用域 finalize 后再组合解析字段。模型加载收录命名 Metric。
 
 {/* example: demo-model */}
 
@@ -65,7 +62,7 @@ md.duckdb(name="warehouse", path="warehouse.duckdb", read_only=True)
 import marivo.datasource as md
 import marivo.semantic as ms
 
-ms.domain(name="sales", owner="Mina Zhang")
+ms.domain(name="sales", owner="Mina Zhang", default=True)
 orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"),
                    source=md.table("orders"), primary_key=["order_id"])
 order_date = ms.time_dimension_column(name="order_date", entity=orders,
@@ -88,17 +85,35 @@ def revenue():
     return amount.sum(time=order_date)
 ```
 
-保存为 models/semantic/sales/_domain.py。模型加载仍可验证物理 Entity/Field 声明；本轮不会把局部 revenue 发布进 catalog.metrics。
+## 执行和重开
 
-{/* example: demo-readiness */}
+保存为 `analysis.py`，在项目根目录运行 `.venv/bin/python analysis.py`。
+
+{/* example: demo-analysis */}
 
 ```python
+import marivo.analysis as mv
 import marivo.semantic as ms
+
 catalog = ms.load(workspace_dir=".")
-amount_entry = catalog.require(ms.ref.measure("sales.orders.amount"))
-amount_entry.show()
-report = catalog.readiness(refs=[amount_entry])
-report.show()
+session = mv.session.get_or_create("demo-revenue", report_timezone="UTC")
+revenue = session.catalog.metrics.get("sales.revenue")
+amount = session.catalog.fields.get("sales.orders.amount")
+region = session.catalog.fields.get("sales.orders.region")
+july = session.time_scope(start="2026-07-01", end="2026-08-01")
+august = session.time_scope(start="2026-08-01", end="2026-09-01")
+baseline = session.observe({"revenue": revenue}, during=july, by=(region,))
+current = session.observe({"revenue": revenue}, during=august, by=(region,))
+change = current.compare(baseline)
+change.contract().show()
+artifact = change.execute()
+frame = artifact.to_pandas()
+assert frame[("value", "revenue.absolute")].tolist() == [-100, -100]
+assert frame[("presence", ("current",))].all()
+assert frame[("presence", ("baseline",))].all()
+artifact.show(n=20)
+reopened = session.artifact(artifact.id)
+assert reopened.to_pandas().equals(frame)
 ```
 
-这段检查没有求收入值。合成数据的独立预期为 7 月 1000、8 月 800；这些数值不是当前新表达式 Runtime 验收结果。不要把 revenue 的局部声明或 leaf readiness 当作可观察的 Catalog Metric。后续执行需等新的发布与执行边界接通，并检查届时的 live Help。
+`execute()` 每次重新求值。Artifact 是终端产物：Query 组合先于执行，导出后使用 pandas 做自定义分析。重开依赖保存的输出，不依赖当前来源或模型。后续指南复用本脚本的 `session`、`revenue`、`amount`、`region`、`current` 和 `baseline`。

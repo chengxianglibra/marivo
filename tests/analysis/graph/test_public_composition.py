@@ -1,4 +1,4 @@
-"""Public Store 8 replacements for the retired scenario-specific v6 tests."""
+"""Lazy composition, exact terminal integrity and source-offline pandas analysis."""
 
 from __future__ import annotations
 
@@ -8,110 +8,115 @@ import subprocess
 import sys
 from typing import Literal
 
+import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization import graph_store
-from marivo.analysis.materialization.graph_protocol import SourceRunInput
-from tests.shared_fixtures import DslCase, DslCaseFactory
+from marivo.analysis.materialization import terminal_store
+from marivo.analysis.materialization.terminal_protocol import InvocationInput
+from tests.shared_fixtures import (
+    DslCase,
+    DslCaseFactory,
+    analysis_dsl_rows,
+    export_dsl_parquet_models,
+)
 from tests.support.paths import PROJECT_ROOT
 
 
-def _ratio(case: DslCase, *, coordinates: tuple[str, ...] = ()) -> mv.LogicalRatioRelation:
-    n = case.names
-    return case.session.members(ms.ref.entity(f"{n.domain}.{n.customer}")).observe(
-        ms.ref.metric(f"{n.domain}.{n.aov}"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=(
-            mv.path(
-                ms.ref.relationship(f"{n.domain}.{n.line_order}"),
-                ms.ref.relationship(f"{n.domain}.{n.buyer}"),
+def _ratio(case: DslCase, *, coordinates: tuple[str, ...] = ()) -> mv.Query:
+    session = case.session
+    members = session.members(ms.ref.entity("sales.customer"))
+    domain = (
+        members
+        if not coordinates
+        else mv.product(
+            members,
+            session.members(ms.ref.entity("sales.order")).classify(
+                by=tuple(session.catalog.fields.get("sales.order." + name) for name in coordinates)
             ),
-            mv.path(ms.ref.relationship(f"{n.domain}.{n.buyer}")),
-        ),
-        by=(
-            mv.member(),
-            *tuple(ms.ref.dimension(f"{n.domain}.{n.order}.{name}") for name in coordinates),
-        ),
+        )
+    )
+    return session.observe(
+        {"value": session.catalog.metrics.get("sales.aov_from_lines")},
+        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
+        by=domain,
     )
 
 
-def _observations(case: DslCase) -> tuple[mv.LogicalNumericRelation, mv.LogicalNumericRelation]:
-    n = case.names
-    members = case.session.members(ms.ref.entity(f"{n.domain}.{n.customer}"))
-    metric = ms.ref.metric(f"{n.domain}.{n.revenue}")
-    via = ms.ref.relationship(f"{n.domain}.{n.buyer}")
-    return (
-        members.observe(
-            metric,
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=via,
-            by=(mv.member(),),
-        ),
-        members.observe(
-            metric,
-            during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
-            via=via,
-            by=(mv.member(),),
-        ),
+def _observations(case: DslCase) -> tuple[mv.Query, mv.Query]:
+    session = case.session
+    members = session.members(ms.ref.entity("sales.customer"))
+    current, baseline = tuple(
+        session.observe(
+            {"value": session.catalog.metrics.get("sales.revenue")},
+            during=session.time_scope(start=start, end=end),
+            by=members,
+        )
+        for start, end in (("2026-08-01", "2026-09-01"), ("2026-07-01", "2026-08-01"))
     )
+    return current, baseline
 
 
-def test_ratio_complete_coordinate_tuple_and_fixed_original_components(
+def test_ratio_complete_coordinate_tuple_and_original_components(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("tuple_union")
     observed = _ratio(case, coordinates=(case.names.channel, case.names.status))
-    saved = observed.execute()
-    frame = saved.to_pandas()
-    assert frame.set_index(["group", "coord_0", "coord_1"])["value"].to_dict() == {
-        ("A", "web", "paid"): 40.0,
+    frame = observed.execute().to_pandas()
+    assert frame.set_index(list(frame.columns[:3]))[("value", "value")].to_dict() == {
         ("A", "mobile", "cancelled"): 0.0,
+        ("A", "web", "paid"): 40.0,
     }
-    channel = ms.ref.dimension(f"{case.names.domain}.{case.names.order}.{case.names.channel}")
-    live = observed.group_by(channel).rollup().execute()
-    fixed = saved.group_by(channel).rollup().execute()
-    live_frame, fixed_frame = live.to_pandas(), fixed.to_pandas()
-    assert live_frame.equals(fixed_frame)
-    assert fixed_frame.set_index("group")["value"].to_dict() == {
+    channel = case.session.catalog.fields.get("sales.order.channel")
+    rolled = observed.rollup(by=(channel,)).execute().to_pandas()
+    assert rolled.set_index(rolled.columns[0])[("value", "value")].to_dict() == {
         "web": 40.0,
         "mobile": 0.0,
     }
-    assert saved.aggregate(mv.mean()).execute().to_pandas().iloc[0]["value"] == 20
+    mean = observed.reduce({"mean": observed["value"].mean()}).execute().to_pandas()
+    assert mean[("value", "mean")].tolist() == [20.0]
 
 
 @pytest.mark.parametrize("scenario", ["empty_group", "zero_denominator"])
-def test_ratio_original_state_and_empty_contribution(
+def test_ratio_original_inputs_and_empty_contribution(
     analysis_dsl_case_factory: DslCaseFactory,
     scenario: Literal["empty_group", "zero_denominator"],
 ) -> None:
-    case = analysis_dsl_case_factory(scenario)
-    relation = _ratio(case)
-    fixed = relation.execute()
+    values = _ratio(analysis_dsl_case_factory(scenario)).execute().to_pandas()[("value", "value")]
     if scenario == "empty_group":
-        assert fixed.to_pandas().iloc[0]["value"] == 0
+        assert values.iloc[0] == 0
+        assert pd.isna(values.iloc[1])
     else:
-        row = fixed.to_pandas().iloc[0]
-        assert row["cell_tag"] == "undefined" and row["cell_reason"] == "zero_denominator"
+        assert values.isna().all() and len(values) == 1
 
 
 def test_empty_numeric_selection_has_distinct_row_policies(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     current, baseline = _observations(analysis_dsl_case_factory("j2"))
-    difference = current.compare(baseline).absolute.execute()
-    empty = difference.where(difference.value.lt(-1000)).execute()
-    assert empty.to_pandas().empty
-    assert empty.aggregate(mv.sum()).execute().to_pandas().iloc[0]["value"] == 0
-    assert empty.aggregate(mv.count()).execute().to_pandas().iloc[0]["value"] == 0
-    mean = empty.aggregate(mv.mean()).execute().to_pandas().iloc[0]
-    assert (mean["cell_tag"], mean["cell_reason"]) == ("undefined", "empty_mean")
+    comparison = current.compare(baseline)
+    empty = comparison.where(comparison["value.absolute"] < -1000)
+    assert empty.execute().to_pandas().empty
+    result = (
+        empty.reduce(
+            {
+                "sum": empty["value.absolute"].sum(),
+                "count": mv.row_count(),
+                "mean": empty["value.absolute"].mean(),
+            }
+        )
+        .execute()
+        .to_pandas()
+    )
+    assert result[("value", "sum")].tolist() == [0]
+    assert result[("value", "count")].tolist() == [0]
+    assert result[("value", "mean")].isna().all()
 
 
-@pytest.mark.parametrize("corruption", ["part", "snapshot", "state_version"])
-def test_exact_artifact_corruption_blocks_recovery_and_dynamic_k(
+@pytest.mark.parametrize("corruption", ["rows", "graph", "format_version"])
+def test_exact_artifact_corruption_blocks_consumed_output_without_new_runs(
     analysis_dsl_case_factory: DslCaseFactory,
     corruption: str,
 ) -> None:
@@ -119,49 +124,39 @@ def test_exact_artifact_corruption_blocks_recovery_and_dynamic_k(
     current, _ = _observations(case)
     saved = current.execute()
     store = case.session._runtime.store
-    with store._read() as connection:
-        record = graph_store.artifact(store, connection, saved.state.artifact_ref.ref)
-    assert record is not None
-    reference = record.artifact_ref
-    before = len(case.session.runs().items)
-    if corruption == "part":
-        next(
-            (case.root / record.descriptor.parts[0].local.project_relative_path).glob("*.parquet")
+    before = case.session.runs().items
+    if corruption == "rows":
+        receipt = saved._manifest.data.rows.receipt
+        (
+            case.root / receipt.project_relative_path / receipt.file_manifest[0].relative_path
         ).unlink()
+        # Metadata opening is lazy; consuming the saved output detects the missing file.
+        reopened = case.session.artifact(saved.id)
+        for value in (saved, reopened):
+            with pytest.raises(AnalysisError):
+                value.to_pandas()
     else:
         with store._write() as connection:
-            value = json.loads(
-                connection.execute(
-                    "SELECT descriptor_payload FROM dataset_artifacts WHERE artifact_ref=?",
-                    (reference,),
-                ).fetchone()[0]
-            )
-            if corruption == "snapshot":
-                value["continuation_snapshot"] = "{}"
-            elif corruption == "state_version":
-                value["method_state"]["version"] = 999
+            row = connection.execute(
+                "SELECT descriptor_payload FROM dataset_artifacts WHERE artifact_ref=?", (saved.id,)
+            ).fetchone()
+            assert row is not None
+            value = json.loads(row[0])
+            if corruption == "graph":
+                value["value"]["fields"]["continuation_snapshot"] = {}
             else:
-                value["primary_receipt"]["input_binding"] = "wrong-binding"
+                value["format"] = "marivo.terminal_output/v999"
             connection.execute(
                 "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
-                (json.dumps(value, sort_keys=True, separators=(",", ":")), reference),
+                (json.dumps(value), saved.id),
             )
-    with pytest.raises(AnalysisError) as caught:
-        case.session.artifact(reference)
-    if corruption == "snapshot":
-        assert caught.value.expected and caught.value.received
-        assert caught.value.repair is not None
-        assert caught.value.repair.help_target.canonical_id == "actions.execute"
-    if corruption == "part":
-        assert caught.value.repair is not None
-        assert caught.value.repair.help_target.canonical_id == "session.artifact"
-    for action in (saved.contract, saved.to_pandas):
-        with pytest.raises(AnalysisError):
-            action()
-    assert len(case.session.runs().items) == before
+        with pytest.raises(AnalysisError) as caught:
+            case.session.artifact(saved.id)
+        assert caught.value.expected and caught.value.received and caught.value.repair
+    assert case.session.runs().items == before
 
 
-def test_public_history_and_guarded_abandonment_use_graph_runs(
+def test_public_history_and_guarded_abandonment_use_query_runs(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -169,60 +164,58 @@ def test_public_history_and_guarded_abandonment_use_graph_runs(
     current, _ = _observations(case)
     saved = current.execute()
     session, store = case.session, case.session._runtime.store
-    run = session.get_run(saved.state.producing_run_ref)
+    run = session.get_run(saved._manifest.run_id)
     assert run.lifecycle == "succeeded"
-    assert isinstance(run.dataset_input, SourceRunInput)
-    assert mv.session.current().id == session.id
+    assert isinstance(run.dataset_input, InvocationInput)
+    active = mv.session.current()
+    assert active is not None and active.id == session.id
     assert mv.session.resume(session.id, by="id").id == session.id
     assert mv.session.inspect(session.name).runs.items[0].run_id == run.run_id
-    assert session.graph().artifacts[0].artifact_ref == saved.state.artifact_ref
+    assert session.graph().artifacts[0].artifact_ref.ref == saved.id
     session.show()
     run.show()
     with pytest.raises(AnalysisError):
         mv.session.abandon_run(session_id=session.id, run_id=run.run_id)
-    graph_store.admit(store, session.id, "pending-key", run.dataset_input, "pending")
+    terminal_store.admit(store, session.id, "pending")
     mv.session.abandon_run(session_id=session.id, run_id="pending")
     assert session.get_run("pending").lifecycle == "failed"
-    graph_store.admit(store, session.id, "other-key", run.dataset_input, "other")
+    terminal_store.admit(store, session.id, "other")
     mv.session.abandon_run(session_id=session.id, run_id="pending")
 
     def unavailable(*args: object, **kwargs: object) -> None:
         raise RuntimeError("proof unavailable")
 
     monkeypatch.setattr(
-        "marivo.analysis.materialization.graph_publication.discharge_resources", unavailable
+        "marivo.analysis.materialization.terminal_publication.discharge_resources", unavailable
     )
     with pytest.raises(RuntimeError, match="proof unavailable"):
         mv.session.abandon_run(session_id=session.id, run_id="other")
     assert session.get_run("other").lifecycle == "incomplete"
 
 
+def _correlation_input(case: DslCase) -> mv.Query:
+    session = case.session
+    return session.observe(
+        {
+            "revenue": session.catalog.metrics.get("sales.revenue"),
+            "count": session.catalog.metrics.get("sales.order_count"),
+        },
+        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
+        by=session.members(ms.ref.entity("sales.customer")),
+    )
+
+
 @pytest.mark.slow
-def test_public_exact_cold_continuations_after_source_and_models_are_deleted(
+def test_public_exact_cold_output_after_source_and_models_are_deleted(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    case = analysis_dsl_case_factory("j4")
-    n = case.names
-    members = case.session.members(ms.ref.entity(f"{n.domain}.{n.customer}"))
-    window = mv.time_scope(start="2026-08-01", end="2026-09-01")
-    via = ms.ref.relationship(f"{n.domain}.{n.buyer}")
-    revenue = members.observe(
-        ms.ref.metric(f"{n.domain}.{n.revenue}"),
-        during=window,
-        via=via,
-        by=(mv.member(),),
-    )
-    count = members.observe(
-        ms.ref.metric(f"{n.domain}.{n.order_count}"),
-        during=window,
-        via=via,
-        by=(mv.member(),),
-    )
-    saved = revenue.correlate(count, method="spearman").execute()
-    reference = saved.state.artifact_ref.ref
-    case.database_path.unlink()
     import shutil
 
+    case = analysis_dsl_case_factory("j4")
+    saved = _correlation_input(case).execute()
+    values = saved.to_pandas()["value"]
+    assert values["revenue"].corr(values["count"], method="spearman") == pytest.approx(-0.4)
+    case.database_path.unlink()
     shutil.rmtree(case.root / "models")
     script = """
 import sys
@@ -230,21 +223,24 @@ import ibis
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.datasource.runtime import DatasourceConnectionService
+from tests.shared_fixtures import run_ids
 
 def forbidden(*args, **kwargs):
-    raise AssertionError('cold continuation consulted a source or current Semantic')
+    raise AssertionError('cold output consulted a source or current Semantic')
 ibis.duckdb.connect = forbidden
 ms.load = forbidden
 DatasourceConnectionService.use_backend = forbidden
 session = mv.session.resume(sys.argv[1], by='id')
+before = run_ids(session)
 saved = session.artifact(sys.argv[2])
-saved.contract()
-saved.show()
-selected = saved.coefficient.where(saved.coefficient.value.lt(0.1)).execute()
-assert abs(selected.aggregate(mv.mean()).execute().to_pandas().iloc[0]['value'] + .4) < 1e-12
+values = saved.to_pandas()['value']
+coefficient = values['revenue'].corr(values['count'], method='spearman')
+assert abs(coefficient + .4) < 1e-12
+assert coefficient < .1
+assert run_ids(session) == before
 """
     process = subprocess.run(
-        [sys.executable, "-c", script, case.session.id, reference],
+        [sys.executable, "-c", script, case.session.id, saved.id],
         cwd=case.root,
         env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
         capture_output=True,
@@ -258,43 +254,28 @@ def test_incompatible_inputs_reject_before_business_or_artifact_reads(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.analysis.materialization import graph_dataset
+    from marivo.analysis.materialization import terminal_storage
     from marivo.datasource.adapters import SourceSession
 
     case = analysis_dsl_case_factory("j2")
-    n = case.names
-    members = case.session.members(ms.ref.entity(f"{n.domain}.{n.customer}"))
-    read = members.read(ms.ref.dimension(f"{n.domain}.{n.customer}.{n.region}"))
-    first_members = read.where(read.value.eq("east")).members()
-    second_members = read.where(read.value.eq("east")).members()
-    metric, via = (
-        ms.ref.metric(f"{n.domain}.{n.revenue}"),
-        ms.ref.relationship(f"{n.domain}.{n.buyer}"),
-    )
-    august, july = (
-        mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        mv.time_scope(start="2026-07-01", end="2026-08-01"),
-    )
-    first = first_members.observe(metric, during=august, via=via, by=(mv.member(),))
-    second = second_members.observe(metric, during=july, via=via, by=(mv.member(),))
     current, baseline = _observations(case)
     fixed = current.execute()
-    second_fixed = second.execute()
-    before = len(case.session.runs().items)
+    other_session = mv.session.get_or_create("foreign", report_timezone="UTC")
+    foreign = other_session.observe({"value": other_session.catalog.metrics.get("sales.revenue")})
+    before = case.session.runs().items
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("rejected composition read an input")
 
     monkeypatch.setattr(SourceSession, "execute", forbidden)
-    monkeypatch.setattr(graph_dataset, "read_result", forbidden)
-    for action in (
-        lambda: first.compare(second).absolute,
-        lambda: fixed.compare(baseline).absolute,
-        lambda: fixed.compare(second_fixed).absolute,
-    ):
-        with pytest.raises(AnalysisError):
-            action()
-    assert len(case.session.runs().items) == before
+    monkeypatch.setattr(terminal_storage, "read_output", forbidden)
+    with pytest.raises(AnalysisError):
+        current.compare(fixed)  # type: ignore[arg-type]  # Exercise the terminal Artifact boundary.
+    with pytest.raises(AnalysisError):
+        current.compare(foreign)
+    with pytest.raises(AnalysisError):
+        baseline.align(foreign)
+    assert case.session.runs().items == before
 
 
 def test_members_schema_preflight_does_not_submit_business_rows(
@@ -314,17 +295,29 @@ def test_members_schema_preflight_does_not_submit_business_rows(
     assert case.session.runs().items == ()
 
 
-@pytest.mark.parametrize("threshold", [float("nan"), 2**63])
+@pytest.mark.parametrize("threshold", [float("nan"), 10**38])
 def test_invalid_threshold_rejects_without_another_run(
-    analysis_dsl_case_factory: DslCaseFactory,
-    threshold: int | float,
+    analysis_dsl_case_factory: DslCaseFactory, threshold: int | float
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     current, baseline = _observations(case)
-    difference = current.compare(baseline).absolute
+    difference = current.compare(baseline)
     with pytest.raises(AnalysisError):
-        difference.value.lt(threshold)
+        predicate = difference["value.absolute"] < threshold
+        difference.where(predicate).execute()
+    assert current._graph.signature.owner == baseline._graph.signature.owner
     assert case.session.runs().items == ()
+
+
+def test_large_integer_threshold_retains_exact_comparison(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    current, _ = _observations(analysis_dsl_case_factory("j2"))
+    values = current.select({"large": 2**63})
+    same = values.where(values["large"] == 2**63).execute().to_pandas()
+    assert len(same) == 4
+    assert same[("value", "large")].tolist() == [2**63] * 4
+    assert values.where(values["large"] == 2**63 + 1).execute().to_pandas().empty
 
 
 def test_public_parquet_spearman_has_separate_source_evidence(
@@ -332,44 +325,21 @@ def test_public_parquet_spearman_has_separate_source_evidence(
 ) -> None:
     from dataclasses import replace
 
-    from tests.shared_fixtures import export_dsl_parquet_models
-
-    journey = "j4_ties"
-    case = analysis_dsl_case_factory(journey)
+    case = analysis_dsl_case_factory("j4_ties")
     export_dsl_parquet_models(case, case.root)
     case = replace(
         case,
         catalog=ms.load(workspace_dir=case.root),
         session=mv.session.get_or_create("parquet", report_timezone="UTC"),
     )
-    n = case.names
-    members = case.session.members(ms.ref.entity(f"{n.domain}.{n.customer}"))
-    during, via = (
-        mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        ms.ref.relationship(f"{n.domain}.{n.buyer}"),
-    )
-    revenue = members.observe(
-        ms.ref.metric(f"{n.domain}.{n.revenue}"),
-        during=during,
-        via=via,
-        by=(mv.member(),),
-    )
-    count = members.observe(
-        ms.ref.metric(f"{n.domain}.{n.order_count}"),
-        during=during,
-        via=via,
-        by=(mv.member(),),
-    )
-    saved = revenue.correlate(count, method="spearman").execute()
-    import pandas as pd
-
-    from tests.shared_fixtures import analysis_dsl_rows
-
-    facts = analysis_dsl_rows(journey)
+    saved = _correlation_input(case).execute()
+    values = saved.to_pandas()["value"]
+    facts = analysis_dsl_rows("j4_ties")
     amounts = {
         key: sum(row[-1] for row in facts.orders if row[1] == key) for key, _ in facts.customers
     }
     counts = {key: sum(row[1] == key for row in facts.orders) for key, _ in facts.customers}
     oracle = pd.Series(amounts).rank().corr(pd.Series(counts).rank())
-    assert saved.to_pandas().iloc[0]["coefficient"] == pytest.approx(oracle)
-    assert case.session._runtime.store.layout.generation == 9
+    assert values["revenue"].corr(values["count"], method="spearman") == pytest.approx(oracle)
+    assert saved.evidence_digest().evidence_count > 0
+    assert case.session._runtime.store.layout.generation == 10

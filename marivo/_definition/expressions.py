@@ -243,7 +243,7 @@ class PerWeightedMean:
 
 @dataclass(frozen=True, slots=True)
 class MemberCount:
-    population: LiteralPopulation | PopulationProgram
+    """Count the explicitly bound member identities, without capturing a domain."""
 
 
 @dataclass(frozen=True, slots=True)

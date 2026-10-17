@@ -8,9 +8,7 @@ from pathlib import Path
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization import graph_store
 from marivo.analysis.methods import builtin
 from marivo.analysis.methods.physical import (
     NoTime,
@@ -113,7 +111,9 @@ def test_file_construction_and_refusals_never_submit_business_rows(
         if case_kind == "integer-mean":
             model = tmp_path / "models/semantic/sales/models.py"
             with model.open("a") as stream:
-                stream.write("average=ms.aggregate(name='average', measure=amount, agg='mean')\n")
+                stream.write(
+                    "@ms.metric()\ndef average():\n    return amount_value.mean(time=happened_value)\n"
+                )
         session = mv.session.get_or_create("r94-file-admission", report_timezone="UTC")
         calls: list[str] = []
 
@@ -121,28 +121,21 @@ def test_file_construction_and_refusals_never_submit_business_rows(
             calls.append("business-read-or-admission")
             raise AssertionError("File construction/refusal attempted data work")
 
-        monkeypatch.setattr(SourceSession, "compile", forbidden)
-        monkeypatch.setattr(SourceSession, "execute", forbidden)
-        monkeypatch.setattr(graph_store, "admit", forbidden)
-        members = session.members(ms.ref.entity("sales.facts"))
-        received: str | None = None
-        if case_kind == "metadata":
-            members.observe(ms.ref.metric("sales.total"), by=(mv.member(),))
-        else:
-            with pytest.raises(AnalysisError) as caught:
-                members.observe(
-                    ms.ref.metric(
-                        "sales.average" if case_kind == "integer-mean" else "sales.total"
-                    ),
-                    by=(mv.member(),),
-                )
-            error = caught.value
-            assert error.expected == "an ordinary int64 sum-zero observation from local CSV/JSON"
-            assert error.received and error.repair is not None and error.repair.action
-            received = error.received
-            assert ("float64" if case_kind == "float-sum" else "aggregation=mean") in received
-        assert calls == [] and source_trace.native_sql == []
-        assert session.runs().items == () and session._runtime.store.resources(session.id) == ()
+        with monkeypatch.context() as patch:
+            patch.setattr(SourceSession, "compile", forbidden)
+            patch.setattr(SourceSession, "execute", forbidden)
+            metric = session.catalog.metrics.get(
+                "sales.average" if case_kind == "integer-mean" else "sales.total"
+            )
+            query = session.observe({"value": metric})
+            query.contract()
+            assert calls == [] and source_trace.native_sql == []
+            assert session.runs().items == ()
+            assert session._runtime.store.resources(session.id) == ()
+        result = query.execute().to_pandas()[("value", "value")].iloc[0]
+        assert result == {"metadata": 6, "float-sum": 6.5, "integer-mean": 3.0}[case_kind]
+        assert session._runtime.store.resources(session.id) == ()
+        received = None
         if directory := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
             Path(directory, f"file-admission-{profile}-{case_kind}.json").write_bytes(
                 encode(
@@ -153,7 +146,7 @@ def test_file_construction_and_refusals_never_submit_business_rows(
                         "runs": 0,
                         "resources": 0,
                         "received": received,
-                        "boundary": "Local inferred R1 schema facts or exact unsupported observation; no business evaluation or new Run.",
+                        "boundary": "Construction is source-free; execution evaluates the admitted local numeric Metric.",
                     }
                 )
             )
@@ -197,10 +190,11 @@ def test_json_request_sources_are_refused_before_source_open(
 
         for name in ("__enter__", "bind", "compile", "execute"):
             monkeypatch.setattr(SourceSession, name, forbidden)
-        monkeypatch.setattr(graph_store, "admit", forbidden)
+        query = session.observe({"value": session.catalog.metrics.get("sales.total")})
         with pytest.raises(AnalysisError) as caught:
-            session.members(ms.ref.entity("sales.facts"))
+            query.execute()
         error = caught.value
+        assert calls == []
         assert error.expected == "an existing local CSV or unparameterized GET JSON file on DuckDB"
         assert error.received and "JsonSourceIR" in error.received
         assert error.repair is not None and error.repair.action

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
+from fractions import Fraction
 from typing import Literal
 
 import ibis
@@ -13,12 +14,14 @@ import ibis.expr.operations as ops
 import ibis.expr.types as ir
 from ibis.common.deferred import Resolver
 
+from marivo._definition.deferred import attribute_name
 from marivo._definition.expressions import (
     ContributionFilter,
     DeclaredMetricRef,
     EntityCount,
     FieldPredicate,
     MeasureAssertion,
+    MemberCount,
     MetricExpression,
     MetricNode,
     MetricWindow,
@@ -73,6 +76,7 @@ class ReductionInput:
     window_key: int | None = None
     preserve_sample_presence: bool = False
     calendars: tuple[tuple[str, CalendarCoordinate], ...] = ()
+    sampled: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +104,13 @@ class PopulationInput:
 
 
 @dataclass(frozen=True, slots=True)
+class MemberInput:
+    population: PopulationDependency
+    keys: tuple[str, ...]
+    output_mapping: tuple[tuple[str, str], ...]
+
+
+@dataclass(frozen=True, slots=True)
 class FormulaProgram:
     outputs: tuple[tuple[str, MetricNode], ...]
     declared: tuple[tuple[ExactRef, MetricNode], ...]
@@ -108,6 +119,7 @@ class FormulaProgram:
     populations: tuple[PopulationInput, ...] = ()
     output_population: PopulationDependency | None = None
     calendar_key: str = "key.0"
+    members: MemberInput | None = None
 
 
 def ibis_type(dtype: DataType) -> dt.DataType:
@@ -180,6 +192,7 @@ def reduction_input(
         window_key=contribution.window_key,
         preserve_sample_presence=bool(contribution.coverage),
         calendars=calendars,
+        sampled=bool(contribution.sample_axes),
     )
 
 
@@ -253,27 +266,51 @@ def lower_observation(
         if node.reducer == "mean":
             metrics[prepared.value_slot] = ops.Cast(ticks.sum().fill_null(0), to=dt.int64).to_expr()
             metrics["__duration_count"] = ticks.count()
-        elif node.reducer in ("median", "quantile"):
+    if isinstance(prepared.node, SourceAggregate) and prepared.node.reducer in (
+        "median",
+        "quantile",
+    ):
+        node = prepared.node
+        value = lower_row(node.operand, fields).value
+        if prepared.duration is not None or value.type().is_decimal():
             q = 0.5 if node.reducer == "median" else node.q
             assert q is not None
-            filtered = filtered.mutate(__duration_ticks=ticks, **axes)
+            probability = Fraction(str(q))
+            prefix = "__duration" if prepared.duration is not None else "__quantile"
+            filtered = filtered.mutate(__quantile_value=value, **axes)
             window = ibis.window(group_by=[filtered[name] for name in axes])
-            ticks = filtered["__duration_ticks"]
+            value = filtered["__quantile_value"]
             filtered = filtered.mutate(
-                __duration_rank=ibis.row_number().over(
+                __quantile_rank=ibis.row_number().over(
                     ibis.window(
                         group_by=[filtered[name] for name in axes],
-                        order_by=ticks.asc(nulls_first=False),
+                        order_by=value.asc(nulls_first=False),
                     )
                 ),
-                __duration_n=ticks.count().over(window),
+                __quantile_n=value.count().over(window),
             )
-            ticks = filtered["__duration_ticks"]
-            position = (filtered["__duration_n"] - 1) * q
-            rank = filtered["__duration_rank"]
-            metrics[prepared.value_slot] = ticks.max(where=rank == position.floor())
-            metrics["__duration_upper"] = ticks.max(where=rank == position.ceil())
-            metrics["__duration_count"] = filtered["__duration_n"].max().fill_null(0)
+            value = filtered["__quantile_value"]
+            rank = filtered["__quantile_rank"]
+            if probability.denominator >= 10**38:
+                # Every positive such probability has h < 1 for int64 counts.
+                lower = rank == 0
+                upper = rank >= (filtered["__quantile_n"] > 1).cast("int64")
+            else:
+                # Clamp multiplication to a proven int64-count upper bound for
+                # h. This keeps even tiny decimal probabilities within Decimal38
+                # without rounding an integer rank or using floating division.
+                bound = -(-((2**63 - 2) * probability.numerator) // probability.denominator)
+                scaled = rank.clip(upper=bound).cast("decimal(38,0)") * ibis.literal(
+                    str(probability.denominator)
+                ).cast("decimal(38,0)")
+                position = (filtered["__quantile_n"] - 1).cast(
+                    "decimal(38,0)"
+                ) * probability.numerator
+                lower = (rank <= bound) & (scaled <= position)
+                upper = (rank > bound) | (scaled >= position)
+            metrics[prepared.value_slot] = value.max(where=lower)
+            metrics[f"{prefix}_upper"] = value.min(where=upper)
+            metrics[f"{prefix}_count"] = filtered["__quantile_n"].max().fill_null(0)
             axes = {name: filtered[name] for name in axes}
     result = (
         filtered.group_by(**axes).aggregate(**metrics) if axes else filtered.aggregate(**metrics)
@@ -296,6 +333,82 @@ def lower_observation(
             ),
         )
         checks.extend((f"predicate_check.{i}", check) for i, check in enumerate(predicate_checks))
+    return result, tuple(checks)
+
+
+def common_slot(index: int, slot: str) -> str:
+    """Namespace one logical occurrence's ephemeral checks or raw projections."""
+    return f"{slot}.block{index}"
+
+
+def lower_common_observations(
+    reductions: tuple[ReductionInput, ...],
+    table: ir.Table,
+    columns: Mapping[str, str],
+    predicates: tuple[FieldPredicate, ...],
+) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...]]:
+    """Emit admitted independent exact reductions in one native aggregate."""
+    fields = {path: table[name] for path, name in columns.items()}
+    selected = tuple(lower_field_predicate(node, fields) for node in predicates)
+    predicate_checks = tuple(check for item in selected for check in item.checks)
+    first = reductions[0]
+    predicate_axes = {slot: fields[path] for slot, path in first.axes}
+    predicate_metrics = {
+        common_slot(index, f"predicate_check.{position}"): check.violation.any().fill_null(False)
+        for index in range(len(reductions))
+        for position, check in enumerate(predicate_checks)
+    }
+    summary = (
+        (
+            table.group_by(**predicate_axes).aggregate(**predicate_metrics)
+            if predicate_axes
+            else table.aggregate(**predicate_metrics)
+        )
+        if predicate_metrics
+        else None
+    )
+    filtered = table.filter(*(item.value for item in selected)) if selected else table
+    fields = {path: filtered[name] for path, name in columns.items()}
+    axes = {slot: fields[path] for slot, path in first.axes}
+    metrics: dict[str, ir.Value] = {}
+    checks: list[tuple[str, NumericCheck]] = []
+    for index, reduction in enumerate(reductions):
+        item = lower_source_reduction(reduction.node, filtered, fields)
+        metrics[reduction.value_slot] = ops.Cast(item.value, to=item.value.type()).to_expr()
+        for position, check in enumerate(item.checks):
+            name = common_slot(index, f"numeric_check.{position}")
+            metrics[name] = check.violation
+            checks.append((name, check))
+        checks.extend(
+            (common_slot(index, f"predicate_check.{position}"), check)
+            for position, check in enumerate(predicate_checks)
+        )
+    result = (
+        filtered.group_by(**axes).aggregate(**metrics) if axes else filtered.aggregate(**metrics)
+    )
+    if summary is not None:
+        # Every occurrence has the same predicate domain, but retains its own
+        # check columns for demand-aware formula completion.
+        result = summary.left_join(
+            result.mutate(__numeric_present=ibis.literal(True)),
+            [summary[name].identical_to(result[name]) for name in axes]
+            if axes
+            else ibis.literal(True),
+        )
+        result = result.select(
+            *summary.columns,
+            *(
+                name
+                for name in result.columns
+                if name not in summary.columns and name not in {f"{key}_right" for key in axes}
+            ),
+        )
+        result = result.mutate(
+            **{
+                common_slot(index, "__numeric_present"): result["__numeric_present"]
+                for index in range(len(reductions))
+            }
+        ).drop("__numeric_present")
     return result, tuple(checks)
 
 
@@ -359,7 +472,7 @@ def duration_type(
             declared=declared,
             occurrence=(*occurrence, 0),
         )
-    if isinstance(node, EntityCount) or (
+    if isinstance(node, (EntityCount, MemberCount)) or (
         isinstance(node, (SourceAggregate, PerReduce))
         and node.reducer in ("count", "count_distinct", "approx_nunique")
     ):
@@ -389,6 +502,7 @@ def duration_type(
                 SourceAggregate,
                 SourceWeightedMean,
                 EntityCount,
+                MemberCount,
                 DeclaredMetricRef,
                 ContributionFilter,
             ),
@@ -452,7 +566,7 @@ def _recipe_duration(
             return arithmetic(item.func is operator.truediv, item.func is operator.mul, left, right)
         if type(item) is Call:
             if type(item.func) is Attr:
-                name = item.func.name.value
+                name = attribute_name(item.func)
                 parts = (visit(item.func.obj), *(visit(arg) for arg in item.args))
             else:
                 name = item.func.value.__name__

@@ -1,6 +1,9 @@
-"""Native temporal mean retains ordered spatial samples across independent recovery."""
+"""Native temporal means preserve int64 identities and terminal cold reads."""
 
+import os
 import shutil
+import subprocess
+import sys
 from collections.abc import Callable
 from contextlib import ExitStack
 from datetime import datetime, timezone
@@ -10,126 +13,226 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.core.data_types import ScalarDataType
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.source_fixtures import author_source_project
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.datasource.source_cases import SourceData, source_case
-from tests.support.json import Json, checked, encode
+from tests.shared_fixtures import run_ids
+from tests.support.json import Json, checked, encode, obj, read
+from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
 
 
-def _native_temporal_recovery(
+@pytest.mark.slow
+def test_native_temporal_mean_int64_identities_and_independent_cold_reads(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     source_trace: SourceTrace,
 ) -> None:
-    backend = "duckdb"
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
-    facts = [
+    facts = (
         (0, "a", 10, 1),
         (1, "a", 5, 1),
         (2, "a", 20, 2),
         (3, "a", 1, 2),
         (4, "b", 100, 1),
         (5, "b", 200, 2),
-    ]
+    )
     subject_keys = (9007199254740992, 9007199254740993)
-    revisions = subject_keys
-    evidence_prefix = "temporal-int64-"
+    columns = "id BIGINT, revision BIGINT, tenant VARCHAR(10), amount BIGINT, happened TIMESTAMP"
     data = SourceData(
-        "id BIGINT, revision BIGINT, tenant VARCHAR(10), amount BIGINT, happened TIMESTAMP",
+        columns,
         ",".join(
-            f"({9007199254740992 + i},{revisions[0] if tenant == 'a' else revisions[1]},'{tenant}',{amount},"
-            + ("TIMESTAMP " if backend == "trino" else "")
-            + f"'2026-08-{day:02d} 00:00:00')"
-            for i, tenant, amount, day in facts
+            f"({subject_keys[0] + identity},{subject_keys[0] if tenant == 'a' else subject_keys[1]},'{tenant}',{amount},'2026-08-{day:02d} 00:00:00')"
+            for identity, tenant, amount, day in facts
         ),
         "id Int64, revision Int64, tenant String, amount Int64, happened DateTime64(6, 'UTC')",
         [
             {
-                "id": 9007199254740992 + i,
-                "revision": revisions[0] if tenant == "a" else revisions[1],
+                "id": subject_keys[0] + identity,
+                "revision": subject_keys[0] if tenant == "a" else subject_keys[1],
                 "tenant": tenant,
                 "amount": amount,
                 "happened": datetime(2026, 8, day, tzinfo=timezone.utc),
             }
-            for i, tenant, amount, day in facts
+            for identity, tenant, amount, day in facts
         ],
     )
-    profile = "table"
     subjects = SourceData(
-        data.columns,
-        f"(1,{revisions[0]},'a',0,"
-        + ("TIMESTAMP " if backend == "trino" else "")
-        + f"'2026-08-01 00:00:00'),(2,{revisions[1]},'b',0,"
-        + ("TIMESTAMP " if backend == "trino" else "")
-        + "'2026-08-01 00:00:00')",
+        columns,
+        f"(1,{subject_keys[0]},'a',0,'2026-08-01 00:00:00'),(2,{subject_keys[1]},'b',0,'2026-08-01 00:00:00')",
         data.clickhouse_columns,
         [
             {
-                "id": i,
-                "revision": revisions[i - 1],
+                "id": identity,
+                "revision": subject_keys[identity - 1],
                 "tenant": tenant,
                 "amount": 0,
                 "happened": datetime(2026, 8, 1, tzinfo=timezone.utc),
             }
-            for i, tenant in ((1, "a"), (2, "b"))
+            for identity, tenant in ((1, "a"), (2, "b"))
         ],
     )
     with ExitStack() as stack:
-        case = stack.enter_context(source_case(backend, profile, tmp_path, monkeypatch, data))
-        if backend == "duckdb":
-            case.session.close()
+        case = stack.enter_context(source_case("duckdb", "table", tmp_path, monkeypatch, data))
+        case.session.close()
         subject_case = stack.enter_context(
-            source_case(backend, profile, tmp_path, monkeypatch, subjects)
+            source_case("duckdb", "table", tmp_path, monkeypatch, subjects)
         )
         assert isinstance(subject_case.source, TableSourceIR)
-        author_source_project(backend, case, monkeypatch, semantic_project_factory)
-        models = tmp_path / "models" / "semantic" / "sales" / "models.py"
-        models.write_text(
-            models.read_text()
-            + "\nstatus = ms.measure_column(name='status', entity=facts, column='amount', additivity=ms.additive_all(except_=(happened,)), status_time_dimension=happened, status_time_fold='mean')\nfolded = ms.aggregate(name='folded', measure=status, agg='sum')\n"
+        author_source_project("duckdb", case, monkeypatch, semantic_project_factory)
+        models = tmp_path / "models/semantic/sales/models.py"
+        subject_models = (
+            f"subjects=ms.entity(name='subjects',datasource=ms.ref.datasource('warehouse'),source=md.table({subject_case.source.table!r},database={subject_case.source.database!r}),primary_key=['revision'])\n"
+            "subject_id=ms.dimension_column(name='id',entity=subjects,column='revision')\n"
+            "fact_subject_key=ms.dimension_column(name='subject_key',entity=facts,column='revision')\n"
+            "fact_subject=ms.relationship(name='fact_subject',from_entity=facts,to_entity=subjects,keys=[ms.join_on(fact_subject_key,subject_id)])\n"
         )
-        key_column = "revision"
         models.write_text(
-            models.read_text()
-            + f"subjects=ms.entity(name='subjects', datasource=ms.ref.datasource('warehouse'), source=md.table({subject_case.source.table!r}, database={subject_case.source.database!r}), primary_key=[{key_column!r}])\nsubject_id=ms.dimension_column(name='id',entity=subjects,column={key_column!r})\nfact_subject_key=ms.dimension_column(name='subject_key',entity=facts,column={key_column!r})\nfact_subject=ms.relationship(name='fact_subject',from_entity=facts,to_entity=subjects,keys=[ms.join_on(fact_subject_key,subject_id)])\n"
+            models.read_text().replace(
+                "frozen = ms.finalize()", subject_models + "frozen = ms.finalize()"
+            )
         )
         ms.load(workspace_dir=tmp_path)
-        session = mv.session.get_or_create("r94-temporal", report_timezone="UTC")
+        session = mv.session.get_or_create("temporal-int64-recovery", report_timezone="UTC")
         members = session.members(ms.ref.entity("sales.subjects"))
-        values = members.observe(
-            ms.ref.metric("sales.folded"),
-            during=mv.time_scope(start="2026-08-01", end="2026-08-03"),
-            via=ms.ref.relationship("sales.fact_subject"),
-            by=(mv.member(),),
+        total = session.catalog.metrics.get("sales.total")
+        time = session.catalog.fields.get("sales.facts.happened")
+        amount = session.catalog.fields.get("sales.facts.amount")
+        scope = session.time_scope(start="2026-08-01", end="2026-08-03")
+        calendar = scope.by(mv.grain("day"))
+        temporal = session.observe({"value": total.per(time).mean()}, during=scope, by=members)
+        source = temporal.execute()
+        spatial = temporal.rollup().execute()
+        represented = temporal.reduce({"value": temporal["value"].mean()}).execute()
+        samples = session.observe(
+            {"sum": total, "rows": amount.count(time=time)}, during=calendar, by=members
+        ).execute()
+        source_frame, spatial_frame, represented_frame, samples_frame = (
+            artifact.to_pandas() for artifact in (source, spatial, represented, samples)
         )
-        assert isinstance(values, mv.LogicalNumericRelation)
-        source = values.execute()
-        assert isinstance(source, mv.MaterializedNumericRelation)
+        assert source_frame.iloc[:, 0].tolist() == list(subject_keys)
+        assert source._manifest.data.schema.axes[0].columns[0].dtype == ScalarDataType("int64")
+        assert source_frame[("value", "value")].tolist() == [18.0, 150.0]
+        # Per subject: a has temporal totals [10+5,20+1], b has [100,200].
+        # Original rollup completes space at each time: mean([115,221])=168.
+        assert spatial_frame[("value", "value")].tolist() == [168.0]
+        # A reduction over the two already completed values is mean([18,150])=84.
+        assert represented_frame[("value", "value")].tolist() == [84.0]
+        assert (
+            samples_frame.iloc[:, 0].tolist()
+            == [datetime(2026, 8, 1, tzinfo=timezone.utc)] * 2
+            + [datetime(2026, 8, 2, tzinfo=timezone.utc)] * 2
+        )
+        assert samples_frame.iloc[:, 1].tolist() == list(subject_keys) * 2
+        assert samples_frame[("value", "sum")].tolist() == [15, 100, 21, 200]
+        assert samples_frame[("value", "rows")].tolist() == [2, 1, 2, 1]
+        calendar_metadata = samples_frame.attrs["marivo"]["axes"][0]
+        assert calendar_metadata["timezone"] == "UTC"
+        assert [
+            (cell["actual_start"], cell["actual_end"]) for cell in calendar_metadata["bounds"]
+        ] == [
+            (datetime(2026, 8, 1, tzinfo=timezone.utc), datetime(2026, 8, 2, tzinfo=timezone.utc)),
+            (datetime(2026, 8, 2, tzinfo=timezone.utc), datetime(2026, 8, 3, tzinfo=timezone.utc)),
+        ]
+        outputs: dict[str, Json] = {
+            name: {"artifact": artifact.id, "snapshot": snapshot(artifact, frame=frame)}
+            for name, artifact, frame in (
+                ("subjects", source, source_frame),
+                ("spatial", spatial, spatial_frame),
+                ("represented", represented, represented_frame),
+                ("samples", samples, samples_frame),
+            )
+        }
         state: dict[str, Json] = {
             "session": session.id,
             "subject_keys": list(subject_keys),
-            "source": source.state.artifact_ref.ref,
-            "original": snapshot(source),
+            "runs": checked(sorted(run_ids(session))),
+            "outputs": outputs,
         }
-        (tmp_path / "r94-temporal.json").write_bytes(encode(state))
+        (tmp_path / "temporal-recovery.json").write_bytes(encode(state))
         source_trace.save(
-            evidence_prefix + "source-" + backend,
-            {**case.environment, "profile": profile},
+            "temporal-int64-source-duckdb",
+            {**case.environment, "profile": "table"},
             {"rows": 6},
             {
                 "a": [["2026-08-01", 15, 2], ["2026-08-02", 21, 2]],
                 "b": [["2026-08-01", 100, 1], ["2026-08-02", 200, 1]],
+                "spatial_mean": 168,
+                "represented_mean": 84,
             },
             source,
             (case.session, subject_case.session),
         )
-        environment = checked({**case.environment, "profile": profile})
     shutil.rmtree(tmp_path / "models")
     for path in tmp_path.glob("source.duckdb*"):
         path.unlink()
+    worker = """
+import os, sys
+from pathlib import Path
+from unittest.mock import patch
+import duckdb, ibis
+import marivo.analysis as mv
+import marivo.semantic as ms
+from marivo.datasource import timezone as source_timezone
+from marivo.datasource.adapters import SourceSession
+from marivo.semantic.reader import SemanticProject
+from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
+from tests.shared_fixtures import run_ids
+from tests.support.json import encode, obj, read
+root=Path(sys.argv[1])
+os.chdir(root)
+os.environ['MARIVO_PROJECT_ROOT']=str(root)
+state=read(root/'temporal-recovery.json')
+with patch.object(ms,'load',forbidden), patch.object(SemanticProject,'load',forbidden), patch.object(SourceSession,'__init__',forbidden), patch.object(duckdb,'connect',forbidden), patch.object(ibis.duckdb,'connect',forbidden), patch.object(source_timezone,'probe_engine_timezone',forbidden), patch.object(source_timezone,'_resolve_system_timezone',forbidden):
+    session=mv.session.resume(state['session'],by='id')
+    before=run_ids(session)
+    assert sorted(before)==state['runs']
+    assert session.report_tz_name=='UTC'
+    outputs=obj(state['outputs'])
+    frames={}
+    for name,output in outputs.items():
+        selected=obj(output)
+        artifact=session.artifact(selected['artifact'])
+        frame=artifact.to_pandas()
+        assert snapshot(artifact,frame=frame)==selected['snapshot']
+        frames[name]=frame
+    assert frames['subjects'].iloc[:,0].tolist()==state['subject_keys']
+    assert frames['subjects'][('value','value')].tolist()==[18.0,150.0]
+    assert frames['spatial'][('value','value')].tolist()==[168.0]
+    assert frames['represented'][('value','value')].tolist()==[84.0]
+    assert frames['samples'][('value','sum')].tolist()==[15,100,21,200]
+    # Pandas can consume the committed time samples without a new source Query.
+    assert frames['samples'][('value','sum')].groupby(frames['samples'].iloc[:,0]).sum().mean()==168
+    assert run_ids(session)==before
+    Path(sys.argv[2]).write_bytes(encode({'pid':os.getpid(),'phase':sys.argv[3],'source_forbidden':True,'runs':sorted(before)}))
+"""
     reports: list[Json] = []
+    for phase in ("offline", "cold"):
+        output = tmp_path / (phase + ".json")
+        completed = subprocess.run(
+            [sys.executable, "-c", worker, str(tmp_path), str(output), phase],
+            cwd=PROJECT_ROOT,
+            env=dict(
+                os.environ,
+                PYTHONPATH=str(PROJECT_ROOT),
+                TZ="America/Los_Angeles",
+                MARIVO_TELEMETRY="off",
+            ),
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stdout + completed.stderr
+        reports.append(read(output))
+    assert len({os.getpid(), *(obj(report)["pid"] for report in reports)}) == 3
+    assert all(obj(report)["source_forbidden"] is True for report in reports)
+    if destination := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
+        Path(destination, "temporal-int64-recovery-duckdb.json").write_bytes(
+            encode(checked({"source_pid": os.getpid(), "source": state, "reports": reports}))
+        )

@@ -45,7 +45,7 @@ certification does not publish a replacement artifact.
 
 ## Name temporal occurrences
 
-The sales.campaigns Entity declares campaign identity and start/end boundaries with their exact time meaning. The observation also requires `sales.customer`, the `sales.order_buyer` relationship and `revenue = ms.ref.metric("sales.revenue")`.
+The sales.campaigns Entity declares campaign identity and start/end boundaries with their exact time meaning. The observation also requires `sales.customer`, the `sales.order_buyer` relationship and a resolved `sales.revenue` Metric.
 
 {/* example: temporal-set */}
 
@@ -67,11 +67,9 @@ catalog.preview(
 campaigns = catalog.temporal_sets.get("sales.campaigns")
 launch = campaigns.occurrence("spring-2026")
 members = session.members(ms.ref.entity("sales.customer"))
-dataset = members.observe(
-    revenue,
-    during=launch,
-    via=ms.ref.relationship("sales.order_buyer"),
-    by=(mv.member(),),
+revenue = session.catalog.metrics.get("sales.revenue")
+query = session.observe(
+    {"revenue": revenue}, during=launch, members=members, by=(mv.member(),)
 )
 ```
 

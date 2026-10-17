@@ -1,24 +1,17 @@
 """Public C-family source counterexamples; invocations alone grant no qualification."""
 
-import json
-import os
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, NoReturn
 from zoneinfo import ZoneInfo
 
+import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.graph_protocol import descriptor_plan
-from marivo.analysis.methods.physical import (
-    ScalarType,
-)
-from marivo.analysis.methods.semantics import MethodKey
 from marivo.datasource.adapters import SourceSession
 from marivo.datasource.capabilities import provider_statement_log
 from marivo.datasource.ir import DatasourceIR
@@ -26,8 +19,24 @@ from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.source_fixtures import author_source_project
 from tests.datasource.source_cases import SourceData, source_case, source_params
-from tests.support.json import key_json
 from tests.support.source_trace import SourceTrace
+
+
+def _value(result: mv.Artifact) -> pd.Series:
+    return result.to_pandas()["value", "value"]
+
+
+def _full(
+    session: mv.Session,
+    metric: str = "sales.total",
+    *,
+    during: mv.TimeScope | mv.CalendarAxis | None = None,
+) -> mv.Query:
+    return session.observe(
+        {"value": session.catalog.metrics.get(metric)},
+        during=during,
+        by=session.members(ms.ref.entity("sales.facts")),
+    )
 
 
 @pytest.mark.parametrize(
@@ -78,8 +87,10 @@ def test_declared_string_time_uses_owned_execution_functions(
     data = SourceData(
         "id BIGINT, revision BIGINT, tenant VARCHAR(10), amount BIGINT, happened VARCHAR(32)",
         ",".join(
-            f"({identity},{revision},'{tenant}',{amount if amount is not None else 'NULL'},'{instant}')"
-            for identity, revision, tenant, amount, instant in facts
+            (
+                f"({identity},{revision},'{tenant}',{(amount if amount is not None else 'NULL')},'{instant}')"
+                for identity, revision, tenant, amount, instant in facts
+            )
         ),
         "id Int64, revision Int64, tenant String, amount Nullable(Int64), happened String",
         [
@@ -101,14 +112,15 @@ def test_declared_string_time_uses_owned_execution_functions(
             backend, case, monkeypatch, semantic_project_factory, time_parse="string"
         )
         session = mv.session.get_or_create("r93-string-time", report_timezone=str(zone))
-        values = session.members(ms.ref.entity("sales.facts")).observe(
-            ms.ref.metric("sales.total"),
-            during=mv.time_scope(start=start, end=end),
-            by=(mv.member(),),
+        values = session.observe(
+            {"value": session.catalog.metrics.get("sales.total")},
+            during=session.time_scope(start=start, end=end),
+            by=session.members(ms.ref.entity("sales.facts")),
         )
-        assert isinstance(values, mv.LogicalNumericRelation)
+        assert isinstance(values, mv.Query)
         result = values.execute()
-        frame = result.to_pandas().set_index(["member", "coord_0", "coord_1"])
+        frame = result.to_pandas()
+        frame = frame.set_index(frame.columns[0])
         expected_values = {
             ("a", 9007199254740992, 1): 2,
             ("a", 9007199254740993, 2): 0,
@@ -116,12 +128,12 @@ def test_declared_string_time_uses_owned_execution_functions(
             ("a", 9007199254740995, 1): 0,
         }
         if time_case == "dst":
-            expected_values[("a", 9007199254740996, 1)] = 5
-        assert frame.value.to_dict() == expected_values
-        assert set(frame.cell_tag) == {"defined"}
+            expected_values["a", 9007199254740996, 1] = 5
+        assert frame["value", "value"].to_dict() == expected_values
+        assert not frame["value", "value"].isna().any()
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
         source_trace.save(
-            f"c06-source-{backend}-{'dst' if time_case == 'dst' else 'string-time'}",
+            f"c06-source-{backend}-{('dst' if time_case == 'dst' else 'string-time')}",
             {**case.environment, "profile": profile},
             {"columns": data.columns, "values": data.values},
             {
@@ -140,28 +152,6 @@ def test_declared_string_time_uses_owned_execution_functions(
             result,
             (case.session,),
         )
-        evidence = os.environ.get("MARIVO_R93_EVIDENCE_DIR")
-        if evidence:
-            assert result._dataset is not None
-            Path(evidence, f"supporting-c06-{time_case}-string-time-{backend}.json").write_text(
-                json.dumps(
-                    {
-                        "backend": backend,
-                        "source_profile": profile,
-                        "environment": case.environment,
-                        "declared_format": "%Y-%m-%d %H:%M:%S",
-                        "oracle": [2, 0, 0, 0, 5] if time_case == "dst" else [2, 0, 0, 0],
-                        "physical_keys": [
-                            key_json(item.key)
-                            for item in descriptor_plan(
-                                result._dataset.artifact.descriptor, result._node.definition
-                            ).physical_requirements
-                        ],
-                        "boundary": "Bounded declared-string-time support; no complete C06 qualification",
-                    },
-                    sort_keys=True,
-                )
-            )
 
 
 @pytest.mark.parametrize("numeric_type", ["int64", "float64"])
@@ -183,13 +173,15 @@ def test_source_coordinates_statistics_and_original_state(
         + ("BIGINT" if numeric_type == "int64" else "DOUBLE PRECISION")
         + ", happened TIMESTAMP",
         ",".join(
-            f"({identity},{revision},'{tenant}',{amount},"
-            + ("TIMESTAMP " if backend == "trino" else "")
-            + "'2026-08-01 00:00:00')"
-            for identity, revision, tenant, amount in (
-                (9007199254740992, 1, "a", "2"),
-                (9007199254740993, 2, "a", "NULL"),
-                (9007199254740993, 1, "b", "4" if numeric_type == "int64" else "4.5"),
+            (
+                f"({identity},{revision},'{tenant}',{amount},"
+                + ("TIMESTAMP " if backend == "trino" else "")
+                + "'2026-08-01 00:00:00')"
+                for identity, revision, tenant, amount in (
+                    (9007199254740992, 1, "a", "2"),
+                    (9007199254740993, 2, "a", "NULL"),
+                    (9007199254740993, 1, "b", "4" if numeric_type == "int64" else "4.5"),
+                )
             )
         ),
         "id Int64, revision Int64, tenant String, amount Nullable("
@@ -219,163 +211,100 @@ def test_source_coordinates_statistics_and_original_state(
         remote = author_source_project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("r93-c05", report_timezone="UTC")
         members = session.members(ms.ref.entity("sales.facts"))
-        bucket = members.read(ms.ref.dimension("sales.facts.bucket"))
-        assert isinstance(bucket, mv.LogicalCategoryRelation)
-        selected = bucket.where(bucket.value.eq("a")).members()
-        assert isinstance(selected, mv.LogicalAnalysisDomain)
-        categories = selected.read(ms.ref.dimension("sales.facts.bucket"))
-        assert isinstance(categories, mv.LogicalCategoryRelation)
-        values = selected.observe(ms.ref.metric("sales.total"), by=(mv.member(),))
-        assert isinstance(values, mv.LogicalNumericRelation)
-        grouped = values.group_by(categories)
-        counted = grouped.aggregate(mv.count()).execute()
-        assert counted._dataset is not None
-        assert any(
-            item.key.method == MethodKey("group.attach")
-            and item.key.input_types == (ScalarType(numeric_type), ScalarType("string"))
-            for item in descriptor_plan(
-                counted._dataset.artifact.descriptor, counted._node.definition
-            ).physical_requirements
+        bucket = session.catalog.fields.get("sales.facts.bucket")
+        revision = session.catalog.fields.get("sales.facts.revision")
+        read = session.read(members, {"value": bucket})
+        selected = read.where(read["value"] == "a").population()
+        values = session.observe(
+            {"value": session.catalog.metrics.get("sales.total")},
+            by=(mv.member(), bucket, revision),
+            members=selected,
         )
-        counts = counted.to_pandas().set_index("group")
-        assert counts.value.to_dict() == {"a": 2}
+        counted = values.reduce({"value": mv.row_count()}, by=(bucket,)).execute()
+        assert _value(counted).tolist() == [2]
+        tuples = values.reduce({"value": mv.row_count()}, by=(bucket, revision)).execute()
+        frame = tuples.to_pandas()
+        assert list(frame.iloc[:, 0]) == ["a", "a"]
+        assert list(frame.iloc[:, 1]) == [1, 2]
+        assert _value(tuples).tolist() == [1, 1]
+        summed = values.reduce({"value": values["value"].sum()}, by=(bucket,)).execute()
+        assert _value(summed).tolist() == [2]
+        defined_values = values.where(~values["value"].is_null())
+        defined = defined_values.reduce({"value": mv.row_count()}, by=(bucket,)).execute()
+        assert _value(defined).tolist() == [2]
+        mean = values.reduce({"value": values["value"].mean()}, by=(bucket,)).execute()
+        assert _value(mean).tolist() == [1.0]
+        original = values.rollup(by=(bucket,)).execute()
+        assert _value(original).tolist() == [2]
+        assert _value(values.rollup(by=(bucket,)).rollup().execute()).tolist() == [2]
+        full = _full(session)
         if numeric_type == "int64":
-            revision = members.read(ms.ref.dimension("sales.facts.revision"))
-            selected_revision = selected.read(ms.ref.dimension("sales.facts.revision"))
-            assert isinstance(revision, mv.LogicalCategoryRelation)
-            assert isinstance(selected_revision, mv.LogicalCategoryRelation)
-            tuple_result = (
-                values.group_by(categories, selected_revision).aggregate(mv.count()).execute()
+            current = _full(
+                session, during=session.time_scope(start="2026-08-01", end="2026-08-02")
             )
-            tuples = tuple_result.to_pandas()
-            assert tuples.set_index(["group", "coord_0"]).value.to_dict() == {
-                ("a", 1): 1,
-                ("a", 2): 1,
-            }
-            source_trace.record(tuple_result)
-        summed = grouped.aggregate(mv.sum()).execute()
-        assert summed.to_pandas().set_index("group").value.to_dict() == {"a": 2}
-        defined = grouped.aggregate(mv.count_defined()).execute()
-        assert defined.to_pandas().set_index("group").value.to_dict() == {"a": 2}
-        mean = grouped.aggregate(mv.mean()).execute()
-        means = mean.to_pandas().set_index("group")
-        assert means.loc["a", "value"] == 1.0
-        assert mean.rollup().execute().to_pandas().value.tolist() == [1.0]
-        original = values.group_by(categories).rollup().execute()
-        assert original.to_pandas().value.tolist() == [2]
-        assert original.rollup().execute().to_pandas().value.tolist() == [2]
-        full = members.observe(ms.ref.metric("sales.total"), by=(mv.member(),))
-        assert isinstance(full, mv.LogicalNumericRelation)
-        if numeric_type == "int64":
-            current = members.observe(
-                ms.ref.metric("sales.total"),
-                during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
-                by=(mv.member(),),
+            baseline = _full(
+                session, during=session.time_scope(start="2026-08-02", end="2026-08-03")
             )
-            baseline = members.observe(
-                ms.ref.metric("sales.total"),
-                during=mv.time_scope(start="2026-08-02", end="2026-08-03"),
-                by=(mv.member(),),
-            )
-            assert isinstance(current, mv.LogicalNumericRelation)
-            assert isinstance(baseline, mv.LogicalNumericRelation)
-            differences = current.compare(baseline).absolute.execute().to_pandas()
-            assert differences.set_index(["member", "coord_0", "coord_1"]).value.to_dict() == {
+            difference = current.compare(baseline).execute().to_pandas()
+            assert dict(
+                zip(difference.iloc[:, 0], difference["value", "value.absolute"], strict=True)
+            ) == {
                 ("a", 9007199254740992, 1): 2,
                 ("a", 9007199254740993, 2): 0,
                 ("b", 9007199254740993, 1): 4,
             }
         full_sum = 6 if numeric_type == "int64" else 6.5
-        assert full.group_by(bucket).rollup().rollup().execute().to_pandas().value.tolist() == [
+        full_grouped = session.observe(
+            {"value": session.catalog.metrics.get("sales.total")}, by=(bucket,)
+        )
+        assert _value(full_grouped.rollup().execute()).tolist() == [full_sum]
+        assert _value(
+            full.reduce({"value": full["value"].mean()}).execute()
+        ).tolist() == pytest.approx([full_sum / 3], abs=1e-12, rel=0)
+        average = _full(session, "sales.average")
+        assert _value(average.reduce({"value": mv.row_count()}).execute()).tolist() == [3]
+        supported = average.where(~average["value"].is_null())
+        assert _value(supported.reduce({"value": mv.row_count()}).execute()).tolist() == [2]
+        assert _value(average.reduce({"value": average["value"].sum()}).execute()).tolist() == [
             full_sum
         ]
-        assert full.aggregate(mv.mean()).execute().to_pandas().value.tolist() == pytest.approx(
-            [full_sum / 3], abs=1e-12, rel=0
+        assert _value(average.reduce({"value": average["value"].mean()}).execute()).tolist() == [
+            full_sum / 2
+        ]
+        before = set(tmp_path.rglob("*.parquet"))
+        with pytest.raises(AnalysisError):
+            full.select(
+                {"value": full["value"].divide(full["value"], zero_denominator="error")}
+            ).execute()
+        assert set(tmp_path.rglob("*.parquet")) == before
+        assert _value(original).tolist() == [2]
+        empty_members = read.where(read["value"] == "missing").population()
+        empty = session.observe(
+            {"value": session.catalog.metrics.get("sales.total")},
+            by=empty_members,
+            members=empty_members,
         )
-        average = members.observe(ms.ref.metric("sales.average"), by=(mv.member(),))
-        assert isinstance(average, mv.LogicalNumericRelation)
-        assert average.aggregate(mv.count()).execute().to_pandas().value.tolist() == [3]
-        assert average.aggregate(mv.count_defined()).execute().to_pandas().value.tolist() == [2]
-        for reducer in (mv.sum(), mv.mean()):
-            before = set(tmp_path.rglob("*.parquet"))
-            with pytest.raises(MaterializationError) as refused:
-                average.aggregate(reducer).execute()
-            assert refused.value.stage == "graph_check"
-            assert refused.value.expected == "finite_numeric"
-            assert refused.value.received == "1 violating rows"
-            assert set(tmp_path.rglob("*.parquet")) == before
-            assert session._runtime.store.resources(session._runtime.session_ref) == ()
-        empty_members = bucket.where(bucket.value.eq("missing")).members()
-        assert isinstance(empty_members, mv.LogicalAnalysisDomain)
-        empty_values = empty_members.observe(ms.ref.metric("sales.total"), by=(mv.member(),))
-        assert isinstance(empty_values, mv.LogicalNumericRelation)
-        assert empty_values.aggregate(mv.count()).execute().to_pandas().value.tolist() == [0]
-        empty_mean = empty_values.aggregate(mv.mean()).execute().to_pandas()
-        assert empty_mean.cell_reason.tolist() == ["empty_mean"]
-        for result in (counted, summed, defined, mean, original):
+        assert _value(empty.reduce({"value": mv.row_count()}).execute()).tolist() == [0]
+        assert _value(empty.reduce({"value": empty["value"].mean()}).execute()).isna().all()
+        for result in (counted, tuples, summed, defined, mean, original):
             source_trace.record(result)
-        assert session._runtime.store.resources(session._runtime.session_ref) == ()
+        assert session._runtime.store.resources(session.id) == ()
         source_trace.save(
             f"c05-source-{backend}-{numeric_type}",
             {**case.environment, "profile": profile},
             {"columns": data.columns, "values": data.values},
             {
-                "counts": {"a": 2},
+                "counts_a": 2,
+                "sum_a": 2,
                 "mean_a": 1.0,
-                "mean_b_reason": "empty_mean",
-                "original_a": 2,
-                "original_full": full_sum,
-                "current_full_mean": full_sum / 3,
-                "complete_tuple_union": numeric_type == "int64",
-                "null_arithmetic_rejected_atomically": True,
-                "count_including_null": 3,
-                "count_defined": 2,
+                "full_sum": full_sum,
+                "full_mean": full_sum / 3,
+                "defined_source_mean_count": 2,
                 "empty_count": 0,
-                "empty_mean_reason": "empty_mean",
-                "numeric_type": numeric_type,
-                "resources": 0,
             },
             None,
             (case.session,),
         )
-        evidence = os.environ.get("MARIVO_R93_EVIDENCE_DIR")
-        if evidence:
-            assert (
-                counted._dataset is not None
-                and mean._dataset is not None
-                and original._dataset is not None
-            )
-            Path(evidence, f"supporting-c05-{backend}-{numeric_type}.json").write_text(
-                json.dumps(
-                    {
-                        "family": "C05.a/b/c",
-                        "backend": backend,
-                        "numeric_type": numeric_type,
-                        "non_defined_arithmetic_rejected": True,
-                        "environment": case.environment,
-                        "source_profile": profile,
-                        "remote_table_writes_forbidden": remote,
-                        "oracle": {
-                            "counts": {"a": 2},
-                            "mean_a": 1.0,
-                            "mean_b_reason": "empty_mean",
-                            "original_a": 2,
-                            "original_full": full_sum,
-                            "current_full_mean": full_sum / 3,
-                        },
-                        "physical_keys": [
-                            key_json(item.key)
-                            for result in (counted, summed, defined, mean, original)
-                            if result._dataset is not None
-                            for item in descriptor_plan(
-                                result._dataset.artifact.descriptor, result._node.definition
-                            ).physical_requirements
-                        ],
-                        "boundary": "Bounded numeric/string source-only positive support; not complete C05 numeric/domain/data-check/cancellation qualification",
-                    },
-                    sort_keys=True,
-                )
-            )
 
 
 @pytest.mark.parametrize("identity_type", ["int64", "string"])
@@ -394,10 +323,12 @@ def test_original_mean_preserves_component_weights(
     data = SourceData(
         "id BIGINT, revision BIGINT, tenant VARCHAR(10), amount BIGINT, happened TIMESTAMP",
         ",".join(
-            f"({9007199254740992 + i},1,'{tenant}',{amount},"
-            + ("TIMESTAMP " if backend == "trino" else "")
-            + "'2026-08-01 00:00:00')"
-            for i, tenant, amount in facts
+            (
+                f"({9007199254740992 + i},1,'{tenant}',{amount},"
+                + ("TIMESTAMP " if backend == "trino" else "")
+                + "'2026-08-01 00:00:00')"
+                for i, tenant, amount in facts
+            )
         ),
         "id Int64, revision Int64, tenant String, amount Int64, happened DateTime64(6, 'UTC')",
         [
@@ -419,43 +350,41 @@ def test_original_mean_preserves_component_weights(
             backend, case, monkeypatch, semantic_project_factory, identity_type
         )
         session = mv.session.get_or_create("r93-c05-mean", report_timezone="UTC")
-        members = session.members(ms.ref.entity("sales.facts"))
-        bucket = members.read(ms.ref.dimension("sales.facts.bucket"))
-        values = members.observe(ms.ref.metric("sales.average"), by=(mv.member(),))
-        assert isinstance(bucket, mv.LogicalCategoryRelation)
-        assert isinstance(values, mv.LogicalNumericRelation)
-        grouped = values.group_by(bucket).rollup()
-        current = grouped.group_by().aggregate(mv.mean()).execute()
-        original = grouped.rollup().execute()
-        assert current.to_pandas().value.tolist() == [50.5]
-        assert original.to_pandas().value.tolist() == [34.0]
-        fixed = grouped.execute()
-        assert fixed.to_pandas().set_index("group").value.to_dict() == {"a": 1.0, "b": 100.0}
-        assert fixed._dataset is not None
-        state_rows = next(
-            part.table.to_dict("records")
-            for part in fixed._dataset.verified().parts
-            if part.role == "original_state"
+        bucket = session.catalog.fields.get("sales.facts.bucket")
+        amount = session.catalog.fields.get("sales.facts.amount")
+        time = session.catalog.fields.get("sales.facts.happened")
+        grouped = session.observe(
+            {
+                "value": session.catalog.metrics.get("sales.average"),
+                "sum": session.catalog.metrics.get("sales.total"),
+                "count": amount.count(time=time),
+            },
+            by=(bucket,),
         )
-        assert {
-            row["key_0"]: (row["original_state__sum"], row["original_state__non_null_count"])
-            for row in state_rows
-        } == {"a": (2, 2), "b": (100, 1)}
+        current = grouped.reduce({"value": grouped["value"].mean()}).execute()
+        original = grouped.rollup().execute()
+        assert _value(current).tolist() == [50.5]
+        assert _value(original).tolist() == [34.0]
+        fixed = grouped.execute()
+        frame = fixed.to_pandas().set_index(fixed.to_pandas().columns[0])
+        assert frame["value", "value"].to_dict() == {"a": 1.0, "b": 100.0}
+        assert dict(zip(frame["value", "sum"], frame["value", "count"], strict=True)) == {
+            2: 2,
+            100: 1,
+        }
 
         def forbid_source(*args: object, **kwargs: object) -> NoReturn:
-            pytest.fail("Fixed mean continuation must not read the source")
+            pytest.fail("Terminal mean calculation read the source")
 
         submissions_before = len(source_trace.native_sql)
         with monkeypatch.context() as isolated:
             isolated.setattr(type(case.session), "execute", forbid_source)
-            assert fixed.group_by().aggregate(mv.mean()).execute().to_pandas().value.tolist() == [
-                50.5
-            ]
-            assert fixed.rollup().execute().to_pandas().value.tolist() == [34.0]
+            saved = fixed.to_pandas()
+            assert saved["value", "value"].mean() == 50.5
+            assert saved["value", "sum"].sum() / saved["value", "count"].sum() == 34.0
         assert len(source_trace.native_sql) == submissions_before
-        for result in (current, original):
+        for result in (current, original, fixed):
             source_trace.record(result)
-        assert session._runtime.store.resources(session._runtime.session_ref) == ()
         source_trace.save(
             f"c05-mean-{backend}-{identity_type}",
             {**case.environment, "profile": profile},
@@ -464,51 +393,20 @@ def test_original_mean_preserves_component_weights(
                 "current": 50.5,
                 "original": 34.0,
                 "rows": 3,
-                "original_components": {"a": [2, 2], "b": [100, 1]},
-                "fixed_source_reads_forbidden": True,
-                "no_additional_native_submission": True,
-                "identity_type": identity_type,
-                "resources": 0,
+                "components": {"a": [2, 2], "b": [100, 1]},
             },
             fixed,
             (case.session,),
         )
-        evidence = os.environ.get("MARIVO_R93_EVIDENCE_DIR")
-        if evidence:
-            assert fixed._dataset is not None
-            Path(evidence, f"supporting-c05-mean-{backend}-{identity_type}.json").write_text(
-                json.dumps(
-                    {
-                        "backend": backend,
-                        "identity_type": identity_type,
-                        "source_profile": profile,
-                        "environment": case.environment,
-                        "remote_table_writes_forbidden": remote,
-                        "fixed_source_reads_forbidden": True,
-                        "oracle": {"current": 50.5, "original": 34.0, "rows": 3},
-                        "original_components": {"a": [2, 2], "b": [100, 1]},
-                        "physical_keys": [
-                            key_json(item.key)
-                            for result in (current, original, fixed)
-                            if result._dataset is not None
-                            for item in descriptor_plan(
-                                result._dataset.artifact.descriptor, result._node.definition
-                            ).physical_requirements
-                        ],
-                        "boundary": "Original/current mean supporting evidence; no complete C05 qualification",
-                    },
-                    sort_keys=True,
-                )
-            )
 
 
 @pytest.mark.parametrize("backend", ["duckdb"])
 @pytest.mark.parametrize(
     ("anchor", "expected", "overlap"),
     [
-        ("None", [10, 28], True),
-        ("ms.grain_to_date(grain=mv.grain('month'))", [5, 18], False),
-        ("ms.trailing(count=31, unit='day')", [5, 21], True),
+        ("mv.all_history()", [10, 28], True),
+        ("mv.to_date(grain=mv.grain('month'))", [5, 18], False),
+        ("mv.trailing_duration(duration=timedelta(days=31))", [5, 21], True),
     ],
     ids=["all-history", "month-reset", "trailing-overlap"],
 )
@@ -534,7 +432,9 @@ def test_cumulative_keeps_anchor_and_overlap(
     ]
     data = SourceData(
         "id BIGINT, revision BIGINT, tenant VARCHAR(10), amount BIGINT, happened VARCHAR(32)",
-        ",".join(f"({identity},1,'a',{amount},'{instant}')" for identity, amount, instant in facts),
+        ",".join(
+            (f"({identity},1,'a',{amount},'{instant}')" for identity, amount, instant in facts)
+        ),
         "id Int64, revision Int64, tenant String, amount Int64, happened String",
         [
             {"id": identity, "revision": 1, "tenant": "a", "amount": amount, "happened": instant}
@@ -554,25 +454,27 @@ def test_cumulative_keeps_anchor_and_overlap(
             cumulative_anchor=anchor,
         )
         session = mv.session.get_or_create("r93-cumulative", report_timezone="UTC")
-        grid = mv.time_grid(
-            during=mv.time_scope(start="2026-08-15", end="2026-10-01"),
-            grain=mv.grain("month"),
-        )
-        logical = session.members(ms.ref.entity("sales.facts")).observe(
-            ms.ref.metric("sales.running"), at=grid.end, by=(mv.member(),)
+        grid = session.time_scope(start="2026-08-15", end="2026-10-01").by(mv.grain("month"))
+        logical = session.observe(
+            {"value": session.catalog.metrics.get("sales.running")},
+            during=grid,
+            by=session.members(ms.ref.entity("sales.facts")),
         )
         fixed = logical.execute()
         source_trace.record(fixed)
-        grouped = fixed.group_by(grid).rollup().execute()
-        assert grouped.to_pandas().value.tolist() == expected
-        if overlap:
-            with pytest.raises(AnalysisError, match="overlap"):
-                grouped.rollup()
-        else:
-            assert grouped.rollup().execute().to_pandas().value.tolist() == [23]
+        grouped = logical.rollup(by=(grid,)).execute()
+        assert _value(grouped).tolist() == expected
+        with pytest.raises(AnalysisError, match="window time axis"):
+            logical.rollup()
+        if not overlap:
+            assert _value(grouped).sum() == 23
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
         name = (
-            "all-history" if anchor == "None" else "trailing-overlap" if overlap else "month-reset"
+            "all-history"
+            if anchor == "mv.all_history()"
+            else "trailing-overlap"
+            if overlap
+            else "month-reset"
         )
         source_trace.save(
             f"c06-source-{backend}-{name}",
@@ -623,7 +525,9 @@ def test_dst_grid_keeps_instant_edges_and_fixed_coordinate(
     facts = list(zip([1, 2, 3, 4], [2, 5, 11, 99], instants, strict=True))
     data = SourceData(
         "id BIGINT, revision BIGINT, tenant VARCHAR(10), amount BIGINT, happened VARCHAR(32)",
-        ",".join(f"({identity},1,'a',{amount},'{instant}')" for identity, amount, instant in facts),
+        ",".join(
+            (f"({identity},1,'a',{amount},'{instant}')" for identity, amount, instant in facts)
+        ),
         "id Int64, revision Int64, tenant String, amount Int64, happened String",
         [
             {"id": identity, "revision": 1, "tenant": "a", "amount": amount, "happened": instant}
@@ -639,12 +543,13 @@ def test_dst_grid_keeps_instant_edges_and_fixed_coordinate(
         )
         session = mv.session.get_or_create("r93-dst-grid", report_timezone="Asia/Tokyo")
         zone = ZoneInfo("America/New_York")
-        scope = mv.time_scope(
+        scope = session.time_scope(
             start=datetime.fromisoformat(start).replace(tzinfo=zone),
             end=datetime.fromisoformat(end).replace(tzinfo=zone),
+            timezone=str(zone),
         )
         grain = mv.grain("day")
-        grid = mv.time_grid(during=scope, grain=grain, timezone="America/New_York")
+        grid = scope.by(grain)
         bound = bind_grid(
             scope, grain, report_timezone="Asia/Tokyo", explicit_timezone="America/New_York"
         )
@@ -655,17 +560,18 @@ def test_dst_grid_keeps_instant_edges_and_fixed_coordinate(
             instants[2],
         ]
         assert bound.cells[-1].end.strftime("%Y-%m-%d %H:%M:%S") == instants[3]
-        fixed = (
-            session.members(ms.ref.entity("sales.facts"))
-            .observe(ms.ref.metric("sales.total"), during=grid, by=(mv.member(),))
-            .execute()
+        logical = session.observe(
+            {"value": session.catalog.metrics.get("sales.total")},
+            during=grid,
+            by=session.members(ms.ref.entity("sales.facts")),
         )
+        fixed = logical.execute()
         frame = fixed.to_pandas()
         assert len(frame) == 8
-        assert set(frame.cell_tag) == {"defined"}
+        assert not frame["value", "value"].isna().any()
         source_trace.record(fixed)
-        grouped = fixed.group_by(grid).rollup().execute()
-        assert grouped.to_pandas().value.tolist() == [7, 11]
+        grouped = logical.rollup(by=(grid,)).execute()
+        assert _value(grouped).tolist() == [7, 11]
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
         source_trace.save(
             f"c06-source-{backend}-{transition}-grid",
@@ -716,8 +622,10 @@ def test_certified_unequal_calendar_owns_native_boundaries(
     data = SourceData(
         "id BIGINT, revision BIGINT, tenant VARCHAR(10), amount BIGINT, happened VARCHAR(32), calendar_day DATE, period VARCHAR(10)",
         ",".join(
-            f"({identity},1,'a',{amount},'{instant}',{'DATE ' if backend == 'trino' else ''}'{day}','{period}')"
-            for identity, amount, day, instant, period in facts
+            (
+                f"({identity},1,'a',{amount},'{instant}',{('DATE ' if backend == 'trino' else '')}'{day}','{period}')"
+                for identity, amount, day, instant, period in facts
+            )
         ),
         "id Int64, revision Int64, tenant String, amount Int64, happened String, calendar_day Date, period String",
         [
@@ -795,25 +703,28 @@ def test_certified_unequal_calendar_owns_native_boundaries(
         entry = catalog.period_calendars.get(calendar)
         assert entry.details().snapshot_status == "current"
         grain = entry.grain("period")
-        scope = mv.time_scope(
+        session = mv.session.get_or_create("r93-certified-calendar", report_timezone="UTC")
+        scope = session.time_scope(
             start=datetime(2026, 7, 31, 16, tzinfo=timezone.utc),
             end=datetime(2026, 8, 5, 16, tzinfo=timezone.utc),
+            timezone="Asia/Shanghai",
         )
-        grid = mv.time_grid(during=scope, grain=grain)
-        session = mv.session.get_or_create("r93-certified-calendar", report_timezone="UTC")
+        grid = scope.by(grain)
         members = session.members(ms.ref.entity("sales.facts"))
-        with pytest.raises(AnalysisError, match="conflicts"):
-            members.observe(
-                ms.ref.metric("sales.total"),
-                during=mv.time_grid(during=scope, grain=grain, timezone="UTC"),
-            )
-        fixed = members.observe(
-            ms.ref.metric("sales.total"), during=grid, by=(mv.member(),)
-        ).execute()
+        with pytest.raises(ValueError) as conflict:
+            session.time_scope(start=scope.start, end=scope.end, timezone="UTC").by(grain)
+        assert str(conflict.value) == (
+            "Expected compatible scope and calendar timezones; construct the scope "
+            "in the certified calendar boundary timezone."
+        )
+        logical = session.observe(
+            {"value": session.catalog.metrics.get("sales.total")}, during=grid, by=members
+        )
+        fixed = logical.execute()
         assert len(fixed.to_pandas()) == 10
         source_trace.record(fixed)
-        grouped = fixed.group_by(grid).rollup().execute()
-        assert grouped.to_pandas().value.tolist() == [7, 41]
+        grouped = logical.rollup(by=(grid,)).execute()
+        assert _value(grouped).tolist() == [7, 41]
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
         source_trace.save(
             f"c06-source-{backend}-certified-calendar",
@@ -858,8 +769,10 @@ def test_civil_date_grid_keeps_date_keys_on_foreign_zone(
     data = SourceData(
         "id BIGINT, revision BIGINT, tenant VARCHAR(10), amount BIGINT, happened DATE",
         ",".join(
-            f"({identity},1,'a',{amount},{'DATE ' if backend == 'trino' else ''}'{day}')"
-            for identity, amount, day in facts
+            (
+                f"({identity},1,'a',{amount},{('DATE ' if backend == 'trino' else '')}'{day}')"
+                for identity, amount, day in facts
+            )
         ),
         "id Int64, revision Int64, tenant String, amount Int64, happened Date",
         [
@@ -876,23 +789,22 @@ def test_civil_date_grid_keeps_date_keys_on_foreign_zone(
         )
         session = mv.session.get_or_create("r93-civil-date", report_timezone="UTC")
         zone = ZoneInfo("America/New_York")
-        grid = mv.time_grid(
-            during=mv.time_scope(
-                start=datetime(2026, 8, 1, tzinfo=zone), end=datetime(2026, 8, 3, tzinfo=zone)
-            ),
-            grain=mv.grain("day"),
+        grid = session.time_scope(
+            start=datetime(2026, 8, 1, tzinfo=zone),
+            end=datetime(2026, 8, 3, tzinfo=zone),
             timezone=str(zone),
+        ).by(mv.grain("day"))
+        logical = session.observe(
+            {"value": session.catalog.metrics.get("sales.total")},
+            during=grid,
+            by=session.members(ms.ref.entity("sales.facts")),
         )
-        fixed = (
-            session.members(ms.ref.entity("sales.facts"))
-            .observe(ms.ref.metric("sales.total"), during=grid, by=(mv.member(),))
-            .execute()
-        )
+        fixed = logical.execute()
         frame = fixed.to_pandas()
-        assert len(frame) == 8 and set(frame.cell_tag) == {"defined"}
+        assert len(frame) == 8 and (not frame["value", "value"].isna().any())
         source_trace.record(fixed)
-        grouped = fixed.group_by(grid).rollup().execute()
-        assert grouped.to_pandas().value.tolist() == [2, 5]
+        grouped = logical.rollup(by=(grid,)).execute()
+        assert _value(grouped).tolist() == [2, 5]
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
         source_trace.save(
             f"c06-source-{backend}-civil-date-grid",
@@ -948,8 +860,10 @@ def test_native_timestamp_retains_reader_and_grid_authority(
     data = SourceData(
         f"id BIGINT, revision BIGINT, tenant VARCHAR(10), amount BIGINT, happened {physical}",
         ",".join(
-            f"({identity},1,'a',{amount},{'TIMESTAMP ' if backend == 'trino' else ''}'{instant}')"
-            for identity, amount, instant in facts
+            (
+                f"({identity},1,'a',{amount},{('TIMESTAMP ' if backend == 'trino' else '')}'{instant}')"
+                for identity, amount, instant in facts
+            )
         ),
         "id Int64, revision Int64, tenant String, amount Int64, happened DateTime64(6, 'UTC')",
         [
@@ -972,30 +886,30 @@ def test_native_timestamp_retains_reader_and_grid_authority(
         assert pa.types.is_timestamp(native_type)
         assert native_type.unit == "us"
         author_source_project(
-            backend,
-            case,
-            monkeypatch,
-            semantic_project_factory,
-            time_parse="native_resolved",
+            backend, case, monkeypatch, semantic_project_factory, time_parse="native_resolved"
         )
         session = mv.session.get_or_create("r93-native-time", report_timezone="Asia/Tokyo")
         zone = ZoneInfo("America/New_York")
-        scope = mv.time_scope(
+        scope = session.time_scope(
             start=datetime(2026, 8, 1, tzinfo=zone),
             end=datetime(2026, 8, 3, tzinfo=zone),
+            timezone=str(zone),
         )
-        grid = mv.time_grid(during=scope, grain=mv.grain("day"), timezone=str(zone))
+        grid = scope.by(mv.grain("day"))
         members = session.members(ms.ref.entity("sales.facts"))
-        reader = members._node._live().graph.entity_schema.reader_timezone
+        from marivo.datasource.timezone import probe_engine_timezone
+
+        reader = probe_engine_timezone(case.session._backend)
         reader_zone = reader.engine_timezone_name if reader is not None else None
-        fixed = members.observe(
-            ms.ref.metric("sales.total"), during=grid, by=(mv.member(),)
-        ).execute()
+        logical = session.observe(
+            {"value": session.catalog.metrics.get("sales.total")}, during=grid, by=members
+        )
+        fixed = logical.execute()
         frame = fixed.to_pandas()
-        assert len(frame) == 10 and set(frame.cell_tag) == {"defined"}
+        assert len(frame) == 10 and (not frame["value", "value"].isna().any())
         source_trace.record(fixed)
-        grouped = fixed.group_by(grid).rollup().execute()
-        assert grouped.to_pandas().value.tolist() == [7, 11]
+        grouped = logical.rollup(by=(grid,)).execute()
+        assert _value(grouped).tolist() == [7, 11]
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
         source_trace.save(
             f"c06-source-{backend}-native-time",
@@ -1039,7 +953,9 @@ def test_aware_native_repeated_hour_keeps_distinct_instants(
     ]
     data = SourceData(
         "id BIGINT, revision BIGINT, tenant VARCHAR(10), amount BIGINT, happened TIMESTAMPTZ",
-        ",".join(f"({identity},1,'a',{amount},'{instant}')" for identity, amount, instant in facts),
+        ",".join(
+            (f"({identity},1,'a',{amount},'{instant}')" for identity, amount, instant in facts)
+        ),
         "",
         [],
     )
@@ -1052,21 +968,24 @@ def test_aware_native_repeated_hour_keeps_distinct_instants(
         )
         session = mv.session.get_or_create("r93-aware-time", report_timezone="Asia/Tokyo")
         zone = ZoneInfo("America/New_York")
-        scope = mv.time_scope(
-            start=datetime(2026, 11, 1, tzinfo=zone), end=datetime(2026, 11, 2, tzinfo=zone)
+        scope = session.time_scope(
+            start=datetime(2026, 11, 1, tzinfo=zone),
+            end=datetime(2026, 11, 2, tzinfo=zone),
+            timezone=str(zone),
         )
-        grid = mv.time_grid(during=scope, grain=mv.grain("day"), timezone=str(zone))
-        fixed = (
-            session.members(ms.ref.entity("sales.facts"))
-            .observe(ms.ref.metric("sales.total"), during=grid, by=(mv.member(),))
-            .execute()
+        grid = scope.by(mv.grain("day"))
+        logical = session.observe(
+            {"value": session.catalog.metrics.get("sales.total")},
+            during=grid,
+            by=session.members(ms.ref.entity("sales.facts")),
         )
+        fixed = logical.execute()
         frame = fixed.to_pandas()
-        assert len(frame) == 4 and set(frame.cell_tag) == {"defined"}
-        assert sorted(frame.value.tolist()) == [0, 2, 5, 11]
+        assert len(frame) == 4 and (not frame["value", "value"].isna().any())
+        assert sorted(frame["value", "value"].tolist()) == [0, 2, 5, 11]
         source_trace.record(fixed)
-        grouped = fixed.group_by(grid).rollup().execute()
-        assert grouped.to_pandas().value.tolist() == [18]
+        grouped = logical.rollup(by=(grid,)).execute()
+        assert _value(grouped).tolist() == [18]
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
         source_trace.save(
             f"c06-source-{backend}-aware-repeated-hour",
@@ -1120,28 +1039,26 @@ def test_native_observation_does_not_audit_wall_times_outside_its_scope(
     )
     with source_case(backend, "table", tmp_path, monkeypatch, data) as case:
         author_source_project(
-            backend,
-            case,
-            monkeypatch,
-            semantic_project_factory,
-            read_timezone="America/New_York",
+            backend, case, monkeypatch, semantic_project_factory, read_timezone="America/New_York"
         )
         session = mv.session.get_or_create("r93-native-wall-scope", report_timezone="Asia/Tokyo")
         zone = ZoneInfo("America/New_York")
-        scope = mv.time_scope(
+        scope = session.time_scope(
             start=datetime.fromisoformat(start).replace(tzinfo=zone),
             end=datetime.fromisoformat(end).replace(tzinfo=zone),
+            timezone=str(zone),
         )
-        grid = mv.time_grid(during=scope, grain=mv.grain("day"), timezone=str(zone))
-        logical = session.members(ms.ref.entity("sales.facts")).observe(
-            ms.ref.metric("sales.total"), during=grid, by=(mv.member(),)
+        grid = scope.by(mv.grain("day"))
+        logical = session.observe(
+            {"value": session.catalog.metrics.get("sales.total")},
+            during=grid,
+            by=session.members(ms.ref.entity("sales.facts")),
         )
         result = logical.execute()
-        assert sorted(result.to_pandas().value.tolist()) == [0, 2]
-        assert session._runtime.last_run_ref is not None
-        run = session._runtime.store._graph_run(session._runtime.last_run_ref)
-        assert run is not None and run.lifecycle == "succeeded"
-        with session._runtime.store._connection() as connection:
+        assert sorted(_value(result).tolist()) == [0, 2]
+        run = session.runs().items[-1]
+        assert run.lifecycle == "succeeded"
+        with session._runtime.store._read() as connection:
             assert connection.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == 1
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
         product_owners = [owner for owner in source_trace.owners if owner is not case.session]

@@ -1,16 +1,20 @@
-"""Cold-process decimal and int64 original-state rollup equality journey.
+"""Original Query rollup publication and independent terminal cold reads."""
 
-The producer authors a session, aggregates decimal and int64 pairs under a
-runtime Linear, plus a float mean, persists the checkpoints, and removes the source.
-The cold process recovers the checkpoint by name, rolls it up over the original complete membership from retained state only, and returns the exact values with their
-original dtypes. The renamed source file makes any primary query fail loudly,
-so a successful cold run is itself the zero-source-query proof.
-"""
+from __future__ import annotations
 
 import json
 import os
 import sys
+from decimal import Decimal
 from pathlib import Path
+from unittest.mock import patch
+
+import marivo.analysis as mv
+import marivo.semantic as ms
+from marivo.datasource.adapters import SourceSession
+from marivo.semantic.reader import SemanticProject
+from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
+from tests.support.json import Json, obj, read
 
 DAY_ROWS = (
     (1, "2026-07-01", "10.05", "2.50", 3),
@@ -18,12 +22,8 @@ DAY_ROWS = (
     (3, "2026-07-02", "23.99", "0.10", 1),
 )
 METRIC_NAMES = ("net_amount", "net_qty", "amount_mean")
-# Hand-computed month-grain expectations over the three DAY_ROWS:
-# gmv = 10.05 + 20.10 + 23.99 = 54.14; cost_total = 2.50 + 1.25 + 0.10 = 3.85;
-# net_amount = gmv + cost_total - gmv = 3.85; net_qty = qty_total + qty_count
-# - qty_total = 5 + 3 - 5 = 3; amount_mean = quantity mean = 5 / 3 (one float
-# division). The mean runs over the int64 measure to cover float64 finishing;
-# the separate Decimal mean case checks finishing at the captured output scale.
+# Independent month totals over DAY_ROWS: gmv=54.14, cost=3.85, qty=5,
+# count=3. Thus gmv+cost-gmv=3.85, qty+count-qty=3, mean(qty)=5/3.
 MONTH_EXPECTED = {
     "net_amount": "3.85",
     "net_qty": "3",
@@ -31,9 +31,8 @@ MONTH_EXPECTED = {
 }
 
 
-def _author(project: Path, *, with_mean: bool = False, mean_measure: str = "quantity") -> None:
+def _author(project: Path, *, mean_measure: str = "quantity") -> None:
     (project / "marivo.toml").write_text('[project]\nname = "rollup-equation"\n')
-
     datasource = project / "models" / "datasources"
     semantic = project / "models" / "semantic" / "sales"
     datasource.mkdir(parents=True)
@@ -48,11 +47,8 @@ def _author(project: Path, *, with_mean: bool = False, mean_measure: str = "quan
         "import marivo.datasource as md\n"
         "import marivo.semantic as ms\n"
         "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
-        "source=md.table('orders', columns={'id': 'id', "
-        "'order_day': 'day', "
-        "'amount': 'amount', "
-        "'cost': 'cost', "
-        "'quantity': 'quantity'}), primary_key=['id'])\n"
+        "source=md.table('orders', columns={'id': 'id', 'order_day': 'day', "
+        "'amount': 'amount', 'cost': 'cost', 'quantity': 'quantity'}), primary_key=['id'])\n"
         "day = ms.time_dimension_column(name='day', entity=orders, column='order_day', "
         "granularity='day', parse=None, is_default=True)\n"
         "amount = ms.measure_column(name='amount', entity=orders, column='amount', "
@@ -61,30 +57,26 @@ def _author(project: Path, *, with_mean: bool = False, mean_measure: str = "quan
         "additivity=ms.additive_all())\n"
         "quantity = ms.measure_column(name='quantity', entity=orders, column='quantity', "
         "additivity=ms.additive_all())\n"
-        "gmv = ms.aggregate(name='gmv', measure=amount, agg='sum')\n"
-        "cost_total = ms.aggregate(name='cost_total', measure=cost, agg='sum')\n"
-        "qty_total = ms.aggregate(name='qty_total', measure=quantity, agg='sum')\n"
-        "qty_count = ms.count(name='qty_count', entity=orders)\n"
-        + (
-            "amount_mean = ms.aggregate(name='amount_mean', measure="
-            + mean_measure
-            + ", agg='mean')\n"
-            if with_mean
-            else ""
-        )
+        "frozen = ms.finalize()\n"
+        "orders_value = frozen.resolve(orders)\n"
+        "day_value = frozen.resolve(day)\n"
+        "amount_value = frozen.resolve(amount)\n"
+        "cost_value = frozen.resolve(cost)\n"
+        "quantity_value = frozen.resolve(quantity)\n"
+        "@ms.metric()\ndef gmv():\n    return amount_value.sum(time=day_value)\n"
+        "@ms.metric()\ndef cost_total():\n    return cost_value.sum(time=day_value)\n"
+        "@ms.metric()\ndef qty_total():\n    return quantity_value.sum(time=day_value)\n"
+        "@ms.metric()\ndef qty_count():\n    return orders_value.count(time=day_value)\n"
+        "@ms.metric()\ndef amount_mean():\n"
+        f"    return {mean_measure}_value.mean(time=day_value)\n"
     )
 
 
 def author_decimal_mean_project(project: Path) -> Path:
-    """Author the same project plus a decimal-rooted mean Metric; no source rows.
-
-    Returns the project directory with an empty warehouse and its declared
-    schema. A caller inserts source rows before observing the Decimal mean
-    Metric and testing fixed rollup at its captured output scale.
-    """
+    """Create the native Decimal mean model and an empty typed source table."""
     import duckdb
 
-    _author(project, with_mean=True, mean_measure="amount")
+    _author(project, mean_measure="amount")
     with duckdb.connect(str(project / "warehouse.duckdb")) as connection:
         connection.execute(
             "CREATE TABLE orders(id BIGINT, day DATE, amount DECIMAL(12,2), "
@@ -93,69 +85,80 @@ def author_decimal_mean_project(project: Path) -> Path:
     return project
 
 
-def run(mode: str, project: Path, artifact: str = "") -> dict[str, object]:
+def _values(result: mv.Artifact) -> dict[str, Json]:
+    frame = result.to_pandas()
+    assert isinstance(frame[("value", "net_amount")].iloc[0], Decimal)
+    assert isinstance(frame[("value", "net_qty")].iloc[0], int)
+    assert isinstance(frame[("value", "amount_mean")].iloc[0], float)
+    return {name: str(frame[("value", name)].iloc[0]) for name in METRIC_NAMES}
+
+
+def _dtypes(result: mv.Artifact) -> dict[str, Json]:
+    frame = result.to_pandas()
+    return {name: str(frame[("value", name)].dtype) for name in METRIC_NAMES}
+
+
+def run(mode: str, project: Path) -> dict[str, Json]:
     import duckdb
 
-    import marivo.analysis as mv
-    import marivo.semantic as ms
-    from marivo.analysis.public_dsl import MetricInputValue
-
-    # Session and authoring resolution anchor on the current working directory,
-    # exactly as an agent's write-run-read loop does.
     os.chdir(project)
+    os.environ["MARIVO_PROJECT_ROOT"] = str(project)
+    manifest = project / "rollup.json"
     if mode == "produce":
-        _author(project, with_mean=True)
+        _author(project)
         with duckdb.connect(str(project / "warehouse.duckdb")) as connection:
             connection.execute(
                 "CREATE TABLE orders(id BIGINT, day DATE, amount DECIMAL(12,2), "
                 "cost DECIMAL(12,2), quantity BIGINT)"
             )
             connection.executemany("INSERT INTO orders VALUES (?, ?, ?, ?, ?)", DAY_ROWS)
-        from marivo.analysis import runtime_metric as rm
-
-        gmv = ms.ref.metric("sales.gmv")
-        cost_total = ms.ref.metric("sales.cost_total")
-        qty_total = ms.ref.metric("sales.qty_total")
-        qty_count = ms.ref.metric("sales.qty_count")
-        metrics: tuple[MetricInputValue, ...] = (
-            rm.linear(add=[gmv, cost_total], subtract=[gmv], label="net_amount"),
-            rm.linear(add=[qty_total, qty_count], subtract=[qty_total], label="net_qty"),
-            ms.ref.metric("sales.amount_mean"),
-        )
         session = mv.session.get_or_create("equation", report_timezone="UTC")
-        members = session.members(ms.ref.entity("sales.orders"))
-        values, artifacts = {}, {}
-        for name, metric in zip(METRIC_NAMES, metrics, strict=True):
-            observed = members.observe(metric, by=(mv.member(),)).execute()
-            warm = observed.rollup().execute().to_pandas()
-            values[name] = str(warm["value"].iloc[0])
-            artifacts[name] = observed.state.artifact_ref.ref
-        (project / "warehouse.duckdb").rename(project / "warehouse.offline")
-        return {
-            "pid": os.getpid(),
-            "session": session.id,
-            "artifact": json.dumps(artifacts, sort_keys=True),
-            "warm_monthly": values,
+        metrics = session.catalog.metrics
+        gmv = metrics.get("sales.gmv")
+        qty_total = metrics.get("sales.qty_total")
+        query = session.observe(
+            {
+                "net_amount": gmv + metrics.get("sales.cost_total") - gmv,
+                "net_qty": qty_total + metrics.get("sales.qty_count") - qty_total,
+                "amount_mean": metrics.get("sales.amount_mean"),
+            },
+            during=session.time_scope(start="2026-07-01", end="2026-08-01"),
+            by=session.members(ms.ref.entity("sales.orders")),
+        )
+        original = query.execute()
+        monthly = query.rollup().execute()
+        artifacts: dict[str, Json] = {
+            name: {"artifact": result.id, "snapshot": snapshot(result)}
+            for name, result in (("original", original), ("monthly", monthly))
         }
-    session = mv.session.resume("equation")
-    artifacts = json.loads(artifact)
-    values, dtypes = {}, {}
-    for name in METRIC_NAMES:
-        checkpoint = session.artifact(artifacts[name])
-        assert isinstance(checkpoint, mv.MaterializedNumericRelation)
-        cold = checkpoint.rollup().execute()
-        frame = cold.to_pandas()
-        values[name] = str(frame["value"].iloc[0])
-        dtypes[name] = str(frame["value"].dtype)
-    assert session._runtime.statistics.primary_queries == 0
+        state: dict[str, Json] = {"session": session.id, "artifacts": artifacts}
+        manifest.write_text(json.dumps(state, sort_keys=True))
+        return {"pid": os.getpid(), "warm_monthly": _values(monthly), "dtypes": _dtypes(monthly)}
+    assert mode in {"offline", "cold"}
+    state = read(manifest)
+    session_id = state["session"]
+    assert isinstance(session_id, str)
+    with (
+        patch.object(ms, "load", forbidden),
+        patch.object(SemanticProject, "load", forbidden),
+        patch.object(SourceSession, "__enter__", forbidden),
+        patch.object(SourceSession, "execute", forbidden),
+    ):
+        session = mv.session.resume(session_id, by="id")
+        before = len(session.runs().items)
+        artifacts = obj(state["artifacts"])
+        for item in artifacts.values():
+            saved = obj(item)
+            artifact_id = saved["artifact"]
+            assert isinstance(artifact_id, str)
+            assert snapshot(session.artifact(artifact_id)) == saved["snapshot"]
+        monthly_id = obj(artifacts["monthly"])["artifact"]
+        assert isinstance(monthly_id, str)
+        monthly = session.artifact(monthly_id)
+        values, dtypes = _values(monthly), _dtypes(monthly)
+        assert len(session.runs().items) == before
     return {"pid": os.getpid(), "values": values, "dtypes": dtypes}
 
 
 if __name__ == "__main__":
-    print(
-        json.dumps(
-            run(sys.argv[1], Path(sys.argv[2]), sys.argv[3] if len(sys.argv) > 3 else ""),
-            sort_keys=True,
-            allow_nan=False,
-        )
-    )
+    print(json.dumps(run(sys.argv[1], Path(sys.argv[2])), sort_keys=True, allow_nan=False))

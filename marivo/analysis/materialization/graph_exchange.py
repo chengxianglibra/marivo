@@ -11,6 +11,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 
+from marivo.analysis.binding.correspondence import ComparisonEndpoint
 from marivo.analysis.compiler.graph_plan import CheckRequirement
 from marivo.analysis.core.cell_encoding import KnownCell, ValidityCell
 from marivo.analysis.core.data_types import (
@@ -131,6 +132,7 @@ class PartContract:
 
 if TYPE_CHECKING:
     from marivo.analysis.materialization.graph_protocol import ValidatedDescriptor
+    from marivo.analysis.materialization.query_components import ComponentFrame
 
 
 @dataclass(frozen=True, slots=True)
@@ -1596,6 +1598,10 @@ class StageOutput:
     table: pd.DataFrame
     receipts: tuple[CheckReceipt, ...] = ()
     _token: object = None
+    key_groups: tuple[tuple[str, ...], ...] = ()
+    layout: ComparisonEndpoint | None = None
+    components: tuple[ComponentFrame, ...] = ()
+    population_frames: tuple[pd.DataFrame, ...] = ()
 
     def __post_init__(self) -> None:
         if self._token is not _NORMALIZED:
@@ -1611,7 +1617,19 @@ class StageOutput:
         columns: tuple[DataColumn, ...],
         keys: tuple[str, ...],
         receipts: tuple[CheckReceipt, ...] = (),
+        key_groups: tuple[tuple[str, ...], ...] = (),
+        layout: ComparisonEndpoint | None = None,
+        components: tuple[ComponentFrame, ...] = (),
+        population_frames: tuple[pd.DataFrame, ...] = (),
     ) -> StageOutput:
         return cls(
-            columns, keys, normalize_stage_frame(frame, columns, keys), receipts, _NORMALIZED
+            columns,
+            keys,
+            normalize_stage_frame(frame, columns, keys),
+            receipts,
+            _NORMALIZED,
+            key_groups,
+            layout,
+            components,
+            population_frames,
         )

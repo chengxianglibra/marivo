@@ -1,6 +1,15 @@
-"""Public allocation with raw-fact expectations and fixed continuations."""
+"""Explicit allocation recipes over typed, complete terminal fact exports."""
 
+from __future__ import annotations
+
+import math
+import os
+import shutil
+import subprocess
+import sys
+from decimal import Decimal
 from fractions import Fraction
+from pathlib import Path
 from typing import Literal
 
 import duckdb
@@ -12,63 +21,132 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.cell_arrow import rows as cell_rows
-from marivo.analysis.materialization.graph_exchange import to_arrow
-from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows, export_dsl_parquet_models
+from tests.analysis.materialization.domain_recovery_worker import snapshot
+from tests.analysis.numeric.attribution_workflows import (
+    Method,
+    allocation,
+    basis,
+    basis_query,
+)
+from tests.analysis.statistics.pandas_workflows import plain, receipt_paths
+from tests.shared_fixtures import (
+    DslCase,
+    DslCaseFactory,
+    analysis_dsl_rows,
+    export_dsl_parquet_models,
+)
+from tests.support.json import Json, encode, obj, read
 from tests.support.paths import PROJECT_ROOT
+from tests.support.source_trace import capture_source
+
+
+def _inputs(case: DslCase, *, weight: bool = False) -> tuple[mv.Artifact, mv.Artifact]:
+    return basis_query(case, 8, weight=weight).execute(), basis_query(
+        case, 7, weight=weight
+    ).execute()
+
+
+def _count(case: DslCase, month: int, *, drill: bool = False) -> mv.Query:
+    session = case.session
+    customer = session.catalog.fields.get("sales.order.customer_id")
+    channel = session.catalog.fields.get("sales.order.channel")
+    values = session.observe(
+        {"value": session.catalog.metrics.get("sales.order_count")},
+        during=session.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
+        by=(customer,) if drill else (customer, channel),
+        members=session.members(ms.ref.entity("sales.customer")),
+    )
+    return values.drill(add=(channel,)) if drill else values
+
+
+def _expected_counts() -> dict[tuple[str | None, str | None], int]:
+    expected: dict[tuple[str | None, str | None], int] = {}
+    for _, member, channel, _, day, _ in analysis_dsl_rows("j2").orders:
+        if day.startswith(("2026-07", "2026-08")):
+            key = member, channel
+            expected[key] = expected.get(key, 0) + (1 if day.startswith("2026-08") else -1)
+    return expected
+
+
+def _run_worker(root: Path, phase: str) -> Json:
+    output = root / ("allocation-" + phase + ".json")
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "tests.analysis.numeric.attribution_carrier_worker",
+            str(root),
+            phase,
+            str(output),
+        ],
+        cwd=PROJECT_ROOT,
+        env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    return read(output)
+
+
+def _save_inputs(
+    case: DslCase,
+    inputs: tuple[mv.Artifact, mv.Artifact],
+    *,
+    methods: tuple[Method, ...],
+    top_k: int | None = None,
+) -> None:
+    recipes: dict[str, Json] = {}
+    for method in methods:
+        current, baseline = (basis(value) for value in inputs)
+        if method == "ratio":
+            current, baseline = (frame.assign(weight=frame.amount) for frame in (current, baseline))
+        recipes[method] = allocation(current, baseline, method=method, top_k=top_k).to_json(
+            orient="split", date_format="iso", double_precision=15
+        )
+    state: dict[str, Json] = {
+        "session": case.session.id,
+        "inputs": [{"artifact": value.id, "snapshot": snapshot(value)} for value in inputs],
+        "methods": list(methods),
+        "top_k": top_k,
+        "recipe_outputs": recipes,
+    }
+    (case.root / "r94-attribution-carrier.json").write_bytes(encode(state))
+
+
+def _remove_sources(case: DslCase) -> None:
+    shutil.rmtree(case.root / "models")
+    case.database_path.unlink()
+    if (case.root / "source_files").exists():
+        shutil.rmtree(case.root / "source_files")
 
 
 def test_additive_source_and_fixed(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    axes = (ms.ref.dimension("sales.order.channel"),)
-    current = members.observe(
-        ms.ref.metric("sales.order_count"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(
-            mv.member(),
-            *axes,
-        ),
+    inputs = _inputs(case)
+    frame = allocation(*(basis(value) for value in inputs), method="count")
+    assert {(r.member, r.channel): r.contribution for r in frame.itertuples()} == _expected_counts()
+    # The source drill remains a real positive capability, before publication.
+    for month, artifact in zip((8, 7), inputs, strict=True):
+        direct = plain(_count(case, month).execute())
+        drilled = plain(_count(case, month, drill=True).execute())
+        assert direct.equals(drilled)
+        expected = basis(artifact).groupby(["member", "channel"]).size().to_dict()
+        assert {(r.key_0, r.key_1): r.value for r in drilled.itertuples()} == expected
+    selected = frame.loc[frame.contribution > 0]
+    assert selected[["current"]].shape == selected[["baseline"]].shape
+    before = len(case.session.runs().items)
+    restored = tuple(case.session.artifact(value.id) for value in inputs)
+    pd.testing.assert_frame_equal(
+        allocation(*(basis(value) for value in restored), method="count"), frame
     )
-    baseline = members.observe(
-        ms.ref.metric("sales.order_count"),
-        during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(
-            mv.member(),
-            *axes,
-        ),
-    )
-    current = current.group_by(ms.ref.entity("sales.customer")).rollup()
-    baseline = baseline.group_by(ms.ref.entity("sales.customer")).rollup()
-    change = current.compare(baseline).absolute
-    facts = analysis_dsl_rows("j2")
-    expected = {}
-    for _, member, channel, _, day, _ in facts.orders:
-        if str(day).startswith(("2026-07", "2026-08")):
-            key = (member, channel)
-            expected[key] = expected.get(key, 0) + (1 if str(day).startswith("2026-08") else -1)
-    result = change.attribute(axes=axes).execute()
-    frame = result.contribution.to_pandas()
-    assert {(r.group, r.coord_1): r.value for r in frame.itertuples()} == expected
-    selected = result.where(result.contribution.value.gt(0)).execute()
-    assert selected.current.to_pandas().shape == selected.baseline.to_pandas().shape
-    assert dict(selected.contract()._facts)["complete_partition"] == "False"
-    restored = case.session.artifact(result.state.artifact_ref)
-    assert isinstance(restored, mv.MaterializedAttributionResult)
-    assert restored.contribution.to_pandas().equals(frame)
+    assert len(case.session.runs().items) == before
+    assert all(not hasattr(value, "attribute") for value in restored)
 
 
 @pytest.mark.slow
 @pytest.mark.parametrize(
-    "family,parquet",
-    [
-        ("int64", False),
-        ("float64", False),
-        ("decimal", False),
-        ("duration", True),
-    ],
+    "family,parquet", [("int64", False), ("float64", False), ("decimal", False), ("duration", True)]
 )
 def test_numeric_source_fixed_and_axis_expansion(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -76,18 +154,6 @@ def test_numeric_source_fixed_and_axis_expansion(
     parquet: bool,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import os
-    import shutil
-    import subprocess
-    import sys
-    from pathlib import Path
-
-    from marivo.analysis.public_dsl import MetricInputValue
-    from tests.analysis.materialization.domain_recovery_worker import snapshot
-    from tests.analysis.numeric.attribution_carrier_worker import parts
-    from tests.support.json import Json, checked, encode, read
-    from tests.support.source_trace import capture_source
-
     case = analysis_dsl_case_factory("j1")
     facts = [(8, "web", 12, 3), (8, "app", 6, 1), (7, "web", 4, 2), (7, "Other", 2, 2)]
     dtype = {
@@ -95,488 +161,240 @@ def test_numeric_source_fixed_and_axis_expansion(
         "float64": "DOUBLE",
         "decimal": "DECIMAL(30,6)",
         "duration": "BIGINT",
-    }["duration" if family.startswith("duration") else family]
+    }[family]
     with duckdb.connect(str(case.database_path)) as db:
         db.execute(f'ALTER TABLE "order" ALTER amount TYPE {dtype}')
         db.execute(f'ALTER TABLE "order" ADD COLUMN weight {dtype}')
         db.execute('DELETE FROM "order"')
-        for index, (month, channel, amount, weight) in enumerate(facts):
-            db.execute(
-                'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?, ?)',
-                [str(index), "A", channel, "paid", f"2026-{month:02d}-15", amount, weight],
-            )
-        if family.startswith("duration") and not parquet:
-            db.execute(
-                'ALTER TABLE "order" ALTER amount TYPE INTERVAL USING to_microseconds(amount)'
-            )
+        db.executemany(
+            'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [
+                [str(i), "A", channel, "paid", f"2026-{month:02d}-15", amount, weight]
+                for i, (month, channel, amount, weight) in enumerate(facts)
+            ],
+        )
     models = case.root / "models/semantic/sales/models.py"
     models.write_text(
         models.read_text().replace(
-            "granularity='second',", "granularity='second', is_default=True,"
+            "finalized = ms.finalize()",
+            "weight = ms.dimension_column(name='weight', entity=orders, column='weight')\nfinalized = ms.finalize()",
         )
-        + "\nweight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\n"
     )
     if parquet:
         export_dsl_parquet_models(case, case.root)
-        if family.startswith("duration"):
-            path = case.root / "source_files/order.parquet"
-            data = pq.read_table(path)
-            pq.write_table(
-                data.set_column(
-                    data.schema.get_field_index("amount"),
-                    "amount",
-                    data["amount"].cast(pa.duration(family.partition("_")[2] or "ns")),
-                ),
-                path,
-            )
+        path = case.root / "source_files/order.parquet"
+        data = pq.read_table(path)
+        pq.write_table(
+            data.set_column(
+                data.schema.get_field_index("amount"),
+                "amount",
+                data["amount"].cast(pa.duration("ns")),
+            ),
+            path,
+        )
+        assert pq.read_schema(path).field("amount").type == pa.duration("ns")
     ms.load(workspace_dir=case.root)
     trace = capture_source(monkeypatch)
-    is_primary = family == "int64" and not parquet
-    recovery_method = "sum" if family == "int64" or family.startswith("duration") else "mean"
-    # The broad int64 source pass keeps only its distinct count/linear cases and
-    # the sum carrier used for fixed/cold recovery. Mean, weighted, and ratio
-    # source behavior has dedicated consumer/native coverage.
-    methods = ("sum", "count", "linear") if is_primary else (recovery_method,)
-    originals: dict[str, Json] = {}
-    original_parts: dict[str, Json] = {}
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    axes = (ms.ref.dimension("sales.order.channel"),)
-
-    def endpoint(
-        month: int, retain: bool, metric: MetricInputValue
-    ) -> mv.LogicalRolledNumericRelation | mv.LogicalRolledRatioRelation:
-        return members.observe(
-            metric,
-            during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=axes if retain else (),
-        ).rollup()
-
-    for kind in methods:
-        measure = ms.ref.measure("sales.order.amount")
-        base = mv.runtime_metric.aggregate(measure, agg="sum", label="sum")
-        expression = (
-            base
-            if kind == "sum"
-            else ms.ref.metric("sales.order_count")
-            if kind == "count"
-            else mv.runtime_metric.linear(add=[base, base], label="linear")
-            if kind == "linear"
-            else mv.runtime_metric.aggregate(measure, agg="mean", label="mean")
-            if kind == "mean"
-            else mv.runtime_metric.weighted_mean(
-                measure, ms.ref.measure("sales.order.weight"), label="weighted"
-            )
-            if kind == "weighted"
-            else mv.runtime_metric.ratio(base, base, label="ratio")
+    inputs = _inputs(case, weight=True)
+    if family == "duration":
+        assert isinstance(basis(inputs[0])["amount"].iloc[0], pd.Timedelta), (
+            basis(inputs[0]).dtypes,
+            basis(inputs[0]).amount.tolist(),
         )
-        retained = endpoint(8, True, expression).compare(endpoint(7, True, expression)).absolute
-        expanded = endpoint(8, False, expression).compare(endpoint(7, False, expression)).absolute
-        by_side = []
-        for month in (8, 7):
-            denominators = sum(
-                w if kind == "weighted" else a if kind == "ratio" else 1
-                for m, _, a, w in facts
-                if m == month
-            )
-            side = {}
-            for m, channel, amount, weight in facts:
-                if m == month:
-                    side[channel] = Fraction(
-                        1
-                        if kind == "count"
-                        else amount
-                        * (2 if kind == "linear" else weight if kind == "weighted" else 1),
-                        denominators if kind in ("mean", "weighted", "ratio") else 1,
-                    )
-            by_side.append(side)
-        if kind == recovery_method:
-            fixed_difference = retained.execute()
-            originals[kind + ":difference"], original_parts[kind + ":difference"] = (
-                snapshot(fixed_difference),
-                parts(fixed_difference),
-            )
-        # Carrier-specific source correctness stays broad; expansion and fixed
-        # continuation share one representative because both vary graph shape.
-        labels = (
-            (("allocation", retained), ("expanded", expanded))
-            if kind == recovery_method
-            else (("allocation", retained),)
-        )
-        for label, change in labels:
-            result = change.attribute(axes=axes).execute()
-            assert result._dataset is not None
-            if kind == recovery_method:
-                originals[kind + ":" + label], original_parts[kind + ":" + label] = (
-                    snapshot(result),
-                    parts(result),
-                )
-            verified = result._dataset.verified()
-            allocation = next(p.table for p in verified.parts if p.role == "allocation")
-            if family.startswith("duration"):
-                allocation = allocation.copy()
-                allocation["allocation__contribution"] = allocation[
-                    "allocation__contribution"
-                ].astype("int64")
-            actual = {
-                r["key_1"]: r["allocation__contribution"]
-                for r in allocation.to_dict(orient="records")
-            }
-            expected = {
-                key: by_side[0].get(key, Fraction()) - by_side[1].get(key, Fraction())
-                for key in set(by_side[0]) | set(by_side[1])
-            }
-            if family == "decimal" and kind != "count":
-                assert all(
-                    abs(Fraction(actual[k]) - v) <= Fraction(1, 10**6) for k, v in expected.items()
-                )
-            elif family == "float64" or kind in ("mean", "weighted", "ratio"):
-                assert actual == pytest.approx(
-                    {k: float(v) for k, v in expected.items()}, rel=1e-12, abs=1e-12
-                )
-            else:
-                assert actual == {k: int(v) for k, v in expected.items()}
-            assert (
-                result.current.to_pandas().shape
-                == result.baseline.to_pandas().shape
-                == result.contribution.to_pandas().shape
-            )
-        if kind == recovery_method:
-            with pytest.raises(AnalysisError):
-                expanded.execute().attribute(axes=axes)
-
-    state: dict[str, Json] = {
-        "phase": "produce",
-        "pid": os.getpid(),
-        "session": case.session.id,
-        "family": family,
-        "form": "parquet" if parquet else "table",
-        "methods": [recovery_method],
-        "source_methods": list(methods),
-        "originals": originals,
-        "parts": original_parts,
-        "native_sql": [*trace.native_sql],
-        "source_closed": all(owner._closed for owner in trace.owners),
-        "expanded_fixed_axes_refused": True,
+    methods: tuple[Method, ...] = (
+        ("sum", "count", "linear", "mean", "weighted", "ratio")
+        if family == "int64"
+        else ("sum",)
+        if family == "duration"
+        else ("mean",)
+    )
+    expected = {
+        "sum": {"web": Fraction(8), "app": Fraction(6), "Other": Fraction(-2)},
+        "count": {"web": Fraction(0), "app": Fraction(1), "Other": Fraction(-1)},
+        "linear": {"web": Fraction(16), "app": Fraction(12), "Other": Fraction(-4)},
+        "mean": {"web": Fraction(4), "app": Fraction(3), "Other": Fraction(-1)},
+        "weighted": {"web": Fraction(7), "app": Fraction(3, 2), "Other": Fraction(-1)},
+        "ratio": {"web": Fraction(0), "app": Fraction(1, 3), "Other": Fraction(-1, 3)},
     }
-    assert trace.native_sql and trace.owners and state["source_closed"] is True
-    (case.root / "r94-attribution-carrier.json").write_bytes(encode(state))
-    shutil.rmtree(case.root / "models")
-    case.database_path.unlink()
-    if (case.root / "source_files").exists():
-        shutil.rmtree(case.root / "source_files")
-    repository = PROJECT_ROOT
-    reports: list[Json] = [state]
-    phases = ("fixed", "cold") if is_primary else ("cold",)
-    for phase in phases:
-        output = case.root / ("attribution-carrier-" + phase + ".json")
-        completed = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "tests.analysis.numeric.attribution_carrier_worker",
-                str(case.root),
-                phase,
-                str(output),
-            ],
-            cwd=repository,
-            env={**os.environ, "PYTHONPATH": str(repository)},
-            capture_output=True,
-            text=True,
-            timeout=180,
-        )
-        assert completed.returncode == 0, completed.stdout + completed.stderr
-        reports.append(read(output))
-    if directory := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
-        name = "attribution-carrier-" + family + ("-parquet" if parquet else "-table") + ".json"
-        Path(directory, name).write_bytes(encode({"reports": checked(reports)}))
+    for method in methods:
+        current, baseline = (basis(value) for value in inputs)
+        if method == "ratio":
+            current, baseline = (frame.assign(weight=frame.amount) for frame in (current, baseline))
+        result = allocation(current, baseline, method=method)
+        actual = dict(zip(result.channel, result.contribution, strict=True))
+        if family == "duration":
+            assert {key: value.value for key, value in actual.items()} == {
+                key: int(value) for key, value in expected[method].items()
+            }
+        else:
+            assert {key: float(value) for key, value in actual.items()} == pytest.approx(
+                {key: float(value) for key, value in expected[method].items()}
+            )
+        assert result.current.shape == result.baseline.shape == result.contribution.shape
+    assert trace.native_sql and trace.owners and all(owner._closed for owner in trace.owners)
+    _save_inputs(case, inputs, methods=methods)
+    _remove_sources(case)
+    reports = [
+        _run_worker(case.root, phase)
+        for phase in (("offline", "cold") if family == "int64" else ("cold",))
+    ]
+    assert len({os.getpid(), *(obj(report)["pid"] for report in reports)}) == 1 + len(reports)
 
 
-@pytest.mark.parametrize(
-    ("mode", "fixed_followup"),
-    [
-        pytest.param("joint", False, id="joint-source"),
-        pytest.param("hierarchy", True, id="hierarchy-fixed"),
-    ],
-)
+@pytest.mark.parametrize(("mode", "fixed_followup"), [("joint", False), ("hierarchy", True)])
 def test_common_other_mapping_each_parent_and_resolution(
     analysis_dsl_case_factory: DslCaseFactory,
     mode: Literal["joint", "hierarchy"],
     fixed_followup: bool,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
+    facts = [
+        (8, "Other", "x", 20),
+        (7, "Other", "x", 30),
+        (8, "app", "y", 10),
+        (7, "web", "z", 25),
+        (8, "web", "x", 2),
+        (7, "app", "x", 1),
+    ]
     with duckdb.connect(str(case.database_path)) as db:
         db.execute('DELETE FROM "order"')
-        facts = [
-            (8, "Other", "x", 20),
-            (7, "Other", "x", 30),
-            (8, "app", "y", 10),
-            (7, "web", "z", 25),
-            (8, "web", "x", 2),
-            (7, "app", "x", 1),
-        ]
-        for index, (month, channel, status, amount) in enumerate(facts):
-            db.execute(
-                'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?)',
-                [str(index), "A", channel, status, f"2026-{month:02d}-15", amount],
-            )
-    models = case.root / "models/semantic/sales/models.py"
-    models.write_text(
-        models.read_text().replace(
-            "granularity='second',", "granularity='second', is_default=True,"
+        db.executemany(
+            'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?)',
+            [
+                [str(i), "A", channel, status, f"2026-{month:02d}-15", amount]
+                for i, (month, channel, status, amount) in enumerate(facts)
+            ],
         )
+    inputs = _inputs(case)
+    sources = (
+        (inputs, tuple(case.session.artifact(value.id) for value in inputs))
+        if fixed_followup
+        else (inputs,)
     )
-    export_dsl_parquet_models(case, case.root)
-    ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    axes = (ms.ref.dimension("sales.order.channel"), ms.ref.dimension("sales.order.status"))
-    metric = mv.runtime_metric.aggregate(
-        ms.ref.measure("sales.order.amount"), agg="sum", label="amount"
-    )
-
-    def endpoint(month: int):
-        return members.observe(
-            metric,
-            during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=axes,
-        ).rollup()
-
-    change = endpoint(8).compare(endpoint(7)).absolute
-    sources = (change, change.execute()) if fixed_followup else (change,)
     for source in sources:
-        result = source.attribute(axes=axes, mode=mode, top_k=1).execute()
-        assert result._dataset is not None
-        exchange = result._dataset.verified()
-        rows = cell_rows(to_arrow(exchange.primary, exchange.contract.schema))
-        assert any(r["key_1"] == "Other" and r["key_3"] == 0 for r in rows)
-        assert any(r["key_1"] is None and r["key_3"] & 1 for r in rows)
+        result = allocation(
+            *(basis(value) for value in source), axes=("channel", "status"), mode=mode, top_k=1
+        )
+        assert ((result.channel == "Other") & (result.other_flags == 0)).any()
+        assert (result.channel.isna() & (result.other_flags & 1).astype(bool)).any()
         for level in (1, 2) if mode == "hierarchy" else (2,):
-            assert sum(r["value"] for r in rows if r["key_0"] == level) == -24
+            assert result.loc[result.level == level, "contribution"].sum() == -24
 
 
 @pytest.mark.slow
 def test_offline_attribution_cold_path(analysis_dsl_case_factory: DslCaseFactory) -> None:
-    import os
-    import subprocess
-    import sys
-
-    from marivo.analysis.materialization.graph_exchange import ExchangePart, from_pandas
-
     case = analysis_dsl_case_factory("j2")
     export_dsl_parquet_models(case, case.root)
     ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    axes = (ms.ref.dimension("sales.order.channel"),)
-
-    def endpoint(month: int):
-        return members.observe(
-            ms.ref.metric("sales.order_count"),
-            during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=axes,
-        ).rollup()
-
-    saved = endpoint(8).compare(endpoint(7)).absolute.execute()
-    result = saved.attribute(axes=axes, top_k=1).execute()
-    checked = result._dataset.verified()
-    with pytest.raises(AnalysisError):
-        from_pandas(
-            checked.primary,
-            checked.contract,
-            parts=checked.parts[:-1],
-            method_state=checked.method_state,
-            completed_checks=checked.completed_checks,
-        )
-    for part in checked.parts:
-        if part.role in ("allocation", "reconciliation", "basis"):
-            column = next(
-                c
-                for c in part.table.columns
-                if c.endswith(("__value", "__contribution", "__total"))
-            )
-            declared = next(p for p in checked.contract.parts if p.role == part.role)
-            dtype = declared.schema.field(column).type
-            bad = part.table.copy()
-            bad[column] = [99 if pa.types.is_integer(dtype) else "wrong-binding"] * len(part.table)
+    inputs = _inputs(case)
+    _save_inputs(case, inputs, methods=("count",), top_k=1)
+    _remove_sources(case)
+    reports = [_run_worker(case.root, phase) for phase in ("offline", "cold")]
+    assert len({os.getpid(), *(obj(report)["pid"] for report in reports)}) == 3
+    for path in receipt_paths(case.root, inputs[0])[:1]:
+        contents = path.read_bytes()
+        try:
+            path.write_bytes(b"corrupt allocation basis")
             with pytest.raises(AnalysisError):
-                from_pandas(
-                    checked.primary,
-                    checked.contract,
-                    parts=tuple(
-                        ExchangePart(p.role, bad) if p is part else p for p in checked.parts
-                    ),
-                    method_state=checked.method_state,
-                    completed_checks=checked.completed_checks,
-                )
-    path = case.root / "source_files"
-    offline = path.with_name(path.name + ".offline")
-    path.rename(offline)
-    script = """
-import sys
-import duckdb
-import ibis
-import marivo.analysis as mv
-import marivo.semantic as ms
-from marivo.datasource.adapters import SourceSession
-def unavailable(*args, **kwargs):
-    raise AssertionError("fixed attribution touched source or Semantic")
-duckdb.connect = ibis.duckdb.connect = ms.load = SourceSession.bind = SourceSession.execute = unavailable
-session = mv.session.resume(sys.argv[1], by='id')
-saved = session.artifact(sys.argv[2])
-axes = (ms.ref.dimension('sales.order.channel'),)
-if sys.argv[3] == 'continue':
-    assert isinstance(saved, mv.MaterializedDifferenceRelation)
-    saved = saved.attribute(axes=axes, top_k=1).execute()
-    saved = saved.where(saved.contribution.value.is_defined()).execute()
-    print(saved.state.artifact_ref.ref)
-else:
-    assert isinstance(saved, mv.MaterializedAttributionResult)
-    assert dict(saved.contract()._facts)['complete_partition'] == 'False'
-    views = mv.table(c=saved.contribution, a=saved.current, b=saved.baseline).execute().to_pandas()
-    selected = saved.current.where(saved.current.value.is_defined()).execute()
-    assert isinstance(selected, mv.MaterializedSelectedNumericRelation)
-    assert views.shape[0] == selected.to_pandas().shape[0]
-"""
-    try:
-        artifact = saved.state.artifact_ref.ref
-        for phase in ("continue", "recover"):
-            completed = subprocess.run(
-                [sys.executable, "-c", script, case.session.id, artifact, phase],
-                cwd=case.root,
-                env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
-                capture_output=True,
-                text=True,
-                timeout=60,
-                check=False,
-            )
-            assert completed.returncode == 0, completed.stderr
-            if phase == "continue":
-                artifact = completed.stdout.strip().splitlines()[-1]
-    finally:
-        offline.rename(path)
+                basis(inputs[0])
+        finally:
+            path.write_bytes(contents)
 
 
 def test_static_refusals_and_shared_compiled_submissions(
-    analysis_dsl_case_factory: DslCaseFactory,
-    monkeypatch: pytest.MonkeyPatch,
+    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-
-    from marivo.analysis.materialization import graph_attribution
-    from marivo.datasource import adapters
+    from marivo.datasource.adapters import CompiledRead, SourceSession
 
     case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    axes = (ms.ref.dimension("sales.order.channel"),)
+    issued: list[str] = []
+    execute = SourceSession.execute
 
-    def endpoint(month: int):
-        return members.observe(
-            ms.ref.metric("sales.order_count"),
-            during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=axes,
-        ).rollup()
-
-    current, baseline = endpoint(8), endpoint(7)
-    change = current.compare(baseline).absolute
-    before = change._runtime.last_run_ref
-    with monkeypatch.context() as patch:
-
-        def forbidden(*args: object, **kwargs: object) -> None:
-            raise AssertionError("invalid attribution read business rows")
-
-        patch.setattr(adapters.SourceSession, "execute", forbidden)
-        for bad in (True, False, 0, -1, 1001, 1.5):
-            with pytest.raises(AnalysisError):
-                change.attribute(axes=axes, top_k=bad)
-        for bad in ((), axes * 2, list(axes), (ms.ref.entity("sales.order"),)):
-            with pytest.raises(AnalysisError):
-                change.attribute(axes=bad)
-        with pytest.raises(AnalysisError):
-            change.attribute(axes=axes, mode="hierarchy")
-        relative = current.compare(baseline).relative
-        assert isinstance(relative, mv.LogicalNumericRelation)
-        assert not hasattr(relative, "attribute")
-        assert change._runtime.last_run_ref == before
-    issued = []
-    submitted = []
-    original_execute = adapters.SourceSession.execute
-
-    def audited(self: adapters.SourceSession, read: adapters.CompiledRead) -> pd.DataFrame:
-        assert read.sql == self._backend.compile(
+    def audited(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
+        assert read.sql == owner._backend.compile(
             read.expression.as_table(), params=dict(read.params), limit=None
         )
         issued.append(read.sql)
-        result = original_execute(self, read)
-        submitted.append(self.submissions[-1].sql)
-        return result
+        frame = execute(owner, read)
+        assert owner.submissions[-1].sql == read.sql
+        return frame
 
-    monkeypatch.setattr(adapters.SourceSession, "execute", audited)
-    calls = []
-    original_result = graph_attribution.result
-
-    def counted(*args, **kwargs):
-        if kwargs.get("verify", True):
-            calls.append(args[0].domain.definition_id)
-        return original_result(*args, **kwargs)
-
-    monkeypatch.setattr(graph_attribution, "result", counted)
-    allocation = change.attribute(axes=axes)
-    mv.table(c=allocation.contribution, a=allocation.current, b=allocation.baseline).execute()
-    assert len(calls) == 1
-    assert issued and submitted == issued
-    assert not any("reconciled AS" in sql or "attributed AS" in sql for sql in submitted)
+    monkeypatch.setattr(SourceSession, "execute", audited)
+    inputs = _inputs(case)
+    current, baseline = (basis(value) for value in inputs)
+    before = (len(issued), len(case.session.runs().items))
+    for bad in (True, False, 0, -1, 1001, 1.5):
+        with pytest.raises(ValueError, match="top_k"):
+            allocation(current, baseline, top_k=bad)  # type: ignore[arg-type]  # Runtime validation of explicit pandas parameters.
+    for axes in ((), ("channel", "channel"), ("missing",)):
+        with pytest.raises(ValueError, match="axes"):
+            allocation(current, baseline, axes=axes)
+    with pytest.raises(ValueError, match="hierarchy"):
+        allocation(current, baseline, mode="hierarchy")
+    result = allocation(current, baseline, method="count")
+    views = result[["current", "baseline", "contribution"]]
+    assert views.shape == (4, 3)
+    assert issued and before == (len(issued), len(case.session.runs().items))
+    assert all("reconciled AS" not in sql and "attributed AS" not in sql for sql in issued)
+    query = _count(case, 8)
+    for add in ((), (case.session.catalog.fields.get("sales.order.channel"),)):
+        with pytest.raises(AnalysisError):
+            query.drill(add=add)
+    assert before == (len(issued), len(case.session.runs().items))
 
 
 @pytest.mark.parametrize(
-    "coarsen",
-    [False, pytest.param(True, marks=pytest.mark.slow, id="coarsened")],
+    "coarsen", [False, pytest.param(True, marks=pytest.mark.slow, id="coarsened")]
 )
 def test_period_buckets_and_retained_coarsened_partition(
-    analysis_dsl_case_factory: DslCaseFactory,
-    coarsen: bool,
+    analysis_dsl_case_factory: DslCaseFactory, coarsen: bool
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    export_dsl_parquet_models(case, case.root)
-    ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    axes = (ms.ref.dimension("sales.order.channel"),)
+    session = case.session
+    customer = session.catalog.fields.get("sales.order.customer_id")
+    channel = session.catalog.fields.get("sales.order.channel")
 
-    def endpoint(month: int):
-        scope = mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01")
-        grid = mv.time_grid(
-            during=scope, grain=mv.grain("day" if coarsen else "month"), timezone="UTC"
+    def endpoint(month: int) -> mv.Query:
+        scope = session.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01")
+        calendar = scope.by(mv.grain("day" if coarsen else "month"))
+        values = session.observe(
+            {"value": session.catalog.metrics.get("sales.order_count")},
+            during=calendar,
+            by=(customer, channel),
+            members=session.members(ms.ref.entity("sales.customer")),
         )
-        values = members.observe(
-            ms.ref.metric("sales.order_count"),
-            during=grid,
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(), *axes),
+        return (
+            values.rollup(by=(customer, scope.by(mv.grain("month")), channel))
+            if coarsen
+            else values
         )
-        if coarsen:
-            values = values.group_by(ms.ref.entity("sales.customer"), mv.grain("month")).rollup()
-        else:
-            values = values.group_by(ms.ref.entity("sales.customer"), grid).rollup()
-        return values
 
     current, baseline = endpoint(8), endpoint(7)
-    facts = analysis_dsl_rows("j2")
-    expected = {}
-    for _, member, channel, _, day, _ in facts.orders:
-        if str(day).startswith(("2026-07", "2026-08")):
-            key = member, channel
-            expected[key] = expected.get(key, 0) + (1 if str(day).startswith("2026-08") else -1)
+    result = current.compare(baseline, match=mv.ordinal()).execute()
+    compared = plain(result)
+    assert len(compared) == 4
+    assert compared["value.absolute"].tolist() == [0, 0, 0, 0]
+    assert compared["value.current"].tolist() == compared["value.baseline"].tolist() == [1, 1, 1, 1]
     if coarsen:
-        current, baseline = current.execute(), baseline.execute()
-    change = current.compare(baseline, align=mv.exact(time=mv.ordinal())).absolute
-    result = change.attribute(axes=axes).execute()
-    assert result._dataset is not None
-    exchange = result._dataset.verified()
-    actual = {
-        (r["key_0"], r["key_3"]): r["value"]
-        for r in cell_rows(to_arrow(exchange.primary, exchange.contract.schema))
+        assert compared.key_0.tolist() == ["A", "B", "C", "D"]
+        assert compared.key_1.tolist() == ["(0, 0)"] * 4
+    else:
+        assert compared.key_0.tolist() == ["(0, 0)"] * 4
+        assert compared.key_1.tolist() == ["A", "B", "C", "D"]
+    assert compared.key_2.tolist() == ["web"] * 4
+    bounds = {
+        tuple(value.isoformat() for value in bound)
+        for projection in result._manifest.data.coordinate_projections
+        for bound in projection.bounds
     }
-    assert actual == expected
+    assert bounds == {
+        ("2026-07-01T00:00:00+00:00", "2026-08-01T00:00:00+00:00") * 2,
+        ("2026-08-01T00:00:00+00:00", "2026-09-01T00:00:00+00:00") * 2,
+    }
+    allocated = allocation(*(basis(value) for value in _inputs(case)), method="count")
+    assert {
+        (r.member, r.channel): r.contribution for r in allocated.itertuples()
+    } == _expected_counts()
 
 
 def test_zero_component_basis_cannot_hide_under_other(
@@ -586,74 +404,53 @@ def test_zero_component_basis_cannot_hide_under_other(
     with duckdb.connect(str(case.database_path)) as db:
         db.execute('ALTER TABLE "order" ADD COLUMN weight BIGINT')
         db.execute('DELETE FROM "order"')
-        for index, (month, channel, amount, weight) in enumerate(
-            [(8, "web", 1, 0), (8, "app", 0, 1), (7, "app", 1, 1)]
-        ):
-            db.execute(
-                'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?, ?)',
-                [str(index), "A", channel, "paid", f"2026-{month:02d}-15", amount, weight],
-            )
-    models = case.root / "models/semantic/sales/models.py"
-    models.write_text(
-        models.read_text().replace(
-            "granularity='second',", "granularity='second', is_default=True,"
+        db.executemany(
+            'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [
+                [str(i), "A", channel, "paid", f"2026-{month:02d}-15", amount, weight]
+                for i, (month, channel, amount, weight) in enumerate(
+                    [(8, "web", 1, 0), (8, "app", 0, 1), (7, "app", 1, 1)]
+                )
+            ],
         )
-        + "\nweight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\n"
+    model = case.root / "models/semantic/sales/models.py"
+    model.write_text(
+        model.read_text().replace(
+            "finalized = ms.finalize()",
+            "weight = ms.dimension_column(name='weight', entity=orders, column='weight')\nfinalized = ms.finalize()",
+        )
     )
-    export_dsl_parquet_models(case, case.root)
     ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    axes = (ms.ref.dimension("sales.order.channel"),)
-    expression = mv.runtime_metric.ratio(
-        mv.runtime_metric.aggregate(ms.ref.measure("sales.order.amount"), agg="sum", label="n"),
-        mv.runtime_metric.aggregate(ms.ref.measure("sales.order.weight"), agg="sum", label="w"),
-        label="ratio",
-    )
-
-    def endpoint(month: int):
-        return members.observe(
-            expression,
-            during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=axes,
-        ).rollup()
-
-    change = endpoint(8).compare(endpoint(7)).absolute
-    with pytest.raises(AnalysisError, match="contradictory"):
-        change.attribute(axes=axes, top_k=1).execute()
+    inputs = _inputs(case, weight=True)
+    before = len(case.session.runs().items)
+    with pytest.raises(ValueError, match="nonzero category numerator"):
+        allocation(*(basis(value) for value in inputs), method="ratio", top_k=1)
+    assert len(case.session.runs().items) == before
+    assert basis(inputs[0]).amount.tolist() == [1, 0]
 
 
 def test_new_source_evaluation_preserves_fixed_basis(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    axes = (ms.ref.dimension("sales.order.channel"),)
-
-    def endpoint(month: int):
-        return members.observe(
-            ms.ref.metric("sales.order_count"),
-            during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=axes,
-        ).rollup()
-
-    difference = endpoint(8).compare(endpoint(7)).absolute
-    logical = difference.attribute(axes=axes)
-    fixed_expression = difference.execute().attribute(axes=axes)
-    fixed = fixed_expression.execute()
-    before = fixed.contribution.to_pandas()
+    queries = basis_query(case, 8), basis_query(case, 7)
+    fixed = queries[0].execute(), queries[1].execute()
+    before = allocation(*(basis(value) for value in fixed), method="count")
     with duckdb.connect(str(case.database_path)) as db:
         db.execute(
             'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?)',
             ["new-attribution", "A", "web", "paid", "2026-08-15", 1],
         )
-    changed = logical.execute()
-    assert changed.state.artifact_ref != fixed.state.artifact_ref
-    assert changed.contribution.to_pandas().value.sum() == before.value.sum() + 1
-    reused = fixed_expression.execute()
-    assert reused.state.artifact_ref == fixed.state.artifact_ref
-    assert reused.contribution.to_pandas().equals(before)
+    fresh = queries[0].execute(), queries[1].execute()
+    assert fresh[0].id != fixed[0].id
+    assert (
+        allocation(*(basis(value) for value in fresh), method="count").contribution.sum()
+        == before.contribution.sum() + 1
+    )
+    pd.testing.assert_frame_equal(
+        allocation(*(basis(case.session.artifact(value.id)) for value in fixed), method="count"),
+        before,
+    )
 
 
 def test_public_decimal_small_partition_rounding_refuses_publication(
@@ -671,37 +468,15 @@ def test_public_decimal_small_partition_rounding_refuses_publication(
                 for i in range(3)
             ],
         )
-    models = case.root / "models/semantic/sales/models.py"
-    models.write_text(
-        models.read_text().replace(
-            "granularity='second',", "granularity='second', is_default=True,"
-        )
-    )
     ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    axes = (ms.ref.dimension("sales.order.channel"),)
-    expression = mv.runtime_metric.aggregate(
-        ms.ref.measure("sales.order.amount"), agg="mean", label="mean"
-    )
-
-    def endpoint(month: int):
-        return members.observe(
-            expression,
-            during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=axes,
-        ).rollup()
-
-    change = endpoint(8).compare(endpoint(7)).absolute
-    # Three rounded contributions of 0.333333 sum to 0.999999. The 1e-6
-    # residual exceeds the 1e-9 tolerance for the independently computed target of 1.
-    for difference in (change, change.execute()):
-        before = case.session.runs(status="succeeded").items
-        with pytest.raises(AnalysisError, match="reconcile"):
-            difference.attribute(axes=axes).execute()
-        run = difference._runtime.last_run_ref
-        assert run is not None and case.session.get_run(run).lifecycle == "failed"
-        assert case.session.runs(status="succeeded").items == before
+    inputs = _inputs(case)
+    assert basis(inputs[0]).amount.tolist() == [Decimal("1.000000")] * 3
+    before = case.session.runs().items
+    # Three separately rounded 1/3 contributions total .999999, not the parent's 1.
+    with pytest.raises(ValueError, match="reconcile"):
+        allocation(*(basis(value) for value in inputs), method="mean")
+    assert case.session.runs().items == before
+    assert basis(inputs[0]).amount.tolist() == [Decimal("1.000000")] * 3
 
 
 def test_float_view_arithmetic_retains_allocation_error_bounds(
@@ -719,45 +494,20 @@ def test_float_view_arithmetic_retains_allocation_error_bounds(
                 for i, (month, channel, amount) in enumerate(facts)
             ],
         )
-    models = case.root / "models/semantic/sales/models.py"
-    models.write_text(
-        models.read_text().replace(
-            "granularity='second',", "granularity='second', is_default=True,"
-        )
-    )
     ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    axes = (ms.ref.dimension("sales.order.channel"),)
-    expression = mv.runtime_metric.aggregate(
-        ms.ref.measure("sales.order.amount"), agg="mean", label="mean"
-    )
-
-    def endpoint(month: int):
-        return members.observe(
-            expression,
-            during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=axes,
-        ).rollup()
-
-    allocation = endpoint(8).compare(endpoint(7)).absolute.attribute(axes=axes)
-    result = allocation.execute()
-    ratio = result.current.ratio(result.baseline).execute()
-    checked = ratio._dataset.verified()
-    correspondence = next(p.table for p in checked.parts if p.role == "correspondence")
-    assert all(v > 0 for v in correspondence["correspondence__current_error_bound"].tolist())
-    assert all(v > 0 for v in correspondence["correspondence__baseline_error_bound"].tolist())
+    result = allocation(*(basis(value) for value in _inputs(case)), method="mean")
     exact = {
         channel: Fraction(current) / Fraction(baseline)
         for (_, channel, current), (_, _, baseline) in zip(facts[:2], facts[2:], strict=True)
     }
-    bounds = {
-        tuple(r[k] for k in checked.contract.key_fields): r["correspondence__result_error_bound"]
-        for r in correspondence.to_dict(orient="records")
-    }
-    for row in cell_rows(to_arrow(checked.primary, checked.contract.schema)):
-        key = tuple(row[k] for k in checked.contract.key_fields)
-        assert abs(Fraction(row["value"]) - exact[row["key_1"]]) <= Fraction(bounds[key])
+    for row in result.itertuples():
+        assert isinstance(row.current, float) and isinstance(row.baseline, float)
+        assert isinstance(row.channel, str)
+        ratio = row.current / row.baseline
+        # Explicit pandas arithmetic has ordinary IEEE rounding, independently bounded.
+        bound = 4 * math.ulp(ratio)
+        assert bound > 0 and abs(Fraction(ratio) - exact[row.channel]) <= Fraction(bound)
+        assert ratio == pytest.approx(10)
 
 
 def test_numeric_view_rank_uses_typed_other_order(
@@ -775,29 +525,17 @@ def test_numeric_view_rank_uses_typed_other_order(
                 for i in range(count)
             ],
         )
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    axes = (ms.ref.dimension("sales.order.channel"),)
-
-    def endpoint(month: int):
-        return members.observe(
-            ms.ref.metric("sales.order_count"),
-            during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=axes,
-        ).rollup()
-
-    allocation = endpoint(8).compare(endpoint(7)).absolute.attribute(axes=axes, top_k=2)
-    result = allocation.execute()
-    calls = {a.call for a in result.contribution.contract().actions}
-    assert "relation.where(predicate)" in calls
-    assert any(".ratio(" in call for call in calls)
-    assert any(".aggregate(" in call for call in calls)
-    ranking = result.contribution.rank(order="descending", ties="ordinal").execute()
-    assert isinstance(ranking, mv.MaterializedRankingResult)
-    rows = ranking.ranks.to_pandas()
-    assert rows.value.tolist() == [1, 2, 3]
-    assert rows.coord_0.tolist()[:2] == ["A", "Other"]
-    assert rows.coord_1.tolist() == [0, 0, 1]
+    result = allocation(*(basis(value) for value in _inputs(case)), method="count", top_k=2)
+    result = result.sort_values(
+        ["contribution", "other_flags", "channel"],
+        ascending=[False, True, True],
+        na_position="last",
+    )
+    result["rank"] = range(1, len(result) + 1)
+    assert result["rank"].tolist() == [1, 2, 3]
+    assert result.channel.tolist()[:2] == ["A", "Other"]
+    assert result.other_flags.tolist() == [0, 0, 1]
+    assert pd.isna(result.channel.tolist()[2])
 
 
 @pytest.mark.slow
@@ -805,46 +543,28 @@ def test_attribution_publication_cleans_only_failed_run(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    axes = (ms.ref.dimension("sales.order.channel"),)
-
-    def endpoint(month: int):
-        return members.observe(
-            ms.ref.metric("sales.order_count"),
-            during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=axes,
-        ).rollup()
-
-    change = endpoint(8).compare(endpoint(7)).absolute
-    fixed = change.execute()
+    query = basis_query(case, 8)
+    fixed = query.execute()
     expected = fixed.to_pandas()
-    scenarios = (
-        (change, ("graph_part_written",)),
-        (fixed, ("graph_files_published", "graph_receipts_verified")),
-    )
-    for difference, points in scenarios:
-        for point in points:
-            before = set((case.root / ".marivo").rglob("*.parquet"))
-            succeeded = case.session.runs(status="succeeded").items
+    for point in ("terminal_primary_written", "terminal_files_published"):
+        before = set((case.root / ".marivo").rglob("*.parquet"))
+        succeeded = case.session.runs(status="succeeded").items
 
-            def fail(event: str, stage: str = point) -> None:
-                if event == stage:
-                    raise RuntimeError("injected attribution publication failure")
+        def fail(event: str, stage: str = point) -> None:
+            if event == stage:
+                raise RuntimeError("injected basis publication failure")
 
-            difference._runtime._hook = fail
-            try:
-                with pytest.raises((AnalysisError, RuntimeError)):
-                    difference.attribute(axes=axes).execute()
-            finally:
-                difference._runtime._hook = None
-            assert set((case.root / ".marivo").rglob("*.parquet")) == before
-            assert case.session.runs(status="succeeded").items == succeeded
-            assert fixed.to_pandas().equals(expected)
-            with difference._runtime.store._read() as conn:
-                assert (
-                    conn.execute("SELECT count(*) FROM action_resource_journal").fetchone()[0] == 0
-                )
-        # A clean retry reaches the same registered method without replaying a failed publication.
-        result = difference.attribute(axes=axes).execute()
-        assert len(result._dataset.verified().parts) == 8
+        case.session._runtime._hook = fail
+        try:
+            with pytest.raises((AnalysisError, RuntimeError)):
+                query.execute()
+        finally:
+            case.session._runtime._hook = None
+        assert set((case.root / ".marivo").rglob("*.parquet")) == before
+        assert case.session.runs(status="succeeded").items == succeeded
+        pd.testing.assert_frame_equal(fixed.to_pandas(), expected)
+        with case.session._runtime.store._read() as conn:
+            assert conn.execute("SELECT count(*) FROM action_resource_journal").fetchone()[0] == 0
+    fresh = query.execute()
+    baseline = basis_query(case, 7).execute()
+    assert allocation(basis(fresh), basis(baseline), method="count").contribution.sum() == 0

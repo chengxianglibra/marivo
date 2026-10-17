@@ -1,27 +1,34 @@
-"""Fresh-process recovery and independently pinned consumer retirement."""
+"""Fresh-process relation recipes and required terminal receipt integrity."""
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import sys
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
+import marivo.semantic as ms
+from marivo.analysis.errors import AnalysisError
+from marivo.datasource.adapters import SourceSession
+from marivo.semantic.reader import SemanticProject
+from tests.analysis.statistics.pandas_workflows import receipt_paths
+from tests.packaging.relation_journeys import Scenario
+from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models
+from tests.support.json import Json, read
 from tests.support.paths import PROJECT_ROOT
-
-ROOT = PROJECT_ROOT
 
 
 @pytest.mark.slow
-def test_parquet_relation_journey_recover_in_three_processes(tmp_path: Path) -> None:
-    source = "parquet"
-    scenario = "a02"
+@pytest.mark.parametrize("scenario", ("a02", "a06", "a07", "a08"))
+def test_parquet_relation_journey_recover_in_three_processes(
+    tmp_path: Path, scenario: Scenario
+) -> None:
     project = tmp_path / "project"
-    reports = []
-    for phase in ("produce", "continue", "recover"):
+    reports: list[dict[str, Json]] = []
+    for phase in ("produce", "fixed", "cold"):
         output = tmp_path / f"{phase}.json"
         process = subprocess.run(
             [
@@ -31,167 +38,85 @@ def test_parquet_relation_journey_recover_in_three_processes(tmp_path: Path) -> 
                 phase,
                 str(project),
                 scenario,
-                source,
+                "parquet",
                 str(output),
             ],
             cwd=tmp_path,
-            env={**os.environ, "PYTHONPATH": str(ROOT), "MARIVO_TELEMETRY": "off"},
+            env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT), "MARIVO_TELEMETRY": "off"},
             capture_output=True,
             text=True,
             timeout=120,
             check=False,
         )
         assert process.returncode == 0, process.stdout + process.stderr
-        reports.append(json.loads(output.read_text()))
+        reports.append(read(output))
     assert len({report["pid"] for report in reports}) == 3
-    for field in ("session", "snapshots", "oracle", "facts_sha256", "edge_checks", "shared_nodes"):
+    for field in (
+        "session",
+        "snapshots",
+        "oracle",
+        "facts_sha256",
+        "edge_checks",
+        "shared_nodes",
+        "derived",
+        "run_count",
+    ):
         assert reports[0][field] == reports[1][field] == reports[2][field]
-    assert reports[1]["continuations"] == reports[2]["continuations"]
-    assert reports[1]["run_count"] > reports[0]["run_count"]
-    assert reports[1]["run_count"] == reports[2]["run_count"]
+    assert all(report["source_offline"] is True for report in reports)
 
 
 @pytest.mark.slow
-def test_required_parts_revoke_recovery_and_cached_continuation(
-    analysis_dsl_case_factory, monkeypatch: pytest.MonkeyPatch
+def test_required_terminal_receipts_reject_corruption_without_source(
+    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from copy import deepcopy
-
-    import duckdb
-    import ibis
-
-    import marivo.analysis as mv
-    import marivo.semantic as ms
-    from marivo.analysis.errors import AnalysisError
-    from marivo.analysis.materialization.graph_protocol import DESCRIPTOR, encode
-    from marivo.datasource.adapters import SourceSession
-    from tests.shared_fixtures import export_dsl_parquet_models
-
     case = analysis_dsl_case_factory("j2")
     export_dsl_parquet_models(case, case.root)
     ms.load(workspace_dir=case.root)
-    targets = case.session.members(ms.ref.entity("sales.customer"))
-    metric = ms.ref.metric("sales.order_count")
-    via = ms.ref.relationship("sales.order_buyer")
-    current = targets.observe(
-        metric,
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=via,
-        by=(mv.member(),),
+    session = case.session
+    members = session.members(ms.ref.entity("sales.customer"))
+    metric = session.catalog.metrics.get("sales.order_count")
+    current = session.observe(
+        {"value": metric},
+        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
+        by=members,
     )
-    baseline = targets.observe(
-        metric,
-        during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
-        via=via,
-        by=(mv.member(),),
+    baseline = session.observe(
+        {"value": metric},
+        during=session.time_scope(start="2026-07-01", end="2026-08-01"),
+        by=members,
     )
-    difference = current.compare(baseline).absolute.execute()
-    category = targets.read(ms.ref.dimension("sales.customer.region"))
-    cohort = targets.cohort(category.value.eq("east"), rule=mv.any_instance()).execute()
-    share = current.share_of(current.rollup()).execute()
-    ranking = current.rank(order="descending", ties="min").execute()
-    axis = ms.ref.dimension("sales.order.channel")
-    endpoints = [
-        targets.observe(
-            metric,
-            during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
-            via=via,
-            by=(
-                mv.member(),
-                axis,
-            ),
-        ).rollup()
-        for month in (8, 7)
-    ]
-    allocation = endpoints[0].compare(endpoints[1]).absolute.attribute(axes=(axis,)).execute()
-    table = mv.table(value=ranking.values, rank=ranking.ranks).execute()
-    continuations = (
-        difference.where(difference.value.is_defined()),
-        cohort.penetration_in(targets.execute()),
-        share.where(share.value.is_defined()),
-        ranking.limit(1),
-        allocation.where(allocation.contribution.value.is_defined()),
-    )
-    for continuation in continuations:
-        continuation.execute()
-    runs_before = len(case.session.runs().items)
+    difference = current.compare(baseline).execute()
+    previous = current.execute()
+    expected = difference.to_pandas()
+    previous_rows = previous.to_pandas()
+    assert expected[("value", "value.absolute")].tolist() == [0, 0, 0, 0]
+    assert previous_rows[("value", "value")].tolist() == [1, 1, 1, 1]
+    runs_before = session.runs().items
 
     def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("damaged fixed R6 state replayed its source")
+        raise AssertionError("damaged terminal output replayed its source")
 
-    for owner, name in (
-        (duckdb, "connect"),
-        (ibis.duckdb, "connect"),
-        (ms, "load"),
-        (SourceSession, "__init__"),
-    ):
-        monkeypatch.setattr(owner, name, forbidden)
-    checks = (
-        (difference, continuations[0], "current_endpoint", "missing"),
-        (cohort, continuations[1], "cohort_decision", "payload"),
-        (share, continuations[2], "reference_proof", "receipt"),
-        (ranking, continuations[3], "ranking_domain", "version"),
-        (allocation, continuations[4], "current_endpoint_coordinates", "exchange"),
-        (table, None, "columns", "missing"),
-    )
-    for result, continuation, role, damage in checks:
-        descriptor = result._dataset.artifact.descriptor
-        original = encode(descriptor, DESCRIPTOR)
-        payload = json.loads(original)
-        reference = (
-            result.artifact_ref.ref
-            if isinstance(result, mv.MaterializedTable)
-            else result.state.artifact_ref.ref
-        )
-
-        def metadata(value: str, reference: str) -> None:
-            with case.session._runtime.store._write() as connection:
-                connection.execute(
-                    "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
-                    (value, reference),
-                )
-
-        part = next(part for part in descriptor.parts if part.role == role)
-        assert part.layout.kind == (
-            "partition" if role == "current_endpoint_coordinates" else "table"
-        )
-        path = (
-            case.root / part.local.project_relative_path / part.local.file_manifest[0].relative_path
-        )
-        contents = path.read_bytes()
+    monkeypatch.setattr(ms, "load", forbidden)
+    monkeypatch.setattr(SemanticProject, "load", forbidden)
+    monkeypatch.setattr(SourceSession, "__enter__", forbidden)
+    monkeypatch.setattr(SourceSession, "execute", forbidden)
+    primary = receipt_paths(case.root, difference)[0]
+    contents = primary.read_bytes()
+    for damage in ("missing", "payload"):
         try:
             if damage == "missing":
-                path.unlink()
-            elif damage == "payload":
-                path.write_bytes(b"damaged required R6 state")
+                primary.unlink()
             else:
-                changed = deepcopy(payload)
-                position = next(
-                    index for index, item in enumerate(descriptor.parts) if item.role == role
-                )
-                receipt = changed["parts"][position]
-                if damage == "receipt":
-                    receipt["input_binding"] = "foreign-input-binding"
-                elif damage == "version":
-                    receipt["method_state_version"] += 1
-                else:
-                    receipt["local"] = changed["primary_receipt"]["local"]
-                metadata(json.dumps(changed), reference)
+                primary.write_bytes(b"damaged required terminal output")
+            # Opening metadata is deliberately lazy; the actual consumed file fails.
+            reopened = session.artifact(difference.id)
             with pytest.raises(AnalysisError):
-                case.session.artifact(reference)
-            if isinstance(result, mv.MaterializedTable):
-                with pytest.raises(AnalysisError):
-                    result.to_pandas()
-            else:
-                with pytest.raises(AnalysisError):
-                    result.contract()
-                assert continuation is not None
-                with pytest.raises(AnalysisError):
-                    continuation.execute()
-            assert len(case.session.runs().items) == runs_before
+                reopened.to_pandas()
+            with pytest.raises(AnalysisError):
+                difference.to_pandas()
+            pd.testing.assert_frame_equal(previous.to_pandas(), previous_rows)
+            assert session.runs().items == runs_before
         finally:
-            path.write_bytes(contents)
-            metadata(original, reference)
-        recovered = case.session.artifact(reference)
-        assert recovered.to_pandas().equals(result.to_pandas())
-    assert len(case.session.runs().items) == runs_before
+            primary.write_bytes(contents)
+        pd.testing.assert_frame_equal(session.artifact(difference.id).to_pandas(), expected)
+    assert session.runs().items == runs_before

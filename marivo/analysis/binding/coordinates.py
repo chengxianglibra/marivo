@@ -14,7 +14,32 @@ from marivo.analysis.observation.relationship_binding import RelationshipResolve
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import SemanticKind, ref
 from marivo.semantic.expressions import _Resolver
-from marivo.semantic.validator import Registry
+from marivo.semantic.validator import Registry, normalize_target_relationship
+
+
+def identity_projection(
+    read: IdentityRead, root: ExactRef, registry: Registry
+) -> tuple[str, ...] | None:
+    """Use complete declared foreign keys without reading a target profile."""
+    if not read.path:
+        return (
+            tuple(registry.entities[root.ref.path].primary_key)
+            if read.entity.ref == root.ref
+            else None
+        )
+    available: dict[str, str] | None = None
+    for step in read.path:
+        relationship = normalize_target_relationship(registry, step.ref.path)
+        mapped = {}
+        for left, right in relationship.keys:
+            source_column = left if available is None else available.get(left)
+            if source_column is None:
+                return None
+            mapped[right] = source_column
+        available = mapped
+    assert available is not None
+    keys = tuple(registry.entities[read.entity.ref.path].primary_key)
+    return tuple(available[key] for key in keys) if all(key in available for key in keys) else None
 
 
 def bind_identity(

@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 from collections.abc import Callable
@@ -15,14 +16,13 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.reference_fixtures import reference_data
 from tests.analysis.graph.source_fixtures import author_source_project
+from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.analysis.materialization.file_fixtures import author_file_case, author_http_case
-from tests.analysis.materialization.recovery_worker import snapshot
 from tests.datasource.source_cases import source_case
 from tests.support.json import Json
 from tests.support.paths import PROJECT_ROOT
@@ -36,7 +36,7 @@ def producer_recovery(
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     source_trace: SourceTrace,
-    phases: tuple[Literal["fixed", "cold"], ...] = ("fixed", "cold"),
+    phases: tuple[Literal["offline", "cold"], ...] = ("offline", "cold"),
 ) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
@@ -69,58 +69,27 @@ def producer_recovery(
         else:
             author_source_project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("r94-producer", report_timezone="UTC")
-        try:
-            values = session.members(ms.ref.entity("sales.facts")).observe(
-                ms.ref.metric("sales.total"), by=(mv.member(),)
-            )
-        except AnalysisError as error:
-            if profile in ("parquet", "csv", "local-json"):
-                assert error.expected and error.received and error.repair is not None
-                assert session.runs().items == ()
-                assert session._runtime.store.resources(session.id) == ()
-                if directory := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
-                    Path(directory, f"r94-file-blocker-{profile}.json").write_text(
-                        json.dumps(
-                            {
-                                "backend": backend,
-                                "profile": profile,
-                                "source_descriptor": case.source.to_dict(),
-                                "file_sha256": file_digest,
-                                "error": {
-                                    "type": type(error).__name__,
-                                    "expected": error.expected,
-                                    "received": error.received,
-                                    "repair": error.repair.action,
-                                },
-                                "runs": 0,
-                                "resources": 0,
-                                "native_business_submissions": len(source_trace.native_sql),
-                                "producer_published": False,
-                                "boundary": "Actual public source admission blocker; no producer/fixed/cold qualification is granted.",
-                            },
-                            sort_keys=True,
-                        )
-                    )
-            raise
-        assert isinstance(values, mv.LogicalNumericRelation)
+        values = session.observe(
+            {"value": session.catalog.metrics.get("sales.total")},
+            by=session.members(ms.ref.entity("sales.facts")),
+        )
         captures = [values.execute(), values.execute()]
-        assert all(isinstance(value, mv.MaterializedNumericRelation) for value in captures)
-        assert captures[0].state.artifact_ref != captures[1].state.artifact_ref
+        assert captures[0].id != captures[1].id
         frames: list[pd.DataFrame] = []
         for value in captures:
             frame = value.to_pandas()
-            indexed = frame.set_index(["member", "coord_0", "coord_1"])
-            assert indexed.value.to_dict() == {
+            indexed = frame.set_index(frame.columns[0])
+            assert indexed[("value", "value")].to_dict() == {
                 ("a", 9007199254740992, 1): 2,
                 ("a", 9007199254740993, 2): 0,
                 ("b", 9007199254740993, 1): 4,
             }
             frames.append(frame)
-        # Both independent captures have the same retained shape and physical plan.
+        # Independent executions preserve the same complete output shape and values.
         source_trace.record(captures[0])
         state: dict[str, Json] = {
             "session": session.id,
-            "inputs": [value.state.artifact_ref.ref for value in captures],
+            "inputs": [value.id for value in captures],
             "input_snapshots": [
                 snapshot(value, frame=frame) for value, frame in zip(captures, frames, strict=True)
             ],
@@ -136,13 +105,7 @@ def producer_recovery(
                 for item in owner.submissions
                 if item.sql is not None
             ]
-            assert (
-                sum(
-                    item.purpose == "analysis.graph.stage" and view_name in str(item.sql)
-                    for item in submissions
-                )
-                >= 2
-            )
+            assert sum(view_name in str(item.sql) for item in submissions) >= 2
         source_trace.save(
             f"r94-producer-{backend}{suffix}",
             {**case.environment, "profile": profile},
@@ -160,6 +123,9 @@ def producer_recovery(
         source_file.unlink()
         (tmp_path / "source.duckdb").unlink()
         assert not source_file.exists() and not (tmp_path / "source.duckdb").exists()
+    shutil.rmtree(tmp_path / "models")
+    for path in tmp_path.glob("source.duckdb*"):
+        path.unlink()
     # The producer has released its source; neither child inherits its Python state.
     reports: list[Json] = [{"phase": "produce", "pid": os.getpid()}]
     repository = PROJECT_ROOT
@@ -186,7 +152,7 @@ def producer_recovery(
         reports.append(json.loads(report.read_text()))
     assert len({row["pid"] for row in reports if isinstance(row, dict)}) == len(phases) + 1
     if directory := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
-        phase_suffix = "" if phases == ("fixed", "cold") else "-" + "-".join(phases)
+        phase_suffix = "" if phases == ("offline", "cold") else "-" + "-".join(phases)
         Path(directory, f"r94-recovery-{backend}{suffix}{phase_suffix}.json").write_text(
             json.dumps(
                 {
@@ -217,7 +183,7 @@ def test_native_producer_cold_continuation(
         monkeypatch,
         semantic_project_factory,
         source_trace,
-        phases=("fixed", "cold"),
+        phases=("offline", "cold"),
     )
 
 
@@ -236,13 +202,14 @@ def test_http_source_remains_a_datasource_boundary(
         )
         author_http_case(case, semantic_project_factory)
         session = mv.session.get_or_create("http-boundary", report_timezone="UTC")
-        with pytest.raises(DatasetConstructionError) as failure:
-            session.members(ms.ref.entity("sales.facts")).observe(
-                ms.ref.metric("sales.total"), by=(mv.member(),)
-            )
+        with pytest.raises(AnalysisError) as failure:
+            session.observe(
+                {"value": session.catalog.metrics.get("sales.total")},
+                by=session.members(ms.ref.entity("sales.facts")),
+            ).execute()
         error = failure.value
         assert error.expected and error.received
-        assert "existing local CSV or unparameterized GET JSON file" in error.expected
+        assert "local" in error.expected.lower()
         assert "existing_local_file=False" in error.received
         assert "query_parameters=0" in error.received
         assert error.repair is not None

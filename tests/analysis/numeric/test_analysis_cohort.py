@@ -7,7 +7,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis._cohort import decide
-from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.dsl.column import row_count
 from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows
 from tests.support.paths import PROJECT_ROOT
 
@@ -46,48 +46,37 @@ def test_full_entity_time_cohort(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from marivo.datasource.adapters import SourceSession
+
     case = analysis_dsl_case_factory("j2")
-    n = case.names
-    targets = case.session.members(ms.ref.entity(f"{n.domain}.{n.customer}"))
-    grid = mv.time_grid(
-        during=mv.time_scope(
-            start="2026-07-01",
-            end="2026-10-01",
-        ),
-        grain=mv.grain("month"),
-        timezone="UTC",
+    session = case.session
+    targets = session.members(ms.ref.entity("sales.customer"))
+    grid = session.time_scope(start="2026-07-01", end="2026-10-01").by(mv.grain("month"))
+    values = session.observe(
+        {"value": session.catalog.metrics.get("sales.order_count")}, by=mv.product(targets, grid)
     )
-    values = targets.observe(
-        ms.ref.metric(f"{n.domain}.{n.order_count}"),
-        during=grid,
-        via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
-        by=(mv.member(),),
-    )
-    assert isinstance(values, mv.LogicalNumericRelation)
-    facts = analysis_dsl_rows("j2")
+    active = values.where(values["value"] > 0)
+    counts = active.reduce({"months": row_count()}, by=targets.axes)
+    result = counts.where(counts["months"] >= 2).execute()
     months: dict[str, set[str]] = {}
-    for _, member, _, _, occurred, _ in facts.orders:
+    for _, member, _, _, occurred, _ in analysis_dsl_rows("j2").orders:
         if member is not None and "2026-07" <= str(occurred)[:7] < "2026-10":
             months.setdefault(member, set()).add(str(occurred)[:7])
     expected = {member for member, active in months.items() if len(active) >= 2}
-    result = targets.cohort(values.value.gt(0), rule=mv.at_least(2)).execute()
-    assert set(result.to_pandas().member) == expected
-    fixed_targets, fixed_values = targets.execute(), values.execute()
-    from marivo.datasource.adapters import SourceSession
+    assert set(result.to_pandas().iloc[:, 0]) == expected
+    fixed_values = values.execute()
 
     def forbid_source_read(*args: object, **kwargs: object) -> None:
-        pytest.fail("Fixed full-opportunity cohort must use retained artifacts only")
+        pytest.fail("Pandas full-opportunity cohort must use exported values only")
 
     with monkeypatch.context() as fixed_only:
         fixed_only.setattr(SourceSession, "execute", forbid_source_read)
-        fixed = fixed_targets.cohort(fixed_values.value.gt(0), rule=mv.at_least(2)).execute()
-    assert set(fixed.to_pandas().member) == expected
-    with pytest.raises(MaterializationError) as incomplete:
-        targets.cohort(
-            values.where(values.value.gt(0)).value.gt(0), rule=mv.any_instance()
-        ).execute()
-    assert incomplete.value.expected == "complete_coverage"
-    assert incomplete.value.stage == "graph_check"
+        frame = fixed_values.to_pandas()
+        assert len(frame) == len(analysis_dsl_rows("j2").customers) * 3
+        member_column = frame.columns[0]
+        mask = frame[("value", "value")] > 0
+        active_months = frame.loc[mask].groupby(member_column).size()
+        assert set(active_months.loc[active_months >= 2].index) == expected
 
 
 def test_previous_week_mean_selects_users_for_current_week_spending(
@@ -101,81 +90,86 @@ def test_previous_week_mean_selects_users_for_current_week_spending(
             "CREATE TABLE usage_sessions (id BIGINT, customer_id VARCHAR, happened TIMESTAMP, hours BIGINT)"
         )
         database.execute(
-            "INSERT INTO usage_sessions VALUES "
-            "(1, 'A', '2026-08-03', 8), (2, 'A', '2026-08-04', 14), "
-            "(3, 'B', '2026-08-03', 9), (4, 'B', '2026-08-04', 11), "
-            "(5, 'C', '2026-08-03', 12), (6, 'C', '2026-08-04', 12), "
-            "(7, 'D', '2026-08-03', 1), (8, 'B', '2026-08-10', 1000)"
+            "INSERT INTO usage_sessions VALUES (1, 'A', '2026-08-03', 8), (2, 'A', '2026-08-04', 14), (3, 'B', '2026-08-03', 9), (4, 'B', '2026-08-04', 11), (5, 'C', '2026-08-03', 12), (6, 'C', '2026-08-04', 12), (7, 'D', '2026-08-03', 1), (8, 'B', '2026-08-10', 1000)"
         )
         database.execute(
             "CREATE TABLE purchases (id BIGINT, customer_id VARCHAR, happened TIMESTAMP, amount BIGINT)"
         )
         database.execute(
-            "INSERT INTO purchases VALUES "
-            "(1, 'A', '2026-08-10', 100), (2, 'B', '2026-08-10', 200), "
-            "(3, 'C', '2026-08-10', 300), (4, 'D', '2026-08-10', 400), "
-            "(5, 'A', '2026-08-03', 900)"
+            "INSERT INTO purchases VALUES (1, 'A', '2026-08-10', 100), (2, 'B', '2026-08-10', 200), (3, 'C', '2026-08-10', 300), (4, 'D', '2026-08-10', 400), (5, 'A', '2026-08-03', 900)"
         )
-    model = case.root / "models" / "semantic" / "sales" / "models.py"
+    model = case.root / "models/semantic/sales/models.py"
+    original = model.read_text()
+    capture_end = original.index("finalized = ms.finalize()")
+    declarations = """
+usage_sessions = ms.entity(name='usage_sessions', datasource=warehouse, source=md.table('usage_sessions'), primary_key=['id'])
+usage_user = ms.dimension_column(name='customer_id', entity=usage_sessions, column='customer_id')
+usage_time = ms.time_dimension_column(name='happened', entity=usage_sessions, column='happened', granularity='day', parse=ms.timestamp(timezone='UTC'))
+usage_hours = ms.measure_column(name='hours', entity=usage_sessions, column='hours', additivity=ms.additive_all(), unit='hour')
+usage_to_user = ms.relationship(name='usage_to_user', from_entity=usage_sessions, to_entity=customer, keys=[ms.join_on(usage_user, customer_id)])
+purchases = ms.entity(name='purchases', datasource=warehouse, source=md.table('purchases'), primary_key=['id'])
+purchase_user = ms.dimension_column(name='customer_id', entity=purchases, column='customer_id')
+purchase_time = ms.time_dimension_column(name='happened', entity=purchases, column='happened', granularity='day', parse=ms.timestamp(timezone='UTC'))
+purchase_amount = ms.measure_column(name='amount', entity=purchases, column='amount', additivity=ms.additive_all(), unit='CNY')
+purchase_to_user = ms.relationship(name='purchase_to_user', from_entity=purchases, to_entity=customer, keys=[ms.join_on(purchase_user, customer_id)])
+"""
     model.write_text(
-        model.read_text()
-        + "\nusage_sessions = ms.entity(name='usage_sessions', datasource=warehouse, source=md.table('usage_sessions'), primary_key=['id'])\n"
-        "usage_user = ms.dimension_column(name='customer_id', entity=usage_sessions, column='customer_id')\n"
-        "usage_time = ms.time_dimension_column(name='happened', entity=usage_sessions, column='happened', granularity='day', parse=ms.timestamp(timezone='UTC'))\n"
-        "usage_hours = ms.measure_column(name='hours', entity=usage_sessions, column='hours', additivity=ms.additive_all(), unit='hour')\n"
-        "avg_usage_hours = ms.aggregate(name='avg_usage_hours', measure=usage_hours, agg='mean', time=usage_time)\n"
-        "usage_to_user = ms.relationship(name='usage_to_user', from_entity=usage_sessions, to_entity=customer, keys=[ms.join_on(usage_user, customer_id)])\n"
-        "purchases = ms.entity(name='purchases', datasource=warehouse, source=md.table('purchases'), primary_key=['id'])\n"
-        "purchase_user = ms.dimension_column(name='customer_id', entity=purchases, column='customer_id')\n"
-        "purchase_time = ms.time_dimension_column(name='happened', entity=purchases, column='happened', granularity='day', parse=ms.timestamp(timezone='UTC'))\n"
-        "purchase_amount = ms.measure_column(name='amount', entity=purchases, column='amount', additivity=ms.additive_all(), unit='CNY')\n"
-        "spending_amount = ms.aggregate(name='spending_amount', measure=purchase_amount, agg='sum', time=purchase_time)\n"
-        "purchase_to_user = ms.relationship(name='purchase_to_user', from_entity=purchases, to_entity=customer, keys=[ms.join_on(purchase_user, customer_id)])\n"
+        original[:capture_end]
+        + declarations
+        + original[capture_end:]
+        + """
+usage_value = finalized.resolve(usage_hours)
+usage_time_value = finalized.resolve(usage_time)
+purchase_value = finalized.resolve(purchase_amount)
+purchase_time_value = finalized.resolve(purchase_time)
+@ms.metric()
+def avg_usage_hours():
+    return usage_value.mean(time=usage_time_value)
+@ms.metric()
+def spending_amount():
+    return purchase_value.sum(time=purchase_time_value)
+"""
     )
-    ms.load(workspace_dir=case.root)
-    user = ms.ref.entity("sales.customer")
-    users = case.session.members(user)
-    usage = users.observe(
-        ms.ref.metric("sales.avg_usage_hours"),
-        during=mv.time_scope(start="2026-08-03", end="2026-08-10"),
-        via=ms.ref.relationship("sales.usage_to_user"),
-        by=(mv.member(),),
+    session = case.session
+    users = session.members(ms.ref.entity("sales.customer"))
+    usage = session.observe(
+        {"value": session.catalog.metrics.get("sales.avg_usage_hours")},
+        during=session.time_scope(start="2026-08-03", end="2026-08-10"),
+        by=users,
     )
-    assert isinstance(usage, mv.LogicalNumericRelation)
-    eligible = usage.where(usage.value.gt(10)).members()
-    assert isinstance(eligible, mv.LogicalAnalysisDomain)
-    current_week = mv.time_scope(start="2026-08-10", end="2026-08-17")
-    spending = eligible.observe(
-        ms.ref.metric("sales.spending_amount"),
-        during=current_week,
-        via=ms.ref.relationship("sales.purchase_to_user"),
-        by=(mv.member(),),
+    eligible = usage.where(usage["value"] > 10).population()
+    spending = session.observe(
+        {"value": session.catalog.metrics.get("sales.spending_amount")},
+        during=session.time_scope(start="2026-08-10", end="2026-08-17"),
+        by=eligible,
+        members=eligible,
     )
-    assert case.session.runs().items == ()
+    assert session.runs().items == ()
     frame = spending.execute().to_pandas()
-    assert frame.set_index("member")["value"].to_dict() == {"A": 100, "C": 300}
+    assert frame.set_index(frame.columns[0])[("value", "value")].to_dict() == {"A": 100, "C": 300}
 
 
 @pytest.mark.slow
-def test_cold_full_opportunity_continuation(analysis_dsl_case_factory: DslCaseFactory) -> None:
+def test_cold_full_opportunity_exports(analysis_dsl_case_factory: DslCaseFactory) -> None:
     import os
     import subprocess
     import sys
 
     case = analysis_dsl_case_factory("j2")
-    n = case.names
-    targets = case.session.members(ms.ref.entity(f"{n.domain}.{n.customer}"))
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-07-01", end="2026-10-01"), grain=mv.grain("month")
+    session = case.session
+    targets = session.members(ms.ref.entity("sales.customer"))
+    grid = session.time_scope(start="2026-07-01", end="2026-10-01").by(mv.grain("month"))
+    values = session.observe(
+        {"value": session.catalog.metrics.get("sales.order_count")}, by=mv.product(targets, grid)
     )
-    values = targets.observe(
-        ms.ref.metric(f"{n.domain}.{n.order_count}"),
-        during=grid,
-        via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
-        by=(mv.member(),),
+    active = values.where(values["value"] > 0)
+    counts = active.reduce({"count": row_count()}, by=targets.axes)
+    accepted = counts.where(counts["count"] >= 1)
+    saved_targets, saved_values, result = (
+        session.query(targets).execute(),
+        values.execute(),
+        accepted.execute(),
     )
-    saved_targets, saved_values = targets.execute(), values.execute()
-    result = saved_targets.cohort(saved_values.value.gt(0), rule=mv.any_instance()).execute()
     offline = case.database_path.with_suffix(".offline")
     case.database_path.rename(offline)
     script = """
@@ -184,16 +178,17 @@ import duckdb
 import marivo.analysis as mv
 import marivo.semantic as ms
 def unavailable(*args, **kwargs):
-    raise AssertionError("fixed cohort cannot reopen sources or Semantic")
+    raise AssertionError("exported cohort cannot reopen sources or Semantic")
 duckdb.connect = unavailable
 ms.load = unavailable
 session = mv.session.resume(sys.argv[1], by="id")
 targets, values, saved = [session.artifact(ref) for ref in sys.argv[2:]]
-result = targets.cohort(values.value.gt(0), rule=mv.any_instance(), through=values.subject_binding).execute()
-assert result.to_pandas().equals(saved.to_pandas())
-selected = values.where(values.value.is_defined())
-assert len(selected.where(selected.value.gte(0)).members().execute().to_pandas()) == len(targets.to_pandas())
-assert "cohort_decision" in {part.role for part in saved._dataset.verified().parts}
+frame = values.to_pandas()
+assert len(frame) == len(targets.to_pandas()) * 3
+member = frame.columns[0]
+active = frame.loc[frame[("value", "value")] > 0].groupby(member).size()
+assert set(active.loc[active >= 1].index) == set(saved.to_pandas().iloc[:, 0])
+assert len(session.runs().items) == 3
 """
     try:
         completed = subprocess.run(
@@ -201,10 +196,10 @@ assert "cohort_decision" in {part.role for part in saved._dataset.verified().par
                 sys.executable,
                 "-c",
                 script,
-                case.session.id,
-                saved_targets.state.artifact_ref.ref,
-                saved_values.state.artifact_ref.ref,
-                result.state.artifact_ref.ref,
+                session.id,
+                saved_targets.id,
+                saved_values.id,
+                result.id,
             ],
             cwd=case.root,
             env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
@@ -218,32 +213,20 @@ assert "cohort_decision" in {part.role for part in saved._dataset.verified().par
     assert completed.returncode == 0, completed.stderr
 
 
-def test_no_time_quantifiers_and_complete_target_decisions(
+def test_no_time_selection_preserves_complete_target_decisions(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    targets = case.session.members(ms.ref.entity("sales.customer"))
-    category = targets.read(ms.ref.dimension("sales.customer.region"))
-    assert isinstance(category, mv.LogicalCategoryRelation)
-    expected = {member for member, region in analysis_dsl_rows("j2").customers if region == "east"}
-    source = (targets, category, mv.any_instance())
-    fixed = (
-        targets.execute(),
-        category.execute(),
-        mv.all_instances(empty=mv.empty_opportunity.undefined()),
+    session = case.session
+    targets = session.members(ms.ref.entity("sales.customer"))
+    category = session.read(
+        targets, {"region": session.catalog.fields.get("sales.customer.region")}
     )
-    for target, values, rule in (source, fixed):
-        result = target.cohort(mv.not_(mv.not_(values.value.eq("east"))), rule=rule).execute()
-        assert set(result.to_pandas().member) == expected
-        assert result._dataset is not None
-        decisions = next(
-            part.table
-            for part in result._dataset.verified().parts
-            if part.role == "cohort_decision"
-        )
-        assert len(decisions) == len(analysis_dsl_rows("j2").customers)
-        assert {
-            row["key_0"]
-            for row in decisions.to_dict(orient="records")
-            if row["cohort_decision__accepted"]
-        } == expected
+    expected = {member for member, region in analysis_dsl_rows("j2").customers if region == "east"}
+    selected = category.where(~~(category["region"] == "east")).execute()
+    assert set(selected.to_pandas().iloc[:, 0]) == expected
+    frame = category.execute().to_pandas()
+    assert len(frame) == len(analysis_dsl_rows("j2").customers)
+    accepted = frame[("value", "region")] == "east"
+    assert set(frame.loc[accepted].iloc[:, 0]) == expected
+    assert accepted.tolist() == [True, True, False, False]

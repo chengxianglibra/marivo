@@ -34,7 +34,8 @@ def author_http_case(
             + f"facts=ms.entity(name='facts', datasource=ms.ref.datasource('warehouse'), source=md.json({url!r}), primary_key=['tenant','id','revision'])\n"
             + "amount=ms.measure_column(name='amount', entity=facts, column='amount', additivity=ms.additive_all())\n"
             + "happened=ms.time_dimension_column(name='happened', entity=facts, column='happened', granularity='second', parse=ms.timestamp(timezone='UTC'), is_default=True)\n"
-            + "total=ms.aggregate(name='total', measure=amount, agg='sum', empty=ms.empty.zero())\n",
+            + "frozen=ms.finalize()\namount_value=frozen.resolve(amount)\nhappened_value=frozen.resolve(happened)\n"
+            + "@ms.metric()\ndef total():\n    return amount_value.sum(time=happened_value)\n",
         }
     )
 
@@ -80,7 +81,8 @@ def author_file_case(
             + f"facts=ms.entity(name='facts', datasource=ms.ref.datasource('warehouse'), source={source}, primary_key=['tenant','id','revision'])\n"
             + "amount=ms.measure_column(name='amount', entity=facts, column='amount', additivity=ms.additive_all())\n"
             + f"happened=ms.time_dimension_column(name='happened', entity=facts, column='happened', granularity='second', parse={parse}, is_default=True)\n"
-            + "total=ms.aggregate(name='total', measure=amount, agg='sum', empty=ms.empty.zero())\n",
+            + "frozen=ms.finalize()\namount_value=frozen.resolve(amount)\nhappened_value=frozen.resolve(happened)\n"
+            + "@ms.metric()\ndef total():\n    return amount_value.sum(time=happened_value)\n",
         }
     )
     return path

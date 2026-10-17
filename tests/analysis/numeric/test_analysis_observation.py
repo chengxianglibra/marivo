@@ -1,23 +1,50 @@
-"""occurrence-bounded routes and multi-component observation."""
+"""Occurrence-bounded native Metrics preserve independent roots and components."""
 
 from __future__ import annotations
 
-import pytest
+import os
+import subprocess
+import sys
 
+import duckdb
+import pandas as pd
+import pytest
+from ibis.common.deferred import Deferred
+
+import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.observation.route_inputs import RelationshipPath
-from marivo.refs import ref
-from marivo.semantic.errors import SemanticError
+from marivo.datasource.adapters import SourceSession
+from marivo.semantic._deferred_semantics import consume_field
+from marivo.semantic.errors import SemanticError, SemanticLoadFailed
 from tests.shared_fixtures import DslCase, DslCaseFactory
 from tests.support.paths import PROJECT_ROOT
 
 
-def _assert_cold_rollup(case: DslCase, artifact: str, expected: float | int) -> None:
-    """Recover in a new process with both authored models and datasource offline."""
-    import os
-    import subprocess
-    import sys
+def _observe(case: DslCase, expression: Deferred, *, windowed: bool = True) -> mv.Query:
+    session = case.session
+    return session.observe(
+        {"value": expression},
+        during=session.time_scope(start="2026-08-01", end="2026-09-01") if windowed else None,
+        by=session.members(ms.ref.entity("sales.customer")),
+    )
 
+
+def _by_member(frame: pd.DataFrame) -> pd.Series:
+    return frame.set_index(frame.columns[0])[("value", "value")]
+
+
+def _extend(case: DslCase, *, physical: str = "", definitions: str = "") -> None:
+    model = case.root / "models/semantic/sales/models.py"
+    text = model.read_text().replace(
+        "finalized = ms.finalize()", physical + "\nfinalized = ms.finalize()", 1
+    )
+    model.write_text(text + "\n" + definitions)
+    ms.load(workspace_dir=case.root)
+
+
+def _assert_cold_value(case: DslCase, artifact: str, expected: float | int) -> None:
+    """Read an already computed original rollup in an independent process."""
     offline = case.database_path.with_suffix(".offline")
     models = case.root / "models"
     models_offline = case.root / "models.offline"
@@ -29,17 +56,19 @@ import sys
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.datasource.runtime import DatasourceConnectionService
+from tests.shared_fixtures import run_ids
 
 def forbidden(*args, **kwargs):
-    raise AssertionError('retained rollup cannot load Semantic or connect a source')
-
+    raise AssertionError('terminal output loaded Semantic or connected a source')
 ms.load = forbidden
 DatasourceConnectionService.use_backend = forbidden
-fixed = mv.session.resume(sys.argv[1], by='id').artifact(sys.argv[2])
-assert isinstance(fixed, mv.MaterializedNumericRelation)
-assert any(action.call == 'relation.rollup()' for action in fixed.contract().actions)
-actual = fixed.rollup().execute().to_pandas().iloc[0]['value']
+session = mv.session.resume(sys.argv[1], by='id')
+before = run_ids(session)
+fixed = session.artifact(sys.argv[2])
+assert isinstance(fixed, mv.Artifact)
+actual = fixed.to_pandas()[('value','value')].iloc[0]
 assert math.isclose(actual, float(sys.argv[3]), rel_tol=1e-14), actual
+assert run_ids(session) == before
 """
     try:
         result = subprocess.run(
@@ -48,6 +77,7 @@ assert math.isclose(actual, float(sys.argv[3]), rel_tol=1e-14), actual
             env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
             capture_output=True,
             text=True,
+            timeout=60,
             check=False,
         )
     finally:
@@ -56,476 +86,234 @@ assert math.isclose(actual, float(sys.argv[3]), rel_tol=1e-14), actual
     assert result.returncode == 0, result.stderr
 
 
-def test_relationship_path_preserves_hop_order_and_bounded_display(capsys) -> None:
-    import marivo.analysis as mv
+def test_explicit_field_paths_preserve_hop_order_without_source_read(
+    analysis_dsl_case_factory: DslCaseFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    region = case.session.catalog.fields.get("sales.customer.region")
+    line_order = case.session.catalog.relationships.get("sales.line_order")
+    buyer = case.session.catalog.relationships.get("sales.order_buyer")
 
-    with pytest.raises(AnalysisError, match=r"mv\.path"):
-        RelationshipPath()
-    with pytest.raises(TypeError, match="first_relationship"):
-        mv.path()
-    with pytest.raises(AnalysisError, match="Relationship"):
-        mv.path(ref.entity("sales.order"))
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Path construction read business rows")
 
-    first, second = ref.relationship("sales.line_order"), ref.relationship("sales.buyer")
-    selection = mv.path(first, second)
-    from dataclasses import FrozenInstanceError
-
-    assert selection.through == (first, second)
-    with pytest.raises(FrozenInstanceError):
-        selection.through = (second,)
-    assert "RelationshipPath" in repr(selection) and ".show()" in repr(selection)
-    selection.show()
-    output = capsys.readouterr().out
-    assert output.index(first.path) < output.index(second.path)
-    long_path = mv.path(*(ref.relationship("sales." + "x" * 200) for _ in range(20)))
-    assert len(repr(long_path)) < 100
-    long_path.show()
-    lines = capsys.readouterr().out.splitlines()
-    assert len(lines) == 18
-    assert lines[-1] == "  ... 4 more hops"
-    assert all(len(line) < 170 for line in lines)
+    monkeypatch.setattr(SourceSession, "execute", forbidden)
+    read = consume_field(region.via((line_order, buyer))).field_read
+    assert read is not None
+    assert tuple(item.ref.path for item in read.path) == ("sales.line_order", "sales.order_buyer")
+    assert case.session.runs().items == ()
+    with pytest.raises(SemanticError):
+        consume_field(region.via((buyer, line_order)))
 
 
-def test_observe_runtime_ratio_over_two_contribution_roots(
+def test_observe_ratio_over_two_contribution_roots(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    """A two-component runtime expression observes each root independently."""
-    import marivo.analysis as mv
-    import marivo.semantic as ms
-
     case = analysis_dsl_case_factory("j3", revenue_unit="1")
-    names = case.names
-    buyer = ms.ref.relationship(f"{names.domain}.{names.buyer}")
-    line_order = ms.ref.relationship(f"{names.domain}.{names.line_order}")
-    line_revenue = ms.ref.metric(f"{names.domain}.{names.line_revenue}")
-    order_count = ms.ref.metric(f"{names.domain}.{names.order_count}")
-
-    expression = mv.runtime_metric.ratio(line_revenue, order_count, label="energy_per_reading")
-    members = case.session.members(ms.ref.entity(f"{names.domain}.{names.customer}"))
-    observed = members.observe(
-        expression,
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=(
-            mv.path(line_order, buyer),
-            mv.path(buyer),
-        ),
-        by=(mv.member(),),
-    )
-
-    framed = observed.execute().to_pandas()
-
-    # Raw facts per member: A has lines 40+60 over 2 orders; B has lines 20+40 over
-    # 2 orders. Each root reduces independently, so this is 100/2 and 60/2 — not the
-    # table-multiplied (100+60)/(2+2), which would give 40 for both members.
-    assert list(zip(framed["member"], framed["value"], strict=True)) == [
-        ("A", 50.0),
-        ("B", 30.0),
-    ]
+    session = case.session
+    line_revenue = session.catalog.metrics.get("sales.line_revenue")
+    order_count = session.catalog.metrics.get("sales.order_count")
+    query = _observe(case, line_revenue / order_count)
+    binding = query._graph.signature.observation
+    assert binding is not None
+    assert {item.root.ref.path for item in binding.contributions} == {
+        "sales.order",
+        "sales.order_line",
+    }
+    rows = _by_member(query.execute().to_pandas())
+    # A: (40+60)/2; B: (20+40)/2. Roots reduce before their values combine.
+    assert rows.to_dict() == {"A": 50.0, "B": 30.0}
 
 
 def test_sliced_weighted_mean_filters_pairs_before_reduction(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    import marivo.analysis as mv
-    import marivo.semantic as ms
-
     case = analysis_dsl_case_factory("j1")
-    models = case.root / "models/semantic/sales/models.py"
-    models.write_text(
-        models.read_text().replace(
-            "granularity='second',", "granularity='second', is_default=True,"
-        )
-    )
-    ms.load(workspace_dir=case.root)
-    amount = ms.ref.measure("sales.order.amount")
-    expression = mv.runtime_metric.weighted_mean(
-        amount,
-        amount,
-        slice_by={ms.ref.dimension("sales.order.channel"): "web"},
-        label="web_weighted",
-    )
-    observed = case.session.members(ms.ref.entity("sales.customer")).observe(
-        expression,
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    fixed = observed.execute()
-    rows = fixed.to_pandas().set_index("member")
-    assert rows.loc[["A", "C"], "value"].tolist() == [450, 400]
-    assert rows.loc[["B", "D"], "cell_reason"].tolist() == ["empty_contribution"] * 2
+    session = case.session
+    amount = session.catalog.fields.get("sales.order.amount")
+    time = session.catalog.fields.get("sales.order.ordered_at")
+    channel = session.catalog.fields.get("sales.order.channel")
+    expression = amount.weighted_mean(weight=amount, time=time).where(channel == "web")
+    observed = _observe(case, expression)
+    rows = _by_member(observed.execute().to_pandas())
+    assert rows.loc[["A", "C"]].tolist() == [450, 400]
+    assert rows.loc[["B", "D"]].isna().all()
     expected = (450**2 + 400**2) / (450 + 400)
-    assert observed.rollup().execute().to_pandas()["value"].tolist() == pytest.approx([expected])
-    assert fixed.rollup().execute().to_pandas()["value"].tolist() == pytest.approx([expected])
+    assert observed.rollup().execute().to_pandas()[("value", "value")].tolist() == pytest.approx(
+        [expected]
+    )
 
 
 def test_observe_two_branches_of_one_root_over_a_single_route(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    """Two filtered occurrences of one table share one root route."""
-    import marivo.analysis as mv
-    import marivo.semantic as ms
-
     case = analysis_dsl_case_factory("j1")
-    names = case.names
-    domain = names.domain
-    order = ms.ref.entity(f"{domain}.{names.order}")
-    buyer = ms.ref.relationship(f"{domain}.{names.buyer}")
-    channel = ms.ref.dimension(f"{domain}.{names.order}.{names.channel}")
-    revenue = ms.ref.metric(f"{domain}.{names.revenue}")
-    order_count = ms.ref.metric(f"{domain}.{names.order_count}")
-
-    # Both components reduce from sales.order, but under different branch filters,
-    # so the observation has two occurrences and exactly one distinct root route.
-    web = mv.runtime_metric.slice(revenue, by={channel: "web"}, label="web_revenue")
-    expression = mv.runtime_metric.ratio(web, order_count, label="web_share")
-    members = case.session.members(ms.ref.entity(f"{domain}.{names.customer}"))
-    observed = members.observe(
-        expression,
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=mv.path(buyer),
-        by=(mv.member(),),
-    )
-
-    framed = observed.execute().to_pandas()
-    rows = {
-        member: (value, tag, reason)
-        for member, value, tag, reason in zip(
-            framed["member"],
-            framed["value"],
-            framed["cell_tag"],
-            framed["cell_reason"],
-            strict=True,
-        )
-    }
-
-    # j1 in-window orders: A is web/450, B is mobile/150, C is web/400, D has none.
-    # The numerator keeps only the web branch while the denominator counts every
-    # order, so A is 450/1 and C is 400/1.
-    assert rows["A"][:2] == (450.0, "defined")
-    assert rows["C"][:2] == (400.0, "defined")
-    # B is the discriminating member: had the slice leaked, its mobile 150 would
-    # appear as 150/1. It must instead be an empty contribution.
-    assert rows["B"][1] == "null"
-    assert rows["B"][2] == "empty_contribution"
+    session = case.session
+    amount = session.catalog.fields.get("sales.order.amount")
+    time = session.catalog.fields.get("sales.order.ordered_at")
+    channel = session.catalog.fields.get("sales.order.channel")
+    web = amount.sum(time=time, empty="null").where(channel == "web")
+    count = session.catalog.metrics.get("sales.order_count")
+    observed = _observe(case, web / count)
+    binding = observed._graph.signature.observation
+    assert binding is not None and len(binding.contributions) == 2
+    assert {item.root.ref.path for item in binding.contributions} == {"sales.order"}
+    rows = _by_member(observed.execute().to_pandas())
+    assert rows.loc[["A", "C"]].tolist() == [450.0, 400.0]
+    assert pd.isna(rows.loc["B"]) and pd.isna(rows.loc["D"])
 
 
 def test_observe_without_a_window_keeps_every_admitted_contribution(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    """An omitted window drops the time restriction without claiming history."""
-    import marivo.analysis as mv
-    import marivo.semantic as ms
-
     case = analysis_dsl_case_factory("j1")
-    names = case.names
-    domain = names.domain
-    buyer = ms.ref.relationship(f"{domain}.{names.buyer}")
-    revenue = ms.ref.metric(f"{domain}.{names.revenue}")
-
-    members = case.session.members(ms.ref.entity(f"{domain}.{names.customer}"))
-    windowless = members.observe(revenue, during=None, via=buyer, by=(mv.member(),))
-    framed = windowless.execute().to_pandas()
-    by_member = dict(zip(framed["member"], framed["value"], strict=True))
-
-    # j1 holds July, August and September orders for A. The windowed observation
-    # selects only August; omitting the window keeps every admitted contribution,
-    # so A is 450 + 99 + 77 rather than 450.
-    assert by_member["A"] == 450 + 99 + 77
-    assert by_member["B"] == 150
-    assert by_member["C"] == 400
+    revenue = case.session.catalog.metrics.get("sales.revenue")
+    rows = _by_member(_observe(case, revenue, windowed=False).execute().to_pandas())
+    assert rows.loc[["A", "B", "C"]].tolist() == [450 + 99 + 77, 150, 400]
 
 
-def test_windowless_observation_rejects_a_cumulative_metric(
+def test_windowed_metric_requires_an_endpoint(analysis_dsl_case_factory: DslCaseFactory) -> None:
+    case = analysis_dsl_case_factory("j1")
+    revenue = case.session.catalog.metrics.get("sales.revenue").window(mv.all_history())
+    with pytest.raises(AnalysisError):
+        _observe(case, revenue, windowed=False)
+    # The explicit scope supplies the all-history endpoint, with September excluded.
+    rows = _by_member(_observe(case, revenue).execute().to_pandas())
+    assert rows.loc[["A", "B", "C"]].tolist() == [527, 150, 400]
+
+
+def test_opaque_python_body_cannot_invent_metric_components(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    """A cumulative Metric needs an endpoint and cannot degrade to no window."""
-    import marivo.analysis as mv
-    import marivo.semantic as ms
-
     case = analysis_dsl_case_factory("j1")
-    names = case.names
-    domain = names.domain
-    buyer = ms.ref.relationship(f"{domain}.{names.buyer}")
-    revenue = ms.ref.metric(f"{domain}.{names.revenue}")
-
-    # Extend the loaded fixture domain with a cumulative base over the same axis.
-    models = case.root / "models" / "semantic" / domain / "models.py"
-    models.write_text(
-        models.read_text()
-        + "\ncumulative_revenue = ms.cumulative("
-        + f"name='cumulative_revenue', base=revenue, over={names.ordered_at})\n"
+    query = _observe(case, case.session.catalog.metrics.get("sales.revenue"))
+    model = case.root / "models/semantic/sales/models.py"
+    model.write_text(
+        model.read_text()
+        + "\n@ms.metric()\ndef opaque_revenue():\n    return amount_value.sum(time=time_value).resolve(None)\n"
     )
-    ms.load(workspace_dir=case.root)
-    cumulative = ms.ref.metric(f"{domain}.cumulative_revenue")
-    members = case.session.members(ms.ref.entity(f"{domain}.{names.customer}"))
-
-    with pytest.raises(AnalysisError, match="explicit endpoint window"):
-        members.observe(cumulative, during=None, via=buyer, by=(mv.member(),))
-    # A contribution window never supplies an omitted cumulative endpoint.
-    with pytest.raises(AnalysisError, match="endpoint"):
-        members.observe(
-            cumulative,
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=buyer,
-            by=(mv.member(),),
-        )
-
-
-def test_opaque_metric_rejects_instead_of_inventing_components(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    """An opaque Metric has no governed component and is never decomposed."""
-    import marivo.analysis as mv
-    import marivo.semantic as ms
-
-    case = analysis_dsl_case_factory("j1")
-    names = case.names
-    domain = names.domain
-    buyer = ms.ref.relationship(f"{domain}.{names.buyer}")
-    opaque = ms.ref.metric(f"{domain}.opaque_revenue")
-    assert case.catalog.require(opaque).ref == opaque
-    revenue = ms.ref.metric(f"{domain}.{names.revenue}")
-
-    members = case.session.members(ms.ref.entity(f"{domain}.{names.customer}"))
-    # The opaque body is numerically equal to the declared revenue sum, but the
-    # graph must not read a component out of the body or the equal value: only a
-    # governed aggregate graph is admissible, so the opaque leaf rejects.
-    with pytest.raises(SemanticError, match="governed contribution graph"):
-        members.observe(
-            opaque,
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=buyer,
-            by=(mv.member(),),
-        )
-    # The declared Metric over the same rows still observes normally.
-    framed = (
-        members.observe(
-            revenue,
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=buyer,
-            by=(mv.member(),),
-        )
-        .execute()
-        .to_pandas()
-    )
-    by_member = dict(zip(framed["member"], framed["value"], strict=True))
-    assert by_member["A"] == 450
+    with pytest.raises(SemanticLoadFailed, match="invalid_component_body"):
+        ms.load(workspace_dir=case.root)
+    assert _by_member(query.execute().to_pandas()).loc["A"] == 450
 
 
 def test_linear_executes_more_than_two_occurrences(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    """Exact qualification preserves every occurrence, including repeated roots."""
-    import marivo.analysis as mv
-    import marivo.semantic as ms
-
     case = analysis_dsl_case_factory("j1")
-    expression = mv.runtime_metric.linear(
-        add=[ms.ref.metric("sales.order_count")] * 3,
-        label="repeated_count",
-    )
-    rows = (
-        case.session.members(ms.ref.entity("sales.customer"))
-        .observe(
-            expression,
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
-        )
-        .execute()
-        .to_pandas()
-    )
-    assert rows["value"].tolist() == [3, 3, 3, 0]
-    assert rows["cell_tag"].tolist() == ["defined"] * 4
+    count = case.session.catalog.metrics.get("sales.order_count")
+    assert _by_member(_observe(case, count + count + count).execute().to_pandas()).tolist() == [
+        3,
+        3,
+        3,
+        0,
+    ]
 
 
 def test_linear_preserves_each_empty_branch_policy(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    """An empty filtered count is zero, while an empty filtered sum remains Null."""
-    import marivo.analysis as mv
-    import marivo.semantic as ms
-
     case = analysis_dsl_case_factory("j1", revenue_unit="1")
-    models = case.root / "models/semantic/sales/models.py"
-    models.write_text(
-        models.read_text()
-        + "\nzero_revenue = ms.aggregate(name='zero_revenue', measure=amount, agg='sum', time=ordered_at, empty=ms.empty.zero())\n"
-    )
-    ms.load(workspace_dir=case.root)
-    count = ms.ref.metric("sales.order_count")
-    for metric_name in ("order_count", "zero_revenue", "revenue"):
-        web_count = mv.runtime_metric.slice(
-            ms.ref.metric(f"sales.{metric_name}"),
-            by={ms.ref.dimension("sales.order.channel"): "web"},
-            label="web_count",
+    session = case.session
+    amount = session.catalog.fields.get("sales.order.amount")
+    time = session.catalog.fields.get("sales.order.ordered_at")
+    channel = session.catalog.fields.get("sales.order.channel")
+    count = session.catalog.metrics.get("sales.order_count")
+    for expression, counted, nullable in (
+        (count, True, False),
+        (amount.sum(time=time), False, False),
+        (amount.sum(time=time, empty="null"), False, True),
+    ):
+        rows = _by_member(
+            _observe(case, expression.where(channel == "web") + count).execute().to_pandas()
         )
-        expression = mv.runtime_metric.linear(add=[web_count, count], label="total")
-        rows = (
-            case.session.members(ms.ref.entity("sales.customer"))
-            .observe(
-                expression,
-                during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-                via=ms.ref.relationship("sales.order_buyer"),
-                by=(mv.member(),),
-            )
-            .execute()
-            .to_pandas()
-        )
-        rows = rows.set_index("member")
-        assert rows.loc[["A", "C"], "value"].tolist() == (
-            [2, 2] if metric_name == "order_count" else [451, 401]
-        )
-        if metric_name == "revenue":
-            assert rows.loc[["B", "D"], "cell_tag"].tolist() == ["null", "null"]
-            assert rows.loc[["B", "D"], "cell_reason"].tolist() == ["empty_contribution"] * 2
+        assert rows.loc[["A", "C"]].tolist() == ([2, 2] if counted else [451, 401])
+        if nullable:
+            assert rows.loc[["B", "D"]].isna().all()
         else:
-            assert rows.loc[["B", "D"], "value"].tolist() == [1, 0]
-            assert rows["cell_tag"].tolist() == ["defined"] * 4
+            assert rows.loc[["B", "D"]].tolist() == [1, 0]
 
 
-def test_runtime_aggregate_resolves_the_declared_default_axis(
+def test_anonymous_aggregate_resolves_the_declared_default_axis(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    """A runtime sum uses an explicit Entity default without a catalog Metric wrapper."""
-    import marivo.analysis as mv
-    import marivo.semantic as ms
-
     case = analysis_dsl_case_factory("j1")
-    models = case.root / "models/semantic/sales/models.py"
-    models.write_text(
-        models.read_text().replace(
-            "granularity='second',",
-            "granularity='second', is_default=True,",
-        )
+    model = case.root / "models/semantic/sales/models.py"
+    model.write_text(
+        model.read_text().replace("granularity='second',", "granularity='second', is_default=True,")
     )
     ms.load(workspace_dir=case.root)
-    expression = mv.runtime_metric.aggregate(
-        ms.ref.measure("sales.order.amount"),
-        agg="sum",
-        label="total",
-    )
+    amount = case.session.catalog.fields.get("sales.order.amount")
     for windowed in (False, True):
-        rows = (
-            case.session.members(ms.ref.entity("sales.customer"))
-            .observe(
-                expression,
-                during=mv.time_scope(start="2026-08-01", end="2026-09-01") if windowed else None,
-                via=ms.ref.relationship("sales.order_buyer"),
-                by=(mv.member(),),
-            )
-            .execute()
-            .to_pandas()
-            .set_index("member")
+        rows = _by_member(
+            _observe(case, amount.sum(empty="null"), windowed=windowed).execute().to_pandas()
         )
-        assert rows.loc[["A", "B", "C"], "value"].tolist() == [
-            450 if windowed else 626,
-            150,
-            400,
-        ]
-        assert rows.loc["D", "cell_tag"] == "null"
+        assert rows.loc[["A", "B", "C"]].tolist() == [450 if windowed else 626, 150, 400]
+        assert pd.isna(rows.loc["D"])
 
 
 def test_linear_executes_three_independently_reduced_roots(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    """Three explicit roots execute, rather than merely constructing route values."""
-    import marivo.analysis as mv
-    import marivo.semantic as ms
-
     case = analysis_dsl_case_factory("j3", revenue_unit="1")
-    models = case.root / "models/semantic/sales/models.py"
-    models.write_text(
-        models.read_text()
-        + """
-shipments = ms.entity(name='shipment', datasource=warehouse,
-    source=md.table('order'), primary_key=['order_id'])
+    _extend(
+        case,
+        physical="""
+shipments = ms.entity(name='shipment', datasource=warehouse, source=md.table('order'), primary_key=['order_id'])
 shipment_customer = ms.dimension_column(name='customer_id', entity=shipments, column='customer_id')
-shipment_time = ms.time_dimension_column(name='ordered_at', entity=shipments,
-    column='ordered_at', granularity='second', parse=ms.timestamp(timezone='UTC'))
-shipment_buyer = ms.relationship(name='shipment_buyer', from_entity=shipments,
-    to_entity=customer, keys=[ms.join_on(shipment_customer, customer_id)])
-shipment_count = ms.count(name='shipment_count', entity=shipments, time=shipment_time)
-"""
+shipment_time = ms.time_dimension_column(name='ordered_at', entity=shipments, column='ordered_at', granularity='second', parse=ms.timestamp(timezone='UTC'))
+shipment_buyer = ms.relationship(name='shipment_buyer', from_entity=shipments, to_entity=customer, keys=[ms.join_on(shipment_customer, customer_id)])
+""",
+        definitions="""
+shipment_value = finalized.resolve(shipments)
+shipment_clock = finalized.resolve(shipment_time)
+@ms.metric()
+def shipment_count():
+    return shipment_value.count(time=shipment_clock)
+""",
     )
-    ms.load(workspace_dir=case.root)
-    expression = mv.runtime_metric.linear(
-        add=[
-            ms.ref.metric("sales.line_revenue"),
-            ms.ref.metric("sales.order_count"),
-            ms.ref.metric("sales.shipment_count"),
-        ],
-        label="three_roots",
+    session = case.session
+    expression = (
+        session.catalog.metrics.get("sales.line_revenue")
+        + session.catalog.metrics.get("sales.order_count")
+        + session.catalog.metrics.get("sales.shipment_count")
     )
-    rows = (
-        case.session.members(ms.ref.entity("sales.customer"))
-        .observe(
-            expression,
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=(
-                mv.path(
-                    ms.ref.relationship("sales.line_order"),
-                    ms.ref.relationship("sales.order_buyer"),
-                ),
-                mv.path(ms.ref.relationship("sales.order_buyer")),
-                mv.path(ms.ref.relationship("sales.shipment_buyer")),
-            ),
-            by=(mv.member(),),
-        )
-        .execute()
-        .to_pandas()
-    )
-    # Independent raw facts: line sums 100/60, two orders and two shipments each.
-    assert rows["value"].tolist() == [104, 64]
+    query = _observe(case, expression)
+    binding = query._graph.signature.observation
+    assert binding is not None
+    assert {item.root.ref.path for item in binding.contributions} == {
+        "sales.order_line",
+        "sales.order",
+        "sales.shipment",
+    }
+    assert _by_member(query.execute().to_pandas()).tolist() == [104, 64]
 
 
 def test_ratio_accepts_a_negative_sum_denominator(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    """A signed sum denominator is a magnitude, not a nonnegative row count."""
-    import duckdb
-
-    import marivo.analysis as mv
-    import marivo.semantic as ms
-
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as connection:
-        connection.execute("SET threads = 1")
         connection.execute('UPDATE "order" SET amount = -amount')
-    expression = mv.runtime_metric.ratio(
-        ms.ref.metric("sales.order_count"),
-        ms.ref.metric("sales.revenue"),
-        label="inverse",
+    session = case.session
+    time = session.catalog.fields.get("sales.order.ordered_at")
+    amount = session.catalog.fields.get("sales.order.amount")
+    expression = session.catalog.metrics.get("sales.order_count") / amount.sum(
+        time=time, empty="null"
     )
-    observed = case.session.members(ms.ref.entity("sales.customer")).observe(
-        expression,
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    fixed = observed.execute()
-    rows = fixed.to_pandas().set_index("member")
-    assert rows.loc[["A", "B", "C"], "value"].tolist() == pytest.approx(
-        [-1 / 450, -1 / 150, -1 / 400]
-    )
-    assert rows.loc["D", "cell_tag"] == "null"
-    assert observed.rollup().execute().to_pandas()["value"].tolist() == [-3 / 1000]
-    assert fixed.rollup().execute().to_pandas()["value"].tolist() == [-3 / 1000]
+    observed = _observe(case, expression)
+    rows = _by_member(observed.execute().to_pandas())
+    assert rows.loc[["A", "B", "C"]].tolist() == pytest.approx([-1 / 450, -1 / 150, -1 / 400])
+    assert pd.isna(rows.loc["D"])
+    assert observed.rollup().execute().to_pandas()[("value", "value")].tolist() == [-3 / 1000]
 
 
-def test_weighted_mean_preserves_pairs_and_fixed_rollup(
+def test_weighted_mean_preserves_pairs_and_original_rollup(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    """Value-null and weight-null rows must not contribute orphaned weights."""
-    import duckdb
-
-    import marivo.analysis as mv
-    import marivo.semantic as ms
-
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as db:
-        db.execute("SET threads=1")
         db.execute('ALTER TABLE "order" ADD COLUMN weight BIGINT DEFAULT 1')
         db.execute(
             "UPDATE \"order\" SET weight=CASE WHEN customer_id='A' THEN 2 WHEN customer_id='B' THEN 0 WHEN customer_id='C' THEN 4 ELSE NULL END"
@@ -533,49 +321,31 @@ def test_weighted_mean_preserves_pairs_and_fixed_rollup(
         db.execute(
             "INSERT INTO \"order\" VALUES ('null_value','A','web','paid','2026-08-15',NULL,9), ('null_weight','A','web','paid','2026-08-15',50,NULL), ('pair','A','web','paid','2026-08-15',100,1)"
         )
-    models = case.root / "models/semantic/sales/models.py"
-    models.write_text(
-        models.read_text().replace(
-            "granularity='second',", "granularity='second', is_default=True,"
-        )
-        + "\nweight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\n"
+    _extend(
+        case,
+        physical="weight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\n",
     )
-    ms.load(workspace_dir=case.root)
-    expression = mv.runtime_metric.weighted_mean(
-        ms.ref.measure("sales.order.amount"),
-        ms.ref.measure("sales.order.weight"),
-        label="weighted",
-    )
-    observed = case.session.members(ms.ref.entity("sales.customer")).observe(
-        expression,
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    fixed = observed.execute()
-    rows = fixed.to_pandas().set_index("member")
-    assert rows.loc["A", "value"] == pytest.approx(1000 / 3)
-    assert rows.loc["B", "cell_reason"] == "zero_weight_sum"
-    assert rows.loc["C", "value"] == 400
-    assert rows.loc["D", "cell_reason"] == "empty_contribution"
-    assert observed.rollup().execute().to_pandas()["value"].tolist() == pytest.approx([2600 / 7])
-    assert fixed.rollup().execute().to_pandas()["value"].tolist() == pytest.approx([2600 / 7])
-    _assert_cold_rollup(case, fixed.state.artifact_ref.ref, 2600 / 7)
-    from marivo.analysis.materialization import graph_store
-
-    store = case.session._runtime.store
-    with store._read() as connection:
-        record = graph_store.artifact(store, connection, fixed.state.artifact_ref.ref)
-    assert record is not None
-    original = next(part for part in record.descriptor.parts if part.role == "original_state")
-    path = case.root / original.local.project_relative_path
+    session = case.session
+    amount = session.catalog.fields.get("sales.order.amount")
+    weight = session.catalog.fields.get("sales.order.weight")
+    time = session.catalog.fields.get("sales.order.ordered_at")
+    observed = _observe(case, amount.weighted_mean(weight=weight, time=time))
+    saved = observed.execute()
+    rows = _by_member(saved.to_pandas())
+    assert rows.loc["A"] == pytest.approx(1000 / 3)
+    assert pd.isna(rows.loc["B"]) and pd.isna(rows.loc["D"])
+    assert rows.loc["C"] == 400
+    rolled = observed.rollup().execute()
+    assert rolled.to_pandas()[("value", "value")].tolist() == pytest.approx([2600 / 7])
+    _assert_cold_value(case, rolled.id, 2600 / 7)
+    path = case.root / saved._manifest.data.rows.receipt.project_relative_path
     missing = path.with_name(path.name + ".missing")
     path.rename(missing)
     try:
-        with pytest.raises(AnalysisError, match=r"(?i)part|receipt|file|missing"):
-            fixed.contract()
-        with pytest.raises(AnalysisError, match=r"(?i)part|receipt|file|missing"):
-            case.session.artifact(fixed.state.artifact_ref)
+        with pytest.raises(AnalysisError):
+            saved.to_pandas()
+        with pytest.raises(AnalysisError):
+            session.artifact(saved.id).to_pandas()
     finally:
         missing.rename(path)
 
@@ -583,23 +353,16 @@ def test_weighted_mean_preserves_pairs_and_fixed_rollup(
 def test_observation_preserves_full_member_identity(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    """Equal first keys in different tenants cannot merge or multiply contributions."""
-    import duckdb
-
-    import marivo.analysis as mv
-    import marivo.semantic as ms
-
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as db:
-        db.execute("SET threads=1")
         db.execute("ALTER TABLE customer ADD COLUMN tenant VARCHAR DEFAULT 'x'")
         db.execute("ALTER TABLE \"order\" ADD COLUMN tenant VARCHAR DEFAULT 'x'")
         db.execute("INSERT INTO customer VALUES ('A','north','y')")
         db.execute(
             "INSERT INTO \"order\" VALUES ('other_tenant','A','web','paid','2026-08-15',700,'y')"
         )
-    models = case.root / "models/semantic/sales/models.py"
-    text = models.read_text().replace(
+    model = case.root / "models/semantic/sales/models.py"
+    text = model.read_text().replace(
         "primary_key=['customer_id']", "primary_key=['customer_id', 'tenant']"
     )
     text = text.replace(
@@ -610,113 +373,62 @@ def test_observation_preserves_full_member_identity(
         "keys=[ms.join_on(order_customer_id, customer_id)]",
         "keys=[ms.join_on(order_customer_id, customer_id), ms.join_on(order_tenant, customer_tenant)]",
     )
-    models.write_text(text)
+    model.write_text(text)
     ms.load(workspace_dir=case.root)
-    observed = case.session.members(ms.ref.entity("sales.customer")).observe(
-        mv.runtime_metric.ratio(
-            ms.ref.metric("sales.revenue"), ms.ref.metric("sales.order_count"), label="aov"
-        ),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
+    session = case.session
+    observed = _observe(
+        case,
+        session.catalog.metrics.get("sales.revenue")
+        / session.catalog.metrics.get("sales.order_count"),
     )
-    fixed = observed.execute()
-    rows = fixed.to_pandas().set_index(["member", "coord_0"])
-    assert rows.loc[("A", "x"), "value"] == 450
-    assert rows.loc[("A", "y"), "value"] == 700
-    assert fixed.rollup().execute().to_pandas()["value"].tolist() == [425]
+    rows = _by_member(observed.execute().to_pandas()).to_dict()
+    assert rows[("A", "x")] == 450 and rows[("A", "y")] == 700
+    assert observed.rollup().execute().to_pandas()[("value", "value")].tolist() == [425]
 
 
-def test_nested_linear_keeps_original_state_for_source_and_fixed_rollup(
+def test_nested_linear_keeps_each_original_component(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    """Subtracting a nested difference distributes signs without averaging finishes."""
-    import marivo.analysis as mv
-    import marivo.semantic as ms
-
     case = analysis_dsl_case_factory("j1", revenue_unit="1")
-    revenue = ms.ref.metric("sales.revenue")
-    count = ms.ref.metric("sales.order_count")
-    expression = mv.runtime_metric.linear(
-        add=[revenue],
-        subtract=[mv.runtime_metric.linear(add=[revenue], subtract=[count], label="inner")],
-        label="nested",
-    )
-    observed = case.session.members(ms.ref.entity("sales.customer")).observe(
-        expression,
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    fixed = observed.execute()
-    rows = fixed.to_pandas().set_index("member")
-    assert rows.loc[["A", "B", "C"], "value"].tolist() == [1, 1, 1]
-    assert rows.loc["D", "cell_reason"] == "empty_contribution"
-    assert fixed.rollup().execute().to_pandas()["value"].tolist() == [3]
+    session = case.session
+    time = session.catalog.fields.get("sales.order.ordered_at")
+    revenue = session.catalog.fields.get("sales.order.amount").sum(time=time, empty="null")
+    count = session.catalog.metrics.get("sales.order_count")
+    observed = _observe(case, revenue - (revenue - count))
+    rows = _by_member(observed.execute().to_pandas())
+    assert rows.loc[["A", "B", "C"]].tolist() == [1, 1, 1]
+    assert pd.isna(rows.loc["D"])
+    assert observed.rollup().execute().to_pandas()[("value", "value")].tolist() == [3]
 
 
 def test_observation_rejects_wrong_or_extra_root_routes(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    """A valid relationship cannot acquire another declared root role."""
-    import marivo.analysis as mv
-    import marivo.semantic as ms
-
     case = analysis_dsl_case_factory("j3")
-    buyer = ms.ref.relationship("sales.order_buyer")
-    line_order = ms.ref.relationship("sales.line_order")
-    for extra in (False, True):
-        routes = (
-            (
-                mv.path(buyer),
-                mv.path(line_order, buyer),
-            )
-            if extra
-            else (mv.path(line_order, buyer),)
-        )
-        with pytest.raises(AnalysisError, match=r"route|root"):
-            case.session.members(ms.ref.entity("sales.customer")).observe(
-                ms.ref.metric("sales.order_count"), via=routes, by=(mv.member(),)
-            )
-
-    expression = mv.runtime_metric.ratio(
-        ms.ref.metric("sales.line_revenue"),
-        ms.ref.metric("sales.order_count"),
-        label="amount_per_order",
-    )
-    with pytest.raises(AnalysisError, match="distinct contribution roots"):
-        case.session.members(ms.ref.entity("sales.customer")).observe(
-            expression,
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=(mv.path(line_order, buyer), mv.path(line_order, buyer), mv.path(buyer)),
-            by=(mv.member(),),
-        )
+    session = case.session
+    region = session.catalog.fields.get("sales.customer.region")
+    buyer = session.catalog.relationships.get("sales.order_buyer")
+    line_order = session.catalog.relationships.get("sales.line_order")
+    metric = session.catalog.metrics.get("sales.order_count")
+    for path in ((line_order, buyer), (buyer, line_order), (buyer, buyer)):
+        with pytest.raises((AnalysisError, SemanticError)):
+            session.observe({"value": metric}, by=(region.via(path),))
+    assert session.runs().items == ()
 
 
-def test_linear_rejects_incommensurable_units(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    """Equal physical columns cannot erase incompatible semantic units."""
-    import marivo.analysis as mv
-    import marivo.semantic as ms
-
+def test_linear_rejects_incommensurable_units(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j1")
-    models = case.root / "models/semantic/sales/models.py"
-    models.write_text(
-        models.read_text()
-        + "\nrevenue_cny = ms.aggregate(name='revenue_cny', measure=amount, agg='sum', unit='CNY')\nrevenue_usd = ms.aggregate(name='revenue_usd', measure=amount, agg='sum', unit='USD')\n"
+    _extend(
+        case,
+        physical="amount_usd = ms.measure_column(name='amount_usd', entity=orders, column='amount', additivity=ms.additive_all(), unit='USD')\n",
+        definitions="usd_value = finalized.resolve(amount_usd)\n@ms.metric()\ndef revenue_usd():\n    return usd_value.sum(time=time_value)\n",
     )
-    ms.load(workspace_dir=case.root)
-    expression = mv.runtime_metric.linear(
-        add=[ms.ref.metric("sales.revenue_cny"), ms.ref.metric("sales.revenue_usd")],
-        label="invalid_currency_sum",
+    session = case.session
+    expression = session.catalog.metrics.get("sales.revenue") + session.catalog.metrics.get(
+        "sales.revenue_usd"
     )
     with pytest.raises((SemanticError, AnalysisError, ValueError), match="unit"):
-        case.session.members(ms.ref.entity("sales.customer")).observe(
-            expression,
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
-        )
+        _observe(case, expression)
 
 
 def test_weighted_state_rejects_corrupted_components() -> None:
@@ -740,29 +452,25 @@ def test_weighted_state_rejects_corrupted_components() -> None:
         assert not state_matches("original_weighted_mean", primary, {**state, **changes}), changes
 
 
-def test_composite_slice_reaches_each_leaf_before_reduction(
+def test_common_condition_reaches_each_leaf_before_reduction(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    import marivo.analysis as mv
-    import marivo.semantic as ms
-
     case = analysis_dsl_case_factory("j1")
-    revenue = ms.ref.metric("sales.revenue")
-    composite = mv.runtime_metric.ratio(revenue, ms.ref.metric("sales.order_count"), label="aov")
-    expression = mv.runtime_metric.slice(
-        composite,
-        by={ms.ref.dimension("sales.order.channel"): "web"},
-        label="web_composite",
+    session = case.session
+    time = session.catalog.fields.get("sales.order.ordered_at")
+    revenue = session.catalog.fields.get("sales.order.amount").sum(time=time, empty="null")
+    channel = session.catalog.fields.get("sales.order.channel")
+    composite = revenue / session.catalog.metrics.get("sales.order_count")
+    observed = session.observe(
+        {"value": composite},
+        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
+        by=session.members(ms.ref.entity("sales.customer")),
+        where=channel == "web",
     )
-    observed = case.session.members(ms.ref.entity("sales.customer")).observe(
-        expression,
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    fixed = observed.execute()
-    rows = fixed.to_pandas().set_index("member")
-    assert rows.loc[["A", "C"], "value"].tolist() == [450, 400]
-    assert rows.loc[["B", "D"], "cell_reason"].tolist() == ["empty_contribution"] * 2
-    assert observed.rollup().execute().to_pandas()["value"].tolist() == [425]
-    assert fixed.rollup().execute().to_pandas()["value"].tolist() == [425]
+    binding = observed._graph.signature.observation
+    assert binding is not None and len(binding.contributions) == 2
+    assert all(item.common_condition is not None for item in binding.contributions)
+    rows = _by_member(observed.execute().to_pandas())
+    assert rows.loc[["A", "C"]].tolist() == [450, 400]
+    assert rows.loc[["B", "D"]].isna().all()
+    assert observed.rollup().execute().to_pandas()[("value", "value")].tolist() == [425]

@@ -1,19 +1,23 @@
-"""Independent temporal boundaries and graph-product checks for ."""
+"""Independent temporal boundaries, full-window evaluation and terminal reads."""
 
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Literal
 
+import pandas as pd
 import pytest
 from pydantic import TypeAdapter
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo._temporal import time_scope
 from marivo.analysis.core.time_grid import BoundTimeGrid, bind_grid, coarsening, instant
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.errors import AnalysisError
 from tests.shared_fixtures import (
     DSL_NAMES,
+    DslCase,
     DslCaseFactory,
     analysis_dsl_project_files,
     analysis_dsl_rows,
@@ -30,7 +34,7 @@ from tests.support.paths import PROJECT_ROOT
     ],
 )
 def test_civil_day_retains_actual_dst_instants(day: str, hours: int, start: str, end: str) -> None:
-    scope = mv.time_scope(
+    scope = time_scope(
         start=date.fromisoformat(day), end=date.fromisoformat(day) + timedelta(days=1)
     )
     grid = bind_grid(scope, mv.grain("day"), report_timezone="America/New_York")
@@ -46,7 +50,7 @@ def test_civil_day_retains_actual_dst_instants(day: str, hours: int, start: str,
 
 
 def test_partial_cells_and_crossing_week_rejection() -> None:
-    scope = mv.time_scope(start="2026-08-01", end="2026-09-01")
+    scope = time_scope(start="2026-08-01", end="2026-09-01")
     week = bind_grid(scope, mv.grain("week"), report_timezone="UTC")
     month = bind_grid(scope, mv.grain("month"), report_timezone="UTC")
     assert week.cells[0].original_start.isoformat() == "2026-07-27T00:00:00+00:00"
@@ -66,7 +70,7 @@ def test_naive_gap_and_fold_have_no_implicit_resolution(wall: datetime) -> None:
 
 def test_grid_wire_preserves_authority_and_rejects_changed_identity() -> None:
     grid = bind_grid(
-        mv.time_scope(start="2026-03-08", end="2026-03-09"),
+        time_scope(start="2026-03-08", end="2026-03-09"),
         mv.grain("day"),
         report_timezone="America/New_York",
     )
@@ -79,127 +83,6 @@ def test_grid_wire_preserves_authority_and_rejects_changed_identity() -> None:
 def test_aware_endpoint_remains_instant() -> None:
     stamp = datetime(2026, 11, 1, 6, 30, tzinfo=timezone.utc)
     assert instant(stamp, "America/New_York") == stamp
-
-
-def test_member_time_product_executes_on_unified_graph(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    case = analysis_dsl_case_factory("j1")
-    n = case.names
-    members = case.session.members(ms.ref.entity(f"{n.domain}.{n.customer}"))
-    grid = bind_grid(
-        mv.time_scope(start="2026-08-01", end="2026-08-03"), mv.grain("day"), report_timezone="UTC"
-    )
-    product = members._node.each(grid)
-    result = product.execute()
-    frame = result.to_pandas()
-    assert len(frame) == 8
-    assert set(frame["coord_0"]) == {"2026-08-01T00:00:00+00:00", "2026-08-02T00:00:00+00:00"}
-    assert frame.groupby("member").size().tolist() == [2, 2, 2, 2]
-    assert result.artifact.descriptor.definition_fingerprint == product.root.fingerprint
-    recovered = case.session.artifact(result.state.artifact_ref)
-    assert isinstance(recovered, mv.MaterializedAnalysisDomain)
-    assert recovered.to_pandas().equals(frame)
-
-
-def test_time_product_observation_keeps_empty_cells_and_window_binding(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    case = analysis_dsl_case_factory("j1")
-    n = case.names
-    members = case.session.members(ms.ref.entity(f"{n.domain}.{n.customer}"))
-    scope = mv.time_scope(start="2026-08-01", end="2026-10-01")
-    grid = bind_grid(scope, mv.grain("month"), report_timezone="UTC")
-    product = members._node.each(grid)
-    metric = ms.ref.metric(f"{n.domain}.{n.revenue}")
-    from marivo.analysis.materialization.graph_relation import Relation
-
-    for row_window in (True, False):
-        observed = product.observe(
-            metric,
-            metric_contract=product.resolve_metric(metric),
-            during=grid if row_window else scope,
-            via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
-        )
-        result = observed.execute()
-        frame = result.to_pandas()
-        assert len(frame) == 8
-        august = frame[frame["coord_0"] == "2026-08-01T00:00:00+00:00"]
-        september = frame[frame["coord_0"] == "2026-09-01T00:00:00+00:00"]
-        assert august.value.sum() == (1000 if row_window else 1099)
-        assert september.value.sum() == (99 if row_window else 1099)
-        if row_window:
-            assert september.loc[september.member != "A", "cell_tag"].eq("null").all()
-        fixed = Relation.restore(result)
-        if row_window:
-            offline = case.database_path.with_suffix(".offline")
-            case.database_path.rename(offline)
-            try:
-                assert fixed.rollup().execute().to_pandas().value.tolist() == [1099]
-            finally:
-                offline.rename(case.database_path)
-            assert observed.rollup().execute().to_pandas().value.tolist() == [1099]
-        else:
-            with pytest.raises(AnalysisError, match="repeats"):
-                fixed.rollup()
-            with pytest.raises(AnalysisError, match="repeats"):
-                observed.rollup()
-
-
-def test_public_grid_observation_and_retained_axis(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    case = analysis_dsl_case_factory("j1")
-    n = case.names
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01", end="2026-11-01"), grain=mv.grain("month")
-    )
-    members = case.session.members(ms.ref.entity(f"{n.domain}.{n.customer}"))
-    observed = members.observe(
-        ms.ref.metric(f"{n.domain}.{n.revenue}"),
-        during=grid,
-        via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
-        by=(mv.member(),),
-    )
-    fixed = observed.execute()
-    for current in (observed, fixed):
-        totals = current.group_by(grid).rollup().execute().to_pandas()
-        assert totals.value.fillna(0).tolist() == [1000, 99, 0]
-        assert totals.cell_tag.tolist() == ["defined", "defined", "null"]
-
-
-def test_public_whole_cell_grain_coarsening(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    case = analysis_dsl_case_factory("j1")
-    n = case.names
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"), grain=mv.grain("day")
-    )
-    observed = case.session.members(ms.ref.entity(f"{n.domain}.{n.customer}")).observe(
-        ms.ref.metric(f"{n.domain}.{n.revenue}"),
-        during=grid,
-        via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
-        by=(mv.member(),),
-    )
-    fixed = observed.execute()
-    for current in (observed, fixed):
-        result = current.group_by(mv.grain("month")).rollup().execute()
-        assert result.to_pandas().value.tolist() == [1000]
-        assert result.rollup().execute().to_pandas().value.tolist() == [1000]
-
-
-def test_identity_observation_has_no_inferred_relationship(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    case = analysis_dsl_case_factory("j1")
-    n = case.names
-    observed = case.session.members(ms.ref.entity(f"{n.domain}.{n.order}")).observe(
-        ms.ref.metric(f"{n.domain}.{n.revenue}"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=(mv.member(),),
-    )
-    assert observed.rollup().execute().to_pandas().value.tolist() == [1000]
 
 
 def test_certified_grid_keeps_calendar_authority_and_coverage() -> None:
@@ -218,7 +101,7 @@ def test_certified_grid_keeps_calendar_authority_and_coverage() -> None:
         levels={"period": "period"},
     )
     grain = semantic_grain(calendar=calendar, level="period")
-    scope = mv.time_scope(
+    scope = time_scope(
         start=datetime(2026, 7, 31, 16, tzinfo=timezone.utc),
         end=datetime(2026, 8, 3, 16, tzinfo=timezone.utc),
     )
@@ -234,212 +117,11 @@ def test_certified_grid_keeps_calendar_authority_and_coverage() -> None:
         bind_grid(scope, grain, report_timezone="UTC", explicit_timezone="UTC", snapshot=snapshot)
     with pytest.raises(AnalysisError, match="coverage"):
         bind_grid(
-            mv.time_scope(start="2026-07-30", end="2026-08-04"),
+            time_scope(start="2026-07-30", end="2026-08-04"),
             grain,
             report_timezone="UTC",
             snapshot=snapshot,
         )
-
-
-def _prepare_temporal_grid_project(root: Path) -> Path:
-    root.mkdir()
-    database_path = root / "warehouse.duckdb"
-    seed_analysis_dsl_database(
-        database_path, DSL_NAMES, analysis_dsl_rows("j1"), float_amount=False
-    )
-    (root / "marivo.toml").write_text('[project]\nname = "analysis-dsl-fixture"\n')
-    for relative_path, source in analysis_dsl_project_files(DSL_NAMES, database_path).items():
-        destination = (
-            root / "models" / relative_path
-            if relative_path.startswith("datasources/")
-            else root / "models" / "semantic" / relative_path
-        )
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(source)
-    return database_path
-
-
-def _add_temporal_metrics(root: Path) -> None:
-    path = root / "models" / "semantic" / "sales" / "models.py"
-    path.write_text(
-        path.read_text()
-        + """
-running = ms.cumulative(name='running', base=revenue)
-status_amount = ms.measure_column(name='status_amount', entity=orders, column='amount',
-    additivity=ms.additive_all(except_=(ordered_at,)),
-    status_time_dimension=ordered_at, status_time_fold='max', unit='CNY')
-folded = ms.aggregate(name='folded', measure=status_amount, agg='sum')
-"""
-    )
-
-
-@pytest.mark.slow
-def test_grid_produce_and_offline_continuation_are_separate_processes(
-    tmp_path: Path,
-) -> None:
-    import json
-    import os
-    import subprocess
-    import sys
-
-    root = tmp_path / "temporal-grid"
-    database_path = _prepare_temporal_grid_project(root)
-    metric = "running"
-    _add_temporal_metrics(root)
-    environment = {
-        **os.environ,
-        "MARIVO_PROJECT_ROOT": str(root),
-        "PYTHONPATH": str(PROJECT_ROOT),
-    }
-    producer = """
-import json, sys
-import marivo.analysis as mv
-import marivo.semantic as ms
-ms.load(workspace_dir='.')
-session = mv.session.get_or_create('temporal-grid-recovery', report_timezone='UTC')
-grid = mv.time_grid(during=mv.time_scope(start='2026-08-01', end='2026-11-01'), grain=mv.grain('month'))
-result = session.members(ms.ref.entity('sales.customer')).observe(
-    ms.ref.metric('sales.' + sys.argv[1]), via=ms.ref.relationship('sales.order_buyer'),
-    by=(mv.member(),),
-    **({'at': grid.end} if sys.argv[1] == 'running' else {'during': grid})
-).execute()
-frame = result.to_pandas()
-assert len(frame) == 12
-assert frame.value.sum() == (3429 if sys.argv[1] == 'running' else 1099)
-print(json.dumps({'session': session.id, 'artifact': result.state.artifact_ref.ref, 'grid': result._node.root.signature.domain.time_grid.identity}))
-"""
-    completed = subprocess.run(
-        [sys.executable, "-c", producer, metric],
-        cwd=root,
-        env=environment,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    assert completed.returncode == 0, completed.stderr
-    produced = json.loads(completed.stdout.splitlines()[-1])
-    database_path.rename(database_path.with_suffix(".offline"))
-    (root / "models").rename(root / "models.offline")
-    continuation = """
-import json, sys
-import duckdb, ibis
-import marivo.analysis as mv
-import marivo.semantic as ms
-from marivo.datasource.runtime import DatasourceConnectionService
-
-def forbidden(*args, **kwargs):
-    raise AssertionError('fixed time continuation touched source, models or DuckDB')
-ms.load = forbidden
-duckdb.connect = forbidden
-ibis.duckdb.connect = forbidden
-DatasourceConnectionService.use_backend = forbidden
-fixed = mv.session.resume(sys.argv[1], by='id').artifact(sys.argv[2])
-assert fixed._node.root.signature.domain.time_grid.identity == sys.argv[3]
-metric = sys.argv[4]
-result = (fixed.group_by(mv.grain('month')).rollup() if metric == 'running' else
-          fixed.group_by(ms.ref.entity('sales.customer')).rollup() if metric == 'folded' else
-          fixed.rollup()).execute()
-verified = result._dataset.verified()
-primary = verified.primary
-keys = [name for name in primary.columns if name.startswith('key_')]
-values = (primary.sort_values(keys) if keys else primary)['value'].tolist()
-assert values == ([1077,1176,1176] if metric == 'running' else [450,150,400,None] if metric == 'folded' else [1099]), values
-state = next(p.table.to_dict(orient='records') for p in verified.parts if p.role == 'original_state')
-print(json.dumps({'value': values, 'state': state, 'K': result._dataset.artifact.descriptor.execution_key_digest}))
-"""
-    recovered = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            continuation,
-            produced["session"],
-            produced["artifact"],
-            produced["grid"],
-            metric,
-        ],
-        cwd=root,
-        env=environment,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    assert recovered.returncode == 0, recovered.stderr
-    result = json.loads(recovered.stdout.splitlines()[-1])
-    assert result["value"] == [1077, 1176, 1176]
-
-
-def test_grid_required_state_damage_revokes_continuation(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    import json
-
-    from marivo.analysis.materialization import graph_store
-    from marivo.analysis.materialization.graph_protocol import DESCRIPTOR, encode
-
-    case = analysis_dsl_case_factory("j1")
-    _add_temporal_metrics(case.root)
-    ms.load(workspace_dir=case.root)
-    metric = "revenue"
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01", end="2026-10-01"), grain=mv.grain("month")
-    )
-    fixed = (
-        case.session.members(ms.ref.entity("sales.customer"))
-        .observe(
-            ms.ref.metric("sales." + metric),
-            at=grid.end if metric == "running" else None,
-            during=None if metric == "running" else grid,
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
-        )
-        .execute()
-    )
-    artifact_ref = fixed.state.artifact_ref.ref
-    store = case.session._runtime.store
-    with store._read() as connection:
-        record = graph_store.artifact(store, connection, artifact_ref)
-    assert record is not None
-    part = next(p for p in record.descriptor.parts if p.role == "original_state")
-    path = case.root / part.local.project_relative_path / part.local.file_manifest[0].relative_path
-    original_bytes = path.read_bytes()
-    original_descriptor = encode(record.descriptor, DESCRIPTOR)
-    for damage in ("missing", "corrupt", "receipt", "version"):
-        path.write_bytes(original_bytes)
-        with store._write() as connection:
-            connection.execute(
-                "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
-                (original_descriptor, artifact_ref),
-            )
-        if damage == "missing":
-            path.unlink()
-        elif damage == "corrupt":
-            path.write_bytes(b"corrupt grid state")
-        else:
-            payload = json.loads(original_descriptor)
-            if damage == "receipt":
-                payload["primary_receipt"]["input_binding"] = "foreign-grid"
-            else:
-                payload["method_state"]["contract_version"] += 1
-            with store._write() as connection:
-                connection.execute(
-                    "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
-                    (json.dumps(payload), artifact_ref),
-                )
-        try:
-            with pytest.raises(AnalysisError):
-                if damage in ("missing", "receipt"):
-                    fixed.contract()
-                elif damage == "corrupt":
-                    fixed.rollup().execute()
-                else:
-                    case.session.artifact(fixed.state.artifact_ref)
-        finally:
-            path.write_bytes(original_bytes)
-            with store._write() as connection:
-                connection.execute(
-                    "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
-                    (original_descriptor, artifact_ref),
-                )
 
 
 def test_time_product_codec_round_trips_closed_parameters() -> None:
@@ -456,247 +138,11 @@ def test_time_product_codec_round_trips_closed_parameters() -> None:
         assert recovered == value
 
 
-def test_cumulative_anchors_ignore_display_start(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    case = analysis_dsl_case_factory("j1")
-    anchors = (
-        ("all_time", "None", [1077, 1176], True),
-        ("month_to_date", "ms.grain_to_date(grain=mv.grain('month'))", [1000, 99], False),
-        ("trailing", "ms.trailing(count=31, unit='day')", [1000, 499], True),
-    )
-    path = case.root / "models" / "semantic" / "sales" / "models.py"
-    path.write_text(
-        path.read_text()
-        + "\nimport marivo.analysis as mv\n"
-        + "\n".join(
-            f"running_{name} = ms.cumulative(name='running_{name}', base=revenue, anchor={anchor})"
-            for name, anchor, _, _ in anchors
-        )
-    )
-    ms.load(workspace_dir=case.root)
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-15", end="2026-10-01"), grain=mv.grain("month")
-    )
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    fixed_results: list[
-        tuple[mv.MaterializedNumericRelation | mv.MaterializedRatioRelation, list[int], bool]
-    ] = []
-    for name, _, expected, overlap in anchors:
-        metric = ms.ref.metric(f"sales.running_{name}")
-        logical = members.observe(
-            metric,
-            at=grid.end,
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
-        )
-        fixed = logical.execute()
-        overall = members.observe(
-            metric,
-            at=grid.end,
-            via=ms.ref.relationship("sales.order_buyer"),
-        )
-        assert overall.execute().to_pandas().value.tolist() == expected
-        if overlap:
-            with pytest.raises(AnalysisError, match="overlap"):
-                overall.rollup()
-        result = logical.group_by(grid).rollup().execute()
-        assert result.to_pandas().value.tolist() == expected
-        if overlap:
-            with pytest.raises(AnalysisError, match="overlap"):
-                result.rollup()
-        else:
-            assert result.rollup().execute().to_pandas().value.tolist() == [1099]
-        scalar = (
-            members.observe(
-                metric,
-                at=datetime(2026, 10, 1, tzinfo=timezone.utc),
-                via=ms.ref.relationship("sales.order_buyer"),
-                by=(mv.member(),),
-            )
-            .rollup()
-            .execute()
-        )
-        assert scalar.to_pandas().value.tolist() == [expected[-1]]
-        if name != "trailing":
-            fixed_results.append((fixed, expected, overlap))
-    offline = case.database_path.with_suffix(".offline")
-    case.database_path.rename(offline)
-    try:
-        for fixed, expected, overlap in fixed_results:
-            result = fixed.group_by(grid).rollup().execute()
-            assert result.to_pandas().value.tolist() == expected
-            if overlap:
-                with pytest.raises(AnalysisError, match="overlap"):
-                    result.rollup()
-            else:
-                assert result.rollup().execute().to_pandas().value.tolist() == [1099]
-    finally:
-        offline.rename(case.database_path)
-
-
-def test_fold_reaggregates_aligned_samples_before_time(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    import duckdb
-
-    case = analysis_dsl_case_factory("j1")
-    with duckdb.connect(str(case.database_path)) as connection:
-        connection.execute("DELETE FROM customer WHERE customer_id IN ('C', 'D')")
-        connection.execute('DELETE FROM "order"')
-        connection.executemany(
-            'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?)',
-            [
-                ("a1", "A", "web", "paid", "2026-08-01T00:00:00Z", 10),
-                ("a2", "A", "web", "paid", "2026-08-02T00:00:00Z", 0),
-                ("b1", "B", "web", "paid", "2026-08-01T00:00:00Z", 0),
-                ("b2", "B", "web", "paid", "2026-08-02T00:00:00Z", 10),
-            ],
-        )
-    path = case.root / "models" / "semantic" / "sales" / "models.py"
-    definitions = [
-        f"""
-status_amount_{kind} = ms.measure_column(name='status_amount_{kind}', entity=orders, column='amount',
-    additivity=ms.additive_all(except_=(ordered_at,)),
-    status_time_dimension=ordered_at, status_time_fold={kind!r}, unit='CNY')
-folded_{kind} = ms.aggregate(name='folded_{kind}', measure=status_amount_{kind}, agg='sum')
-"""
-        for kind in ("first", "last", "mean", "min", "max")
-    ]
-    path.write_text(path.read_text() + "\n".join(definitions))
-    ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    during = mv.time_scope(start="2026-08-01", end="2026-08-03")
-    expected_by_kind = {
-        "first": [10, 0],
-        "last": [0, 10],
-        "mean": [5, 5],
-        "min": [0, 0],
-        "max": [10, 10],
-    }
-    fixed_by_kind: dict[str, mv.MaterializedNumericRelation] = {}
-    for kind, expected in expected_by_kind.items():
-        observed = members.observe(
-            ms.ref.metric(f"sales.folded_{kind}"),
-            during=during,
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
-        )
-        fixed = observed.execute()
-        assert fixed.to_pandas().value.tolist() == expected
-        fixed_by_kind[kind] = fixed
-
-    observed = members.observe(
-        ms.ref.metric("sales.folded_first"),
-        during=during,
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    overall = members.observe(
-        ms.ref.metric("sales.folded_first"),
-        during=during,
-        via=ms.ref.relationship("sales.order_buyer"),
-    )
-    assert overall.execute().to_pandas().value.tolist() == [10]
-    regional = members.observe(
-        ms.ref.metric("sales.folded_first"),
-        during=during,
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.dimension("sales.customer.region"),),
-    )
-    assert regional.execute().to_pandas().set_index("group").value.to_dict() == {"east": 10}
-    assert observed.rollup().execute().to_pandas().value.tolist() == [10]
-    case.database_path.rename(case.database_path.with_suffix(".offline"))
-    assert fixed_by_kind["first"].rollup().execute().to_pandas().value.tolist() == [10]
-
-
-def test_fold_rejects_float64_overflow_before_spatial_rollup(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    import duckdb
-
-    case = analysis_dsl_case_factory("j1")
-    with duckdb.connect(str(case.database_path)) as connection:
-        connection.execute("DELETE FROM customer WHERE customer_id IN ('C', 'D')")
-        connection.execute('DELETE FROM "order"')
-        connection.executemany(
-            'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?)',
-            [
-                ("a1", "A", "web", "paid", "2026-08-01T00:00:00Z", 10),
-                ("a2", "A", "web", "paid", "2026-08-02T00:00:00Z", 0),
-                ("b1", "B", "web", "paid", "2026-08-01T00:00:00Z", 0),
-                ("b2", "B", "web", "paid", "2026-08-02T00:00:00Z", 10),
-            ],
-        )
-        connection.execute('ALTER TABLE "order" ALTER COLUMN amount TYPE DOUBLE')
-        connection.execute('UPDATE "order" SET amount = 1e308')
-    path = case.root / "models" / "semantic" / "sales" / "models.py"
-    path.write_text(
-        path.read_text()
-        + """
-status_amount = ms.measure_column(name='status_amount', entity=orders, column='amount',
-    additivity=ms.additive_all(except_=(ordered_at,)),
-    status_time_dimension=ordered_at, status_time_fold='first', unit='CNY')
-folded = ms.aggregate(name='folded', measure=status_amount, agg='sum')
-"""
-    )
-    ms.load(workspace_dir=case.root)
-    fixed = (
-        case.session.members(ms.ref.entity("sales.customer"))
-        .observe(
-            ms.ref.metric("sales.folded"),
-            during=mv.time_scope(start="2026-08-01", end="2026-08-03"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
-        )
-        .execute()
-    )
-    assert fixed.to_pandas().value.tolist() == [1e308, 1e308]
-    with pytest.raises(AnalysisError, match="pre-fold spatial sum exceeds float64"):
-        fixed.rollup().execute()
-
-
-@pytest.mark.parametrize("wall", ["2026-03-08 02:30:00", "2026-11-01 01:30:00"])
-def test_source_wall_clock_gap_and_fold_follow_admitted_conversion(
-    analysis_dsl_case_factory: DslCaseFactory, wall: str
-) -> None:
-    import duckdb
-
-    case = analysis_dsl_case_factory("j1")
-    with duckdb.connect(str(case.database_path)) as connection:
-        connection.execute('DELETE FROM "order"')
-        connection.execute('ALTER TABLE "order" ALTER ordered_at TYPE TIMESTAMP')
-        connection.execute(
-            'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?)', ["x", "A", "web", "paid", wall, 10]
-        )
-    path = case.root / "models" / "semantic" / "sales" / "models.py"
-    path.write_text(
-        path.read_text().replace(
-            "parse=ms.timestamp(timezone='UTC')", "parse=ms.timestamp(timezone='America/New_York')"
-        )
-    )
-    ms.load(workspace_dir=case.root)
-    observed = case.session.members(ms.ref.entity("sales.customer")).observe(
-        ms.ref.metric("sales.revenue"),
-        during=mv.time_scope(
-            start=wall[:10], end=(date.fromisoformat(wall[:10]) + timedelta(days=1)).isoformat()
-        ),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    result = observed.execute()
-    rows = result.to_pandas().set_index("member")
-    assert set(rows.index) == {"A", "B", "C", "D"}
-    assert rows.loc["A", "value"] == 10
-    assert rows.loc["A", "cell_tag"] == "defined"
-    assert rows.loc[["B", "C", "D"], "cell_tag"].tolist() == ["null"] * 3
-
-
 def test_trailing_day_uses_seconds_across_civil_dst_day() -> None:
     from marivo.analysis.core.time_grid import GridPoint, bind_cumulative
 
     grid = bind_grid(
-        mv.time_scope(start="2026-03-08", end="2026-03-09"),
+        time_scope(start="2026-03-08", end="2026-03-09"),
         mv.grain("day"),
         report_timezone="America/New_York",
     )
@@ -716,35 +162,6 @@ def test_sample_state_rejects_duplicate_keys_and_nonfinite_components() -> None:
     ):
         with pytest.raises(ValueError):
             decode_samples(payload)
-
-
-def test_cumulative_ratio_binds_every_component_to_the_endpoint(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    case = analysis_dsl_case_factory("j1")
-    path = case.root / "models" / "semantic" / "sales" / "models.py"
-    path.write_text(
-        path.read_text()
-        + """
-running_revenue = ms.cumulative(name='running_revenue', base=revenue)
-running_count = ms.cumulative(name='running_count', base=order_count)
-running_ratio = ms.ratio(name='running_ratio', numerator=running_revenue, denominator=running_count,
-                        zero_denominator=ms.zero_denominator.undefined())
-"""
-    )
-    ms.load(workspace_dir=case.root)
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-15", end="2026-10-01"), grain=mv.grain("month")
-    )
-    observed = case.session.members(ms.ref.entity("sales.customer")).observe(
-        ms.ref.metric("sales.running_ratio"),
-        at=grid.end,
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    assert observed.group_by(grid).rollup().execute().to_pandas().value.tolist() == [269.25, 235.2]
-    fixed = observed.execute()
-    assert fixed.group_by(grid).rollup().execute().to_pandas().value.tolist() == [269.25, 235.2]
 
 
 def test_named_occurrences_with_equal_bounds_are_not_one_partition() -> None:
@@ -770,36 +187,6 @@ def test_named_occurrences_with_equal_bounds_are_not_one_partition() -> None:
         coarsening(first, second)
 
 
-def test_native_time_conversion_does_not_submit_rule_audit(
-    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import ibis
-    import ibis.expr.types as ir
-
-    from marivo.analysis.compiler import source_time
-
-    case = analysis_dsl_case_factory("j1")
-    original = source_time.render
-    calls: list[str] = []
-
-    def disagree(zone: str, value: ir.TimestampValue) -> ir.TimestampValue:
-        calls.append(zone)
-        return original(zone, value) + ibis.interval(hours=1)
-
-    monkeypatch.setattr(source_time, "render", disagree)
-    observed = case.session.members(ms.ref.entity("sales.customer")).observe(
-        ms.ref.metric("sales.revenue"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    result = observed.execute().to_pandas().set_index("member")
-    assert result.loc[["A", "B"], "value"].to_dict() == {"A": 527, "B": 150}
-    assert result.loc[["A", "B"], "cell_tag"].tolist() == ["defined"] * 2
-    assert result.loc[["C", "D"], "cell_tag"].tolist() == ["null"] * 2
-    assert calls and set(calls) == {"UTC"}
-
-
 def test_single_second_grid_has_bounded_construction_cost() -> None:
     import subprocess
     import sys
@@ -811,9 +198,10 @@ def test_single_second_grid_has_bounded_construction_cost() -> None:
             """
 from datetime import datetime, timedelta, timezone
 import marivo.analysis as mv
+from marivo._temporal import time_scope
 from marivo.analysis.core.time_grid import bind_grid
 start = datetime(2026, 8, 1, tzinfo=timezone.utc)
-grid = bind_grid(mv.time_scope(start=start, end=start + timedelta(seconds=1)),
+grid = bind_grid(time_scope(start=start, end=start + timedelta(seconds=1)),
                  mv.grain('second'), report_timezone='UTC')
 assert len(grid.cells) == 1
 assert grid.cells[0].start == start
@@ -830,7 +218,7 @@ assert grid.cells[0].end == start + timedelta(seconds=1)
 
 def test_repeated_hour_minute_cells_keep_both_instant_sequences() -> None:
     grid = bind_grid(
-        mv.time_scope(
+        time_scope(
             start=datetime(2026, 11, 1, 5, 59, tzinfo=timezone.utc),
             end=datetime(2026, 11, 1, 6, 1, tzinfo=timezone.utc),
         ),
@@ -841,6 +229,391 @@ def test_repeated_hour_minute_cells_keep_both_instant_sequences() -> None:
         ("2026-11-01T05:59:00+00:00", "2026-11-01T06:00:00+00:00"),
         ("2026-11-01T06:00:00+00:00", "2026-11-01T06:01:00+00:00"),
     ]
+
+
+def _prepare_temporal_grid_project(root: Path) -> Path:
+    root.mkdir()
+    database_path = root / "warehouse.duckdb"
+    seed_analysis_dsl_database(
+        database_path, DSL_NAMES, analysis_dsl_rows("j1"), float_amount=False
+    )
+    (root / "marivo.toml").write_text('[project]\nname = "analysis-dsl-fixture"\n')
+    for relative_path, source in analysis_dsl_project_files(DSL_NAMES, database_path).items():
+        destination = (
+            root / "models" / relative_path
+            if relative_path.startswith("datasources/")
+            else root / "models" / "semantic" / relative_path
+        )
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(source)
+    return database_path
+
+
+def _observation(
+    case: DslCase, *, start: str, end: str, grain: Literal["day", "month"] | None = None
+) -> mv.Query:
+    session = case.session
+    during = session.time_scope(start=start, end=end)
+    return session.observe(
+        {"value": session.catalog.metrics.get("sales.revenue")},
+        during=during.by(mv.grain(grain)) if grain is not None else during,
+        by=session.members(ms.ref.entity("sales.customer")),
+    )
+
+
+def test_member_time_product_executes_on_unified_query(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    session = case.session
+    calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
+    members = session.members(ms.ref.entity("sales.customer"))
+    domain = mv.product(calendar, members)
+    result = session.query(domain).execute()
+    frame = result.to_pandas()
+    assert len(frame) == 8
+    assert (
+        frame.iloc[:, 0].tolist()
+        == [datetime(2026, 8, 1, tzinfo=timezone.utc)] * 4
+        + [datetime(2026, 8, 2, tzinfo=timezone.utc)] * 4
+    )
+    assert frame.iloc[:, 1].tolist() == ["A", "B", "C", "D"] * 2
+    pd.testing.assert_frame_equal(session.artifact(result.id).to_pandas(), frame)
+
+
+def test_time_product_observation_keeps_empty_cells_and_window_binding(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    session = case.session
+    calendar = session.time_scope(start="2026-08-01", end="2026-10-01").by(mv.grain("month"))
+    members = session.members(ms.ref.entity("sales.customer"))
+    query = session.observe(
+        {"value": session.catalog.metrics.get("sales.revenue")},
+        by=mv.product(calendar, members),
+        during=calendar,
+    )
+    frame = query.execute().to_pandas()
+    assert len(frame) == 8
+    assert frame[("value", "value")].tolist() == [450, 150, 400, 0, 99, 0, 0, 0]
+    assert query.rollup().execute().to_pandas()[("value", "value")].tolist() == [1099]
+    saved = query.execute()
+    case.database_path.rename(case.database_path.with_suffix(".offline"))
+    exported = saved.to_pandas()
+    # Explicit pandas composition consumes the terminal data, including every key.
+    assert exported[("value", "value")].sum() == 1099
+    pd.testing.assert_frame_equal(session.artifact(saved.id).to_pandas(), frame)
+
+
+def test_public_grid_observation_and_retained_axis(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    query = _observation(case, start="2026-08-01", end="2026-11-01", grain="month")
+    calendar = case.session.time_scope(start="2026-08-01", end="2026-11-01").by(mv.grain("month"))
+    totals = query.rollup(by=(calendar,)).execute().to_pandas()
+    assert totals[("value", "value")].tolist() == [1000, 99, 0]
+    assert totals.attrs["marivo"]["axes"][0]["timezone"] == "UTC"
+
+
+def test_public_whole_cell_grain_coarsening(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    query = _observation(case, start="2026-08-01", end="2026-09-01", grain="day")
+    month = case.session.time_scope(start="2026-08-01", end="2026-09-01").by(mv.grain("month"))
+    coarsened = query.rollup(by=(month,))
+    assert coarsened.execute().to_pandas()[("value", "value")].tolist() == [1000]
+    assert coarsened.rollup().execute().to_pandas()[("value", "value")].tolist() == [1000]
+
+
+def test_identity_observation_has_no_inferred_relationship(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    session = case.session
+    observed = session.observe(
+        {"value": session.catalog.metrics.get("sales.revenue")},
+        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
+        by=session.members(ms.ref.entity("sales.order")),
+    )
+    assert observed.rollup().execute().to_pandas()[("value", "value")].tolist() == [1000]
+
+
+@pytest.mark.slow
+def test_grid_produce_and_offline_read_are_separate_processes(tmp_path: Path) -> None:
+    import json
+    import os
+    import subprocess
+    import sys
+
+    root = tmp_path / "temporal-grid"
+    database = _prepare_temporal_grid_project(root)
+    environment = dict(os.environ, MARIVO_PROJECT_ROOT=str(root), PYTHONPATH=str(PROJECT_ROOT))
+    producer = """
+import json
+import marivo.analysis as mv
+import marivo.semantic as ms
+session = mv.session.get_or_create('temporal-grid-recovery', report_timezone='UTC')
+calendar = session.time_scope(start='2026-08-01', end='2026-11-01').by(mv.grain('month'))
+metric = session.catalog.metrics.get('sales.revenue').window(mv.all_history())
+query = session.observe({'value':metric}, during=calendar, by=session.members(ms.ref.entity('sales.customer')))
+result = query.rollup(by=(calendar,)).execute()
+assert result.to_pandas()[('value','value')].tolist() == [1077,1176,1176]
+print(json.dumps({'session':session.id,'artifact':result.id}))
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", producer],
+        cwd=root,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert completed.returncode == 0, completed.stderr
+    produced = json.loads(completed.stdout.splitlines()[-1])
+    database.rename(database.with_suffix(".offline"))
+    (root / "models").rename(root / "models.offline")
+    reader = """
+import json, sys
+import duckdb, ibis
+import marivo.analysis as mv
+import marivo.semantic as ms
+from marivo.datasource.adapters import SourceSession
+
+def forbidden(*args, **kwargs):
+    raise AssertionError('terminal calendar read touched source or semantic models')
+ms.load = forbidden
+duckdb.connect = forbidden
+ibis.duckdb.connect = forbidden
+SourceSession.execute = forbidden
+result = mv.session.resume(sys.argv[1], by='id').artifact(sys.argv[2])
+frame = result.to_pandas()
+assert frame[('value','value')].tolist() == [1077,1176,1176]
+assert frame.attrs['marivo']['axes'][0]['timezone'] == 'UTC'
+assert len(frame.attrs['marivo']['axes'][0]['bounds']) == 3
+print(json.dumps({'value':frame[('value','value')].tolist()}))
+"""
+    recovered = subprocess.run(
+        [sys.executable, "-c", reader, produced["session"], produced["artifact"]],
+        cwd=root,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert recovered.returncode == 0, recovered.stderr
+    assert json.loads(recovered.stdout.splitlines()[-1])["value"] == [1077, 1176, 1176]
+
+
+def test_grid_saved_data_damage_rejects_complete_reads(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    result = _observation(case, start="2026-08-01", end="2026-10-01", grain="month").execute()
+    data = result._manifest.data
+    handles = (data.rows, *(attachment.rows for attachment in data.attachments))
+    assert len(handles) == 2
+    for handle in handles:
+        receipt = handle.receipt
+        path = case.root / receipt.project_relative_path / receipt.file_manifest[0].relative_path
+        original = path.read_bytes()
+        for damage in ("missing", "corrupt"):
+            try:
+                if damage == "missing":
+                    path.unlink()
+                else:
+                    path.write_bytes(b"corrupt terminal calendar data")
+                with pytest.raises(AnalysisError):
+                    case.session.artifact(result.id).to_pandas()
+            finally:
+                path.write_bytes(original)
+    pd.testing.assert_frame_equal(case.session.artifact(result.id).to_pandas(), result.to_pandas())
+
+
+def test_cumulative_anchors_ignore_display_start(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    session = case.session
+    calendar = session.time_scope(start="2026-08-15", end="2026-10-01").by(mv.grain("month"))
+    members = session.members(ms.ref.entity("sales.customer"))
+    rules = (
+        (mv.all_history(), [1077, 1176]),
+        (mv.to_date(grain=mv.grain("month")), [1000, 99]),
+        (mv.trailing_duration(duration=timedelta(days=31)), [1000, 499]),
+    )
+    saved = []
+    for rule, expected in rules:
+        metric = session.catalog.metrics.get("sales.revenue").window(rule)
+        query = session.observe({"value": metric}, during=calendar, by=members)
+        result = query.rollup(by=(calendar,)).execute()
+        assert result.to_pandas()[("value", "value")].tolist() == expected
+        # Replacing/removing the window calendar would change the source window.
+        with pytest.raises(AnalysisError, match="window"):
+            query.rollup()
+        scalar = session.observe(
+            {"value": metric},
+            during=session.time_scope(start="2026-09-30", end="2026-10-01"),
+            by=members,
+        ).rollup()
+        assert scalar.execute().to_pandas()[("value", "value")].tolist() == [expected[-1]]
+        saved.append((result, expected))
+    case.database_path.rename(case.database_path.with_suffix(".offline"))
+    for result, expected in saved:
+        assert session.artifact(result.id).to_pandas()[("value", "value")].tolist() == expected
+
+
+def _seed_two_sample_amounts(case: DslCase, *, overflow: bool = False) -> None:
+    import duckdb
+
+    with duckdb.connect(str(case.database_path)) as connection:
+        connection.execute("DELETE FROM customer WHERE customer_id IN ('C', 'D')")
+        connection.execute('DELETE FROM "order"')
+        connection.executemany(
+            'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?)',
+            [
+                ("a1", "A", "web", "paid", "2026-08-01T00:00:00Z", 10),
+                ("a2", "A", "web", "paid", "2026-08-02T00:00:00Z", 0),
+                ("b1", "B", "web", "paid", "2026-08-01T00:00:00Z", 0),
+                ("b2", "B", "web", "paid", "2026-08-02T00:00:00Z", 10),
+            ],
+        )
+        if overflow:
+            connection.execute('ALTER TABLE "order" ALTER COLUMN amount TYPE DOUBLE')
+            connection.execute('UPDATE "order" SET amount = 1e308')
+
+
+def test_fold_reaggregates_aligned_samples_before_time(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    _seed_two_sample_amounts(case)
+    session = case.session
+    calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
+    revenue = session.catalog.metrics.get("sales.revenue")
+    members = session.members(ms.ref.entity("sales.customer"))
+    expected = {"first": [10, 0], "last": [0, 10], "mean": [5, 5], "min": [0, 0], "max": [10, 10]}
+    for kind, values in expected.items():
+        samples = (
+            session.catalog.fields.get("sales.order.ordered_at")
+            if kind in ("first", "last")
+            else mv.product(mv.coordinates(by=(), keys=((),)), calendar)
+        )
+        metric = getattr(revenue.per(samples), kind)()
+        observed = session.observe({"value": metric}, during=calendar.scope, by=members)
+        assert observed.execute().to_pandas()[("value", "value")].tolist() == values
+        assert observed.rollup().execute().to_pandas()[("value", "value")].tolist() == [10]
+    region = session.catalog.fields.get("sales.customer.region")
+    regional = session.observe(
+        {"value": revenue.per(session.catalog.fields.get("sales.order.ordered_at")).first()},
+        during=calendar.scope,
+        by=members.classify(by=(region,)),
+    )
+    frame = regional.execute().to_pandas()
+    assert frame.iloc[:, 0].tolist() == ["east"]
+    assert frame[("value", "value")].tolist() == [10]
+
+
+def test_fold_rejects_float64_overflow_before_spatial_rollup(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    _seed_two_sample_amounts(case, overflow=True)
+    session = case.session
+    calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
+    metric = (
+        session.catalog.metrics.get("sales.revenue")
+        .per(session.catalog.fields.get("sales.order.ordered_at"))
+        .first()
+    )
+    query = session.observe(
+        {"value": metric},
+        during=calendar.scope,
+        by=session.members(ms.ref.entity("sales.customer")),
+    )
+    assert query.execute().to_pandas()[("value", "value")].tolist() == [1e308, 1e308]
+    with pytest.raises(AnalysisError) as failure:
+        query.rollup().execute()
+    from marivo.semantic.errors import SemanticExpressionError
+
+    cause = failure.value.__cause__
+    assert isinstance(cause, SemanticExpressionError)
+    assert cause.expected == "finite values in the admitted numeric type"
+    assert "internal sample reduction overflow" in (cause.received or "")
+    assert failure.value.run_ref is not None
+    assert session.get_run(failure.value.run_ref).lifecycle == "failed"
+
+
+@pytest.mark.parametrize("wall", ["2026-03-08 02:30:00", "2026-11-01 01:30:00"])
+def test_source_wall_clock_gap_and_fold_follow_admitted_conversion(
+    analysis_dsl_case_factory: DslCaseFactory,
+    wall: str,
+) -> None:
+    import duckdb
+
+    case = analysis_dsl_case_factory("j1")
+    with duckdb.connect(str(case.database_path)) as connection:
+        connection.execute('DELETE FROM "order"')
+        connection.execute('ALTER TABLE "order" ALTER ordered_at TYPE TIMESTAMP')
+        connection.execute(
+            'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?)', ["x", "A", "web", "paid", wall, 10]
+        )
+    path = case.root / "models/semantic/sales/models.py"
+    path.write_text(
+        path.read_text().replace(
+            "parse=ms.timestamp(timezone='UTC')", "parse=ms.timestamp(timezone='America/New_York')"
+        )
+    )
+    ms.load(workspace_dir=case.root)
+    query = _observation(
+        case, start=wall[:10], end=(date.fromisoformat(wall[:10]) + timedelta(days=1)).isoformat()
+    )
+    frame = query.execute().to_pandas()
+    assert frame.iloc[:, 0].tolist() == ["A", "B", "C", "D"]
+    assert frame[("value", "value")].tolist() == [10, 0, 0, 0]
+
+
+def test_cumulative_ratio_binds_every_component_to_the_endpoint(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    session = case.session
+    calendar = session.time_scope(start="2026-08-15", end="2026-10-01").by(mv.grain("month"))
+    ratio = session.catalog.metrics.get("sales.revenue") / session.catalog.metrics.get(
+        "sales.order_count"
+    )
+    query = session.observe(
+        {"value": ratio.window(mv.all_history())},
+        during=calendar,
+        by=session.members(ms.ref.entity("sales.customer")),
+    )
+    result = query.rollup(by=(calendar,)).execute()
+    assert result.to_pandas()[("value", "value")].tolist() == [269.25, 235.2]
+    pd.testing.assert_frame_equal(session.artifact(result.id).to_pandas(), result.to_pandas())
+
+
+def test_native_time_conversion_does_not_submit_rule_audit(
+    analysis_dsl_case_factory: DslCaseFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import ibis
+    import ibis.expr.types as ir
+
+    from marivo.analysis.compiler import source_time
+
+    case = analysis_dsl_case_factory("j1")
+    original = source_time.render
+    calls = []
+
+    def disagree(zone: str, value: ir.TimestampValue) -> ir.TimestampValue:
+        calls.append(zone)
+        return original(zone, value) + ibis.interval(hours=1)
+
+    monkeypatch.setattr(source_time, "render", disagree)
+    result = _observation(case, start="2026-08-01", end="2026-09-01").execute().to_pandas()
+    assert result[("value", "value")].tolist() == [527, 150, 0, 0]
+    assert calls and set(calls) == {"UTC"}
 
 
 def test_fixed_date_windows_keep_authority_on_a_foreign_zone_grid(
@@ -859,36 +632,24 @@ def test_fixed_date_windows_keep_authority_on_a_foreign_zone_grid(
                 ("two", "A", "web", "paid", "2026-08-02", 20),
             ],
         )
-    _add_temporal_metrics(case.root)
-    path = case.root / "models" / "semantic" / "sales" / "models.py"
+    path = case.root / "models/semantic/sales/models.py"
     path.write_text(path.read_text().replace("parse=ms.timestamp(timezone='UTC')", "parse=None"))
     ms.load(workspace_dir=case.root)
-    session = mv.session.get_or_create(
-        name="fixed-date-window",
-        question="Independent window authority",
-        report_timezone="Asia/Tokyo",
+    session = mv.session.get_or_create("date-window", report_timezone="Asia/Tokyo")
+    grid = session.time_scope(start="2026-08-01", end="2026-08-03", timezone="America/New_York").by(
+        mv.grain("day")
     )
-    members = session.members(ms.ref.entity("sales.customer"))
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01", end="2026-08-03"),
-        grain=mv.grain("day"),
-        timezone="America/New_York",
+    query = session.observe(
+        {"value": session.catalog.metrics.get("sales.revenue")},
+        during=grid,
+        by=session.members(ms.ref.entity("sales.customer")),
     )
-    direct = (
-        members.observe(
-            ms.ref.metric("sales.revenue"),
-            during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
-        )
-        .execute()
-        .to_pandas()
-    )
-    assert direct.loc[direct.member == "A", "value"].tolist() == [10]
-    assert grid._bound is None
+    frame = query.rollup(by=(grid,)).execute().to_pandas()
+    assert frame[("value", "value")].tolist() == [10, 20]
+    assert frame.attrs["marivo"]["axes"][0]["timezone"] == "America/New_York"
 
 
-def test_empty_fold_keeps_typed_state_for_fixed_continuation(
+def test_empty_fold_keeps_typed_terminal_output(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     import duckdb
@@ -897,60 +658,46 @@ def test_empty_fold_keeps_typed_state_for_fixed_continuation(
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute('DELETE FROM "order"')
         connection.execute("DELETE FROM customer")
-    _add_temporal_metrics(case.root)
-    ms.load(workspace_dir=case.root)
-    fixed = (
-        case.session.members(ms.ref.entity("sales.customer"))
-        .observe(
-            ms.ref.metric("sales.folded"),
-            during=mv.time_scope(start="2026-08-01", end="2026-08-03"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
-        )
-        .execute()
+    session = case.session
+    calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
+    query = session.observe(
+        {
+            "value": session.catalog.metrics.get("sales.revenue")
+            .per(mv.product(mv.coordinates(by=(), keys=((),)), calendar))
+            .max()
+        },
+        by=session.members(ms.ref.entity("sales.customer")),
     )
-    assert fixed.to_pandas().empty
+    result = query.execute()
+    assert result.to_pandas().empty
+    total = query.rollup().execute().to_pandas()
+    assert total[("value", "value")].tolist() == [0]
     case.database_path.rename(case.database_path.with_suffix(".offline"))
-    reduced = fixed.group_by(ms.ref.entity("sales.customer")).rollup().execute()
-    assert reduced.to_pandas().empty
-    assert reduced.group_by(ms.ref.entity("sales.customer")).rollup().execute().to_pandas().empty
-    total = reduced.rollup().execute().to_pandas()
-    assert total.cell_tag.tolist() == ["null"]
-    assert total.cell_reason.tolist() == ["empty_contribution"]
+    pd.testing.assert_frame_equal(session.artifact(result.id).to_pandas(), result.to_pandas())
 
 
-def test_selected_groups_keep_fold_state_in_source_and_fixed_execution(
+def test_selected_groups_keep_sample_selection_before_execution(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    _add_temporal_metrics(case.root)
-    ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    region = ms.ref.dimension("sales.customer.region")
-    category = members.read(region)
-    assert isinstance(category, mv.LogicalCategoryRelation)
-    selected = category.where(category.value.eq("east")).members()
-    window = mv.time_scope(start="2026-08-01", end="2026-09-01")
-    observed = selected.observe(
-        ms.ref.metric("sales.folded"),
-        during=window,
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(region,),
-    ).execute()
-    expected = observed.to_pandas()
-    assert expected.set_index("group").value.dropna().to_dict() == {"east": 450}
-    assert expected.set_index("group").cell_reason.to_dict() == {
-        "east": None,
-    }
-    sparse = selected.observe(
-        ms.ref.metric("sales.folded"),
-        during=window,
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(region,),
-    ).execute()
+    session = case.session
+    members = session.members(ms.ref.entity("sales.customer"))
+    region = session.catalog.fields.get("sales.customer.region")
+    category = session.read(members, {"region": region})
+    selected = category.where(category["region"] == "east").population()
+    calendar = session.time_scope(start="2026-08-01", end="2026-09-01").by(mv.grain("day"))
+    query = session.observe(
+        {
+            "value": session.catalog.metrics.get("sales.revenue")
+            .per(mv.product(mv.coordinates(by=(), keys=((),)), calendar))
+            .max()
+        },
+        by=selected.classify(by=(region,)),
+        members=selected,
+    )
+    result = query.execute()
+    frame = result.to_pandas()
+    assert frame.iloc[:, 0].tolist() == ["east"]
+    assert frame[("value", "value")].tolist() == [450]
     case.database_path.rename(case.database_path.with_suffix(".offline"))
-    completed = sparse.group_by(region).rollup().execute()
-    assert completed.to_pandas().equals(expected)
-    restored = case.session.artifact(observed.state.artifact_ref)
-    assert isinstance(restored, mv.MaterializedNumericRelation)
-    assert restored.group_by(region).rollup().execute().to_pandas().equals(expected)
+    pd.testing.assert_frame_equal(session.artifact(result.id).to_pandas(), frame)

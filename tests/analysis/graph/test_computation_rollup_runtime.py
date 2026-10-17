@@ -1,16 +1,10 @@
-"""Original-state rollup checks for linear and decimal retained metrics.
-
-The cold-process case compares warm and recovered rollups for its chosen linear
-and int64 mean inputs, preserving their value types with the source offline.
-The decimal mean case checks fixed rollup and Artifact reads at the captured
-Ibis output scale. Ordinary Metric mean follows its inferred output type;
-source execution and retained sum/count continuation may round differently.
-"""
+"""Original Query rollups retain exact values across terminal cold reads."""
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -18,19 +12,12 @@ from pathlib import Path
 import pytest
 
 from tests.analysis.numeric.rollup_worker import MONTH_EXPECTED
+from tests.support.json import Json, checked, obj
 
 
-def _run(mode: str, project: Path, artifact: str = "") -> dict[str, object]:
+def _run(mode: str, project: Path) -> dict[str, Json]:
     process = subprocess.run(
-        [
-            sys.executable,
-            "-B",
-            "-m",
-            "tests.analysis.numeric.rollup_worker",
-            mode,
-            str(project),
-            artifact,
-        ],
+        [sys.executable, "-B", "-m", "tests.analysis.numeric.rollup_worker", mode, str(project)],
         capture_output=True,
         text=True,
         timeout=120,
@@ -38,31 +25,33 @@ def _run(mode: str, project: Path, artifact: str = "") -> dict[str, object]:
         check=False,
     )
     assert process.returncode == 0, process.stdout + process.stderr
-    value = json.loads(process.stdout)
-    assert isinstance(value, dict)
-    return value
+    return obj(checked(json.loads(process.stdout)))
 
 
 @pytest.mark.slow
 def test_decimal_and_int64_linear_cold_rollup_equal_warm(tmp_path: Path) -> None:
     produced = _run("produce", tmp_path)
-    cold = _run("continue", tmp_path, str(produced["artifact"]))
-    assert produced["pid"] != cold["pid"]
-    # Hand-computed month totals: linear decimal 3.85, linear int 3, and the
-    # float mean as the quantity mean division 5 / 3.
+    # Both original and month-grain outputs have already been committed. Their
+    # terminal reads must survive absent models and source files independently.
+    (tmp_path / "warehouse.duckdb").rename(tmp_path / "warehouse.offline")
+    shutil.rmtree(tmp_path / "models")
+    offline = _run("offline", tmp_path)
+    cold = _run("cold", tmp_path)
+    assert len({os.getpid(), produced["pid"], offline["pid"], cold["pid"]}) == 4
     assert produced["warm_monthly"] == MONTH_EXPECTED
-    assert cold["values"] == produced["warm_monthly"]
-    assert cold["dtypes"] == {
-        "net_amount": "object",
-        "net_qty": "int64",
-        "amount_mean": "float64",
-    }
+    for reader in (offline, cold):
+        assert reader["values"] == produced["warm_monthly"]
+        assert reader["dtypes"] == {
+            "net_amount": "decimal128(38, 2)[pyarrow]",
+            "net_qty": "int64[pyarrow]",
+            "amount_mean": "double[pyarrow]",
+        }
 
 
 def test_duckdb_decimal_mean_retains_captured_scale(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Fixed Metric mean and Artifact reads preserve the captured Decimal scale."""
+    """Original mean rollup and terminal reads retain captured Decimal scale."""
     from decimal import Decimal
 
     import duckdb
@@ -76,15 +65,15 @@ def test_duckdb_decimal_mean_retains_captured_scale(
         connection.executemany("INSERT INTO orders VALUES (?, ?, ?, ?, ?)", DAY_ROWS)
     monkeypatch.chdir(project)
     session = mv.session.get_or_create("equation-mean", report_timezone="UTC")
-    fixed = (
-        session.members(ms.ref.entity("sales.orders"))
-        .observe(ms.ref.metric("sales.amount_mean"), by=(mv.member(),))
-        .execute()
+    query = session.observe(
+        {"value": session.catalog.metrics.get("sales.amount_mean")},
+        during=session.time_scope(start="2026-07-01", end="2026-08-01"),
+        by=session.members(ms.ref.entity("sales.orders")),
     )
-    result = fixed.rollup().execute()
+    result = query.rollup().execute()
     # Merge the original 54.14 sum and count 3, then finish at Decimal(12,2).
-    for materialized in (result, session.artifact(result.state.artifact_ref)):
-        values = materialized.to_pandas()["value"].tolist()
+    for materialized in (result, session.artifact(result.id)):
+        values = materialized.to_pandas()[("value", "value")].tolist()
         assert values == [Decimal("18.05")]
         value = values[0]
         assert isinstance(value, Decimal)

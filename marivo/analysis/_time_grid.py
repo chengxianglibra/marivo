@@ -145,7 +145,7 @@ def time_grid(*, during: TimeScope, grain: Grain, timezone: str | None = None) -
         grain: Builtin or certified calendar Grain.
         timezone: Optional explicit boundary timezone; calendar authority must agree.
     Returns: A TimeGrid selecting every bucket window, with exact endpoint handles.
-    Example: ``grid = mv.time_grid(during=mv.time_scope(start="2026-08-01", end="2026-09-01"), grain=mv.grain("day"))``.
+    Example: ``grid = mv.time_grid(during=session.time_scope(start="2026-08-01", end="2026-09-01"), grain=mv.grain("day"))``.
     Constraints: The consuming Session binds its persisted report timezone once; no source read occurs.
     """
     return TimeGrid(_TOKEN, during, grain, timezone)

@@ -25,7 +25,7 @@ from ibis.common.deferred import (
     Variable,
 )
 
-from marivo._definition.deferred import canonical_recipe
+from marivo._definition.deferred import attribute_name, canonical_recipe
 
 if TYPE_CHECKING:
     from marivo.semantic.metric_graph_lowering import NumericCheck, NumericValue
@@ -59,7 +59,7 @@ def lower_recipe(recipe: Resolver, inputs: tuple[NumericValue, ...]) -> NumericV
             kwargs = {key: bind(value) for key, value in item.kwargs.items()}
             if type(item.func) is Attr:
                 receiver = bind(item.func.obj)
-                name = item.func.name.value
+                name = attribute_name(item.func)
                 if name == "divide":
                     if not isinstance(receiver, ir.Value) or len(args) != 1:
                         numeric_failure("one numeric divisor", "invalid divide arguments")

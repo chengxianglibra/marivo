@@ -6,7 +6,12 @@ from dataclasses import asdict
 
 import pandas as pd
 
-from marivo.analysis.core.artifact_data import ArtifactManifest, CalendarDataAxis, DataColumn
+from marivo.analysis.core.artifact_data import (
+    ArtifactManifest,
+    CalendarDataAxis,
+    DataColumn,
+    TimestampDataType,
+)
 from marivo.analysis.materialization.graph_reading import (
     ExportRead,
     OutputRead,
@@ -29,28 +34,58 @@ def export_frame(
     manifest: ArtifactManifest, reader: OutputRead, request: PreviewRead | ExportRead
 ) -> pd.DataFrame:
     data = manifest.data
-    raw = reader.read(ReadLayout(data.schema, data.rows), request)
+    positions = None
+    order = next((part for part in data.attachments if part.name == "display_order"), None)
+    if order is not None and isinstance(request, PreviewRead):
+        selection = reader.read(ReadLayout(order.schema, order.rows), request)
+        positions = tuple(int(index) for index in selection["row_index"])
+    raw = reader.read(ReadLayout(data.schema, data.rows, positions), request)
     series: list[pd.Series] = []
     labels: list[tuple[str, str | tuple[str, ...]]] = []
     axes: list[dict[str, object]] = []
     for axis in data.schema.axes:
         description: dict[str, object] = {
             "column": axis.token,
-            "kind": "calendar" if isinstance(axis, CalendarDataAxis) else "field",
+            "kind": "calendar" if isinstance(axis, CalendarDataAxis) else axis.kind,
             "label": axis.columns[0].name,
             "dtype": asdict(axis.columns[0].dtype) if len(axis.columns) == 1 else "tuple",
             "key_components": tuple(column_metadata(column) for column in axis.columns),
             "projections": tuple(
-                {"columns": projection.columns}
+                {
+                    "columns": projection.columns,
+                    "path": projection.path,
+                    "kind": projection.kind,
+                    "label": projection.label,
+                    "timezone": projection.timezone,
+                    "bounds": projection.bounds,
+                    "values": tuple(
+                        tuple(None if pd.isna(value) else value for value in row)
+                        for row in raw.loc[:, list(projection.columns)].itertuples(
+                            index=False, name=None
+                        )
+                    ),
+                }
                 for projection in data.coordinate_projections
                 if projection.axis_token == axis.token
             ),
         }
         if isinstance(axis, CalendarDataAxis):
             attachment = next(
-                (part for part in data.attachments if part.name == "calendar_bounds"), None
+                (part for part in data.attachments if part.name == f"calendar_bounds.{axis.token}"),
+                None,
             )
-            if attachment is None or len(axis.columns) != 1:
+            if (
+                attachment is None
+                or attachment.schema.axes != (axis,)
+                or len(axis.columns) != 1
+                or attachment.schema.values
+                != tuple(
+                    DataColumn(name, name, TimestampDataType("us", "UTC"), False)
+                    for name in ("nominal_start", "nominal_end", "actual_start", "actual_end")
+                )
+                or attachment.schema.presence
+                or attachment.schema.projection_columns
+            ):
                 raise invalid("calendar output is missing its saved boundary attachment")
             key = axis.columns[0].slot_id
             indexes = raw[key]
@@ -95,7 +130,7 @@ def export_frame(
         labels.append(("value", column.name))
     for column in sorted(data.schema.presence, key=lambda column: column.name):
         series.append(raw[column.slot_id])
-        labels.append(("presence", (column.name,)))
+        labels.append(("presence", tuple(column.name.split("."))))
     result = pd.concat(series, axis=1) if series else pd.DataFrame(index=pd.RangeIndex(len(raw)))
     result.columns = pd.MultiIndex.from_tuples(labels, names=("kind", "name"))
     result.index = pd.RangeIndex(len(result))

@@ -7,8 +7,9 @@ from collections.abc import Mapping
 import ibis
 import ibis.expr.types as ir
 
-from marivo._definition.relations import QueryKeys
+from marivo._definition.relations import ObserveQuery, QueryKeys
 from marivo._definition.types import (
+    AxisBinding,
     CalendarCoordinate,
     FieldRead,
     coordinate_read_keys,
@@ -27,8 +28,19 @@ from marivo.semantic.metric_graph_lowering import lower_field_predicate
 
 
 def query_population_entities(node: QueryKeys, state: CompiledSemanticState) -> tuple[str, ...]:
+    from marivo._definition.query import ResultQuery
     from marivo.analysis.materialization.population_preparation import population_entities
 
+    if isinstance(node.query, ResultQuery):
+        return tuple(
+            sorted(
+                {
+                    path
+                    for item in node.query.inputs
+                    for path in query_population_entities(item, state)
+                }
+            )
+        )
     entities: set[str] = set()
     if node.query.population is not None:
         entities.update(population_entities(node.query.population, state))
@@ -46,6 +58,7 @@ def prepare_query_keys(
     node: QueryKeys, entities: Mapping[str, ir.Table], state: CompiledSemanticState
 ) -> PreparedPopulation:
     """Keep the captured period, filters, paths and key domain of an observation."""
+    assert isinstance(node.query, ObserveQuery)
     if node.query.population is not None:
         return prepare_population(node.query.population, entities, state)
     observation = node.observation
@@ -60,7 +73,7 @@ def prepare_query_keys(
     for index, axis in enumerate(node.axes):
         width = (
             len(state.registry.entities[axis.entity.ref.path].primary_key)
-            if not isinstance(axis, CalendarCoordinate) and axis.field is None
+            if isinstance(axis, AxisBinding) and axis.field is None
             else 1
         )
         groups.append(tuple(f"__population_{index}_{i}" for i in range(width)))

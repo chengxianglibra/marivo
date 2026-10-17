@@ -11,25 +11,18 @@ from pathlib import Path
 from typing import Literal
 
 import duckdb
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo._temporal import TimeScope
-from marivo.analysis.core.graph import MethodNode, SourceLeaf, topology
-from marivo.analysis.core.rules import ObserveMetric
+from marivo._temporal import CalendarAxis, TimeScope
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.methods.physical import TimeShape
-from marivo.analysis.methods.registry import MethodRegistration, MethodRegistry
-from marivo.analysis.methods.semantics import MethodKey
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
-from marivo.semantic.ir import TimestampParse
 from marivo.semantic.reader import SemanticProject
-from tests.analysis.materialization.domain_recovery_worker import snapshot
-from tests.support.json import Json, checked, encode, read
 from tests.support.paths import PROJECT_ROOT
 
 _ROWS = (
@@ -103,30 +96,31 @@ def _project(
             "buyer=ms.relationship(name='buyer', from_entity=orders, to_entity=customers, keys=[ms.join_on(order_customer, customer_id)])\n"
             "amount=ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
             f"happened=ms.time_dimension_column(name='happened', entity=orders, column='happened', granularity={granularity!r}, parse={parser}, is_default=True)\n"
-            "average=ms.aggregate(name='average', measure=amount, agg='mean')\n"
-            "total=ms.aggregate(name='total', measure=amount, agg='sum')\n"
-            "running=ms.cumulative(name='running', base=total, over=happened)\n",
+            "finalized=ms.finalize()\n"
+            "amount_value=finalized.resolve(amount)\n"
+            "time_value=finalized.resolve(happened)\n"
+            "@ms.metric()\n"
+            "def average():\n    return amount_value.mean(time=time_value)\n"
+            "@ms.metric()\n"
+            "def total():\n    return amount_value.sum(time=time_value)\n",
         }
     )
     return database
 
 
-def _observe(session: Session, scope: TimeScope) -> mv.LogicalNumericRelation:
-    value = session.members(ms.ref.entity("sales.customers")).observe(
-        ms.ref.metric("sales.average"),
+def _observe(session: Session, scope: TimeScope | CalendarAxis) -> mv.Query:
+    return session.observe(
+        {"value": session.catalog.metrics.get("sales.average")},
         during=scope,
-        via=ms.ref.relationship("sales.buyer"),
-        by=(mv.member(),),
+        by=session.members(ms.ref.entity("sales.customers")),
     )
-    assert isinstance(value, mv.LogicalNumericRelation)
-    return value
 
 
-def _parameters(value: mv.LogicalNumericRelation) -> ObserveMetric:
-    return next(
-        node.parameters
-        for node in topology(value._node.root)
-        if isinstance(node, MethodNode) and isinstance(node.parameters, ObserveMetric)
+def _values(query: mv.Query) -> dict[str, object]:
+    frame = query.execute().to_pandas()
+    member = next(axis for axis in frame.attrs["marivo"]["axes"] if axis["kind"] == "member")
+    return dict(
+        zip(frame[("coordinate", member["column"])], frame[("value", "value")], strict=True)
     )
 
 
@@ -137,35 +131,29 @@ def test_report_mean_members_and_next_window_have_independent_oracles(
 ) -> None:
     _project(tmp_path, monkeypatch, semantic_project_factory, form="parquet")
     session = mv.session.get_or_create("mean-chain", report_timezone="Asia/Shanghai")
-    values = _observe(session, mv.time_scope(start="2026-08-01", end="2026-08-02"))
-    params = _parameters(values)
-    assert params.temporal.report.timezone == "Asia/Shanghai"
-    assert params.temporal.axes[0].read_timezone == "UTC"
-    assert params.temporal.axes[0].source == "declared"
-    assert all(
-        node.definition.shape.time == TimeShape("instant", "us", "UTC")
-        for node in topology(values._node.root)
-        if isinstance(node, SourceLeaf)
+    values = _observe(session, session.time_scope(start="2026-08-01", end="2026-08-02"))
+    assert _values(values) == {"A": 20, "B": 60}
+    selected = values.where(values["value"] < 50).population()
+    assert case_members(session, selected) == ["A"]
+    following = session.observe(
+        {"value": session.catalog.metrics.get("sales.total")},
+        during=session.time_scope(start="2026-08-03", end="2026-08-10"),
+        by=selected,
+        members=selected,
     )
-    assert values.execute().to_pandas().set_index("member").value.to_dict() == {"A": 20, "B": 60}
-    selected = values.where(values.value.lt(50)).members()
-    assert isinstance(selected, mv.LogicalAnalysisDomain)
-    assert selected.execute().to_pandas().member.tolist() == ["A"]
-    following = selected.observe(
-        ms.ref.metric("sales.total"),
-        during=mv.time_scope(start="2026-08-03", end="2026-08-10"),
-        via=ms.ref.relationship("sales.buyer"),
-        by=(mv.member(),),
-    )
-    assert following.execute().to_pandas().set_index("member").value.to_dict() == {"A": 100}
+    assert _values(following) == {"A": 100}
+
+
+def case_members(session: Session, population: mv.Population) -> list[object]:
+    return session.query(population).execute().to_pandas().iloc[:, 0].tolist()
 
 
 @pytest.mark.parametrize(
-    "representation,read_zone,expected,origin",
+    "representation,read_zone,expected",
     (
-        ("naive", "Asia/Shanghai", 465, "declared"),
-        ("aware", None, 20, "physical"),
-        ("date", None, 465, "civil_date"),
+        ("naive", "Asia/Shanghai", 465),
+        ("aware", None, 20),
+        ("date", None, 465),
     ),
 )
 def test_source_kind_and_authority_remain_independent_of_report(
@@ -175,7 +163,6 @@ def test_source_kind_and_authority_remain_independent_of_report(
     representation: Literal["naive", "aware", "date"],
     read_zone: str | None,
     expected: int,
-    origin: str,
 ) -> None:
     _project(
         tmp_path,
@@ -185,17 +172,8 @@ def test_source_kind_and_authority_remain_independent_of_report(
         read_zone=read_zone,
     )
     session = mv.session.get_or_create("source-meaning", report_timezone="Asia/Shanghai")
-    values = _observe(session, mv.time_scope(start="2026-08-01", end="2026-08-02"))
-    authority = _parameters(values).temporal.axes[0]
-    assert authority.source == origin
-    if read_zone is None and representation != "date":
-        parser = _parameters(values).event.parse
-        assert isinstance(parser, TimestampParse)
-        assert parser.timezone is None
-    assert values.execute().to_pandas().set_index("member").value.to_dict() == {
-        "A": expected,
-        "B": 60,
-    }
+    values = _observe(session, session.time_scope(start="2026-08-01", end="2026-08-02"))
+    assert _values(values) == {"A": expected, "B": 60}
 
 
 @pytest.mark.parametrize(
@@ -249,30 +227,25 @@ def test_dst_mean_grid_and_cumulative_preserve_exact_windows(
         read_zone=None,
     )
     session = mv.session.get_or_create("dst", report_timezone="America/New_York")
-    scope = mv.time_scope(start=start, end=end)
-    values = _observe(session, scope)
-    params = _parameters(values)
-    assert params.start is not None and params.end is not None
-    assert (
-        datetime.fromisoformat(params.end) - datetime.fromisoformat(params.start)
-    ).total_seconds() == hours * 3600
-    assert values.execute().to_pandas().set_index("member").value.to_dict() == {"A": 20, "B": 60}
-    grid = mv.time_grid(during=scope, grain=mv.grain("day"))
+    scope = session.time_scope(start=start, end=end)
+    assert (scope.end - scope.start).total_seconds() == hours * 3600
+    assert _values(_observe(session, scope)) == {"A": 20, "B": 60}
+    grid = scope.by(mv.grain("day"))
     members = session.members(ms.ref.entity("sales.customers"))
-    gridded = members.observe(
-        ms.ref.metric("sales.average"),
+    gridded = _observe(session, grid)
+    assert _values(gridded) == {"A": 20, "B": 60}
+    running = session.observe(
+        {"value": session.catalog.metrics.get("sales.total").window(mv.all_history())},
         during=grid,
-        via=ms.ref.relationship("sales.buyer"),
-        by=(mv.member(),),
+        by=members,
     )
-    assert gridded.execute().to_pandas().set_index("member").value.to_dict() == {"A": 20, "B": 60}
-    running = members.observe(
-        ms.ref.metric("sales.running"),
-        at=grid.end,
-        via=ms.ref.relationship("sales.buyer"),
-        by=(mv.member(),),
-    )
-    assert running.execute().to_pandas().set_index("member").value.to_dict() == {"A": 928, "B": 60}
+    assert _values(running) == {"A": 928, "B": 60}
+    output = gridded.execute().to_pandas()
+    calendar = output.attrs["marivo"]["axes"][0]
+    assert calendar["timezone"] == "America/New_York"
+    assert (
+        calendar["bounds"][0]["actual_end"] - calendar["bounds"][0]["actual_start"]
+    ).total_seconds() == hours * 3600
 
 
 @pytest.mark.parametrize("read_zone", ("UTC", "Asia/Shanghai"))
@@ -300,11 +273,9 @@ def test_nanosecond_mean_or_conversion_rejects_before_business_read(
     monkeypatch.setattr(SourceSession, "execute", forbidden)
     with pytest.raises(
         AnalysisError,
-        match=r"qualified exact key for metric\.mean"
-        if read_zone == "UTC"
-        else "submicrosecond conversion unsupported",
+        match="submicrosecond conversion unsupported",
     ):
-        _observe(session, mv.time_scope(start="2026-08-01", end="2026-08-02")).execute()
+        _observe(session, session.time_scope(start="2026-08-01", end="2026-08-02")).execute()
     assert session.runs().items == before
 
 
@@ -313,21 +284,21 @@ def test_exact_mean_qualification_missing_still_rejects_before_run(
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
+    from marivo.datasource.adapters import QualifiedSource
+
     _project(tmp_path, monkeypatch, semantic_project_factory)
     session = mv.session.get_or_create("no-fallback", report_timezone="Asia/Shanghai")
-    value = _observe(session, mv.time_scope(start="2026-08-01", end="2026-08-02"))
-    lookup = MethodRegistry.lookup
-
-    def missing(registry: MethodRegistry, key: MethodKey) -> MethodRegistration:
-        original = lookup(registry, key)
-        return replace(original, implementations=()) if key.name == "metric.mean" else original
+    value = _observe(session, session.time_scope(start="2026-08-01", end="2026-08-02"))
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("qualification failure submitted a business batch")
 
-    monkeypatch.setattr(MethodRegistry, "lookup", missing)
+    def missing(*args: object, **kwargs: object) -> QualifiedSource:
+        raise AnalysisError(message="qualification unavailable")
+
+    monkeypatch.setattr(SourceSession, "qualify", missing)
     monkeypatch.setattr(SourceSession, "execute", forbidden)
-    with pytest.raises(AnalysisError, match=r"qualified exact key for metric\.mean"):
+    with pytest.raises(AnalysisError, match="qualification unavailable"):
         value.execute()
     assert session.runs().items == ()
 
@@ -338,24 +309,21 @@ def test_explicit_instant_bounds_do_not_erase_report_identity(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
     _project(tmp_path, monkeypatch, semantic_project_factory)
-    scope = mv.time_scope(
-        start=datetime(2026, 8, 1, tzinfo=timezone.utc),
-        end=datetime(2026, 8, 2, tzinfo=timezone.utc),
-    )
-    parameters = []
+    boundaries = []
     for zone in ("UTC", "Asia/Shanghai"):
         session = mv.session.get_or_create(zone, report_timezone=zone)
+        scope = session.time_scope(
+            start=datetime(2026, 8, 1, tzinfo=timezone.utc),
+            end=datetime(2026, 8, 2, tzinfo=timezone.utc),
+        )
         value = _observe(session, scope)
-        parameters.append(_parameters(value))
-        assert value.execute().to_pandas().set_index("member").value.to_dict() == {
-            "A": 465,
-            "B": 60,
-        }
-    assert parameters[0].start == parameters[1].start and parameters[0].end == parameters[1].end
-    assert parameters[0].temporal != parameters[1].temporal
+        boundaries.append((scope.start, scope.end, scope.boundary_timezone))
+        assert _values(value) == {"A": 465, "B": 60}
+    assert boundaries[0][:2] == boundaries[1][:2]
+    assert boundaries[0][2] != boundaries[1][2]
 
 
-def test_changed_engine_authority_rejects_before_business_read(
+def test_failed_reader_timezone_probe_does_not_fall_back(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -364,8 +332,7 @@ def test_changed_engine_authority_rejects_before_business_read(
 
     _project(tmp_path, monkeypatch, semantic_project_factory, read_zone=None)
     session = mv.session.get_or_create("engine-change", report_timezone="Asia/Shanghai")
-    value = _observe(session, mv.time_scope(start="2026-08-01", end="2026-08-02"))
-    assert _parameters(value).temporal.axes[0].source == "engine"
+    value = _observe(session, session.time_scope(start="2026-08-01", end="2026-08-02"))
     original = datasource_timezone.probe_engine_timezone
 
     def changed(backend: object) -> datasource_timezone.DatasourceEngineTimezone:
@@ -373,13 +340,17 @@ def test_changed_engine_authority_rejects_before_business_read(
         name, zone = datasource_timezone.parse_timezone("Asia/Shanghai")
         return replace(current, engine_timezone_name=name, engine_timezone_tz=zone)
 
-    def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("authority drift submitted a business batch")
+    # Physical authority is prepared at execute, so constructing a Query does
+    # not freeze an unprobed reader assumption. A failed probe never falls back.
+    def failed(backend: object) -> datasource_timezone.DatasourceEngineTimezone:
+        raise AnalysisError(message="timezone probe unavailable")
 
-    monkeypatch.setattr(datasource_timezone, "probe_engine_timezone", changed)
-    monkeypatch.setattr(SourceSession, "execute", forbidden)
-    with pytest.raises(AnalysisError, match="source timezone changed after graph construction"):
+    monkeypatch.setattr(datasource_timezone, "probe_engine_timezone", failed)
+    with pytest.raises(AnalysisError, match="timezone probe unavailable"):
         value.execute()
+    assert session.runs().items == ()
+    monkeypatch.setattr(datasource_timezone, "probe_engine_timezone", changed)
+    assert _values(value) == {"A": 465, "B": 60}
 
 
 @pytest.mark.slow
@@ -388,7 +359,7 @@ def test_timezone_mean_fixed_and_cold_preserve_authority_without_ambient_state(
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
-    backend = "duckdb"
+    backend: Literal["duckdb"] = "duckdb"
     monkeypatch.setenv("TZ", "Asia/Shanghai")
     rows = (
         ("one", "A", 10, "2026-08-01 08:00:00"),
@@ -405,41 +376,51 @@ def test_timezone_mean_fixed_and_cold_preserve_authority_without_ambient_state(
         rows=rows,
     )
     session = mv.session.get_or_create("recover-time", report_timezone="Asia/Shanghai")
-    logical = _observe(session, mv.time_scope(start="2026-08-01", end="2026-08-02"))
+    logical = _observe(
+        session, session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day"))
+    )
     source = logical.execute()
-    assert source.to_pandas().value.tolist() == [20, 60]
-    state: dict[str, Json] = {
-        "session": session.id,
-        "source": source.state.artifact_ref.ref,
-        "original": snapshot(source),
-        "temporal": checked(_parameters(logical).temporal.model_dump(mode="json")),
-        "source_pid": os.getpid(),
-    }
-    (tmp_path / "timezone-recovery.json").write_bytes(encode(state))
+    expected = source.to_pandas()
+    assert expected[("value", "value")].tolist() == [20, 60]
     shutil.rmtree(tmp_path / "models")
     database.rename(database.with_suffix(".offline"))
     for file in tmp_path.glob("*.parquet"):
         file.rename(file.with_suffix(".offline"))
+    pd.testing.assert_frame_equal(session.artifact(source.id).to_pandas(), expected)
+    worker = """
+import json, sys
+import duckdb, ibis
+import marivo.analysis as mv
+import marivo.semantic as ms
+from marivo.datasource.adapters import SourceSession
+
+def forbidden(*args, **kwargs):
+    raise AssertionError('terminal read touched source or semantic models')
+ms.load = forbidden
+duckdb.connect = forbidden
+ibis.duckdb.connect = forbidden
+SourceSession.execute = forbidden
+session = mv.session.resume(sys.argv[1], by='id')
+frame = session.artifact(sys.argv[2]).to_pandas()
+assert frame[('value','value')].tolist() == [20,60]
+calendar = frame.attrs['marivo']['axes'][0]
+assert calendar['kind'] == 'calendar' and calendar['timezone'] == 'Asia/Shanghai'
+assert calendar['bounds'][0]['actual_start'].isoformat() == '2026-07-31T16:00:00+00:00'
+assert calendar['bounds'][0]['actual_end'].isoformat() == '2026-08-01T16:00:00+00:00'
+assert frame.attrs['marivo']['axes'][1]['kind'] == 'member'
+print(json.dumps({'pid': __import__('os').getpid(), 'values': frame[('value','value')].tolist()}))
+"""
     reports = []
-    for phase in ("fixed", "cold"):
-        output = tmp_path / f"{phase}.json"
+    for _ in range(2):
         process = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "tests.analysis.temporal.timezone_observation_recovery_worker",
-                str(tmp_path),
-                phase,
-                str(output),
-            ],
-            cwd=PROJECT_ROOT,
+            [sys.executable, "-c", worker, session.id, source.id],
+            cwd=tmp_path,
             env=dict(os.environ, PYTHONPATH=str(PROJECT_ROOT), TZ="America/Los_Angeles"),
             capture_output=True,
             text=True,
-            timeout=180,
+            timeout=120,
             check=False,
         )
         assert process.returncode == 0, process.stdout + process.stderr
-        reports.append(read(output))
+        reports.append(__import__("json").loads(process.stdout.splitlines()[-1]))
     assert len({os.getpid(), *(report["pid"] for report in reports)}) == 3
-    assert all(report["source_and_timezone_forbidden"] is True for report in reports)

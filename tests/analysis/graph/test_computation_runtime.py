@@ -23,7 +23,6 @@ import pytest
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.analysis import runtime_metric as rm
 from tests.datasource.source_cases import source_params
 
 _ROWS = "INSERT INTO orders VALUES (1,'2026-07-01',15.75,5.25,3), (2,'2026-07-01',4.25,1.75,1)"
@@ -45,7 +44,6 @@ def computation_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.S
     )
     (semantic / "orders.py").write_text(
         "import decimal\n"
-        "import ibis\n"
         "import marivo.datasource as md\n"
         "import marivo.semantic as ms\n"
         "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
@@ -58,31 +56,63 @@ def computation_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.S
         "amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
         "cost = ms.measure_column(name='cost', entity=orders, column='cost', additivity=ms.additive_all())\n"
         "quantity = ms.measure_column(name='quantity', entity=orders, column='quantity', additivity=ms.additive_all())\n"
-        "@ms.measure(entity=orders, additivity=ms.additive_all())\n"
-        "def net(orders_table):\n"
-        "    return orders_table.amount * orders_table.quantity\n"
-        "@ms.measure(entity=orders, additivity=ms.additive_all())\n"
-        "def minus_one(orders_table):\n"
-        "    return orders_table.amount - ibis.literal(\n"
-        "        decimal.Decimal('1.00'), type='decimal(3,2)'\n"
-        "    )\n"
-        "@ms.measure(entity=orders, additivity=ms.additive_all())\n"
-        "def double_quantity(orders_table):\n"
-        "    return orders_table.quantity * 2\n"
-        "net_total = ms.aggregate(name='net_total', measure=net, agg='sum')\n"
-        "minus_sum = ms.aggregate(name='minus_sum', measure=minus_one, agg='sum')\n"
-        "minus_min = ms.aggregate(name='minus_min', measure=minus_one, agg='min')\n"
-        "minus_max = ms.aggregate(name='minus_max', measure=minus_one, agg='max')\n"
-        "double_sum = ms.aggregate(name='double_sum', measure=double_quantity, agg='sum')\n"
-        "double_count = ms.aggregate(name='double_count', measure=double_quantity, agg='count')\n"
-        "double_min = ms.aggregate(name='double_min', measure=double_quantity, agg='min')\n"
-        "double_max = ms.aggregate(name='double_max', measure=double_quantity, agg='max')\n"
-        "gmv = ms.aggregate(name='gmv', measure=amount, agg='sum')\n"
-        "cost_total = ms.aggregate(name='cost_total', measure=cost, agg='sum')\n"
-        "quantity_total = ms.aggregate(name='quantity_total', measure=quantity, agg='sum')\n"
-        "gmv_quantity = ms.count(name='gmv_quantity', entity=orders)\n"
-        "net_weighted = ms.weighted_mean(name='net_weighted', value=net, weight=quantity)\n"
-        "net_revenue = ms.linear(name='net_revenue', add=[gmv], subtract=[cost_total])\n"
+        "frozen = ms.finalize()\n"
+        "amount_value = frozen.resolve(amount)\n"
+        "cost_value = frozen.resolve(cost)\n"
+        "quantity_value = frozen.resolve(quantity)\n"
+        "orders_value = frozen.resolve(orders)\n"
+        "one = decimal.Decimal('1.00')\n"
+        "@ms.measure(additivity=ms.additive_all())\n"
+        "def net():\n"
+        "    return amount_value * quantity_value\n"
+        "@ms.measure(additivity=ms.additive_all())\n"
+        "def minus_one():\n"
+        "    return amount_value - one\n"
+        "@ms.measure(additivity=ms.additive_all())\n"
+        "def double_quantity():\n"
+        "    return quantity_value * 2\n"
+        "@ms.metric()\n"
+        "def net_total():\n"
+        "    return net.sum()\n"
+        "@ms.metric()\n"
+        "def minus_sum():\n"
+        "    return minus_one.sum()\n"
+        "@ms.metric()\n"
+        "def minus_min():\n"
+        "    return minus_one.min()\n"
+        "@ms.metric()\n"
+        "def minus_max():\n"
+        "    return minus_one.max()\n"
+        "@ms.metric()\n"
+        "def double_sum():\n"
+        "    return double_quantity.sum()\n"
+        "@ms.metric()\n"
+        "def double_count():\n"
+        "    return double_quantity.count()\n"
+        "@ms.metric()\n"
+        "def double_min():\n"
+        "    return double_quantity.min()\n"
+        "@ms.metric()\n"
+        "def double_max():\n"
+        "    return double_quantity.max()\n"
+        "@ms.metric()\n"
+        "def gmv():\n"
+        "    return amount_value.sum()\n"
+        "@ms.metric()\n"
+        "def cost_total():\n"
+        "    return cost_value.sum()\n"
+        "@ms.metric()\n"
+        "def quantity_total():\n"
+        "    return quantity_value.sum()\n"
+        "@ms.metric()\n"
+        "def gmv_quantity():\n"
+        "    return orders_value.count()\n"
+        "@ms.metric()\n"
+        "def net_weighted():\n"
+        "    return net.weighted_mean(weight=quantity_value)\n"
+        "@ms.metric()\n"
+        "def net_revenue():\n"
+        "    return gmv - cost_total\n"
     )
     with duckdb.connect(str(tmp_path / "warehouse.duckdb")) as connection:
         connection.execute(
@@ -93,13 +123,8 @@ def computation_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.S
     return mv.session.get_or_create("computation", report_timezone="UTC")
 
 
-def _aggregate(session: mv.Session, metric: str) -> mv.MaterializedNumericRelation:
-    return (
-        session.members(ms.ref.entity("sales.orders"))
-        .observe(ms.ref.metric(f"sales.{metric}"), by=(mv.member(),))
-        .rollup()
-        .execute()
-    )
+def _aggregate(session: mv.Session, metric: str) -> mv.Artifact:
+    return session.observe({"value": session.catalog.metrics.get(f"sales.{metric}")}).execute()
 
 
 def _semantic_value(session: mv.Session, metric: str) -> object:
@@ -140,20 +165,12 @@ def test_computed_measure_integer_arithmetic_aggregates_exactly(
 def test_runtime_linear_over_int64_measures_stays_int64(
     computation_session: mv.Session,
 ) -> None:
-    expression = rm.linear(
-        add=[ms.ref.metric("sales.quantity_total"), ms.ref.metric("sales.gmv_quantity")],
-        subtract=[ms.ref.metric("sales.quantity_total")],
-        label="net_quantity",
-    )
-    result = (
-        computation_session.members(ms.ref.entity("sales.orders"))
-        .observe(expression, by=(mv.member(),))
-        .rollup()
-        .execute()
-    )
+    quantity = computation_session.catalog.metrics.get("sales.quantity_total")
+    count = computation_session.catalog.metrics.get("sales.gmv_quantity")
+    result = computation_session.observe({"value": quantity + count - quantity}).execute()
     rows = result.to_pandas()
-    assert pd.api.types.is_integer_dtype(rows["value"])
-    assert rows["value"].iloc[0] == 2
+    assert pd.api.types.is_integer_dtype(rows[("value", "value")])
+    assert rows[("value", "value")].iloc[0] == 2
 
 
 def test_catalog_linear_over_decimal_metrics_publishes_exact_decimal(
@@ -161,8 +178,8 @@ def test_catalog_linear_over_decimal_metrics_publishes_exact_decimal(
 ) -> None:
     result = _aggregate(computation_session, "net_revenue")
     rows = result.to_pandas()
-    assert isinstance(rows["value"].iloc[0], Decimal)
-    assert rows["value"].iloc[0] == Decimal("13.00")
+    assert isinstance(rows[("value", "value")].iloc[0], Decimal)
+    assert rows[("value", "value")].iloc[0] == Decimal("13.00")
 
 
 def test_weighted_mean_over_computed_measure_executes(
@@ -174,8 +191,8 @@ def test_weighted_mean_over_computed_measure_executes(
 
 def test_direct_column_decimal_measure_regression(computation_session: mv.Session) -> None:
     rows = _aggregate(computation_session, "gmv").to_pandas()
-    assert isinstance(rows["value"].iloc[0], Decimal)
-    assert rows["value"].iloc[0] == Decimal("20.00")
+    assert isinstance(rows[("value", "value")].iloc[0], Decimal)
+    assert rows[("value", "value")].iloc[0] == Decimal("20.00")
 
 
 # ---------------------------------------------------------------------------
@@ -301,14 +318,27 @@ def _remote_project_session(
         "'weight': 'weight'}), primary_key=['id'])\n"
         "amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
         "weight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\n"
-        "@ms.measure(entity=orders, additivity=ms.additive_all())\n"
-        "def net(orders_table):\n"
-        "    return orders_table.amount * orders_table.weight\n"
-        "net_total = ms.aggregate(name='net_total', measure=net, agg='sum')\n"
-        "amount_total = ms.aggregate(name='amount_total', measure=amount, agg='sum')\n"
-        "weight_total = ms.aggregate(name='weight_total', measure=weight, agg='sum')\n"
-        "amount_mean = ms.aggregate(name='amount_mean', measure=amount, agg='mean')\n"
-        "net_linear = ms.linear(name='net_linear', add=[amount_total], subtract=[amount_total])\n"
+        "frozen = ms.finalize()\n"
+        "amount_value = frozen.resolve(amount)\n"
+        "weight_value = frozen.resolve(weight)\n"
+        "@ms.measure(additivity=ms.additive_all())\n"
+        "def net():\n"
+        "    return amount_value * weight_value\n"
+        "@ms.metric()\n"
+        "def net_total():\n"
+        "    return net.sum()\n"
+        "@ms.metric()\n"
+        "def amount_total():\n"
+        "    return amount_value.sum()\n"
+        "@ms.metric()\n"
+        "def weight_total():\n"
+        "    return weight_value.sum()\n"
+        "@ms.metric()\n"
+        "def amount_mean():\n"
+        "    return amount_value.mean()\n"
+        "@ms.metric()\n"
+        "def net_linear():\n"
+        "    return amount_total - amount_total\n"
     )
     return mv.session.get_or_create(f"c4-{backend}", report_timezone="UTC")
 
@@ -368,11 +398,7 @@ def test_mysql_decimal_mean_stays_rejected_until_the_mean_equation_lands(
     _create_remote_table(backend, table)
     try:
         session = _remote_project_session(tmp_path, monkeypatch, backend, table)
-        logical = (
-            session.members(ms.ref.entity("sales.orders"))
-            .observe(ms.ref.metric("sales.amount_mean"), by=(mv.member(),))
-            .rollup()
-        )
+        logical = session.observe({"value": session.catalog.metrics.get("sales.amount_mean")})
         with pytest.raises(AnalysisError):
             logical.execute()
     finally:
@@ -436,13 +462,24 @@ def trino_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[m
             "'weight': 'weight'}), primary_key=['id'])\n"
             "amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
             "weight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\n"
-            "@ms.measure(entity=orders, additivity=ms.additive_all())\n"
-            "def net(orders_table):\n"
-            "    return orders_table.amount * orders_table.weight\n"
-            "net_total = ms.aggregate(name='net_total', measure=net, agg='sum')\n"
-            "amount_total = ms.aggregate(name='amount_total', measure=amount, agg='sum')\n"
-            "weight_total = ms.aggregate(name='weight_total', measure=weight, agg='sum')\n"
-            "amount_mean = ms.aggregate(name='amount_mean', measure=amount, agg='mean')\n"
+            "frozen = ms.finalize()\n"
+            "amount_value = frozen.resolve(amount)\n"
+            "weight_value = frozen.resolve(weight)\n"
+            "@ms.measure(additivity=ms.additive_all())\n"
+            "def net():\n"
+            "    return amount_value * weight_value\n"
+            "@ms.metric()\n"
+            "def net_total():\n"
+            "    return net.sum()\n"
+            "@ms.metric()\n"
+            "def amount_total():\n"
+            "    return amount_value.sum()\n"
+            "@ms.metric()\n"
+            "def weight_total():\n"
+            "    return weight_value.sum()\n"
+            "@ms.metric()\n"
+            "def amount_mean():\n"
+            "    return amount_value.mean()\n"
         )
         yield mv.session.get_or_create("c4-trino", report_timezone="UTC")
     finally:
@@ -455,14 +492,8 @@ def test_trino_computed_measure_decimal_sum_is_exact(
     trino_session: mv.Session,
 ) -> None:
     # 15.75 * 3 + 4.25 * 1 = 51.50, exact through Trino DECIMAL arithmetic.
-    rows = (
-        trino_session.members(ms.ref.entity("sales.orders"))
-        .observe(ms.ref.metric("sales.net_total"), by=(mv.member(),))
-        .rollup()
-        .execute()
-        .to_pandas()
-    )
-    value = rows["value"].iloc[0]
+    rows = _aggregate(trino_session, "net_total").to_pandas()
+    value = rows[("value", "value")].iloc[0]
     assert isinstance(value, Decimal)
     assert value == Decimal("51.50")
 
@@ -472,27 +503,28 @@ def test_trino_decimal_mean_keeps_rejection(trino_session: mv.Session) -> None:
     """AVG stays at the input scale and rounds, so the mean cell stays closed."""
     from marivo.analysis.errors import AnalysisError
 
-    logical = (
-        trino_session.members(ms.ref.entity("sales.orders"))
-        .observe(ms.ref.metric("sales.amount_mean"), by=(mv.member(),))
-        .rollup()
+    logical = trino_session.observe(
+        {"value": trino_session.catalog.metrics.get("sales.amount_mean")}
     )
     with pytest.raises(AnalysisError):
         logical.execute()
 
 
 @pytest.mark.parametrize("metric", ("net_total", "net_weighted"))
-def test_computed_measure_graph_rejects_before_business_reads_and_run(
+def test_computed_measure_graph_reads_only_at_execute(
     computation_session: mv.Session, metric: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.errors import AnalysisError
     from marivo.datasource.adapters import SourceSession
 
     def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("unqualified computed graph read business rows")
+        raise AssertionError("computed graph read business rows before execute")
 
-    monkeypatch.setattr(SourceSession, "execute", forbidden)
-    members = computation_session.members(ms.ref.entity("sales.orders"))
-    with pytest.raises(AnalysisError, match="Measure is not a frozen direct column"):
-        members.observe(ms.ref.metric(f"sales.{metric}"), by=(mv.member(),))
-    assert computation_session.runs().items == ()
+    with monkeypatch.context() as patch:
+        patch.setattr(SourceSession, "execute", forbidden)
+        query = computation_session.observe(
+            {"value": computation_session.catalog.metrics.get(f"sales.{metric}")}
+        )
+        query.contract()
+        assert computation_session.runs().items == ()
+    expected = Decimal("51.50") if metric == "net_total" else 36.5
+    assert query.execute().to_pandas()[("value", "value")].iloc[0] == expected

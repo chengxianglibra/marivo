@@ -38,6 +38,12 @@ from marivo._definition.expressions import (
     SourceAggregate,
     SourceWeightedMean,
 )
+from marivo._definition.query import (
+    FilterValues,
+    PopulationValues,
+    ResultQuery,
+    operation_dependencies,
+)
 from marivo._definition.relations import (
     CalendarKeys,
     LiteralPopulation,
@@ -207,11 +213,24 @@ def children(node: DefinitionNode) -> tuple[Edge, ...]:
                 *_population_inputs("samples", node.samples),
             )
         case MemberCount():
-            return _edges(("members", node.population))
+            return ()
         case PopulationProgram():
             return _edges(("population", node.root))
         case QueryKeys():
             return _edges(("query", node.query))
+        case ResultQuery():
+            return _edges(
+                *(
+                    ("query", item)
+                    for item in (*node.inputs, *operation_dependencies(node.operation))
+                ),
+                *(("population", node.operation.definition),)
+                if isinstance(node.operation, PopulationValues)
+                else (),
+                *_predicate_inputs(node.operation.predicate)
+                if isinstance(node.operation, FilterValues)
+                else (),
+            )
         case PopulationClassify() | PopulationProject():
             return _edges(("population", node.operand))
         case PopulationProduct():
@@ -238,6 +257,11 @@ def children(node: DefinitionNode) -> tuple[Edge, ...]:
                 *(
                     (Edge("population", len(node.metrics), node.population),)
                     if node.population is not None
+                    else ()
+                ),
+                *(
+                    (Edge("members", len(node.metrics) + 1, node.members),)
+                    if node.members is not None
                     else ()
                 ),
             )

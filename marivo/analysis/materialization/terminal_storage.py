@@ -74,7 +74,7 @@ def canonical_frame(schema: DataSchema, rows: pd.DataFrame) -> pd.DataFrame:
     frame = normalize_stage_frame(rows, schema.columns, schema.key_fields)
     if schema.key_fields:
         frame = frame.sort_values(
-            list(schema.key_fields), kind="stable", na_position="last"
+            list(schema.key_fields), kind="stable", na_position="first"
         ).reset_index(drop=True)
     for column in schema.columns:
         array = pa.array(frame[column.slot_id], from_pandas=True)

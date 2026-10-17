@@ -1,105 +1,89 @@
-"""Public dual comparison journeys with independent fixture-fact expectations."""
+"""Public comparison output, nullable columns and independent cold recovery."""
 
 from __future__ import annotations
 
+from dataclasses import replace
+from decimal import Decimal
+
+import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCase, DslCaseFactory
 
 
-def test_alignment_has_checked_exact_and_default_keep() -> None:
-    assert mv.outer() == mv.outer(missing="keep")
-    assert mv.exact(time=mv.ordinal()).time == mv.ordinal()
-    assert not hasattr(mv.exact(), "verification")
+def _monthly(case: DslCase, start: str, end: str, metric: str = "revenue") -> mv.Query:
+    session = case.session
+    members = session.members(ms.ref.entity("sales.customer"))
+    return session.observe(
+        {"value": session.catalog.metrics.get("sales." + metric)},
+        during=session.time_scope(start=start, end=end),
+        by=members,
+    )
+
+
+def test_correspondence_factories_are_axis_free_and_checked() -> None:
+    assert mv.ordinal() == mv.ordinal()
+    assert mv.period_offset(-1) == mv.period_offset(by=-1)
+    assert mv.previous_year() == mv.previous_year()
+    with pytest.raises(AnalysisError):
+        mv.period_offset(True)
     with pytest.raises(TypeError):
-        mv.exact(**{"trust": "declared"})
+        mv.ordinal(**{"trust": "declared"})
 
 
-def test_comparison_owns_independent_cells_and_typed_views(
+def test_comparison_owns_independent_nullable_columns(
     analysis_dsl_case_factory: DslCaseFactory, capsys: pytest.CaptureFixture[str]
 ) -> None:
     from tests.shared_fixtures import run_ids
 
     case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    metric, via = ms.ref.metric("sales.revenue"), ms.ref.relationship("sales.order_buyer")
-    current = members.observe(
-        metric,
-        during=mv.time_scope(start="2026-09-01", end="2026-10-01"),
-        via=via,
-        by=(mv.member(),),
-    )
-    baseline = members.observe(
-        metric,
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=via,
-        by=(mv.member(),),
-    )
-    assert isinstance(current, mv.LogicalNumericRelation)
-    assert isinstance(baseline, mv.LogicalNumericRelation)
-    first, second = current, baseline
-    comparison = first.compare(second)
-    assert isinstance(comparison, mv.LogicalComparisonResult)
-    assert isinstance(comparison.absolute, mv.LogicalDifferenceRelation)
-    assert isinstance(comparison.relative, mv.LogicalNumericRelation)
-    assert not hasattr(comparison, "value")
+    current = _monthly(case, "2026-09-01", "2026-10-01")
+    baseline = _monthly(case, "2026-08-01", "2026-09-01")
+    comparison = current.compare(baseline)
+    assert isinstance(comparison, mv.Query)
     before = run_ids(case.session)
-    comparison.show()
-    logical_card = capsys.readouterr().out
-    assert "absolute" in logical_card and "relative" in logical_card
-    assert "absolute_unit" in logical_card and "relative_unit" in logical_card
+    comparison.contract().show()
+    assert "execute" in capsys.readouterr().out
     assert run_ids(case.session) == before
-    assert "design=time" in repr(comparison) and "\n" not in repr(comparison)
+    assert "\n" not in repr(comparison)
+    relative = comparison.select({"value": comparison["value.relative"]})
+    defined = relative.where(~relative["value"].is_null())
+    total = defined.reduce({"value": defined["value"].sum()})
     result = comparison.execute()
-    assert isinstance(result, mv.MaterializedComparisonResult)
-    frame = result.to_pandas().set_index("member")
-    assert frame.loc["A", "absolute"] == -30
-    assert frame.loc["A", "relative"] == -0.5
-    assert frame.loc["C", "absolute_cell_tag"] == "defined"
-    assert frame.loc["C", "absolute"] == 0
-    assert frame.loc["C", "relative_cell_reason"] == "zero_baseline"
-    assert frame.loc["D", "absolute_cell_reason"] == "empty_contribution"
-    assert frame.loc["D", "relative_cell_reason"] == "empty_contribution"
-    assert isinstance(result.absolute, mv.MaterializedDifferenceRelation)
-    assert isinstance(result.relative, mv.MaterializedNumericRelation)
-    for view in (comparison.absolute, comparison.relative, result.absolute, result.relative):
-        calls = tuple(action.call for action in view.contract().actions)
-        assert any(call.startswith("relation.where(") for call in calls)
-        assert any(call.startswith("relation.aggregate(") for call in calls)
+    assert isinstance(result, mv.Artifact)
+    exported = result.to_pandas()
+    frame = exported.set_index(exported.columns[0])
+    assert frame[("value", "value.current")].tolist() == [30, 200, 0, 0]
+    assert frame[("value", "value.baseline")].tolist() == [60, 120, 0, 0]
+    assert frame[("value", "value.absolute")].tolist() == [-30, 80, 0, 0]
+    assert frame[("value", "value.relative")].iloc[:2].tolist() == pytest.approx([-0.5, 2 / 3])
+    assert frame[("value", "value.relative")].iloc[2:].isna().all()
+    assert frame["presence"].all().all()
+    filtered = defined.execute().to_pandas()
+    assert filtered.iloc[:, 0].tolist() == ["A", "B"]
+    assert total.execute().to_pandas()[("value", "value")].tolist() == pytest.approx([1 / 6])
     result.show()
-    materialized_card = capsys.readouterr().out
-    assert "absolute" in materialized_card and "relative" in materialized_card
-    assert "absolute_unit" in materialized_card and "relative_unit" in materialized_card
-    assert (
-        result.absolute.evidence_digest()
-        == result.evidence_digest()
-        == result.relative.evidence_digest()
-    )
-    absolute, relative = comparison.absolute, comparison.relative
-    assert sorted(
-        relative.where(relative.value.is_defined()).execute().to_pandas()["member"].tolist()
-    ) == ["A", "B"]
-    defined = relative.where(relative.value.is_defined())
-    # Fixture facts give A=(30-60)/60=-1/2 and B=(200-120)/120=2/3.
-    assert defined.aggregate(mv.sum()).execute().to_pandas()["value"].tolist() == pytest.approx(
-        [1 / 6]
-    )
-    fixed = current.execute().compare(baseline.execute()).execute()
-    assert isinstance(fixed, mv.MaterializedComparisonResult)
-    assert fixed.to_pandas().equals(result.to_pandas())
-    fixed_relative = fixed.relative.where(fixed.relative.value.is_defined())
-    assert fixed_relative.aggregate(mv.sum()).execute().to_pandas()[
-        "value"
-    ].tolist() == pytest.approx([1 / 6])
+    card = capsys.readouterr().out
+    assert "value.absolute" in card and "value.relative" in card
+    assert result.evidence_digest() == case.session.artifact(result.id).evidence_digest()
+    pd.testing.assert_frame_equal(case.session.artifact(result.id).to_pandas(), exported)
+    # Exported values can be analyzed without constructing another execution.
+    assert frame[("value", "value.relative")].dropna().sum() == pytest.approx(1 / 6)
+    before = run_ids(case.session)
     with pytest.raises(AnalysisError):
-        first.compare(first)
+        current.compare(result)  # type: ignore[arg-type]  # Exercise the runtime Artifact boundary.
+    assert run_ids(case.session) == before
+    same = current.compare(current).execute().to_pandas()
+    assert same[("value", "value.absolute")].tolist() == [0, 0, 0, 0]
+    assert same[("value", "value.relative")].iloc[:2].tolist() == [0.0, 0.0]
+    assert same[("value", "value.relative")].iloc[2:].isna().all()
 
 
 @pytest.mark.slow
-def test_dual_artifact_and_views_recover_without_sources(
+def test_comparison_columns_recover_without_sources(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     import os
@@ -110,37 +94,25 @@ def test_dual_artifact_and_views_recover_without_sources(
     from tests.support.paths import PROJECT_ROOT
 
     case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    channel = ms.ref.dimension("sales.order.channel")
-    current = members.observe(
-        ms.ref.metric("sales.order_count"),
-        during=mv.time_scope(start="2026-09-01", end="2026-10-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(), channel),
-    )
-    baseline = members.observe(
-        ms.ref.metric("sales.order_count"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(), channel),
-    )
-    result = current.rollup().compare(baseline.rollup()).execute()
+    current = _monthly(case, "2026-09-01", "2026-10-01", "order_count")
+    baseline = _monthly(case, "2026-08-01", "2026-09-01", "order_count")
+    current_total = current.reduce({"value": current["value"].sum()})
+    baseline_total = baseline.reduce({"value": baseline["value"].sum()})
+    result = current_total.compare(baseline_total).execute()
     before = run_ids(case.session)
-    assert result.absolute.state.artifact_ref == result.state.artifact_ref
-    assert result.relative.state.artifact_ref == result.state.artifact_ref
-    result.absolute.to_pandas()
-    result.relative.to_pandas()
-    assert run_ids(case.session) == before
     frame = result.to_pandas()
-    frame.iloc[0, frame.columns.get_loc("absolute")] = 999
-    assert result.to_pandas().iloc[0]["absolute"] != 999
+    assert frame[("value", "value.current")].tolist() == [3]
+    assert frame[("value", "value.baseline")].tolist() == [4]
+    assert frame[("value", "value.absolute")].tolist() == [-1]
+    assert frame[("value", "value.relative")].tolist() == [-0.25]
+    position = frame.columns.get_loc(("value", "value.absolute"))
+    assert isinstance(position, int)
+    frame.iloc[0, position] = 999
+    assert result.to_pandas()[("value", "value.absolute")].tolist() == [-1]
+    assert run_ids(case.session) == before
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     (case.root / "models").rename(case.root / "models.offline")
-    completed = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            """
+    script = """
 import sys
 from unittest.mock import patch
 import duckdb
@@ -150,27 +122,21 @@ from marivo.datasource.adapters import SourceSession
 from tests.shared_fixtures import run_ids
 
 def forbidden(*args, **kwargs):
-    raise AssertionError("cold dual result cannot read sources")
-
-with patch.object(ms, "load", forbidden), patch.object(SourceSession, "__init__", forbidden), patch.object(duckdb, "connect", forbidden):
-    session = mv.session.resume(sys.argv[1], by="id")
-    result = session.artifact(sys.argv[2])
-    assert isinstance(result, mv.MaterializedComparisonResult)
+    raise AssertionError('cold comparison accessed Semantic or business rows')
+with patch.object(ms, 'load', forbidden), patch.object(SourceSession, '__init__', forbidden), patch.object(duckdb, 'connect', forbidden):
+    session = mv.session.resume(sys.argv[1], by='id')
     before = run_ids(session)
-    root = result.to_pandas()
-    absolute = result.absolute
-    relative = result.relative
-    assert isinstance(absolute, mv.MaterializedDifferenceRelation)
-    assert isinstance(relative, mv.MaterializedNumericRelation)
-    assert absolute.to_pandas().iloc[0]["value"] == root.iloc[0]["absolute"]
-    assert relative.to_pandas().iloc[0]["value"] == root.iloc[0]["relative"]
+    result = session.artifact(sys.argv[2])
+    assert isinstance(result, mv.Artifact)
+    frame = result.to_pandas()
+    assert frame[('value', 'value.current')].tolist() == [3]
+    assert frame[('value', 'value.baseline')].tolist() == [4]
+    assert frame[('value', 'value.absolute')].tolist() == [-1]
+    assert frame[('value', 'value.relative')].dropna().tolist() == [-0.25]
     assert run_ids(session) == before
-    defined = relative.where(relative.value.is_defined()).execute()
-    assert len(defined.to_pandas()) == 1
-""",
-            case.session.id,
-            result.state.artifact_ref.ref,
-        ],
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", script, case.session.id, result.id],
         cwd=case.root,
         env=dict(os.environ, PYTHONPATH=str(PROJECT_ROOT), MARIVO_TELEMETRY="off"),
         capture_output=True,
@@ -181,12 +147,10 @@ with patch.object(ms, "load", forbidden), patch.object(SourceSession, "__init__"
     assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
-def test_relative_decimal_overflow_prevents_absolute_publication(
+def test_decimal_absolute_keeps_precision_and_relative_uses_float(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     import duckdb
-
-    from tests.analysis.materialization.publication_fixtures import publication_counts
 
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as connection:
@@ -194,58 +158,37 @@ def test_relative_decimal_overflow_prevents_absolute_publication(
             'ALTER TABLE "order" ALTER amount TYPE DECIMAL(38,38) '
             "USING CAST(amount * 0.001 AS DECIMAL(38,38))"
         )
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    metric, via = ms.ref.metric("sales.revenue"), ms.ref.relationship("sales.order_buyer")
-    current = members.observe(
-        metric,
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=via,
-        by=(mv.member(),),
-    )
-    baseline = members.observe(
-        metric,
-        during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
-        via=via,
-        by=(mv.member(),),
-    )
-    for fixed in (False, True):
-        left, right = (current.execute(), baseline.execute()) if fixed else (current, baseline)
-        before = publication_counts(case.session)
-        # C has absolute=-0.05 and relative=-1, outside DECIMAL(38,38)'s range.
-        with pytest.raises(AnalysisError, match="relative comparison finish failed"):
-            left.compare(right).absolute.execute()
-        assert publication_counts(case.session) == before
+    current = _monthly(case, "2026-08-01", "2026-09-01")
+    baseline = _monthly(case, "2026-07-01", "2026-08-01")
+    frame = current.compare(baseline).execute().to_pandas()
+    frame = frame.set_index(frame.columns[0])
+    assert frame.loc["C", ("value", "value.absolute")] == Decimal("-0.05")
+    assert frame.loc["C", ("value", "value.relative")] == -1.0
+    # A zero denominator rejects the whole comparison before any partial output.
+    before = case.session.graph().artifacts
+    with pytest.raises(AnalysisError):
+        current.compare(baseline, zero_denominator="error").execute()
+    assert case.session.graph().artifacts == before
 
 
-def test_dual_exchange_rejects_incomplete_or_forged_views(
+def test_comparison_output_rejects_incomplete_and_forged_columns(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-
-    from marivo.analysis.materialization.errors import MaterializationError
-    from marivo.analysis.materialization.graph_exchange import from_pandas
+    from marivo.analysis.materialization.terminal_storage import read_output
 
     case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    current = members.observe(
-        ms.ref.metric("sales.order_count"),
-        during=mv.time_scope(start="2026-09-01", end="2026-10-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    baseline = members.observe(
-        ms.ref.metric("sales.order_count"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
+    current = _monthly(case, "2026-09-01", "2026-10-01", "order_count")
+    baseline = _monthly(case, "2026-08-01", "2026-09-01", "order_count")
     saved = current.compare(baseline).execute()
-    assert saved._dataset is not None
-    checked = saved._dataset.verified()
-    parts = tuple(part for part in checked.parts if part.role != "comparison")
-    with pytest.raises(MaterializationError, match="missing, reordered or extra method state part"):
-        from_pandas(
-            checked.primary,
-            checked.contract,
-            parts=parts,
-            completed_checks=checked.completed_checks,
+    data = saved._manifest.data
+    assert len(data.schema.values) == 4 and len(data.schema.presence) == 2
+    with pytest.raises(AnalysisError):
+        read_output(case.root, replace(data.schema, values=data.schema.values[:-1]), data.rows)
+    with pytest.raises(AnalysisError):
+        replace(data.schema, presence=(replace(data.schema.presence[0], nullable=True),))
+    with pytest.raises(AnalysisError):
+        replace(
+            data,
+            coordinate_projections=(replace(data.coordinate_projections[0], columns=("forged",)),),
         )
+    assert saved.to_pandas()[("value", "value.absolute")].tolist() == [0, 0, 0, -1]

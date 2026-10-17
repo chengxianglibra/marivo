@@ -42,7 +42,7 @@ Calendar identity 管理边界与成员。分析对齐使用这些认证事实�
 
 ## 命名时间发生项
 
-Sales.campaigns Entity 声明了 campaign identity 和具有确切时间含义的起止边界。观察还需要 `sales.customer`、`sales.order_buyer` 关系，以及 `revenue = ms.ref.metric("sales.revenue")`。
+Sales.campaigns Entity 声明了 campaign identity 和具有确切时间含义的起止边界。观察还需要 `sales.customer`、`sales.order_buyer` 关系，以及 解析后的 `sales.revenue` Metric。
 
 {/* example: temporal-set */}
 
@@ -64,11 +64,9 @@ catalog.preview(
 campaigns = catalog.temporal_sets.get("sales.campaigns")
 launch = campaigns.occurrence("spring-2026")
 members = session.members(ms.ref.entity("sales.customer"))
-dataset = members.observe(
-    revenue,
-    during=launch,
-    via=ms.ref.relationship("sales.order_buyer"),
-    by=(mv.member(),),
+revenue = session.catalog.metrics.get("sales.revenue")
+query = session.observe(
+    {"revenue": revenue}, during=launch, members=members, by=(mv.member(),)
 )
 ```
 

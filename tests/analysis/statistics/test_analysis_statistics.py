@@ -1,242 +1,100 @@
-"""Public source and fixed statistical graph execution."""
+"""Statistics use complete terminal exports and explicit pandas calculations."""
 
-from decimal import Decimal
+from itertools import combinations
+from typing import Literal
 
+import pandas as pd
 import pytest
 
-import marivo.analysis as mv
-import marivo.semantic as ms
-from marivo.analysis.errors import AnalysisError, StatisticalRelationError
-from marivo.analysis.evidence._dataset_types import AssociationFindingValueV1
-from tests.shared_fixtures import DslCaseFactory
+from marivo.analysis.errors import AnalysisError
+from tests.analysis.statistics.pandas_workflows import (
+    ForecastModel,
+    assert_clean,
+    daily,
+    forecast,
+    monthly,
+    plain,
+)
+from tests.shared_fixtures import DslCaseFactory, run_ids
 
 
-def test_public_source_association_and_spearman_fixed_continuation(
+@pytest.mark.parametrize("method", ("pearson", "spearman", "kendall"))
+def test_exported_quantities_support_pandas_association_and_reopening(
+    analysis_dsl_case_factory: DslCaseFactory, method: Literal["pearson", "spearman", "kendall"]
+) -> None:
+    case = analysis_dsl_case_factory("j4")
+    artifact = monthly(case, "2026-08-01", "2026-09-01").execute()
+    frame = plain(artifact)
+    before = run_ids(case.session)
+    coefficients = frame[["value", "count"]].astype(float).corr(method=method)
+    coefficient = coefficients.loc["value", "count"]
+    assert isinstance(coefficient, float)
+    assert -1 <= coefficient <= 1
+    restored = plain(case.session.artifact(artifact.id))
+    pd.testing.assert_frame_equal(restored, frame)
+    assert (
+        restored[["value", "count"]].astype(float).corr(method=method).loc["value", "count"]
+        == coefficient
+    )
+    assert run_ids(case.session) == before
+    assert not hasattr(artifact, "correlate")
+
+
+@pytest.mark.parametrize("model", ("naive", "drift", "seasonal_naive"))
+def test_exported_history_supports_three_pandas_forecast_models(
+    analysis_dsl_case_factory: DslCaseFactory, model: ForecastModel
+) -> None:
+    case = analysis_dsl_case_factory("j2")
+    artifact = daily(case).execute()
+    history = plain(artifact)
+    before = run_ids(case.session)
+    prediction = forecast(history.value, model)
+    assert len(prediction) == 2
+    assert (prediction.lower <= prediction.prediction).all()
+    assert (prediction.upper >= prediction.prediction).all()
+    pd.testing.assert_frame_equal(
+        forecast(plain(case.session.artifact(artifact.id)).value, model), prediction
+    )
+    for level in (0.0, 1.0, float("nan"), float("inf")):
+        with pytest.raises(ValueError):
+            forecast(history.value, model, level=level)
+    assert run_ids(case.session) == before
+    assert not hasattr(artifact, "forecast")
+
+
+def test_exported_quantities_support_all_requested_pandas_pairs(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j4")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    via = ms.ref.relationship("sales." + case.names.buyer)
-    during = mv.time_scope(start="2026-08-01", end="2026-09-01")
-    a = members.observe(
-        ms.ref.metric("sales.revenue"),
-        during=during,
-        via=via,
-        by=(mv.member(),),
-    )
-    b = members.observe(
-        ms.ref.metric("sales.order_count"),
-        during=during,
-        via=via,
-        by=(mv.member(),),
-    )
-    for method in ("pearson", "spearman", "kendall"):
-        logical = a.correlate(b, method=method)
-        result = logical.execute()
-        rows = result.coefficient.to_pandas()
-        assert len(rows) == 1 and -1 <= rows.value.iloc[0] <= 1
-        assert result.selected.to_pandas().value.tolist() == [True]
-        assert logical.coefficient.execute().to_pandas().value.tolist() == rows.value.tolist()
-        if method != "spearman":
-            continue
-        assert result.contract().actions == (
-            mv.AnalysisAction("relation.coefficient", "analysis.MaterializedCoefficientRelation"),
-            mv.AnalysisAction("relation.selected", "analysis.MaterializedBooleanRelation"),
-            mv.AnalysisAction(
-                "relation.where(predicate)", "analysis.dsl.MaterializedAssociationResult.where"
-            ),
-        )
-        fixed = a.execute().correlate(b.execute(), method=method).execute()
-        assert fixed.coefficient.to_pandas().value.tolist() == rows.value.tolist()
-        ranking = result.coefficient.rank(order="descending", ties="dense").limit(1).execute()
-        assert ranking.values.to_pandas().value.tolist() == rows.value.tolist()
-        assert ranking.ranks.to_pandas().value.tolist() == [1]
-        table = mv.table(coefficient=result.coefficient, selected=result.selected).execute()
-        assert len(table.to_pandas()) == 1
-        assert len(result.findings().items) == 1
-        finding = result.finding(result.findings().items[0].finding_id)
-        assert isinstance(finding.value, AssociationFindingValueV1)
-        assert finding.value.coefficient == rows.value.iloc[0]
-        assert result.evidence_digest().finding_count == 1
-        selected = result.where(result.selected.value.eq(True)).execute()
-        assert selected.coefficient.to_pandas().value.tolist() == rows.value.tolist()
-        assert selected.evidence_digest().finding_count == result.evidence_digest().finding_count
-
-
-def test_public_source_fixed_forecast(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01", end="2026-08-04"), grain=mv.grain("day")
-    )
-    history = members.observe(
-        ms.ref.metric("sales.order_count"),
-        during=grid,
-        via=ms.ref.relationship("sales." + case.names.buyer),
-        by=(mv.member(),),
-    )
-    for name, model in (
-        ("naive", mv.naive()),
-        ("drift", mv.drift()),
-        ("seasonal_naive", mv.seasonal_naive(periods=2)),
-    ):
-        logical = history.forecast(horizon=mv.periods(2), model=model)
-        result = logical.execute()
-        prediction = result.prediction.to_pandas()
-        lower = result.lower.to_pandas()
-        upper = result.upper.to_pandas()
-        assert len(prediction) == 8
-        assert list(lower.value <= prediction.value) == [True] * 8
-        assert list(upper.value >= prediction.value) == [True] * 8
-        if name != "naive":
-            continue
-        assert logical.lower.execute().to_pandas().value.tolist() == lower.value.tolist()
-        fixed = history.execute().forecast(horizon=mv.periods(2), model=model).execute()
-        assert fixed.prediction.to_pandas().value.tolist() == prediction.value.tolist()
-        table = mv.table(
-            prediction=result.prediction, lower=result.lower, upper=result.upper
-        ).execute()
-        assert len(table.to_pandas()) == len(prediction)
-        assert len(result.findings().items) == len(prediction)
-        selected = result.where(result.prediction.value.gte(0)).execute()
-        assert len(selected.lower.to_pandas()) == int((prediction.value >= 0).sum())
-        assert selected.evidence_digest().finding_count == result.evidence_digest().finding_count
-        before = case.session.runs().items
-        for level in (0.0, 1.0, float("nan"), float("inf")):
-            with pytest.raises(StatisticalRelationError):
-                history.forecast(horizon=mv.periods(1), model=model, interval_level=level)
-            assert case.session.runs().items == before
-        with pytest.raises(AnalysisError):
-            result.lower.aggregate(mv.sum())
-
-
-def test_all_requested_pairs_and_static_ceiling(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    case = analysis_dsl_case_factory("j4")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    metric = ms.ref.metric("sales.order_count")
-    quantities = tuple(
-        members.observe(
-            mv.runtime_metric.linear(add=[metric] * (i + 1), label=f"times_{i}"),
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=ms.ref.relationship("sales." + case.names.buyer),
-            by=(mv.member(),),
-        )
-        for i in range(1, 4)
-    )
-    result = quantities[0].correlate(*quantities[1:]).execute()
-    rows = result.coefficient.to_pandas()
-    assert len(rows) == 3
-    assert rows.value.tolist() == [1.0] * 3
-    assert result.evidence_digest().finding_count == 3
-
-    model_file = case.root / "models/semantic/sales/models.py"
-    model_file.write_text(
-        model_file.read_text()
-        + "\n"
-        + "\n".join(
-            f"count_{i} = ms.count(name='count_{i}', entity=orders, time=ordered_at)"
-            for i in range(16)
-        )
-    )
-    ms.load(workspace_dir=case.root)
-    session = mv.session.get_or_create("dsl-j4-expanded", report_timezone="UTC")
-    members = session.members(ms.ref.entity("sales.customer"))
-    quantities = tuple(
-        members.observe(
-            ms.ref.metric(f"sales.count_{i}"),
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=ms.ref.relationship("sales." + case.names.buyer),
-            by=(mv.member(),),
-        )
-        for i in range(16)
-    )
-    with pytest.raises(StatisticalRelationError) as repeated:
-        quantities[0].correlate(quantities[0])
-    assert repeated.value.code == "r8.input_identity"
-    with pytest.raises(StatisticalRelationError) as ceiling:
-        quantities[0].correlate(*quantities[1:], lag_range=range(-1000000, 1000000))
-    assert ceiling.value.code == "r8.candidate_ceiling"
-
-
-@pytest.mark.parametrize("calendar", (False, True))
-def test_lag_counts_ties_and_approved_future(
-    analysis_dsl_case_factory: DslCaseFactory, calendar: bool
-) -> None:
-    from tests.analysis.statistics.deviation_fixture import prepare_profiles
-    from tests.analysis.statistics.deviation_time_worker import publish_calendar
-
-    case = analysis_dsl_case_factory("j2")
-    prepare_profiles(
-        case, "KS", "parquet", "us", "UTC", calendar, followup=True, profile_indices=(0, 5)
-    )
-    catalog = ms.load(workspace_dir=case.root)
-    if calendar:
-        publish_calendar(catalog, "UTC")
-    session = mv.session.get_or_create("lag-r84", report_timezone="UTC")
-    members = session.members(ms.ref.entity("sales.order"))
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01", end="2026-08-07" if calendar else "2026-08-04"),
-        grain=ms.calendar_grain(calendar=ms.ref.period_calendar("sales.unequal"), level="period")
-        if calendar
-        else mv.grain("day"),
-    )
-    a = (
-        members.observe(ms.ref.metric("sales.total_0"), during=grid, by=(mv.member(),))
-        .group_by(grid)
-        .rollup()
-    )
-    b = (
-        members.observe(ms.ref.metric("sales.total_5"), during=grid, by=(mv.member(),))
-        .group_by(grid)
-        .rollup()
-    )
-    result = a.correlate(b, lag_range=range(-2, 3)).execute()
-    rows = result.to_pandas().sort_values("lag")
-    assert rows.status.tolist() == [
-        "insufficient_pairs",
-        "valid",
-        "valid",
-        "valid",
-        "insufficient_pairs",
+    frame = plain(monthly(case, "2026-08-01", "2026-09-01").execute())
+    values = pd.DataFrame({f"times_{i}": frame["count"].astype(float) * i for i in range(1, 17)})
+    before = run_ids(case.session)
+    pairs = [
+        (left, right, values[left].corr(values[right])) for left, right in combinations(values, 2)
     ]
-    assert rows.matched_count.tolist() == [1, 2, 3, 2, 1]
-    assert rows.boundary_drop_count.tolist() == [2, 1, 0, 1, 2]
-    assert rows.complete_pair_count.tolist() == rows.matched_count.tolist()
-    assert rows.selected.tolist() == [False, False, True, False, False]
-    selected = result.where(result.selected.value.eq(True)).execute()
-    assert selected.evidence_digest().finding_count == 3
-    history_grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01", end="2026-08-04" if calendar else "2026-08-03"),
-        grain=ms.calendar_grain(calendar=ms.ref.period_calendar("sales.unequal"), level="period")
-        if calendar
-        else mv.grain("day"),
-    )
-    history = (
-        members.observe(
-            ms.ref.metric("sales.total_5"),
-            during=history_grid,
-            by=(mv.member(),),
-        )
-        .group_by(history_grid)
-        .rollup()
-    )
-    future = history.forecast(horizon=mv.periods(1)).execute()
-    assert future.prediction.to_pandas().value.iloc[0] == Decimal("0.000002")
-    assert future.lower.to_pandas().value.iloc[0] == Decimal("0.000000")
-    assert future.upper.to_pandas().value.iloc[0] == Decimal("0.000004")
-    fixed_a = a.execute()
-    assert isinstance(fixed_a, mv.MaterializedGroupedNumericRelation)
-    with pytest.raises(StatisticalRelationError) as missing:
-        fixed_a.where(fixed_a.value.gt(0)).forecast(horizon=mv.periods(1))
-    assert missing.value.code == "r8.grid_incomplete"
-    if calendar:
-        with pytest.raises(StatisticalRelationError) as exhausted:
-            a.forecast(horizon=mv.periods(1))
-        assert exhausted.value.code == "r8.future_grid"
+    assert len(pairs) == 120
+    assert [coefficient for _, _, coefficient in pairs] == pytest.approx([1.0] * 120)
+    assert run_ids(case.session) == before
+
+
+@pytest.mark.parametrize("lag", range(-2, 3))
+def test_pandas_lag_shift_preserves_nominal_grid_distance(
+    analysis_dsl_case_factory: DslCaseFactory, lag: int
+) -> None:
+    case = analysis_dsl_case_factory("j2")
+    history = plain(daily(case).execute())
+    before = run_ids(case.session)
+    # Pandas shift retains the nominal grid: filtering never compresses lag distance.
+    pairs = pd.DataFrame({"left": history.value, "right": history.value.shift(lag)})
+    assert len(pairs.dropna()) == 3 - abs(lag)
+    assert int(pairs.right.isna().sum()) == abs(lag)
+    if lag == 0:
+        assert pairs.astype(float).corr().loc["left", "right"] == pytest.approx(1.0)
+    elif abs(lag) == 1:
+        assert pd.isna(pairs.astype(float).corr().loc["left", "right"])
+    prediction = forecast(history.value, horizon=1)
+    assert len(prediction) == 1
+    assert run_ids(case.session) == before
 
 
 @pytest.mark.parametrize("point", ("insert_evidence", "insert_findings", "before_commit"))
@@ -244,61 +102,38 @@ def test_statistical_failure_is_atomic(
     analysis_dsl_case_factory: DslCaseFactory, point: str
 ) -> None:
     case = analysis_dsl_case_factory("j4")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    via = ms.ref.relationship("sales." + case.names.buyer)
-    during = mv.time_scope(start="2026-08-01", end="2026-09-01")
-    a = members.observe(
-        ms.ref.metric("sales.revenue"),
-        during=during,
-        via=via,
-        by=(mv.member(),),
-    )
-    b = members.observe(
-        ms.ref.metric("sales.order_count"),
-        during=during,
-        via=via,
-        by=(mv.member(),),
-    )
-    logical = a.correlate(b)
-    fixed = logical.execute()
+    query = monthly(case, "2026-08-01", "2026-09-01")
+    previous = query.execute()
+    saved = previous.to_pandas()
 
     def inject(actual: str) -> None:
         if actual == point:
-            raise RuntimeError("injected statistical publication failure")
+            raise RuntimeError("injected terminal publication failure")
 
     case.session._runtime._hook = inject
-    with pytest.raises(AnalysisError):
-        logical.execute()
-    case.session._runtime._hook = None
-    restored = case.session.artifact(fixed.evidence_digest().artifact_ref.ref)
-    assert isinstance(restored, mv.MaterializedAssociationResult)
-    assert restored.evidence_digest().finding_count == 1
-    with case.session._runtime.store._read() as conn:
-        assert conn.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0] == 1
-        assert conn.execute("SELECT COUNT(*) FROM action_resource_journal").fetchone()[0] == 0
+    try:
+        with pytest.raises(AnalysisError):
+            query.execute()
+    finally:
+        case.session._runtime._hook = None
+    pd.testing.assert_frame_equal(case.session.artifact(previous.id).to_pandas(), saved)
+    assert_clean(case.session, artifacts=1)
 
 
-def test_forecast_prediction_is_a_complete_numeric_receiver(
+def test_pandas_forecast_can_feed_an_explicit_second_model_without_run(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from marivo.datasource.adapters import SourceSession
-    from tests.analysis.statistics.recovery_worker import forbidden
+    from tests.analysis.statistics.deviation_oracle import forbidden
 
     case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01", end="2026-08-04"), grain=mv.grain("day")
-    )
-    history = members.observe(
-        ms.ref.metric("sales.order_count"),
-        during=grid,
-        via=ms.ref.relationship("sales." + case.names.buyer),
-        by=(mv.member(),),
-    )
-    prior = history.forecast(horizon=mv.periods(2), model=mv.drift()).execute()
+    artifact = daily(case).execute()
+    before = run_ids(case.session)
     monkeypatch.setattr(SourceSession, "__enter__", forbidden)
-    next_forecast = prior.prediction.forecast(horizon=mv.periods(1))
-    result = next_forecast.execute()
-    assert result.prediction.to_pandas().value.tolist() == [-1.0, 0.0, 0.0, 0.0]
-    assert next_forecast.execute().state.artifact_ref == result.state.artifact_ref
-    assert case.session._runtime.store.resources(case.session.id) == ()
+    first = forecast(plain(artifact).value, "drift", horizon=3)
+    second = forecast(first.prediction, "drift", horizon=1)
+    assert second.prediction.iloc[0] == pytest.approx(
+        first.prediction.iloc[-1] + (first.prediction.iloc[-1] - first.prediction.iloc[0]) / 2
+    )
+    assert run_ids(case.session) == before
+    assert_clean(case.session, artifacts=1)

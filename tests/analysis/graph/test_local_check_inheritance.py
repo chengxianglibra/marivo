@@ -1,65 +1,51 @@
-"""Deferred comparison checks complete before downstream local consumers."""
+"""Period key checks finish before downstream Query result consumers."""
 
 from __future__ import annotations
 
+import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
-from marivo.analysis.core.graph import MethodNode
-from marivo.analysis.materialization.errors import MaterializationError
+from marivo._definition.query import ReduceValues
+from marivo.analysis.compiler.graph_plan import LocalCompute
+from marivo.analysis.errors import AnalysisError
 from tests.shared_fixtures import DslCaseFactory
 
 
 @pytest.mark.parametrize("incomplete", (False, True))
-def test_period_comparison_coverage_finishes_before_inherited_deviation(
+def test_period_comparison_coverage_finishes_before_inherited_reduction(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
     incomplete: bool,
 ) -> None:
-    from marivo.analysis.core.rules import DeviationFit
-    from marivo.analysis.materialization import deviation_execution
-    from marivo.analysis.materialization.graph_exchange import ExchangeResult
+    from marivo.analysis.methods import query_values
     from tests.analysis.numeric.test_period_alignment import period
 
     case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    _, current = period(members, 8, 3)
-    _, baseline = period(members, 7, 3)
-    endpoint = current.where(current.value.gt(0)) if incomplete else current
-    changed = endpoint.compare(baseline, align=mv.exact(time=mv.ordinal())).absolute
-    scored = changed.deviation(method="zscore")
-    fits: list[ExchangeResult] = []
-    execute = deviation_execution.execute
+    _, current = period(case.session, 8, 3)
+    _, baseline = period(case.session, 7, 3)
+    endpoint = current.where(current["value"] > 0) if incomplete else current
+    paired = endpoint.compare(baseline, match=mv.ordinal())
+    changed = paired.select({"value": paired["value.absolute"]})
+    reduced = changed.reduce({"total": changed["value"].sum(), "rows": mv.row_count()})
+    consumed: list[tuple[pd.DataFrame, ...]] = []
+    execute = query_values.evaluate_result
 
-    def fit(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) -> ExchangeResult:
-        if isinstance(node.parameters, DeviationFit):
-            fits.extend(inputs)
-        return execute(node, inputs, binding)
+    def traced(stage: LocalCompute, inputs: tuple[pd.DataFrame, ...]) -> pd.DataFrame:
+        if stage.result is not None and isinstance(stage.result.operation, ReduceValues):
+            consumed.append(inputs)
+        return execute(stage, inputs)
 
-    monkeypatch.setattr(deviation_execution, "execute", fit)
+    monkeypatch.setattr(query_values, "evaluate_result", traced)
     if incomplete:
-        with pytest.raises(MaterializationError, match="complete original period buckets"):
-            scored.execute()
-        assert fits == []
+        with pytest.raises(AnalysisError, match="equal complete endpoint key images"):
+            reduced.execute()
+        assert consumed == []
         assert case.session._runtime.store.resources(case.session.id) == ()
         return
-    result = scored.execute()
-    assert len(fits) == 1
-    inherited = tuple(
-        obligation
-        for obligation in scored._node.root.signature.obligations
-        if obligation.check_id == "source.complete_coverage@v1"
-        and obligation.fact.subject_id.startswith("buckets:")
-    )
-    assert len(inherited) == 2
-    assert result._dataset is not None
-    assert all(
-        any(
-            proof.fact == obligation.fact
-            for proof in result._dataset.artifact.descriptor.completed_checks
-        )
-        for obligation in inherited
-    )
-    expected = changed.execute().deviation(method="zscore").execute()
-    assert result.score.to_pandas().equals(expected.score.to_pandas())
+    frame = reduced.execute().to_pandas()
+    assert len(consumed) == 1
+    assert frame[("value", "total")].tolist() == [1]
+    assert frame[("value", "rows")].tolist() == [12]
+    original = changed.execute().to_pandas()
+    assert original[("value", "value")].sum() == 1 and len(original) == 12

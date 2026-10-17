@@ -1,65 +1,57 @@
-"""Current artifact closed metadata and forecast policy ownership boundaries."""
+"""Artifact metadata is closed; statistical policy choices belong to pandas."""
 
+import json
+
+import pandas as pd
 import pytest
 
-import marivo.analysis as mv
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.contracts import canonical_json
-from tests.shared_fixtures import DslCaseFactory
+from tests.analysis.statistics.pandas_workflows import ForecastModel, forecast, orders
+from tests.shared_fixtures import DslCaseFactory, run_ids
 
 
 def test_artifact_rejects_unknown_evidence_without_source_replay(
-    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
+    analysis_dsl_case_factory: DslCaseFactory,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import marivo.semantic as ms
     from marivo.datasource.adapters import SourceSession
+    from tests.analysis.statistics.deviation_oracle import forbidden
 
     case = analysis_dsl_case_factory("j2")
-    current = (
-        case.session.members(ms.ref.entity("sales.order"))
-        .read(ms.ref.measure("sales.order.amount"))
-        .execute()
-    )
-    store, ref = case.session._runtime.store, current.state.artifact_ref
+    artifact = orders(case).execute()
+    store, ref = case.session._runtime.store, artifact.id
     with store._read() as connection:
         saved = connection.execute(
-            "SELECT descriptor_payload FROM dataset_artifacts WHERE artifact_ref=?", (ref.ref,)
+            "SELECT descriptor_payload FROM dataset_artifacts WHERE artifact_ref=?", (ref,)
         ).fetchone()[0]
-    before = case.session.runs().items
-
-    def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("unknown metadata recovery tried to replay the source")
-
+    before = run_ids(case.session)
     monkeypatch.setattr(SourceSession, "execute", forbidden)
+    payload = {**json.loads(saved), "unowned_evidence": {"kind": "unknown"}}
+    with store._write() as connection:
+        connection.execute(
+            "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
+            (canonical_json(payload), ref),
+        )
     try:
-        for field in ("unowned_evidence",):
-            payload = {**__import__("json").loads(saved), field: {"kind": "unknown"}}
-            with store._write() as connection:
-                connection.execute(
-                    "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
-                    (canonical_json(payload), ref.ref),
-                )
-            for read in (case.session.artifact,):
-                with pytest.raises(AnalysisError):
-                    read(ref)
-                assert case.session.runs().items == before
+        with pytest.raises(AnalysisError):
+            case.session.artifact(ref)
+        assert run_ids(case.session) == before
     finally:
         with store._write() as connection:
             connection.execute(
                 "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
-                (saved, ref.ref),
+                (saved, ref),
             )
-    restored = case.session.artifact(ref)
-    assert isinstance(restored, mv.MaterializedNumericRelation)
-    assert restored.to_pandas().equals(current.to_pandas())
+    pd.testing.assert_frame_equal(case.session.artifact(ref).to_pandas(), artifact.to_pandas())
 
 
 def test_forecast_model_policies_keep_their_current_owner() -> None:
-    from marivo.analysis.forecast_models import drift, naive, periods, seasonal_naive
-
-    assert (
-        mv.naive is naive
-        and mv.drift is drift
-        and mv.periods is periods
-        and mv.seasonal_naive is seasonal_naive
+    values = pd.Series([1, 2, 7])
+    models: tuple[tuple[ForecastModel, list[int]], ...] = (
+        ("naive", [7, 7]),
+        ("drift", [10, 13]),
+        ("seasonal_naive", [2, 7]),
     )
+    for model, wanted in models:
+        assert forecast(values, model).prediction.tolist() == wanted

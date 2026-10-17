@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import os
 from datetime import date, datetime, timezone
 from pathlib import Path
 
 import ibis
 import pyarrow as pa
+
+import marivo.analysis as mv
+import marivo.semantic as ms
+from tests.analysis.materialization.domain_recovery_worker import snapshot
+from tests.packaging.graph_journeys import _frame, _offline, _remove_sources
+from tests.shared_fixtures import run_ids
+from tests.support.json import Json, checked, encode, obj, read
 
 FACTS = (
     (9007199254740992, "a", "2026-08-01", "2026-09-01", 10),
@@ -103,8 +111,142 @@ reading_tenant=ms.dimension_column(name='tenant',entity=readings,column='tenant'
 energy=ms.measure_column(name='energy',entity=readings,column='energy',additivity=ms.additive_all(),unit='kWh')
 recorded_at=ms.time_dimension_column(name='recorded_at',entity=readings,column='recorded_at',granularity='day',parse=ms.timestamp(timezone='UTC'))
 settled_at=ms.time_dimension_column(name='settled_at',entity=readings,column='settled_at',granularity='day',parse=ms.timestamp(timezone='UTC'))
-recorded_energy=ms.aggregate(name='recorded_energy',measure=energy,agg='sum',time=recorded_at,empty=ms.empty.zero())
-settled_energy=ms.aggregate(name='settled_energy',measure=energy,agg='sum',time=settled_at,empty=ms.empty.zero())
 reading_subjects=ms.relationship(name='reading_subjects',from_entity=readings,to_entity=subjects,keys=[ms.join_on(reading_subject,subject_id),ms.join_on(reading_tenant,subject_tenant)])
+reading_validity=ms.relationship(name='reading_validity',from_entity=readings,to_entity=subjects_validity,keys=[ms.join_on(reading_subject,subjects_validity_id),ms.join_on(reading_tenant,subjects_validity_tenant)])
+finalized=ms.finalize()
+energy_value=finalized.resolve(energy)
+recorded_value=finalized.resolve(recorded_at)
+settled_value=finalized.resolve(settled_at)
+@ms.metric()
+def recorded_energy():
+    return energy_value.sum(time=recorded_value)
+@ms.metric()
+def settled_energy():
+    return energy_value.sum(time=settled_value)
 """
     (semantic / "models.py").write_text(code)
+
+
+def _verify(values: dict[str, mv.Artifact]) -> dict[str, Json]:
+    first, second = 9007199254740992, 9007199254740993
+    keys = [(first, "a"), (second, "a"), (second, "b")]
+    for name in ("snapshot_aug", "validity_aug", "validity_sep", "attributes_aug"):
+        frame = _frame(values[name])
+        assert frame.key_0.tolist() == keys
+        assert frame.value.tolist() == ([40, 20, 30] if name == "validity_sep" else [10, 20, 30])
+    for name, expected in (("snapshot_sep", [40]), ("attribute_sep", [40])):
+        frame = _frame(values[name])
+        assert frame.key_0.tolist() == [(first, "a")]
+        assert frame.value.tolist() == expected
+    expected_selected = [(second, "a"), (second, "b")]
+    for kind in ("snapshot", "validity"):
+        chosen = _frame(values[kind + "_chosen"])
+        assert chosen.key_0.tolist() == expected_selected
+        for clock, wanted in (
+            ("recorded", [11, 13]),
+            ("settled_early", [0, 0]),
+            ("settled", [11, 13]),
+        ):
+            frame = _frame(values[kind + "_" + clock])
+            assert frame.key_0.tolist() == expected_selected
+            assert frame.value.tolist() == wanted
+    return obj(
+        checked(
+            {
+                "complete_keys": [list(key) for key in keys],
+                "selected": [list(key) for key in expected_selected],
+                "august_values": [10, 20, 30],
+                "september_validity_values": [40, 20, 30],
+                "snapshot_september_keys": [list(keys[0])],
+                "attribute_clock": [10, 40],
+                "recorded": [11, 13],
+                "settled_early": [0, 0],
+                "settled": [11, 13],
+                "raw_facts": [list(row) for row in FACTS],
+            }
+        )
+    )
+
+
+def run(root: Path, phase: str) -> dict[str, Json]:
+    assert phase in ("produce", "fixed", "cold")
+    root = root.resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    os.environ["MARIVO_PROJECT_ROOT"] = str(root)
+    os.chdir(root)
+    state_path = root / "versioned.json"
+    if phase == "produce":
+        author(root)
+        session = mv.session.get_or_create("versioned", report_timezone="UTC")
+        august = session.instant("2026-08-01")
+        september = session.instant("2026-09-01")
+        queries: dict[str, mv.Query] = {}
+        for kind in ("snapshot", "validity"):
+            entity = f"sales.subjects_{kind}"
+            members = session.members(ms.ref.entity(entity), at=august)
+            amount = session.catalog.fields.get(entity + ".amount")
+            enabled = session.catalog.fields.get(entity + ".enabled")
+            queries[kind + "_aug"] = session.read(members, {"value": amount.at(august)})
+            queries[kind + "_sep"] = session.read(
+                session.members(ms.ref.entity(entity), at=september),
+                {"value": amount.at(september)},
+            )
+            classification = session.read(members, {"enabled": enabled.at(august)})
+            enabled_value = True
+            chosen = classification.where(classification["enabled"] == enabled_value).population()
+            queries[kind + "_chosen"] = session.query(chosen)
+            for clock, start, end in (
+                ("recorded", "2026-09-01", "2026-10-01"),
+                ("settled_early", "2026-09-01", "2026-10-01"),
+                ("settled", "2026-10-01", "2026-11-01"),
+            ):
+                metric = session.catalog.metrics.get(
+                    "sales." + ("recorded_energy" if clock == "recorded" else "settled_energy")
+                )
+                queries[kind + "_" + clock] = session.observe(
+                    {"value": metric},
+                    during=session.time_scope(start=start, end=end),
+                    by=chosen,
+                    members=chosen,
+                )
+        stable = session.members(ms.ref.entity("sales.subjects"))
+        profile = session.catalog.fields.get("sales.subjects_snapshot.amount").via(
+            (session.catalog.relationships.get("sales.subject_profiles"),)
+        )
+        queries["attributes_aug"] = session.read(stable, {"value": profile.at(august)})
+        first = mv.identities(
+            session.catalog.entities.get("sales.subjects"), keys=((9007199254740992, "a"),)
+        )
+        queries["attribute_sep"] = session.read(first, {"value": profile.at(september)})
+        values = {name: query.execute() for name, query in queries.items()}
+        oracle = _verify(values)
+        state: dict[str, Json] = {
+            "session": session.id,
+            "artifacts": {name: value.id for name, value in values.items()},
+            "snapshots": {name: snapshot(value) for name, value in values.items()},
+            "oracle": oracle,
+        }
+        state_path.write_bytes(encode(state))
+        _remove_sources(root)
+    else:
+        state = read(state_path)
+        identity = state["session"]
+        assert isinstance(identity, str)
+        with _offline(root):
+            session = mv.session.resume(identity, by="id")
+            before = run_ids(session)
+            values = {}
+            for name, reference in obj(state["artifacts"]).items():
+                assert isinstance(reference, str)
+                value = session.artifact(reference)
+                assert snapshot(value) == obj(state["snapshots"])[name]
+                values[name] = value
+            oracle = _verify(values)
+            assert oracle == state["oracle"] and run_ids(session) == before
+    assert session._runtime.store.resources(session.id) == ()
+    return {
+        "snapshots": state["snapshots"],
+        "oracle": oracle,
+        "run_count": len(run_ids(session)),
+        "resources": 0,
+    }

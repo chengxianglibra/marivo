@@ -7,10 +7,11 @@ from pathlib import Path
 from typing import Literal
 
 import pandas as pd
-import pyarrow as pa
 import pytest
 
-from marivo.analysis.materialization.graph_exchange import ExchangeResult, _pandas_records
+import marivo.analysis as mv
+import marivo.semantic as ms
+from marivo.analysis.core.data_types import ScalarDataType
 from marivo.analysis.methods import builtin
 from marivo.analysis.methods.errors import MethodRegistrationError
 from marivo.analysis.methods.physical import (
@@ -26,10 +27,6 @@ from marivo.analysis.methods.physical import (
 from marivo.analysis.methods.semantics import MethodKey
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from tests.analysis.graph.physical_workloads import _rows, workload
-
-
-def _exchange_rows(result: ExchangeResult) -> list[dict[str, object]]:
-    return _pandas_records(result.primary, result.contract.schema)
 
 
 def test_file_cost_keys_are_exact_and_do_not_specialize_other_numeric_inputs() -> None:
@@ -81,7 +78,7 @@ def test_file_cost_keys_are_exact_and_do_not_specialize_other_numeric_inputs() -
             requested = replace(entry.key, input_types=(typ,))
             assert builtin.specialize_numeric(entry, requested).key != requested
         with pytest.raises(MethodRegistrationError):
-            replace(entry.key, input_domains=("occurrence",))
+            replace(entry.key, input_domains=("occurrence",))  # type: ignore[arg-type]  # Reject an unsupported domain at the runtime boundary.
     for name in (
         "deviation.mad",
         "metric.mean",
@@ -95,18 +92,18 @@ def test_file_cost_keys_are_exact_and_do_not_specialize_other_numeric_inputs() -
 
 
 @pytest.mark.parametrize(
-    ("profile", "route"),
+    ("profile", "composition"),
     (
-        ("csv", "ibis"),
-        ("local-json", "ibis"),
-        ("csv", "ibis_python"),
-        ("local-json", "ibis_python"),
-        ("parquet", "ibis_python"),
+        ("csv", "source"),
+        ("local-json", "source"),
+        ("csv", "rollup"),
+        ("local-json", "rollup"),
+        ("parquet", "rollup"),
     ),
 )
 def test_file_cost_original_sum_executes_exact_real_file_route(
     profile: str,
-    route: Literal["ibis", "ibis_python"],
+    composition: Literal["source", "rollup"],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -114,45 +111,35 @@ def test_file_cost_original_sum_executes_exact_real_file_route(
     amounts = [row["amount"] for row in facts]
     assert all(amount is None or type(amount) is int for amount in amounts)
     total = sum(amount for amount in amounts if isinstance(amount, int))
-    support = sum(amount is not None for amount in amounts)
-    captures: list[pd.DataFrame] = []
+    captures: list[tuple[CompiledRead, pd.DataFrame]] = []
     execute = SourceSession.execute
 
     def captured(source: SourceSession, read: CompiledRead) -> pd.DataFrame:
         frame = execute(source, read)
-        if read.purpose == "analysis.domain.prepare":
-            captures.append(frame)
+        captures.append((read, frame))
         return frame
 
     monkeypatch.setattr(SourceSession, "execute", captured)
     with workload("duckdb", profile, len(facts), "baseline", tmp_path, monkeypatch) as work:
-        result = work.source(route)
+        values = work.values()
+        query = work.total() if composition == "source" else values.rollup()
+        result = query.execute()
         assert work.validate(result)["passed"] is True
-        identity = work.identity(result)
-        assert identity["root_route"] == route
-        assert result._dataset is not None
-        checked = result._dataset.verified()
-        assert checked.primary is not None
-        assert checked.contract.schema.field("value").type == pa.int64()
-        assert _exchange_rows(checked) == [
-            {"value": total, "cell_tag": "defined", "cell_reason": None}
+        assert result.to_pandas()[("value", "value")].tolist() == [total]
+        assert captures and any("SUM(" in read.sql.upper() for read, _ in captures)
+        observed = values.execute()
+        frame = observed.to_pandas()
+        assert set(frame.iloc[:, 0]) == {("a", 2**53 + index, 1) for index in range(len(facts))}
+        assert frame[("value", "value")].tolist() == [0, 2, 3, 4]
+        raw = work.session.read(
+            work.session.members(ms.ref.entity("cost.facts")),
+            {"amount": work.session.catalog.fields.get("cost.facts.amount")},
+        )
+        support = raw.where(~raw["amount"].is_null()).reduce({"support": mv.row_count()})
+        assert support.execute().to_pandas()[("value", "support")].tolist() == [3]
+        assert [column.dtype for column in observed._manifest.data.schema.axes[0].columns] == [
+            ScalarDataType("string"),
+            ScalarDataType("int64"),
+            ScalarDataType("int64"),
         ]
-        parts = {part.role: part.table for part in checked.parts}
-        assert parts["original_state"].to_dict("records") == [
-            {"original_state__sum": total, "original_state__non_null_count": support}
-        ]
-        assert parts["coverage"].to_dict("records") == [{"coverage__complete": True}]
-        if route == "ibis_python":
-            keys = {
-                (row["key_0"], row["key_1"], row["key_2"])
-                for frame in captures
-                if {"key_0", "key_1", "key_2"} <= set(frame.columns)
-                for row in frame.to_dict(orient="records")
-            }
-            assert keys == {("a", 2**53 + index, 1) for index in range(len(facts))}
-            assert all(
-                str(frame["key_1"].dtype) == "int64" and str(frame["key_2"].dtype) == "int64"
-                for frame in captures
-                if {"key_0", "key_1", "key_2"} <= set(frame.columns)
-            )
         assert work.session._runtime.store.resources(work.session.id) == ()

@@ -1,48 +1,48 @@
-"""Fresh-process public continuations with source and Semantic access forbidden."""
+"""Independent terminal producer reads with all live dependencies forbidden."""
 
 from __future__ import annotations
 
-import json
-from typing import NoReturn
-
-import pandas as pd
+import os
+import sys
+from pathlib import Path
+from unittest.mock import patch
 
 import marivo.analysis as mv
-from marivo.analysis.materialization.graph_protocol import DESCRIPTOR, encode
-from tests.support.json import Json, checked, digest
+import marivo.semantic as ms
+from marivo.datasource.adapters import SourceSession
+from marivo.semantic.reader import SemanticProject
+from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
+from tests.support.json import arr, encode, obj, read
 
 
-def forbidden(*args: object, **kwargs: object) -> NoReturn:
-    raise AssertionError("retained execution accessed a source or current Semantic")
+def run(root: Path, phase: str, output: Path) -> None:
+    os.chdir(root)
+    state = read(root / "r94-state.json")
+    session_id = state["session"]
+    assert isinstance(session_id, str)
+    with (
+        patch.object(ms, "load", forbidden),
+        patch.object(SemanticProject, "load", forbidden),
+        patch.object(SourceSession, "__enter__", forbidden),
+        patch.object(SourceSession, "execute", forbidden),
+    ):
+        session = mv.session.resume(session_id, by="id")
+        before = len(session.runs().items)
+        for artifact, saved in zip(
+            arr(state["inputs"]), arr(state["input_snapshots"]), strict=True
+        ):
+            assert isinstance(artifact, str)
+            result = session.artifact(artifact)
+            assert snapshot(result) == obj(saved)
+            frame = result.to_pandas()
+            assert frame[("value", "value")].tolist() == [2, 0, 4]
+            assert frame[("value", "value")].sum() == 6
+            assert frame.loc[frame[("value", "value")] > 0].shape[0] == 2
+            result.show(n=1)
+        assert len(session.runs().items) == before
+        assert session._runtime.store.resources(session.id) == ()
+    output.write_bytes(encode({"pid": os.getpid(), "phase": phase}))
 
 
-def snapshot(
-    result: mv.MaterializedNumericRelation | mv.MaterializedRatioRelation,
-    *,
-    frame: pd.DataFrame | None = None,
-) -> Json:
-    assert result._dataset is not None
-    verified = result._dataset.verified()
-    evidence = result.evidence_digest()
-    descriptor = result._dataset.artifact.descriptor
-    return checked(
-        {
-            "artifact": result.state.artifact_ref.ref,
-            "run": result._dataset.artifact.producing_run_ref,
-            "descriptor_sha256": digest(encode(descriptor, DESCRIPTOR).encode()),
-            "execution_key_digest": descriptor.execution_key_digest,
-            "continuation_snapshot_digest": descriptor.continuation_snapshot_digest,
-            "schema": descriptor.realized_schema,
-            "frame": json.loads(
-                (result.to_pandas() if frame is None else frame).to_json(orient="split")
-            ),
-            "parts": [part.role for part in verified.parts],
-            "required_parts": list(result.contract().required_parts),
-            "evidence": {
-                "evidence_digest": evidence.evidence_digest,
-                "finding_set_digest": evidence.finding_set_digest,
-                "finding_count": evidence.finding_count,
-            },
-            "contract_facts": dict(result.contract()._facts),
-        }
-    )
+if __name__ == "__main__":
+    run(Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3]))

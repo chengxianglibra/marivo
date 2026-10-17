@@ -4,6 +4,7 @@ import pyarrow as pa
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo._temporal import time_scope
 from marivo.analysis.core.model import (
     Binding,
     Coordinate,
@@ -25,7 +26,7 @@ def capture(
     start: str = "2026-03-06",
     end: str = "2026-03-11",
 ) -> Capture:
-    grid = bind_grid(mv.time_scope(start=start, end=end), mv.grain("day"), report_timezone=zone)
+    grid = bind_grid(time_scope(start=start, end=end), mv.grain("day"), report_timezone=zone)
     binding = Binding("session", "owner", "input", "scope")
     coord = Coordinate(ms.ref.entity("sales.order"), "time:" + grid.identity, "anchor")
     signature = Signature(

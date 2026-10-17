@@ -16,6 +16,7 @@ from sqlglot import expressions as sge
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo._temporal import time_scope
 from marivo.analysis.compiler import graph_lowering
 from marivo.analysis.compiler.graph_lowering import (
     ComponentColumn,
@@ -572,7 +573,7 @@ def test_missing_source_uniqueness_keeps_the_general_mapping() -> None:
 def test_time_product_keeps_each_cell_mapping() -> None:
     with _source() as (_, leaf, binding):
         grid = bind_grid(
-            mv.time_scope(start="2026-09-01", end="2026-09-08"),
+            time_scope(start="2026-09-01", end="2026-09-08"),
             mv.grain("day"),
             report_timezone="UTC",
         )
@@ -604,38 +605,43 @@ def test_public_identity_observation_executes_and_retains_outside_window_members
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
+    session = case.session
     reads: list[str] = []
     original = SourceSession.execute
 
     def traced(self: SourceSession, read: CompiledRead) -> pd.DataFrame:
-        if read.purpose == "analysis.graph.stage":
+        if read.purpose.startswith("query."):
             reads.append(read.sql)
         return original(self, read)
 
     monkeypatch.setattr(SourceSession, "execute", traced)
-    members = case.session.members(ms.ref.entity(f"{case.names.domain}.{case.names.order}"))
-    observed = members.observe(
-        ms.ref.metric(f"{case.names.domain}.{case.names.revenue}"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=(mv.member(),),
+    amount = session.catalog.fields.get(
+        f"{case.names.domain}.{case.names.order}.{case.names.amount}"
+    )
+    time = session.catalog.fields.get(
+        f"{case.names.domain}.{case.names.order}.{case.names.ordered_at}"
+    )
+    members = session.members(ms.ref.entity(f"{case.names.domain}.{case.names.order}"))
+    observed = session.observe(
+        {"value": amount.sum(time=time, empty="null")},
+        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
+        by=members,
     )
     result = observed.execute()
-    assert result._dataset is not None
-    exchange = result._dataset.verified()
-    assert {
-        row["key_0"]: None if pd.isna(row["value"]) else row["value"]
-        for row in exchange.primary.to_dict("records")
-    } == {
+    frame = result.to_pandas()
+    actual = frame.set_index(frame.columns[0])[("value", "value")]
+    assert {key: None if pd.isna(value) else value for key, value in actual.items()} == {
         "j1_a": 450,
         "j1_b": 150,
         "j1_c": 400,
         "j1_july": None,
         "j1_september": None,
     }
-    assert {part.role for part in exchange.parts} == {"subject", "original_state", "coverage"}
-    assert all(len(part.table) == 5 for part in exchange.parts)
-    assert len(reads) == 1
-    assert "SELECT DISTINCT" not in reads[0]
-    assert "INNER JOIN" not in reads[0]
-    assert observed.rollup().execute().to_pandas().iloc[0]["value"] == 1000
-    assert case.session._runtime.store.resources(case.session.id) == ()
+    assert reads
+    assert not {"subject", "original_state", "coverage"}.intersection(
+        part.name for part in result._manifest.data.attachments
+    )
+    total = observed.reduce({"value": observed["value"].sum()}).execute()
+    assert total.to_pandas()[("value", "value")].tolist() == [1000]
+    assert session.artifact(result.id).to_pandas().equals(frame)
+    assert session._runtime.store.resources(session.id) == ()

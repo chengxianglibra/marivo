@@ -347,6 +347,7 @@ def _combine_program(
     from marivo._definition.expressions import (
         DeclaredMetricRef,
         EntityCount,
+        MemberCount,
         MetricNode,
         PerReduce,
         PerWeightedMean,
@@ -500,6 +501,25 @@ def _combine_program(
         ]
         return pd.DataFrame(records, columns=slots)
 
+    member_data: pd.DataFrame | None = None
+    if program.members is not None:
+        member_data = population_domain(program.members.population, program.members.keys)
+        member_coordinates = member_data.loc[
+            :, [source for _, source in program.members.output_mapping]
+        ].rename(columns={source: target for target, source in program.members.output_mapping})
+        if program.calendar is not None:
+            member_coordinates = member_coordinates.merge(
+                pd.DataFrame({program.calendar_key: range(len(program.calendar.cells))}),
+                how="cross",
+            )
+        if keys:
+            member_coordinates = member_coordinates.loc[:, keys].drop_duplicates()
+            domain = (
+                pd.concat([domain, member_coordinates], ignore_index=True)
+                .drop_duplicates()
+                .reset_index(drop=True)
+            )
+
     if program.output_population is not None:
         complete_domain = population_domain(program.output_population, key_slots)
         if keys:
@@ -510,9 +530,14 @@ def _combine_program(
         else:
             uncovered = bool(inputs) and len(domain) > 0 and len(complete_domain) == 0
         if uncovered:
-            numeric_failure(
-                "an output Population covering every observed coordinate",
-                "observed coordinates outside by=Population",
+            from marivo.analysis.materialization.errors import MaterializationError
+
+            raise MaterializationError(
+                expected="an output Population covering every observed coordinate",
+                received="observed coordinates outside by=Population",
+                repair="Include every observed output coordinate in by=Population, or filter contributions before choosing that complete output domain.",
+                stage="population_coverage",
+                help_target="Query.execute",
             )
         domain = complete_domain.drop_duplicates().reset_index(drop=True)
     declarations = dict(program.declared)
@@ -522,6 +547,35 @@ def _combine_program(
     }
 
     def materialize_samples(node: MetricNode, occurrence: tuple[int, ...]) -> None:
+        if isinstance(node, MemberCount):
+            if any(binding.occurrence == occurrence for binding in bindings):
+                return
+            assert program.members is not None and member_data is not None
+            selected = member_data.rename(
+                columns={source: target for target, source in program.members.output_mapping}
+            )
+            if program.calendar is not None:
+                selected = selected.merge(
+                    pd.DataFrame({program.calendar_key: range(len(program.calendar.cells))}),
+                    how="cross",
+                )
+            slot = "members:" + ".".join(str(part) for part in occurrence)
+            counted = (
+                selected.groupby(keys, dropna=False, sort=True).size().rename(slot).reset_index()
+                if keys
+                else pd.DataFrame({slot: [len(member_data)]})
+            )
+            bindings.append(
+                FormulaInput(
+                    occurrence,
+                    slot,
+                    DataColumn(slot, slot, ScalarDataType("int64"), False),
+                    True,
+                    keys=key_slots,
+                )
+            )
+            frames.append(counted)
+            return
         if isinstance(node, (SourceAggregate, SourceWeightedMean, EntityCount)):
             return
         if isinstance(node, DeclaredMetricRef):
@@ -662,7 +716,12 @@ def _combine_program(
     physical: dict[str, pd.Series] = {}
     for input_index, (binding, frame) in enumerate(zip(program.values, inputs, strict=True)):
         slot = binding.column.slot_id
-        if isinstance(binding.column.dtype, DurationDataType):
+        input_dtype = frame[slot].dtype
+        if (
+            isinstance(binding.column.dtype, DurationDataType)
+            and isinstance(input_dtype, pd.ArrowDtype)
+            and pa.types.is_duration(input_dtype.pyarrow_dtype)
+        ):
             frame = frame.copy()
             frame[slot] = pd.Series(
                 pd.arrays.ArrowExtensionArray(pa.array(frame[slot]).cast(pa.int64()))

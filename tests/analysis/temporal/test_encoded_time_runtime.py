@@ -23,6 +23,15 @@ from tests.shared_fixtures import DslCase, DslCaseFactory
 from tests.support.source_trace import SourceTrace
 
 
+def _member_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    result = pd.DataFrame({"value": frame[("value", "value")]})
+    for axis in frame.attrs["marivo"]["axes"]:
+        result["coord_0" if axis["kind"] == "calendar" else "member"] = frame[
+            ("coordinate", axis["column"])
+        ]
+    return result
+
+
 def _encode_orders(case: DslCase, fmt: str, *, integer: bool = False) -> None:
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute("SET TimeZone='UTC'")
@@ -91,14 +100,14 @@ def test_observation_preserves_population_windows_and_query_count(
 
     def observe(start: str, end: str) -> pd.DataFrame:
         return (
-            population.observe(
-                ms.ref.metric("sales.revenue"),
-                during=mv.time_scope(start=start, end=end),
-                via=ms.ref.relationship("sales.order_buyer"),
-                by=(mv.member(),),
+            case.session.observe(
+                {"value": case.session.catalog.metrics.get("sales.revenue")},
+                during=case.session.time_scope(start=start, end=end),
+                by=population,
             )
             .execute()
             .to_pandas()
+            .pipe(_member_frame)
             .sort_values("member")
             .reset_index(drop=True)
         )
@@ -108,14 +117,16 @@ def test_observation_preserves_population_windows_and_query_count(
     native_count = len(source_trace.native_sql)
     assert optimized.member.tolist() == ["A", "B", "C", "D"]
     assert optimized.value.iloc[:3].tolist() == [450, 150, 400]
-    assert pd.isna(optimized.value.iloc[3])
-    stages = [sql for purpose, sql in reads if purpose == "analysis.graph.stage"]
-    assert len(stages) == 1
-    ast = sqlglot.parse_one(stages[0], read="duckdb")
+    assert optimized.value.iloc[3] == 0
+    stages = [sql for purpose, sql in reads if purpose.startswith("query.")]
+    assert len(stages) == 2  # The Metric and the complete member domain have distinct sources.
+    business = [sql for sql in stages if "ordered_at" in sql]
+    assert len(business) == 1
+    ast = sqlglot.parse_one(business[0], read="duckdb")
     ranges = [
         comparison
         for where in ast.find_all(sge.Where)
-        for comparison in where.find_all((sge.GTE, sge.LT))
+        for comparison in where.find_all(sge.GTE, sge.LT)
         if isinstance(comparison.expression, sge.Literal)
         and comparison.expression.this in {"20260801", "20260901"}
     ]
@@ -134,22 +145,21 @@ def test_observation_preserves_population_windows_and_query_count(
     september = observe("2026-09-01", "2026-10-01")
     assert september.member.tolist() == ["A", "B", "C", "D"]
     assert september.value.iloc[0] == 99
-    assert september.value.iloc[1:].isna().all()
+    assert september.value.iloc[1:].eq(0).all()
     # When the member source is the event source, the window still restricts
     # contributions only; identities before/after the window remain present.
+    orders = case.session.members(ms.ref.entity("sales.order"))
     direct = (
-        case.session.members(ms.ref.entity("sales.order"))
-        .observe(
-            ms.ref.metric("sales.revenue"),
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            by=(mv.member(),),
+        case.session.observe(
+            {"value": case.session.catalog.metrics.get("sales.revenue")},
+            during=case.session.time_scope(start="2026-08-01", end="2026-09-01"),
+            by=orders,
         )
         .execute()
         .to_pandas()
-        .sort_values("member")
     )
     assert len(direct) == 5
-    assert direct.value.notna().sum() == 3
+    assert direct[("value", "value")].ne(0).sum() == 3
 
 
 @pytest.mark.parametrize("integer", [False, True])
@@ -168,21 +178,19 @@ def test_grid_window_has_scan_envelope_and_preserves_cells(
         return original(self, read)
 
     monkeypatch.setattr(SourceSession, "execute", traced)
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01", end="2026-10-01"), grain=mv.grain("month")
-    )
+    grid = case.session.time_scope(start="2026-08-01", end="2026-10-01").by(mv.grain("month"))
     population = case.session.members(ms.ref.entity("sales.customer"))
 
     def execute() -> pd.DataFrame:
         return (
-            population.observe(
-                ms.ref.metric("sales.revenue"),
+            case.session.observe(
+                {"value": case.session.catalog.metrics.get("sales.revenue")},
                 during=grid,
-                via=ms.ref.relationship("sales.order_buyer"),
-                by=(mv.member(),),
+                by=mv.product(grid, population),
             )
             .execute()
             .to_pandas()
+            .pipe(_member_frame)
             .sort_values(["member", "coord_0"])
             .reset_index(drop=True)
         )
@@ -190,19 +198,51 @@ def test_grid_window_has_scan_envelope_and_preserves_cells(
     optimized = execute()
     optimized_purposes = [purpose for purpose, _ in reads]
     assert len(optimized) == 8
-    assert optimized.value.dropna().tolist() == [450, 99, 150, 400]
-    sql = next(sql for purpose, sql in reads if purpose == "analysis.graph.stage")
+    assert optimized.value.tolist() == [450, 99, 150, 0, 400, 0, 0, 0]
+    sql = next(sql for purpose, sql in reads if purpose.startswith("query."))
     ast = sqlglot.parse_one(sql, read="duckdb")
     ranges = [
         comparison
         for where in ast.find_all(sge.Where)
-        for comparison in where.find_all((sge.GTE, sge.LT))
+        for comparison in where.find_all(sge.GTE, sge.LT)
         if isinstance(comparison.expression, sge.Literal)
         and comparison.expression.this in {"20260801", "20261001"}
     ]
     assert len(ranges) == 2
     assert all(isinstance(item.this, sge.Column) for item in ranges)
-    assert any(join.find(sge.Case) is not None for join in ast.find_all(sge.Join))
+    bucket_branches = [
+        branch
+        for node in ast.find_all(sge.Case)
+        for branch in node.args["ifs"]
+        if isinstance(branch.args["true"], sge.Literal) and branch.args["true"].this in {"0", "1"}
+    ]
+    bucket_branches.sort(key=lambda branch: int(branch.args["true"].this))
+    assert [branch.args["true"].this for branch in bucket_branches] == ["0", "1"]
+    # The current source lowering puts bucket assignment in SELECT. Placement
+    # under a JOIN was a legacy plan detail; both exact half-open intervals matter.
+    expected_bounds = (
+        ("MAKE_TIMESTAMP(2026, 8, 1, 0, 0, 0.0)", "MAKE_TIMESTAMP(2026, 9, 1, 0, 0, 0.0)"),
+        ("MAKE_TIMESTAMP(2026, 9, 1, 0, 0, 0.0)", "MAKE_TIMESTAMP(2026, 10, 1, 0, 0, 0.0)"),
+    )
+    for branch, (start, end) in zip(bucket_branches, expected_bounds, strict=True):
+        lower, upper = branch.this.find(sge.GTE), branch.this.find(sge.LT)
+        assert lower is not None and upper is not None
+        assert isinstance(lower.this, sge.Column) and lower.this == upper.this
+        assert lower.expression.sql(dialect="duckdb") == start
+        assert upper.expression.sql(dialect="duckdb") == end
+    for node in ast.find_all(sge.Case):
+        if any(branch in bucket_branches for branch in node.args["ifs"]):
+            default = node.args.get("default")
+            assert (
+                default is None
+                or isinstance(default, (sge.Null, sge.Case))
+                or (isinstance(default, sge.Cast) and isinstance(default.this, sge.Null))
+            )
+    assert (
+        optimized.coord_0.tolist()
+        == [datetime(2026, 8, 1, tzinfo=timezone.utc), datetime(2026, 9, 1, tzinfo=timezone.utc)]
+        * 4
+    )
     reads.clear()
     with monkeypatch.context() as baseline:
         baseline.setattr(source_time, "encoded_time_predicate", _no_inverse)
@@ -216,46 +256,31 @@ def test_cumulative_grid_and_endpoint_match_original_temporal_filter(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     _encode_orders(case, "%Y%m%d%H%M%S", integer=True)
-    path = case.root / "models" / "semantic" / "sales" / "models.py"
-    path.write_text(path.read_text() + "\nrunning = ms.cumulative(name='running', base=revenue)\n")
-    ms.load(workspace_dir=case.root)
     population = case.session.members(ms.ref.entity("sales.customer"))
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-15", end="2026-10-01"), grain=mv.grain("month")
-    )
+    grid = case.session.time_scope(start="2026-08-15", end="2026-10-01").by(mv.grain("month"))
+    metric = case.session.catalog.metrics.get("sales.revenue").window(mv.all_history())
 
     def execute() -> pd.DataFrame:
-        return (
-            population.observe(
-                ms.ref.metric("sales.running"),
-                at=grid.end,
-                via=ms.ref.relationship("sales.order_buyer"),
-                by=(mv.member(),),
-            )
-            .group_by(grid)
-            .rollup()
-            .execute()
-            .to_pandas()
-        )
+        query = case.session.observe({"value": metric}, during=grid, by=population)
+        return query.rollup(by=(grid,)).execute().to_pandas()
 
     optimized = execute()
-    assert optimized.value.tolist() == [1077, 1176]
+    assert optimized[("value", "value")].tolist() == [1077, 1176]
     with monkeypatch.context() as baseline:
         baseline.setattr(source_time, "encoded_time_predicate", _no_inverse)
         previous = execute()
     pd.testing.assert_frame_equal(optimized, previous)
     scalar = (
-        population.observe(
-            ms.ref.metric("sales.running"),
-            at=datetime(2026, 10, 1, tzinfo=timezone.utc),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
+        case.session.observe(
+            {"value": metric},
+            during=case.session.time_scope(start="2026-09-30", end="2026-10-01"),
+            by=population,
         )
         .rollup()
         .execute()
         .to_pandas()
     )
-    assert scalar.value.tolist() == [1176]
+    assert scalar[("value", "value")].tolist() == [1176]
 
 
 def test_event_column_on_relationship_destination_keeps_its_own_range(
@@ -264,20 +289,17 @@ def test_event_column_on_relationship_destination_keeps_its_own_range(
     case = analysis_dsl_case_factory("j3")
     _encode_orders(case, "%Y%m%d%H%M%S", integer=True)
     population = case.session.members(ms.ref.entity("sales.customer"))
-    routes = (
-        mv.path(ms.ref.relationship("sales.line_order"), ms.ref.relationship("sales.order_buyer")),
-    )
 
     def execute() -> pd.DataFrame:
         return (
-            population.observe(
-                ms.ref.metric("sales.line_revenue"),
-                during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-                via=routes,
-                by=(mv.member(),),
+            case.session.observe(
+                {"value": case.session.catalog.metrics.get("sales.line_revenue")},
+                during=case.session.time_scope(start="2026-08-01", end="2026-09-01"),
+                by=population,
             )
             .execute()
             .to_pandas()
+            .pipe(_member_frame)
             .sort_values("member")
             .reset_index(drop=True)
         )
@@ -301,14 +323,14 @@ def test_outside_window_relationship_mismatch_preserves_observation_scope(
 
     def execute() -> pd.DataFrame:
         return (
-            population.observe(
-                ms.ref.metric("sales.revenue"),
-                during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-                via=ms.ref.relationship("sales.order_buyer"),
-                by=(mv.member(),),
+            case.session.observe(
+                {"value": case.session.catalog.metrics.get("sales.revenue")},
+                during=case.session.time_scope(start="2026-08-01", end="2026-09-01"),
+                by=population,
             )
             .execute()
             .to_pandas()
+            .pipe(_member_frame)
             .sort_values("member")
             .reset_index(drop=True)
         )
@@ -318,6 +340,7 @@ def test_outside_window_relationship_mismatch_preserves_observation_scope(
         "A": 450,
         "B": 150,
         "C": 400,
+        "D": 0,
     }
     with monkeypatch.context() as baseline:
         baseline.setattr(source_time, "encoded_time_predicate", _no_inverse)
@@ -342,11 +365,10 @@ def test_encoded_and_parsed_time_failures_preserve_error_fields_and_run_ownershi
     population = case.session.members(ms.ref.entity("sales.customer"))
 
     def execute() -> None:
-        population.observe(
-            ms.ref.metric("sales.revenue"),
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
+        case.session.observe(
+            {"value": case.session.catalog.metrics.get("sales.revenue")},
+            during=case.session.time_scope(start="2026-08-01", end="2026-09-01"),
+            by=population,
         ).execute()
 
     with pytest.raises(AnalysisError) as optimized:

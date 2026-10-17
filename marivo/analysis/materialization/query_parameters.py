@@ -1,0 +1,250 @@
+"""Schema-only Query-key templates and per-invocation literal instantiation."""
+
+from __future__ import annotations
+
+from dataclasses import replace
+from typing import TYPE_CHECKING
+
+import ibis
+import ibis.expr.operations as ops
+import ibis.expr.types as ir
+
+from marivo._definition.graph import computation_fingerprint
+from marivo._definition.relations import QueryKeys
+from marivo.analysis.compiler.graph_plan import plan_query
+from marivo.analysis.compiler.observation import ibis_type
+from marivo.analysis.compiler.parameters import parameter_domains
+from marivo.analysis.compiler.queries import prefixed_input
+from marivo.analysis.compiler.query_program import QueryParameter
+from marivo.analysis.core.data_types import DataColumn
+from marivo.analysis.core.graph import BoundGraph, capture_query
+from marivo.analysis.materialization.graph_exchange import StageOutput
+
+if TYPE_CHECKING:
+    from marivo.analysis.compiler.optimization import InvocationMemo
+    from marivo.analysis.materialization.graph_source_execution import PreparedSources
+    from marivo.datasource.adapters import SourceSession
+    from marivo.semantic._compiled_state import CompiledSemanticState
+
+
+def prepare_parameters(
+    graph: BoundGraph,
+    state: CompiledSemanticState,
+    source: SourceSession,
+    sources: dict[str, SourceSession],
+    entities: dict[str, ir.Table],
+    memo: InvocationMemo | None = None,
+) -> tuple[tuple[QueryParameter, ...], tuple[PreparedSources, ...]]:
+    from marivo.analysis.materialization.graph_source_execution import prepare_query_sources
+
+    parameters = []
+    prepared_inputs = []
+    observation = graph.signature.observation
+    namespace: tuple[int, ...] = ()
+    if observation is not None and observation.contributions:
+        first = observation.contributions[0]
+        logical = first.logical_occurrence or first.occurrence
+        namespace = first.occurrence[: -len(logical)]
+    for index, domain in enumerate(parameter_domains(graph)):
+        assert isinstance(domain.root, QueryKeys)
+        child = prefixed_input(domain.root, (*namespace, len(graph.signature.quantities), index))
+        prepared = prepare_query_sources(child, state, source, sources=sources, memo=memo)
+        prepared_inputs.append(prepared)
+        plan = plan_query(child, prepared.schemas, context=prepared.context, memo=memo)
+        output = next(stage for stage in plan.stages if stage.stage_id == plan.publish)
+        from marivo.analysis.compiler.graph_plan import LocalCompute
+        from marivo.analysis.compiler.queries import key_groups
+
+        groups = (
+            output.result.output_groups
+            if isinstance(output, LocalCompute) and output.result is not None
+            else key_groups(child, output.columns, output.keys)
+        )
+        columns = tuple(
+            replace(
+                next(column for column in output.columns if column.slot_id == slot),
+                slot_id=f"__population_{axis}_{component}",
+                name=f"__population_{axis}_{component}",
+            )
+            for axis, group in enumerate(groups)
+            for component, slot in enumerate(group)
+        )
+        identifier = computation_fingerprint(domain)
+        placeholder = "__marivo_population_" + identifier
+        table = ibis.table(
+            {column.slot_id: ibis_type(column.dtype) for column in columns}, name=placeholder
+        )
+        entities["population-parameter:" + identifier] = table
+        parameters.append(QueryParameter(domain, capture_query(child), placeholder, columns))
+    return tuple(parameters), tuple(prepared_inputs)
+
+
+def instantiate(
+    expression: ir.Table, name: str, columns: tuple[DataColumn, ...], output: StageOutput
+) -> ir.Table:
+    """Replace one pretyped input relation with complete inline key tuples."""
+    import pandas as pd
+
+    records = tuple(output.table.loc[:, list(output.keys)].itertuples(index=False, name=None))
+    expression = _tuple_predicates(expression, name, columns, records)
+    rows = tuple(
+        ibis.literal(True)
+        .as_table()
+        .select(
+            **{
+                column.slot_id: ibis.literal(
+                    None if pd.isna(value) else value, type=ibis_type(column.dtype)
+                )
+                for column, value in zip(columns, row, strict=True)
+            }
+        )
+        for row in records
+    )
+    if rows:
+        table = rows[0]
+        for row in rows[1:]:
+            table = table.union(row)
+    else:
+        table = (
+            ibis.literal(True)
+            .as_table()
+            .select(
+                **{column.slot_id: ibis.null().cast(ibis_type(column.dtype)) for column in columns}
+            )
+            .filter(ibis.literal(False))
+        )
+    replacements = {
+        node: table.op() for node in expression.op().find(ops.UnboundTable) if node.name == name
+    }
+    value: object = expression.op().replace(replacements)
+    if not isinstance(value, ops.Relation):
+        from marivo.analysis.core.model import reject
+
+        reject(
+            "a typed source relation after parameter substitution",
+            type(value).__name__,
+            "Preserve the planned source relation.",
+            "Query.parameters",
+        )
+    return value.to_expr()
+
+
+def _tuple_predicates(
+    expression: ir.Table,
+    name: str,
+    columns: tuple[DataColumn, ...],
+    records: tuple[tuple[object, ...], ...],
+) -> ir.Table:
+    """Instantiate qualified right-side key lookups as null-safe AND/OR predicates."""
+    import math
+
+    import pandas as pd
+
+    def missing(value: object) -> bool:
+        return (
+            value is None
+            or value is pd.NA
+            or value is pd.NaT
+            or (isinstance(value, float) and math.isnan(value))
+        )
+
+    def origin(value: ops.Value) -> ops.Value:
+        if isinstance(value, ops.Field):
+            relation = value.rel
+            if isinstance(relation, ops.Reference):
+                return origin(ops.Field(relation.parent, value.name))
+            prior = relation.values.get(value.name)
+            if prior is not None:
+                return origin(prior)
+        return value
+
+    def parameter_field(value: ops.Value) -> str | None:
+        leaf = origin(value)
+        return (
+            leaf.name
+            if isinstance(leaf, ops.Field)
+            and isinstance(leaf.rel, ops.UnboundTable)
+            and leaf.rel.name == name
+            else None
+        )
+
+    current = expression.op()
+    for chain in current.find(ops.JoinChain):
+        for link in chain.rest:
+            if link.how not in ("semi", "left") or not any(
+                node.name == name for node in link.table.find(ops.UnboundTable)
+            ):
+                continue
+            pairs: list[tuple[ops.Value, str]] = []
+            for condition in link.predicates:
+                if not isinstance(condition, ops.IdenticalTo):
+                    break
+                right = parameter_field(condition.right)
+                left = parameter_field(condition.left)
+                if right is not None and left is None:
+                    pairs.append((condition.left, right))
+                elif left is not None and right is None:
+                    pairs.append((condition.right, left))
+                else:
+                    break
+            else:
+                if {key for _, key in pairs} != {column.slot_id for column in columns}:
+                    continue
+                typed = {column.slot_id: column.dtype for column in columns}
+                rows = []
+                for record in records:
+                    values = dict(zip((column.slot_id for column in columns), record, strict=True))
+                    rows.append(
+                        ibis.and_(
+                            *(
+                                left.to_expr().identical_to(
+                                    ibis.literal(
+                                        None if missing(values[key]) else values[key],
+                                        type=ibis_type(typed[key]),
+                                    )
+                                )
+                                for left, key in pairs
+                            )
+                        )
+                    )
+                predicate = ibis.or_(*rows) if rows else ibis.literal(False)
+                substitutions: dict[ops.Node, ops.Node] = {}
+                left_by_key = {key: value for value, key in pairs}
+                for field in chain.find(ops.Field):
+                    if field.rel != link.table:
+                        continue
+                    key = parameter_field(field)
+                    leaf = origin(field)
+                    value = (
+                        left_by_key[key].to_expr()
+                        if key is not None
+                        else leaf.to_expr()
+                        if isinstance(leaf, ops.Literal)
+                        else None
+                    )
+                    if value is None:
+                        break
+                    substitutions[field] = ibis.ifelse(
+                        predicate, value, ibis.null().cast(field.dtype)
+                    ).op()
+                else:
+                    values = {
+                        key: value.replace(substitutions) for key, value in chain.values.items()
+                    }
+                    remaining = ops.JoinChain(
+                        chain.first, tuple(item for item in chain.rest if item is not link), values
+                    )
+                    result: ops.Relation = remaining
+                    if link.how == "semi":
+                        projected = {
+                            value: ops.Field(remaining, key)
+                            for key, value in remaining.values.items()
+                        }
+                        result = (
+                            remaining.to_expr()
+                            .filter(predicate.op().replace(projected).to_expr())
+                            .op()
+                        )
+                    current = current.replace({chain: result})
+                    break
+    return current.to_expr()

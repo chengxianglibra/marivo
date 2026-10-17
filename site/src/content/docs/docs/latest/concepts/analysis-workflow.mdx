@@ -53,9 +53,16 @@ An empty total follows the reducer's declared policy, such as zero for default
 sum. Source Null categories remain distinct from absent coordinates.
 
 `session.members(ms.ref.entity("sales.customers"))` selects existing complete
-Entity identities. `mv.identities(entity, keys=(("C1",),))` captures explicit
+Entity identities. `mv.identities(session.catalog.entities.get("sales.customers"), keys=(("C1",),))` captures explicit
 identity references, which do not prove source presence. Composite primary keys
-remain one identity axis with all components in declared order.
+remain one identity axis with all components in declared order. `identities`
+requires the resolved Entity; resolve a bare Ref through the catalog first.
+
+`query.coord(axis)` locates a scalar coordinate Column. Construction does not read
+sources; preparation rejects a composite identity as one quantity before admitting
+a Run or compiling/reading business data. Keep complete identity keys in the output
+and use `query.population()` with `mv.in_population(...)` for tuple selection.
+Use an existing single-field axis when a scalar coordinate value is needed.
 
 Populations support `project(by=...)`, `union`, `intersection`, `difference`, and
 `where(mv.in_population(other))`; predicates combine with `&`, `|`, and `~`.
@@ -66,13 +73,17 @@ Required missing attribute or relationship mappings fail; complete foreign keys
 can retain target references even when target profiles are absent.
 
 `mv.product(regions, calendar)` forms a complete Cartesian coordinate domain in
-factor order. An observation using a calendar domain must also supply a
-compatible `during`; the domain does not infer the observation period.
+factor order. Calendar coordinate binding and the observation period must remain compatible;
+window endpoints still require the explicit observation time binding.
 
 `query.population()` captures that Query's coordinate selection, period,
 conditions, declaration closure and Session. It remains lazy. Another observation
 cannot overwrite the captured selection context. Use `session.query(population)`
 to publish keys; Population has no `execute()` method.
+
+## Read attributes through the Session
+
+`session.read(population, {"region": region})` returns a lazy Query with complete input identity keys and named attribute values. The explicit Session owns the read; no Population.read alias or ambient Session lookup exists. Bind versioned fields with field.at(anchor); scalar paths use field.via((relationship,)). Required missing/duplicate mappings fail at consumption. Computed Measures belong in observe.
 
 ## Allocate overlapping memberships explicitly
 

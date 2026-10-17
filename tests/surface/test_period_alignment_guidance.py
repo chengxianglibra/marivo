@@ -1,12 +1,9 @@
-"""Independent disclosure checks for aligned coordinates and native continuation guidance."""
+"""Current period Help and terminal disclosure have one executable entry shape."""
 
 import pytest
 
 import marivo
-import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo._help import help as help_coordinator
-from marivo.analysis.errors import AnalysisError
 from tests.analysis.numeric.test_period_alignment import period
 from tests.shared_fixtures import DslCaseFactory
 
@@ -14,52 +11,49 @@ from tests.shared_fixtures import DslCaseFactory
 @pytest.mark.parametrize(
     "target, expected",
     (
-        ("analysis.dsl.NumericComparison.compare", "string"),
-        ("analysis.dsl.NumericComparison.ratio", "aligned"),
-        ("analysis.dsl.one_to_one", "without a time grid"),
-        ("analysis.dsl.NumericComparison.forecast", "original endpoint"),
-        ("analysis.dsl.NumericComparison.runs", "original endpoint"),
-        ("analysis.dsl.NumericComparison.correlate", "explicit lag_range"),
-        ("analysis.ordinal", "string"),
-        ("analysis.weekday", "boundary timezone"),
-        ("analysis.holiday", "Whole-day certified occurrences"),
-        ("analysis.holiday_then_weekday", "Whole-day certified occurrences"),
-        ("analysis.WeekdayTimeKey", "weekday"),
-        ("analysis.HolidayTimeKey", "analysis.holiday"),
-        ("analysis.HolidayThenWeekdayTimeKey", "analysis.holiday_then_weekday"),
-        ("analysis.outer", "unobserved"),
+        ("analysis.Query.compare", "absolute baseline"),
+        ("analysis.Query.align", "complete"),
+        ("analysis.ordinal", "complete"),
+        ("analysis.period_offset", "calendar"),
+        ("analysis.previous_year", "year"),
+        ("analysis.Query.rollup", "original"),
+        ("analysis.Artifact.to_pandas", "complete"),
     ),
 )
 def test_native_help_discloses_alignment_constraints(
-    target: str, expected: str, capsys: pytest.CaptureFixture[str]
+    target: str,
+    expected: str,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     assert marivo.help is help_coordinator
     help_coordinator(target)
-    assert expected in capsys.readouterr().out
+    assert expected in capsys.readouterr().out.lower()
 
 
-def test_aligned_contract_and_selected_rows_teach_original_endpoint_repair(
+def test_paired_query_contract_and_terminal_rows_disclose_current_protocol(
     analysis_dsl_case_factory: DslCaseFactory,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    import marivo.analysis as mv
+
     case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    _, current = period(members, 8, 3)
-    _, baseline = period(members, 7, 3)
-    comparison = current.compare(baseline, align=mv.exact(time=mv.ordinal()))
-    for result in (comparison, comparison.execute()):
-        result.contract().show()
-        assert "aligned_time=ordinal string keys" in capsys.readouterr().out
-        for view, expected_count in ((result.absolute, 12), (result.relative, 0)):
-            selected = view.where(view.value.is_defined())
-            for receiver in (view, selected):
-                receiver.contract().show()
-                guidance = capsys.readouterr().out
-                assert "original endpoints before comparison" in guidance
-                calls = tuple(action.call for action in receiver.contract().actions)
-                assert not any("forecast(" in call or "runs(" in call for call in calls)
-                with pytest.raises(AnalysisError, match="aligned") as failure:
-                    receiver.forecast(horizon=mv.periods(1))
-                assert "before comparing" in str(failure.value)
-            count = selected.aggregate(mv.count()).execute()
-            assert count.to_pandas().value.tolist() == [expected_count]
+    _, current = period(case.session, 8, 3)
+    _, baseline = period(case.session, 7, 3)
+    comparison = current.compare(baseline, match=mv.ordinal())
+    comparison.contract().show()
+    assert "execute" in capsys.readouterr().out
+    selected = comparison.select({"value": comparison["value.absolute"]})
+    defined = selected.where(~selected["value"].is_null())
+    assert defined.reduce({"count": mv.row_count()}).execute().to_pandas()[
+        ("value", "count")
+    ].tolist() == [12]
+    artifact = comparison.execute()
+    artifact.show(n=1)
+    card = capsys.readouterr().out
+    assert "to_pandas" in card and "compare(" not in card
+    axes = artifact.to_pandas().attrs["marivo"]["axes"]
+    assert {projection["path"] for projection in axes[0]["projections"]} == {
+        ("current",),
+        ("baseline",),
+    }
+    assert not hasattr(artifact, "contract") and not hasattr(artifact, "execute")

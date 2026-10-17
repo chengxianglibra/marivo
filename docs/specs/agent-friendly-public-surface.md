@@ -69,31 +69,32 @@ retain concrete facts even when an optional repair is absent.
 
 ## State distinguishes computation from inspection
 
-Source constructors and Dataset methods return Logical Datasets silently. Their
-repr identifies kind, shape and definition and points to `execute()`. Construction
-and `contract()` do not read source rows. Explicit execution returns the paired
-Materialized Dataset, whose repr points to `show()` for bounded retained inspection.
+Population and Query construction is silent. Their bounded repr identifies the
+logical value and its disclosure entry. Construction and `contract()` do not read
+source rows. Explicit Query execution returns a terminal Artifact whose repr
+points to `show()` for bounded saved-output inspection.
 
 ```python
 members = session.members(entity_ref)
-logical = members.observe(revenue, during=mv.time_scope(
-    start="2026-06-01", end="2026-06-08"
-), via=relationship_ref).rollup()
-result = logical.execute()
+query = session.observe(
+    {"revenue": revenue}, members=members,
+    during=session.time_scope(start="2026-06-01", end="2026-06-08"),
+)
+result = query.execute()
 result.show()
 ```
 
-This example requires a Session, an Entity Ref, a governed Metric, and its relationship to the member Entity. It creates no implicit
-intermediate execution while constructing the definition. A Materialized Dataset
-provides guarded `show()` and complete `to_pandas()` reads, with separate row/byte
-limits. A preview limit is not a complete-input execution budget.
+This example requires an explicit Session, an Entity Ref, and a resolved Metric
+with a qualified relationship to the member Entity. It creates no intermediate
+execution while constructing the definition. The terminal Artifact provides
+bounded `show()` and complete isolated `to_pandas()` reads. A preview limit is not
+a complete-input execution budget.
 
 Public terminal read values have a bounded single-line repr and bounded explicit
 inspection. Authoring and runtime value cards expose render/show according to
-their native type contract. Dataset states have deliberately different methods:
-a Logical Dataset is not a terminal table and a Materialized Dataset is not a
-mutable dataframe. Do not add a generic three-method adapter that erases this
-state distinction.
+their native type contract. Population/Query own logical computation contracts;
+Artifact provides terminal saved-output inspection and cannot re-enter the DSL.
+Do not add a generic adapter that erases this distinction.
 
 ## Business data display
 

@@ -5,8 +5,7 @@ from pathlib import Path
 
 import pytest
 
-import marivo.analysis as mv
-import marivo.semantic as ms
+from marivo.analysis.core.data_types import ScalarDataType
 from marivo.datasource.adapters import PhysicalRequirement
 from marivo.datasource.ir import TableSourceIR
 from tests.analysis.graph.physical_workloads import _data, _rows, _tables, workload
@@ -66,21 +65,22 @@ def test_local_file_profiles_retain_full_original_facts_and_fixed_total(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     with workload("duckdb", profile, 16, "baseline", tmp_path, monkeypatch) as work:
-        logical = work.session.members(ms.ref.entity("cost.facts")).observe(
-            ms.ref.metric("cost.facts_total"),
-            during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
-            by=(mv.member(),),
-        )
-        assert isinstance(logical, mv.LogicalNumericRelation)
+        logical = work.values()
         captured = logical.execute()
         frame = captured.to_pandas()
         assert len(frame) == 16
-        assert set(frame["coord_0"]) == set(range(9007199254740992, 9007199254740992 + 16))
-        assert frame.cell_tag.tolist() == ["defined"] * 16
-        total = captured.rollup().execute()
+        expected_keys = {("a", 2**53 + index, 1) for index in range(16)}
+        assert set(frame.iloc[:, 0]) == expected_keys
+        assert not frame[("value", "value")].isna().any()
+        total = logical.rollup().execute()
         expected = sum(index % 17 + 1 for index in range(16) if index % 23)
-        assert total.to_pandas().value.tolist() == [expected]
-        assert work.identity(captured)["root_route"] == "ibis"
+        assert total.to_pandas()[("value", "value")].tolist() == [expected]
+        assert work.session.artifact(captured.id).to_pandas().equals(frame)
+        assert [column.dtype for column in captured._manifest.data.schema.axes[0].columns] == [
+            ScalarDataType("string"),
+            ScalarDataType("int64"),
+            ScalarDataType("int64"),
+        ]
 
 
 @pytest.mark.runtime

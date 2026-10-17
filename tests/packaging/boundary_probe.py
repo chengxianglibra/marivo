@@ -197,16 +197,22 @@ def missing_driver(backend: str) -> dict[str, object]:
 def saved_read(project: Path) -> dict[str, object]:
     """Read a real producer Artifact without installing any database driver."""
     import marivo.analysis as mv
-    from tests.support.json import checked, read
+    from tests.analysis.materialization.domain_recovery_worker import snapshot
+    from tests.support.json import obj, read
 
     assert not (project / "warehouse.duckdb").exists() and not (project / "models").exists()
     os.environ["MARIVO_PROJECT_ROOT"] = str(project)
     state = read(project / "journey.json")
-    session_id, artifact_ref = state["session"], state["artifact"]
+    session_id, artifact_ref = state["session"], obj(state["artifacts"])["value"]
     assert isinstance(session_id, str) and isinstance(artifact_ref, str)
     session = mv.session.resume(session_id, by="id")
     artifact = session.artifact(artifact_ref)
-    assert isinstance(artifact, mv.MaterializedNumericRelation)
+    assert isinstance(artifact, mv.Artifact)
+    before = len(session.runs().items)
+    receipt = snapshot(artifact)
+    assert receipt == obj(state["snapshots"])["value"]
+    assert len(session.runs().items) == before
+    assert session._runtime.store.resources(session.id) == ()
     artifact.show(n=0)
     assert not any(
         name == root or name.startswith(root + ".")
@@ -215,7 +221,8 @@ def saved_read(project: Path) -> dict[str, object]:
     )
     return {
         "session": session.id,
-        "rows": checked(json.loads(artifact.to_pandas().to_json(orient="table", index=False))),
+        "rows": receipt["rows"],
+        "new_runs": 0,
     }
 
 

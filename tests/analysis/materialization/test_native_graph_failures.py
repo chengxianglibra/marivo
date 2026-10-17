@@ -10,7 +10,7 @@ from tests.shared_fixtures import DslCaseFactory
 
 
 @pytest.mark.parametrize(
-    "phase", ("source_execute", "graph_admitted", "before_commit", "after_commit")
+    "phase", ("source_execute", "query_admitted", "before_commit", "after_commit")
 )
 @pytest.mark.parametrize("interruption", (False, True))
 def test_source_and_python_failures_preserve_atomic_publication(
@@ -21,8 +21,9 @@ def test_source_and_python_failures_preserve_atomic_publication(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    logical = session.members(ms.ref.entity("sales.order")).read(
-        ms.ref.measure("sales.order.amount")
+    logical = session.read(
+        session.members(ms.ref.entity("sales.order")),
+        {"value": session.catalog.fields.get("sales.order.amount")},
     )
     prior = logical.execute()
     prior_frame = prior.to_pandas()
@@ -71,11 +72,12 @@ def test_graph_has_no_hidden_600_second_expiry(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.analysis.materialization import graph_publication
+    import time
 
     case = analysis_dsl_case_factory("j2")
-    logical = case.session.members(ms.ref.entity("sales.order")).read(
-        ms.ref.measure("sales.order.amount")
+    logical = case.session.read(
+        case.session.members(ms.ref.entity("sales.order")),
+        {"value": case.session.catalog.fields.get("sales.order.amount")},
     )
     ticks = [0.0]
 
@@ -83,7 +85,16 @@ def test_graph_has_no_hidden_600_second_expiry(
         ticks[0] += 700
         return ticks[0]
 
-    monkeypatch.setattr(graph_publication.time, "monotonic", clock)
+    execute = SourceSession.execute
+
+    def delayed(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
+        time.monotonic()
+        result = execute(owner, read)
+        time.monotonic()
+        return result
+
+    monkeypatch.setattr(time, "monotonic", clock)
+    monkeypatch.setattr(SourceSession, "execute", delayed)
     result = logical.execute()
     assert ticks[0] > 600
     assert len(result.to_pandas()) > 0
