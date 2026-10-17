@@ -1,12 +1,14 @@
 # 统一语义表达式与 Lazy Analysis DSL：实施与验收计划
 
-Date: 2026-10-14
+Date: 2026-10-17
 
-Status: in progress，基于工作树 v0.35 与架构 v0.10；R1 与 R2.1 已提交至 `871d26ee468a9fef21117e5aedaa18fa95a175dc`，R2.2 普通观察绑定已提交至 `3231c8fa93`；R2.3 基本计划与调度已提交至 `884395a14d`；R2.4 数值路线与准备路线已提交至 `6b4c25add7`；R2.5 原子终端发布已提交至 `e14eec9c49`；R2.6 终端读取已实施（2026-10-16，未提交），普通观察最小闭环已贯通。各阶段证据见下文。
+Status: in progress，按 v0.37 和当前提交 `3a4e741cfac91a5f0979fcc244542f40840581ef` 重排剩余工作。R1 定义/声明/收录与 R2 普通观察闭环已交付；R2.6 已提交 `ea189ec50a`。原生 Deferred 与相关 Population、per、membership、window 能力由 [S0–S6](../../specs/semantic/expression-model-implementation-plan.md) 交付，不能据此将 R3–R8 整体结项。当前增量与执行顺序以 §2–3 和 R3–R8 任务行为准。
+
+本次修订只调整计划，不修改实现或重跑行为验收。R1/R2 的旧任务表和日期化交接保留为历史记录；其中旧包装类、原定义版本、未提交状态和旧检查口径均不构成当前待办或当前合同。当前作者值、语义使用位置、分支需求及空值政策以 v0.37 和 S0–S6 为准；历史审查不重启，剩余开发不继承历史通过结论。
 当前优先修订（2026-10-15，Slack `1792053438.175219` / `1792053465.849969`）：取消语义对象必须匹配构造时原定义版本及同路径改版拒绝；agent/用户承担分析期间语义定义变更的后果。实际计算/依赖身份、缓存正确性、持久化记录和其它语义检查保留。capture/finalize为默认时间/坐标/Ibis前向闭包保留。完整supersession、下一阶段清理与证据边界见下文user-priority checkpoint；历史评审/验收不回写成新合同通过。
 v0.32 统一 Query.execute → 终端 Artifact；所有 DSL 组合在执行前完成，产物不承载图、内部组件或续算。
 执行分工与架构 v0.10 同步：Ibis 负责源端计算，pandas 统一本地执行，PyArrow 只负责存储和读取。
-延续 nullable value：sum 空/全 NA 均为 0，删除 empty、四态 carrier 与逐格原因；
+延续 nullable value：来源/内部样本 sum 默认空/全 NA 为 0，可显式 empty="null"；Query Column.sum 仍固定忽略 NA、空/全 NA 为 0，不新增 empty 参数。四态 carrier 与逐格原因保持退役；
 各阶段零分母统一默认 null，显式 error 才使 execute 失败；其它非法计算和实际日历/映射/请求域覆盖检查失败仍报错。
 首版不提供外部业务缺口声明或消费；本轮删除相应工作包，不增加替代入口或占位任务。
 政策只归当前算子，不增加 Session/observe/execute 覆盖；已提交 semantic 合同的处置见[语义附录 A.1](../../specs/semantic/expression-model-redesign.md#a1-拟替代的已提交合同)。
@@ -14,7 +16,7 @@ v0.32 统一 Query.execute → 终端 Artifact；所有 DSL 组合在执行前�
 
 本计划替代旧版 R1–R8 的任务切分和累积修订记录，保留文件路径与 milestone 编号，方便现有文档引用。
 编号不代表沿用旧任务内容，也不继承旧文档检查的通过状态。
-本计划与目标设计、架构方案同步终端 Artifact、执行内中间状态与 pandas 交接边界；不修改实现、测试、技能、AGENTS 或发布文档。
+本计划与 v0.37 同步原生 Deferred、终端 Artifact、执行内中间状态与 pandas 交接边界；架构 v0.10 的旧模块示意服从当前已实现 owner，不据此重建旧数值 AST。本次仅修改本计划。
 
 ## 1. 目标、依据与实施尺度
 
@@ -28,8 +30,8 @@ Query 组合管理本次输入及充分信息；Artifact 保存输出、必要�
 
 两份目标设计共同拥有 API 和语义，本文只规定实施顺序、工作包与验收出口，不复制第二份签名清单：
 
-- [语义表达式 v0.35](../../specs/semantic/expression-model-redesign.md)：行/指标阶段、声明、单位与可加性、节点政策、内部样本和模型收录。
-- [Lazy Analysis DSL v0.35](../../specs/analysis/lazy-analysis-dsl-redesign.md)：Population、观察绑定、Query/Artifact、结果算子与时间窗口。
+- [语义表达式 v0.37](../../specs/semantic/expression-model-redesign.md)：行/指标阶段、声明、单位与可加性、节点政策、内部样本和模型收录。
+- [Lazy Analysis DSL v0.37](../../specs/analysis/lazy-analysis-dsl-redesign.md)：Population、观察绑定、Query/Artifact、结果算子与时间窗口。
 - [执行、保存与交接](../../specs/analysis/lazy-analysis-dsl-execution.md)：实际读取、默认保存、冷恢复、动态披露和 pandas 布局。
 - [实现架构 v0.10](../../specs/analysis/analysis-implementation-architecture.md)：共同定义、绑定、编译、执行、终端数据的分层与模块归属；重点对应 §8–9、§12–15。
 - [场景验证 §9](../../specs/analysis/lazy-analysis-dsl-scenario-validation.md#9-后续实现的最小验收集) 与 [完整示例](../../specs/analysis/lazy-analysis-dsl-examples.md)：业务输入、独立预期和关键反例。
@@ -52,30 +54,25 @@ Query 组合管理本次输入及充分信息；Artifact 保存输出、必要�
 
 ## 2. 当前基线与改动落点
 
-本次只读核对基于 `main`，HEAD 为 `3147fd803b8698fb1ed01eb1f4e660e2a2c6771f`。
-架构 §2 的 `970a5df89f7cd62b809f7b948e920a1e8cff94f0` 是其起草快照；本次重新核对下表所列入口和格式，未将旧快照视为当前 HEAD。
-两份目标提案及其关联文档在工作树中已有修改，以此次读取的 v0.35 和架构 v0.10 为目标；开工时刷新实际代码与文档。
-当前产品合同仍由 [Semantic Object Model](../../specs/semantic/semantic-object-model.md)、
-[Loading / Validation](../../specs/semantic/loading-validation-introspection.md)、
-[Python Analysis Design](../../specs/analysis/python-analysis-design.md) 与
-[Session State and Runtime](../../specs/analysis/session-state-and-runtime.md) 拥有。
-实施各能力时同步其当前 owner，不将提案已写完视为实现已完成。
+本次核对基于 `3a4e741cfa`。当前产品合同由 [Semantic Object Model](../../specs/semantic/semantic-object-model.md)、[Loading / Validation](../../specs/semantic/loading-validation-introspection.md)、[Python Analysis Design](../../specs/analysis/python-analysis-design.md) 与 native Help 拥有；目标增量仍由 v0.37 设计拥有。
 
-| 已核对的现状 | 实施影响 |
+| 当前已实现基线 | 剩余实施影响 |
 | --- | --- |
-| `_authoring_declarations.metric` 依赖 authoring context，接收 Ibis 体、实体和全局政策，返回 Ref | 需要真正重做表达式对象、声明捕获与收录边界，不能只换装饰器参数 |
-| `semantic/metric_graph.py` 仍有 CatalogBody、Aggregate、Ratio、Linear 等节点；另有 runtime_metric 表面 | 统一成提案的闭合图，移除两套公开计算入口；复用合法 lowering 与数值算法 |
-| `analysis/public_dsl.py` 是多种 Logical/Materialized 类型，`Session.members` 返回旧域对象 | 交付统一 Population、Query、Artifact；增加唯一 Session.observe 和精确 Session.artifact |
-| `analysis/compiler/graph_plan.py` 拒绝 live/fixed 混合依赖和多个 live datasource | 退役 Artifact 计算输入；来源/字面量的执行内依赖必须增加具体 stage；同库多贡献根与跨 datasource 资格分开，不仅删除拒绝分支 |
-| `SourceSession.execute` 通过 Ibis 执行并交付 pandas；已有发布、固定执行和恢复链 | 统一 pandas 阶段交接，退役 Artifact 计算输入及本地 Arrow 往返；PyArrow 留在存储/读取边界，不重新引入 cursor/batch 或来源临时写入体系 |
-| `graph_storage.read_result` 读取全主表并验证、加载全部 parts；`graph_local_execution` 在执行时决定筛选/规约融合组 | 将读取拆成元数据打开与按请求扫描；将融合准入移入 compiler，Runtime 只消费计划 |
-| 当前实际格式为 Store 9、graph DAG v10、descriptor v6、continuation v5 | 终端数据和无图输出记录采用一次不兼容切换；定义图与执行内组件不进入新产物，见 §6 |
+| Measure/Metric 作者值为受控 Ibis Deferred；统一消费器与真实 schema 准备已接通 | 不恢复 NumericRowExpr/Metric 包装类或 Row/Metric 算术 AST；新消费者复用语义记录、规约边界和 Ibis 配方 |
+| capture → finalize → resolve、声明收录及 Catalog 已接通 | 定义身份描述实际消费内容；不恢复同路径原版本强制匹配；披露归 Catalog 条目与 Query.contract |
+| 普通观察、pandas 阶段、Store 10 发布与终端读取已接通 | 后续只扩展本阶段输出、投影与次序；不重做 R2，不新增存储代际 |
+| Population 字面量/来源/Query 域、集合/投影/关系像、keys-only Query 已有实际路线 | R3 核对并补 read、observe.members、member_count 及完整依赖调度；已存在入口不重复创建 |
+| per 的 (k,j) 完整子式、状态样本、first/last、membership 分桶已实现 | 保留样本身份、相关元组/独立集合区别和完整贡献键；后续算子补自己的组合准入 |
+| 五种无轴窗口规则与 Metric.window 的逐端点重算已实现 | R7 基础窗口复用 S5；剩余期间对应与比较接 R5，窗口时间轴原样保留 |
+| 新 Query 尚无 select/top/reduce/align/compare/rollup/drill/share 等公开组合能力 | R4–R6 仍是主要开发量；旧内部同名算法不代表新 Query 已接通 |
+
+当前 S0–S6 边界仍有效：来源 approx_quantile、内部样本 approx_nunique 缺合格路线时拒绝；Catalog 的 Population/sample/window/routed-field preview 未扩权。后续任务不隐式承诺这些路线。
 
 ### 2.1 现有入口 → 目标 owner → 交付阶段
 
 下表将[架构 §13](../../specs/analysis/analysis-implementation-architecture.md#13-目标代码组织与旧模块迁移)
 落实到阶段；路径均相对 `marivo/`。目标路径可能尚不存在，以代码格式标识，不把它们写成已实现文件链接。
-新模块随真实消费者建立；已有模块满足职责时原位保留，不先创建完整目录骨架。
+新模块随真实消费者建立；已有模块满足职责时原位保留，不先创建完整目录骨架。下表保留原职责映射，旧迁移入口只用于追溯；实际增量优先落在 `_definition/deferred.py`、`semantic/_deferred_semantics.py`、`analysis/binding/{sampling,membership,windows}.py`、`analysis/materialization/population_*.py` 与 `query_population.py` 等现有 owner，不按旧目标文件名重复拆层。
 
 | 职责 | 现有迁移入口 | 目标模块与边界 | 交付阶段 |
 | --- | --- | --- | --- |
@@ -91,7 +88,7 @@ Query 组合管理本次输入及充分信息；Artifact 保存输出、必要�
 | 终端数据与发布 | `analysis/materialization/graph_{protocol,snapshot,storage,store,publication,value_tables}.py`、`analysis/materialization/store.py` | `analysis/core/artifact_data.py` 拥有纯数据 schema/句柄/ReadLayout；writer 只接 ArtifactPublication；保留 journal 与事务，移除结果图/continuation codec | R2 格式切换；R4/R5/R7 只补输出字段 |
 | 读取和 pandas 交接 | `analysis/materialization/graph_storage.read_result`、`analysis/materialization/graph_dataset.py` 及现有显示/导出 | `analysis/materialization/graph_reading.py` 统一元数据/PreviewRead/ExportRead；`analysis/materialization/pandas_export.py` 管公开布局；PyArrow 仅在存储/读取边界 | R2 基础重开/预览/导出；R4 次序/完整布局；R5 投影 |
 | 四态和固定输入退役 | `analysis/core/cell_encoding.py`、`analysis/compiler/cell_lowering.py`、`analysis/materialization/cell_arrow.py`、FixedLeaf 和历史计算 reader | 新路径仅 nullable value；必要 Arrow schema 帮助函数留在存储；无 FixedRead/ComputeRead、状态书表或兼容分派 | R2 新路径即隔离；R3/R4 消费者收敛；R8 清理无消费者残留 |
-| 披露与发现 | `semantic/_capabilities/`、`analysis/_capabilities/`、`_help/` | Metric/Population/Query 合同读定义/绑定；Artifact 只读已提交输出；静态 Help 不复制实例状态 | 各阶段同步；R8 全局核对 |
+| 披露与发现 | `semantic/_capabilities/`、`analysis/_capabilities/`、`_help/` | Catalog 条目及 Population/Query 合同读定义/绑定；Artifact 只读已提交输出；静态 Help 不复制实例状态 | 各阶段同步；R8 全局核对 |
 
 ### 2.2 阶段之间交接什么
 
@@ -99,7 +96,7 @@ Query 组合管理本次输入及充分信息；Artifact 保存输出、必要�
 
 | 表示 | 建立阶段与后续消费者 | 验收边界 |
 | --- | --- | --- |
-| DefinitionGraph | R1 建立；semantic 与 R2–R7 的绑定共同引用 | 不含活动 Session/Catalog/Ibis/Artifact；不为每层复制 Metric AST |
+| DefinitionGraph | R1 建立；semantic 与 R2–R7 的绑定共同引用 | 不含活动 Session/Catalog/连接/Artifact；保留受控 Deferred 配方和语义边界；真实 schema 绑定后的 Ibis 数值图归准备/编译产物，不复制数值 AST，均不进入终端产物 |
 | BoundGraph | R2 建立；R3–R7 增加域、样本、映射和窗口绑定 | 拥有多量签名、完整依赖角色与 obligations；规则不导入 Runtime |
 | GraphPlan / LoweredPlan | R2 建立；R3/R4/R6 增加参数、需求和融合 | compiler 消费 schema 绑定且不做 I/O；计划固定来源 ID、stage、slots、消费者和检查位置 |
 | ArtifactData + ArtifactManifest | R2 建立；R4/R5/R7 完成各类输出布局 | 只引用已提交 Parquet 和实际 Finding/Evidence，不持有前三种表示、执行内组件或内存产物分支 |
@@ -112,21 +109,21 @@ ArtifactPublication 只含最终 pandas 输出和记录；writer 编码后由发
 
 ## 3. Milestone 总览与完成规则
 
-默认推进顺序为 R1 → R2 → R3 → R4 → R5 → R6 → R7 → R8。
+当前推进顺序为补齐 R3 → R4 → R5 → R6；R7.2 随 R5 的对应/比较能力推进，R7.1 复用已交付窗口并补实际缺口；R8 随阶段同步后整体收尾。R1/R2 不重新开工。
 下表列的是实际消费的前置产物；编号是交付顺序，不表示每个子任务必须等待全部较小编号能力。
 每阶段先完成类型/规则和一条未优化真实路线，再接保存/重开、必要优化与披露；不靠未实现占位让接口先通过。
 阶段之间可以在同一开发分支增量提交，不要求每阶段发布一个版本。
 
 | Milestone | 可交付结果 | 必需的上游产物 | 状态 |
 | --- | --- | --- | --- |
-| R1 统一计算定义 | 模型和分析代码可构造、声明、收录同一表达式 | 现有语义 Ref/时间原语；本阶段无 Runtime 前置 | 进行中：R1.1、R1.2 已完成（`8bbab54b81`、`c0ac430447`），R1.3 进行中，R1.4 未开始 |
-| R2 最小观察闭环 | 多量观察 → pandas stage → 终端发布 → 按需读取 | R1 定义、政策、loader；先分开 BoundGraph 与 ArtifactData，再接 lowering/执行/存储 | 普通观察本地闭环已实施：R2.1–R2.6；验收与未运行边界见下 |
-| R3 Population 与内部样本 | 字面量/逻辑名单与 (k,j) 求值可实际执行 | R1 域依赖记录；R2 观察绑定、stage、nullable 输出和 reader | 未开始 |
+| R1 统一计算定义 | 模型和分析代码可构造、声明、收录同一表达式 | 现有语义 Ref/时间原语；本阶段无 Runtime 前置 | 已交付；原作者载体由 S0–S2 替换，历史记录仅供追溯 |
+| R2 最小观察闭环 | 多量观察 → pandas stage → 终端发布 → 按需读取 | R1 定义、政策、loader；先分开 BoundGraph 与 ArtifactData，再接 lowering/执行/存储 | 已交付普通观察本地闭环；R2.6 已提交，S2 适配新数值内核 |
+| R3 Population 与内部样本 | 字面量/逻辑名单与 (k,j) 求值可实际执行 | R1 域依赖记录；R2 观察绑定、stage、nullable 输出和 reader | 部分已交付（S3/S4）；按 R3.1–R3.5 补增量 |
 | R4 Query 组合与交接 | Column、筛选/Top-N/reduce/values、需求裁剪与完整导出 | R2 多量/检查/终端格式；R3 Population 绑定、LiteralInput 和依赖键交接 | 未开始 |
 | R5 对齐、比较与参照 | 多端点组合，presence、投影与广播 | R2 端点输出；R3 完整键/关系绑定；R4 Column/values 与 ReadLayout | 未开始 |
 | R6 原指标粒度与份额 | 合法 rollup、父选择后 drill、局部同输入 share | R2 组件/方法资格；R3 样本与键依赖；R4 选择/RequiredSlots；R5 映射与参照运输 | 未开始 |
-| R7 时间窗口 | 原指标滚动、累计、同比环比及实际日历覆盖检查 | R2 时间/来源绑定；R3 per/时间样本规约；期间比较依赖 R5，合法粗化与组件需求复用 R6 | 未开始 |
-| R8 公开切换与整体收尾 | 一套公开入口、同步文档和完整业务路径 | R1–R7 已贯通的行为、读取/失败边界、披露与验收记录 | 未开始 |
+| R7 时间窗口 | 原指标滚动、累计、同比环比及实际日历覆盖检查 | R2 时间/来源绑定；R3 per/时间样本规约；基础窗口不依赖 R6；期间比较依赖 R5，空间上卷组合复用 R6，禁止窗口时间轴粗化 | 基础窗口已交付（S5）；期间对应与组合验收待完成 |
+| R8 公开切换与整体收尾 | 一套公开入口、同步文档和完整业务路径 | R1–R7 已贯通的行为、读取/失败边界、披露与验收记录 | 语义切换部分由 S6 完成；剩余 Query 能力与全局收尾待完成 |
 
 为避免阶段循环和职责后移，固定以下交接：
 
@@ -149,6 +146,8 @@ Help 与当前文档随对应公开行为更新，R8 只做全局切换和遗漏
 实现模块路径相对 `marivo/`；`tests/`、`docs/`、`site/` 和 Makefile 相对仓库根。花括号仅用于合并列举同级文件。
 
 ### R1：统一表达式、声明与模型收录
+
+**历史任务与证据。** 本节记录原 R1 的交付过程，不是当前开发清单；已由 S0–S2/S6 接续完成的表达式、声明和披露不再执行。旧状态和旧载体仅按记录日期解释，当前基线见 §2。
 
 **出口：** 同一表达式可在模型或普通分析代码中构造；声明只增加业务身份/授权，加载只收录可独立解析的定义。
 本阶段不宣称来源计算已通过。
@@ -181,6 +180,8 @@ Help 与当前文档随对应公开行为更新，R8 只做全局切换和遗漏
 
 
 ### R2：Metric-first 观察、执行与最小恢复闭环
+
+**历史任务与证据。** 本节保留各次交接当时的状态和测试结果；R2.6 已提交 `ea189ec50a`，旧结果续算清理由 `1d02fccb7a` 接续，Deferred 适配由 S2 完成。下列“待实现/未提交”不再是当前阶段状态。
 
 **出口：** `s.observe({"revenue": revenue, "aov": aov}, ...).execute()` 返回终端 Artifact，保存后新进程可按精确 ID 读取，均无 DSL 续算。
 先完成普通来源规约与组合；显式 Population 和内部样本的执行由 R3 接入。
@@ -322,7 +323,7 @@ schema-only 只检查声明类型及后端/转换路线资格，不能证明具�
 实际返回布局仍须校验；用大整数与 NA 的代表性真实读取和一次无损往返覆盖该边界，不以事后 cast 充当修复。
 R2.5/2.6 复用[场景 §8.7](../../specs/analysis/lazy-analysis-dsl-scenario-validation.md#87-构造披露执行后阅读与重开)，
 普通 observe 验收必须覆盖空 Finding 与实际读取/检查 Evidence，断源重开保留原摘要，不虚构完整性认证；
-Metric/Query.contract 在构造期披露定义与依赖，Artifact 只提供终端阅读。
+Catalog 条目/Query.contract 在构造期披露定义与依赖，Artifact 只提供终端阅读。
 各阶段共用[执行 §2.4](../../specs/analysis/lazy-analysis-dsl-execution.md#24-检查时机与能力披露)的检查时机；
 后续 R6 的 share/rollup 沿用同一规则，contract 只披露已知事实和待满足条件，不新增能力状态机。
 
@@ -330,16 +331,16 @@ Metric/Query.contract 在构造期披露定义与依赖，Artifact 只提供终�
 
 **出口：** 字面量或逻辑名单可参与本次观察；不接受 Artifact 键引用；`Metric.per(...)` 在每个外部格子内形成正确样本。
 
-**模块落点：** `analysis/dsl/population.py`、`analysis/binding/{populations,coordinates,samples}.py`、Population 规则/lowering 和既有 stage 调度；旧 domain_captures/graph_members 的纯绑定归拢到 binding，执行职责留在 materialization。
-**内部顺序：** R3.1–R3.3 闭合键与绑定 → R3.4 执行内依赖 → R3.5 样本展开；QueryKeys 首先消费 R2 普通观察，R4 再扩展选择后的输入。
+**模块落点：** `analysis/dsl/population.py`、`analysis/binding/{observe,coordinates,sampling,membership}.py`、`analysis/materialization/population_*.py`、`query_population.py` 和既有 stage 调度；纯绑定留在 binding，执行职责留在 materialization。
+**内部顺序：** 复用 S3/S4 的域与样本 → 补 R3.3 明确身份约束及 R3.4 依赖调度 → R3.2 的 read 随 R4.1 Column 消费接通；R3.5 只补新组合缺口。read 的值选择不作为 R4 起步前置，避免阶段循环；QueryKeys 先消费已有观察，R4 再扩展选择后的输入。
 
 | 任务 | 状态 | 目标模块 | 实施内容与产物 |
 | --- | --- | --- | --- |
-| R3.1 域及唯一物化路径 | 待开始 | `analysis/dsl/population.py`、`analysis/binding/populations.py`、`analysis/core/rules/population.py` | 实现 identities、coordinates、product、集合运算、project、population 和 Session.query；保留完整轴/复合身份/角色版本/None 字段键。Query.population 保持 lazy，完整依赖保留在共同图；query(population).execute 只产出仅键 Artifact。支持空域/零轴域，不接受手写日历/对应键；公开表不出现占位量。 |
-| R3.2 明确来源域操作 | 待开始 | `analysis/binding/{populations,coordinates}.py`、`analysis/compiler/populations.py` | Session.members(where/at) 和单身份域 read/classify/image/preimage 的读取归属明确；read 保留身份，classify 取完整分类像，image 沿关系取身份，preimage 限于接收者。已有轴投影不新增读取；路径统一为非空有序元组。 |
-| R3.3 绑定身份约束和域谓词 | 待开始 | `analysis/binding/{observe,populations,coordinates}.py`、`analysis/core/graph.py`、`analysis/core/rules/{population,observe}.py` | 接通 observe.members、by=Population、member_count 和 PredicateBinding；members/output_population/predicate_population 等按闭合角色进入图边。无约束、空身份域、普通分组和完整输出分开；贡献归属只用唯一声明路径。Population.where 只测已有键；捕获域的选择期间不被外层观察覆盖。 |
-| R3.4 执行内名单交接 | 待开始 | `analysis/compiler/{graph_plan,optimization,populations}.py`、`analysis/materialization/graph_{execution,exchange,source_execution,local_execution}.py` | LiteralInput/QueryKeys 产出完整 pandas 键供下游 SourceRead；建立 RequiredSlots 的键/值/检查需求传播与消费者计数。计划预先记录键 schema、Ibis 类型化完整元组谓词模板和路线，上游求值后仅实例化；元组内 AND、元组间 OR，合法 None 字段键用 null-safe 相等。同源合格域可 semi-join；DuckDB datasource 先贯通实际路线。不用 memtable、裸 SQL、拆列 IN、业务临时表或拆批聚合，不静默全源拉取。只检查后端原生类型/表达式/查询限制，不加 Marivo 名单配额或预估内存准入；能力/原生限制拒绝复用架构 §9.2 的 DomainPreparationError。逐 datasource/类型准入并退役持久计算 reader；中间表在最后消费后释放。 |
-| R3.5 内部样本与状态采样规约 | 待开始 | `analysis/binding/samples.py`、`analysis/compiler/observation.py`、`analysis/core/rules/observe.py`、`analysis/methods/`、`semantic/metric_graph_lowering.py` | 建立 SampleBinding，在每个 k 形成 J_k，以 (k,j) 完成子 Metric 后再规约/共同配对；Field 键像不因某一量为 NA 缩小，显式域保留全部相容样本。per(P) 排除域外贡献，by=P 仍检查覆盖。复用 `_temporal` 的采样合同，先空间后时间；Source/Per 状态分别准入，内部 Calendar/Correspondence 样本维持首期拒绝。 |
+| R3.1 域及唯一物化路径 | 主要入口已由 S3/S4 交付；剩余合同核对 | `analysis/dsl/population.py`、`analysis/materialization/{population_preparation,population_relations,query_population}.py` | 复用 identities、coordinates、product、集合运算、project、Query.population 和 Session.query 的当前实现及空/零轴域证据；核对完整轴/复合身份/角色版本/None 键与依赖闭包。只为后续消费者补缺，不重建域执行器；Query.population 不得因仅取键免除上游必要检查。 |
+| R3.2 明确来源域操作 | 来源选择/分类/关系像已交付；read 待实现 | `analysis/dsl/population.py`、`analysis/binding/coordinates.py`、`analysis/materialization/population_relations.py` | 复用 Session.members(where/at)、classify/image/preimage；补单身份 Population.read，保留身份并明确属性读取/版本锚点，返回新 Query。read 的 Column 选择与 R4.1 一起接通；投影已有轴不新增读取，显式关系路径仍为非空有序元组。 |
+| R3.3 绑定身份约束和域谓词 | by=Population/membership/域谓词已有路线；身份上下文待补 | `analysis/binding/{observe,membership,coordinates}.py`、`analysis/dsl/query.py`、`analysis/core/graph.py` | 补 Session.observe(members=...) 与 member_count 的显式身份域绑定；members 只限制贡献，membership 是可重叠成员分桶，两者不能互代。复用 by=Population 与 Population.where，保持无约束/空身份域/普通分组/完整输出的区别。完整闭合角色与 Session 归属进入依赖图，捕获域的选择期间不被外层观察覆盖；贡献约束遵循各自合法路径。 |
+| R3.4 执行内名单交接 | 已有 Literal/Source/Query 域路线；调度与需求传播待补 | `analysis/compiler/{graph_plan,optimization,populations}.py`、`analysis/materialization/graph_{execution,exchange,source_execution,local_execution}.py` | 复用现有域准备与 QueryKeys 的完整 pandas 键交接；将新增依赖统一纳入 stage 调度，补齐 RequiredSlots 的键/值/检查需求传播与消费者计数。计划预先记录键 schema、Ibis 类型化完整元组谓词模板和路线，上游求值后仅实例化；元组内 AND、元组间 OR，合法 None 字段键用 null-safe 相等。同源合格域可 semi-join；DuckDB datasource 先贯通实际路线。不用 memtable、裸 SQL、拆列 IN、业务临时表或拆批聚合，不静默全源拉取。只检查后端原生类型/表达式/查询限制，不加 Marivo 名单配额或预估内存准入；能力/原生限制拒绝复用架构 §9.2 的 DomainPreparationError。逐 datasource/类型准入并退役持久计算 reader；中间表在最后消费后释放。 |
+| R3.5 内部样本与状态采样规约 | 主要执行已由 S3 交付；随新增消费者补组合验收 | `analysis/binding/sampling.py`、`analysis/compiler/observation.py`、`analysis/methods/_sample_numeric.py` | 复用每个 (k,j) 完成子 Metric 后再规约/共同配对、零活动样本、状态采样与 first/last。Field 键像不因单量 NA 缩小；per(P) 排除域外贡献，by=P 仍检查覆盖。允许 product(Population, CalendarAxis) 提供权威内部完整桶样本；它不提供内部窗口端点，窗口仍由 during=CalendarAxis 绑定。Correspondence 先显式 observe/compare，再由 Query.reduce 消费。保留来源/样本方法资格，不把近似完成值视为可合并 sketch。 |
 
 **必要验收：**
 
@@ -357,6 +358,8 @@ R3.1 同步 Population.contract 的实例披露，规则归[执行 §2.1](../../
 
 ### R4：结果表达式、选择、最小统计与 pandas 交接
 
+**新语义接入边界：** Column 仍是绑定当前 Query 的有限结果表达式；v0.37 不授权向 Column 注入任意 Ibis Deferred，也不允许 Column 回到 Metric。复用当前数值内核，政策和单位按结果算子拥有。R3.2 read 的值选择随 R4.1 接通，已有基础导出与 keys-only 证据直接复用。
+
 **出口：** Agent 在 Query 上筛选重点、做最小统计，执行为 Artifact 后完整导出到 pandas；普通后处理不扩张 DSL。
 
 **模块落点：** `analysis/dsl/{column,query}.py`、Query 规则/lowering、`analysis/compiler/optimization.py`、pandas 内核和终端 reader/export。
@@ -368,7 +371,7 @@ R2 已切换的 nullable 物理布局在此扩展到全部结果表达式；删�
 | R4.1 同域 Column 与选择 | 待开始 | `analysis/dsl/{column,query}.py`、`analysis/core/rules/query.py`、`analysis/compiler/queries.py` | 实现有限算术、Column.divide、比较、is_null、coord、select、where，绑定精确输入域；divide 与来源阶段共用默认 null/显式 error 的节点政策；where 只选 True、NA 不入选，保留完整键/必要检查。标量单位按使用位置解释，已知单位冲突在 Column 构造报 AnalysisError；结果域谓词只投影已有坐标。where/top 等后继的 QueryKeys 接回 R3 域依赖路径，不执行后再导入 Artifact。 |
 | R4.2 Top-N 与展示次序 | 待开始 | `analysis/methods/local.py`、`analysis/core/artifact_data.py`、`analysis/materialization/graph_storage.py` | 全局/分组 Top-N 的评分、分区和选中行消费同一实际输入；NA 排末，同分按完整键决胜。order part 只保存 receipt 绑定的主表行号排列，完整键留在主表，读取不重建键索引；where/select 保序，重 top 重排，改坐标恢复规范序。 |
 | R4.3 最小 reduce 与 values | 待开始 | `analysis/core/rules/query.py`、`analysis/methods/{registry,numeric_state,local}.py`、`analysis/compiler/queries.py` | Column.sum/mean 与无列 row_count 由 reduce 绑定，各项独立 mask，不取全列非空交集；结果 ignore-NA 不继承来源 nulls 政策。values 通过 R3 LiteralInput 规范化，columns 映射唯一声明单位，不接 DataFrame 回灌。 |
-| R4.4 有限需求传播与局部融合 | 待开始 | `analysis/compiler/{optimization,graph_plan,graph_lowering}.py`、`analysis/core/local_laws.py`、`analysis/materialization/graph_local_execution.py` | 按架构 §8.4 顺序扩展 RequiredSlots → 精确选路 → 执行内投影/局部融合 → 同根来源合并 → nullable lowering；复用 local_laws，不另建优化 IR/registry。将选择/格子规约融合组、原节点/检查位置写入计划，Runtime 只执行；保留多消费者屏障。同根组件合并限相同贡献/期间/政策及已准入数值合同，不能由实数结合律或采用 fsum 授权浮点重排，缺少依据就不融合；原指标融合在 R6 扩展。按 §8.5 实现 invocation 内编译复用，registry/绑定变化即失效，不跨 execute 缓存结果。 |
+| R4.4 有限需求传播与局部融合 | 待开始 | `analysis/compiler/{optimization,graph_plan,graph_lowering}.py`、`analysis/core/local_laws.py`、`analysis/materialization/graph_local_execution.py` | 按架构 §8.4 顺序扩展 RequiredSlots → 精确选路 → 执行内投影/局部融合 → 同根来源合并 → nullable lowering；复用 local_laws，不另建优化 IR/registry。将选择/格子规约融合组、原节点/检查位置写入计划，Runtime 只执行；保留多消费者屏障。Deferred 分支完整进入静态/schema 检查，动态数值检查按实际分支需求域执行；裁列或只取键不能免除上游必要失败，也不能强迫未选分支执行动态检查。同根组件合并限相同贡献/期间/政策及已准入数值合同，不能由实数结合律或采用 fsum 授权浮点重排，缺少依据就不融合；原指标融合在 R6 扩展。按 §8.5 实现 invocation 内编译复用，registry/绑定变化即失效，不跨 execute 缓存结果。 |
 | R4.5 次序阅读与完整 pandas 导出 | 待开始 | `analysis/materialization/{graph_reading,graph_dataset,pandas_export}.py`、`analysis/core/artifact_data.py` | PreviewRead/ExportRead 共享 ReadLayout；Top-N 预览按 order part 定位必要行组并恢复展示序，导出沿规范完整键序。固定 RangeIndex、kind/name 两层列与纯数据 attrs，精确 dtype/空表/仅键和隔离副本完整保留；读取/转换/实际分配失败沿现有错误边界处理，不截断、不刷新来源/Catalog。 |
 
 **必要验收：**
@@ -382,7 +385,9 @@ R2 已切换的 nullable 物理布局在此扩展到全部结果表达式；删�
 
 ### R5：对齐、比较与参照运输
 
-**出口：** 两个 Query 可以按明确对应组合，缺坐标由 presence 区分；量值使用普通 NA；sum 空输入与全 NA 均为 0。
+**接入调整：** 主体目标保留，消费当前 Deferred 准备后的量、单位、逐使用位置政策与完整键；不恢复旧 Metric 包装类。期间对应与 R7.2 共用此处映射/比较链，presence 和终端投影同时接 writer/reader。
+
+**出口：** 两个 Query 可以按明确对应组合，缺坐标由 presence 区分；量值使用普通 NA，输入规约保留自己的 empty/strict 政策。
 
 **模块落点：** `analysis/binding/coordinates.py`、`analysis/methods/{comparison,references}.py`、`analysis/compiler/queries.py` 和终端投影读取；沿 R3 参数依赖和 R4 本地计划执行。
 **内部顺序：** R5.1 明确对应/完整映射 → R5.2 比较与 R5.3 广播；新增 presence/投影同时完成保存与读取。
@@ -407,6 +412,8 @@ R5.2 的一般 compare 不要求两侧来自同一 Metric；复用来源与字�
 
 ### R6：原指标上卷、来源细化与份额
 
+**新语义准入：** 运输充分信息以当前受控配方、规约/声明边界、贡献使用位置和样本身份为依据，不按旧 Add/Divide 数值节点枚举重建语言。empty、strict、分支需求、first/last 的排序/NA 政策与近似方法路线均随实际消费者保留；没有合格合并信息时不能用完成值替代。membership 的重叠桶不因原量可加便可直接相加，相关元组和独立集合乘积保持区别。
+
 **出口：** Agent 能区分原指标 rollup、当前格子 reduce 和新来源 drill；份额有真实总体与共同支持。
 
 **模块落点：** `analysis/core/rules/grain.py`、`analysis/compiler/optimization.py`、`analysis/methods/{numeric_state,references}.py`、观察绑定与 lowering；充分信息由本次计划拥有。
@@ -414,8 +421,8 @@ R5.2 的一般 compare 不要求两侧来自同一 Metric；复用来源与字�
 
 | 任务 | 状态 | 目标模块 | 实施内容与产物 |
 | --- | --- | --- | --- |
-| R6.1 运输实际充分信息 | 待开始 | `analysis/core/model.py`、`analysis/compiler/optimization.py`、`analysis/methods/numeric_state.py`、`analysis/materialization/graph_exchange.py` | 扩展反向需求到按量组件、政策、完整键与支持事实；SourceMean/WeightedMean、Divide、PerReduce 分别准入。只将键、绑定与运输规则相同的组件放在同一块；共享物理组件取消费者需求并集，不按标签去重。必要内部身份/细状态仅为实际消费者保留，不能凭投影恢复丢失分组名单；最后消费释放，不进入 Artifact。 |
-| R6.2 原指标 rollup | 待开始 | `analysis/core/rules/grain.py`、`analysis/compiler/{observation,queries}.py`、`analysis/methods/numeric_state.py` | 合法 coarsen/现有轴建立完整唯一映射；合并选中坐标的实际贡献/充分组件再 finish 原公式，保留细网格完成检查，不替换为粗 observe。常数平移、ratio/per 按依赖重算；完整输入合格即可直接求值，不强制所有 reducer 实现 merge。 |
+| R6.1 运输实际充分信息 | 待开始 | `analysis/core/model.py`、`analysis/compiler/optimization.py`、`analysis/methods/numeric_state.py`、`analysis/materialization/graph_exchange.py` | 扩展反向需求到按量组件、政策、完整键与支持事实；来源 mean/weighted_mean 的组件、Ibis 配方中的除法、PerReduce 等语义边界分别准入。只将键、绑定与运输规则相同的组件放在同一块；共享物理组件取消费者需求并集，不按标签去重。必要内部身份/细状态仅为实际消费者保留，不能凭投影恢复丢失分组名单；最后消费释放，不进入 Artifact。 |
+| R6.2 原指标 rollup | 待开始 | `analysis/core/rules/grain.py`、`analysis/compiler/{observation,queries}.py`、`analysis/methods/numeric_state.py` | 合法 coarsen/现有轴建立完整唯一映射；合并选中坐标的实际贡献/充分组件再 finish 原公式，保留细网格完成检查，不替换为粗 observe。常数平移、ratio/per 按实际配方依赖重算；窗口量仅允许合格空间上卷，必须原样保留已绑定时间轴及每个端点/W(t)，粗化、替换或删除时间轴均拒绝；完整输入合格即可直接求值，不强制所有 reducer 实现 merge。 |
 | R6.3 来源 Query drill | 待开始 | `analysis/binding/{observe,coordinates}.py`、`analysis/core/rules/grain.py`、`analysis/compiler/{observation,populations}.py` | 父域 where/top 的选择先完成，再读取所选纤维；保留父检查、上下文和参照，新分类检查限所选父纤维。来源角色进入真实 stage 依赖，Artifact/compare/任意 align/reduce/份额派生输出不借 lineage 回源。 |
 | R6.4 自动/分组 share | 待开始 | `analysis/methods/references.py`、`analysis/core/rules/query.py`、`analysis/compiler/{graph_plan,queries}.py`、`analysis/methods/local.py` | 唯一 Query.share 保留原列并新增份额列；zero_denominator 默认 null、显式 error，仅作用新份额；先将接收者及必要组件形成一个实际 pandas 输入，再构造分组原量总体、完整分母映射，检查可加性、分子贡献包含及单位/政策。后置 where/top 不改分母；缺共同输入/组件路线明确拒绝。Artifact 只保存显式输出和实际事实，份额列不继承原量 rollup/drill 权。 |
 | R6.5 扩展原量融合与同输入屏障 | 待开始 | `analysis/compiler/optimization.py`、`analysis/core/local_laws.py`、`analysis/materialization/graph_local_execution.py` | 将原量规约融合准入从 Runtime 移到计划；复用 local_laws 的实现编号 L8 等现有检查（理论对应核心 L6，编号表由核心文档拥有），编码组件需求、mask/键运输、原检查定位和同输入物化边界。保留多消费者；share/filter、per、原量完成检查不可交换。解释采用/拒绝规则及屏障，不新增公开优化开关。 |
@@ -429,17 +436,18 @@ R5.2 的一般 compare 不要求两侧来自同一 Metric；复用来源与字�
 - East=320/West=150：先 share 再选 East 保留 320/470，先选 East 再 share 得 1；分组 share 在组内构造分母。来源模式必须使用合格共同输入路线；无此路线时报具体执行能力缺口，不建议先 execute 再 share，不能用两次独立读取补证明。
 - 覆盖有符号分母、NA 分子、默认零分母 NA 及显式 error 失败；原输入的必要检查不能省略。
 - 计划中 share 的分子、分母消费同一 stage 输出；优化与基线在上述反例及失败上一致。
+- 复用已有 membership 场景验证重叠桶不能当互斥贡献相加；用一个已绑定窗口 Query 验证保留时间轴的合格空间上卷和时间轴粗化/删除拒绝。复用分支与 empty 政策输入核对组件运输，不增加每算子×每政策矩阵。
 
 ### R7：原指标窗口、累计与期间比较
 
 **出口：** 能从完整所需贡献计算滚动、累计和两期变化；输出范围与贡献范围分别保留，日历认证范围按实际请求检查。
 
-**模块落点：** `analysis/dsl/temporal.py`、`analysis/binding/{observe,samples,coordinates}.py`、`analysis/core/rules/temporal.py`、`analysis/compiler/windows.py`；基础时间权威继续归 `_temporal` 和语义日历 owner。
-**内部顺序：** R7.1 形成 W(t) 并检查所需日历范围 → R7.2 两端窗口后的期间对应；复用同一 stage 调度、实际输入检查和 R6 充分信息准入。
+**模块落点：** `_definition/windows.py`、`analysis/dsl/{windows,temporal}.py`、`analysis/binding/{windows,observe,sampling,coordinates}.py` 与现有 observation/compiler；期间对应随 R5 消费者扩展，基础时间权威继续归 `_temporal` 和语义日历 owner。
+**内部顺序：** R7.1 复用 S5 已交付的 W(t) 绑定和完整公式重算；R7.2 在 R5 对应/比较可用后接通。基础窗口与期间比较不等待 R6；只有空间上卷组合消费 R6 的充分信息准入，时间轴仍不得改动。
 
 | 任务 | 状态 | 目标模块 | 实施内容与产物 |
 | --- | --- | --- | --- |
-| R7.1 窗口与完整贡献范围 | 待开始 | `analysis/dsl/temporal.py`、`analysis/binding/{observe,samples}.py`、`analysis/compiler/windows.py` | 实现 trailing_periods、since、to_date；复用 Grain/PeriodCalendar/时区，不复制时间语言。分别形成名义桶 N(t)、实际桶 A(t)=N(t)∩S 与贡献窗口 W(t)，再读取全部依赖范围；以 output_key/component/occurrence 保留重叠窗口的重复使用。直接完整输入求原指标先通过，不以滑动摘要为前置。 |
+| R7.1 窗口与完整贡献范围 | 基础能力已由 S5 交付；剩余组合缺口待核对 | `_definition/windows.py`、`analysis/dsl/windows.py`、`analysis/binding/windows.py`、现有 observation/compiler | 复用 all_history、trailing_duration、trailing_periods、since、to_date 无轴规则与 Metric.window；observe 固定端点和 W(t)，每个端点从完整贡献重算公式。复用 Grain/PeriodCalendar/时区、重叠窗口 occurrence 与完整日历检查，只补新 Query 消费者需要的绑定/输出；不新增 Query.window、ObservationWindow during 输入或第二套窗口执行器，不以滑动摘要为前置。 |
 | R7.2 期间对应与输出边界 | 待开始 | `analysis/binding/coordinates.py`、`analysis/methods/comparison.py`、`analysis/compiler/{windows,queries}.py`、`analysis/core/artifact_data.py` | 接通 period_offset、previous_year 与受约束 current 时间轴；各端先求窗口再对应；日粒度闰日无对应时 exact 失败、outer 保留缺侧，完整月/季/年含闰日仍可同名配对，不减 365 天或夹日。非法包含/粗化失败；换窗口构造新 observe。输出保存绝对坐标、时区/实际边界与投影，不存窗口/日历对象；沿同一 reader 重开。 |
 
 **必要验收：**
@@ -454,6 +462,8 @@ Cum 的数学零延拓不生成期初业务格子或补缺测；细桶值求和�
 
 ### R8：公开切换、文档同步与整体收尾
 
+**已有成果：** S6 已完成本次语义载体切换的 Help、类型、导出和英中文档；复用其记录。R8 聚焦后续 Query 操作的增量与跨入口核对，不重新展开 S0–S6 或修改历史审查结论。
+
 **出口：** 目标能力只有一条公开路径，当前文档和发现入口一致，代表性业务链完整通过；剩余限制准确披露。
 
 **模块落点：** `semantic/`、`analysis/` 的 exports 与各自 `_capabilities/`、`_help/`、CLI、typing/surface 测试及当前规格/API/site 文档。
@@ -461,9 +471,9 @@ Cum 的数学零延拓不生成期初业务格子或补缺测；细桶值求和�
 
 | 任务 | 状态 | 目标模块 | 实施内容与产物 |
 | --- | --- | --- | --- |
-| R8.1 完成公开切换和旧入口退出 | 待开始 | `semantic/__init__.py`、`analysis/{__init__,_public}.py`、旧 runtime_metric/public_dsl 及其实际消费者 | 收齐各阶段已替换的工厂、旧政策、包装与别名；确认 Query/Artifact/Population/Column 直接导向唯一实现。复核依赖后删除无用 fixed/Cell/图恢复路径，不批量删除仍有内部消费者的无关算法。无 Artifact DSL、MetricSamples 顶层导航或长期转发适配。 |
-| R8.2 收齐披露与类型合同 | 待开始 | `semantic/_capabilities/`、`analysis/_capabilities/`、`_help/`；`tests/typing`、`tests/surface` | 核对各阶段 docstring/Help/错误/CLI 和 exports、可达性、Help 输出预算；目标公开 mv.TimeScope、mv.Population 支持示例注解，TimeScope 复用既有导出，支持类型仍随所属能力发现。具体参数/返回类型与跨阶段负向 typing 一致。Metric/Population/Query contract 读同一纯规则；Artifact 只读已提交输出，无 contract/续算提示。 |
-| R8.3 同步当前文档与工作流 | 待开始 | 当前 semantic/analysis owner、`docs/api`、英中 latest 示例；受保护文件见 §7 | 收齐随行为更新的文档，清除旧构造/保存/续算说明；核对在对应阶段准备的技能/AGENTS 同步稿，仅在明确授权范围内编辑。提案状态只随真实能力推进，未授权项保留待办。 |
+| R8.1 完成公开切换和旧入口退出 | 语义切换及部分旧入口清理已完成；剩余消费者核对 | `semantic/__init__.py`、`analysis/{__init__,_public}.py`、旧 runtime_metric/public_dsl 及其实际消费者 | 收齐各阶段已替换的工厂、旧政策、包装与别名；确认 Query/Artifact/Population/Column 直接导向唯一实现。复核依赖后删除无用 fixed/Cell/图恢复路径，不批量删除仍有内部消费者的无关算法。无 Artifact DSL、MetricSamples 顶层导航或长期转发适配。 |
+| R8.2 收齐披露与类型合同 | 语义侧已同步；Query 增量待实现 | `semantic/_capabilities/`、`analysis/_capabilities/`、`_help/`；`tests/typing`、`tests/surface` | 核对各阶段 docstring/Help/错误/CLI 和 exports、可达性、Help 输出预算；目标公开 mv.TimeScope、mv.Population 支持示例注解，TimeScope 复用既有导出，支持类型仍随所属能力发现。具体参数/返回类型与跨阶段负向 typing 一致。Catalog 条目与 Population/Query.contract 读所属纯规则；Deferred 不新增 .contract/.show 包装；Artifact 只读已提交输出，无 contract/续算提示。 |
+| R8.3 同步当前文档与工作流 | 语义当前文档已同步；分析增量/受保护工作流待核对 | 当前 semantic/analysis owner、`docs/api`、英中 latest 示例；受保护文件见 §7 | 收齐随行为更新的文档，清除旧构造/保存/续算说明；核对在对应阶段准备的技能/AGENTS 同步稿，仅在明确授权范围内编辑。提案状态只随真实能力推进，未授权项保留待办。 |
 | R8.4 完成集成验收 | 待开始 | §5 的现有测试 owner、Makefile 入口及执行记录 | 六条业务链与 §5.5 架构条件收齐后执行 make check-agent；受影响远端特化路线单独补 Runtime。列明真实已验类型/输入/后端，汇总通过/失败/未运行/未完成；不追加发布或全后端矩阵。 |
 
 **必要验收：**
@@ -476,6 +486,8 @@ Cum 的数学零延拓不生成期初业务格子或补缺测；细桶值求和�
 ## 5. 验收组织：覆盖关键行为，避免重复工作
 
 ### 5.1 六条业务链复用已有场景
+
+S3/S4 的域、样本、membership 与 S5 的窗口已有行为证据；只对新增组合、真实缺口和修改影响补验，不重复整套上游测试。六条业务链仍须接通其尚缺的 Query 操作后才能整体结项。
 
 按场景文档的数据和独立预期运行新 API；每条链只在一个主测试位置维护。
 上游 milestone 已验证的步骤直接复用，不再次为每个场景复制格式、权限和全部异常测试。
@@ -496,7 +508,7 @@ Cum 的数学零延拓不生成期初业务格子或补缺测；细桶值求和�
 
 下表将 [场景 §9.1](../../specs/analysis/lazy-analysis-dsl-scenario-validation.md#91-最小反例与修复判据)
 的 1–80 条分配给主验收 owner。跨阶段行为可引用上游证据，不重复建设测试。
-这是防止漏项的索引，**不是 80 个任务、80 个测试或额外验收门禁**。
+这是防止漏项的索引，**不是 80 个任务、80 个测试或额外验收门禁**。表中 R 编号是主 owner，不表示尚未开发；已有 S3/S4/S5 证据按 §3 与任务行归入 R3/R7。v0.37 的分支需求、empty、membership 和窗口时间轴限制在本计划相应任务补组合断言，不另增一套编号或重复台账。
 
 | 主归属 | 条目编号 |
 | --- | --- |
@@ -573,7 +585,7 @@ make check-agent
 
 nullable 专项验收与 [架构方案](../../specs/analysis/analysis-implementation-architecture.md) 同步：
 
-- 空输入和全 NA 的 sum 均为 0；mean 的和/有效数只用于本次执行；Artifact 只保存完成均值，显式输出组件除外。
+- 来源/内部样本 sum 默认空输入和全 NA 为 0，显式 empty="null" 为 NA；strict 的全 NA 仍失败，不能被 empty 政策掩盖。Query Column.sum 保持固定默认合同；mean 的和/有效数只用于本次执行；Artifact 只保存完成均值，显式输出组件除外。
 - 0/0、非零数/0 默认产生可导出的 NA；NA/0 在两种政策下均为 NA。显式 error 的零分母与实际覆盖检查失败使 execute 失败，不发布部分结果。
 - where 的 NA 不入选；where(~p) 不替换成 Population 补集；合法 None 分组键不丢弃。
 - 优化与未优化保持相同 mask/有效样本及必要失败；sum(x+y) 不跨不同缺失 mask 分解。
@@ -657,8 +669,7 @@ R8 只核对这些出口已完成，不再集中补存储代际、故障清理�
 - 英文 [site/src/content/docs/docs/latest](../../../site/src/content/docs/docs/latest) 与中文 [site/src/content/docs/zh-cn/docs/latest](../../../site/src/content/docs/zh-cn/docs/latest)。
 
 不为本轮编计划提前修改这些产品文件。
-当前 [AGENTS.md](../../../AGENTS.md) 中“Python-track expressions return ibis expressions only”
-与目标的受限行/Metric 表达式存在适用范围变化，实施时须明确区分来源 Ibis 声明与目标表达式合同。
+当前 [AGENTS.md](../../../AGENTS.md) 已区分 Entity/Source、Dimension/TimeDimension 的受限 Ibis 与零参数 Measure/Metric 声明；旧“所有表达式只返回 Ibis”不再列作待修事项。后续按真实差异核对，不因本计划刷新而修改受保护文件。
 AGENTS 及两个 packaged skills 的编辑受仓库明确授权规则保护：
 
 - [marivo-semantic](../../../marivo/skills/marivo-semantic/SKILL.md)：临时表达式、业务授权、声明与模型收录边界。
@@ -681,7 +692,9 @@ AGENTS 及两个 packaged skills 的编辑受仓库明确授权规则保护：
 - 当前 API、类型、Help、错误、英中文档及获授权的工作流文件同步；make check-agent 通过，实际需要的额外检查单独报告。
 - 最后记录通过、失败、未运行与待授权事项，所引用证据只说明它实际验证的范围。
 
-当前状态：**R1–R8 已按架构 v0.10 对齐目标模块、前置产物、阶段出口与架构验收；R1.1 已完成（评审 2 无发现，提交 `8bbab54b81`）；R1.2 已完成（评审 3 无发现，提交 `c0ac430447`）；均未推送。R1.3 状态沿原记录，R1.4 见任务行；R2.1–R2.4 已提交，R2.5 原子终端发布已实施并完成上述定向验收，默认 broad gate 仍受已复现基线失败阻断；R2.5 已提交 `e14eec9c49`，R2.6 公开打开与阅读已实施并完成下述本地定向验收，尚未提交；未外推远端 Runtime、release 或后续阶段。**
+当前状态：**R1/R2 的可用基线已交付；S0–S6 在 `3a4e741cfa` 完成原生 Deferred 与所需域/样本/成员/窗口链路。R3/R7 部分已交付，剩余范围按本次任务行补齐；R4–R6 主体仍待开发，R8 随增量收尾。不能将语义层完成等同于整个 Lazy Analysis DSL 完成。**
+
+该提交最后一轮本地验收：默认全量测试 3964 passed、504 failed、10 setup errors；514 个失败节点均在已提交的 520 个基线清单中，新增失败节点为 0。这是失败节点对照，不证明各失败原因完全相同，也不是 broad gate 全绿。静态检查、API 文档、381 个站点文件与 7 组独立 DuckDB 场景通过；未运行远端 Runtime/release。报告 `/tmp/marivo-final-acceptance.md` 及日志为本地临时证据，非仓库持久资产；本次计划修订不重新运行或提升这些证据。最终全绿要求仍保留，基线失败未清除前不得宣称 R8 整体验收通过。
 本轮文档完成条件：模块映射可回到架构 owner，阶段无循环/后移出口，场景 1–80 无遗漏或重复归属，
 架构 §15 的条件都有收齐阶段，文件链接/锚点/围栏有效，既有工作树修改不被覆盖。
 计划检查不运行目标 DSL，不将旧 oracle 计数或历史文档检查沿用为实现验收；不据此声称默认测试、Runtime 或性能通过。
