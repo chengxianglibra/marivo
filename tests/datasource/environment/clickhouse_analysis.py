@@ -50,7 +50,9 @@ def setup() -> dict[str, object]:
         )
     denied = []
     with connection() as con:
-        version, user = con.query("SELECT version(), currentUser()").first_row
+        row = con.query("SELECT version(), currentUser()").first_row
+        assert row is not None, "Expected server version and reader identity"
+        version, user = row
         for sql in (
             "CREATE TABLE forbidden(id Int64) ENGINE=MergeTree ORDER BY id",
             "CREATE TEMPORARY TABLE forbidden_temp(id Int64)",
@@ -111,15 +113,19 @@ def setup_cluster() -> dict[str, object]:
                 " AS qualification_cluster.orders_local"
                 f" ENGINE=Distributed({CLUSTER}, qualification_cluster, orders_local, rand())"
             )
-            shards = con.query(
+            row = con.query(
                 "SELECT count() FROM system.clusters WHERE cluster = {cluster:String}",
                 parameters={"cluster": CLUSTER},
-            ).first_row[0]
+            ).first_row
+            assert row is not None, "Expected cluster shard count"
+            shards = row[0]
             assert shards == 2, f"Expected two shards on {CLUSTER}, saw {shards}"
     receipt: dict[str, object] = {"backend": "clickhouse-cluster", "shards": shards}
     for port in CLUSTER_HTTP_PORTS:
         with connection(port=port) as con:
-            version, user = con.query("SELECT version(), currentUser()").first_row
+            row = con.query("SELECT version(), currentUser()").first_row
+            assert row is not None, "Expected server version and reader identity"
+            version, user = row
             assert user == "analysis_reader", f"Unexpected reader identity {user!r} on {port}"
             receipt[f"version_{port}"] = version
             denied: list[str] = []

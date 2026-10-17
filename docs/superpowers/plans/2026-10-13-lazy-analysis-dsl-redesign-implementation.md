@@ -1016,3 +1016,31 @@ luna 独立验收完成：六条业务链及冷读 7/7、身份边界 6/6、原�
 本台账随后仅更新完成状态与上述证据，不改已验产品/测试；末尾负测对齐只作定向及完整工程验证，
 不增加正式审查轮次。定向 typing 的五项既有远端环境依赖诊断仍单独保留，不声称该命令全绿。
 本轮没有执行完整远端 Runtime、安装 wheel/全后端矩阵或 release-check，没有启动 MinIO，也不推送。
+
+### 2026-10-17：外部依赖 typing 诊断收尾
+
+在提交 `7508aca650` 后单独复现并修复上述五项诊断。根因不是 Lazy DSL 产品类型：
+本地 `clickhouse-connect 1.3.0` 未携带 `py.typed`，三个直接导入因此产生 `import-untyped`；
+MySQL 环境辅助模块缺少 `types-mysqlclient`，且 `connection()` 未声明返回类型。
+[ClickHouse 1.4.0 发布说明](https://github.com/ClickHouse/clickhouse-connect/releases/tag/v1.4.0)
+确认该版开始提供 PEP 561 类型信息，并明确空结果的 `first_row` 返回 `None`。
+
+修复涉及开发依赖、两个环境辅助模块和对应依赖测试：dev 声明 `clickhouse-connect>=1.4.0` 与
+`types-mysqlclient>=2.2.0`；ClickHouse 在身份行/分片计数行解包前断言非空；MySQL 返回
+`Iterator[Connection]`，使用驱动已有且已标注类型的连接上下文管理器关闭连接。
+已核对 mysqlclient 2.2.7 的 `Connection.__exit__` 直接调用 `close()`；stubs 的直接 `close()`
+缺少注解，不以 ignore、cast、动态导入或 mypy 配置绕过。未修改产品运行依赖或公开 API。
+
+原 17 文件 typing 命令及包含两个 helper 的 19 文件命令均零诊断，定向 lint/import 检查通过。
+本地探针使用实际 MySQL 驱动上下文方法验证正常/异常退出均关闭一次并保留原异常；使用实际
+ClickHouse `QueryResult` 与替身连接验证单机/集群 setup 的正常身份行及空结果拒绝。
+这些探针不构成真实服务器验收。首次完整门禁为 4587 passed / 1 failed：已有 metadata 测试
+以 `mysql` 子串拦截开发依赖，将纯类型包误判为原生驱动。改用 `Requirement` 解析包名和 extras，
+继续禁止 `mysqlclient` 及 `ibis-framework[mysql]`；本地反例确认两条原生依赖路径仍被拒绝。
+已核对安装的 `types-mysqlclient 2.3.0.20260923` 无 `Requires-Dist`，不会引入原生库。
+三个 metadata 测试、三个修改 Python 模块的 typing/lint/import 检查通过。
+最终无收窄变量的 `make check-agent` 完整通过：788 文件格式、Ruff/import contracts、366 文件
+typing、4588 默认测试（83 项既有警告，116.31 秒）及 API 文档构建。日志为
+`/tmp/marivo-external-typing-check-agent-final.log`，原 17 文件 typing 日志为
+`/tmp/marivo-external-typing-consumers.log`。本次五项诊断全部关闭，未运行远端 Runtime 或
+release-check，未启动服务；修复单独本地提交，不 push。

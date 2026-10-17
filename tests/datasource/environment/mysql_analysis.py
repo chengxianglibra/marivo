@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from MySQLdb.connections import Connection
 
 HOST = "127.0.0.1"
 PORT = 23306
@@ -20,10 +25,10 @@ def password() -> str:
 
 
 @contextmanager
-def connection(*, admin: bool = False):
+def connection(*, admin: bool = False) -> Iterator[Connection]:
     import MySQLdb
 
-    con = MySQLdb.connect(
+    with MySQLdb.connect(
         host=HOST,
         port=PORT,
         database=DATABASE,
@@ -31,11 +36,8 @@ def connection(*, admin: bool = False):
         password=password(),
         autocommit=True,
         charset="utf8mb4",
-    )
-    try:
+    ) as con:
         yield con
-    finally:
-        con.close()
 
 
 def setup() -> dict[str, object]:

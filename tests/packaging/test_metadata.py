@@ -39,8 +39,12 @@ def test_datasource_backend_extras_track_supported_backends() -> None:
 
 def test_dev_extra_avoids_native_mysql_dependency() -> None:
     optional_dependencies = _optional_dependencies()
+    requirements = [Requirement(dependency) for dependency in optional_dependencies["dev"]]
 
-    assert all("mysql" not in dependency for dependency in optional_dependencies["dev"])
+    assert all(
+        requirement.name != "mysqlclient" and "mysql" not in requirement.extras
+        for requirement in requirements
+    )
 
 
 def test_core_sqlglot_requirement_excludes_broken_cleanup_version() -> None:
