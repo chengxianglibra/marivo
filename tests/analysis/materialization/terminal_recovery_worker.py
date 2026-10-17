@@ -6,11 +6,10 @@ import os
 import sys
 from pathlib import Path
 
-from marivo._definition.expressions import MetricConstant
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.errors import SessionBusyError
 from marivo.analysis.session.core import Session
-from marivo.semantic.expressions import Metric
+from tests.shared_fixtures import numeric_literal_node, numeric_program_query
 
 
 def main() -> None:
@@ -23,7 +22,7 @@ def main() -> None:
     try:
         runtime = DatasetRuntime.create(root, name, report_timezone="UTC", event=event)
         session = Session._from_runtime(runtime)
-        artifact = session.observe({"answer": Metric(MetricConstant(7), (), None)}).execute()
+        artifact = numeric_program_query(session, {"answer": numeric_literal_node(7)}).execute()
         print(artifact.id)
     except SessionBusyError:
         sys.exit(38)

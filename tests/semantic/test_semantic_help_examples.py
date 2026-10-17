@@ -19,7 +19,7 @@ from marivo._help.render import help as public_help
 from marivo.preview import PreviewResult
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind
-from marivo.semantic.expressions import Entity, Measure, Metric
+from marivo.semantic.expressions import Entity
 from marivo.semantic.materializer import Materializer
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import patch_semantic_connections
@@ -46,8 +46,9 @@ def test_modeling_tutorial_capture_sequence(
         if "sales = ms.domain" in block or "def normalized_region(" in block
     )
     source += (
-        "\nassert normalized_region.ref == finalized.resolve("
-        'ms.ref.dimension("sales.orders.normalized_region")).ref\n'
+        "\nfrom marivo.semantic._deferred_semantics import consume_field\n"
+        "assert consume_field(normalized_region) == consume_field(finalized.resolve("
+        'ms.ref.dimension("sales.orders.normalized_region")))\n'
     )
     project = semantic_project_factory({"sales/_domain.py": source})
     catalog = SemanticCatalog(project)
@@ -294,7 +295,7 @@ def test_filter_keywords_cannot_name_dimensions_owned_by_another_entity(
     )
     source += "finalized = ms.finalize()\norders = finalized.resolve(orders)\namount = finalized.resolve(amount)\nstate = finalized.resolve(state)\n"
     expression = "orders.count()" if builder == "count" else "amount.sum()"
-    source += f"failed = {expression}.where(state == 'FAILED')\n"
+    source += f"@ms.metric()\ndef failed():\n    return {expression}.where(state == 'FAILED')\n"
     project = _project(semantic_project_factory, source)
     assert not project.is_ready()
     error = next(error for error in project.errors() if error.kind == ErrorKind.INVALID_WHERE_SCOPE)
@@ -451,11 +452,11 @@ def test_changed_help_is_equivalent_for_callables_and_has_only_resolvable_routes
     callable_target: PublicHelpTarget = (
         ms.SemanticCatalog.preview
         if target == "preview"
-        else Metric.where
+        else "semantic.Metric.where"
         if target == "Metric.where"
         else Entity.count
         if target == "Entity.count"
-        else Measure.sum
+        else "semantic.row.sum"
         if target == "row.sum"
         else getattr(ms, target)
     )

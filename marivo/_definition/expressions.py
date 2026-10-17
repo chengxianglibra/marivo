@@ -10,27 +10,31 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, TypeAlias
 
+from ibis.common.deferred import Resolver
+
 from marivo._definition.types import (
     RULE_VERSION,
     Authorization,
     AxisBinding,
     ExactRef,
     FieldRead,
-    FiniteNumber,
-    LiteralValue,
     NullPolicy,
     SourceLocation,
     SumPermission,
     ZeroDenominator,
-    check_finite_number,
-    check_literal,
     invalid,
 )
+from marivo._definition.windows import ObservationWindow
 from marivo._temporal import InstantAnchor
 from marivo.refs import DomainKind, Ref, SemanticKind, _validate_segment
 
 if TYPE_CHECKING:
-    from marivo._definition.relations import LiteralPopulation, PopulationProgram
+    from marivo._definition.relations import (
+        LiteralPopulation,
+        PopulationCondition,
+        PopulationProgram,
+        SampleDomain,
+    )
     from marivo.datasource.typing import AiContextValue
 
 _FIELD_KINDS = frozenset(
@@ -38,13 +42,25 @@ _FIELD_KINDS = frozenset(
 )
 
 Reducer: TypeAlias = Literal[
-    "sum", "mean", "min", "max", "median", "quantile", "count", "count_distinct"
+    "sum",
+    "mean",
+    "min",
+    "max",
+    "median",
+    "quantile",
+    "count",
+    "count_distinct",
+    "approx_nunique",
+    "approx_median",
+    "approx_quantile",
+    "first",
+    "last",
 ]
 CompareOp: TypeAlias = Literal["eq", "ne", "lt", "le", "gt", "ge"]
 
 
 def _check_quantile(reducer: Reducer, q: float | None) -> None:
-    if reducer == "quantile":
+    if reducer in ("quantile", "approx_quantile"):
         if q is None or isinstance(q, bool) or not 0.0 <= q <= 1.0:
             invalid(f"quantile expected q in [0, 1]; received {q!r}. Pass q such as 0.95.")
     elif q is not None:
@@ -62,6 +78,7 @@ class RowField:
     root: ExactRef
     unit: str | None
     permission: SumPermission
+    read: FieldRead | None = None
 
     def __post_init__(self) -> None:
         if self.ref.ref.kind not in _FIELD_KINDS:
@@ -74,47 +91,6 @@ class RowField:
                 f"row field {self.ref.ref.key} expected an entity contribution root; "
                 f"received {self.root.ref.key}. Bind the field to its owning entity."
             )
-
-
-@dataclass(frozen=True, slots=True)
-class RowConstant:
-    """Finite numeric row constant; it never creates a contribution source."""
-
-    value: FiniteNumber
-
-    def __post_init__(self) -> None:
-        check_finite_number(self.value, role="row constant")
-
-
-@dataclass(frozen=True, slots=True)
-class RowNegate:
-    operand: RowNode
-
-
-@dataclass(frozen=True, slots=True)
-class RowAdd:
-    left: RowNode
-    right: RowNode
-
-
-@dataclass(frozen=True, slots=True)
-class RowSubtract:
-    left: RowNode
-    right: RowNode
-
-
-@dataclass(frozen=True, slots=True)
-class RowMultiply:
-    left: RowNode
-    right: RowNode
-
-
-@dataclass(frozen=True, slots=True)
-class RowDivide:
-    numerator: RowNode
-    denominator: RowNode
-    zero_denominator: ZeroDenominator = "null"
-    rule_version: int = RULE_VERSION
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,16 +114,20 @@ class MeasureAssertion:
             )
 
 
-RowNode: TypeAlias = (
-    RowField
-    | RowConstant
-    | RowNegate
-    | RowAdd
-    | RowSubtract
-    | RowMultiply
-    | RowDivide
-    | MeasureAssertion
-)
+@dataclass(frozen=True, slots=True)
+class RowExpression:
+    """An Ibis numeric or predicate recipe over ordered semantic input slots.
+
+    ``slot_0``, ``slot_1``, ... bind the corresponding inputs. The recipe is
+    Ibis's own Resolver structure; this record introduces no numeric opcode.
+    Physical values and types are supplied only during execution preparation.
+    """
+
+    recipe: Resolver
+    inputs: tuple[RowField | MeasureAssertion, ...]
+
+
+RowNode: TypeAlias = RowField | MeasureAssertion | RowExpression
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,64 +159,7 @@ class TimeBinding:
 # Field predicates --------------------------------------------------------
 
 
-@dataclass(frozen=True, slots=True)
-class FieldCompare:
-    field: ExactRef
-    op: CompareOp
-    value: LiteralValue
-    read: FieldRead | None = None
-
-    def __post_init__(self) -> None:
-        check_literal(self.value, role=f"predicate on {self.field.ref.key}")
-
-
-@dataclass(frozen=True, slots=True)
-class FieldIn:
-    field: ExactRef
-    values: tuple[LiteralValue, ...]
-    read: FieldRead | None = None
-
-    def __post_init__(self) -> None:
-        for value in self.values:
-            check_literal(value, role=f"predicate on {self.field.ref.key}")
-
-
-@dataclass(frozen=True, slots=True)
-class RowCompare:
-    """Comparison of a derived numeric row expression with a finite constant."""
-
-    operand: RowNode
-    op: CompareOp
-    value: FiniteNumber
-
-    def __post_init__(self) -> None:
-        check_finite_number(self.value, role="row comparison constant")
-
-
-@dataclass(frozen=True, slots=True)
-class FieldIsNull:
-    field: ExactRef
-    read: FieldRead | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class PredAnd:
-    operands: tuple[FieldPredicate, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class PredOr:
-    operands: tuple[FieldPredicate, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class PredNot:
-    operand: FieldPredicate
-
-
-FieldPredicate: TypeAlias = (
-    FieldCompare | FieldIn | FieldIsNull | RowCompare | PredAnd | PredOr | PredNot
-)
+FieldPredicate: TypeAlias = RowExpression
 
 
 # Metric stage ------------------------------------------------------------
@@ -252,6 +175,7 @@ class SourceAggregate:
     q: float | None = None
     nulls: NullPolicy = "ignore"
     rule_version: int = RULE_VERSION
+    empty: Literal["zero", "null"] = "zero"
 
     def __post_init__(self) -> None:
         _check_quantile(self.reducer, self.q)
@@ -276,50 +200,11 @@ class SourceWeightedMean:
 
 
 @dataclass(frozen=True, slots=True)
-class MetricConstant:
-    value: FiniteNumber
-
-    def __post_init__(self) -> None:
-        check_finite_number(self.value, role="metric constant")
-
-
-@dataclass(frozen=True, slots=True)
-class MetricNegate:
-    operand: MetricNode
-
-
-@dataclass(frozen=True, slots=True)
-class MetricAdd:
-    left: MetricNode
-    right: MetricNode
-
-
-@dataclass(frozen=True, slots=True)
-class MetricSubtract:
-    left: MetricNode
-    right: MetricNode
-
-
-@dataclass(frozen=True, slots=True)
-class MetricMultiply:
-    left: MetricNode
-    right: MetricNode
-
-
-@dataclass(frozen=True, slots=True)
-class MetricDivide:
-    numerator: MetricNode
-    denominator: MetricNode
-    zero_denominator: ZeroDenominator = "null"
-    rule_version: int = RULE_VERSION
-
-
-@dataclass(frozen=True, slots=True)
 class ContributionFilter:
     """Contribution scope restricted by a field predicate or an explicit Population."""
 
     operand: MetricNode
-    predicate: FieldPredicate | LiteralPopulation | PopulationProgram
+    predicate: FieldPredicate | PopulationCondition
 
 
 @dataclass(frozen=True, slots=True)
@@ -327,11 +212,14 @@ class PerReduce:
     """Complete the child metric per internal sample, then reduce the samples."""
 
     operand: MetricNode
-    samples: tuple[AxisBinding, ...] | LiteralPopulation | PopulationProgram
+    samples: tuple[AxisBinding, ...] | SampleDomain | LiteralPopulation | PopulationProgram
     reducer: Reducer
     q: float | None = None
     nulls: NullPolicy = "ignore"
     rule_version: int = RULE_VERSION
+    empty: Literal["zero", "null"] = "zero"
+    order_by: ExactRef | None = None
+    include_null: bool = False
 
     def __post_init__(self) -> None:
         _check_quantile(self.reducer, self.q)
@@ -343,7 +231,7 @@ class PerReduce:
 class PerWeightedMean:
     value: MetricNode
     weight: MetricNode
-    samples: tuple[AxisBinding, ...] | LiteralPopulation | PopulationProgram
+    samples: tuple[AxisBinding, ...] | SampleDomain | LiteralPopulation | PopulationProgram
     nulls: NullPolicy = "ignore"
     zero_denominator: ZeroDenominator = "null"
     rule_version: int = RULE_VERSION
@@ -372,21 +260,33 @@ class DeclaredMetricRef:
             )
 
 
+@dataclass(frozen=True, slots=True)
+class MetricExpression:
+    """An Ibis recipe over completed Metric slots at the same output coordinate."""
+
+    recipe: Resolver
+    operands: tuple[MetricNode, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class MetricWindow:
+    """Reevaluate the entire operand in the rule bound to each output endpoint."""
+
+    operand: MetricNode
+    rule: ObservationWindow
+
+
 MetricNode: TypeAlias = (
     SourceAggregate
     | EntityCount
     | SourceWeightedMean
-    | MetricConstant
-    | MetricNegate
-    | MetricAdd
-    | MetricSubtract
-    | MetricMultiply
-    | MetricDivide
     | ContributionFilter
     | PerReduce
     | PerWeightedMean
     | MemberCount
     | DeclaredMetricRef
+    | MetricExpression
+    | MetricWindow
 )
 
 

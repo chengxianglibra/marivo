@@ -108,7 +108,7 @@ def literal_token(value: LiteralValue) -> tuple[str, str]:
     if isinstance(value, bool):
         return ("bool", "true" if value else "false")
     if isinstance(value, int):
-        return ("int", str(value))
+        return ("int", hex(value))
     if isinstance(value, float):
         return ("float", repr(value))
     if isinstance(value, Decimal):
@@ -186,8 +186,27 @@ class FieldRead:
     at: InstantAnchor | None = None
 
 
-def field_read_key(read: FieldRead) -> str:
+@dataclass(frozen=True, slots=True)
+class IdentityRead:
+    """Complete declared primary-key coordinates through one scalar path."""
+
+    entity: ExactRef
+    path: tuple[ExactRef, ...] = ()
+    at: InstantAnchor | None = None
+    components: tuple[str, ...] = ()
+
+
+def field_read_key(read: FieldRead | IdentityRead) -> str:
     """Identify a physical field usage including its path and attribute anchor."""
+    if isinstance(read, IdentityRead):
+        return repr(
+            (
+                "identity",
+                read.entity.ref.path,
+                tuple(step.ref.path for step in read.path),
+                read.at.isoformat() if read.at else None,
+            )
+        )
     if not read.path and read.at is None:
         return read.field.ref.path
     return repr(
@@ -196,6 +215,16 @@ def field_read_key(read: FieldRead) -> str:
             tuple(step.ref.path for step in read.path),
             read.at.isoformat() if read.at is not None else None,
         )
+    )
+
+
+def coordinate_read_keys(read: FieldRead | IdentityRead) -> tuple[str, ...]:
+    """Physical key names; identity components stay separate, ordered columns."""
+    base = field_read_key(read)
+    return (
+        tuple(f"{base}:component:{i}" for i in range(len(read.components)))
+        if isinstance(read, IdentityRead)
+        else (base,)
     )
 
 

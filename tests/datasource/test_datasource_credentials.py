@@ -292,7 +292,7 @@ def test_observe_source_materialization_failure_redacts_credentials(
     from ibis.backends.duckdb import Backend
 
     import marivo.analysis as mv
-    import marivo.semantic as ms
+    from marivo.analysis.materialization.errors import MaterializationError
 
     project = authoring_evidence_project
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(project))
@@ -316,12 +316,13 @@ def test_observe_source_materialization_failure_redacts_credentials(
 
     monkeypatch.setattr(Backend, "table", fail_table)
     try:
-        with pytest.raises(DatasourceConnectionError) as captured:
-            session.members(ms.ref.entity("sales.orders")).observe(
-                ms.ref.metric("sales.revenue"),
-                during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
-            )
-        assert "<redacted>" in str(captured.value)
+        with pytest.raises(MaterializationError) as captured:
+            session.observe(
+                {"revenue": session.catalog.metrics.get("sales.revenue")},
+                during=session.time_scope(start="2026-07-01", end="2026-08-01"),
+            ).execute()
+        assert isinstance(captured.value.__cause__, DatasourceConnectionError)
+        assert "<redacted>" in str(captured.value.__cause__)
         assert resolver.value not in "".join(traceback.format_exception(captured.value))
         assert resolver.value not in caplog.text
     finally:

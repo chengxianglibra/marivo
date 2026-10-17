@@ -23,7 +23,10 @@ from importlib import util as importlib_util
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
+from ibis.common.deferred import Deferred
+
 from marivo._authoring.loading import _execution_diagnostic, _source_loading
+from marivo._definition.deferred import root_declaration
 from marivo.config import AUTHORED_DIR
 from marivo.datasource._builtin import default_datasource
 from marivo.datasource.errors import (
@@ -63,7 +66,7 @@ from marivo.semantic.validator import (
 if TYPE_CHECKING:
     from marivo._definition.types import ExactRef
     from marivo.semantic._authoring_context import PendingDefinition
-    from marivo.semantic.expressions import DeclaredMeasure, DeclaredMetric, FinalizedDeclarations
+    from marivo.semantic.expressions import FinalizedDeclarations
 
 __all__ = [
     "LoadResult",
@@ -90,7 +93,7 @@ class LoaderContext:
     prior_contexts: tuple[LoaderContext, ...] = ()
     finalized: FinalizedDeclarations | None = None
     # Module-level Measure/Metric declarations, collected once per object.
-    declarations: list[DeclaredMeasure | DeclaredMetric] = field(default_factory=list)
+    declarations: list[Deferred] = field(default_factory=list)
 
 
 _LOADER_CTX: ContextVar[LoaderContext | None] = ContextVar(
@@ -544,23 +547,27 @@ def _collect_module_declarations(ctx: LoaderContext, module_names: Sequence[str]
     collected; an alias or an import of a declaration from another model never
     re-publishes it here.
     """
-    from marivo.semantic.expressions import DeclaredMeasure, DeclaredMetric
 
     modules = [sys.modules[name] for name in module_names if name in sys.modules]
     own_files = {getattr(module, "__file__", None) for module in modules}
     for module in modules:
-        for value in vars(module).values():
-            if not isinstance(value, (DeclaredMeasure, DeclaredMetric)):
+        for export_name, value in vars(module).items():
+            if export_name.startswith("_") or not isinstance(value, Deferred):
                 continue
-            location = value.declaration.location
+            declaration = root_declaration(value)
+            if declaration is None:
+                continue
+            location = declaration.location
             if location is None or location.path not in own_files:
                 continue
             if not any(value is item for item in ctx.declarations):
                 ctx.declarations.append(value)
 
 
-def _declaration_site(value: DeclaredMeasure | DeclaredMetric) -> str:
-    location = value.declaration.location
+def _declaration_site(value: Deferred) -> str:
+    declaration = root_declaration(value)
+    assert declaration is not None
+    location = declaration.location
     return f"{location.path}:{location.line}" if location is not None else "<unknown>"
 
 
@@ -577,8 +584,8 @@ def _publish_declarations(
     from marivo._definition.expressions import MetricNode
     from marivo._definition.graph import walk
     from marivo._definition.types import DefinitionGraphError
+    from marivo.semantic._deferred_semantics import consume_metric, consume_row
     from marivo.semantic.errors import SemanticExpressionError
-    from marivo.semantic.expressions import DeclaredMeasure
 
     errors: list[SemanticError] = []
     sites: dict[str, str] = {}
@@ -586,18 +593,21 @@ def _publish_declarations(
 
     def published_node(exact: ExactRef) -> MetricNode | None:
         declared = registry.declared_metrics.get(exact.ref.path)
-        return declared.node if declared is not None else None
+        return consume_metric(declared).node if declared is not None else None
 
     for ctx in all_contexts:
         for value in ctx.declarations:
-            name = value.declaration.name
+            declaration = root_declaration(value)
+            assert declaration is not None
+            facts = consume_row(value) if declaration.kind == "measure" else consume_metric(value)
+            name = declaration.name
             physical: str | None = None
-            if isinstance(value, DeclaredMeasure):
-                full = f"{value.root.ref.path}.{name}"
+            if declaration.kind == "measure":
+                full = f"{consume_row(value).root.ref.path}.{name}"
                 existing = registry.measures.get(full) or registry.dimensions.get(full)
                 physical = _semantic_source_path(existing) if existing is not None else None
             else:
-                domain = value.declaration.domain
+                domain = declaration.domain
                 choices = ", ".join(sorted(registry.domains)) or "(none)"
                 if domain is not None and domain.path not in registry.domains:
                     errors.append(
@@ -647,7 +657,7 @@ def _publish_declarations(
                 continue
             sites[full] = _declaration_site(value)
             try:
-                closure = walk((value.node,), resolve=published_node)
+                closure = walk((facts.node,), resolve=published_node)
             except DefinitionGraphError as error:
                 converted = SemanticExpressionError.from_definition(
                     error, operation=f"collection of {full}"
@@ -678,7 +688,7 @@ def _publish_declarations(
             if scope_error is not None:
                 errors.append(scope_error)
                 continue
-            if isinstance(value, DeclaredMeasure):
+            if declaration.kind == "measure":
                 registry.declared_measures[full] = value
                 defined[full] = SemanticKind.MEASURE
             else:
@@ -720,7 +730,7 @@ _MISSING_REF_KINDS: tuple[tuple[SemanticKind, ErrorKind], ...] = (
 
 def _closure_scope_error(
     full: str,
-    value: DeclaredMeasure | DeclaredMetric,
+    value: Deferred,
     consumed: frozenset[ExactRef],
     defined: Mapping[str, SemanticKind],
 ) -> SemanticError | None:

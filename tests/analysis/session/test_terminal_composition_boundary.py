@@ -6,10 +6,9 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo._definition.expressions import MetricConstant
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.public_dsl import LogicalNumericRelation
-from marivo.semantic.expressions import Metric
+from tests.shared_fixtures import numeric_literal_node, numeric_program_query
 
 
 @pytest.mark.parametrize(
@@ -37,7 +36,7 @@ def test_new_reopened_and_legacy_results_cannot_enter_composition(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("terminal-boundary")
-    saved = session.observe({"value": Metric(MetricConstant(7), (), None)}).execute()
+    saved = numeric_program_query(session, {"value": numeric_literal_node(7)}).execute()
     reopened = session.artifact(saved.id)
     # Rejected input kinds must be checked before inspecting a receiver's graph.
     logical = object.__new__(LogicalNumericRelation)

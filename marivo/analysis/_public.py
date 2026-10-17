@@ -32,8 +32,37 @@ from marivo.analysis._subject import SubjectBinding as SubjectBinding
 from marivo.analysis.datasets.descriptors import DatasetByteCount as DatasetByteCount
 from marivo.analysis.datasets.state import MaterializedDatasetState as MaterializedDatasetState
 from marivo.analysis.dsl.artifact import Artifact as Artifact
+from marivo.analysis.dsl.population import (
+    MembershipAxis as MembershipAxis,
+)
+from marivo.analysis.dsl.population import (
+    Population as Population,
+)
+from marivo.analysis.dsl.population import (
+    PopulationPredicate as PopulationPredicate,
+)
+from marivo.analysis.dsl.population import (
+    coordinates as coordinates,
+)
+from marivo.analysis.dsl.population import (
+    identities as identities,
+)
+from marivo.analysis.dsl.population import (
+    in_population as in_population,
+)
+from marivo.analysis.dsl.population import (
+    membership as membership,
+)
+from marivo.analysis.dsl.population import (
+    product as product,
+)
 from marivo.analysis.dsl.query import Query as Query
 from marivo.analysis.dsl.temporal import CalendarAxis as CalendarAxis
+from marivo.analysis.dsl.windows import all_history as all_history
+from marivo.analysis.dsl.windows import since as since
+from marivo.analysis.dsl.windows import to_date as to_date
+from marivo.analysis.dsl.windows import trailing_duration as trailing_duration
+from marivo.analysis.dsl.windows import trailing_periods as trailing_periods
 from marivo.analysis.evidence._dataset_types import ArtifactDigest as ArtifactDigest
 from marivo.analysis.evidence._dataset_types import Finding as Finding
 from marivo.analysis.evidence._dataset_types import FindingPage as FindingPage
@@ -167,8 +196,21 @@ from marivo.analysis.session.core import Session as Session
 
 __all__ = [  # noqa: RUF022 - accepted public export order is contractual
     "Query",
+    "Population",
+    "PopulationPredicate",
+    "in_population",
+    "MembershipAxis",
+    "coordinates",
+    "identities",
+    "membership",
+    "product",
     "InstantAnchor",
     "CalendarAxis",
+    "all_history",
+    "since",
+    "to_date",
+    "trailing_duration",
+    "trailing_periods",
     "Artifact",
     "LogicalAttributionResult",
     "MaterializedAttributionResult",

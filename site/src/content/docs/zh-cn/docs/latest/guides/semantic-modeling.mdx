@@ -3,11 +3,16 @@ title: 创作可复用语义
 description: 用明确的阶段、单位与业务授权创作表达式。
 ---
 
+数值和条件 Field、Measure 与 Metric 统一使用原生 Ibis Deferred。命名声明仅向同一配方附加不可变元数据；加载时只收录导出的根声明，匿名派生表达式仍是本地输入。物理类型在 execute 准备阶段自动绑定。
+
+用 `finalized.show()` 查看物理捕获结果；加载后用 `catalog.describe(ms.ref.measure("sales.orders.amount")).show()` 查看定义事实。Deferred 没有 Marivo 的 `.show()` 或 `.contract()` 方法，执行事实由 `Query.contract()` 披露。
+
+
 物理 Entity/Field 构造器先捕获声明并返回类型化 Ref 查找键。依赖完整后调用 `ms.finalize()`，再从冻结结果解析所需值用于组合。命名声明与本地表达式共用同一张图；finalize 不重跑模块或 import effects。
 
 语义对象不必始终绑定构造时的原定义版本，不因同路径定义已改变而单独拒绝输入；分析期间语义定义更新的后果由 agent 或用户承担。进行引用解析的消费者使用其完整作用域。不可变表达式保留存储的定义与事实，不做 live refresh。kind、贡献根、粒度、单位、时间角色、空值和权限检查仍然有效。指纹与缓存键描述实际消费的定义，持久化来源记录及其它记录仍遵循各自合同。
 
-当前 R1.3 已支持构造。新的 Catalog Metric 收录、发布和公开发现属于 R1.4；新的分析执行属于 R2。下面的纯声明不会登记 Metric，也不能当作当前 Session 执行验收。
+装饰器本身不发布 Catalog 条目。模型加载才限定声明身份并收录；分析执行由 Query 消费这些同一协议的表达式。
 
 ## 声明一个完整依赖切片
 
@@ -15,7 +20,7 @@ warehouse datasource 及示例列需已存在。保存为 models/semantic/sales/
 
 {/* example: semantic-model-basics */}
 
-用 `amount.show()` 或 `finalized.show()` 查看构造元数据。对应的精确合同可通过 `marivo.help(amount.show)` 和 `marivo.help("semantic.FinalizedDeclarations.show")` 解析；展示不会执行查询。
+通过 `marivo.help("semantic.SemanticCatalog.describe")` 和 `marivo.help("semantic.FinalizedDeclarations.show")` 查看上述元数据入口的精确合同；展示不会执行查询。
 
 ```python
 import marivo.datasource as md
@@ -66,12 +71,12 @@ margin_alias = margin
 trial_margin = amount - cost
 paid_revenue = revenue.where(region == "US")
 customer_average = revenue.per(region).mean()
-missing_region_revenue = revenue.where(region.is_null())
+missing_region_revenue = revenue.where(region.isnull())
 ```
 
 where 只过滤单一来源规约或共同配对作用域。复合 Metric 应先改各来源子指标，再组合。per 返回内部样本，必须规约后才是 Metric。
 
-原生字段共用 `marivo.help("semantic.Dimension.is_null")` 的空值谓词合同；也可用 `region.is_null` 或 `paid_at.is_null` 获取 callable Help。带路径的 TimeField 保留时间角色，只能用于 `time=`，选择求和许可坐标时也不能丢弃路径。
+原生字段共用 `marivo.help("semantic.Dimension.isnull")` 的空值谓词合同；原生 Deferred 方法通过静态 Help 路由查询，不注册为 Marivo callable Help。带路径的 TimeField 保留时间角色，只能用于 `time=`，选择求和许可坐标时也不能丢弃路径。
 
 ## 单位与显式求和授权
 

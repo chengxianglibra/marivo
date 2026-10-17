@@ -125,6 +125,7 @@ from marivo.semantic.catalog import (
     load,
 )
 from marivo.semantic.dtos import PreviewBatchResult
+from marivo.semantic.expressions import ExpressionContract
 from marivo.semantic.ir import (
     JoinKey,
 )
@@ -151,6 +152,7 @@ __all__ = [
     "DatasourceEntry",
     "DomainDetails",
     "DomainEntry",
+    "ExpressionContract",
     "JoinKey",
     "PeriodCalendarDetails",
     "PeriodCalendarEntry",

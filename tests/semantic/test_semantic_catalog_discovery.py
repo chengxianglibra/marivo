@@ -14,9 +14,11 @@ from collections.abc import Callable
 from typing import TypeAlias
 
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.semantic as ms
 from marivo._definition.expressions import DeclaredMetricRef
+from marivo.semantic._deferred_semantics import consume_field, consume_metric
 from marivo.semantic.catalog import (
     DatasourceEntry,
     DomainEntry,
@@ -24,12 +26,8 @@ from marivo.semantic.catalog import (
 )
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from marivo.semantic.expressions import (
-    Dimension,
     Entity,
-    Measure,
-    Metric,
     Relationship,
-    TimeField,
 )
 from marivo.semantic.reader import SemanticProject
 
@@ -171,10 +169,10 @@ def test_discovery_metrics_returns_metrics(semantic_project_factory: ProjectFact
     result = _make_catalog(semantic_project_factory).metrics
 
     assert result.refs == (ms.ref.metric("sales.revenue"),)
-    assert all(isinstance(obj, Metric) for obj in result.items)
+    assert all(isinstance(obj, Deferred) for obj in result.items)
     for obj in result.items:
-        assert isinstance(obj.node, DeclaredMetricRef)
-        assert str(obj.node.ref.ref.kind) == "metric"
+        assert isinstance(consume_metric(obj).node, DeclaredMetricRef)
+        assert str(consume_metric(obj).node.ref.ref.kind) == "metric"
 
 
 def test_discovery_metrics_get_returns_revenue_with_exact_ref(
@@ -183,17 +181,17 @@ def test_discovery_metrics_get_returns_revenue_with_exact_ref(
     result = _make_catalog(semantic_project_factory).metrics
 
     revenue = result.get("sales.revenue")
-    assert isinstance(revenue.node, DeclaredMetricRef)
-    assert revenue.node.ref.ref == ms.ref.metric("sales.revenue")
-    assert revenue.node.ref.version.startswith("sha256:")
-    assert result.get(ms.ref.metric("sales.revenue")) == revenue
+    assert isinstance(consume_metric(revenue).node, DeclaredMetricRef)
+    assert consume_metric(revenue).node.ref.ref == ms.ref.metric("sales.revenue")
+    assert consume_metric(revenue).node.ref.version.startswith("sha256:")
+    assert result.get(ms.ref.metric("sales.revenue")) is revenue
 
 
 def test_discovery_metrics_cross_domain(semantic_project_factory: ProjectFactory) -> None:
     result = _make_multi_domain_catalog(semantic_project_factory).metrics
 
     assert {ref.path for ref in result.refs} == {"sales.revenue", "ops.event_count"}
-    assert all(isinstance(obj, Metric) for obj in result.items)
+    assert all(isinstance(obj, Deferred) for obj in result.items)
 
 
 def test_discovery_entities_returns_entities(semantic_project_factory: ProjectFactory) -> None:
@@ -207,8 +205,8 @@ def test_discovery_entities_returns_entities(semantic_project_factory: ProjectFa
     assert orders.ref.ref == ms.ref.entity("sales.orders")
 
     created_at = catalog.fields.get("sales.orders.created_at")
-    assert isinstance(created_at, TimeField)
-    assert orders.default_time == created_at.ref
+    assert isinstance(created_at, Deferred)
+    assert orders.default_time == consume_field(created_at).reference
 
 
 def test_discovery_fields_holds_dimension_time_field_and_measure(
@@ -218,8 +216,8 @@ def test_discovery_fields_holds_dimension_time_field_and_measure(
 
     kinds: set[str] = set()
     for value in result.items:
-        assert isinstance(value, (Dimension, TimeField, Measure))
-        kinds.add(str(value.ref.ref.kind))
+        assert isinstance(value, Deferred)
+        kinds.add(str(consume_field(value).reference.ref.kind))
     assert kinds == {"dimension", "time_dimension", "measure"}
     assert {ref.key for ref in result.refs} == {
         "dimension:sales.orders.region",
@@ -233,13 +231,13 @@ def test_discovery_fields_get_returns_typed_values(
 ) -> None:
     catalog = _make_catalog(semantic_project_factory)
 
-    assert isinstance(catalog.fields.get("sales.orders.region"), Dimension)
-    assert isinstance(catalog.fields.get("sales.orders.created_at"), TimeField)
+    assert isinstance(catalog.fields.get("sales.orders.region"), Deferred)
+    assert isinstance(catalog.fields.get("sales.orders.created_at"), Deferred)
 
     amount = catalog.fields.get("sales.orders.amount")
-    assert isinstance(amount, Measure)
-    assert amount.unit == "CNY"
-    assert amount.root.ref == ms.ref.entity("sales.orders")
+    assert isinstance(amount, Deferred)
+    assert consume_field(amount).unit == "CNY"
+    assert consume_field(amount).root.ref == ms.ref.entity("sales.orders")
 
 
 def test_discovery_relationships_returns_relationships(
@@ -307,10 +305,10 @@ def test_discovery_require_resolves_every_expression_member(
         assert isinstance(catalog.require(ref), Entity)
     assert catalog.fields.refs
     for ref in catalog.fields.refs:
-        assert isinstance(catalog.require(ref), (Dimension, TimeField, Measure))
+        assert isinstance(catalog.require(ref), Deferred)
     assert catalog.metrics.refs
     for ref in catalog.metrics.refs:
-        assert isinstance(catalog.require(ref), Metric)
+        assert isinstance(catalog.require(ref), Deferred)
 
 
 def test_discovery_require_resolves_container_entries(

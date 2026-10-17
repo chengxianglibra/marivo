@@ -123,11 +123,12 @@ def dependency_entities(ref: str, kind: SemanticKind, registry: Registry) -> tup
         return ()
 
     if ref in registry.declared_metrics:
+        from marivo.semantic._deferred_semantics import consume_metric
         from marivo.semantic._numeric_preview import validate_preview_metric
 
         metric = registry.declared_metrics[ref]
         validate_preview_metric(metric)
-        return tuple(root.ref.path for root in metric.roots)
+        return tuple(root.ref.path for root in consume_metric(metric).roots)
 
     ordered: list[str] = []
     visited_metrics: set[str] = set()

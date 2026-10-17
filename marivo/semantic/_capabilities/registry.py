@@ -54,10 +54,10 @@ OUTPUT_FAMILIES = frozenset(
         "Dimension | TimeField | Measure",
         "FinalizedDeclarations",
         "ExpressionContract",
-        "Entity | Dimension | TimeField | Measure | Relationship",
+        "Entity | Deferred | Relationship",
         "SemanticCatalog",
         "CatalogEntry",
-        "CatalogEntry | Entity | Field | Metric | Relationship",
+        "CatalogEntry | Entity | Deferred | Relationship",
         "CatalogCollection",
         "PreviewBatchResult",
         "PreviewResult",
@@ -101,11 +101,12 @@ OUTPUT_FAMILIES = frozenset(
         "TimeField",
         "Measure",
         "Metric",
-        "NumericRowExpr",
+        "Deferred",
         "MetricSamples",
         "Relationship",
         "Predicate",
         "Number",
+        "bool",
         "Text",
         "WhereFilter",
         "IbisTable",
@@ -123,6 +124,7 @@ INPUT_FAMILIES = frozenset(
     {
         "InstantAnchor",
         "TimeScope",
+        "WindowRule",
         "Expression",
         "FinalizedDeclarations",
         "Field",
@@ -217,11 +219,12 @@ INPUT_FAMILIES = frozenset(
         "TimeField",
         "Measure",
         "Metric",
-        "NumericRowExpr",
+        "Deferred",
         "MetricSamples",
         "Relationship",
         "Predicate",
         "Number",
+        "bool",
         "Text",
         "SourceScalarSequence",
         "RelationshipSide",
@@ -519,8 +522,8 @@ def _object_contract(
         summary=summary,
         semantic_kind=kind,
         construction_families={
-            SemanticKind.MEASURE: ("Ref[measure]", "Measure"),
-            SemanticKind.METRIC: ("Metric",),
+            SemanticKind.MEASURE: ("Ref[measure]", "Deferred"),
+            SemanticKind.METRIC: ("Deferred",),
         }.get(kind, (f"Ref[{kind.value}]",)),
         ref_target=_target(f"ref.{kind.value}"),
         catalog_collection=source_contract.catalog_collection,
@@ -2120,7 +2123,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             "marivo.semantic.expressions.FinalizedDeclarations.resolve",
             "Resolve a physical capture Ref into the exact Entity, Dimension, TimeField, Measure or Relationship value in this frozen scope. Default time, permission coordinates and retained Ibis dependencies come from the complete closure. A missing key requires recapturing before finalization.",
             kind="method",
-            output="Entity | Dimension | TimeField | Measure | Relationship",
+            output="Entity | Deferred | Relationship",
             inputs=(
                 AuthoringInputRequirement(role="receiver", family="FinalizedDeclarations"),
                 _parameter_input("dependency", "Ref", "target"),
@@ -2131,27 +2134,27 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             see_also=(_target("finalize"), _target("expressions")),
         ),
         _capability(
-            "Measure.show",
+            "Entity.show",
             "marivo.semantic.expressions._ExpressionDisplay.show",
-            "Print bounded construction metadata for an immutable expression: its stage, roots and available facts. Shared by Entity, fields, row expressions, Metrics, samples, predicates and Relationships. Does not read business data, publish a Catalog definition or execute a query.",
+            "Print bounded Entity or Relationship metadata. Native numerical Deferred inputs have no show method; inspect Catalog definitions and Query contracts instead. No source reads.",
             kind="method",
             output="None",
             inputs=(AuthoringInputRequirement(role="receiver", family="Expression"),),
             effects=_NONE,
-            example="amount.show()",
-            public_entrypoint="amount.show",
+            example="orders.show()",
+            public_entrypoint="orders.show",
             see_also=(_target("expressions"),),
         ),
         _capability(
-            "Measure.contract",
+            "Entity.contract",
             "marivo.semantic.expressions._ExpressionDisplay.contract",
-            "Return the bounded definition contract of an immutable expression: stage, identity, contribution roots, unit, sum permission, default time, computation fingerprint, refs read, declared metadata and the operations valid at this stage. Shared by Entity, fields, row expressions, Metrics, samples, predicates and Relationships. Never reads a source, executes a query or enumerates a domain.",
+            "Return bounded Entity or Relationship definition metadata without source reads. Native numerical Deferred inputs carry no contract method; the consuming Query owns execution disclosure.",
             kind="method",
             output="ExpressionContract",
             inputs=(AuthoringInputRequirement(role="receiver", family="Expression"),),
             effects=_NONE,
-            example="amount.contract().show()",
-            public_entrypoint="amount.contract",
+            example="orders.contract().show()",
+            public_entrypoint="orders.contract",
             see_also=(_target("expressions"),),
         ),
         _capability(
@@ -2167,25 +2170,25 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             see_also=(_target("FinalizedDeclarations.resolve"),),
         ),
         _capability(
-            "Dimension.is_null",
-            "marivo.semantic.expressions._FieldComparisons.is_null",
+            "Dimension.isnull",
+            None,
             "Construct a missing-value predicate on a native categorical, time, or numeric field. "
             "The predicate retains the field's exact version and contribution root. "
             "Use it in Metric.where(...) or Session.observe(where=...); scalar paths and attribute anchors remain captured.",
             kind="method",
-            output="Predicate",
+            output="Deferred",
             inputs=(AuthoringInputRequirement(role="receiver", family="Field"),),
             effects=_NONE,
-            example="region.is_null()",
-            public_entrypoint="region.is_null",
+            example="region.isnull()",
+            public_entrypoint="region.isnull",
             see_also=(_target("expressions"),),
         ),
     ]
-    for prefix, owner, family, methods in (
+    for prefix, _owner, family, methods in (
         (
             "row",
             "Measure",
-            "NumericRowExpr",
+            "Deferred",
             (
                 "sum",
                 "mean",
@@ -2196,10 +2199,13 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                 "weighted_mean",
                 "count",
                 "count_distinct",
+                "approx_nunique",
+                "approx_median",
+                "approx_quantile",
                 "divide",
             ),
         ),
-        ("Metric", "Metric", "Metric", ("where", "per", "divide")),
+        ("Metric", "Metric", "Deferred", ("where", "per", "divide", "window")),
         (
             "MetricSamples",
             "MetricSamples",
@@ -2214,24 +2220,20 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                 "weighted_mean",
                 "count",
                 "count_distinct",
+                "approx_nunique",
+                "approx_median",
+                "approx_quantile",
+                "first",
+                "last",
             ),
         ),
         ("Entity", "Entity", "Entity", ("count",)),
     ):
         for method in methods:
-            output = (
-                "MetricSamples"
-                if method == "per"
-                else "TimeField"
-                if method == "via"
-                else "NumericRowExpr"
-                if prefix == "row" and method == "divide"
-                else "Metric"
-            )
             inputs = [AuthoringInputRequirement(role="receiver", family=family)]
             if prefix == "row":
                 if method == "divide":
-                    inputs.append(_parameter_input("dependency", "NumericRowExpr", "other"))
+                    inputs.append(_parameter_input("dependency", "Deferred", "other"))
                     example = "amount.divide(cost, zero_denominator='error')"
                 else:
                     inputs.append(
@@ -2239,7 +2241,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     )
                     argument = (
                         "0.95, "
-                        if method == "quantile"
+                        if method in {"quantile", "approx_quantile"}
                         else "weight=quantity, "
                         if method == "weighted_mean"
                         else ""
@@ -2248,17 +2250,22 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             elif prefix == "MetricSamples":
                 argument = (
                     "0.95"
-                    if method == "quantile"
+                    if method in {"quantile", "approx_quantile"}
                     else "weight=order_count"
                     if method == "weighted_mean"
                     else ""
                 )
-                example = f"samples = revenue.per(customer_id)\nsamples.{method}({argument})"
+                example = (
+                    f"samples = revenue.per(paid_at)\nsamples.{method}(order_by=paid_at, include_null=False)"
+                    if method in {"first", "last"}
+                    else f"samples = revenue.per(customer_id)\nsamples.{method}({argument})"
+                )
             elif prefix == "Metric":
                 parameter, input_family, example = {
                     "where": ("predicate", "Predicate", "revenue.where(status == 'paid')"),
                     "per": ("samples", "Dimension", "revenue.per(customer_id)"),
-                    "divide": ("other", "Metric", "revenue.divide(order_count)"),
+                    "divide": ("other", "Deferred", "revenue.divide(order_count)"),
+                    "window": ("rule", "WindowRule", "revenue.window(mv.all_history())"),
                 }[method]
                 inputs.append(_parameter_input("dependency", input_family, parameter))
             elif prefix == "Entity":
@@ -2267,14 +2274,23 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             else:
                 inputs.append(_parameter_input("dependency", "Relationship", "path"))
                 example = "payment_time.via((orders_to_payments,))"
-            if method == "quantile":
+            if method in {"quantile", "approx_quantile"}:
                 inputs.append(_parameter_input("dependency", "Number", "q"))
             if method == "weighted_mean":
                 inputs.append(
                     _parameter_input(
                         "dependency",
-                        "Metric" if prefix == "MetricSamples" else "NumericRowExpr",
+                        "Metric" if prefix == "MetricSamples" else "Deferred",
                         "weight",
+                    )
+                )
+            if method == "sum":
+                inputs.append(_parameter_input("dependency", "Text", "empty", optional=True))
+            if method in {"first", "last"}:
+                inputs.extend(
+                    (
+                        _parameter_input("dependency", "TimeField", "order_by"),
+                        _parameter_input("dependency", "bool", "include_null"),
                     )
                 )
             if method in {"divide", "weighted_mean"}:
@@ -2290,10 +2306,10 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             rows.append(
                 _capability(
                     f"{prefix}.{method}",
-                    f"marivo.semantic.expressions.{'_Countable' if prefix == 'row' and method in {'count', 'count_distinct'} else '_RowArithmetic' if prefix == 'row' else owner}.{method}",
-                    "Construct an immutable expression at this receiver's stage; no registration or business source reads. sum requires business permission; where accepts only a single source contribution scope; per must be followed by a sample reducer. Divide defaults to null for a zero denominator; explicit error stays on this operation.",
+                    f"marivo.semantic.expressions.Entity.{method}" if prefix == "Entity" else None,
+                    "Construct a native Deferred recipe at this receiver's stage without business source reads. sum requires business permission and supports empty=zero or null; per requires a sample reducer. first/last require order_by on time samples and explicit include_null. window accepts a source-free rule and rejects nested windows. Divide defaults to null for a zero denominator; error stays on this operation.",
                     kind="method",
-                    output=output,
+                    output="Deferred",
                     inputs=tuple(inputs),
                     effects=_NONE,
                     example=example,
@@ -2301,7 +2317,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     see_also=(_target("expressions"),),
                 )
             )
-    for target, owner, method, output, parameter, family, example in (
+    for target, _owner, _method, _output, parameter, family, example in (
         (
             "Field.via",
             "_FieldComparisons",
@@ -2333,10 +2349,10 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
         rows.append(
             _capability(
                 target,
-                f"marivo.semantic.expressions.{owner}.{method}",
+                None,
                 "Construct an immutable scalar field binding or half-open time predicate. Directed paths must be single-valued; at requires a versioned owner and an exact anchor. No schema or business reads.",
                 kind="method",
-                output=output,
+                output="Deferred",
                 inputs=(
                     AuthoringInputRequirement(role="receiver", family="Field"),
                     _parameter_input("dependency", family, parameter),
@@ -2609,7 +2625,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "measure",
             "marivo.semantic._authoring_decorators.measure",
             "Name a pure numeric row expression. Omitted unit/additivity inherit facts; new assertions preserve compatible units and fixed time constraints. Additivity selects existing axes in the frozen row scope by kind/path, without original-version matching. Naming and ai_context do not change computation. No loader, registration or source access.",
-            output="Measure",
+            output="Deferred",
             inputs=(
                 _parameter_input("dependency", "Text", "unit", optional=True),
                 _parameter_input("dependency", "Additivity", "additivity", optional=True),
@@ -2704,7 +2720,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "metric",
             "marivo.semantic._authoring_declarations.metric",
             "Name a completed Metric with a zero-argument pure expression body. Fresh local expressions and a leading docstring are allowed; arbitrary calls, table parameters, Ibis returns and ms.bind are rejected. Operator policies stay on their operators. Declaration is source-free and does not publish a Catalog Metric.",
-            output="Metric",
+            output="Deferred",
             inputs=(
                 _parameter_input("dependency", "Ref[domain]", "domain", optional=True),
                 _parameter_input("dependency", "AiContextValue", "ai_context", optional=True),
@@ -3004,11 +3020,25 @@ def _build_registry() -> SemanticCapabilityRegistry:
         # SemanticCatalog methods
         # ------------------------------------------------------------------
         _capability(
+            "SemanticCatalog.describe",
+            "marivo.semantic.catalog.SemanticCatalog.describe",
+            "Describe one compiled Entity, field, Metric or Relationship without source reads. Native Deferred inputs have no business attributes; definition facts live here and execution facts live on Query.contract().",
+            kind="method",
+            output="ExpressionContract",
+            inputs=(
+                AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),
+                _parameter_input("subject", "Ref", "ref"),
+            ),
+            effects=_LOCAL,
+            example="catalog.describe(ms.ref.metric('sales.revenue')).show()",
+            public_entrypoint="catalog.describe",
+        ),
+        _capability(
             "SemanticCatalog.require",
             "marivo.semantic.catalog.SemanticCatalog.require",
             "Resolve one exact ref into its catalog value or entry.",
             kind="method",
-            output="CatalogEntry | Entity | Field | Metric | Relationship",
+            output="CatalogEntry | Entity | Deferred | Relationship",
             inputs=(
                 AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),
                 _parameter_input("subject", "Ref", "ref"),
@@ -3022,7 +3052,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "marivo.semantic.catalog.CatalogCollection.get",
             "Select one current value or entry from a catalog collection.",
             kind="method",
-            output="CatalogEntry | Entity | Field | Metric | Relationship",
+            output="CatalogEntry | Entity | Deferred | Relationship",
             inputs=(
                 AuthoringInputRequirement(role="receiver", family="CatalogCollection"),
                 _parameter_input("subject", "CatalogLookupKey | Ref", "key"),
@@ -3083,7 +3113,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                     for label, target in (
                         ("close physical capture", "finalize"),
                         ("resolve captured Refs", "FinalizedDeclarations.resolve"),
-                        ("inspect constructed expressions", "Measure.show"),
+                        ("inspect constructed expressions", "Entity.show"),
                         ("inspect finalized declarations", "FinalizedDeclarations.show"),
                         ("numeric source reductions", "expressions.row"),
                         ("complete row counts", "Entity.count"),
@@ -3092,7 +3122,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                         ("scalar field paths", "Field.via"),
                         ("attribute versions", "Field.at"),
                         ("half-open time predicates", "TimeField.within"),
-                        ("field missing-value predicates", "Dimension.is_null"),
+                        ("field missing-value predicates", "Dimension.isnull"),
                     )
                 ),
             ),
@@ -3460,118 +3490,15 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         methods=("to_dict",),
     )
     from marivo.semantic.expressions import (
-        DeclaredMeasure,
-        DeclaredMetric,
-        Dimension,
         Entity,
+        ExpressionContract,
         FinalizedDeclarations,
-        Measure,
-        Metric,
-        MetricSamples,
-        NumericRowExpr,
-        Predicate,
         Relationship,
-        TimeField,
     )
 
     for expression_type, family, producers, methods in (
         (Entity, "Entity", ("FinalizedDeclarations.resolve",), ("count", "contract", "show")),
-        (
-            Dimension,
-            "Dimension",
-            ("FinalizedDeclarations.resolve",),
-            ("count", "count_distinct", "is_null", "contract", "show"),
-        ),
-        (
-            TimeField,
-            "TimeField",
-            ("FinalizedDeclarations.resolve",),
-            ("via", "count", "count_distinct", "is_null", "contract", "show"),
-        ),
-        (
-            Measure,
-            "Measure",
-            ("FinalizedDeclarations.resolve",),
-            (
-                "sum",
-                "mean",
-                "min",
-                "max",
-                "median",
-                "quantile",
-                "weighted_mean",
-                "count",
-                "count_distinct",
-                "divide",
-                "contract",
-                "show",
-            ),
-        ),
-        (
-            NumericRowExpr,
-            "NumericRowExpr",
-            (),
-            (
-                "sum",
-                "mean",
-                "min",
-                "max",
-                "median",
-                "quantile",
-                "weighted_mean",
-                "count",
-                "count_distinct",
-                "divide",
-                "contract",
-                "show",
-            ),
-        ),
-        (
-            DeclaredMeasure,
-            "DeclaredMeasure",
-            ("measure",),
-            (
-                "sum",
-                "mean",
-                "min",
-                "max",
-                "median",
-                "quantile",
-                "weighted_mean",
-                "count",
-                "count_distinct",
-                "divide",
-                "contract",
-                "show",
-            ),
-        ),
-        (Metric, "Metric", (), ("where", "per", "divide", "contract", "show")),
-        (
-            DeclaredMetric,
-            "DeclaredMetric",
-            ("metric",),
-            ("where", "per", "divide", "contract", "show"),
-        ),
-        (
-            MetricSamples,
-            "MetricSamples",
-            ("Metric.per",),
-            (
-                "sum",
-                "mean",
-                "min",
-                "max",
-                "median",
-                "quantile",
-                "weighted_mean",
-                "count",
-                "count_distinct",
-                "contract",
-                "show",
-            ),
-        ),
         (Relationship, "Relationship", ("FinalizedDeclarations.resolve",), ("contract", "show")),
-        (Predicate, "Predicate", (), ("contract", "show")),
     ):
         add(
             expression_type,
@@ -3579,9 +3506,16 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             producers,
             methods=methods,
             notes=(
-                "Immutable construction value; local declarations do not publish Catalog Metrics or execute a query.",
+                "Immutable physical metadata; numerical and conditional author inputs use native Ibis Deferred.",
             ),
         )
+    add(
+        ExpressionContract,
+        "ExpressionContract",
+        ("SemanticCatalog.describe",),
+        methods=("show",),
+        notes=("Bounded source-free definition facts; execution belongs to Query.",),
+    )
     add(
         FinalizedDeclarations,
         "FinalizedDeclarations",

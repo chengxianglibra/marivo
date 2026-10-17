@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import pytest
+from ibis.common.deferred import const
 
-from marivo._definition.expressions import RowConstant
+from marivo._definition.deferred import inspect_deferred
 from marivo._definition.types import DefinitionGraphError
 from marivo.semantic.errors import ErrorKind, SemanticError, SemanticExpressionError
 
@@ -36,7 +37,7 @@ def test_expression_error_carries_expected_received_and_reauthor_repair() -> Non
 
 def test_definition_failure_translates_with_its_location() -> None:
     with pytest.raises(DefinitionGraphError) as raised:
-        RowConstant(float("nan"))
+        inspect_deferred(const(float("nan")))
 
     error = SemanticExpressionError.from_definition(raised.value, operation="row constant")
 
@@ -49,14 +50,16 @@ def test_definition_failure_translates_with_its_location() -> None:
 
 def test_translated_error_names_the_definition_path() -> None:
     failure = DefinitionGraphError(
-        "unsupported rule version", kind="unknown_rule_version", path=("MetricDivide.left[0]",)
+        "unsupported rule version",
+        kind="unknown_rule_version",
+        path=("MetricExpression.operand[0]",),
     )
 
     error = SemanticExpressionError.from_definition(failure, operation="metric divide")
 
-    assert error.location_label == "MetricDivide.left[0]"
+    assert error.location_label == "MetricExpression.operand[0]"
     assert error.details == {
         "definition_kind": "unknown_rule_version",
-        "definition_path": ["MetricDivide.left[0]"],
+        "definition_path": ["MetricExpression.operand[0]"],
     }
-    assert "  at: MetricDivide.left[0]" in str(error)
+    assert "  at: MetricExpression.operand[0]" in str(error)

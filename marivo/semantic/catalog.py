@@ -28,7 +28,9 @@ from typing import (
     overload,
 )
 
-from marivo._definition.expressions import DeclaredMetricRef
+from ibis.common.deferred import Deferred
+
+from marivo._definition.deferred import root_declaration
 from marivo._definition.graph import direct_refs
 from marivo._temporal import (
     Grain,
@@ -109,19 +111,18 @@ from marivo.semantic.dtos import PreviewBatchResult
 from marivo.semantic.errors import (
     ErrorKind,
     SemanticError,
+    SemanticExpressionError,
     SemanticLoadFailed,
     SemanticRuntimeError,
     _raise,
     repair,
 )
 from marivo.semantic.expressions import (
-    CatalogField,
     CatalogValues,
-    DeclaredMeasure,
     Dimension,
     Entity,
+    ExpressionContract,
     Measure,
-    Metric,
     Relationship,
     ResolvedValue,
     TimeField,
@@ -793,12 +794,12 @@ class DomainEntry(CatalogEntry[DomainKind]):
         return CatalogCollection(self._catalog, "entities", scope_ref=self.ref)
 
     @property
-    def fields(self) -> CatalogCollection[CatalogField]:
+    def fields(self) -> CatalogCollection[Deferred]:
         """Dimensions, time fields and Measures declared in this domain."""
         return CatalogCollection(self._catalog, "fields", scope_ref=self.ref)
 
     @property
-    def metrics(self) -> CatalogCollection[Metric]:
+    def metrics(self) -> CatalogCollection[Deferred]:
         """Metrics published by this domain."""
         return CatalogCollection(self._catalog, "metrics", scope_ref=self.ref)
 
@@ -1754,8 +1755,9 @@ class CatalogCollection(RenderableResult, Generic[ItemT]):
         )
 
     def _member(self, item: CatalogItem) -> ItemT:
-        # The closed member contract fixes the item type each property holds.
-        return cast("ItemT", item)
+        from marivo.semantic.expressions import author_value
+
+        return cast("ItemT", item if isinstance(item, CatalogEntry) else author_value(item))
 
     def __len__(self) -> int:
         return len(self.refs)
@@ -1846,14 +1848,25 @@ def _semantic_input_expected(allowed_kinds: frozenset[SemanticKind]) -> str:
 
 def _value_lookup_ref(value: object) -> Ref[SemanticKindTag] | None:
     """The catalog ref a resolved expression value names; None for anything else."""
+    if isinstance(value, Deferred):
+        from marivo.semantic._deferred_semantics import consume_field, consume_row
+
+        declaration = root_declaration(value)
+        if declaration is not None:
+            if declaration.kind == "measure":
+                return ref_factory.measure(f"{consume_row(value).root.ref.path}.{declaration.name}")
+            if declaration.domain is not None:
+                return ref_factory.metric(f"{declaration.domain.path}.{declaration.name}")
+            return None
+        try:
+            field = consume_field(value)
+        except SemanticExpressionError:
+            return None
+        return field.reference.ref
     if isinstance(value, TimeField) and value.path:
         return None
     if isinstance(value, (Entity, Dimension, TimeField, Measure, Relationship)):
         return value.ref.ref
-    if isinstance(value, DeclaredMeasure):
-        return ref_factory.measure(f"{value.root.ref.path}.{value.declaration.name}")
-    if isinstance(value, Metric) and isinstance(value.node, DeclaredMetricRef):
-        return value.node.ref.ref
     return None
 
 
@@ -3092,7 +3105,10 @@ class SemanticCatalog(RenderableResult):
     def _build_ontology_indexes(self) -> _OntologySemanticIndexes:
         anchors_by_metric: dict[Ref[MetricKind], tuple[Ref[SemanticKindTag], ...]] = {}
         metrics_by_endpoint_mutable: dict[Ref[SemanticKindTag], list[Ref[MetricKind]]] = {}
-        for path, declared in self._reg.declared_metrics.items():
+        from marivo.semantic._deferred_semantics import consume_metric
+
+        for path, expression in self._reg.declared_metrics.items():
+            declared = consume_metric(expression)
             metric_ref = ref_factory.metric(path)
             entity_refs = tuple(root.ref for root in declared.roots)
             measure_refs = tuple(
@@ -3368,12 +3384,12 @@ class SemanticCatalog(RenderableResult):
         return CatalogCollection(self, "entities")
 
     @property
-    def fields(self) -> CatalogCollection[CatalogField]:
+    def fields(self) -> CatalogCollection[Deferred]:
         """Dimensions, time fields and Measures as expression values."""
         return CatalogCollection(self, "fields")
 
     @property
-    def metrics(self) -> CatalogCollection[Metric]:
+    def metrics(self) -> CatalogCollection[Deferred]:
         """Published Metrics as composable expression values."""
         return CatalogCollection(self, "metrics")
 
@@ -3400,13 +3416,13 @@ class SemanticCatalog(RenderableResult):
     @overload
     def require(self, ref: Ref[EntityKind], /) -> Entity: ...
     @overload
-    def require(self, ref: Ref[DimensionKind], /) -> Dimension: ...
+    def require(self, ref: Ref[DimensionKind], /) -> Deferred: ...
     @overload
-    def require(self, ref: Ref[TimeDimensionKind], /) -> TimeField: ...
+    def require(self, ref: Ref[TimeDimensionKind], /) -> Deferred: ...
     @overload
-    def require(self, ref: Ref[MeasureKind], /) -> Measure | DeclaredMeasure: ...
+    def require(self, ref: Ref[MeasureKind], /) -> Deferred: ...
     @overload
-    def require(self, ref: Ref[MetricKind], /) -> Metric: ...
+    def require(self, ref: Ref[MetricKind], /) -> Deferred: ...
     @overload
     def require(self, ref: Ref[RelationshipKind], /) -> Relationship: ...
     @overload
@@ -3434,7 +3450,7 @@ class SemanticCatalog(RenderableResult):
 
         Example:
             >>> amount = catalog.require(ms.ref.measure("sales.orders.amount"))
-            >>> amount.contract().show()
+            >>> catalog.describe(ms.ref.measure("sales.orders.amount")).show()
 
         Constraints:
             Strings, wrong-kind refs, and absent refs are rejected with a
@@ -3445,7 +3461,9 @@ class SemanticCatalog(RenderableResult):
         index = self._require_index()
         found = index.require(exact_ref)
         if found is not None:
-            return found
+            from marivo.semantic.expressions import author_value
+
+            return found if isinstance(found, CatalogEntry) else author_value(found)
         candidates = tuple(item for item in index.refs if item.kind is exact_ref.kind)[:12]
         calls = tuple(
             f"ms.ref.{candidate.kind.value}({candidate.path!r})" for candidate in candidates
@@ -3461,6 +3479,78 @@ class SemanticCatalog(RenderableResult):
                 "filtered_domains": self._project._filtered_domains,
                 "candidates": tuple(candidate.key for candidate in candidates),
             },
+        )
+
+    def describe(self, ref: Ref[SemanticKindTag], /) -> ExpressionContract:
+        """Describe one Entity, field, Metric or Relationship without source access.
+
+        Args:
+            ref: An exact semantic Ref present in this Catalog.
+        Returns:
+            Bounded definition facts, dependencies and available expression operations.
+        Example:
+            >>> catalog.describe(ms.ref.metric("sales.revenue")).show()
+        Constraints:
+            Physical dtypes and execution qualification belong to Query consumption.
+            The returned facts do not mutate or add attributes to native Deferred values.
+        """
+        from marivo._definition.graph import computation_fingerprint
+        from marivo.semantic._deferred_semantics import consume_metric, consume_row
+        from marivo.semantic.expressions import _Resolver
+
+        target = _require_semantic_ref(ref, parameter="describe(ref)")
+        value = self._require_index().require(target)
+        if isinstance(value, (Entity, Dimension, TimeField, Measure, Relationship)):
+            return value.contract()
+        if isinstance(value, Deferred):
+            declaration = root_declaration(value)
+            assert declaration is not None
+            from marivo._definition.expressions import MetricNode, RowNode
+            from marivo._definition.types import ExactRef, SumPermission
+
+            roots: tuple[ExactRef, ...]
+            permission: SumPermission | None
+            node: RowNode | MetricNode
+            if declaration.kind == "measure":
+                row = consume_row(value)
+                roots, unit, permission, default_time = (
+                    (row.root,),
+                    row.unit,
+                    row.permission,
+                    row.default_time,
+                )
+                node = row.node
+            else:
+                original = self._reg.declared_metrics[target.path]
+                metric = consume_metric(original)
+                roots, unit, permission, default_time = metric.roots, metric.unit, None, None
+                node = metric.node
+            context = declaration.ai_context
+            location = declaration.location
+            return ExpressionContract(
+                stage="declared_measure" if declaration.kind == "measure" else "published_metric",
+                ref=_Resolver(self._state).exact(target),
+                roots=roots,
+                unit=unit,
+                sum_permission=permission,
+                default_time=default_time,
+                computation=computation_fingerprint(node),
+                reads=self._state.dependencies.get(target, ()),
+                name=declaration.name,
+                business_definition=context.business_definition if context else None,
+                guardrails=tuple(context.guardrails or ()) if context else (),
+                location=f"{location.path}:{location.line}" if location else None,
+                facts=(),
+                operations=(
+                    "native Ibis numerical composition",
+                    "sum/mean" if declaration.kind == "measure" else "where/per/window",
+                ),
+            )
+        _raise(
+            ErrorKind.INVALID_REF,
+            "Describe requires an Entity, field, Metric or Relationship in this Catalog.",
+            cls=SemanticRuntimeError,
+            refs=(target.key,),
         )
 
     def readiness(
@@ -4008,7 +4098,7 @@ class SemanticCatalog(RenderableResult):
             from marivo.semantic._numeric_preview import validate_preview_metric
 
             metric = self.metrics.get(ref_str)
-            assert isinstance(metric, Metric)
+            assert isinstance(metric, Deferred)
             validate_preview_metric(metric)
         bindings = normalize_preview_scope(
             ref=ref_str,
@@ -4160,7 +4250,7 @@ class SemanticCatalog(RenderableResult):
                 from marivo.semantic.metric_graph_lowering import numeric_failure
 
                 metric = self.metrics.get(ref_str)
-                assert isinstance(metric, Metric)
+                assert isinstance(metric, Deferred)
                 expression, checks = lower_preview_metric(metric, resolver)
                 frame = connections.collect_source(
                     bindings.datasource_id, expression, purpose="semantic.preview", max_rows=1

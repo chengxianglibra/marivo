@@ -12,11 +12,14 @@ from __future__ import annotations
 import textwrap
 from pathlib import Path
 
+from ibis.common.deferred import Deferred
+
 import marivo.semantic as ms
 from marivo.refs import SemanticKind
 from marivo.semantic._capabilities.catalog_members import (
     CATALOG_MEMBER_CONTRACTS,
 )
+from marivo.semantic._deferred_semantics import consume_field
 from marivo.semantic.catalog import CatalogCollection
 
 _DOMAIN_PY = """\
@@ -128,13 +131,29 @@ def test_every_member_value_round_trips_through_get_by_name_path_key_and_ref(
     for member in CATALOG_MEMBER_CONTRACTS:
         collection = getattr(catalog, member.property_name)
         for ref, item in zip(collection.refs, collection.items, strict=True):
-            assert collection.get(ref.key) is item
-            assert collection.get(ref.path) is item
-            assert collection.get(ref) is item
+            assert (
+                (consume_field(collection.get(ref.key)) == consume_field(item))
+                if isinstance(item, Deferred) and ref.kind is not SemanticKind.METRIC
+                else collection.get(ref.key) is item
+            )
+            assert (
+                (consume_field(collection.get(ref.path)) == consume_field(item))
+                if isinstance(item, Deferred) and ref.kind is not SemanticKind.METRIC
+                else collection.get(ref.path) is item
+            )
+            assert (
+                (consume_field(collection.get(ref)) == consume_field(item))
+                if isinstance(item, Deferred) and ref.kind is not SemanticKind.METRIC
+                else collection.get(ref) is item
+            )
         names = [ref.name for ref in collection.refs]
         if len(set(names)) == len(names):
             for ref, item in zip(collection.refs, collection.items, strict=True):
-                assert collection.get(ref.name) is item
+                assert (
+                    (consume_field(collection.get(ref.name)) == consume_field(item))
+                    if isinstance(item, Deferred) and ref.kind is not SemanticKind.METRIC
+                    else collection.get(ref.name) is item
+                )
 
 
 def test_fields_collection_spans_dimension_time_field_and_measure(tmp_path: Path) -> None:
@@ -148,7 +167,7 @@ def test_fields_collection_spans_dimension_time_field_and_measure(tmp_path: Path
         "time_dimension",
     ]
     for ref in fields.refs:
-        assert fields.get(ref.key).ref.ref == ref
+        assert consume_field(fields.get(ref.key)).reference.ref == ref
 
 
 def test_scoped_collection_matches_the_global_collection(tmp_path: Path) -> None:

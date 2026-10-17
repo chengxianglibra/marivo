@@ -8,7 +8,7 @@ from dataclasses import dataclass, replace
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
-from marivo._definition.types import field_read_key
+from marivo._definition.types import FieldRead, IdentityRead, coordinate_read_keys, field_read_key
 from marivo.analysis.binding.observe import ContributionBinding
 from marivo.analysis.compiler.member_version import version_predicate
 from marivo.analysis.compiler.source_time import localize, source_time, timestamp
@@ -108,18 +108,57 @@ def prepare_fields(
         from marivo.analysis.compiler.observation import temporal_bound
 
         time = value(contribution.time.field.ref.path, table)
-        table = table.filter(
-            time >= temporal_bound(time, contribution.period.start, zone),
-            time < temporal_bound(time, contribution.period.end, zone),
-        )
+        conditions = [time < temporal_bound(time, contribution.period.end, zone)]
+        if contribution.period.start is not None:
+            conditions.append(time >= temporal_bound(time, contribution.period.start, zone))
+        table = table.filter(*conditions)
     columns: list[tuple[str, str]] = []
     originals: list[tuple[str, ir.Value]] = []
     checks: list[tuple[str, str, str]] = []
-    reads = tuple(dict.fromkeys((*contribution.reads, *contribution.coordinates)))
-    for index, read in enumerate(reads):
+    from marivo.analysis.binding.membership import membership_reads
+    from marivo.analysis.materialization.membership_preparation import prepare_memberships
+
+    member_reads = {
+        read
+        for binding in contribution.memberships
+        for read in membership_reads(binding, contribution.root)
+    }
+    reads = tuple(
+        read
+        for read in dict.fromkeys(
+            (
+                *contribution.reads,
+                *contribution.coordinates,
+                *(read for _, read in contribution.population_reads),
+            )
+        )
+        if read not in member_reads
+    )
+    parts = tuple(
+        (read, component, key)
+        for read in reads
+        for component, key in zip(
+            read.components if isinstance(read, IdentityRead) else (None,),
+            coordinate_read_keys(read),
+            strict=True,
+        )
+    )
+    for index, (read, component, read_key) in enumerate(parts):
+
+        def read_value(
+            relation: ir.Table,
+            component: str | None = component,
+            read: FieldRead | IdentityRead = read,
+        ) -> ir.Value:
+            if component is not None:
+                return relation[component]
+            assert isinstance(read, FieldRead)
+            return value(read.field.ref.path, relation)
+
         slot = unique(f"__field_{index}")
         if not read.path and read.at is None:
-            expression = value(read.field.ref.path, table)
+            expression = read_value(table)
+            dependencies.append(expression)
             originals.append((slot, expression))
             table = table.mutate(**{slot: expression})
         else:
@@ -172,7 +211,8 @@ def prepare_fields(
                     target = target.filter(version_predicate(target, version, selection))
                 final = step_index == len(steps) - 1
                 if final:
-                    expression = value(read.field.ref.path, target)
+                    expression = read_value(target)
+                    dependencies.append(expression)
                     originals.append((slot, expression))
                     target = target.mutate(**{slot: expression})
                 # Collapse before joining; the count makes duplicates an error rather than fanout.
@@ -202,7 +242,18 @@ def prepare_fields(
                 current = renamed
                 if final:
                     table = table.mutate(**{slot: table[renamed[slot]]})
-        columns.append((field_read_key(read), slot))
+        columns.append((read_key, slot))
+    members = prepare_memberships(
+        table, contribution.root, contribution.memberships, entities, state, value, unique
+    )
+    table = members.table
+    columns.extend(members.columns)
+    originals.extend(members.originals)
+    dependencies.extend(members.dependencies)
+    if contribution.population_conditions:
+        from marivo.analysis.materialization.population_condition import filter_contribution
+
+        table = filter_contribution(table, contribution, dict(columns), entities, state)
     return PreparedFields(
         table, tuple(columns), tuple(checks), tuple(originals), tuple(dependencies)
     )

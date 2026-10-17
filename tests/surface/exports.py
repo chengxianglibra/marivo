@@ -1,6 +1,7 @@
 """Independent expectations for the current public execution surfaces."""
 
 SEMANTIC_PUBLIC = {
+    "ExpressionContract",
     "AiContextValue",
     "CalendarLevelDetails",
     "CalendarPeriodPage",
@@ -69,8 +70,21 @@ SEMANTIC_PUBLIC = {
 
 ANALYSIS_PUBLIC = (
     "Query",
+    "Population",
+    "PopulationPredicate",
+    "in_population",
+    "MembershipAxis",
+    "coordinates",
+    "identities",
+    "membership",
+    "product",
     "InstantAnchor",
     "CalendarAxis",
+    "all_history",
+    "since",
+    "to_date",
+    "trailing_duration",
+    "trailing_periods",
     "Artifact",
     "LogicalAttributionResult",
     "MaterializedAttributionResult",

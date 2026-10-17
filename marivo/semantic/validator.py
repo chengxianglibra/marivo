@@ -20,6 +20,8 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, NoReturn, cast
 from zoneinfo import ZoneInfo
 
+from ibis.common.deferred import Deferred
+
 from marivo.datasource.ir import (
     CsvSourceIR,
     DatasourceIR,
@@ -77,7 +79,6 @@ from marivo.semantic.ir import (
 
 if TYPE_CHECKING:
     from marivo.semantic._expression_binding import CompiledExpressionSidecar
-    from marivo.semantic.expressions import DeclaredMeasure, DeclaredMetric
 
 __all__ = [
     "Registry",
@@ -107,8 +108,8 @@ class Registry:
     temporal_sets: dict[str, TemporalSetIR] = field(default_factory=dict)
     work_schedules: dict[str, WorkScheduleIR] = field(default_factory=dict)
     # Published pure declarations, keyed by their qualified full name.
-    declared_measures: dict[str, DeclaredMeasure] = field(default_factory=dict)
-    declared_metrics: dict[str, DeclaredMetric] = field(default_factory=dict)
+    declared_measures: dict[str, Deferred] = field(default_factory=dict)
+    declared_metrics: dict[str, Deferred] = field(default_factory=dict)
     _frozen: bool = field(default=False, init=False, repr=False)
 
     def freeze(self) -> None:

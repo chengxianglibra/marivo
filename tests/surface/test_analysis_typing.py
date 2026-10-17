@@ -18,7 +18,8 @@ import marivo.semantic as ms
 mv.LogicalSelectedCategoryRelation
 mv.MaterializedSelectedCategoryRelation
 session = mv.session.get_or_create("static", report_timezone="UTC")
-members = session.members(ms.ref.entity("sales.customer"))
+population = session.members(ms.ref.entity("sales.customer"))
+members: mv.LogicalAnalysisDomain
 session.members(ms.ref.metric("sales.revenue"))
 members.read(ms.ref.entity("sales.customer"))
 members.observe(ms.ref.metric("sales.revenue"), via=ms.ref.entity("sales.order"), by=(ms.ref.dimension("sales.customer.region"),))
@@ -171,34 +172,28 @@ def test_public_observation_allows_omitted_window_and_precise_narrowing(tmp_path
         """
 import marivo.analysis as mv
 import marivo.semantic as ms
+from ibis.common.deferred import Deferred
 from typing_extensions import assert_type
-assert_type(mv.member(), mv.MemberAxis)
+
 session = mv.session.get_or_create('static', report_timezone='UTC')
-members = session.members(ms.ref.entity('sales.customer'))
-metric = mv.runtime_metric.linear(add=[ms.ref.metric('sales.revenue'), ms.ref.metric('sales.revenue')], label='twice')
-observed = members.observe(metric, via=ms.ref.relationship('sales.buyer'))
-assert isinstance(observed, mv.LogicalNumericRelation)
-observed.rollup().execute()
-ratio = members.observe(ms.ref.metric('sales.aov'), via=ms.ref.relationship('sales.buyer'))
-assert isinstance(ratio, mv.LogicalRatioRelation)
-ratio.rollup().execute()
-orders = session.members(ms.ref.entity('sales.order'))
-grouped_observed = orders.observe(ms.ref.metric('sales.revenue'), by=(ms.ref.dimension('sales.order.channel'),))
-assert isinstance(grouped_observed, mv.LogicalNumericRelation)
-grouped_observed.rollup().execute()
-grouped_with_none = orders.observe(ms.ref.metric('sales.revenue'), via=None, by=(ms.ref.dimension('sales.order.channel'),))
-assert isinstance(grouped_with_none, mv.LogicalNumericRelation)
-grouped_with_none.rollup().execute()
-individual = members.observe(ms.ref.metric('sales.revenue'), by=(mv.member(),))
-category = members.read(ms.ref.dimension('sales.customer.region'))
-assert isinstance(category, mv.LogicalCategoryRelation)
-selected = category.where(category.value.eq('east'))
-assert_type(selected, mv.LogicalCategoryRelation)
-assert_type(selected.where(selected.value.eq('east')), mv.LogicalCategoryRelation)
-fixed_category = selected.execute()
-assert_type(fixed_category, mv.MaterializedCategoryRelation)
-classified = members.observe(ms.ref.metric('sales.revenue'), by=(category,))
-assert isinstance(classified, mv.LogicalNumericRelation)
+population = session.members(ms.ref.entity('sales.customer'))
+assert_type(population, mv.Population)
+amount: Deferred
+region: Deferred
+query = session.observe({'revenue': amount.sum()}, by=(region,))
+assert_type(query, mv.Query)
+assert_type(query.population(), mv.Population)
+assert_type(session.query(query.population()), mv.Query)
+assert_type(query.execute(), mv.Artifact)
+assert_type(population.project(by=()), mv.Population)
+assert_type(population.where(mv.in_population(population)), mv.Population)
+assert_type(session.observe({'revenue': amount.sum()}, during=None), mv.Query)
+
+def retained_receivers(numeric: mv.LogicalNumericRelation, category: mv.LogicalCategoryRelation) -> None:
+    selected = category.where(category.value.eq('east'))
+    assert_type(selected, mv.LogicalCategoryRelation)
+    assert_type(selected.execute(), mv.MaterializedCategoryRelation)
+    numeric.rollup().execute()
 """
     )
     root = PROJECT_ROOT

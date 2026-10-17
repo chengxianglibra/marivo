@@ -74,13 +74,11 @@ class BoundSignature:
     observation: ObservationBinding | None = None
 
     def __post_init__(self) -> None:
-        if (
-            type(self.quantities) is not tuple
-            or not self.quantities
-            or any(type(item) is not BoundQuantity for item in self.quantities)
+        if type(self.quantities) is not tuple or any(
+            type(item) is not BoundQuantity for item in self.quantities
         ):
             reject(
-                "an immutable nonempty tuple of named Metric outputs",
+                "an immutable tuple of named Metric outputs",
                 type(self.quantities).__name__,
                 "Construct the Query through session.observe(metrics).",
                 "query.signature",

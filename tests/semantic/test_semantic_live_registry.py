@@ -301,14 +301,14 @@ def test_object_construction_modes_return_the_owning_ref_kind() -> None:
         for mode in contract.construction_modes:
             descriptor = REGISTRY.by_canonical_id(mode.target.canonical_id or "")
             expected_values = {
-                SemanticKind.MEASURE: ("Ref[measure]", "Measure"),
-                SemanticKind.METRIC: ("Metric",),
+                SemanticKind.MEASURE: ("Ref[measure]", "Deferred"),
+                SemanticKind.METRIC: ("Deferred",),
             }.get(contract.semantic_kind, (expected,))
             assert contract.construction_families == expected_values
             expected_output = (
-                "Measure"
+                "Deferred"
                 if descriptor.canonical_id == "measure"
-                else "Metric"
+                else "Deferred"
                 if descriptor.canonical_id == "metric"
                 else expected
             )

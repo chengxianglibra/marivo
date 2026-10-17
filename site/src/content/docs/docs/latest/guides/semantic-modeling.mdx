@@ -7,7 +7,7 @@ Physical Entity/Field constructors capture typed Ref lookup keys. After all depe
 
 Semantic objects need not remain bound to their original definition versions. A same-path definition change alone does not reject an input; the agent/user accepts the consequences of semantic changes during analysis. Resolving consumers use their completed scope. Immutable expressions keep their stored definitions and facts without live refresh. Kind, root, grain, unit, time-role, null and permission checks still apply. Fingerprints and cache keys describe actual consumed definitions; persisted provenance and records retain their own contracts.
 
-R1.3 supports construction. New Catalog Metric collection, publication and public discovery belong to R1.4; new analysis execution belongs to R2. Pure declarations below do not register Metrics or establish Session execution support.
+Numerical and conditional Field inputs, Measures and Metrics use native Ibis Deferred. Named declarations attach immutable metadata to the same recipe. Loading collects exported root declarations once; anonymous derived expressions remain local. Physical dtypes are prepared automatically at execution.
 
 ## Declare one dependency slice
 
@@ -15,7 +15,7 @@ The warehouse datasource and listed columns must exist. Save as models/semantic/
 
 {/* example: semantic-model-basics */}
 
-Inspect construction metadata with `amount.show()` or `finalized.show()`. Their focused contracts resolve through `marivo.help(amount.show)` and `marivo.help("semantic.FinalizedDeclarations.show")`; display does not execute a query.
+Inspect frozen capture with `finalized.show()`. After loading, use `catalog.describe(ms.ref.measure("sales.orders.amount")).show()` for definition facts. Native Deferred values have no Marivo `.show()` or `.contract()` methods; `Query.contract()` describes execution facts. Display does not execute a query.
 
 ```python
 import marivo.datasource as md
@@ -66,12 +66,12 @@ margin_alias = margin
 trial_margin = amount - cost
 paid_revenue = revenue.where(region == "US")
 customer_average = revenue.per(region).mean()
-missing_region_revenue = revenue.where(region.is_null())
+missing_region_revenue = revenue.where(region.isnull())
 ```
 
 where accepts a single source reduction or common paired scope. Filter source child Metrics before composing them. per returns internal samples; reduce them to produce a Metric.
 
-Native fields share the null-predicate contract at `marivo.help("semantic.Dimension.is_null")`; callable Help also accepts `region.is_null` or `paid_at.is_null`. A routed TimeField keeps its role and is accepted only as `time=`, including when choosing sum-permission coordinates.
+Native fields share the null-predicate contract at `marivo.help("semantic.Dimension.isnull")`; native Deferred methods use these static Help routes instead of callable Help. A routed TimeField keeps its role and is accepted only as `time=`, including when choosing sum-permission coordinates.
 
 ## Units and explicit sum permission
 

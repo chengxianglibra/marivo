@@ -1,5 +1,6 @@
 """Static acceptance fixture for the sealed generic Ref contract."""
 
+from ibis.common.deferred import Deferred
 from ibis.expr.types import Table, Value
 from typing_extensions import Never, assert_type
 
@@ -21,7 +22,7 @@ from marivo.semantic.catalog import (
     DomainEntry,
     SemanticCatalog,
 )
-from marivo.semantic.expressions import CatalogField, Entity, Metric
+from marivo.semantic.expressions import Entity
 
 assert_type(ref_factory.datasource("warehouse"), Ref[DatasourceKind])
 assert_type(ref_factory.entity("sales.orders"), Ref[EntityKind])
@@ -43,12 +44,13 @@ def _field_call_contract(table: Table) -> None:
     assert_type(bind(ref_factory.dimension("sales.orders.region"), table), Value)
     assert_type(bind(ref_factory.time_dimension("sales.orders.ordered_at"), table), Value)
     assert_type(bind(ref_factory.measure("sales.orders.amount"), table), Value)
-    bind(ref_factory.metric("sales.revenue"), table)  # type: ignore[arg-type]
+    # Deferred has dynamic typing; physical field kind is checked at consumption.
+    bind(ref_factory.metric("sales.revenue"), table)
 
 
 def _catalog_collection_contract(catalog: SemanticCatalog) -> None:
     assert_type(catalog.domains, CatalogCollection[DomainEntry])
     assert_type(catalog.domains.get("sales"), DomainEntry)
     assert_type(catalog.entities.get("sales.orders"), Entity)
-    assert_type(catalog.fields.get("sales.orders.region"), CatalogField)
-    assert_type(catalog.metrics.get("sales.revenue"), Metric)
+    assert_type(catalog.fields.get("sales.orders.region"), Deferred)
+    assert_type(catalog.metrics.get("sales.revenue"), Deferred)

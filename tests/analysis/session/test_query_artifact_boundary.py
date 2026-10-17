@@ -12,8 +12,8 @@ import pytest
 
 import marivo
 import marivo.analysis as mv
-from marivo._definition.expressions import MemberCount, MetricConstant
-from marivo._definition.relations import ObserveQuery, PopulationProgram, QueryKeys
+from marivo._definition.expressions import MetricNode
+from marivo._definition.relations import PopulationProgram
 from marivo._definition.types import Owner
 from marivo.analysis.core.artifact_data import (
     ArtifactData,
@@ -37,11 +37,12 @@ from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.layout import MaterializationLayout
 from marivo.analysis.refs import ArtifactRef
 from marivo.analysis.session.core import Session
-from marivo.semantic.expressions import Metric
+from marivo.semantic._deferred_semantics import consume_metric
+from tests.shared_fixtures import numeric_literal_node, numeric_program_query
 
 
-def _metric(value: int) -> Metric:
-    return Metric(MetricConstant(value), (), "CNY")
+def _metric(value: int) -> MetricNode:
+    return numeric_literal_node(value)
 
 
 def _manifest() -> ArtifactManifest:
@@ -63,13 +64,13 @@ def test_named_metrics_capture_without_catalog_schema_rows_or_run(
 
     monkeypatch.setattr(Session, "_sources", forbidden)
     mapping = {"revenue": _metric(10), "aov": _metric(5)}
-    query = session.observe(mapping)
+    query = numeric_program_query(session, mapping)
     mapping["later"] = _metric(99)
     assert type(query) is mv.Query
     assert tuple(q.name for q in query._graph.signature.quantities) == ("revenue", "aov")
     assert query._graph.root.metrics == (
-        ("revenue", MetricConstant(10)),
-        ("aov", MetricConstant(5)),
+        ("revenue", numeric_literal_node(10)),
+        ("aov", numeric_literal_node(5)),
     )
     assert query._graph.signature.owner == Owner(session.id, session._runtime.store.store_id)
     assert "outputs=2" in repr(query) and "\n" not in repr(query)
@@ -93,12 +94,22 @@ def test_definition_ownership_is_checked_without_source_reads(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("receiver")
-    foreign = ObserveQuery((("x", MetricConstant(1)),), (), Owner("other", "store"))
-    dependent = Metric(
-        MemberCount(PopulationProgram(QueryKeys(foreign, ()), foreign.owner)), (), None
+    foreign = mv.session.get_or_create("other")
+    import marivo.semantic as ms
+    from marivo._definition.relations import SourceIdentities
+    from marivo._definition.types import AxisBinding, ExactRef
+    from marivo.analysis.dsl.population import Population
+
+    entity = ExactRef(ms.ref.entity("sales.customers"), "v1")
+    domain = Population(
+        PopulationProgram(
+            SourceIdentities(entity),
+            Owner(foreign.id, foreign._runtime.store.store_id),
+            (AxisBinding(entity, None, (), "identity"),),
+        )
     )
-    with pytest.raises(CoreRuleError, match="one Session owner"):
-        session.observe({"count": dependent})
+    with pytest.raises(CoreRuleError, match="Session"):
+        session.query(domain)
     assert session.runs().items == ()
 
 
@@ -109,7 +120,7 @@ def test_catalog_metrics_capture_the_r1_definition_closure(
     import marivo.datasource.backends as backends
 
     def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("Metric capture opened a datasource")
+        raise AssertionError("Deferred capture opened a datasource")
 
     monkeypatch.setattr(backends, "_build_backend_from_effective", forbidden)
     semantic_project_factory(
@@ -147,12 +158,14 @@ def test_catalog_metrics_capture_the_r1_definition_closure(
     }[composition]
     query = session.observe(outputs)
     assert tuple((q.name, q.definition) for q in query._graph.signature.quantities) == tuple(
-        (name, metric.node) for name, metric in outputs.items()
+        (name, consume_metric(metric).node) for name, metric in outputs.items()
     )
     if composition != "direct":
         assert len(query._graph.signature.quantities) == 1
         assert dict(query._graph.signature.declared_metrics) == dict(
-            (*revenue._declared, *double._declared) if composition == "ratio" else revenue._declared
+            (*consume_metric(revenue)._declared, *consume_metric(double)._declared)
+            if composition == "ratio"
+            else consume_metric(revenue)._declared
         )
     assert query._graph.signature.declared_metrics
     assert query._graph.fingerprint

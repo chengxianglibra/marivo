@@ -20,7 +20,7 @@ def test_parameter_semantics_and_real_producers() -> None:
         if isinstance(descriptor, TypeInput):
             for producer in descriptor.producers:
                 assert render_help_text("analysis." + producer)[0]
-            if descriptor.canonical_id != "LogicalAnalysisDomain":
+            if descriptor.canonical_id != "Population":
                 assert "session.members" not in descriptor.producers, descriptor.canonical_id
     for target, producer in (
         ("LogicalNumericRelation", "dsl.LogicalAnalysisDomain.observe"),

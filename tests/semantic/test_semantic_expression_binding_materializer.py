@@ -10,6 +10,7 @@ import pytest
 import marivo.datasource as md
 from marivo._definition.graph import computation_fingerprint
 from marivo.refs import ref as ref_factory
+from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind
 from marivo.semantic.materializer import Materializer
@@ -81,7 +82,7 @@ def test_pure_measure_composition_and_physical_fields_execute(
         assert len(connection.execute(materializer.dimension("sales.orders.ordered_at"))) == 3
         catalog = SemanticCatalog(project)
         metric = catalog.metrics.get("sales.revenue")
-        assert "callable" not in metric.contract().render()
+        assert "callable" not in catalog.describe(ref_factory.metric("sales.revenue")).render()
         dependencies = catalog._state.dependencies[ref_factory.metric("sales.revenue")]
         assert ref_factory.measure("sales.orders.amount") in dependencies
         with patch_semantic_connections(project, lambda _name: connection):
@@ -128,7 +129,7 @@ def test_computation_identity_ignores_local_aliases_but_tracks_consumed_fields(
         project = _project(semantic_project_factory, source)
         assert project.is_ready(), project.errors()
         metric = SemanticCatalog(project)._state.registry.declared_metrics["sales.revenue"]
-        identities.append(computation_fingerprint(metric.node))
+        identities.append(computation_fingerprint(consume_metric(metric).node))
     assert identities[0] == identities[1]
     assert identities[2] != identities[0]
     assert identities[3] != identities[0]

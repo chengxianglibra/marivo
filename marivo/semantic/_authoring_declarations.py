@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import NoReturn
 
+from ibis.common.deferred import Deferred
+
 from marivo.refs import DomainKind, Ref, SemanticKind
 from marivo.refs import ref as ref_factory
 from marivo.semantic._authoring_context import (
@@ -17,7 +19,6 @@ from marivo.semantic._authoring_retired import reject_parameters, retired_factor
 from marivo.semantic._authoring_values import _build_ai_context
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
-from marivo.semantic.expressions import DeclaredMetric, Metric
 from marivo.semantic.ir import DomainIR
 from marivo.semantic.typing import AiContextValue
 
@@ -103,7 +104,7 @@ def metric(
     *,
     domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
-) -> Callable[[Callable[[], Metric]], DeclaredMetric]:
+) -> Callable[[Callable[[], Deferred]], Deferred]:
     """Name a completed Metric without changing its computation or policies.
 
     Args:
@@ -120,7 +121,7 @@ def metric(
         Session is required. Source roots and operator policies belong to the expression.
         Declaration does not publish a Catalog Metric or execute a query.
     """
-    from marivo._definition.expressions import MetricDeclaration
+    from marivo._definition.deferred import DeclarationRecord, declare
     from marivo._definition.types import SourceLocation
     from marivo.refs import _validate_segment
     from marivo.semantic._expression_binding import construct_metric_expression
@@ -136,7 +137,7 @@ def metric(
         )
     _build_ai_context(ai_context)
 
-    def decorator(fn: Callable[[], Metric]) -> DeclaredMetric:
+    def decorator(fn: Callable[[], Deferred]) -> Deferred:
         location = _caller_location()
         try:
             _validate_segment(fn.__name__, role="Metric declaration name")
@@ -151,18 +152,15 @@ def metric(
             ) from error
         try:
             value = construct_metric_expression(fn)
-            return DeclaredMetric(
-                value.node,
-                value.roots,
-                value.unit,
-                MetricDeclaration(
-                    fn.__name__,
-                    value.node,
-                    domain,
-                    ai_context,
-                    SourceLocation(location.file, location.line),
+            return declare(
+                value,
+                DeclarationRecord(
+                    kind="metric",
+                    name=fn.__name__,
+                    domain=domain,
+                    ai_context=ai_context,
+                    location=SourceLocation(location.file, location.line),
                 ),
-                _declared=value._declared,
             )
         except SemanticExpressionError as error:
             error.location = location

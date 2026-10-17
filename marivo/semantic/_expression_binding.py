@@ -11,13 +11,14 @@ import textwrap
 from collections.abc import Callable, Mapping, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from types import CellType, MappingProxyType, ModuleType
 from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias, cast
 
 import ibis
 import ibis.expr.types as ir
+from ibis.common.deferred import Deferred
 
 from marivo.refs import (
     EntityKind,
@@ -49,7 +50,7 @@ from marivo.semantic.validator import (
 )
 
 if TYPE_CHECKING:
-    from marivo.semantic.expressions import Field, Metric, RowOperand
+    from marivo.semantic.expressions import Field
 
 _FIELD_KINDS = frozenset(
     {
@@ -399,43 +400,35 @@ class _DeclarationExpressionBuilder:
         )
 
     def dependency(self, value: object, node: ast.Name) -> object:
-        from marivo.semantic.expressions import (
-            DeclaredMeasure,
-            DeclaredMetric,
-            Dimension,
-            Entity,
-            Measure,
-            Metric,
-            MetricSamples,
-            NumericRowExpr,
-            Predicate,
-            Relationship,
-            TimeField,
+        from marivo._definition.deferred import inspect_deferred
+        from marivo._definition.relations import MembershipBinding, PopulationParameter
+        from marivo._definition.windows import (
+            AllHistory,
+            Since,
+            ToDate,
+            TrailingDuration,
+            TrailingPeriods,
         )
+        from marivo._temporal import Grain, InstantAnchor, TimeScope
+        from marivo.semantic.expressions import Entity, Relationship
 
         if type(value) is tuple:
             return tuple(self.dependency(item, node) for item in value)
+        if isinstance(value, (MembershipBinding, PopulationParameter)):
+            return value
+        if isinstance(value, Deferred):
+            inspect_deferred(value)
+            return value
         if isinstance(value, Ref):
-            raise SemanticExpressionError(
+            self.fail(
+                node,
+                "an expression resolved from a finalized physical scope",
+                f"{node.id}: {value.key}",
                 kind=ErrorKind.INVALID_EXPRESSION_STAGE,
-                message=f"Declaration {self.name!r} received a capture lookup key.",
-                refs=(value.key,),
-                expected="an immutable expression value from a finalized physical scope",
-                received=f"{node.id}: {value.key}",
-                action="Capture every physical dependency, call finalized = ms.finalize(), then resolve this Ref with finalized.resolve(ref) outside the pure declaration body.",
             )
         if type(value) in (
-            Measure,
-            DeclaredMeasure,
-            NumericRowExpr,
-            Metric,
-            DeclaredMetric,
-            MetricSamples,
             Entity,
-            Dimension,
-            TimeField,
             Relationship,
-            Predicate,
             str,
             int,
             float,
@@ -443,41 +436,67 @@ class _DeclarationExpressionBuilder:
             bool,
             date,
             datetime,
+            timedelta,
+            Grain,
+            TimeScope,
+            InstantAnchor,
+            AllHistory,
+            Since,
+            ToDate,
+            TrailingDuration,
+            TrailingPeriods,
             type(None),
         ):
             return value
+        if isinstance(value, ir.Scalar) and isinstance(value.op(), ibis.expr.operations.Literal):
+            return value
         self.fail(
             node,
-            "a constructed immutable expression or literal",
+            "a controlled Deferred expression or immutable literal",
             f"{node.id}: {type(value).__name__}",
-            kind=ErrorKind.INVALID_EXPRESSION_STAGE
-            if isinstance(value, ir.Expr)
-            else ErrorKind.INVALID_COMPONENT_BODY,
+            kind=ErrorKind.INVALID_EXPRESSION_STAGE,
         )
 
-    def value(self, node: ast.expr) -> object:
-        from marivo.semantic.expressions import (
-            Dimension,
-            Entity,
-            Measure,
-            Metric,
-            MetricSamples,
-            NumericRowExpr,
-            RowOperator,
-            TimeField,
-            _combine,
-            _Constant,
-            _metric_combine,
-            _metric_operand,
-            _operand,
-            _require_predicate,
+    def _function(self, node: ast.expr) -> Callable[..., object] | None:
+        from types import ModuleType
+
+        from marivo._definition.deferred import admitted_function
+        from marivo._definition.windows import (
+            all_history,
+            since,
+            to_date,
+            trailing_duration,
+            trailing_periods,
         )
+
+        window_factories = (all_history, since, to_date, trailing_duration, trailing_periods)
+
+        value: object = None
+        if isinstance(node, ast.Name):
+            value = self.symbols.get(node.id)
+        elif isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+            module = self.symbols.get(node.value.id)
+            if module is ibis:
+                value = vars(ibis).get(node.attr)
+            elif isinstance(module, ModuleType) and module.__name__ == "marivo.analysis":
+                value = vars(module).get(node.attr)
+        if (
+            admitted_function(value)
+            or value is ibis.literal
+            or any(value is factory for factory in window_factories)
+        ):
+            # Exact identity has been checked before admitting this Ibis constructor.
+            return cast("Callable[..., object]", value)
+        return None
+
+    def value(self, node: ast.expr) -> object:
+        from marivo._definition.deferred import NATIVE_METHODS, SEMANTIC_METHODS
+        from marivo.semantic.expressions import Entity
 
         if isinstance(node, ast.Name):
             if node.id not in self.symbols:
                 self.fail(node, "an existing dependency or earlier local name", node.id)
-            value = self.symbols[node.id]
-            return self.dependency(value, node)
+            return self.dependency(self.symbols[node.id], node)
         if isinstance(node, ast.Constant) and (
             node.value is None or type(node.value) in (str, int, float, bool)
         ):
@@ -485,134 +504,107 @@ class _DeclarationExpressionBuilder:
         if isinstance(node, ast.Tuple):
             return tuple(self.value(item) for item in node.elts)
         if isinstance(node, ast.BinOp):
-            left_value, right_value = self.value(node.left), self.value(node.right)
-            if isinstance(node.op, (ast.BitAnd, ast.BitOr)):
-                left_pred = _require_predicate(left_value, symbol="& or |")
-                right_pred = _require_predicate(right_value, symbol="& or |")
-                return (
-                    left_pred & right_pred
-                    if isinstance(node.op, ast.BitAnd)
-                    else left_pred | right_pred
-                )
-            op: RowOperator | None = (
-                "add"
-                if isinstance(node.op, ast.Add)
-                else "subtract"
-                if isinstance(node.op, ast.Sub)
-                else "multiply"
-                if isinstance(node.op, ast.Mult)
-                else "divide"
-                if isinstance(node.op, ast.Div)
-                else None
+            left, right = self.value(node.left), self.value(node.right)
+            if isinstance(left, Deferred):
+                if isinstance(node.op, ast.Add):
+                    return left + right
+                if isinstance(node.op, ast.Sub):
+                    return left - right
+                if isinstance(node.op, ast.Mult):
+                    return left * right
+                if isinstance(node.op, ast.Div):
+                    return left / right
+                if isinstance(node.op, ast.Pow):
+                    return left**right
+                if isinstance(node.op, ast.Mod):
+                    return left % right
+                if isinstance(node.op, ast.BitAnd):
+                    return left & right
+                if isinstance(node.op, ast.BitOr):
+                    return left | right
+            elif isinstance(right, Deferred):
+                if isinstance(node.op, ast.Add):
+                    return right.__radd__(left)
+                if isinstance(node.op, ast.Sub):
+                    return right.__rsub__(left)
+                if isinstance(node.op, ast.Mult):
+                    return right.__rmul__(left)
+                if isinstance(node.op, ast.Div):
+                    return right.__rtruediv__(left)
+                if isinstance(node.op, ast.Pow):
+                    return right.__rpow__(left)
+                if isinstance(node.op, ast.Mod):
+                    return right.__rmod__(left)
+            self.fail(
+                node, "native arithmetic with a controlled Deferred operand", ast.unparse(node)
             )
-            if op is not None:
-                if isinstance(left_value, Metric) or isinstance(right_value, Metric):
-                    return _metric_combine(
-                        op,
-                        _metric_operand(left_value, operation=op),
-                        _metric_operand(right_value, operation=op),
-                    )
-                left, right = (
-                    _operand(left_value, operation=op),
-                    _operand(right_value, operation=op),
-                )
-                if isinstance(left, _Constant) and isinstance(right, _Constant):
-                    self.fail(node, "arithmetic with a row or Metric operand", ast.unparse(node))
-                return _combine(op, left, right)
         if isinstance(node, ast.UnaryOp):
             value = self.value(node.operand)
-            if isinstance(node.op, ast.Invert):
-                return ~_require_predicate(value, symbol="~")
-            if isinstance(node.op, (ast.USub, ast.UAdd)):
-                if isinstance(value, Metric):
-                    return -value if isinstance(node.op, ast.USub) else value
-                operand = _operand(value, operation="unary arithmetic")
-                if isinstance(operand, _Constant):
-                    return (
-                        -operand.node.value if isinstance(node.op, ast.USub) else operand.node.value
-                    )
-                return -operand if isinstance(node.op, ast.USub) else operand
+            if isinstance(value, Deferred):
+                if isinstance(node.op, ast.Invert):
+                    return ~value
+                if isinstance(node.op, ast.USub):
+                    return -value
+                if isinstance(node.op, ast.UAdd):
+                    return value
+            if type(value) in (int, float, Decimal):
+                number = cast("int | float | Decimal", value)
+                if isinstance(node.op, ast.USub):
+                    return -number
+                if isinstance(node.op, ast.UAdd):
+                    return number
         if isinstance(node, ast.Compare) and len(node.ops) == 1:
-            from marivo._definition.expressions import CompareOp
-
-            op_type = type(node.ops[0])
-            comparisons: dict[type[ast.cmpop], tuple[CompareOp, CompareOp]] = {
-                ast.Eq: ("eq", "eq"),
-                ast.NotEq: ("ne", "ne"),
-                ast.Lt: ("lt", "gt"),
-                ast.LtE: ("le", "ge"),
-                ast.Gt: ("gt", "lt"),
-                ast.GtE: ("ge", "le"),
-            }
-            if op_type in comparisons:
-                left_value, right_value = self.value(node.left), self.value(node.comparators[0])
-                direct, reflected = comparisons[op_type]
-                if isinstance(left_value, (Measure, NumericRowExpr, Dimension, TimeField)):
-                    return left_value._compare(direct, right_value)
-                if isinstance(right_value, (Measure, NumericRowExpr, Dimension, TimeField)):
-                    return right_value._compare(reflected, left_value)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            receiver = self.value(node.func.value)
-            methods: dict[str, Callable[..., object]] = {}
-            if isinstance(receiver, (Measure, NumericRowExpr)):
-                methods.update(divide=receiver.divide)
-                if self.stage == "measure" and node.func.attr in {
-                    "sum",
-                    "count",
-                    "count_distinct",
-                    "mean",
-                    "min",
-                    "max",
-                    "median",
-                    "quantile",
-                    "weighted_mean",
-                }:
-                    self.fail(
-                        node,
-                        "a numeric row expression before source reduction",
-                        ast.unparse(node),
-                        kind=ErrorKind.INVALID_EXPRESSION_STAGE,
-                    )
-            if self.stage == "metric":
-                if isinstance(receiver, (Measure, NumericRowExpr, MetricSamples)):
-                    methods.update(
-                        sum=receiver.sum,
-                        mean=receiver.mean,
-                        min=receiver.min,
-                        max=receiver.max,
-                        median=receiver.median,
-                        quantile=receiver.quantile,
-                        weighted_mean=receiver.weighted_mean,
-                    )
-                if isinstance(
-                    receiver, (Measure, NumericRowExpr, Dimension, TimeField, MetricSamples)
-                ):
-                    methods.update(count=receiver.count, count_distinct=receiver.count_distinct)
-                if isinstance(receiver, Entity):
-                    methods.update(count=receiver.count)
-                if isinstance(receiver, Metric):
-                    methods.update(divide=receiver.divide, where=receiver.where, per=receiver.per)
-                if isinstance(receiver, (Dimension, Measure, TimeField)):
-                    methods.update(via=receiver.via)
-            if isinstance(receiver, (Measure, Dimension, TimeField)):
-                methods.update(is_null=receiver.is_null)
-            method = methods.get(node.func.attr)
+            left, right = self.value(node.left), self.value(node.comparators[0])
+            if isinstance(left, Deferred):
+                if isinstance(node.ops[0], ast.Eq):
+                    return left == right
+                if isinstance(node.ops[0], ast.NotEq):
+                    return left != right
+                if isinstance(node.ops[0], ast.Lt):
+                    return left < right
+                if isinstance(node.ops[0], ast.LtE):
+                    return left <= right
+                if isinstance(node.ops[0], ast.Gt):
+                    return left > right
+                if isinstance(node.ops[0], ast.GtE):
+                    return left >= right
+            elif isinstance(right, Deferred):
+                if isinstance(node.ops[0], ast.Eq):
+                    return right == left
+                if isinstance(node.ops[0], ast.NotEq):
+                    return right != left
+                if isinstance(node.ops[0], ast.Lt):
+                    return right > left
+                if isinstance(node.ops[0], ast.LtE):
+                    return right >= left
+                if isinstance(node.ops[0], ast.Gt):
+                    return right < left
+                if isinstance(node.ops[0], ast.GtE):
+                    return right <= left
+        if isinstance(node, ast.Call):
+            if any(keyword.arg is None for keyword in node.keywords):
+                self.fail(node, "explicit keyword arguments", "keyword unpacking")
+            method = self._function(node.func)
+            if method is None and isinstance(node.func, ast.Attribute):
+                receiver = self.value(node.func.value)
+                name = node.func.attr
+                if isinstance(receiver, Deferred) and name in NATIVE_METHODS | SEMANTIC_METHODS:
+                    # Deferred attributes construct a recipe; they do not invoke author code.
+                    method = cast("Callable[..., object]", getattr(receiver, name))
+                elif type(receiver) is Entity and name == "count":
+                    method = receiver.count
             if method is None:
                 self.fail(
                     node,
-                    "an operation admitted on this semantic receiver",
-                    f"{type(receiver).__name__}.{node.func.attr}",
+                    "an admitted Ibis constructor or semantic expression method",
+                    ast.unparse(node.func),
                 )
-            if any(isinstance(arg, ast.Starred) for arg in node.args) or any(
-                kw.arg is None for kw in node.keywords
-            ):
-                self.fail(node, "explicit expression arguments", ast.unparse(node))
-            args = tuple(self.value(arg) for arg in node.args)
-            kwargs = {kw.arg: self.value(kw.value) for kw in node.keywords if kw.arg is not None}
-            try:
-                inspect.signature(method).bind(*args, **kwargs)
-            except TypeError as error:
-                self.fail(node, str(inspect.signature(method)), f"{ast.unparse(node)}: {error}")
+            args = [self.value(arg) for arg in node.args]
+            kwargs = {
+                keyword.arg: self.value(keyword.value)
+                for keyword in node.keywords
+                if keyword.arg is not None
+            }
             return method(*args, **kwargs)
         self.fail(node, "closed semantic expression syntax", ast.unparse(node))
 
@@ -644,41 +636,50 @@ def _construct_declaration_expression(
     raise AssertionError("validated declaration has no final return")
 
 
-def construct_measure_expression(fn: Callable[[], RowOperand]) -> RowOperand:
-    """Validate the body and construct one numeric row graph."""
-    from marivo.semantic.expressions import Measure, NumericRowExpr
+def construct_measure_expression(fn: Callable[[], Deferred]) -> Deferred:
+    """Capture a pure declaration and validate its row-stage semantic facts."""
+    from marivo.semantic._deferred_semantics import consume_row
 
     result = _construct_declaration_expression(fn, stage="measure")
-    if isinstance(result, (Measure, NumericRowExpr)):
+    if isinstance(result, Deferred):
+        consume_row(result)
         return result
     raise SemanticExpressionError(
         kind=ErrorKind.INVALID_EXPRESSION_STAGE,
         message="Measure declaration returned the wrong expression stage.",
-        expected="a Measure or numeric row expression",
+        expected="a controlled Deferred row expression",
         received=type(result).__name__,
         action="Return the row expression before reduction; declare completed values with @ms.metric().",
     )
 
 
-def construct_metric_expression(fn: Callable[[], Metric]) -> Metric:
-    """Validate the body and construct one completed Metric graph."""
-    from marivo.semantic.expressions import Metric
+def construct_metric_expression(fn: Callable[[], Deferred]) -> Deferred:
+    """Capture a pure declaration and validate its completed Metric stage."""
+    from marivo.semantic._deferred_semantics import consume_metric
 
     result = _construct_declaration_expression(fn, stage="metric")
-    if isinstance(result, Metric):
+    if isinstance(result, Deferred):
+        consume_metric(result)
         return result
     raise SemanticExpressionError(
         kind=ErrorKind.INVALID_EXPRESSION_STAGE,
         message="Metric declaration returned the wrong expression stage.",
-        expected="a completed Metric",
+        expected="a controlled Deferred completed Metric",
         received=type(result).__name__,
-        action="Reduce row expressions with a source reducer, or finish per(...).reducer() before declaring the Metric.",
+        action="Reduce rows or finish per(...).reducer() before declaring the Metric.",
     )
 
 
 def _binding_field_ref(value: object) -> Ref[SemanticKindTag] | None:
     from marivo.semantic.expressions import Dimension, Entity, Measure, Relationship, TimeField
 
+    if isinstance(value, Deferred):
+        from marivo.semantic._deferred_semantics import consume_field
+
+        field = consume_field(value)
+        if field.field_read is not None and field.field_read.path:
+            return None
+        return field.reference.ref
     if isinstance(value, (Dimension, TimeField, Measure)):
         value._require_native(operation="an Ibis field binding")
     if isinstance(value, (Dimension, Entity, Measure, Relationship, TimeField)):
@@ -1543,7 +1544,7 @@ def evaluate_expression_body(
         _EXPRESSION_BINDING_CONTEXT.reset(token)
 
 
-def bind(field: Field | Ref[FieldKind], entity_alias: ir.Table, /) -> ir.Value:
+def bind(field: Deferred | Field | Ref[FieldKind], entity_alias: ir.Table, /) -> ir.Value:
     """Apply a semantic field ref to an entity alias in an expression body.
 
     Parameters

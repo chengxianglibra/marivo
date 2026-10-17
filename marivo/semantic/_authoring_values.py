@@ -11,6 +11,7 @@ from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import ibis.expr.types as ibis_ir
+from ibis.common.deferred import Deferred
 
 from marivo.refs import DimensionKind, FieldKind, Ref, SemanticKind, TimeDimensionKind
 from marivo.semantic._authoring_context import (
@@ -24,7 +25,6 @@ from marivo.semantic._authoring_validation import (
 )
 from marivo.semantic._dsl_authoring import AdditiveAllV1, AdditiveOverV1
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
-from marivo.semantic.expressions import Dimension, Field, TimeField
 from marivo.semantic.ir import (
     AiContextIR,
     DatetimeParse,
@@ -41,7 +41,7 @@ from marivo.semantic.typing import AiContextValue
 
 
 def additive(
-    *, over: tuple[Dimension | TimeField | Ref[DimensionKind | TimeDimensionKind], ...]
+    *, over: tuple[Deferred | Ref[DimensionKind | TimeDimensionKind], ...]
 ) -> AdditiveOverV1:
     """Declare the existing field coordinates on which a Measure may be summed.
 
@@ -56,7 +56,7 @@ def additive(
 
 
 def additive_all(
-    *, except_: tuple[Dimension | TimeField | Ref[DimensionKind | TimeDimensionKind], ...] = ()
+    *, except_: tuple[Deferred | Ref[DimensionKind | TimeDimensionKind], ...] = ()
 ) -> AdditiveAllV1:
     """Grant summing across native coordinates except explicitly fixed axes.
 
@@ -70,7 +70,7 @@ def additive_all(
     return build(except_=except_)
 
 
-def bind(field: Field | Ref[FieldKind], entity_alias: ibis_ir.Table) -> ibis_ir.Value:
+def bind(field: Deferred | Ref[FieldKind], entity_alias: ibis_ir.Table) -> ibis_ir.Value:
     """Apply a physical semantic field in a restricted Ibis field body.
 
     Args:
@@ -173,7 +173,7 @@ def _build_ai_context(ai_context: AiContextValue | None) -> AiContextIR:
 
 def snapshot(
     *,
-    partition_field: Dimension | TimeField | Ref[DimensionKind | TimeDimensionKind],
+    partition_field: Deferred | Ref[DimensionKind | TimeDimensionKind],
     grain: Literal["day"],
     timezone: str | None = None,
     format: str | None = None,
@@ -220,8 +220,8 @@ def snapshot(
 
 def validity(
     *,
-    valid_from: Dimension | TimeField | Ref[DimensionKind | TimeDimensionKind],
-    valid_to: Dimension | TimeField | Ref[DimensionKind | TimeDimensionKind],
+    valid_from: Deferred | Ref[DimensionKind | TimeDimensionKind],
+    valid_to: Deferred | Ref[DimensionKind | TimeDimensionKind],
     interval: Literal["closed_open", "closed_closed"],
     open_end: tuple[str | None, ...],
     timezone: str | None = None,
@@ -300,8 +300,8 @@ def validity(
 
 
 def join_on(
-    from_key: Dimension | TimeField | Ref[DimensionKind | TimeDimensionKind],
-    to_key: Dimension | TimeField | Ref[DimensionKind | TimeDimensionKind],
+    from_key: Deferred | Ref[DimensionKind | TimeDimensionKind],
+    to_key: Deferred | Ref[DimensionKind | TimeDimensionKind],
     /,
 ) -> JoinKey:
     """Build one relationship key pair for ``ms.relationship(keys=[...])``.
@@ -474,7 +474,7 @@ def strptime(
 
 
 def hour_prefix(
-    prefix: TimeField | Ref[TimeDimensionKind],
+    prefix: Deferred | Ref[TimeDimensionKind],
     /,
     *,
     sample_interval: tuple[int, Literal["minute", "hour"]] | None = None,

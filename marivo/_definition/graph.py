@@ -13,7 +13,7 @@ import json
 import math
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, fields, is_dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from enum import Enum
 from typing import Literal, TypeAlias, TypeGuard, get_args
@@ -27,35 +27,35 @@ from marivo._definition.expressions import (
     FieldPredicate,
     MeasureAssertion,
     MemberCount,
-    MetricAdd,
-    MetricConstant,
-    MetricDivide,
-    MetricMultiply,
-    MetricNegate,
+    MetricExpression,
     MetricNode,
-    MetricSubtract,
+    MetricWindow,
     PerReduce,
     PerWeightedMean,
-    PredAnd,
-    PredNot,
-    PredOr,
-    RowAdd,
-    RowCompare,
-    RowConstant,
-    RowDivide,
+    RowExpression,
     RowField,
-    RowMultiply,
-    RowNegate,
     RowNode,
-    RowSubtract,
     SourceAggregate,
     SourceWeightedMean,
 )
 from marivo._definition.relations import (
+    CalendarKeys,
     LiteralPopulation,
     ObserveQuery,
+    PopulationAnd,
+    PopulationClassify,
+    PopulationCondition,
+    PopulationContains,
+    PopulationFilter,
+    PopulationImage,
     PopulationNode,
+    PopulationNot,
+    PopulationOr,
+    PopulationPreimage,
+    PopulationProduct,
     PopulationProgram,
+    PopulationProject,
+    PopulationSet,
     QueryKeys,
     QueryNode,
     SourceIdentities,
@@ -71,7 +71,13 @@ from marivo._temporal import Grain as TemporalGrain
 from marivo.refs import Ref
 
 DefinitionNode: TypeAlias = (
-    RowNode | MetricNode | LiteralPopulation | PopulationProgram | PopulationNode | QueryNode
+    RowNode
+    | MetricNode
+    | LiteralPopulation
+    | PopulationProgram
+    | PopulationNode
+    | PopulationCondition
+    | QueryNode
 )
 
 EdgeRole: TypeAlias = Literal[
@@ -166,42 +172,28 @@ def _population_inputs(
 
 def _predicate_inputs(predicate: object) -> tuple[tuple[EdgeRole, DefinitionNode], ...]:
     """Row expressions compared inside a field predicate, in predicate order."""
-    match predicate:
-        case RowCompare():
-            return (("predicate", predicate.operand),)
-        case PredAnd() | PredOr():
-            return tuple(
-                item for operand in predicate.operands for item in _predicate_inputs(operand)
-            )
-        case PredNot():
-            return _predicate_inputs(predicate.operand)
-        case _:
-            return _population_inputs("predicate", predicate)
+    if isinstance(predicate, RowExpression):
+        return (("predicate", predicate),)
+    if isinstance(predicate, (PopulationContains, PopulationAnd, PopulationOr, PopulationNot)):
+        return (("predicate", predicate),)
+    return _population_inputs("predicate", predicate)
 
 
 def children(node: DefinitionNode) -> tuple[Edge, ...]:
     """Return the ordered role edges of ``node``; declared refs expand only during ``walk``."""
     match node:
+        case RowExpression():
+            return _edges(*(("operand", item) for item in node.inputs))
+        case MetricExpression():
+            return _edges(*(("operand", item) for item in node.operands))
         case (
-            RowField()
-            | RowConstant()
-            | MetricConstant()
-            | EntityCount()
-            | DeclaredMetricRef()
-            | LiteralPopulation()
-            | SourceIdentities()
+            RowField() | EntityCount() | DeclaredMetricRef() | LiteralPopulation() | CalendarKeys()
         ):
             return ()
-        case RowNegate() | MetricNegate() | MeasureAssertion() | SourceAggregate():
+        case SourceIdentities():
+            return _edges(*_predicate_inputs(node.predicate))
+        case MeasureAssertion() | SourceAggregate() | MetricWindow():
             return _edges(("operand", node.operand))
-        case RowAdd() | RowSubtract() | RowMultiply():
-            return _edges(("left", node.left), ("right", node.right))
-        case MetricAdd() | MetricSubtract() | MetricMultiply():
-            return _edges(("left", node.left), ("right", node.right))
-        case RowDivide():
-            return _edges(("numerator", node.numerator), ("denominator", node.denominator))
-        case MetricDivide():
-            return _edges(("numerator", node.numerator), ("denominator", node.denominator))
         case SourceWeightedMean():
             return _edges(("value", node.value), ("weight", node.weight))
         case ContributionFilter():
@@ -220,9 +212,34 @@ def children(node: DefinitionNode) -> tuple[Edge, ...]:
             return _edges(("population", node.root))
         case QueryKeys():
             return _edges(("query", node.query))
+        case PopulationClassify() | PopulationProject():
+            return _edges(("population", node.operand))
+        case PopulationProduct():
+            return _edges(*(("population", factor) for factor in node.factors))
+        case PopulationSet():
+            return _edges(("left", node.left), ("right", node.right))
+        case PopulationContains():
+            return _edges(("population", node.population))
+        case PopulationAnd() | PopulationOr():
+            return _edges(("left", node.left), ("right", node.right))
+        case PopulationNot():
+            return _edges(("predicate", node.operand))
+        case PopulationFilter():
+            return _edges(("population", node.operand), *_predicate_inputs(node.predicate))
+        case PopulationImage():
+            return _edges(("population", node.operand))
+        case PopulationPreimage():
+            return _edges(("population", node.operand), ("members", node.targets))
         case ObserveQuery():
-            return tuple(
-                Edge("metric", index, metric) for index, (_, metric) in enumerate(node.metrics)
+            return (
+                *tuple(
+                    Edge("metric", index, metric) for index, (_, metric) in enumerate(node.metrics)
+                ),
+                *(
+                    (Edge("population", len(node.metrics), node.population),)
+                    if node.population is not None
+                    else ()
+                ),
             )
         case _:
             assert_never(node)
@@ -243,6 +260,10 @@ def _encode(value: object, memo: dict[int, str]) -> object:
         return _fingerprint_node(value, memo)
     if isinstance(value, Ref):
         return ["ref", value.key]
+    if isinstance(value, timedelta):
+        return ["timedelta", value.days, value.seconds, value.microseconds]
+    if isinstance(value, TemporalGrain):
+        return canonical_value(value)
     if value is None or isinstance(value, (str, int, float, Decimal, date)):
         return list(literal_token(value))
     if isinstance(value, tuple):
@@ -264,6 +285,17 @@ def _fingerprint_node(node: DefinitionNode, memo: dict[int, str]) -> str:
 
 
 def _encode_fields(node: DefinitionNode, memo: dict[int, str]) -> dict[str, object]:
+    if isinstance(node, (RowExpression, MetricExpression)):
+        from marivo._definition.deferred import canonical_recipe
+
+        inputs = node.inputs if isinstance(node, RowExpression) else node.operands
+        return {
+            "node": type(node).__name__,
+            "recipe": canonical_recipe(
+                node.recipe, slots=tuple(f"slot_{index}" for index in range(len(inputs)))
+            ),
+            "inputs": [_encode(item, memo) for item in inputs],
+        }
     return {
         "node": type(node).__name__,
         **{field.name: _encode(getattr(node, field.name), memo) for field in fields(node)},
@@ -354,25 +386,34 @@ def walk(
     edges: list[tuple[DefinitionNode, Edge]] = []
     refs: set[ExactRef] = set()
     owners: dict[Owner, tuple[str, ...]] = {}
-    done: set[int] = set()
-    active: set[int] = set()
-    active_refs: set[ExactRef] = set()
-    resolved_refs: dict[ExactRef, MetricNode] = {}
+    done: set[tuple[int, int]] = set()
+    active: set[tuple[int, int]] = set()
+    active_refs: set[tuple[ExactRef, int]] = set()
+    resolved_refs: dict[tuple[ExactRef, int], MetricNode] = {}
 
-    def visit(node: DefinitionNode, path: tuple[str, ...]) -> None:
-        if id(node) in done:
+    def visit(
+        node: DefinitionNode,
+        path: tuple[str, ...],
+        captured: dict[ExactRef, MetricNode] | None = None,
+        scope_id: int = 0,
+    ) -> None:
+        if isinstance(node, QueryKeys):
+            captured = dict(node.declared)
+            scope_id = id(node)
+        node_key = (id(node), scope_id)
+        if node_key in done:
             return
         declared = node.ref if isinstance(node, DeclaredMetricRef) else None
-        if id(node) in active or (declared is not None and declared in active_refs):
+        if node_key in active or (declared is not None and (declared, scope_id) in active_refs):
             invalid(
                 "definition dependency cycle detected; break the cycle by removing one "
                 "of the dependencies along the path",
                 kind="cycle",
                 path=path,
             )
-        active.add(id(node))
+        active.add(node_key)
         if declared is not None:
-            active_refs.add(declared)
+            active_refs.add((declared, scope_id))
         rule_version = getattr(node, "rule_version", None)
         if rule_version is not None and rule_version not in SUPPORTED_RULE_VERSIONS:
             invalid(
@@ -397,9 +438,12 @@ def walk(
         _consumed_refs(node, refs)
         node_edges = children(node)
         if declared is not None:
-            resolved = resolved_refs.get(declared)
+            resolution_key = (declared, scope_id)
+            resolved = resolved_refs.get(resolution_key)
             if resolved is None:
-                resolved = resolve(declared)
+                resolved = captured.get(declared) if captured is not None else None
+                if resolved is None:
+                    resolved = resolve(declared)
                 if resolved is None:
                     invalid(
                         f"declared metric {declared.ref.key}@{declared.version} could not be "
@@ -407,15 +451,20 @@ def walk(
                         kind="unresolved",
                         path=path,
                     )
-                resolved_refs[declared] = resolved
+                resolved_refs[resolution_key] = resolved
             node_edges = (Edge("metric", 0, resolved),)
         for edge in node_edges:
             edges.append((node, edge))
-            visit(edge.child, (*path, f"{type(node).__name__}.{edge.role}[{edge.index}]"))
-        active.discard(id(node))
+            visit(
+                edge.child,
+                (*path, f"{type(node).__name__}.{edge.role}[{edge.index}]"),
+                captured,
+                scope_id,
+            )
+        active.discard(node_key)
         if declared is not None:
-            active_refs.discard(declared)
-        done.add(id(node))
+            active_refs.discard((declared, scope_id))
+        done.add(node_key)
         order.append(node)
 
     for root in roots:

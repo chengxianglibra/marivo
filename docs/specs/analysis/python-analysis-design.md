@@ -78,6 +78,15 @@ defaulting to the saved report timezone. `scope.by(mv.grain("day"))` creates a
 complete CalendarAxis with nominal and clipped actual buckets; catalog calendar
 grains capture their current certified snapshot. Naive Python datetimes and
 ambiguous/nonexistent wall clocks reject. Offset inputs keep their instant.
+`mv.product(population, calendar_axis)` captures the complete field/identity and
+calendar domain in argument order. It can supply `by=` or internal `per(...)`
+samples. Source contributions group by the captured calendar's actual half-open
+buckets; no-activity buckets retain the child Metric's empty policy. A captured
+calendar supplies its finite source period when `during` is omitted. Calendar
+metadata follows its position in the output axes. Internal calendar samples do
+not establish window endpoints; window output still binds through an explicit
+`during=CalendarAxis`.
+
 Legacy civil scopes bind once when consumed by the new observe path; their
 existing constructors/consumers remain until the R8 cutover.
 

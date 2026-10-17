@@ -503,6 +503,8 @@ class SourceSchema:
     fields: tuple[SourceField, ...]
     occurrence: tuple[int, ...] | None = None
     preparation_checks: tuple[tuple[str, str, str], ...] = ()
+    key_groups: tuple[tuple[str, ...], ...] = ()
+    presence: str | None = None
 
     def field(self, path: str) -> SourceField:
         for item in self.fields:
@@ -521,7 +523,7 @@ class PeriodFilter:
     """Half-open instant filter on one native timezone-aware time column."""
 
     column: str
-    start: datetime
+    start: datetime | None
     end: datetime
     timezone: str = "UTC"
 
@@ -541,6 +543,7 @@ class SourceRead:
     period: PeriodFilter | None
     reduction: ReductionInput | None = None
     preparation_checks: tuple[tuple[str, str, str], ...] = ()
+    presence: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -625,7 +628,7 @@ def _plan_source_reads(
             target="Query.execute",
         )
     by_source = {schema.source_id: schema for schema in schemas}
-    from marivo._definition.types import FieldRead, field_read_key
+    from marivo._definition.types import FieldRead, coordinate_read_keys, field_read_key
 
     reads: list[SourceRead] = []
     for contribution in contributions:
@@ -650,7 +653,11 @@ def _plan_source_reads(
             dict.fromkeys(
                 (
                     *(field_read_key(read) for read in contribution.reads),
-                    *(field_read_key(read) for read in contribution.coordinates),
+                    *(
+                        key
+                        for read in contribution.coordinates
+                        for key in coordinate_read_keys(read)
+                    ),
                 )
             )
         )
@@ -765,10 +772,13 @@ def plan_query(
         EntityCount,
         SourceAggregate,
     )
-    from marivo._definition.types import CalendarCoordinate
+    from marivo._definition.graph import computation_fingerprint, walk
+    from marivo._definition.relations import LiteralPopulation, PopulationProgram
+    from marivo._definition.types import CalendarCoordinate, coordinate_read_keys
     from marivo.analysis.compiler.observation import (
         FormulaInput,
         FormulaProgram,
+        PopulationInput,
         data_type,
         duration_type,
         formula_columns,
@@ -794,6 +804,7 @@ def plan_query(
         if calendar is not None
         else ()
     )
+    calendar_key = "key.0"
     source_stages = tuple(stage for stage in base.stages if isinstance(stage, SourceRead))
     for stage, contribution in zip(source_stages, contributions, strict=True):
         reduction = reduction_input(contribution, f"{stage.stage_id}/value", calendar)
@@ -810,14 +821,17 @@ def plan_query(
             ),
         )
         table = ibis.table({item.column: ibis_type(item.dtype) for item in schema.fields})
-        expression, _ = lower_observation(
+        expression, numeric_checks = lower_observation(
             reduction, table, dict(stage.field_columns), stage.predicates
         )
+        calendar_slots = dict(reduction.calendars)
+        if calendar is not None:
+            calendar_key = next(slot for slot, axis in reduction.calendars if axis == calendar)
         stage_keys = tuple(
             DataColumn(
                 slot,
-                f"calendar:{calendar.grain}"
-                if slot == "key.0" and calendar is not None
+                f"calendar:{calendar_slots[slot].grain}"
+                if slot in calendar_slots
                 else next(path for key, path in reduction.axes if key == slot),
                 next(
                     (
@@ -834,13 +848,18 @@ def plan_query(
             for slot in expression.columns
             if slot.startswith("key.")
         )
-        if reads and tuple(c.dtype for c in keys) != tuple(c.dtype for c in stage_keys):
+        output_width = int(calendar is not None) + sum(
+            len(coordinate_read_keys(read))
+            for read in contribution.coordinates[: contribution.output_axis_count]
+        )
+        output_keys = stage_keys[:output_width]
+        if reads and tuple(c.dtype for c in keys) != tuple(c.dtype for c in output_keys):
             _refuse(
                 "identical physical coordinate types across contributions",
                 repr(stage_keys),
                 "Choose fields with a common lossless coordinate type.",
             )
-        keys = stage_keys
+        keys = output_keys
         column = DataColumn(
             reduction.value_slot,
             reduction.value_slot,
@@ -850,26 +869,147 @@ def plan_query(
         reads.append(
             replace(
                 stage,
-                columns=(*keys, column),
-                keys=tuple(c.slot_id for c in keys),
+                columns=(
+                    *stage_keys,
+                    column,
+                    *(
+                        DataColumn(name, name, ScalarDataType("boolean"), False)
+                        for name, _ in numeric_checks
+                    ),
+                    *(
+                        (
+                            DataColumn(
+                                "__numeric_present",
+                                "__numeric_present",
+                                ScalarDataType("boolean"),
+                                False,
+                            ),
+                        )
+                        if "__numeric_present" in expression.columns
+                        else ()
+                    ),
+                    *(
+                        (
+                            DataColumn(
+                                "__sample_present",
+                                "__sample_present",
+                                ScalarDataType("boolean"),
+                                False,
+                            ),
+                        )
+                        if "__sample_present" in expression.columns
+                        else ()
+                    ),
+                ),
+                keys=tuple(c.slot_id for c in stage_keys),
                 reduction=reduction,
             )
         )
         node = contribution.definition
+        widths_list: list[int] = []
+        physical_index = 0
+        coordinate_iterator = iter(contribution.coordinates)
+        for _ in range(len(contribution.coordinates) + len(reduction.calendars)):
+            width = (
+                1
+                if f"key.{physical_index}" in calendar_slots
+                else len(coordinate_read_keys(next(coordinate_iterator)))
+            )
+            widths_list.append(width)
+            physical_index += width
+        widths = tuple(widths_list)
+        key_groups: list[tuple[str, ...]] = []
+        key_offset = 0
+        for width in widths:
+            key_groups.append(tuple(f"key.{i}" for i in range(key_offset, key_offset + width)))
+            key_offset += width
         values.append(
             FormulaInput(
-                contribution.occurrence,
+                contribution.logical_occurrence or contribution.occurrence,
                 stage.stage_id,
                 column,
                 isinstance(node, EntityCount)
                 or (
                     isinstance(node, SourceAggregate)
-                    and node.reducer in ("sum", "count", "count_distinct")
+                    and (
+                        node.reducer in ("count", "count_distinct", "approx_nunique")
+                        or (node.reducer == "sum" and node.empty == "zero")
+                    )
+                ),
+                tuple((name, check.expected, check.received) for name, check in numeric_checks),
+                keys=tuple(c.slot_id for c in stage_keys),
+                coverage=contribution.coverage,
+                key_groups=tuple(key_groups),
+            )
+        )
+    population_inputs: list[PopulationInput] = []
+    population_reads: list[SourceRead] = []
+    output_population = observation.coordinates.population if observation is not None else None
+    closure = walk(
+        (graph.root,) if output_population is None else (graph.root, output_population),
+        resolve=dict(graph.signature.declared_metrics).get,
+    )
+    for population in closure.order:
+        if not isinstance(population, (PopulationProgram, LiteralPopulation)):
+            continue
+        identifier = "population:" + computation_fingerprint(population)
+        population_schema = next((item for item in schemas if item.source_id == identifier), None)
+        if population_schema is None:
+            continue  # Entirely literal domain programs are evaluated without source reads.
+        domain_columns = tuple(
+            DataColumn(f"population.{i}", item.field, item.dtype, item.nullable)
+            for i, item in enumerate(population_schema.keys)
+        )
+        if not graph.root.metrics and population == output_population:
+            keys = tuple(
+                replace(column, slot_id=f"key.{i}") for i, column in enumerate(domain_columns)
+            )
+        from marivo._definition.relations import population_keys
+
+        if population_keys(population) is not None:
+            continue  # Keep schema-bound key types, execute finite keys locally.
+        slots = tuple(column.slot_id for column in domain_columns)
+        population_reads.append(
+            SourceRead(
+                identifier,
+                identifier,
+                (),
+                domain_columns,
+                slots,
+                tuple(
+                    (column.slot_id, key.column)
+                    for column, key in zip(domain_columns, population_schema.keys, strict=True)
+                ),
+                (),
+                (),
+                None,
+                preparation_checks=population_schema.preparation_checks,
+                presence=population_schema.presence,
+            )
+        )
+        column_slots = {
+            key.column: column.slot_id
+            for key, column in zip(population_schema.keys, domain_columns, strict=True)
+        }
+        population_inputs.append(
+            PopulationInput(
+                population,
+                identifier,
+                slots,
+                key_groups=tuple(
+                    tuple(column_slots[column] for column in group)
+                    for group in population_schema.key_groups
                 ),
             )
         )
     program = FormulaProgram(
-        graph.root.metrics, graph.signature.declared_metrics, tuple(values), calendar
+        graph.root.metrics,
+        graph.signature.declared_metrics,
+        tuple(values),
+        calendar,
+        tuple(population_inputs),
+        output_population=observation.coordinates.population if observation is not None else None,
+        calendar_key=calendar_key,
     )
     columns = tuple(
         replace(column, unit=quantity.unit)
@@ -885,7 +1025,13 @@ def plan_query(
         direct = (
             declarations[direct.ref] if isinstance(direct, DeclaredMetricRef) else direct.operand
         )
-    if len(reads) == 1 and direct == contributions[0].definition and calendar is None:
+    if (
+        len(reads) == 1
+        and not population_reads
+        and program.output_population is None
+        and direct == contributions[0].definition
+        and calendar is None
+    ):
         stage = reads[0]
         assert stage.reduction is not None
         stage = replace(
@@ -896,15 +1042,15 @@ def plan_query(
         return replace(base, stages=(stage,), consumers=(), publish=stage.stage_id)
     combine = LocalCompute(
         "local:combine",
-        tuple(stage.stage_id for stage in reads),
+        tuple(stage.stage_id for stage in (*reads, *population_reads)),
         QUERY_COMBINE_KERNEL,
         (*keys, *columns),
         tuple(c.slot_id for c in keys),
         program,
     )
     return QueryPlan(
-        (*reads, combine),
+        (*reads, *population_reads, combine),
         base.checks,
-        tuple((stage.stage_id, (combine.stage_id,)) for stage in reads),
+        tuple((stage.stage_id, (combine.stage_id,)) for stage in (*reads, *population_reads)),
         combine.stage_id,
     )

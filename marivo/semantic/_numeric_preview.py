@@ -8,35 +8,27 @@ from typing import TYPE_CHECKING
 import ibis
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
+from ibis.common.deferred import Deferred
 
 from marivo._definition.expressions import (
     ContributionFilter,
     DeclaredMetricRef,
     EntityCount,
-    FieldCompare,
-    FieldIn,
-    FieldIsNull,
     FieldPredicate,
     MemberCount,
-    MetricAdd,
-    MetricConstant,
-    MetricDivide,
-    MetricMultiply,
-    MetricNegate,
+    MetricExpression,
     MetricNode,
-    MetricSubtract,
+    MetricWindow,
     PerReduce,
     PerWeightedMean,
-    PredAnd,
-    PredNot,
-    PredOr,
-    RowCompare,
+    RowExpression,
+    RowField,
     SourceAggregate,
     SourceWeightedMean,
 )
 from marivo._definition.graph import children, direct_refs, walk
 from marivo.refs import SemanticKind, ref
-from marivo.semantic.expressions import Metric
+from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.metric_graph_lowering import (
     NumericCheck,
     NumericValue,
@@ -50,32 +42,29 @@ if TYPE_CHECKING:
     from marivo.semantic.resolver import SemanticResolver
 
 
-def validate_preview_metric(metric: Metric) -> None:
+def validate_preview_metric(value: Deferred) -> None:
     """Reject sample/Population routes before opening a datasource."""
+    metric = consume_metric(value)
     closure = walk((metric.node,), resolve=dict(metric._declared).get)
-    if any(isinstance(node, (PerReduce, PerWeightedMean, MemberCount)) for node in closure.order):
+    if any(
+        isinstance(node, (PerReduce, PerWeightedMean, MemberCount, MetricWindow))
+        for node in closure.order
+    ):
         numeric_failure(
             "an ordinary source Metric preview",
-            "Population/sample preview preparation is unavailable; use physical field previews",
+            "Population/sample/window preview preparation is unavailable; use physical field previews",
         )
 
-    def validate_predicate(predicate: FieldPredicate) -> None:
-        if isinstance(predicate, (PredAnd, PredOr)):
-            for child in predicate.operands:
-                validate_predicate(child)
-        elif isinstance(predicate, PredNot):
-            validate_predicate(predicate.operand)
-        elif (
-            isinstance(predicate, (FieldCompare, FieldIn, FieldIsNull))
-            and predicate.read is not None
-            and (predicate.read.path or predicate.read.at is not None)
+    for node in closure.order:
+        if (
+            isinstance(node, RowField)
+            and node.read is not None
+            and (node.read.path or node.read.at is not None)
         ):
             numeric_failure(
                 "native fields in an ordinary Metric preview",
                 "path/attribute anchor preview preparation is unavailable",
             )
-
-    for node in closure.order:
         if (
             isinstance(node, (SourceAggregate, SourceWeightedMean, EntityCount))
             and node.time is not None
@@ -85,22 +74,18 @@ def validate_preview_metric(metric: Metric) -> None:
                 "native time in an ordinary Metric preview",
                 "path/attribute anchor preview preparation is unavailable",
             )
-        if isinstance(node, ContributionFilter):
-            if not isinstance(
-                node.predicate,
-                (FieldCompare, FieldIn, FieldIsNull, RowCompare, PredAnd, PredOr, PredNot),
-            ):
-                numeric_failure(
-                    "ordinary Field predicates in a Metric preview",
-                    "Population preview preparation is unavailable",
-                )
-            validate_predicate(node.predicate)
+        if isinstance(node, ContributionFilter) and not isinstance(node.predicate, RowExpression):
+            numeric_failure(
+                "native row predicates in a Metric preview",
+                "Population preview preparation is unavailable",
+            )
 
 
 def lower_preview_metric(
-    metric: Metric, resolver: SemanticResolver
+    value: Deferred, resolver: SemanticResolver
 ) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...]]:
     """Prepare bounded physical fields, then call the same Row/Metric kernel."""
+    metric = consume_metric(value)
     declared = dict(metric._declared)
     closure = walk((metric.node,), resolve=declared.get)
     refs = {exact.ref for node in closure.order for exact in direct_refs(node)}
@@ -138,10 +123,7 @@ def lower_preview_metric(
             visit(declared[node.ref], (*occurrence, 0), predicates)
             return
         if isinstance(node, ContributionFilter):
-            assert isinstance(
-                node.predicate,
-                (FieldCompare, FieldIn, FieldIsNull, RowCompare, PredAnd, PredOr, PredNot),
-            )
+            assert isinstance(node.predicate, RowExpression)
             visit(node.operand, (*occurrence, 0), (*predicates, node.predicate))
             return
         if isinstance(node, (SourceAggregate, SourceWeightedMean, EntityCount)):
@@ -181,15 +163,21 @@ def lower_preview_metric(
                     },
                 }
             )
-            checks.extend(zip(names, item.checks, strict=True))
+            slot_checks = list(zip(names, item.checks, strict=True))
             if predicate_summary is not None:
                 result = result.cross_join(predicate_summary)
-                checks.extend(
+                slot_checks.extend(
                     (f"preview_predicate.{len(reductions)}.{i}", check)
                     for i, check in enumerate(predicate_checks)
                 )
             reductions.append(result)
-            values[occurrence] = NumericValue(result[slot])
+            values[occurrence] = NumericValue(
+                result[slot],
+                tuple(
+                    NumericCheck(result[name], check.expected, check.received)
+                    for name, check in slot_checks
+                ),
+            )
             return
         for edge in children(node):
             child = edge.child
@@ -202,12 +190,7 @@ def lower_preview_metric(
                     EntityCount,
                     SourceAggregate,
                     SourceWeightedMean,
-                    MetricAdd,
-                    MetricSubtract,
-                    MetricMultiply,
-                    MetricDivide,
-                    MetricNegate,
-                    MetricConstant,
+                    MetricExpression,
                 ),
             ):
                 visit(child, (*occurrence, edge.index), predicates)
@@ -219,7 +202,13 @@ def lower_preview_metric(
     for reduction in reductions[1:]:
         result = result.cross_join(reduction)
     values = {
-        occurrence: NumericValue(result[item.value.get_name()])
+        occurrence: NumericValue(
+            result[item.value.get_name()],
+            tuple(
+                NumericCheck(result[check.violation.get_name()], check.expected, check.received)
+                for check in item.checks
+            ),
+        )
         for occurrence, item in values.items()
     }
     final = lower_metric_formula(metric.node, (0,), values, declared)

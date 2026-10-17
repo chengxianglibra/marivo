@@ -22,9 +22,9 @@ def provider() -> DisclosureProvider:
             "Query",
             Query,
             summary="Immutable named Metric definition; only Query owns computation.",
-            acquisition="Call session.observe(metrics); no direct constructor.",
-            producers=("session.observe",),
-            consumers=("Query.contract", "Query.execute"),
+            acquisition="Call session.observe(metrics) or session.query(population); no direct constructor.",
+            producers=("session.observe", "session.query"),
+            consumers=("Query.contract", "Query.execute", "Query.population"),
             constraints=(
                 "Ordinary context binds without reads; execute evaluates numeric stages and atomically publishes Store 10 terminal output. Committed output is opened and read without restoring computation.",
             ),
@@ -80,6 +80,16 @@ def provider() -> DisclosureProvider:
             "result = axis.show()",
             ("axis",),
             "inputs.time",
+        ),
+        (
+            Query,
+            "population",
+            (),
+            "Population",
+            "Capture the Query's output coordinate image, preserving its own period, conditions, declarations and Session owner.",
+            "result = query.population()",
+            ("query",),
+            "population",
         ),
         (
             Query,
@@ -186,13 +196,17 @@ def provider() -> DisclosureProvider:
                 discovery_group=group,
             )
         )
+    from marivo.analysis.dsl._population_disclosure import provider as population_provider
+
+    populations = population_provider()
     return DisclosureProvider(
         "analysis.dsl",
-        tuple(descriptors),
+        (*descriptors, *populations.descriptors),
         (
             ExportInput("Query", Query, "Query"),
             ExportInput("Artifact", Artifact, "Artifact"),
             ExportInput("InstantAnchor", InstantAnchor, "InstantAnchor"),
             ExportInput("CalendarAxis", CalendarAxis, "CalendarAxis"),
+            *populations.exports,
         ),
     )

@@ -19,7 +19,17 @@ _GROUPS = (
         "artifacts",
         "Read verified result rows, Evidence and the complete frozen Finding collection.",
     ),
-    ("inputs.population", "inputs", "Select or sample exact Entity membership."),
+    (
+        "inputs.population",
+        "inputs",
+        "Construct complete coordinate domains and explicit membership allocation.",
+    ),
+    (
+        "population",
+        "inputs.population",
+        "Project, combine, filter and map captured coordinate domains.",
+    ),
+    ("windows", "inputs.time", "Attach an explicit endpoint window rule to a Metric."),
     ("inputs.time", "inputs", "Choose observation windows, grains and comparison alignment."),
     ("inputs.forecast", "inputs", "Choose forecast horizon and model assumptions."),
     ("filters", "inputs", "Construct typed predicates over governed inputs or owned fields."),
@@ -62,7 +72,7 @@ _HUBS = (
         "decision_hub",
         guidance=(
             "Metric-first Query: session.observe(named_metrics).execute() atomically publishes Store 10 output; Artifact opens metadata, previews bounded rows, exports complete pandas output and reads saved facts.",
-            "Entity-member construction: session.members(Entity Ref); execution awaits the R3 replacement in Store 10.",
+            "Finite domains: session.members(Entity Ref), coordinates or identities; session.query(population).execute() publishes complete keys.",
             "Known inputs: reuse exact refs and scope. Existing object: contract().show() -> its exact Help target.",
             "Existing work: resume the Session; recovery does not replay sources.",
         ),

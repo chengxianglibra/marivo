@@ -3,12 +3,14 @@
 from dataclasses import replace
 
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.semantic as ms
 from marivo._definition.expressions import SourceAggregate
 from marivo._definition.graph import computation_fingerprint
+from marivo.semantic._deferred_semantics import consume_field, consume_metric
 from marivo.semantic.errors import SemanticExpressionError
-from marivo.semantic.expressions import Measure, TimeField, resolve
+from marivo.semantic.expressions import resolve
 from marivo.semantic.validator import assembly_validate
 from tests.shared_fixtures import DslCaseFactory
 
@@ -17,7 +19,7 @@ def test_policy_value_changes_metric_computation_identity(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    metric = case.catalog._state.registry.declared_metrics["sales.revenue"]
+    metric = consume_metric(case.catalog._state.registry.declared_metrics["sales.revenue"])
     assert isinstance(metric.node, SourceAggregate)
     assert metric.node.nulls == "ignore"
     assert metric.node.time is not None
@@ -31,12 +33,15 @@ def test_time_kind_and_additivity_coordinates_are_checked_in_their_owner(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     amount = resolve(case.catalog, ms.ref.measure("sales.order.amount"))
-    assert isinstance(amount, Measure)
+    assert isinstance(amount, Deferred)
+    assert consume_field(amount).reference.ref.kind == "measure"
     lines = resolve(case.catalog, ms.ref.measure("sales.order_line.line_amount"))
     time = resolve(case.catalog, ms.ref.time_dimension("sales.order.ordered_at"))
-    assert isinstance(lines, Measure) and isinstance(time, TimeField)
+    assert isinstance(lines, Deferred) and isinstance(time, Deferred)
+    assert consume_field(lines).reference.ref.kind == "measure"
+    assert consume_field(time).reference.ref.kind == "time_dimension"
     with pytest.raises(SemanticExpressionError) as caught:
-        lines.sum(time=time)
+        consume_metric(lines.sum(time=time))
     assert caught.value.expected and caught.value.received and caught.value.repair
 
     context = case.catalog._state

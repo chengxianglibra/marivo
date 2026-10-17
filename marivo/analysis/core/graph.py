@@ -59,6 +59,8 @@ class BoundGraph:
         ):
             _fail("matching Query outputs, axes and Session ownership", "inconsistent binding")
         definitions = dict(self.signature.declared_metrics)
+        if not self.root.metrics and self.root.population is None:
+            _fail("Metric outputs or a keys-only Population", "an empty Query")
         try:
             walk((self.root,), resolve=definitions.get)
         except DefinitionGraphError as error:

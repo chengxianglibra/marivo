@@ -815,7 +815,7 @@ _RELATION_PRODUCERS: dict[str, tuple[str, ...]] = {
     "empty_opportunity": ("empty_opportunity",),
     "OuterAlignment": ("outer",),
     "ExactAlignment": ("exact",),
-    "LogicalAnalysisDomain": ("session.members", "dsl.LogicalSelectedNumericRelation.members"),
+    "LogicalAnalysisDomain": ("dsl.LogicalSelectedNumericRelation.members",),
     "LogicalNumericRelation": (
         "dsl.LogicalAnalysisDomain.read",
         "dsl.LogicalAnalysisDomain.observe",

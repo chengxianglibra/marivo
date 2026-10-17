@@ -7,6 +7,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo._definition.expressions import DeclaredMetricRef
+from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.catalog import SemanticCatalog
 
 
@@ -85,7 +86,7 @@ def test_session_catalog_loads_external_semantic_layer(tmp_path, monkeypatch):
 
     session = mv.session.get_or_create(name="external_layer_session")
 
-    refunds = session.catalog.metrics.get("finance.refunds_total")
+    refunds = consume_metric(session.catalog.metrics.get("finance.refunds_total"))
     assert isinstance(refunds.node, DeclaredMetricRef)
     assert refunds.node.ref.ref.path == "finance.refunds_total"
 

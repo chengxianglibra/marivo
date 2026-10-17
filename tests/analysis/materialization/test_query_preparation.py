@@ -4,6 +4,7 @@ from pathlib import Path
 
 import duckdb
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 import marivo.datasource as md
@@ -16,7 +17,6 @@ from marivo.analysis.materialization.graph_source_execution import (
 )
 from marivo.analysis.session.core import Session
 from marivo.semantic.errors import SemanticExpressionError
-from marivo.semantic.expressions import Dimension, Measure, Metric, TimeField
 
 MODEL = """import marivo.datasource as md
 import marivo.semantic as ms
@@ -133,7 +133,7 @@ def prepared_session(
     return mv.session.get_or_create("preparation", report_timezone="Asia/Shanghai")
 
 
-def compute(session: Session, metrics: dict[str, Metric], **context: object):
+def compute(session: Session, metrics: dict[str, Deferred], **context: object):
     graph = session.observe(metrics, **context)._graph
     with open_query_sources(
         session._runtime.connection_service(), graph, session.catalog._state
@@ -150,9 +150,9 @@ def test_paths_anchors_and_computed_fields(prepared_session: Session) -> None:
     region = fields.get("sales.customers.region")
     doubled = fields.get("sales.orders.doubled")
     assert (
-        isinstance(amount, Measure)
-        and isinstance(region, Dimension)
-        and isinstance(doubled, Dimension)
+        isinstance(amount, Deferred)
+        and isinstance(region, Deferred)
+        and isinstance(doubled, Deferred)
     )
     buyer = session.catalog.relationships.get("sales.buyer")
     seller = session.catalog.relationships.get("sales.seller")
@@ -173,7 +173,7 @@ def test_parsed_and_civil_time_periods(prepared_session: Session, field: str) ->
     session = prepared_session
     amount = session.catalog.fields.get("sales.orders.amount")
     time = session.catalog.fields.get(f"sales.orders.{field}")
-    assert isinstance(amount, Measure) and isinstance(time, TimeField)
+    assert isinstance(amount, Deferred) and isinstance(time, Deferred)
     calendar = session.time_scope(start="2026-01-01", end="2026-01-03").by(mv.grain("day"))
     output = compute(session, {"sum": amount.sum(time=time)}, during=calendar)
     assert output.table["key.0"].tolist() == [0, 1]
@@ -190,7 +190,7 @@ def test_preview_rejects_anchor_before_opening(
 
     monkeypatch.setattr(backends, "_build_backend_from_effective", forbidden)
     metric = prepared_session.catalog.metrics.get("sales.anchored")
-    assert isinstance(metric, Metric)
+    assert isinstance(metric, Deferred)
     with pytest.raises(SemanticExpressionError, match="path/attribute anchor"):
         prepared_session.catalog.preview(
             metric, scope=md.unpruned(max_rows=100, timeout_seconds=10)
@@ -208,7 +208,7 @@ def test_native_and_anchored_occurrences_are_distinct(prepared_session: Session)
     session = prepared_session
     region = session.catalog.fields.get("sales.customers.region")
     customers = session.catalog.entities.get("sales.customers")
-    assert isinstance(region, Dimension) and isinstance(customers, Entity)
+    assert isinstance(region, Deferred) and isinstance(customers, Entity)
     predicate = (region == "new") & (region.at(session.instant("2026-01-15")) == "old")
     result = compute(session, {"count": customers.count()}, where=predicate)
     assert result.table["value.0"].tolist() == [1]
@@ -223,7 +223,7 @@ def test_window_excludes_unrelated_bad_mapping(prepared_session: Session) -> Non
         connection.close()
     amount = session.catalog.fields.get("sales.orders.amount")
     region = session.catalog.fields.get("sales.customers.region")
-    assert isinstance(amount, Measure) and isinstance(region, Dimension)
+    assert isinstance(amount, Deferred) and isinstance(region, Deferred)
     buyer = session.catalog.relationships.get("sales.buyer")
     group = region.via((buyer,)).at(session.instant("2026-01-15"))
     result = compute(
@@ -265,7 +265,7 @@ elapsed=ms.measure_column(name="elapsed",entity=facts,column="elapsed",additivit
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("duration", report_timezone="UTC")
     elapsed = session.catalog.fields.get("sales.facts.elapsed")
-    assert isinstance(elapsed, Measure)
+    assert isinstance(elapsed, Deferred)
     metrics = {
         "sum": elapsed.sum(),
         "mean": elapsed.mean(),
@@ -311,7 +311,7 @@ def test_independent_roots_across_datasources(
     session = mv.session.get_or_create("cross-source", report_timezone="UTC")
     one = session.catalog.fields.get("sales.one.amount")
     two = session.catalog.fields.get("sales.two.amount")
-    assert isinstance(one, Measure) and isinstance(two, Measure)
+    assert isinstance(one, Deferred) and isinstance(two, Deferred)
     result = compute(session, {"net": one.sum() - two.sum()})
     assert result.table["value.0"].tolist() == [7]
 
@@ -320,7 +320,7 @@ def test_civil_date_uses_report_zone_at_partial_boundary(prepared_session: Sessi
     session = prepared_session
     amount = session.catalog.fields.get("sales.orders.amount")
     day = session.catalog.fields.get("sales.orders.day")
-    assert isinstance(amount, Measure) and isinstance(day, TimeField)
+    assert isinstance(amount, Deferred) and isinstance(day, Deferred)
     result = compute(
         session,
         {"sum": amount.sum(time=day)},
@@ -336,7 +336,7 @@ def test_snapshot_attribute_uses_exact_date(prepared_session: Session) -> None:
     session = prepared_session
     amount = session.catalog.fields.get("sales.orders.amount")
     region = session.catalog.fields.get("sales.customers.region")
-    assert isinstance(amount, Measure) and isinstance(region, Dimension)
+    assert isinstance(amount, Deferred) and isinstance(region, Deferred)
     buyer = session.catalog.relationships.get("sales.buyer")
     group = region.via((buyer,)).at(session.instant("2025-01-01T00:00:00+00:00"))
     result = compute(session, {"sum": amount.sum()}, by=(group,))
@@ -349,7 +349,7 @@ def test_snapshot_attribute_uses_exact_date(prepared_session: Session) -> None:
 @pytest.mark.parametrize("prepared_session", ["parsed_validity"], indirect=True)
 def test_parsed_version_boundaries(prepared_session: Session) -> None:
     metric = prepared_session.catalog.metrics.get("sales.anchored")
-    assert isinstance(metric, Metric)
+    assert isinstance(metric, Deferred)
     result = compute(prepared_session, {"sum": metric})
     assert result.table["value.0"].tolist() == [10]
 
@@ -365,6 +365,6 @@ def test_version_axis_precision_is_checked_before_read(
 
     monkeypatch.setattr(SourceSession, "execute", forbidden)
     metric = prepared_session.catalog.metrics.get("sales.anchored")
-    assert isinstance(metric, Metric)
+    assert isinstance(metric, Deferred)
     with pytest.raises(MaterializationError, match="loses source precision"):
         compute(prepared_session, {"sum": metric})

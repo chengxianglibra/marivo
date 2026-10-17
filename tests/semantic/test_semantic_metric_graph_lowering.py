@@ -11,6 +11,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._definition.expressions import DeclaredMetricRef, PerReduce, SourceAggregate
 from marivo._definition.graph import computation_fingerprint, walk
+from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic._definition_identity import scoped_definition_fingerprint
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticLoadError
@@ -64,8 +65,8 @@ def test_count_unit_survives_published_definition_resolution(
     semantic_project_factory: ProjectFactory, name: str
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    assert catalog.metrics.get(f"sales.{name}").unit == "1"
-    assert catalog._state.registry.declared_metrics[f"sales.{name}"].unit == "1"
+    assert consume_metric(catalog.metrics.get(f"sales.{name}")).unit == "1"
+    assert consume_metric(catalog._state.registry.declared_metrics[f"sales.{name}"]).unit == "1"
 
 
 def test_equivalent_named_metrics_share_computation_and_keep_distinct_authority(
@@ -73,13 +74,15 @@ def test_equivalent_named_metrics_share_computation_and_keep_distinct_authority(
 ) -> None:
     catalog = _catalog(semantic_project_factory)
     declarations = catalog._state.registry.declared_metrics
-    assert computation_fingerprint(declarations["sales.revenue"].node) == computation_fingerprint(
-        declarations["sales.revenue_alias"].node
-    )
+    assert computation_fingerprint(
+        consume_metric(declarations["sales.revenue"]).node
+    ) == computation_fingerprint(consume_metric(declarations["sales.revenue_alias"]).node)
     first = catalog.metrics.get("sales.revenue")
     second = catalog.metrics.get("sales.revenue_alias")
-    assert isinstance(first.node, DeclaredMetricRef) and isinstance(second.node, DeclaredMetricRef)
-    assert first.node.ref.ref != second.node.ref.ref
+    assert isinstance(consume_metric(first).node, DeclaredMetricRef) and isinstance(
+        consume_metric(second).node, DeclaredMetricRef
+    )
+    assert consume_metric(first).node.ref.ref != consume_metric(second).node.ref.ref
 
 
 def test_new_catalog_definitions_cannot_fall_back_to_retired_lowering(
@@ -120,11 +123,11 @@ def test_temporal_sample_fold_remains_explicit_in_definition_order(
 ) -> None:
     catalog = _catalog(semantic_project_factory)
     folded = catalog._state.registry.declared_metrics["sales.folded"]
-    assert isinstance(folded.node, PerReduce)
-    assert folded.node.reducer == "quantile"
-    assert folded.node.q == 0.95
-    assert isinstance(folded.node.operand, SourceAggregate)
-    assert folded.node.operand.reducer == "mean"
+    assert isinstance(consume_metric(folded).node, PerReduce)
+    assert consume_metric(folded).node.reducer == "quantile"
+    assert consume_metric(folded).node.q == 0.95
+    assert isinstance(consume_metric(folded).node.operand, SourceAggregate)
+    assert consume_metric(folded).node.operand.reducer == "mean"
 
 
 def test_projected_source_mapping_is_canonical_and_changes_consumed_identity(

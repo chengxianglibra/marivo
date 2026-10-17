@@ -1,16 +1,19 @@
 ---
 title: Analysis workflow
-description: Construct explicit analysis, execute it, and read its committed results.
+description: Compose semantic expressions, explicit coordinate domains and windows, then publish terminal results.
 ---
 
-## R2.2: bind an ordinary Metric-first Query
+## Compose a Metric-first Query
 
-With an authored sales model, resolve Metrics and fields directly:
+Resolve governed expressions from an authored model. Constructing a Query does
+not read schemas or business rows and does not create a Run.
 
 ```python
+import marivo
 import marivo.analysis as mv
+import marivo.semantic as ms
 
-session = mv.session.get_or_create("metric-review", report_timezone="Asia/Shanghai")
+session = mv.session.get_or_create("metric-review", report_timezone="UTC")
 revenue = session.catalog.metrics.get("sales.revenue")
 aov = session.catalog.metrics.get("sales.aov")
 region = session.catalog.fields.get("sales.customers.region")
@@ -22,278 +25,132 @@ query = session.observe(
     where=region == "APAC",
 )
 query.contract().show()
+result = query.execute()
+result.show(n=20)
 ```
 
-Each contribution root must have one declared single-valued path to `region`.
-Use `field.via((relationship,))` for an explicit scalar role; a versioned attribute
-also needs `field.at(session.instant(...))`. Both bindings remain immutable.
-Query construction and inspection read no business rows or schemas and create no
-Run. The scope freezes UTC anchor boundaries and its calendar timezone; naive
-Python datetimes and ambiguous/nonexistent clocks reject. Omitted `during` adds
-no time filter to ordinary reductions, while sampling dependencies still require
-an explicit period. Common conditions bind separately to every source occurrence.
+Each contribution root needs a valid scalar path to an ordinary grouping field.
+Use `field.via((relationship,))` to capture an explicit scalar role and
+`field.at(session.instant(...))` for a versioned attribute. Both bindings are
+immutable. Common conditions bind separately to each contribution occurrence.
+Omitting `during` adds no time filter to ordinary reductions; time sampling and
+window dependencies still require their explicit period or endpoint.
 
-`query.execute()` prepares source schemas and plans stages, then admits a Run,
-evaluates ordinary numeric source reductions and pandas formulas, and atomically
-publishes Store 10 output. Each invocation reevaluates its inputs. Preparation
-failures create no Run. Numeric execution supports
-including zero/NA policies and complete coordinate keys. Preparation supports
-single-valued paths, exact version anchors, computed physical fields, parsed and
-civil time, and encoded Duration units. Independent datasource roots reduce
-separately before combination; source-free calendars retain their buckets.
-Population and window inputs are delivered by their later stages. `Artifact`
-remains terminal, with `id`, `session_id`, `show(n=20)`, `to_pandas()`, `findings()`
-and `evidence_digest()`, and no DSL methods or `contract()`.
-`session.artifact(id)` accepts only an exact string ID and rejects old graph
-outputs unchanged. Opening and repr read only committed metadata. Preview decodes bounded rows;
-complete pandas export preserves exact types and data-only attrs. Findings are
-paged; evidence_digest() takes no arguments and returns all saved facts in .items.
-New and reopened outputs share these reads without current sources or Catalog.
-The writer saves complete keys, nullable values, explicit presence, necessary output
-attachments and actual read/check Evidence; ordinary observations have no Findings.
-No graph, semantic definitions, hidden components or continuation are saved.
-The examples below describe the retired execution surface awaiting replacement;
-its old graph publisher is unavailable in Store 10.
+## Choose observed or complete coordinates
 
-Start with an approved Metric, a member Entity and a question-scoped Session.
-Use [the Python tutorial](/docs/latest/guides/python-quick-start/) for a complete local project.
-The examples here instead assume a loaded sales model with customers, orders,
-revenue and the declared order-to-buyer relationship.
-
-## Construct, execute, inspect
-
-`members()` retains the Entity’s complete ordered primary key. Observation binds the governed Metric and an explicit window; comparison uses current minus baseline.
-
-{/* example: customer-period-change */}
+An ordinary `by=(region,)` groups observed coordinates. A Population specifies a
+complete finite output domain, including requested empty coordinates:
 
 ```python
-import marivo
-import marivo.analysis as mv
-import marivo.semantic as ms
+regions = mv.coordinates(by=(region,), keys=(("APAC",), ("EMEA",)))
+query = session.observe({"revenue": revenue}, during=scope, by=regions)
+keys_only = session.query(regions)
+keys_only.execute().show()
+```
 
-session = mv.session.get_or_create("revenue-review", report_timezone="UTC")
-customers = session.members(ms.ref.entity("sales.customer"))
-revenue = ms.ref.metric("sales.revenue")
-buyer = ms.ref.relationship("sales.order_buyer")
-current = customers.observe(
-    revenue,
-    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-    via=buyer,
-    by=(mv.member(),),
+A complete output domain must cover every observed contribution coordinate.
+An empty total follows the reducer's declared policy, such as zero for default
+sum. Source Null categories remain distinct from absent coordinates.
+
+`session.members(ms.ref.entity("sales.customers"))` selects existing complete
+Entity identities. `mv.identities(entity, keys=(("C1",),))` captures explicit
+identity references, which do not prove source presence. Composite primary keys
+remain one identity axis with all components in declared order.
+
+Populations support `project(by=...)`, `union`, `intersection`, `difference`, and
+`where(mv.in_population(other))`; predicates combine with `&`, `|`, and `~`.
+`classify(by=(field,))` explicitly reads an identity Entity's attributes.
+`image(via=(relationship,))` follows the declared direction to target identities;
+`preimage(targets, via=(relationship,))` retains only matching receiver identities.
+Required missing attribute or relationship mappings fail; complete foreign keys
+can retain target references even when target profiles are absent.
+
+`mv.product(regions, calendar)` forms a complete Cartesian coordinate domain in
+factor order. An observation using a calendar domain must also supply a
+compatible `during`; the domain does not infer the observation period.
+
+`query.population()` captures that Query's coordinate selection, period,
+conditions, declaration closure and Session. It remains lazy. Another observation
+cannot overwrite the captured selection context. Use `session.query(population)`
+to publish keys; Population has no `execute()` method.
+
+## Allocate overlapping memberships explicitly
+
+A membership descriptor binds the member bucket fields and the contribution
+allocation paths. Multiple fields in one descriptor are correlated:
+
+```python
+tag = session.catalog.fields.get("sales.tags.label")
+order_links = session.catalog.relationships.get("sales.order_links")
+link_tags = session.catalog.relationships.get("sales.link_tags")
+tags = mv.membership(
+    tag, via=((order_links, link_tags),), unmatched="exclude"
 )
-baseline = customers.observe(
-    revenue,
-    during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
-    via=buyer,
-    by=(mv.member(),),
+query = session.observe({"revenue": revenue}, during=scope, by=(tags,))
+```
+
+Repeated mappings of the same complete contribution identity to the same bucket
+count once. Distinct contributions with equal values remain distinct. Separate
+membership descriptors form independent allocation factors. Choose
+`unmatched="null"` to retain unassigned contributions in a Null bucket.
+Classifying a member identity domain with the same descriptor reads its member
+fields directly and preserves the allocation definition for later observation.
+
+## Reduce complete internal Metric samples
+
+`per` first evaluates the entire Metric formula at each sample coordinate, then
+reduces those values. This keeps a mean of per-customer ratios different from an
+overall ratio:
+
+```python
+customer = session.catalog.fields.get("sales.orders.customer")
+customers = mv.coordinates(by=(customer,), keys=((1,), (2,), (3,)))
+query = session.observe({"mean_customer_revenue": revenue.per(customers).mean()})
+```
+
+A field or membership descriptor uses observed samples. An explicit Population
+selects complete internal samples, including empty samples according to their
+reducers' policies. Internal samples may select a subset; external output domains
+must cover the observed output. Exact coordinate types and Session ownership are
+preserved throughout composition.
+
+## Attach endpoint windows to Metrics
+
+Window rules live on the Metric; the observation supplies endpoints:
+
+```python
+from datetime import timedelta
+
+rolling = revenue.window(mv.trailing_duration(duration=timedelta(days=7)))
+query = session.observe(
+    {"rolling_revenue": rolling},
+    during=scope.by(mv.grain("day")),
+    by=(region,),
 )
-change = current.compare(baseline).absolute.execute()
-change.show()
 ```
 
-Construction returns a Logical relation without reading business rows or allocating a Run.
-Schema-only preflight may connect to establish key/value types. `execute()` admits
-and executes the graph, then publishes its Materialized result. Materialized receivers provide output reads only. Compose all DSL operations
-on Logical definitions before execution, or export output with `to_pandas()`.
+`all_history()` has no lower bound, `trailing_duration` uses elapsed time,
+`trailing_periods(count=...)` requires calendar periods, `since(start=...)` keeps
+an exact fixed start, and `to_date(grain=...)` resets at a civil or semantic period
+boundary. All windows are half-open before each endpoint. Actual clipped output
+endpoints stay distinct from nominal calendar boundaries.
 
-Executing `session.members(entity).execute()` alone reads and saves the complete
-member key set. It may scan the entire Entity source, with no default row
-truncation. Primary-key uniqueness and an Entity without historical versions do
-not limit member count. The graph has no default execution deadline;
-`show(n=...)` limits display only.
+## Execute and read committed output
 
-Use `marivo.help("analysis.LogicalAnalysisDomain")` for the member type, or
-`marivo.help(customers.execute)` for an exact receiver method. Method names such
-as `group_by` need their receiver: `marivo.help(current.group_by)`.
+Execution prepares real source schemas and fixes the plan before admitting a
+Run. Each invocation evaluates its inputs and atomically publishes an Artifact.
+Pure finite key programs execute locally after their required type preparation;
+source-driven domains and Metrics use qualified datasource reads.
 
-If execution raises an analysis error, inspect its optional `run_ref` with
-`session.get_run(error.run_ref).show()` when present. Errors before Run admission
-have no new Run. Source execution after a failure creates a new Run;
-`session.runs(status="failed").show()` reads the retained failure history.
-`mv.session.abandon_run(session_id=session.id, run_id=run_id)` reconciles an
-incomplete or failed Run and its resources while preserving that history.
+Artifacts are terminal: use `show(n=20)`, `to_pandas()`, `findings()` and
+`evidence_digest()`. Complete pandas export is an isolated copy. Reopen an exact
+saved ID with `session.artifact(result.id)` without restoring computation or
+reading current sources. Artifacts cannot become semantic expression inputs.
 
-## Read rows and legal next steps
+Preparation failures create no Run. For failures after admission, inspect the
+reported `run_ref` with `session.get_run(run_ref).show()`. A retry is a new
+invocation. Preview limits do not truncate execution or complete exports.
 
-`show()` reads saved rows. `contract()` describes mechanically admitted actions without reading business rows; it does not choose the next useful business question.
-
-{/* example: bounded-result-display */}
-
-```python
-change.show(n=20)
-change.show(n=0)
-change.show(max_output_bytes=None)
-```
-
-The default output budget is 8 KiB, with no default row cap. Whole rows are
-omitted when they cannot fit; tags and reasons distinguish Defined, Null,
-Undefined and Unknown. `to_pandas()` returns a complete isolated copy and is a
-terminal presentation boundary. Display limits do not change execution limits.
-
-## Aggregate original meaning
-
-For this example, `session`, `mv` and `ms` are already bound as above. The sales model declares an additive revenue Metric and its buyer route.
-
-{/* example: customer-original-rollup */}
-
-```python
-customers = session.members(ms.ref.entity("sales.customer"))
-revenue = ms.ref.metric("sales.revenue")
-buyer = ms.ref.relationship("sales.order_buyer")
-august = mv.time_scope(start="2026-08-01", end="2026-09-01")
-august_revenue = customers.observe(
-    revenue, during=august, via=buyer, by=(mv.member(),)
-)
-total = customers.observe(revenue, during=august, via=buyer)
-total.execute().show()
-total.contract().show()
-for action in total.contract().actions:
-    print(action.call, action.help_target)
-saved_observation = august_revenue.execute()
-saved_observation.show()
-august_revenue.aggregate(method=mv.count()).execute().show()
-order_count = ms.ref.metric("sales.order_count")
-per_customer_count = customers.observe(
-    order_count, during=august, via=buyer, by=(mv.member(),)
-)
-total_count = customers.observe(order_count, during=august, via=buyer).execute()
-merged_count = per_customer_count.rollup().execute()
-merged_count.show()
-```
-
-`rollup()` merges sufficient original Metric components and finishes the governed
-equation. `aggregate()` creates a new statistic over current represented rows.
-A mean of displayed averages is not the original weighted mean. Grouped
-observation over the same Entity root needs no relationship solely for grouping.
-
-For Count, `rollup()` merges the original occurrence counts. `aggregate(mv.count())`
-counts represented result rows instead. Native-table Count rollup supports
-PostgreSQL, MySQL, Trino and ClickHouse on the registered UTC microsecond Ibis
-profile. Missing physical support reports the exact key and bounded registered
-alternatives; keep the source unchanged and report that key when none is suitable.
-Categorical Count retains flat coordinate state, including on PostgreSQL.
-Exact method, type, time and physical profile admission still applies.
-
-Ordinary `observe` directly computes the overall Metric. Member scope limits contributions; `by=(mv.member(),)` preserves each complete member identity, and `by=(dimension,)` computes grouped values directly. With `during=grid`, every time bucket stays while `by` selects spatial grain; endpoint reads and cumulative observations bind the grid through `at=grid.before_end/end`. Retain partitions before original rollup when attribution needs them. Numeric, ratio and statistic results retain `group_by`; member domains and Category, Boolean and Temporal results do not. Nonnumeric scalar results retain overall `aggregate(mv.count()/mv.count_defined())`. For prescribed report rows, complete an exported `to_pandas()` result externally; external results cannot re-enter typed analysis.
-
-Omitting `by` and passing `by=()` both compute the overall Metric.
-`by=(mv.member(), channel)` computes a value for each customer and channel,
-retaining the customer's full ordered primary key for subsequent `members()`.
-The marker takes no arguments and gets its identity from `customers`; Entity
-Refs are rejected in `observe.by`. Use the marker only in `observe.by`; result
-`group_by` keeps its existing axis selectors.
-
-Category `read` and chained `.where()` calls return `LogicalCategoryRelation`;
-legacy execution returns `MaterializedCategoryRelation`.
-Category filtering belongs to the Logical definition before execution.
-Filtering a category used in `by` must still cover all consumed keys; select
-its `.members()` before observation to restrict the member scope.
-
-## Group the same Entity
-
-This sales model uses `sales.order` and its declared categorical `channel` Dimension.
-
-{/* example: same-entity-grouping */}
-
-```python
-orders = session.members(ms.ref.entity("sales.order"))
-channel = ms.ref.dimension("sales.order.channel")
-channel_revenue = orders.observe(
-    ms.ref.metric("sales.revenue"),
-    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-    by=(channel,),
-).execute()
-channel_revenue.show()
-```
-
-`read` and ordinary member `observe` infer a unique directed keyed to-one path.
-Omitting `via` and passing `None` have the same meaning. If several relationship
-roles are legal, select a Relationship Ref or `mv.path(first, *rest)`.
-`via=(path_a, path_b)` binds roots by identity in any order; it can specify only roots
-that need disambiguation. A read accepts one member-to-owner route.
-`mv.path(a, b)` composes two hops; `via=(a, b)` selects two independent root paths.
-Required matching trusts the consuming contract. Unknown matching is retained
-as an unverified premise without a matching precheck.
-
-Contribution attribution and dimension lookup can use different paths. The model
-in this next example declares order lines, a line-to-order-to-buyer path, and a
-separate line-to-product path. Product categories attach to full line keys before
-revenue aggregation. Bare `by=(product_category,)` gives the same result when its
-binding is unique. Classifications must cover the complete consumed contribution keys. This is a
-trusted premise; violations are not promised automatic detection.
-Versioned fields require their own `read(..., at=...)`; an observation window
-does not choose an attribute version.
-
-{/* example: contribution-classification */}
-
-```python
-customers = session.members(ms.ref.entity("sales.customer"))
-lines = session.members(ms.ref.entity("sales.order_line"))
-category = lines.read(
-    ms.ref.dimension("sales.product.category"),
-    via=ms.ref.relationship("sales.line_product"),
-)
-category_revenue = customers.observe(
-    ms.ref.metric("sales.line_revenue"),
-    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-    by=(category,),
-).execute()
-category_revenue.show()
-```
-
-The same Dimension read through different explicit roles retains different
-coordinate bindings. Use the corresponding classification object for subsequent
-`group_by`, statistic rollup or retained-axis attribution when a bare Dimension Ref
-would be ambiguous. Attribution uses the complete ordered endpoint axes. Fixed continuations
-use saved bindings and complete keys without re-inferring paths.
-Contribution coordinates use flat state on all five backends, including MySQL and ClickHouse. Coordinates already in the result key reuse original
-components; other coordinates retain complete flat partitions. Real all-Null
-contributions remain distinct from empty targets. Automatic relationships preserve
-the exact backend admission boundary. Attribution is composed on Logical comparison endpoints before execution;
-old output formats require re-execution.
-Frozen definitions use shared contract tables so repeated facts and bindings do
-not expand at every graph node. This preserves original attribution scope and
-source graph composition within the existing definition budget. Graph snapshots
-from earlier formats require re-execution; existing history and files are preserved.
-
-## Keep computation and committed output separate
-
-Executing a live definition reads current sources. `session.artifact(id)` opens
-an exact current terminal result for preview, complete pandas export and saved
-facts. It rejects old graph output without changing files. Neither reopened
-Artifacts nor legacy in-memory Materialized results can enter DSL composition.
-
-Continue with [time and cohorts](/docs/latest/guides/time-and-cohorts/),
-[comparison and attribution](/docs/latest/guides/comparison-and-attribution/),
-[statistics](/docs/latest/guides/statistics/) or [evidence and recovery](/docs/latest/concepts/evidence/).
-For an unfamiliar capability, start at `marivo.help("analysis")`; with an object
-in hand, follow its contract and exact Help target. Structured errors own repair.
-
-## Session discovery
-
-Session discovery reads only the current Store generation. Before that Store is
-created, `mv.session.current()` returns `None` and `mv.session.recent()` returns
-an empty page. These reads create no Store state. Earlier generation directories
-can remain in the same project while you create new Sessions; their Sessions
-are not read or migrated. An invalid or unreadable current Store still raises a
-structured error.
-
-{/* example: session-discovery */}
-
-```python
-import marivo.analysis as mv
-
-current = mv.session.current()
-history = mv.session.recent(limit=5)
-session = mv.session.get_or_create("revenue-review", report_timezone="UTC")
-```
-
-## Saved semantic scope
-
-`mv.session.get_or_create("sales-review", domains="sales")` captures an exact
-semantic domain selection. A nonempty sequence is also accepted. Omission
-retains an existing scope; conflicting explicit selections fail. Read it through
-`session.domains`. Store 10 saves output independently of current models.
-Earlier Store generations remain untouched and cannot be resumed or migrated;
-choosing a different Session name cannot bypass this restriction. Use a fresh
-project for a new-format Store, then rerun the analysis script.
+Use `marivo.help("analysis.Population")`,
+`marivo.help("analysis.membership")`, `marivo.help("analysis.Query.population")`
+and `marivo.help("analysis.windows")` for focused current contracts.

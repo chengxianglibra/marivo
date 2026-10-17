@@ -7,21 +7,18 @@ import sys
 from decimal import Decimal, localcontext
 
 import pytest
+from ibis.common.deferred import const, var
 
+from marivo._definition.deferred import resolver_of
 from marivo._definition.expressions import (
     ContributionFilter,
     DeclaredMetricRef,
-    FieldIsNull,
     MeasureAssertion,
-    MetricAdd,
-    MetricConstant,
     MetricDeclaration,
-    MetricDivide,
+    MetricExpression,
     MetricNode,
-    PredAnd,
-    RowCompare,
+    RowExpression,
     RowField,
-    RowSubtract,
     SourceAggregate,
     TimeBinding,
 )
@@ -68,8 +65,31 @@ def _field(name: str, *, unit: str | None = "CNY") -> RowField:
     )
 
 
+def _combine(left: MetricNode, right: MetricNode) -> MetricExpression:
+    return MetricExpression(resolver_of(var("slot_0") + var("slot_1")), (left, right))
+
+
+def _constant(value: int | float | Decimal) -> MetricExpression:
+    return MetricExpression(resolver_of(const(value)), ())
+
+
+def _divide(
+    left: MetricNode, right: MetricNode, *, zero_denominator: str = "null"
+) -> MetricExpression:
+    return MetricExpression(
+        resolver_of(var("slot_0").divide(var("slot_1"), zero_denominator=zero_denominator)),
+        (left, right),
+    )
+
+
 def _margin() -> SourceAggregate:
-    return SourceAggregate(RowSubtract(_field("amount"), _field("cost")), "sum", time=PAID)
+    return SourceAggregate(
+        RowExpression(
+            resolver_of(var("slot_0") - var("slot_1")), (_field("amount"), _field("cost"))
+        ),
+        "sum",
+        time=PAID,
+    )
 
 
 def _no_declarations(_ref: ExactRef) -> MetricNode | None:
@@ -78,12 +98,12 @@ def _no_declarations(_ref: ExactRef) -> MetricNode | None:
 
 def test_repeated_use_keeps_two_ordered_edges() -> None:
     margin = _margin()
-    doubled = MetricAdd(margin, margin)
+    doubled = _combine(margin, margin)
 
     edges = children(doubled)
     closure = walk([doubled], resolve=_no_declarations)
 
-    assert [(edge.role, edge.index) for edge in edges] == [("left", 0), ("right", 1)]
+    assert [(edge.role, edge.index) for edge in edges] == [("operand", 0), ("operand", 1)]
     assert edges[0].child is edges[1].child
     assert [edge for parent, edge in closure.edges if parent is doubled] == list(edges)
     assert closure.order[-1] is doubled
@@ -101,7 +121,10 @@ def test_declaration_metadata_does_not_change_computation_fingerprint() -> None:
 
 
 def test_measure_assertion_enters_fingerprint() -> None:
-    product = RowSubtract(_field("amount", unit=None), _field("cost", unit=None))
+    product = RowExpression(
+        resolver_of(var("slot_0") - var("slot_1")),
+        (_field("amount", unit=None), _field("cost", unit=None)),
+    )
     asserted = MeasureAssertion(
         product,
         unit="CNY",
@@ -118,9 +141,9 @@ def test_zero_denominator_policy_is_part_of_the_computation() -> None:
     revenue = SourceAggregate(_field("amount"), "sum", time=PAID)
     cost = SourceAggregate(_field("cost"), "sum", time=PAID, nulls="error")
 
-    default = MetricDivide(cost, revenue)
-    explicit_null = MetricDivide(cost, revenue, zero_denominator="null")
-    strict = MetricDivide(cost, revenue, zero_denominator="error")
+    default = _divide(cost, revenue)
+    explicit_null = _divide(cost, revenue, zero_denominator="null")
+    strict = _divide(cost, revenue, zero_denominator="error")
 
     assert computation_fingerprint(default) == computation_fingerprint(explicit_null)
     assert computation_fingerprint(default) != computation_fingerprint(strict)
@@ -147,6 +170,10 @@ def test_metric_population_query_cycle_is_located() -> None:
         "PopulationProgram.population[0]",
         "QueryKeys.query[0]",
         "ObserveQuery.metric[0]",
+        # QueryKeys enters its captured declaration scope before revisiting itself.
+        "DeclaredMetricRef.metric[0]",
+        "ContributionFilter.predicate[1]",
+        "PopulationProgram.population[0]",
     )
 
     def resolve_fresh(target: ExactRef) -> MetricNode | None:
@@ -165,9 +192,9 @@ def test_metric_population_query_cycle_is_located() -> None:
 
 
 def test_walk_keeps_equal_but_distinct_typed_nodes() -> None:
-    integer = MetricConstant(1)
-    real = MetricConstant(1.0)
-    mixed = MetricAdd(integer, real)
+    integer = _constant(1)
+    real = _constant(1.0)
+    mixed = _combine(integer, real)
 
     closure = walk([mixed], resolve=_no_declarations)
 
@@ -178,9 +205,9 @@ def test_walk_keeps_equal_but_distinct_typed_nodes() -> None:
 
 
 def test_walk_visits_each_shared_dag_node_once() -> None:
-    shared: MetricNode = MetricConstant(1)
+    shared: MetricNode = _constant(1)
     for _ in range(64):
-        shared = MetricAdd(shared, shared)
+        shared = _combine(shared, shared)
 
     closure = walk([shared], resolve=_no_declarations)
 
@@ -192,18 +219,18 @@ def test_ownership_conflict_and_unknown_rule_version_fail() -> None:
     revenue = SourceAggregate(_field("amount"), "sum", time=PAID)
     first = PopulationProgram(SourceIdentities(CUSTOMER.entity), Owner("session-a", "owner-a"))
     second = PopulationProgram(SourceIdentities(CUSTOMER.entity), Owner("session-b", "owner-b"))
-    combined = MetricAdd(ContributionFilter(revenue, first), ContributionFilter(revenue, second))
+    combined = _combine(ContributionFilter(revenue, first), ContributionFilter(revenue, second))
 
     with pytest.raises(DefinitionGraphError) as conflict:
         walk([combined], resolve=_no_declarations)
     assert conflict.value.kind == "ownership_conflict"
-    assert conflict.value.path == ("MetricAdd.right[1]", "ContributionFilter.predicate[1]")
+    assert conflict.value.path == ("MetricExpression.operand[1]", "ContributionFilter.predicate[1]")
 
     stale = SourceAggregate(_field("amount"), "sum", time=PAID, rule_version=99)
     with pytest.raises(DefinitionGraphError) as version:
-        walk([MetricDivide(revenue, stale)], resolve=_no_declarations)
+        walk([_divide(revenue, stale)], resolve=_no_declarations)
     assert version.value.kind == "unknown_rule_version"
-    assert version.value.path == ("MetricDivide.denominator[1]",)
+    assert version.value.path == ("MetricExpression.operand[1]",)
 
 
 def test_literal_population_keys_match_axes_and_distinguish_empty_shapes() -> None:
@@ -245,19 +272,17 @@ def test_decimal_tokens_are_exact_and_independent_of_context() -> None:
     first = Decimal("123456789012345678901234567891")
     second = Decimal("123456789012345678901234567892")
 
-    assert computation_fingerprint(MetricConstant(first)) != computation_fingerprint(
-        MetricConstant(second)
-    )
+    assert computation_fingerprint(_constant(first)) != computation_fingerprint(_constant(second))
     population = LiteralPopulation(axes=(TIER,), keys=((first,), (second,)), version="v1")
     assert population.keys == ((first,), (second,))
 
-    precise = MetricConstant(Decimal("1.2345"))
+    precise = _constant(Decimal("1.2345"))
     expected = computation_fingerprint(precise)
     with localcontext() as context:
         context.prec = 3
         assert computation_fingerprint(precise) == expected
-    assert computation_fingerprint(MetricConstant(Decimal("1.50"))) == computation_fingerprint(
-        MetricConstant(Decimal("1.5"))
+    assert computation_fingerprint(_constant(Decimal("1.50"))) == computation_fingerprint(
+        _constant(Decimal("1.5"))
     )
 
 
@@ -284,21 +309,18 @@ def test_time_binding_path_is_part_of_the_computation() -> None:
 
 
 def test_row_comparisons_are_predicate_edges_and_sum_except_needs_an_axis() -> None:
-    margin = RowSubtract(_field("amount"), _field("cost"))
-    status = ExactRef(ref.dimension("sales.orders.status"), "v1")
-    positive = RowCompare(margin, "gt", 0)
-    predicate = PredAnd((FieldIsNull(status), positive))
-    filtered = ContributionFilter(SourceAggregate(_field("amount"), "sum", time=PAID), predicate)
-
+    amount, cost = _field("amount"), _field("cost")
+    predicate = RowExpression(resolver_of((var("slot_0") - var("slot_1")) > 0), (amount, cost))
+    revenue = SourceAggregate(amount, "sum", time=PAID)
+    filtered = ContributionFilter(revenue, predicate)
     edges = children(filtered)
     assert [(edge.role, edge.index) for edge in edges] == [("operand", 0), ("predicate", 1)]
-    assert edges[1].child is margin
-    revenue = SourceAggregate(_field("amount"), "sum", time=PAID)
-    assert computation_fingerprint(
-        ContributionFilter(revenue, RowCompare(margin, "gt", 0))
-    ) != computation_fingerprint(ContributionFilter(revenue, RowCompare(margin, "ge", 0)))
-    with pytest.raises(DefinitionGraphError, match="finite"):
-        RowCompare(margin, "gt", float("inf"))
+    assert edges[1].child is predicate
+    assert children(predicate)[0].child is amount
+    inclusive = RowExpression(resolver_of((var("slot_0") - var("slot_1")) >= 0), (amount, cost))
+    assert computation_fingerprint(filtered) != computation_fingerprint(
+        ContributionFilter(revenue, inclusive)
+    )
     with pytest.raises(DefinitionGraphError, match="at least one fixed axis"):
         SumAllExcept(())
 
@@ -307,7 +329,7 @@ def test_definition_layer_imports_no_semantic_analysis_or_engine_modules() -> No
     probe = (
         "import sys\n"
         "import marivo._definition.graph\n"
-        "forbidden = ('marivo.semantic', 'marivo.analysis', 'marivo.datasource', 'ibis')\n"
+        "forbidden = ('marivo.semantic', 'marivo.analysis', 'marivo.datasource')\n"
         "print(sorted(name for name in sys.modules"
         " if any(name == root or name.startswith(root + '.') for root in forbidden)))\n"
     )

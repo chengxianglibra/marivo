@@ -13,6 +13,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._definition.types import SumAllExcept, SumAxes
 from marivo.refs import DimensionKind, EntityKind, Ref, SemanticKindTag, TimeDimensionKind
+from marivo.semantic._deferred_semantics import consume_field, consume_row
 from marivo.semantic._definition_identity import scoped_definition_fingerprint
 from marivo.semantic.expressions import Dimension, Entity, FinalizedDeclarations, Measure, TimeField
 from marivo.semantic.loader import LoaderContext, loader_context
@@ -350,10 +351,15 @@ def test_pure_measure_additivity_uses_its_frozen_row_scope(
     def granted() -> Measure:
         return amount
 
-    assert isinstance(granted.permission, SumAxes if policy_kind == "over" else SumAllExcept)
-    assert granted.permission.axes == (region.ref,)
-    assert (region.ref == old.ref) is (mode == "same")
-    assert granted.root == amount.root and granted.default_time == amount.default_time
+    assert isinstance(
+        consume_row(granted).permission, SumAxes if policy_kind == "over" else SumAllExcept
+    )
+    assert consume_row(granted).permission.axes == (consume_field(region).reference,)
+    assert (consume_field(region).reference == consume_field(old).reference) is (mode == "same")
+    assert (
+        consume_row(granted).root == consume_row(amount).root
+        and consume_row(granted).default_time == consume_row(amount).default_time
+    )
 
 
 @pytest.mark.parametrize(

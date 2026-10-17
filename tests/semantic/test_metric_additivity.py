@@ -6,6 +6,7 @@ import pytest
 
 from marivo.refs import ref as ref_factory
 from marivo.semantic import authoring, ir
+from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError
 from tests.shared_fixtures import load_inline_semantic
 
@@ -104,7 +105,7 @@ def test_published_metrics_carry_units_from_their_computation() -> None:
     with load_inline_semantic(_PUBLISHED) as result:
         assert result.registry is not None, result.errors
         declared = result.registry.declared_metrics
-        assert {path: metric.unit for path, metric in declared.items()} == {
+        assert {path: consume_metric(metric).unit for path, metric in declared.items()} == {
             "test.revenue": "CNY",
             "test.avg_price": "CNY",
             "test.order_count": "1",

@@ -198,9 +198,16 @@ def provider() -> DisclosureProvider:
         (
             Session,
             "members",
-            "LogicalAnalysisDomain",
+            "Population",
             "result = session.members(entity_ref)",
-            "Schema-only member construction; no business rows or Run. Legacy execution is unavailable in Store 10; the replacement arrives in R3.",
+            "Capture source Entity identities with their own exact anchor and condition; no schema, business rows or Run. Execute keys with session.query(population).",
+        ),
+        (
+            Session,
+            "query",
+            "Query",
+            "result = session.query(population)",
+            "Capture a keys-only Query over a complete Population; execute publishes typed keys and preserves the domain selection program.",
         ),
         (
             Session,
@@ -276,7 +283,8 @@ def provider() -> DisclosureProvider:
         "end": "Choose the exclusive exact boundary, strictly after start.",
         "where": "Pass a resolved Field predicate applied separately to every contribution occurrence.",
         "during": "Select starts with a finite half-open TimeScope.",
-        "at": "Versioned: datetime or TimeScope.before_end; else omit.",
+        "at": "Pass an exact InstantAnchor from session.instant(...) for versioned identity selection.",
+        "population": "Pass a complete Population with no owner or the same Session owner.",
         "max_output_bytes": "Use the default byte budget or explicitly request a tighter output bound.",
         "name": "Choose a project-local Session name from recent() or a new name for get_or_create().",
         "report_timezone": "Choose an IANA or explicit UTC-offset report timezone on first creation; existing Sessions retain their timezone.",
@@ -308,7 +316,7 @@ def provider() -> DisclosureProvider:
                 bindings=(bind(value, receiver if isinstance(receiver, type) else None),),
                 summary=effect,
                 discovery_group="entry"
-                if name in ("members", "observe")
+                if name in ("members", "observe", "query")
                 else "inputs.time"
                 if name in ("instant", "time_scope")
                 else "methods.events"
@@ -330,7 +338,7 @@ def provider() -> DisclosureProvider:
                         n,
                         "Use an exact incomplete or failed Run id; committed success cannot be abandoned."
                         if n == "run_id" and name == "abandon_run"
-                        else "Pass an ordered tuple of resolved scalar fields, e.g. by=(region,)."
+                        else "Pass ordered fields or membership descriptors, e.g. by=(region,), or a complete Population covering every observed output coordinate."
                         if name == "observe" and n == "by"
                         else "Pass a TimeScope or CalendarAxis; None adds no time filter."
                         if name == "observe" and n == "during"
@@ -341,7 +349,7 @@ def provider() -> DisclosureProvider:
                 ),
                 output=output,
                 constraints=(_doc_section(value, "Constraints"),)
-                if name in ("members", "observe", "artifact")
+                if name in ("members", "observe", "query", "artifact")
                 else (effect,),
                 effects=effect,
                 telemetry=name in ("get_or_create", "resume", "abandon_run"),
@@ -366,6 +374,8 @@ def provider() -> DisclosureProvider:
                     if name == "graph"
                     else ("session", "metrics")
                     if name == "observe"
+                    else ("session", "population")
+                    if name == "query"
                     else ("session", "run_id")
                     if name == "get_run"
                     else ("session", "entity_ref")
@@ -375,7 +385,7 @@ def provider() -> DisclosureProvider:
                     else ("session",),
                     "result",
                     output,
-                    name not in ("observe", "artifact"),
+                    name not in ("members", "observe", "query", "artifact"),
                 ),
             )
         )

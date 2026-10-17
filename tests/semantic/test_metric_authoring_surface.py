@@ -7,21 +7,16 @@ from typing import TypeAlias
 
 import ibis
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._definition.expressions import DeclaredMetricRef
 from marivo._definition.types import SumAll
+from marivo.semantic._deferred_semantics import consume_field, consume_metric
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
-from marivo.semantic.expressions import (
-    DeclaredMeasure,
-    Dimension,
-    Measure,
-    Metric,
-    TimeField,
-    resolve,
-)
+from marivo.semantic.expressions import resolve
 from marivo.semantic.reader import SemanticProject
 
 ProjectFactory: TypeAlias = Callable[..., SemanticProject]
@@ -103,14 +98,14 @@ def test_catalog_get_measure_returns_the_resolved_measure_value(
     amount = catalog.fields.get("measure:sales.orders.amount")
     orders = resolve(catalog, ms.ref.entity("sales.orders"))
 
-    assert type(amount) is Measure
-    assert amount.ref.ref == ms.ref.measure("sales.orders.amount")
-    assert amount.ref.version.startswith("sha256:")
+    assert type(amount) is Deferred
+    amount = consume_field(amount)
+    assert amount.reference.ref == ms.ref.measure("sales.orders.amount")
+    assert amount.reference.version.startswith("sha256:")
     assert amount.root == orders.ref
     assert amount.unit == "USD"
     assert amount.permission == SumAll()
-    assert repr(amount).startswith("Measure sales.orders.amount@sha256:")
-    assert "\n" not in repr(amount)
+    assert "\n" not in repr(catalog.describe(ms.ref.measure("sales.orders.amount")))
 
 
 def test_catalog_fields_collection_holds_dimension_measure_and_time_field(
@@ -124,10 +119,10 @@ def test_catalog_fields_collection_holds_dimension_measure_and_time_field(
         "measure:sales.orders.margin",
         "time_dimension:sales.orders.order_date",
     ]
-    assert type(catalog.fields.get("sales.orders.region")) is Dimension
-    assert type(catalog.fields.get("sales.orders.amount")) is Measure
-    assert type(catalog.fields.get("sales.orders.order_date")) is TimeField
-    assert type(catalog.fields.get("sales.orders.margin")) is DeclaredMeasure
+    assert type(catalog.fields.get("sales.orders.region")) is Deferred
+    assert type(catalog.fields.get("sales.orders.amount")) is Deferred
+    assert type(catalog.fields.get("sales.orders.order_date")) is Deferred
+    assert type(catalog.fields.get("sales.orders.margin")) is Deferred
 
     with pytest.raises(SemanticRuntimeError) as exc_info:
         catalog.fields.get(ms.ref.metric("sales.revenue"))
@@ -145,12 +140,8 @@ def test_domain_and_catalog_collections_agree_on_metric_membership(
     assert [ref.key for ref in domain.metrics.refs] == ["metric:sales.revenue"]
     scoped = domain.fields.get("sales.orders.amount")
     global_amount = catalog.fields.get("sales.orders.amount")
-    assert type(scoped) is Measure and type(global_amount) is Measure
-    assert (scoped.ref, scoped.root, scoped.unit) == (
-        global_amount.ref,
-        global_amount.root,
-        global_amount.unit,
-    )
+    assert type(scoped) is Deferred and type(global_amount) is Deferred
+    assert consume_field(scoped) == consume_field(global_amount)
     assert catalog.metrics.get("revenue") is catalog.metrics.get(ms.ref.metric("sales.revenue"))
 
 
@@ -160,9 +151,10 @@ def test_metric_value_carries_roots_unit_and_business_context(
     catalog = _catalog(semantic_project_factory)
     orders = resolve(catalog, ms.ref.entity("sales.orders"))
     revenue = catalog.metrics.get("sales.revenue")
-    contract = revenue.contract()
+    contract = catalog.describe(ms.ref.metric("sales.revenue"))
 
-    assert type(revenue) is Metric
+    assert type(revenue) is Deferred
+    revenue = consume_metric(revenue)
     assert isinstance(revenue.node, DeclaredMetricRef)
     assert revenue.roots == (orders.ref,)
     assert revenue.unit == "USD"

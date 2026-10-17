@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from ibis.common.deferred import Deferred
+
 import marivo.semantic as ms
 from marivo._definition.expressions import DeclaredMetricRef
+from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.catalog import SemanticCatalog
-from marivo.semantic.expressions import Metric, resolve
+from marivo.semantic.expressions import resolve
 
 _DOMAIN_PY = """\
 import marivo.semantic as ms
@@ -122,13 +125,15 @@ def test_single_entity_metric_roots_follow_its_source_reductions(
     order_count = resolve(catalog, ms.ref.metric("sales.order_count"))
     orders = resolve(catalog, ms.ref.entity("sales.orders"))
 
-    assert type(revenue) is Metric
+    assert type(revenue) is Deferred
+    revenue = consume_metric(revenue)
+    order_count = consume_metric(order_count)
     assert isinstance(revenue.node, DeclaredMetricRef)
     assert revenue.node.ref.ref == ms.ref.metric("sales.revenue")
     assert revenue.node.ref.version.startswith("sha256:")
     assert revenue.roots == (orders.ref,)
     assert revenue.unit == "CNY"
-    assert resolve(catalog, ms.ref.metric("sales.revenue")) == revenue
+    assert consume_metric(resolve(catalog, ms.ref.metric("sales.revenue"))) == revenue
     assert order_count.roots == (orders.ref,)
     assert order_count.unit == "1"
 
@@ -140,8 +145,8 @@ def test_multi_root_metric_covers_each_contribution_root_in_expression_order(
     orders = resolve(catalog, ms.ref.entity("sales.orders"))
     users = resolve(catalog, ms.ref.entity("sales.users"))
 
-    per_user = catalog.metrics.get("sales.revenue_per_user")
-    share = catalog.metrics.get("sales.user_revenue_share")
+    per_user = consume_metric(catalog.metrics.get("sales.revenue_per_user"))
+    share = consume_metric(catalog.metrics.get("sales.user_revenue_share"))
 
     assert per_user.roots == (orders.ref, users.ref)
     assert share.roots == (users.ref, orders.ref)
@@ -154,14 +159,15 @@ def test_metric_reads_are_silent_with_bounded_repr_and_show_prints_contract(
 ) -> None:
     catalog = _catalog(semantic_project_factory)
     revenue = catalog.metrics.get("sales.revenue")
-    rendered = repr(revenue)
+    contract = catalog.describe(ms.ref.metric("sales.revenue"))
+    rendered = repr(contract)
 
-    assert rendered.startswith("Metric DeclaredMetricRef on sales.orders ")
-    assert "use .show()" in rendered
+    assert rendered.startswith("<ExpressionContract ")
+    assert "call .show()" in rendered
     assert "\n" not in rendered and len(rendered) < 120
     assert capsys.readouterr().out == ""
 
-    revenue.show()
+    contract.show()
 
     shown = capsys.readouterr().out
     assert "stage: published_metric" in shown

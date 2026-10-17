@@ -3,16 +3,18 @@
 from pathlib import Path
 
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.datasource.authoring import DuckDBSpec
+from marivo.semantic._deferred_semantics import consume_field
 from marivo.semantic.errors import (
     SemanticDecoratorError,
     SemanticLoadFailed,
     SemanticRuntimeError,
 )
-from marivo.semantic.expressions import Entity, Measure
+from marivo.semantic.expressions import Entity
 
 
 def _duckdb_project_with_entity(tmp_path: Path, semantic_project_factory):
@@ -228,8 +230,8 @@ def test_require_measure_returns_current_entry(semantic_project_factory) -> None
 
     result = ms.SemanticCatalog(project).require(ms.ref.measure("sales.orders.amount"))
 
-    assert isinstance(result, Measure)
-    assert result.ref.ref == ms.ref.measure("sales.orders.amount")
+    assert isinstance(result, Deferred)
+    assert consume_field(result).reference.ref == ms.ref.measure("sales.orders.amount")
 
 
 def test_require_unknown_ref_is_not_found_when_loaded(

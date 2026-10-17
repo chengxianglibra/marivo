@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Literal, cast
 
+from marivo._definition.deferred import root_declaration
 from marivo._definition.expressions import MetricNode, RowNode
 from marivo._definition.graph import computation_fingerprint, direct_refs
 from marivo.refs import Ref, SemanticKindTag
@@ -78,11 +79,13 @@ class PublishedDeclaration:
 
 
 def _published_nodes(registry: Registry) -> dict[Ref[SemanticKindTag], MetricNode | RowNode]:
+    from marivo.semantic._deferred_semantics import consume_metric, consume_row
+
     nodes: dict[Ref[SemanticKindTag], MetricNode | RowNode] = {}
     for key, measure in registry.declared_measures.items():
-        nodes[cast("Ref[SemanticKindTag]", ref_factory.measure(key))] = measure.node
+        nodes[cast("Ref[SemanticKindTag]", ref_factory.measure(key))] = consume_row(measure).node
     for key, metric in registry.declared_metrics.items():
-        nodes[cast("Ref[SemanticKindTag]", ref_factory.metric(key))] = metric.node
+        nodes[cast("Ref[SemanticKindTag]", ref_factory.metric(key))] = consume_metric(metric).node
     return nodes
 
 
@@ -133,13 +136,24 @@ def _definition_rows(registry: Registry) -> dict[Ref[SemanticKindTag], object]:
             for key, value in registry.work_schedules.items()
         }
     )
+    from marivo.semantic._deferred_semantics import consume_metric, consume_row
+
     for key, measure in registry.declared_measures.items():
+        declaration = root_declaration(measure)
+        assert declaration is not None
+        facts = consume_row(measure)
         rows[cast("Ref[SemanticKindTag]", ref_factory.measure(key))] = PublishedDeclaration(
-            "measure", measure.declaration.name, computation_fingerprint(measure.node), measure.unit
+            "measure", declaration.name, computation_fingerprint(facts.node), facts.unit
         )
     for key, metric in registry.declared_metrics.items():
+        declaration = root_declaration(metric)
+        assert declaration is not None
+        metric_facts = consume_metric(metric)
         rows[cast("Ref[SemanticKindTag]", ref_factory.metric(key))] = PublishedDeclaration(
-            "metric", metric.declaration.name, computation_fingerprint(metric.node), metric.unit
+            "metric",
+            declaration.name,
+            computation_fingerprint(metric_facts.node),
+            metric_facts.unit,
         )
     return rows
 

@@ -19,6 +19,7 @@ import textwrap
 import pytest
 
 import marivo.semantic as ms
+from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.catalog import SemanticCatalog, SemanticKind
 from marivo.semantic.errors import ErrorKind
 from marivo.semantic.reader import SemanticProject
@@ -665,7 +666,9 @@ def test_relative_imported_field_ref_from_later_sibling_keeps_resolver(
     assert reg is not None
     assert "sales.orders.amount" in reg.measures
     revenue = reg.declared_metrics["sales.revenue"]
-    assert tuple(root.ref for root in revenue.roots) == (ms.ref.entity("sales.orders"),)
+    assert tuple(root.ref for root in consume_metric(revenue).roots) == (
+        ms.ref.entity("sales.orders"),
+    )
 
 
 def test_relative_import_reload_uses_latest_module(semantic_project_factory) -> None:

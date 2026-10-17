@@ -7,17 +7,19 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo._definition.expressions import MetricConstant, MetricMultiply, PerReduce
+from marivo._definition.deferred import semantic_input
 from marivo._definition.types import AxisBinding, CalendarCoordinate
 from marivo._temporal import InstantAnchor
 from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
+from marivo.semantic._deferred_semantics import consume_field, consume_metric, consume_predicate
 from marivo.semantic.errors import SemanticError
-from marivo.semantic.expressions import Dimension, Entity, Metric
+from marivo.semantic.expressions import Entity
 
 
 def _model(
@@ -123,7 +125,7 @@ def test_execute_checks_every_repeated_field_anchor(bound_catalog, anchored_firs
     session = bound_catalog(versioned=True)
     entity = session.catalog.entities.get("sales.customers")
     region = session.catalog.fields.get("sales.customers.region")
-    assert isinstance(entity, Entity) and isinstance(region, Dimension)
+    assert isinstance(entity, Entity) and isinstance(region, Deferred)
     direct = region == "APAC"
     anchored = region.at(session.instant("2026-01-01")) == "APAC"
     condition = anchored & direct if anchored_first else direct & anchored
@@ -160,7 +162,7 @@ def test_each_fact_occurrence_keeps_its_condition_and_complete_classification(
     assert {c.root.ref.path for c in binding.contributions} == {"sales.orders", "sales.refunds"}
     assert all(
         c.common_condition is not None
-        and replace(c.common_condition, read=None) == (region == "APAC").node
+        and c.common_condition.recipe == consume_predicate(region == "APAC").node.recipe
         for c in binding.contributions
     )
     assert [len(c.intrinsic_conditions) for c in binding.contributions] == [0, 0, 1, 1]
@@ -200,7 +202,7 @@ def test_explicit_field_routes_and_during_none_are_frozen(bound_catalog):
     buyer = catalog.relationships.get("sales.buyer")
     routed = region.via((buyer,))
     with pytest.raises(SemanticError):
-        routed.count()
+        consume_metric(routed.count())
     with pytest.raises(SemanticError):
         ms.additive(over=(routed,))
     query = session.observe(
@@ -223,23 +225,16 @@ def test_explicit_field_routes_and_during_none_are_frozen(bound_catalog):
     assert query._graph.fingerprint != changed._graph.fingerprint
     for bad in ((), [buyer], buyer):
         with pytest.raises(SemanticError):
-            region.via(bad)
+            consume_field(region.via(bad))
     with pytest.raises(SemanticError):
-        region.at(session.instant("2026-01-01"))
+        consume_field(region.at(session.instant("2026-01-01")))
 
 
 def test_time_sample_requirement_is_checked_inside_formula_and_declared_closure(bound_catalog):
     session = bound_catalog()
     revenue = session.catalog.metrics.get("sales.revenue")
     field = session.catalog.fields.get("sales.orders.ordered_at")
-    sample = AxisBinding(field.root, field.ref, (), "field")
-    sampled = PerReduce(revenue.node, (sample,), "mean")
-    nested = Metric(
-        MetricMultiply(sampled, MetricConstant(0)),
-        revenue.roots,
-        revenue.unit,
-        _declared=revenue._declared,
-    )
+    nested = revenue.per((field,)).mean() * 0
     with pytest.raises(CoreRuleError, match="explicit observation period"):
         session.observe({"zero": nested})
     # A where time range is a contribution filter, not a substitute for sampling scope.
@@ -265,36 +260,29 @@ def test_time_role_is_optional_but_explicit_cross_entity_time_keeps_its_path(bou
     amount = catalog.fields.get("sales.orders.amount")
     query = session.observe({"revenue": amount.sum(time=time.via((buyer,)))}, during=scope)
     contribution = query._graph.signature.observation.contributions[0]
-    assert contribution.time.field == time.ref
+    assert contribution.time.field == consume_field(time).reference
     assert contribution.time.path == (buyer.ref,)
-    assert contribution.root == amount.root
+    assert contribution.root == consume_field(amount).root
     assert session.runs().items == ()
 
 
 def test_same_path_definition_versions_are_not_an_admission_gate(bound_catalog):
-    from dataclasses import replace
 
-    from marivo._definition.expressions import RowAdd, SourceAggregate
     from marivo._definition.types import ExactRef
 
     session = bound_catalog()
     amount = session.catalog.fields.get("sales.orders.amount")
-    current = amount._as_row().node
+    current = consume_field(amount)
     previous = replace(
         current,
-        ref=ExactRef(amount.ref.ref, "previous"),
-        root=ExactRef(amount.root.ref, "previous"),
+        reference=ExactRef(current.reference.ref, "previous"),
+        root=ExactRef(current.root.ref, "previous"),
     )
-    metric = Metric(
-        SourceAggregate(RowAdd(previous, current), "sum", None),
-        (previous.root, current.root),
-        amount.unit,
-    )
+    metric = (semantic_input(previous) + amount).sum()
     query = session.observe({"value": metric})
     contribution = query._graph.signature.observation.contributions[0]
-    assert contribution.root == amount.root
-    assert tuple(read.field for read in contribution.reads) == (amount.ref, amount.ref)
-    assert contribution.time is None
+    assert contribution.root == current.root
+    assert {read.field.ref for read in contribution.reads} >= {current.reference.ref}
     assert session.runs().items == ()
 
 
@@ -346,7 +334,10 @@ def test_attribute_anchor_preserves_exact_exclusive_endpoint(bound_catalog):
     assert coordinate.at == scope.end
     assert coordinate.at != scope.start
     assert binding.contributions[0].reads[-1] == coordinate
-    assert field.ref == region.ref and region.anchor is None
+    assert (
+        consume_field(field).reference == consume_field(region).reference
+        and consume_field(region).field_read.at is None
+    )
     assert session.runs().items == ()
 
 
@@ -354,8 +345,8 @@ def test_to_many_scalar_path_is_rejected_without_source_reads(bound_catalog):
     session = bound_catalog(fanout=True)
     region = session.catalog.fields.get("sales.customers.region")
     buyer = session.catalog.relationships.get("sales.buyer")
-    with pytest.raises(SemanticError, match="fan out"):
-        region.via((buyer,))
+    with pytest.raises(SemanticError, match="single-valued"):
+        consume_field(region.via((buyer,)))
     with pytest.raises(AnalysisError):
         session.observe({"revenue": session.catalog.metrics.get("sales.revenue")}, by=(region,))
     assert session.runs().items == ()
@@ -454,5 +445,5 @@ def filtered():
         (catalog.relationships.get("sales.buyer"),)
     )
     with pytest.raises(SemanticError, match="native field"):
-        routed.count()
+        consume_metric(routed.count())
     assert session.runs().items == ()

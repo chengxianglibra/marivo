@@ -13,13 +13,7 @@ import ibis.expr.datatypes as dt
 import ibis.expr.types as ir
 
 from marivo._definition.expressions import (
-    FieldIn,
-    FieldIsNull,
     FieldPredicate,
-    PredAnd,
-    PredNot,
-    PredOr,
-    RowCompare,
 )
 from marivo.analysis.compiler.errors import compilation_error
 from marivo.analysis.compiler.graph_plan import (
@@ -4690,39 +4684,14 @@ def _query_gap(expected: str, received: str) -> NoReturn:
 def _query_predicate(
     node: FieldPredicate, table: ir.Table, columns: dict[str, str]
 ) -> ir.BooleanValue:
-    if isinstance(node, PredAnd):
-        return reduce(and_, (_query_predicate(c, table, columns) for c in node.operands))
-    if isinstance(node, PredOr):
-        return reduce(or_, (_query_predicate(c, table, columns) for c in node.operands))
-    if isinstance(node, PredNot):
-        return ~_query_predicate(node.operand, table, columns)
-    if isinstance(node, RowCompare):
-        _query_gap("an ordinary field condition", "a row-expression comparison")
-    column = columns.get(node.field.ref.path)
-    if column is None:
-        raise compilation_error(f"a planned column for {node.field.ref.path}", repr(tuple(columns)))
-    value = table[column]
-    if isinstance(node, FieldIsNull):
-        return value.isnull()
-    if isinstance(node, FieldIn):
-        present = tuple(item for item in node.values if item is not None)
-        result = value.isin(present) if present else ibis.literal(False)
-        return result | value.isnull() if len(present) != len(node.values) else result
-    if node.value is None:
-        if node.op == "eq":
-            return value.isnull()
-        if node.op == "ne":
-            return value.notnull()
-        raise compilation_error("an ordered comparison with a non-null literal", node.op)
-    literal = ibis.literal(node.value)
-    return {
-        "eq": value == literal,
-        "ne": value != literal,
-        "lt": value < literal,
-        "le": value <= literal,
-        "gt": value > literal,
-        "ge": value >= literal,
-    }[node.op]
+    from marivo.semantic.metric_graph_lowering import lower_field_predicate
+
+    value = lower_field_predicate(
+        node, {path: table[column] for path, column in columns.items()}
+    ).value
+    if not isinstance(value, ir.BooleanValue):
+        raise compilation_error("a boolean predicate", str(value.type()))
+    return value
 
 
 def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery:
@@ -4742,9 +4711,10 @@ def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery
             from marivo.analysis.compiler.observation import temporal_bound
 
             time = table[stage.period.column]
-            conditions.append(
-                time >= temporal_bound(time, stage.period.start, stage.period.timezone)
-            )
+            if stage.period.start is not None:
+                conditions.append(
+                    time >= temporal_bound(time, stage.period.start, stage.period.timezone)
+                )
             conditions.append(time < temporal_bound(time, stage.period.end, stage.period.timezone))
         filtered = table.filter(*conditions) if conditions else table
         if stage.reduction is not None:
@@ -4775,7 +4745,28 @@ def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery
             conditions = [_query_predicate(p, filtered, columns) for p in stage.predicates]
             filtered = filtered.filter(*conditions) if conditions else filtered
             expression = filtered.select(
-                **{slot: filtered[column] for slot, column in stage.projections}
+                **{slot: filtered[column] for slot, column in stage.projections},
+                **(
+                    {"__numeric_present": filtered[stage.presence].fill_null(False)}
+                    if stage.presence
+                    else {}
+                ),
             )
-            lowered.append(LoweredRead(stage, expression))
+            if stage.preparation_checks:
+                summary = table.aggregate(
+                    **{
+                        name: table[name].any().fill_null(False)
+                        for name, _, _ in stage.preparation_checks
+                    }
+                )
+                if "__numeric_present" not in expression.columns:
+                    expression = expression.mutate(__numeric_present=ibis.literal(True))
+                expression = summary.left_join(expression, ibis.literal(True))
+                checks = tuple(
+                    (name, NumericCheck(summary[name], expected, received))
+                    for name, expected, received in stage.preparation_checks
+                )
+                lowered.append(LoweredRead(stage, expression, checks))
+            else:
+                lowered.append(LoweredRead(stage, expression))
     return LoweredQuery(plan, tuple(lowered))

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.errors import ErrorKind
 from tests.shared_fixtures import load_inline_semantic
 
@@ -43,6 +44,6 @@ def aov():
     with load_inline_semantic(source) as result:
         assert result.registry is not None, result.errors
         metric = result.registry.declared_metrics["test.aov"]
-        assert metric.roots == (metric.roots[0],)
-        assert metric.roots[0].ref.path == "test.orders"
-        assert not hasattr(metric, "fanout_policy")
+        assert consume_metric(metric).roots == (consume_metric(metric).roots[0],)
+        assert consume_metric(metric).roots[0].ref.path == "test.orders"
+        assert not hasattr(consume_metric(metric), "fanout_policy")

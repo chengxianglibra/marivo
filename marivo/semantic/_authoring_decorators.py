@@ -10,6 +10,7 @@ from collections.abc import Callable
 from typing import Literal, overload
 
 import ibis.expr.types as ibis_ir
+from ibis.common.deferred import Deferred
 
 from marivo.refs import (
     DatasourceKind,
@@ -56,9 +57,7 @@ from marivo.semantic._expression_binding import ExpressionBody, compile_expressi
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
 from marivo.semantic.expressions import (
-    DeclaredMeasure,
     Entity,
-    RowOperand,
     TimeField,
 )
 from marivo.semantic.ir import (
@@ -561,7 +560,7 @@ def measure(
     unit: str | None = None,
     additivity: AdditivityPolicy | None = None,
     ai_context: AiContextValue | None = None,
-) -> Callable[[Callable[[], RowOperand]], DeclaredMeasure]:
+) -> Callable[[Callable[[], Deferred]], Deferred]:
     """Name a pure numeric row expression and optionally assert a business contract.
 
     Args:
@@ -588,7 +587,7 @@ def measure(
     from marivo.semantic.errors import SemanticExpressionError
     from marivo.semantic.expressions import declare_measure
 
-    def decorator(fn: Callable[[], RowOperand]) -> DeclaredMeasure:
+    def decorator(fn: Callable[[], Deferred]) -> Deferred:
         location = _caller_location()
         try:
             _validate_segment(fn.__name__, role="Measure declaration name")

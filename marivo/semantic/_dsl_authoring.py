@@ -3,22 +3,21 @@
 from __future__ import annotations
 
 from dataclasses import InitVar, dataclass
-from typing import TYPE_CHECKING, Literal, TypeAlias
+from typing import Literal, TypeAlias
+
+from ibis.common.deferred import Deferred
 
 from marivo.refs import DimensionKind, Ref, SemanticKind, TimeDimensionKind
 
-if TYPE_CHECKING:
-    from marivo.semantic.expressions import Dimension, TimeField
-
 _TOKEN = object()
 CoordinateRef: TypeAlias = Ref[DimensionKind | TimeDimensionKind]
-CoordinateInput: TypeAlias = "CoordinateRef | Dimension | TimeField"
+CoordinateInput: TypeAlias = CoordinateRef | Deferred
 
 
 def _coordinates(values: tuple[CoordinateInput, ...], *, nonempty: bool) -> tuple[str, ...]:
+    from marivo.semantic._authoring_context import _value_ref
     from marivo.semantic.constraints import ConstraintId
     from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
-    from marivo.semantic.expressions import Dimension, TimeField
 
     if type(values) is not tuple or (nonempty and not values):
         _raise(
@@ -29,9 +28,7 @@ def _coordinates(values: tuple[CoordinateInput, ...], *, nonempty: bool) -> tupl
         )
     paths: list[str] = []
     for coordinate in values:
-        if isinstance(coordinate, (Dimension, TimeField)):
-            coordinate._require_native(operation="a sum-permission coordinate")
-        value = coordinate.ref.ref if isinstance(coordinate, (Dimension, TimeField)) else coordinate
+        value = _value_ref(coordinate)
         if type(value) is not Ref or value.kind not in {
             SemanticKind.DIMENSION,
             SemanticKind.TIME_DIMENSION,

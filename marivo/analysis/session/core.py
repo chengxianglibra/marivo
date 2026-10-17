@@ -8,7 +8,7 @@ from datetime import date, datetime, tzinfo
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from marivo._temporal import BeforeEndBoundary, InstantAnchor, TimeScope, _SessionTimeScope
+from marivo._temporal import InstantAnchor, TimeScope, _SessionTimeScope
 from marivo.analysis.materialization.contracts import SessionRecord
 from marivo.analysis.observation.contracts import ObservationOwner
 from marivo.analysis.observation.source_bindings import SourceBindingMap
@@ -24,13 +24,14 @@ from marivo.refs import EntityKind, Ref
 from marivo.semantic.catalog import SemanticCatalog
 
 if TYPE_CHECKING:
+    from ibis.common.deferred import Deferred
+
     from marivo.analysis.core.graph import BoundGraph
     from marivo.analysis.dsl.artifact import Artifact
+    from marivo.analysis.dsl.population import MembershipAxis, Population
     from marivo.analysis.dsl.query import Query
     from marivo.analysis.dsl.temporal import CalendarAxis
     from marivo.analysis.materialization.admission import DatasetRuntime
-    from marivo.analysis.public_dsl import LogicalAnalysisDomain
-    from marivo.semantic.expressions import Field, Metric, Predicate
 
 
 class Session:
@@ -162,32 +163,57 @@ class Session:
         return self._catalog_value
 
     def members(
-        self, entity: Ref[EntityKind], *, at: datetime | BeforeEndBoundary | None = None
-    ) -> LogicalAnalysisDomain:
-        """Construct the complete governed Entity member domain at an exact version.
-
-        Construction uses schema-only preflight, without business rows or Run.
-        Identity retains every declared string or int64 key column.
+        self,
+        entity: Ref[EntityKind],
+        *,
+        at: InstantAnchor | None = None,
+        where: Deferred | None = None,
+    ) -> Population:
+        """Capture a source identity Population without reading schema or rows.
 
         Args:
-            entity: Exact declared Entity Ref.
-            at: Explicit version instant or TimeScope.before_end; None for unversioned Entities.
-        Returns: A logical AnalysisDomain bound to this Session.
-        Example: ``customers = session.members(ms.ref.entity('sales.customer'))``.
-        Constraints: execute() reads and saves the complete member key set; may scan
-        the entire Entity source, no default row truncation. PK uniqueness,
-        unversioned identity and show(n=...) do not bound size. There is no default graph deadline.
-        """
-        from marivo.analysis.materialization.graph_relation import Relation
-        from marivo.analysis.public_dsl import new_members
+            entity: Declared Entity Ref.
+            at: Exact version selection instant.
+            where: An optional same-root semantic field predicate.
 
-        self._sources()
-        assert self._catalog_value is not None
-        state = self._catalog_value._state
-        relation = Relation.members(
-            self._runtime, state.registry, state.sidecar, self.report_tz_name, entity, at=at
+        Returns:
+            A lazy Population retaining this Session's ownership.
+
+        Example:
+            ``customers = session.members(ms.ref.entity('sales.customer'))``.
+
+        Constraints:
+            Source identities include only existing rows. Literal requested
+            identities use mv.identities; execution belongs to session.query.
+        """
+        from marivo._definition.relations import PopulationProgram, SourceIdentities
+        from marivo._definition.types import AxisBinding, Owner
+        from marivo.analysis.core.model import reject
+        from marivo.analysis.dsl.population import Population
+        from marivo.semantic._deferred_semantics import consume_predicate
+        from marivo.semantic.expressions import _Resolver
+
+        resolved = _Resolver(self.catalog._state).entity(entity.path)
+        predicate = consume_predicate(where) if where is not None else None
+        if predicate is not None and any(root.ref != resolved.ref.ref for root in predicate.roots):
+            reject(
+                "a predicate on the selected Entity",
+                str(tuple(root.ref.key for root in predicate.roots)),
+                "Use a field condition from the identity Entity.",
+                "session.members",
+            )
+        if at is not None and not isinstance(at, InstantAnchor):
+            reject(
+                "an exact InstantAnchor",
+                type(at).__name__,
+                "Construct at with session.instant(...).",
+                "session.members",
+            )
+        axis = AxisBinding(resolved.ref, None, (), "identity", at)
+        node = SourceIdentities(resolved.ref, at, predicate.node if predicate is not None else None)
+        return Population(
+            PopulationProgram(node, Owner(self.id, self._runtime.store.store_id), (axis,))
         )
-        return new_members(relation, self._runtime)
 
     def source_bindings(self, bindings: SourceBindingMap) -> AbstractContextManager[None]:
         """Capture source parameters while constructing logical sources.
@@ -238,11 +264,11 @@ class Session:
 
     def observe(
         self,
-        metrics: Mapping[str, Metric],
+        metrics: Mapping[str, Deferred],
         *,
         during: TimeScope | CalendarAxis | None = None,
-        by: tuple[Field, ...] = (),
-        where: Predicate | None = None,
+        by: tuple[Deferred | MembershipAxis, ...] | Population = (),
+        where: Deferred | None = None,
     ) -> Query:
         """Capture named Metric expressions in a lazy Query.
 
@@ -255,9 +281,10 @@ class Session:
         Example: ``query = session.observe({'revenue': revenue, 'aov': aov})``.
         Constraints: Binds ordinary fields, conditions and time without schema/business reads or a Run. execute() prepares, evaluates and atomically publishes ordinary numeric output to Store 10. Artifact reads committed output without current-source or Catalog access. Artifact objects and IDs are not Metric inputs.
         """
+        from ibis.common.deferred import Deferred
+
         from marivo._definition.types import Owner
         from marivo.analysis.dsl.query import Query
-        from marivo.semantic.expressions import Metric
 
         return Query._from_metrics(
             metrics,
@@ -270,17 +297,35 @@ class Session:
             state=self.catalog._state
             if isinstance(metrics, Mapping)
             and (
-                any(isinstance(metric, Metric) and metric.roots for metric in metrics.values())
+                any(isinstance(metric, Deferred) for metric in metrics.values())
                 or by
                 or where is not None
             )
             else None,
         )
 
+    def query(self, population: Population) -> Query:
+        """Capture a keys-only Query over a complete Population.
+
+        Args: population: A literal or source-backed coordinate domain.
+        Returns: A lazy Query owned by this Session.
+        Example: ``session.query(cohort).execute()``.
+        Constraints: Captures definitions without schema or business reads.
+        """
+        from marivo._definition.types import Owner
+        from marivo.analysis.dsl.query import Query
+
+        return Query._from_population(
+            population, Owner(self.id, self._runtime.store.store_id), self._execute_query
+        )
+
     def _execute_query(self, graph: BoundGraph) -> Artifact:
         observation = graph.signature.observation
         state = (
-            self.catalog._state if observation is not None and observation.contributions else None
+            self.catalog._state
+            if observation is not None
+            and (observation.contributions or observation.coordinates.population is not None)
+            else None
         )
         return self._runtime._execute_query(graph, state)
 

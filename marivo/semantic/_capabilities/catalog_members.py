@@ -23,9 +23,9 @@ CATALOG_MEMBER_CONTRACTS: tuple[CatalogMemberContract, ...] = (
     CatalogMemberContract(
         "fields",
         (SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION, SemanticKind.MEASURE),
-        "Dimension | TimeField | Measure",
+        "Deferred",
     ),
-    CatalogMemberContract("metrics", (SemanticKind.METRIC,), "Metric"),
+    CatalogMemberContract("metrics", (SemanticKind.METRIC,), "Deferred"),
     CatalogMemberContract("relationships", (SemanticKind.RELATIONSHIP,), "Relationship"),
     CatalogMemberContract(
         "period_calendars", (SemanticKind.PERIOD_CALENDAR,), "PeriodCalendarEntry"

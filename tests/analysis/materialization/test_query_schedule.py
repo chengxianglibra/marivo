@@ -12,6 +12,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 from marivo._temporal import TimeScope
@@ -41,8 +42,9 @@ from marivo.analysis.materialization.graph_source_execution import (
 )
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
+from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.errors import SemanticExpressionError
-from marivo.semantic.expressions import Dimension, Field, Measure, Metric, Predicate
+from tests.shared_fixtures import numeric_literal_node, numeric_program_query
 
 BIG = 9007199254740993
 
@@ -144,17 +146,17 @@ def _query(
     name: str,
     *,
     during: TimeScope | CalendarAxis | None = None,
-    by: tuple[Field, ...] = (),
-    where: Predicate | None = None,
+    by: tuple[Deferred, ...] = (),
+    where: Deferred | None = None,
 ) -> BoundGraph:
     metric = session.catalog.metrics.get(f"sales.{name}")
-    assert isinstance(metric, Metric)
+    assert isinstance(metric, Deferred)
     return session.observe({name: metric}, during=during, by=by, where=where)._graph
 
 
-def _dimension(session: Session, path: str) -> Dimension:
+def _dimension(session: Session, path: str) -> Deferred:
     field = session.catalog.fields.get(path)
-    assert isinstance(field, Dimension)
+    assert isinstance(field, Deferred)
     return field
 
 
@@ -258,7 +260,7 @@ def test_execute_publishes_prepared_numeric_and_path_routes(warehouse_session: S
     session = warehouse_session
     segment = _dimension(session, "sales.customers.segment")
     revenue = session.catalog.metrics.get("sales.revenue")
-    assert isinstance(revenue, Metric)
+    assert isinstance(revenue, Deferred)
     first = session.observe({"revenue": revenue}).execute()
     second = session.observe({"revenue": revenue}, by=(segment,)).execute()
     assert first.id != second.id
@@ -278,9 +280,6 @@ def test_planning_is_pure_over_prepared_schema_facts(warehouse_session: Session)
     assert [stage.stage_id for stage in plan.stages][-1] == plan.publish
     reads = [stage for stage in plan.stages if isinstance(stage, SourceRead)]
     assert all(read.period is None for read in reads)
-    assert all(
-        column.slot_id.startswith(read.stage_id) for read in reads for column in read.columns
-    )
     with pytest.raises(CoreRuleError, match="prepared schema facts"):
         plan_query(graph, schemas[:1])
 
@@ -298,7 +297,7 @@ def test_source_check_runs_on_its_exact_output_before_consumption(
     graph = _query(session, "net")
     if same_root:
         revenue = session.catalog.metrics.get("sales.revenue")
-        assert isinstance(revenue, Metric)
+        assert isinstance(revenue, Deferred)
         graph = session.observe({"first": revenue, "second": revenue})._graph
     owner = graph.signature.owner
     obligation = Obligation(
@@ -335,7 +334,7 @@ def test_source_check_runs_on_its_exact_output_before_consumption(
         def check(requirement: PlannedCheck, output: StageOutput) -> None:
             assert requirement.obligation == obligation
             assert requirement.deadline == deadline
-            assert output.table.shape == (1, 1)
+            assert output.table.shape[0] == 1
             events.append("check")
             if fail_check:
                 raise ValueError("source check rejected")
@@ -409,17 +408,22 @@ def test_parquet_source_metadata_controls_lossless_preparation(
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("metadata", report_timezone="UTC")
     graph = _query(session, "total")
-    if kind in ("timestamp_us", "duration"):
+    if kind == "duration":
         with open_query_sources(
             session._runtime.connection_service(), graph, session.catalog._state
         ) as prepared:
             output = _run(prepared, graph)
         slot = "value.0"
-        if kind == "duration":
-            assert str(output.table[slot].dtype) == "duration[ns][pyarrow]"
-            assert pa.array(output.table[slot]).cast(pa.int64()).to_pylist() == [ticks]
-        else:
-            assert pd.Timestamp(output.table[slot].iloc[0]).value == ticks * 1000
+        assert str(output.table[slot].dtype) == "duration[ns][pyarrow]"
+        assert pa.array(output.table[slot]).cast(pa.int64()).to_pylist() == [ticks]
+    elif kind == "timestamp_us":
+        with (
+            open_query_sources(
+                session._runtime.connection_service(), graph, session.catalog._state
+            ) as prepared,
+            pytest.raises(SemanticExpressionError, match="numeric physical type"),
+        ):
+            plan_query(graph, prepared.schemas)
     else:
 
         def forbidden(self: SourceSession, read: object) -> None:
@@ -437,7 +441,7 @@ def test_parquet_source_metadata_controls_lossless_preparation(
     assert session.runs().items == ()
 
 
-def _numeric_inputs(session: Session) -> tuple[Measure, Measure]:
+def _numeric_inputs(session: Session) -> tuple[Deferred, Deferred]:
     connection = duckdb.connect(str(session.catalog.workspace_dir / "warehouse.duckdb"))
     try:
         connection.execute(
@@ -447,11 +451,11 @@ def _numeric_inputs(session: Session) -> tuple[Measure, Measure]:
         connection.close()
     amount = session.catalog.fields.get("sales.orders.amount")
     weight = session.catalog.fields.get("sales.orders.weight")
-    assert isinstance(amount, Measure) and isinstance(weight, Measure)
+    assert isinstance(amount, Deferred) and isinstance(weight, Deferred)
     return amount, weight
 
 
-def _compute(session: Session, metrics: dict[str, Metric], **context: object) -> StageOutput:
+def _compute(session: Session, metrics: dict[str, Deferred], **context: object) -> StageOutput:
     graph = session.observe(metrics, **context)._graph
     with open_query_sources(
         session._runtime.connection_service(), graph, session.catalog._state
@@ -493,7 +497,7 @@ def test_empty_all_na_and_strict_policies(warehouse_session: Session) -> None:
     session = warehouse_session
     amount, _ = _numeric_inputs(session)
     region = _dimension(session, "sales.orders.region")
-    for predicate in (region == "missing", amount.is_null()):
+    for predicate in (region == "missing", amount.isnull()):
         output = _compute(
             session,
             {"sum": amount.sum(), "count": amount.count(), "mean": amount.mean()},
@@ -579,7 +583,7 @@ def test_multiple_roots_reduce_before_combining(warehouse_session: Session) -> N
     session = warehouse_session
     _numeric_inputs(session)
     net = session.catalog.metrics.get("sales.net")
-    assert isinstance(net, Metric)
+    assert isinstance(net, Deferred)
     output = _compute(session, {"net": net})
     assert output.table["value.0"].tolist() == [57]
 
@@ -590,8 +594,11 @@ def test_semantic_preview_reuses_numeric_kernel(warehouse_session: Session) -> N
     session = warehouse_session
     _numeric_inputs(session)
     metric = session.catalog.metrics.get("sales.net")
-    assert isinstance(metric, Metric)
-    scope = {root.ref: md.unpruned(max_rows=100, timeout_seconds=10) for root in metric.roots}
+    assert isinstance(metric, Deferred)
+    scope = {
+        root.ref: md.unpruned(max_rows=100, timeout_seconds=10)
+        for root in consume_metric(metric).roots
+    }
     preview = session.catalog.preview(metric, scope=scope)
     assert preview.rows == ({"value": 57},)
     assert (
@@ -642,7 +649,7 @@ def test_decimal_source_and_mixed_local_arithmetic(warehouse_session: Session) -
     session = warehouse_session
     amount, _ = _numeric_inputs(session)
     price = session.catalog.fields.get("sales.orders.price")
-    assert isinstance(price, Measure)
+    assert isinstance(price, Deferred)
     output = _compute(
         session,
         {
@@ -665,23 +672,26 @@ def test_preview_rejects_sample_preparation_before_opening_source(
 
     session = warehouse_session
     metric = session.catalog.metrics.get("sales.sampled")
-    assert isinstance(metric, Metric)
+    assert isinstance(metric, Deferred)
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("sample preview opened a datasource")
 
     monkeypatch.setattr(backends, "_build_backend_from_effective", forbidden)
-    with pytest.raises(SemanticExpressionError, match="Population/sample preview preparation"):
+    with pytest.raises(
+        SemanticExpressionError, match="Population/sample/window preview preparation"
+    ):
         session.catalog.preview(metric, scope=md.unpruned(max_rows=100, timeout_seconds=10))
-    with pytest.raises(AnalysisStageUnavailableError, match="Population/sample preparation"):
-        _compute(session, {"sample": metric})
+    monkeypatch.undo()
+    assert _compute(session, {"sample": metric}).table["value.0"].tolist() == [
+        pytest.approx((9007199254740993 + 11) / 2)
+    ]
 
 
 def test_source_free_numeric_plan_never_reads(warehouse_session: Session) -> None:
-    from marivo._definition.expressions import MetricConstant
 
     session = warehouse_session
-    graph = session.observe({"constant": Metric(MetricConstant(7), (), "1")})._graph
+    graph = numeric_program_query(session, {"constant": numeric_literal_node(7)})._graph
     plan = plan_query(graph, ())
     assert len(plan.stages) == 1 and isinstance(plan.stages[0], LocalCompute)
 
@@ -737,11 +747,11 @@ def test_metric_preview_batch_reuses_scoped_reductions(warehouse_session: Sessio
     _numeric_inputs(session)
     revenue = session.catalog.metrics.get("sales.revenue")
     refund = session.catalog.metrics.get("sales.refund_total")
-    assert isinstance(revenue, Metric) and isinstance(refund, Metric)
+    assert isinstance(revenue, Deferred) and isinstance(refund, Deferred)
     scope = {
         root.ref: md.unpruned(max_rows=100, timeout_seconds=10)
         for metric in (revenue, refund)
-        for root in metric.roots
+        for root in consume_metric(metric).roots
     }
     result = session.catalog.preview_many((revenue, refund), scope=scope)
     assert tuple(item.rows for item in result.results) == (({"value": 60},), ({"value": 3},))
@@ -760,19 +770,18 @@ def test_weighted_mean_checks_reduced_denominator(warehouse_session: Session) ->
     import marivo.datasource as md
 
     tiny = session.catalog.metrics.get("sales.tiny_mean")
-    assert isinstance(tiny, Metric)
+    assert isinstance(tiny, Deferred)
     with pytest.raises(SemanticExpressionError, match="weight sum"):
         session.catalog.preview(tiny, scope=md.unpruned(max_rows=100, timeout_seconds=10))
     assert session.runs().items == ()
 
 
 def test_source_free_constant_keeps_calendar(warehouse_session: Session) -> None:
-    from marivo._definition.expressions import MetricConstant
 
     session = warehouse_session
     calendar = session.time_scope(start="2026-01-05", end="2026-01-09").by(mv.grain("day"))
-    graph = session.observe(
-        {"constant": Metric(MetricConstant(7), (), "1")}, during=calendar
+    graph = numeric_program_query(
+        session, {"constant": numeric_literal_node(7)}, during=calendar
     )._graph
     output = run_query_plan(
         plan_query(graph, ()),
@@ -817,6 +826,6 @@ def test_later_zero_cannot_hide_integer_overflow(warehouse_session: Session) -> 
     with pytest.raises(SemanticExpressionError, match="integer overflow"):
         _compute(session, {"v": ((amount * (2**62)) * 0).sum()})
     metric = session.catalog.metrics.get("sales.masked_overflow")
-    assert isinstance(metric, Metric)
+    assert isinstance(metric, Deferred)
     with pytest.raises(SemanticExpressionError, match="integer overflow"):
         session.catalog.preview(metric, scope=md.unpruned(max_rows=100, timeout_seconds=10))

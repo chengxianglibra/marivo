@@ -8,18 +8,20 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._authoring.model import AuthoringCapability, AuthoringRepair
+from marivo._definition.deferred import root_declaration
 from marivo._definition.expressions import DeclaredMetricRef
 from marivo._help.render import help as show_help
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.semantic._capabilities.registry import REGISTRY
 from marivo.semantic._capabilities.validation import _validate_minimal_example_signature
+from marivo.semantic._deferred_semantics import consume_field, consume_metric, consume_row
 from marivo.semantic.errors import SemanticLoadError, SemanticLoadFailed
-from marivo.semantic.expressions import DeclaredMeasure, Dimension, Measure, Metric, TimeField
 from marivo.semantic.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from marivo.semantic.readiness import ReadinessInputSummary, ReadinessIssue, ReadinessReport
@@ -76,10 +78,10 @@ def test_definition_read_does_not_prescribe_readiness(
     monkeypatch.setattr("marivo.semantic.catalog.SemanticCatalog.readiness", _no_io)
     monkeypatch.setattr("marivo.datasource.backends.build_backend", _no_io)
 
-    contract = revenue.contract().render()
+    contract = catalog.describe(ms.ref.metric("sales.revenue")).render()
     assert "metric:sales.revenue" in contract
     assert "readiness(" not in contract
-    show_help(type(revenue))
+    show_help(type(catalog.describe(ms.ref.metric("sales.revenue"))))
     briefing = capsys.readouterr().out
     assert ".show()" in briefing
     assert "readiness(" not in briefing
@@ -292,19 +294,21 @@ def test_decorator_help_example_loads_the_declared_object(
     if target in {"measure", "metric"}:
         symbol = path.rsplit(".", 1)[-1]
         local_assertions = (
-            "from marivo.semantic.expressions import DeclaredMeasure, DeclaredMetric\n"
+            "from ibis.common.deferred import Deferred\n"
+            "from marivo._definition.deferred import root_declaration, inspect_deferred\n"
+            "from marivo.semantic._deferred_semantics import consume_metric, consume_row\n"
             "from marivo._definition.graph import computation_fingerprint\n"
-            f"assert isinstance({symbol}, Declared{target.title()})\n"
-            f"assert {symbol}.declaration.name == {symbol!r}\n"
-            f"assert {symbol}.unit == 'CNY'\n"
+            f"assert isinstance({symbol}, Deferred)\n"
+            f"assert root_declaration({symbol}).name == {symbol!r}\n"
+            f"assert consume_{'row' if target == 'measure' else 'metric'}({symbol}).unit == 'CNY'\n"
         )
         if target == "measure":
             local_assertions += (
-                f"assert order_amount.root.ref.path + '.' + order_amount.declaration.name == {path!r}\n"
-                "assert order_amount.sum().unit == 'CNY'\n"
+                f"assert consume_row(order_amount).root.ref.path + '.' + root_declaration(order_amount).name == {path!r}\n"
+                "assert consume_metric(order_amount.sum()).unit == 'CNY'\n"
             )
         else:
-            local_assertions += "assert computation_fingerprint(revenue.node) == computation_fingerprint(amount.sum().node)\n"
+            local_assertions += "assert inspect_deferred(revenue).fingerprint == inspect_deferred(amount.sum()).fingerprint\n"
     semantic_project_factory(
         {
             "sales/_domain.py": (
@@ -336,21 +340,25 @@ def test_decorator_help_example_loads_the_declared_object(
     if target in {"measure", "metric"}:
         # R1.4 publishes module-level declarations under their function name.
         if target == "measure":
-            assert isinstance(value, DeclaredMeasure)
-            assert value.declaration.name == "order_amount"
-            assert value.unit == "CNY"
+            assert isinstance(value, Deferred)
+            assert root_declaration(value).name == "order_amount"
+            assert consume_row(value).unit == "CNY"
         else:
-            assert isinstance(value, Metric) and isinstance(value.node, DeclaredMetricRef)
-            assert value.node.ref.ref == factory(path)
-            assert value.unit == "CNY"
+            assert isinstance(value, Deferred) and isinstance(
+                consume_metric(value).node, DeclaredMetricRef
+            )
+            assert consume_metric(value).node.ref.ref == factory(path)
+            assert consume_metric(value).unit == "CNY"
         for dependency in ("quantity", "unit_price"):
             dependency_value = catalog.require(ms.ref.measure(f"sales.orders.{dependency}"))
-            assert isinstance(dependency_value, Measure)
-            assert dependency_value.ref.ref == ms.ref.measure(f"sales.orders.{dependency}")
+            assert isinstance(dependency_value, Deferred)
+            assert consume_field(dependency_value).reference.ref == ms.ref.measure(
+                f"sales.orders.{dependency}"
+            )
         return
-    assert isinstance(value, (Dimension, TimeField))
-    assert value.ref.ref == factory(path)
-    assert value.ref.ref.kind.value == target
+    assert isinstance(value, Deferred)
+    assert consume_field(value).reference.ref == factory(path)
+    assert consume_field(value).reference.ref.kind.value == target
 
 
 def test_decorator_example_validation_rejects_a_factory_call() -> None:

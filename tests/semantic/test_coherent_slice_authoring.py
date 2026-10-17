@@ -55,10 +55,10 @@ def test_coherent_slice_loads_once_and_resolves_every_authored_ref(
     )
     assert calls == 1
     for ref in (*physical, *published):
-        identity = catalog.require(ref).contract().ref
+        identity = catalog.describe(ref).ref
         assert identity is not None and identity.ref == ref
     assert catalog.metrics.refs == published
-    aov = catalog.require(ms.ref.metric("sales.average_order_value")).contract()
+    aov = catalog.describe(ms.ref.metric("sales.average_order_value"))
     assert aov.unit == "USD"
     # Composing declarations inlines their computation, so the published Metric
     # reads the physical definitions both components consume.

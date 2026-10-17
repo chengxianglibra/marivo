@@ -12,18 +12,11 @@ from uuid import uuid4
 import pandas as pd
 
 from marivo._definition.expressions import (
-    FieldCompare,
-    FieldIn,
-    FieldIsNull,
     FieldPredicate,
-    PredAnd,
-    PredNot,
-    PredOr,
-    RowCompare,
 )
 from marivo._definition.types import CalendarCoordinate
 from marivo.analysis.compiler.graph_lowering import LoweredQuery, LoweredRead, lower_query
-from marivo.analysis.compiler.graph_plan import LocalCompute, plan_query
+from marivo.analysis.compiler.graph_plan import LocalCompute, SourceSchema, plan_query
 from marivo.analysis.core.artifact_data import (
     ArtifactData,
     ArtifactManifest,
@@ -48,8 +41,10 @@ from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_reading import TerminalReader
 from marivo.analysis.materialization.graph_source_execution import (
     PreparedSources,
+    _query_entities,
     execute_numeric_query,
     open_query_sources,
+    prepare_source_free_populations,
 )
 from marivo.analysis.materialization.resources import (
     backend_reservation,
@@ -150,21 +145,21 @@ def reconcile(
 
 
 def _predicate_summary(predicate: FieldPredicate) -> str:
-    if isinstance(predicate, FieldCompare):
-        return f"{predicate.field.ref.path} {predicate.op} {predicate.value!r}"
-    if isinstance(predicate, FieldIsNull):
-        return f"{predicate.field.ref.path} is null"
-    if isinstance(predicate, FieldIn):
-        return f"{predicate.field.ref.path} in explicit selection ({len(predicate.values)} values)"
-    if isinstance(predicate, PredNot):
-        return f"not ({_predicate_summary(predicate.operand)})"
-    if isinstance(predicate, (PredAnd, PredOr)):
-        children = (" and " if isinstance(predicate, PredAnd) else " or ").join(
-            _predicate_summary(item) for item in predicate.operands
+    import re
+
+    from marivo._definition.graph import direct_refs
+
+    names = {
+        f"slot_{i}": ", ".join(
+            sorted(
+                item.ref.path
+                for item in direct_refs(operand)
+                if item.ref.kind.value in ("dimension", "time_dimension", "measure")
+            )
         )
-        return f"({children})"
-    assert isinstance(predicate, RowCompare)
-    return f"derived row condition {predicate.op} {predicate.value!r}"
+        for i, operand in enumerate(predicate.inputs)
+    }
+    return re.sub(r"\bslot_\d+\b", lambda match: names[match.group()], repr(predicate.recipe))
 
 
 def _compute(
@@ -192,7 +187,7 @@ def _compute(
                     (
                         "period_start",
                         None
-                        if period is None
+                        if period is None or period.start is None
                         else datetime.fromisoformat(period.start.isoformat()),
                     ),
                     (
@@ -206,6 +201,10 @@ def _compute(
             )
         )
         for name, check in request.numeric_checks:
+            if any(column.slot_id == name for column in stage.columns):
+                # These checks travel with their values. Only the local formula
+                # consumer knows which coordinate/branch actually demands them.
+                continue
             evidence.append(
                 OutputEvidence(
                     "check",
@@ -223,7 +222,7 @@ def _compute(
         evidence.append(
             OutputEvidence(
                 "check",
-                "Local numeric evaluation and output type validation completed.",
+                "Demanded numeric values and branch-scoped checks passed; output types validated.",
                 (("version", 1), ("scope", stage.stage_id), ("result", "passed")),
             )
         )
@@ -246,24 +245,37 @@ def _publication(
     calendar = next(
         (axis for axis in graph.signature.axes if isinstance(axis, CalendarCoordinate)), None
     )
+    calendar_key = next(
+        (
+            column.slot_id
+            for column in key_columns
+            if calendar is not None and column.name == f"calendar:{calendar.grain}"
+        ),
+        "key.0",
+    )
+    calendar_axis = next(
+        (index for index, column in enumerate(key_columns) if column.slot_id == calendar_key), 0
+    )
     axes = tuple(
         CalendarDataAxis(f"axis.{index}", (column,), calendar.timezone)
-        if calendar is not None and column.slot_id == "key.0"
+        if calendar is not None and column.slot_id == calendar_key
         else DataAxis(f"axis.{index}", (column,))
         for index, column in enumerate(key_columns)
     )
     if calendar is not None:
         columns = (
-            DataColumn("key.0", f"calendar:{calendar.grain}", ScalarDataType("int64"), False),
+            DataColumn(calendar_key, f"calendar:{calendar.grain}", ScalarDataType("int64"), False),
         )
         bounds = tuple(
             DataColumn(name, name, TimestampDataType("us", "UTC"), False)
             for name in ("nominal_start", "nominal_end", "actual_start", "actual_end")
         )
-        schema = DataSchema((CalendarDataAxis("axis.0", columns, calendar.timezone),), bounds)
+        schema = DataSchema(
+            (CalendarDataAxis(f"axis.{calendar_axis}", columns, calendar.timezone),), bounds
+        )
         rows = pd.DataFrame(
             {
-                "key.0": pd.Series(range(len(calendar.cells)), dtype="int64[pyarrow]"),
+                calendar_key: pd.Series(range(len(calendar.cells)), dtype="int64[pyarrow]"),
                 **{
                     name: pd.Series(
                         [cell[index] for cell in calendar.cells],
@@ -303,16 +315,22 @@ def execute(
         try:
             with ExitStack() as stack:
                 observation = graph.signature.observation
-                has_sources = observation is not None and bool(observation.contributions)
+                has_sources = observation is not None and bool(
+                    observation.contributions or observation.coordinates.population is not None
+                )
                 prepared = None
+                local_schemas: tuple[SourceSchema, ...] = ()
                 if has_sources:
                     if state is None:
                         raise invalid("source Query requires its prepared semantic scope")
-                    prepared = stack.enter_context(
-                        open_query_sources(runtime.connection_service(), graph, state)
-                    )
+                    if _query_entities(graph, state):
+                        prepared = stack.enter_context(
+                            open_query_sources(runtime.connection_service(), graph, state)
+                        )
+                    else:
+                        local_schemas = prepare_source_free_populations(graph, state)
                 lowered = lower_query(
-                    plan_query(graph, () if prepared is None else prepared.schemas),
+                    plan_query(graph, local_schemas if prepared is None else prepared.schemas),
                     {} if prepared is None else prepared.relations,
                 )
                 if lowered.plan.checks:

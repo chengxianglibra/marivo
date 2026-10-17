@@ -16,9 +16,9 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
-from marivo._definition.expressions import MetricConstant
 from marivo.analysis.core.artifact_data import (
     ArtifactData,
     ArtifactManifest,
@@ -49,7 +49,7 @@ from marivo.analysis.materialization.terminal_protocol import decode, encode
 from marivo.analysis.materialization.terminal_publication import reconcile
 from marivo.analysis.materialization.terminal_storage import POLICY, read_output, write_output
 from marivo.analysis.session.core import Session
-from marivo.semantic.expressions import Dimension, Measure, Metric
+from tests.shared_fixtures import numeric_literal_node, numeric_program_query
 
 
 @pytest.fixture
@@ -59,7 +59,7 @@ def session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Session:
 
 
 def constant(session: Session, value: int = 7):
-    return session.observe({"answer": Metric(MetricConstant(value), (), None)})
+    return numeric_program_query(session, {"answer": numeric_literal_node(value)})
 
 
 def stored_frame(session: Session, artifact: Artifact) -> pd.DataFrame:
@@ -383,7 +383,7 @@ def test_real_source_repeat_execution_and_nullable_local_combination(source_sess
     session = source_session
     amount = session.catalog.fields.get("sales.orders.amount")
     region = session.catalog.fields.get("sales.orders.region")
-    assert isinstance(amount, Measure) and isinstance(region, Dimension)
+    assert isinstance(amount, Deferred) and isinstance(region, Deferred)
     query = session.observe(
         {"total": amount.sum(), "mean": amount.mean(), "ratio": amount.sum() / (amount.sum() * 0)},
         by=(region,),
@@ -424,14 +424,16 @@ def test_calendar_timezone_survives_private_cold_read(
 ):
     session = source_session
     metric = (
-        session.catalog.metrics.get("sales.revenue")
-        if from_source
-        else Metric(MetricConstant(7), (), None)
+        session.catalog.metrics.get("sales.revenue") if from_source else numeric_literal_node(7)
     )
     axis = session.time_scope(start="2026-03-28", end="2026-03-31", timezone=zone).by(
         mv.grain("day")
     )
-    artifact = session.observe({"value": metric}, during=axis).execute()
+    artifact = (
+        session.observe({"value": metric}, during=axis)
+        if from_source
+        else numeric_program_query(session, {"value": metric}, during=axis)
+    ).execute()
     if not from_source:
         assert session._catalog_value is None
         assert not any(item.kind == "read" for item in records(session, artifact))
@@ -478,18 +480,18 @@ def test_read_evidence_preserves_nested_predicate_groups(source_session: Session
     session = source_session
     region = session.catalog.fields.get("sales.orders.region")
     amount = session.catalog.fields.get("sales.orders.amount")
-    assert isinstance(region, Dimension) and isinstance(amount, Measure)
+    assert isinstance(region, Deferred) and isinstance(amount, Deferred)
     with duckdb.connect(str(session.project_root / "warehouse.duckdb")) as conn:
         conn.execute("UPDATE orders SET amount=10 WHERE id=1")
     predicates = (
-        ((region == "A") | region.is_null()) & (amount < 10),
-        (region == "A") | (region.is_null() & (amount < 10)),
-        ~((region == "A") | region.is_null()) & (amount < 10),
+        ((region == "A") | region.isnull()) & (amount < 10),
+        (region == "A") | (region.isnull() & (amount < 10)),
+        ~((region == "A") | region.isnull()) & (amount < 10),
     )
     expected_filters = (
-        "((sales.orders.region eq 'A' or sales.orders.region is null) and sales.orders.amount lt 10)",
-        "(sales.orders.region eq 'A' or (sales.orders.region is null and sales.orders.amount lt 10))",
-        "(not ((sales.orders.region eq 'A' or sales.orders.region is null)) and sales.orders.amount lt 10)",
+        "(((sales.orders.region == 'A') | sales.orders.region.isnull()) & (sales.orders.amount < 10))",
+        "((sales.orders.region == 'A') | (sales.orders.region.isnull() & (sales.orders.amount < 10)))",
+        "(~((sales.orders.region == 'A') | sales.orders.region.isnull()) & (sales.orders.amount < 10))",
     )
     for predicate, expected, total in zip(predicates, expected_filters, (5, 15, 0), strict=True):
         artifact = session.observe({"total": amount.sum()}, where=predicate).execute()
@@ -672,7 +674,7 @@ def test_pure_source_publication_has_no_synthetic_local_check(source_session: Se
 
 def test_explicit_numeric_error_fails_original_run_without_publication(source_session: Session):
     amount = source_session.catalog.fields.get("sales.orders.amount")
-    assert isinstance(amount, Measure)
+    assert isinstance(amount, Deferred)
     total = amount.sum()
     with pytest.raises(MaterializationError) as caught:
         source_session.observe(
@@ -887,11 +889,9 @@ def test_preview_decodes_only_requested_rows_and_skips_unused_parts(
 
 
 def test_wide_artifact_truncation_routes_to_callable_reads(session: Session, capsys):
-    artifact = session.observe(
-        {
-            f"quantity_{index}_" + "x" * 150: Metric(MetricConstant(index), (), None)
-            for index in range(60)
-        }
+    artifact = numeric_program_query(
+        session,
+        {f"quantity_{index}_" + "x" * 150: numeric_literal_node(index) for index in range(60)},
     ).execute()
     artifact.show()
     text = capsys.readouterr().out
@@ -912,8 +912,8 @@ def test_public_calendar_uses_saved_instants_and_boundaries(
     axis = session.time_scope(start="2026-03-28T06:00", end="2026-03-31", timezone=zone).by(
         mv.grain("day")
     )
-    artifact = session.observe(
-        {"value": Metric(MetricConstant(7), (), None)}, during=axis
+    artifact = numeric_program_query(
+        session, {"value": numeric_literal_node(7)}, during=axis
     ).execute()
     exported = session.artifact(artifact.id).to_pandas()
     (description,) = exported.attrs["marivo"]["axes"]

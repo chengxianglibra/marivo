@@ -9,6 +9,7 @@ from typing import cast, get_args, get_origin, get_type_hints
 
 import ibis
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 import marivo.datasource as md
@@ -27,6 +28,7 @@ from marivo.refs import (
     ref as ref_factory,
 )
 from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES
+from marivo.semantic._deferred_semantics import consume_field, consume_metric
 from marivo.semantic.catalog import (
     AiContextView,
     CatalogEntry,
@@ -43,7 +45,7 @@ from marivo.semantic.catalog import (
     WorkScheduleEntry,
 )
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
-from marivo.semantic.expressions import Dimension, Entity, Measure, Metric, TimeField
+from marivo.semantic.expressions import Entity
 from marivo.semantic.ir import SourceLocation
 
 # --- SemanticKind ---
@@ -403,24 +405,24 @@ def test_catalog_require_returns_entries_for_containers_and_values_for_members(
 
     value_cases: tuple[tuple[str, type[object]], ...] = (
         ("entity.sales.orders", Entity),
-        ("dimension.sales.orders.region", Dimension),
-        ("time_dimension.sales.orders.created_at", TimeField),
-        ("measure.sales.orders.amount", Measure),
+        ("dimension.sales.orders.region", Deferred),
+        ("time_dimension.sales.orders.created_at", Deferred),
+        ("measure.sales.orders.amount", Deferred),
     )
     for typed_id, expected_value_type in value_cases:
         ref = _ref_from_typed_id_path(typed_id)
         value = catalog.require(ref)
 
         assert type(value) is expected_value_type
-        exact = cast("Entity | Dimension | TimeField | Measure", value).ref
+        exact = value.ref if isinstance(value, Entity) else consume_field(value).reference
         assert exact.ref == ref
         assert exact.version.startswith("sha256:")
 
     revenue = catalog.require(ms.ref.metric("sales.revenue"))
-    assert type(revenue) is Metric
-    assert isinstance(revenue.node, DeclaredMetricRef)
-    assert revenue.node.ref.ref == ms.ref.metric("sales.revenue")
-    assert revenue.node.ref.version.startswith("sha256:")
+    assert type(revenue) is Deferred
+    assert isinstance(consume_metric(revenue).node, DeclaredMetricRef)
+    assert consume_metric(revenue).node.ref.ref == ms.ref.metric("sales.revenue")
+    assert consume_metric(revenue).node.ref.version.startswith("sha256:")
 
 
 def test_catalog_entry_and_value_equality_follow_identity(
@@ -441,9 +443,11 @@ def test_catalog_entry_and_value_equality_follow_identity(
     assert "- .ref" in rendered
 
     revenue = catalog.require(ms.ref.metric("sales.revenue"))
-    assert revenue == catalog.require(ms.ref.metric("sales.revenue"))
-    assert hash(revenue) == hash(catalog.require(ms.ref.metric("sales.revenue")))
-    assert revenue != first
+    assert revenue is catalog.require(ms.ref.metric("sales.revenue"))
+    assert consume_metric(revenue) == consume_metric(
+        catalog.require(ms.ref.metric("sales.revenue"))
+    )
+    assert revenue is not first
 
 
 # --- Agent result protocol ---
@@ -458,9 +462,9 @@ def test_catalog_result_protocol_and_collection_accessors(semantic_project_facto
 
     assert_conforms(entry)
     assert_conforms(collection)
-    assert_conforms(collection.items[0].contract())
+    assert_conforms(catalog.describe(ms.ref.metric("sales.revenue")))
     assert len(collection.items) == 1
-    assert collection.items[0].contract().name == "revenue"
+    assert catalog.describe(ms.ref.metric("sales.revenue")).name == "revenue"
     assert collection.refs == (ms.ref.metric("sales.revenue"),)
     assert type(collection.refs[0]) is Ref
     capsys.readouterr()
@@ -472,7 +476,7 @@ def test_catalog_result_protocol_and_collection_accessors(semantic_project_facto
     assert "metric" in rendered
     assert "available:" in rendered
     assert "- .refs" in rendered
-    assert "selection: catalog.metrics.get(<displayed ref>) -> Metric" in rendered
+    assert "selection: catalog.metrics.get(<displayed ref>) -> Deferred" in rendered
     assert rendered.count("selection:") == 1
     assert capsys.readouterr().out == ""
 
@@ -514,8 +518,8 @@ def test_filtered_metric_definition_is_distinguishable_from_unfiltered(
         }
     )
     catalog = SemanticCatalog(project)
-    all_contract = catalog.metrics.get("sales.all_count").contract()
-    failed_contract = catalog.metrics.get("sales.failed_count").contract()
+    all_contract = catalog.describe(ms.ref.metric("sales.all_count"))
+    failed_contract = catalog.describe(ms.ref.metric("sales.failed_count"))
 
     assert all_contract.stage == failed_contract.stage == "published_metric"
     assert all_contract.computation is not None
@@ -582,10 +586,10 @@ def test_catalog_collection_render_uses_card_listing(semantic_project_factory):
                 "time_dimension:sales.orders.created_at",
                 "measure:sales.orders.amount",
             ),
-            "Dimension | TimeField | Measure",
+            "Deferred",
         ),
         ("entities", ("entity:sales.orders",), "Entity"),
-        ("metrics", ("metric:sales.revenue",), "Metric"),
+        ("metrics", ("metric:sales.revenue",), "Deferred"),
     )
     for collection_name, expected_ids, item_type in cases:
         collection = getattr(catalog, collection_name)
@@ -614,10 +618,10 @@ def test_catalog_collection_lookup_accepts_every_key_shape_and_rejects_misuse(
     by_typed_key = fields.get("measure:sales.orders.amount")
     by_ref = fields.get(ms.ref.measure("sales.orders.amount"))
 
-    assert isinstance(by_local, Measure)
+    assert isinstance(by_local, Deferred)
     for other in (by_path, by_typed_key, by_ref):
-        assert isinstance(other, Measure)
-        assert other.ref == by_local.ref
+        assert isinstance(other, Deferred)
+        assert consume_field(other).reference == consume_field(by_local).reference
 
     with pytest.raises(SemanticRuntimeError) as missing:
         fields.get("missing")
@@ -687,7 +691,7 @@ def test_catalog_require_not_found_lists_same_kind_candidates(semantic_project_f
 def test_catalog_get_no_stdout(semantic_project_factory, capsys):
     catalog = _make_catalog(semantic_project_factory)
     catalog.require(ms.ref.metric("sales.revenue"))
-    catalog.fields.get("sales.orders.region").contract()
+    catalog.describe(ms.ref.dimension("sales.orders.region"))
     assert capsys.readouterr().out == ""
 
 
@@ -703,7 +707,7 @@ def test_catalog_contracts_expose_declared_ai_context(semantic_project_factory):
     }
     for typed_id, declared_name in cases.items():
         value = catalog.require(_ref_from_typed_id_path(typed_id))
-        contract = value.contract()
+        contract = catalog.describe(_ref_from_typed_id_path(typed_id))
         assert contract.business_definition
         assert contract.guardrails
         assert contract.name == declared_name
@@ -712,7 +716,7 @@ def test_catalog_contracts_expose_declared_ai_context(semantic_project_factory):
         assert file.endswith("sales/datasets.py")
         assert int(line) > 0
 
-    metric_contract = catalog.require(ms.ref.metric("sales.revenue")).contract()
+    metric_contract = catalog.describe(ms.ref.metric("sales.revenue"))
     assert metric_contract.business_definition == "Total gross order amount before refunds."
     assert metric_contract.guardrails == ("Do not use as net revenue.",)
     metric_rendered = metric_contract.render()
@@ -756,7 +760,7 @@ def test_catalog_contract_render_bounds_long_business_definition(semantic_projec
             """),
         }
     )
-    contract = SemanticCatalog(project).metrics.get("sales.revenue").contract()
+    contract = SemanticCatalog(project).describe(ms.ref.metric("sales.revenue"))
 
     rendered = contract.render()
 
@@ -815,8 +819,11 @@ def test_catalog_metric_value_roots_on_its_entity(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     revenue = catalog.require(ms.ref.metric("sales.revenue"))
     orders = catalog.require(ms.ref.entity("sales.orders"))
-    assert revenue.roots == (orders.ref,)
-    assert any(root.ref.path == "sales.orders" for root in revenue.contract().roots)
+    assert consume_metric(revenue).roots == (orders.ref,)
+    assert any(
+        root.ref.path == "sales.orders"
+        for root in catalog.describe(ms.ref.metric("sales.revenue")).roots
+    )
 
 
 def test_catalog_timestamp_and_strptime_fields_disclose_sample_interval(
@@ -856,13 +863,17 @@ def test_catalog_timestamp_and_strptime_fields_disclose_sample_interval(
     timestamp_field = catalog.require(ms.ref.time_dimension("sales.orders.timestamp_sampled_at"))
     strptime_field = catalog.require(ms.ref.time_dimension("sales.orders.strptime_sampled_at"))
 
-    assert isinstance(timestamp_field, TimeField)
-    timestamp_facts = dict(timestamp_field.contract().facts)
+    assert isinstance(timestamp_field, Deferred)
+    timestamp_facts = dict(
+        catalog.describe(ms.ref.time_dimension("sales.orders.timestamp_sampled_at")).facts
+    )
     assert timestamp_facts["granularity"] == "minute"
     assert "kind='timestamp'" in timestamp_facts["parse"]
     assert "sample_interval=SampleIntervalIR(count=5, unit='minute')" in timestamp_facts["parse"]
-    assert isinstance(strptime_field, TimeField)
-    strptime_facts = dict(strptime_field.contract().facts)
+    assert isinstance(strptime_field, Deferred)
+    strptime_facts = dict(
+        catalog.describe(ms.ref.time_dimension("sales.orders.strptime_sampled_at")).facts
+    )
     assert "kind='strptime'" in strptime_facts["parse"]
     assert "sample_interval=SampleIntervalIR(count=5, unit='minute')" in strptime_facts["parse"]
 
@@ -967,8 +978,8 @@ def test_ms_load_returns_fresh_catalog_without_mutating_existing_catalog(
     with pytest.raises(SemanticRuntimeError):
         catalog.require(ms.ref.metric("sales.profit"))
     profit = reloaded.require(ms.ref.metric("sales.profit"))
-    assert isinstance(profit.node, DeclaredMetricRef)
-    assert profit.node.ref.ref.path == "sales.profit"
+    assert isinstance(consume_metric(profit).node, DeclaredMetricRef)
+    assert consume_metric(profit).node.ref.ref.path == "sales.profit"
     assert reloaded is not catalog
 
 
@@ -1063,7 +1074,7 @@ def test_catalog_preview_field_published_metric_and_context_boundaries(
         semantic_project_factory, tmp_path, monkeypatch
     )
     field_preview = catalog.preview(
-        catalog.require(ms.ref.dimension("sales.orders.region")).ref.ref,
+        consume_field(catalog.require(ms.ref.dimension("sales.orders.region"))).reference.ref,
         scope=snapshot.scope,
         context_columns=("order_id",),
         limit=2,
@@ -1166,7 +1177,7 @@ def test_catalog_readiness_normalizes_entry_value_and_ref_to_same_public_payload
     by_entry = catalog.readiness(refs=[sales])
     by_ref = catalog.readiness(refs=[sales.ref])
     by_value = catalog.readiness(refs=[region])
-    by_value_ref = catalog.readiness(refs=[region.ref.ref])
+    by_value_ref = catalog.readiness(refs=[consume_field(region).reference.ref])
 
     assert by_entry.analysis_ready_inputs == by_ref.analysis_ready_inputs == (sales.ref,)
     assert by_entry.input_summary == by_ref.input_summary
@@ -1193,7 +1204,7 @@ def test_catalog_readiness_accepts_runtime_expression_and_mixed_roots(
 ) -> None:
     catalog = _make_rich_catalog(semantic_project_factory)
     region_value = catalog.fields.get("sales.orders.region")
-    region = region_value.ref.ref
+    region = consume_field(region_value).reference.ref
     amount = ms.ref.measure("sales.orders.amount")
     runtime_total = mv.runtime_metric.aggregate(
         amount,
@@ -1235,7 +1246,7 @@ def test_catalog_readiness_deduplicates_shared_runtime_leaves(
     semantic_project_factory,
 ) -> None:
     catalog = _make_rich_catalog(semantic_project_factory)
-    amount = catalog.fields.get("sales.orders.amount").ref.ref
+    amount = consume_field(catalog.fields.get("sales.orders.amount")).reference.ref
     total = mv.runtime_metric.aggregate(amount, agg="sum", label="Runtime total")
     count = mv.runtime_metric.aggregate(amount, agg="count", label="Runtime count")
 
@@ -1251,7 +1262,7 @@ def test_catalog_readiness_keeps_unrelated_ref_ready_when_runtime_leaf_is_missin
     semantic_project_factory,
 ) -> None:
     catalog = _make_rich_catalog(semantic_project_factory)
-    region = catalog.fields.get("sales.orders.region").ref.ref
+    region = consume_field(catalog.fields.get("sales.orders.region")).reference.ref
     missing = mv.runtime_metric.aggregate(
         ms.ref.measure("sales.orders.missing_amount"),
         agg="sum",
@@ -1307,8 +1318,8 @@ def test_catalog_readiness_blocks_invalid_runtime_weighted_mean(
         }
     )
     catalog = SemanticCatalog(project)
-    value = catalog.fields.get("sales.orders.value").ref.ref
-    invalid_weight = catalog.fields.get("sales.orders.invalid_weight").ref.ref
+    value = consume_field(catalog.fields.get("sales.orders.value")).reference.ref
+    invalid_weight = consume_field(catalog.fields.get("sales.orders.invalid_weight")).reference.ref
     expression = mv.runtime_metric.weighted_mean(
         value,
         invalid_weight,
@@ -1366,8 +1377,8 @@ def test_catalog_readiness_blocks_cross_entity_and_cross_datasource_runtime_grap
     )
     catalog = SemanticCatalog(project)
     cross_entity = mv.runtime_metric.weighted_mean(
-        catalog.fields.get("sales.orders.order_value").ref.ref,
-        catalog.fields.get("sales.shipments.shipment_weight").ref.ref,
+        consume_field(catalog.fields.get("sales.orders.order_value")).reference.ref,
+        consume_field(catalog.fields.get("sales.shipments.shipment_weight")).reference.ref,
         label="Cross entity weighted mean",
     )
     cross_entity_report = catalog.readiness(refs=[cross_entity])
@@ -1380,12 +1391,12 @@ def test_catalog_readiness_blocks_cross_entity_and_cross_datasource_runtime_grap
 
     cross_datasource = mv.runtime_metric.ratio(
         mv.runtime_metric.aggregate(
-            catalog.fields.get("sales.orders.order_amount").ref.ref,
+            consume_field(catalog.fields.get("sales.orders.order_amount")).reference.ref,
             agg="sum",
             label="Orders total",
         ),
         mv.runtime_metric.aggregate(
-            catalog.fields.get("sales.returns.return_amount").ref.ref,
+            consume_field(catalog.fields.get("sales.returns.return_amount")).reference.ref,
             agg="sum",
             label="Returns total",
         ),
@@ -1404,11 +1415,11 @@ def test_catalog_readiness_blocks_runtime_depth_and_forest_occurrence_limits(
     semantic_project_factory,
 ) -> None:
     catalog = _make_rich_catalog(semantic_project_factory)
-    amount = catalog.fields.get("sales.orders.amount").ref.ref
+    amount = consume_field(catalog.fields.get("sales.orders.amount")).reference.ref
     total = mv.runtime_metric.aggregate(amount, agg="sum", label="Runtime total")
     deep = mv.runtime_metric.slice(
         total,
-        by={catalog.fields.get("sales.orders.region").ref.ref: "north"},
+        by={consume_field(catalog.fields.get("sales.orders.region")).reference.ref: "north"},
         label="Depth 1",
     )
     for index in range(10):
@@ -1446,8 +1457,8 @@ def test_catalog_readiness_returns_json_safe_blocker_for_nonfinite_runtime_slice
     semantic_project_factory,
 ) -> None:
     catalog = _make_rich_catalog(semantic_project_factory)
-    amount = catalog.fields.get("sales.orders.amount").ref.ref
-    region = catalog.fields.get("sales.orders.region").ref.ref
+    amount = consume_field(catalog.fields.get("sales.orders.amount")).reference.ref
+    region = consume_field(catalog.fields.get("sales.orders.region")).reference.ref
     expression = mv.runtime_metric.aggregate(
         amount,
         agg="sum",
@@ -1615,12 +1626,12 @@ def test_catalog_metric_values_preserve_declared_and_absent_units(semantic_proje
     catalog = SemanticCatalog(project)
     revenue = catalog.require(ms.ref.metric("sales.revenue"))
     margin = catalog.require(ms.ref.metric("sales.gross_margin"))
-    assert isinstance(revenue, Metric)
-    assert revenue.unit == "CNY"
-    assert revenue.contract().unit == "CNY"
-    assert isinstance(margin, Metric)
-    assert margin.unit is None
-    assert margin.contract().unit is None
+    assert isinstance(revenue, Deferred)
+    assert consume_metric(revenue).unit == "CNY"
+    assert catalog.describe(ms.ref.metric("sales.revenue")).unit == "CNY"
+    assert isinstance(margin, Deferred)
+    assert consume_metric(margin).unit is None
+    assert catalog.describe(ms.ref.metric("sales.gross_margin")).unit is None
 
 
 def test_catalog_details_cover_all_public_ir_fields() -> None:

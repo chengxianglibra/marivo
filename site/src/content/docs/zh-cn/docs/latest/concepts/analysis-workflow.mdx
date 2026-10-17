@@ -1,16 +1,18 @@
 ---
-title: 分析流程
-description: 构造明确的分析，执行后读取已提交结果。
+title: 分析工作流
+description: 组合语义表达式、显式坐标域和窗口，再发布终端结果。
 ---
 
-## R2.2：绑定普通 Metric Query
+## 从 Metric 构造 Query
 
-已有销售语义模型时，直接解析 Metric 和字段：
+从已声明的模型解析业务表达式。构造 Query 不读取 schema 或业务行，也不创建 Run。
 
 ```python
+import marivo
 import marivo.analysis as mv
+import marivo.semantic as ms
 
-session = mv.session.get_or_create("metric-review", report_timezone="Asia/Shanghai")
+session = mv.session.get_or_create("metric-review", report_timezone="UTC")
 revenue = session.catalog.metrics.get("sales.revenue")
 aov = session.catalog.metrics.get("sales.aov")
 region = session.catalog.fields.get("sales.customers.region")
@@ -22,240 +24,119 @@ query = session.observe(
     where=region == "APAC",
 )
 query.contract().show()
+result = query.execute()
+result.show(n=20)
 ```
 
-每个贡献根必须有唯一的声明单值路径到 `region`。
-显式字段角色使用 `field.via((relationship,))`；版本化属性还需
-`field.at(session.instant(...))`。这些绑定保持不可变。
-构造和检查 Query 不读取业务行或 schema，也不创建 Run。
-期间冻结 UTC 精确锚点和日历时区；拒绝 Python naive datetime、DST 歧义和不存在的时刻。
-普通规约省略 `during` 时不追加时间过滤；采样依赖仍须显式提供期间。
-共同条件分别绑定到每个来源规约出现。
+每个贡献根到普通分组字段都需要合法的标量路径。用
+`field.via((relationship,))` 捕获显式标量角色；版本属性通过
+`field.at(session.instant(...))` 绑定精确时刻。绑定保持不可变。
+共同条件分别绑定到每个贡献使用位置。普通规约省略 `during` 不追加时间过滤；
+时间采样和窗口依赖仍要求显式期间或端点。
 
-`query.execute()` 准备来源 schema 并规划阶段，随后创建 Run、执行来源数值规约和
-pandas 公式组合，最后原子发布 Store 10 产物。每次调用重新求值；准备失败不创建 Run。
-数值执行支持零分母、NA 政策与完整坐标键；准备支持单值路径、精确版本锚点、计算物理字段、
-解析/民用日期时间及编码 Duration 单位。不同 datasource 根分别规约后组合，无来源日历保留完整桶。
-Population 和窗口输入随所属阶段交付。`Artifact` 保持终端只读，只提供
-`id`、`session_id`、`show(n=20)`、`to_pandas()`、`findings()` 和
-`evidence_digest()`，没有 DSL 方法或 `contract()`。
-`session.artifact(id)` 只接受精确字符串 ID，保留文件并拒绝旧图产物。
-打开与 repr 只读已提交元数据；预览有界解码，完整 pandas 导出保留精确类型与纯数据 attrs。
-Finding 保留分页；evidence_digest() 无参返回全部已保存事实（.items）。
-新产物和重开产物使用同一阅读路径，不依赖当前来源或 Catalog。writer 保存完整键、nullable 值、独立 presence、必要输出附件及
-实际读取/检查 Evidence；普通观察的 Finding 为空。不保存图、语义定义、隐藏组件或 continuation。
-以下示例描述等待替换的旧执行路径；旧图发布器在 Store 10 中不可用。
+## 选择实际坐标或完整坐标域
 
-从已确认口径的 Metric、成员 Entity 和针对当前问题的 Session 开始。
-[Python 教程](/zh-cn/docs/latest/guides/python-quick-start/)提供完整本地项目。
-本页示例使用另一套已加载的销售模型：包含客户、订单、收入以及订单到买家的已声明关系。
-
-## 构造、执行、读取
-
-`members()`保留 Entity 完整、有序的主键。观察绑定已治理 Metric 和明确窗口；比较方向是当前值减去基准值。
-
-{/* example: customer-period-change */}
+普通 `by=(region,)` 按实际出现的坐标分组。Population 指定完整有限输出域，
+包含明确要求保留的空坐标：
 
 ```python
-import marivo
-import marivo.analysis as mv
-import marivo.semantic as ms
+regions = mv.coordinates(by=(region,), keys=(("APAC",), ("EMEA",)))
+query = session.observe({"revenue": revenue}, during=scope, by=regions)
+keys_only = session.query(regions)
+keys_only.execute().show()
+```
 
-session = mv.session.get_or_create("revenue-review", report_timezone="UTC")
-customers = session.members(ms.ref.entity("sales.customer"))
-revenue = ms.ref.metric("sales.revenue")
-buyer = ms.ref.relationship("sales.order_buyer")
-current = customers.observe(
-    revenue,
-    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-    via=buyer,
-    by=(mv.member(),),
+完整输出域必须覆盖所有实际贡献坐标。空总量按规约的声明策略解释，例如默认 sum 为零。
+来源 Null 类别与缺少坐标保持区别。
+
+`session.members(ms.ref.entity("sales.customers"))` 从来源选择实际存在的完整 Entity 身份。
+`mv.identities(entity, keys=(("C1",),))` 则捕获明确的身份引用，不证明来源档案存在。
+复合主键仍是一个身份轴，包含按声明顺序排列的全部分量。
+
+Population 支持 `project(by=...)`、`union`、`intersection`、`difference`，以及
+`where(mv.in_population(other))`；谓词使用 `&`、`|`、`~` 组合。
+`classify(by=(field,))` 明确读取身份 Entity 的属性。
+`image(via=(relationship,))` 沿声明方向取得目标身份；
+`preimage(targets, via=(relationship,))` 仅保留接收者中匹配的身份。
+缺少必需属性或关系映射会失败；能由完整外键确定的目标引用不会因目标档案缺失而被删除。
+
+`mv.product(regions, calendar)` 按因子顺序形成完整笛卡尔坐标域。
+使用日历域的观察还必须传入相容的 `during`，不会从域反推观察期间。
+
+`query.population()` 捕获该 Query 自己的坐标选择、期间、条件、声明闭包和 Session。
+它仍保持惰性，另一次观察不会覆盖已捕获的选择上下文。
+通过 `session.query(population)` 发布完整键；Population 没有 `execute()` 方法。
+
+## 显式分配重叠成员桶
+
+membership 描述绑定成员分桶字段与贡献分配路径。同一个描述内的多个字段保持相关：
+
+```python
+tag = session.catalog.fields.get("sales.tags.label")
+order_links = session.catalog.relationships.get("sales.order_links")
+link_tags = session.catalog.relationships.get("sales.link_tags")
+tags = mv.membership(
+    tag, via=((order_links, link_tags),), unmatched="exclude"
 )
-baseline = customers.observe(
-    revenue,
-    during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
-    via=buyer,
-    by=(mv.member(),),
+query = session.observe({"revenue": revenue}, during=scope, by=(tags,))
+```
+
+同一完整贡献身份到同一桶的重复映射只计一次；值相同的不同贡献仍分别保留。
+多个独立 membership 描述形成独立分配因子。
+选择 `unmatched="null"` 可将未分配贡献保留在 Null 桶中。
+成员身份域使用相同描述进行 classify 时，直接读取成员字段，
+并为后续观察保留分配定义，不在分类时执行分配路径。
+
+## 规约完整的内部 Metric 样本
+
+`per` 先在每个样本坐标求完整 Metric 公式，再规约这些值。
+因此每客户比率的均值与总体比率保持不同含义：
+
+```python
+customer = session.catalog.fields.get("sales.orders.customer")
+customers = mv.coordinates(by=(customer,), keys=((1,), (2,), (3,)))
+query = session.observe({"mean_customer_revenue": revenue.per(customers).mean()})
+```
+
+字段或 membership 描述使用实际样本。显式 Population 选择完整内部样本，
+空样本按各自规约策略处理。内部样本可以选择子域；外部输出域必须覆盖实际输出坐标。
+整个组合过程保留精确坐标类型与 Session 归属。
+
+## 在 Metric 上声明端点窗口
+
+窗口规则属于 Metric；观察提供评价端点：
+
+```python
+from datetime import timedelta
+
+rolling = revenue.window(mv.trailing_duration(duration=timedelta(days=7)))
+query = session.observe(
+    {"rolling_revenue": rolling},
+    during=scope.by(mv.grain("day")),
+    by=(region,),
 )
-change = current.compare(baseline).absolute.execute()
-change.show()
 ```
 
-构造返回 Logical relation，不读取业务行，也不分配 Run。
-为确定键和值类型，schema-only preflight 可能连接数据源。
-`execute()`完成准入和图执行，然后发布 Materialized 结果。
-Materialized 接收者只提供结果读取。所有 DSL 组合都在 Logical 定义上完成后再执行；
-需要外部分析时，使用 `to_pandas()` 导出。
+`all_history()` 没有下界，`trailing_duration` 使用实际经过时长，
+`trailing_periods(count=...)` 要求日历期间，`since(start=...)` 保留精确固定起点，
+`to_date(grain=...)` 在民用或语义期间边界重置。
+所有窗口都在端点之前按左闭右开范围取贡献；实际裁剪后的输出端点与名义日历边界保持区别。
 
-单独执行 `session.members(entity).execute()` 会读取并保存完整成员主键集合，
-可能扫描整个 Entity 来源，不设默认行数截断。主键唯一性和没有历史版本
-都不会限制成员数量。执行图没有默认执行期限；`show(n=...)` 只限制展示。
+## 执行并读取已提交输出
 
-成员类型的规范入口是 `marivo.help("analysis.LogicalAnalysisDomain")`；
-接收者方法可以用 `marivo.help(customers.execute)` 查询。
-`group_by` 等方法名需要接收者，例如 `marivo.help(current.group_by)`。
+执行先准备真实来源 schema 并固定计划，再准入 Run。每次调用重新求值输入，
+原子发布 Artifact。纯有限键程序在完成必需的类型准备后本地执行；
+来源驱动的域和 Metric 使用已获准的 datasource 读取。
 
-执行抛出分析错误时，如果其可选字段 `run_ref` 有值，
-用 `session.get_run(error.run_ref).show()` 检查对应 Run。
-Run 入库前失败不会创建新 Run。源执行失败后再次执行会创建新的 Run；
-`session.runs(status="failed").show()` 可以读取保留的失败历史。
-`mv.session.abandon_run(session_id=session.id, run_id=run_id)` 会协调未完成或失败的
-Run 及其资源，同时保留审计历史。
+Artifact 是终端结果，可调用 `show(n=20)`、`to_pandas()`、`findings()` 和
+`evidence_digest()`。完整 pandas 导出是独立副本。
+用 `session.artifact(result.id)` 打开精确保存的 ID，不恢复计算也不读取当前来源。
+Artifact 不能成为语义表达式输入。
 
-## 读取数据与合法后续操作
+准备失败不创建 Run。准入之后的失败可通过错误中的 `run_ref` 调用
+`session.get_run(run_ref).show()` 检查；重试是新的执行调用。
+预览上限不截断执行或完整导出。
 
-`show()`读取保存的数据。`contract()`在不读取业务行的情况下描述机械上可用的操作，并不替你决定下一项有价值的业务问题。
-
-{/* example: bounded-result-display */}
-
-```python
-change.show(n=20)
-change.show(n=0)
-change.show(max_output_bytes=None)
-```
-
-默认输出预算为 8 KiB，不设默认行数上限。无法容纳时省略完整行，
-Defined、Null、Undefined、Unknown 保留各自的标签与原因。
-`to_pandas()`返回完整、隔离的副本，属于终端展示边界。
-展示限制不会改变执行限制。
-
-## 聚合原始含义
-
-本例复用上面的 `session`、`mv`、`ms`。销售模型声明了可加的收入 Metric 及其买家路径。
-
-{/* example: customer-original-rollup */}
-
-```python
-customers = session.members(ms.ref.entity("sales.customer"))
-revenue = ms.ref.metric("sales.revenue")
-buyer = ms.ref.relationship("sales.order_buyer")
-august = mv.time_scope(start="2026-08-01", end="2026-09-01")
-august_revenue = customers.observe(
-    revenue, during=august, via=buyer, by=(mv.member(),)
-)
-total = customers.observe(revenue, during=august, via=buyer)
-total.execute().show()
-total.contract().show()
-for action in total.contract().actions:
-    print(action.call, action.help_target)
-saved_observation = august_revenue.execute()
-saved_observation.show()
-august_revenue.aggregate(method=mv.count()).execute().show()
-order_count = ms.ref.metric("sales.order_count")
-per_customer_count = customers.observe(
-    order_count, during=august, via=buyer, by=(mv.member(),)
-)
-total_count = customers.observe(order_count, during=august, via=buyer).execute()
-merged_count = per_customer_count.rollup().execute()
-merged_count.show()
-```
-
-`rollup()`合并充分的原始 Metric 组成状态，再完成已治理方程。
-`aggregate()`则对当前表示的行创建新统计量。
-显示均值的平均值并不等于原始加权均值。
-同一 Entity 根上的分组观察，不因分组而额外需要关系。
-
-对于 Count，`rollup()` 合并原始贡献次数；`aggregate(mv.count())` 统计当前结果行数。
-原生表的 Count rollup 支持 PostgreSQL、MySQL、Trino、ClickHouse 已注册的 UTC 微秒 Ibis 形态。
-缺少物理支持时，错误保留精确键并给出有界的已注册候选；候选不适用时，保留现有数据源并报告该键。
-分类 Count 保留平面坐标状态，PostgreSQL 也采用同一布局。方法、类型、时间和物理 profile 仍须满足精确准入。
-
-普通 `observe` 直接计算总体指标。成员范围决定纳入哪些贡献；`by=(mv.member(),)` 保留成员完整身份，`by=(dimension,)` 直接计算分组指标。`during=grid` 始终保留全部时间桶，`by` 只选择空间粒度；端点读取与累计观测通过 `at=grid.before_end/end` 直接绑定网格。归因需要分区时，先观测分区再做原始归并。数值、比率和统计结果保留 `group_by`；成员域与分类、布尔、时间结果不提供该方法。非数值标量结果仍支持整体 `aggregate(mv.count()/mv.count_defined())`。预设报表行在 `to_pandas()` 导出后由外部补齐，外部结果不能重新进入类型化分析。
-
-省略 `by` 与传入 `by=()` 均计算总体指标。
-`by=(mv.member(), channel)` 按客户与渠道计算指标，并保留客户完整、有序的主键，
-以便后续调用 `members()`。标记不接收参数，由 `customers` 提供身份；
-`observe.by` 不再接受 Entity Ref。标记仅用于 `observe.by`，结果的 `group_by`
-继续使用已有的轴选择规则。
-
-分类 `read` 与链式 `.where()` 统一返回 `LogicalCategoryRelation`；旧执行路径
-返回 `MaterializedCategoryRelation`。分类筛选应在执行前的 Logical 定义上完成。作为 `by` 输入的分类经筛选后仍须覆盖全部消费键；若需限制成员范围，
-先通过其 `.members()` 构建观测接收者。
-
-## 按同一实体分组
-
-此销售模型使用 `sales.order` 和其已声明的类别维度 `channel`。
-
-{/* example: same-entity-grouping */}
-
-```python
-orders = session.members(ms.ref.entity("sales.order"))
-channel = ms.ref.dimension("sales.order.channel")
-channel_revenue = orders.observe(
-    ms.ref.metric("sales.revenue"),
-    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-    by=(channel,),
-).execute()
-channel_revenue.show()
-```
-
-`read` 和普通成员域的 `observe` 会自动推导唯一的、有完整键的正向单值路径。
-省略 `via` 与传入 `None` 含义相同。存在多个合法关系角色时，用 Relationship Ref
-或 `mv.path(first, *rest)` 明确选择。`via=(path_a, path_b)` 按根身份绑定，
-参数顺序无关，也可以只填写需要消歧的根。read 只接受一条成员到字段 owner 的路径。
-`mv.path(a, b)` 表示连续两跳；`via=(a, b)` 表示两个来源的路径选择。
-关系完整匹配信任消费契约，未静态证明的部分记录为未验证前提，不执行匹配预检查。
-
-贡献归属与维度取值可以使用不同路径。下例模型声明了订单行、订单行经订单到买家的路径，
-以及独立的订单行到商品路径。商品类别按订单行完整键在收入聚合前附着；绑定唯一时，
-裸 `by=(product_category,)` 得到相同结果。分类必须覆盖所消费的完整贡献键；该要求是信任前提，不承诺自动检测声明违约。
-版本化字段仍需独立的 `read(..., at=...)`，观察窗口不会自动选择字段版本。
-
-{/* example: contribution-classification */}
-
-```python
-customers = session.members(ms.ref.entity("sales.customer"))
-lines = session.members(ms.ref.entity("sales.order_line"))
-category = lines.read(
-    ms.ref.dimension("sales.product.category"),
-    via=ms.ref.relationship("sales.line_product"),
-)
-category_revenue = customers.observe(
-    ms.ref.metric("sales.line_revenue"),
-    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-    by=(category,),
-).execute()
-category_revenue.show()
-```
-
-同一 Dimension 经不同明确角色读取会保留不同坐标绑定。后续分组、统计 rollup 或保留轴归因中若裸
-Dimension Ref 有歧义，使用对应的分类对象选择角色。归因沿用端点的完整有序坐标轴。执行前的组合使用已捕获的绑定和完整键，不重新推导路径。
-五种后端均使用平面贡献坐标状态，包括 MySQL 和 ClickHouse。结果键中已有的坐标复用原始分量；其余坐标保留完整的平面分区。真实的全 Null 贡献与空目标仍有区别。自动关系推导仍遵守精确后端准入边界。归因应在比较的 Logical 定义上完成后再执行；旧格式状态需要重新执行。
-冻结定义使用共享契约表，避免相同事实与绑定在各个图节点重复展开，在现有定义预算内保留原始归因范围与执行前的源图组合能力。较早格式的图快照需要重新执行，已有历史与文件会保留。
-
-## 明确来源与已保存结果边界
-
-再次执行 live 定义会读取当前来源。`session.artifact(id)` 只打开确切的当前终态结果，
-提供预览、完整 pandas 导出和已保存事实。旧图输出仍被拒绝，已有文件保持不变。
-冷存重开的 Artifact 与旧内存 Materialized 结果均不能重新进入 DSL 计算。
-
-继续阅读[时间与群体](/zh-cn/docs/latest/guides/time-and-cohorts/)、
-[比较与归因](/zh-cn/docs/latest/guides/comparison-and-attribution/)、
-[统计方法](/zh-cn/docs/latest/guides/statistics/)或[证据与恢复](/zh-cn/docs/latest/concepts/evidence/)。
-不熟悉某项能力时从 `marivo.help("analysis")`开始；已有对象时跟随其 contract
-和确切 Help 目标。结构化错误负责具体修复。
-
-## 发现 Session
-
-Session 发现只读取当前代 Store。尚未创建当前 Store 时，
-`mv.session.current()` 返回 `None`，`mv.session.recent()` 返回空页，
-这些读取不会创建 Store 状态。旧代目录可以保留在同一项目中，同时创建新的
-Session；旧代 Session 不会被读取或迁移。当前 Store 无效或不可读时，
-仍会抛出结构化错误。
-
-{/* example: session-discovery */}
-
-```python
-import marivo.analysis as mv
-
-current = mv.session.current()
-history = mv.session.recent(limit=5)
-session = mv.session.get_or_create("revenue-review", report_timezone="UTC")
-```
-
-## 保存语义范围
-
-`mv.session.get_or_create("sales-review", domains="sales")` 保存准确的语义 domain
-选择，也可传入非空序列。再次获取时省略参数会保留原范围，显式传入冲突范围会失败。
-用 `session.domains` 读取它；已保存结果仅供读取，不需要当前模型，也不能重新进入 DSL 计算。
-Session 元数据使用 Store 第 10 代；旧代目录保持原样，不自动迁移。
+使用 `marivo.help("analysis.Population")`、`marivo.help("analysis.membership")`、
+`marivo.help("analysis.Query.population")` 和 `marivo.help("analysis.windows")`
+查看聚焦的当前合同。

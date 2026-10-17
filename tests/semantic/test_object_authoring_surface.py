@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo._definition.deferred import root_declaration
+from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.errors import SemanticDecoratorError, SemanticExpressionError
-from marivo.semantic.expressions import Measure, Metric
 from marivo.semantic.ir import (
     AiContextIR,
     DateParse,
@@ -146,7 +148,7 @@ def test_measure_dimension_metric_and_aggregate_authoring() -> None:
         orders_value = finalized.resolve(orders)
 
         @ms.measure()
-        def named_amount() -> Measure:
+        def named_amount() -> Deferred:
             return amount_value
 
         @ms.metric(
@@ -154,7 +156,7 @@ def test_measure_dimension_metric_and_aggregate_authoring() -> None:
                 business_definition="Historical SQL: select sum(amount) from orders"
             )
         )
-        def revenue() -> Metric:
+        def revenue() -> Deferred:
             return named_amount.sum()
 
         average_amount = amount_value.mean()
@@ -164,9 +166,9 @@ def test_measure_dimension_metric_and_aggregate_authoring() -> None:
     assert kinds["sales.orders.region"] == "DimensionIR"
     assert kinds["sales.orders.amount"] == "MeasureIR"
     assert "sales.revenue" not in kinds
-    assert named_amount.declaration.name == "named_amount"
-    assert revenue.declaration.name == "revenue"
-    assert average_amount.roots == (orders_value.ref,)
+    assert root_declaration(named_amount).name == "named_amount"
+    assert root_declaration(revenue).name == "revenue"
+    assert consume_metric(average_amount).roots == (orders_value.ref,)
 
 
 def test_dimension_rejects_measure_only_arguments_by_signature() -> None:

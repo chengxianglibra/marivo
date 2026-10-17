@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -17,8 +17,11 @@ import duckdb
 import ibis
 
 if TYPE_CHECKING:
+    from marivo._definition.expressions import MetricExpression, MetricNode
     from marivo._help.render import PublicHelpTarget
+    from marivo._temporal import CalendarAxis, TimeScope
     from marivo.analysis.core.time_authority import TemporalExecution
+    from marivo.analysis.dsl.query import Query
     from marivo.analysis.session.core import Session
     from marivo.datasource.ir import DatasourceIR
     from marivo.refs import EntityKind, MeasureKind, Ref
@@ -960,3 +963,49 @@ def run_ids(session: Session) -> set[str]:
         cursor = page.next_cursor
         if cursor is None:
             return identities
+
+
+def numeric_program_query(
+    session: Session,
+    outputs: Mapping[str, MetricNode],
+    *,
+    during: TimeScope | CalendarAxis | None = None,
+) -> Query:
+    """Build a terminal/compiler fixture from closed numeric nodes, bypassing authoring.
+
+    Bare literals are deliberately not public Metric inputs. These tests exercise
+    source-free planning and stored-output behavior after authoring has completed.
+    """
+    from marivo._definition.relations import ObserveQuery
+    from marivo._definition.types import Owner
+    from marivo.analysis.binding.observe import bind_observation
+    from marivo.analysis.core.graph import BoundGraph
+    from marivo.analysis.core.model import BoundQuantity, BoundSignature
+    from marivo.analysis.dsl.query import Query
+
+    owner = Owner(session.id, session._runtime.store.store_id)
+    metrics = tuple(outputs.items())
+    observation = bind_observation(
+        metrics, {}, during=during, by=(), where=None, timezone=session.report_tz_name, state=None
+    )
+    signature = BoundSignature(
+        owner,
+        tuple(BoundQuantity(name, node, None) for name, node in metrics),
+        observation.coordinates.axes,
+        observation=observation,
+    )
+    result = object.__new__(Query)
+    object.__setattr__(
+        result, "_graph", BoundGraph(ObserveQuery(metrics, signature.axes, owner), signature)
+    )
+    object.__setattr__(result, "_execute", session._execute_query)
+    return result
+
+
+def numeric_literal_node(value: int) -> MetricExpression:
+    """Return a closed native recipe for lower-level numeric/publication fixtures."""
+    from ibis.common.deferred import Just
+
+    from marivo._definition.expressions import MetricExpression
+
+    return MetricExpression(Just(value), ())

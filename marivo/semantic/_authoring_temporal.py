@@ -6,6 +6,8 @@ import datetime as _datetime
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from ibis.common.deferred import Deferred
+
 from marivo._temporal import Grain, semantic_grain
 from marivo.refs import (
     DimensionKind,
@@ -31,7 +33,6 @@ from marivo.semantic._authoring_context import (
 from marivo.semantic._authoring_validation import _validate_timezone
 from marivo.semantic._authoring_values import _build_ai_context
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
-from marivo.semantic.expressions import Dimension, TimeField
 from marivo.semantic.ir import PeriodCalendarIR, TemporalSetIR, WorkScheduleIR
 from marivo.semantic.typing import AiContextValue
 
@@ -57,7 +58,7 @@ class PeriodCorrespondence:
 
 
 def period_correspondence(
-    *, level: str, baseline_key: Dimension | Ref[DimensionKind]
+    *, level: str, baseline_key: Deferred | Ref[DimensionKind]
 ) -> PeriodCorrespondence:
     """Declare the baseline-key field for one named calendar correspondence.
 
@@ -88,10 +89,10 @@ def period_correspondence(
 def period_calendar(
     *,
     name: str,
-    date: TimeField | Ref[TimeDimensionKind],
+    date: Deferred | Ref[TimeDimensionKind],
     boundary_timezone: str,
     coverage: tuple[_datetime.date, _datetime.date],
-    levels: Mapping[str, Dimension | Ref[DimensionKind]],
+    levels: Mapping[str, Deferred | Ref[DimensionKind]],
     correspondences: Mapping[str, PeriodCorrespondence] | None = None,
     domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
@@ -234,12 +235,12 @@ def calendar_grain(*, calendar: Ref[PeriodCalendarKind], level: str) -> Grain:
 def temporal_set(
     *,
     name: str,
-    occurrence_id: Dimension | Ref[DimensionKind],
-    start: TimeField | Ref[TimeDimensionKind],
-    end: TimeField | Ref[TimeDimensionKind],
+    occurrence_id: Deferred | Ref[DimensionKind],
+    start: Deferred | Ref[TimeDimensionKind],
+    end: Deferred | Ref[TimeDimensionKind],
     boundary_timezone: str,
     coverage: tuple[_datetime.date, _datetime.date],
-    category: Dimension | Ref[DimensionKind] | None = None,
+    category: Deferred | Ref[DimensionKind] | None = None,
     domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
 ) -> Ref[TemporalSetKind]:
@@ -328,8 +329,8 @@ def temporal_set(
 def work_schedule(
     *,
     name: str,
-    date: TimeField | Ref[TimeDimensionKind],
-    is_working: Dimension | Ref[DimensionKind],
+    date: Deferred | Ref[TimeDimensionKind],
+    is_working: Deferred | Ref[DimensionKind],
     boundary_timezone: str,
     coverage: tuple[_datetime.date, _datetime.date],
     domain: Ref[DomainKind] | None = None,

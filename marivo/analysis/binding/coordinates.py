@@ -2,29 +2,58 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Literal
-
-from marivo._definition.types import AxisBinding, CalendarCoordinate, ExactRef, FieldRead
+from marivo._definition.observations import CoordinateBinding as CoordinateBinding
+from marivo._definition.types import (
+    ExactRef,
+    FieldRead,
+    IdentityRead,
+)
 from marivo.analysis.core.model import reject
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
 from marivo.analysis.observation.relationship_binding import RelationshipResolver
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import SemanticKind, ref
-from marivo.semantic.expressions import Field, _Resolver
+from marivo.semantic.expressions import _Resolver
 from marivo.semantic.validator import Registry
 
 
-@dataclass(frozen=True, slots=True)
-class CoordinateBinding:
-    """Ordered complete output axes and each root's single-valued classification."""
-
-    axes: tuple[AxisBinding | CalendarCoordinate, ...]
-    mode: Literal["calendar", "grouped", "singleton"]
-
-
-def field_read(field: Field) -> FieldRead:
-    return FieldRead(field.ref, field.root, tuple(step.ref for step in field.path), field.anchor)
+def bind_identity(
+    read: IdentityRead,
+    root: ExactRef,
+    registry: Registry,
+    resolver: _Resolver,
+    paths: RelationshipResolver,
+) -> IdentityRead:
+    """Bind all identity components through the same single-valued route."""
+    entity = registry.entities[read.entity.ref.path]
+    path = paths.resolve(
+        root.ref.path,
+        read.entity.ref.path,
+        explicit=tuple(ref.relationship(step.ref.path) for step in read.path)
+        if read.path
+        else None,
+        target="session.observe",
+    )
+    if entity.versioning is not None and read.entity.ref != root.ref and read.at is None:
+        reject(
+            "an exact attribute anchor for a versioned identity",
+            read.entity.ref.path,
+            "Select identities at session.instant(...).",
+            "session.observe",
+        )
+    if entity.versioning is None and read.at is not None:
+        reject(
+            "a versioned identity for an attribute anchor",
+            read.entity.ref.path,
+            "Remove the anchor from the unversioned identity.",
+            "session.observe",
+        )
+    return IdentityRead(
+        resolver.entity_ref(read.entity.ref.path),
+        tuple(resolver.exact(step) for step in path),
+        read.at,
+        tuple(entity.primary_key),
+    )
 
 
 def bind_read(

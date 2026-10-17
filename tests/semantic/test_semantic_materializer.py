@@ -15,6 +15,7 @@ import pytest
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.datasource.source import PartitionScope
+from marivo.semantic._deferred_semantics import consume_field, consume_row
 from marivo.semantic.catalog import SemanticCatalog, SemanticKind
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from marivo.semantic.ir import EntityProvenance
@@ -543,10 +544,10 @@ def test_column_helper_catalog_details_and_preview_requires_snapshot(
     catalog = SemanticCatalog(project)
 
     amount = catalog.require(ms.ref.measure("sales.orders.amount"))
-    assert amount.ref.ref.kind == SemanticKind.MEASURE
-    assert amount.ref.ref.path == "sales.orders.amount"
-    assert amount.unit == "USD"
-    assert amount.contract().unit == "USD"
+    assert consume_field(amount).reference.ref.kind == SemanticKind.MEASURE
+    assert consume_field(amount).reference.ref.path == "sales.orders.amount"
+    assert consume_row(amount).unit == "USD"
+    assert catalog.describe(ms.ref.measure("sales.orders.amount")).unit == "USD"
 
     with patch_semantic_connections(project, backend_factory), pytest.raises(TypeError):
         catalog.preview(amount, limit=2)  # type: ignore[call-arg]

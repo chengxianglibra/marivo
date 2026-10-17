@@ -21,7 +21,12 @@ from marivo.refs import (
 )
 from marivo.semantic._expression_binding import ExpressionBody
 from marivo.semantic.constraints import ConstraintId
-from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
+from marivo.semantic.errors import (
+    ErrorKind,
+    SemanticDecoratorError,
+    SemanticExpressionError,
+    _raise,
+)
 from marivo.semantic.ir import (
     DimensionIR,
     DomainIR,
@@ -41,7 +46,24 @@ if TYPE_CHECKING:
 
 
 def _value_ref(value: object) -> Ref[SemanticKindTag] | None:
+    from ibis.common.deferred import Deferred
+
+    from marivo.semantic._deferred_semantics import consume_field
     from marivo.semantic.expressions import Dimension, Entity, Measure, Relationship, TimeField
+
+    if isinstance(value, Deferred):
+        field = consume_field(value)
+        if field.field_read is not None and (
+            field.field_read.path or field.field_read.at is not None
+        ):
+            raise SemanticExpressionError(
+                kind=ErrorKind.INVALID_TIME_PATH,
+                message="A bound field cannot be used in physical authoring.",
+                action="Use the native field Ref in physical declarations; retain via only for its supported time= or predicate role.",
+                expected="an unbound native field",
+                received="a path-bound or anchored field",
+            )
+        return field.reference.ref
 
     if isinstance(value, (Dimension, TimeField, Measure)):
         value._require_native(operation="a source declaration lookup")

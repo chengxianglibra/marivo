@@ -19,28 +19,16 @@ from marivo._definition.expressions import (
     ContributionFilter,
     DeclaredMetricRef,
     EntityCount,
-    FieldIn,
-    FieldIsNull,
     FieldPredicate,
     MeasureAssertion,
-    MetricAdd,
-    MetricConstant,
-    MetricDivide,
-    MetricMultiply,
-    MetricNegate,
+    MetricExpression,
     MetricNode,
-    MetricSubtract,
-    PredAnd,
-    PredNot,
-    PredOr,
-    RowAdd,
-    RowCompare,
-    RowConstant,
-    RowDivide,
+    MetricWindow,
+    PerReduce,
+    PerWeightedMean,
+    RowExpression,
     RowField,
-    RowNegate,
     RowNode,
-    RowSubtract,
     SourceAggregate,
     SourceWeightedMean,
 )
@@ -2150,85 +2138,37 @@ def numeric_binary(
 
 def lower_row(node: RowNode, fields: Mapping[str, ir.Value]) -> NumericValue:
     """Lower one closed Row expression over already prepared physical fields."""
+    if isinstance(node, RowExpression):
+        from marivo.semantic._numeric_recipe import lower_recipe
+
+        return lower_recipe(node.recipe, tuple(lower_row(item, fields) for item in node.inputs))
     if isinstance(node, RowField):
-        value = fields.get(node.ref.ref.path)
+        from marivo._definition.types import field_read_key
+
+        value = fields.get(
+            field_read_key(node.read) if node.read is not None else node.ref.ref.path
+        )
         if value is None:
             numeric_failure(
                 f"a prepared physical field for {node.ref.ref.path}", "unbound field read"
             )
+        if node.ref.ref.kind is SemanticKind.MEASURE and not value.type().is_numeric():
+            numeric_failure(f"a numeric physical type for {node.ref.ref.path}", str(value.type()))
         if value.type().is_integer() and value.type().nbytes < 8:
             value = value.cast("int64")
         elif value.type().is_floating() and value.type().nbytes < 8:
             value = value.cast("float64")
         return NumericValue(value, _finite_check(value, node.ref.ref.path))
-    if isinstance(node, RowConstant):
-        return NumericValue(ibis.literal(node.value))
     if isinstance(node, MeasureAssertion):
         return lower_row(node.operand, fields)
-    if isinstance(node, RowNegate):
-        operand = lower_row(node.operand, fields)
-        return numeric_binary("multiply", operand, NumericValue(ibis.literal(-1)))
-    if isinstance(node, RowDivide):
-        return numeric_binary(
-            "divide",
-            lower_row(node.numerator, fields),
-            lower_row(node.denominator, fields),
-            zero_denominator=node.zero_denominator,
-        )
-    operation = (
-        "add"
-        if isinstance(node, RowAdd)
-        else "subtract"
-        if isinstance(node, RowSubtract)
-        else "multiply"
-    )
-    return numeric_binary(operation, lower_row(node.left, fields), lower_row(node.right, fields))
+    numeric_failure("an admitted native row recipe", type(node).__name__)
 
 
 def lower_field_predicate(node: FieldPredicate, fields: Mapping[str, ir.Value]) -> NumericValue:
-    """Lower a Field/Row predicate with the Row operation's own checks."""
-    if isinstance(node, (PredAnd, PredOr)):
-        values = tuple(lower_field_predicate(child, fields) for child in node.operands)
-        result = ibis.literal(isinstance(node, PredAnd))
-        for item in values:
-            result = result & item.value if isinstance(node, PredAnd) else result | item.value
-        return NumericValue(result, tuple(check for item in values for check in item.checks))
-    if isinstance(node, PredNot):
-        item = lower_field_predicate(node.operand, fields)
-        return NumericValue(~item.value, item.checks)
-    if isinstance(node, RowCompare):
-        item = lower_row(node.operand, fields)
-        value, checks = item.value, item.checks
-    else:
-        from marivo._definition.types import field_read_key
-
-        value = fields.get(
-            field_read_key(node.read) if node.read is not None else node.field.ref.path
-        )
-        if value is None:
-            numeric_failure(
-                f"a prepared physical field for {node.field.ref.path}",
-                "unbound predicate field read",
-            )
-        checks = ()
-        if isinstance(node, FieldIsNull):
-            return NumericValue(value.isnull())
-        if isinstance(node, FieldIn):
-            present = tuple(item for item in node.values if item is not None)
-            result = value.isin(present) if present else ibis.literal(False)
-            return NumericValue(result | value.isnull() if None in node.values else result)
-    if node.value is None:
-        return NumericValue(value.isnull() if node.op == "eq" else value.notnull(), checks)
-    literal = ibis.literal(node.value)
-    result = {
-        "eq": value == literal,
-        "ne": value != literal,
-        "lt": value < literal,
-        "le": value <= literal,
-        "gt": value > literal,
-        "ge": value >= literal,
-    }[node.op]
-    return NumericValue(result, checks)
+    """Lower a native boolean recipe with its demand-aware numeric checks."""
+    if not isinstance(node, RowExpression):
+        numeric_failure("an admitted native row predicate", type(node).__name__)
+    return lower_row(node, fields)
 
 
 def lower_source_reduction(
@@ -2276,7 +2216,34 @@ def lower_source_reduction(
     elif node.reducer == "count_distinct":
         result = value.nunique()
     elif node.reducer == "sum":
-        result = value.sum().fill_null(0)
+        result = value.sum()
+        aggregate_checks: tuple[NumericCheck, ...] = ()
+        if value.type().is_integer():
+            wide = value.cast("decimal(38,0)").sum()
+            overflow = (wide < -(2**63)) | (wide > 2**63 - 1)
+            aggregate_checks = (
+                NumericCheck(overflow, "signed int64 sum", "sum: integer overflow"),
+            )
+            result = overflow.ifelse(ibis.null().cast("int64"), wide.cast("int64"))
+        if node.empty == "zero":
+            result = result.fill_null(0)
+        return NumericValue(
+            result,
+            (
+                *(_aggregate_check(c) for c in checks),
+                *aggregate_checks,
+                *_finite_check(result, node.reducer),
+            ),
+        )
+    elif node.reducer == "approx_nunique":
+        result = value.approx_nunique()
+    elif node.reducer == "approx_median":
+        result = value.approx_median()
+    elif node.reducer == "approx_quantile":
+        numeric_failure(
+            "a qualified approximate quantile route",
+            "Ibis 12 has no approximate quantile operation",
+        )
     elif node.reducer == "mean":
         result = value.mean()
     elif node.reducer == "min":
@@ -2306,34 +2273,47 @@ def lower_metric_formula(
     """Compose completed reductions only; never join contribution rows."""
     if occurrence in values:
         return values[occurrence]
+    if isinstance(node, MetricExpression):
+        from marivo.semantic._numeric_recipe import lower_recipe
+
+        return lower_recipe(
+            node.recipe,
+            tuple(
+                lower_metric_formula(item, (*occurrence, i), values, declared)
+                for i, item in enumerate(node.operands)
+            ),
+        )
     if isinstance(node, DeclaredMetricRef):
         return lower_metric_formula(declared[node.ref], (*occurrence, 0), values, declared)
-    if isinstance(node, ContributionFilter):
+    if isinstance(node, (ContributionFilter, MetricWindow)):
         return lower_metric_formula(node.operand, (*occurrence, 0), values, declared)
-    if isinstance(node, MetricConstant):
-        return NumericValue(ibis.literal(node.value))
-    if isinstance(node, MetricNegate):
+    if isinstance(node, PerReduce):
+        if node.reducer == "approx_nunique":
+            numeric_failure(
+                "a qualified approximate internal distinct route",
+                "no qualified local approximate distinct kernel",
+            )
         item = lower_metric_formula(node.operand, (*occurrence, 0), values, declared)
-        return numeric_binary("multiply", item, NumericValue(ibis.literal(-1)))
-    if isinstance(node, MetricDivide):
+        # Only type preparation reaches an unmaterialized Per node. Local sample
+        # execution supplies its completed slot before numerical composition.
+        value = ibis.table({"value": item.value.type()}, name="_internal_sample_types").value
+        if node.reducer in ("count", "count_distinct", "approx_nunique"):
+            return NumericValue(value.count())
+        if node.reducer in ("mean", "median", "quantile", "approx_median", "approx_quantile"):
+            return NumericValue(
+                value.mean()
+                if node.reducer == "mean"
+                else value.quantile(node.q if node.q is not None else 0.5)
+            )
+        return NumericValue(value.sum() if node.reducer == "sum" else value.min())
+    if isinstance(node, PerWeightedMean):
+        value = lower_metric_formula(node.value, (*occurrence, 0), values, declared)
+        weight = lower_metric_formula(node.weight, (*occurrence, 1), values, declared)
         return numeric_binary(
             "divide",
-            lower_metric_formula(node.numerator, (*occurrence, 0), values, declared),
-            lower_metric_formula(node.denominator, (*occurrence, 1), values, declared),
+            numeric_binary("multiply", value, weight),
+            weight,
             zero_denominator=node.zero_denominator,
-        )
-    if isinstance(node, (MetricAdd, MetricSubtract, MetricMultiply)):
-        operation = (
-            "add"
-            if isinstance(node, MetricAdd)
-            else "subtract"
-            if isinstance(node, MetricSubtract)
-            else "multiply"
-        )
-        return numeric_binary(
-            operation,
-            lower_metric_formula(node.left, (*occurrence, 0), values, declared),
-            lower_metric_formula(node.right, (*occurrence, 1), values, declared),
         )
     numeric_failure(
         "ordinary source reductions and Metric arithmetic",

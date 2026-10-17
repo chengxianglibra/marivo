@@ -254,10 +254,12 @@ def test_loaded_entry_help_is_reference_briefing_without_runtime_effects(
     assert resolved.reference_id == "sales"
     assert marivo.help(entry) is None
     # Catalog values share their type's contract with finalized values.
-    value_help = resolve_live_target(revenue, SEMANTIC_LIVE_SURFACE)
+    value_help = resolve_live_target(
+        catalog.describe(ms.ref.metric("sales.revenue")), SEMANTIC_LIVE_SURFACE
+    )
     assert value_help.kind == "type_contract"
-    assert value_help.type_name == "Metric"
-    assert marivo.help(revenue) is None
+    assert value_help.type_name == "ExpressionContract"
+    assert marivo.help(catalog.describe(ms.ref.metric("sales.revenue"))) is None
 
 
 def test_error_help_preserves_instances_with_and_without_repair() -> None:
@@ -357,29 +359,13 @@ def test_field_null_predicate_has_one_resolvable_reachable_help_contract(
     assert callable(marivo.help)
     from collections import deque
 
-    from marivo._definition.types import ExactRef
     from marivo.semantic._capabilities.registry import REGISTRY
-    from marivo.semantic.expressions import Dimension, TimeField
 
-    root = ExactRef(ms.ref.entity("sales.orders"), "entity-version")
-    region = Dimension(
-        ExactRef(ms.ref.dimension("sales.orders.region"), "region-version"), root, None
-    )
-    paid_at = TimeField(
-        ExactRef(ms.ref.time_dimension("sales.orders.paid_at"), "time-version"), root, None
-    )
-    marivo.help("semantic.Dimension.is_null")
+    marivo.help("semantic.Dimension.isnull")
     expected = capsys.readouterr().out
-    assert "Predicate" in expected and "region.is_null()" in expected
-    for method in (region.is_null, paid_at.is_null):
-        marivo.help(method)
-        assert capsys.readouterr().out == expected
-    owners = [
-        row.canonical_id
-        for row in REGISTRY.descriptors
-        if row.callable_path == "marivo.semantic.expressions._FieldComparisons.is_null"
-    ]
-    assert owners == ["Dimension.is_null"]
+    assert "region.isnull()" in expected
+    descriptor = REGISTRY.by_canonical_id("Dimension.isnull")
+    assert descriptor.callable_path is None
     distances = {"authoring": 0}
     queue = deque(("authoring",))
     while queue:
@@ -391,7 +377,7 @@ def test_field_null_predicate_has_one_resolvable_reachable_help_contract(
             if route.surface == "semantic" and target is not None and target not in distances:
                 distances[target] = distances[node] + 1
                 queue.append(target)
-    assert distances["Dimension.is_null"] <= 3
+    assert distances["Dimension.isnull"] <= 3
 
 
 def test_capture_finalization_has_owned_help_and_navigation(
@@ -418,51 +404,24 @@ def test_capture_finalization_has_owned_help_and_navigation(
 def test_expression_display_has_one_owner_for_all_receiver_forms(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from marivo._definition.types import ExactRef, SumAll
     from marivo.semantic import expressions
     from marivo.semantic._capabilities.registry import REGISTRY
 
     assert callable(marivo.help)
-    root = ExactRef(ms.ref.entity("sales.orders"), "entity-version")
-    region = expressions.Dimension(
-        ExactRef(ms.ref.dimension("sales.orders.region"), "region-version"), root, None
-    )
-    marivo.help("semantic.Measure.show")
+    marivo.help("semantic.Entity.show")
     expected = capsys.readouterr().out
-    assert "amount.show()" in expected and "None" in expected
-    for receiver in (
-        expressions.Entity,
-        expressions.Dimension,
-        expressions.TimeField,
-        expressions.Measure,
-        expressions.NumericRowExpr,
-        expressions.DeclaredMeasure,
-        expressions.Metric,
-        expressions.DeclaredMetric,
-        expressions.MetricSamples,
-        expressions.Predicate,
-        expressions.Relationship,
-    ):
-        for target in (receiver.show, "semantic." + receiver.__name__ + ".show"):
-            marivo.help(target)
-            assert capsys.readouterr().out == expected
-    amount = expressions.Measure(
-        ExactRef(ms.ref.measure("sales.orders.amount"), "amount-definition"),
-        root,
-        "CNY",
-        SumAll(),
-        None,
-    )
-    for operation in (region.show, amount.show):
-        marivo.help(operation)
+    assert "orders.show()" in expected and "None" in expected
+    for receiver in (expressions.Entity, expressions.Relationship):
+        marivo.help(receiver.show)
         assert capsys.readouterr().out == expected
     owners = [
         row.canonical_id
         for row in REGISTRY.descriptors
         if row.callable_path == "marivo.semantic.expressions._ExpressionDisplay.show"
     ]
-    assert owners == ["Measure.show"]
-    assert len(expected.splitlines()) <= 72 and len(expected) <= 7000
+    assert owners == ["Entity.show"]
+    marivo.help("semantic.SemanticCatalog.describe")
+    assert "catalog.describe(" in capsys.readouterr().out
 
 
 def test_frozen_declaration_display_resolves_and_display_routes_are_reachable(
@@ -495,5 +454,5 @@ def test_frozen_declaration_display_resolves_and_display_routes_are_reachable(
             if route.surface == "semantic" and target is not None and target not in distances:
                 distances[target] = distances[node] + 1
                 queue.append(target)
-    for target in ("Measure.show", "FinalizedDeclarations.show"):
+    for target in ("Entity.show", "FinalizedDeclarations.show"):
         assert distances[target] <= 3

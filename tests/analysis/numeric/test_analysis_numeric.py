@@ -840,30 +840,21 @@ def test_numeric_boundary_facts(analysis_dsl_case_factory: DslCaseFactory, case_
             db.execute("UPDATE \"order\" SET amount='Infinity'::DOUBLE")
         elif case_kind == "calendar":
             db.execute("ALTER TABLE \"order\" ALTER amount TYPE INTERVAL USING INTERVAL '1 month'")
-    models = case.root / "models/semantic/sales/models.py"
-    models.write_text(
-        models.read_text().replace(
-            "granularity='second',", "granularity='second', is_default=True,"
-        )
-    )
-    ms.load(workspace_dir=case.root)
-    metric = mv.runtime_metric.aggregate(
-        ms.ref.measure("sales.order.amount"),
-        agg="mean" if case_kind == "large_mean" else "sum",
-        label="boundary",
-    )
-    logical = case.session.members(ms.ref.entity("sales.customer")).observe(
-        metric, via=ms.ref.relationship("sales.order_buyer"), by=(mv.member(),)
-    )
+    amount = case.session.catalog.fields.get("sales.order.amount")
+    metric = amount.mean() if case_kind == "large_mean" else amount.sum()
+    customer = case.session.catalog.fields.get("sales.order.customer_id")
+    logical = case.session.observe({"boundary": metric}, by=(customer,))
     if case_kind in ("overflow", "nonfinite", "calendar"):
         with pytest.raises(AnalysisError):
             logical.execute()
     else:
         expected = float(sum(numbers)) / len(numbers) if case_kind == "large_mean" else sum(numbers)
         fixed = logical.execute()
-        assert fixed.to_pandas().loc[0, "value"] == expected
-        assert logical.rollup().execute().to_pandas().loc[0, "value"] == expected
-        assert fixed.rollup().execute().to_pandas().loc[0, "value"] == expected
+        assert fixed.to_pandas()[("value", "boundary")].tolist() == [expected]
+        assert case.session.observe({"boundary": metric}).execute().to_pandas()[
+            ("value", "boundary")
+        ].tolist() == [expected]
+        assert case.session.artifact(fixed.id).to_pandas().equals(fixed.to_pandas())
 
 
 def test_fixed_numeric_merge_order_and_partition_oracle() -> None:

@@ -14,6 +14,7 @@ import ibis.expr.types as ir
 import pandas as pd
 import pyarrow as pa
 
+from marivo._definition.relations import LiteralPopulation, PopulationDependency, PopulationProgram
 from marivo.analysis.compiler.cell_lowering import lower_cells
 from marivo.analysis.compiler.graph_lowering import (
     IntegrityCheck,
@@ -1401,13 +1402,33 @@ def _admitted(schema: pa.Schema, path: str, column: str) -> SourceField:
     return SourceField(path, column, admit_source_type(item, path), item.nullable)
 
 
+def _query_populations(graph: BoundGraph) -> tuple[PopulationDependency, ...]:
+    from marivo._definition.graph import computation_fingerprint, walk
+
+    observation = graph.signature.observation
+    roots = (graph.root,)
+    if observation is not None and observation.coordinates.population is not None:
+        closure = walk(
+            (graph.root, observation.coordinates.population),
+            resolve=dict(graph.signature.declared_metrics).get,
+        )
+    else:
+        closure = walk(roots, resolve=dict(graph.signature.declared_metrics).get)
+    populations = {
+        computation_fingerprint(node): node
+        for node in closure.order
+        if isinstance(node, (PopulationProgram, LiteralPopulation))
+    }
+    return tuple(populations.values())
+
+
 def _query_entities(graph: BoundGraph, state: CompiledSemanticState) -> tuple[str, ...]:
     """Resolve every required Entity before opening connections."""
-    from marivo._definition.expressions import MemberCount, PerReduce, PerWeightedMean
+    from marivo._definition.expressions import MemberCount
     from marivo._definition.graph import walk
 
     closure = walk((graph.root,), resolve=dict(graph.signature.declared_metrics).get)
-    if any(isinstance(node, (MemberCount, PerReduce, PerWeightedMean)) for node in closure.order):
+    if any(isinstance(node, MemberCount) for node in closure.order):
         _route_gap(
             "ordinary source reductions and Metric formulas",
             "Population/sample preparation",
@@ -1418,7 +1439,11 @@ def _query_entities(graph: BoundGraph, state: CompiledSemanticState) -> tuple[st
     for contribution in () if observation is None else observation.contributions:
         root = contribution.root.ref.path
         entities[root] = None
-        for read in (*contribution.reads, *contribution.coordinates):
+        for read in (
+            *contribution.reads,
+            *contribution.coordinates,
+            *(read for _, read in contribution.population_reads),
+        ):
             entities[read.entity.ref.path] = None
             for step in read.path:
                 relation = state.registry.relationships[step.ref.path]
@@ -1430,9 +1455,13 @@ def _query_entities(graph: BoundGraph, state: CompiledSemanticState) -> tuple[st
             ):
                 _route_gap(
                     "scalar relationship endpoints on one datasource",
-                    read.field.ref.path,
+                    read.entity.ref.path,
                     "Reduce independent datasource roots separately before combining Metrics.",
                 )
+    from marivo.analysis.materialization.population_preparation import population_entities
+
+    for population in _query_populations(graph):
+        entities.update(dict.fromkeys(population_entities(population, state)))
     return tuple(entities)
 
 
@@ -1521,7 +1550,64 @@ def prepare_query_sources(
         )
         stage_id = "read:" + ".".join(str(i) for i in contribution.occurrence)
         relations[stage_id] = table
+    from marivo._definition.graph import computation_fingerprint
+    from marivo.analysis.dsl.population import population_keys
+    from marivo.analysis.materialization.population_preparation import (
+        population_entities,
+        prepare_population,
+    )
+
+    for population in _query_populations(graph):
+        required = population_entities(population, state)
+        datasources = {state.registry.entities[path].datasource for path in required}
+        finite = population_keys(population) is not None
+        if not finite and len(datasources) != 1:
+            _route_gap(
+                "one datasource for a source-driven Population",
+                "multiple datasources",
+                "Build independent source domains before combining their finite keys.",
+            )
+        prepared_population = prepare_population(population, entities, state)
+        source_id = "population:" + computation_fingerprint(population)
+        schema = prepared_population.table.schema().to_pyarrow()
+        keys = tuple(_admitted(schema, name, name) for name in prepared_population.key_columns)
+        schemas.append(
+            SourceSchema(
+                source_id,
+                keys,
+                (),
+                preparation_checks=prepared_population.checks,
+                key_groups=prepared_population.key_groups,
+                presence=prepared_population.presence,
+            )
+        )
+        if not finite:
+            relations[source_id] = prepared_population.table
+            owners[source_id] = owners[required[0]]
     return PreparedSources(source, tuple(schemas), relations, bounds, owners)
+
+
+def prepare_source_free_populations(
+    graph: BoundGraph, state: CompiledSemanticState
+) -> tuple[SourceSchema, ...]:
+    """Admit intrinsic calendar/unit key types without opening a datasource."""
+    from marivo._definition.graph import computation_fingerprint
+    from marivo.analysis.materialization.population_preparation import prepare_population
+
+    schemas: list[SourceSchema] = []
+    for population in _query_populations(graph):
+        prepared = prepare_population(population, {}, state)
+        schema = prepared.table.schema().to_pyarrow()
+        schemas.append(
+            SourceSchema(
+                "population:" + computation_fingerprint(population),
+                tuple(_admitted(schema, name, name) for name in prepared.key_columns),
+                (),
+                key_groups=prepared.key_groups,
+                presence=prepared.presence,
+            )
+        )
+    return tuple(schemas)
 
 
 @contextmanager
@@ -1573,7 +1659,17 @@ def read_stage(prepared: PreparedSources, lowered: LoweredRead) -> StageOutput:
     frame = source.execute(issued)
     from marivo.semantic.metric_graph_lowering import numeric_failure
 
+    retained_checks = {column.slot_id for column in stage.columns}
+    for name in (
+        "__numeric_present",
+        "__sample_present",
+        *(name for name, _ in lowered.numeric_checks),
+    ):
+        if name in retained_checks and name in frame.columns:
+            frame[name] = frame[name].astype("boolean").fillna(False)
     for name, check in lowered.numeric_checks:
+        if name in retained_checks:
+            continue
         if frame[name].fillna(False).any():
             coordinates = frame.loc[frame[name].fillna(False), list(stage.keys)].head(6)
             received = f"{check.received}; source={stage.source_id}; coordinates={coordinates.to_dict(orient='records')}"
@@ -1581,12 +1677,18 @@ def read_stage(prepared: PreparedSources, lowered: LoweredRead) -> StageOutput:
                 raise MaterializationError(
                     expected=check.expected,
                     received=received,
-                    repair="Inspect the relationship keys and exact snapshot/validity selection. Correct missing matches or overlapping rows so each selected contribution has exactly one matching field row, then retry.",
-                    stage="scalar_field_lookup",
+                    repair=(
+                        "Include every observed output coordinate in by=Population, or explicitly filter contributions before choosing that output domain."
+                        if name == "__query_population_uncovered"
+                        else "Inspect the relationship keys and exact snapshot/validity selection. Correct missing matches or overlapping rows so each selected contribution has exactly one matching field row, then retry."
+                    ),
+                    stage="population_coverage"
+                    if name == "__query_population_uncovered"
+                    else "scalar_field_lookup",
                     help_target="Query.execute",
                 )
             numeric_failure(check.expected, received)
-    if "__numeric_present" in frame.columns:
+    if "__numeric_present" in frame.columns and "__numeric_present" not in retained_checks:
         frame = frame.loc[frame["__numeric_present"].fillna(False)]
     from fractions import Fraction
 

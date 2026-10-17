@@ -10,7 +10,9 @@ import marivo.semantic as ms
 if TYPE_CHECKING:
     session = mv.session.get_or_create("recovery-typing")
     members = session.members(ms.ref.entity("sales.orders"))
-    assert_type(members, mv.LogicalAnalysisDomain)
+    assert_type(members, mv.Population)
+    assert_type(session.query(members), mv.Query)
+    assert_type(session.query(members).population(), mv.Population)
     recovered = session.artifact("artifact_current")
     assert_type(recovered, mv.Artifact)
     metric = session.catalog.metrics.get("sales.revenue")

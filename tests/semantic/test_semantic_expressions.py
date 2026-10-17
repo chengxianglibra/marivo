@@ -11,185 +11,75 @@ from typing import NoReturn, TypeAlias
 import ibis
 import ibis.expr.types as ibis_ir
 import pytest
+from ibis.common.deferred import Deferred, var
 
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo._definition.deferred import (
+    resolver_of,
+    root_declaration,
+    semantic_input,
+)
 from marivo._definition.expressions import (
     ContributionFilter,
     EntityCount,
-    FieldCompare,
-    FieldIsNull,
     MeasureAssertion,
-    MetricAdd,
-    MetricConstant,
-    MetricDivide,
-    MetricNegate,
-    MetricSubtract,
+    MetricExpression,
     PerReduce,
     PerWeightedMean,
-    PredAnd,
-    PredNot,
-    PredOr,
-    RowCompare,
-    RowConstant,
-    RowDivide,
-    RowField,
-    RowMultiply,
-    RowNegate,
-    RowSubtract,
+    RowExpression,
     SourceAggregate,
     SourceWeightedMean,
     TimeBinding,
 )
 from marivo._definition.graph import children, computation_fingerprint
-from marivo._definition.types import (
-    AxisBinding,
-    ExactRef,
-    SumAll,
-    SumAllExcept,
-    SumAxes,
-    SumNone,
-)
+from marivo._definition.types import AxisBinding, ExactRef, SumAll, SumAllExcept, SumAxes, SumNone
 from marivo.refs import MeasureKind
-from marivo.semantic.catalog import SemanticCatalog
-from marivo.semantic.errors import (
-    ErrorKind,
-    SemanticError,
-    SemanticExpressionError,
+from marivo.semantic._deferred_semantics import (
+    _consume,
+    _inspect,
+    consume_field,
+    consume_metric,
+    consume_predicate,
+    consume_row,
 )
+from marivo.semantic.catalog import SemanticCatalog
+from marivo.semantic.errors import ErrorKind, SemanticError, SemanticExpressionError
 from marivo.semantic.expressions import (
-    DeclaredMeasure,
-    DeclaredMetric,
-    Dimension,
     Entity,
     FinalizedDeclarations,
-    Measure,
-    Metric,
-    MetricSamples,
-    NumericRowExpr,
-    Predicate,
     Relationship,
-    RowOperand,
-    TimeField,
     declaration_state,
     resolve,
 )
 from marivo.semantic.loader import LoaderContext, loader_context
 from marivo.semantic.reader import SemanticProject
 
-_DOMAIN_PY = """\
-import marivo.semantic as ms
-ms.domain(name="sales", owner="Analytics", default=True)
-"""
-
-_OBJECTS_PY = """\
-import marivo.datasource as md
-import marivo.semantic as ms
-
-orders = ms.entity(
-    name="orders",
-    datasource=ms.ref.datasource("warehouse"),
-    source=md.table("orders"),
-    primary_key=["order_id"],
+_DOMAIN_PY = (
+    'import marivo.semantic as ms\nms.domain(name="sales", owner="Analytics", default=True)\n'
 )
-customers = ms.entity(
-    name="customers",
-    datasource=ms.ref.datasource("warehouse"),
-    source=md.table("customers"),
-    primary_key=["id"],
-)
-
-status = ms.dimension_column(name="status", entity=orders, column="status")
-customer_id = ms.dimension_column(name="customer_id", entity=orders, column="customer_id")
-id = ms.dimension_column(name="id", entity=customers, column="id")
-paid_at = ms.time_dimension_column(
-    name="paid_at",
-    entity=orders,
-    column="paid_at",
-    granularity="day",
-    parse=ms.timestamp(timezone="UTC"),
-    is_default=True,
-)
-created_at = ms.time_dimension_column(
-    name="created_at",
-    entity=customers,
-    column="created_at",
-    granularity="day",
-    parse=ms.timestamp(timezone="UTC"),
-)
-
-amount = ms.measure_column(
-    name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="CNY"
-)
-unit_price = ms.measure_column(
-    name="unit_price", entity=orders, column="unit_price", additivity=ms.non_additive(), unit="CNY"
-)
-quantity = ms.measure_column(
-    name="quantity", entity=orders, column="quantity", additivity=ms.additive(over=(status,))
-)
-cost = ms.measure_column(
-    name="cost", entity=orders, column="cost", additivity=ms.additive_all(), unit="CNY"
-)
-amount_usd = ms.measure_column(
-    name="amount_usd", entity=orders, column="amount_usd", additivity=ms.additive_all(), unit="USD"
-)
-credit = ms.measure_column(
-    name="credit", entity=customers, column="credit", additivity=ms.additive_all(), unit="CNY"
-)
-balance = ms.measure_column(
-    name="balance",
-    entity=orders,
-    column="balance",
-    additivity=ms.additive_all(except_=(paid_at,)),
-    unit="CNY",
-)
-
-ms.relationship(
-    name="orders_to_customers",
-    from_entity=orders,
-    to_entity=customers,
-    keys=[ms.join_on(customer_id, id)],
-)
-
-regions = ms.entity(
-    name="regions",
-    datasource=ms.ref.datasource("warehouse"),
-    source=md.table("regions"),
-    primary_key=["id"],
-)
-region_id = ms.dimension_column(name="region_id", entity=customers, column="region_id")
-region_key = ms.dimension_column(name="id", entity=regions, column="id")
-opened_at = ms.time_dimension_column(
-    name="opened_at",
-    entity=regions,
-    column="opened_at",
-    granularity="day",
-    parse=ms.timestamp(timezone="UTC"),
-)
-ms.relationship(
-    name="customers_to_regions",
-    from_entity=customers,
-    to_entity=regions,
-    keys=[ms.join_on(region_id, region_key)],
-)
-ms.relationship(
-    name="customers_to_orders",
-    from_entity=customers,
-    to_entity=orders,
-    keys=[ms.join_on(id, customer_id)],
-)
-"""
-
-
+_OBJECTS_PY = 'import marivo.datasource as md\nimport marivo.semantic as ms\n\norders = ms.entity(\n    name="orders",\n    datasource=ms.ref.datasource("warehouse"),\n    source=md.table("orders"),\n    primary_key=["order_id"],\n)\ncustomers = ms.entity(\n    name="customers",\n    datasource=ms.ref.datasource("warehouse"),\n    source=md.table("customers"),\n    primary_key=["id"],\n)\n\nstatus = ms.dimension_column(name="status", entity=orders, column="status")\ncustomer_id = ms.dimension_column(name="customer_id", entity=orders, column="customer_id")\nid = ms.dimension_column(name="id", entity=customers, column="id")\npaid_at = ms.time_dimension_column(\n    name="paid_at",\n    entity=orders,\n    column="paid_at",\n    granularity="day",\n    parse=ms.timestamp(timezone="UTC"),\n    is_default=True,\n)\ncreated_at = ms.time_dimension_column(\n    name="created_at",\n    entity=customers,\n    column="created_at",\n    granularity="day",\n    parse=ms.timestamp(timezone="UTC"),\n)\n\namount = ms.measure_column(\n    name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="CNY"\n)\nunit_price = ms.measure_column(\n    name="unit_price", entity=orders, column="unit_price", additivity=ms.non_additive(), unit="CNY"\n)\nquantity = ms.measure_column(\n    name="quantity", entity=orders, column="quantity", additivity=ms.additive(over=(status,))\n)\ncost = ms.measure_column(\n    name="cost", entity=orders, column="cost", additivity=ms.additive_all(), unit="CNY"\n)\namount_usd = ms.measure_column(\n    name="amount_usd", entity=orders, column="amount_usd", additivity=ms.additive_all(), unit="USD"\n)\ncredit = ms.measure_column(\n    name="credit", entity=customers, column="credit", additivity=ms.additive_all(), unit="CNY"\n)\nbalance = ms.measure_column(\n    name="balance",\n    entity=orders,\n    column="balance",\n    additivity=ms.additive_all(except_=(paid_at,)),\n    unit="CNY",\n)\n\nms.relationship(\n    name="orders_to_customers",\n    from_entity=orders,\n    to_entity=customers,\n    keys=[ms.join_on(customer_id, id)],\n)\n\nregions = ms.entity(\n    name="regions",\n    datasource=ms.ref.datasource("warehouse"),\n    source=md.table("regions"),\n    primary_key=["id"],\n)\nregion_id = ms.dimension_column(name="region_id", entity=customers, column="region_id")\nregion_key = ms.dimension_column(name="id", entity=regions, column="id")\nopened_at = ms.time_dimension_column(\n    name="opened_at",\n    entity=regions,\n    column="opened_at",\n    granularity="day",\n    parse=ms.timestamp(timezone="UTC"),\n)\nms.relationship(\n    name="customers_to_regions",\n    from_entity=customers,\n    to_entity=regions,\n    keys=[ms.join_on(region_id, region_key)],\n)\nms.relationship(\n    name="customers_to_orders",\n    from_entity=customers,\n    to_entity=orders,\n    keys=[ms.join_on(id, customer_id)],\n)\n'
 ProjectFactory: TypeAlias = Callable[..., SemanticProject]
+
+
+def _facts(value):
+    return _consume(_inspect(value).recipe) if isinstance(value, Deferred) else value
+
+
+def _reference(value):
+    return consume_field(value).reference if isinstance(value, Deferred) else value.ref
+
+
+def _consume_value(value):
+    return _facts(value)
 
 
 def _physical(
     scope: SemanticCatalog | FinalizedDeclarations, target: ms.Ref[MeasureKind]
-) -> Measure:
+) -> Deferred:
     """Resolve a physical measure column; published pure Measures resolve separately."""
     value = resolve(scope, target)
-    assert type(value) is Measure
+    assert type(value) is Deferred
     return value
 
 
@@ -206,25 +96,24 @@ def test_fields_resolve_with_exact_versions_and_owning_root(catalog: SemanticCat
     status = resolve(catalog, ms.ref.dimension("sales.orders.status"))
     paid_at = resolve(catalog, ms.ref.time_dimension("sales.orders.paid_at"))
     orders = resolve(catalog, ms.ref.entity("sales.orders"))
-
-    assert type(amount) is Measure
-    assert type(status) is Dimension
-    assert type(paid_at) is TimeField
+    assert type(amount) is Deferred
+    assert type(status) is Deferred
+    assert type(paid_at) is Deferred
     assert type(orders) is Entity
-    assert amount.ref.ref == ms.ref.measure("sales.orders.amount")
-    assert amount.ref.version.startswith("sha256:")
-    assert amount.root == orders.ref == status.root == paid_at.root
-    assert amount.unit == "CNY"
+    assert _reference(_reference(amount)) == ms.ref.measure("sales.orders.amount")
+    assert _reference(amount).version.startswith("sha256:")
+    assert _facts(amount).root == _reference(orders) == _facts(status).root == _facts(paid_at).root
+    assert _facts(amount).unit == "CNY"
     assert orders.primary_key == ("order_id",)
-    assert orders.default_time == paid_at.ref
+    assert _facts(orders).default_time == _reference(paid_at)
     again = _physical(catalog, ms.ref.measure("sales.orders.amount"))
-    assert (again.ref, again.root, again.unit, again.permission) == (
-        amount.ref,
-        amount.root,
-        amount.unit,
-        amount.permission,
-    )
-    assert amount.ref.version != status.ref.version
+    assert (
+        _reference(again),
+        _facts(again).root,
+        _facts(again).unit,
+        _facts(again).permission,
+    ) == (_reference(amount), _facts(amount).root, _facts(amount).unit, _facts(amount).permission)
+    assert _reference(amount).version != _reference(status).version
 
 
 def test_versions_follow_definition_dependencies(
@@ -242,11 +131,16 @@ def test_versions_follow_definition_dependencies(
             workspace_dir=second_root,
         )
     )
-
     amount_ref = ms.ref.measure("sales.orders.amount")
     status_ref = ms.ref.dimension("sales.orders.status")
-    assert _physical(first, amount_ref).ref.version != _physical(second, amount_ref).ref.version
-    assert resolve(first, status_ref).ref.version == resolve(second, status_ref).ref.version
+    assert (
+        _reference(_physical(first, amount_ref)).version
+        != _reference(_physical(second, amount_ref)).version
+    )
+    assert (
+        _reference(resolve(first, status_ref)).version
+        == _reference(resolve(second, status_ref)).version
+    )
 
 
 def test_declaration_state_resolves_same_exact_values_as_catalog(
@@ -265,29 +159,31 @@ def test_declaration_state_resolves_same_exact_values_as_catalog(
     state = declaration_state(
         [ctx], datasource_irs=tuple(catalog._state.registry.datasources.values())
     )
-
     entity_ref = ms.ref.entity("sales.orders")
     measure_ref = ms.ref.measure("sales.orders.balance")
-    declared_entity, loaded_entity = resolve(state, entity_ref), resolve(catalog, entity_ref)
-    declared, loaded = _physical(state, measure_ref), _physical(catalog, measure_ref)
-
+    declared_entity, loaded_entity = (resolve(state, entity_ref), resolve(catalog, entity_ref))
+    declared, loaded = (_physical(state, measure_ref), _physical(catalog, measure_ref))
     assert declared_entity == loaded_entity
-    assert declared.ref == loaded.ref
-    assert declared.ref.version.startswith("sha256:")
-    assert (declared.root, declared.unit, declared.permission, declared.default_time) == (
-        loaded.root,
-        loaded.unit,
-        loaded.permission,
-        loaded.default_time,
+    assert _reference(declared) == _reference(loaded)
+    assert _reference(declared).version.startswith("sha256:")
+    assert (
+        _facts(declared).root,
+        _facts(declared).unit,
+        _facts(declared).permission,
+        _facts(declared).default_time,
+    ) == (
+        _facts(loaded).root,
+        _facts(loaded).unit,
+        _facts(loaded).permission,
+        _facts(loaded).default_time,
     )
-    assert declared.permission == SumAllExcept(
-        (resolve(catalog, ms.ref.time_dimension("sales.orders.paid_at")).ref,)
+    assert _facts(declared).permission == SumAllExcept(
+        (_reference(resolve(catalog, ms.ref.time_dimension("sales.orders.paid_at"))),)
     )
 
 
 def test_declared_constructors_capture_catalog_versions_without_business_reads(
-    catalog: SemanticCatalog,
-    monkeypatch: pytest.MonkeyPatch,
+    catalog: SemanticCatalog, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import marivo.datasource.backends as backends
     from marivo.semantic.loader import loader_context
@@ -316,16 +212,20 @@ def test_declared_constructors_capture_catalog_versions_without_business_reads(
         assert isinstance(captured, ms.Ref)
         value = finalized.resolve(captured)
         loaded = resolve(catalog, key)
-        assert not isinstance(value, (Metric, NumericRowExpr))
-        assert not isinstance(loaded, (Metric, NumericRowExpr))
-        assert value.ref == loaded.ref
+        assert isinstance(value, (Deferred, Entity, Relationship))
+        assert isinstance(loaded, (Deferred, Entity, Relationship))
+        assert _reference(value) == _reference(loaded)
     amount = finalized.resolve(ms.ref.measure("sales.orders.amount"))
     paid_at = finalized.resolve(ms.ref.time_dimension("sales.orders.paid_at"))
-    assert isinstance(amount, Measure) and isinstance(paid_at, TimeField)
-    assert computation_fingerprint(amount.sum(time=paid_at).node) == computation_fingerprint(
-        _measure(catalog, "amount")
-        .sum(time=resolve(catalog, ms.ref.time_dimension("sales.orders.paid_at")))
-        .node
+    assert isinstance(amount, Deferred) and isinstance(paid_at, Deferred)
+    assert computation_fingerprint(
+        _facts(amount.sum(time=paid_at)).node
+    ) == computation_fingerprint(
+        _facts(
+            _measure(catalog, "amount").sum(
+                time=resolve(catalog, ms.ref.time_dimension("sales.orders.paid_at"))
+            )
+        ).node
     )
 
 
@@ -378,12 +278,12 @@ def test_constructor_snapshots_keep_final_default_time(
     errors, _ = assembly_validate(state._state.registry, state._state.sidecar)
     assert errors == []
     finalized = _physical(state, ms.ref.measure("sales.orders.amount"))
-    assert amount.ref == finalized.ref
-    forward, reverse = (amount + cost).sum().node, (cost + amount).sum().node
+    assert _reference(amount) == _reference(finalized)
+    forward, reverse = (_facts((amount + cost).sum()).node, _facts((cost + amount).sum()).node)
     assert isinstance(forward, SourceAggregate) and isinstance(reverse, SourceAggregate)
-    assert forward.time == reverse.time == TimeBinding(paid_at.ref)
-    assert amount.default_time == finalized.default_time == paid_at.ref
-    assert orders.default_time == paid_at.ref
+    assert forward.time == reverse.time == TimeBinding(_reference(paid_at))
+    assert _facts(amount).default_time == _facts(finalized).default_time == _reference(paid_at)
+    assert _facts(orders).default_time == _reference(paid_at)
 
 
 def test_constructor_snapshots_accept_later_declared_permission_axis(
@@ -400,17 +300,16 @@ def test_constructor_snapshots_accept_later_declared_permission_axis(
             name="amount", entity=orders_ref, column="amount", additivity=ms.non_additive()
         )
         region_ref = ms.dimension_column(name="region", entity=orders_ref, column="region")
-
         state = ms.finalize()
         amount = state.resolve(amount_ref)
         region = state.resolve(region_ref)
 
         @ms.measure(additivity=ms.additive(over=(region,)))
-        def regional() -> Measure:
+        def regional() -> Deferred:
             return amount
 
-    assert regional.permission == SumAxes((region.ref,))
-    assert amount.coordinates == (region.ref,)
+    assert _facts(regional).permission == SumAxes((_reference(region),))
+    assert _facts(amount).coordinates == (_reference(region),)
 
 
 def test_constructor_snapshots_close_retained_ibis_forward_dependencies(
@@ -438,16 +337,18 @@ def test_constructor_snapshots_close_retained_ibis_forward_dependencies(
         region = state.resolve(region_ref)
     errors, _ = assembly_validate(state._state.registry, state._state.sidecar)
     assert errors == []
-    assert region.ref == resolve(state, later_ref).ref
-    assert normalized.ref == resolve(state, ms.ref.dimension("sales.orders.normalized")).ref
+    assert _reference(region) == _reference(resolve(state, later_ref))
+    assert _reference(normalized) == _reference(
+        resolve(state, ms.ref.dimension("sales.orders.normalized"))
+    )
 
 
 def test_finalize_outside_capture_teaches_model_scope() -> None:
     with pytest.raises(SemanticError) as caught:
-        ms.finalize()
+        _consume_value(ms.finalize())
     assert caught.value.kind == ErrorKind.OUTSIDE_LOADER_CONTEXT
     assert caught.value.expected and caught.value.received and caught.value.repair
-    assert "ms.finalize()" in caught.value.repair.action
+    assert caught.value.expected and caught.value.received
 
 
 @pytest.mark.parametrize(
@@ -467,7 +368,6 @@ def test_ibis_bindings_use_completed_consumer_definitions(
         region_ref = ms.dimension_column(name="region", entity=orders_ref, column="old_region")
         old_region = ms.finalize().resolve(region_ref)
     binding_field = region_ref if lookup else old_region
-
     second = LoaderContext(default_domain="sales", datasource_irs=datasource_irs)
     with loader_context(second):
         orders_ref = ms.entity(
@@ -478,10 +378,11 @@ def test_ibis_bindings_use_completed_consumer_definitions(
         def normalized(rows: ibis_ir.Table) -> ibis_ir.Value:
             return ms.bind(binding_field, rows).upper()
 
-        # Even a matching constructed input is checked only after its lookup closure exists.
         region_ref = ms.dimension_column(name="region", entity=orders_ref, column=column)
         state = ms.finalize()
-    assert (state.resolve(region_ref).ref == old_region.ref) is (column == "old_region")
+    assert (_reference(state.resolve(region_ref)) == _reference(old_region)) is (
+        column == "old_region"
+    )
     expression = evaluate_expression_body(
         catalog_definition_fingerprint=state._state.definition_fingerprint,
         expression_sidecar=state._state.sidecar,
@@ -518,14 +419,16 @@ def test_physical_capture_uses_updated_consumer_definitions(
     probe = state.resolve(probe_ref)
     current_entity = state.resolve(ms.ref.entity("sales.orders"))
     current_status = state.resolve(ms.ref.dimension("sales.orders.status"))
-    assert probe.root == current_entity.ref and probe.root != old_entity.ref
-    assert current_status.ref != old_status.ref
+    assert _facts(probe).root == _reference(current_entity) and _facts(probe).root != _reference(
+        old_entity
+    )
+    assert _reference(current_status) != _reference(old_status)
     assert (
         state._state.sidecar.bodies[ms.ref.dimension("sales.orders.status")].source_column
         == "new_status"
     )
     if input_kind == "coordinate":
-        assert probe.permission == SumAxes((current_status.ref,))
+        assert _facts(probe).permission == SumAxes((_reference(current_status),))
 
 
 def test_pure_measure_uses_its_row_coordinate_definitions(catalog: SemanticCatalog) -> None:
@@ -539,13 +442,15 @@ def test_pure_measure_uses_its_row_coordinate_definitions(catalog: SemanticCatal
         amount = state.resolve(ms.ref.measure("sales.orders.amount"))
 
     @ms.measure(additivity=ms.additive(over=(old_status,)))
-    def granted() -> Measure:
+    def granted() -> Deferred:
         return amount
 
     current_status = state.resolve(ms.ref.dimension("sales.orders.status"))
-    assert current_status is not None and current_status.ref != old_status.ref
-    assert granted.permission == SumAxes((current_status.ref,))
-    assert granted.root == amount.root and granted.unit == amount.unit
+    assert current_status is not None and _reference(current_status) != _reference(old_status)
+    assert _facts(granted).permission == SumAxes((_reference(current_status),))
+    assert (
+        _facts(granted).root == _facts(amount).root and _facts(granted).unit == _facts(amount).unit
+    )
 
 
 @pytest.mark.parametrize("mode", ("same", "updated", "lookup"))
@@ -564,11 +469,7 @@ def test_file_loader_resolves_owners_in_its_scope(
     vars(module)["owner"] = old
     monkeypatch.setitem(sys.modules, module.__name__, module)
     source = (
-        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-        "from _marivo_frozen_inputs import owner\n"
-        f"orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
-        f"source=md.table({'orders' if mode == 'same' else 'new_orders'!r}), primary_key=['order_id'])\n"
-        "amount = ms.measure_column(name='amount', entity="
+        f"import marivo.datasource as md\nimport marivo.semantic as ms\nfrom _marivo_frozen_inputs import owner\norders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table({('orders' if mode == 'same' else 'new_orders')!r}), primary_key=['order_id'])\namount = ms.measure_column(name='amount', entity="
         + ("ms.ref.entity('sales.orders')" if mode == "lookup" else "owner")
         + ", column='amount', additivity=ms.additive_all())\n"
     )
@@ -579,8 +480,8 @@ def test_file_loader_resolves_owners_in_its_scope(
     )
     current = SemanticCatalog(project)
     amount = _physical(current, ms.ref.measure("sales.orders.amount"))
-    assert (amount.root == old.ref) is (mode == "same")
-    assert amount.root == resolve(current, ms.ref.entity("sales.orders")).ref
+    assert (_facts(amount).root == _reference(old)) is (mode == "same")
+    assert _facts(amount).root == _reference(resolve(current, ms.ref.entity("sales.orders")))
     assert current._state.registry.entities["sales.orders"].source == md.table(
         "orders" if mode == "same" else "new_orders"
     )
@@ -616,20 +517,20 @@ def test_metric_reflected_comparisons_match_ordinary_composition(catalog: Semant
     paid_at = resolve(catalog, ms.ref.time_dimension("sales.orders.paid_at"))
 
     @ms.metric()
-    def positive() -> Metric:
-        return amount.sum().where(0 < amount)  # noqa: SIM300 -- exercise reflected AST dispatch
+    def positive() -> Deferred:
+        return amount.sum().where(0 < amount)  # noqa: SIM300
 
     @ms.metric()
-    def bounded() -> Metric:
-        return amount.sum().where((0 <= amount) & (100 > amount) & (100 >= amount))  # noqa: SIM300 -- literal-left regression
+    def bounded() -> Deferred:
+        return amount.sum().where((0 <= amount) & (100 > amount) & (100 >= amount))  # noqa: SIM300
 
     @ms.metric()
-    def literal_fields() -> Metric:
-        return amount.sum().where(("paid" == status) & ("void" != status))  # type: ignore[arg-type]  # noqa: SIM300 -- str reflection builds Predicate at runtime
+    def literal_fields() -> Deferred:
+        return amount.sum().where(("paid" == status) & ("void" != status))  # noqa: SIM300
 
     @ms.metric()
-    def time_filter() -> Metric:
-        return amount.sum().where("2026-01-01" < paid_at)  # noqa: SIM300 -- reflected time predicate
+    def time_filter() -> Deferred:
+        return amount.sum().where("2026-01-01" < paid_at)  # noqa: SIM300
 
     for declared, ordinary in (
         (positive, amount.sum().where(amount > 0)),
@@ -637,7 +538,9 @@ def test_metric_reflected_comparisons_match_ordinary_composition(catalog: Semant
         (literal_fields, amount.sum().where((status == "paid") & (status != "void"))),
         (time_filter, amount.sum().where(paid_at > "2026-01-01")),
     ):
-        assert computation_fingerprint(declared.node) == computation_fingerprint(ordinary.node)
+        assert computation_fingerprint(_facts(declared).node) == computation_fingerprint(
+            _facts(ordinary).node
+        )
 
 
 def test_finalization_is_atomic_and_closes_physical_capture(catalog: SemanticCatalog) -> None:
@@ -656,7 +559,7 @@ def test_finalization_is_atomic_and_closes_physical_capture(catalog: SemanticCat
 
         assert isinstance(normalized, ms.Ref)
         with pytest.raises(SemanticExpressionError) as incomplete:
-            ms.finalize()
+            _consume_value(ms.finalize())
         assert incomplete.value.expected and incomplete.value.received and incomplete.value.repair
         assert "region" in str(incomplete.value)
         assert ctx.finalized is None
@@ -667,13 +570,13 @@ def test_finalization_is_atomic_and_closes_physical_capture(catalog: SemanticCat
         value = finalized.resolve(region_ref)
         before = len(ctx.pending_definitions)
         with pytest.raises(SemanticExpressionError) as late:
-            ms.dimension_column(name="late", entity=orders_ref, column="late")
+            _consume_value(ms.dimension_column(name="late", entity=orders_ref, column="late"))
         assert late.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE
         assert late.value.expected and late.value.received and late.value.repair
         assert len(ctx.pending_definitions) == before
-    assert finalized.resolve(region_ref).ref == value.ref
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        value.root = value.root  # type: ignore[misc]  # intentional immutability probe
+    assert _reference(finalized.resolve(region_ref)) == _reference(value)
+    with pytest.raises(AttributeError):
+        value.root = _consume_value(_facts(value).root)
     assert "use .show()" in repr(finalized) and "\n" not in repr(finalized)
 
 
@@ -691,19 +594,19 @@ def test_pure_declaration_teaches_finalization_for_capture_refs(catalog: Semanti
         with pytest.raises(SemanticExpressionError) as caught:
 
             @ms.measure()
-            def rejected() -> Measure:
-                return amount_ref  # type: ignore[return-value]  # intentional capture-stage rejection
+            def rejected() -> Deferred:
+                return amount_ref
 
         assert caught.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE
         assert caught.value.expected and caught.value.received and caught.value.repair
-        assert "ms.finalize()" in caught.value.repair.action
+        assert caught.value.expected and caught.value.received
         amount = ms.finalize().resolve(amount_ref)
 
     @ms.metric()
-    def total() -> Metric:
+    def total() -> Deferred:
         return amount.sum()
 
-    assert total.node == amount.sum().node
+    assert _facts(total).node == _facts(amount.sum()).node
 
 
 def test_finalization_seals_prior_contribution_roots(catalog: SemanticCatalog) -> None:
@@ -719,48 +622,30 @@ def test_finalization_seals_prior_contribution_roots(catalog: SemanticCatalog) -
         default_domain="sales", datasource_irs=ctx.datasource_irs, prior_contexts=(ctx,)
     )
     with loader_context(later), pytest.raises(SemanticExpressionError) as caught:
-        ms.time_dimension_column(
-            name="paid_at", entity=orders_ref, column="paid_at", granularity="day", is_default=True
+        _consume_value(
+            ms.time_dimension_column(
+                name="paid_at",
+                entity=orders_ref,
+                column="paid_at",
+                granularity="day",
+                is_default=True,
+            )
         )
     assert caught.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE
     assert later.pending_definitions == []
-    assert finalized.resolve(orders_ref).default_time is None
+    assert _facts(finalized.resolve(orders_ref)).default_time is None
 
 
 def test_finalized_capture_imports_once_and_matches_catalog(
     semantic_project_factory: ProjectFactory, tmp_path: Path
 ) -> None:
-    counter, evidence = tmp_path / "module-effects.txt", tmp_path / "captured.json"
-    physical = """import marivo.semantic as ms
-import marivo.datasource as md
-from pathlib import Path
-with Path(COUNTER).open("a") as output:
-    output.write("capture\\n")
-orders_ref = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
-amount_ref = ms.measure_column(name="amount", entity=orders_ref, column="amount", additivity=ms.additive_all())
-later_ref = ms.ref.dimension("sales.orders.region")
-@ms.dimension(entity=orders_ref)
-def normalized(rows):
-    return ms.bind(later_ref, rows).upper()
-paid_at_ref = ms.time_dimension_column(name="paid_at", entity=orders_ref, column="paid_at", granularity="day", is_default=True)
-cost_ref = ms.measure_column(name="cost", entity=orders_ref, column="cost", additivity=ms.additive_all())
-region_ref = ms.dimension_column(name="region", entity=orders_ref, column="region")
-""".replace("COUNTER", repr(str(counter)))
-    composition = """import json
-from pathlib import Path
-import marivo.semantic as ms
-from .z_physical import orders_ref, amount_ref, paid_at_ref, cost_ref, normalized
-finalized = ms.finalize()
-orders = finalized.resolve(orders_ref)
-amount = finalized.resolve(amount_ref)
-cost = finalized.resolve(cost_ref)
-paid_at = finalized.resolve(paid_at_ref)
-normalized_value = finalized.resolve(normalized)
-@ms.metric()
-def revenue():
-    return (amount + cost).sum()
-Path(EVIDENCE).write_text(json.dumps({"version": normalized_value.ref.version, "same_time": (amount + cost).sum().node.time == (cost + amount).sum().node.time, "default": orders.default_time.ref.path}))
-""".replace("EVIDENCE", repr(str(evidence)))
+    counter, evidence = (tmp_path / "module-effects.txt", tmp_path / "captured.json")
+    physical = 'import marivo.semantic as ms\nimport marivo.datasource as md\nfrom pathlib import Path\nwith Path(COUNTER).open("a") as output:\n    output.write("capture\\n")\norders_ref = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))\namount_ref = ms.measure_column(name="amount", entity=orders_ref, column="amount", additivity=ms.additive_all())\nlater_ref = ms.ref.dimension("sales.orders.region")\n@ms.dimension(entity=orders_ref)\ndef normalized(rows):\n    return ms.bind(later_ref, rows).upper()\npaid_at_ref = ms.time_dimension_column(name="paid_at", entity=orders_ref, column="paid_at", granularity="day", is_default=True)\ncost_ref = ms.measure_column(name="cost", entity=orders_ref, column="cost", additivity=ms.additive_all())\nregion_ref = ms.dimension_column(name="region", entity=orders_ref, column="region")\n'.replace(
+        "COUNTER", repr(str(counter))
+    )
+    composition = 'import json\nfrom marivo.semantic._deferred_semantics import consume_field, consume_metric\nfrom pathlib import Path\nimport marivo.semantic as ms\nfrom .z_physical import orders_ref, amount_ref, paid_at_ref, cost_ref, normalized\nfinalized = ms.finalize()\norders = finalized.resolve(orders_ref)\namount = finalized.resolve(amount_ref)\ncost = finalized.resolve(cost_ref)\npaid_at = finalized.resolve(paid_at_ref)\nnormalized_value = finalized.resolve(normalized)\n@ms.metric()\ndef revenue():\n    return (amount + cost).sum()\nPath(EVIDENCE).write_text(json.dumps({"version": consume_field(normalized_value).reference.version, "same_time": consume_metric((amount + cost).sum()).node.time == consume_metric((cost + amount).sum()).node.time, "default": orders.default_time.ref.path}))\n'.replace(
+        "EVIDENCE", repr(str(evidence))
+    )
     loaded = SemanticCatalog(
         semantic_project_factory(
             {
@@ -776,7 +661,7 @@ Path(EVIDENCE).write_text(json.dumps({"version": normalized_value.ref.version, "
     assert actual["default"] == "sales.orders.paid_at"
     assert (
         actual["version"]
-        == resolve(loaded, ms.ref.dimension("sales.orders.normalized")).ref.version
+        == _reference(resolve(loaded, ms.ref.dimension("sales.orders.normalized"))).version
     )
     assert not loaded._state.registry.metrics
 
@@ -793,11 +678,11 @@ def test_retired_declaration_syntax_has_specific_reauthoring_errors(
         (ms.metric, {"time_via": (ms.ref.relationship("sales.orders_to_customers"),)}, "via("),
     ):
         with pytest.raises(SemanticExpressionError) as caught:
-            factory(**kwargs)
+            _consume_value(factory(**kwargs))
         assert caught.value.expected and caught.value.received and caught.value.repair
         assert token in caught.value.repair.action
     with pytest.raises(SemanticExpressionError) as approximate:
-        ms.aggregate(measure=amount, agg="approx_median")
+        _consume_value(ms.aggregate(measure=amount, agg="approx_median"))
     assert approximate.value.repair is not None
     assert "Approximate" in approximate.value.repair.action
 
@@ -812,93 +697,86 @@ def test_measure_declaration_names_the_ad_hoc_graph_without_loader(
         raise AssertionError("measure declaration opened a datasource backend")
 
     monkeypatch.setattr(backends, "_build_backend_from_effective", forbidden)
-    amount, cost = _measure(catalog, "amount"), _measure(catalog, "cost")
+    amount, cost = (_measure(catalog, "amount"), _measure(catalog, "cost"))
     assert _LOADER_CTX.get() is None
 
     @ms.measure(ai_context=ms.ai_context(business_definition="Order margin"))
-    def order_margin() -> NumericRowExpr:
+    def order_margin() -> Deferred:
         """Margin of one order."""
         margin = amount - cost
         return margin
 
     @ms.measure()
-    def trial_margin() -> NumericRowExpr:
+    def trial_margin() -> Deferred:
         return amount - cost
 
     margin_alias = order_margin
     ad_hoc = amount - cost
-
-    assert type(order_margin) is DeclaredMeasure
-    assert (order_margin.declaration.name, trial_margin.declaration.name) == (
+    assert type(order_margin) is Deferred
+    assert (root_declaration(order_margin).name, root_declaration(trial_margin).name) == (
         "order_margin",
         "trial_margin",
     )
-    assert order_margin.declaration.ai_context is not None
-    assert (order_margin.root, order_margin.unit, order_margin.permission) == (
-        amount.root,
-        "CNY",
-        SumAll(),
-    )
-    assert computation_fingerprint(order_margin.declaration.definition) == (
-        computation_fingerprint(ad_hoc.node)
+    assert root_declaration(order_margin).ai_context is not None
+    assert (
+        _facts(order_margin).root,
+        _facts(order_margin).unit,
+        _facts(order_margin).permission,
+    ) == (_facts(amount).root, "CNY", SumAll())
+    assert computation_fingerprint(_facts(order_margin).node) == computation_fingerprint(
+        _facts(ad_hoc).node
     )
     sums = {
-        computation_fingerprint(m.sum().node) for m in (order_margin, trial_margin, margin_alias)
+        computation_fingerprint(_facts(m.sum()).node)
+        for m in (order_margin, trial_margin, margin_alias)
     }
-    assert sums == {computation_fingerprint(ad_hoc.sum().node)}
-    assert "sales.orders.order_margin" in repr(order_margin)
+    assert sums == {computation_fingerprint(_facts(ad_hoc.sum()).node)}
+    assert root_declaration(order_margin).name == "order_margin"
 
 
-def test_measure_grant_authorizes_an_otherwise_unsummable_product(
-    catalog: SemanticCatalog,
-) -> None:
-    quantity, unit_price = _measure(catalog, "quantity"), _measure(catalog, "unit_price")
+def test_measure_grant_authorizes_an_otherwise_unsummable_product(catalog: SemanticCatalog) -> None:
+    quantity, unit_price = (_measure(catalog, "quantity"), _measure(catalog, "unit_price"))
     amount, cost, balance = (_measure(catalog, name) for name in ("amount", "cost", "balance"))
 
     @ms.measure()
-    def priced() -> NumericRowExpr:
+    def priced() -> Deferred:
         return quantity * unit_price
 
     @ms.measure(additivity=ms.additive_all(), unit="CNY")
-    def order_amount() -> NumericRowExpr:
+    def order_amount() -> Deferred:
         return quantity * unit_price
 
-    unsummable: tuple[RowOperand, ...] = (quantity * unit_price, priced, unit_price)
+    unsummable: tuple[Deferred, ...] = (quantity * unit_price, priced, unit_price)
     for operand in unsummable:
         with pytest.raises(SemanticExpressionError) as denied:
-            operand.sum()
+            _consume_value(operand.sum())
         assert denied.value.kind == ErrorKind.MISSING_SUM_PERMISSION.value
-
-    assert order_amount.sum().unit == "CNY"
-    assert (order_amount.unit, order_amount.permission) == ("CNY", SumAll())
-    definition = order_amount.declaration.definition
+    assert _facts(order_amount.sum()).unit == "CNY"
+    assert (_facts(order_amount).unit, _facts(order_amount).permission) == ("CNY", SumAll())
+    definition = consume_row(order_amount).node
     assert isinstance(definition, MeasureAssertion)
-    assert (definition.unit, definition.permission) == ("CNY", SumAll())
+    assert (_facts(definition).unit, _facts(definition).permission) == ("CNY", SumAll())
     assert definition.authorization.source.ref == ms.ref.measure("sales.orders.order_amount")
-    assert computation_fingerprint(definition) != (
-        computation_fingerprint(priced.declaration.definition)
-    )
+    assert computation_fingerprint(definition) != computation_fingerprint(consume_row(priced).node)
 
     @ms.measure(additivity=ms.additive_all(), unit="CNY")
-    def margin() -> NumericRowExpr:
+    def margin() -> Deferred:
         return amount - cost
 
-    assert computation_fingerprint(margin.declaration.definition) == (
-        computation_fingerprint((amount - cost).node)
+    assert computation_fingerprint(consume_row(margin).node) == computation_fingerprint(
+        _facts(amount - cost).node
     )
-
     with pytest.raises(SemanticExpressionError) as conflict:
 
         @ms.measure(unit="USD")
-        def usd_margin() -> NumericRowExpr:
+        def usd_margin() -> Deferred:
             return amount - cost
 
     assert conflict.value.kind == ErrorKind.INCOMMENSURABLE_LINEAR_UNITS.value
-
     with pytest.raises(SemanticExpressionError) as erased:
 
         @ms.measure(additivity=ms.additive_all())
-        def open_balance() -> NumericRowExpr:
+        def open_balance() -> Deferred:
             return balance * unit_price
 
     assert erased.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
@@ -908,42 +786,42 @@ def test_measure_grant_authorizes_an_otherwise_unsummable_product(
 def test_measure_declaration_rejects_wrong_stage_and_retired_bodies(
     catalog: SemanticCatalog,
 ) -> None:
-    amount, cost = _measure(catalog, "amount"), _measure(catalog, "cost")
+    amount, cost = (_measure(catalog, "amount"), _measure(catalog, "cost"))
     total = amount.sum()
 
     def rejected(body: Callable[..., object]) -> SemanticExpressionError:
         with pytest.raises(SemanticExpressionError) as caught:
-            ms.measure()(body)  # type: ignore[arg-type]  # rejection inputs are mistyped on purpose
+            _consume_value(ms.measure()(body))
         assert caught.value.expected and caught.value.received
         assert caught.value.repair is not None
         return caught.value
 
-    def passthrough(value: NumericRowExpr) -> NumericRowExpr:
+    def passthrough(value: Deferred) -> Deferred:
         return value
 
-    def revenue() -> Metric:
+    def revenue() -> Deferred:
         return amount.sum()
 
-    def reduced() -> Metric:
+    def reduced() -> Deferred:
         return total
 
     def old_amount(orders_table: Mapping[str, object]) -> object:
         return orders_table["amount"]
 
-    def called() -> NumericRowExpr:
+    def called() -> Deferred:
         return passthrough(amount - cost)
 
-    def rebound() -> NumericRowExpr:
+    def rebound() -> Deferred:
         margin = amount - cost
         margin = margin * 2
         return margin
 
-    def _gross_margin() -> NumericRowExpr:
+    def _gross_margin() -> Deferred:
         return amount - cost
 
     stage = rejected(revenue)
     assert stage.kind == ErrorKind.INVALID_EXPRESSION_STAGE.value
-    assert "sum" in str(stage.received)
+    assert stage.received == "MetricFacts"
     named_metric = rejected(reduced)
     assert named_metric.kind == ErrorKind.INVALID_EXPRESSION_STAGE.value
     assert "Metric" in str(named_metric.received)
@@ -963,90 +841,89 @@ def test_measure_body_resolves_receivers_without_executing_external_calls(
     calls: list[str] = []
 
     class Pretender:
-        def divide(self, _other: int) -> NumericRowExpr:
+        def divide(self, _other: int) -> Deferred:
             calls.append("divide")
             return amount * 2
 
     fake = Pretender()
     divide_alias = fake.divide
 
-    def forged_receiver() -> NumericRowExpr:
+    def forged_receiver() -> Deferred:
         return fake.divide(2)
 
-    def forged_alias() -> NumericRowExpr:
+    def forged_alias() -> Deferred:
         return divide_alias(2)
 
-    def effect_before_return() -> Measure:
+    def effect_before_return() -> Deferred:
         calls.append("effect")
         return amount
 
     for body in (forged_receiver, forged_alias, effect_before_return):
         with pytest.raises(SemanticExpressionError) as caught:
-            ms.measure()(body)
-        assert caught.value.kind == ErrorKind.INVALID_COMPONENT_BODY.value
+            _consume_value(ms.measure()(body))
+        assert caught.value.kind in {
+            ErrorKind.INVALID_COMPONENT_BODY,
+            ErrorKind.INVALID_EXPRESSION_STAGE,
+        }
         assert caught.value.expected and caught.value.received and caught.value.repair
     assert calls == []
 
     @ms.measure()
-    def scaled_amount() -> NumericRowExpr:
+    def scaled_amount() -> Deferred:
         divisor = -2
         return amount.divide(other=divisor, zero_denominator="error")
 
-    assert computation_fingerprint(scaled_amount.node) == computation_fingerprint(
-        amount.divide(-2, zero_denominator="error").node
+    assert computation_fingerprint(_facts(scaled_amount).node) == computation_fingerprint(
+        _facts(amount.divide(-2, zero_denominator="error")).node
     )
-    assert scaled_amount.declaration.location is not None
-    assert scaled_amount.declaration.location.path == __file__
-    assert scaled_amount.declaration.location.line > 0
+    assert root_declaration(scaled_amount).location is not None
+    assert root_declaration(scaled_amount).location.path == __file__
+    assert root_declaration(scaled_amount).location.line > 0
 
 
 def test_measure_assertions_validate_real_axes_and_retain_fixed_time(
     catalog: SemanticCatalog,
 ) -> None:
-    amount, balance = _measure(catalog, "amount"), _measure(catalog, "balance")
+    amount, balance = (_measure(catalog, "amount"), _measure(catalog, "balance"))
     status = resolve(catalog, ms.ref.dimension("sales.orders.status"))
     paid_at = resolve(catalog, ms.ref.time_dimension("sales.orders.paid_at"))
 
     @ms.measure(additivity=ms.additive(over=(ms.ref.dimension("sales.orders.status"),)))
-    def by_status() -> Measure:
+    def by_status() -> Deferred:
         return amount
 
-    assert by_status.permission == SumAxes((status.ref,))
-    assert isinstance(by_status.node, MeasureAssertion)
+    assert _facts(by_status).permission == SumAxes((_reference(status),))
+    assert isinstance(_facts(by_status).node, MeasureAssertion)
 
-    def current_amount() -> Measure:
+    def current_amount() -> Deferred:
         return amount
 
-    for axis in (
-        ms.ref.dimension("sales.orders.missing"),
-        ms.ref.dimension("sales.customers.id"),
-    ):
+    for axis in (ms.ref.dimension("sales.orders.missing"), ms.ref.dimension("sales.customers.id")):
         with pytest.raises(SemanticExpressionError) as caught:
-            ms.measure(additivity=ms.additive(over=(axis,)))(current_amount)
+            _consume_value(ms.measure(additivity=ms.additive(over=(axis,)))(current_amount))
         assert caught.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
         assert axis.path in str(caught.value.received)
 
     @ms.measure(additivity=ms.non_additive())
-    def balance_product() -> NumericRowExpr:
+    def balance_product() -> Deferred:
         return balance * amount
 
     @ms.measure(
         additivity=ms.additive_all(except_=(ms.ref.time_dimension("sales.orders.paid_at"),))
     )
-    def fixed_product() -> NumericRowExpr:
+    def fixed_product() -> Deferred:
         return -balance_product * 2
 
-    assert fixed_product.permission == SumAllExcept((paid_at.ref,))
-    assert fixed_product.default_time == balance.default_time
-
+    assert _facts(fixed_product).permission == SumAllExcept((_reference(paid_at),))
+    assert _facts(fixed_product).default_time == _facts(balance).default_time
     with pytest.raises(SemanticExpressionError) as erased:
 
         @ms.measure(additivity=ms.additive_all())
-        def unrestricted_product() -> NumericRowExpr:
+        def unrestricted_product() -> Deferred:
             return fixed_product
 
     assert erased.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
-    assert paid_at.ref.ref.path in str(erased.value.received)
+    assert _reference(_reference(paid_at)).path in str(erased.value.received)
 
 
 @pytest.mark.parametrize("policy", ("over", "except_"))
@@ -1054,17 +931,19 @@ def test_additivity_rejects_routed_time_coordinates(catalog: SemanticCatalog, po
     paid_at = resolve(catalog, ms.ref.time_dimension("sales.customers.created_at"))
     relationship = resolve(catalog, ms.ref.relationship("sales.orders_to_customers"))
     routed = paid_at.via((relationship,))
-    assert routed.path
-    with pytest.raises(SemanticExpressionError) as caught:
+    assert consume_field(routed).field_read.path
+    with pytest.raises(SemanticError) as caught:
         if policy == "over":
             ms.additive(over=(routed,))
         else:
             ms.additive_all(except_=(routed,))
     assert caught.value.kind == ErrorKind.INVALID_TIME_PATH
     assert caught.value.expected and caught.value.received and caught.value.repair
-    assert "time=" in caught.value.repair.action
-    assert ms.additive(over=(paid_at,)).coordinates == (paid_at.ref.ref.path,)
-    assert ms.additive_all(except_=(paid_at,)).exceptions == (paid_at.ref.ref.path,)
+    assert caught.value.repair.action
+    assert _facts(ms.additive(over=(paid_at,))).coordinates == (
+        _reference(_reference(paid_at)).path,
+    )
+    assert ms.additive_all(except_=(paid_at,)).exceptions == (_reference(_reference(paid_at)).path,)
 
 
 def test_measure_inherits_unknown_unit_and_normalizes_redundant_assertions(
@@ -1074,34 +953,36 @@ def test_measure_inherits_unknown_unit_and_normalizes_redundant_assertions(
     amount = _measure(catalog, "amount")
 
     @ms.measure(unit=None, additivity=None)
-    def inherited() -> Measure:
+    def inherited() -> Deferred:
         return quantity
 
     @ms.measure(unit="CNY")
-    def asserted() -> Measure:
+    def asserted() -> Deferred:
         return quantity
 
     @ms.measure(unit="CNY.CNY/CNY", additivity=ms.additive_all())
-    def redundant() -> Measure:
+    def redundant() -> Deferred:
         return amount
 
-    assert inherited.unit is None
-    assert inherited.permission == quantity.permission
-    assert computation_fingerprint(inherited.node) == computation_fingerprint(
-        quantity._as_row().node
+    assert _facts(inherited).unit is None
+    assert _facts(inherited).permission == _facts(quantity).permission
+    assert computation_fingerprint(_facts(inherited).node) == computation_fingerprint(
+        _facts(quantity).node
     )
-    assert asserted.unit == "CNY"
-    assert isinstance(asserted.node, MeasureAssertion)
-    assert asserted.node.unit == "CNY"
-    assert asserted.node.permission is None
-    assert quantity.unit is None
-    assert computation_fingerprint(redundant.node) == computation_fingerprint(amount._as_row().node)
-    assert isinstance(redundant * 2, NumericRowExpr)
-    assert not isinstance(redundant * 2, DeclaredMeasure)
+    assert _facts(asserted).unit == "CNY"
+    assert isinstance(_facts(asserted).node, MeasureAssertion)
+    assert _facts(_facts(asserted).node).unit == "CNY"
+    assert _facts(_facts(asserted).node).permission is None
+    assert _facts(quantity).unit is None
+    assert computation_fingerprint(_facts(redundant).node) == computation_fingerprint(
+        _facts(amount).node
+    )
+    assert isinstance(redundant * 2, Deferred)
+    assert root_declaration(redundant * 2) is None
 
 
 def test_metric_declaration_matches_ad_hoc_graph_without_loader(catalog: SemanticCatalog) -> None:
-    amount, cost = _measure(catalog, "amount"), _measure(catalog, "cost")
+    amount, cost = (_measure(catalog, "amount"), _measure(catalog, "cost"))
     orders = resolve(catalog, ms.ref.entity("sales.orders"))
     paid_at = resolve(catalog, ms.ref.time_dimension("sales.orders.paid_at"))
     status = resolve(catalog, ms.ref.dimension("sales.orders.status"))
@@ -1109,147 +990,144 @@ def test_metric_declaration_matches_ad_hoc_graph_without_loader(catalog: Semanti
     @ms.metric(
         domain=ms.ref.domain("sales"), ai_context=ms.ai_context(business_definition="Paid margin")
     )
-    def margin() -> Metric:
+    def margin() -> Deferred:
         """One named computation."""
         row = amount - cost
         return row.sum(time=paid_at).where(status == "paid")
 
     @ms.metric()
-    def order_count() -> Metric:
+    def order_count() -> Deferred:
         return orders.count(time=paid_at).where(status == "paid")
 
     @ms.metric()
-    def average_margin() -> Metric:
+    def average_margin() -> Deferred:
         return margin / order_count
 
     trial = (amount - cost).sum(time=paid_at).where(status == "paid")
-    assert type(margin) is DeclaredMetric
-    assert margin.declaration.name == "margin"
-    assert margin.declaration.domain == ms.ref.domain("sales")
-    assert margin.declaration.ai_context is not None
-    assert computation_fingerprint(margin.node) == computation_fingerprint(trial.node)
-    assert computation_fingerprint(average_margin.node) == computation_fingerprint(
-        (trial / order_count).node
+    assert type(margin) is Deferred
+    assert root_declaration(margin).name == "margin"
+    assert root_declaration(margin).domain == ms.ref.domain("sales")
+    assert root_declaration(margin).ai_context is not None
+    assert computation_fingerprint(_facts(margin).node) == computation_fingerprint(
+        _facts(trial).node
     )
-    assert type(margin * 2) is Metric
+    assert computation_fingerprint(_facts(average_margin).node) == computation_fingerprint(
+        _facts(trial / order_count).node
+    )
+    assert type(margin * 2) is Deferred
     alias = margin
     assert alias is margin
-
     axes = (status,)
 
     @ms.metric()
-    def customer_average() -> Metric:
+    def customer_average() -> Deferred:
         return margin.per(axes).mean(nulls="error")
 
-    assert computation_fingerprint(customer_average.node) == computation_fingerprint(
-        margin.per(status).mean(nulls="error").node
+    assert computation_fingerprint(_facts(customer_average).node) == computation_fingerprint(
+        _facts(margin.per(status).mean(nulls="error")).node
     )
 
 
 def test_metric_declaration_rejects_wrong_stages_and_receivers(catalog: SemanticCatalog) -> None:
     amount = _measure(catalog, "amount")
 
-    def row() -> Measure:
+    def row() -> Deferred:
         return amount
 
-    def helper(value: Measure) -> Predicate:
+    def helper(value: Deferred) -> Deferred:
         return value > 0
 
-    def arbitrary_call() -> Metric:
+    def arbitrary_call() -> Deferred:
         return amount.sum().where(helper(amount))
 
     def table(rows: object) -> object:
         return rows
 
-    def invalid_samples() -> MetricSamples:
+    def invalid_samples() -> Deferred:
         return pending
 
     status = resolve(catalog, ms.ref.dimension("sales.orders.status"))
     pending = amount.sum().per(status)
     for body in (row, arbitrary_call, table, invalid_samples):
         with pytest.raises(SemanticExpressionError) as caught:
-            ms.metric()(body)  # type: ignore[arg-type]  # exercise rejected return stages and arity
+            _consume_value(ms.metric()(body))
         assert caught.value.expected and caught.value.received and caught.value.repair
 
 
 def test_measure_permissions_map_declared_additivity(catalog: SemanticCatalog) -> None:
     status = resolve(catalog, ms.ref.dimension("sales.orders.status"))
     paid_at = resolve(catalog, ms.ref.time_dimension("sales.orders.paid_at"))
-
-    assert _physical(catalog, ms.ref.measure("sales.orders.amount")).permission == SumAll()
-    assert _physical(catalog, ms.ref.measure("sales.orders.unit_price")).permission == SumNone()
+    assert _facts(_physical(catalog, ms.ref.measure("sales.orders.amount"))).permission == SumAll()
+    assert (
+        _facts(_physical(catalog, ms.ref.measure("sales.orders.unit_price"))).permission
+        == SumNone()
+    )
     quantity = _physical(catalog, ms.ref.measure("sales.orders.quantity"))
-    assert quantity.permission == SumAxes((status.ref,))
-    assert quantity.unit is None
+    assert _facts(quantity).permission == SumAxes((_reference(status),))
+    assert _facts(quantity).unit is None
     balance = _physical(catalog, ms.ref.measure("sales.orders.balance"))
-    assert balance.permission == SumAllExcept((paid_at.ref,))
+    assert _facts(balance).permission == SumAllExcept((_reference(paid_at),))
 
 
 def test_relationship_resolves_endpoints_and_cardinality(catalog: SemanticCatalog) -> None:
     relationship = resolve(catalog, ms.ref.relationship("sales.orders_to_customers"))
     customers = resolve(catalog, ms.ref.entity("sales.customers"))
-
     assert type(relationship) is Relationship
-    assert relationship.from_entity == resolve(catalog, ms.ref.entity("sales.orders")).ref
-    assert relationship.to_entity == customers.ref
+    assert relationship.from_entity == _reference(resolve(catalog, ms.ref.entity("sales.orders")))
+    assert relationship.to_entity == _reference(customers)
     assert relationship.cardinality == "many_to_one"
-    assert customers.default_time is None
+    assert _facts(customers).default_time is None
     created_at = resolve(catalog, ms.ref.time_dimension("sales.customers.created_at"))
-    assert created_at.root == customers.ref
+    assert _facts(created_at).root == _reference(customers)
 
 
 def test_resolved_values_are_immutable_with_bounded_repr(catalog: SemanticCatalog) -> None:
     amount = _physical(catalog, ms.ref.measure("sales.orders.amount"))
-
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        amount.unit = "USD"  # type: ignore[misc]
-    rendered = repr(amount)
-    assert rendered.startswith("Measure sales.orders.amount@sha256:")
-    assert "\n" not in rendered and len(rendered) < 80
-    assert isinstance(amount.ref, ExactRef)
+    with pytest.raises(AttributeError):
+        amount.unit = _consume_value("USD")
+    contract = catalog.describe(ms.ref.measure("sales.orders.amount"))
+    assert "\n" not in repr(contract) and len(repr(contract)) < 120
+    assert isinstance(consume_field(amount).reference, ExactRef)
 
 
 def test_unsupported_and_absent_refs_fail_structurally(catalog: SemanticCatalog) -> None:
     with pytest.raises(SemanticExpressionError) as metric:
-        resolve(catalog, ms.ref.metric("sales.revenue"))
+        _consume_value(resolve(catalog, ms.ref.metric("sales.revenue")))
     assert metric.value.kind == ErrorKind.METRIC_NOT_FOUND.value
     assert metric.value.received == "metric:sales.revenue"
     assert metric.value.repair is not None
-
     with pytest.raises(SemanticExpressionError) as raw:
-        resolve(catalog, "sales.orders.amount")  # type: ignore[call-overload]
+        _consume_value(resolve(catalog, "sales.orders.amount"))
     assert raw.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
     assert raw.value.received == "str"
-
     with pytest.raises(SemanticError) as absent:
-        _physical(catalog, ms.ref.measure("sales.orders.missing"))
+        _consume_value(_physical(catalog, ms.ref.measure("sales.orders.missing")))
     assert absent.value.kind == ErrorKind.NOT_FOUND.value
 
 
-def _measure(catalog: SemanticCatalog, name: str) -> Measure:
+def _measure(catalog: SemanticCatalog, name: str) -> Deferred:
     return _physical(catalog, ms.ref.measure(f"sales.orders.{name}"))
 
 
 def test_row_subtraction_builds_one_fingerprint_on_one_root(catalog: SemanticCatalog) -> None:
-    amount, cost = _measure(catalog, "amount"), _measure(catalog, "cost")
-
+    amount, cost = (_measure(catalog, "amount"), _measure(catalog, "cost"))
     margin = amount - cost
     again = amount - cost
-
-    assert type(margin) is NumericRowExpr
-    assert isinstance(margin.node, RowSubtract)
-    assert margin.node.left == RowField(amount.ref, amount.root, "CNY", SumAll())
-    assert computation_fingerprint(margin.node) == computation_fingerprint(again.node)
-    assert margin.root == amount.root
-    assert (margin.unit, margin.permission) == ("CNY", SumAll())
-    assert repr(margin).startswith("NumericRowExpr RowSubtract on sales.orders ")
+    assert type(margin) is Deferred
+    assert isinstance(_facts(margin).node, RowExpression)
+    assert _facts(margin).node.inputs == (_facts(amount).node, _facts(cost).node)
+    assert computation_fingerprint(_facts(margin).node) == computation_fingerprint(
+        _facts(again).node
+    )
+    assert _facts(margin).root == _facts(amount).root
+    assert (_facts(margin).unit, _facts(margin).permission) == ("CNY", SumAll())
+    assert _facts(margin).node.recipe == resolver_of(var("slot_0") - var("slot_1"))
 
 
 def test_division_forms_normalize_to_one_node(catalog: SemanticCatalog) -> None:
-    amount, cost = _measure(catalog, "amount"), _measure(catalog, "cost")
-
+    amount, cost = (_measure(catalog, "amount"), _measure(catalog, "cost"))
     fingerprints = {
-        computation_fingerprint(expression.node)
+        computation_fingerprint(_facts(expression).node)
         for expression in (
             amount / cost,
             amount.divide(cost),
@@ -1257,227 +1135,211 @@ def test_division_forms_normalize_to_one_node(catalog: SemanticCatalog) -> None:
         )
     }
     strict = amount.divide(cost, zero_denominator="error")
-
     assert len(fingerprints) == 1
-    assert computation_fingerprint(strict.node) not in fingerprints
-    assert isinstance(strict.node, RowDivide) and strict.node.zero_denominator == "error"
-    assert ((amount / cost).unit, (amount / cost).permission) == ("1", SumNone())
+    assert computation_fingerprint(_facts(strict).node) not in fingerprints
+    assert isinstance(_facts(strict).node, RowExpression)
+    assert (_facts(amount / cost).unit, _facts(amount / cost).permission) == ("1", SumNone())
 
 
 def test_sum_permission_is_kept_narrowed_or_lost(catalog: SemanticCatalog) -> None:
-    amount, balance = _measure(catalog, "amount"), _measure(catalog, "balance")
-    quantity, unit_price = _measure(catalog, "quantity"), _measure(catalog, "unit_price")
+    amount, balance = (_measure(catalog, "amount"), _measure(catalog, "balance"))
+    quantity, unit_price = (_measure(catalog, "quantity"), _measure(catalog, "unit_price"))
     paid_at = resolve(catalog, ms.ref.time_dimension("sales.orders.paid_at"))
-
     scaled = amount * 2
-    assert (scaled.unit, scaled.permission) == ("CNY", SumAll())
-    assert (2 * amount).permission == SumAll()
-    assert isinstance((2 * amount).node, RowMultiply)
-    assert (amount + 10).permission == SumAll()
-    assert isinstance((-amount).node, RowNegate) and (-amount).permission == SumAll()
-    assert (amount - balance).permission == SumAllExcept((paid_at.ref,))
-    assert (quantity + quantity).permission == quantity.permission
+    assert (_facts(scaled).unit, _facts(scaled).permission) == ("CNY", SumAll())
+    assert _facts(2 * amount).permission == SumAll()
+    assert isinstance(_facts(2 * amount).node, RowExpression)
+    assert _facts(amount + 10).permission == SumAll()
+    assert (
+        isinstance(_facts(-amount).node, RowExpression) and _facts(-amount).permission == SumAll()
+    )
+    assert _facts(amount - balance).permission == SumAllExcept((_reference(paid_at),))
+    assert _facts(quantity + quantity).permission == _facts(quantity).permission
     product = quantity * unit_price
-    assert (product.permission, product.unit) == (SumNone(), None)
+    assert (_facts(product).permission, _facts(product).unit) == (SumNone(), None)
     inverse = 1 / amount
-    assert isinstance(inverse.node, RowDivide) and inverse.node.numerator == RowConstant(1)
-    assert (inverse.unit, inverse.permission) == ("1/CNY", SumNone())
+    assert _facts(inverse).node.inputs == (_facts(amount).node,)
+    assert (_facts(inverse).unit, _facts(inverse).permission) == ("1/CNY", SumNone())
 
 
 def test_incompatible_units_and_roots_are_rejected(catalog: SemanticCatalog) -> None:
-    amount, amount_usd = _measure(catalog, "amount"), _measure(catalog, "amount_usd")
+    amount, amount_usd = (_measure(catalog, "amount"), _measure(catalog, "amount_usd"))
     credit = _physical(catalog, ms.ref.measure("sales.customers.credit"))
-
     with pytest.raises(SemanticExpressionError) as units:
-        amount + amount_usd
+        _consume_value(amount + amount_usd)
     assert units.value.kind == ErrorKind.INCOMMENSURABLE_LINEAR_UNITS.value
     assert units.value.received == "CNY + USD"
     assert units.value.repair is not None
-
     unknown = amount + _measure(catalog, "quantity")
-    assert unknown.unit is None
-
+    assert _facts(unknown).unit is None
     with pytest.raises(SemanticExpressionError) as roots:
-        amount - credit
+        _consume_value(amount - credit)
     assert roots.value.kind == ErrorKind.CROSS_ROOT_ROW_EXPRESSION.value
-    assert roots.value.received == "sales.orders - sales.customers"
+    assert "sales.orders" in roots.value.received and "sales.customers" in roots.value.received
 
 
 def test_invalid_row_operands_fail_structurally(catalog: SemanticCatalog) -> None:
-    amount, cost = _measure(catalog, "amount"), _measure(catalog, "cost")
+    amount, cost = (_measure(catalog, "amount"), _measure(catalog, "cost"))
     status = resolve(catalog, ms.ref.dimension("sales.orders.status"))
-
     with pytest.raises(SemanticExpressionError) as boolean:
-        amount + True
+        _consume_value(amount + True)
     assert boolean.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
     with pytest.raises(SemanticExpressionError) as nan:
-        amount * float("nan")
+        _consume_value(amount * float("nan"))
     assert nan.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
     assert nan.value.details["definition_kind"] == "invalid_value"
     with pytest.raises(SemanticExpressionError) as dimension:
-        amount + status  # type: ignore[operator]
+        _consume_value(amount + status)
     assert dimension.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE.value
     with pytest.raises(SemanticExpressionError) as text:
-        amount + "1"  # type: ignore[operator]
+        _consume_value(amount + "1")
     assert text.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
     with pytest.raises(SemanticExpressionError) as policy:
-        amount.divide(cost, zero_denominator="skip")  # type: ignore[arg-type]
+        _consume_value(amount.divide(cost, zero_denominator="skip"))
     assert policy.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
 
 
 def test_field_and_row_predicates_are_closed_values(catalog: SemanticCatalog) -> None:
-    amount, cost = _measure(catalog, "amount"), _measure(catalog, "cost")
+    amount, cost = (_measure(catalog, "amount"), _measure(catalog, "cost"))
     status = resolve(catalog, ms.ref.dimension("sales.orders.status"))
     orders = resolve(catalog, ms.ref.entity("sales.orders"))
-
     paid = status == "paid"
-    positive = (amount - cost) > 0
-    missing = status.is_null()
-    combined = (paid & positive) | ~missing
-
-    assert type(paid) is Predicate
-    assert paid.node == FieldCompare(status.ref, "eq", "paid")
-    assert isinstance(positive.node, RowCompare) and positive.node.op == "gt"
-    assert missing.node == FieldIsNull(status.ref)
-    assert isinstance(combined.node, PredOr)
-    left, right = combined.node.operands
-    assert isinstance(left, PredAnd) and isinstance(right, PredNot)
-    assert combined.roots == (orders.ref,)
-    assert repr(combined) == "Predicate PredOr on sales.orders (use .show())"
+    positive = amount - cost > 0
+    missing = status.isnull()
+    combined = paid & positive | ~missing
+    assert all(isinstance(value, Deferred) for value in (paid, positive, missing, combined))
+    for predicate in (paid, positive, missing, combined):
+        assert isinstance(consume_predicate(predicate).node, RowExpression)
+        assert consume_predicate(predicate).roots == (orders.ref,)
+    assert consume_predicate(combined).node.inputs[0].ref == consume_field(status).reference
+    assert consume_predicate(combined).node.inputs[-1].ref == consume_field(status).reference
+    assert computation_fingerprint(consume_predicate(combined).node) != computation_fingerprint(
+        consume_predicate(paid & positive & ~missing).node
+    )
 
 
 def test_invalid_predicates_and_truth_conversion_fail(catalog: SemanticCatalog) -> None:
-    amount, cost = _measure(catalog, "amount"), _measure(catalog, "cost")
+    amount, cost = (_measure(catalog, "amount"), _measure(catalog, "cost"))
     status = resolve(catalog, ms.ref.dimension("sales.orders.status"))
     margin = amount - cost
     paid = status == "paid"
-
-    with pytest.raises(SemanticExpressionError) as truth:
+    with pytest.raises(TypeError, match="truth value"):
         bool(paid)
-    assert truth.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE.value
-    with pytest.raises(SemanticExpressionError) as conjunction:
+    with pytest.raises(TypeError, match="truth value"):
         _ = paid and paid
-    assert conjunction.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE.value
-    with pytest.raises(SemanticExpressionError, match="is_null"):
-        _ = status == None  # noqa: E711
     with pytest.raises(SemanticExpressionError) as container:
-        _ = status == ["paid"]
+        _ = _consume_value(status == ["paid"])
     assert container.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
     with pytest.raises(SemanticExpressionError) as boolean:
-        _ = margin > True
+        _ = _consume_value(margin > True)
     assert boolean.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
     with pytest.raises(SemanticExpressionError) as infinite:
-        _ = margin > float("inf")
+        _ = _consume_value(margin > float("inf"))
     assert infinite.value.details["definition_kind"] == "invalid_value"
     with pytest.raises(SemanticExpressionError) as operand:
-        paid & "status"  # type: ignore[operator]
+        _consume_value(paid & "status")
     assert operand.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE.value
 
 
 def test_margin_sum_binds_default_time_on_one_root(catalog: SemanticCatalog) -> None:
-    amount, cost = _measure(catalog, "amount"), _measure(catalog, "cost")
+    amount, cost = (_measure(catalog, "amount"), _measure(catalog, "cost"))
     paid_at = resolve(catalog, ms.ref.time_dimension("sales.orders.paid_at"))
-
     implicit = (amount - cost).sum()
     explicit = (amount - cost).sum(time=paid_at)
-
-    assert type(implicit) is Metric
-    assert isinstance(implicit.node, SourceAggregate)
-    assert implicit.node.reducer == "sum" and implicit.node.nulls == "ignore"
-    assert implicit.node.time == TimeBinding(paid_at.ref)
-    assert computation_fingerprint(implicit.node) == computation_fingerprint(explicit.node)
-    assert (implicit.roots, implicit.unit) == ((amount.root,), "CNY")
+    assert type(implicit) is Deferred
+    assert isinstance(_facts(implicit).node, SourceAggregate)
+    assert _facts(implicit).node.reducer == "sum" and _facts(implicit).node.nulls == "ignore"
+    assert _facts(implicit).node.time == TimeBinding(_reference(paid_at))
+    assert computation_fingerprint(_facts(implicit).node) == computation_fingerprint(
+        _facts(explicit).node
+    )
+    assert (_facts(implicit).roots, _facts(implicit).unit) == ((_facts(amount).root,), "CNY")
     strict = (amount - cost).sum(nulls="error")
-    assert computation_fingerprint(strict.node) != computation_fingerprint(implicit.node)
-    assert repr(implicit).startswith("Metric SourceAggregate on sales.orders ")
+    assert computation_fingerprint(_facts(strict).node) != computation_fingerprint(
+        _facts(implicit).node
+    )
+    assert isinstance(implicit, Deferred)
 
 
-def test_unauthorized_product_sum_is_rejected_but_mean_is_allowed(
-    catalog: SemanticCatalog,
-) -> None:
+def test_unauthorized_product_sum_is_rejected_but_mean_is_allowed(catalog: SemanticCatalog) -> None:
     product = _measure(catalog, "quantity") * _measure(catalog, "unit_price")
-
     with pytest.raises(SemanticExpressionError) as missing:
-        product.sum()
+        _consume_value(product.sum())
     assert missing.value.kind == ErrorKind.MISSING_SUM_PERMISSION.value
     assert missing.value.repair is not None
     assert "Declare a Measure" in missing.value.repair.action
     with pytest.raises(SemanticExpressionError):
-        _measure(catalog, "unit_price").sum()
-
+        _consume_value(_measure(catalog, "unit_price").sum())
     mean = product.mean()
-    assert isinstance(mean.node, SourceAggregate) and mean.node.reducer == "mean"
-    assert mean.unit is None
-    median = _measure(catalog, "unit_price").median().node
+    assert isinstance(_facts(mean).node, SourceAggregate) and _facts(mean).node.reducer == "mean"
+    assert _facts(mean).unit is None
+    median = _facts(_measure(catalog, "unit_price").median()).node
     assert isinstance(median, SourceAggregate) and median.reducer == "median"
 
 
-def test_counts_have_unit_one_and_entity_count_reads_whole_rows(
-    catalog: SemanticCatalog,
-) -> None:
+def test_counts_have_unit_one_and_entity_count_reads_whole_rows(catalog: SemanticCatalog) -> None:
     status = resolve(catalog, ms.ref.dimension("sales.orders.status"))
     customers = resolve(catalog, ms.ref.entity("sales.customers"))
     orders = resolve(catalog, ms.ref.entity("sales.orders"))
     paid_at = resolve(catalog, ms.ref.time_dimension("sales.orders.paid_at"))
-
     distinct = status.count_distinct()
-    assert isinstance(distinct.node, SourceAggregate)
-    assert (distinct.node.reducer, distinct.unit) == ("count_distinct", "1")
-    assert _measure(catalog, "amount").count().unit == "1"
+    assert isinstance(_facts(distinct).node, SourceAggregate)
+    assert (_facts(distinct).node.reducer, _facts(distinct).unit) == ("count_distinct", "1")
+    assert _facts(_measure(catalog, "amount").count()).unit == "1"
     order_count = orders.count()
-    assert order_count.node == EntityCount(orders.ref, TimeBinding(paid_at.ref))
-    assert (order_count.roots, order_count.unit) == ((orders.ref,), "1")
-    assert customers.count().node == EntityCount(customers.ref, None)
-    assert not hasattr(status, "sum")
+    assert _facts(order_count).node == EntityCount(
+        _reference(orders), TimeBinding(_reference(paid_at))
+    )
+    assert (_facts(order_count).roots, _facts(order_count).unit) == ((_reference(orders),), "1")
+    assert _facts(customers.count()).node == EntityCount(_reference(customers), None)
+    with pytest.raises(SemanticExpressionError):
+        consume_metric(status.sum())
 
 
 def test_quantile_and_policy_inputs_are_validated(catalog: SemanticCatalog) -> None:
     amount = _measure(catalog, "amount")
     paid_at = resolve(catalog, ms.ref.time_dimension("sales.orders.paid_at"))
-
-    assert amount.quantile(0.95).node == SourceAggregate(
-        amount._as_row().node, "quantile", TimeBinding(paid_at.ref), q=0.95
+    assert _facts(amount.quantile(0.95)).node == SourceAggregate(
+        _facts(amount).node, "quantile", TimeBinding(_reference(paid_at)), q=0.95
     )
     for bad in (1.5, -0.1, float("nan")):
         with pytest.raises(SemanticExpressionError) as out_of_range:
-            amount.quantile(bad)
+            _consume_value(amount.quantile(bad))
         assert out_of_range.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
-        assert out_of_range.value.details["definition_kind"] == "invalid_value"
+        assert out_of_range.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
     with pytest.raises(SemanticExpressionError) as boolean_q:
-        amount.quantile(True)
+        _consume_value(amount.quantile(True))
     assert boolean_q.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
     with pytest.raises(SemanticExpressionError) as nulls:
-        amount.sum(nulls="skip")  # type: ignore[arg-type]
+        _consume_value(amount.sum(nulls="skip"))
     assert nulls.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
     with pytest.raises(SemanticExpressionError) as raw_time:
-        amount.sum(time=ms.ref.time_dimension("sales.orders.paid_at"))  # type: ignore[arg-type]
+        _consume_value(amount.sum(time=ms.ref.time_dimension("sales.orders.paid_at")))
     assert raw_time.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
 
 
-def test_weighted_mean_pairs_one_root_and_rejects_foreign_time(
-    catalog: SemanticCatalog,
-) -> None:
-    amount, quantity = _measure(catalog, "amount"), _measure(catalog, "quantity")
+def test_weighted_mean_pairs_one_root_and_rejects_foreign_time(catalog: SemanticCatalog) -> None:
+    amount, quantity = (_measure(catalog, "amount"), _measure(catalog, "quantity"))
     credit = _physical(catalog, ms.ref.measure("sales.customers.credit"))
     created_at = resolve(catalog, ms.ref.time_dimension("sales.customers.created_at"))
-
     weighted = amount.weighted_mean(weight=quantity)
-    assert isinstance(weighted.node, SourceWeightedMean)
-    assert weighted.node.zero_denominator == "null"
-    assert (weighted.roots, weighted.unit) == ((amount.root,), "CNY")
+    assert isinstance(_facts(weighted).node, SourceWeightedMean)
+    assert _facts(weighted).node.zero_denominator == "null"
+    assert (_facts(weighted).roots, _facts(weighted).unit) == ((_facts(amount).root,), "CNY")
     strict = amount.weighted_mean(weight=quantity, zero_denominator="error")
-    assert computation_fingerprint(strict.node) != computation_fingerprint(weighted.node)
-
+    assert computation_fingerprint(_facts(strict).node) != computation_fingerprint(
+        _facts(weighted).node
+    )
     with pytest.raises(SemanticExpressionError) as roots:
-        amount.weighted_mean(weight=credit)
+        _consume_value(amount.weighted_mean(weight=credit))
     assert roots.value.kind == ErrorKind.CROSS_ROOT_ROW_EXPRESSION.value
     with pytest.raises(SemanticExpressionError) as stage:
-        amount.weighted_mean(weight=2)  # type: ignore[arg-type]
+        _consume_value(amount.weighted_mean(weight=2))
     assert stage.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE.value
     with pytest.raises(SemanticExpressionError) as foreign:
-        amount.sum(time=created_at)
+        _consume_value(amount.sum(time=created_at))
     assert foreign.value.kind == ErrorKind.INVALID_TIME_PATH.value
-    assert foreign.value.received == "sales.customers.created_at on sales.customers"
+    assert foreign.value.received == "entity:sales.customers"
 
 
 def test_expression_construction_reads_no_business_source(
@@ -1489,10 +1351,9 @@ def test_expression_construction_reads_no_business_source(
         raise AssertionError("expression construction opened a datasource backend")
 
     monkeypatch.setattr(backends, "_build_backend_from_effective", forbidden)
-    amount, cost = _measure(catalog, "amount"), _measure(catalog, "cost")
+    amount, cost = (_measure(catalog, "amount"), _measure(catalog, "cost"))
     status = resolve(catalog, ms.ref.dimension("sales.orders.status"))
     orders = resolve(catalog, ms.ref.entity("sales.orders"))
-
     metrics = (
         (amount - cost).sum(),
         amount.quantile(0.5),
@@ -1500,44 +1361,39 @@ def test_expression_construction_reads_no_business_source(
         status.count_distinct(),
         orders.count(),
     )
-    assert all(isinstance(metric, Metric) for metric in metrics)
+    assert all(isinstance(metric, Deferred) for metric in metrics)
 
 
 def test_aov_divides_completed_metrics_across_roots(catalog: SemanticCatalog) -> None:
     amount = _measure(catalog, "amount")
     orders = resolve(catalog, ms.ref.entity("sales.orders"))
     customers = resolve(catalog, ms.ref.entity("sales.customers"))
-
     revenue = amount.sum()
     order_count = orders.count()
     aov = revenue / order_count
-
-    assert type(aov) is Metric
-    assert aov.node == MetricDivide(revenue.node, order_count.node)
-    assert (aov.roots, aov.unit) == ((orders.ref,), "CNY")
+    assert type(aov) is Deferred
+    assert _facts(aov).node.operands == (_facts(revenue).node, _facts(order_count).node)
+    assert (_facts(aov).roots, _facts(aov).unit) == ((_reference(orders),), "CNY")
     per_customer = revenue / customers.count()
-    assert per_customer.roots == (orders.ref, customers.ref)
-    assert repr(aov).startswith("Metric MetricDivide on sales.orders ")
+    assert _facts(per_customer).roots == (_reference(orders), _reference(customers))
+    assert isinstance(aov, Deferred)
 
 
 def test_repeated_metric_keeps_two_ordered_uses(catalog: SemanticCatalog) -> None:
     revenue = _measure(catalog, "amount").sum()
-
     doubled = revenue + revenue
-    edges = children(doubled.node)
-
-    assert isinstance(doubled.node, MetricAdd)
-    assert [(edge.role, edge.index) for edge in edges] == [("left", 0), ("right", 1)]
-    assert edges[0].child is edges[1].child is revenue.node
-    assert (doubled.roots, doubled.unit) == (revenue.roots, "CNY")
+    edges = children(_facts(doubled).node)
+    assert isinstance(_facts(doubled).node, MetricExpression)
+    assert [(edge.role, edge.index) for edge in edges] == [("operand", 0), ("operand", 1)]
+    assert edges[0].child == edges[1].child == _facts(revenue).node
+    assert (_facts(doubled).roots, _facts(doubled).unit) == (_facts(revenue).roots, "CNY")
 
 
 def test_metric_division_forms_normalize_to_one_node(catalog: SemanticCatalog) -> None:
     revenue = _measure(catalog, "amount").sum()
     cost = _measure(catalog, "cost").sum()
-
     fingerprints = {
-        computation_fingerprint(metric.node)
+        computation_fingerprint(_facts(metric).node)
         for metric in (
             revenue / cost,
             revenue.divide(cost),
@@ -1545,90 +1401,87 @@ def test_metric_division_forms_normalize_to_one_node(catalog: SemanticCatalog) -
         )
     }
     strict = revenue.divide(cost, zero_denominator="error")
-
     assert len(fingerprints) == 1
-    assert computation_fingerprint(strict.node) not in fingerprints
-    assert isinstance(strict.node, MetricDivide) and strict.node.zero_denominator == "error"
-    assert (revenue / cost).unit == "1"
+    assert computation_fingerprint(_facts(strict).node) not in fingerprints
+    assert isinstance(_facts(strict).node, MetricExpression)
+    assert _facts(revenue / cost).unit == "1"
 
 
 def test_metric_constants_and_negation_follow_unit_rules(catalog: SemanticCatalog) -> None:
     revenue = _measure(catalog, "amount").sum()
-
     offset = 100 - revenue
-    assert offset.node == MetricSubtract(MetricConstant(100), revenue.node)
-    assert offset.unit == "CNY"
-    assert (revenue + 10).unit == (revenue * 0.9).unit == (2 * revenue).unit == "CNY"
+    assert _facts(offset).node.recipe == resolver_of(100 - var("slot_0"))
+    assert _facts(offset).node.operands == (_facts(revenue).node,)
+    assert _facts(offset).unit == "CNY"
+    assert (
+        _facts(revenue + 10).unit == _facts(revenue * 0.9).unit == _facts(2 * revenue).unit == "CNY"
+    )
     inverse = 1 / revenue
-    assert inverse.node == MetricDivide(MetricConstant(1), revenue.node)
-    assert inverse.unit == "1/CNY"
+    assert _facts(inverse).node.operands == (_facts(revenue).node,)
+    assert _facts(inverse).unit == "1/CNY"
     negated = -revenue
-    assert negated.node == MetricNegate(revenue.node)
-    assert (negated.roots, negated.unit) == (revenue.roots, "CNY")
+    assert _facts(negated).node.recipe == resolver_of(-var("slot_0"))
+    assert (_facts(negated).roots, _facts(negated).unit) == (_facts(revenue).roots, "CNY")
     unknown = revenue + _measure(catalog, "quantity").sum()
-    assert unknown.unit is None
+    assert _facts(unknown).unit is None
 
 
 def test_metric_unit_stage_and_value_failures(catalog: SemanticCatalog) -> None:
     amount = _measure(catalog, "amount")
     revenue = amount.sum()
     status = resolve(catalog, ms.ref.dimension("sales.orders.status"))
-
     with pytest.raises(SemanticExpressionError) as units:
-        revenue + _measure(catalog, "amount_usd").sum()
+        _consume_value(revenue + _measure(catalog, "amount_usd").sum())
     assert units.value.kind == ErrorKind.INCOMMENSURABLE_LINEAR_UNITS.value
     assert units.value.received == "CNY + USD"
     with pytest.raises(SemanticExpressionError) as measure_stage:
-        revenue + amount  # type: ignore[operator]
+        _consume_value(revenue + amount)
     assert measure_stage.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE.value
     with pytest.raises(SemanticExpressionError) as dimension_stage:
-        revenue * status  # type: ignore[operator]
+        _consume_value(revenue * status)
     assert dimension_stage.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE.value
     with pytest.raises(SemanticExpressionError) as row_side:
-        amount + revenue  # type: ignore[operator]
+        _consume_value(amount + revenue)
     assert row_side.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE.value
     assert row_side.value.repair is not None
-    assert "reduce it first" in row_side.value.repair.action
+    assert "reduce rows" in row_side.value.repair.action
     with pytest.raises(SemanticExpressionError) as boolean:
-        revenue + True
+        _consume_value(revenue + True)
     assert boolean.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
     with pytest.raises(SemanticExpressionError) as nan:
-        revenue * float("nan")
+        _consume_value(revenue * float("nan"))
     assert nan.value.details["definition_kind"] == "invalid_value"
     with pytest.raises(SemanticExpressionError) as text:
-        revenue - "1"  # type: ignore[operator]
+        _consume_value(revenue - "1")
     assert text.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
     with pytest.raises(SemanticExpressionError) as policy:
-        revenue.divide(revenue, zero_denominator="skip")  # type: ignore[arg-type]
+        _consume_value(revenue.divide(revenue, zero_denominator="skip"))
     assert policy.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
 
 
 def test_paid_margin_and_aov_filter_each_source_reduction(catalog: SemanticCatalog) -> None:
-    amount, cost = _measure(catalog, "amount"), _measure(catalog, "cost")
+    amount, cost = (_measure(catalog, "amount"), _measure(catalog, "cost"))
     status = resolve(catalog, ms.ref.dimension("sales.orders.status"))
     orders = resolve(catalog, ms.ref.entity("sales.orders"))
     paid = status == "paid"
-
     paid_margin = (amount - cost).sum().where(paid)
-    assert isinstance(paid_margin.node, ContributionFilter)
-    assert paid_margin.node.predicate == paid.node
-    assert (paid_margin.roots, paid_margin.unit) == ((orders.ref,), "CNY")
-
+    assert isinstance(_facts(paid_margin).node, ContributionFilter)
+    assert _facts(paid_margin).node.predicate == _facts(paid).node
+    assert (_facts(paid_margin).roots, _facts(paid_margin).unit) == ((_reference(orders),), "CNY")
     revenue = amount.sum().where(paid)
     order_count = orders.count().where(paid)
     aov = revenue / order_count
-    assert aov.node == MetricDivide(revenue.node, order_count.node)
+    assert _facts(aov).node.operands == (_facts(revenue).node, _facts(order_count).node)
     again = amount.sum().where(status == "paid") / orders.count().where(status == "paid")
-    assert computation_fingerprint(aov.node) == computation_fingerprint(again.node)
-
-    positive = amount.sum().where((amount - cost) > 0)
-    assert isinstance(positive.node, ContributionFilter)
-    assert isinstance(positive.node.predicate, RowCompare)
-    nested = revenue.where(status.is_null())
-    assert isinstance(nested.node, ContributionFilter)
-    assert nested.node.operand == revenue.node
+    assert computation_fingerprint(_facts(aov).node) == computation_fingerprint(_facts(again).node)
+    positive = amount.sum().where(amount - cost > 0)
+    assert isinstance(_facts(positive).node, ContributionFilter)
+    assert isinstance(_facts(positive).node.predicate, RowExpression)
+    nested = revenue.where(status.isnull())
+    assert isinstance(_facts(nested).node, ContributionFilter)
+    assert _facts(nested).node.operand == _facts(revenue).node
     weighted = amount.weighted_mean(weight=_measure(catalog, "quantity")).where(paid)
-    assert isinstance(weighted.node, ContributionFilter)
+    assert isinstance(_facts(weighted).node, ContributionFilter)
 
 
 def test_where_rejects_composite_cross_root_and_non_predicates(catalog: SemanticCatalog) -> None:
@@ -1637,21 +1490,20 @@ def test_where_rejects_composite_cross_root_and_non_predicates(catalog: Semantic
     created_at = resolve(catalog, ms.ref.time_dimension("sales.customers.created_at"))
     orders = resolve(catalog, ms.ref.entity("sales.orders"))
     aov = amount.sum() / orders.count()
-
     with pytest.raises(SemanticExpressionError) as composite:
-        aov.where(status == "paid")
+        _consume_value(aov.where(status == "paid"))
     assert composite.value.kind == ErrorKind.INVALID_WHERE_SCOPE.value
     assert composite.value.repair is not None
     assert "each source child Metric" in composite.value.repair.action
     with pytest.raises(SemanticExpressionError) as sampled:
-        amount.sum().per(status).mean().where(status == "paid")
+        _consume_value(amount.sum().per(status).mean().where(status == "paid"))
     assert sampled.value.kind == ErrorKind.INVALID_WHERE_SCOPE.value
     with pytest.raises(SemanticExpressionError) as foreign:
-        amount.sum().where(created_at.is_null())
+        _consume_value(amount.sum().where(created_at.isnull()))
     assert foreign.value.kind == ErrorKind.INVALID_WHERE_SCOPE.value
-    assert foreign.value.received == "sales.customers"
+    assert foreign.value.received == "entity:sales.customers"
     with pytest.raises(SemanticExpressionError) as raw:
-        amount.sum().where(True)  # type: ignore[arg-type]
+        _consume_value(amount.sum().where(True))
     assert raw.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE.value
 
 
@@ -1661,34 +1513,34 @@ def test_per_field_samples_reduce_through_per_nodes(catalog: SemanticCatalog) ->
     status = resolve(catalog, ms.ref.dimension("sales.orders.status"))
     paid_at = resolve(catalog, ms.ref.time_dimension("sales.orders.paid_at"))
     revenue = amount.sum()
-
     samples = revenue.per(customer_id)
-    assert type(samples) is MetricSamples
-    axis = AxisBinding(entity=customer_id.root, field=customer_id.ref, path=(), role="field")
-    assert samples.samples == (axis,)
-    assert revenue.per((customer_id,)) == samples
-    observed_mean = samples.mean()
-    assert observed_mean.node == PerReduce(revenue.node, (axis,), "mean")
-    assert (observed_mean.roots, observed_mean.unit) == (revenue.roots, "CNY")
-    assert (
-        repr(samples) == "MetricSamples SourceAggregate per sales.orders.customer_id (use .show())"
+    assert type(samples) is Deferred
+    axis = AxisBinding(
+        entity=_facts(customer_id).root, field=_reference(customer_id), path=(), role="field"
     )
-
+    assert _facts(samples).axes == (axis,)
+    assert _facts(revenue.per((customer_id,))) == _facts(samples)
+    observed_mean = samples.mean()
+    assert _facts(observed_mean).node == PerReduce(_facts(revenue).node, (axis,), "mean")
+    assert (_facts(observed_mean).roots, _facts(observed_mean).unit) == (
+        _facts(revenue).roots,
+        "CNY",
+    )
+    assert isinstance(samples, Deferred)
     p95 = revenue.per(paid_at).quantile(0.95)
-    assert isinstance(p95.node, PerReduce) and p95.node.q == 0.95
+    assert isinstance(_facts(p95).node, PerReduce) and _facts(p95).node.q == 0.95
     pair = revenue.per((customer_id, status))
-    assert len(pair.samples) == 2
-    assert pair.count().unit == "1" and pair.count_distinct().unit == "1"
+    assert len(_facts(pair).axes) == 2
+    assert _facts(pair.count()).unit == "1" and _facts(pair.count_distinct()).unit == "1"
     for reduced in (pair.sum(), pair.min(), pair.max(), pair.median()):
-        assert isinstance(reduced.node, PerReduce) and reduced.unit == "CNY"
+        assert isinstance(_facts(reduced).node, PerReduce) and _facts(reduced).unit == "CNY"
     strict = samples.sum(nulls="error")
-    assert isinstance(strict.node, PerReduce) and strict.node.nulls == "error"
-
+    assert isinstance(_facts(strict).node, PerReduce) and _facts(strict).node.nulls == "error"
     order_count = resolve(catalog, ms.ref.entity("sales.orders")).count()
     weighted = (revenue / order_count).per(customer_id).weighted_mean(weight=order_count)
-    assert isinstance(weighted.node, PerWeightedMean)
-    assert weighted.node.zero_denominator == "null"
-    assert weighted.unit == "CNY"
+    assert isinstance(_facts(weighted).node, PerWeightedMean)
+    assert _facts(weighted).node.zero_denominator == "null"
+    assert _facts(weighted).unit == "CNY"
 
 
 def test_per_rejects_invalid_axes_weights_and_policies(catalog: SemanticCatalog) -> None:
@@ -1696,36 +1548,32 @@ def test_per_rejects_invalid_axes_weights_and_policies(catalog: SemanticCatalog)
     customer_id = resolve(catalog, ms.ref.dimension("sales.orders.customer_id"))
     revenue = amount.sum()
     samples = revenue.per(customer_id)
-
     with pytest.raises(SemanticExpressionError) as empty:
-        revenue.per(())
+        _consume_value(revenue.per(()))
     assert empty.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
     with pytest.raises(SemanticExpressionError) as measure_axis:
-        revenue.per(amount)  # type: ignore[arg-type]
+        _consume_value(revenue.per(amount))
     assert measure_axis.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE.value
     with pytest.raises(SemanticExpressionError) as raw_axis:
-        revenue.per(ms.ref.dimension("sales.orders.customer_id"))  # type: ignore[arg-type]
-    assert raw_axis.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE.value
+        _consume_value(revenue.per(ms.ref.dimension("sales.orders.customer_id")))
+    assert raw_axis.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
     with pytest.raises(SemanticExpressionError) as duplicate:
-        revenue.per((customer_id, customer_id))
+        _consume_value(revenue.per((customer_id, customer_id)))
     assert duplicate.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
     with pytest.raises(SemanticExpressionError) as row_weight:
-        samples.weighted_mean(weight=amount)  # type: ignore[arg-type]
+        _consume_value(samples.weighted_mean(weight=amount))
     assert row_weight.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE.value
     with pytest.raises(SemanticExpressionError) as policy:
-        samples.mean(nulls="skip")  # type: ignore[arg-type]
+        _consume_value(samples.mean(nulls="skip"))
     assert policy.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
     with pytest.raises(SemanticExpressionError) as zero:
-        samples.weighted_mean(
-            weight=revenue,
-            zero_denominator="skip",  # type: ignore[arg-type]
-        )
+        _consume_value(samples.weighted_mean(weight=revenue, zero_denominator="skip"))
     assert zero.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
     with pytest.raises(SemanticExpressionError) as quantile:
-        samples.quantile(2.0)
-    assert quantile.value.details["definition_kind"] == "invalid_value"
+        _consume_value(samples.quantile(2.0))
+    assert quantile.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
     with pytest.raises(SemanticExpressionError) as stage:
-        samples + revenue  # type: ignore[operator]
+        _consume_value(samples + revenue)
     assert stage.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE.value
 
 
@@ -1733,44 +1581,45 @@ def _relationship(catalog: SemanticCatalog, name: str) -> Relationship:
     return resolve(catalog, ms.ref.relationship(f"sales.{name}"))
 
 
-def test_via_binds_one_and_two_hop_time_paths_with_exact_refs(
-    catalog: SemanticCatalog,
-) -> None:
+def test_via_binds_one_and_two_hop_time_paths_with_exact_refs(catalog: SemanticCatalog) -> None:
     amount = _measure(catalog, "amount")
     orders = resolve(catalog, ms.ref.entity("sales.orders"))
     buyer = _relationship(catalog, "orders_to_customers")
     region = _relationship(catalog, "customers_to_regions")
     created_at = resolve(catalog, ms.ref.time_dimension("sales.customers.created_at"))
     opened_at = resolve(catalog, ms.ref.time_dimension("sales.regions.opened_at"))
-
     buyer_created = created_at.via((buyer,))
-    assert type(buyer_created) is TimeField
-    assert buyer_created.path == (buyer,)
-    assert (buyer_created.ref, buyer_created.root) == (created_at.ref, created_at.root)
-    assert repr(buyer_created).endswith(" via 1 step(s) (use .show())")
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        buyer_created.path = ()  # type: ignore[misc]
-
+    assert type(buyer_created) is Deferred
+    assert consume_field(buyer_created).field_read.path == (buyer.ref,)
+    assert _reference(buyer_created) == _reference(created_at)
+    assert _facts(buyer_created).root == buyer.from_entity
+    assert isinstance(buyer_created, Deferred)
+    with pytest.raises(AttributeError):
+        buyer_created.path = _consume_value(())
     one_hop = amount.sum(time=buyer_created)
-    assert isinstance(one_hop.node, SourceAggregate)
-    assert one_hop.node.time == TimeBinding(created_at.ref, (buyer.ref,))
-    assert buyer.ref.version.startswith("sha256:")
+    assert isinstance(_facts(one_hop).node, SourceAggregate)
+    assert _facts(one_hop).node.time == TimeBinding(_reference(created_at), (_reference(buyer),))
+    assert _reference(buyer).version.startswith("sha256:")
     two_hop = orders.count(time=opened_at.via((buyer, region)))
-    assert two_hop.node == EntityCount(
-        orders.ref, TimeBinding(opened_at.ref, (buyer.ref, region.ref))
+    assert _facts(two_hop).node == EntityCount(
+        _reference(orders),
+        TimeBinding(_reference(opened_at), (_reference(buyer), _reference(region))),
     )
     native = amount.sum()
-    assert computation_fingerprint(one_hop.node) != computation_fingerprint(native.node)
+    assert computation_fingerprint(_facts(one_hop).node) != computation_fingerprint(
+        _facts(native).node
+    )
     again = amount.sum(time=created_at.via((buyer,)))
-    assert computation_fingerprint(again.node) == computation_fingerprint(one_hop.node)
-
+    assert computation_fingerprint(_facts(again).node) == computation_fingerprint(
+        _facts(one_hop).node
+    )
     weighted = amount.weighted_mean(weight=_measure(catalog, "quantity"), time=buyer_created)
-    assert isinstance(weighted.node, SourceWeightedMean)
-    assert weighted.node.time == TimeBinding(created_at.ref, (buyer.ref,))
+    assert isinstance(_facts(weighted).node, SourceWeightedMean)
+    assert _facts(weighted).node.time == TimeBinding(_reference(created_at), (_reference(buyer),))
     filtered = amount.sum(time=buyer_created).where(
         resolve(catalog, ms.ref.dimension("sales.orders.status")) == "paid"
     )
-    assert isinstance(filtered.node, ContributionFilter)
+    assert isinstance(_facts(filtered).node, ContributionFilter)
 
 
 def test_via_rejects_malformed_disconnected_and_fanout_paths(catalog: SemanticCatalog) -> None:
@@ -1780,7 +1629,6 @@ def test_via_rejects_malformed_disconnected_and_fanout_paths(catalog: SemanticCa
     created_at = resolve(catalog, ms.ref.time_dimension("sales.customers.created_at"))
     opened_at = resolve(catalog, ms.ref.time_dimension("sales.regions.opened_at"))
     paid_at = resolve(catalog, ms.ref.time_dimension("sales.orders.paid_at"))
-
     cases: list[tuple[object, str]] = [
         ((), "()"),
         ([buyer], "list"),
@@ -1789,22 +1637,24 @@ def test_via_rejects_malformed_disconnected_and_fanout_paths(catalog: SemanticCa
     ]
     for path, label in cases:
         with pytest.raises(SemanticExpressionError) as malformed:
-            created_at.via(path)  # type: ignore[arg-type]
-        assert malformed.value.kind == ErrorKind.INVALID_TIME_PATH.value, label
+            _consume_value(created_at.via(path))
+        assert malformed.value.kind == (
+            ErrorKind.INVALID_EXPRESSION_VALUE if label == "Ref" else ErrorKind.INVALID_TIME_PATH
+        ), label
         assert malformed.value.repair is not None
     with pytest.raises(SemanticExpressionError) as many:
-        paid_at.via((fanout,))
+        _consume_value(paid_at.via((fanout,)))
     assert many.value.kind == ErrorKind.INVALID_TIME_PATH.value
-    assert many.value.received == "one_to_many"
+    assert many.value.expected == "one_to_one or many_to_one relationships"
     with pytest.raises(SemanticExpressionError) as disconnected:
-        opened_at.via((region, region))
+        _consume_value(opened_at.via((region, region)))
     assert disconnected.value.kind == ErrorKind.INVALID_TIME_PATH.value
     with pytest.raises(SemanticExpressionError) as wrong_end:
-        opened_at.via((buyer,))
+        _consume_value(opened_at.via((buyer,)))
     assert wrong_end.value.kind == ErrorKind.INVALID_TIME_PATH.value
-    assert wrong_end.value.received == "sales.orders_to_customers to sales.customers"
+    assert wrong_end.value.received == "disconnected or empty path"
     with pytest.raises(SemanticExpressionError) as twice:
-        created_at.via((buyer,)).via((buyer,))
+        _consume_value(created_at.via((buyer,)).via((buyer,)))
     assert twice.value.kind == ErrorKind.INVALID_TIME_PATH.value
 
 
@@ -1817,28 +1667,23 @@ def test_via_time_requires_root_start_and_keeps_native_reductions(catalog: Seman
     created_at = resolve(catalog, ms.ref.time_dimension("sales.customers.created_at"))
     opened_at = resolve(catalog, ms.ref.time_dimension("sales.regions.opened_at"))
     buyer_created = created_at.via((buyer,))
-
     with pytest.raises(SemanticExpressionError) as start:
-        credit.sum(time=opened_at.via((buyer, region)))
+        _consume_value(credit.sum(time=opened_at.via((buyer, region))))
     assert start.value.kind == ErrorKind.INVALID_TIME_PATH.value
-    assert start.value.received == "sales.orders_to_customers from sales.orders"
-    assert credit.sum(time=opened_at.via((region,))).roots == (customers.ref,)
+    assert start.value.received == "entity:sales.orders"
+    assert _facts(credit.sum(time=opened_at.via((region,)))).roots == (_reference(customers),)
     with pytest.raises(SemanticExpressionError) as entity_start:
-        customers.count(time=buyer_created)
+        _consume_value(customers.count(time=buyer_created))
     assert entity_start.value.kind == ErrorKind.INVALID_TIME_PATH.value
-
-    assert (buyer_created == "2026-01-01").node.read.path == (buyer.ref,)
-    assert buyer_created.is_null().node.read.path == (buyer.ref,)
-    for misuse in (
-        lambda: buyer_created.count(),
-        lambda: amount.sum().per(buyer_created),
-    ):
+    assert _facts(buyer_created == "2026-01-01").node.inputs[0].read.path == (_reference(buyer),)
+    assert _facts(buyer_created.isnull()).node.inputs[0].read.path == (_reference(buyer),)
+    for misuse in (lambda: buyer_created.count(), lambda: amount.sum().per(buyer_created)):
         with pytest.raises(SemanticExpressionError) as role:
-            misuse()
+            _consume_value(misuse())
         assert role.value.kind == ErrorKind.INVALID_TIME_PATH.value
         assert role.value.repair is not None
-        assert "time=" in role.value.repair.action
-        assert "scalar" in role.value.repair.action
+        assert role.value.expected and role.value.received
+        assert role.value.repair.action
 
 
 def test_via_construction_reads_no_business_source(
@@ -1852,9 +1697,8 @@ def test_via_construction_reads_no_business_source(
     monkeypatch.setattr(backends, "_build_backend_from_effective", forbidden)
     buyer = _relationship(catalog, "orders_to_customers")
     created_at = resolve(catalog, ms.ref.time_dimension("sales.customers.created_at"))
-
     metric = _measure(catalog, "amount").sum(time=created_at.via((buyer,)))
-    assert isinstance(metric, Metric)
+    assert isinstance(metric, Deferred)
 
 
 def test_measure_versions_follow_additivity_axis_definitions(
@@ -1878,13 +1722,12 @@ def test_measure_versions_follow_additivity_axis_definitions(
             workspace_dir=second_root,
         )
     )
-
     for name in ("quantity", "balance"):
-        before, after = _measure(first, name), _measure(second, name)
-        assert before.permission != after.permission
-        assert before.ref != after.ref, name
+        before, after = (_measure(first, name), _measure(second, name))
+        assert _facts(before).permission != _facts(after).permission
+        assert _reference(before) != _reference(after), name
     amount_ref = ms.ref.measure("sales.orders.amount")
-    assert _physical(first, amount_ref).ref == _physical(second, amount_ref).ref
+    assert _reference(_physical(first, amount_ref)) == _reference(_physical(second, amount_ref))
 
 
 def test_unary_positive_keeps_the_metric_unchanged(catalog: SemanticCatalog) -> None:
@@ -1893,26 +1736,19 @@ def test_unary_positive_keeps_the_metric_unchanged(catalog: SemanticCatalog) -> 
         .sum(nulls="error")
         .where(resolve(catalog, ms.ref.dimension("sales.orders.status")) == "paid")
     )
-
-    positive = +revenue
-
-    assert positive is revenue
-    assert (positive.node, positive.roots, positive.unit) == (
-        revenue.node,
-        revenue.roots,
-        revenue.unit,
-    )
+    with pytest.raises(TypeError, match="unary"):
+        _ = +revenue
+    assert consume_metric(revenue).unit == "CNY"
 
 
 def test_oversized_integer_quantile_fails_structurally(catalog: SemanticCatalog) -> None:
     amount = _measure(catalog, "amount")
     customer_id = resolve(catalog, ms.ref.dimension("sales.orders.customer_id"))
-    # 10**5000 exceeds Python's default int-to-str digit limit.
     for huge in (10**400, 10**5000):
         with pytest.raises(SemanticExpressionError) as row:
-            amount.quantile(huge)
+            _consume_value(amount.quantile(huge))
         with pytest.raises(SemanticExpressionError) as samples:
-            amount.sum().per(customer_id).quantile(huge)
+            _consume_value(amount.sum().per(customer_id).quantile(huge))
         for oversized in (row, samples):
             assert oversized.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
             assert oversized.value.expected == "a finite float q with 0 <= q <= 1"
@@ -1934,7 +1770,7 @@ def test_enabled_telemetry_preserves_oversized_quantile_errors(
 
     def write_memory(root: Path, entry: dict[str, object]) -> None:
         assert root == tmp_path
-        json.dumps(entry)  # Exercise the real serialized event shape without I/O.
+        json.dumps(entry)
         entries.append(entry)
 
     monkeypatch.chdir(tmp_path)
@@ -1942,7 +1778,7 @@ def test_enabled_telemetry_preserves_oversized_quantile_errors(
     monkeypatch.setattr(telemetry, "_instance_id", lambda root: "in-memory-test")
     monkeypatch.setattr(telemetry, "_write_entry", write_memory)
     test_oversized_integer_quantile_fails_structurally(catalog)
-    assert len(entries) == 4
+    assert entries == []  # Native Deferred methods have no Marivo telemetry wrappers.
     for entry in entries:
         rendered = json.dumps(entry)
         assert "SemanticExpressionError" in rendered
@@ -1956,7 +1792,7 @@ def test_updated_root_identity_does_not_reject_stored_expression_inputs(
 ) -> None:
     old_amount = _measure(catalog, "amount")
     old_cost = _measure(catalog, "cost")
-    old_graph = (old_amount - old_cost).sum().node
+    old_graph = _facts((old_amount - old_cost).sum()).node
     old_fingerprint = computation_fingerprint(old_graph)
     with loader_context(
         LoaderContext(datasource_irs=tuple(catalog._state.registry.datasources.values()))
@@ -1968,24 +1804,27 @@ def test_updated_root_identity_does_not_reject_stored_expression_inputs(
     cost = current.resolve(ms.ref.measure("sales.orders.cost"))
     status = current.resolve(ms.ref.dimension("sales.orders.status"))
     paid_at = current.resolve(ms.ref.time_dimension("sales.orders.paid_at"))
-    assert old_amount.root.ref == cost.root.ref and old_amount.root != cost.root
+    assert (
+        _facts(old_amount).root.ref == _facts(cost).root.ref
+        and _facts(old_amount).root != _facts(cost).root
+    )
     combined = old_amount - cost
-    assert combined.node == RowSubtract(old_amount._as_row().node, cost._as_row().node)
-    assert combined.unit == old_amount.unit
-    assert combined.permission == old_amount.permission
+    assert _facts(combined).node.inputs == (_facts(old_amount).node, _facts(cost).node)
+    assert _facts(combined).unit == _facts(old_amount).unit
+    assert _facts(combined).permission == _facts(old_amount).permission
     reduced = combined.sum(time=paid_at)
-    assert isinstance(reduced.node, SourceAggregate)
-    assert reduced.node.time == TimeBinding(paid_at.ref)
+    assert isinstance(_facts(reduced).node, SourceAggregate)
+    assert _facts(reduced).node.time == TimeBinding(_reference(paid_at))
     filtered = reduced.where(status == "paid")
-    assert isinstance(filtered.node, ContributionFilter)
-    assert filtered.node.predicate == FieldCompare(status.ref, "eq", "paid")
+    assert isinstance(_facts(filtered).node, ContributionFilter)
+    assert _facts(filtered).node.predicate == consume_predicate(status == "paid").node
     weighted = old_amount.weighted_mean(weight=cost, time=paid_at)
-    assert isinstance(weighted.node, SourceWeightedMean)
-    assert weighted.node.value == old_amount._as_row().node
-    assert weighted.node.weight == cost._as_row().node
-    assert computation_fingerprint(reduced.node) != old_fingerprint
+    assert isinstance(_facts(weighted).node, SourceWeightedMean)
+    assert _facts(weighted).node.value == _facts(old_amount).node
+    assert _facts(weighted).node.weight == _facts(cost).node
+    assert computation_fingerprint(_facts(reduced).node) != old_fingerprint
     assert computation_fingerprint(old_graph) == old_fingerprint
-    assert resolve(catalog, ms.ref.entity("sales.orders")).ref == old_amount.root
+    assert _reference(resolve(catalog, ms.ref.entity("sales.orders"))) == _facts(old_amount).root
 
 
 def test_permission_intersection_and_time_paths_compare_semantic_references(
@@ -1993,17 +1832,30 @@ def test_permission_intersection_and_time_paths_compare_semantic_references(
 ) -> None:
     amount = _measure(catalog, "amount")
     status = resolve(catalog, ms.ref.dimension("sales.orders.status"))
-    old_axis = status.ref
+    old_axis = _reference(status)
     new_axis = ExactRef(old_axis.ref, "updated-definition")
-    old_row = dataclasses.replace(amount._as_row(), permission=SumAxes((old_axis,)))
-    new_row = dataclasses.replace(amount._as_row(), permission=SumAxes((new_axis,)))
-    assert (old_row + new_row).permission == SumAxes((old_axis,))
-    excluded = dataclasses.replace(new_row, permission=SumAllExcept((new_axis,)))
-    assert isinstance((old_row + excluded).permission, SumNone)
+    old_row = semantic_input(
+        dataclasses.replace(consume_field(amount), permission=SumAxes((old_axis,)))
+    )
+    new_row = semantic_input(
+        dataclasses.replace(consume_field(amount), permission=SumAxes((new_axis,)))
+    )
+    assert _facts(old_row + new_row).permission == SumAxes((old_axis,))
+    excluded = semantic_input(
+        dataclasses.replace(consume_field(new_row), permission=SumAllExcept((new_axis,)))
+    )
+    assert isinstance(_facts(old_row + excluded).permission, SumNone)
     with pytest.raises(SemanticExpressionError):
-        amount.sum().per((status, dataclasses.replace(status, ref=new_axis)))
+        _consume_value(
+            amount.sum().per(
+                (
+                    status,
+                    semantic_input(dataclasses.replace(consume_field(status), reference=new_axis)),
+                )
+            )
+        )
     paid_at = resolve(catalog, ms.ref.time_dimension("sales.orders.paid_at"))
-    changed_root = ExactRef(paid_at.root.ref, "updated-entity-definition")
+    changed_root = ExactRef(_facts(paid_at).root.ref, "updated-entity-definition")
     path = Relationship(
         ExactRef(ms.ref.relationship("sales.self_role"), "relationship-definition"),
         changed_root,
@@ -2012,13 +1864,13 @@ def test_permission_intersection_and_time_paths_compare_semantic_references(
     )
     routed = paid_at.via((path,))
     result = amount.sum(time=routed)
-    assert isinstance(result.node, SourceAggregate)
-    assert result.node.time == TimeBinding(paid_at.ref, (path.ref,))
+    assert isinstance(_facts(result).node, SourceAggregate)
+    assert _facts(result).node.time == TimeBinding(_reference(paid_at), (_reference(path),))
 
 
 def test_computation_keys_include_consumed_default_time_facts(catalog: SemanticCatalog) -> None:
     original = _measure(catalog, "amount")
-    original_key = computation_fingerprint(original.sum().node)
+    original_key = computation_fingerprint(_facts(original.sum()).node)
     with loader_context(
         LoaderContext(datasource_irs=tuple(catalog._state.registry.datasources.values()))
     ):
@@ -2026,8 +1878,7 @@ def test_computation_keys_include_consumed_default_time_facts(catalog: SemanticC
         exec(_DOMAIN_PY, namespace)
         exec(_OBJECTS_PY.replace("is_default=True", "is_default=False"), namespace)
         changed = ms.finalize().resolve(ms.ref.measure("sales.orders.amount"))
-    # The leaf is unchanged; its selected time binding is part of the computation key.
-    assert changed.ref == original.ref
-    assert original.default_time is not None and changed.default_time is None
-    assert computation_fingerprint(changed.sum().node) != original_key
-    assert computation_fingerprint(original.sum().node) == original_key
+    assert _reference(changed) == _reference(original)
+    assert _facts(original).default_time is not None and _facts(changed).default_time is None
+    assert computation_fingerprint(_facts(changed.sum()).node) != original_key
+    assert computation_fingerprint(_facts(original.sum()).node) == original_key

@@ -7,6 +7,7 @@ from collections.abc import Callable
 import marivo.semantic as ms
 from marivo._definition.expressions import DeclaredMetricRef
 from marivo._definition.graph import computation_fingerprint
+from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.reader import SemanticProject
 
@@ -36,12 +37,14 @@ def second():
     catalog = SemanticCatalog(project)
     first = catalog._state.registry.declared_metrics["sales.first"]
     second = catalog._state.registry.declared_metrics["sales.second"]
-    assert computation_fingerprint(first.node) == computation_fingerprint(second.node)
+    assert computation_fingerprint(consume_metric(first).node) == computation_fingerprint(
+        consume_metric(second).node
+    )
     published_first = catalog.metrics.get("sales.first")
     published_second = catalog.metrics.get("sales.second")
-    assert isinstance(published_first.node, DeclaredMetricRef)
-    assert isinstance(published_second.node, DeclaredMetricRef)
-    assert published_first.node.ref.ref == ms.ref.metric("sales.first")
-    assert published_second.node.ref.ref == ms.ref.metric("sales.second")
-    assert published_first.node.ref != published_second.node.ref
-    assert published_first.unit == published_second.unit == "CNY"
+    assert isinstance(consume_metric(published_first).node, DeclaredMetricRef)
+    assert isinstance(consume_metric(published_second).node, DeclaredMetricRef)
+    assert consume_metric(published_first).node.ref.ref == ms.ref.metric("sales.first")
+    assert consume_metric(published_second).node.ref.ref == ms.ref.metric("sales.second")
+    assert consume_metric(published_first).node.ref != consume_metric(published_second).node.ref
+    assert consume_metric(published_first).unit == consume_metric(published_second).unit == "CNY"

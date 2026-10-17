@@ -1,36 +1,26 @@
 # Semantic Object Model
 
-Pending design amendment (2026-10-17):
+Native expression authoring (2026-10-17):
 [Expression redesign v0.37](expression-model-redesign.md#26-原生-ibis-与自动延迟绑定)
-replaces the custom Measure/Metric numeric AST with native Ibis expressions and controlled
-Deferred inputs. Named and anonymous expressions share the same checks; semantic stage,
-unit, additivity, contribution roots and time obligations remain Marivo-owned. Physical dtype
-binds automatically during execute preparation. This is not implemented: the closed-expression
-and Ibis-return rejection rules below remain the current API contract, not the proposed target.
+now uses controlled native Ibis Deferred for every numerical or conditional Field,
+Measure and Metric input. Physical capture/finalize still freezes semantic facts without
+source reads. Named declarations attach immutable metadata to the same Deferred recipe;
+model loading collects only exported root declarations. Derived aliases do not publish a
+new declaration. Declaration bodies are inspected and captured without invoking author functions.
 
-The same pending v0.37 design adds ordered first/last, native approximate reductions,
-explicit overlapping membership buckets, operator-local sum empty policy, and reusable named
-window Metrics. Named and anonymous inputs share the same deferred capture and checks;
-[semantic boundaries](expression-model-redesign.md#39-五项能力共用的检查边界) and
-[conditional migration equivalence](expression-model-redesign.md#a11-等价迁移的判定条件)
-are proposal contracts. Retired APIs and unsupported capabilities described below remain current
-until implementation and disclosure cutover; this note does not enable those APIs.
-The reviewed v0.37 proposal gives explicit membership paths priority and infers identity only
-when no path is supplied. Member-set products and complete target domains retain their bindings;
-classifying target identities does not traverse contribution-assignment paths. Axis-free rules
-use Metric.window; observe fixes the logical time binding, without freezing source data. Window
-Metrics allow qualified spatial rollup with that binding preserved; time-axis coarsening,
-replacement or removal is rejected. Scalar to-date uses the endpoint. The ordinary H/W recipe
-for legacy first-seen is equivalent only under consistent inputs; it adds no general window
-sharing requirement or runtime rejection policy. Ordered first/last retains its sampling checks.
+Use `catalog.describe(ref).show()` for definition facts and `Query.contract()` for execution
+facts. Native Deferred values have no Marivo `.show()` or `.contract()` methods. Real physical
+dtypes are checked during automatic execution preparation; no manual schema or conversion API
+is required. Implementation and execution acceptance for the additional capabilities below
+are tracked separately by the [implementation plan](expression-model-implementation-plan.md).
 
-The pending [fanout amendment](expression-model-redesign.md#371-fanout-的表达方式与能力边界)
-separates existence selection, membership buckets, association-event roots and modeled allocation
-roots. Relationships do not grant counting or allocation rules. Logical contribution semantics
-admit qualified equivalent physical plans without restoring fanout_policy or author-defined joins.
-This proposal does not enable capabilities marked unsupported in the current contract below.
+The current native surface includes source reductions, ordered internal-sample reductions,
+explicit membership buckets, local empty-input policies, and reusable window Metrics.
+Each expression keeps its contribution roots, permissions, units, time role and dependencies.
+The [expression model](expression-model-redesign.md) owns these rules; execution preparation
+checks physical types and backend support. A declaration or successful load is not execution evidence.
 
-Status: R1.3 authoring contract, 2026-10-15; R1.4 publication and R2 execution remain pending.
+Status: native Deferred authoring and publication contract, 2026-10-17.
 Semantic owns authored business meaning and normalized declarations.
 Analysis owns invocation checks, exact implementation admission and execution.
 
@@ -49,14 +39,11 @@ constructs a half-open condition; it does not replace the observation period
 required by sampling. Source reductions, sample axes and sum-permission declarations
 continue to require native fields; bound scalar reads do not expand row arithmetic.
 Focused Help routes are `semantic.Field.via`,
-`semantic.Field.at` and `semantic.TimeField.within`. Numeric Query execution is still
-pending R2.4–R2.5; no numerical qualification is implied.
+`semantic.Field.at` and `semantic.TimeField.within`. Execution requires automatic physical preparation and a qualified backend route.
 
 ## Definition changes during analysis
 
-Approved 2026-10-15; implemented in the uncommitted R1.3 working tree after
-the documentation checkpoint. Independent review and complete R1.3 acceptance
-remain pending; prior checks alone do not qualify this new policy.
+Definition changes are resolved by the consuming frozen catalog scope.
 
 Marivo does not require semantic objects to remain bound to the exact definition
 versions from which they were constructed, and does not reject an input solely
@@ -132,7 +119,7 @@ shape, declaration location and a concrete reauthoring action.
 
 Native fields expose `is_null()` for a typed missing-value predicate; Dimension,
 TimeField and Measure receivers share the single
-`marivo.help("semantic.Dimension.is_null")` contract. Routed TimeFields retain
+`marivo.help("semantic.Dimension.isnull")` contract. Routed TimeFields retain
 their path and are valid only as a source reduction's `time=` role, including
 when authoring sum-permission coordinates.
 

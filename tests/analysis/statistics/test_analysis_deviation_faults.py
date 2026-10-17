@@ -170,19 +170,22 @@ def test_transaction_failure_has_no_partial_success(
     case = analysis_dsl_case_factory("j2")
     runtime = case.session._runtime
     for point in ("insert_findings", "before_commit"):
+        injected: list[str] = []
 
-        def inject(actual: str, injected_point: str = point) -> None:
+        def inject(
+            actual: str, injected_point: str = point, recorded: list[str] = injected
+        ) -> None:
             if actual == injected_point:
-                raise RuntimeError("injected deviation publication failure")
+                recorded.append(actual)
+                raise RuntimeError("injected terminal publication failure")
 
         runtime._hook = inject
         try:
             with pytest.raises(AnalysisError):
-                case.session.members(ms.ref.entity("sales.order")).read(
-                    ms.ref.measure("sales.order.amount")
-                ).deviation(method="zscore").execute()
+                case.session.query(case.session.members(ms.ref.entity("sales.order"))).execute()
         finally:
             runtime._hook = None
+        assert injected == [point]
         assert runtime.store.resources(runtime.session_ref) == ()
         with runtime.store._connection() as connection:
             for table in ("dataset_artifacts", "dataset_evidence", "findings"):

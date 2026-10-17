@@ -11,6 +11,7 @@ import ibis
 import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
+from ibis.common.deferred import Resolver
 
 from marivo._definition.expressions import (
     ContributionFilter,
@@ -18,26 +19,27 @@ from marivo._definition.expressions import (
     EntityCount,
     FieldPredicate,
     MeasureAssertion,
-    MetricAdd,
-    MetricConstant,
-    MetricDivide,
-    MetricMultiply,
-    MetricNegate,
+    MetricExpression,
     MetricNode,
-    MetricSubtract,
-    RowAdd,
-    RowConstant,
-    RowDivide,
+    MetricWindow,
+    PerReduce,
+    PerWeightedMean,
+    RowExpression,
     RowField,
-    RowMultiply,
-    RowNegate,
     RowNode,
-    RowSubtract,
     SourceAggregate,
     SourceWeightedMean,
 )
-from marivo._definition.types import CalendarCoordinate, ExactRef, FieldRead, field_read_key
+from marivo._definition.relations import PopulationDependency
+from marivo._definition.types import (
+    CalendarCoordinate,
+    ExactRef,
+    FieldRead,
+    coordinate_read_keys,
+    field_read_key,
+)
 from marivo.analysis.binding.observe import ContributionBinding
+from marivo.analysis.binding.sampling import SampleCoverage
 from marivo.analysis.core.data_types import (
     DataColumn,
     DataType,
@@ -68,6 +70,9 @@ class ReductionInput:
     calendar: CalendarCoordinate | None = None
     time_column: str | None = None
     duration: DurationDataType | None = None
+    window_key: int | None = None
+    preserve_sample_presence: bool = False
+    calendars: tuple[tuple[str, CalendarCoordinate], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +83,20 @@ class FormulaInput:
     stage_id: str
     column: DataColumn
     empty_zero: bool
+    checks: tuple[tuple[str, str, str], ...] = ()
+    keys: tuple[str, ...] = ()
+    coverage: tuple[SampleCoverage, ...] = ()
+    key_groups: tuple[tuple[str, ...], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class PopulationInput:
+    """One independently selected source-backed internal sample domain."""
+
+    definition: PopulationDependency
+    stage_id: str
+    keys: tuple[str, ...]
+    key_groups: tuple[tuple[str, ...], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +105,9 @@ class FormulaProgram:
     declared: tuple[tuple[ExactRef, MetricNode], ...]
     values: tuple[FormulaInput, ...]
     calendar: CalendarCoordinate | None = None
+    populations: tuple[PopulationInput, ...] = ()
+    output_population: PopulationDependency | None = None
+    calendar_key: str = "key.0"
 
 
 def ibis_type(dtype: DataType) -> dt.DataType:
@@ -129,10 +151,17 @@ def reduction_input(
     node = contribution.definition
     if not isinstance(node, (SourceAggregate, SourceWeightedMean, EntityCount)):
         numeric_failure("an ordinary contribution reduction", type(node).__name__)
-    axes = tuple(
-        (f"key.{i + (calendar is not None)}", field_read_key(read))
-        for i, read in enumerate(contribution.coordinates)
-    )
+    calendars = contribution.calendars or ((("key.0", calendar),) if calendar is not None else ())
+    calendar_slots = {slot for slot, _ in calendars}
+    axes_list: list[tuple[str, str]] = []
+    offset = 0
+    for read in contribution.coordinates:
+        for path in coordinate_read_keys(read):
+            while f"key.{offset}" in calendar_slots:
+                offset += 1
+            axes_list.append((f"key.{offset}", path))
+            offset += 1
+    axes = tuple(axes_list)
     return ReductionInput(
         node,
         axes,
@@ -148,6 +177,9 @@ def reduction_input(
         )
         if contribution.time
         else None,
+        window_key=contribution.window_key,
+        preserve_sample_presence=bool(contribution.coverage),
+        calendars=calendars,
     )
 
 
@@ -160,34 +192,47 @@ def lower_observation(
     """Emit grouped nullable values and ephemeral check columns in one read."""
     fields = {path: table[name] for path, name in columns.items()}
     selected = [lower_field_predicate(node, fields) for node in predicates]
-    # Predicate checks run over the same period-scoped input, before the predicate
-    # can hide an invalid arithmetic row. Cross joining one scalar summary does
-    # not multiply contribution rows.
     predicate_checks = tuple(check for item in selected for check in item.checks)
-    predicate_summary = (
-        table.aggregate(
-            **{
-                f"predicate_check.{i}": check.violation.any().fill_null(False)
-                for i, check in enumerate(predicate_checks)
-            }
+
+    def output_axes(available: Mapping[str, ir.Value]) -> dict[str, ir.Value]:
+        result = {slot: available[path] for slot, path in prepared.axes}
+        calendars = prepared.calendars or (
+            (("key.0", prepared.calendar),) if prepared.calendar is not None else ()
         )
-        if predicate_checks
+        for slot, calendar in calendars:
+            if prepared.window_key is not None and calendar == prepared.calendar:
+                result[slot] = ibis.literal(prepared.window_key)
+                continue
+            assert prepared.time_column is not None
+            time = available[prepared.time_column]
+            bucket: ir.Value = ibis.null().cast("int64")
+            for i, (_, _, start, end) in reversed(tuple(enumerate(calendar.cells))):
+                bucket = (
+                    (time >= temporal_bound(time, start, calendar.timezone))
+                    & (time < temporal_bound(time, end, calendar.timezone))
+                ).ifelse(i, bucket)
+            result[slot] = bucket
+        return dict(sorted(result.items(), key=lambda item: int(item[0].split(".")[1])))
+
+    predicate_axes = output_axes(fields)
+    predicate_metrics = {
+        f"predicate_check.{i}": check.violation.any().fill_null(False)
+        for i, check in enumerate(predicate_checks)
+    }
+    if prepared.preserve_sample_presence:
+        predicate_metrics["__sample_present"] = table.count() > 0
+    predicate_summary = (
+        (
+            table.group_by(**predicate_axes).aggregate(**predicate_metrics)
+            if predicate_axes
+            else table.aggregate(**predicate_metrics)
+        )
+        if predicate_metrics
         else None
     )
     filtered = table.filter(*(item.value for item in selected)) if selected else table
     fields = {path: filtered[name] for path, name in columns.items()}
-    axes = {slot: fields[path] for slot, path in prepared.axes}
-    calendar = prepared.calendar
-    if calendar is not None:
-        assert prepared.time_column is not None
-        time = fields[prepared.time_column]
-        bucket: ir.Value = ibis.null().cast("int64")
-        for i, (_, _, start, end) in reversed(tuple(enumerate(calendar.cells))):
-            bucket = (
-                (time >= temporal_bound(time, start, calendar.timezone))
-                & (time < temporal_bound(time, end, calendar.timezone))
-            ).ifelse(i, bucket)
-        axes = {"key.0": bucket, **axes}
+    axes = output_axes(fields)
     item = lower_source_reduction(prepared.node, filtered, fields)
     metrics = {
         prepared.value_slot: ops.Cast(item.value, to=item.value.type()).to_expr(),
@@ -236,7 +281,19 @@ def lower_observation(
     checks = [(f"numeric_check.{i}", check) for i, check in enumerate(item.checks)]
     if predicate_summary is not None:
         result = predicate_summary.left_join(
-            result.mutate(__numeric_present=ibis.literal(True)), ibis.literal(True)
+            result.mutate(__numeric_present=ibis.literal(True)),
+            [predicate_summary[name].identical_to(result[name]) for name in axes]
+            if axes
+            else ibis.literal(True),
+        )
+        result = result.select(
+            *predicate_summary.columns,
+            *(
+                name
+                for name in result.columns
+                if name not in predicate_summary.columns
+                and name not in {f"{key}_right" for key in axes}
+            ),
         )
         checks.extend((f"predicate_check.{i}", check) for i, check in enumerate(predicate_checks))
     return result, tuple(checks)
@@ -291,7 +348,7 @@ def duration_type(
         dtype = values[occurrence]
         return dtype if isinstance(dtype, DurationDataType) else None
     if isinstance(node, RowField):
-        dtype = fields[node.ref.ref.path]
+        dtype = fields[field_read_key(node.read) if node.read is not None else node.ref.ref.path]
         return dtype if isinstance(dtype, DurationDataType) else None
     if isinstance(node, DeclaredMetricRef):
         assert declared is not None
@@ -303,7 +360,8 @@ def duration_type(
             occurrence=(*occurrence, 0),
         )
     if isinstance(node, EntityCount) or (
-        isinstance(node, SourceAggregate) and node.reducer in ("count", "count_distinct")
+        isinstance(node, (SourceAggregate, PerReduce))
+        and node.reducer in ("count", "count_distinct", "approx_nunique")
     ):
         return None
     if isinstance(node, SourceWeightedMean):
@@ -317,38 +375,107 @@ def duration_type(
             occurrence=(*occurrence, edge.index),
         )
         for edge in children(node)
-        if isinstance(
+        if edge.role in ("operand", "value", "weight")
+        and isinstance(
             edge.child,
             (
+                RowExpression,
+                MetricExpression,
+                MetricWindow,
+                PerReduce,
+                PerWeightedMean,
                 RowField,
-                RowConstant,
-                RowNegate,
-                RowAdd,
-                RowSubtract,
-                RowMultiply,
-                RowDivide,
                 MeasureAssertion,
                 SourceAggregate,
                 SourceWeightedMean,
                 EntityCount,
-                MetricAdd,
-                MetricSubtract,
-                MetricMultiply,
-                MetricDivide,
-                MetricNegate,
-                MetricConstant,
                 DeclaredMetricRef,
                 ContributionFilter,
             ),
         )
     ]
+    if isinstance(node, (RowExpression, MetricExpression)):
+        return _recipe_duration(node.recipe, tuple(parts))
     active = [part for part in parts if part is not None]
     if not active:
         return None
     if len(set(active)) != 1:
         numeric_failure("matching fixed Duration units", repr(active))
-    if isinstance(node, (RowDivide, MetricDivide)) and len(parts) == 2 and parts[1] is not None:
-        return None
-    if isinstance(node, (RowMultiply, MetricMultiply)) and len(active) == 2:
-        numeric_failure("one Duration operand in multiplication", "two Duration operands")
     return active[0]
+
+
+def _recipe_duration(
+    recipe: Resolver, inputs: tuple[DurationDataType | None, ...]
+) -> DurationDataType | None:
+    """Propagate fixed tick units through the admitted native recipe structure."""
+    import operator
+
+    from ibis.common.deferred import (
+        Attr,
+        BinaryOperator,
+        Call,
+        Just,
+        Sequence,
+        UnaryOperator,
+        Variable,
+    )
+
+    def combine(parts: tuple[DurationDataType | None, ...]) -> DurationDataType | None:
+        present = tuple(part for part in parts if part is not None)
+        if len(set(present)) > 1:
+            numeric_failure("matching fixed Duration units", repr(present))
+        return present[0] if present else None
+
+    def visit(item: Resolver) -> DurationDataType | None:
+        if type(item) is Variable:
+            return inputs[int(item.name.removeprefix("slot_"))]
+        if type(item) is Just:
+            return None
+        if type(item) is Sequence:
+            return combine(tuple(visit(child) for child in item.values))
+        if type(item) is UnaryOperator:
+            return None if item.func is operator.invert else visit(item.arg)
+        if type(item) is BinaryOperator:
+            left, right = visit(item.left), visit(item.right)
+            if item.func in (
+                operator.eq,
+                operator.ne,
+                operator.lt,
+                operator.le,
+                operator.gt,
+                operator.ge,
+                operator.and_,
+                operator.or_,
+                operator.xor,
+            ):
+                return None
+            return arithmetic(item.func is operator.truediv, item.func is operator.mul, left, right)
+        if type(item) is Call:
+            if type(item.func) is Attr:
+                name = item.func.name.value
+                parts = (visit(item.func.obj), *(visit(arg) for arg in item.args))
+            else:
+                name = item.func.value.__name__
+                parts = tuple(visit(arg) for arg in item.args)
+            if name in ("isnull", "notnull"):
+                return None
+            if name == "divide":
+                return arithmetic(True, False, parts[0], parts[1])
+            if name in ("sqrt", "log", "ln", "exp") and any(part is not None for part in parts):
+                numeric_failure("a dimensionless input to nonlinear numeric functions", "Duration")
+            return combine((*parts, *(visit(value) for value in item.kwargs.values())))
+        numeric_failure("an admitted Duration recipe", type(item).__name__)
+
+    def arithmetic(
+        divide: bool, multiply: bool, left: DurationDataType | None, right: DurationDataType | None
+    ) -> DurationDataType | None:
+        common = combine((left, right))
+        if divide and right is not None:
+            if left is None:
+                numeric_failure("a numeric or fixed Duration quotient", "inverse Duration")
+            return None
+        if multiply and left is not None and right is not None:
+            numeric_failure("one Duration operand in multiplication", "two Duration operands")
+        return common
+
+    return visit(recipe)

@@ -8,11 +8,13 @@ import textwrap
 from pathlib import Path
 
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.semantic as ms
 from marivo.refs import DimensionKind, Ref, SemanticKind
 from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, AgentResult
 from marivo.semantic._capabilities.catalog_members import CATALOG_MEMBER_CONTRACTS
+from marivo.semantic._deferred_semantics import consume_field, consume_metric
 from marivo.semantic.catalog import (
     CatalogCollection,
     DatasourceEntry,
@@ -22,12 +24,8 @@ from marivo.semantic.catalog import (
 )
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from marivo.semantic.expressions import (
-    Dimension,
     Entity,
-    Measure,
-    Metric,
     Relationship,
-    TimeField,
 )
 
 _DOMAIN_PY = """\
@@ -149,7 +147,11 @@ def test_every_displayed_collection_key_round_trips_through_get(
     for member in CATALOG_MEMBER_CONTRACTS:
         collection = getattr(catalog, member.property_name)
         for ref, item in zip(collection.refs, collection.items, strict=True):
-            assert collection.get(ref.key) is item
+            value = collection.get(ref.key)
+            if isinstance(item, Deferred) and ref.kind.value != "metric":
+                assert consume_field(value) == consume_field(item)
+            else:
+                assert value is item
 
 
 def test_semantic_catalog_is_a_bounded_self_describing_result(
@@ -270,10 +272,10 @@ def test_catalog_collections_hold_typed_expression_values(semantic_project_facto
     catalog = _catalog(semantic_project_factory)
 
     assert isinstance(catalog.entities.get("sales.orders"), Entity)
-    assert isinstance(catalog.fields.get("sales.orders.region"), Dimension)
-    assert isinstance(catalog.fields.get("sales.orders.ordered_at"), TimeField)
-    assert isinstance(catalog.fields.get("sales.orders.amount"), Measure)
-    assert isinstance(catalog.metrics.get("sales.revenue"), Metric)
+    assert isinstance(catalog.fields.get("sales.orders.region"), Deferred)
+    assert isinstance(catalog.fields.get("sales.orders.ordered_at"), Deferred)
+    assert isinstance(catalog.fields.get("sales.orders.amount"), Deferred)
+    assert isinstance(catalog.metrics.get("sales.revenue"), Deferred)
     assert isinstance(catalog.relationships.get("orders_to_users"), Relationship)
 
 
@@ -352,7 +354,7 @@ def test_collection_get_accepts_exact_full_path(semantic_project_factory) -> Non
 
     metric = catalog.metrics.get("sales.revenue")
 
-    assert metric.node.ref.ref.key == "metric:sales.revenue"
+    assert consume_metric(metric).node.ref.ref.key == "metric:sales.revenue"
 
 
 def test_collection_get_accepts_displayed_typed_key_in_scope(
@@ -419,7 +421,7 @@ def test_collection_get_scoped_short_name_resolves_uniquely(semantic_project_fac
     catalog = _catalog(semantic_project_factory)
     region = catalog.domains.get("sales").fields.get("region")
 
-    assert region.ref.ref.key == "dimension:sales.orders.region"
+    assert consume_field(region).reference.ref.key == "dimension:sales.orders.region"
 
 
 def test_collection_get_accepts_exact_same_kind_ref_globally_and_in_scope(
@@ -431,7 +433,7 @@ def test_collection_get_accepts_exact_same_kind_ref_globally_and_in_scope(
     global_region = catalog.fields.get(region_ref)
     scoped_region = catalog.domains.get("sales").fields.get(region_ref)
 
-    assert global_region is scoped_region
+    assert consume_field(global_region) == consume_field(scoped_region)
 
 
 def test_collection_get_accepts_full_path_in_scope(semantic_project_factory) -> None:
@@ -439,7 +441,7 @@ def test_collection_get_accepts_full_path_in_scope(semantic_project_factory) -> 
 
     region = catalog.domains.get("sales").fields.get("sales.orders.region")
 
-    assert region.ref.ref.key == "dimension:sales.orders.region"
+    assert consume_field(region).reference.ref.key == "dimension:sales.orders.region"
 
 
 @pytest.mark.parametrize(
@@ -756,10 +758,8 @@ def test_relationship_contract_discloses_typed_endpoints_and_cardinality(
 def test_object_and_collection_repr_are_bounded(semantic_project_factory) -> None:
     catalog = _catalog(semantic_project_factory)
 
-    assert repr(catalog.metrics.get("revenue")).startswith(
-        "Metric DeclaredMetricRef on sales.orders "
-    )
-    assert "use .show()" in repr(catalog.metrics.get("revenue"))
+    assert repr(catalog.describe(ms.ref.metric("sales.revenue"))).startswith("<ExpressionContract ")
+    assert "call .show()" in repr(catalog.describe(ms.ref.metric("sales.revenue")))
     assert repr(catalog.metrics) == (
         "<CatalogCollection metrics scope=catalog count=1; call .show() to inspect>"
     )
@@ -776,9 +776,9 @@ def test_exact_collection_lookup_does_not_enumerate_members(
     catalog = _catalog(semantic_project_factory)
     revenue = catalog.metrics.get("sales.revenue")
     key = {
-        "path": revenue.node.ref.ref.path,
-        "typed_key": revenue.node.ref.ref.key,
-        "ref": revenue.node.ref.ref,
+        "path": consume_metric(revenue).node.ref.ref.path,
+        "typed_key": consume_metric(revenue).node.ref.ref.key,
+        "ref": consume_metric(revenue).node.ref.ref,
     }[key_shape]
     global_collection = catalog.metrics
     scoped_collection = catalog.domains.get("sales").metrics
@@ -827,4 +827,6 @@ def test_navigation_preserves_declared_ownership_and_relationship_order(
         ms.ref.entity("sales.users"),
     )
     assert warehouse.details().dependents == warehouse.entities.refs
-    assert catalog.metrics.get("sales.revenue").roots == (catalog.entities.get("sales.orders").ref,)
+    assert consume_metric(catalog.metrics.get("sales.revenue")).roots == (
+        catalog.entities.get("sales.orders").ref,
+    )

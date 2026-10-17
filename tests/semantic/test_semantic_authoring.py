@@ -23,17 +23,17 @@ from typing import get_type_hints
 
 import ibis.expr.types as ibis_ir
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo._definition.deferred import root_declaration
 from marivo._definition.expressions import (
     ContributionFilter,
     EntityCount,
-    FieldCompare,
-    MetricDivide,
-    MetricSubtract,
+    MetricExpression,
     PerReduce,
-    PredOr,
+    RowExpression,
     RowField,
     SourceAggregate,
     SourceWeightedMean,
@@ -42,17 +42,18 @@ from marivo._definition.graph import computation_fingerprint
 from marivo.refs import MeasureKind, Ref
 from marivo.refs import ref as ref_factory
 from marivo.semantic._authoring_context import DefinitionIR, PendingDefinition
+from marivo.semantic._deferred_semantics import (
+    consume_field,
+    consume_metric,
+    consume_predicate,
+    consume_row,
+)
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import (
     ErrorKind,
     SemanticDecoratorError,
     SemanticExpressionError,
     SemanticLoadError,
-)
-from marivo.semantic.expressions import (
-    DeclaredMetric,
-    Measure,
-    Metric,
 )
 from marivo.semantic.ir import (
     AiContextIR,
@@ -116,7 +117,7 @@ def _leaf(unit: str | None = None) -> Ref[MeasureKind]:
     )
 
 
-def _closed_leaf(unit: str | None = None) -> Measure:
+def _closed_leaf(unit: str | None = None) -> Deferred:
     captured = _leaf(unit)
     return ms.finalize().resolve(captured)
 
@@ -182,10 +183,10 @@ def test_metric_does_not_require_context() -> None:
     _exit_ctx()
 
     @ms.metric()
-    def revenue() -> Metric:
+    def revenue() -> Deferred:
         return amount.sum()
 
-    assert isinstance(revenue, DeclaredMetric)
+    assert isinstance(revenue, Deferred)
     assert _LOADER_CTX.get() is None
 
 
@@ -494,21 +495,21 @@ def test_component_decorators_accept_leading_docstrings() -> None:
         amount_value = finalized.resolve(amount)
 
         @ms.measure()
-        def named_amount() -> Measure:
+        def named_amount() -> Deferred:
             """Order amount."""
             return amount_value
 
         before = len(ctx.pending_definitions)
 
         @ms.metric()
-        def revenue() -> Metric:
+        def revenue() -> Deferred:
             """Order revenue."""
             return named_amount.sum()
 
         assert _is_ref(region, ms.SemanticKind.DIMENSION)
         assert _is_ref(order_date, ms.SemanticKind.TIME_DIMENSION)
-        assert named_amount.declaration.name == "named_amount"
-        assert revenue.declaration.name == "revenue"
+        assert root_declaration(named_amount).name == "named_amount"
+        assert root_declaration(revenue).name == "revenue"
         assert len(ctx.pending_definitions) == before
     finally:
         _exit_ctx()
@@ -1265,12 +1266,12 @@ def test_metric_returns_local_declaration() -> None:
         amount = _closed_leaf()
 
         @ms.metric()
-        def revenue() -> Metric:
+        def revenue() -> Deferred:
             return amount.sum()
 
-        assert isinstance(revenue, DeclaredMetric)
-        assert revenue.declaration.name == "revenue"
-        assert revenue.declaration.domain is None
+        assert isinstance(revenue, Deferred)
+        assert root_declaration(revenue).name == "revenue"
+        assert root_declaration(revenue).domain is None
     finally:
         _exit_ctx()
 
@@ -1282,11 +1283,11 @@ def test_metric_roots_come_from_source_reductions() -> None:
         before = len(ctx.pending_definitions)
 
         @ms.metric()
-        def revenue() -> Metric:
+        def revenue() -> Deferred:
             return amount.sum()
 
-        assert revenue.roots == (amount.root,)
-        assert isinstance(revenue.node, SourceAggregate)
+        assert consume_metric(revenue).roots == (consume_row(amount).root,)
+        assert isinstance(consume_metric(revenue).node, SourceAggregate)
         assert len(ctx.pending_definitions) == before
     finally:
         _exit_ctx()
@@ -1302,12 +1303,12 @@ def test_metric_historical_sql_in_ai_context() -> None:
                 business_definition="Historical ANSI SQL: SELECT SUM(amount) FROM orders"
             )
         )
-        def revenue() -> Metric:
+        def revenue() -> Deferred:
             return amount.sum()
 
-        assert revenue.declaration.ai_context is not None
+        assert root_declaration(revenue).ai_context is not None
         assert (
-            revenue.declaration.ai_context.business_definition
+            root_declaration(revenue).ai_context.business_definition
             == "Historical ANSI SQL: SELECT SUM(amount) FROM orders"
         )
     finally:
@@ -1320,11 +1321,13 @@ def test_metric_computation_fingerprint() -> None:
         amount = _closed_leaf()
 
         @ms.metric()
-        def revenue() -> Metric:
+        def revenue() -> Deferred:
             return amount.sum()
 
-        assert len(computation_fingerprint(revenue.node)) == 64
-        assert computation_fingerprint(revenue.node) == computation_fingerprint(amount.sum().node)
+        assert len(computation_fingerprint(consume_metric(revenue).node)) == 64
+        assert computation_fingerprint(consume_metric(revenue).node) == computation_fingerprint(
+            consume_metric(amount.sum()).node
+        )
     finally:
         _exit_ctx()
 
@@ -1335,12 +1338,12 @@ def test_metric_does_not_register_callable() -> None:
         amount = _closed_leaf()
         before = len(ctx.pending_definitions)
 
-        def revenue_fn() -> Metric:
+        def revenue_fn() -> Deferred:
             return amount.sum()
 
         value = ms.metric()(revenue_fn)
-        assert isinstance(value, DeclaredMetric)
-        assert value.declaration.name == "revenue_fn"
+        assert isinstance(value, Deferred)
+        assert root_declaration(value).name == "revenue_fn"
         assert len(ctx.pending_definitions) == before
         assert all(
             pending.expression_body is None or pending.expression_body.callable is not revenue_fn
@@ -1376,11 +1379,11 @@ def test_metric_accepts_semi_additive() -> None:
         sample_ts = finalized.resolve(sample_ts_ref)
 
         @ms.metric()
-        def upstream_avg() -> Metric:
+        def upstream_avg() -> Deferred:
             return value.sum(time=sample_ts).per(sample_ts).mean()
 
-        assert isinstance(upstream_avg.node, PerReduce)
-        assert upstream_avg.node.reducer == "mean"
+        assert isinstance(consume_metric(upstream_avg).node, PerReduce)
+        assert consume_metric(upstream_avg).node.reducer == "mean"
     finally:
         _exit_ctx()
 
@@ -1480,7 +1483,7 @@ def test_status_time_can_be_declared_without_fold() -> None:
         assert isinstance(ir, MeasureIR)
         assert ir.status_time_fold is None
         assert ir.status_time_dimension == axis.path
-        assert ms.finalize().resolve(quantity).default_time is None
+        assert consume_field(ms.finalize().resolve(quantity)).default_time is None
     finally:
         _exit_ctx()
 
@@ -1549,9 +1552,9 @@ def test_entity_count_retains_exact_root() -> None:
         orders = finalized.resolve(orders_ref)
         before = len(ctx.pending_definitions)
         value = orders.count()
-        assert isinstance(value.node, EntityCount)
-        assert value.node.entity == orders.ref
-        assert value.unit == "1"
+        assert isinstance(consume_metric(value).node, EntityCount)
+        assert consume_metric(value).node.entity == orders.ref
+        assert consume_metric(value).unit == "1"
         assert len(ctx.pending_definitions) == before
     finally:
         _exit_ctx()
@@ -1587,10 +1590,10 @@ def test_count_predicate_retains_exact_field() -> None:
         orders = finalized.resolve(orders_ref)
         state = finalized.resolve(state_ref)
         value = orders.count().where(state == "FAILED")
-        assert isinstance(value.node, ContributionFilter)
-        assert isinstance(value.node.predicate, FieldCompare)
-        assert value.node.predicate.field == state.ref
-        assert value.node.predicate.value == "FAILED"
+        assert isinstance(consume_metric(value).node, ContributionFilter)
+        assert isinstance(consume_metric(value).node.predicate, RowExpression)
+        assert consume_metric(value).node.predicate == consume_predicate(state == "FAILED").node
+        assert consume_metric(value).node.predicate.inputs[0].ref == consume_field(state).reference
     finally:
         _exit_ctx()
 
@@ -1610,13 +1613,13 @@ def test_explicit_membership_comparisons_normalize_inputs(
         kind = finalized.resolve(kind_ref)
         predicate = (kind == membership[0]) | (kind == membership[1])
         value = orders.count().where(predicate)
-        assert isinstance(value.node, ContributionFilter)
-        assert isinstance(value.node.predicate, PredOr)
-        for item in value.node.predicate.operands:
-            assert isinstance(item, FieldCompare)
-        assert tuple(
-            item.value for item in value.node.predicate.operands if isinstance(item, FieldCompare)
-        ) == (2, 4)
+        assert isinstance(consume_metric(value).node, ContributionFilter)
+        assert isinstance(consume_metric(value).node.predicate, RowExpression)
+        assert (
+            consume_metric(value).node.predicate
+            == consume_predicate((kind == 2) | (kind == 4)).node
+        )
+
     finally:
         _exit_ctx()
 
@@ -1649,8 +1652,12 @@ def test_count_rejects_non_where_filter(bad_filter: object) -> None:
         finalized = ms.finalize()
         orders = finalized.resolve(orders_ref)
         with pytest.raises(SemanticExpressionError) as caught:
-            orders.count().where(bad_filter)  # type: ignore[arg-type]  # intentional rejection input
-        assert caught.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE
+            consume_metric(orders.count().where(bad_filter))  # type: ignore[arg-type]  # intentional rejection input
+        assert caught.value.kind == (
+            ErrorKind.INVALID_EXPRESSION_VALUE
+            if isinstance(bad_filter, dict)
+            else ErrorKind.INVALID_EXPRESSION_STAGE
+        )
         assert caught.value.repair is not None
     finally:
         _exit_ctx()
@@ -1661,8 +1668,8 @@ def test_aggregate_rejects_non_where_filter() -> None:
     try:
         amount = _closed_leaf()
         with pytest.raises(SemanticExpressionError) as caught:
-            amount.sum().where({"state": "FAILED"})  # type: ignore[arg-type]  # intentional rejection input
-        assert caught.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE
+            consume_metric(amount.sum().where({"state": "FAILED"}))  # type: ignore[arg-type]  # intentional rejection input
+        assert caught.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE
     finally:
         _exit_ctx()
 
@@ -1679,13 +1686,13 @@ def test_metric_division_keeps_source_nodes_and_local_name() -> None:
         before = len(ctx.pending_definitions)
 
         @ms.metric()
-        def margin() -> Metric:
+        def margin() -> Deferred:
             return amount.sum() / amount.count()
 
-        assert isinstance(margin.node, MetricDivide)
-        assert margin.node.numerator == amount.sum().node
-        assert margin.node.denominator == amount.count().node
-        assert margin.declaration.name == "margin"
+        assert isinstance(consume_metric(margin).node, MetricExpression)
+        assert consume_metric(margin).node.operands[0] == consume_metric(amount.sum()).node
+        assert consume_metric(margin).node.operands[1] == consume_metric(amount.count()).node
+        assert root_declaration(margin).name == "margin"
         assert len(ctx.pending_definitions) == before
     finally:
         _exit_ctx()
@@ -1706,11 +1713,11 @@ def test_weighted_mean_keeps_measure_inputs() -> None:
         amount = finalized.resolve(amount_ref)
         weight = finalized.resolve(weight_ref)
         value = amount.weighted_mean(weight=weight)
-        assert isinstance(value.node, SourceWeightedMean)
-        assert isinstance(value.node.value, RowField)
-        assert isinstance(value.node.weight, RowField)
-        assert value.node.value.ref == amount.ref
-        assert value.node.weight.ref == weight.ref
+        assert isinstance(consume_metric(value).node, SourceWeightedMean)
+        assert isinstance(consume_metric(value).node.value, RowField)
+        assert isinstance(consume_metric(value).node.weight, RowField)
+        assert consume_metric(value).node.value.ref == consume_field(amount).reference
+        assert consume_metric(value).node.weight.ref == consume_field(weight).reference
     finally:
         _exit_ctx()
 
@@ -1721,12 +1728,12 @@ def test_metric_subtract_keeps_ordered_source_nodes() -> None:
         amount = _closed_leaf("CNY")
 
         @ms.metric()
-        def net_revenue() -> Metric:
+        def net_revenue() -> Deferred:
             return amount.sum() - amount.mean()
 
-        assert isinstance(net_revenue.node, MetricSubtract)
-        assert net_revenue.node.left == amount.sum().node
-        assert net_revenue.node.right == amount.mean().node
+        assert isinstance(consume_metric(net_revenue).node, MetricExpression)
+        assert consume_metric(net_revenue).node.operands[0] == consume_metric(amount.sum()).node
+        assert consume_metric(net_revenue).node.operands[1] == consume_metric(amount.mean()).node
     finally:
         _exit_ctx()
 
@@ -2026,14 +2033,16 @@ def test_local_names_do_not_publish_registry_collisions() -> None:
         amount = _closed_leaf()
         before = len(ctx.pending_definitions)
 
-        def revenue() -> Metric:
+        def revenue() -> Deferred:
             return amount.sum()
 
         first = ms.metric()(revenue)
         second = ms.metric()(revenue)
         assert first is not second
-        assert first.declaration.name == second.declaration.name == "revenue"
-        assert computation_fingerprint(first.node) == computation_fingerprint(second.node)
+        assert root_declaration(first).name == root_declaration(second).name == "revenue"
+        assert computation_fingerprint(consume_metric(first).node) == computation_fingerprint(
+            consume_metric(second).node
+        )
         assert len(ctx.pending_definitions) == before
     finally:
         _exit_ctx()
@@ -2050,11 +2059,11 @@ def test_dataset_and_metric_same_name_no_collision() -> None:
         amount = ms.finalize().resolve(amount_ref)
 
         @ms.metric()
-        def dau_7d_portrait() -> Metric:
+        def dau_7d_portrait() -> Deferred:
             return amount.sum()
 
         assert orders.path == "sales.dau_7d_portrait"
-        assert dau_7d_portrait.declaration.name == "dau_7d_portrait"
+        assert root_declaration(dau_7d_portrait).name == "dau_7d_portrait"
     finally:
         _exit_ctx()
 
@@ -2273,10 +2282,10 @@ def test_metric_inherits_row_unit() -> None:
         amount = _closed_leaf("USD")
 
         @ms.metric()
-        def revenue() -> Metric:
+        def revenue() -> Deferred:
             return amount.sum()
 
-        assert revenue.unit == "USD"
+        assert consume_metric(revenue).unit == "USD"
     finally:
         _exit_ctx()
 
@@ -2287,10 +2296,10 @@ def test_metric_unit_defaults_to_none() -> None:
         amount = _closed_leaf(None)
 
         @ms.metric()
-        def revenue() -> Metric:
+        def revenue() -> Deferred:
             return amount.sum()
 
-        assert revenue.unit is None
+        assert consume_metric(revenue).unit is None
     finally:
         _exit_ctx()
 
@@ -2300,7 +2309,7 @@ def test_metric_division_derives_dimensionless_unit() -> None:
     try:
         amount = _closed_leaf("CNY")
         value = amount.sum() / amount.mean()
-        assert value.unit == "1"
+        assert consume_metric(value).unit == "1"
     finally:
         _exit_ctx()
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.errors import ErrorKind
 from tests.shared_fixtures import load_inline_semantic
 
@@ -99,7 +100,7 @@ def test_measure_unit_is_stored_on_physical_definition() -> None:
 def test_published_metric_infers_unit_from_its_expression(name: str, unit: str | None) -> None:
     with load_inline_semantic(_FIELDS + _METRICS) as result:
         assert result.registry is not None, result.errors
-        assert result.registry.declared_metrics[f"test.{name}"].unit == unit
+        assert consume_metric(result.registry.declared_metrics[f"test.{name}"]).unit == unit
 
 
 @pytest.mark.parametrize("unit", ("USD", "%", "{order}"))
@@ -132,4 +133,4 @@ def test_same_unit_subtraction_is_published() -> None:
     source = _FIELDS + "@ms.metric()\ndef net():\n    return amount.sum() - amount.sum()\n"
     with load_inline_semantic(source) as result:
         assert result.registry is not None, result.errors
-        assert result.registry.declared_metrics["test.net"].unit == "CNY"
+        assert consume_metric(result.registry.declared_metrics["test.net"]).unit == "CNY"

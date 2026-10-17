@@ -5,6 +5,11 @@ from datetime import datetime as _datetime
 from types import ModuleType
 from typing import TYPE_CHECKING, Literal
 
+from marivo._definition.windows import all_history as all_history
+from marivo._definition.windows import since as since
+from marivo._definition.windows import to_date as to_date
+from marivo._definition.windows import trailing_duration as trailing_duration
+from marivo._definition.windows import trailing_periods as trailing_periods
 from marivo._temporal import BeforeEndBoundary as BeforeEndBoundary
 from marivo._temporal import Grain, TimeScope
 from marivo._temporal import time_scope as _time_scope
@@ -37,6 +42,30 @@ if TYPE_CHECKING:
     from marivo.analysis.datasets.descriptors import DatasetByteCount as DatasetByteCount
     from marivo.analysis.datasets.state import MaterializedDatasetState as MaterializedDatasetState
     from marivo.analysis.dsl.artifact import Artifact as Artifact
+    from marivo.analysis.dsl.population import (
+        MembershipAxis as MembershipAxis,
+    )
+    from marivo.analysis.dsl.population import (
+        Population as Population,
+    )
+    from marivo.analysis.dsl.population import (
+        PopulationPredicate as PopulationPredicate,
+    )
+    from marivo.analysis.dsl.population import (
+        coordinates as coordinates,
+    )
+    from marivo.analysis.dsl.population import (
+        identities as identities,
+    )
+    from marivo.analysis.dsl.population import (
+        in_population as in_population,
+    )
+    from marivo.analysis.dsl.population import (
+        membership as membership,
+    )
+    from marivo.analysis.dsl.population import (
+        product as product,
+    )
     from marivo.analysis.dsl.query import Query as Query
     from marivo.analysis.dsl.temporal import CalendarAxis as CalendarAxis
     from marivo.analysis.evidence._dataset_types import ArtifactDigest as ArtifactDigest

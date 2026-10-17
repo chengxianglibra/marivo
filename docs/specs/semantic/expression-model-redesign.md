@@ -2,16 +2,16 @@
 
 Date: 2026-10-17
 
-Status: proposed v0.37；与 [Lazy Analysis DSL 提案](../analysis/lazy-analysis-dsl-redesign.md)
-共同构成目标设计。本次 v0.37 能力补全及 v0.36 原生 Ibis 修订尚未实施；已有 R1/R2 能力不能作为本修订的验收。当前契约仍由
-[Semantic Object Model](semantic-object-model.md)、
-[Loading, Validation and Introspection](loading-validation-introspection.md) 和
-[Python Analysis Design](../analysis/python-analysis-design.md) 拥有。
-本文只更新设计，不修改当前实现、Help、技能或已发布示例。
+Status: v0.37 目标设计与实现来源。原生 Deferred 表达式及关联执行能力按
+[S0–S6 实施计划](expression-model-implementation-plan.md)实施；该计划的验收记录界定本次范围。
+当前可调用契约由 [Semantic Object Model](semantic-object-model.md)、
+[Loading, Validation and Introspection](loading-validation-introspection.md)、
+[Python Analysis Design](../analysis/python-analysis-design.md) 和原生 Help 拥有。
+本文保留完整目标设计；目标条目本身不证明所有分析 DSL 或物理后端路径已实现。
 v0.36 采用受控语义输入上的原生 Ibis 数值表达式，命名与匿名共用延迟构造和语义检查；
 execute 准备自动绑定真实物理类型，不引入 ms.ibis、ms.require 或另一套用户类型准备流程。
 原生数值语言不撤销 Marivo 的规约、时间、空值和贡献合同；完整机制与边界见 §2.6、§3.6。
-2026-10-16 审查修订明确作者侧始终延迟、语义使用位置、两层指纹、分支检查域及保留执行分派；仍未实施。
+2026-10-16 审查修订明确作者侧始终延迟、语义使用位置、两层指纹、分支检查域及保留执行分派。
 v0.37 补齐有序 first/last、近似规约、显式重叠成员分桶、sum(empty="null") 和命名窗口 Metric。
 五项能力共用上述载体；新增的贡献/时间作用域不是自定义数值 AST。旧能力的等价改写条件见附录 A.1。
 2026-10-17 审查修订补齐成员恒等绑定、独立集合组合和完整输出域；窗口仅保留无轴规则加 Metric.window，
@@ -19,7 +19,7 @@ v0.37 补齐有序 first/last、近似规约、显式重叠成员分桶、sum(em
 后续审查收敛为显式成员路径优先、无路径时推导恒等；普通窗口不强制共同输入。
 窗口在 observe 固定逻辑绑定，本版拒绝窗口原量的时间轴粗化、替换和删除。
 2026-10-17 fanout 修订以贡献身份、出现次数、分桶与规约次序约束求值，不固定 aggregate-then-join 执行策略；
-各类表达方式、能力边界和等价计划条件由 §3.7.1–§3.7.2 拥有，仍未实施。
+各类表达方式、能力边界和等价计划条件由 §3.7.1–§3.7.2 拥有。
 v0.35 补齐声明改写、validator 分层、单位拒绝与精确分位数合同；不新增期末规约或资源预算。
 v0.34 将时间样本规约与有序 fold 分名，并同步比较/份额、窗口、来源类型准入和执行披露的跨层边界。
 v0.33 统一所有阶段的零分母政策：默认 null，显式 error；参数只控制当前算子。
@@ -31,11 +31,12 @@ v0.30 采用 nullable value；普通缺失统一为 NA，非法计算和实际�
 sum 默认忽略 NA，空输入与全 NA 默认都为 0；可在来源/内部样本 sum 上显式选择 empty="null"。
 政策不区分空输入与全 NA；仍无逐格四态/原因传播。
 
-Implementation boundary (2026-10-16): current authoring and native Help still
-use the closed row/Metric expression model. R2 execution progress is tracked in
-[Python Analysis Design](../analysis/python-analysis-design.md); it does not
-implement the native Ibis ingestion proposed here. Historical R1.3 checkpoints
-are not current acceptance claims. This revision changes design documents only.
+Implementation boundary (2026-10-17): native Deferred ingestion, semantic preparation,
+and the execution routes in the S0–S6 plan replace the custom numeric AST. The broader
+Lazy Analysis DSL proposal remains a separate scope. Current Metric catalog preview is
+qualified for ordinary DuckDB expressions; sample, Population, window and routed-field
+preview routes are rejected explicitly. Historical R1.3 checkpoints are not current
+acceptance claims; use the implementation plan and owning current contracts.
 
 ## Definition changes during analysis (approved 2026-10-15)
 
@@ -803,9 +804,11 @@ Population 的准入按轴能否完整绑定判断，不因是多字段、身份
 普通 Field/Member 轴须有明确角色、版本和对各相关贡献根的合法单值绑定；显式 membership 及携带其绑定的域按 §3.7 处理。不能隐式 fanout、
 按同名猜关系、从一个样本权重重复一条贡献，或把域键存在当作来源覆盖证明。
 零轴非空域 {()} 表示每个 k 内一次子求值，零键域表示没有内部样本；二者不混同子指标本身的空贡献。
-首期不增加 CalendarAxis/CorrespondenceAxis 的内部窗口/端点绑定；这属于能力范围，
-不是不可变 Population 的一般类型禁令。此类统计先显式 observe/compare，再在 Query 上 reduce；执行后交 pandas，
-不能拿日期/端点标签冒充 Field。状态 TimeField 的采样合同仍由 §3.2 拥有。
+CalendarAxis 可通过 product(Population, CalendarAxis) 保留权威网格，并作为内部完整桶样本；
+每个样本以已绑定的实际半开区间分组来源贡献，空桶遵循子指标的空贡献政策。
+这不增加 CalendarAxis/CorrespondenceAxis 的内部窗口/端点绑定；窗口输出仍通过 during=CalendarAxis
+绑定端点，不从 Population 日期/端点标签猜测。CorrespondenceAxis 统计先显式 observe/compare，
+再在 Query 上 reduce；执行后交 pandas。状态 TimeField 的采样合同仍由 §3.2 拥有。
 不能直接传 Query/Artifact/Column；Query 坐标先取合法 Population，保留来源与已有归属。
 Artifact 没有 population；外部键由脚本以显式字面量和当前绑定构造新定义。
 

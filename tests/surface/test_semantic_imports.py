@@ -65,6 +65,7 @@ def test_all_list_matches_expected() -> None:
         "DatasourceEntry",
         "DomainDetails",
         "DomainEntry",
+        "ExpressionContract",
         "JoinKey",
         "PeriodCalendarDetails",
         "PeriodCalendarEntry",

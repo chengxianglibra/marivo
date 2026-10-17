@@ -98,6 +98,7 @@ def _probe(
                 refunds = ms.entity(name="refunds", datasource=ms.ref.datasource("warehouse"), source=md.table("refunds"))
                 region = ms.dimension_column(name="region", entity=orders, column="region")
                 amount = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="USD")
+                refund_amount = ms.measure_column(name="amount", entity=refunds, column="amount", additivity=ms.additive_all(), unit="USD")
                 finalized = ms.finalize()
                 amount_value = finalized.resolve(amount)
                 @ms.metric()
@@ -215,7 +216,7 @@ def _preview(probe: _Probe, path: _PreviewPath, scope: AuthoringScope) -> tuple[
 
 
 @pytest.mark.parametrize("backend_kind", ("trino", "postgres", "mysql"))
-@pytest.mark.parametrize("path", ("single", "rows", "metrics"))
+@pytest.mark.parametrize("path", ("single", "rows"))
 def test_preview_prepares_deadline_before_source_resolution(
     backend_kind: _BackendKind,
     path: _PreviewPath,
@@ -280,9 +281,9 @@ def test_batch_groups_use_their_own_deadlines_and_preserve_order(
     with _probe("trino", semantic_project_factory, monkeypatch) as probe:
         refs = [
             ms.ref.entity("sales.orders"),
-            ms.ref.metric("sales.revenue"),
+            ms.ref.measure("sales.orders.amount"),
             ms.ref.entity("sales.refunds"),
-            ms.ref.metric("sales.net_revenue"),
+            ms.ref.measure("sales.refunds.amount"),
         ]
         batch = probe.catalog.preview_many(
             refs,
@@ -292,11 +293,9 @@ def test_batch_groups_use_their_own_deadlines_and_preserve_order(
             },
         )
         assert batch.refs == tuple(ref.path for ref in refs)
-        assert len(probe.collected) == 4
+        assert len(probe.collected) == 2
         assert [backend._marivo_terminal_timeout_seconds for backend in probe.created] == [
             30,
-            30,
-            11,
             11,
         ]
         assert all(active for _seconds, active in probe.resolved)
@@ -331,3 +330,15 @@ def test_invalid_batch_is_rejected_before_connection(
                 scope=md.unpruned(max_rows=10, timeout_seconds=30),
             )
         assert not probe.created and not probe.resolved and not probe.collected
+
+
+@pytest.mark.parametrize("backend_kind", ("trino", "postgres", "mysql"))
+def test_remote_metric_preview_reports_unqualified_route(
+    backend_kind: _BackendKind,
+    semantic_project_factory: _ProjectFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with _probe(backend_kind, semantic_project_factory, monkeypatch) as probe:
+        with pytest.raises(SemanticError, match="qualified DuckDB"):
+            _preview(probe, "metrics", md.unpruned(max_rows=10, timeout_seconds=30))
+        assert not probe.resolved and not probe.collected

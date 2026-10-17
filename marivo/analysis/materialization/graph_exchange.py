@@ -1571,6 +1571,8 @@ def normalize_stage_frame(
         frame.duplicated(list(keys)).any() or frame.loc[:, nonnullable_keys].isna().to_numpy().any()
     ):
         raise _stage_error(f"a complete unique stage key {keys!r}", "null or duplicate key values")
+    if not columns:
+        return pd.DataFrame(index=pd.RangeIndex(len(frame)))
     return pd.DataFrame(
         {column.slot_id: _stage_column(frame[column.slot_id], column) for column in columns},
         columns=list(expected),
