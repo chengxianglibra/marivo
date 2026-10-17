@@ -74,21 +74,6 @@ def provider_names() -> tuple[str, ...]:
     return SUPPORTED_BACKEND_TYPES
 
 
-def _execute_duckdb(backend: BaseBackend, expression: ir.Table, sql: str) -> pd.DataFrame:
-    """Run issued Ibis SQL on DuckDB without compiling the expression again.
-
-    The submitted text is exactly the SQL recorded on the issued read. Columns
-    keep their exact Arrow types through ``pd.ArrowDtype``, so nullable int64,
-    Decimal and timezone-aware values are never widened to float or object.
-    """
-    backend._run_pre_execute_hooks(expression)
-    if expression.schema().geospatial:
-        backend._load_extensions(["spatial"])
-    table = backend.con.sql(sql).to_arrow_table()
-    result: pd.DataFrame = table.to_pandas(types_mapper=pd.ArrowDtype)
-    return result
-
-
 def _probe_backend(backend_name: str, backend: BaseBackend) -> None:
     expression = ibis.literal(1).name("probe").as_table()
     sql = backend.compile(expression, limit=None)
@@ -365,6 +350,8 @@ class SourceSession:
             supported |= {"join", "union", "window", "sort"}
         elif self.provider.name in ("postgres", "mysql", "trino", "clickhouse"):
             supported |= {"join", "union"}
+            if need.method_id == "query.source_read":
+                supported |= {"window", "sort"}
         if (
             not need.method_id
             or need.version < 1
@@ -373,6 +360,18 @@ class SourceSession:
         ):
             raise _invalid("one registered basic physical requirement", repr(need))
         return QualifiedSource(binding, need, self._token)
+
+    def clickhouse_table_engine(self, binding: BoundSource) -> str | None:
+        """Inspect the physical engine of this session's named ClickHouse source."""
+        self._ensure_open()
+        if binding._owner is not self._token:
+            raise _invalid("a source bound by this session", "foreign source binding")
+        if self.provider.name != "clickhouse" or not isinstance(binding.source, TableSourceIR):
+            raise _invalid("a named ClickHouse table or view", repr(binding.source))
+        from marivo.datasource.engines.clickhouse import table_engine
+
+        with cr.backend_errors(self._backend):
+            return table_engine(self._backend, self.datasource, binding.source)
 
     def compile(
         self,
@@ -505,11 +504,7 @@ class SourceSession:
         try:
             with cr.backend_errors(self._backend):
                 table = proof.expression.as_table()
-                result = (
-                    _execute_duckdb(self._backend, table, proof.sql)
-                    if self.provider.name == "duckdb"
-                    else self._backend.execute(table, params=dict(proof.params), limit=None)
-                )
+                result = self._backend.execute(table, params=dict(proof.params), limit=None)
             if not isinstance(result, pd.DataFrame):
                 raise _invalid("an Ibis pandas DataFrame result", type(result).__name__)
             if tuple(result.columns) != tuple(proof.schema.names):

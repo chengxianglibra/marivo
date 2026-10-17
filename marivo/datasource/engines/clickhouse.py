@@ -272,6 +272,18 @@ def _clickhouse_rows(
     )
 
 
+def table_engine(
+    backend: BaseBackend, datasource: DatasourceIR, source: TableSourceIR
+) -> str | None:
+    """Read a named source's engine through the registered metadata statement."""
+    rows = _clickhouse_rows(
+        backend,
+        "clickhouse.tables.full",
+        values={"table": source.table, "database": clickhouse_database(source, datasource)},
+    )
+    return str(rows[0]["engine"]) if len(rows) == 1 and rows[0].get("engine") else None
+
+
 _CH_PARTITION_FUNC_RE = re.compile(r"^(\w+)\((\w+)\)$")
 _CH_PARTITION_BARE_RE = re.compile(r"^(\w+)$")
 

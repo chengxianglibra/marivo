@@ -11,11 +11,9 @@ import ibis
 import ibis.expr.types as ir
 import pandas as pd
 import pytest
-from ibis.backends import BaseBackend
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.datasource import adapters
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.errors import DatasourceAuthoringError
 from marivo.datasource.inspection import SourceInspection
@@ -658,21 +656,22 @@ def test_execution_failure_is_structured_redacted_and_disconnects(
     disconnected = 0
     original_disconnect = Backend.disconnect
 
-    original_execute = adapters._execute_duckdb
+    original_execute = Backend.execute
 
-    def fail_execute(backend: BaseBackend, expression: ir.Table, sql: str) -> pd.DataFrame:
+    def fail_execute(backend: Backend, expression: ir.Table, **kwargs: object) -> pd.DataFrame:
+        sql = backend.compile(expression, limit=None)
         if "orders" in sql.lower():
             raise ExecutionError(
                 "Code: 107. Storage file missing (FILE_DOESNT_EXIST); token=super-secret"
             )
-        return original_execute(backend, expression, sql)
+        return original_execute(backend, expression, **kwargs)
 
     def tracked_disconnect(self: Backend) -> None:
         nonlocal disconnected
         disconnected += 1
         original_disconnect(self)
 
-    monkeypatch.setattr(adapters, "_execute_duckdb", fail_execute)
+    monkeypatch.setattr(Backend, "execute", fail_execute)
     monkeypatch.setattr(Backend, "disconnect", tracked_disconnect)
 
     with pytest.raises(DatasourceAuthoringError) as exc_info:

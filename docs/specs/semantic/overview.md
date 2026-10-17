@@ -17,9 +17,13 @@ window and routed-field Metric previews are not supported. Physical row previews
 backend-specific contracts. This document does not certify every physical execution route or
 release acceptance; native Help and the owning analysis contract describe current callable scope.
 At `405bd006f8`, the agreed R3–R8 local implementation gate and independent business
-acceptance are complete. The new numerical Query source path admits only DuckDB;
-other backends require code-route extensions and Runtime qualification. The complete
-slow suite, remote Runtime and release acceptance remain incomplete.
+acceptance are complete. Numerical Query routes now qualify the actual selected
+backend, expression, physical types and method. Native Ibis/provider numerical
+precision loss is accepted; the pandas handoff supplies effective numerical types
+to local consumers and publication without relaxing keys, units, time or null
+policies. This code-route scope does not itself establish remote Runtime
+qualification. The complete slow suite and release acceptance remain incomplete;
+current remote evidence belongs to the [Runtime coverage guide](../../testing/runtime-coverage.md#remote-numerical-query-extension).
 
 This is the entry point for the design of Marivo's
 datasource and semantic layers (`marivo.datasource` and `marivo.semantic`). It

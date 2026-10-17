@@ -801,7 +801,8 @@ def _consume(recipe: Resolver) -> _Facts:
             name = attribute_name(recipe.func)
             receiver = _consume(recipe.func.obj)
             if name == "window":
-                from marivo._definition.graph import walk
+                from marivo._definition.graph import DefinitionNode, children, walk
+                from marivo._definition.relations import QueryKeys
                 from marivo._definition.windows import (
                     AllHistory,
                     Since,
@@ -826,13 +827,24 @@ def _consume(recipe: Resolver) -> _Facts:
                     rule, (AllHistory, Since, ToDate, TrailingDuration, TrailingPeriods)
                 )
                 definitions = dict(receiver._declared)
-                closure = walk((receiver.node,), resolve=definitions.get)
-                if any(isinstance(node, MetricWindow) for node in closure.order):
-                    _fail(
-                        "Windows cannot be nested on one dependency path.",
-                        expected="a Metric with no existing window below this call",
-                        received="nested window",
-                    )
+                walk((receiver.node,), resolve=definitions.get)
+                pending: list[DefinitionNode] = [receiver.node]
+                seen: set[int] = set()
+                while pending:
+                    node = pending.pop()
+                    if id(node) in seen or isinstance(node, QueryKeys):
+                        continue
+                    seen.add(id(node))
+                    if isinstance(node, MetricWindow):
+                        _fail(
+                            "Windows cannot be nested on one dependency path.",
+                            expected="a Metric with no existing window below this call",
+                            received="nested window",
+                        )
+                    if isinstance(node, DeclaredMetricRef):
+                        pending.append(definitions[node.ref])
+                    else:
+                        pending.extend(edge.child for edge in children(node))
                 return replace(receiver, node=MetricWindow(receiver.node, rule))
             if name == "at":
                 from marivo._temporal import InstantAnchor

@@ -104,3 +104,12 @@ def test_probe_engine_timezone_rejects_mysql_without_driver_fact(
 
     with pytest.raises(DatasourceConnectionError, match="timezone is unavailable"):
         probe_engine_timezone(backend)
+
+
+def test_probe_clickhouse_timezone_uses_existing_driver_fact() -> None:
+    from types import SimpleNamespace
+
+    backend = SimpleNamespace(name="clickhouse", con=SimpleNamespace(server_tz=ZoneInfo("UTC")))
+    resolved = probe_engine_timezone(backend)
+    assert resolved.engine_timezone_name == "UTC"
+    assert resolved.read_tz_resolution == "engine"

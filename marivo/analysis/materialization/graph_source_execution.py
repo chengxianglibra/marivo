@@ -14,6 +14,7 @@ import ibis.expr.operations as ops
 import ibis.expr.types as ir
 import pandas as pd
 import pyarrow as pa
+from ibis.common.exceptions import IbisError
 
 if TYPE_CHECKING:
     from marivo.analysis.compiler.optimization import InvocationMemo
@@ -1339,7 +1340,7 @@ def _preparation_error(expected: str, received: str) -> MaterializationError:
     return MaterializationError(
         expected=expected,
         received=received,
-        repair="Use a source column whose declared type converts losslessly; no business row was read.",
+        repair="Use a supported physical field type while preserving the requested key, time and unit contract; no business row was read.",
         stage="execute_preparation",
         help_target="Query.execute",
     )
@@ -1373,7 +1374,7 @@ def _validate_timestamp_precision(field: pa.Field, path: str) -> None:
 
 
 def admit_source_type(field: pa.Field, path: str) -> DataType:
-    """Map one bound source column to its lossless stage type, before any read."""
+    """Admit one bound source type family before reading native pandas values."""
     physical = field.type
     _validate_timestamp_precision(field, path)
     unit = (field.metadata or {}).get(DURATION_UNIT_METADATA_KEY)
@@ -1403,7 +1404,7 @@ def admit_source_type(field: pa.Field, path: str) -> DataType:
     if pa.types.is_duration(physical):
         return DurationDataType(physical.unit)
     raise _preparation_error(
-        f"{path}: a column type with a lossless stage carrier",
+        f"{path}: a column type in the supported stage type families",
         f"{path}: {physical}",
     )
 
@@ -1643,12 +1644,6 @@ def prepare_query_sources(
     for path in _query_entities(graph, state):
         contract = normalize_target_entity(registry, path)
         owner = available[contract.datasource_ref.path]
-        if owner.provider.name != "duckdb":
-            _route_gap(
-                "a qualified numeric datasource route",
-                owner.provider.name,
-                "Use a qualified DuckDB datasource for this numeric route.",
-            )
         bound = owner.bind(contract.source, source_identity=path)
         entities[path] = bind_entity_output(
             registry, sidecar, path, owner, bound, contract.dependency_fingerprint
@@ -1707,7 +1702,11 @@ def prepare_query_sources(
             contribution.calendars,
             contribution.coverage,
         )
-        binding_id = source_bindings.setdefault(source_contract, f"source:{uuid4().hex}")
+        binding_id = (
+            source_bindings.setdefault(source_contract, f"source:{uuid4().hex}")
+            if owners[root].provider.name == "duckdb"
+            else ""
+        )
         schema = table.schema().to_pyarrow()
         keys = tuple(_admitted(schema, name, name) for name in registry.entities[root].primary_key)
         fields = []
@@ -1971,13 +1970,167 @@ def _qualify_query_read(
 def qualify_query_sources(prepared: PreparedSources, lowered: LoweredQuery) -> None:
     """Qualify every schema-bound read template before a Run is admitted."""
     for read in lowered.reads:
-        _qualify_query_read(prepared, read)
+        from marivo.analysis.materialization.query_parameters import instantiate
+
+        expression = read.expression
+        for parameter in read.stage.parameters:
+            empty = StageOutput.from_frame(
+                pd.DataFrame(columns=[column.slot_id for column in parameter.columns]),
+                parameter.columns,
+                tuple(column.slot_id for column in parameter.columns),
+            )
+            expression = instantiate(expression, parameter.placeholder, parameter.columns, empty)
+        read = replace(read, expression=expression)
+        _admit_numeric_method(prepared.sources.get(read.stage.source_id, prepared.source), read)
+        read = replace(read, expression=_native_query_expression(prepared, read))
+        expression = read.expression
+        qualified = _qualify_query_read(prepared, read)
+        source = prepared.sources.get(read.stage.source_id, prepared.source)
+        _qualify_clickhouse_joins(source, qualified)
+        try:
+            source.compile(
+                qualified,
+                expression,
+                purpose="query.prepare",
+                expected_schema=expression.schema().to_pyarrow(),
+            )
+        except (IbisError, NotImplementedError, TypeError, ValueError) as error:
+            _route_gap(
+                "a natively compiled Query expression for the selected backend and types",
+                f"{source.provider.name}: {type(error).__name__}: {error}",
+                "Use a supported native method/type or export an admitted Query for pandas processing.",
+            )
 
 
-def read_stage(prepared: PreparedSources, lowered: LoweredRead) -> StageOutput:
+def _qualify_clickhouse_joins(
+    source: SourceSession, qualified: tuple[QualifiedSource, ...]
+) -> None:
+    """Qualify physical ClickHouse join topology without reading business rows."""
+    if source.provider.name != "clickhouse" or not any(
+        "join" in item.requirement.operations for item in qualified
+    ):
+        return
+    from marivo.datasource.ir import TableSourceIR
+
+    for item in qualified:
+        physical = item.binding.source
+        if not isinstance(physical, TableSourceIR):
+            _route_gap(
+                "a known ClickHouse physical source profile for this join",
+                type(physical).__name__,
+                "Use a source with an explicitly qualified physical join topology.",
+            )
+        try:
+            engine = source.clickhouse_table_engine(item.binding)
+        except Exception as error:
+            _route_gap(
+                "visible ClickHouse physical metadata for this join",
+                f"{item.binding.facts.source_identity}: {type(error).__name__}",
+                "Grant the reader access to the source's system.tables metadata or use a qualified join source.",
+            )
+        if engine is None:
+            _route_gap(
+                "a known ClickHouse physical table profile for this join",
+                item.binding.facts.source_identity,
+                "Use a source whose table profile is visible to the reader.",
+            )
+        if engine == "Distributed":
+            _route_gap(
+                "a qualified ClickHouse Distributed join route",
+                f"Distributed table {physical.table}: this Query requires IN/JOIN subqueries",
+                "Use a Query without Distributed joins, or an explicitly declared source with a qualified join topology. Marivo does not change distributed_product_mode or substitute local tables.",
+            )
+        if not engine.endswith("MergeTree"):
+            _route_gap(
+                "a qualified ClickHouse physical join topology",
+                f"{physical.table}: engine={engine}",
+                "Use a qualified physical MergeTree table for this join; a view or another engine does not establish its underlying join topology.",
+            )
+
+
+def _admit_numeric_method(source: SourceSession, read: LoweredRead) -> None:
+    from marivo._definition.expressions import SourceAggregate
+
+    if source.provider.name == "duckdb":
+        return
+    for stage in read.stage.common_reads or (read.stage,):
+        node = stage.reduction.node if stage.reduction is not None else None
+        if isinstance(node, SourceAggregate) and node.reducer not in (
+            "count",
+            "count_distinct",
+            "sum",
+            "min",
+            "max",
+            "mean",
+        ):
+            if source.provider.name == "postgres" and node.reducer in ("median", "quantile"):
+                continue
+            _route_gap(
+                "a qualified native algorithm for this source reduction",
+                f"{source.provider.name}: {node.reducer}",
+                "Use an admitted native reduction, or export its input for pandas. Exact and approximate algorithms are not interchangeable.",
+            )
+
+
+def _native_query_expression(prepared: PreparedSources, read: LoweredRead) -> ir.Table:
+    from marivo.analysis.materialization.temporal_sql import lower_temporal
+
+    source = prepared.sources.get(read.stage.source_id, prepared.source)
+    expression = lower_temporal(read.expression, source.provider.name)
+    assert isinstance(expression, ir.Table)
+    if source.provider.name == "mysql":
+        # MySQL has no IS_NAN / IS_INF functions. Native finite comparisons
+        # retain the check without requiring routines or source-side casts.
+        replacements = {
+            node: (
+                node.arg.to_expr() != node.arg.to_expr()
+                if isinstance(node, ops.IsNan)
+                else node.arg.to_expr().abs() > float.fromhex("0x1.fffffffffffffp+1023")
+            ).op()
+            for node in expression.op().find((ops.IsNan, ops.IsInf))
+        }
+        rewritten = expression.op().replace(replacements).to_expr()
+        assert isinstance(rewritten, ir.Table)
+        expression = rewritten
+    if source.provider.name == "clickhouse":
+        import ibis
+        import ibis.expr.datatypes as dt
+
+        def declaration(value: object) -> int:
+            raise NotImplementedError("native ClickHouse uniqExact")
+
+        exact_nodes: dict[ops.Node, ops.Node] = {}
+        for node in expression.op().find((ops.IsNan, ops.IsInf)):
+            quotient = node.arg
+            if (
+                isinstance(quotient, ops.Divide)
+                and (quotient.left.dtype.is_decimal() or quotient.right.dtype.is_decimal())
+                and not (quotient.left.dtype.is_floating() or quotient.right.dtype.is_floating())
+            ):
+                # ClickHouse Decimal division stays Decimal although Ibis infers
+                # float64. Decimal has no NaN/infinity; native overflow still
+                # fails the statement, and zero/error checks remain separate.
+                exact_nodes[node] = ibis.literal(False).op()
+        for node in expression.op().find(ops.CountDistinct):
+            exact = ibis.udf.agg.builtin(name="uniqExact", signature=((node.arg.dtype,), dt.int64))(
+                declaration
+            )
+            exact_nodes[node] = exact(
+                node.arg.to_expr(), where=node.where.to_expr() if node.where is not None else None
+            ).op()
+        rewritten = expression.op().replace(exact_nodes).to_expr()
+        assert isinstance(rewritten, ir.Table)
+        expression = rewritten
+    return expression
+
+
+def read_stage(
+    prepared: PreparedSources, lowered: LoweredRead, *, value_keys: tuple[str, ...] = ()
+) -> StageOutput:
     """Submit one lowered SourceRead and normalize its pandas result."""
     stage = lowered.stage
-    expression = lowered.expression
+    expression = _native_query_expression(prepared, lowered)
+    lowered = replace(lowered, expression=expression)
     source = prepared.sources.get(stage.source_id, prepared.source)
     qualified = _qualify_query_read(prepared, lowered)
     issued = source.compile(
@@ -1986,16 +2139,29 @@ def read_stage(prepared: PreparedSources, lowered: LoweredRead) -> StageOutput:
         purpose=f"query.{stage.stage_id}",
         expected_schema=expression.schema().to_pyarrow(),
     )
-    frame = source.execute(issued)
+    from decimal import DecimalException
+
+    try:
+        frame = source.execute(issued)
+    except (TypeError, ValueError, OverflowError, DecimalException) as error:
+        raise MaterializationError(
+            expected="native Ibis pandas values compatible with the compiled expression types",
+            received=f"{source.provider.name}: {type(error).__name__}: {error}",
+            repair="Use a method and value range supported by the backend's native Ibis pandas conversion, or author an explicit business-specific expression.",
+            stage="source_conversion",
+            help_target="Query.execute",
+        ) from error
     if stage.common_reads:
         return _complete_common_read(stage, frame, lowered.numeric_checks)
-    return _complete_source_frame(stage, frame, lowered.numeric_checks)
+    return _complete_source_frame(stage, frame, lowered.numeric_checks, value_keys=value_keys)
 
 
 def _complete_source_frame(
     stage: SourceRead,
     frame: pd.DataFrame,
     numeric_checks: tuple[tuple[str, NumericCheck], ...],
+    *,
+    value_keys: tuple[str, ...] = (),
 ) -> StageOutput:
     """Complete one logical source occurrence and its original fine checks."""
     from marivo.analysis.materialization.query_components import ComponentFrame
@@ -2094,6 +2260,11 @@ def _complete_source_frame(
             fraction = position - (position.numerator // position.denominator)
             lower = row[reduction.value_slot]
             upper = row["__quantile_upper"]
+            if isinstance(lower, float) or isinstance(upper, float):
+                decimal_values.append(
+                    float(lower) + float(fraction) * (float(upper) - float(lower))
+                )
+                continue
             assert isinstance(lower, Decimal) and isinstance(upper, Decimal)
             exact = Fraction(lower) + fraction * (Fraction(upper) - Fraction(lower))
             decimal_values.append(
@@ -2133,11 +2304,12 @@ def _complete_source_frame(
         output = output.sort_values(
             list(stage.keys), kind="stable", na_position="last"
         ).reset_index(drop=True)
-    return StageOutput.from_frame(
+    return StageOutput.from_source_frame(
         output,
         stage.columns,
         stage.keys,
         components=components,
+        value_keys=value_keys,
     )
 
 
@@ -2209,7 +2381,7 @@ def _complete_common_read(
         result = result.sort_values(
             list(stage.keys), kind="stable", na_position="last"
         ).reset_index(drop=True)
-    return StageOutput.from_frame(
+    return StageOutput.from_source_frame(
         result,
         stage.columns,
         stage.keys,
@@ -2246,6 +2418,9 @@ def execute_numeric_query(
         )
 
     required_by_stage = {required.stage_id: required for required in lowered.plan.required_slots}
+    from marivo.analysis.materialization.query_runtime_types import source_value_keys
+
+    value_keys = source_value_keys(lowered.plan)
 
     def transport(stage_id: str, output: StageOutput) -> StageOutput:
         if not lowered.plan.required_slots:
@@ -2274,12 +2449,15 @@ def execute_numeric_query(
                 "analysis.query_source",
             )
         request = lowered.read(stage.stage_id)
-        output = read_stage(prepared, request)
+        output = read_stage(prepared, request, value_keys=value_keys.get(stage.stage_id, ()))
         if observe_read is not None:
             observe_read(request, output)
         return transport(stage.stage_id, output)
 
     def local(stage: LocalCompute, inputs: tuple[StageOutput, ...]) -> StageOutput:
+        from marivo.analysis.materialization.query_runtime_types import effective_local
+
+        stage = effective_local(stage, inputs) if not stage.fused_steps else stage
         output = run_local(stage, inputs)
         if observe_local is not None:
             observe_local(stage, output)
@@ -2313,10 +2491,16 @@ def execute_numeric_query(
                     "Reduce the explicit domain or use a datasource/type with an admitted native expression route.",
                 ) from error
         request = replace(request, expression=expression)
-        output = read_stage(prepared, request)
+        output = read_stage(prepared, request, value_keys=value_keys.get(stage.stage_id, ()))
         if observe_read is not None:
             observe_read(request, output)
         return transport(stage.stage_id, output)
 
     result = run_query_plan(lowered.plan, read, local, check, dependent)
+    from marivo.analysis.materialization.graph_exchange import source_columns
+
+    planned_output = next(
+        stage for stage in lowered.plan.stages if stage.stage_id == lowered.plan.publish
+    )
+    source_columns(result.table, planned_output.columns, result.keys)
     return replace(result, key_groups=lowered.plan.output_groups)

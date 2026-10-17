@@ -3,9 +3,9 @@
 Date: 2026-10-17
 
 Status: v0.37 执行合同；基于 `405bd006f8`，原生 Deferred、R3–R8 组合与 Store 10 终端执行/读取
-已完成约定的本地实施、常规门禁和独立业务验收。新数值 Query 仅准入 DuckDB；其它后端仍需代码
-路线扩展与 Runtime 验证。完整 slow、远端 Runtime 和 release 验收未完成。
-2026-10-17 来源交接取舍修订：接受 Ibis/provider 原生返回的数值精度损失，后端返回类型差异在 pandas 边界处理（§1.5.1）。此为待实施合同调整，不表示当前代码已取消 DuckDB 限制或完成交接适配。
+已完成约定的本地实施、常规门禁和独立业务验收。远端数值 Query 按实际后端、表达式、类型及方法
+准入；代码路线与真实 Runtime 证据分开记录，见 [Runtime 覆盖说明](../../testing/runtime-coverage.md#remote-numerical-query-extension)。完整 slow 和 release 验收未完成。
+2026-10-17 来源交接修订：接受 Ibis/provider 原生返回的数值精度损失，后端返回类型差异在 pandas 边界处理，并向本地消费者和最终输出 schema 传递有效类型（§1.5.1）。
 v0.37 增补有序/近似/nullable sum、membership 与窗口的执行边界；具体资格由实现和执行前准入界定。
 2026-10-17 fanout 修订采用贡献语义约束，允许已证明等价且已准入的不同物理策略；新增边界见 §1.1.4。
 v0.36 复用 schema preparation 自动绑定原生 Ibis 数值图；详细语义由语义提案 §2.6/§3.6 拥有。
@@ -25,7 +25,7 @@ R2.6 接通公开元数据打开、有界预览、完整 pandas 导出和无图�
 evidence_digest() 不接受参数，直接返回全部 Evidence（.items）及集合摘要，.show() 保持有界。
 S0–S6 已实现原生 Deferred 摄入、自动类型准备、有序/近似规约、nullable sum、membership 与基础窗口。
 Population、Session.read、Query 值操作、对应/广播及原指标组合已完成 R3–R8 约定的本地验收。
-这不授予其它后端、未准入近似方法或 preview 扩展资格，也不构成远端 Runtime 或 release 验收声明。
+这不授予未准入的方法或 preview 扩展资格，也不构成全部远端 Runtime 或 release 验收声明。
 
 ## 1. 执行、保留与恢复
 
@@ -244,6 +244,13 @@ Marivo 不在 Ibis 层为统一 dtype 或保真主动添加与业务语义无关
 本地消费者和输出 schema 使用交接后的有效类型，不伪称已恢复来源精度，不允许各算子重复猜测后端类型。
 
 schema-only 准备检查表达式、类型族及后端方法能力，不扫描业务值，也不证明数值无损。
+来源模板在 Run 准入前使用实际后端编译，时间准备和 temporal rewrite 也使用实际 engine；
+动态依赖实例化后仍校验其具体输入。后端不能实现请求算法时报告具体方法缺口，
+不能因编译器提供近似实现就接纳精确方法。远端来源块保留未融合路线，直到具有自身等价证据。
+当前 PostgreSQL、MySQL、Trino 和 ClickHouse 的普通数值路线按实际类型准入 count、count_distinct、
+sum、min、max、mean 和 weighted_mean。精确来源 median/quantile 只在 DuckDB 和 PostgreSQL
+准入；MySQL、Trino 和 ClickHouse 在 Run 前按具体方法拒绝。ClickHouse 的 Ibis Quantile
+lowering 使用近似算法，不能据此执行精确请求。这些代码准入不替代逐路线 Runtime 证据。
 实际返回布局和值约束在交接时校验；大整数搭配 NA、Decimal 的真实返回用于记录精度表现及验证可交接性，
 不要求与原库值逐位相等。完整键唯一性、NA/空输入、配对、分组和失败政策仍须成立。
 这些工作复用来源绑定、物理准入和 StageOutput，不增加类型证明平台、全局精度开关或失败后换引擎。
@@ -497,5 +504,6 @@ pandas 可以继续保留或复制 attrs，但任意变换后的 attrs 均不能
 
 本合同已沿现有 Runtime 接通公开表面、执行内 stage 组合和终端 Artifact 保存，本地首版验收完成。
 实施计划 `docs/superpowers/plans/2026-10-13-lazy-analysis-dsl-redesign-implementation.md` 的 §8–9
-记录当前状态和历史证据；本文件独立说明执行合同。远端数值路线需要代码扩展，不能归为仅待跑测试；
-完整 slow、远端 Runtime 和 release 仍未完成。R3–R8 的授权技能同步已完成，后续技能变更仍需明确授权。
+记录历史证据，§10 记录本轮远端增量；本文件独立说明执行合同。远端路线仍按实际后端、
+类型与方法分别准入，Runtime 证据由 [Runtime 覆盖说明](../../testing/runtime-coverage.md#remote-numerical-query-extension) 记录；
+完整 slow 和 release 仍未完成。R3–R8 的授权技能同步已完成，后续技能变更仍需明确授权。

@@ -26,7 +26,7 @@ typed repair naming the required extra.
 
 ## Qualify a numerical source route
 
-The current new numerical Query source path admits DuckDB. This is a method-route boundary, not a restriction of datasource access to other installed providers and not evidence that remote Runtime checks have passed. Source form, actual schema and method still need qualification within DuckDB.
+Numerical Query routes qualify the selected backend, source form, actual schema and method. Templates compile with that backend before Run admission; instantiated dependencies are checked again before consumption. Datasource access alone does not establish numerical Runtime qualification.
 
 {/* example: csv-semantic-model */}
 
@@ -58,13 +58,15 @@ This declares fields and a named Metric. A declaration or successful preview doe
 
 Source Ibis executes through the selected declared datasource and returns pandas. Literal/reference and local domain/value stages use pandas. PyArrow encodes and reads terminal output. An Artifact is read-only output and cannot enter the DSL; there is no fixed-Artifact execution route or hidden local SQL engine.
 
-The planned remote numerical Query extension accepts native Ibis/provider numerical precision loss. Ibis lowering will not add casts solely to standardize backend result types or preserve transport precision; business-required conversions remain. Differences in the types returned by the same expression will be handled at the pandas handoff, retaining complete keys, null policies, units and time semantics. Casting cannot recover lost source precision; saved-output fidelity concerns the values actually committed.
+Source computation accepts native Ibis/provider numerical precision loss. Ibis lowering adds no casts solely to standardize backend result types or preserve transport precision; business-required conversions remain. The pandas handoff resolves the effective numerical types of direct fields, reductions and internal components for subsequent local operations and publication, retaining complete keys, null policies, units and time semantics. Casting cannot recover lost source precision; saved-output fidelity concerns the values actually committed.
 
-This contract adjustment still requires implementation: numerical Query currently admits only DuckDB, and remote routes need code changes and Runtime validation. Local execution is eager and may retain full required vectors in memory. Failure never switches route or truncates input.
+Time preparation and temporal rewrites use the actual selected engine. Remote source blocks use the unfused route until their own equivalence is established. Local execution is eager and may retain full required vectors in memory. Failure never switches route or truncates input.
 
 DuckDB native INTERVAL is admitted in microseconds only after a source-native check rejects year, month and day components. It cannot become elapsed time merely by casting and does not supply nanosecond precision. Arrow Duration on a qualified file route preserves the file's declared tick unit.
 
-Exact/approximate reductions keep their definition-owned algorithm and actual dtype qualification. Exact quantiles do not silently switch to approximate estimates. Typed missing mappings, nonfinite values, overflow and required coverage failures prevent publication.
+Ordinary PostgreSQL, MySQL, Trino and ClickHouse templates admit count, count_distinct, sum, min, max, mean and weighted_mean subject to actual type and expression qualification. Exact source median/quantile currently admit only DuckDB and PostgreSQL. MySQL, Trino and ClickHouse reject those methods before Run admission; ClickHouse's Ibis Quantile lowering is approximate and cannot satisfy an exact request. Exact/approximate reductions retain their definition-owned algorithm. Typed missing mappings, nonfinite values, overflow and required coverage failures prevent publication.
+
+ClickHouse Distributed admits qualified ordinary grouped aggregation. Source routes requiring a Distributed IN/JOIN, including keyed `Session.read`, reject before Run admission because that join route is not qualified under `distributed_product_mode`. MergeTree joins have separate qualification; views and other engine topologies are not implicitly admitted. Marivo does not change server settings or substitute local tables.
 
 ## Resource and saved-output boundaries
 

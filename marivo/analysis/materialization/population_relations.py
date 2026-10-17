@@ -42,7 +42,7 @@ def prepare_member_fields(
     from marivo._definition.observations import ContributionBinding
     from marivo._definition.types import field_read_key
     from marivo.analysis.materialization.population_preparation import _domain_table
-    from marivo.analysis.materialization.query_preparation import prepare_fields
+    from marivo.analysis.materialization.query_preparation import prepare_fields, scalar_field
     from marivo.datasource.timezone import probe_engine_timezone
 
     identities = prepare_population(node.operand, entities, state)
@@ -102,7 +102,7 @@ def prepare_member_fields(
     field_names = tuple(f"__classify_value_{index}" for index in range(len(fields)))
     grouped = table.group_by(*contract.primary_key).aggregate(
         **{
-            name: table[columns[field_read_key(read)]].arbitrary()
+            name: scalar_field(table[columns[field_read_key(read)]])
             for name, read in zip(field_names, fields, strict=True)
         },
         __classify_count=table.count(),

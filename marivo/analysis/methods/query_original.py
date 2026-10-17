@@ -242,6 +242,14 @@ def _reduce(
         )
     renamed = {name: f"__original_check.{index}" for index, (name, _, _) in enumerate(checks)}
     reduced = reduced.rename(columns={"value": slot, **renamed})
+    for key in keys:
+        # Group reduction rebuilds rows as Python records. Restore the checked
+        # coordinate carrier before the original formula joins its domain.
+        try:
+            values = pa.array(reduced[key], type=pa.array(domain[key]).type, from_pandas=True)
+        except (pa.ArrowInvalid, pa.ArrowTypeError) as error:
+            numeric_failure("the checked original coordinate type", f"{key}: {error}")
+        reduced[key] = pd.Series(pd.arrays.ArrowExtensionArray(values), index=reduced.index)
     metadata = tuple((renamed[name], expected, received) for name, expected, received in checks)
     return reduced, metadata
 

@@ -2,10 +2,10 @@
 
 Date: 2026-10-17
 
-Status: 本地实施与约定验收已完成，状态核对基于 `405bd006f8`。R1/R2 与 [S0–S6](../../specs/semantic/expression-model-implementation-plan.md) 提供基础能力，R3–R8 已在 `7508aca650` 交付，外部依赖 typing 收尾在 `405bd006f8` 完成。新数值 Query 的远端后端路线仍有代码能力缺口；远端 Runtime、完整 slow 集合和 release 验收未完成，不能合并称为“只差验收”。当前状态与证据边界见 §8，日期化实施过程见 §9。
+Status: R1–R8 本地交付已完成；§8.1 的远端数值 Query 增量及约定独立 Runtime 验收已完成，最终无收窄工程门禁通过（4605 默认测试）。当前增量状态、两轮审查与独立验收证据见 §10；§2、§8 的旧基线快照和 §9 的历史实施记录保留追溯。支持按后端、方法和来源形状准入；精确远端 quantile、Distributed join、远端融合及完整 slow/release 的保留边界见 §10，不宣称全后端全能力验收。
 
-本次修订只同步计划及相关文档状态，不修改实现或重跑行为验收。R1/R2 的旧任务表和 §9 日期化交接保留为历史记录；其中旧包装类、原定义版本、未提交状态和开发期失败均不构成当前待办或当前合同。当前作者值、语义使用位置、分支需求及空值政策以 v0.37 和当前 owning specs 为准；历史审查不重启，文档同步不新增行为验收证据。
-2026-10-17 用户取舍：允许 Ibis/provider 原生数值精度损失，不在 Ibis 层添加业务无关的类型转换；相同表达式跨后端的返回类型差异交给 pandas 入口。该取舍替代旧的来源无损准入要求，最小实施顺序见 §8.1；旧 DuckDB 实现与历史无损测试记录保持原样，不代表新路线已交付。
+`2b553532c0` 前的修订仅同步文档；本轮基于该提交实施 §8.1，并在 §10 单独记录新行为证据。R1/R2 的旧任务表和 §9 日期化交接保留为历史记录；其中旧包装类、原定义版本、未提交状态和开发期失败均不构成当前待办或当前合同。当前作者值、语义使用位置、分支需求及空值政策以 v0.37 和当前 owning specs 为准；历史审查不重启。
+2026-10-17 用户取舍：允许 Ibis/provider 原生数值精度损失，不在 Ibis 层添加业务无关的类型转换；相同表达式跨后端的返回类型差异交给 pandas 入口。该取舍替代旧的来源无损准入要求，实施顺序见 §8.1，实际交付见 §10；历史无损测试记录不构成当前来源精度承诺。
 当前优先修订（2026-10-15，Slack `1792053438.175219` / `1792053465.849969`）：取消语义对象必须匹配构造时原定义版本及同路径改版拒绝；agent/用户承担分析期间语义定义变更的后果。实际计算/依赖身份、缓存正确性、持久化记录和其它语义检查保留。capture/finalize为默认时间/坐标/Ibis前向闭包保留。完整supersession、下一阶段清理与证据边界见下文user-priority checkpoint；历史评审/验收不回写成新合同通过。
 v0.32 统一 Query.execute → 终端 Artifact；所有 DSL 组合在执行前完成，产物不承载图、内部组件或续算。
 执行分工与架构 v0.12 同步：Ibis 负责源端计算，pandas 统一本地执行，PyArrow 只负责存储和读取。
@@ -55,7 +55,7 @@ Query 组合管理本次输入及充分信息；Artifact 保存输出、必要�
 
 ## 2. 当前基线与改动落点
 
-本次核对基于 `405bd006f8`；`3a4e741cfa` 是 R3–R8 实施前的 S0–S6 基线。当前产品合同由 [Semantic Object Model](../../specs/semantic/semantic-object-model.md)、[Loading / Validation](../../specs/semantic/loading-validation-introspection.md)、[Python Analysis Design](../../specs/analysis/python-analysis-design.md) 与 native Help 拥有；完整设计由 v0.37 拥有，具体物理路线以实际准入和证据为限。
+本节保留基于 `405bd006f8` 的实施前快照，远端增量已由 §10 更新；`3a4e741cfa` 是 R3–R8 实施前的 S0–S6 基线。当前产品合同由 [Semantic Object Model](../../specs/semantic/semantic-object-model.md)、[Loading / Validation](../../specs/semantic/loading-validation-introspection.md)、[Python Analysis Design](../../specs/analysis/python-analysis-design.md) 与 native Help 拥有；完整设计由 v0.37 拥有，具体物理路线以实际准入和证据为限。
 
 | 当前已实现能力 | 当前边界 |
 | --- | --- |
@@ -694,9 +694,9 @@ R3–R8 实施时已获授权并完成两份 packaged skills 同步，无待授�
 - 当前 API、类型、Help、错误、英中文档及获授权的工作流文件同步；make check-agent 通过，实际需要的额外检查单独报告。
 - 最后记录通过、失败、未运行与待授权事项，所引用证据只说明它实际验证的范围。
 
-当前状态：**R1–R8 在约定的 DuckDB 首版范围内已完成本地实施与验收；远端数值 Query 能力仍需代码扩展，Runtime / release 验收未完成。** 不能将远端代码限制写成“实现已齐，只差跑测试”，也不能把历史开发期失败重新列为当前未完成项。
+实施前状态快照（`405bd006f8`，远端增量与最新门禁见 §10）：**R1–R8 当时已完成约定的 DuckDB 首版本地实施与验收；远端数值 Query 尚待代码扩展和 Runtime 验收。** 不能将远端代码限制写成“实现已齐，只差跑测试”，也不能把历史开发期失败重新列为当前未完成项。
 
-| 类别 | 当前状态与证据 | 剩余边界 |
+| 类别 | 实施前状态与证据 | 当时剩余边界 |
 | --- | --- | --- |
 | 本地实现与公开切换 | `7508aca650` 完成 R3–R8；Population/Query/Column、Store 10 终端读写、有限优化、Help/类型/英中文档及授权技能已交付 | 首版明确排除的能力和未准入路线不在完成声明中 |
 | 完整常规工程门禁 | `405bd006f8` 收尾后的无收窄 `make check-agent` 通过：4588 默认测试、lint/import、366 文件 typing 与 API 文档；原五项 helper typing 诊断已关闭 | 默认测试排除 slow/runtime/release；此结果不覆盖这些集合 |
@@ -714,18 +714,18 @@ R3–R8 实施时已获授权并完成两份 packaged skills 同步，无待授�
 
 历史 `3a4e741cfa` 的 3964 passed / 504 failed / 10 setup errors 是实施前基线，保留在 §9 追溯；
 不能继续作为当前失败状态。两轮正式审查的已知问题与两个组合残留已关闭，无待授权技能同步项。
-本次仅修改文档，检查受影响内容、链接、围栏及差异，不新增实现、Runtime 或 release 通过声明。
+以上是本轮远端实施前的文档同步记录；本轮新增实现及 Runtime 证据见 §10，release 资格未扩展。
 
 ### 8.1 远端数值 Query 最小实施顺序
 
-**状态：以下全部待实施、待验证。** 本节采用用户确认的 Ibis 原生返回 / pandas 类型交接取舍，
+**状态：2026-10-17 代码交付、约定独立验收与最终常规门禁均完成。** 进度与证据见 §10。本节采用用户确认的 Ibis 原生返回 / pandas 类型交接取舍，
 不重新打开已完成的 R1–R8 本地验收，也不把文档更新计作代码交付。
 唯一交接合同见[执行 §1.5.1](../../specs/analysis/lazy-analysis-dsl-execution.md#151-ibis-原生返回与-pandas-类型交接)。
 接受原生数值精度损失；不新增无损 transport、统一后端 dtype 的 Ibis cast 或全局精度配置。
 单位、时间语义、明确运算规则与错误政策所必需的转换仍保留。pandas 负责实际返回类型与后续计算/存储类型衔接，
 不能盲目回 cast、截断小数、吞掉错误或声称恢复精度；已提交 Artifact 保留其实际保存值。
 
-#### 可复用实现与代码缺口
+#### 实施前可复用实现与代码缺口
 
 | 已有实现，可继续复用 | 必须补齐或调整的部分 |
 | --- | --- |
@@ -1103,3 +1103,150 @@ typing、4588 默认测试（83 项既有警告，116.31 秒）及 API 文档构
 `/tmp/marivo-external-typing-check-agent-final.log`，原 17 文件 typing 日志为
 `/tmp/marivo-external-typing-consumers.log`。本次五项诊断全部关闭，未运行远端 Runtime 或
 release-check，未启动服务；修复单独本地提交，不 push。
+
+## 10. 远端数值 Query 团队实施记录（2026-10-17）
+
+本轮基线为 `2b553532c0af028c9045474a0e11105e14384376`，启动时工作树干净。
+范围为 §8.1 的四步增量，不重启已完成的 R1–R8 本地审查与验收。
+采用用户确认的原生数值精度及 pandas 交接合同，保留完整键、时间、单位和错误政策。
+
+| 职责 | 分工 | 当前状态 |
+| --- | --- | --- |
+| 实施 | `gpt-6.1-sol` / `xhigh`；产品代码、定向测试与披露文档 | 最终修复候选停写，独立复验通过 |
+| 独立审查 | `gpt-6-astra` / `high`；最多两轮正式审查 | 第 2/2 轮完成；不再追加正式审查 |
+| 独立验收 | `gpt-6-luna` / `max`；公开路径、相关 Runtime 与断源冷读 | 最终独立复验完成，全部已知 P2 及以上问题关闭 |
+| 协调与提交 | 主 agent；范围、候选、问题关闭和提交门禁 | 最终门禁通过，准备本地提交；用户批准的额外基线修复已完成 |
+
+提交前须关闭全部已知 P2 及以上问题，完成对应独立验收，并运行最终候选无收窄的
+`make check-agent`。服务不可用、跳过、只编译和实际 Runtime 分别记录；完整 slow、
+安装包和 release 验收不由本轮常规门禁替代。正式审查用满两轮后如仍有发现，
+仅修复并独立复验已知问题，不追加第三轮审查或以此宣称额外全面审查通过。
+本轮仅授权本地提交，不 push；`AGENTS.md` 和 packaged skills 如确需变更另行获得明确授权。
+
+环境准备：原专用 `marivo-multisource` VM 已停止、所有测试端口不可用；按仓库既有配置启动，
+PostgreSQL 17.11 与 MySQL 8.4.11 健康且读者只读权限核验通过。该检查只证明服务准备就绪，
+不构成新数值 Query 资格。Trino/ClickHouse 依照环境约束串行使用；结束时恢复本轮启动服务的停止状态。
+
+开发检查点（尚非独立验收）：PostgreSQL/MySQL 的公开普通 Query 用例已实际通过，覆盖 nullable
+分组、全 NA、复合身份的直接读取及已保存 Artifact 重开；PostgreSQL 方法用例已通过。
+Trino 483 服务和读者权限已准备，时间、依赖与特化路线仍在推进。
+另由 `gpt-6.1-sol` / `xhigh` 文档开发者独立维护当前 API/specs 及最新英中文档，
+产品实现者负责 native Help；主 agent 继续独占本计划进度记录。
+
+随后开发 Runtime 检查为 17 passed / 6 skipped / 5 local deselected：PostgreSQL/MySQL/Trino
+普通路线与数值方法、Trino 非 Iceberg 来源、完整复合键/None 依赖、drill、窗口、真实空输入、
+零分母失败、PostgreSQL 断源独立进程冷读和三后端 period 编码正例。此时 ClickHouse 未跑，
+跳过不计入通过；之后启动 ClickHouse MergeTree 26.3.33.24，Trino 按串行环境要求停止。
+第一份固定代码的完整门禁 lint/import/367 文件 typing 通过，默认测试 4311 passed / 14 failed；
+开发已将失败归因于新增编译审计 owner、Duration/空域有效类型、错误包装和来源原生数值预期，
+继续修复，不将该门禁记录为通过。正式审查仍为 0/2，独立验收尚未开始。
+
+第一候选开发交接：定向回归 172 与 82 项通过；adapter/authoring/timezone 62 项通过；
+14 目标 typing、完整 lint/import 通过。ClickHouse MergeTree 5 项 Runtime 通过，Distributed
+普通聚合与未准入 join 的 Run 前具体拒绝合并用例 1 项通过。远端 source block 保留未融合路线。
+上述属于开发证据；两独立 datasource 的交接仍待独立验收补证，不能用同源多表替代。
+实现与文档均已停写，主 agent 冻结所有 tracked/untracked 候选文件后启动第一轮审查、
+独立验收和完整门禁；正式审查上限仍为两轮。
+
+第一轮冻结清单 SHA-256 为 `28628b1741fdeff4214267bb93ffcba6709bae94696d691bc51a05c3e9f53528`，
+1242 文件；产品指纹为 `3231c968ee6bccc7a076f81618023cce51c0d9435af59c3faa9fd92060b3c1f9`。
+无收窄 `make check-agent` 的 lint/import/367 文件 typing 通过，默认测试 4595 passed / 2 failed；
+两项失败经独立原生 Ibis 对照确认属于来源整数/Decimal AVG 旧 oracle，待保留键/本地精确断言的调整。
+审查在同一候选确认两项 P1：Arrow double nullable 整数键的 `% 1` 检查失败；drill 新增轴遗漏
+实际属性类型且重算键 carrier 不一致。两个公开复现均在确切旧基线通过，须修代码。
+另查明命名 Metric 的 Query 依赖 `bind_windows` KeyError 在候选与基线均存在，单列为基线问题，
+是否扩入本轮已交用户决策，不冒充本次回归。
+
+Luna 在相同前后清单上独立通过两条链：ClickHouse Distributed 普通分组、具体 join Run 前拒绝
+与独立进程冷读；MySQL 通过复合大整数键及 None 分类选择名单，PostgreSQL 消费该名单后产物冷读。
+原生返回 dtype/值/NA 和已保存输出分别记录；其它后端独立用例尚未完成。
+第一轮结束后各 reader 停跑，开发者进入集中修复；第二轮为最后一轮正式审查。
+
+用户随后明确选择将基线命名 Metric 依赖问题纳入本轮修复。开发补齐拥有者的定义/绑定依赖闭包，
+独立验收将重跑命名 Metric 的跨 datasource 名单消费；该修复进入第二轮候选，审查上限不变。
+
+第二候选开发交接：两项 P1 的原始复现脚本通过，命名 Metric 最小脚本执行结果为 x=60；
+上游命名 revenue 的独立 all-history 窗口与下游不同命名指标/期间/自有窗口的两条回归通过。
+修复让窗口绑定及嵌套窗口检查尊重 QueryKeys 作用域，同时保留完整定义图的所有权和循环验证。
+定向测试 167 passed、5 模块 typing、10 修改文件 lint/import 与 diff 检查通过；这些仍属开发证据。
+代码/测试清单摘要为 `2b5b235da938d8611a244407d30ba4b2baee4a9e9d085086ebc558e6b5c02889`，
+主 agent 将含文档的全候选另行冻结，执行最后一轮正式审查、独立验收及无收窄常规门禁。
+
+第二轮全清单为 `1f74b78463499a0821a3ff9063d328c3ef9d8cdc83d4d6c5aa8d0726016629d6`，
+产品指纹为 `c2de4de7ddb778d5c0b0ef79d93b046e3d5cafafa9ca14dfa75066defdd747eb`。
+Astra 关闭原两个单指标 P1，确认命名依赖作用域修复，28 项 membership/definition graph 测试通过；
+仍发现一项 P1 组合残留：多指标 drill 只取首个属性输入的轴类型，int64/nullable float 混合时
+结果受指标顺序影响，确切基线两种次序均通过。正式审查至此用满两轮，后续仅修复与独立复验。
+该候选完整门禁 lint/import/typing 通过，默认 4601 passed / 1 failed；唯一失败为既有子进程
+构造测试的 10 秒 wall-clock timeout，未改代码/阈值的单独重跑 0.96 秒通过。最终门禁改在
+相关 Runtime 完成、专用服务恢复停止后运行，仍使用无收窄 `make check-agent`。
+
+第二轮 Luna 独立 DuckDB/PostgreSQL 主路径通过，覆盖 DST、nullable 数值/完整身份、方法、
+空输入及已保存值冷读；MySQL 数值路径通过但直接时间字段失败：UTC 语义的 CONVERT_TZ
+返回被标成 naive，在 StageOutput 交接拒绝，须修正 owning temporal rewrite 的返回类型。
+命名跨源多轴探针的下游跨 datasource 标量关系被具体拒绝，属于明确未扩权范围；最终命名依赖
+验收改为与已通过的匿名 Query 相同形状，仅替换命名 Metric，不新增跨源标量 join。
+各 reader 再次停跑，开发修复 drill 组合残留和 MySQL 时间问题；最终候选须独立关闭两项。
+
+最终修复开发交接：公式阶段与 drill 根据全部实际属性输入统一共享键类型，消费前拒绝不安全的
+整数到浮点键提升，单/多指标及两种顺序的公开回归通过。MySQL UTC 本地化和墙钟显示分开
+声明返回类型，保留原生 CONVERT_TZ SQL；直接 UTC 时间字段实服正例通过。定向回归
+213 passed、MySQL 相关 Runtime 4 passed、两模块 typing、四修改文件 lint/import 通过，
+第二轮原始 multi-drill 脚本两种顺序通过。产品与测试停写；最终代码/测试摘要为
+`dc56dc6e34136bd3e7fa64dbac1eed8aaa2c312f3db6ac464feaca871f07903f`。
+独立验收将在主 agent 冻结全清单后执行全部必要路径与上述原始问题的关闭检查，不追加正式审查。
+
+该冻结候选 `d1a7d9bfdd5d39b9f0e717b1714645c1611471d9abdfbe028473e7b1062732e2` 的
+独立 DuckDB/PostgreSQL/MySQL、两种 drill 次序与不安全键、匿名/命名 PG+MySQL 身份名单、
+Distributed 聚合/拒绝/冷读、Trino Iceberg 均通过；相关 Runtime 为 PG/MySQL/Distributed
+13 passed、Trino（含非 Iceberg）6 passed。MySQL 直接 UTC 时间问题与命名依赖已独立关闭。
+ClickHouse MergeTree 仓库 Runtime 5 passed，但独立 DST 反例发现精确结束边界被包含，
+不以既有通过掩盖该失败。定位为编译生成的同区 render/localize 往返在回拨时丢失原始瞬间，
+07:00Z 被转成 06:00Z；各 reader 停跑后做 owning temporal lowering 的最小修复。
+
+最后增量仅修改 `temporal_sql.py` 及既有远端数值测试文件：消除 ClickHouse 编译器的确切同区
+render/localize 对，保留原始 typed instant。实服回归验证精确起点、两个重复小时的不同 UTC
+瞬间均包含、精确终点排除；标量 sum=31/count=3 与分组坐标均正确。ClickHouse 定向 Runtime
+4 passed、时间定向测试 54 passed、typing/lint/import 通过。开发再次停写，代码/测试清单
+摘要为 `e4661c7adea1a21dfa6654cd6f8d778da23871aeb30e653c7056944fa9df22ec`；最终实服验收
+将关闭此边界问题并核验其余后端时间结果，仍不追加正式审查。
+
+### 最终独立验收与保留边界
+
+Luna 最终核验 1242 文件全清单
+`7b7d152ffe3edcc435b7684bfb54c284eef6bf0bcbaadd417c0fa9af47e7b179`，产品指纹
+`7828033d99dfd4ca0d83140ce369d5f6a80a78da8849306d95cc916b7739872d`，前后无漂移。
+DuckDB/PostgreSQL/MySQL/Trino Iceberg/ClickHouse MergeTree 五个独立公开 Query → Artifact
+用例均在最后时间修复后重新执行通过，覆盖原生返回/有效类型/NA、完整身份、分组、空/全 NA、
+方法准入、DST 半开边界、直接 UTC 时间字段和断源独立进程冷读。五后端均排除 07:00Z 终点，
+p=10.00；MySQL UTC 直接读取与 ClickHouse DST 问题独立关闭。大整数数值允许原生精度变化，
+不安全身份键拒绝，已保存值及 dtype 的冷读保持精确。
+
+最后增量仅一个产品文件 `temporal_sql.py`。独立核对差异后，未使用时间 lowering 的两种
+drill 指标顺序/不安全键、匿名与命名 PG+MySQL 完整身份名单消费、Distributed 普通聚合/具体
+join 拒绝及各自冷读按内容等价重绑定；没有冒充再次执行。两轮审查的所有 P1 及后续独立验收
+发现均已关闭，命名 Metric 基线缺陷按用户授权修复，不新增第三轮正式审查。
+
+仓库相关 Runtime 批次合计 25 个通过用例：PG/MySQL/Distributed 13 passed / 11 skipped，
+Trino（含非 Iceberg）6 passed / 18 skipped，最后候选 MergeTree 6 passed / 19 skipped。
+各批 skip 是未启用的其它服务 profile，不计入通过；前两批保留原候选证据并用最后五后端时间
+复验覆盖唯一产品增量。最后候选本地 owning 模块 5 passed。独立完整报告位于
+`/tmp/marivo-remote-acceptance/final-summary.md`，原生值/类型及冷读 receipts 同目录；临时路径
+只用于本次复核，不冒充持久仓库资产。
+
+保留边界：精确来源 median/quantile 仅 DuckDB/PostgreSQL；其它后端具体拒绝，ClickHouse
+精确 distinct 使用原生 uniqExact。Distributed 普通聚合可用，未准入 IN/JOIN（含相应
+Session.read）在 Run 前拒绝；不改服务器设置、不代用本地表。远端 source block 保持未融合；
+跨 datasource 标量关系 join 未扩权，名单交接按完整身份投影。Catalog preview 原边界保留。
+完整 slow、安装包/installed journeys、全后端全能力矩阵与 release-check 均未执行；本轮不 push。
+所有本轮启动的五组测试服务及 `marivo-multisource` VM 已停止，未删除卷，恢复启动前状态。
+随后仅更新本计划及 Runtime 证据说明，不改已验产品/测试；最终无收窄工程门禁结果如下。
+
+
+最终工程候选清单为 `0ee3d3f28598583e4071a675f663d573c1e439d5ae783bf1ed5e19435fc87552`，
+产品指纹仍为 `7828033d99dfd4ca0d83140ce369d5f6a80a78da8849306d95cc916b7739872d`，
+相对最后独立验收仅两份状态文档变更。服务停止后的无收窄 `make check-agent` 完整通过：
+790 文件格式、Ruff/import contracts、367 文件 typing、4605 默认测试（160 条警告，133.88 秒）
+及 API 文档构建。日志为 `/tmp/marivo-remote-query-team/final-engineering/check-agent.log`。
+113 个相对文档目标及代码围栏检查通过；最终完成状态只更新本台账，不改已验产品/测试。
+本轮已满足本地提交门禁，所有已知 P2 及以上问题关闭，工作流未增加第三轮正式审查。

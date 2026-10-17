@@ -4,14 +4,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
-import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.core.data_types import ScalarDataType
-from marivo.analysis.errors import AnalysisError
-from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.source_fixtures import author_source_project
 from tests.datasource.source_cases import SourceData, source_case, source_params
@@ -62,17 +59,6 @@ def test_period_alignment_native_carriers(
         comparison = current.compare(
             baseline, match=mv.ordinal() if kind == "ordinal" else mv.period_offset(-1), how="outer"
         )
-        if backend != "duckdb":
-            # HEAD already limited this numeric route to DuckDB. External nodes
-            # qualify refusal boundaries, not remote numeric acceptance.
-            def forbidden(*args: object, **kwargs: object) -> pd.DataFrame:
-                raise AssertionError("unqualified backend submitted business reads")
-
-            monkeypatch.setattr(SourceSession, "execute", forbidden)
-            with pytest.raises(AnalysisError, match="qualified numeric datasource route"):
-                comparison.execute()
-            assert session.runs().items == ()
-            return
         result = comparison.execute()
         frame = result.to_pandas()
         assert len(frame) == 6

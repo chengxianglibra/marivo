@@ -61,7 +61,6 @@ from marivo.analysis.materialization.query_drill import drill_entities, prepare_
 from marivo.analysis.materialization.query_parameters import instantiate
 from marivo.analysis.methods.local import _combine_program
 from marivo.analysis.methods.query_original import drill_components, rollup_components, share_frame
-from marivo.datasource.adapters import _execute_duckdb
 from marivo.refs import ref
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
@@ -144,7 +143,7 @@ def _program(
         expression, lowered_checks = lower_components(layout, table, fields, ())
         assert tuple(name for name, _ in lowered_checks) == tuple(name for name, _ in checks)
         backend = table._find_backend()
-        batch = _execute_duckdb(backend, expression, backend.compile(expression))
+        batch = backend.execute(expression, limit=None)
         assert isinstance(batch, pd.DataFrame)
         fine, component = complete_components(layout, batch)
         for name, _ in checks:

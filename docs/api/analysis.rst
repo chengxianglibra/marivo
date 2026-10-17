@@ -73,12 +73,14 @@ trailing_duration, trailing_periods, since and to_date. Complete child formulas
 are evaluated separately at each endpoint before comparison. Fixed elapsed time
 and civil periods retain different meanings across DST.
 
-Nullable int64, float64, Decimal, date, aware timestamp and Duration preserve their
-qualified physical contracts. Default empty/all-NA sum is zero; explicit source/
-internal sum empty="null" yields NA. Mean/extrema/quantiles yield NA without an
-effective sample. Strict policies, nonfinite values, overflow, missing mappings
+After source handoff, nullable int64, float64, Decimal, date, aware timestamp and
+Duration preserve their qualified physical contracts. Default empty/all-NA sum is
+zero; explicit source/internal sum empty="null" yields NA. Mean/extrema/quantiles
+yield NA without an effective sample. Strict policies, nonfinite values, overflow, missing mappings
 and required coverage fail the invocation. Exact quantiles never silently become
-approximate reductions. DuckDB native INTERVAL requires a source-native rejection
+approximate reductions. Exact source median/quantile currently admit only DuckDB
+and PostgreSQL; MySQL, Trino and ClickHouse reject those methods before Run admission.
+DuckDB native INTERVAL requires a source-native rejection
 of year/month/day components and is then admitted in microseconds.
 
 Execution, recovery and qualification
@@ -88,9 +90,16 @@ Construction and contracts read no business rows or schemas and allocate no Run.
 Execute prepares actual schemas and a pure fixed schedule before admission;
 source templates are prevalidated and actual instances checked again. Source
 Ibis returns pandas; local kernels use pandas, while PyArrow owns terminal data
-encoding/reading. The current new numerical source route admits DuckDB. Other
-datasource providers retain their own access contracts; this is not evidence of
-remote numerical Runtime qualification.
+encoding/reading. Numerical source routes use the selected backend and qualify
+the actual expression, physical types and method before Run admission. Unsupported
+native methods reject specifically; exact and approximate algorithms never
+substitute for each other. Backend access alone does not qualify a numerical route.
+
+Source computation accepts native Ibis/provider numerical precision loss. The
+pandas handoff resolves effective numerical types for local consumers and the
+published schema; it does not cast values back merely to match source declarations.
+Complete keys, null policies, units and time semantics still apply. Saved-output
+fidelity concerns the values actually committed.
 
 Every admitted execute is a fresh evaluation. Atomic Store 10 publication commits
 output, Findings/Evidence and success together. Metadata opening by exact Artifact

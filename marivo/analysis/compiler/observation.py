@@ -154,7 +154,7 @@ def data_type(dtype: dt.DataType) -> DataType:
         return ScalarDataType("string")
     if isinstance(dtype, dt.Interval) and dtype.unit.short in ("s", "ms", "us", "ns"):
         return DurationDataType(dtype.unit.short)
-    numeric_failure("a lossless nullable numeric output type", str(dtype))
+    numeric_failure("a supported nullable output type", str(dtype))
 
 
 def reduction_input(
@@ -203,7 +203,17 @@ def lower_observation(
     predicates: tuple[FieldPredicate, ...],
 ) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...]]:
     """Emit grouped nullable values and ephemeral check columns in one read."""
+    window_slot: str | None = None
+    if prepared.window_key is not None:
+        window_slot = "__marivo_window_key"
+        while window_slot in table.columns:
+            window_slot += "_"
+        # Group a projected coordinate, preserving empty-input grouping and
+        # avoiding SQL dialects interpreting an integer literal as a position.
+        table = table.mutate(**{window_slot: ibis.literal(prepared.window_key)}).view()
     fields = {path: table[name] for path, name in columns.items()}
+    if window_slot is not None:
+        fields[window_slot] = table[window_slot]
     selected = [lower_field_predicate(node, fields) for node in predicates]
     predicate_checks = tuple(check for item in selected for check in item.checks)
 
@@ -214,7 +224,8 @@ def lower_observation(
         )
         for slot, calendar in calendars:
             if prepared.window_key is not None and calendar == prepared.calendar:
-                result[slot] = ibis.literal(prepared.window_key)
+                assert window_slot is not None
+                result[slot] = available[window_slot]
                 continue
             assert prepared.time_column is not None
             time = available[prepared.time_column]
@@ -245,10 +256,12 @@ def lower_observation(
     )
     filtered = table.filter(*(item.value for item in selected)) if selected else table
     fields = {path: filtered[name] for path, name in columns.items()}
+    if window_slot is not None:
+        fields[window_slot] = filtered[window_slot]
     axes = output_axes(fields)
     item = lower_source_reduction(prepared.node, filtered, fields)
     metrics = {
-        prepared.value_slot: ops.Cast(item.value, to=item.value.type()).to_expr(),
+        prepared.value_slot: item.value,
         **{f"numeric_check.{i}": check.violation for i, check in enumerate(item.checks)},
     }
     if prepared.duration is not None and isinstance(prepared.node, SourceWeightedMean):
@@ -258,8 +271,8 @@ def lower_observation(
         product = numeric_binary("multiply", NumericValue(ticks), NumericValue(weight)).value
         numerator = pair.ifelse(product, ibis.null().cast(product.type())).sum().fill_null(0)
         denominator = pair.ifelse(weight, ibis.null().cast(weight.type())).sum().fill_null(0)
-        metrics[prepared.value_slot] = ops.Cast(numerator, to=numerator.type()).to_expr()
-        metrics["__duration_weight_sum"] = ops.Cast(denominator, to=denominator.type()).to_expr()
+        metrics[prepared.value_slot] = numerator
+        metrics["__duration_weight_sum"] = denominator
     if prepared.duration is not None and isinstance(prepared.node, SourceAggregate):
         node = prepared.node
         ticks = lower_row(node.operand, fields).value

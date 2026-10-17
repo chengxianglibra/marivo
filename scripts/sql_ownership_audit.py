@@ -148,15 +148,6 @@ def _manifest() -> Manifest:
         governed,
     )
     add("datasource/adapters", ("SourceSession.execute",), ("self._backend.execute",), governed)
-    add(
-        "datasource/adapters",
-        ("_execute_duckdb",),
-        ("backend.con.sql",),
-        Owner(
-            "ibis_governed_read_check_probe",
-            "DuckDB SourceSession reads submit the session-issued Ibis SQL without recompiling it.",
-        ),
-    )
     add("datasource/adapters", ("SourceSession.collect_bounded",), ("self.execute",), governed)
     add(
         "analysis/materialization/graph_source_execution",
@@ -190,7 +181,7 @@ def _manifest() -> Manifest:
     )
     add(
         "analysis/materialization/graph_source_execution",
-        ("read_stage",),
+        ("read_stage", "qualify_query_sources"),
         ("source.compile",),
         compile_owner,
     )

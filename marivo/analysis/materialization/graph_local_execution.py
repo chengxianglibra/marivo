@@ -2586,9 +2586,11 @@ def run_local(
 ) -> StageOutput:
     """Run one registered pandas kernel without mutating its shared inputs."""
     if stage.fused_steps:
+        from marivo.analysis.materialization.query_runtime_types import effective_local
+
         output = inputs[0]
         for member in stage.fused_steps:
-            output = run_local(member, (output,))
+            output = run_local(effective_local(member, (output,)), (output,))
         return output
     from marivo._definition.query import ComponentKeys, DrillValues, RollupValues, ShareValues
 

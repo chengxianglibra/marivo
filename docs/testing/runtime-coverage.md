@@ -7,13 +7,13 @@ service; Runtime tests require an already-running service. Release tests own
 package installation and installed-origin boundaries.
 
 At `405bd006f8`, the Lazy DSL's agreed local implementation gate and independent
-business acceptance are complete. The new numerical Query source path still
-rejects non-DuckDB providers during preparation. Existing Trino/ClickHouse producer
-recovery positives consume that path: qualifying them requires a backend code-route
-extension as well as actual Runtime execution, not merely starting the services.
-Datasource access tests have their own backend scope. The complete slow suite,
-remote Runtime and release gates have not been run for this delivery; focused local
-cold reads and helper typing checks do not replace them.
+business acceptance are complete. The numerical Query path now qualifies the actual
+backend, expression, types and method, and propagates native pandas numerical
+types into local computation and output schemas. Remote coverage owners and evidence
+criteria are listed [below](#remote-numerical-query-extension); code admission and datasource
+access tests do not themselves qualify a public Query route. The complete slow
+suite and release gates remain separate; focused local cold reads and helper
+typing checks do not replace them.
 
 The [2026-10-16 unit-test triage](unit-test-triage.md) preserves historical
 redesign blockers and deferred cases at its recorded snapshot. Its failures are
@@ -91,30 +91,45 @@ ownership, atomicity and recovery at their owning boundary.
 ## Remote numerical Query extension
 
 The [implementation plan §8.1](../superpowers/plans/2026-10-13-lazy-analysis-dsl-redesign-implementation.md#81-远端数值-query-最小实施顺序)
-defines the pending sequence: PostgreSQL ordinary Query, other backends and numeric
+defines the delivery sequence: PostgreSQL ordinary Query, other backends and numeric
 methods, temporal/dependent reads, then specialized connectors and optimizations.
-No step is qualified by this documentation update. The revised
+Evidence belongs to the actual backend/source/method cases that executed. The
 [handoff contract](../specs/analysis/lazy-analysis-dsl-execution.md#151-ibis-原生返回与-pandas-类型交接)
 accepts native Ibis/provider numerical precision loss. No business-independent
 Ibis casts standardize backend dtypes; pandas normalizes actual returned types
 for subsequent stages and publication.
 
+Independent Runtime acceptance completed for the bounded §8.1 routes. The final
+candidate ran the public Query-to-Artifact and cold-read harness on DuckDB,
+PostgreSQL, MySQL, Trino Iceberg and ClickHouse MergeTree, including DST bounds
+and native pandas handoff. Related committed Runtime batches provide 25 passing
+cases across the frozen candidates, including Trino non-Iceberg and ClickHouse
+Distributed; the final temporal delta was independently rerun on all five
+providers. The implementation plan's §10 separates reruns, content-based
+rebinding, skipped profiles and remaining qualification boundaries. The table
+below maps the coverage owners; it does not imply unrestricted backend support.
+
 | Step / boundary | Existing owners to extend | Required evidence |
 | --- | --- | --- |
-| Ordinary Query and pandas handoff | [source profiles](../../tests/datasource/test_source_profiles.py), [computation Runtime](../../tests/analysis/graph/test_computation_runtime.py) | Public Query → Artifact on each newly admitted backend; nullable large integers and Decimal record native and normalized values/dtypes, without a lossless-source oracle; verify keys, None groups, empty/all-NA behavior and saved-value round trips |
-| Method qualification | [computation Runtime](../../tests/analysis/graph/test_computation_runtime.py), [native numeric](../../tests/analysis/numeric/test_native_numeric.py), [native finishes](../../tests/analysis/graph/test_multiroot_consumers.py) | Actual admitted aggregate/dtype shapes, paired samples, zero denominators and applicable overflow policy; rejected methods assert their specific cause. A blanket non-DuckDB rejection is not a method qualification test |
+| Ordinary Query and pandas handoff | [remote numeric Query](../../tests/analysis/numeric/test_remote_numeric_query.py), [source profiles](../../tests/datasource/test_source_profiles.py), [computation Runtime](../../tests/analysis/graph/test_computation_runtime.py) | Public Query → Artifact on each newly admitted backend; nullable large integers and Decimal record native and normalized values/dtypes, without a lossless-source oracle; verify keys, None groups, empty/all-NA behavior and saved-value round trips |
+| Method qualification | [remote numeric Query](../../tests/analysis/numeric/test_remote_numeric_query.py), [native numeric](../../tests/analysis/numeric/test_native_numeric.py), [native finishes](../../tests/analysis/graph/test_multiroot_consumers.py) | Actual admitted aggregate/dtype shapes, paired samples, zero denominators and applicable overflow policy; rejected methods assert their specific cause. Exact median/quantile are admitted only on DuckDB/PostgreSQL; MySQL/Trino/ClickHouse reject before Run, including ClickHouse's approximate Ibis lowering |
 | Temporal and dependent reads | [period carriers](../../tests/analysis/numeric/test_period_native_carriers.py), [Trino encoded time](../../tests/analysis/temporal/test_encoded_time_trino.py), existing graph/temporal owners | Public Query exercises actual engine/time rewrites, scope bounds and representative windows; dependent composite-key/None tuples and one two-datasource handoff. Retain negative cases for unsupported shapes |
-| Specialized sources and optimization | [producer recovery](../../tests/analysis/materialization/test_producer_recovery.py), graph optimization owners, [control boundaries](../../tests/datasource/test_control_boundaries.py) | Trino connector and ClickHouse Distributed producers after ordinary routes work; compare fused/non-fused keys, NA, ordering, checks and numerical behavior under the selected method; run affected native timeout/read-only/cleanup cases |
+| Specialized sources and optimization | [producer recovery](../../tests/analysis/materialization/test_producer_recovery.py), graph optimization owners, [control boundaries](../../tests/datasource/test_control_boundaries.py) | Trino connector and ClickHouse Distributed producers after ordinary routes work; remote source blocks remain unfused without their own key, NA, ordering, check and numerical equivalence evidence; run affected native timeout/read-only/cleanup cases |
 
-Source profiles alone do not qualify numerical Query. Existing remote period-carrier
-rejection tests and direct encoded-time expressions do not establish the public
+ClickHouse Distributed ordinary grouped producers and its pre-Run refusal of
+unqualified Distributed IN/JOIN routes are separate cases. MergeTree join evidence
+does not qualify Distributed, views or other engine topologies. Qualification does
+not change `distributed_product_mode`, add GLOBAL, or substitute local tables.
+
+Source profiles alone do not qualify numerical Query. Historical remote period-carrier
+rejections and direct encoded-time expressions do not establish the public
 pipeline either. `test_count_rollup_backends.py` currently selects DuckDB table/view
 cases, despite its name. Reuse its oracles only after adding actual service cases.
 Use one independent-process source-offline read for the initial shared handoff;
 extend existing producer recovery only where connector behavior adds a distinct
 boundary, rather than replaying all local journeys on every backend.
 
-Use `make runtime-test TESTS='tests/analysis/graph/test_computation_runtime.py'`
+Use `make runtime-test TESTS='tests/analysis/numeric/test_remote_numeric_query.py'`
 or the relevant owning files/nodes, with already-running selected services.
 Extend cases before claiming the new coverage; enabling flags or an empty/skipped
 selection is not a pass. Reuse [source fixtures](../../tests/datasource/source_cases.py)
@@ -122,7 +137,7 @@ and [service setup](../../tests/datasource/environment/README.md), isolate test
 objects, and respect the environment's Trino/ClickHouse selection constraints.
 Compile-only and synthetic driver results remain local evidence. The final code
 candidate needs the regular `make check-agent`; full slow, installed-package and
-release acceptance remain separate and are not required by this docs-only change.
+release acceptance remain separate.
 
 ## Commands and evidence
 

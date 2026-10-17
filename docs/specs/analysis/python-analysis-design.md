@@ -181,8 +181,10 @@ precision; conversions required by business semantics remain. Backend return-typ
 differences are handled at the existing pandas-to-StageOutput boundary, retaining
 keys, null policies, units and time semantics. Downstream stages and publication
 use the resulting effective types; casting cannot recover lost source precision.
-This is a pending implementation adjustment: non-DuckDB numerical Query rejection,
-strict carrier checks and the DuckDB-specific read path still exist. See the
+This applies to direct fields, reduction values and internal components. Preparation
+qualifies the actual backend's expression and method before Run admission; source
+execution uses its native Ibis-to-pandas path. Unsupported exact methods reject
+without using an approximate substitute. See the
 [source handoff contract](lazy-analysis-dsl-execution.md#151-ibis-原生返回与-pandas-类型交接)
 and [remote implementation sequence](../../superpowers/plans/2026-10-13-lazy-analysis-dsl-redesign-implementation.md#81-远端数值-query-最小实施顺序).
 
@@ -202,6 +204,9 @@ survive one physical read. Float sums, internal samples, windows, differing
 policies, pending checks and selection/share or multi-consumer barriers retain
 their separately qualified routes. This is finite positive qualification, not
 general permission to fuse source computations or original reductions.
+Remote source blocks retain the unfused route until their own numerical and
+behavioral equivalence is established. Backend-specific time preparation and
+temporal rewrites use the actual selected engine for observe, read and drill.
 A required check consumes its actual producer output before the declared deadline;
 selection or projection cannot erase that obligation.
 

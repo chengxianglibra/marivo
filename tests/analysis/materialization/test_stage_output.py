@@ -89,3 +89,67 @@ def test_stage_output_is_built_only_through_normalization() -> None:
     assert str(output.table["r.0"].dtype) == "int64[pyarrow]"
     with pytest.raises(MaterializationError, match="normalized"):
         StageOutput((KEY, VALUE), ("k.0",), pd.DataFrame({"k.0": [1], "r.0": [1]}))
+
+
+@pytest.mark.parametrize("declared", [INT, DecimalDataType(18, 2)])
+def test_source_native_float_remains_float_and_preserves_na(
+    declared: ScalarDataType | DecimalDataType,
+) -> None:
+    column = DataColumn("r.0", "amount", declared, True)
+    frame = pd.DataFrame({"k.0": [1, 2], "r.0": [9007199254740992.0, None]})
+    result = StageOutput.from_source_frame(frame, (KEY, column), ("k.0",))
+    assert result.columns[1].dtype == ScalarDataType("float64")
+    assert result.table["r.0"].iloc[0] == frame["r.0"].iloc[0]
+    assert pd.isna(result.table["r.0"].iloc[1])
+    assert frame["r.0"].dtype == "float64"
+
+
+def test_source_native_decimal_scale_is_used_without_rounding_back() -> None:
+    column = DataColumn("r.0", "amount", DecimalDataType(18, 2), True)
+    result = StageOutput.from_source_frame(
+        pd.DataFrame({"r.0": [Decimal("1.2345"), None]}), (column,), ()
+    )
+    assert result.columns[0].dtype == DecimalDataType(18, 4)
+    assert result.table["r.0"].iloc[0] == Decimal("1.2345")
+    assert pd.isna(result.table["r.0"].iloc[1])
+
+
+def test_source_native_numeric_type_does_not_relax_key_or_value_validation() -> None:
+    with pytest.raises(MaterializationError, match="unique stage key"):
+        StageOutput.from_source_frame(
+            pd.DataFrame({"k.0": [1, 1], "r.0": [1.5, None]}), (KEY, VALUE), ("k.0",)
+        )
+    with pytest.raises(MaterializationError, match="native numeric"):
+        StageOutput.from_source_frame(pd.DataFrame({"r.0": ["invalid"]}), (VALUE,), ())
+    with pytest.raises(MaterializationError, match="complete integer keys"):
+        StageOutput.from_source_frame(
+            pd.DataFrame({"k.0": [float(2**53)], "r.0": [1]}), (KEY, VALUE), ("k.0",)
+        )
+
+
+@pytest.mark.parametrize("dtype", ("float64", "double[pyarrow]"))
+def test_nullable_integer_key_checks_accept_native_and_arrow_float_carriers(dtype: str) -> None:
+    key = DataColumn("k.0", "category", INT, True)
+    frame = pd.DataFrame({"k.0": pd.Series([1.0, None, 2.0], dtype=dtype)})
+    output = StageOutput.from_source_frame(frame, (key,), ("k.0",))
+    assert output.table["k.0"].dropna().tolist() == [1.0, 2.0]
+    assert output.table["k.0"].isna().tolist() == [False, True, False]
+    # The publication guard rechecks already normalized Arrow-backed columns.
+    StageOutput.from_source_frame(output.table, (key,), ("k.0",))
+    for invalid in (1.5, float(2**53), float("inf")):
+        with pytest.raises(MaterializationError, match="complete integer keys"):
+            StageOutput.from_source_frame(
+                pd.DataFrame({"k.0": pd.Series([invalid, None], dtype=dtype)}), (key,), ("k.0",)
+            )
+
+
+def test_native_date_representation_is_normalized_without_truncating_time() -> None:
+    column = DataColumn("day", "day", ScalarDataType("date"), True)
+    output = StageOutput.from_source_frame(
+        pd.DataFrame({"day": pd.to_datetime(["2026-07-01", None])}), (column,), ()
+    )
+    assert str(output.table["day"].dtype) == "date32[day][pyarrow]"
+    with pytest.raises(MaterializationError, match="without time"):
+        StageOutput.from_source_frame(
+            pd.DataFrame({"day": pd.to_datetime(["2026-07-01 12:00:00"])}), (column,), ()
+        )

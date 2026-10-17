@@ -80,6 +80,12 @@ class SourceInputContract:
     coverage: tuple[SampleCoverage, ...]
 
 
+def scalar_field(value: ir.Value) -> ir.Scalar:
+    """Retain the single checked field row without a backend-specific FIRST aggregate."""
+    assert isinstance(value, ir.Column)
+    return value.any() if isinstance(value, ir.BooleanColumn) else value.min()
+
+
 def prepare_fields(
     contribution: ContributionBinding,
     entities: Mapping[str, ir.Table],
@@ -91,6 +97,7 @@ def prepare_fields(
 ) -> PreparedFields:
     """Prepare expressions and checked many-to-one joins without reading values."""
     registry = state.registry
+    from marivo.analysis.compiler.source_time import entity_engine
     from marivo.analysis.core.domain_captures import DomainPreparationError
 
     root_datasource = registry.entities[contribution.root.ref.path].datasource
@@ -176,7 +183,9 @@ def prepare_fields(
                 boundary_timezone=authority_zone or zone,
                 read_timezone=authority_zone or reader.engine_timezone_name,
                 read_source=reader.read_tz_resolution,
-                engine="duckdb",
+                engine=entity_engine(
+                    registry, normalize_target_entity(registry, contribution.root.ref.path)
+                ),
                 prefix=prefix,
             )
             time_encodings[path] = (raw, axis, authority)
@@ -362,7 +371,7 @@ def prepare_fields(
                 count = unique(prefix + "count")
                 grouped = target.group_by(*right_keys).aggregate(
                     **{
-                        name: target[name].arbitrary()
+                        name: scalar_field(target[name])
                         for name in target.columns
                         if name not in right_keys
                     },

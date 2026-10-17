@@ -1509,7 +1509,7 @@ def _admits(source: pa.DataType, target: DataType) -> bool:
             return bool(pa.types.is_integer(source))
         if target.name == "float64":
             return bool(pa.types.is_floating(source))
-        return bool(pa.types.is_date(source))
+        return bool(pa.types.is_date(source) or pa.types.is_timestamp(source))
     if isinstance(target, DecimalDataType):
         return bool(pa.types.is_decimal(source))
     if isinstance(target, TimestampDataType):
@@ -1530,6 +1530,16 @@ def _stage_column(series: pd.Series, column: DataColumn) -> pd.Series:
             f"{column.slot_id}: a lossless {_type_name(column.dtype)} carrier",
             f"{column.slot_id}: {series.dtype} delivered for {_type_name(column.dtype)}",
         )
+    if column.dtype == ScalarDataType("date") and pa.types.is_timestamp(values.type):
+        dates = values.cast(pa.date32())
+        if values.type.tz is not None or (
+            not pc.all(pc.equal(values, dates.cast(values.type))).as_py()
+            and values.null_count != len(values)
+        ):
+            raise _stage_error(
+                f"{column.slot_id}: civil dates without time or timezone",
+                f"{column.slot_id}: non-midnight or zoned timestamp values",
+            )
     if (
         isinstance(column.dtype, TimestampDataType)
         and pa.types.is_timestamp(values.type)
@@ -1551,6 +1561,59 @@ def _stage_column(series: pd.Series, column: DataColumn) -> pd.Series:
             f"{column.slot_id}: a lossless {_type_name(column.dtype)} conversion", str(error)
         ) from None
     return pd.Series(pd.arrays.ArrowExtensionArray(exact), name=column.slot_id)
+
+
+def source_columns(
+    frame: pd.DataFrame, columns: tuple[DataColumn, ...], keys: tuple[str, ...] = ()
+) -> tuple[DataColumn, ...]:
+    """Resolve native numerical carriers once at the pandas stage boundary."""
+    from dataclasses import replace
+
+    result: list[DataColumn] = []
+    for column in columns:
+        numeric = isinstance(column.dtype, DecimalDataType) or column.dtype in (
+            ScalarDataType("int64"),
+            ScalarDataType("float64"),
+        )
+        if not numeric or column.slot_id not in frame.columns:
+            result.append(column)
+            continue
+        try:
+            values = pa.array(frame[column.slot_id], from_pandas=True)
+        except (pa.ArrowInvalid, pa.ArrowTypeError, OverflowError) as error:
+            raise _stage_error(f"{column.slot_id}: a native numeric column", str(error)) from None
+        dtype: DataType = column.dtype
+        if pa.types.is_floating(values.type):
+            dtype = ScalarDataType("float64")
+        elif pa.types.is_integer(values.type):
+            dtype = ScalarDataType("int64")
+        elif pa.types.is_decimal(values.type):
+            dtype = DecimalDataType(
+                max(
+                    values.type.precision,
+                    column.dtype.precision if isinstance(column.dtype, DecimalDataType) else 0,
+                ),
+                values.type.scale,
+            )
+        elif not pa.types.is_null(values.type):
+            raise _stage_error(f"{column.slot_id}: a native numeric column", str(values.type))
+        if (
+            column.slot_id in keys
+            and column.dtype == ScalarDataType("int64")
+            and dtype == ScalarDataType("float64")
+            and pc.any(
+                pc.or_(
+                    pc.greater_equal(pc.abs(values), 2**53),
+                    pc.not_equal(values, pc.floor(values)),
+                )
+            ).as_py()
+        ):
+            raise _stage_error(
+                f"{column.slot_id}: complete integer keys preserved by the native carrier",
+                "floating keys outside the unambiguous integer range or containing fractions",
+            )
+        result.append(replace(column, dtype=dtype))
+    return tuple(result)
 
 
 def normalize_stage_frame(
@@ -1633,3 +1696,19 @@ class StageOutput:
             components,
             population_frames,
         )
+
+    @classmethod
+    def from_source_frame(
+        cls,
+        frame: pd.DataFrame,
+        columns: tuple[DataColumn, ...],
+        keys: tuple[str, ...],
+        *,
+        components: tuple[ComponentFrame, ...] = (),
+        value_keys: tuple[str, ...] = (),
+    ) -> StageOutput:
+        """Accept native source numeric types without casting back to declarations."""
+        effective = source_columns(
+            frame, columns, tuple(key for key in keys if key not in value_keys)
+        )
+        return cls.from_frame(frame, effective, keys, components=components)

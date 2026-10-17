@@ -228,6 +228,7 @@ def test_numeric_composition_matrix(analysis_dsl_case_factory: DslCaseFactory) -
     from fractions import Fraction
 
     import duckdb
+    import ibis
 
     case = analysis_dsl_case_factory("j1")
     dtype = "DECIMAL(30,6)"
@@ -365,7 +366,17 @@ def test_numeric_composition_matrix(analysis_dsl_case_factory: DslCaseFactory) -
             )
             assert again == pytest.approx([oracle]) if kind == "weighted" else again == [oracle]
         if kind == "mean":
-            assert Decimal("1.000001") in fine[("value", "value")].tolist()
+            backend = ibis.duckdb.connect(str(case.database_path))
+            try:
+                table = backend.table("order")
+                native = backend.execute(
+                    table.group_by("customer_id").aggregate(value=table.amount.mean())
+                )
+            finally:
+                backend.disconnect()
+            assert fine.set_index(fine.columns[0])[("value", "value")].to_dict() == dict(
+                zip(native.customer_id, native.value, strict=True)
+            )
 
 
 @pytest.mark.parametrize(

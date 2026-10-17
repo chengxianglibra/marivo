@@ -26,7 +26,7 @@ def provider() -> DisclosureProvider:
             producers=("session.observe", "session.query", "session.read", "session.values"),
             consumers=("Query.contract", "Query.execute", "Query.population"),
             constraints=(
-                "Ordinary context binds without reads; execute evaluates numeric stages and atomically publishes Store 10 terminal output. Committed output is opened and read without restoring computation.",
+                "Context binds without reads; execute qualifies the selected backend and method before a Run. Native numeric precision is accepted; pandas effective types feed local computation and saved output. Read committed output without restoring computation.",
             ),
         ),
         value_type(

@@ -98,6 +98,12 @@ def probe_engine_timezone(backend: object) -> DatasourceEngineTimezone:
         info = getattr(connection, "info", None)
         parameter_status = getattr(info, "parameter_status", None)
         name = parameter_status("TimeZone") if callable(parameter_status) else None
+    elif profile.name == "clickhouse" and name is None:
+        reported = getattr(getattr(backend, "con", None), "server_tz", None)
+        if isinstance(reported, tzinfo):
+            name = (
+                getattr(reported, "key", None) or getattr(reported, "zone", None) or str(reported)
+            )
     if not isinstance(name, str) or not name:
         raise DatasourceConnectionError(
             message="The reader timezone is unavailable from the driver.",

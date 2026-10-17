@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import pandas as pd
 
 from marivo.analysis.compiler.original import (
     ComponentLayout,
 )
-from marivo.analysis.core.data_types import DurationDataType
+from marivo.analysis.core.data_types import DurationDataType, ScalarDataType
 from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.materialization.graph_exchange import normalize_stage_frame, source_columns
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -84,8 +85,47 @@ def complete_components(
             # Keep ticks here; the ordinary fine-result boundary owns Duration
             # conversion, and the original reducer rounds only its final value.
             raw[column.slot_id] = raw[column.slot_id].astype("int64[pyarrow]")
+    actual = {
+        column.slot_id: column
+        for column in source_columns(
+            raw,
+            layout.raw_columns,
+            (*layout.keys, *(column.slot_id for column, _ in layout.identity)),
+        )
+    }
+    payload = layout.payload
+    from marivo.analysis.compiler.original import AggregatePayload, WeightedPayload
+
+    if isinstance(payload, AggregatePayload):
+        payload = replace(payload, value=actual[payload.value.slot_id])
+    elif isinstance(payload, WeightedPayload):
+        payload = replace(
+            payload, value=actual[payload.value.slot_id], weight=actual[payload.weight.slot_id]
+        )
+    layout = replace(
+        layout,
+        columns=source_columns(fine, layout.columns),
+        identity=tuple((actual[column.slot_id], name) for column, name in layout.identity),
+        payload=payload,
+    )
+    raw = normalize_stage_frame(
+        raw,
+        tuple(
+            replace(column, dtype=ScalarDataType("int64"))
+            if isinstance(column.dtype, DurationDataType)
+            else column
+            for column in layout.raw_columns
+        ),
+        (*layout.keys, *(column.slot_id for column, _ in layout.identity)),
+    )
+    domain_columns = tuple(column for column in layout.columns if column.slot_id in layout.keys)
+    domain = normalize_stage_frame(
+        fine.loc[:, list(layout.keys)].drop_duplicates().reset_index(drop=True),
+        domain_columns,
+        layout.keys,
+    )
     return fine, ComponentFrame(
         layout,
         raw.reset_index(drop=True),
-        fine.loc[:, list(layout.keys)].drop_duplicates().reset_index(drop=True),
+        domain,
     )

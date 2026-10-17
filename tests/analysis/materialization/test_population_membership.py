@@ -12,6 +12,7 @@ from marivo.analysis.dsl.population import population_keys
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
+from tests.shared_fixtures import DslCaseFactory
 
 _MODEL = """import marivo.datasource as md
 import marivo.semantic as ms
@@ -63,6 +64,33 @@ def _session(
     )
     monkeypatch.chdir(root)
     return mv.session.get_or_create("population", report_timezone="UTC")
+
+
+@pytest.mark.parametrize("consumer_window", (False, True))
+def test_named_metric_population_dependency_owns_its_window_scope(
+    analysis_dsl_case_factory: DslCaseFactory, consumer_window: bool
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    session = case.session
+    revenue = session.catalog.metrics.get("sales.revenue")
+    count = session.catalog.metrics.get("sales.order_count")
+    channel = session.catalog.fields.get("sales.order.channel")
+    producer = session.observe(
+        {"total": revenue.window(mv.all_history())},
+        by=(channel,),
+        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
+    )
+    selected = producer.where(producer["total"] > 900).population()
+    condition = mv.in_population(selected)
+    observed = session.observe(
+        {"rows": count.where(condition).window(mv.all_history()) if consumer_window else count},
+        where=None if consumer_window else condition,
+        during=session.time_scope(start="2026-07-31", end="2026-08-01"),
+    )
+    # The upstream all-history endpoint selects web (927). The consumer's
+    # July endpoint includes only the earlier web fact under either rule.
+    assert observed.execute().to_pandas()[("value", "rows")].tolist() == [1]
+    assert producer.execute().to_pandas()[("value", "total")].tolist() == [150, 927]
 
 
 def test_per_completes_ratio_per_sample_and_retains_empty_samples(

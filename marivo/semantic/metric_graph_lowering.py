@@ -2172,13 +2172,7 @@ def lower_field_predicate(node: FieldPredicate, fields: Mapping[str, ir.Value]) 
 
 
 def _source_sum(value: ir.Value) -> ir.Value:
-    result = value.sum()
-    dtype = value.type()
-    if isinstance(dtype, dt.Decimal):
-        # Ibis 12 infers scale=2 for a scale=0 SUM. DuckDB retains the
-        # original scale, so preserve that type before coalesce or transport.
-        result = ops.Cast(result, to=dt.Decimal(38, dtype.scale or 0)).to_expr()
-    return result
+    return value.sum()
 
 
 def lower_source_reduction(
@@ -2235,6 +2229,8 @@ def lower_source_reduction(
             result = overflow.ifelse(ibis.null().cast("int64"), wide.cast("int64"))
         if node.empty == "zero":
             result = result.fill_null(ibis.literal(0).cast(result.type()))
+        else:
+            result = (value.count() == 0).ifelse(ibis.null().cast(result.type()), result)
         return NumericValue(
             result,
             (
@@ -2263,6 +2259,8 @@ def lower_source_reduction(
     else:
         assert node.q is not None
         result = value.quantile(node.q)
+    if node.reducer not in ("count", "count_distinct", "approx_nunique"):
+        result = (value.count() == 0).ifelse(ibis.null().cast(result.type()), result)
     return NumericValue(
         result, (*(_aggregate_check(c) for c in checks), *_finite_check(result, node.reducer))
     )

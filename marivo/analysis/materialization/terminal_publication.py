@@ -625,6 +625,22 @@ def execute(
                 if failure.run_ref is None:
                     failure.run_ref = run_ref
                 raise
+            from marivo.semantic.errors import SemanticExpressionError
+
+            if isinstance(failure, SemanticExpressionError):
+                assert (
+                    failure.expected is not None
+                    and failure.received is not None
+                    and failure.repair is not None
+                )
+                raise MaterializationError(
+                    expected=failure.expected,
+                    received=failure.received,
+                    repair=failure.repair.action,
+                    stage="numeric_value",
+                    run_ref=run_ref,
+                    help_target="Query.execute",
+                ) from failure
             if not isinstance(failure, Exception):
                 raise
             raise MaterializationError(

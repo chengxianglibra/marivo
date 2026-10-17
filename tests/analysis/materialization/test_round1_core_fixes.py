@@ -71,6 +71,93 @@ def core_session(
     return mv.session.get_or_create("round1-core", report_timezone="UTC")
 
 
+def _native_duration_ticks(path: Path) -> list[int | None]:
+    import ibis
+
+    backend = ibis.duckdb.connect(":memory:")
+    try:
+        native = backend.execute(backend.read_parquet(str(path)))
+        return [
+            None if value is None else int(value)
+            for value in pa.array(native.elapsed, from_pandas=True).to_pylist()
+        ]
+    finally:
+        backend.disconnect()
+
+
+@pytest.mark.parametrize("small_first", (None, True, False))
+def test_nullable_integer_axis_preserves_direct_drill_and_original_rollup(
+    core_session: Session, tmp_path: Path, small_first: bool | None
+) -> None:
+    with duckdb.connect(str(tmp_path / "core.duckdb")) as connection:
+        connection.execute("ALTER TABLE orders ADD COLUMN code BIGINT")
+        connection.execute(
+            "UPDATE orders SET code=CASE WHEN id=2 THEN NULL WHEN region='A' THEN 1 ELSE 2 END"
+        )
+    model = tmp_path / "models/semantic/sales/model.py"
+    model.write_text(
+        model.read_text() + "code=ms.dimension_column(name='code',entity=orders,column='code')\n"
+    )
+    amount = core_session.catalog.fields.get("sales.orders.amount")
+    region = core_session.catalog.fields.get("sales.orders.region")
+    code = core_session.catalog.fields.get("sales.orders.code")
+    metrics = {"total": amount.sum()}
+    if small_first is not None:
+        small = {"small": amount.sum().where(amount < 20)}
+        metrics = {**small, **metrics} if small_first else {**metrics, **small}
+    coarse = core_session.observe(metrics, by=(region,))
+    direct = core_session.observe(metrics, by=(region, code)).execute().to_pandas()
+    drilled = coarse.drill(add=(code,))
+    artifact = drilled.execute()
+    actual = artifact.to_pandas()
+    assert actual.equals(direct)
+    assert actual[("coordinate", "axis.0")].tolist() == ["A", "A", "B"]
+    assert actual[("coordinate", "axis.1")].dropna().tolist() == [1.0, 2.0]
+    assert actual[("coordinate", "axis.1")].isna().tolist() == [True, False, False]
+    assert actual[("value", "total")].tolist() == [30, 70, 60]
+    if small_first is not None:
+        assert actual[("value", "small")].tolist() == [0, 10, 0]
+    assert str(actual[("coordinate", "axis.1")].dtype) == "double[pyarrow]"
+    rolled = drilled.rollup(by=(region,)).execute().to_pandas()
+    assert rolled[("value", "total")].tolist() == [100, 60]
+    assert artifact.to_pandas().equals(core_session.artifact(artifact.id).to_pandas())
+
+
+def test_drill_refuses_unsafe_shared_integer_key_promotion_before_recomputation(
+    core_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.analysis.materialization import drill_execution
+    from marivo.analysis.materialization.errors import MaterializationError
+    from tests.analysis.materialization.publication_fixtures import publication_counts
+
+    with duckdb.connect(str(tmp_path / "core.duckdb")) as connection:
+        connection.execute("ALTER TABLE orders ADD COLUMN code BIGINT")
+        connection.execute("UPDATE orders SET code=9007199254740993 WHERE id=1")
+        connection.execute("UPDATE orders SET code=2 WHERE id=3")
+    model = tmp_path / "models/semantic/sales/model.py"
+    model.write_text(
+        model.read_text() + "code=ms.dimension_column(name='code',entity=orders,column='code')\n"
+    )
+    amount = core_session.catalog.fields.get("sales.orders.amount")
+    region = core_session.catalog.fields.get("sales.orders.region")
+    code = core_session.catalog.fields.get("sales.orders.code")
+    query = core_session.observe(
+        {"small": amount.sum().where(amount < 20), "large": amount.sum().where(amount >= 20)},
+        by=(region,),
+    ).drill(add=(code,))
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("unsafe shared keys must fail before original recomputation")
+
+    monkeypatch.setattr(drill_execution, "drill_components", forbidden)
+    before = publication_counts(core_session)
+    with pytest.raises(
+        MaterializationError, match=r"complete integer keys.*shared coordinate carrier"
+    ):
+        query.execute()
+    assert publication_counts(core_session) == before
+
+
 @pytest.mark.parametrize("precision", (28, 7))
 def test_decimal38_negation_preserves_every_digit_under_caller_context(
     core_session: Session,
@@ -178,6 +265,7 @@ def test_grouped_duration_mean_keeps_large_ticks_beside_na(core_session: Session
         pa.table({"id": [1, 2], "elapsed": pa.array([ticks, None], type=pa.duration("ns"))}),
         path,
     )
+    native = _native_duration_ticks(path)
     population = core_session.members(ms.ref.entity("sales.durations"))
     elapsed = core_session.catalog.fields.get("sales.durations.elapsed")
     query = core_session.read(population, {"elapsed": elapsed})
@@ -189,8 +277,8 @@ def test_grouped_duration_mean_keeps_large_ticks_beside_na(core_session: Session
         .execute()
         .to_pandas()
     )
-    assert pa.array(result[("value", "sum")]).cast(pa.int64()).to_pylist() == [ticks, 0]
-    assert pa.array(result[("value", "mean")]).cast(pa.int64()).to_pylist() == [ticks, None]
+    assert pa.array(result[("value", "sum")]).cast(pa.int64()).to_pylist() == [native[0], 0]
+    assert pa.array(result[("value", "mean")]).cast(pa.int64()).to_pylist() == native
 
 
 def _daily(session: Session, start: str = "2026-01-30") -> tuple[Query, mv.CalendarAxis]:
@@ -380,6 +468,9 @@ def test_duration_binary_exact_ns_finish_na_and_overflow_barriers(core_session: 
         pa.table({"id": [1, 2, 3], "elapsed": pa.array([tick, None, 3], type=pa.duration("ns"))}),
         path,
     )
+    native = _native_duration_ticks(path)
+    assert native[0] is not None
+    represented_tick = native[0]
     population = core_session.members(ms.ref.entity("sales.durations"))
     elapsed = core_session.catalog.fields.get("sales.durations.elapsed")
     query = core_session.read(population, {"d": elapsed})
@@ -388,14 +479,18 @@ def test_duration_binary_exact_ns_finish_na_and_overflow_barriers(core_session: 
         {"half": expression, "twice": query["d"] * 2, "decimal_half": query["d"] * Decimal("0.5")}
     )
     result = selected.execute().to_pandas()
-    halves = [round(Fraction(tick, 2)), None, round(Fraction(3, 2))]
+    halves = [round(Fraction(represented_tick, 2)), None, round(Fraction(3, 2))]
     assert pa.array(result[("value", "half")]).cast(pa.int64()).to_pylist() == halves
     assert pa.array(result[("value", "decimal_half")]).cast(pa.int64()).to_pylist() == halves
-    assert pa.array(result[("value", "twice")]).cast(pa.int64()).to_pylist() == [tick * 2, None, 6]
+    assert pa.array(result[("value", "twice")]).cast(pa.int64()).to_pylist() == [
+        represented_tick * 2,
+        None,
+        6,
+    ]
     # A Duration-valued binary node finishes in its existing unit before its parent.
     nested = query.select({"d": (query["d"] / 2) * 2}).execute().to_pandas()
     assert pa.array(nested[("value", "d")]).cast(pa.int64()).to_pylist() == [
-        2 * round(Fraction(tick, 2)),
+        2 * round(Fraction(represented_tick, 2)),
         None,
         4,
     ]

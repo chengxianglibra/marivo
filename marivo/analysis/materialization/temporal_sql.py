@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime
 
 import ibis
@@ -26,6 +26,13 @@ _mysql_convert: Callable[[ir.TimestampValue, str, str], ir.TimestampValue] = (
         _convert_signature,
         name="convert_tz",
         signature=((dt.timestamp, dt.string, dt.string), dt.Timestamp(scale=6)),
+    )
+)
+_mysql_localize: Callable[[ir.TimestampValue, str, str], ir.TimestampValue] = (
+    ibis.udf.scalar.builtin(
+        _convert_signature,
+        name="convert_tz",
+        signature=((dt.timestamp, dt.string, dt.string), dt.Timestamp(timezone="UTC", scale=6)),
     )
 )
 _trino_localize: Callable[[ir.TimestampValue, str], ir.TimestampValue] = ibis.udf.scalar.builtin(
@@ -77,7 +84,18 @@ def lower_temporal(expression: ir.Expr, engine: str) -> ir.Expr:
     keyword of the same name.
     """
 
-    def rewrite(node: ops.Node, _results: object = None, **kwargs: object) -> ops.Node:
+    def rewrite(
+        node: ops.Node, _results: Mapping[ops.Node, ops.Node], **kwargs: object
+    ) -> ops.Node:
+        if engine == "clickhouse" and type(node) is _LOCALIZE:
+            identity_zone, rendered = node.args
+            if type(rendered) is _RENDER:
+                render_zone, instant = rendered.args
+                if identity_zone == render_zone:
+                    # Civil clocks lose the fold identity. Keep the original
+                    # instant when this compiler pair returns to the same zone.
+                    assert isinstance(instant, ops.Value)
+                    return _results[instant]
         value = node.copy(**kwargs)
         if (
             isinstance(value, ops.Literal)
@@ -95,7 +113,8 @@ def lower_temporal(expression: ir.Expr, engine: str) -> ir.Expr:
             localize = type(value) is _LOCALIZE
             if engine == "mysql":
                 source, target = (zone, "+00:00") if localize else ("+00:00", zone)
-                return _mysql_convert(timestamp, source, target).op()
+                convert = _mysql_localize if localize else _mysql_convert
+                return convert(timestamp, source, target).op()
             if engine == "trino":
                 if localize:
                     return _trino_localize(timestamp, zone).op()

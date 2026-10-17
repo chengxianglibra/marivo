@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from marivo._definition.expressions import DeclaredMetricRef, MetricNode, MetricWindow
 from marivo._definition.graph import DefinitionNode, children
+from marivo._definition.relations import QueryKeys
 from marivo._definition.types import ExactRef
 from marivo._definition.windows import (
     AllHistory,
@@ -104,6 +105,10 @@ def bind_windows(
     rules: dict[tuple[int, ...], ObservationWindow] = {}
 
     def visit(node: DefinitionNode, path: tuple[int, ...], rule: ObservationWindow | None) -> None:
+        if isinstance(node, QueryKeys):
+            # Captured Query inputs own their declarations and observation
+            # endpoints; this invocation binds only its current Metric scope.
+            return
         if isinstance(node, DeclaredMetricRef):
             visit(declared[node.ref], (*path, 0), rule)
             return
