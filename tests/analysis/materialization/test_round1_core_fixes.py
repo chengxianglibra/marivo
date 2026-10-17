@@ -10,6 +10,7 @@ from fractions import Fraction
 from pathlib import Path
 
 import duckdb
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
@@ -26,7 +27,7 @@ from marivo.analysis.materialization import terminal_store
 from marivo.analysis.materialization.graph_source_execution import open_query_sources
 from marivo.analysis.methods import query_comparison
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 
@@ -71,20 +72,6 @@ def core_session(
     return mv.session.get_or_create("round1-core", report_timezone="UTC")
 
 
-def _native_duration_ticks(path: Path) -> list[int | None]:
-    import ibis
-
-    backend = ibis.duckdb.connect(":memory:")
-    try:
-        native = backend.execute(backend.read_parquet(str(path)))
-        return [
-            None if value is None else int(value)
-            for value in pa.array(native.elapsed, from_pandas=True).to_pylist()
-        ]
-    finally:
-        backend.disconnect()
-
-
 @pytest.mark.parametrize("small_first", (None, True, False))
 def test_nullable_integer_axis_preserves_direct_drill_and_original_rollup(
     core_session: Session, tmp_path: Path, small_first: bool | None
@@ -92,7 +79,7 @@ def test_nullable_integer_axis_preserves_direct_drill_and_original_rollup(
     with duckdb.connect(str(tmp_path / "core.duckdb")) as connection:
         connection.execute("ALTER TABLE orders ADD COLUMN code BIGINT")
         connection.execute(
-            "UPDATE orders SET code=CASE WHEN id=2 THEN NULL WHEN region='A' THEN 1 ELSE 2 END"
+            "UPDATE orders SET code=CASE WHEN id=2 THEN NULL WHEN region='A' THEN 9007199254740993 ELSE 2 END"
         )
     model = tmp_path / "models/semantic/sales/model.py"
     model.write_text(
@@ -103,7 +90,7 @@ def test_nullable_integer_axis_preserves_direct_drill_and_original_rollup(
     code = core_session.catalog.fields.get("sales.orders.code")
     metrics = {"total": amount.sum()}
     if small_first is not None:
-        small = {"small": amount.sum().where(amount < 20)}
+        small = {"small": amount.sum(empty="zero").where(amount < 20)}
         metrics = {**small, **metrics} if small_first else {**metrics, **small}
     coarse = core_session.observe(metrics, by=(region,))
     direct = core_session.observe(metrics, by=(region, code)).execute().to_pandas()
@@ -112,12 +99,12 @@ def test_nullable_integer_axis_preserves_direct_drill_and_original_rollup(
     actual = artifact.to_pandas()
     assert actual.equals(direct)
     assert actual[("coordinate", "axis.0")].tolist() == ["A", "A", "B"]
-    assert actual[("coordinate", "axis.1")].dropna().tolist() == [1.0, 2.0]
+    assert actual[("coordinate", "axis.1")].dropna().tolist() == [9007199254740993, 2]
     assert actual[("coordinate", "axis.1")].isna().tolist() == [True, False, False]
     assert actual[("value", "total")].tolist() == [30, 70, 60]
     if small_first is not None:
         assert actual[("value", "small")].tolist() == [0, 10, 0]
-    assert str(actual[("coordinate", "axis.1")].dtype) == "double[pyarrow]"
+    assert str(actual[("coordinate", "axis.1")].dtype) == "int64[pyarrow]"
     rolled = drilled.rollup(by=(region,)).execute().to_pandas()
     assert rolled[("value", "total")].tolist() == [100, 60]
     assert artifact.to_pandas().equals(core_session.artifact(artifact.id).to_pandas())
@@ -149,6 +136,17 @@ def test_drill_refuses_unsafe_shared_integer_key_promotion_before_recomputation(
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("unsafe shared keys must fail before original recomputation")
 
+    original_execute = SourceSession.execute
+
+    def floating_nullable_columns(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
+        frame = original_execute(owner, read)
+        # Other providers can still promote nullable integer columns to float64.
+        for name in frame:
+            if pd.api.types.is_integer_dtype(frame[name].dtype) and frame[name].isna().any():
+                frame[name] = frame[name].astype("float64")
+        return frame
+
+    monkeypatch.setattr(SourceSession, "execute", floating_nullable_columns)
     monkeypatch.setattr(drill_execution, "drill_components", forbidden)
     before = publication_counts(core_session)
     with pytest.raises(
@@ -242,7 +240,7 @@ def test_duration_empty_and_na_statistics_and_checked_middle_sum(core_session: S
             .execute()
             .to_pandas()
         )
-        assert pa.array(result[("value", "sum")]).cast(pa.int64()).to_pylist() == [0]
+        assert pa.array(result[("value", "sum")]).cast(pa.int64()).to_pylist() == [None]
         assert result[("value", "mean")].isna().all()
     path = core_session.catalog.workspace_dir / "durations.parquet"
     pq.write_table(
@@ -265,7 +263,6 @@ def test_grouped_duration_mean_keeps_large_ticks_beside_na(core_session: Session
         pa.table({"id": [1, 2], "elapsed": pa.array([ticks, None], type=pa.duration("ns"))}),
         path,
     )
-    native = _native_duration_ticks(path)
     population = core_session.members(ms.ref.entity("sales.durations"))
     elapsed = core_session.catalog.fields.get("sales.durations.elapsed")
     query = core_session.read(population, {"elapsed": elapsed})
@@ -277,8 +274,8 @@ def test_grouped_duration_mean_keeps_large_ticks_beside_na(core_session: Session
         .execute()
         .to_pandas()
     )
-    assert pa.array(result[("value", "sum")]).cast(pa.int64()).to_pylist() == [native[0], 0]
-    assert pa.array(result[("value", "mean")]).cast(pa.int64()).to_pylist() == native
+    assert pa.array(result[("value", "sum")]).cast(pa.int64()).to_pylist() == [ticks, None]
+    assert pa.array(result[("value", "mean")]).cast(pa.int64()).to_pylist() == [ticks, None]
 
 
 def _daily(session: Session, start: str = "2026-01-30") -> tuple[Query, mv.CalendarAxis]:
@@ -468,9 +465,7 @@ def test_duration_binary_exact_ns_finish_na_and_overflow_barriers(core_session: 
         pa.table({"id": [1, 2, 3], "elapsed": pa.array([tick, None, 3], type=pa.duration("ns"))}),
         path,
     )
-    native = _native_duration_ticks(path)
-    assert native[0] is not None
-    represented_tick = native[0]
+    represented_tick = tick
     population = core_session.members(ms.ref.entity("sales.durations"))
     elapsed = core_session.catalog.fields.get("sales.durations.elapsed")
     query = core_session.read(population, {"d": elapsed})
@@ -500,7 +495,7 @@ def test_duration_binary_exact_ns_finish_na_and_overflow_barriers(core_session: 
         .execute()
         .to_pandas()
     )
-    assert pa.array(finished[("value", "sum")]).cast(pa.int64()).to_pylist() == [0]
+    assert pa.array(finished[("value", "sum")]).cast(pa.int64()).to_pylist() == [None]
     with pytest.raises(AnalysisError) as zero:
         query.reduce({"d": query["d"].divide(0, zero_denominator="error").sum()}).execute()
     assert isinstance(zero.value.__cause__, SemanticExpressionError)

@@ -53,8 +53,7 @@ keys_only.execute().show()
 ```
 
 A complete output domain must cover every observed contribution coordinate.
-An empty total follows the reducer's declared policy, such as zero for default
-sum. Source Null categories remain distinct from absent coordinates.
+An empty total follows the reducer's declared policy, such as NA for default sum or zero for explicit `empty="zero"`. Source Null categories remain distinct from absent coordinates.
 
 `session.members(ms.ref.entity("sales.customers"))` selects existing complete
 Entity identities. `mv.identities(session.catalog.entities.get("sales.customers"), keys=(("C1",),))` captures explicit

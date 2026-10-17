@@ -283,6 +283,9 @@ type restrictions.
 Governed analysis reads run through the selected Ibis backend and return a
 pandas DataFrame. Value conversion follows Ibis/provider behavior and may be
 lossy; for example, a provider may turn an invalid date into a null value.
+DuckDB reads consume Ibis Arrow results and map integer columns directly to
+pandas Arrow extension dtypes, preserving integers alongside nulls without a
+float64 intermediate. Other backends retain their native Ibis pandas path.
 Marivo does not add a per-value Arrow round-trip audit. Source schema and
 projection admission, requested row/time bounds, and downstream key, Cell,
 time, and persistence-schema checks remain in force.

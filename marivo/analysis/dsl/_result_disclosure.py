@@ -338,7 +338,7 @@ def provider() -> DisclosureProvider:
             "sum",
             (),
             "_Statistic",
-            "Request ignore-NA sum; empty/all-NA is zero. Complete with Query.reduce.",
+            "Request ignore-NA sum; empty/all-NA is NA. Complete with Query.reduce.",
             "result = column.sum()",
             ("column",),
             "methods.metric.summary",

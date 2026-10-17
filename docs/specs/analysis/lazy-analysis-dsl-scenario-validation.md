@@ -33,7 +33,7 @@ v0.27 将 Measure/Metric 统一为分阶段计算表达式，装饰器只负责�
 v0.28 复审补充函数名声明、可推导事实继承、各外部格子内的 per 样本、非可加权重、
 Metric 常数平移及嵌套规约的保存信息反例；数值见证在附录 I。字段 Ref 与 pandas 轴元数据同步为 Entity 限定路径。
 v0.29 将分析总体及 DSL 示例统一为 Population、population() 和 in_population(...)；不改变数值预期或沿用历史检查作为新验收。
-v0.30 采用 nullable value，sum 空/全 NA 均为 0；非法运算及实际覆盖检查失败使执行失败。
+v0.30 采用 nullable value，sum 空/全 NA 默认均为 NA，来源/内部样本显式 empty="zero" 时为 0；非法运算及实际覆盖检查失败使执行失败。
 删除逐格四态/原因与 empty 参数，pandas 示例只读取 value/coordinate/presence。
 v0.32 将 execute 的产出统一为终端 Artifact；所有 DSL 组合在 Query 上完成，执行后只读、展示或 to_pandas。
 原图和内部组件不附着于产物，实际 Finding/Evidence 是自包含输出；新产物和重开产物无能力差异。
@@ -938,7 +938,7 @@ workspace 等权收入的绝对提升为 0，相对提升为 0。
 
 sales 使用[多轮示例 §2.1](lazy-analysis-dsl-examples.md#21-只声明-orders-entity客户-id-是普通维度) 已完整列出的同一组语义声明：
 Orders 一行一单、order_id 唯一；Amount 单位 CNY 且可加；PaidAt 为带时区支付时刻；
-revenue 是 paid 订单金额 sum，忽略源 Null、空贡献为 0；order_count 计 paid 订单；
+revenue 是 paid 订单金额 sum(empty="zero")，忽略源 Null、空贡献为 0；order_count 计 paid 订单；
 sales.average_order_value 始终声明为 revenue / order_count，统一默认 null；本场景不为同一全名另设定义。
 需要拒绝空日时使用[示例 §7.2 的 aov_strict](lazy-analysis-dsl-examples.md#72-aov所有除法共享一个含义) 独立声明。
 指标及 Query 节点保留各自政策，Artifact 只保存完成值；政策归属见[语义提案§3.4](../semantic/expression-model-redesign.md#34-样本政策的归属)。
@@ -956,7 +956,7 @@ Analysis 不从“收入”列名猜时间角色、paid 条件或空值规则，
 以 `(年月日, 日内序号)` 生成唯一 order_id，customer_id/region 可固定为 C1/East。
 模拟数据在 `[2025-01-01,2026-10-09)` 内其他日期没有订单；这是本例数据集的设定。
 观察默认信任声明的数据源，不需要逐次完整性承诺，也不生成审计结论。
-10-03 是空日，收入按 sum 规则为 0，不能从日网格删除。
+10-03 是空日，收入按显式 sum(empty="zero") 规则为 0，不能从日网格删除。
 
 ### 7.2 直接滚动与累计求值
 
@@ -1417,7 +1417,7 @@ shares_query.execute().show()
 | 同一构造与命名 | 模型/runtime 写同一表达式，两种零参数声明都捕获函数局部名，模型收录限定业务身份；政策在算子上，派生式匿名。Measure 继承已有单位/权限，只补充新业务断言 | [语义 §2](../semantic/expression-model-redesign.md#2-同一构造装饰与命名方式)；本文 §9.1-63–64 |
 | 不可变域与模型收录 | 字面量和来源/Query 程序可构造；保留选择范围与归属。仅会话逻辑闭包在收录时拒绝，Artifact 依赖在构造时即拒绝 | [执行与恢复 §1.1.2](lazy-analysis-dsl-execution.md#112-metric-显式域依赖)；本文 §9.1-65–66 |
 | 分支与内部样本 | A=100、C=300、完整域 A/B：筛分子比率 1/4；per(A/B) 均值 50，全体实际出现均值 200，仅所选活跃客户均值 100；外部 by=A/B 才因未覆盖 C 拒绝 | 语义 §3.5；本文 §9.1-67；附录 G |
-| 政策归一与恢复 | 政策归各节点，装饰器无政策；sum 默认空/全 NA 为 0，显式 empty=null 为 NA，不区分二者，count 固定语义；不适用政策和无合法 lowering 拒绝，进程内不套新默认，冷存不恢复政策 | 语义 §3.4；本文 §9.1-68 |
+| 政策归一与恢复 | 政策归各节点，装饰器无政策；sum 默认空/全 NA 为 NA，显式 empty=zero 为 0，不区分二者，count 固定语义；不适用政策和无合法 lowering 拒绝，进程内不套新默认，冷存不恢复政策 | 语义 §3.4；本文 §9.1-68 |
 
 以上是未实施的合同验收；189项数学见证保持原样，不能验证repr、typed error、默认政策编码或恢复行为。
 首版最小规约的 nullable 政策由 DSL §4.4 拥有，导出布局由 [执行与交接 §3](lazy-analysis-dsl-execution.md#3-pandas-导出合同) 拥有。被移除的结果方法不再列为实现验收对象；
@@ -1498,7 +1498,7 @@ v0.25 另将以下边缘能力移出首版。表中每项都有替代路径，�
 | BeforeEndAnchor、scope.before_end、TimeAnchor | 只用 InstantAnchor；at=end 选择边界时刻生效的版本，边界换版时期间内最后旧版本不可表达（§7.10） |
 | trailing_periods(include_current=...) | 不含当期的回看不提供；trailing_duration 已在 v0.37 纳入，输出粒度不决定固定持续时长 |
 | calendar_correspondence、within_period | 同日号基期由调用方构造基期日轴后用 ordinal（§7.3）；财务期间对比显式选出两个期间（§7.6） |
-| Column.sum/mean(nulls=, empty=) | 固定政策：sum/mean 忽略 NA，sum 空/全 NA 为 0、mean 无有效值为 NA；不再提供 empty。Column.divide 已纳入统一除法合同，不属于移除项 |
+| Column.sum/mean(nulls=, empty=) | 固定政策：sum/mean 忽略 NA，sum/mean 无有效值为 NA；不再提供 empty。Column.divide 已纳入统一除法合同，不属于移除项 |
 
 最小 reduce 闭合集合为 sum、mean、row_count。新方法必须给出相同信息的 pandas 路径、
 Marivo 自动承担的事实和必要后续操作；否则不进入 API、Help、进程内图或实施计划。
@@ -1597,7 +1597,7 @@ Artifact 没有 contract，不能从 findings/evidence_digest 恢复 DSL 权限�
 6. **终端边界。** 两组细组件(100,1)/(90,9)和(50,5)/(140,5)都粗190/10；Artifact 无 DSL 方法，细项从观察 Query drill(add=...) 后执行。
 7. **字段集合。** (T1,A)/(T2,B)按完整元组并交差，不生成交叉身份或主体。
 8. **各统计独立样本。** x=[10,Null]、y=[Null,20]的来源规约各自按声明忽略Null，不能先交集删行；配对才整对处理。
-   结果 Column.sum/mean 各自忽略 NA；空/全 NA 的 sum 为 0、mean 为 NA。
+   结果 Column.sum/mean 各自忽略 NA；空/全 NA 的 sum/mean 均为 NA。
 9. **时间粗化。** 日→月→年保留原scope与实际区间，跨月周不能隐式归月或扩大范围。
    §7.12 的截断月桶收入20/1000、订单2/100、原AOV均10；月内日份额1/2、1/2、1/10、9/10仍保留四个日坐标。
 10. **域计数。** 固定 A/B，订单 [1,0]、默认除法的 AOV [50,NA]，query(population).reduce(row_count)=2；
@@ -1756,10 +1756,10 @@ Artifact 没有 contract，不能从 findings/evidence_digest 恢复 DSL 权限�
 66. **模型收录边界。** 可独立解析的字面量和无执行 Session 绑定的来源依赖可以收录；
     仅会话逻辑域可临时观察但收录拒绝。Artifact 不是表达式输入，不能先声明后提升或剥离归属。
 67. **内部样本选择。** A=100、C=300、P={A,B}：筛分子比率1/4，共同筛分子/分母为1。
-    子 sum 的空集为零时 per(P).mean()=50，全局 per(customer_id).mean()=200，先筛 P 再按出现键平均=100。
+    子 sum 显式 empty="zero" 时 per(P).mean()=50，全局 per(customer_id).mean()=200，先筛 P 再按出现键平均=100。
     per(P) 直接选择样本，不要求覆盖 C；observe(by=P) 未筛 C 时仍因输出覆盖失败。
     未获支持的轴能力、未完成 MetricSamples、缺贡献到 (k,j) 的绑定拒绝；不要求裸 j→k，Artifact 后处理只用 pandas，不能隐式变为重新观察。
-68. **节点政策。** sum() 默认空输入与全 NA 均为 0；sum(empty="null") 两者均为 NA，合并按需保存有效值支持但不区分二者；nulls="error" 检查所选原样本。
+68. **节点政策。** sum() 默认空输入与全 NA 均为 NA；sum(empty="zero") 两者均为 0，合并按需保存有效值支持但不区分二者；nulls="error" 检查所选原样本。
     mean 不接 empty/zero_denominator，count 固定规则；divide/weighted_mean/share/compare 的政策只作用该节点。
     外层 compare/share 的 null 不能吞掉输入严格 Metric 的 error；Session/observe/execute/装饰器不增加全局覆盖。
     来源/内部 quantile 的0/1端点合法，分别与同政策 min/max 相同；越界或非有限 q 拒绝。
@@ -1877,7 +1877,7 @@ Artifact 没有 contract，不能从 findings/evidence_digest 恢复 DSL 权限�
 | sqrt(sum(x)) 分区和 9/16 | 分区值 3/4，总体 5；不能相加得到 7；计划依据子指标状态重算 |
 | amount.sum()+amount、多事实根行算术、跨根条件、外部同名 table、as_scalar 子查询、裸 Ibis window/UDF | 包括数值返回值在内都拒绝；Scalar/Column 广播不能跨语义阶段 |
 | 独立两根规约后数值组合 | 保留各自过滤/时间/根，完整坐标键对齐；无合格本地内核在准备阶段拒绝，不隐藏 join 或 DuckDB |
-| 原生 sum、/、reduction where= 与语义方法 | 归一到同一语义边界/政策；sum 空/全 NA 为 0、除零默认 NA、strict 失败；time= 不误传原生方法 |
+| 原生 sum、/、reduction where= 与语义方法 | 归一到同一语义边界/政策；sum 空/全 NA 默认 NA、除零默认 NA、strict 失败；time= 不误传原生方法 |
 | 恒真分支、乘零、相消、name 别名、优化 | 原始依赖及严格检查/贡献义务保留；未选分支仍接受静态检查，值域检查尊重实际选中值 |
 | 未登记 operation、未知 Deferred resolver、pipe/回调、隐藏 execute/compile | 按真实符号和接收者拒绝且不执行；不能以结果断言或数值 dtype 放行 |
 | 模型收录、缓存和终端产物 | 同一依赖闭包额外检查独立加载；声明指纹摘要配方，绑定指纹摘要真实图/schema/政策/作用域/路线；Artifact 不带 Ibis 图、配方或 callable |
@@ -1917,7 +1917,7 @@ Ibis 版本适配、原生构造、语义检查、来源数值路线与 pandas �
 | 订单根 Revenue=100 分到标签 A/B，标签根 Budget 为 A=50/B=25 | Revenue / Budget 在 A/B 为2/4：订单走显式路径，标签恒等绑定；不要求自环。缺路径、多条显式竞争路径、身份/角色/版本不相容或隐式贡献倍增拒绝；合法物理关联不因包含原始表而拒绝 |
 | 单一联合成员元组与多个独立成员描述 | 单描述只保留真实相关元组；显式 (tags, channels) 按集合乘积。订单100、tags={A,B}、channels={web,store} 得四桶各100，并集100；重复/冲突轴拒绝，Field.via 不获得多值读取资格 |
 | 多成员空集合 | 每个因子独立应用 unmatched；exclude 的空因子使乘积为空，null 因子产生一个全 None 元组再参与乘积；重复关联和真实 Null 分类按完整键集合去重 |
-| 完整成员输出域与内部域 | coordinates(by=(tags,), keys=(("A",),("B",))) 携带绑定；仅A有100时，sum默认为A=100/B=0、per该域mean=50；empty=null 则B=NA、mean=100。域不制造根贡献 |
+| 完整成员输出域与内部域 | coordinates(by=(tags,), keys=(("A",),("B",))) 携带绑定；仅A有100时，sum默认为A=100/B=NA、per该域mean=100；显式empty=zero 则B=0、mean=50。域不制造根贡献 |
 | 来源完整域、实际域与覆盖 | TagEntity 身份域 classify(by=(tags,)) 直接读取目标分类保留A/B；描述含自关系也不在此执行。Query.population 不补未出现B；project/集合/product 保留绑定。外部漏掉有贡献桶报覆盖错误，内部 per 可选子域 |
 | 显式自关系优先及无路径恒等 | 根E的A=100/B=20，自关系A→B、B→A；显式路径分桶为A=20/B=100，无路径恒等为A=100/B=20。自关系不被当作恒等竞争者；两条显式路径拒绝，显式无效路径报错而非回退 |
 | 目标域分类与事实选路分开 | 上述E身份域用相同描述classify仍读A/B自身分类；字段值不沿自关系互换。事实observe/per才采用显式路径；命名/内联采用同一规则 |
@@ -1949,7 +1949,7 @@ Ibis 版本适配、原生构造、语义检查、来源数值路线与 pandas �
 | 场景 | 独立预期与未来实现检查 |
 | --- | --- |
 | 同一客户两笔订单100/200、三笔退款10/20/30 | 各根原量为300/60，净额240；原始行乘积直接sum为900/120、净额780，必须拒绝这种重解释或由等价计划消除倍增 |
-| 单侧输出键与空输入 | 只有退款的地区仍进入共同K；成功读取后收入sum默认0，empty=null为NA，不靠inner join删地区或对全部规约统一补零 |
+| 单侧输出键与空输入 | 只有退款的地区仍进入共同K；成功读取后收入sum默认NA，显式empty=zero为0，不靠inner join删地区或对全部规约统一补零 |
 | O1=100，桥关联A两次/B一次 | membership为A100/B100、并集100；存在性选根只选O1一次；以完整事件键建模的三条关联则count=3，三者不能混同 |
 | 两笔不同订单均为100 | 合计200；sum(distinct amount)=100是错误修复，身份去重不能变成数值去重 |
 | 订单100，分配记录A/B权重0.25/0.75 | 显式分配金额25/75，总计100；membership仍为100/100，不自动均分或推导权重守恒 |
@@ -3043,8 +3043,8 @@ print(f"v0.24 share scope witnesses: {len(share_checks)} passed")
 ## 附录 G：统一 Metric 与显式域依赖见证
 
 v0.26 使用 A=100、C=300、完整域 A/B，区分分支过滤、共同过滤、完整内域和实际出现内域。
-当前 sum 的缺活动 B 固定为 0 并参与均值。下方 complete_null 仅作为另一个可含 NA 子指标的数学反例，
-不再代表可选的 sum 空集政策；该例说明有效值均值与完整 Population 大小仍不同。
+当前默认 sum 的缺活动 B 为 NA，均值只包含有效值；下方 complete_null 对应这一默认。
+complete_zero 对应显式 sum(empty="zero")，B 为 0 并参与均值；有效值均值与完整 Population 大小仍不同。
 第二次数据把来源名单从 A 改为 C，同时收入变为 A=120、C=360：固定旧键与重新选键得到不同结果，固定键不固定收入。
 这些是独立有限数据上的算式，不实现 Metric、Cell、loader、域覆盖错误或数值政策解析器。
 v0.27 保留下面代码逐字不变：unfiltered_domain_missing_key 只说明外部完整输出缺 C，
@@ -3096,7 +3096,7 @@ print(f"v0.26 metric/domain witnesses: {len(metric_checks)} passed")
 ## 附录 H：统一行指标表达式的五个核心见证
 
 v0.27 对照 [五个核心场景](lazy-analysis-dsl-examples.md#7-五个核心-metric-场景)。
-只计算有限输入上的金额、样本域、分位数和共同配对；v0.30 将 sum 空输入与全 NA 合并为 0，
+只计算有限输入上的金额、样本域、分位数和共同配对；当前默认 sum 将空输入与全 NA 都完成为 NA，显式 empty="zero" 才为 0，
 但不实现装饰器、权限系统、政策解析或异常。本附录不证明模型/runtime 同图、收录及恢复；
 这些能力以实际实现测试和独立执行验收为准。
 附录 A 的历史数学程序保留；当前 pandas 示例和本节 sum 见证随目标合同更新。
@@ -3118,7 +3118,7 @@ customer_amounts = {"A": [100], "B": [10] * 9}
 customer_aovs = [F(sum(values), len(values)) for values in customer_amounts.values()]
 selected_keys = frozenset(("A", "B"))
 source_values = {"A": 100, "C": 300}
-selected_values = [source_values.get(key, 0) for key in sorted(selected_keys)]
+selected_values = [source_values.get(key, 0) for key in sorted(selected_keys)]  # Explicit empty="zero".
 active_selected = [value for key, value in source_values.items() if key in selected_keys]
 source_samples = {"A": [10, 0], "B": [0, 10]}
 space_totals = [sum(row) for row in zip(*source_samples.values())]
@@ -3130,8 +3130,8 @@ zero_weight_pairs = [(10, 1), (20, -1)]
 line_items = [(2, 90, 80), (3, 40, 20)]
 line_margins = [quantity * (price - cost) for quantity, price, cost in line_items]
 nullable_sums = {
-    name: sum(value for value in values if value is not None)
-    for name, values in {"empty": [], "all_null": [None, None], "mixed": [100, None]}.items()
+    name: sum(present) if (present := [value for value in values if value is not None]) else None
+    for name, values in {"empty": [], "all_null": [None, None], "mixed": [100, None], "zero": [-10, 10]}.items()
 }
 
 expression_checks = {
@@ -3156,7 +3156,7 @@ expression_checks = {
     "valid_zero_weight_is_not_empty": len(zero_weight_pairs) == 2 and sum(w for _, w in zero_weight_pairs) == 0,
     "row_measure_margin": line_margins == [20, 60] and sum(line_margins) == 80,
     "wrong_post_aggregate_product": sum(q for q, _, _ in line_items) * sum(p - c for _, p, c in line_items) == 150,
-    "empty_and_all_null_sum_to_zero": nullable_sums == {"empty": 0, "all_null": 0, "mixed": 100},
+    "empty_and_all_null_sum_to_null": nullable_sums == {"empty": None, "all_null": None, "mixed": 100, "zero": 0},
 }
 for name, passed in expression_checks.items():
     assert passed, name

@@ -20,7 +20,7 @@ v0.33 统一行/Metric/Column 除法及 share、compare、weighted_mean 的零�
 v0.34 对齐一般比较、业务份额和数学累计边界，统一时间样本规约术语，并补齐类型、读取证据和 Population 披露。
 v0.35 补齐时间输入、名义/实际桶、ordinal 与闰日对应合同，明确期末规约范围，并移除资源预算设计。
 本轮补齐公开类型与日历导航引用；首版不提供外部业务缺口声明或消费，来源信任边界见 §4.9.3。
-v0.30 用 nullable value 取代四态 Cell：sum 的空输入与全 NA 均为 0；普通 NA 可被规约忽略，
+v0.30 用 nullable value 取代四态 Cell：sum 的空输入与全 NA 默认均为 NA，来源/内部样本显式 empty="zero" 时为 0；普通 NA 可被规约忽略，
 非法计算和实际覆盖检查失败使本次 execute 失败。不要求调用方逐次声明完整性。
 当前实现仍由 [Python Analysis Design](python-analysis-design.md)、
 [Operators and Frames](operators-and-frames.md) 和 [Session State and Runtime](session-state-and-runtime.md) 约束。
@@ -643,7 +643,7 @@ Query 格子统计由 Query.reduce 拥有；样本单位和方法资格仍分别
 
 | 结果规约 | 固定政策 | 无有效样本与输出 |
 | --- | --- | --- |
-| Column.sum | 忽略 NA | 空输入与全 NA 都为 0；保留单位；和摘要只供本次计划使用 |
+| Column.sum | 忽略 NA | 空输入与全 NA 都为 NA；保留单位；和摘要只供本次计划使用 |
 | Column.mean | 忽略 NA | NA；保留有效值 sum/count 供本次计划使用，分母不是全部 Population 大小 |
 | row_count | 不读取量值 | 空输入为 0；计全部当前坐标，包括值为 NA 的格子 |
 

@@ -84,7 +84,7 @@ Amount = finalized.resolve(Amount)
 
 @ms.metric()
 def revenue():
-    return Amount.sum(time=PaidAt).where(Status == "paid")
+    return Amount.sum(time=PaidAt, empty="zero").where(Status == "paid")
 
 
 @ms.metric()
@@ -783,7 +783,7 @@ Orders 是 Entity，PaidAt、Status、CustomerId 是字段；模型模块直接�
 ```python
 @ms.metric(ai_context=ms.ai_context(business_definition="Paid order revenue"))
 def revenue():
-    return Amount.sum(time=PaidAt).where(Status == "paid")
+    return Amount.sum(time=PaidAt, empty="zero").where(Status == "paid")
 
 
 @ms.metric()
@@ -1039,14 +1039,14 @@ q_named 与 q_inline 使用同一规则和观察轴；没有 during=window 的�
 全部窗口表达式消费时须提供评价端点，calendar_week 还须 CalendarAxis；窗口不能补造基础指标的时间角色。
 
 closing_inventory 的 last 保留末次 NA；改成 include_null=False 是选择末次非 NA，不是格式选项。
-第一步 sum(empty="null") 同样重要：若改成默认 zero，末次全 NA 会成为有效零，后续跳 NA 的含义随之改变。
+第一步 sum(empty="null") 同样重要：若显式改成 empty="zero"，末次全 NA 会成为有效零，后续跳 NA 的含义随之改变。
 tag_mean 是标签桶统计；一笔收入可进入多个标签，不能把它解释成去重客户均额或总体收入。
 elapsed_week 的七天恒为168小时；calendar_week 是七个输出日历期间，两者在 DST 周可能不同。
 原 first-seen、固定时长、空集和成员集合的迁移条件见[语义附录 A.1.1](../semantic/expression-model-redesign.md#a11-等价迁移的判定条件)。
 
 
-完整域例：仅 A 有100收入时，默认 sum 的 full_tag_query 为 A=100/B=0，full_tag_mean 为50；
-若子指标为 sum(empty="null")，B 为 NA、忽略 NA 的 mean 为100。按实际成员桶 per(tag_buckets) 则只有 A，mean 为100。
+完整域例：仅 A 有100收入时，子指标为 sum(empty="zero") 时，full_tag_query 为 A=100/B=0，full_tag_mean 为50；
+采用默认 sum() 时，B 为 NA、忽略 NA 的 mean 为100。按实际成员桶 per(tag_buckets) 则只有 A，mean 为100。
 full_tags 的绑定明确且不依赖事实 Query；来源域可写 `s.members(TagEntity).classify(by=(tag_buckets,))`，
 此处直接读目标 TagEntity 的身份分类，不走 OrderTags，也不执行描述可能携带的 TagEntity 自关系。来源域会保留其 Session/时点，不能伪装成 source-free 模型参数。
 
@@ -1116,7 +1116,8 @@ def paid_revenue():
     return Amount.sum(time=PaidAt).where(Status == "paid")
 ```
 
-两个已支付订单金额 100、90，均为 190。没有贡献或金额全为 NA 时均为 0，不再提供二者的区分。
+两个已支付订单金额 100、90，均为 190。没有贡献或金额全为 NA 时默认均为 NA；
+需要返回 0 时在来源 sum 上显式传入 empty="zero"，有效值相消为零仍为 0。
 若改成 nulls="error"，所选订单中存在 Null 就失败。政策不会因是否装饰而变化。
 
 ### 7.2 AOV：所有除法共享一个含义
@@ -1153,7 +1154,8 @@ strict_column_aov = measured.select({
 
 ```python
 cohort = mv.coordinates(by=(customer_id,), keys=(("A",), ("B",)))
-cohort_mean = revenue.per(cohort).mean()
+zero_revenue = Amount.sum(time=PaidAt, empty="zero").where(Status == "paid")
+cohort_mean = zero_revenue.per(cohort).mean()
 observed_mean = revenue.per(customer_id).mean()
 cohort_active_mean = revenue.where(mv.in_population(cohort)).per(customer_id).mean()
 cohort_ratio = revenue.where(mv.in_population(cohort)) / revenue
@@ -1161,10 +1163,10 @@ cohort_ratio = revenue.where(mv.in_population(cohort)) / revenue
 
 @ms.metric()
 def cohort_mean_revenue():
-    return revenue.per(cohort).mean()
+    return zero_revenue.per(cohort).mean()
 ```
 
-来源 A=100、C=300，B 无贡献，收入的 sum 空/全 NA 为零：完整 cohort 均额 50，全体实际客户均额 200，
+来源 A=100、C=300，B 无贡献，收入显式 sum(empty="zero") 空/全 NA 为零：完整 cohort 均额 50，全体实际客户均额 200，
 cohort 活跃客户均额 100，人群收入比率 1/4。per(cohort) 已选择内部样本，不要求再 where，也不因 C 在域外失败。
 外部 observe(by=cohort) 的完整输出覆盖合同不同，不能用它隐式筛掉 C。
 来源动态名单保留它自己的选择期间；固定名单不会在新期间重新选人。

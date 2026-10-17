@@ -49,7 +49,7 @@ keys_only = session.query(regions)
 keys_only.execute().show()
 ```
 
-完整输出域必须覆盖所有实际贡献坐标。空总量按规约的声明策略解释，例如默认 sum 为零。
+完整输出域必须覆盖所有实际贡献坐标。空总量按规约的声明策略解释，例如 sum 默认为 NA，显式 empty="zero" 时为零。
 来源 Null 类别与缺少坐标保持区别。
 
 `session.members(ms.ref.entity("sales.customers"))` 从来源选择实际存在的完整 Entity 身份。

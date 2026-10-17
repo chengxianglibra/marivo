@@ -233,7 +233,10 @@ DuckDB 只作为 Ibis 的一种已声明 datasource 后端，包括其已有文�
 
 来源 schema、表达式编译和执行由 datasource/Ibis 拥有。相同 Ibis 表达式在不同后端可以返回不同
 数值类型和精度；接受后端、驱动及 Ibis 原生转换造成的数值精度损失，不以无损传输作为路线准入条件。
-Marivo 不在 Ibis 层为统一 dtype 或保真主动添加与业务语义无关的 cast，不另建 cursor/Arrow transport。
+Marivo 不在 Ibis 层为统一 dtype 或保真主动添加与业务语义无关的 cast，不另建 cursor transport。
+DuckDB 读取使用 Ibis 的 Arrow 结果，将整数列直接转换为 pandas Arrow extension dtype，
+保留原生整数值及 null，避免 pandas 经 float64 推断而丢失精度；本地计算框架仍为 pandas。
+其他后端继续使用各自 Ibis pandas 返回路径，不由 DuckDB 的验证推导其精度保证。
 单位换算、时间角色/时区、明确的运算规则、空值及错误政策所必需的转换仍由对应算子拥有；
 精确/近似算法不能相互替换。数值精度容忍不改变请求时间边界、Duration 单位或完整键的业务含义。
 
@@ -251,8 +254,9 @@ schema-only 准备检查表达式、类型族及后端方法能力，不扫描�
 sum、min、max、mean 和 weighted_mean。精确来源 median/quantile 只在 DuckDB 和 PostgreSQL
 准入；MySQL、Trino 和 ClickHouse 在 Run 前按具体方法拒绝。ClickHouse 的 Ibis Quantile
 lowering 使用近似算法，不能据此执行精确请求。这些代码准入不替代逐路线 Runtime 证据。
-实际返回布局和值约束在交接时校验；大整数搭配 NA、Decimal 的真实返回用于记录精度表现及验证可交接性，
-不要求与原库值逐位相等。完整键唯一性、NA/空输入、配对、分组和失败政策仍须成立。
+实际返回布局和值约束在交接时校验；DuckDB 大整数搭配 NA 必须保留 Arrow 返回的整数，
+其余原生数值转换按各后端实际精度验证可交接性，不要求跨后端逐位相等。
+完整键唯一性、NA/空输入、配对、分组和失败政策仍须成立。
 这些工作复用来源绑定、物理准入和 StageOutput，不增加类型证明平台、全局精度开关或失败后换引擎。
 
 精度容忍属于来源计算及其 pandas 交接；交接完成的值进入本地算子后仍服从该算子的数值合同。
@@ -489,7 +493,7 @@ if values.isna().any().any():
     raise ValueError("This statistic requires non-missing input values.")
 ```
 
-配对统计使用一份共同非 NA mask；sum 默认忽略 NA，空/全 NA 按 empty 为 0 或 NA，mean 以有效值数作分母。
+配对统计使用一份共同非 NA mask；sum 默认忽略 NA，空/全 NA 默认 NA，来源/内部样本显式 empty="zero" 时为 0，mean 以有效值数作分母。
 数据集合法执行时已通过必要失败检查，不要求外部示例再拒绝已删除的 Unknown/Undefined 状态。
 presence False 与值为 NA 仍是不同事实。跨表计算明确完整业务键、唯一性与缺侧，
 不用 RangeIndex 对齐；包含空分类时 groupby(dropna=False)，不能借 pandas 默认行为改变 Population。

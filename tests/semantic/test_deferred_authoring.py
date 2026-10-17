@@ -9,7 +9,7 @@ from ibis.common.deferred import Deferred
 
 import marivo.semantic as ms
 from marivo._definition.deferred import inspect_deferred, root_declaration
-from marivo._definition.expressions import MetricExpression, SourceAggregate
+from marivo._definition.expressions import MetricExpression, PerReduce, SourceAggregate
 from marivo.semantic._deferred_semantics import consume_metric, consume_row
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticExpressionError
@@ -180,3 +180,19 @@ def test_published_metric_rebinds_in_the_consumers_frozen_scope(
     assert rebound._declared == consume_metric(current)._declared
     assert root_declaration(revenue).reference == old_reference
     assert root_declaration(current).reference != old_reference
+
+
+def test_sum_defaults_are_normalized_at_each_reduction(
+    semantic_project_factory: ProjectFactory,
+) -> None:
+    catalog = _catalog(semantic_project_factory)
+    amount = catalog.require(ms.ref.measure("sales.orders.amount"))
+    status = catalog.require(ms.ref.dimension("sales.orders.status"))
+    for expression in (amount.sum(), amount.sum().per(status).sum()):
+        node = consume_metric(expression).node
+        assert isinstance(node, (SourceAggregate, PerReduce)) and node.empty == "null"
+    for expression in (amount.sum(empty="zero"), amount.sum().per(status).sum(empty="zero")):
+        node = consume_metric(expression).node
+        assert isinstance(node, (SourceAggregate, PerReduce)) and node.empty == "zero"
+    count = consume_metric(amount.count()).node
+    assert isinstance(count, SourceAggregate) and count.empty == "zero"

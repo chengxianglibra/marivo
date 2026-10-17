@@ -439,7 +439,6 @@ def test_complete_composite_keys_scalar_columns_and_nulls(
     from datetime import date
 
     import duckdb
-    import ibis
 
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as db:
@@ -481,13 +480,12 @@ def test_complete_composite_keys_scalar_columns_and_nulls(
     assert exported["key_0"].tolist() == [(1, "A"), (1, "B"), (2, "A"), (2, "B")]
     assert exported["day"].tolist()[:3] == [date(2026, 8, 3), date(2026, 8, 2), date(2026, 8, 1)]
     assert exported["day"].isna().tolist() == [False, False, False, True]
-    backend = ibis.duckdb.connect(str(case.database_path))
-    try:
-        native = backend.execute(backend.table("r65").order_by("tenant", "id"))
-    finally:
-        backend.disconnect()
-    assert exported["amount"].dropna().tolist() == native.amount.dropna().tolist()
-    assert str(exported["amount"].dtype) == "double[pyarrow]"
+    assert exported["amount"].dropna().tolist() == [
+        9007199254740993,
+        9007199254740993,
+        9007199254740994,
+    ]
+    assert str(exported["amount"].dtype) == "int64[pyarrow]"
     assert exported["amount"].isna().tolist() == [False, False, True, False]
     assert terminal.to_pandas().equals(session.artifact(terminal.id).to_pandas())
     terminal.show()

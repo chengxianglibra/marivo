@@ -1,6 +1,8 @@
 """Result expressions consume the same checked source/pandas stage input."""
 
 from collections.abc import Callable
+from datetime import timedelta
+from decimal import Decimal
 from pathlib import Path
 
 import duckdb
@@ -52,7 +54,7 @@ def test_select_where_top_and_independent_statistics(result_session: Session) ->
     session = result_session
     region = session.catalog.fields.get("sales.orders.region")
     amount = session.catalog.fields.get("sales.orders.amount")
-    q = session.observe({"sum": amount.sum(), "mean": amount.mean()}, by=(region,))
+    q = session.observe({"sum": amount.sum(empty="zero"), "mean": amount.mean()}, by=(region,))
     assert q.select({"net": q["sum"] - 10}).execute().to_pandas()[("value", "net")].tolist() == [
         30,
         10,
@@ -158,11 +160,11 @@ def test_result_division_policy_and_exact_domain_binding(result_session: Session
         q.select({"ratio": q["sum"].divide(0, zero_denominator="error")}).execute()
     other = session.observe({"sum": amount.sum()}, by=(region,))
     # Exact logical inputs can be reconstructed without Python object identity.
-    assert q.select({"same": other["sum"]}).execute().to_pandas()[("value", "same")].tolist() == [
-        40,
-        20,
-        0,
-    ]
+    assert q.select({"same": other["sum"]}).execute().to_pandas()[("value", "same")].to_dict() == {
+        0: 40,
+        1: 20,
+        2: None,
+    }
     with pytest.raises(AnalysisError):
         q.select({"bad": q.where(q["sum"] > 0)["sum"]})
 
@@ -210,7 +212,7 @@ def test_empty_reduction_keeps_scalar_and_checks(result_session: Session) -> Non
         .execute()
         .to_pandas()
     )
-    assert result[("value", "sum")].tolist() == [0]
+    assert result[("value", "sum")].isna().all()
     assert result[("value", "mean")].isna().all()
     assert result[("value", "rows")].tolist() == [0]
 
@@ -331,7 +333,7 @@ def test_explicit_members_and_member_count(result_session: Session) -> None:
         .to_pandas()
     )
     assert complete.iloc[:, 0].tolist() == [1, 3, 999]
-    assert complete[("value", "total")].tolist() == [10, 20, 0]
+    assert complete[("value", "total")].to_dict() == {0: 10, 1: 20, 2: None}
     assert complete.attrs["marivo"]["axes"][0]["kind"] == "member"
     assert requested.classify(by=(mv.member(),)).axes == requested.axes
     assert session.query(requested.project(by=(mv.member(),))).execute().to_pandas().iloc[
@@ -354,7 +356,7 @@ def test_explicit_members_and_member_count(result_session: Session) -> None:
         .to_pandas()
     )
     assert result[("value", "people")].tolist() == [0]
-    assert result[("value", "sum")].tolist() == [0]
+    assert result[("value", "sum")].isna().all()
 
 
 def test_query_keys_drive_a_later_typed_source_read(result_session: Session) -> None:
@@ -447,7 +449,9 @@ def test_public_original_rollup_and_share_use_the_same_selected_inputs(
     assert coarse[("value", "aov")].tolist() == [20.0]
     assert coarse[("value", "shifted")].tolist() == [70]
     shares = fine.share("sales").execute().to_pandas()
-    assert shares[("value", "sales.share")].tolist() == pytest.approx([2 / 3, 1 / 3, 0])
+    assert shares[("value", "sales.share")].dropna().tolist() == pytest.approx([2 / 3, 1 / 3])
+    assert shares[("value", "sales.share")].isna().tolist() == [False, False, True]
+    pd.testing.assert_frame_equal(shares.iloc[:, :-1], fine.execute().to_pandas())
     first = fine.share("sales")
     assert first.where(first["sales"] > 20).execute().to_pandas()[
         ("value", "sales.share")
@@ -460,7 +464,7 @@ def test_public_broadcast_and_source_population_predicate(result_session: Sessio
     session = result_session
     amount = session.catalog.fields.get("sales.orders.amount")
     region = session.catalog.fields.get("sales.orders.region")
-    fine = session.observe({"sales": amount.sum()}, by=(region,))
+    fine = session.observe({"sales": amount.sum(empty="zero")}, by=(region,))
     total = fine.rollup()
     reference = mv.broadcast(total["sales"], to=fine)
     ratio = fine.select({"ratio": fine["sales"] / reference}).execute().to_pandas()
@@ -606,7 +610,9 @@ amount = ms.measure_column(name='amount',entity=orders,column='amount',additivit
     grid = session.time_scope(start="2026-01-30", end="2026-02-03").by(mv.grain("day"))
     monthly = grid.coarsen(mv.grain("month"))
     assert grid.coarsen(mv.grain("day")) is grid
-    daily = session.observe({"sales": amount.sum(time=day)}, during=grid, by=(region,))
+    daily = session.observe(
+        {"sales": amount.sum(time=day, empty="zero")}, during=grid, by=(region,)
+    )
     coarse_statistics = (
         daily.reduce({"total": daily["sales"].sum(), "rows": mv.row_count()}, by=(monthly,))
         .execute()
@@ -629,6 +635,77 @@ amount = ms.measure_column(name='amount',entity=orders,column='amount',additivit
         [1 / 2, 3 / 5, 2 / 5]
     )
     weekly = session.time_scope(start="2026-01-30", end="2026-02-03").by(mv.grain("week"))
-    weekly_query = session.observe({"sales": amount.sum(time=day)}, during=weekly)
+    weekly_query = session.observe({"sales": amount.sum(time=day, empty="zero")}, during=weekly)
     with pytest.raises(AnalysisError, match="one containing target bucket"):
         weekly_query.share("sales", partition_by=(weekly.coarsen(mv.grain("month")),))
+
+
+@pytest.mark.parametrize("kind", ["integer", "float", "decimal", "duration"])
+def test_column_sum_distinguishes_missing_samples_from_valid_zero(
+    result_session: Session, kind: str
+) -> None:
+    session = result_session
+    region = session.catalog.fields.get("sales.orders.region")
+    raw = (1, 10, 10, 5)
+    values = (
+        tuple(timedelta(seconds=value) for value in raw)
+        if kind == "duration"
+        else tuple(Decimal(value) for value in raw)
+        if kind == "decimal"
+        else tuple(float(value) for value in raw)
+        if kind == "float"
+        else raw
+    )
+    base = session.values(
+        by=(region,),
+        columns={"value": "s" if kind == "duration" else None, "divisor": None, "group": None},
+        rows=tuple(
+            ((key,), {"value": value, "divisor": divisor, "group": group})
+            for key, value, divisor, group in zip(
+                "ABCD", values, (0, -1, 1, 1), (0, 1, 1, 2), strict=True
+            )
+        ),
+    )
+    for selected, expected, count in (
+        (base.where(base["group"] < 0), None, 0),
+        (base.where(base["group"] == 0), None, 1),
+        (base, values[3], 4),
+        (base.where(base["group"] == 1), values[0] * 0, 2),
+        (base.where(base["group"] > 0), values[3], 3),
+    ):
+        query = selected.select(
+            {"value": selected["value"] if count == 0 else selected["value"] / selected["divisor"]}
+        )
+        artifact = query.reduce({"sum": query["value"].sum(), "rows": row_count()}).execute()
+        rows = artifact.to_pandas()
+        actual = rows[("value", "sum")].iloc[0]
+        assert pd.isna(actual) if expected is None else actual == expected
+        assert rows[("value", "rows")].tolist() == [count]
+        assert session.artifact(artifact.id).to_pandas().equals(rows)
+
+
+def test_nullable_source_sum_preserves_large_integer_through_local_consumers(
+    result_session: Session,
+) -> None:
+    session = result_session
+    large = 2**53 + 1
+    with duckdb.connect(str(session.project_root / "results.duckdb")) as connection:
+        connection.execute("UPDATE orders SET amount=? WHERE id=1", [large])
+        connection.execute("UPDATE orders SET amount=0 WHERE id=2")
+    amount = session.catalog.fields.get("sales.orders.amount")
+    region = session.catalog.fields.get("sales.orders.region")
+    total = amount.sum()
+    query = session.observe({"total": total, "shifted": total + 10}, by=(region,))
+    artifact = query.execute()
+    frame = artifact.to_pandas()
+    assert frame[("value", "total")].to_dict() == {0: large, 1: 20, 2: None}
+    assert frame[("value", "shifted")].to_dict() == {0: large + 10, 1: 30, 2: None}
+    assert pd.api.types.is_integer_dtype(frame[("value", "total")].dtype)
+    pd.testing.assert_frame_equal(session.artifact(artifact.id).to_pandas(), frame)
+    pd.testing.assert_frame_equal(query.share("total").execute().to_pandas().iloc[:, :-1], frame)
+    for reduced in (
+        query.rollup(),
+        query.reduce({"total": query["total"].sum()}),
+        session.observe({"total": total.per(region).sum()}),
+    ):
+        assert reduced.execute().to_pandas()[("value", "total")].tolist() == [large + 20]

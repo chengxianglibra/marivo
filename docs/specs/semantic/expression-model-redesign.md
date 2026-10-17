@@ -28,7 +28,7 @@ v0.32 明确：execute 返回终端 Artifact；所有 DSL 组合在 Query 上完
 模型加载合同独立；分析产物可保存实际 Finding/Evidence 输出，但不承载计算依赖。
 执行分工继续为 Ibis 源端计算、pandas 统一本地执行、PyArrow 存储/读取。
 v0.30 采用 nullable value；普通缺失统一为 NA，非法计算和实际覆盖检查失败按错误处理。
-sum 默认忽略 NA，空输入与全 NA 默认都为 0；可在来源/内部样本 sum 上显式选择 empty="null"。
+sum 默认忽略 NA，空输入与全 NA 默认都为 NA；可在来源/内部样本 sum 上显式选择 empty="zero"。
 政策不区分空输入与全 NA；仍无逐格四态/原因传播。
 
 Implementation boundary (2026-10-17): native Deferred ingestion, semantic preparation,
@@ -129,7 +129,7 @@ TimeField.via(path) 保持 TimeField kind，并捕获从贡献根到时间字段
 class NumericRowExpr:
     def sum(self, *, time: TimeField | None = None,
             nulls: Literal["ignore", "error"] = "ignore",
-            empty: Literal["zero", "null"] = "zero") -> Metric: ...
+            empty: Literal["zero", "null"] = "null") -> Metric: ...
     def mean(self, *, time: TimeField | None = None,
              nulls: Literal["ignore", "error"] = "ignore") -> Metric: ...
     def min(self, *, time: TimeField | None = None,
@@ -516,7 +516,7 @@ first/last 的排序与 NA 选择、近似规约的精确性意图、membership 
 必须使用 per。原生 reduction 的 where= 若被使用，只能表示该次规约的合法同行谓词，并归一化到同一贡献过滤；
 不允许它改变根或绑定其它规约。未知参数和无合同的规约拒绝，不静默丢弃。
 
-原生 Ibis 的 / 与同一数值阶段的 divide 共用 §3.4 政策；裸 sum 使用 empty="zero"，显式 empty="null" 先由适配器消费。
+原生 Ibis 的 / 与同一数值阶段的 divide 共用 §3.4 政策；裸 sum 使用 empty="null"，显式 empty="zero" 先由适配器消费。
 这是对 Ibis 计算图的语义准入和政策 lowering，不是逐字照搬各后端默认结果。
 Ibis 原有 nullif/coalesce/条件表达式保留显式计算意义，不能用它们把未获准的规则包装成已获准算子。
 别名 name 只改变 Ibis 标签，不建立业务声明、单位、贡献根或权限。
@@ -690,7 +690,7 @@ zero_denominator: Literal["null", "error"] = "null"，没有其它策略或阶�
 
 | 算子 | NA 输入 | 无有效值 | 零分母 |
 | --- | --- | --- | --- |
-| 来源 / 内部样本 sum | 默认 ignore，可 error | empty="zero"（默认）为 0；empty="null" 为 NA | 不适用 |
+| 来源 / 内部样本 sum | 默认 ignore，可 error | empty="null"（默认）为 NA；empty="zero" 为 0 | 不适用 |
 | mean/min/max/median/quantile/approx_median/approx_quantile | 默认 ignore，可 error | NA | 不适用 |
 | 内部时间样本 first/last | include_null 控制选择；nulls="error" 先检查完整样本域 | NA | 不适用 |
 | Entity count | 计完整贡献行，不依赖量值 | 空输入为 0 | 不适用 |
@@ -734,7 +734,8 @@ margin_rate = (revenue - strict_cost) / revenue
 strict_margin_rate = (revenue - strict_cost).divide(revenue, zero_denominator="error")
 ```
 
-来源 SQL sum 必须显式完成空/全 NULL 为 0，与 pandas 的 skipna 求和一致；
+来源 SQL sum 必须按 empty 政策完成：空/全 NULL 默认 NA，显式 empty="zero" 为 0；
+本地求和保持相同语义，不能直接采用 pandas 默认的空和为零；
 共同配对、有限性和除零检查仍由 Marivo 的算子合同统一，不照搬各引擎不同的异常行为。
 结果 reduce 的 sum/mean/row_count 采用 [DSL §4.4](../analysis/lazy-analysis-dsl-redesign.md#44-最小规约与有效样本)；
 Column.divide、Query.share 和 Query.compare 暴露本节同名参数；结果层无需把公式搬回 Metric 才能选择政策。
@@ -752,7 +753,7 @@ MetricSamples 只是尚未完成的表达式，不能直接 observe、execute、
 ```python
 class MetricSamples:
     def sum(self, *, nulls: Literal["ignore", "error"] = "ignore",
-            empty: Literal["zero", "null"] = "zero") -> Metric: ...
+            empty: Literal["zero", "null"] = "null") -> Metric: ...
     def mean(self, *, nulls: Literal["ignore", "error"] = "ignore") -> Metric: ...
     def quantile(self, q: float, *,
                  nulls: Literal["ignore", "error"] = "ignore") -> Metric: ...
@@ -791,7 +792,7 @@ observed_mean = revenue.per(CustomerId).mean()
 cohort_ratio = revenue.where(mv.in_population(cohort)) / revenue
 ```
 
-cohort={A,B}，全来源 A=100、C=300，收入 sum 空/全 NA 为零：cohort_mean=(100+0)/2=50，
+cohort={A,B}，全来源 A=100、C=300，收入显式 sum(empty="zero") 空/全 NA 为零：cohort_mean=(100+0)/2=50，
 observed_mean=(100+300)/2=200；只在 cohort 中出现的客户均值为 100。cohort_ratio 为 1/4。
 per 在每个样本完成整个子式，不会把其中分母意外留在全局 400；人群/全体比率应使用上面的分支公式。
 
@@ -1279,7 +1280,7 @@ Ibis 技术依据：[Deferred 与 Value](https://ibis-project.org/reference/expr
 | --- | --- | --- |
 | [当前封闭表达式合同](semantic-object-model.md#common-contracts) | Measure/Metric 采用受控叶子上的原生 Ibis 数值表达式及自动延迟类型绑定；Entity/Source、Dimension/TimeDimension 保留其 owner 合同 | 接受合法 Metric 阶段的受控 Ibis 延迟输入；仍拒绝表参数、无语义来源的外部 Ibis 图及已退役工厂；不恢复旧任意表体 |
 | [fanout_policy 与 aggregate_then_join](semantic-object-model.md#grain-root-entity-and-fan-out) | 按 §3.7.1 显式选择存在性、重叠桶或独立关联/分配贡献；物理 join/aggregate 次序按 §3.7.2 证明等价，不恢复策略参数 | 旧参数拒绝；保留贡献单位、完整身份、成员集合、时点、过滤、未匹配政策及组件顺序；不能把桶改成半连接、关联事件改成集合，或补上未声明的分配/匹配规则 |
-| [empty 声明政策](semantic-object-model.md#fixed-null-and-empty-contracts) | 来源/内部样本 sum 接 empty="zero"（默认）或 "null"；保留忽略 NA 后无有效值的区别 | 旧声明参数和 ms.empty 工厂拒绝；把政策移到每个对应 sum 节点，不能只删除参数 |
+| [empty 声明政策](semantic-object-model.md#fixed-null-and-empty-contracts) | 来源/内部样本 sum 接 empty="null"（默认）或 "zero"；保留忽略 NA 后无有效值的区别 | 旧声明参数和 ms.empty 工厂拒绝；把政策移到每个对应 sum 节点，并保持贡献集与输出域 |
 | [status_time_fold 与 aggregate fold](semantic-object-model.md#sampled-semi-additive-metrics) | 默认 fold 改为 per(状态 TimeField).reducer，包含 first/last；保留先空间后时间、排序及覆盖 | 旧参数拒绝；展开实际生效的继承/覆盖政策，保持采样轴、范围、include_null 和锚点，不能改成逐实体最后记录 |
 | [跨 Entity 的 time_via](semantic-object-model.md#metric) | 保留明确的跨 Entity 时间读取能力，统一为 time=TimeField.via(path)，按 §2.1 捕获单值路径；不增加观察时路由覆盖 | time_via 参数拒绝；错误给出原时间字段和有序关系路径的改写位置，不猜路径或改为根 Entity 的其它时间 |
 | [approx_* 与定义拥有精确性](semantic-object-model.md#definition-owned-aggregate-exactness) | 原生 approx_nunique/approx_median/approx_quantile，来源和内部样本共用定义精确性合同 | 旧工厂拒绝；保留字段、q、过滤、NA 与误差承诺，路线另验；禁止精确/近似静默替换 |
@@ -1313,7 +1314,7 @@ Ibis 技术依据：[Deferred 与 Value](https://ibis-project.org/reference/expr
 | first/last | 先空间后时间；同一采样轴/时点域、升序、选择锚点和 NA 行为；旧覆盖要求 | 每实体不同末次时点求和；缺测被跳过；边界 as-of 被期间最后样本替代 |
 | 近似规约 | 同一输入/过滤/去重身份、q、精确性意图及旧有误差承诺；类型/单位/NA 一致 | 改成精确算法、不同统计定义；无证据宣称同误差界或逐位数值相等 |
 | 重叠分桶 | 同一根贡献键、完整桶键、路径/恒等绑定、联合关系或独立集合乘积、输出域、成员版本/时点、同桶去重、未匹配行为与组件顺序 | 半连接、分摊权重、原始 join 放大、加总标签行当并集；旧定义若确实计关联次数则须保留其独立关联事实根，不能偷偷改成集合 |
-| empty=null | 忽略 NA 后无有效值返回 NA，有效零仍为零；同一 sum 节点和输出域 | 只删旧参数、nullif(sum,0)、把缺桶补成存在空桶、用 scalar NA 加法代替合并 |
+| empty=null | 忽略 NA 后无有效值返回 NA，有效零仍为零；同一 sum 节点和输出域 | 只删旧参数而未核对贡献集和输出域、nullif(sum,0)、把缺桶补成存在空桶、用 scalar NA 加法代替合并 |
 | 命名累计 | 同一基础公式、时间角色、输出端点、历史下界/重置/持续时长、时区、过滤及空/NA 政策；distinct 保留下述 first-seen 归属 | 报表起点重置全历史、每日比率/去重数累加、固定 86400 秒改自然日、重复窗口覆盖 |
 
 旧 count_distinct 累计合同把身份归到其首次出现桶，再对该归属计累计；迁移须保留这层归属，不能只在每个窗口重做 nunique。

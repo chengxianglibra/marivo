@@ -151,26 +151,15 @@ def test_observed_nullable_large_int64_preserves_native_and_saved_values(
         db.execute('ALTER TABLE "order" ALTER amount TYPE BIGINT')
         for key, value in zip(("a", "b", "c", "null"), (*values, None), strict=True):
             db.execute('INSERT INTO "order" (order_id, amount) VALUES (?, ?)', [key, value])
-    import ibis
-
-    native_backend = ibis.duckdb.connect(str(case.database_path))
-    try:
-        source = native_backend.table("order")
-        native = native_backend.execute(
-            source.select("order_id", value=source.amount).order_by("order_id")
-        )
-    finally:
-        native_backend.disconnect()
     artifact = orders(case).execute()
     frame = plain(artifact)
-    assert frame.value.iloc[:3].tolist() == native.value.iloc[:3].tolist()
-    assert frame.value.isna().tolist() == native.value.isna().tolist()
-    assert frame.value.dtype == pd.ArrowDtype(pa.float64())
+    assert frame.value.iloc[:3].tolist() == list(values)
+    assert frame.value.isna().tolist() == [False, False, False, True]
+    assert frame.value.dtype == pd.ArrowDtype(pa.int64())
     scored = deviation(frame, "zscore")
-    assert scored.value.iloc[:3].tolist() == native.value.iloc[:3].tolist()
-    # The native floats have lost the original differences. The local recipe
-    # consumes those represented values and does not invent a nonzero spread.
-    assert scored.score.isna().all()
+    assert scored.value.iloc[:3].tolist() == list(values)
+    assert scored.score.iloc[:3].tolist() == list(expected(values, "zscore")[3])
+    assert pd.isna(scored.score.iloc[3])
     pd.testing.assert_frame_equal(plain(case.session.artifact(artifact.id)), frame)
 
 

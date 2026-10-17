@@ -673,7 +673,7 @@ def test_retired_declaration_syntax_has_specific_reauthoring_errors(
     for factory, kwargs, token in (
         (ms.metric, {"entities": [ms.ref.entity("sales.orders")]}, "zero-argument"),
         (ms.metric, {"fanout_policy": "aggregate_then_join"}, "Overlapping"),
-        (ms.metric, {"empty": "null"}, "does not preserve"),
+        (ms.metric, {"empty": "null"}, "each actual source/internal sum"),
         (ms.measure_column, {"status_time_fold": None}, "per("),
         (ms.metric, {"time_via": (ms.ref.relationship("sales.orders_to_customers"),)}, "via("),
     ):
@@ -1300,7 +1300,7 @@ def test_quantile_and_policy_inputs_are_validated(catalog: SemanticCatalog) -> N
     amount = _measure(catalog, "amount")
     paid_at = resolve(catalog, ms.ref.time_dimension("sales.orders.paid_at"))
     assert _facts(amount.quantile(0.95)).node == SourceAggregate(
-        _facts(amount).node, "quantile", TimeBinding(_reference(paid_at)), q=0.95
+        _facts(amount).node, "quantile", TimeBinding(_reference(paid_at)), q=0.95, empty="zero"
     )
     for bad in (1.5, -0.1, float("nan")):
         with pytest.raises(SemanticExpressionError) as out_of_range:
@@ -1521,7 +1521,9 @@ def test_per_field_samples_reduce_through_per_nodes(catalog: SemanticCatalog) ->
     assert _facts(samples).axes == (axis,)
     assert _facts(revenue.per((customer_id,))) == _facts(samples)
     observed_mean = samples.mean()
-    assert _facts(observed_mean).node == PerReduce(_facts(revenue).node, (axis,), "mean")
+    assert _facts(observed_mean).node == PerReduce(
+        _facts(revenue).node, (axis,), "mean", empty="zero"
+    )
     assert (_facts(observed_mean).roots, _facts(observed_mean).unit) == (
         _facts(revenue).roots,
         "CNY",

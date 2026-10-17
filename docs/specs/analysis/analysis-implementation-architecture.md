@@ -342,7 +342,7 @@ Query 构造后可继续组合；execute 完成全部必要计算和检查，原
 ### 5.3 Nullable 值、presence 与检查
 
 逻辑值为类型化 value 或 NA，物理上只有一列 nullable value；不再有逐格状态码、原因码和 carrier 变体。
-普通 NA 的来源不保留；sum 默认 empty="zero"，可显式 empty="null"。
+普通 NA 的来源不保留；sum 默认 empty="null"，可显式 empty="zero"。
 二者都不区分空输入与全 NA；nullable sum 的计划内合并按需保留有效值支持，不保存缺失原因。
 outer 的缺侧仍用非空 boolean presence 和端点投影表示；presence 不由值是否为空推断。
 
@@ -360,7 +360,7 @@ outer 的缺侧仍用非空 boolean presence 和端点投影表示；presence �
 
 | 执行边界 | 物理表示与运算 | 额外工作 |
 | --- | --- | --- |
-| 来源 SQL / Ibis | 原生类型化 nullable value；sum 显式 coalesce 到 0 | 仅对合同需要的输入生成违规检查，不为每个表达式生成 state/reason CASE |
+| 来源 SQL / Ibis | 原生类型化 nullable value；sum 默认无有效值为 NA，仅 empty="zero" 时 coalesce 到 0 | 仅对合同需要的输入生成违规检查，不为每个表达式生成 state/reason CASE |
 | 本地 pandas | 按统一 schema 规范化的 DataFrame、nullable dtype 与缺失 mask | 比较、算术与筛选使用列式操作；共同配对使用同一 mask，精确数值算法仍由原内核拥有 |
 | 冷存 Parquet | 输出 nullable value、独立 presence、坐标投影和展示数据 | 不写 CellBook/state/reason，不做 carrier 推导或 remap |
 | 展示 / 导出 | 从 value 的缺失性显示 NA；检查失败显示结构化错误 | 不构造 N×Q 个 Python Cell 对象，不恢复已放弃的缺失原因 |
@@ -369,6 +369,8 @@ Arrow validity 是存储/读取布局，pandas mask 是本地计算布局，Mari
 来源接受 Ibis/provider 原生数值类型与精度，不为统一返回 dtype 在 Ibis 层加入业务无关 cast。
 相同表达式的后端类型差异由 pandas → StageOutput 的已有入口处理；本地消费者与输出 schema
 使用交接后的有效类型。复用原生数组及 nullable 表示，不盲目恢复声明 dtype，不建立另一套 transport。
+DuckDB 在现有来源边界消费 Ibis Arrow 结果，整数列直接进入 pandas Arrow extension dtype，
+保留大整数与 null，避免先转 float64；其他后端继续使用原生 Ibis pandas 返回。
 完整责任边界由[执行 §1.5.1](lazy-analysis-dsl-execution.md#151-ibis-原生返回与-pandas-类型交接)拥有。
 来源返回与字面量输入复用规范化入口，但来源原生精度容忍不改变字面量自身的类型合同。
 入口校验列序、完整键、nullability、时区、单位和必要值约束；本地算子不各自猜类型或利用 pandas index 对齐。
@@ -376,7 +378,7 @@ schema-only 检查表达式/类型族/方法能力，不证明无损；事后 ca
 本地计算仍服从各方法合同，终端存储与导出保留交接、计算完成后的实际输出值。
 这项 2026-10-17 取舍尚需代码适配；现有非 DuckDB 拒绝、严格 carrier 校验及 DuckDB 特化读取不能作为已完成证据。
 
-source/local 共用已解析的政策与检查描述，各自 lowering 数值操作；sum 使用忽略 NA 后的和及单位元 0，
+source/local 共用已解析的政策与检查描述，各自 lowering 数值操作；sum 内部累加使用忽略 NA 后的和及单位元 0，默认完成时需有效值支持、无有效值为 NA，
 mean 保存非 NA 的 sum/valid_count；无需通用 sample_count/null_count 或逐格原因。
 nulls="error" 的检查需要时可计算临时 NA 计数，但通过后不作为 Cell 状态保存。
 配对空集产生 NA，非空配对权重和为零按政策检查；两者仅需 weighted_mean 自己的 valid_pair_count。
@@ -514,7 +516,7 @@ external output K
 显式内部域不创建额外外部格子。合法零轴非空域产生每个 k 的一次子求值，零键域没有内部样本；
 两者都不等于子指标空贡献。Field/Member 复合域按完整绑定能力准入，首期内部 Calendar/Correspondence 样本仍不支持。
 
-例如 P={A,B}、全来源 A=100/C=300、收入 sum 空/全 NA 为零：
+例如 P={A,B}、全来源 A=100/C=300、收入显式 sum(empty="zero") 空/全 NA 为零：
 `revenue.per(P).mean()` 得 50；`revenue.per(CustomerId).mean()` 得 200。
 per(P) 的域外 C 不进入内部求值；observe(by=P) 则仍要求先限制贡献，否则输出缺 C 应失败。
 该反例决定两种绑定记录不能合并。

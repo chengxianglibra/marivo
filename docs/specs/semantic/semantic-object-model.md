@@ -533,13 +533,14 @@ Complete binding and execution checks belong to R2/R3.
 
 ### Fixed null and empty contracts
 
-Policies belong to each actual operator. sum/count/count_distinct return 0 for
-complete empty/all-NA input. Other admitted reducers return NA for no valid
-sample. `nulls="ignore"` is the reducer default; explicit "error" checks selected
-inputs. Division and weighted_mean default to zero_denominator="null"; explicit
+Policies belong to each actual operator. sum returns NA by default for complete
+empty/all-NA input; explicit `empty="zero"` returns 0. count/count_distinct return 0.
+Other admitted reducers return NA for no valid sample. `nulls="ignore"` is the
+reducer default; explicit "error" checks selected inputs. Division and weighted_mean default to zero_denominator="null"; explicit
 "error" remains on that operation. None of these choices can be overridden by a
-Metric decorator, Session or observation. Old `empty` and policy factories are
-rejected; deleting an old empty="null" sum does not establish equivalence.
+Metric decorator, Session or observation. Declaration-wide `empty` and policy
+factories are rejected; source/internal sum owns `empty="null"` (default) or `"zero"`. Migrating an old declaration must
+preserve its selected contributions and output domain as well as this policy.
 
 ## Weighted means
 

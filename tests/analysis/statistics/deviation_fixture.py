@@ -97,7 +97,7 @@ def prepare_profiles(
             if followup:
                 metrics.append(
                     f"@ms.metric()\ndef total_{index}():\n"
-                    f"    return profile_{index}_value.sum(time=time_value)\n"
+                    f"    return profile_{index}_value.sum(time=time_value, empty='zero')\n"
                 )
     models = case.root / "models/semantic/sales/models.py"
     body, composition = models.read_text().split("finalized = ms.finalize()", 1)

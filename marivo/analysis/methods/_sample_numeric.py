@@ -188,5 +188,5 @@ def reduce_samples(
         record["value"] = None if record["sample.numeric"] else result
         records.append(record)
     return pd.DataFrame(
-        records, columns=[*keys, "value", *(name for name, _, _ in metadata)]
+        records, columns=[*keys, "value", *(name for name, _, _ in metadata)], dtype=object
     ), metadata

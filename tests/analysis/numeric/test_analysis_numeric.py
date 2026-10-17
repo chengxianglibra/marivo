@@ -369,9 +369,9 @@ def test_numeric_composition_matrix(analysis_dsl_case_factory: DslCaseFactory) -
             backend = ibis.duckdb.connect(str(case.database_path))
             try:
                 table = backend.table("order")
-                native = backend.execute(
+                native = backend.to_pyarrow(
                     table.group_by("customer_id").aggregate(value=table.amount.mean())
-                )
+                ).to_pandas()
             finally:
                 backend.disconnect()
             assert fine.set_index(fine.columns[0])[("value", "value")].to_dict() == dict(

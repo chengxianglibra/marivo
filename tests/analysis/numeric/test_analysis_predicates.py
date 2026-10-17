@@ -95,8 +95,8 @@ def test_nullable_selection_keeps_positive_values_and_offline_export(
     model = case.root / "models/semantic/sales/models.py"
     model.write_text(
         model.read_text().replace(
+            'return amount_value.sum(time=time_value, empty="zero")',
             "return amount_value.sum(time=time_value)",
-            "return amount_value.sum(time=time_value, empty='null')",
             1,
         )
     )

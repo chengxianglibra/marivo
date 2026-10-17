@@ -328,7 +328,7 @@ def test_civil_date_uses_report_zone_at_partial_boundary(prepared_session: Sessi
             start="2026-01-01T02:00:00+08:00", end="2026-01-02T00:00:00+08:00"
         ),
     )
-    assert result.table["value.0"].tolist() == [0]
+    assert result.table["value.0"].isna().all()
 
 
 @pytest.mark.parametrize("prepared_session", ["snapshot"], indirect=True)

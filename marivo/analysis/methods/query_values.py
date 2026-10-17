@@ -422,14 +422,14 @@ def evaluate_result(stage: LocalCompute, inputs: tuple[pd.DataFrame, ...]) -> pd
                                     1 if statistic.method == "sum" else len(ticks),
                                     DurationType(input_type.unit),
                                 )
-                                if ticks or statistic.method == "sum"
+                                if ticks
                                 else None
                             )
                         else:
                             total = checked_sum(active, stage_arrow_type(input_type))
                             value = (
                                 total
-                                if statistic.method == "sum"
+                                if active and statistic.method == "sum"
                                 else finish_division(
                                     total,
                                     len(active),

@@ -117,7 +117,7 @@ def test_calendar_population_axis_order(window_session: Session, calendar_first:
     calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))
     domain = mv.product(calendar, customers) if calendar_first else mv.product(customers, calendar)
     result = session.observe({"revenue": revenue}, by=domain).execute().to_pandas()
-    assert result[("value", "revenue")].tolist() == [20, 0, 0, 0]
+    assert result[("value", "revenue")].to_dict() == {0: 20, 1: None, 2: None, 3: None}
     assert len(result) == 4
     days = [datetime(2026, 10, 7, tzinfo=timezone.utc), datetime(2026, 10, 8, tzinfo=timezone.utc)]
     assert result.iloc[:, 0].tolist() == (
@@ -142,8 +142,8 @@ def test_per_calendar_population_retains_empty_samples(window_session: Session) 
         .execute()
         .to_pandas()
     )
-    assert result[("value", "mean")].tolist() == [5.0]
-    assert result[("value", "reverse_mean")].tolist() == [5.0]
+    assert result[("value", "mean")].tolist() == [20.0]
+    assert result[("value", "reverse_mean")].tolist() == [20.0]
 
 
 def test_source_population_calendar_product(window_session: Session) -> None:
@@ -154,9 +154,9 @@ def test_source_population_calendar_product(window_session: Session) -> None:
     calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))
     samples = mv.product(customers, calendar)
     result = session.observe({"revenue": revenue}, by=samples).execute().to_pandas()
-    assert result[("value", "revenue")].tolist() == [20, 0]
+    assert result[("value", "revenue")].to_dict() == {0: 20, 1: None}
     average = session.observe({"mean": revenue.per(samples).mean()}).execute().to_pandas()
-    assert average[("value", "mean")].tolist() == [10.0]
+    assert average[("value", "mean")].tolist() == [20.0]
 
 
 def test_population_calendar_does_not_guess_window_endpoints(window_session: Session) -> None:

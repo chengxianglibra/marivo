@@ -24,6 +24,8 @@ to local consumers and publication without relaxing keys, units, time or null
 policies. This code-route scope does not itself establish remote Runtime
 qualification. The complete slow suite and release acceptance remain incomplete;
 current remote evidence belongs to the [Runtime coverage guide](../../testing/runtime-coverage.md#remote-numerical-query-extension).
+DuckDB's pandas handoff preserves nullable integers through Ibis Arrow results;
+this does not establish the same conversion guarantee for other providers.
 
 This is the entry point for the design of Marivo's
 datasource and semantic layers (`marivo.datasource` and `marivo.semantic`). It

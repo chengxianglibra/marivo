@@ -110,7 +110,7 @@ def test_empty_numeric_selection_has_distinct_row_policies(
         .execute()
         .to_pandas()
     )
-    assert result[("value", "sum")].tolist() == [0]
+    assert result[("value", "sum")].isna().all()
     assert result[("value", "count")].tolist() == [0]
     assert result[("value", "mean")].isna().all()
 

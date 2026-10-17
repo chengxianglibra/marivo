@@ -163,8 +163,8 @@ def test_compiled_read_executes_through_ibis_and_returns_pandas(
         purpose="basic.parameter",
         expected_schema=expression.schema().to_pyarrow(),
     )
-    backend_execute = Mock(wraps=session._backend.execute)
-    monkeypatch.setattr(session._backend, "execute", backend_execute)
+    backend_execute = Mock(wraps=session._backend.to_pyarrow)
+    monkeypatch.setattr(session._backend, "to_pyarrow", backend_execute)
     backend_compile = Mock(wraps=session._backend.compile)
     monkeypatch.setattr(session._backend, "compile", backend_compile)
 
@@ -348,13 +348,16 @@ def test_empty_execution_keeps_the_compiled_columns(session: SourceSession) -> N
     result = session.execute(read)
     assert result.empty
     assert tuple(result.columns) == tuple(read.schema.names)
+    assert all(pd.api.types.is_integer_dtype(dtype) for dtype in result.dtypes)
 
 
 def test_execute_failure_is_recorded_as_a_failed_query(
     session: SourceSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     read = _read(session)
-    monkeypatch.setattr(session._backend, "execute", Mock(side_effect=RuntimeError("read failed")))
+    monkeypatch.setattr(
+        session._backend, "to_pyarrow", Mock(side_effect=RuntimeError("read failed"))
+    )
     with pytest.raises(RuntimeError, match="read failed"):
         session.execute(read)
     assert session.submissions[-1].state == "failed"

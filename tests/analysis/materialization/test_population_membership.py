@@ -34,7 +34,7 @@ frozen = ms.finalize()
 a = frozen.resolve(amount)
 @ms.metric()
 def revenue():
-    return a.sum()
+    return a.sum(empty="zero")
 """
 
 

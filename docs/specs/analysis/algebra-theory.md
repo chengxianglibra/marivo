@@ -305,8 +305,8 @@ first/last 的内部时间样本可表示为带唯一有序时间键的 bag，�
 
 对 `T=ℝ+{NA}` 的有限 bag，定义 `η(v)=(v,1)`、`η(NA)=(0,0)`，
 摘要 `(sum,valid_count)` 分量相加，单位为 `(0,0)`，仍构成交换幺半群。
-目标默认 sum(empty="zero") 直接取 sum，因此空输入与全 NA 都为 0，只需保存和。
-sum(empty="null") 在 valid_count>0 时取 sum，否则返回 NA；有效值抵消为零仍输出零。
+目标默认 sum(empty="null") 在 valid_count>0 时取 sum，否则返回 NA；有效值抵消为零仍输出零。
+显式 sum(empty="zero") 直接取 sum，因此空输入与全 NA 都为 0，只需保存和。
 后者需有效值支持来完成合并，但同样不区分空输入与全 NA，也不保存缺失原因。
 mean 在 valid_count>0 时取商，否则返回 NA；count/row_count 仍分别按其声明的样本单位计数。
 空值政策是方法定义的一部分；严格 nulls="error" 另保留其定义域检查，不被 ignore 摘要消去。

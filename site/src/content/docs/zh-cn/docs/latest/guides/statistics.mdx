@@ -20,7 +20,7 @@ ranked = current.top(1, by=current["revenue"], descending=True)
 ranked.execute().show()
 ```
 
-Query.reduce 提供 sum、mean 和 row_count。sum 忽略普通 NA，空/全 NA 默认为零；mean 无有效样本时为 NA。row_count 计所有坐标行，包括量值为 NA 的行。by 接已有完整轴或合法粗化日历。Top-N 使用当前精确输入的 Column、可选 partition_by 及确定性的完整键打破平局；展示次序在重开后保留。
+Query.reduce 提供 sum、mean 和 row_count。sum 忽略普通 NA，空/全 NA 返回 NA；mean 无有效样本时为 NA。row_count 计所有坐标行，包括量值为 NA 的行。by 接已有完整轴或合法粗化日历。Top-N 使用当前精确输入的 Column、可选 partition_by 及确定性的完整键打破平局；展示次序在重开后保留。
 
 地区收入格子的平均值是当前格子统计，不能替代总体原 Metric；后者的公式与贡献权限由 rollup 或新 observe 拥有。
 

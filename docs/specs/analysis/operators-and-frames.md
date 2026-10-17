@@ -29,11 +29,11 @@ by independent nonnullable boolean presence, never inferred from value NA.
 
 | Operation | Effective samples | Empty/all-NA result |
 | --- | --- | --- |
-| Source or internal sum | Non-NA child values, subject to nulls policy | 0 by default; NA for explicit `empty="null"` |
+| Source or internal sum | Non-NA child values, subject to nulls policy | NA by default; 0 for explicit `empty="zero"` |
 | count / count_distinct | Method's declared complete occurrences or non-NA values | 0 |
 | min/max/mean/median/quantile | Effective non-NA samples | NA |
 | weighted_mean | One common non-NA value/weight pair mask for both sums | The operator's denominator policy |
-| Query Column sum | Current non-NA represented cells | 0 |
+| Query Column sum | Current non-NA represented cells | NA |
 | Query Column mean | Current non-NA represented cells | NA |
 | row_count | All current coordinate rows, including NA values | 0 |
 

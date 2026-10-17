@@ -20,7 +20,7 @@ ranked = current.top(1, by=current["revenue"], descending=True)
 ranked.execute().show()
 ```
 
-Query.reduce provides sum, mean and row_count. Sum ignores ordinary NA and defaults empty/all-NA to zero; mean is NA with no effective sample. row_count counts coordinate rows even when their value is NA. `by` uses existing complete axes or a lawful coarsened calendar. Top-N uses a Column from this exact input, optional partition_by, and deterministic complete-key tie breaking. Its display order survives reopening.
+Query.reduce provides sum, mean and row_count. Sum ignores ordinary NA and returns NA for empty/all-NA input; mean is NA with no effective sample. row_count counts coordinate rows even when their value is NA. `by` uses existing complete axes or a lawful coarsened calendar. Top-N uses a Column from this exact input, optional partition_by, and deterministic complete-key tie breaking. Its display order survives reopening.
 
 An average of regional revenue cells is a current-cell statistic. It does not replace an original overall Metric, whose formula and contribution permissions belong to rollup or a new observe.
 

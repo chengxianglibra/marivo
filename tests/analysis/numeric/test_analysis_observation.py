@@ -222,8 +222,8 @@ def test_linear_preserves_each_empty_branch_policy(
     count = session.catalog.metrics.get("sales.order_count")
     for expression, counted, nullable in (
         (count, True, False),
-        (amount.sum(time=time), False, False),
-        (amount.sum(time=time, empty="null"), False, True),
+        (amount.sum(time=time, empty="zero"), False, False),
+        (amount.sum(time=time), False, True),
     ):
         rows = _by_member(
             _observe(case, expression.where(channel == "web") + count).execute().to_pandas()

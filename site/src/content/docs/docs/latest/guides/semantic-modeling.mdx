@@ -92,6 +92,6 @@ Entity/Source and Dimension/TimeDimension retain restricted Ibis authoring. The 
 
 ## Reauthor retired declarations
 
-Old aggregate/count/where/ratio/weighted_mean/linear/cumulative factories, default folds, time_via, fanout_policy, approx_* and declaration-wide value policies are rejected. Structured errors preserve the received syntax and locate the repair. Removing empty=null does not make an old sum equivalent to the new empty sum of 0; overlapping-label grouping is not existence filtering.
+Old aggregate/count/where/ratio/weighted_mean/linear/cumulative factories, default folds, time_via, fanout_policy, approx_* and declaration-wide value policies are rejected. Structured errors preserve the received syntax and locate the repair. Source and internal sample sum default to empty="null"; use empty="zero" explicitly when no valid contribution should produce 0. Migration must also preserve contributions and the output domain; overlapping-label grouping is not existence filtering.
 
 Start at marivo.help("authoring"), then inspect semantic.measure, semantic.metric, semantic.expressions and the receiver’s focused Help. Construction, physical leaf load/readiness, Catalog publication and real execution are separate evidence.

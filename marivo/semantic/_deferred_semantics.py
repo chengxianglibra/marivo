@@ -524,7 +524,7 @@ def _reduce(
         if name in {"quantile", "approx_quantile"}
         else None
     )
-    empty_value = _constant(kwargs.get("empty", Just("zero")))
+    empty_value = _constant(kwargs.get("empty", Just("null" if name == "sum" else "zero")))
     if empty_value not in ("zero", "null") or ("empty" in kwargs and name != "sum"):
         _fail(
             "empty is a sum policy.",

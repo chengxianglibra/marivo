@@ -60,6 +60,8 @@ Source Ibis executes through the selected declared datasource and returns pandas
 
 Source computation accepts native Ibis/provider numerical precision loss. Ibis lowering adds no casts solely to standardize backend result types or preserve transport precision; business-required conversions remain. The pandas handoff resolves the effective numerical types of direct fields, reductions and internal components for subsequent local operations and publication, retaining complete keys, null policies, units and time semantics. Casting cannot recover lost source precision; saved-output fidelity concerns the values actually committed.
 
+DuckDB reads use Ibis Arrow results to construct pandas integer columns with nullable Arrow extension dtypes. Large integers remain exact beside null values without an intermediate float64 conversion. Local computation still uses pandas; this conversion guarantee does not extend to other backends.
+
 Time preparation and temporal rewrites use the actual selected engine. Remote source blocks use the unfused route until their own equivalence is established. Local execution is eager and may retain full required vectors in memory. Failure never switches route or truncates input.
 
 DuckDB native INTERVAL is admitted in microseconds only after a source-native check rejects year, month and day components. It cannot become elapsed time merely by casting and does not supply nanosecond precision. Arrow Duration on a qualified file route preserves the file's declared tick unit.

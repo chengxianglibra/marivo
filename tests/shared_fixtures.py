@@ -250,7 +250,7 @@ line_order_value = finalized.resolve(line_order)
 
 @ms.metric()
 def {n.revenue}():
-    return amount_value.sum(time=time_value)
+    return amount_value.sum(time=time_value, empty="zero")
 
 @ms.metric()
 def {n.order_count}():
@@ -258,7 +258,7 @@ def {n.order_count}():
 
 @ms.metric()
 def {n.line_revenue}():
-    return line_amount_value.sum(time=time_value.via((line_order_value,)))
+    return line_amount_value.sum(time=time_value.via((line_order_value,)), empty="zero")
 
 @ms.metric()
 def {n.aov}():

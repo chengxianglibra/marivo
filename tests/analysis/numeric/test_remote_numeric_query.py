@@ -264,6 +264,9 @@ def test_public_native_numeric_query(
         returned = direct.to_pandas()[("value", "big")]
         assert returned.isna().sum() == 3
         assert pd.notna(returned.iloc[0])
+        if backend == "duckdb":
+            assert returned.iloc[0] == 9007199254740993
+            assert pd.api.types.is_integer_dtype(returned.dtype)
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))

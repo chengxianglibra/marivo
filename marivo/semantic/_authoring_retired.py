@@ -26,7 +26,7 @@ _REPAIRS = {
     "fold": "Express the original spatial-before-temporal order explicitly with per(status_time_field).reducer().",
     "time_via": "Pass time=time_field.via((relationship, ...)) on the source reduction, preserving the original time field and ordered path.",
     "fanout_policy": "For existence filtering, author an explicit Population preimage when that capability is available. Overlapping-label grouping has no equivalent in this version; do not replace it with a semi-join or change the contribution root.",
-    "empty": "Choose the new business definition explicitly: sum of empty/all-NA input is 0. Removing empty='null' does not preserve the old definition; rewrite the business question if that behavior is required.",
+    "empty": "Set empty='null' (default) or 'zero' on each actual source/internal sum, preserving the selected contributions and output domain.",
     "nulls": "Set nulls='ignore' or 'error' on the actual reducer in the expression.",
     "zero_denominator": "Set zero_denominator='null' or 'error' on the actual divide or weighted_mean operation.",
 }

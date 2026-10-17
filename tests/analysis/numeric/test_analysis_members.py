@@ -147,7 +147,7 @@ def test_member_axis_retains_ordered_composite_identity(members_session: Session
     grid = session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
     rows = session.observe({"value": metric}, by=mv.product(members, grid)).execute().to_pandas()
     assert len(rows) == 6
-    assert rows[("value", "value")].tolist() == [10, 0, 0, 0, 20, 0]
+    assert rows[("value", "value")].to_dict() == {0: 10, 1: None, 2: None, 3: None, 4: 20, 5: None}
 
 
 def test_observation_classification_reads_explicit_version(members_session: Session) -> None:
@@ -508,7 +508,8 @@ def test_grid_classification_uses_grid_point(members_session: Session) -> None:
         .to_pandas()
     )
     assert len(frame) == 4
-    assert sorted(frame[("value", "value")].tolist()) == [0, 0, 0, 10]
+    assert frame[("value", "value")].dropna().tolist() == [10]
+    assert frame[("value", "value")].isna().sum() == 3
     assert set(frame.iloc[:, 0]) == {"west", "east"}
 
 

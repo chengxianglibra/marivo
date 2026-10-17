@@ -402,7 +402,7 @@ def test_unselected_native_branch_keeps_its_dynamic_checks_masked(
     session = optimization_session
     amount = session.catalog.fields.get("sales.orders.amount")
     region = session.catalog.fields.get("sales.orders.region")
-    total = amount.sum()
+    total = amount.sum(empty="zero")
     guarded = ibis.ifelse(total >= 0, total, total.divide(0, zero_denominator="error"))
     query = session.observe({"safe": guarded}, by=(region,))
     _same(session, query)
@@ -597,20 +597,24 @@ def test_each_public_execute_owns_a_fresh_compilation_memo(
     assert len(memos) == 2 and memos[0] is not memos[1]
 
 
+@pytest.mark.parametrize("zero", (False, True))
 def test_zero_axis_original_empty_sum_and_ratio_keep_one_nullable_cell(
     optimization_session: Session,
+    zero: bool,
 ) -> None:
     session = optimization_session
     amount = session.catalog.fields.get("sales.orders.amount")
     region = session.catalog.fields.get("sales.orders.region")
-    source = session.observe(
-        {"sum": amount.sum(), "ratio": amount.sum() / amount.count()}, by=(region,)
-    )
+    total = amount.sum(empty="zero") if zero else amount.sum()
+    source = session.observe({"sum": total, "ratio": total / amount.count()}, by=(region,))
     selected = source.top(0, by=source["sum"])
     query = selected.rollup()
     result, _, _, _ = _execute(session, query, optimized=False)
     assert len(result.table) == 1
-    assert result.table["value.0"].tolist() == [0]
+    if zero:
+        assert result.table["value.0"].tolist() == [0]
+    else:
+        assert result.table["value.0"].isna().all()
     assert result.table["value.1"].isna().all()
     _same(session, query)
 
@@ -623,7 +627,9 @@ def test_exact_original_group_and_common_source_block_execute_fewer_stages(
     value = session.catalog.fields.get("sales.orders." + field)
     region = session.catalog.fields.get("sales.orders.region")
     detail = session.catalog.fields.get("sales.orders.detail")
-    source = session.observe({"sum": value.sum(), "count": value.count()}, by=(region, detail))
+    source = session.observe(
+        {"sum": value.sum(empty="zero"), "count": value.count()}, by=(region, detail)
+    )
     query = source.rollup(by=(region,)).rollup()
     calls: list[CompiledRead] = []
     execute = SourceSession.execute
@@ -811,7 +817,7 @@ def test_common_block_keeps_same_period_filter_and_exact_checks(
     time = session.catalog.fields.get("sales.orders.ordered_at")
     region = session.catalog.fields.get("sales.orders.region")
     query = session.observe(
-        {"a": amount.sum(time=time), "b": amount.count(time=time)},
+        {"a": amount.sum(time=time, empty="zero"), "b": amount.count(time=time)},
         during=session.time_scope(start="2026-01-01", end="2026-01-02"),
         by=(region,),
         where=amount > 0,

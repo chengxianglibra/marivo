@@ -41,7 +41,7 @@ def test_direct_score_runs_and_next_business_round(
     field = session.catalog.fields.get("sales.order.profile_0")
     time = session.catalog.fields.get("sales.order.ordered_at")
     grid = session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
-    artifact = session.observe({"value": field.sum(time=time)}, during=grid).execute()
+    artifact = session.observe({"value": field.sum(time=time, empty="zero")}, during=grid).execute()
     exported = artifact.to_pandas()
     assert exported[("value", "value")].tolist() == [-2, 2, -2]
     absolute = exported.copy(deep=True)
@@ -69,12 +69,12 @@ def test_direct_score_runs_and_next_business_round(
     axis = session.catalog.fields.get("sales.order.channel")
     domain = mv.coordinates(by=(axis,), keys=(("a",), ("b",), ("c",)))
     previous = session.observe(
-        {"value": field.sum(time=time)},
+        {"value": field.sum(time=time, empty="zero")},
         during=session.time_scope(start="2026-08-01", end="2026-08-04"),
         by=domain,
     )
     following = session.observe(
-        {"value": field.sum(time=time)},
+        {"value": field.sum(time=time, empty="zero")},
         during=session.time_scope(start="2026-08-04", end="2026-08-07"),
         by=domain,
     )

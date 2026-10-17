@@ -504,7 +504,16 @@ class SourceSession:
         try:
             with cr.backend_errors(self._backend):
                 table = proof.expression.as_table()
-                result = self._backend.execute(table, params=dict(proof.params), limit=None)
+                if self.provider.name == "duckdb":
+                    # Preserve integer values and nulls before pandas can infer float64.
+                    arrow = self._backend.to_pyarrow(table, params=dict(proof.params), limit=None)
+                    result = arrow.to_pandas(
+                        types_mapper=lambda dtype: (
+                            pd.ArrowDtype(dtype) if pa.types.is_integer(dtype) else None
+                        )
+                    )
+                else:
+                    result = self._backend.execute(table, params=dict(proof.params), limit=None)
             if not isinstance(result, pd.DataFrame):
                 raise _invalid("an Ibis pandas DataFrame result", type(result).__name__)
             if tuple(result.columns) != tuple(proof.schema.names):

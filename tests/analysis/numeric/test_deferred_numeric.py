@@ -1,5 +1,6 @@
 """Native Deferred numeric DAGs share source and local demand semantics."""
 
+from dataclasses import replace
 from decimal import Decimal
 
 import ibis
@@ -116,10 +117,22 @@ def test_coalesce_and_cases_preserve_nullable_integer_and_decimal_values() -> No
     assert any(mask.tolist() == [True, False, False] for mask in violations)
 
 
-def test_nullable_source_sum_and_approximate_routes() -> None:
+@pytest.mark.parametrize(
+    "values,expected",
+    [
+        ([], None),
+        ([None, None], None),
+        ([None, 2.0, 3.0], 5.0),
+        ([-10.0, 10.0], 0.0),
+        ([2.0, 3.0], 5.0),
+    ],
+)
+def test_nullable_source_sum(values: list[float | None], expected: float | None) -> None:
     connection = ibis.duckdb.connect(threads=1)
     try:
-        table = connection.create_table("empty_values", schema={"x": "float64"})
+        table = connection.create_table(
+            "empty_values", pd.DataFrame({"x": values}), schema={"x": "float64"}
+        )
         literal = RowField(
             ExactRef(ref.measure("sales.facts.x"), "v1"),
             ExactRef(ref.entity("sales.facts"), "v1"),
@@ -127,13 +140,30 @@ def test_nullable_source_sum_and_approximate_routes() -> None:
             SumAll(),
         )
         zero = lower_source_reduction(
-            SourceAggregate(literal, "sum", None), table, {"sales.facts.x": table.x}
+            SourceAggregate(literal, "sum", None, empty="zero"), table, {"sales.facts.x": table.x}
         )
         null = lower_source_reduction(
-            SourceAggregate(literal, "sum", None, empty="null"), table, {"sales.facts.x": table.x}
+            SourceAggregate(literal, "sum", None), table, {"sales.facts.x": table.x}
         )
-        assert connection.execute(table.aggregate(value=zero.value)).value.iloc[0] == 0
-        assert pd.isna(connection.execute(table.aggregate(value=null.value)).value.iloc[0])
+        actual = connection.execute(table.aggregate(value=null.value)).value.iloc[0]
+        assert pd.isna(actual) if expected is None else actual == expected
+        assert connection.execute(table.aggregate(value=zero.value)).value.iloc[0] == (
+            expected or 0
+        )
+        count = lower_source_reduction(
+            SourceAggregate(literal, "count", None), table, {"sales.facts.x": table.x}
+        )
+        assert connection.execute(table.aggregate(value=count.value)).value.iloc[0] == sum(
+            value is not None for value in values
+        )
+        strict = lower_source_reduction(
+            SourceAggregate(literal, "sum", None, nulls="error"),
+            table,
+            {"sales.facts.x": table.x},
+        )
+        assert any(bool(connection.execute(check.violation)) for check in strict.checks) == any(
+            value is None for value in values
+        )
     finally:
         connection.disconnect()
 
@@ -363,3 +393,62 @@ def test_sample_coverage_respects_calendar_axis_position(calendar_slot, customer
     )
     with pytest.raises(SemanticExpressionError, match="complete fixed-cadence"):
         query_combine(stage, (frame,))
+
+
+@pytest.mark.parametrize(
+    "values,expected",
+    [([], None), ([None, None], None), ([None, 2, 3], 5), ([-10, 10], 0), ([2, 3], 5)],
+)
+def test_internal_sum_empty_policy(values: list[int | None], expected: int | None) -> None:
+    from marivo._definition.expressions import PerReduce
+    from marivo._definition.types import AxisBinding
+    from marivo.analysis.methods._sample_numeric import reduce_samples
+
+    source = SourceAggregate(RowExpression(resolver(ibis.literal(1)), ()), "sum", None)
+    axis = AxisBinding(
+        ExactRef(ref.entity("sales.facts"), "v1"),
+        ExactRef(ref.dimension("sales.facts.customer"), "v1"),
+        (),
+        "field",
+    )
+    for empty in ("null", "zero"):
+        node = PerReduce(source, (axis,), "sum")
+        if empty == "zero":
+            node = replace(node, empty="zero")
+        result, _ = reduce_samples(
+            node,
+            pd.DataFrame({"value": pd.Series(values, dtype=object)}),
+            (),
+            pd.DataFrame(index=pd.RangeIndex(1)),
+            ("value",),
+            (),
+            output_type=ScalarDataType("int64"),
+        )
+        actual = result.value.iloc[0]
+        assert (
+            pd.isna(actual) if expected is None and empty == "null" else actual == (expected or 0)
+        )
+
+
+def test_internal_sum_keeps_large_integer_beside_null_group() -> None:
+    from marivo._definition.expressions import PerReduce
+    from marivo._definition.types import AxisBinding
+    from marivo.analysis.methods._sample_numeric import reduce_samples
+
+    source = SourceAggregate(RowExpression(resolver(ibis.literal(1)), ()), "sum", None)
+    axis = AxisBinding(
+        ExactRef(ref.entity("sales.facts"), "v1"),
+        ExactRef(ref.dimension("sales.facts.customer"), "v1"),
+        (),
+        "field",
+    )
+    result, _ = reduce_samples(
+        PerReduce(source, (axis,), "sum"),
+        pd.DataFrame({"key.0": ["A", "B"], "value": pd.Series([2**53 + 1, None], dtype=object)}),
+        ("key.0",),
+        pd.DataFrame({"key.0": ["A", "B"]}),
+        ("value",),
+        (),
+        output_type=ScalarDataType("int64"),
+    )
+    assert result.value.tolist() == [2**53 + 1, None]

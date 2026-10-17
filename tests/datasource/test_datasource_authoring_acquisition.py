@@ -9,7 +9,7 @@ from typing import cast, get_type_hints
 
 import ibis
 import ibis.expr.types as ir
-import pandas as pd
+import pyarrow as pa
 import pytest
 
 import marivo.datasource as md
@@ -656,9 +656,9 @@ def test_execution_failure_is_structured_redacted_and_disconnects(
     disconnected = 0
     original_disconnect = Backend.disconnect
 
-    original_execute = Backend.execute
+    original_execute = Backend.to_pyarrow
 
-    def fail_execute(backend: Backend, expression: ir.Table, **kwargs: object) -> pd.DataFrame:
+    def fail_execute(backend: Backend, expression: ir.Table, **kwargs: object) -> pa.Table:
         sql = backend.compile(expression, limit=None)
         if "orders" in sql.lower():
             raise ExecutionError(
@@ -671,7 +671,7 @@ def test_execution_failure_is_structured_redacted_and_disconnects(
         disconnected += 1
         original_disconnect(self)
 
-    monkeypatch.setattr(Backend, "execute", fail_execute)
+    monkeypatch.setattr(Backend, "to_pyarrow", fail_execute)
     monkeypatch.setattr(Backend, "disconnect", tracked_disconnect)
 
     with pytest.raises(DatasourceAuthoringError) as exc_info:

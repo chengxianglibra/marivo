@@ -529,7 +529,7 @@ def test_read_evidence_preserves_nested_predicate_groups(source_session: Session
         "(~((sales.orders.region == 'A') | sales.orders.region.isnull()) & (sales.orders.amount < 10))",
     )
     for predicate, expected, total in zip(predicates, expected_filters, (5, 15, 0), strict=True):
-        artifact = session.observe({"total": amount.sum()}, where=predicate).execute()
+        artifact = session.observe({"total": amount.sum(empty="zero")}, where=predicate).execute()
         assert stored_frame(session, artifact)["value.0"].tolist() == [total]
         facts = records(session, artifact)
         assert [dict(item.values)["filters"] for item in facts if item.kind == "read"] == [expected]

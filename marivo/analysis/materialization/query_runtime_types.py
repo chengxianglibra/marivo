@@ -19,7 +19,6 @@ from marivo._definition.query import (
     ReduceValues,
     RollupValues,
     SelectValues,
-    ShareValues,
     ValueBroadcast,
     ValueExpression,
     ValueSlot,
@@ -352,7 +351,7 @@ def effective_local(stage: LocalCompute, inputs: tuple[StageOutput, ...]) -> Loc
             else column
             for column in columns
         )
-    elif isinstance(operation, (RollupValues, ShareValues)) and original is not None:
+    elif isinstance(operation, RollupValues) and original is not None:
         output_types = {column.slot_id: column.dtype for column in formula_columns(original)}
         columns = tuple(
             replace(column, dtype=output_types[column.slot_id])

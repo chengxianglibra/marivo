@@ -158,7 +158,8 @@ empty collections into one summary.
 
 Published DuckDB Metric previews reuse the pure nullable Row/Metric kernel for ordinary
 source reductions, weighted means and formulas, with at most 10,000 scoped
-Entity output rows. Empty sum is zero, weighted means use common non-NA pairs,
+Entity output rows. Empty sum defaults to NA (explicit `empty="zero"` returns zero),
+weighted means use common non-NA pairs,
 and division masks zero denominators. Explicit strict policies and invalid
 arithmetic fail, including overflow of either weighted component. Population/sample
 and path/attribute-anchor preview preparation is rejected before opening a source.

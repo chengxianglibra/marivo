@@ -2307,7 +2307,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                 _capability(
                     f"{prefix}.{method}",
                     f"marivo.semantic.expressions.Entity.{method}" if prefix == "Entity" else None,
-                    "Construct a native Deferred recipe at this receiver's stage without business source reads. sum requires business permission and supports empty=zero or null; per requires a sample reducer. first/last require order_by on time samples and explicit include_null. window accepts a source-free rule and rejects nested windows. Divide defaults to null for a zero denominator; error stays on this operation.",
+                    "Construct a native Deferred recipe at this receiver's stage without business source reads. sum requires business permission and defaults empty/all-NA to null and supports explicit empty=zero; per requires a sample reducer. first/last require order_by on time samples and explicit include_null. window accepts a source-free rule and rejects nested windows. Divide defaults to null for a zero denominator; error stays on this operation.",
                     kind="method",
                     output="Deferred",
                     inputs=tuple(inputs),
