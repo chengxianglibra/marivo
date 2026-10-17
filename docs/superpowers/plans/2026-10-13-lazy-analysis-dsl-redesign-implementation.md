@@ -2,12 +2,12 @@
 
 Date: 2026-10-17
 
-Status: in progress，按 v0.37 和当前提交 `3a4e741cfac91a5f0979fcc244542f40840581ef` 重排剩余工作。R1 定义/声明/收录与 R2 普通观察闭环已交付；R2.6 已提交 `ea189ec50a`。原生 Deferred 与相关 Population、per、membership、window 能力由 [S0–S6](../../specs/semantic/expression-model-implementation-plan.md) 交付，不能据此将 R3–R8 整体结项。当前增量与执行顺序以 §2–3 和 R3–R8 任务行为准。
+Status: 本地实施与约定验收已完成，状态核对基于 `405bd006f8`。R1/R2 与 [S0–S6](../../specs/semantic/expression-model-implementation-plan.md) 提供基础能力，R3–R8 已在 `7508aca650` 交付，外部依赖 typing 收尾在 `405bd006f8` 完成。新数值 Query 的远端后端路线仍有代码能力缺口；远端 Runtime、完整 slow 集合和 release 验收未完成，不能合并称为“只差验收”。当前状态与证据边界见 §8，日期化实施过程见 §9。
 
-本次修订只调整计划，不修改实现或重跑行为验收。R1/R2 的旧任务表和日期化交接保留为历史记录；其中旧包装类、原定义版本、未提交状态和旧检查口径均不构成当前待办或当前合同。当前作者值、语义使用位置、分支需求及空值政策以 v0.37 和 S0–S6 为准；历史审查不重启，剩余开发不继承历史通过结论。
+本次修订只同步计划及相关文档状态，不修改实现或重跑行为验收。R1/R2 的旧任务表和 §9 日期化交接保留为历史记录；其中旧包装类、原定义版本、未提交状态和开发期失败均不构成当前待办或当前合同。当前作者值、语义使用位置、分支需求及空值政策以 v0.37 和当前 owning specs 为准；历史审查不重启，文档同步不新增行为验收证据。
 当前优先修订（2026-10-15，Slack `1792053438.175219` / `1792053465.849969`）：取消语义对象必须匹配构造时原定义版本及同路径改版拒绝；agent/用户承担分析期间语义定义变更的后果。实际计算/依赖身份、缓存正确性、持久化记录和其它语义检查保留。capture/finalize为默认时间/坐标/Ibis前向闭包保留。完整supersession、下一阶段清理与证据边界见下文user-priority checkpoint；历史评审/验收不回写成新合同通过。
 v0.32 统一 Query.execute → 终端 Artifact；所有 DSL 组合在执行前完成，产物不承载图、内部组件或续算。
-执行分工与架构 v0.10 同步：Ibis 负责源端计算，pandas 统一本地执行，PyArrow 只负责存储和读取。
+执行分工与架构 v0.12 同步：Ibis 负责源端计算，pandas 统一本地执行，PyArrow 只负责存储和读取。
 延续 nullable value：来源/内部样本 sum 默认空/全 NA 为 0，可显式 empty="null"；Query Column.sum 仍固定忽略 NA、空/全 NA 为 0，不新增 empty 参数。四态 carrier 与逐格原因保持退役；
 各阶段零分母统一默认 null，显式 error 才使 execute 失败；其它非法计算和实际日历/映射/请求域覆盖检查失败仍报错。
 首版不提供外部业务缺口声明或消费；本轮删除相应工作包，不增加替代入口或占位任务。
@@ -16,7 +16,7 @@ v0.32 统一 Query.execute → 终端 Artifact；所有 DSL 组合在执行前�
 
 本计划替代旧版 R1–R8 的任务切分和累积修订记录，保留文件路径与 milestone 编号，方便现有文档引用。
 编号不代表沿用旧任务内容，也不继承旧文档检查的通过状态。
-本计划与 v0.37 同步原生 Deferred、终端 Artifact、执行内中间状态与 pandas 交接边界；架构 v0.10 的旧模块示意服从当前已实现 owner，不据此重建旧数值 AST。本次仅修改本计划。
+本计划与 v0.37 同步原生 Deferred、终端 Artifact、执行内中间状态与 pandas 交接边界；历史模块示意服从当前已实现 owner，不据此重建旧数值 AST。
 
 ## 1. 目标、依据与实施尺度
 
@@ -26,14 +26,14 @@ Query 组合管理本次输入及充分信息；Artifact 保存输出、必要�
 执行后用 pandas，业务语义、重用与新 Query 求值由用户/agent 根据脚本判断。
 
 分析侧的目标名称统一为 Population、PopulationPredicate、population() 和 in_population(...)；
-语义业务 Domain、domain= 与 ms.ref.domain(...) 保留。下文当前代码路径仅用于定位待改造模块，本次仅更新设计文档。
+语义业务 Domain、domain= 与 ms.ref.domain(...) 保留。下文模块映射保留实施职责，不将历史目标文件名视为当前缺失模块。
 
 两份目标设计共同拥有 API 和语义，本文只规定实施顺序、工作包与验收出口，不复制第二份签名清单：
 
 - [语义表达式 v0.37](../../specs/semantic/expression-model-redesign.md)：行/指标阶段、声明、单位与可加性、节点政策、内部样本和模型收录。
 - [Lazy Analysis DSL v0.37](../../specs/analysis/lazy-analysis-dsl-redesign.md)：Population、观察绑定、Query/Artifact、结果算子与时间窗口。
 - [执行、保存与交接](../../specs/analysis/lazy-analysis-dsl-execution.md)：实际读取、默认保存、冷恢复、动态披露和 pandas 布局。
-- [实现架构 v0.10](../../specs/analysis/analysis-implementation-architecture.md)：共同定义、绑定、编译、执行、终端数据的分层与模块归属；重点对应 §8–9、§12–15。
+- [实现架构 v0.12](../../specs/analysis/analysis-implementation-architecture.md)：共同定义、绑定、编译、执行、终端数据的分层与模块归属；重点对应 §8–9、§12–15。
 - [场景验证 §9](../../specs/analysis/lazy-analysis-dsl-scenario-validation.md#9-后续实现的最小验收集) 与 [完整示例](../../specs/analysis/lazy-analysis-dsl-examples.md)：业务输入、独立预期和关键反例。
 - [核心分析代数](../../specs/analysis/algebra-theory.md)：身份、贡献、坐标、规约和信息充分性的依据。
 
@@ -54,19 +54,19 @@ Query 组合管理本次输入及充分信息；Artifact 保存输出、必要�
 
 ## 2. 当前基线与改动落点
 
-本次核对基于 `3a4e741cfa`。当前产品合同由 [Semantic Object Model](../../specs/semantic/semantic-object-model.md)、[Loading / Validation](../../specs/semantic/loading-validation-introspection.md)、[Python Analysis Design](../../specs/analysis/python-analysis-design.md) 与 native Help 拥有；目标增量仍由 v0.37 设计拥有。
+本次核对基于 `405bd006f8`；`3a4e741cfa` 是 R3–R8 实施前的 S0–S6 基线。当前产品合同由 [Semantic Object Model](../../specs/semantic/semantic-object-model.md)、[Loading / Validation](../../specs/semantic/loading-validation-introspection.md)、[Python Analysis Design](../../specs/analysis/python-analysis-design.md) 与 native Help 拥有；完整设计由 v0.37 拥有，具体物理路线以实际准入和证据为限。
 
-| 当前已实现基线 | 剩余实施影响 |
+| 当前已实现能力 | 当前边界 |
 | --- | --- |
 | Measure/Metric 作者值为受控 Ibis Deferred；统一消费器与真实 schema 准备已接通 | 不恢复 NumericRowExpr/Metric 包装类或 Row/Metric 算术 AST；新消费者复用语义记录、规约边界和 Ibis 配方 |
 | capture → finalize → resolve、声明收录及 Catalog 已接通 | 定义身份描述实际消费内容；不恢复同路径原版本强制匹配；披露归 Catalog 条目与 Query.contract |
-| 普通观察、pandas 阶段、Store 10 发布与终端读取已接通 | 后续只扩展本阶段输出、投影与次序；不重做 R2，不新增存储代际 |
-| Population 字面量/来源/Query 域、集合/投影/关系像、keys-only Query 已有实际路线 | R3 核对并补 read、observe.members、member_count 及完整依赖调度；已存在入口不重复创建 |
-| per 的 (k,j) 完整子式、状态样本、first/last、membership 分桶已实现 | 保留样本身份、相关元组/独立集合区别和完整贡献键；后续算子补自己的组合准入 |
-| 五种无轴窗口规则与 Metric.window 的逐端点重算已实现 | R7 基础窗口复用 S5；剩余期间对应与比较接 R5，窗口时间轴原样保留 |
-| 新 Query 尚无 select/top/reduce/align/compare/rollup/drill/share 等公开组合能力 | R4–R6 仍是主要开发量；旧内部同名算法不代表新 Query 已接通 |
+| 普通观察、pandas 阶段、Store 10 发布与终端读取已接通 | 已含次序、presence、投影及多日历输出；Artifact 不承载图或续算 |
+| Population、Session.read、observe.members、member_count 与依赖调度已接通 | 完整键与 Session 归属保留；两个 DuckDB datasource 的合格交接不等于任意跨后端路线 |
+| per 的 (k,j) 完整子式、状态样本、first/last、membership 分桶已实现 | 保留样本身份、相关元组/独立集合区别和完整贡献键；不授予未准入的近似或合并路线 |
+| 五种窗口规则、逐端点重算、期间对应与比较已接通 | 窗口空间上卷原样保留时间轴；日历覆盖与对应仍按实际输入检查 |
+| Query select/top/reduce/align/compare/rollup/drill/share 与有限优化已接通 | R3–R8 约定本地验收已通过；新数值来源路线仅准入 DuckDB，远端扩展须补代码及 Runtime 证据 |
 
-当前 S0–S6 边界仍有效：来源 approx_quantile、内部样本 approx_nunique 缺合格路线时拒绝；Catalog 的 Population/sample/window/routed-field preview 未扩权。后续任务不隐式承诺这些路线。
+当前 S0–S6 边界仍有效：来源 approx_quantile、内部样本 approx_nunique 缺合格路线时拒绝；原指标 approx_* 重算缺合格本地内核时拒绝；Catalog 的 Population/sample/window/routed-field preview 未扩权。这些是明确保留的能力限制，不是本地完成声明所覆盖的路线。
 
 ### 2.1 现有入口 → 目标 owner → 交付阶段
 
@@ -109,7 +109,7 @@ ArtifactPublication 只含最终 pandas 输出和记录；writer 编码后由发
 
 ## 3. Milestone 总览与完成规则
 
-当前推进顺序为补齐 R3 → R4 → R5 → R6；R7.2 随 R5 的对应/比较能力推进，R7.1 复用已交付窗口并补实际缺口；R8 随阶段同步后整体收尾。R1/R2 不重新开工。
+本轮已按 R3 → R4 → R5 → R6 完成实施；R7.2 随 R5 对应/比较推进，R7.1 复用已交付窗口并补组合缺口，R8 完成公开切换与本地收尾。以下顺序和交接规则保留实施依据，不表示这些能力仍待开发。
 下表列的是实际消费的前置产物；编号是交付顺序，不表示每个子任务必须等待全部较小编号能力。
 每阶段先完成类型/规则和一条未优化真实路线，再接保存/重开、必要优化与披露；不靠未实现占位让接口先通过。
 阶段之间可以在同一开发分支增量提交，不要求每阶段发布一个版本。
@@ -128,7 +128,7 @@ ArtifactPublication 只含最终 pandas 输出和记录；writer 编码后由发
 为避免阶段循环和职责后移，固定以下交接：
 
 - R1 只定义 LiteralPopulation/PopulationProgram 的闭合记录与收录检查；域的实际求值由 R3 接入，不在 R1 建模拟执行器。
-- R3 的 QueryKeys 先消费 R2 已可执行观察的键；R4 再把 where/top/reduce 后的合法键域接入同一路径。R3 不提前依赖尚未实现的 Top-N。
+- R3 的 QueryKeys 先消费 R2 观察的键；R4 已将 where/top/reduce 后的合法键域接入同一路径，避免实施阶段循环依赖。
 - R2 即交付可用的 metadata open、普通预览和基础完整导出；R4 扩展选择次序与已准入 dtype/空表边界，R5 补端点投影，R7 扩展窗口/期间对应的时间输出。各阶段不能把自己新增的保存/重开留给 R8。
 - R2 计划先固定 slots、检查截止点与 stage；R3/R4 引入 RequiredSlots 传播和局部融合，R6 扩展按量组件与原量融合。未优化路线始终是对照，Runtime 不另做准入。
 - R7 的完整窗口直接求值不以滑动缓存或 merge 实现为前置；同比先有两端完整窗口，再消费 R5 的对应与比较。
@@ -487,7 +487,7 @@ Cum 的数学零延拓不生成期初业务格子或补缺测；细桶值求和�
 
 ### 5.1 六条业务链复用已有场景
 
-S3/S4 的域、样本、membership 与 S5 的窗口已有行为证据；只对新增组合、真实缺口和修改影响补验，不重复整套上游测试。六条业务链仍须接通其尚缺的 Query 操作后才能整体结项。
+S3/S4 的域、样本、membership 与 S5 的窗口已有行为证据；R3–R8 补齐 Query 组合后，六条业务链已通过独立本地验收。以下保留固定预期与覆盖组织，不将数值 oracle 本身当作实际执行证据。
 
 按场景文档的数据和独立预期运行新 API；每条链只在一个主测试位置维护。
 上游 milestone 已验证的步骤直接复用，不再次为每个场景复制格式、权限和全部异常测试。
@@ -668,7 +668,7 @@ R8 只核对这些出口已完成，不再集中补存储代际、故障清理�
 - [docs/api](../../../docs/api)、CLI 和当前示例。
 - 英文 [site/src/content/docs/docs/latest](../../../site/src/content/docs/docs/latest) 与中文 [site/src/content/docs/zh-cn/docs/latest](../../../site/src/content/docs/zh-cn/docs/latest)。
 
-不为本轮编计划提前修改这些产品文件。
+当前文档已随 R3–R8 同步；本次仅校正状态与证据边界，不改变产品合同。
 当前 [AGENTS.md](../../../AGENTS.md) 已区分 Entity/Source、Dimension/TimeDimension 的受限 Ibis 与零参数 Measure/Metric 声明；旧“所有表达式只返回 Ibis”不再列作待修事项。后续按真实差异核对，不因本计划刷新而修改受保护文件。
 AGENTS 及两个 packaged skills 的编辑受仓库明确授权规则保护：
 
@@ -678,7 +678,7 @@ AGENTS 及两个 packaged skills 的编辑受仓库明确授权规则保护：
 在对应行为阶段准备必要修改稿，R1 对应 authoring/表达式规则，R2–R7 对应 Query、终端产物和工作流；R8 核对收齐。
 已有授权覆盖时直接完成，否则在真正需要落地前取得明确授权。
 授权不足时，产品实现与工程检查可单独报告已完成，受保护文件同步保持待办，不能声称全套公开工作流已完成。
-本轮不编辑这些文件，也不把写计划变成审批流程。
+R3–R8 实施时已获授权并完成两份 packaged skills 同步，无待授权同步项；AGENTS.md 无需修改。本次文档状态同步不编辑这些受保护文件。
 
 ## 8. 最终完成标准与当前状态
 
@@ -692,17 +692,31 @@ AGENTS 及两个 packaged skills 的编辑受仓库明确授权规则保护：
 - 当前 API、类型、Help、错误、英中文档及获授权的工作流文件同步；make check-agent 通过，实际需要的额外检查单独报告。
 - 最后记录通过、失败、未运行与待授权事项，所引用证据只说明它实际验证的范围。
 
-当前状态：**R1/R2 的可用基线已交付；S0–S6 在 `3a4e741cfa` 完成原生 Deferred 与所需域/样本/成员/窗口链路。R3/R7 部分已交付，剩余范围按本次任务行补齐；R4–R6 主体仍待开发，R8 随增量收尾。不能将语义层完成等同于整个 Lazy Analysis DSL 完成。**
+当前状态：**R1–R8 在约定的 DuckDB 首版范围内已完成本地实施与验收；远端数值 Query 能力仍需代码扩展，Runtime / release 验收未完成。** 不能将远端代码限制写成“实现已齐，只差跑测试”，也不能把历史开发期失败重新列为当前未完成项。
 
-该提交最后一轮本地验收：默认全量测试 3964 passed、504 failed、10 setup errors；514 个失败节点均在已提交的 520 个基线清单中，新增失败节点为 0。这是失败节点对照，不证明各失败原因完全相同，也不是 broad gate 全绿。静态检查、API 文档、381 个站点文件与 7 组独立 DuckDB 场景通过；未运行远端 Runtime/release。报告 `/tmp/marivo-final-acceptance.md` 及日志为本地临时证据，非仓库持久资产；本次计划修订不重新运行或提升这些证据。最终全绿要求仍保留，基线失败未清除前不得宣称 R8 整体验收通过。
-本轮文档完成条件：模块映射可回到架构 owner，阶段无循环/后移出口，场景 1–80 无遗漏或重复归属，
-架构 §15 的条件都有收齐阶段，文件链接/锚点/围栏有效，既有工作树修改不被覆盖。
-计划检查不运行目标 DSL，不将旧 oracle 计数或历史文档检查沿用为实现验收；不据此声称默认测试、Runtime 或性能通过。
-本文件为实施台账，按路径核对当前任务和证据；历史阶段记录不代表当前验收状态。
+| 类别 | 当前状态与证据 | 剩余边界 |
+| --- | --- | --- |
+| 本地实现与公开切换 | `7508aca650` 完成 R3–R8；Population/Query/Column、Store 10 终端读写、有限优化、Help/类型/英中文档及授权技能已交付 | 首版明确排除的能力和未准入路线不在完成声明中 |
+| 完整常规工程门禁 | `405bd006f8` 收尾后的无收窄 `make check-agent` 通过：4588 默认测试、lint/import、366 文件 typing 与 API 文档；原五项 helper typing 诊断已关闭 | 默认测试排除 slow/runtime/release；此结果不覆盖这些集合 |
+| 独立本地验收 | 六条业务链及冷读 7/7、身份边界 6/6、审查问题与组合探针 27/27 通过；最终工程候选按产品文件 SHA 等价重绑定 | 重绑定没有冒充再次执行业务，也不构成第三轮正式审查 |
+| 远端代码能力缺口 | [数值来源准备](../../../marivo/analysis/materialization/graph_source_execution.py) 明确拒绝非 DuckDB provider；datasource 可连接其它后端不代表新数值 Query 可执行 | PostgreSQL/MySQL/Trino/ClickHouse 数值 Query 支持需要补齐并准入实际后端/类型/方法路线，再做 Runtime 验证 |
+| 保留的其它能力限制 | 来源 approx_quantile、内部样本 approx_nunique、原指标 approx_* 重算缺合格内核时拒绝；Catalog 的 Population/sample/window/routed-field preview 未扩权 | 如要支持，属于新增代码能力及验证，不属于本轮首版漏项；不能用 exact 静默替代 approximate |
+| 未完成的远端 Runtime 验收 | 本轮没有当前版本的完整远端实服验收；helper typing 与替身/驱动本地探针只证明各自范围 | 原生类型/精度/时间、权限、超时、分布式来源及冷读仍需实际路线证据；现有 Trino/ClickHouse producer recovery 正例消费数值 Query，受上述代码缺口阻塞，不能只启动服务便视为可验收 |
+| 未运行的完整 slow / release 验收 | 已有定向 slow 和跨进程冷读通过；未运行完整 slow 集合、当前候选安装 wheel/installed journeys、全后端矩阵或 `make release-check` | 这些验收按需或发布准备时运行；不能由常规门禁、API 构建或单个本地 release 标记用例替代 |
+
+证据明细在 §9。`/tmp/marivo-external-typing-check-agent-final.log` 记录最后常规门禁；
+`/tmp/marivo-r3-r8-acceptance.b0hrWX/round2-final-acceptance.md` 和 `final-source-rebinding.md`
+记录独立验收及重绑定。它们仍是本地临时证据，非仓库持久资产。
+随后在 `405bd006f8` 的只读核对中，Query 结果、对应、原指标、优化和两组修复回归共 129 项通过；
+该定向复验不替代完整门禁，也未扩展远端或 release 资格。
+
+历史 `3a4e741cfa` 的 3964 passed / 504 failed / 10 setup errors 是实施前基线，保留在 §9 追溯；
+不能继续作为当前失败状态。两轮正式审查的已知问题与两个组合残留已关闭，无待授权技能同步项。
+本次仅修改文档，检查受影响内容、链接、围栏及差异，不新增实现、Runtime 或 release 通过声明。
 
 ## 9. R3–R8 团队实施记录（2026-10-17）
 
-本节记录本次实际实施；上文日期化历史证据及“本次仅修改计划”描述属于上一轮计划修订，不代表本轮执行状态。
+本节保留本次实际实施的时间顺序；其中开发期失败、待修、未提交等描述按记录时点解释，当前汇总以 §8 为准。
 起点为 `24bb24d8083e86815b256e425dce087baed0d3e1`，启动时工作树干净。
 
 | 职责 | 执行者 | 边界 |

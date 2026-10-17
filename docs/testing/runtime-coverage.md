@@ -6,8 +6,18 @@ Tests follow the behavior they protect. Daily tests need no external datasource
 service; Runtime tests require an already-running service. Release tests own
 package installation and installed-origin boundaries.
 
-The [2026-10-16 unit-test triage](unit-test-triage.md) records the current
-redesign blockers and exact deferred cases; it does not alter test selection.
+At `405bd006f8`, the Lazy DSL's agreed local implementation gate and independent
+business acceptance are complete. The new numerical Query source path still
+rejects non-DuckDB providers during preparation. Existing Trino/ClickHouse producer
+recovery positives consume that path: qualifying them requires a backend code-route
+extension as well as actual Runtime execution, not merely starting the services.
+Datasource access tests have their own backend scope. The complete slow suite,
+remote Runtime and release gates have not been run for this delivery; focused local
+cold reads and helper typing checks do not replace them.
+
+The [2026-10-16 unit-test triage](unit-test-triage.md) preserves historical
+redesign blockers and deferred cases at its recorded snapshot. Its failures are
+not the current delivery status, and it does not alter test selection.
 
 ## Goal ownership
 

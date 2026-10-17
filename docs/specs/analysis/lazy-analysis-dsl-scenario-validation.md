@@ -4,6 +4,10 @@ Date: 2026-10-17
 
 Status: design validation；模拟数据与独立数值校验，不是新 DSL 的运行时验收。
 
+实施状态（`405bd006f8`）：R3–R8 已完成约定的本地实施、常规门禁与六条业务链的独立执行验收，
+另含终端冷读、身份边界和审查问题探针；本文的历史 oracle 不因此变成执行日志。
+新数值 Query 仅准入 DuckDB，远端后端仍需代码路线扩展；完整 slow、远端 Runtime 和 release 验收未完成。
+
 验证对象是 [Lazy Analysis DSL 定义](lazy-analysis-dsl-redesign.md)
 proposed v0.37，理论依据是 [核心分析代数](algebra-theory.md) proposed v0.25。
 执行与交接合同见 [执行、保存与结果交接](lazy-analysis-dsl-execution.md)，

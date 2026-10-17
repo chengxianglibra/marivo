@@ -1,9 +1,11 @@
 # Analysis Architecture
 
-Status: current contracts and staged Lazy DSL implementation, 2026-10-17.
-Native Deferred expressions and S0–S6 routes are implemented. The broader R3–R8
-Population/Query integration is implemented with focused local checks; full
-independent and remote Runtime acceptance remain separately scoped.
+Status: current contracts and locally completed Lazy DSL implementation, 2026-10-17.
+At `405bd006f8`, native Deferred expressions, S0–S6 and R3–R8 Population/Query
+integration have passed the agreed local implementation gate and independent
+business acceptance. The new numerical Query source path admits only DuckDB;
+other backends require code-route extensions followed by Runtime qualification.
+The complete slow suite, remote Runtime and release acceptance remain incomplete.
 A design document is not a release or backend qualification certificate.
 
 ## Read the owning contract

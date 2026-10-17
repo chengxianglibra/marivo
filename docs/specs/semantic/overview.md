@@ -16,6 +16,10 @@ Ordinary Metric catalog previews currently require a qualified DuckDB route; Pop
 window and routed-field Metric previews are not supported. Physical row previews retain their
 backend-specific contracts. This document does not certify every physical execution route or
 release acceptance; native Help and the owning analysis contract describe current callable scope.
+At `405bd006f8`, the agreed R3–R8 local implementation gate and independent business
+acceptance are complete. The new numerical Query source path admits only DuckDB;
+other backends require code-route extensions and Runtime qualification. The complete
+slow suite, remote Runtime and release acceptance remain incomplete.
 
 This is the entry point for the design of Marivo's
 datasource and semantic layers (`marivo.datasource` and `marivo.semantic`). It
@@ -40,7 +44,7 @@ time-scope, and alignment contract, see
 [`../temporal-semantics.md`](../temporal-semantics.md).
 For the analysis layer, see [`../analysis/python-analysis-design.md`](../analysis/python-analysis-design.md).
 Start at [Analysis Architecture](../analysis/README.md) for the current graph,
-algebra, method-registry, Runtime and Store 9 ownership chain.
+algebra, method-registry, Runtime and Store 10 terminal-output ownership chain.
 
 ## Audience and intent
 
@@ -125,9 +129,9 @@ marivo.datasource   connection + physical source + evidence
         ↓ Ref[datasource] + TableSource + DiscoverySnapshot
 marivo.semantic     domain / entity / dimension / metric / relationship
         ↓ normalized business contracts + typed refs + Ibis construction
-marivo.analysis     domains / relations / results + bound algebraic methods
+marivo.analysis     Population / Query / Column + bound algebraic methods
         ↓ qualified graph plan + explicit Runtime execution
-Store 9             immutable local Artifacts + retained continuation state
+Store 10            terminal Artifacts + self-contained output records
 ```
 
 - The **datasource** layer owns *how to reach the data and what it physically

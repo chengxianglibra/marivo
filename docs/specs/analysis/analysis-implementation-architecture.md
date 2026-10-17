@@ -3,7 +3,8 @@
 Date: 2026-10-17
 
 Status: v0.12 架构与实施来源，基于语义表达式与 Lazy Analysis DSL v0.37。
-原生 Deferred、S0–S6 与本轮 R3–R8 主路线已实施并通过聚焦本地检查；完整独立验收和后端 Runtime 资格仍分别记录。
+基于 `405bd006f8`，原生 Deferred、S0–S6 与 R3–R8 已完成约定的本地实施、常规门禁和独立业务验收。
+新数值 Query 的非 DuckDB 来源仍需代码路线扩展；完整 slow、远端 Runtime 和 release 验收未完成。
 v0.12 增补有序/近似规约、nullable sum、成员分桶和命名窗口；设计条目不单独证明每种物理路线的资格。
 2026-10-17 fanout 修订以逻辑贡献约束准入物理计划，不固定 aggregate-then-join；仍不声明新增实现或后端资格。
 v0.11 将 Measure/Metric 数值计算收敛到原生 Ibis DAG，自动延迟类型绑定；该原生表达式路线已按 S0–S6 接通。
@@ -23,7 +24,8 @@ Artifact 保存输出数据、必要描述与实际 Finding/Evidence；不携带
 R2.5 已接通公开 Query.execute、Store 10 原子终端发布与无图输出记录；返回已提交身份。
 R2.6 已接通元数据打开、预览、完整导出和自包含 Finding/Evidence 阅读。
 本轮已接通 Population、Session.read(population, fields)、Query 值变换/比较/广播、原量组合与期间对应。
-新数值 source 路线仅准入 DuckDB；这不限制 datasource 层其它后端的访问能力，也不声称其 Runtime 已通过。
+新数值 source 路线仅准入 DuckDB；这不限制 datasource 层其它后端的访问能力。远端数值支持需要补齐
+并准入实际后端/类型/方法路线，再做 Runtime 验证；不能将当前代码拒绝解释为仅缺测试记录。
 
 ## 1. 架构结论与文档边界
 

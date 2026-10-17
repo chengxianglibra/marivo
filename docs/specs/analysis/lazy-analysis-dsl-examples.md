@@ -2,11 +2,12 @@
 
 Date: 2026-10-17
 
-Status: v0.37 目标组合示例。原生表达式与基础执行已实施；完整多轮组合的可运行范围由本轮
-R3–R8 集成及其实际测试界定，本文示例不代替执行验收。
+Status: v0.37 组合示例。基于 `405bd006f8`，R3–R8 已完成约定的本地实施、常规门禁和独立业务验收；
+不表示本文每个片段、近似方法或输入形状均已执行。新数值 Query 仅准入 DuckDB，远端路线仍需代码
+扩展；完整 slow、远端 Runtime 和 release 验收未完成。本文示例不代替实际路线验收。
 本文演示 [DSL 定义](lazy-analysis-dsl-redesign.md) 的组合方式，不另行定义算子合同。
 执行与导出布局见 [执行、保存与结果交接](lazy-analysis-dsl-execution.md)，
-独立数值 oracle 与待实施验收见 [场景验证](lazy-analysis-dsl-scenario-validation.md)。
+独立数值 oracle 与验收判据见 [场景验证](lazy-analysis-dsl-scenario-validation.md)。
 
 ## 1. 按问题选择入口
 
@@ -973,12 +974,14 @@ strict_query = s.observe({"safe": safe_named, "strict": strict_ratio})
 
 默认 `numerator / denominator` 与 strict_ratio 即使对应相等的 Ibis Divide，也保留不同使用位置和政策。
 这类差异进入声明计算指纹；仅命名不改变指纹。相同 cast 配方遇到不同实际 schema 时，声明计算指纹不变，
-绑定执行指纹变化，不能复用旧物理计划。所有示例仍为待实现合同，并非当前版本运行证据。
+绑定执行指纹变化，不能复用旧物理计划。该表达式合同已接通；本文片段本身不构成运行证据。
 
 
 ### 6.5 五项能力：相同配方，命名与匿名共用
 
-以下均为 v0.37 目标写法，尚未实现。Inventory/Amount/Latency/CustomerId/TagId/SnapshotAt 和
+以下展示 v0.37 写法；有序规约、empty、membership 和 window 已有本地路线，近似方法仍须分别准入：
+来源 approx_quantile、内部样本 approx_nunique 及原指标 approx_* 重算缺合格内核时拒绝，不以 exact 替代。
+Inventory/Amount/Latency/CustomerId/TagId/SnapshotAt 和
 OrderTags 是已 finalize/resolve 的语义依赖，Revenue 是完成 Metric；不使用裸 Ibis table、手写 schema 或 ms.require。
 OrderTags 是根订单到标签 Entity 的声明成员关系，s/period/days 由调用方提供。
 

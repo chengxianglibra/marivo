@@ -2,8 +2,10 @@
 
 Date: 2026-10-17
 
-Status: v0.37 目标 DSL 与实施合同。原生 Deferred 表达式、基础窗口及既有终端执行/读取已实施；
-Population 与 Query 扩展已按本轮 R3–R8 接通并通过聚焦本地检查；完整独立验收仍单独进行。本文的目标条目不单独证明公开集成、后端资格或 Runtime 验收。
+Status: v0.37 DSL 与实施合同。基于 `405bd006f8`，原生 Deferred、Population、Query 组合与 Store 10
+终端执行/读取已完成约定的本地实施、常规门禁和独立业务验收。新数值 Query 来源路线仅准入 DuckDB；
+其它后端需要代码路线扩展及 Runtime 验证。完整 slow、远端 Runtime 和 release 验收未完成；
+目标条目不授予未准入的方法/类型资格，具体边界见 [Python Analysis Design](python-analysis-design.md)。
 v0.37 补齐 first/last、approx_*、membership 分桶、来源/内部样本 sum(empty=) 及命名窗口 Metric；规则与语义提案同步。
 2026-10-17 fanout 修订约束贡献身份、出现次数和规约次序，不固定 join/aggregate 顺序；
 各类表达与能力边界由[语义 §3.7.1–§3.7.2](../semantic/expression-model-redesign.md#371-fanout-的表达方式与能力边界)拥有，其物理路线以实际准入和验证为准。

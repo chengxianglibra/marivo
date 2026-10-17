@@ -2,8 +2,9 @@
 
 Date: 2026-10-17
 
-Status: v0.37 目标执行合同；原生 Deferred 与基础数值/窗口路线和 Store 10 终端执行/读取已实施。
-本轮 R3–R8 扩展已接通并通过聚焦本地检查，完整独立验收及后端 Runtime 资格仍分别记录。
+Status: v0.37 执行合同；基于 `405bd006f8`，原生 Deferred、R3–R8 组合与 Store 10 终端执行/读取
+已完成约定的本地实施、常规门禁和独立业务验收。新数值 Query 仅准入 DuckDB；其它后端仍需代码
+路线扩展与 Runtime 验证。完整 slow、远端 Runtime 和 release 验收未完成。
 v0.37 增补有序/近似/nullable sum、membership 与窗口的执行边界；具体资格由实现和执行前准入界定。
 2026-10-17 fanout 修订采用贡献语义约束，允许已证明等价且已准入的不同物理策略；新增边界见 §1.1.4。
 v0.36 复用 schema preparation 自动绑定原生 Ibis 数值图；详细语义由语义提案 §2.6/§3.6 拥有。
@@ -22,8 +23,8 @@ R2.5 已接通公开 Query.execute、Store 10 原子终端发布与无图输出�
 R2.6 接通公开元数据打开、有界预览、完整 pandas 导出和无图记录阅读。Finding 保留分页；
 evidence_digest() 不接受参数，直接返回全部 Evidence（.items）及集合摘要，.show() 保持有界。
 S0–S6 已实现原生 Deferred 摄入、自动类型准备、有序/近似规约、nullable sum、membership 与基础窗口。
-本轮已接通 Population、Session.read、Query 值操作、对应/广播及原指标组合；各项以当前实际测试为准。
-这些本地能力不构成完整 R3–R8、所有远端后端或 release 验收声明。
+Population、Session.read、Query 值操作、对应/广播及原指标组合已完成 R3–R8 约定的本地验收。
+这不授予其它后端、未准入近似方法或 preview 扩展资格，也不构成远端 Runtime 或 release 验收声明。
 
 ## 1. 执行、保留与恢复
 
@@ -486,6 +487,7 @@ pandas 可以继续保留或复制 attrs，但任意变换后的 attrs 均不能
 
 ## 4. 实施衔接
 
-本提案复用现有 Runtime；目标表面、执行内 stage 组合和终端 Artifact 保存合同仍待实施。
-本地忽略计划 `docs/superpowers/plans/2026-10-13-lazy-analysis-dsl-redesign-implementation.md`
-映射 R1–R8 模块与验收；它不是分发文档依赖。实施前刷新当前 owner；技能变更仍需独立明确授权。
+本合同已沿现有 Runtime 接通公开表面、执行内 stage 组合和终端 Artifact 保存，本地首版验收完成。
+实施计划 `docs/superpowers/plans/2026-10-13-lazy-analysis-dsl-redesign-implementation.md` 的 §8–9
+记录当前状态和历史证据；本文件独立说明执行合同。远端数值路线需要代码扩展，不能归为仅待跑测试；
+完整 slow、远端 Runtime 和 release 仍未完成。R3–R8 的授权技能同步已完成，后续技能变更仍需明确授权。
