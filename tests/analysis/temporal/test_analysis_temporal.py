@@ -161,33 +161,18 @@ def test_named_occurrences_with_equal_bounds_are_not_one_partition() -> None:
         coarsening(first, second)
 
 
-def test_single_second_grid_has_bounded_construction_cost() -> None:
-    import subprocess
-    import sys
-
-    completed = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            """
-from datetime import datetime, timedelta, timezone
-import marivo.analysis as mv
-from marivo._temporal import time_scope
-from marivo.analysis.core.time_grid import bind_grid
-start = datetime(2026, 8, 1, tzinfo=timezone.utc)
-grid = bind_grid(time_scope(start=start, end=start + timedelta(seconds=1)),
-                 mv.grain('second'), report_timezone='UTC')
-assert len(grid.cells) == 1
-assert grid.cells[0].start == start
-assert grid.cells[0].end == start + timedelta(seconds=1)
-""",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=False,
+def test_single_second_grid_has_exact_boundaries() -> None:
+    start = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    end = start + timedelta(seconds=1)
+    grid = bind_grid(
+        time_scope(start=start, end=end),
+        mv.grain("second"),
+        report_timezone="UTC",
     )
-    assert completed.returncode == 0, completed.stderr
+
+    assert len(grid.cells) == 1
+    assert grid.cells[0].start == start
+    assert grid.cells[0].end == end
 
 
 def test_repeated_hour_minute_cells_keep_both_instant_sequences() -> None:

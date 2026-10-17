@@ -358,10 +358,6 @@ def _source_location_text(source_location: SourceLocation) -> str:
     return f"{source_location.file}:{source_location.line}"
 
 
-def _format_ref(ref: Ref[SemanticKindTag] | None) -> str:
-    return ref.key if ref is not None else "(none)"
-
-
 def _format_refs(refs: tuple[Ref[SemanticKindTag], ...], *, limit: int = 6) -> str:
     if not refs:
         return "(none)"

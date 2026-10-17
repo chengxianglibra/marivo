@@ -24,8 +24,10 @@ def invalid(rows):
         assert error.kind == ErrorKind.INVALID_COMPONENT_BODY
         assert error.received is not None and "fanout_policy" in error.received
         assert error.repair is not None
-        assert "no equivalent in this version" in error.repair.action
-        assert "semi-join" in error.repair.action
+        assert "Population.preimage" in error.repair.action
+        assert "mv.membership" in error.repair.action
+        assert "separately keyed Entity" in error.repair.action
+        assert "preserve each source root" in error.repair.action
 
 
 def test_derived_metric_uses_source_permission_without_global_fanout_policy() -> None:

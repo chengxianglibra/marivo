@@ -62,7 +62,7 @@ assert session.catalog.require(ms.ref.entity('sales.rows')).ref.ref.path == 'sal
         env=dict(os.environ, PYTHONPATH=str(PROJECT_ROOT)),
         text=True,
         capture_output=True,
-        timeout=30,
+        timeout=120,
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
 

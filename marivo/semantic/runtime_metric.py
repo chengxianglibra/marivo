@@ -16,7 +16,6 @@ from marivo.refs import (
     RefPayloadV1,
     SemanticKind,
     SemanticKindTag,
-    _decode_ref_payload,
 )
 from marivo.semantic._authoring_validation import _normalize_time_fold
 from marivo.semantic.ir import AggKind, AggregateFoldInput
@@ -265,37 +264,6 @@ def _slice_value_payload(value: FrozenSliceValue) -> object:
     return {"kind": "scalar", "value": value}
 
 
-def _slice_value_from_payload(payload: object) -> SliceValue:
-    if not isinstance(payload, dict) or not isinstance(payload.get("kind"), str):
-        raise ValueError("runtime replay slice value must be a typed object")
-    kind = payload["kind"]
-    if kind == "scalar":
-        value = payload.get("value")
-        if value is None or isinstance(value, str | int | float | bool):
-            return value
-        raise ValueError("runtime replay scalar slice value is invalid")
-    if kind == "sequence":
-        items = payload.get("items")
-        if not isinstance(items, list):
-            raise ValueError("runtime replay slice sequence requires items")
-        scalars: list[SliceScalar] = []
-        for item in items:
-            decoded = _slice_value_from_payload(item)
-            if decoded is not None and not isinstance(decoded, str | int | float | bool):
-                raise ValueError("runtime replay slice sequence requires scalar items")
-            scalars.append(decoded)
-        return scalars
-    if kind == "predicate":
-        op = payload.get("op")
-        if op not in {"==", "!=", "in", ">", ">=", "<", "<=", "between"}:
-            raise ValueError("runtime replay slice predicate operator is invalid")
-        return cast(
-            "SlicePredicate",
-            {"op": op, "value": _slice_value_from_payload(payload.get("value"))},
-        )
-    raise ValueError(f"unknown runtime replay slice value kind {kind!r}")
-
-
 def _slice_map_payload(value: FrozenSliceMap) -> list[dict[str, object]]:
     return [
         {
@@ -306,23 +274,8 @@ def _slice_map_payload(value: FrozenSliceMap) -> list[dict[str, object]]:
     ]
 
 
-def _slice_map_from_payload(payload: object) -> dict[Ref[FieldKind], SliceValue]:
-    if not isinstance(payload, list):
-        raise ValueError("runtime replay slice map must be an array")
-    result: dict[Ref[FieldKind], SliceValue] = {}
-    for item in payload:
-        if not isinstance(item, dict) or set(item) != {"dimension_ref", "value"}:
-            raise ValueError("runtime replay slice entry must be an object")
-        decoded = _decode_ref_payload(item["dimension_ref"])
-        if decoded.kind not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
-            raise ValueError("runtime replay slice entry requires a dimension ref")
-        ref = cast("Ref[FieldKind]", decoded)
-        result[ref] = _slice_value_from_payload(item.get("value"))
-    return result
-
-
 def replay_payload(expression: Ref[MetricKind] | RuntimeMetricExpr) -> dict[str, object]:
-    """Encode one public metric descriptor for exact internal replay."""
+    """Encode a metric expression for readiness serialization and catalog fingerprints."""
 
     if type(expression) is Ref:
         if expression.kind is not SemanticKind.METRIC:
@@ -472,115 +425,6 @@ def runtime_metric_leaf_refs(expression: RuntimeMetricExpr) -> tuple[Ref[Semanti
         raise TypeError(f"unsupported runtime metric expression {type(value).__name__}")
 
     return tuple(leaves)
-
-
-def from_replay_payload(payload: object) -> Ref[MetricKind] | RuntimeMetricExpr:
-    """Decode a current-schema replay descriptor through public constructors."""
-
-    if (
-        not isinstance(payload, dict)
-        or payload.get("schema") != "marivo.runtime_metric_expr/v1"
-        or not isinstance(payload.get("kind"), str)
-    ):
-        raise ValueError("runtime replay expression must be a typed object")
-    kind = payload["kind"]
-    if kind == "metric_ref":
-        if set(payload) != {"schema", "kind", "metric_ref"}:
-            raise ValueError("runtime replay metric_ref fields are invalid")
-        metric_ref = _decode_ref_payload(payload["metric_ref"])
-        if metric_ref.kind is not SemanticKind.METRIC:
-            raise ValueError("runtime replay metric_ref requires metric kind")
-        return cast("Ref[MetricKind]", metric_ref)
-    label = payload.get("label")
-    if not isinstance(label, str):
-        raise ValueError("runtime replay label must be a non-empty string")
-    if kind == "aggregate":
-        if set(payload) != {
-            "schema",
-            "kind",
-            "measure_ref",
-            "agg",
-            "fold",
-            "slice_by",
-            "label",
-        }:
-            raise ValueError("runtime replay aggregate fields are invalid")
-        measure_ref = _decode_ref_payload(payload["measure_ref"])
-        if measure_ref.kind is not SemanticKind.MEASURE:
-            raise ValueError("runtime replay aggregate requires measure ref")
-        raw_agg = payload.get("agg")
-        agg = tuple(raw_agg) if isinstance(raw_agg, list) else raw_agg
-        raw_fold = payload.get("fold")
-        fold = tuple(raw_fold) if isinstance(raw_fold, list) else raw_fold
-        return aggregate(
-            cast("Ref[MeasureKind]", measure_ref),
-            agg=cast("AggKind", agg),
-            fold=cast("AggregateFoldInput", fold),
-            slice_by=_slice_map_from_payload(payload.get("slice_by")),
-            label=label,
-        )
-    if kind == "slice":
-        if set(payload) != {"schema", "kind", "metric", "by", "label"}:
-            raise ValueError("runtime replay slice fields are invalid")
-        return slice(
-            from_replay_payload(payload.get("metric")),
-            by=_slice_map_from_payload(payload.get("by")),
-            label=label,
-        )
-    if kind == "ratio":
-        if set(payload) != {
-            "schema",
-            "kind",
-            "numerator",
-            "denominator",
-            "zero_division",
-            "label",
-        }:
-            raise ValueError("runtime replay ratio fields are invalid")
-        zero_division = payload.get("zero_division")
-        if zero_division not in {"null", "error"}:
-            raise ValueError("runtime replay ratio has invalid zero_division")
-        return ratio(
-            from_replay_payload(payload.get("numerator")),
-            from_replay_payload(payload.get("denominator")),
-            zero_division=cast("Literal['null', 'error']", zero_division),
-            label=label,
-        )
-    if kind == "weighted_mean":
-        if set(payload) != {
-            "schema",
-            "kind",
-            "value_ref",
-            "weight_ref",
-            "slice_by",
-            "label",
-        }:
-            raise ValueError("runtime replay weighted_mean fields are invalid")
-        value_ref = _decode_ref_payload(payload["value_ref"])
-        weight_ref = _decode_ref_payload(payload["weight_ref"])
-        if value_ref.kind is not SemanticKind.MEASURE:
-            raise ValueError("runtime replay weighted_mean requires a value measure ref")
-        if weight_ref.kind is not SemanticKind.MEASURE:
-            raise ValueError("runtime replay weighted_mean requires a weight measure ref")
-        return weighted_mean(
-            cast("Ref[MeasureKind]", value_ref),
-            cast("Ref[MeasureKind]", weight_ref),
-            slice_by=_slice_map_from_payload(payload.get("slice_by")),
-            label=label,
-        )
-    if kind == "linear":
-        if set(payload) != {"schema", "kind", "add", "subtract", "label"}:
-            raise ValueError("runtime replay linear fields are invalid")
-        raw_add = payload.get("add")
-        raw_subtract = payload.get("subtract")
-        if not isinstance(raw_add, list) or not isinstance(raw_subtract, list):
-            raise ValueError("runtime replay linear terms must be arrays")
-        return linear(
-            add=[from_replay_payload(item) for item in raw_add],
-            subtract=[from_replay_payload(item) for item in raw_subtract],
-            label=label,
-        )
-    raise ValueError(f"unknown runtime replay expression kind {kind!r}")
 
 
 def _require_metric_expr(

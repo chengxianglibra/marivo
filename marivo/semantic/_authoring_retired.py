@@ -25,7 +25,13 @@ _REPAIRS = {
     "status_time_fold": "Express the original spatial-before-temporal order explicitly with per(status_time_field).reducer(); keep the source status axis and sampling interval.",
     "fold": "Express the original spatial-before-temporal order explicitly with per(status_time_field).reducer().",
     "time_via": "Pass time=time_field.via((relationship, ...)) on the source reduction, preserving the original time field and ordered path.",
-    "fanout_policy": "For existence filtering, author an explicit Population preimage when that capability is available. Overlapping-label grouping has no equivalent in this version; do not replace it with a semi-join or change the contribution root.",
+    "fanout_policy": (
+        "Remove fanout_policy. For existence filtering, use Population.preimage(...) and "
+        "mv.in_population(...); for overlapping labels, use mv.membership(...) in "
+        "Metric.per(...). When association or allocation rows are contributions, model them "
+        "as a separately keyed Entity and define the row measure and any allocation weight; "
+        "preserve each source root."
+    ),
     "empty": "Set empty='null' (default) or 'zero' on each actual source/internal sum, preserving the selected contributions and output domain.",
     "nulls": "Set nulls='ignore' or 'error' on the actual reducer in the expression.",
     "zero_denominator": "Set zero_denominator='null' or 'error' on the actual divide or weighted_mean operation.",
@@ -66,12 +72,22 @@ def retired_factory(name: str, arguments: dict[str, object]) -> NoReturn:
         "where": "Build typed field comparisons and pass the predicate to the single source Metric.where(...).",
         "ratio": "Divide completed Metrics with / or divide(..., zero_denominator='error'); explicitly choose the new zero-denominator policy.",
         "linear": "Combine completed Metrics with + and - in a pure @ms.metric() declaration.",
-        "cumulative": "Express cumulative analysis in the new Query layer when its execution capability is available; this retired semantic declaration is not translated.",
+        "cumulative": (
+            "In a zero-argument @ms.metric() body, return base.window(rule) using a rule "
+            "that preserves the original cumulative anchor and evaluation boundary; this "
+            "retired declaration is not translated."
+        ),
         "empty": _REPAIRS["empty"],
         "nulls": _REPAIRS["nulls"],
         "zero_denominator": _REPAIRS["zero_denominator"],
-        "grain_to_date": "Author cumulative analysis through the new Query layer when available.",
-        "trailing": "Author trailing analysis through the new Query layer when available.",
+        "grain_to_date": (
+            "Return base.window(mv.to_date(grain=...)) from a zero-argument @ms.metric() "
+            "body, preserving the original reset grain."
+        ),
+        "trailing": (
+            "Return base.window(mv.trailing_duration(duration=...)) from a zero-argument "
+            "@ms.metric() body, preserving the original elapsed duration and evaluation boundary."
+        ),
     }
     action = actions[name]
     for parameter in arguments:
@@ -79,7 +95,11 @@ def retired_factory(name: str, arguments: dict[str, object]) -> NoReturn:
             action += " " + _REPAIRS[parameter]
     aggregation = arguments.get("agg")
     if "approx" in str(aggregation):
-        action += " Approximate reducers are outside this version; choose a supported exact definition explicitly, without claiming equivalence."
+        action += (
+            " Use the corresponding native approximate reducer: approx_count_distinct maps "
+            "to approx_nunique(), approx_median to approx_median(), and approx_percentile "
+            "to approx_quantile(q). Preserve the field and q; do not replace it with an exact reducer."
+        )
     raise SemanticExpressionError(
         kind=ErrorKind.INVALID_COMPONENT_BODY,
         message=f"ms.{name} is a retired declaration factory.",

@@ -13,7 +13,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from types import CellType, MappingProxyType, ModuleType
+from types import MappingProxyType, ModuleType
 from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias, cast
 
 import ibis
@@ -696,16 +696,6 @@ def _is_bind_target(node: ast.expr, symbols: Mapping[str, object]) -> bool:
         owner = symbols.get(node.value.id)
         return getattr(owner, node.attr, None) in (bind, public_bind)
     return False
-
-
-def _closure_cell(value: object) -> CellType:
-    def capture() -> object:
-        return value
-
-    closure = capture.__closure__
-    if closure is None:
-        raise AssertionError("captured value did not create a closure cell")
-    return closure[0]
 
 
 class _BindingCollector(ast.NodeVisitor):

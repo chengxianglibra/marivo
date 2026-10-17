@@ -89,8 +89,11 @@ def test_grain_to_date_is_retired_and_not_directly_constructible() -> None:
     with pytest.raises(SemanticExpressionError, match="retired declaration factory") as caught:
         ms.grain_to_date(grain=mv.grain("month"))
     assert caught.value.expected and caught.value.received and caught.value.repair
-    with pytest.raises(SemanticExpressionError, match="retired declaration factory"):
+    assert "mv.to_date(grain=...)" in caught.value.repair.action
+    with pytest.raises(SemanticExpressionError, match="retired declaration factory") as caught:
         ms.trailing(count=7, unit="day")
+    assert caught.value.repair is not None
+    assert "mv.trailing_duration(duration=...)" in caught.value.repair.action
     with pytest.raises(TypeError, match="direct construction is not supported"):
         GrainToDate(grain=mv.grain("month"))
 

@@ -6,12 +6,8 @@ re-exported from ``marivo.semantic.authoring``.
 
 from __future__ import annotations
 
-import ast
 import hashlib
-import inspect
-import textwrap
-from collections.abc import Callable
-from typing import Any, Literal
+from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from marivo.semantic._authoring_context import _register_authoring_file
@@ -19,10 +15,7 @@ from marivo.semantic._dsl_authoring import (
     AdditiveAllV1,
     AdditiveOverV1,
     AdditivityPolicy,
-    EmptyContributionPolicyV1,
     NonAdditiveV1,
-    NullInputPolicyV1,
-    ZeroDenominatorPolicyV1,
 )
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
@@ -75,43 +68,9 @@ def _validate_relationship_keys(
     return tuple(resolved)
 
 
-def _compute_body_ast_hash(fn: Callable[..., Any]) -> str:
-    """Compute a SHA-256 hash of the function body AST."""
-    try:
-        source = inspect.getsource(fn)
-        source = textwrap.dedent(source)
-        tree = ast.parse(source)
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                body_source = ast.get_source_segment(source, node)
-                if body_source is not None:
-                    return hashlib.sha256(body_source.encode()).hexdigest()[:16]
-        return hashlib.sha256(source.encode()).hexdigest()[:16]
-    except (OSError, TypeError, IndentationError):
-        return hashlib.sha256(b"<unavailable>").hexdigest()[:16]
-
-
 def _compute_column_hash(column: str) -> str:
     """Return a stable definition digest for a direct-column declaration."""
     return hashlib.sha256(f"column:{column}".encode()).hexdigest()[:16]
-
-
-def _compute_agg_hash(
-    measure_id: str,
-    agg: Any,
-    fold: TimeFoldIR | None,
-    *,
-    filter: tuple[tuple[str, Any], ...] | None = None,
-) -> str:
-    payload = repr(
-        {
-            "measure": measure_id,
-            "agg": agg,
-            "fold": (fold.kind, fold.q) if fold else None,
-            "filter": filter,
-        }
-    )
-    return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
 def _validate_unit(unit: str | None, semantic_id: str, object_kind: str = "metric") -> None:
@@ -302,29 +261,6 @@ def _normalize_additivity(
     if type(additivity) is AdditiveOverV1:
         return "non_additive"
     return "non_additive"
-
-
-def _validate_value_policies(
-    *,
-    semantic_id: str,
-    nulls: NullInputPolicyV1 | None,
-    empty: EmptyContributionPolicyV1 | None,
-    zero_denominator: ZeroDenominatorPolicyV1 | None,
-) -> None:
-    """Reject raw strings and policy values from the wrong closed namespace."""
-    for name, value, expected in (
-        ("nulls", nulls, NullInputPolicyV1),
-        ("empty", empty, EmptyContributionPolicyV1),
-        ("zero_denominator", zero_denominator, ZeroDenominatorPolicyV1),
-    ):
-        if value is not None and type(value) is not expected:
-            _raise(
-                ErrorKind.INVALID_REF,
-                f"{semantic_id!r}: {name}= requires its ms.{name} constructor; "
-                f"received {type(value).__name__}.",
-                cls=SemanticDecoratorError,
-                constraint_id=ConstraintId.REF_SHAPE,
-            )
 
 
 def _validate_time_parse_granularity(

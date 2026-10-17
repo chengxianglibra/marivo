@@ -14,8 +14,6 @@ from marivo._definition.graph import computation_fingerprint, walk
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic._definition_identity import scoped_definition_fingerprint
 from marivo.semantic.catalog import SemanticCatalog
-from marivo.semantic.errors import SemanticLoadError
-from marivo.semantic.metric_graph_lowering import normalize_target_metric
 from marivo.semantic.reader import SemanticProject
 
 ProjectFactory = Callable[[dict[str, str]], SemanticProject]
@@ -83,17 +81,6 @@ def test_equivalent_named_metrics_share_computation_and_keep_distinct_authority(
         consume_metric(second).node, DeclaredMetricRef
     )
     assert consume_metric(first).node.ref.ref != consume_metric(second).node.ref.ref
-
-
-def test_new_catalog_definitions_cannot_fall_back_to_retired_lowering(
-    semantic_project_factory: ProjectFactory,
-) -> None:
-    catalog = _catalog(semantic_project_factory)
-    with pytest.raises(SemanticLoadError) as caught:
-        normalize_target_metric(
-            catalog._state.registry, "sales.revenue", sidecar=catalog._state.sidecar
-        )
-    assert caught.value.kind == "invalid_target_metric"
 
 
 def test_nested_metric_closure_captures_its_dependencies_without_source_io(

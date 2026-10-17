@@ -57,28 +57,6 @@ class UnknownUnitV2:
 MetricUnitStateV2: TypeAlias = FactorizedUnitV2 | OpaqueUnitV2 | UnknownUnitV2
 
 
-class UnitStatePayloadError(ValueError):
-    """Raised when a canonical unit state payload is malformed or forward.
-
-    Typed fail-closed signal for ``unit_state_from_dict`` (issue #63): a
-    corrupted or future-version artifact must not silently degrade to an
-    unknown unit (dropping the real unit on disk) or leak a bare
-    ``KeyError``/``ValueError`` to a public caller.
-    """
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        expected: str | None = None,
-        received: str | None = None,
-    ) -> None:
-        super().__init__(message)
-        self.message = message
-        self.expected = expected
-        self.received = received
-
-
 _UNKNOWN_UNIT = UnknownUnitV2(schema="metric-unit-unknown/v2")
 _RESERVED_ATOM_CHARS = frozenset("./()")
 
@@ -150,106 +128,6 @@ def unit_state(unit: str | None) -> MetricUnitStateV2:
     if numerator is None or denominator is None:
         return OpaqueUnitV2(schema="metric-unit-opaque/v2", value=unit)
     return _factorized(numerator, denominator)
-
-
-def unit_state_from_dict(payload: object) -> MetricUnitStateV2 | None:
-    """Rebuild a typed unit state from its canonical dict form.
-
-    ``canonical_value`` (metric_graph_canonical) renders a ``MetricUnitStateV2``
-    dataclass to a deterministic JSON dict; this is its inverse for the legacy
-    compact ``measures`` dict path. ``None`` and ``payload`` that is already a
-    typed state pass through unchanged.
-
-    The contract is fail-closed (issue #63): a malformed or forward payload
-    raises ``UnitStatePayloadError`` instead of silently degrading to unknown,
-    leaking a bare ``KeyError``/``ValueError``, or producing silently wrong
-    data. Only payloads produced by ``canonical_value`` are accepted.
-    """
-    if payload is None or isinstance(payload, (FactorizedUnitV2, OpaqueUnitV2, UnknownUnitV2)):
-        return payload
-    if not isinstance(payload, dict):
-        raise UnitStatePayloadError(
-            "unit state payload must be a canonical dict",
-            expected="a dict produced by canonical_value",
-            received=f"{type(payload).__name__}: {payload!r}",
-        )
-    schema = payload.get("schema")
-    if not isinstance(schema, str):
-        raise UnitStatePayloadError(
-            "unit state payload is missing a string schema",
-            expected="a 'schema' string key",
-            received=f"schema={schema!r}",
-        )
-    if schema == "metric-unit-algebra/v2":
-        numerator = _require_atom_list(payload, "numerator")
-        denominator = _require_atom_list(payload, "denominator")
-        try:
-            return FactorizedUnitV2(
-                schema="metric-unit-algebra/v2",
-                numerator=tuple(numerator),
-                denominator=tuple(denominator),
-            )
-        except ValueError as error:
-            # _require_atom_list already rejected any grammar-invalid atom, so
-            # the only remaining ValueError here is a genuine reduction/sort
-            # violation from __post_init__.
-            raise UnitStatePayloadError(
-                "unit state factor payload is not reduced and bytewise sorted",
-                expected="reduced, bytewise-sorted factor atoms",
-                received=f"numerator={numerator!r} denominator={denominator!r}",
-            ) from error
-    if schema == "metric-unit-opaque/v2":
-        value = payload.get("value")
-        if not isinstance(value, str):
-            raise UnitStatePayloadError(
-                "opaque unit state payload is missing its value string",
-                expected="a 'value' string key",
-                received=f"value={value!r}",
-            )
-        return OpaqueUnitV2(schema="metric-unit-opaque/v2", value=value)
-    if schema == "metric-unit-unknown/v2":
-        if any(key != "schema" for key in payload):
-            raise UnitStatePayloadError(
-                "unknown unit state payload must carry only its schema",
-                expected="exactly {'schema': 'metric-unit-unknown/v2'}",
-                received=str(sorted(payload)),
-            )
-        return UnknownUnitV2(schema="metric-unit-unknown/v2")
-    raise UnitStatePayloadError(
-        "unsupported unit state schema",
-        expected="one of metric-unit-algebra/v2, metric-unit-opaque/v2, metric-unit-unknown/v2",
-        received=f"schema={schema!r}",
-    )
-
-
-def _require_atom_list(payload: dict[str, object], key: str) -> tuple[str, ...]:
-    """Return the factor atom tuple, failing closed on any non-list shape.
-
-    ``canonical_value`` renders tuple factors as JSON lists. Any other shape
-    (missing key, bare ``str`` like ``"CNY"``, or a scalar) is a corrupted or
-    forward payload and must not be coerced into silently wrong data — e.g.
-    ``tuple("CNY")`` would otherwise become ``('C', 'N', 'Y')``.
-
-    Atom grammar is validated here (issue #57 review P3-1) with the same
-    predicate ``FactorizedUnitV2.__post_init__`` uses, so an atom that is a
-    string but invalid (empty, reserved char, literal ``1``, non-ASCII) gets its
-    own message instead of being misattributed to "not reduced and sorted".
-    """
-    value = payload.get(key)
-    if not isinstance(value, list) or not all(isinstance(atom, str) for atom in value):
-        raise UnitStatePayloadError(
-            f"unit state factor {key!r} must be a list of atom strings",
-            expected="a list of non-empty atom strings",
-            received=f"{key}={value!r}",
-        )
-    for atom in value:
-        if _parse_product(atom) != (atom,):
-            raise UnitStatePayloadError(
-                f"invalid unit state atom in factor {key!r}: {atom!r}",
-                expected="a non-empty printable ASCII atom without reserved ./() characters or literal '1'",
-                received=f"{key}={value!r}",
-            )
-    return tuple(value)
 
 
 def render_unit(state: MetricUnitStateV2) -> str | None:
@@ -333,7 +211,6 @@ __all__ = [
     "FactorizedUnitV2",
     "MetricUnitStateV2",
     "OpaqueUnitV2",
-    "UnitStatePayloadError",
     "UnknownUnitV2",
     "divide_unit_states",
     "linear_unit",
@@ -343,5 +220,4 @@ __all__ = [
     "render_unit",
     "tier1_unit",
     "unit_state",
-    "unit_state_from_dict",
 ]

@@ -672,7 +672,7 @@ def test_retired_declaration_syntax_has_specific_reauthoring_errors(
     amount = _measure(catalog, "amount")
     for factory, kwargs, token in (
         (ms.metric, {"entities": [ms.ref.entity("sales.orders")]}, "zero-argument"),
-        (ms.metric, {"fanout_policy": "aggregate_then_join"}, "Overlapping"),
+        (ms.metric, {"fanout_policy": "aggregate_then_join"}, "mv.membership"),
         (ms.metric, {"empty": "null"}, "each actual source/internal sum"),
         (ms.measure_column, {"status_time_fold": None}, "per("),
         (ms.metric, {"time_via": (ms.ref.relationship("sales.orders_to_customers"),)}, "via("),
@@ -684,7 +684,9 @@ def test_retired_declaration_syntax_has_specific_reauthoring_errors(
     with pytest.raises(SemanticExpressionError) as approximate:
         _consume_value(ms.aggregate(measure=amount, agg="approx_median"))
     assert approximate.value.repair is not None
-    assert "Approximate" in approximate.value.repair.action
+    assert "approximate reducer" in approximate.value.repair.action
+    assert "approx_median to approx_median()" in approximate.value.repair.action
+    assert "choose a supported exact definition" not in approximate.value.repair.action
 
 
 def test_measure_declaration_names_the_ad_hoc_graph_without_loader(

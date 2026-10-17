@@ -1,25 +1,18 @@
 """Closed, dependency-neutral contracts for metric expression graphs.
 
-This module owns persisted computation identities and graph payloads shared by
-semantic readiness and analysis.  It intentionally has no analysis imports and
-contains no executable expressions.
+This module defines in-process metric-expression graph and identity facts shared
+by semantic readiness and analysis. It has no executable expressions.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-from typing import Literal, TypeAlias, get_args
+from dataclasses import dataclass
+from typing import Literal, TypeAlias
 
 from typing_extensions import TypeAliasType
 
 from marivo._temporal import Grain as TemporalGrain
 from marivo.refs import RefPayloadV1, SemanticKind
-from marivo.semantic._dsl_authoring import (
-    AdditivityPolicy,
-    EmptyContributionPolicyV1,
-    NullInputPolicyV1,
-    ZeroDenominatorPolicyV1,
-)
 from marivo.semantic._expression_binding import ExpressionBindingV1
 from marivo.semantic.ir import AggKind, AggregateFoldInput
 
@@ -36,7 +29,7 @@ CanonicalField: TypeAlias = tuple[str, CanonicalValue]  # type: ignore[misc]
 
 @dataclass(frozen=True, slots=True)
 class CanonicalSliceEntryV1:
-    """One persisted slice value keyed by an exact semantic field ref."""
+    """One canonical slice predicate keyed by an exact semantic field ref."""
 
     dimension_ref: RefPayloadV1
     value: CanonicalValue
@@ -85,7 +78,7 @@ class SemanticDependencyEntryV1:
 
 @dataclass(frozen=True, slots=True)
 class SemanticDependencyDigestV1:
-    """Canonical dependency closure used to validate cache and replay state."""
+    """Canonical dependency closure that binds a graph to consumed definitions."""
 
     schema: Literal["marivo.semantic_dependency_digest/v1"]
     entries: tuple[SemanticDependencyEntryV1, ...]
@@ -222,143 +215,6 @@ class MetricExpressionGraphV1:
     occurrences: tuple[ExpressionOccurrenceV1, ...]
 
 
-SliceOperatorV1: TypeAlias = Literal["==", "!=", "in", "between", ">", ">=", "<", "<="]
-
-
-def component_predicate(
-    value: CanonicalValue,
-) -> tuple[SliceOperatorV1, CanonicalScalar | tuple[CanonicalScalar, ...]]:
-    """Validate the existing closed slice operators before execution admission."""
-    op: SliceOperatorV1 = "in" if isinstance(value, tuple) else "=="
-    if (
-        isinstance(value, tuple)
-        and len(value) == 2
-        and isinstance(value[0], tuple)
-        and len(value[0]) == 2
-        and value[0][0] == "op"
-        and isinstance(value[1], tuple)
-        and len(value[1]) == 2
-        and value[1][0] == "value"
-    ):
-        declared = value[0][1]
-        if declared not in get_args(SliceOperatorV1):
-            raise ValueError("Slice comparison requires one registered operator and a scalar")
-        op = declared
-        value = value[1][1]
-    if op in ("in", "between"):
-        if not isinstance(value, tuple):
-            raise ValueError("Slice membership/range requires a scalar sequence")
-        scalars = tuple(
-            item for item in value if item is None or isinstance(item, (str, int, float, bool))
-        )
-        if len(scalars) != len(value) or not scalars or (op == "between" and len(scalars) != 2):
-            raise ValueError(
-                "Slice membership requires non-empty scalars; between requires two bounds"
-            )
-        return op, scalars
-    if op in ("==", "!=", ">", ">=", "<", "<=") and (
-        value is None or isinstance(value, (str, int, float, bool))
-    ):
-        if value is None and op not in ("==", "!="):
-            raise ValueError("Slice ordering requires a non-null scalar")
-        return op, value
-    raise ValueError("Slice comparison requires one registered operator and a scalar")
-
-
-def component_node(
-    graph: MetricExpressionGraphV1, node_id: str
-) -> AggregateNodeV1 | WeightedMeanAggregateNodeV1:
-    """Resolve a canonical leaf slice as one independently keyed contribution."""
-    nodes = {record.node_id: record.node for record in graph.nodes}
-    node = nodes[node_id]
-    predicates: tuple[CanonicalSliceEntryV1, ...] = ()
-    while isinstance(node, SliceNodeV1):
-        predicates += node.predicates
-        node = nodes[node.child_id]
-    if not isinstance(node, (AggregateNodeV1, WeightedMeanAggregateNodeV1)):
-        raise TypeError("Expected a canonical aggregate or sliced aggregate component")
-    return replace(node, filter=(*node.filter, *predicates)) if predicates else node
-
-
-@dataclass(frozen=True, slots=True)
-class TargetMetricComponent:
-    """Intrinsic leaf state and role derived from the canonical Metric graph."""
-
-    node_id: str
-    role: str
-    computation_root: RefPayloadV1
-    required_state: tuple[str, ...]
-    null_rule: Literal["ignore_null_inputs", "non_null_pairs"]
-    empty_rule: Literal["zero", "null"]
-    time_fold: AggregateFoldInput
-    status_time_dimension: RefPayloadV1 | None = None
-    requires_source_recompute: bool = False
-    fanout_policy: Literal["block", "aggregate_then_join"] = "block"
-    event_time_dimension: RefPayloadV1 | None = None
-    event_time_path: tuple[RefPayloadV1, ...] = ()
-    unit: str | None = None
-    numeric_method: str | None = None
-    spatial_merge: Literal["sum", "min", "max", "blocked"] = "blocked"
-    time_merge: Literal["sum", "min", "max", "last", "blocked"] = "blocked"
-    declaration_ref: RefPayloadV1 | None = None
-    additivity_policy: AdditivityPolicy | None = None
-    null_policy: NullInputPolicyV1 | None = None
-    empty_policy: EmptyContributionPolicyV1 | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class TargetMetricCumulative:
-    """An exact accumulation occurrence over a governed base and time axis."""
-
-    node_id: str
-    role: str
-    base_node_id: str
-    over_ref: RefPayloadV1
-    anchor: CumulativeAnchorV1
-
-
-@dataclass(frozen=True, slots=True)
-class TargetMetricContract:
-    """Private source-free Metric facts, with no coordinate admission claim."""
-
-    identity: MetricIdentity
-    name: str
-    graph: MetricExpressionGraphV1
-    bound_graph_fingerprint: str
-    dependency_fingerprint: str
-    computation_roots: tuple[RefPayloadV1, ...]
-    components: tuple[TargetMetricComponent, ...]
-    required_state: tuple[str, ...]
-    logical_type: str
-    nullable: bool
-    unit: str | None
-    null_rule: Literal["ignore_null_inputs", "non_null_pairs", "null_component_or_zero_denominator"]
-    empty_rule: Literal["zero", "null"]
-    evaluation_order: tuple[Literal["space", "time", "compose"], ...] = ("space", "time", "compose")
-    cumulative: tuple[TargetMetricCumulative, ...] = ()
-    source_requirements: tuple[str, ...] = ()
-    requires_source_recompute: bool = False
-    authoring_additivity: AdditivityPolicy | None = None
-    event_time_dimension: RefPayloadV1 | None = None
-    null_policy: NullInputPolicyV1 | None = None
-    empty_policy: EmptyContributionPolicyV1 | None = None
-    zero_denominator_policy: ZeroDenominatorPolicyV1 | None = None
-
-    @property
-    def key(self) -> str:
-        """Return the disjoint private catalog/runtime state key."""
-        if isinstance(self.identity, CatalogMetricIdentity):
-            return self.identity.metric_ref.path
-        return "runtime_metric:" + self.identity.expression_fingerprint
-
-    @property
-    def identity_id(self) -> str:
-        """Return the canonical Dataset field identity."""
-        if isinstance(self.identity, CatalogMetricIdentity):
-            return "metric:" + self.identity.metric_ref.path
-        return self.key
-
-
 @dataclass(frozen=True)
 class PresentationLabelV1:
     occurrence_path: str
@@ -396,179 +252,6 @@ class RuntimeExpressionIdentity:
 MetricIdentity: TypeAlias = CatalogMetricIdentity | RuntimeExpressionIdentity
 
 
-@dataclass(frozen=True)
-class DatasourceCompatibilityDomainV1:
-    """Exact resolved source identity required for cache/replay compatibility."""
-
-    schema: Literal["datasource-compatibility/v1"]
-    datasource_ref: RefPayloadV1
-    backend_type: str
-    profile_fingerprint: str
-
-    def __post_init__(self) -> None:
-        if self.datasource_ref.kind is not SemanticKind.DATASOURCE:
-            raise ValueError("datasource compatibility domain requires a datasource ref")
-
-
-@dataclass(frozen=True)
-class MetricKeyFieldV1:
-    name: str
-    dtype: str
-    nullable: bool
-
-
-@dataclass(frozen=True)
-class MetricKeySchemaV1:
-    schema: Literal["metric-key-schema/v1"]
-    fields: tuple[MetricKeyFieldV1, ...]
-    fingerprint: str
-
-
-@dataclass(frozen=True)
-class ComparableValueSemanticsV1:
-    schema: Literal["comparable-value-semantics/v1"]
-    expression_fingerprint: str
-    evaluator_contracts: tuple[str, ...]
-    global_slice: CanonicalSlice
-    key_schema_fingerprint: str
-    unit: str | None
-    fold: CanonicalValue
-    source_domain_fingerprint: str
-    definition_transform_fingerprint: str | None
-    fingerprint: str
-
-
-@dataclass(frozen=True)
-class MetricArtifactIdentityV1:
-    schema: Literal["metric-artifact/v1"]
-    metric_identities: tuple[MetricIdentity, ...]
-    scope_fingerprint: str
-    source_domain_fingerprint: str
-    dependency_fingerprint: str
-    snapshot_fingerprint: str
-    coverage_fingerprint: str
-    presentation_fingerprint: str
-    artifact_schema_version: str
-    fingerprint: str
-    attribution_basis_fingerprint: str | None = None
-
-
-@dataclass(frozen=True)
-class ExactComparisonSemanticsV1:
-    schema: Literal["exact-comparison-semantics/v1"]
-    comparable_semantics_fingerprint: str
-
-    def __post_init__(self) -> None:
-        if self.schema != "exact-comparison-semantics/v1":
-            raise ValueError(
-                "exact comparison semantics schema must be 'exact-comparison-semantics/v1'"
-            )
-        if not self.comparable_semantics_fingerprint:
-            raise ValueError("exact comparison semantics fingerprint must be non-empty")
-
-
-@dataclass(frozen=True)
-class CumulativeEquivalentComparisonSemanticsV1:
-    schema: Literal["cumulative-equivalent-comparison-semantics/v1"]
-    current_expression_fingerprint: str
-    baseline_expression_fingerprint: str
-    canonical_expression_fingerprint: str
-    current_comparable_semantics_fingerprint: str
-    baseline_comparable_semantics_fingerprint: str
-    canonical_comparable_semantics_fingerprint: str
-
-    def __post_init__(self) -> None:
-        if self.schema != "cumulative-equivalent-comparison-semantics/v1":
-            raise ValueError(
-                "cumulative-equivalent comparison semantics schema must be "
-                "'cumulative-equivalent-comparison-semantics/v1'"
-            )
-        fields = (
-            self.current_expression_fingerprint,
-            self.baseline_expression_fingerprint,
-            self.canonical_expression_fingerprint,
-            self.current_comparable_semantics_fingerprint,
-            self.baseline_comparable_semantics_fingerprint,
-            self.canonical_comparable_semantics_fingerprint,
-        )
-        if any(type(value) is not str or not value for value in fields):
-            raise ValueError(
-                "cumulative-equivalent comparison semantics fingerprints must be non-empty"
-            )
-
-
-DeltaComparisonSemantics: TypeAlias = (
-    ExactComparisonSemanticsV1 | CumulativeEquivalentComparisonSemanticsV1
-)
-
-
-@dataclass(frozen=True)
-class DeltaComparisonIdentity:
-    schema: Literal["delta-comparison/v2"]
-    current: MetricIdentity
-    baseline: MetricIdentity
-    current_artifact_id: str
-    baseline_artifact_id: str
-    semantics: DeltaComparisonSemantics
-    alignment_policy_fingerprint: str
-    attribution_basis_fingerprint: str | None = None
-
-    def __post_init__(self) -> None:
-        if self.schema != "delta-comparison/v2":
-            raise ValueError("delta comparison schema must be 'delta-comparison/v2'")
-        if type(self.current_artifact_id) is not str or not self.current_artifact_id:
-            raise ValueError("delta comparison current_artifact_id must be non-empty")
-        if type(self.baseline_artifact_id) is not str or not self.baseline_artifact_id:
-            raise ValueError("delta comparison baseline_artifact_id must be non-empty")
-        if type(self.semantics) not in {
-            ExactComparisonSemanticsV1,
-            CumulativeEquivalentComparisonSemanticsV1,
-        }:
-            raise TypeError("delta comparison semantics must use a closed semantics variant")
-        if (
-            type(self.alignment_policy_fingerprint) is not str
-            or not self.alignment_policy_fingerprint
-        ):
-            raise ValueError("delta comparison alignment policy fingerprint must be non-empty")
-        if self.attribution_basis_fingerprint is not None and (
-            type(self.attribution_basis_fingerprint) is not str
-            or not self.attribution_basis_fingerprint
-        ):
-            raise ValueError(
-                "delta comparison attribution basis fingerprint must be non-empty when provided"
-            )
-
-
-@dataclass(frozen=True, slots=True)
-class CatalogMetricSubjectV1:
-    kind: Literal["catalog_metric"]
-    session_id: str
-    metric_ref: RefPayloadV1
-    artifact_id: str
-    scope_fingerprint: str
-
-
-@dataclass(frozen=True)
-class RuntimeExpressionSubjectV1:
-    kind: Literal["runtime_expression"]
-    session_id: str
-    expression_fingerprint: str
-    artifact_id: str
-    scope_fingerprint: str
-
-
-@dataclass(frozen=True)
-class DeltaMetricSubjectV1:
-    kind: Literal["delta_metric"]
-    session_id: str
-    comparison: DeltaComparisonIdentity
-
-
-TypedEvidenceSubject: TypeAlias = (
-    CatalogMetricSubjectV1 | RuntimeExpressionSubjectV1 | DeltaMetricSubjectV1
-)
-
-
 def node_child_ids(node: MetricGraphNodeV1) -> tuple[str, ...]:
     """Return ordered child ids for exhaustive graph traversal."""
     match node:
@@ -591,35 +274,22 @@ __all__ = [
     "CanonicalSliceEntryV1",
     "CatalogBodyLeafV1",
     "CatalogMetricIdentity",
-    "CatalogMetricSubjectV1",
-    "ComparableValueSemanticsV1",
-    "CumulativeEquivalentComparisonSemanticsV1",
     "CumulativeNodeV1",
-    "DatasourceCompatibilityDomainV1",
-    "DeltaComparisonIdentity",
-    "DeltaComparisonSemantics",
-    "DeltaMetricSubjectV1",
-    "ExactComparisonSemanticsV1",
     "ExpressionOccurrenceV1",
     "ExpressionPresentationV1",
     "LinearNodeV1",
     "LinearTermV1",
-    "MetricArtifactIdentityV1",
     "MetricExpressionGraphV1",
     "MetricGraphNodeRecordV1",
     "MetricGraphNodeV1",
     "MetricIdentity",
-    "MetricKeyFieldV1",
-    "MetricKeySchemaV1",
     "PresentationLabelV1",
     "RatioNodeV1",
     "RuntimeExpressionIdentity",
-    "RuntimeExpressionSubjectV1",
     "SemanticDependencyDigestV1",
     "SemanticDependencyEntryV1",
     "SliceCanonicalizationV1",
     "SliceNodeV1",
-    "TypedEvidenceSubject",
     "WeightedMeanAggregateNodeV1",
     "node_child_ids",
 ]

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Mapping, Sequence
-from contextlib import suppress
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
@@ -555,8 +554,7 @@ def _inspect_table_from_ir(
         # The temporary source owner releases its handles; the batch connection
         # owner releases the borrowed backend after all inspection work.
         if session is not None:
-            with suppress(Exception):
-                session.close()
+            session.close()
     return _with_primary_key_capability_warning(metadata)
 
 
@@ -669,89 +667,84 @@ def _inspect_source_from_ir(
         ) from exc
 
     try:
-        try:
-            kwargs: dict[str, object] = {}
-            if isinstance(source, ParquetSourceIR):
-                reader = getattr(backend, "read_parquet", None)
-                if reader is None:
-                    raise AttributeError("backend has no read_parquet()")
-                if source.hive_partitioning:
-                    kwargs["hive_partitioning"] = source.hive_partitioning
-                if source.columns is not None:
-                    kwargs["columns"] = list(source.columns)
-                table_expr = reader(source.path, **kwargs)
-            elif isinstance(source, CsvSourceIR):
-                reader = getattr(backend, "read_csv", None)
-                if reader is None:
-                    raise AttributeError("backend has no read_csv()")
-                if not source.header:
-                    kwargs["header"] = source.header
-                if source.delimiter != ",":
-                    kwargs["delimiter"] = source.delimiter
-                table_expr = reader(source.path, **kwargs)
-                if source.columns:
-                    table_expr = table_expr.select(
-                        *(
-                            table_expr[source_name].name(output_name)
-                            for output_name, source_name in source.columns
-                        )
+        kwargs: dict[str, object] = {}
+        if isinstance(source, ParquetSourceIR):
+            reader = getattr(backend, "read_parquet", None)
+            if reader is None:
+                raise AttributeError("backend has no read_parquet()")
+            if source.hive_partitioning:
+                kwargs["hive_partitioning"] = source.hive_partitioning
+            if source.columns is not None:
+                kwargs["columns"] = list(source.columns)
+            table_expr = reader(source.path, **kwargs)
+        elif isinstance(source, CsvSourceIR):
+            reader = getattr(backend, "read_csv", None)
+            if reader is None:
+                raise AttributeError("backend has no read_csv()")
+            if not source.header:
+                kwargs["header"] = source.header
+            if source.delimiter != ",":
+                kwargs["delimiter"] = source.delimiter
+            table_expr = reader(source.path, **kwargs)
+            if source.columns:
+                table_expr = table_expr.select(
+                    *(
+                        table_expr[source_name].name(output_name)
+                        for output_name, source_name in source.columns
                     )
-            elif isinstance(source, JsonSourceIR):
-                if source.path.lower().startswith(("http://", "https://")):
-                    # Inspection must not fetch a remote response only to rediscover types.
-                    table_expr = ibis.table(
-                        {output: dt.null for output, _path in source.columns},
-                        name=source_name(source),
-                    )
-                else:
-                    table_expr = read_json_source(backend, source)
-        except Exception as exc:
-            raise DatasourceMetadataError(
-                message=f"failed to inspect datasource file source {datasource!r}.{source.path!r}: {exc}",
-                expected="an inspectable file datasource source",
-                received=str(exc),
-                location=f"md.inspect({datasource!r}, {source.path!r})",
-                repair=repair(
-                    kind="reconnect",
-                    canonical_id="inspect",
-                    action="Verify the datasource connection and file source before retrying.",
-                ),
-            ) from exc
+                )
+        elif isinstance(source, JsonSourceIR):
+            if source.path.lower().startswith(("http://", "https://")):
+                # Inspection must not fetch a remote response only to rediscover types.
+                table_expr = ibis.table(
+                    {output: dt.null for output, _path in source.columns},
+                    name=source_name(source),
+                )
+            else:
+                table_expr = read_json_source(backend, source)
+    except Exception as exc:
+        raise DatasourceMetadataError(
+            message=f"failed to inspect datasource file source {datasource!r}.{source.path!r}: {exc}",
+            expected="an inspectable file datasource source",
+            received=str(exc),
+            location=f"md.inspect({datasource!r}, {source.path!r})",
+            repair=repair(
+                kind="reconnect",
+                canonical_id="inspect",
+                action="Verify the datasource connection and file source before retrying.",
+            ),
+        ) from exc
 
-        result = _with_primary_key_capability_warning(
-            _schema_only(
-                datasource=datasource,
-                table=source_name(source),
-                database=None,
-                backend_type=datasource_ir.backend_type,
-                table_expr=table_expr,
-                is_view=False,
-                warnings=(
-                    MetadataWarning(
-                        kind="comments_unavailable",
-                        message="file source comments are not available",
-                    ),
-                    MetadataWarning(
-                        kind="nullable_unavailable",
-                        message="file source nullable flags are not available",
-                    ),
-                    MetadataWarning(
-                        kind="partitions_unavailable",
-                        message="file source partition metadata is not available",
-                    ),
+    result = _with_primary_key_capability_warning(
+        _schema_only(
+            datasource=datasource,
+            table=source_name(source),
+            database=None,
+            backend_type=datasource_ir.backend_type,
+            table_expr=table_expr,
+            is_view=False,
+            warnings=(
+                MetadataWarning(
+                    kind="comments_unavailable",
+                    message="file source comments are not available",
                 ),
-            )
+                MetadataWarning(
+                    kind="nullable_unavailable",
+                    message="file source nullable flags are not available",
+                ),
+                MetadataWarning(
+                    kind="partitions_unavailable",
+                    message="file source partition metadata is not available",
+                ),
+            ),
         )
-        if isinstance(source, JsonSourceIR) and source.path.lower().startswith(
-            ("http://", "https://")
-        ):
-            result = replace(
-                result,
-                columns=tuple(replace(column, type="unknown") for column in result.columns),
-            )
-        return result
-    finally:
-        pass
+    )
+    if isinstance(source, JsonSourceIR) and source.path.lower().startswith(("http://", "https://")):
+        result = replace(
+            result,
+            columns=tuple(replace(column, type="unknown") for column in result.columns),
+        )
+    return result
 
 
 def _quote_literal(value: str) -> str:
@@ -766,13 +759,6 @@ def _database_label(database: str | tuple[str, ...] | None) -> str | None:
     if database is None:
         return None
     return ".".join(database) if isinstance(database, tuple) else database
-
-
-def _table_ref(table: str, database: str | tuple[str, ...] | None) -> str:
-    if database is None:
-        return _quote_identifier(table)
-    parts = database if isinstance(database, tuple) else (database,)
-    return ".".join(_quote_identifier(part) for part in (*parts, table))
 
 
 def _merge_columns(
@@ -820,17 +806,6 @@ def _int_or_none(value: object) -> int | None:
         return int(text)
     except ValueError:
         return None
-
-
-def _is_missing_metadata_column(exc: Exception, column: str) -> bool:
-    message = str(exc).lower()
-    lowered = column.lower()
-    return (
-        "column_not_found" in message
-        or "column not found" in message
-        or "cannot be resolved" in message
-        or "missing columns" in message
-    ) and lowered in message
 
 
 def _bool_from_nullable(value: object) -> bool | None:

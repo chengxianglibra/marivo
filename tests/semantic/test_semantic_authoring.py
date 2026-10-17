@@ -2358,7 +2358,7 @@ def test_retired_cumulative_never_pushes_legacy_ir() -> None:
                 over=ref_factory.time_dimension("sales.orders.ordered_at"),
             )
         assert caught.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-        assert caught.value.repair is not None and "Query" in caught.value.repair.action
+        assert caught.value.repair is not None and "base.window(rule)" in caught.value.repair.action
         assert ctx.pending_definitions == []
     finally:
         _exit_ctx()
@@ -2370,7 +2370,7 @@ def test_cumulative_allows_omitted_over_for_loader_resolution() -> None:
         with pytest.raises(SemanticExpressionError) as caught:
             ms.cumulative(name="running", base=ref_factory.metric("sales.revenue"))
         assert caught.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-        assert caught.value.repair is not None and "Query" in caught.value.repair.action
+        assert caught.value.repair is not None and "base.window(rule)" in caught.value.repair.action
         assert ctx.pending_definitions == []
     finally:
         _exit_ctx()
@@ -2382,7 +2382,7 @@ def test_cumulative_rejects_string_refs() -> None:
         with pytest.raises(SemanticExpressionError) as caught:
             ms.cumulative(name="running", base="sales.revenue")
         assert caught.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-        assert caught.value.repair is not None and "Query" in caught.value.repair.action
+        assert caught.value.repair is not None and "base.window(rule)" in caught.value.repair.action
         assert ctx.pending_definitions == []
     finally:
         _exit_ctx()

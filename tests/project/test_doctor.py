@@ -627,10 +627,8 @@ def test_doctor_semantic_flag_uses_semantic_check(
     _write_manifest(tmp_path)
     calls: list[dict[str, object]] = []
 
-    def fake_run_check(
-        *, workspace_dir: str | Path | None, readiness: bool, format: str
-    ) -> dict[str, object]:
-        calls.append({"workspace_dir": workspace_dir, "readiness": readiness, "format": format})
+    def fake_run_check(*, workspace_dir: str | Path | None, readiness: bool) -> dict[str, object]:
+        calls.append({"workspace_dir": workspace_dir, "readiness": readiness})
         return {
             "status": "blocked",
             "errors": [],
@@ -669,7 +667,7 @@ def test_doctor_semantic_flag_uses_semantic_check(
 
     report = run_doctor(DoctorOptions(project_root=tmp_path, semantic=True))
 
-    assert calls == [{"workspace_dir": tmp_path.resolve(), "readiness": True, "format": "json"}]
+    assert calls == [{"workspace_dir": tmp_path.resolve(), "readiness": True}]
     check = _check(report, "semantic", "semantic.readiness.sales")
     assert check.status == "fail"
     assert "blocked" in check.summary
@@ -683,12 +681,9 @@ def test_doctor_semantic_json_details_preserve_checker_payload(
 ) -> None:
     _write_manifest(tmp_path)
 
-    def fake_run_check(
-        *, workspace_dir: str | Path | None, readiness: bool, format: str
-    ) -> dict[str, object]:
+    def fake_run_check(*, workspace_dir: str | Path | None, readiness: bool) -> dict[str, object]:
         assert workspace_dir == tmp_path.resolve()
         assert readiness is True
-        assert format == "json"
         return {
             "status": "blocked",
             "errors": [],
@@ -792,12 +787,9 @@ def test_doctor_semantic_warnings_surface_as_warning_status(
 ) -> None:
     _write_manifest(tmp_path)
 
-    def fake_run_check(
-        *, workspace_dir: str | Path | None, readiness: bool, format: str
-    ) -> dict[str, object]:
+    def fake_run_check(*, workspace_dir: str | Path | None, readiness: bool) -> dict[str, object]:
         assert workspace_dir == tmp_path.resolve()
         assert readiness is True
-        assert format == "json"
         return {
             "status": "ready_with_warnings",
             "errors": [],
@@ -865,9 +857,7 @@ def test_doctor_semantic_advisories_keep_domain_ok(
 ) -> None:
     _write_manifest(tmp_path)
 
-    def fake_run_check(
-        *, workspace_dir: str | Path | None, readiness: bool, format: str
-    ) -> dict[str, object]:
+    def fake_run_check(*, workspace_dir: str | Path | None, readiness: bool) -> dict[str, object]:
         return {
             "status": "ready",
             "errors": [],
@@ -905,9 +895,7 @@ def test_doctor_semantic_partitions_readiness_by_domain(
 ) -> None:
     _write_manifest(tmp_path)
 
-    def fake_run_check(
-        *, workspace_dir: str | Path | None, readiness: bool, format: str
-    ) -> dict[str, object]:
+    def fake_run_check(*, workspace_dir: str | Path | None, readiness: bool) -> dict[str, object]:
         return {
             "status": "blocked",
             "errors": [],
@@ -975,9 +963,7 @@ def test_doctor_semantic_load_errors_single_check_without_domains(
 ) -> None:
     _write_manifest(tmp_path)
 
-    def fake_run_check(
-        *, workspace_dir: str | Path | None, readiness: bool, format: str
-    ) -> dict[str, object]:
+    def fake_run_check(*, workspace_dir: str | Path | None, readiness: bool) -> dict[str, object]:
         return {
             "status": "errored",
             "errors": [
@@ -1021,9 +1007,7 @@ def test_doctor_semantic_no_domains_skipped(
 ) -> None:
     _write_manifest(tmp_path)
 
-    def fake_run_check(
-        *, workspace_dir: str | Path | None, readiness: bool, format: str
-    ) -> dict[str, object]:
+    def fake_run_check(*, workspace_dir: str | Path | None, readiness: bool) -> dict[str, object]:
         return {
             "status": "ready",
             "errors": [],

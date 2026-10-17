@@ -261,7 +261,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "A derived metric over cumulative components can compare only when every outer component uses the "
         "same trailing or grain_to_date anchor; all_history, mixed anchors, attribute, and decompose remain unsupported.",
         "The anchor selects the accumulation shape: all_history (default), grain_to_date (MTD/QTD/YTD resets), or trailing (rolling N).",
-        "Semantic cumulative/anchor factories are retired. Preserve the original temporal equation and use the new Query window capability when available; do not translate old anchors implicitly.",
+        "Reauthor the named metric as a zero-argument @ms.metric() returning base.window(rule). "
+        "Choose mv.all_history(), mv.to_date(...), mv.trailing_duration(...), "
+        "mv.trailing_periods(...), or mv.since(...) to preserve the original anchor and evaluation boundary.",
     ),
     ConstraintId.METRIC_ENTITIES_REQUIRED: _constraint(
         ConstraintId.METRIC_ENTITIES_REQUIRED,
@@ -542,7 +544,10 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric",),
         "fanout_policy is retired; each source receiver retains its contribution root.",
         "Fan-out is a metric-level decision, gated by measure additivity on the merge grain.",
-        "For existence filtering, use an explicit Population preimage when available. Overlapping-label grouping has no equivalent in this version; do not substitute a semi-join or change the contribution root.",
+        "Remove fanout_policy. Use Population.preimage(...) with mv.in_population(...) for existence filtering, "
+        "or mv.membership(...) in Metric.per(...) for overlapping labels. Model contribution-bearing "
+        "association or allocation rows as a separately keyed Entity and define the row measure and any "
+        "allocation weight; preserve each source root.",
     ),
     ConstraintId.METRIC_FANOUT_POLICY_DERIVED: _constraint(
         ConstraintId.METRIC_FANOUT_POLICY_DERIVED,
@@ -551,7 +556,10 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric",),
         "Metric declarations and their components do not accept fanout_policy.",
         "Derived metrics inherit fan-out behavior from their component metrics, which each declare their own policy.",
-        "Preserve explicit source roots and predicates; remove the retired fanout declaration without claiming an equivalent overlapping grouping route.",
+        "Remove the retired parameter and preserve each source contribution root. Use Population.preimage(...) "
+        "with mv.in_population(...) for existence selection or mv.membership(...) for overlapping labels only "
+        "when that matches the original contribution semantics. Model contribution-bearing association or "
+        "allocation rows as a separately keyed Entity and define the row measure and any allocation weight.",
     ),
     ConstraintId.ENTITY_VERSIONING_VALID: _constraint(
         ConstraintId.ENTITY_VERSIONING_VALID,

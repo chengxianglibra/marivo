@@ -4,25 +4,12 @@ from __future__ import annotations
 
 import argparse
 import json
-from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from marivo.project import resolve_project_root
 from marivo.semantic.errors import SemanticError
 from marivo.semantic.reader import SemanticProject
-
-
-def _default_backend_factory() -> Callable[[str], Any]:
-    """Return a backend factory from marivo.analysis.
-
-    Uses importlib to defer the import so marivo.semantic does not
-    carry a static dependency on marivo.analysis.  Tests and external
-    callers may monkeypatch this function to inject their own factory.
-    """
-    import importlib
-
-    return lambda name: importlib.import_module("marivo.datasource").connect(name)
 
 
 def _error_to_dict(error: SemanticError) -> dict[str, object]:
@@ -96,7 +83,6 @@ def run_check(
     *,
     workspace_dir: str | Path | None = None,
     readiness: bool = False,
-    format: Literal["json", "text"] = "text",
 ) -> dict[str, object]:
     if workspace_dir is None:
         project = SemanticProject(workspace_dir=resolve_project_root())
@@ -194,7 +180,6 @@ def main(argv: list[str] | None = None) -> int:
     payload = run_check(
         workspace_dir=args.workspace_dir,
         readiness=args.readiness,
-        format=args.format,
     )
     if args.format == "json":
         print(json.dumps(payload, indent=2, sort_keys=True))

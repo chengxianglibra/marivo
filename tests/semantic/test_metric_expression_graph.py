@@ -20,19 +20,14 @@ from marivo.semantic.metric_graph import (
     MetricGraphNodeV1,
     PresentationLabelV1,
     RatioNodeV1,
-    RuntimeExpressionIdentity,
-    RuntimeExpressionSubjectV1,
     SliceNodeV1,
 )
 from marivo.semantic.metric_graph_canonical import (
     MetricGraphContractError,
     canonical_bytes,
-    canonical_value,
     canonicalize_slices,
     fingerprint,
     intern_nodes,
-    metric_graph_from_bytes,
-    metric_graph_from_value,
     node_fingerprint,
     validate_graph,
 )
@@ -186,30 +181,6 @@ def test_canonical_bytes_and_fingerprint_are_stable() -> None:
     assert fingerprint(graph) == fingerprint(replace(graph))
 
 
-def test_canonical_graph_bytes_round_trip_strictly() -> None:
-    graph = _ratio_graph()
-
-    assert metric_graph_from_bytes(canonical_bytes(graph)) == graph
-
-
-def test_graph_decoder_rejects_unknown_fields_and_node_kinds() -> None:
-    with_unknown_field = cast("dict[str, object]", canonical_value(_ratio_graph()))
-    with_unknown_field["future"] = True
-    with pytest.raises(MetricGraphContractError, match=r"unknown=\['future'\]"):
-        metric_graph_from_value(with_unknown_field)
-
-    with_unknown_node = cast("dict[str, object]", canonical_value(_ratio_graph()))
-    node_records = cast("list[dict[str, object]]", with_unknown_node["nodes"])
-    ratio_record = next(
-        record
-        for record in node_records
-        if cast("dict[str, object]", record["node"])["kind"] == "ratio"
-    )
-    cast("dict[str, object]", ratio_record["node"])["kind"] = "future"
-    with pytest.raises(MetricGraphContractError, match="unsupported metric graph node kind"):
-        metric_graph_from_value(with_unknown_node)
-
-
 def test_ratio_role_order_changes_identity() -> None:
     graph = _ratio_graph()
     root_record = next(record for record in graph.nodes if record.node_id == graph.roots[0])
@@ -222,7 +193,7 @@ def test_ratio_role_order_changes_identity() -> None:
     assert node_fingerprint(swapped) != root_record.node_id
 
 
-def test_explicit_undefined_denominator_policy_round_trips() -> None:
+def test_explicit_undefined_denominator_policy_is_encoded() -> None:
     graph = _ratio_graph()
     root_record = next(record for record in graph.nodes if record.node_id == graph.roots[0])
     assert isinstance(root_record.node, RatioNodeV1)
@@ -243,7 +214,8 @@ def test_explicit_undefined_denominator_policy_round_trips() -> None:
             for occurrence in graph.occurrences
         ),
     )
-    assert metric_graph_from_bytes(canonical_bytes(changed)) == changed
+    validate_graph(changed)
+    assert b'"zero_division":"undefined"' in canonical_bytes(changed)
 
 
 @pytest.mark.parametrize("depth", [1, 10])
@@ -442,26 +414,6 @@ def test_node_ids_are_content_addressed() -> None:
     )
     with pytest.raises(MetricGraphContractError, match="node id mismatch"):
         validate_graph(broken)
-
-
-def test_runtime_identity_is_session_independent_but_subject_is_not() -> None:
-    expression_fingerprint = fingerprint(_ratio_graph())
-    identity = RuntimeExpressionIdentity(
-        kind="runtime_expression",
-        expression_schema="metric-expression/v1",
-        expression_fingerprint=expression_fingerprint,
-    )
-    first = RuntimeExpressionSubjectV1(
-        kind="runtime_expression",
-        session_id="session-a",
-        expression_fingerprint=identity.expression_fingerprint,
-        artifact_id="artifact-a",
-        scope_fingerprint="scope",
-    )
-    second = replace(first, session_id="session-b", artifact_id="artifact-b")
-
-    assert first.expression_fingerprint == second.expression_fingerprint
-    assert fingerprint(first) != fingerprint(second)
 
 
 def test_canonical_encoder_rejects_unknown_objects_and_non_finite_floats() -> None:

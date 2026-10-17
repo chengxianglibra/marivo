@@ -7,7 +7,6 @@ re-exported from ``marivo.semantic.authoring``.
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeAlias
 
@@ -316,14 +315,6 @@ def _require_non_empty_column(column: str, *, semantic_id: str) -> str:
         cls=SemanticDecoratorError,
         constraint_id=ConstraintId.REF_SHAPE,
     )
-
-
-def _column_accessor(column: str) -> Callable[[Any], Any]:
-    def _accessor(table: Any) -> Any:
-        return table[column]
-
-    _accessor.__name__ = f"_marivo_column_{column}"
-    return _accessor
 
 
 def _resolve_datasource_ref(ref: Ref[DatasourceKind]) -> str:

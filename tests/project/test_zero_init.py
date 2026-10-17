@@ -84,14 +84,14 @@ def test_semantic_check_accepts_empty_project_and_rejects_invalid_manifest(
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
-    empty = run_check(readiness=True, format="json")
+    empty = run_check(readiness=True)
 
     assert empty["status"] == "ready"
     assert empty["errors"] == []
 
     (tmp_path / "marivo.toml").write_text("invalid [[ toml", encoding="utf-8")
 
-    invalid = run_check(format="json")
+    invalid = run_check()
 
     assert invalid["status"] == "errored"
     assert invalid["errors"]

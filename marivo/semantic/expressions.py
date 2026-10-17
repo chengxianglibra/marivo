@@ -13,13 +13,10 @@ from ibis.common.deferred import Deferred
 from marivo._definition.deferred import RelationshipParameter
 from marivo._definition.expressions import (
     DeclaredMetricRef,
-    FieldPredicate,
     MetricNode,
 )
 from marivo._definition.graph import (
     DefinitionClosure,
-    DefinitionNode,
-    direct_refs,
     walk,
 )
 from marivo._definition.types import (
@@ -1089,14 +1086,6 @@ def catalog_closure(
     except DefinitionGraphError as error:
         raise SemanticExpressionError.from_definition(error, operation="Metric closure") from error
     return closure
-
-
-def _node_reads(node: DefinitionNode | FieldPredicate) -> tuple[Ref[SemanticKindTag], ...]:
-    return tuple(sorted({exact.ref for exact in direct_refs(node)}, key=lambda ref: ref.key))
-
-
-def _declaration_location(location: DefinitionSourceLocation | None) -> str | None:
-    return f"{location.path}:{location.line}" if location is not None else None
 
 
 def _expression_contract(value: object) -> ExpressionContract:

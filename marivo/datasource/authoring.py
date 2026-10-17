@@ -564,19 +564,6 @@ def _storage_name(value: str | Ref[DatasourceKind]) -> str:
     )
 
 
-def _require_datasource_ref(
-    value: object,
-    *,
-    argument: str = "datasource",
-) -> Ref[DatasourceKind]:
-    if type(value) is Ref and value.kind is SemanticKind.DATASOURCE:
-        return value
-    raise TypeError(
-        f"{argument} must be Ref[datasource] from a datasource spec's .ref or "
-        "ref_factory.datasource('warehouse'). Do not pass a bare string."
-    )
-
-
 _DATASOURCE_CTX: ContextVar[DatasourceLoaderContext | None] = ContextVar(
     "_DATASOURCE_CTX",
     default=None,
@@ -608,23 +595,6 @@ def _caller_location() -> DatasourceSourceLocation:
 
 def _current_ctx() -> DatasourceLoaderContext | None:
     return _DATASOURCE_CTX.get()
-
-
-def _require_ctx() -> DatasourceLoaderContext:
-    ctx = _DATASOURCE_CTX.get()
-    if ctx is None:
-        raise DatasourceFieldInvalidError(
-            message="md.datasource can only be called while loading models/datasources/ files",
-            expected="a models/datasources loader context",
-            received="outside loader",
-            location="md.datasource",
-            repair=repair(
-                kind="reauthor",
-                canonical_id="load",
-                action="Declare datasources from models/datasources/ files.",
-            ),
-        )
-    return ctx
 
 
 def validate_datasource_name(name: Any) -> None:
@@ -666,12 +636,6 @@ def validate_datasource_name(name: Any) -> None:
 
 def _ir_from_spec(spec: DatasourceSpec, *, location: DatasourceSourceLocation) -> DatasourceIR:
     return spec.to_ir(location=location)
-
-
-def _declare(spec: DatasourceSpec) -> None:
-    """Internal: append a spec's IR to the current loader context."""
-    ctx = _require_ctx()
-    ctx.pending_objects.append(_ir_from_spec(spec, location=_caller_location()))
 
 
 def _declare_if_loading(spec: DatasourceSpec) -> None:

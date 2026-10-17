@@ -14,11 +14,9 @@ from marivo.datasource.ir import (
     SourceParamIR,
     TableSourceIR,
 )
-from marivo.refs import Ref, SemanticKindTag, ref
-from marivo.semantic._expression_binding import CompiledExpressionSidecar, ExpressionBody
+from marivo.semantic._expression_binding import ExpressionBody
 from marivo.semantic.errors import SemanticLoadError
 from marivo.semantic.ir import (
-    AggKind,
     DateParse,
     DimensionIR,
     DimensionKind,
@@ -26,18 +24,12 @@ from marivo.semantic.ir import (
     EntityIR,
     EntityVersioningIR,
     MeasureIR,
-    MetricIR,
-    RatioComposition,
-    SemiAdditive,
     SnapshotVersioningIR,
     SourceLocation,
     TargetSnapshotSelection,
     TargetValiditySelection,
-    TimeFoldIR,
     ValidityVersioningIR,
-    WeightedMeanAggregation,
 )
-from marivo.semantic.metric_graph_lowering import lower_catalog_metrics, normalize_target_metric
 from marivo.semantic.validator import (
     Registry,
     normalize_target_dimension,
@@ -131,32 +123,24 @@ def _registry() -> Registry:
     return registry
 
 
-def _metric(name: str, *, agg: AggKind = "sum", entity: str = "orders") -> MetricIR:
-    return MetricIR(
-        semantic_id=f"sales.{name}",
-        domain="sales",
-        name=name,
-        metric_type="simple",
-        entities=(f"sales.{entity}",),
-        aggregation=agg,
-        measure=f"sales.{entity}.amount",
-        composition=None,
-        additivity=None,
-        ai_context=AiContextIR(),
-        body_ast_hash="direct",
-        python_symbol=name,
-        location=_LOCATION,
-        aggregation_target=f"sales.{entity}.amount",
-        aggregation_target_kind="measure",
-    )
+def test_normalized_entity_defers_unknown_source_columns_until_physical_binding() -> None:
+    registry = _registry()
+    entity = registry.entities["sales.orders"]
+    assert isinstance(entity.source, JsonSourceIR)
+
+    normalized = normalize_target_entity(registry, entity.semantic_id)
+
+    assert dict(normalized.columns)["amount"] == "unknown"
 
 
-def _sidecar(registry: Registry) -> CompiledExpressionSidecar:
-    bodies: dict[Ref[SemanticKindTag], ExpressionBody] = {}
-    # The production body factory establishes the exact source-column binding.
-    for measure in registry.measures.values():
-        bodies[ref.measure(measure.semantic_id)] = ExpressionBody.for_column(measure.name)
-    return CompiledExpressionSidecar(bodies=bodies, field_owners={}, catalog_refs=frozenset(bodies))
+def test_normalized_time_dimension_preserves_declared_type_and_role() -> None:
+    registry = _registry()
+
+    normalized = normalize_target_dimension(registry, "sales.orders.day")
+
+    assert normalized.logical_type == "date"
+    assert normalized.is_default
+    assert normalized.granularity == "day"
 
 
 def test_entity_identity_is_ordered_and_independent_of_version_row_key() -> None:
@@ -338,168 +322,3 @@ def test_identity_diagnostics_prioritize_duplicates_projection_then_snapshot_ove
         normalize_target_entity(registry, entity.semantic_id)
     assert caught.value.kind == "identity_version_overlap"
     assert "day" in (caught.value.received or "")
-
-
-@pytest.mark.parametrize("agg", ["sum", "count", "mean"])
-def test_aggregate_contract_is_derived_from_canonical_graph(agg: AggKind) -> None:
-    registry = _registry()
-    registry.metrics["sales.value"] = _metric("value", agg=agg)
-    sidecar = _sidecar(registry)
-    normalized = normalize_target_metric(registry, "sales.value", sidecar=sidecar)
-    assert (
-        normalized.graph == lower_catalog_metrics(registry, ("sales.value",), sidecar=sidecar).graph
-    )
-    assert tuple(item.path for item in normalized.computation_roots) == ("sales.orders",)
-    assert normalized.logical_type == ("int64" if agg == "count" else "unknown")
-    assert normalized.empty_rule == ("zero" if agg == "count" else "null")
-    assert normalized.nullable is (agg != "count")
-    assert "value.row_count" in normalized.required_state
-    if agg == "mean":
-        assert normalized.required_state == ("value.sum", "value.non_null_count", "value.row_count")
-
-
-def test_source_decimal_width_is_deferred_until_physical_type_consumption() -> None:
-    registry = _registry()
-    entity = registry.entities["sales.orders"]
-    assert isinstance(entity.source, JsonSourceIR)
-    registry.metrics["sales.value"] = _metric("value", agg="sum")
-    normalized = normalize_target_metric(registry, "sales.value", sidecar=_sidecar(registry))
-    assert normalized.logical_type == "unknown"
-    assert (
-        dict(normalize_target_entity(registry, entity.semantic_id).columns)["amount"] == "unknown"
-    )
-    assert normalized.computation_roots == (
-        normalize_target_entity(registry, entity.semantic_id).ref,
-    )
-
-
-def test_weighted_mean_and_different_root_ratio_retain_intrinsic_component_state() -> None:
-    registry = _registry()
-    registry.metrics["sales.weighted"] = replace(
-        _metric("weighted"),
-        aggregation=None,
-        measure=None,
-        aggregation_target=None,
-        aggregation_target_kind=None,
-        weighted_mean=WeightedMeanAggregation("sales.orders.amount", "sales.orders.weight"),
-    )
-    registry.metrics["sales.visits"] = _metric("visits", agg="count", entity="visits")
-    registry.metrics["sales.ratio"] = replace(
-        _metric("ratio"),
-        metric_type="derived",
-        entities=(),
-        aggregation=None,
-        measure=None,
-        aggregation_target=None,
-        aggregation_target_kind=None,
-        composition=RatioComposition("sales.weighted", "sales.visits"),
-    )
-    sidecar = _sidecar(registry)
-    weighted = normalize_target_metric(registry, "sales.weighted", sidecar=sidecar)
-    assert weighted.null_rule == "non_null_pairs" and weighted.empty_rule == "null"
-    assert weighted.required_state == (
-        "value.weighted_numerator",
-        "value.weight_sum",
-        "value.non_null_pair_count",
-        "value.row_count",
-    )
-    ratio = normalize_target_metric(registry, "sales.ratio", sidecar=sidecar)
-    assert tuple(root.path for root in ratio.computation_roots) == ("sales.orders", "sales.visits")
-    assert tuple(component.role for component in ratio.components) == (
-        "value.numerator",
-        "value.denominator",
-    )
-    assert ratio.null_rule == "null_component_or_zero_denominator"
-    assert ratio.evaluation_order == ("space", "time", "compose")
-    assert "value.numerator.weighted_numerator" in ratio.required_state
-    assert "value.denominator.count" in ratio.required_state
-
-
-def test_metric_missing_type_facts_fail_and_quantiles_require_source() -> None:
-    registry = _registry()
-    registry.metrics["sales.value"] = _metric("value")
-    with pytest.raises(SemanticLoadError, match="missing declared measure facts"):
-        normalize_target_metric(registry, "sales.value")
-    registry.metrics["sales.value"] = _metric("value", agg="median")
-    normalized = normalize_target_metric(registry, "sales.value", sidecar=_sidecar(registry))
-    assert normalized.requires_source_recompute
-    assert normalized.required_state == ()
-    assert "metric.source_quantile@v1" in normalized.source_requirements
-
-
-def test_metric_never_rewrites_the_authored_computation_root() -> None:
-    registry = _registry()
-    registry.metrics["sales.value"] = replace(
-        _metric("value"),
-        entities=("sales.orders", "sales.customers"),
-        root_entity="sales.customers",
-    )
-    with pytest.raises(SemanticLoadError, match="declared computation root"):
-        normalize_target_metric(registry, "sales.value", sidecar=_sidecar(registry))
-
-
-def test_status_measure_requires_spatial_before_temporal_state() -> None:
-    registry = _registry()
-    registry.measures["sales.orders.amount"] = replace(
-        registry.measures["sales.orders.amount"],
-        additivity=SemiAdditive("sales.orders.day", TimeFoldIR("last")),
-    )
-    registry.metrics["sales.value"] = _metric("value")
-    normalized = normalize_target_metric(registry, "sales.value", sidecar=_sidecar(registry))
-    assert normalized.components[0].time_fold == "last"
-    assert normalized.components[0].status_time_dimension is not None
-    assert normalized.components[0].status_time_dimension.path == "sales.orders.day"
-    assert "metric.source_temporal_fold@v1" in normalized.source_requirements
-    assert normalized.requires_source_recompute
-    assert normalized.required_state == ()
-    assert normalized.evaluation_order.index("space") < normalized.evaluation_order.index("time")
-    axis = normalize_target_dimension(registry, "sales.orders.day")
-    assert axis.logical_type == "date" and axis.is_default and axis.granularity == "day"
-
-
-def test_weighted_temporal_value_requires_additive_weight() -> None:
-    registry = _registry()
-    temporal = SemiAdditive("sales.orders.day", TimeFoldIR("last"))
-    registry.measures["sales.orders.amount"] = replace(
-        registry.measures["sales.orders.amount"], additivity=temporal
-    )
-    registry.metrics["sales.weighted"] = replace(
-        _metric("weighted"),
-        aggregation=None,
-        measure=None,
-        aggregation_target=None,
-        aggregation_target_kind=None,
-        weighted_mean=WeightedMeanAggregation("sales.orders.amount", "sales.orders.weight"),
-    )
-    normalized = normalize_target_metric(registry, "sales.weighted", sidecar=_sidecar(registry))
-    component = normalized.components[0]
-    assert component.time_fold == "last"
-    assert component.status_time_dimension is not None
-    assert component.status_time_dimension.path == "sales.orders.day"
-    assert "metric.source_temporal_fold@v1" in normalized.source_requirements
-    assert normalized.requires_source_recompute
-    assert normalized.required_state == ()
-    registry.measures["sales.orders.weight"] = replace(
-        registry.measures["sales.orders.weight"], additivity=temporal
-    )
-    with pytest.raises(SemanticLoadError, match="additive weight"):
-        normalize_target_metric(registry, "sales.weighted", sidecar=_sidecar(registry))
-
-
-def test_private_normalization_never_calls_telemetry_wrapped_public_ref_factories(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    registry = _registry()
-    registry.metrics["sales.value"] = _metric("value")
-    sidecar = _sidecar(registry)
-
-    def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("Public ref factory could perform telemetry I/O")
-
-    for name in ("entity", "datasource", "dimension", "time_dimension", "measure", "metric"):
-        monkeypatch.setattr(type(ref), name, forbidden)
-    assert normalize_target_entity(registry, "sales.orders").primary_key == ("id",)
-    assert normalize_target_dimension(registry, "sales.orders.day").logical_type == "date"
-    assert (
-        normalize_target_metric(registry, "sales.value", sidecar=sidecar).logical_type == "unknown"
-    )

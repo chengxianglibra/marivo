@@ -27,7 +27,6 @@ class ConstraintId(StrEnum):
     DATASOURCE_BACKEND_TYPE_REQUIRED = "datasource_backend_type_required"
     DATASOURCE_FIELD_JSONABLE = "datasource_field_jsonable"
     DATASOURCE_SECRET_ENV_REF = "datasource_secret_env_ref"
-    DATASOURCE_LOADER_CONTEXT = "datasource_loader_context"
     DATASOURCE_UNIQUE_NAME = "datasource_unique_name"
     DATASOURCE_FILE_LOADABLE = "datasource_file_loadable"
     DATASOURCE_REGISTER_OUTSIDE_LOADER = "datasource_register_outside_loader"
@@ -129,15 +128,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
             'md.trino(name="warehouse", host="trino.example", catalog="hive", '
             'user_env="TRINO_USER", auth_env="TRINO_AUTH")'
         ),
-    ),
-    ConstraintId.DATASOURCE_LOADER_CONTEXT: _constraint(
-        ConstraintId.DATASOURCE_LOADER_CONTEXT,
-        "DatasourceFieldInvalid",
-        "decorator",
-        SUPPORTED_BACKEND_TYPES,
-        "Datasource declarations can only be made while loading models/datasources/ files.",
-        "Datasource declarations are collected by the project loader, not registered into global process state.",
-        "Put datasource declarations under models/datasources/*.py and read them with md.load().",
     ),
     ConstraintId.DATASOURCE_UNIQUE_NAME: _constraint(
         ConstraintId.DATASOURCE_UNIQUE_NAME,

@@ -1000,7 +1000,7 @@ def _semantic_section(root: Path) -> DoctorSection:
     try:
         from marivo.semantic.check import run_check
 
-        payload = run_check(workspace_dir=root, readiness=True, format="json")
+        payload = run_check(workspace_dir=root, readiness=True)
         readiness_by_domain = payload.get("readiness_by_domain")
 
         if isinstance(readiness_by_domain, dict) and readiness_by_domain:
