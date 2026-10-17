@@ -1,21 +1,13 @@
 """Strict selection with independent row and consumption expectations."""
 
-import json
 from decimal import Decimal
 
 import pytest
-from pydantic import TypeAdapter
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.core.model import Binding, CoreRuleError
-from marivo.analysis.core.predicates import TemporalLiteral, ValuePredicate, compose
+from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.contracts import canonical_json
-from marivo.analysis.materialization.errors import IntegrityError
-from marivo.analysis.materialization.graph_protocol import decode, encode
-from marivo.analysis.methods.physical import DecimalType, DurationType
-from marivo.analysis.methods.predicates import evaluate_leaf, validate_operand
 from tests.shared_fixtures import (
     DslCase,
     DslCaseFactory,
@@ -31,48 +23,6 @@ def _amounts(case: DslCase) -> mv.Query:
         during=case.session.time_scope(start="2026-08-01", end="2026-09-01"),
         by=case.session.members(ms.ref.entity("sales.customer")),
     )
-
-
-def test_predicate_literal_wire_preserves_exact_type() -> None:
-    values: tuple[int | float | Decimal | str | bool | TemporalLiteral, ...] = (
-        "123",
-        "1.20",
-        "1e3",
-        "west",
-        1,
-        1.0,
-        True,
-        Decimal("1.20"),
-        Decimal("-0.00"),
-        TemporalLiteral("date", "2026-08-01"),
-        TemporalLiteral("timestamp", "2026-08-01T00:00:00+00:00"),
-    )
-    adapter = TypeAdapter(ValuePredicate)
-    for value in values:
-        predicate = ValuePredicate(Binding("s", "o", "input", "scope"), "eq", value)
-        restored = decode(encode(predicate, adapter), adapter)
-        assert type(restored.value) is type(value)
-        assert restored.value == value
-        if isinstance(value, Decimal):
-            assert isinstance(restored.value, Decimal)
-            assert restored.value.as_tuple() == value.as_tuple()
-
-
-def test_malformed_decimal_literal_wire_rejects() -> None:
-    values: tuple[dict[str, object], ...] = (
-        {"kind": "decimal", "value": "invalid"},
-        {"kind": "decimal", "value": 123},
-        {"kind": "decimal", "value": "1.20", "extra": True},
-        {"kind": "unknown", "value": "1.20"},
-    )
-    adapter = TypeAdapter(ValuePredicate)
-    predicate = ValuePredicate(Binding("s", "o", "input", "scope"), "eq", Decimal("1.20"))
-    encoded = encode(predicate, adapter)
-    for value in values:
-        payload: dict[str, object] = json.loads(encoded)
-        payload["value"] = value
-        with pytest.raises(IntegrityError, match="invalid closed metadata"):
-            decode(canonical_json(payload), adapter)
 
 
 def test_numeric_string_category_persists_and_exports(
@@ -99,37 +49,6 @@ def test_numeric_string_category_persists_and_exports(
     assert restored.to_pandas().equals(frame)
     assert frame.loc[frame[("value", "value")] == "123"].equals(frame)
     assert selected.execute().to_pandas().equals(frame)
-
-
-def test_strict_leaf_and_three_value_composition() -> None:
-    binding = Binding("s", "o", "input", "scope")
-    comparison = ValuePredicate(binding, "gt", 0)
-    state = ValuePredicate(binding, "is_defined", 0)
-    undefined: dict[str, object] = {"value": None, "cell_tag": "undefined"}
-    assert evaluate_leaf(state, undefined, None) is False
-    with pytest.raises(Exception, match="Cell tag undefined"):
-        evaluate_leaf(comparison, undefined, None)
-    assert (
-        evaluate_leaf(comparison, {"value": None, "cell_tag": "unknown"}, None, cohort=True) is None
-    )
-    tree = ValuePredicate(binding, "all_of", 0, children=(state, comparison))
-    assert compose(tree, (False, None)) is False
-    assert (
-        compose(ValuePredicate(binding, "any_of", 0, children=(state, comparison)), (True, None))
-        is True
-    )
-
-
-def test_precise_predicate_literals_and_duration_fields() -> None:
-    binding = Binding("s", "o", "input", "scope")
-    validate_operand(ValuePredicate(binding, "gt", Decimal("1.20")), DecimalType(18, 2), None)
-    with pytest.raises(Exception):
-        validate_operand(ValuePredicate(binding, "gt", Decimal("1.201")), DecimalType(18, 2), None)
-    with pytest.raises(Exception):
-        validate_operand(ValuePredicate(binding, "gt", 1), DurationType("us"), None)
-    validate_operand(
-        ValuePredicate(binding, "gt", 0, right_index=1), DurationType("ns"), DurationType("ns")
-    )
 
 
 def test_public_multi_input_source_and_exported_pandas(
@@ -361,8 +280,3 @@ def test_closed_policy_and_predicate_inputs(analysis_dsl_case_factory: DslCaseFa
         query.where(True)  # type: ignore[arg-type]  # Deliberately invalid predicate type.
     for name in ("all_instances", "at_least", "SubjectBinding", "all_of"):
         assert not hasattr(mv, name)
-    binding = Binding("s", "o", "input", "scope")
-    with pytest.raises(AnalysisError):
-        validate_operand(
-            ValuePredicate(binding, "gt", 0, right_index=1), DurationType("us"), DurationType("ns")
-        )

@@ -12,9 +12,9 @@ from pathlib import Path
 import ibis
 import pytest
 
-import marivo.analysis.runtime_metric as runtime_descriptors
 import marivo.datasource as md
 import marivo.semantic as ms
+import marivo.semantic.runtime_metric as runtime_descriptors
 from marivo._authoring.model import AuthoringRepair
 from marivo._compat import UTC
 from marivo.introspection.live.model import LiveHelpTarget

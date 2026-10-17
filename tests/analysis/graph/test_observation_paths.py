@@ -14,7 +14,6 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.methods.physical import Backend
 from marivo.datasource.adapters import provider_for
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
@@ -35,7 +34,7 @@ def test_long_path_sum_and_count(
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
-    backend: Backend = "duckdb"
+    backend = "duckdb"
     monkeypatch.chdir(tmp_path)
     profile = {"trino": "iceberg", "clickhouse": "mergetree"}.get(backend, "table")
     instant = datetime(2026, 8, 1, tzinfo=timezone.utc)

@@ -124,20 +124,6 @@ def test_certified_grid_keeps_calendar_authority_and_coverage() -> None:
         )
 
 
-def test_time_product_codec_round_trips_closed_parameters() -> None:
-    from marivo.analysis.core.model import Binding, DomainSignature
-    from marivo.analysis.core.rules import RuleParameters, TimeProduct
-
-    domain = DomainSignature(
-        Binding("session", "owner", "input", "scope"), "singleton", (), (), "all"
-    )
-    adapter: TypeAdapter[RuleParameters] = TypeAdapter(RuleParameters)
-    for value in (TimeProduct(domain, "time_product"),):
-        recovered = adapter.validate_json(adapter.dump_json(value), strict=True)
-        assert type(recovered) is type(value)
-        assert recovered == value
-
-
 def test_trailing_day_uses_seconds_across_civil_dst_day() -> None:
     from marivo.analysis.core.time_grid import GridPoint, bind_cumulative
 
@@ -150,18 +136,6 @@ def test_trailing_day_uses_seconds_across_civil_dst_day() -> None:
     assert binding.windows[0].start == "2026-03-08T04:00:00+00:00"
     assert binding.windows[0].end == "2026-03-09T04:00:00+00:00"
     assert grid.cells[0].start.isoformat() == "2026-03-08T05:00:00+00:00"
-
-
-def test_sample_state_rejects_duplicate_keys_and_nonfinite_components() -> None:
-    from marivo.analysis.methods.temporal_fold import decode_samples
-
-    for payload in (
-        "2026-08-01T00:00:00~10~1;2026-08-01T00:00:00~20~1",
-        "2026-08-01T00:00:00~inf~1",
-        "2026-08-01T00:00:00~10~0",
-    ):
-        with pytest.raises(ValueError):
-            decode_samples(payload)
 
 
 def test_named_occurrences_with_equal_bounds_are_not_one_partition() -> None:

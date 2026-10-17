@@ -212,16 +212,3 @@ def test_period_source_values_match_independent_count_oracle(
             assert row[("value", "value.absolute")] == expected
         else:
             assert pd.isna(row[("value", "value.absolute")])
-
-
-def test_private_time_key_tables_reject_noninjective_images() -> None:
-    from marivo.analysis.core.model import TimeKeys
-    from marivo.analysis.core.time_alignment import OrdinalTimeMapping
-
-    for table in (
-        (("a", "ordinal:1"), ("b", "ordinal:1")),
-        (("a", "ordinal:1"), ("a", "ordinal:2")),
-        (("a", ""),),
-    ):
-        with pytest.raises(AnalysisError, match="injective"):
-            TimeKeys(table, (("c", "ordinal:1"),), OrdinalTimeMapping())

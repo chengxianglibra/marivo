@@ -48,8 +48,8 @@ from marivo._definition.types import (
     Owner,
 )
 from marivo._temporal import CalendarAxis, InstantAnchor, anchor_from_datetime
+from marivo.analysis._contract import AnalysisAction, AnalysisContract
 from marivo.analysis.core.model import reject
-from marivo.analysis.public_dsl import AnalysisAction, AnalysisContract
 from marivo.semantic._deferred_semantics import consume_field
 from marivo.semantic.expressions import Entity
 
@@ -283,13 +283,6 @@ class Population(PopulationParameter):
                 type(self.definition).__name__,
                 "Apply selection on the Query, then project its population endpoint.",
                 "Population.project",
-            )
-        if any(axis not in self.axes for axis in axes):
-            reject(
-                "existing axes",
-                "new coordinate requested",
-                "Use classify to read new attributes.",
-                "population.project",
             )
         positions = tuple(self.axes.index(axis) for axis in axes)
         memberships = tuple(

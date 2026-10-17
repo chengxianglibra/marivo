@@ -12,9 +12,9 @@ import ibis
 import pytest
 from ibis.common.deferred import Deferred
 
-import marivo.analysis.runtime_metric as runtime_descriptors
 import marivo.datasource as md
 import marivo.semantic as ms
+import marivo.semantic.runtime_metric as runtime_descriptors
 from marivo._definition.expressions import DeclaredMetricRef
 from marivo.datasource.snapshot import DiscoverySnapshot
 from marivo.refs import (
@@ -1346,8 +1346,8 @@ def test_catalog_readiness_keeps_unrelated_ref_ready_when_runtime_leaf_is_missin
     assert {issue.kind for issue in report.blockers} >= {"unknown_ref", "metric_graph_invalid"}
     graph_issue = next(issue for issue in report.blockers if issue.kind == "metric_graph_invalid")
     assert graph_issue.repair is not None
-    assert graph_issue.repair.help_target.surface == "analysis"
-    assert graph_issue.repair.help_target.canonical_id == "runtime_metric"
+    assert graph_issue.repair.help_target.surface == "semantic"
+    assert graph_issue.repair.help_target.canonical_id == "expressions"
 
 
 def test_catalog_readiness_blocks_invalid_runtime_weighted_mean(

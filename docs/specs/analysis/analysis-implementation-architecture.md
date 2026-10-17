@@ -9,6 +9,8 @@ v0.12 增补有序/近似规约、nullable sum、成员分桶和命名窗口；�
 2026-10-17 fanout 修订以逻辑贡献约束准入物理计划，不固定 aggregate-then-join；仍不声明新增实现或后端资格。
 v0.11 将 Measure/Metric 数值计算收敛到原生 Ibis DAG，自动延迟类型绑定；该原生表达式路线已按 S0–S6 接通。
 本文保留完整目标架构及历史起点；具体已实现合同由 current owner 文档和原生 Help 拥有。
+旧 DSL 清理后，Query 的有限物理资格和 L1/L8 优化条件直接由编译器与内核拥有；
+旧 MethodRegistry、规则注册表和 graph/Cell 执行分派已退役，不再是当前实现依赖。
 本文与目标设计和实施计划同步命名；不修改实现、测试、技能或发布文档。
 v0.7 收敛执行分工：Ibis 负责源端计算，pandas 统一本地执行，PyArrow 只负责存储和读取。
 v0.7 延续 v0.6 的终端 Artifact：所有 DSL 组合在 Query 上完成，保持当时 v0.32 的 API 与数值合同。
@@ -42,7 +44,7 @@ Population 表示分析总体，覆盖身份名单、分析坐标和内部样本
 1. **一份私有定义图。** 行、Metric、Population 和 Query 的闭合定义可以相互引用；Artifact 和活动运行服务不能成为定义输入。
 2. **两个绑定位置。** semantic 决定表达式阶段、单位、权限和依赖；analysis 决定本次贡献、坐标、期间、身份约束和归属。
 3. **一个终端产物。** Query.execute 返回 Artifact；它包含多量数据和实际 Finding/Evidence，只读、展示和导出。
-4. **一条编译执行链。** 沿现有 graph、MethodRegistry、GraphPlan 和 Runtime 改造；来源 Ibis 返回 pandas，本地只使用 pandas 交接与现有数值内核，PyArrow 留在存储/读取边界。
+4. **一条编译执行链。** 使用 Query 定义图、QueryPlan 和 Runtime；来源 Ibis 返回 pandas，本地只使用 pandas 交接与现有数值内核，PyArrow 留在存储/读取边界。
 5. **执行内管理中间信息。** 充分组件、配对状态、局部同输入保证和物化屏障由本次计划管理，不附着于 Artifact。
 6. **执行后交 pandas。** 不提供 Artifact DSL 续算、固定结果输入或历史图恢复；业务解释、重用和重新求值由脚本决定。
 7. **按能力贯通实施。** 定义、检查、执行、输出保存、阅读和披露一起交付，不先铺空抽象。
@@ -72,24 +74,27 @@ Population 表示分析总体，覆盖身份名单、分析坐标和内部样本
 两份设计稿及关联文档含已有工作树修改，目标合同以本轮 v0.37 为准；以下代码定位是改造起点，不是目标行为。
 当前行为仍由 [Python Analysis Design](python-analysis-design.md) 和
 [Session State and Runtime](session-state-and-runtime.md) 约束。
+以下表格记录历史起点。旧 `public_dsl.py`、graph/Cell 发布器与可执行结果接收器
+现已整体删除；当前公开对象直接来自 `dsl/`，共享披露值来自 `_contract.py`。
 
 | 现状与代码证据 | 架构判断 |
 | --- | --- |
-| [public_dsl.py](../../../marivo/analysis/public_dsl.py) 约 5,900 行，公开 Logical/Materialized、多种数值关系及专用方法结果 | 重做公开对象组织；减少按结果形状增殖的类，不把旧类逐个换名成 Query |
+| 历史 `public_dsl.py` 约 5,900 行，公开 Logical/Materialized、多种数值关系及专用方法结果 | 旧模块已退役；Population/Query/Column/Artifact 各有唯一实现 |
 | [core/model.py](../../../marivo/analysis/core/model.py) 的 Signature 只有一个可选 quantity，parts 也围绕该量绑定 | 先改多量合同，再接 observe 的命名映射；不能以多张单量结果临时拼接模拟多量 Artifact |
 | [core/graph.py](../../../marivo/analysis/core/graph.py) 已有 SourceLeaf、FixedLeaf、角色边、定义指纹、capture 和拓扑；图构造直接依赖规则和注册表 | 保留来源、角色边与拓扑能力，退役 FixedLeaf；分离纯定义记录与 analysis 绑定推导，避免 semantic 依赖执行层 |
 | [semantic/metric_graph.py](../../../marivo/semantic/metric_graph.py) 有 CatalogBody、Aggregate、Ratio、Linear；另有 RuntimeMetricExpr | 统一行/Metric 定义，消除模型与临时表达式的双入口；复用算法，不保留两套计算图 |
-| [materialization/graph_relation.py](../../../marivo/analysis/materialization/graph_relation.py) 同时组织 lazy 构造、观察、恢复和 Runtime 依赖 | 纯构造迁入绑定层；终端产物重开留在存储/读取层；materialization 不再拥有公共代数 |
-| [core/rules.py](../../../marivo/analysis/core/rules.py) 约 4,000 行；[graph_lowering.py](../../../marivo/analysis/compiler/graph_lowering.py) 约 4,660 行 | 按定义族拆规则和 lowering，保持各自唯一入口；不增加第二注册或分派框架 |
+| 历史 `materialization/graph_relation.py` 同时组织 lazy 构造、观察、恢复和 Runtime 依赖 | 旧接收器已退役；当前构造由 dsl/binding 拥有，终端产物重开由存储/读取层拥有 |
+| 历史 `core/rules.py` 约 4,000 行；[graph_lowering.py](../../../marivo/analysis/compiler/graph_lowering.py) 约 4,660 行 | 旧规则层已退役；当前按定义族拥有绑定和 lowering，不增加第二注册或分派框架 |
 | [graph_plan.py](../../../marivo/analysis/compiler/graph_plan.py) 当前拒绝 mixed 和多个 live datasource | 退役 Artifact 输入路线；为来源/字面量的执行内依赖建立 stage 交接与资格；删除拒绝条件本身不能构成支持 |
-| [graph_publication.py](../../../marivo/analysis/materialization/graph_publication.py) 已管理执行、Run、资源、原子提交；[store.py](../../../marivo/analysis/materialization/store.py) 已有本地持久化 | 保留事务与资源边界，改其消费的计划和多量布局，不重建 Store 或协调器 |
+| 历史 `graph_publication.py` 管理执行、Run、资源、原子提交；[store.py](../../../marivo/analysis/materialization/store.py) 提供本地持久化 | 旧发布器已删除；当前 terminal_publication/terminal_store 保留事务与资源边界 |
 | [SourceSession.execute](../../../marivo/datasource/adapters.py) 已通过 Ibis 返回 pandas；固定执行和 Cell/Parquet 编码已有独立边界 | 保留 pandas 来源交接；统一执行内 pandas 数据合同，PyArrow 只承担产物编解码与读取；不重新引入 cursor、batch 协议或来源临时表体系 |
 
 起草基线的历史闭合格式为 Store 9、graph DAG v10、descriptor v6、continuation v5。
 这些是起草时的源码核对结果，当前终端输出使用 Store 10；旧模块中的历史注释不能替代实际 schema。格式切换见 §12。
 
-现有 forecasting、association 等实现不因目录重排而批量删除。它们退出本次目标公开面，
-内部仍有消费者的数值、资源或历史读取能力按实际依赖处理；没有新增这些能力的验收承诺。
+forecasting、association 等专用 DSL 接收器随旧图执行链退役。
+当前 Query 路线仍消费的数值内核、资源与存储检查按实际依赖保留；
+统计与预测工作通过终端 Artifact 导出 pandas 后显式完成。
 
 ### 2.1 关键技术选择与工程起点
 
@@ -98,8 +103,8 @@ Population 表示分析总体，覆盖身份名单、分析坐标和内部样本
 
 | 实现点 | 选择及原因 | 当前落点与改造边界 |
 | --- | --- | --- |
-| Artifact 元数据 | SQLite 存产物 ID、data schema、receipt、必要描述及有界可分页的 Finding/Evidence；不存定义闭包 | [graph_store.py](../../../marivo/analysis/materialization/graph_store.py) 已有 artifact_metadata；恢复句柄只消费这类路径 |
-| Artifact 数据 | ArtifactData 只描述已提交的 Parquet 主表及坐标投影/展示次序等输出附件；PyArrow 负责读取和编码 | [graph_storage.py](../../../marivo/analysis/materialization/graph_storage.py) 的 read_result 目前读全主表、校验并加载所有 parts；改为按请求打开，见 §12.5 |
+| Artifact 元数据 | SQLite 存产物 ID、data schema、receipt、必要描述及有界可分页的 Finding/Evidence；不存定义闭包 | [terminal_store.py](../../../marivo/analysis/materialization/terminal_store.py) 拥有当前终端记录；重开句柄只消费这类路径 |
+| Artifact 数据 | ArtifactData 只描述已提交的 Parquet 主表及坐标投影/展示次序等输出附件；PyArrow 负责读取和编码 | [graph_reading.py](../../../marivo/analysis/materialization/graph_reading.py) 按请求读取终端输出，见 §12.5 |
 | 内部值 | 类型化 nullable 列；来源使用 SQL NULL，本地使用统一 pandas dtype 与缺失表示 | 新格式移除 CellBook、三种 carrier、int16 状态列和独立 Cell lowering；Arrow validity 只属于存储/读取布局 |
 | 来源计算 | Ibis 构造关系表达式，沿 SourceSession.execute 返回 pandas | 不引入另一套 SQL 生成器或 datasource 流协议；来源过滤、关联、规约优先在已准入后端完成 |
 | 执行内本地计算 | pandas DataFrame 是唯一阶段交接容器；投影、筛选、关联、规约和组合共用本地内核，精确算法复用现有数值函数 | [graph_local_execution.py](../../../marivo/analysis/materialization/graph_local_execution.py) 逐能力收敛；不新增 Arrow compute 或 DuckDB 本地执行分派 |
@@ -526,22 +531,19 @@ PerWeightedMean 先在相同 `(k,j)` 完成 value/weight 两个 Metric，再共�
 绑定图须保存固定状态轴的要求直到整个 Metric 绑定完成；不能在中间 sum 构造时将要求丢弃，
 也不能用两个完成 P95 或失去时点的 bag 做空间 rollup。
 
-## 8. 规则、方法注册和编译器
+## 8. 语义规则、物理资格和编译器
 
 ### 8.1 语义规则与物理资格各有一个 owner
 
 semantic 拥有行/Metric 的类型、单位、可加性、时间角色和节点政策；
 analysis 规则拥有本次域、贡献映射、结果操作和保存信息的消费条件。
-MethodRegistry 继续作为绑定方法与物理实现的唯一连接入口。
-
-建议将 core/rules.py 按 population、observe、query、grain、temporal 拆成纯函数模块。
-规则输入为闭合参数、精确绑定和输入签名，输出为现有 RuleDerivation 的演化版本：
-输出签名、状态需求/运输、派生事实及 pending obligations。
-规则模块不回调注册表；注册表引用规则，构造/绑定入口通过注册表调用推导，避免相互导入。
+这些检查由对应 binding、compiler 和 methods 内核直接拥有。
+输入为闭合定义、精确绑定和输入签名，输出为 Query 的签名、阶段、数据布局及必要检查。
+不再经过旧 MethodRegistry、RuleDerivation 或独立规则注册框架。
 
 物理资格继续包含方法/规则版本、精确类型、输入域和时间形状、来源/字面量/本地 stage 形态、后端、检查和状态产出。
 多量查询按所需列和各 stage 分别选择来源 Ibis 路线或合格 pandas 内核，不把“同一表里有一个 float”当作整表资格。
-MethodRegistry 保留精确算法和类型准入，不新增本地 backend 协议或 Arrow/DuckDB fallback。
+编译器与物理内核保留精确算法和类型准入，不新增本地 backend 协议或 Arrow/DuckDB fallback。
 直接求值、生成本次所需组件和合法合并分别准入；输出能否编码由发布边界校验，不形成 Artifact 的续算就绪状态。
 
 ### 8.2 三种规约不能因名字相同而共享完整实现合同
@@ -1022,11 +1024,9 @@ marivo/
       model.py                    # Bound logic signatures and facts
       artifact_data.py            # Graph-free schema, data handles and read layouts
       graph.py                    # Bound graph, invocation capture and dependencies
-      rules/
-        population.py / observe.py / query.py
-        grain.py / temporal.py
+      local_laws.py               # Finite Query fusion qualification
     methods/
-      registry.py / physical.py    # One method/implementation admission owner
+      physical.py                 # Physical carriers and exact stage conversion
       numeric_state.py / local.py  # Pandas execution and exact numerical kernels
       comparison.py / references.py / predicates.py
     compiler/
@@ -1040,17 +1040,17 @@ marivo/
       graph_source_execution.py   # SourceSession consumer
       graph_local_execution.py    # Pandas stage dispatch; algorithms stay in kernels
       graph_exchange.py           # Typed pandas stage data and components
-      graph_publication.py        # Run, validation and atomic publication
-      graph_protocol.py           # Output manifest and graph-free record schema
+      terminal_publication.py     # Run, validation and atomic publication
+      terminal_protocol.py        # Output manifest and graph-free record schema
       graph_reading.py            # PyArrow data reads and Store record reads
-      graph_dataset.py / store.py # Terminal reads and atomic persistence
+      terminal_store.py / store.py # Terminal records and atomic persistence
       pandas_export.py            # Exact terminal export layout and isolation
     _capabilities/                # Native disclosure over the same contracts
 ```
 
 `_definition/` 是必要的跨 semantic/analysis 共享边界，不提供公共插件协议。
 `dsl/` 只拆公共包装；`binding/` 只拆纯绑定，不能成为另一套执行器。
-`core/rules/` 只拆语义函数，注册仍在 methods。
+Query 的语义与物理资格由对应 compiler/methods 内核直接拥有；不保留旧规则注册层。
 小模块不必为凑目录独立成文件；本方案不设机械行数上限。
 
 ### 13.2 保留、迁移、替换
@@ -1058,12 +1058,12 @@ marivo/
 | 当前落点 | 目标处理 | 必须一起改的消费者 |
 | --- | --- | --- |
 | semantic/metric_graph.py、metric_graph_canonical.py | 定义记录/规范化归共同定义层；目标节点替代 CatalogBody/Ratio/Linear 入口 | expression objects、loader、lowering、进程内指纹 |
-| semantic/runtime_metric.py、analysis/runtime_metric.py | 统一 Metric 生效后删除被替代的公开工厂与类型；不设转发兼容层 | exports、Help、typing、示例及相关调用 |
-| analysis/public_dsl.py | 将目标 Population/Query/Artifact/Column 分到 dsl；公开导出直接指向唯一实现 | `_public.py`、Session、动态披露、结果恢复 |
+| semantic/runtime_metric.py、历史 analysis/runtime_metric.py | analysis 转发层已删除；仍被语义 lowering 消费的内部描述按实际依赖保留 | exports、Help、typing、示例及相关调用 |
+| 历史 analysis/public_dsl.py | 已删除；Population/Query/Artifact/Column 位于 dsl，共享披露值位于 _contract.py | `_public.py`、Session、动态披露、终端读取 |
 | materialization/graph_relation、graph_members、graph_observation | 纯构造/绑定移至 binding/core；运行依赖留在 materialization | Query 构造、Field/域绑定、执行内组合 |
 | core/cell_encoding.py、compiler/cell_lowering.py、materialization/cell_arrow.py | 新格式退役四态编码、压缩/展开和书表；仅将必要的 Arrow schema/编解码帮助函数保留在存储/读取边界 | SQL/pandas、存储、导出和公开状态谓词一起切换，不建立兼容层 |
 | core/model.py | 引入多量与按量状态绑定，使用 nullable 类型、证据与 obligation | 规则、规划、布局、发布、恢复、导出一起切换 |
-| core/rules.py、methods/semantics.py、descriptor.py | 按操作族拆规则，保持注册与规则版本唯一；缩小目标方法清单 | planner、local/source dispatch、contract 推导 |
+| 历史 core/rules.py、methods/semantics.py、descriptor.py | 已删除；当前操作直接由绑定、编译器与物理内核拥有 | planner、local/source dispatch、contract 推导 |
 | graph_storage.read_result、graph_dataset 的读取出口 | 只保留元数据、预览、导出阅读；graph_reading 生成/消费精确 ReadLayout | 终端 reader、nullable 投影、part 校验、show/to_pandas |
 | graph_local_execution 的筛选/规约融合分组 | 准入和融合决策迁入 compiler/optimization；执行器保留实际内核 | 原节点定位、obligations、消费者计数和 parts 运输 |
 | compiler/graph_plan.py | 从整图模式门禁改为明确 stage 依赖和逐输入资格 | SourceFactory/中间数据交接、资源规划和检查调度 |

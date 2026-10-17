@@ -7,10 +7,6 @@ from datetime import datetime
 import pytest
 
 import marivo.semantic as ms
-from marivo.analysis.observation.coordinates import (
-    functional_path,
-)
-from marivo.analysis.observation.errors import ObservationConstructionError
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticLoadFailed
 from marivo.semantic.expressions import Relationship
@@ -85,8 +81,6 @@ def test_composite_identity_and_versioned_relationship_are_declared_without_sour
     assert isinstance(relationship, Relationship)
     assert relationship.cardinality == "many_to_one"
     assert "many_to_one" in relationship.contract().render()
-    with pytest.raises(ObservationConstructionError, match="versioned source or intermediate path"):
-        functional_path(project._registry, "sales.lines", "sales.orders")
     selection = normalize_target_version_selection(
         orders, boundary=datetime(2026, 9, 27), interpretation="before_endpoint"
     )
@@ -121,7 +115,7 @@ def test_invalid_relationship_keys_fail_at_load(
     )
 
 
-def test_incomplete_identity_coverage_does_not_grant_functional_path(
+def test_incomplete_identity_coverage_remains_many_to_many(
     semantic_project_factory,
 ) -> None:
     source = _OBJECTS.replace(", ms.join_on(line_order, order_id)", "")
@@ -129,10 +123,6 @@ def test_incomplete_identity_coverage_does_not_grant_functional_path(
     SemanticCatalog(project)
     mapping = normalize_target_relationship(project._registry, "sales.line_to_order")
     assert mapping.cardinality == "many_to_many"
-    with pytest.raises(ObservationConstructionError):
-        functional_path(
-            project._registry, "sales.lines", "sales.orders", allow_versioned_target=True
-        )
 
 
 def test_extra_join_condition_preserves_complete_target_key_coverage(
@@ -164,17 +154,10 @@ def test_extra_join_condition_preserves_complete_target_key_coverage(
     assert mapping.cardinality == "many_to_one"
 
 
-def test_role_choice_and_fanout_are_not_inferred_from_join_success(
+def test_alternate_role_is_a_distinct_governed_relationship(
     semantic_project_factory,
 ) -> None:
     project = _project(semantic_project_factory)
-    registry = project._registry
-    assert functional_path(
-        registry, "sales.lines", "sales.orders", allow_versioned_target=True
-    ) == ("sales.line_to_order",)
-    with pytest.raises(ObservationConstructionError):
-        functional_path(registry, "sales.orders", "sales.lines", allow_versioned_source=True)
-
     second = (
         _OBJECTS
         + "\nalternate_order = ms.relationship(\n"
@@ -185,11 +168,13 @@ def test_role_choice_and_fanout_are_not_inferred_from_join_success(
         )
     )
     ambiguous = _project(semantic_project_factory, second)
-    assert SemanticCatalog(ambiguous).relationships.get("alternate_order") is not None
-    with pytest.raises(ObservationConstructionError, match="ambiguous"):
-        functional_path(
-            ambiguous._registry, "sales.lines", "sales.orders", allow_versioned_target=True
-        )
+    relationships = SemanticCatalog(ambiguous).relationships
+    line_to_order_mapping = relationships.get("line_to_order")
+    alternate_order_mapping = relationships.get("alternate_order")
+    assert line_to_order_mapping is not None
+    assert alternate_order_mapping is not None
+    assert line_to_order_mapping.cardinality == "many_to_one"
+    assert alternate_order_mapping.cardinality == "many_to_one"
 
 
 def test_nonversioned_duplicate_identity_declaration_fails_at_load(

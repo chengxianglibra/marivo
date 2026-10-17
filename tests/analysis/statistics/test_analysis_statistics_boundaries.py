@@ -1,7 +1,6 @@
 """Calendar/rank kernels and pandas statistics retain their owning boundaries."""
 
 from datetime import datetime, timedelta
-from fractions import Fraction
 from typing import Literal
 
 import pandas as pd
@@ -10,9 +9,6 @@ import pytest
 import marivo.analysis as mv
 from marivo._temporal import time_scope
 from marivo.analysis.core.time_grid import bind_grid, continuation
-from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.statistical_execution import _verify_ranks
-from marivo.analysis.methods.deviation_numeric import RationalFact
 from tests.analysis.statistics.pandas_workflows import daily, forecast, monthly, plain
 from tests.shared_fixtures import DslCaseFactory, run_ids
 
@@ -41,15 +37,6 @@ def test_future_grid_uses_actual_dst_boundaries(
     assert [(c.start, c.end, c.partial) for c in future.cells] == [
         (expected_start + i * step, expected_start + (i + 1) * step, False) for i in range(count)
     ]
-
-
-def test_rank_witness_ties_and_corruption() -> None:
-    original = tuple(Fraction(i // 2) for i in reversed(range(32)))
-    ranks = tuple(RationalFact.capture(Fraction(4 * (i // 2) + 3, 2)) for i in reversed(range(32)))
-    _verify_ranks(original, ranks)
-    for corrupt in (ranks[:-1], (ranks[-1], *ranks[1:]), (RationalFact("3", "2"),) * 32):
-        with pytest.raises(AnalysisError):
-            _verify_ranks(original, corrupt)
 
 
 @pytest.mark.parametrize("family", ("association", "forecast"))

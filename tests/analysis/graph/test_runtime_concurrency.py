@@ -10,7 +10,6 @@ import threading
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from dataclasses import asdict
 from pathlib import Path
 from typing import Literal
 from uuid import uuid4
@@ -83,7 +82,7 @@ def test_busy_contender_preserves_real_producer(
     evidence: dict[str, object] = {"pid": os.getpid(), "key": key, "mode": mode}
 
     def check_contender() -> None:
-        before, stats, run = snapshot(runtime), asdict(runtime.statistics), runtime.last_run_ref
+        before, run = snapshot(runtime), runtime.last_run_ref
         assert run is not None
         read_count = len(reads)
         assert read_count > initial_reads
@@ -113,7 +112,6 @@ def test_busy_contender_preserves_real_producer(
             value = json.loads(child.stdout)
             assert value["session"] == runtime.session_ref
             assert value["before"] == value["after"] == before
-            assert value["statistics"]["events"] == {}
             assert value["last_run_ref"] is None
             assert value["pid"] != os.getpid()
             evidence["contender"] = value
@@ -125,9 +123,9 @@ def test_busy_contender_preserves_real_producer(
             assert rejected.value.run_ref is None
         assert snapshot(runtime) == before
         assert len(reads) == read_count
-        assert asdict(runtime.statistics) == stats and runtime.last_run_ref == run
+        assert runtime.last_run_ref == run
         assert case.session.artifact(committed.id).to_pandas().shape[0] == 3
-        evidence.update({"before": before, "producer_statistics": stats, "run": run})
+        evidence.update({"before": before, "run": run})
 
     def pause(point: str) -> None:
         if point == "terminal_primary_written":
@@ -178,7 +176,6 @@ def test_busy_contender_preserves_real_producer(
             "session": runtime.session_ref,
             "artifact": produced.id,
             "completed": completed,
-            "retry_statistics": asdict(runtime.statistics),
         }
     )
     if key == "different":
@@ -346,7 +343,7 @@ def test_activation_is_guarded_and_existing_handle_owner_is_stable(
         assert rejected.value.session_ref == first.session_ref
         assert first.store.current() == first.store.session(second.session_ref)
         opened = DatasetRuntime.open(tmp_path, first.session_ref)
-        assert opened.session_ref == first.session_ref and opened.statistics.events == {}
+        assert opened.session_ref == first.session_ref
         assert DatasetRuntime.create(tmp_path, "second").session_ref == second.session_ref
     original = SessionStore.activate
     barrier = threading.Barrier(2)
@@ -452,6 +449,5 @@ def test_different_sessions_overlap_inside_real_duckdb_queries(
             "query_threads": sorted(query_threads),
             "sessions": [runtime.session_ref for runtime in runtimes],
             "runs": [runtime.last_run_ref for runtime in runtimes],
-            "statistics": [asdict(runtime.statistics) for runtime in runtimes],
         },
     )

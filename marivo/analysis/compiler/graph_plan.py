@@ -1,10 +1,10 @@
-"""Pure R3 graph admission and R4 stage handoff, with no execution imports."""
+"""Pure Query admission and stage handoff, with no execution imports."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from datetime import datetime
-from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias
+from typing import TYPE_CHECKING, Literal, TypeAlias
 
 from marivo._definition.expressions import FieldPredicate
 from marivo._definition.relations import PopulationDependency
@@ -16,57 +16,9 @@ from marivo.analysis.compiler.query_program import (
     SourceParameter,
 )
 from marivo.analysis.core.data_types import DataColumn, DataType, DurationDataType, ScalarDataType
-from marivo.analysis.core.graph import (
-    BoundGraph,
-    MethodNode,
-    Node,
-    SourceLeaf,
-    _CapturedGraph,
-    capture_graph,
-    topology,
-)
-from marivo.analysis.core.model import (
-    ConditionCellsPart,
-    CoveragePart,
-    FitInputsPart,
-    Obligation,
-    PairInputsPart,
-    RunCellsPart,
-    TrainingInputsPart,
-    reject,
-)
-from marivo.analysis.core.rules import (
-    AssociationFit,
-    AssociationRead,
-    AttributionDerive,
-    CellCompare,
-    CellDerive,
-    ComparisonRead,
-    DeviationFit,
-    DeviationRead,
-    DisplayRank,
-    DisplayTable,
-    ForecastFit,
-    ForecastRead,
-    MapCorrespond,
-    OriginalReduce,
-    PartsTransport,
-    PreparedObservation,
-    ReferenceDerive,
-    RowState,
-    TimeProduct,
-    TimeRunRead,
-    TimeRuns,
-)
-from marivo.analysis.methods.physical import (
-    QUERY_COMBINE_KERNEL,
-    Implementation,
-    NoTime,
-    QualificationKey,
-    Route,
-    ValueType,
-)
-from marivo.analysis.methods.registry import REGISTRY, MethodRegistry
+from marivo.analysis.core.graph import BoundGraph
+from marivo.analysis.core.model import Obligation, reject
+from marivo.analysis.methods.physical import QUERY_COMBINE_KERNEL
 
 if TYPE_CHECKING:
     from marivo.analysis.compiler.observation import FormulaProgram, ReductionInput
@@ -77,426 +29,6 @@ if TYPE_CHECKING:
         RuleDecision,
     )
     from marivo.analysis.compiler.original import ComponentLayout
-
-
-@dataclass(frozen=True, slots=True)
-class InputClassification:
-    kind: Literal["source"]
-    sources: tuple[SourceLeaf, ...]
-
-
-def classify_inputs(root: Node) -> InputClassification:
-    """Traverse the actual source dependencies of the unexecuted graph."""
-    return _classify(topology(root))
-
-
-def _classify(nodes: tuple[Node, ...]) -> InputClassification:
-    sources = tuple(n for n in nodes if isinstance(n, SourceLeaf))
-    return InputClassification("source", sources)
-
-
-@dataclass(frozen=True, slots=True)
-class RouteChoice:
-    node_id: str
-    route: Route
-
-
-@dataclass(frozen=True, slots=True)
-class SourceInputStage:
-    """Declared binding only; R4 must verify physical metadata before consumption."""
-
-    output: str
-    leaf: SourceLeaf
-
-
-@dataclass(frozen=True, slots=True)
-class SourceMethodStage:
-    output: str
-    inputs: tuple[str, ...]
-    node: MethodNode
-    implementation: Implementation
-    operation: Literal["ibis", "prepare"]
-
-
-@dataclass(frozen=True, slots=True)
-class LocalMethodStage:
-    output: str
-    inputs: tuple[str, ...]
-    node: MethodNode
-    implementation: Implementation
-
-
-Stage: TypeAlias = SourceInputStage | SourceMethodStage | LocalMethodStage
-
-
-@dataclass(frozen=True, slots=True)
-class CheckRequirement:
-    """Bound semantic obligation; the executor must honor its consume/publish deadline."""
-
-    node_id: str
-    stage_output: str
-    obligation: Obligation
-
-
-@dataclass(frozen=True, slots=True)
-class PhysicalRequirement:
-    """Static type/time/shape and resources still need invocation-time verification."""
-
-    node_id: str
-    key: QualificationKey
-    output_type: ValueType
-    implementation: Implementation
-
-
-@dataclass(frozen=True)
-class GraphPlan:
-    root: Node
-    classification: InputClassification
-    stages: tuple[Stage, ...]
-    checks: tuple[CheckRequirement, ...]
-    physical_requirements: tuple[PhysicalRequirement, ...]
-    primary_output: str
-    captured: _CapturedGraph = field(repr=False, compare=False)
-
-
-def admitted_capture(admitted: GraphPlan, registry: MethodRegistry = REGISTRY) -> _CapturedGraph:
-    """Preserve the selected registry interpretation without re-admitting the plan."""
-    if admitted.captured.registry is not registry:
-        _refuse(
-            "an unchanged admitted plan",
-            "different registry interpretation",
-            "Rebuild the plan from the exact definition and registry.",
-        )
-    return admitted.captured
-
-
-def _refuse(expected: str, received: str, repair: str) -> NoReturn:
-    reject(expected, received, repair, "analysis.graph_plan")
-
-
-def plan(
-    root: Node,
-    *,
-    routes: tuple[RouteChoice, ...],
-    registry: MethodRegistry = REGISTRY,
-) -> GraphPlan:
-    """Select explicit routes before any data work; unavailable keys remain unavailable."""
-    return _plan_captured(capture_graph(root, registry=registry), routes=routes)
-
-
-def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...]) -> GraphPlan:
-    root, registry, nodes = (captured.root, captured.registry, captured.nodes)
-    classification = _classify(nodes)
-    domains = {leaf.definition.datasource for leaf in classification.sources}
-    if len(domains) > 1:
-        _refuse(
-            "one live datasource", "multiple live datasources", "Use one qualified source domain."
-        )
-    shapes = {leaf.definition.shape for leaf in classification.sources}
-    if len(shapes) != 1:
-        _refuse(
-            "one exact source physical shape",
-            "different time or source shapes",
-            "Qualify a common exact source shape first.",
-        )
-    shape = next(iter(shapes))
-    methods = tuple(n for n in nodes if isinstance(n, MethodNode))
-    if type(routes) is not tuple or any(type(r) is not RouteChoice for r in routes):
-        _refuse("immutable route choices", repr(routes), "Choose one route per method node.")
-    choices = {r.node_id: r.route for r in routes}
-    if len(choices) != len(routes) or set(choices) != {n.identity for n in methods}:
-        _refuse(
-            "one route for every reachable method",
-            repr(tuple(choices)),
-            "Remove duplicate or unrelated choices and name every method.",
-        )
-    if not methods and classification.sources:
-        _refuse(
-            "a registered source method",
-            "bare source leaf",
-            "Bind a registered method before planning a source read.",
-        )
-    stages: list[Stage] = []
-    checks: list[CheckRequirement] = []
-    physical: list[PhysicalRequirement] = []
-    outputs: dict[str, str] = {}
-    local: set[str] = set()
-    prepared_ancestors: dict[str, bool] = {}
-    for node in nodes:
-        output = f"stage:{len(stages)}"
-        if isinstance(node, SourceLeaf):
-            stages.append(SourceInputStage(output, node))
-        else:
-            route = choices[node.identity]
-            prepared_ancestors[node.identity] = (
-                isinstance(node.parameters, PreparedObservation)
-                and (
-                    node.inputs[0].node.identity == node.inputs[1].node.identity
-                    or any(
-                        isinstance(ancestor, MethodNode)
-                        and isinstance(ancestor.parameters, ComparisonRead)
-                        for ancestor in topology(node)
-                    )
-                )
-            ) or any(prepared_ancestors.get(edge.node.identity, False) for edge in node.inputs)
-            prepared_consumer = (
-                isinstance(node.parameters, (OriginalReduce, CellDerive, AttributionDerive))
-                and prepared_ancestors[node.identity]
-            )
-            if (
-                not prepared_consumer
-                and (
-                    not (
-                        route == "ibis_python"
-                        and isinstance(
-                            node.parameters,
-                            (
-                                PartsTransport,
-                                RowState,
-                                MapCorrespond,
-                                CellDerive,
-                                DisplayRank,
-                                DisplayTable,
-                            ),
-                        )
-                        and any(edge.node.identity in local for edge in node.inputs)
-                    )
-                )
-                and any(edge.node.identity in local for edge in node.inputs)
-                and (
-                    not isinstance(
-                        node.parameters,
-                        (
-                            CellCompare,
-                            ComparisonRead,
-                            AssociationFit,
-                            AssociationRead,
-                            ForecastFit,
-                            ForecastRead,
-                            TimeRuns,
-                            TimeRunRead,
-                            DeviationFit,
-                            DeviationRead,
-                            TimeProduct,
-                            PreparedObservation,
-                        ),
-                    )
-                )
-                and (
-                    not (
-                        isinstance(node.parameters, RowState)
-                        and isinstance(node.inputs[0].node, MethodNode)
-                        and isinstance(node.inputs[0].node.parameters, PreparedObservation)
-                    )
-                )
-                and (
-                    not (
-                        isinstance(node.parameters, PartsTransport)
-                        and (
-                            node.parameters.mode == "business_coverage"
-                            or any(
-                                isinstance(p, CoveragePart) and p.business_windows is not None
-                                for p in node.inputs[0].node.signature.parts
-                            )
-                        )
-                    )
-                )
-                and (
-                    not any(
-                        isinstance(
-                            p,
-                            (
-                                ConditionCellsPart,
-                                RunCellsPart,
-                                PairInputsPart,
-                                TrainingInputsPart,
-                                FitInputsPart,
-                            ),
-                        )
-                        for e in node.inputs
-                        for p in e.node.signature.parts
-                    )
-                )
-                and (
-                    not all(
-                        edge.node.identity not in local
-                        or (
-                            isinstance(edge.node, MethodNode)
-                            and edge.node.method.name
-                            in (
-                                "cell.difference",
-                                "cell.compare",
-                                "comparison.read",
-                                "cell.relative_change",
-                                "cell.ratio",
-                                "reference.share",
-                                "reference.penetration",
-                                "reference.standardize",
-                                "attribution.additive_difference",
-                                "attribution.component_mix",
-                                "display.rank",
-                                "display.table",
-                            )
-                        )
-                        for edge in node.inputs
-                    )
-                )
-            ):
-                _refuse(
-                    "source inputs for Ibis preparation",
-                    f"a local predecessor for {node.method}",
-                    "Keep the source prefix in Ibis; local-to-source transport is not qualified.",
-                )
-            key = QualificationKey(
-                node.method,
-                tuple(e.node.value_type for e in node.inputs),
-                tuple(e.node.signature.domain.kind for e in node.inputs),
-                replace(shape, time=NoTime())
-                if isinstance(node.parameters, (DeviationFit, DeviationRead))
-                and node.signature.domain.time_grid is None
-                else shape,
-                route,
-            )
-            selected = registry._select_derived(
-                key, tuple(e.node.signature for e in node.inputs), node.parameters, node.derivation
-            )
-            implementation = selected.implementation
-            inputs = tuple(outputs[e.node.identity] for e in node.inputs) + tuple(
-                outputs[s.identity] for s in node.sources
-            )
-            local_consumer = (
-                prepared_consumer
-                or (
-                    isinstance(
-                        node.parameters, (CellDerive, ReferenceDerive, DisplayRank, DisplayTable)
-                    )
-                    and route != "ibis"
-                )
-                or (
-                    isinstance(node.parameters, (PartsTransport, RowState, MapCorrespond))
-                    and route != "ibis"
-                    and any(edge.node.identity in local for edge in node.inputs)
-                )
-                or (
-                    isinstance(node.parameters, AttributionDerive)
-                    and route != "ibis"
-                    and any(edge.node.identity in local for edge in node.inputs)
-                )
-                or (
-                    isinstance(node.parameters, PartsTransport)
-                    and (
-                        node.parameters.mode == "business_coverage"
-                        or any(
-                            isinstance(p, CoveragePart) and p.business_windows is not None
-                            for p in node.inputs[0].node.signature.parts
-                        )
-                    )
-                )
-                or (
-                    isinstance(node.parameters, TimeProduct)
-                    and node.inputs[0].node.identity in local
-                )
-                or (
-                    isinstance(node.parameters, RowState)
-                    and isinstance(node.inputs[0].node, MethodNode)
-                    and isinstance(node.inputs[0].node.parameters, PreparedObservation)
-                )
-                or (
-                    any(
-                        isinstance(
-                            p,
-                            (
-                                ConditionCellsPart,
-                                RunCellsPart,
-                                PairInputsPart,
-                                TrainingInputsPart,
-                                FitInputsPart,
-                            ),
-                        )
-                        for e in node.inputs
-                        for p in e.node.signature.parts
-                    )
-                )
-                or isinstance(
-                    node.parameters,
-                    (
-                        CellCompare,
-                        ComparisonRead,
-                        AssociationFit,
-                        AssociationRead,
-                        ForecastFit,
-                        ForecastRead,
-                        TimeRuns,
-                        TimeRunRead,
-                        DeviationFit,
-                        DeviationRead,
-                    ),
-                )
-            )
-            prepared_observation = (
-                isinstance(node.parameters, (PreparedObservation,)) and route != "ibis"
-            )
-            if prepared_observation and node.inputs[1].node.identity in local:
-                _refuse(
-                    "a source original member envelope",
-                    "local candidate envelope",
-                    "Bind the original members before local selection.",
-                )
-            physical.append(
-                PhysicalRequirement(node.identity, key, node.value_type, implementation)
-            )
-            consume_output = output
-            if route in ("ibis", "ibis_python") and not local_consumer:
-                stages.append(
-                    SourceMethodStage(
-                        output,
-                        (
-                            outputs[node.inputs[1].node.identity],
-                            *(outputs[s.identity] for s in node.sources),
-                        )
-                        if prepared_observation
-                        else inputs,
-                        node,
-                        implementation,
-                        "ibis" if route == "ibis" else "prepare",
-                    )
-                )
-            if route != "ibis":
-                local_inputs = (
-                    (outputs[node.inputs[0].node.identity], output)
-                    if prepared_observation
-                    else inputs
-                    if local_consumer
-                    else (output,)
-                    if route == "ibis_python"
-                    else inputs
-                )
-                output = f"stage:{len(stages)}"
-                stages.append(LocalMethodStage(output, local_inputs, node, implementation))
-                local.add(node.identity)
-            checks.extend(
-                CheckRequirement(
-                    node.identity,
-                    consume_output if obligation.before == "consume" else output,
-                    obligation,
-                )
-                for obligation in node.derivation.obligations
-            )
-        outputs[node.identity] = output
-    if any(isinstance(node.parameters, (PreparedObservation,)) for node in methods):
-        stages = [
-            *(stage for stage in stages if not isinstance(stage, LocalMethodStage)),
-            *(stage for stage in stages if isinstance(stage, LocalMethodStage)),
-        ]
-    return GraphPlan(
-        root,
-        classification,
-        tuple(stages),
-        tuple(checks),
-        tuple(physical),
-        outputs[root.identity],
-        captured,
-    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -654,9 +186,9 @@ def _plan_source_reads(
     if not contributions:
         raise AnalysisStageUnavailableError(
             stage="query_execution",
-            expected="at least one source contribution for an R2.3 plan",
+            expected="at least one source contribution for a Query execution plan",
             received="source-free Metric outputs",
-            repair="Source-free constants are computed by the R2.4 local numeric route; keep the bound Query.",
+            repair="Bind a source-backed Metric through session.observe before executing the Query.",
             target="Query.execute",
         )
     by_source = {schema.source_id: schema for schema in schemas}
@@ -803,7 +335,6 @@ def plan_query(
     """Plan dependency producers before every parameterized source consumer."""
     if memo is not None:
         from marivo.analysis.compiler.optimization import compilation_key
-        from marivo.analysis.methods import registry
 
         return memo.plan(
             compilation_key(
@@ -823,7 +354,6 @@ def plan_query(
                 memo=memo,
                 prefix=prefix,
             ),
-            registry.REGISTRY,
         )
     return _plan_bound_query(
         graph,
@@ -966,10 +496,11 @@ def _plan_query(
         )
         output_keys = stage_keys[:output_width]
         if reads and tuple(c.dtype for c in keys) != tuple(c.dtype for c in output_keys):
-            _refuse(
+            reject(
                 "identical physical coordinate types across contributions",
                 repr(stage_keys),
                 "Choose fields with a common lossless coordinate type.",
+                "analysis.query_plan",
             )
         keys = output_keys
         column = DataColumn(

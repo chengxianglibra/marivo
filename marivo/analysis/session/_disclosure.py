@@ -6,7 +6,6 @@ from inspect import signature
 
 from marivo.analysis import session as session_namespace
 from marivo.analysis._capabilities.dataset_model import (
-    CONSTRUCTION_FAILURES,
     Descriptor,
     DisclosureProvider,
     ExampleInput,
@@ -53,14 +52,16 @@ def provider() -> DisclosureProvider:
             output="AbstractContextManager[None]",
             constraints=("Captured bindings replace the ambient scope and restore it on exit.",),
             effects="Pure semantic capture; execution does not reread ambient parameters.",
-            failures=CONSTRUCTION_FAILURES,
+            failures=(
+                "ObservationBindingError: bind exact Entity refs and declared non-secret source parameters.",
+            ),
             discovery_group="inputs",
             related=("session.members",),
             example=ExampleInput(
                 "with session.source_bindings({}):\n    result = session.members(entity)",
                 ("session", "entity"),
                 "result",
-                "LogicalAnalysisDomain",
+                "Population",
             ),
         )
     )

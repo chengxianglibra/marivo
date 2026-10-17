@@ -16,7 +16,7 @@ this document owns the current objects, boundaries and implementation path.
 | Semantic | Entity identity, fields, units, additivity, restricted declarations and native Deferred recipes |
 | Private definition graph | Immutable captured expressions, domains, policies and explicit dependencies |
 | Analysis binding | This Session's contribution occurrences, complete coordinates, periods, paths and versions |
-| Compiler and method registry | Schema-qualified physical routes, demanded slots, dependencies and check deadlines |
+| Compiler and physical kernels | Schema-qualified routes, demanded slots, dependencies and check deadlines |
 | Runtime | Execute the fixed stage schedule, release resources and publish atomically |
 | Store 10 and reader | Committed output data and self-contained records; metadata opening and requested reads |
 
@@ -29,6 +29,12 @@ module ownership; it does not independently qualify every proposed operation.
 `Population` is a finite logical coordinate domain. `Query` is a lazy, fully
 bound calculation with named quantities. `Column` locates a value or coordinate
 on one exact Query input. `Artifact` is committed terminal output.
+
+These objects are the sole analysis DSL. The earlier Logical/Materialized
+receivers, graph/Cell publisher and `analysis.runtime_metric` forwarding module
+are retired. Current contract cards share only the lightweight `AnalysisAction`
+and `AnalysisContract` values; they do not import the retired DSL or restore
+executable receivers from saved outputs.
 
 ```python
 import marivo

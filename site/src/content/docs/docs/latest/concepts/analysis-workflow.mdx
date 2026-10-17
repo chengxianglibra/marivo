@@ -8,6 +8,10 @@ description: Compose semantic expressions, explicit coordinate domains and windo
 Resolve governed expressions from an authored model. Constructing a Query does
 not read schemas or business rows and does not create a Run.
 
+Population, Query, Column and terminal Artifact are the analysis objects. Earlier
+Logical/Materialized receivers and `mv.runtime_metric` factories are retired;
+compose resolved semantic expressions before observing them.
+
 ```python
 import marivo
 import marivo.analysis as mv

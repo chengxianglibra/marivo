@@ -93,7 +93,6 @@ frame = result.to_pandas()
 assert frame.set_index(frame.columns[0])[('value', 'value')].to_dict() == {'east':30, 'west':5}
 assert session.artifact(sys.argv[3]).to_pandas()[('value', 'value')].tolist() == [35]
 assert frame[('value', 'value')].sum() == 35
-assert session._runtime.statistics.statements == []
 """
     completed = subprocess.run(
         [sys.executable, "-c", code, session.id, result.id, total.id],

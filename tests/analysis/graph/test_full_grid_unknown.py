@@ -15,9 +15,6 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo._temporal import TimeScope, time_scope
-from marivo.analysis.core.business_coverage import complete, normalize
-from marivo.analysis.core.time_grid import bind_grid
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import SourceSession
 from tests.analysis.materialization.domain_recovery_worker import snapshot
@@ -50,50 +47,6 @@ def _mask(frame: pd.DataFrame) -> pd.DataFrame:
     assert uncovered.sum() == 3
     result.loc[uncovered, ("value", "value")] = pd.NA
     return result
-
-
-def test_business_coverage_union_and_original_bucket_boundaries() -> None:
-    grid = bind_grid(
-        time_scope(start=START, end=START + timedelta(days=3)),
-        mv.grain("day"),
-        report_timezone="UTC",
-    )
-    spans = normalize(
-        (
-            time_scope(start=START + timedelta(hours=12), end=START + timedelta(days=1)),
-            time_scope(start=START, end=START + timedelta(hours=12)),
-            time_scope(start=START + timedelta(days=2), end=START + timedelta(days=3)),
-        ),
-        grid,
-    )
-    assert len(spans) == 2
-    assert [complete(cell, spans) for cell in grid.cells] == [True, False, True]
-    inside = normalize((time_scope(start=START, end=START + timedelta(hours=23)),), grid)
-    assert not complete(grid.cells[0], inside)
-    assert not any(complete(cell, ()) for cell in grid.cells)
-
-
-def test_business_coverage_refuses_unbound_claims() -> None:
-    grid = bind_grid(
-        time_scope(start=START, end=START + timedelta(days=3)),
-        mv.grain("day"),
-        report_timezone="UTC",
-    )
-    for fault in ("naive", "outside", "too_many"):
-        spans: tuple[TimeScope, ...] = (time_scope(start=START, end=START + timedelta(days=1)),)
-        if fault == "naive":
-            spans = (
-                time_scope(
-                    start=START.replace(tzinfo=None),
-                    end=(START + timedelta(days=1)).replace(tzinfo=None),
-                ),
-            )
-        elif fault == "outside":
-            spans = (time_scope(start=START - timedelta(days=1), end=START + timedelta(days=1)),)
-        else:
-            spans *= 65
-        with pytest.raises(AnalysisError, match="complete_during"):
-            normalize(spans, grid)
 
 
 @pytest.mark.slow

@@ -237,6 +237,13 @@ def test_multi_root_plan_combines_locally_without_mutating_shared_reads(
     assert len(seen) == 1
 
 
+def test_unknown_local_kernel_is_rejected_before_dispatch() -> None:
+    stage = LocalCompute("local:unsupported", (), "legacy.kernel@v1", (), ())
+    with pytest.raises(MaterializationError, match="Query compiler") as error:
+        run_local(stage, ())
+    assert error.value.stage == "local_compute"
+
+
 def test_lossy_source_type_rejects_before_any_business_read(
     warehouse_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:

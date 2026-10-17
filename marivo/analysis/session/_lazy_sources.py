@@ -24,7 +24,7 @@ def make_source_owner(
     """Bind immutable semantic authority without a Dataset family or action port."""
     if not semantic_registry._frozen:
         raise construction_error("frozen in-memory semantic Registry", "mutable Registry")
-    if catalog is not None and catalog._reg is not semantic_registry:
+    if catalog is not None and catalog._state.registry is not semantic_registry:
         raise construction_error("catalog and Registry with shared authority", "mismatched catalog")
     return ObservationOwner(
         session_id=session_id,

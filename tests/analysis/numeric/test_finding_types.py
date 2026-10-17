@@ -1,127 +1,115 @@
-"""Independent exact v3 Finding value and closed body-codec contracts."""
+"""Closed terminal Finding values, scalar coordinates and bounded pages."""
 
-from dataclasses import FrozenInstanceError, replace
+from dataclasses import FrozenInstanceError
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import pytest
 
-from marivo.analysis.datasets import descriptors as d
-from marivo.analysis.evidence import _dataset_types as t
-from marivo.analysis.evidence._dataset_codec import (
-    decode_finding_body,
-    encode_finding_body,
-    finding_identity,
+from marivo.analysis.errors import AnalysisError
+from marivo.analysis.evidence._dataset_types import (
+    ArtifactDigest,
+    AssociationFindingValueV1,
+    AssociationLagV1,
+    Finding,
+    FindingPage,
+    ForecastPointFindingValueV1,
+    NoAssociationLagV1,
+    OutputCoordinate,
+    OutputEvidence,
 )
-from marivo.analysis.materialization.contracts import canonical_json, parse_json
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.refs import ArtifactRef
-from marivo.refs import RefPayloadV1, SemanticKind
 
 
-@pytest.mark.parametrize("damage", ["json", "decimal", "date", "datetime"])
-def test_corrupt_finding_body_discards_native_exception_context(damage: str) -> None:
-    original = replace(
-        _finding(_forecast_exact()),
-        coordinates=(
-            t.FindingCoordinateV1(
-                field_id=d._make_field_id("dimension.region"),
-                identity=d._catalog_identity("dimension:sales.orders.region"),
-                value=date(2026, 9, 8),
-            ),
-        ),
-    )
-    body = parse_json(encode_finding_body(original))
-    assert isinstance(body, dict)
-    canary = "private-finding-value-canary"
-    coordinates = body["coordinates"]
-    assert isinstance(coordinates, list) and isinstance(coordinates[0], dict)
-    coordinates[0]["value"] = {"scalar_kind": damage, "value": canary}
-    payload = canary if damage == "json" else canonical_json(body)
-    with pytest.raises(IntegrityError) as caught:
-        decode_finding_body(
-            payload,
-            finding_id=original.finding_id,
-            artifact_ref="artifact",
-            session_id="session",
-            committed_at=original.committed_at,
-        )
-    assert canary not in str(caught.value)
-    assert caught.value.__cause__ is None and caught.value.__context__ is None
-
-
-def _finding(value: t.FindingValueV1) -> t.GraphFinding:
-    quantity = t.ObservedGraphQuantityV1(
-        quantity_identity="revenue",
-        definition_fingerprint="test-revenue",
-        unit="CNY",
-        value_type="decimal",
-        approximation_identity="exact",
-        graph_fingerprint="test-graph",
-        contribution_identity="test-contribution",
-        metric=t.CatalogGraphMetricV1(
-            metric=RefPayloadV1(
-                schema="marivo.semantic_ref/v1", kind=SemanticKind.METRIC, path="sales.revenue"
-            )
-        ),
-    )
-    subject: t.FindingSubjectV1 = t.ForecastFindingSubjectV2(quantity=quantity)
-    if isinstance(value, t.AssociationFindingValueV1):
-        subject = t.AssociationFindingSubjectV2(quantity_a=quantity, quantity_b=quantity)
-    item = t.GraphFinding(
-        finding_id="pending",
-        artifact_ref=ArtifactRef(ref="artifact"),
-        session_id="session",
-        finding_type=value.kind,
-        epistemic_kind="estimated"
-        if value.kind == "association"
-        else ("predicted" if value.kind == "forecast_point" else "algebraic"),
-        subject=subject,
-        coordinates=(),
-        canonical_item_key='["row",0]',
+def _finding(
+    value: AssociationFindingValueV1 | ForecastPointFindingValueV1,
+    coordinates: tuple[OutputCoordinate, ...] = (),
+) -> Finding:
+    return Finding(
+        finding_id="finding-1",
+        artifact_ref=ArtifactRef("artifact-1"),
+        session_id="session-1",
         value=value,
-        derivation=t.GraphFindingDerivationV1(
-            producer_id="test.finding",
-            extractor_contract_id="test_finding",
-            extractor_contract_version="1",
-            state_contract_version="1",
-            policy_contract_id="test-policy",
-            policy_contract_version="1",
-            ordered_input_bindings=("source",),
-            definition_fingerprint="test-definition",
-            scope_id="august",
-        ),
+        coordinates=coordinates,
         committed_at=datetime(2026, 9, 8, tzinfo=timezone.utc),
     )
-    return replace(item, finding_id=finding_identity(item))
 
 
-def _forecast_exact() -> t.ForecastPointFindingValueV1:
-    return t.ForecastPointFindingValueV1(
-        model="naive@v1",
-        interval_level=Decimal("0.95"),
-        horizon_ordinal=1,
-        forecast_value=Decimal("12.30"),
-        interval_lower=Decimal("10.00"),
-        interval_upper=Decimal("14.00"),
-        training_row_count=5,
+def test_terminal_finding_keeps_exact_scalar_coordinate_types(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    values = (None, True, 2**80, -0.0, Decimal("1.2300"), date(2026, 9, 8), "CN")
+    finding = _finding(
+        ForecastPointFindingValueV1(
+            model="naive@v1",
+            interval_level=Decimal("0.95"),
+            horizon_ordinal=1,
+            forecast_value=Decimal("12.30"),
+            interval_lower=Decimal("10.00"),
+            interval_upper=Decimal("14.00"),
+            training_row_count=5,
+        ),
+        tuple(OutputCoordinate(f"key.{index}", value) for index, value in enumerate(values)),
     )
 
+    assert tuple(type(item.value) for item in finding.coordinates) == tuple(map(type, values))
+    assert tuple(item.value for item in finding.coordinates) == values
+    assert "Finding ref=finding-1" in repr(finding)
+    assert "show()" in repr(finding)
+    assert finding.show() is None
+    assert "forecast_value" in capsys.readouterr().out
+    with pytest.raises(FrozenInstanceError):
+        finding.session_id = "other"  # type: ignore[misc]
 
-@pytest.mark.parametrize(
-    "value",
-    [
-        t.AssociationFindingValueV1(
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), Decimal("NaN")])
+def test_terminal_values_reject_non_finite_numbers(value: float | Decimal) -> None:
+    with pytest.raises(AnalysisError, match="finite output scalar"):
+        OutputCoordinate("value", value)
+
+
+def test_association_finding_owns_pair_counts_and_lag_shape() -> None:
+    value = AssociationFindingValueV1(
+        method="pearson",
+        coefficient=0.8,
+        input_observation_count=11,
+        null_pair_count=1,
+        complete_pair_count=10,
+        lag=AssociationLagV1(
+            lag_offset=1,
+            selected_for_pair=True,
+            matched_observation_count=9,
+            lag_boundary_drop_count=1,
+        ),
+    )
+    finding = _finding(value)
+    assert finding.finding_type == "association"
+
+    with pytest.raises(IntegrityError, match="pair counts"):
+        AssociationFindingValueV1(
             method="pearson",
             coefficient=0.8,
-            input_observation_count=11,
+            input_observation_count=2,
             null_pair_count=1,
-            complete_pair_count=10,
-            lag=t.NoAssociationLagV1(),
-        ),
-        _forecast_exact(),
-        t.ForecastPointFindingValueV1(
-            model="drift@v1",
+            complete_pair_count=2,
+            lag=NoAssociationLagV1(),
+        )
+    with pytest.raises(IntegrityError, match="coefficient"):
+        AssociationFindingValueV1(
+            method="pearson",
+            coefficient=1.1,
+            input_observation_count=2,
+            null_pair_count=0,
+            complete_pair_count=2,
+            lag=NoAssociationLagV1(),
+        )
+
+
+def test_finding_page_preserves_bounds_and_terminal_fact_digest_shape() -> None:
+    finding = _finding(
+        ForecastPointFindingValueV1(
+            model="naive@v1",
             interval_level=0.95,
             horizon_ordinal=1,
             forecast_value=12.0,
@@ -129,142 +117,28 @@ def _forecast_exact() -> t.ForecastPointFindingValueV1:
             interval_upper=14.0,
             training_row_count=20,
         ),
-    ],
-)
-def test_four_closed_variants_round_trip_and_exclude_store_envelope(
-    value: t.FindingValueV1,
-) -> None:
-    original = _finding(value)
-    payload = encode_finding_body(original)
-    body = parse_json(payload)
-    assert isinstance(body, dict)
-    assert set(body) == {
-        "finding_type",
-        "epistemic_kind",
-        "subject",
-        "coordinates",
-        "canonical_item_key",
-        "value",
-        "derivation",
-    }
-    restored = decode_finding_body(
-        payload,
-        finding_id=original.finding_id,
-        artifact_ref="artifact",
-        session_id="session",
-        committed_at=original.committed_at,
+        (OutputCoordinate("key.0", "CN"),),
     )
-    assert restored == original
-    assert "show()" in repr(restored)
-    assert "\n" not in repr(restored)
-    assert len(restored.render().encode()) <= 8000
-    with pytest.raises(FrozenInstanceError):
-        attribute = "session_id"
-        setattr(restored, attribute, "different")
+    page = FindingPage(items=(finding,), limit=1, has_more=True, next_cursor="next")
+    assert page.items == (finding,)
+    assert page.next_cursor == "next"
+    assert "FindingPage items=1" in repr(page)
 
-
-@pytest.mark.parametrize(
-    "scalar",
-    [
-        None,
-        True,
-        False,
-        0,
-        2**80,
-        -0.0,
-        1.25,
-        "",
-        "member\nsecond line",
-        "member",
-        Decimal("1.2300"),
-        date(2026, 9, 8),
-        datetime(2026, 9, 8, 12, tzinfo=timezone.utc),
-    ],
-)
-def test_coordinate_scalar_type_and_value_are_lossless(scalar: t.Scalar) -> None:
-    original = replace(
-        _finding(_forecast_exact()),
-        coordinates=(
-            t.FindingCoordinateV1(
-                field_id=d._make_field_id("dimension.region"),
-                identity=d._catalog_identity("dimension:sales.region"),
-                value=scalar,
-            ),
-        ),
-    )
-    restored = decode_finding_body(
-        encode_finding_body(original),
-        finding_id=original.finding_id,
-        artifact_ref="artifact",
-        session_id="session",
-        committed_at=original.committed_at,
-    )
-    assert type(restored.coordinates[0].value) is type(scalar)
-    assert restored.coordinates[0].value == scalar
-    if isinstance(scalar, Decimal):
-        assert str(restored.coordinates[0].value) == str(scalar)
-
-
-@pytest.mark.parametrize(
-    "member,unexpected",
-    [
-        ("unexpected_member", {}),
-        ("session_id", "forged"),
-        ("committed_at", "2026-09-09"),
-    ],
-)
-def test_body_codec_rejects_unknown_and_duplicated_ownership(
-    member: str, unexpected: object
-) -> None:
-    original = _finding(_forecast_exact())
-    body = parse_json(encode_finding_body(original))
-    assert isinstance(body, dict)
-    body[member] = unexpected
     with pytest.raises(IntegrityError):
-        decode_finding_body(
-            canonical_json(body),
-            finding_id=original.finding_id,
-            artifact_ref="artifact",
-            session_id="session",
-            committed_at=original.committed_at,
-        )
+        FindingPage(items=(object(),), limit=1, has_more=False, next_cursor=None)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="has_more"):
+        FindingPage(items=(), limit=1, has_more=True, next_cursor=None)
 
-
-def test_typed_values_reject_unknown_kind_nonfinite_counts_masks_and_mixed_numeric_types() -> None:
-    with pytest.raises(IntegrityError):
-        replace(_forecast_exact(), forecast_value=float("nan"))
-    with pytest.raises(IntegrityError):
-        replace(_finding(_forecast_exact()), epistemic_kind="algebraic")
-    with pytest.raises(IntegrityError):
-        replace(_finding(_forecast_exact()), committed_at=datetime(2026, 9, 8))
-    with pytest.raises(IntegrityError):
-        t.GraphFindingPage(items=(), limit=True, has_more=False, next_cursor=None)
-
-
-def test_digest_and_three_axis_results_have_exact_private_shape() -> None:
-    result = t.GraphArtifactDigest(
-        artifact_ref=ArtifactRef(ref="artifact"),
+    digest = ArtifactDigest(
+        artifact_ref=ArtifactRef("artifact-1"),
         quality_summary_digest="a" * 64,
         typed_issue_digest="b" * 64,
         evidence_digest="c" * 64,
-        finding_count=0,
+        finding_count=1,
         finding_set_digest="d" * 64,
-        extractor_contract_versions=("none@v1",),
+        items=(
+            OutputEvidence(kind="read", summary="value", values=(("amount", Decimal("2.50")),)),
+        ),
     )
-    assert result.digest_version == "v3"
-    assert not hasattr(result, "items")
-
-
-def test_finding_body_rejects_unknown_value_discriminant() -> None:
-    original = _finding(_forecast_exact())
-    body = parse_json(encode_finding_body(original))
-    assert isinstance(body, dict)
-    body["value"] = {"kind": "unknown"}
-    with pytest.raises(IntegrityError):
-        decode_finding_body(
-            canonical_json(body),
-            finding_id=original.finding_id,
-            artifact_ref="artifact",
-            session_id="session",
-            committed_at=original.committed_at,
-        )
+    assert digest.evidence_count == 1
+    assert digest.items[0].values == (("amount", Decimal("2.50")),)

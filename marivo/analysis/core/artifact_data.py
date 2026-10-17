@@ -319,7 +319,7 @@ def _output_table(schema: DataSchema, rows: pd.DataFrame) -> None:
 
 @dataclass(frozen=True, slots=True)
 class ArtifactPublication:
-    """One invocation's final pandas output; consumed by the R2.5 writer."""
+    """One invocation's final pandas output, consumed by the terminal writer."""
 
     artifact_id: str
     session_id: str

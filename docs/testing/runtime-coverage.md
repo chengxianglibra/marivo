@@ -25,10 +25,10 @@ not the current delivery status, and it does not alter test selection.
 | --- | --- | --- |
 | Datasource declarations, source IR, metadata, credentials, SQL submission, native timeout settings and cleanup | [datasource](../../tests/datasource/) | Daily contracts; explicitly extended local resume cases in slow-test; Runtime native reads |
 | Semantic declarations, identity, metric equations, authoring, validation and analysis handoff | [semantic](../../tests/semantic/) | Daily authoring and local handoff; Runtime native metadata and sample reads |
-| Typed graph rules, capture, lowering, admission and planning | [analysis/graph](../../tests/analysis/graph/) | Daily local contracts and execution; explicitly extended recovery in slow-test; Runtime native SQL differences |
+| Query capture, lowering, physical admission and planning | [analysis/graph](../../tests/analysis/graph/) | Daily local contracts and execution; explicitly extended recovery in slow-test; Runtime native SQL differences |
 | Observation, aggregation, comparison, attribution and selection | [analysis/numeric](../../tests/analysis/numeric/) | Daily numerical and behavioral oracles; explicitly extended cases in slow-test; Runtime native carriers |
 | Time grids, timezones, windows and temporal folds | [analysis/temporal](../../tests/analysis/temporal/) | Daily temporal semantics; explicitly extended recovery in slow-test; Runtime native time semantics |
-| Deviation, association and forecast | [analysis/statistics](../../tests/analysis/statistics/) | Daily statistical behavior; explicitly extended composed and recovered execution in slow-test |
+| Terminal exports and explicit pandas deviation, association and forecast recipes | [analysis/statistics](../../tests/analysis/statistics/) | Daily numerical behavior; explicitly extended cold output reading in slow-test |
 | Artifact reads, native failures, atomic publication, crash recovery and cold ownership | [analysis/materialization](../../tests/analysis/materialization/) | Daily local publication and recovery; explicitly extended process recovery in slow-test; Runtime native timeout configuration |
 | Session ownership and persistence | [analysis/session](../../tests/analysis/session/) | Daily session behavior; explicitly extended local session checks in slow-test; Runtime native source integration |
 | Public exports, Help budgets, result/error guidance and documentation examples | [surface](../../tests/surface/) | Daily public contracts and short examples; explicitly extended typing, process and execution examples in slow-test |
@@ -41,6 +41,13 @@ Fixtures and suite policies live in `tests/conftest.py`; reusable pure builders
 live in `tests/shared_fixtures.py`. Focused helpers live with their behavior;
 shared infrastructure lives in `tests/support/`. Tests and workers do not
 import helpers from test modules.
+
+The retired Logical/Materialized DSL, graph/Cell publisher, saved executable
+receivers and method registry no longer have compatibility test owners. Their
+isolated helper and format tests are removed with those implementations. Current
+Query key, null, precision, check timing, ownership and fusion assertions remain
+at their active owners; terminal and pandas recipe tests remain independent of
+current semantic loading and source availability.
 
 ## Coverage selection
 

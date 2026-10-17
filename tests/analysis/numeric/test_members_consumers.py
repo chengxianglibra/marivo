@@ -194,26 +194,6 @@ def test_complete_versioned_members(
         assert session.artifact(result.id).to_pandas().equals(read)
 
 
-def test_no_time_key_does_not_specialize_to_float() -> None:
-    from dataclasses import replace
-
-    from marivo.analysis.methods import builtin
-    from marivo.analysis.methods.physical import Qualified, ScalarType
-    from marivo.analysis.methods.semantics import MethodKey
-
-    for method in ("parts_transport", "bind_project", "time.product"):
-        candidates = [
-            item
-            for item in builtin.implementations(MethodKey(method))
-            if isinstance(item.qualification, Qualified)
-            and item.qualification.implementation_id.startswith("r93.c03.")
-        ]
-        assert candidates
-        for item in candidates:
-            key = replace(item.key, input_types=(ScalarType("float64"),))
-            assert builtin.specialize_numeric(item, key).key != key
-
-
 def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

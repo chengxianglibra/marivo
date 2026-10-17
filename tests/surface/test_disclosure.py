@@ -211,8 +211,8 @@ def test_readiness_render_contains_available(semantic_project_factory) -> None:
 @pytest.mark.parametrize(
     "path",
     [
-        "marivo/analysis/materialization/graph_observation.py",
-        "marivo/analysis/materialization/graph_members.py",
+        "marivo/analysis/binding/observe.py",
+        "marivo/analysis/session/_lazy_sources.py",
         "marivo/analysis/compiler/graph_lowering.py",
         "marivo/analysis/materialization/admission.py",
     ],

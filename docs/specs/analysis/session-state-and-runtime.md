@@ -101,6 +101,11 @@ Preserve the old project state, use a fresh current-format project and rerun the
 script. A current-generation resume restores Session identity/history, not a
 computation receiver.
 
+Only terminal publication admits new Runs. The retired graph/Cell executor,
+publisher and historical graph decoder are removed rather than retained as a
+compatibility route. Shared receipt, path, ownership and resource checks remain
+part of terminal execution and reading.
+
 ## Concurrent writers and atomic publication
 
 An admitted write uses the existing per-Session writer guard and resource journal.

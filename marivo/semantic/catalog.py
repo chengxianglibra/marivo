@@ -3673,12 +3673,12 @@ class SemanticCatalog(RenderableResult):
                 repair=AuthoringRepair(
                     kind="reauthor",
                     help_target=LiveHelpTarget(
-                        surface="analysis",
-                        canonical_id="runtime_metric",
+                        surface="semantic",
+                        canonical_id="expressions",
                     ),
                     action=(
-                        "Repair the governed leaf refs or rebuild the closed expression with "
-                        "mv.runtime_metric.* within the registered graph constraints."
+                        "Resolve the governed inputs from the completed Catalog and rebuild "
+                        "the expression within the registered graph constraints."
                     ),
                 ),
                 details={

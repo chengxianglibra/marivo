@@ -188,7 +188,7 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
             method_routes: list[str] = []
             for binding in descriptor.bindings:
                 implementation = binding.implementation
-                if implementation.__module__ != "marivo.analysis.public_dsl":
+                if implementation.__module__ != "marivo.analysis._contract":
                     continue
                 for name in binding.methods:
                     owner = next(
@@ -220,8 +220,6 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
                         and parent.render_class == "navigation"
                         else target
                     )
-                if any(item.name == "coefficient" for item in binding.fields):
-                    method_routes.append("MaterializedCoefficientRelation")
             routes = tuple(
                 dict.fromkeys(descriptor.producers + descriptor.consumers + tuple(method_routes))
             )

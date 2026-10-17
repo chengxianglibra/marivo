@@ -431,27 +431,6 @@ def test_linear_rejects_incommensurable_units(analysis_dsl_case_factory: DslCase
         _observe(case, expression)
 
 
-def test_weighted_state_rejects_corrupted_components() -> None:
-    from marivo.analysis.methods.state_validation import state_matches
-
-    primary = {"value": 250.0, "cell_tag": "defined", "cell_reason": None}
-    state = {
-        "original_state__weighted_numerator": 1000,
-        "original_state__weight_sum": 4,
-        "original_state__non_null_pair_count": 2,
-        "original_state__row_count": 2,
-    }
-    assert state_matches("original_weighted_mean", primary, state)
-    for changes in (
-        {"original_state__non_null_pair_count": 3},
-        {"original_state__row_count": -1},
-        {"original_state__weight_sum": 0},
-        {"original_state__weighted_numerator": 2**63},
-        {"original_state__non_null_pair_count": 0},
-    ):
-        assert not state_matches("original_weighted_mean", primary, {**state, **changes}), changes
-
-
 def test_common_condition_reaches_each_leaf_before_reduction(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:

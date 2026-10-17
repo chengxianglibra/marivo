@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
-
-import pyarrow as pa
 
 from marivo._temporal import PeriodCalendarSnapshotV1
 from marivo.analysis.core.time_authority import ReportTimeAuthority
@@ -16,12 +13,7 @@ from marivo.analysis.materialization.errors import (
     _execution_error as _error,
 )
 from marivo.analysis.materialization.reconciliation import reconcile_session
-from marivo.analysis.materialization.storage import (
-    ReadPolicy,
-    StoragePolicy,
-)
 from marivo.analysis.materialization.store import SessionStore
-from marivo.analysis.materialization.submissions import Submission
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.analysis.observation.contracts import (
     ObservationOwner,
@@ -46,33 +38,9 @@ from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.validator import Registry
 
 if TYPE_CHECKING:
-    from marivo.analysis.compiler.graph_plan import RouteChoice
-    from marivo.analysis.core.graph import BoundGraph, Node
+    from marivo.analysis.core.graph import BoundGraph
     from marivo.analysis.dsl.artifact import Artifact
-    from marivo.analysis.materialization.execution_key import SourceKeyBinding
-    from marivo.analysis.materialization.graph_execution import PreparedGraph
-    from marivo.analysis.materialization.graph_publication import SourceFactory
-    from marivo.analysis.materialization.graph_store import GraphArtifact
     from marivo.semantic._compiled_state import CompiledSemanticState
-
-_PREVIEW_MAX_OUTPUT_BYTES = 8192
-_READ_POLICY = ReadPolicy()
-_LOCAL_STORAGE_POLICY = StoragePolicy()
-
-
-@dataclass(slots=True)
-class ExecutionStatistics:
-    """Ephemeral per-action diagnostics, never a publication authority."""
-
-    primary_queries: int = 0
-    validation_queries: int = 0
-    source_fences: int = 0
-    transferred_rows: int = 0
-    transferred_bytes: int = 0
-    events: dict[str, int] = field(default_factory=dict)
-    statements: list[tuple[str, str]] = field(default_factory=list)
-    submissions: list[Submission] = field(default_factory=list)
-    local_handoffs: tuple[tuple[int, int], ...] = ()
 
 
 class DatasetRuntime:
@@ -95,7 +63,6 @@ class DatasetRuntime:
         self.store = store
         self.session_ref = session_ref
         self._hook = event
-        self.statistics = ExecutionStatistics()
         self.last_run_ref: str | None = None
         self._source_context = ObservationSourceContext()
         self.connection_config = DatasourceConnectionConfig(
@@ -236,20 +203,8 @@ class DatasetRuntime:
         return owner
 
     def _event(self, point: str) -> None:
-        self.statistics.events[point] = self.statistics.events.get(point, 0) + 1
         if self._hook is not None:
             self._hook(point)
-
-    def _observe_submission(self, receipt: Submission) -> None:
-        self.statistics.submissions.append(receipt)
-        self.statistics.statements.append((receipt.role, receipt.sql))
-        self._event(receipt.domain + "_statement")
-        if receipt.role == "primary":
-            self.statistics.primary_queries += 1
-        if receipt.role.startswith("engine_check.") or receipt.role in {
-            "validation_batch",
-        }:
-            self.statistics.validation_queries += 1
 
     def runs(
         self, *, status: RunLifecycle | None = None, limit: int = 20, cursor: str | None = None
@@ -285,30 +240,3 @@ class DatasetRuntime:
         from marivo.analysis.materialization.terminal_publication import execute
 
         return execute(self, graph, state)
-
-    def _execute_graph(
-        self,
-        root: Node,
-        routes: tuple[RouteChoice, ...],
-        *,
-        source_bindings: tuple[SourceKeyBinding, ...] = (),
-        source_factory: SourceFactory | None = None,
-        source_schemas: tuple[pa.Schema, ...] = (),
-    ) -> GraphArtifact:
-        """Execute the private v8 graph through this existing Runtime owner."""
-        from marivo.analysis.materialization.graph_publication import execute
-
-        return execute(
-            self,
-            root,
-            routes,
-            source_bindings=source_bindings,
-            source_factory=source_factory,
-            source_schemas=source_schemas,
-        )
-
-    def _prepare_graph(self, root: Node, routes: tuple[RouteChoice, ...]) -> PreparedGraph:
-        """Prepare the private graph schedule under this Session's identity."""
-        from marivo.analysis.materialization.graph_execution import prepare_graph
-
-        return prepare_graph(root, session_ref=self.session_ref, routes=routes)

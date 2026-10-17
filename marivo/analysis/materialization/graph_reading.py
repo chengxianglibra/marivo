@@ -24,8 +24,12 @@ from marivo.analysis.materialization import terminal_store
 from marivo.analysis.materialization.contracts import digest, parse_timestamp
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import normalize_stage_frame
-from marivo.analysis.materialization.graph_storage import payload_digest
-from marivo.analysis.materialization.storage import _checked_path, _manifest_bytes, _open_payload
+from marivo.analysis.materialization.storage import (
+    _checked_path,
+    _manifest_bytes,
+    _open_payload,
+    payload_digest,
+)
 from marivo.analysis.materialization.store import SessionStore, _one, _text
 from marivo.analysis.materialization.terminal_protocol import invalid
 from marivo.analysis.materialization.terminal_storage import (

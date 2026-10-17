@@ -28,7 +28,6 @@ dependencies = [
     "pyarrow>=10.0.1",
     "pydantic>=2.9.0",
     "python-dateutil>=2.9.0",
-    "scipy>=1.13.0",
     "sqlglot==30.8.0",
     "tomli>=2.0; python_version < '3.11'",
     "tomli_w>=1.0",
@@ -69,7 +68,6 @@ dev = [
     "types-python-dateutil>=2.9.0",
     "types-mysqlclient>=2.2.0",
     "pre-commit>=4.0",
-    "scipy-stubs>=1.14.1.0",
     "import-linter>=2.0",
 ]
 

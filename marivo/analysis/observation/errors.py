@@ -9,7 +9,3 @@ class ObservationConstructionError(DatasetConstructionError):
 
 class ObservationBindingError(ObservationConstructionError):
     """Parameterized source inputs do not match their declaration."""
-
-
-class ObservationPredicateError(ObservationConstructionError):
-    """An analysis predicate cannot be interpreted at the current row grain."""

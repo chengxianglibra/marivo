@@ -8,7 +8,6 @@ import pandas as pd
 import pytest
 
 import marivo.semantic as ms
-from marivo.analysis.methods.state_validation import state_matches
 from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models
 
 
@@ -191,17 +190,6 @@ def test_decimal_boundary_fixed_rollup_does_not_round_range_check(
     for result in (logical.rollup().execute(), logical.rollup().rollup().execute()):
         assert result.to_pandas()[("value", "value")].tolist() == [value]
     assert session.artifact(fixed.id).to_pandas().equals(fixed.to_pandas())
-
-
-def test_float_sum_requires_finite_complete_absolute_state() -> None:
-    primary = {"value": 1.0, "cell_tag": "defined", "cell_reason": None}
-    state = {"original_state__sum": 1.0, "original_state__non_null_count": 3}
-    assert not state_matches("original_sum", primary, state)
-    for invalid in (-1.0, float("nan"), float("inf")):
-        assert not state_matches(
-            "original_sum", primary, {**state, "original_state__absolute_sum": invalid}
-        )
-    assert state_matches("original_sum", primary, {**state, "original_state__absolute_sum": 2e16})
 
 
 @pytest.mark.parametrize("reverse", [False, True])

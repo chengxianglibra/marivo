@@ -14,11 +14,11 @@ import pyarrow.parquet as pq
 from marivo.analysis.core.artifact_data import DataSchema, ParquetHandle
 from marivo.analysis.materialization.contracts import FileEntry, LocalReceipt
 from marivo.analysis.materialization.graph_exchange import normalize_stage_frame
-from marivo.analysis.materialization.graph_storage import payload_digest
 from marivo.analysis.materialization.storage import (
     _checked_path,
     _fsync_directory,
     _manifest_bytes,
+    payload_digest,
 )
 from marivo.analysis.materialization.terminal_protocol import invalid
 from marivo.analysis.methods.physical import stage_arrow_type

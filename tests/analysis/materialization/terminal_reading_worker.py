@@ -9,7 +9,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import marivo.analysis as mv
-from marivo.analysis.materialization import graph_protocol, graph_store
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 
@@ -36,8 +35,6 @@ def main() -> None:
             (Session, "catalog", property(forbidden)),
             (SourceSession, "__init__", forbidden),
             (SourceSession, "execute", forbidden),
-            (graph_protocol, "decode", forbidden),
-            (graph_store, "artifact", forbidden),
         ):
             patches.enter_context(patch.object(owner, attribute, replacement))
         session = mv.session.resume(name, by="name")

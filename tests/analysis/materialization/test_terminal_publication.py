@@ -38,7 +38,6 @@ from marivo.analysis.core.artifact_data import (
 )
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.dsl.artifact import Artifact
-from marivo.analysis.errors import AnalysisStageUnavailableError
 from marivo.analysis.evidence._dataset_types import AssociationFindingValueV1, NoAssociationLagV1
 from marivo.analysis.materialization import terminal_store
 from marivo.analysis.materialization.admission import DatasetRuntime
@@ -127,6 +126,10 @@ def test_public_constant_executes_each_invocation_and_reads_committed_output(
     graph = session.graph()
     assert len(graph.artifacts) == 2 and len(graph.edges) == 2
     assert all(item.family_id == "terminal_output" for item in graph.artifacts)
+    assert all(
+        item.realized_byte_count.kind == "exact" and item.realized_byte_count.byte_count > 0
+        for item in graph.artifacts
+    )
     assert not hasattr(graph.artifacts[0], "definition_fingerprint")
     assert session._catalog_value is None and session._sources_value is None
 
@@ -731,15 +734,6 @@ def test_preparation_failure_creates_no_run(source_session: Session) -> None:
         source_session.observe({"revenue": metric}, by=(region,)).execute()
     assert caught.value.run_ref is None
     assert source_session.runs().items == ()
-
-
-def test_legacy_publisher_is_rejected_before_admission(session: Session) -> None:
-    from marivo.analysis.materialization.graph_publication import execute
-
-    with pytest.raises(AnalysisStageUnavailableError, match="retired graph"):
-        # Exercise the retired publisher's rejection of an invalid legacy root.
-        execute(session._runtime, object(), ())  # type: ignore[arg-type]
-    assert session.runs().items == ()
 
 
 def test_source_disconnect_failure_prevents_publication(

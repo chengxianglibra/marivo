@@ -52,8 +52,6 @@ from marivo.analysis.core.local_laws import (
 )
 from marivo.analysis.core.model import ResultQuantity
 from marivo.analysis.methods.physical import QUERY_COMBINE_KERNEL
-from marivo.analysis.methods.registry import MethodRegistry
-from marivo.analysis.methods.semantics import MethodKey
 
 if TYPE_CHECKING:
     from marivo.analysis.compiler.graph_lowering import LoweredQuery
@@ -291,7 +289,7 @@ def _consumers(stages: tuple[QueryStage, ...]) -> tuple[tuple[str, tuple[str, ..
     return tuple((stage.stage_id, tuple(consumers[stage.stage_id])) for stage in stages)
 
 
-def _fuse(plan: QueryPlan, registry: MethodRegistry) -> QueryPlan:
+def _fuse(plan: QueryPlan) -> QueryPlan:
     stages = {stage.stage_id: stage for stage in plan.stages}
     removed: set[str] = set()
     groups: dict[str, FusionGroup] = {}
@@ -351,7 +349,6 @@ def _fuse(plan: QueryPlan, registry: MethodRegistry) -> QueryPlan:
                 same_layout=same,
                 pending_checks=bool(check_stages & set(pair)),
                 original_boundary=False,
-                registry=registry,
             )
             if issue is None:
                 assert isinstance(first.predicate, ValueExpression)
@@ -411,7 +408,6 @@ def _fuse(plan: QueryPlan, registry: MethodRegistry) -> QueryPlan:
                 and program.calendar is None
                 and not program.populations
                 and program.members is None,
-                registry=registry,
             )
             if issue is None:
                 steps = (
@@ -632,9 +628,9 @@ def _common_sources(plan: QueryPlan) -> QueryPlan:
     return replace(result, required_slots=required_slots(result))
 
 
-def optimize_query(plan: QueryPlan, registry: MethodRegistry) -> QueryPlan:
+def optimize_query(plan: QueryPlan) -> QueryPlan:
     """Apply one bounded demand/law pass; preserve the original plan as a control."""
-    planned = _fuse(replace(plan, required_slots=required_slots(plan)), registry)
+    planned = _fuse(replace(plan, required_slots=required_slots(plan)))
     required = required_slots(planned)
     by_stage = {item.stage_id: item for item in required}
     stages: list[QueryStage] = []
@@ -782,8 +778,6 @@ class InvocationMemo:
     """One execute call's typed compiler artifacts; results never enter this memo."""
 
     def __init__(self) -> None:
-        self._registry: MethodRegistry | None = None
-        self._laws: tuple[tuple[str, ...], ...] = ()
         self._binding: tuple[Owner, tuple[SourceSchema, ...], QueryContext] | None = None
         self._plans: dict[MemoSlot, QueryPlan] = {}
         self._lowered: dict[MemoSlot, LoweredQuery] = {}
@@ -792,24 +786,17 @@ class InvocationMemo:
         self.hits = 0
         self.misses = 0
 
-    def _bind(self, key: CompilationKey, registry: MethodRegistry) -> None:
+    def _bind(self, key: CompilationKey) -> None:
         binding = (key.owner, key.schemas, key.context)
-        laws = tuple(
-            registry.lookup(MethodKey(name)).semantics.local_laws
-            for name in ("parts_transport", "state_rollup")
-        )
-        if registry is not self._registry or laws != self._laws or binding != self._binding:
+        if binding != self._binding:
             self._plans.clear()
             self._lowered.clear()
             self._captures.clear()
             self._keys.clear()
-            self._registry, self._binding = registry, binding
-            self._laws = laws
+            self._binding = binding
 
-    def plan(
-        self, key: CompilationKey, build: Callable[[], QueryPlan], registry: MethodRegistry
-    ) -> QueryPlan:
-        self._bind(key, registry)
+    def plan(self, key: CompilationKey, build: Callable[[], QueryPlan]) -> QueryPlan:
+        self._bind(key)
         slot = _memo_slot(key)
         value = self._plans.get(slot)
         if value is not None:
@@ -817,15 +804,13 @@ class InvocationMemo:
             return value
         self.misses += 1
         value = build()
-        self._bind(key, registry)
+        self._bind(key)
         self._keys[slot] = key
         self._plans[slot] = value
         return value
 
-    def lower(
-        self, key: CompilationKey, build: Callable[[], LoweredQuery], registry: MethodRegistry
-    ) -> LoweredQuery:
-        self._bind(key, registry)
+    def lower(self, key: CompilationKey, build: Callable[[], LoweredQuery]) -> LoweredQuery:
+        self._bind(key)
         slot = _memo_slot(key)
         value = self._lowered.get(slot)
         if value is not None:
@@ -833,15 +818,13 @@ class InvocationMemo:
             return value
         self.misses += 1
         value = build()
-        self._bind(key, registry)
+        self._bind(key)
         self._keys[slot] = key
         self._lowered[slot] = value
         return value
 
-    def capture(
-        self, key: CompilationKey, build: Callable[[], BoundGraph], registry: MethodRegistry
-    ) -> BoundGraph:
-        self._bind(key, registry)
+    def capture(self, key: CompilationKey, build: Callable[[], BoundGraph]) -> BoundGraph:
+        self._bind(key)
         slot = _memo_slot(key)
         value = self._captures.get(slot)
         if value is not None:
@@ -849,7 +832,7 @@ class InvocationMemo:
             return value
         self.misses += 1
         value = build()
-        self._bind(key, registry)
+        self._bind(key)
         self._keys[slot] = key
         self._captures[slot] = value
         return value

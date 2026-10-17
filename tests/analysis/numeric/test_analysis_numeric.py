@@ -937,29 +937,6 @@ def test_exact_and_approximate_definition_identities_never_alias(
     assert case.session.runs().items == ()
 
 
-def test_float_linear_validator_uses_owner_error_bound() -> None:
-    from marivo.analysis.methods.state_validation import state_matches
-
-    state = {
-        "original_state__plus_0_sum": 1e16,
-        "original_state__plus_0_non_null_count": 1,
-        "original_state__plus_1_sum": 1.0,
-        "original_state__plus_1_non_null_count": 1,
-        "original_state__minus_2_sum": 1e16,
-        "original_state__minus_2_non_null_count": 1,
-    }
-    for value, expected in ((0.0, True), (1.0, True), (1e9, False)):
-        assert (
-            state_matches(
-                "original_linear",
-                {"value": value, "cell_tag": "defined", "cell_reason": None},
-                state,
-                empty_rules=("null",) * 3,
-            )
-            is expected
-        )
-
-
 @pytest.mark.parametrize("floating", [False, True])
 def test_linear_cancellation_checks_final_integer_and_float_bound(
     analysis_dsl_case_factory: DslCaseFactory, floating: bool

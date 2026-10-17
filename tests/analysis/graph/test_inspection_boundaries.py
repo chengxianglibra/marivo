@@ -1,12 +1,12 @@
-"""Current graph inspection preserves authority and sanitized read boundaries."""
+"""The shared terminal Parquet opener preserves sanitized failure boundaries."""
 
 from __future__ import annotations
 
 import pytest
 
 import marivo.semantic as ms
-from marivo.analysis.materialization import graph_storage
 from marivo.analysis.materialization.errors import StorageAccessError
+from marivo.analysis.materialization.storage import _open_payload
 from marivo.analysis.materialization.store import SessionStore
 from tests.shared_fixtures import DslCaseFactory
 
@@ -27,7 +27,7 @@ def test_missing_backing_discards_native_exception_and_locator(
     store = case.session._runtime.store
     before = _snapshot(store)
     with pytest.raises(StorageAccessError) as caught:
-        graph_storage.read_table(case.root, receipt)
+        _open_payload(case.root, receipt)
     error = caught.value
     assert error.storage_status == "missing"
     assert error.__context__ is None and error.__cause__ is None

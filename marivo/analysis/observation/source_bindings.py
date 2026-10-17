@@ -11,7 +11,7 @@ from math import isfinite
 from typing import SupportsIndex, TypeAlias
 
 from marivo._compat import Never
-from marivo.analysis.datasets.handles import CanonicalValue, _digest
+from marivo.analysis.observation._identity import CanonicalValue, _canonical_digest
 from marivo.analysis.observation.errors import ObservationBindingError
 from marivo.datasource.ir import (
     EntitySourceIR,
@@ -71,7 +71,9 @@ def _value(value: object) -> _CapturedValue:
 def _binding_digest(
     entity_ref: Ref[EntityKind], names: tuple[str, ...], values: tuple[_CapturedValue, ...]
 ) -> str:
-    return _digest(("source.bindings.v1", entity_ref.kind.value, entity_ref.path, names, values))
+    return _canonical_digest(
+        ("source.bindings.v1", entity_ref.kind.value, entity_ref.path, names, values)
+    )
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)

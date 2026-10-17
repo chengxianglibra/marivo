@@ -1,8 +1,9 @@
 """Deviation exports preserve raw carriers; statistical recipes belong to pandas."""
 
 import sys
-from decimal import Decimal, localcontext
+from decimal import Decimal
 from fractions import Fraction
+from typing import Literal
 
 import duckdb
 import pandas as pd
@@ -10,9 +11,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.methods import deviation_numeric as numeric
-from marivo.analysis.methods.physical import DecimalType, ScalarType
-from tests.analysis.statistics.deviation_oracle import decimal_finish, expected
+from tests.analysis.statistics.deviation_oracle import expected
 from tests.analysis.statistics.pandas_workflows import (
     assert_clean,
     daily,
@@ -22,137 +21,6 @@ from tests.analysis.statistics.pandas_workflows import (
     plain,
 )
 from tests.shared_fixtures import DslCaseFactory, run_ids
-
-
-@pytest.mark.parametrize("method", ["zscore", "mad"])
-def test_signed_independent_integer_oracle(method: numeric.DeviationMethod) -> None:
-    values = (2**63 - 5, 2**63 - 4, 2**63 - 1)
-    raw = tuple(Fraction(value) for value in values)
-    fitted = numeric.fit(raw, method)
-    center = sum(raw, Fraction()) / 3 if method == "zscore" else raw[1]
-    with localcontext() as ctx:
-        ctx.prec = 150
-        scale = (
-            (sum(((x - center) * (x - center) for x in raw), Fraction()) / 3)
-            if method == "zscore"
-            else Fraction(7413, 5000)
-        )
-        divisor = Decimal(scale.numerator) / Decimal(scale.denominator)
-        if method == "zscore":
-            divisor = divisor.sqrt()
-        expected = tuple(
-            float((Decimal((x - center).numerator) / Decimal((x - center).denominator)) / divisor)
-            for x in raw
-        )
-    assert fitted.center is not None and fitted.center.value() == center
-    assert tuple(numeric.score(x - center, fitted) for x in raw) == expected
-    assert expected[0] < 0 < expected[-1]
-
-
-def test_every_decimal_profile_preserves_original_and_half_even() -> None:
-    for precision in range(1, 39):
-        for scale in range(precision + 1):
-            typ = DecimalType(precision, scale)
-            value = Decimal((0, (1,), -scale))
-            assert numeric.exact(value, typ) == Fraction(1, 10**scale)
-            assert numeric.finish(Fraction(5, 2) / 10**scale, typ) == Decimal((0, (2,), -scale))
-            assert numeric.finish(Fraction(7, 2) / 10**scale, typ) == Decimal((0, (4,), -scale))
-            values = tuple(Decimal((0, (x,), -scale)) for x in (1, 2, 7))
-            for method in ("zscore", "mad"):
-                center, raw_scale, branch, scores = expected(values, method)
-                fitted = numeric.fit(tuple(Fraction(x) for x in values), method)
-                assert fitted.center is not None and fitted.raw_scale is not None
-                assert (fitted.center.value(), fitted.raw_scale.value(), fitted.branch) == (
-                    center,
-                    raw_scale,
-                    branch,
-                )
-                output = numeric.unit_type(typ)
-                assert isinstance(output, DecimalType)
-                assert numeric.finish(center, output) == decimal_finish(center, output.scale)
-                for value, score in zip(values, scores, strict=True):
-                    delta = Fraction(value) - center
-                    assert numeric.finish(delta, output) == decimal_finish(delta, output.scale)
-                    certified = numeric.certified_score(delta, fitted)
-                    assert certified.value == score
-                    assert numeric.verify_score(delta, fitted, score, certified.root)
-
-
-@pytest.mark.parametrize("value", [float("inf"), float("nan"), True])
-def test_nonfinite_or_wrong_original_carrier_rejects(value: float | bool) -> None:
-    with pytest.raises(ValueError):
-        numeric.exact(value, ScalarType("float64"))
-
-
-@pytest.mark.parametrize("method", ("zscore", "mad"))
-@pytest.mark.parametrize(
-    "values",
-    (
-        (-sys.float_info.max, 0.0, sys.float_info.max),
-        (sys.float_info.max, float.fromhex("0x1.ffffffffffffep+1023")),
-        (-float.fromhex("0x0.0000000000001p-1022"), 0.0, float.fromhex("0x0.0000000000001p-1022")),
-        (1e100, 1e100 + 1e85, 1e100 - 1e85),
-    ),
-)
-def test_binary64_extremes_and_ambient_context(
-    method: numeric.DeviationMethod, values: tuple[float, ...]
-) -> None:
-    center, raw_scale, branch, scores = expected(values, method)
-    with localcontext() as context:
-        context.prec = 2
-        fitted = numeric.fit(tuple(Fraction(x) for x in values), method)
-        assert fitted.center is not None and fitted.raw_scale is not None
-        assert (fitted.center.value(), fitted.raw_scale.value(), fitted.branch) == (
-            center,
-            raw_scale,
-            branch,
-        )
-        actual = tuple(numeric.score(Fraction(x) - center, fitted) for x in values)
-    assert actual == scores
-
-
-def test_finite_input_unrepresentable_final_field_rejects() -> None:
-    maximum = Decimal("99999999999999999999999999999999999999")
-    typ = DecimalType(38, 0)
-    raw = numeric.exact(maximum, typ)
-    with pytest.raises(OverflowError):
-        numeric.finish(raw, numeric.unit_type(typ))
-    fitted = numeric.fit(
-        (
-            Fraction(0),
-            Fraction(float.fromhex("0x0.0000000000001p-1022")),
-            Fraction(sys.float_info.max),
-        ),
-        "mad",
-    )
-    assert fitted.center is not None
-    with pytest.raises(OverflowError):
-        numeric.score(Fraction(sys.float_info.max) - fitted.center.value(), fitted)
-
-
-def test_root_certificate_refines_a_rounding_boundary_without_execution_deadline() -> None:
-    variance = Fraction(1) + Fraction(1, 2**2000)
-    delta = Fraction(2**53 + 1, 2**53)
-    fitted = numeric.Fit(
-        "zscore",
-        3,
-        numeric.RationalFact.capture(Fraction()),
-        numeric.RationalFact.capture(variance),
-        "population_stddev",
-        None,
-        None,
-    )
-    with localcontext() as context:
-        context.prec = 800
-        independent = float(
-            (Decimal(delta.numerator) / Decimal(delta.denominator))
-            / (Decimal(variance.numerator) / Decimal(variance.denominator)).sqrt()
-        )
-    scored = numeric.certified_score(delta, fitted)
-    assert scored.value == independent == 1.0
-    assert scored.root is not None and scored.root.precision >= 640
-    assert (scored.root.precision - 120) % 40 == 0
-    assert numeric.verify_score(delta, fitted, scored.value, scored.root)
 
 
 def test_exported_comparison_supports_pandas_deviation_selection(
@@ -183,7 +51,7 @@ def test_exported_comparison_supports_pandas_deviation_selection(
 @pytest.mark.parametrize("method,profile", [("mad", "DOUBLE"), ("zscore", "DECIMAL(38,38)")])
 def test_exported_scores_select_an_explicit_followup_query(
     analysis_dsl_case_factory: DslCaseFactory,
-    method: numeric.DeviationMethod,
+    method: Literal["mad", "zscore"],
     profile: str,
 ) -> None:
     case = analysis_dsl_case_factory("j2")

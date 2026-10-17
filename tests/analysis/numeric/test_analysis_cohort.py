@@ -1,45 +1,12 @@
 """Full opportunity cohort decisions with independent counts."""
 
-from typing import Literal
-
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis._cohort import decide
 from marivo.analysis.dsl.column import row_count
 from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows
 from tests.support.paths import PROJECT_ROOT
-
-
-def test_quantifier_decisions() -> None:
-    cases: tuple[tuple[Literal["any", "at_least", "all"], int, int, int, int, bool | None], ...] = (
-        ("at_least", 3, 3, 1, 0, True),
-        ("at_least", 3, 1, 1, 2, False),
-        ("at_least", 3, 2, 1, 1, None),
-        ("any", 1, 1, 1, 0, True),
-        ("any", 1, 0, 1, 1, None),
-        ("all", 1, 1, 1, 1, False),
-        ("all", 1, 2, 0, 0, True),
-    )
-    for rule, k, true_count, unknown_count, false_count, expected in cases:
-        assert decide(rule, k, "false", true_count, unknown_count, false_count) is expected, (
-            rule,
-            k,
-            true_count,
-            unknown_count,
-            false_count,
-        )
-
-    empty_cases: tuple[tuple[Literal["true", "false", "undefined"], bool | None], ...] = (
-        ("true", True),
-        ("false", False),
-        ("undefined", None),
-    )
-    for empty, expected in empty_cases:
-        assert decide("all", 1, empty, 0, 0, 0) is expected
-        assert decide("any", 1, empty, 0, 0, 0) is False
-        assert decide("at_least", 3, empty, 0, 0, 0) is False
 
 
 def test_full_entity_time_cohort(

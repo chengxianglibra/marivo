@@ -8,8 +8,6 @@ from marivo import _temporal
 from marivo._temporal import BeforeEndBoundary, Grain, TimeScope
 from marivo.analysis import grain
 from marivo.analysis._capabilities.dataset_model import (
-    CONSTRUCTION_EFFECT,
-    CONSTRUCTION_FAILURES,
     Descriptor,
     DisclosureProvider,
     ExampleInput,
@@ -50,8 +48,8 @@ def provider() -> DisclosureProvider:
                 parameters=parameters,
                 output=output,
                 constraints=(guidance,),
-                effects=CONSTRUCTION_EFFECT,
-                failures=CONSTRUCTION_FAILURES,
+                effects="Construct an immutable Grain; no query, Run, or Artifact publication.",
+                failures=("ValueError: choose a supported built-in unit and count.",),
                 example=ExampleInput("result = " + call, (target,), "result", output),
             )
         )

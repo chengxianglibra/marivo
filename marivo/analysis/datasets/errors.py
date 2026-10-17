@@ -20,8 +20,6 @@ class DatasetConstructionError(AnalysisError):
         help_target: str | None = None,
         run_ref: str | None = None,
     ) -> None:
-        # Core has no published Help leaf yet; an explicit hint also avoids the
-        # eager constraint registry that AnalysisError otherwise loads lazily.
         super().__init__(
             message=message,
             expected=expected[:320],
@@ -39,15 +37,3 @@ class DatasetConstructionError(AnalysisError):
 
 class DatasetRegistrationError(DatasetConstructionError):
     """A private family registration is incomplete or inconsistent."""
-
-
-class DatasetFieldSelectionError(DatasetConstructionError):
-    """A selector does not identify one exact current field binding."""
-
-
-class DatasetOwnershipError(DatasetConstructionError):
-    """A Dataset or selector belongs to a different execution Session."""
-
-
-class DatasetDefinitionError(DatasetConstructionError):
-    """A logical definition cannot be normalized by the closed Core encoder."""

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import InitVar, dataclass, field
 from datetime import datetime
 from typing import Literal, TypeAlias
 
+from marivo._compat import Never
 from marivo.analysis._pages import _BoundedPage
-from marivo.analysis.datasets.descriptors import DatasetByteCount
+from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.evidence._dataset_types import ArtifactEvidenceSummary, ArtifactIssueCounts
 from marivo.analysis.materialization.contracts import RunFailure, invalid
 from marivo.analysis.materialization.terminal_protocol import InvocationInput
@@ -16,6 +17,49 @@ from marivo.render import Card, RenderableResult
 
 RunLifecycle: TypeAlias = Literal["incomplete", "succeeded", "failed"]
 GraphDirection: TypeAlias = Literal["ancestors", "descendants"]
+_BYTE_COUNT_TOKEN = object()
+
+
+def _byte_count_error(expected: str, received: str, location: str) -> Never:
+    raise DatasetConstructionError(
+        expected=expected,
+        received=received,
+        repair="Reconstruct this exact runtime count through the Session read model.",
+        location=location,
+    )
+
+
+class DatasetByteCount:
+    """Exact byte count retained on a current Session Artifact summary."""
+
+    __slots__ = ()
+    kind: Literal["exact"]
+    byte_count: int
+
+    def __init__(self, *, _token: object) -> None:
+        _byte_count_error("a helper-produced exact byte count", "direct construction", "byte_count")
+
+    def __repr__(self) -> str:
+        return f"<{type(self).__name__.lstrip('_')} kind={self.kind}>"
+
+
+@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
+class _ExactByteCount(DatasetByteCount):
+    _token: InitVar[object]
+    byte_count: int
+    kind: Literal["exact"] = field(default="exact", init=False)
+
+    def __post_init__(self, _token: object) -> None:
+        if _token is not _BYTE_COUNT_TOKEN:
+            _byte_count_error(
+                "a helper-produced exact byte count", "direct construction", type(self).__name__
+            )
+        if type(self.byte_count) is not int or self.byte_count < 0:
+            _byte_count_error("a non-negative integer", str(self.byte_count), "byte_count")
+
+
+def _exact_byte_count(byte_count: int) -> DatasetByteCount:
+    return _ExactByteCount(_token=_BYTE_COUNT_TOKEN, byte_count=byte_count)
 
 
 def _identity(value: str) -> None:

@@ -443,7 +443,6 @@ def execute(
                     compilation_key,
                     optimize_query,
                 )
-                from marivo.analysis.methods import registry
 
                 memo = InvocationMemo()
                 observation = graph.signature.observation
@@ -481,8 +480,7 @@ def execute(
                         schemas,
                         context=context,
                         memo=memo,
-                    ),
-                    registry.REGISTRY,
+                    )
                 )
                 lowered = memo.lower(
                     compilation_key(
@@ -497,7 +495,6 @@ def execute(
                         relations=relations,
                     ),
                     lambda: lower_query(plan, relations),
-                    registry.REGISTRY,
                 )
                 if lowered.plan.checks:
                     raise invalid("Query check route is not implemented; no business row was read")

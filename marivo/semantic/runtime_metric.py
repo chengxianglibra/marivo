@@ -1,4 +1,4 @@
-"""Dependency-neutral descriptors for controlled runtime metric composition."""
+"""Internal descriptors consumed by semantic metric-graph lowering."""
 
 from __future__ import annotations
 
@@ -657,11 +657,12 @@ def aggregate(
             bucket column (such a collision fails closed at ``observe``).
 
     Returns:
-        A frozen ``RuntimeAggregateExpr`` accepted by ``session.observe`` or by
-        another runtime metric constructor.
+        A frozen ``RuntimeAggregateExpr`` consumed by internal semantic lowering or another
+        descriptor constructor.
 
     Example:
-        >>> total = mv.runtime_metric.aggregate(
+        >>> import marivo.semantic.runtime_metric as runtime_metric
+        >>> total = runtime_metric.aggregate(
         ...     session.catalog.require(ms.ref.measure("sales.orders.amount")).ref,
         ...     agg="sum",
         ...     label="Observed revenue",
@@ -708,13 +709,14 @@ def weighted_mean(
         label: Required presentation-only label and stable public value-column handle.
 
     Returns:
-        A frozen ``RuntimeWeightedMeanExpr`` accepted by ``session.observe`` or
-        by another runtime metric constructor.
+        A frozen ``RuntimeWeightedMeanExpr`` consumed by internal semantic lowering or
+        by another descriptor constructor.
 
     Example:
+        >>> import marivo.semantic.runtime_metric as runtime_metric
         >>> latency = session.catalog.require(ms.ref.measure("api.requests.latency_ms")).ref
         >>> requests = session.catalog.require(ms.ref.measure("api.requests.count")).ref
-        >>> observed_latency = mv.runtime_metric.weighted_mean(
+        >>> observed_latency = runtime_metric.weighted_mean(
         ...     latency,
         ...     requests,
         ...     label="Observed latency",
@@ -763,7 +765,8 @@ def slice(
         A frozen ``RuntimeSliceExpr`` that can be nested recursively or observed.
 
     Example:
-        >>> failed = mv.runtime_metric.slice(
+        >>> import marivo.semantic.runtime_metric as runtime_metric
+        >>> failed = runtime_metric.slice(
         ...     session.catalog.require(ms.ref.metric("sales.requests")).ref,
         ...     by={session.catalog.require(ms.ref.dimension("sales.requests.state")).ref: "FAILED"},
         ...     label="Observed failed requests",
@@ -801,7 +804,8 @@ def ratio(
         A frozen ``RuntimeRatioExpr`` that can be nested recursively or observed.
 
     Example:
-        >>> rate = mv.runtime_metric.ratio(
+        >>> import marivo.semantic.runtime_metric as runtime_metric
+        >>> rate = runtime_metric.ratio(
         ...     numerator=failed,
         ...     denominator=total,
         ...     zero_division="null",
@@ -846,12 +850,13 @@ def linear(
         A frozen ``RuntimeLinearExpr`` that can be nested recursively or observed.
 
     Example:
-        >>> gross_margin = mv.runtime_metric.linear(
+        >>> import marivo.semantic.runtime_metric as runtime_metric
+        >>> gross_margin = runtime_metric.linear(
         ...     add=[revenue],
         ...     subtract=[cogs, discounts, shipping, payment],
         ...     label="Gross margin",
         ... )
-        >>> gross_margin_rate = mv.runtime_metric.ratio(
+        >>> gross_margin_rate = runtime_metric.ratio(
         ...     gross_margin,
         ...     gmv,
         ...     label="Gross margin rate",

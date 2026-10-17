@@ -45,6 +45,7 @@ from marivo._definition.types import (
     Owner,
 )
 from marivo._temporal import TimeScope
+from marivo.analysis._contract import AnalysisAction, AnalysisContract
 from marivo.analysis.binding.observe import bind_observation
 from marivo.analysis.core.graph import BoundGraph, capture_query
 from marivo.analysis.core.model import BoundQuantity, BoundSignature, ResultQuantity, reject
@@ -59,7 +60,6 @@ from marivo.analysis.dsl.population import (
     _owner,
 )
 from marivo.analysis.dsl.temporal import CalendarAxis
-from marivo.analysis.public_dsl import AnalysisAction, AnalysisContract
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._deferred_semantics import (
     consume_metric,

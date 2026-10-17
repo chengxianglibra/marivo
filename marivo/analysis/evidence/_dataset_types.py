@@ -1,4 +1,4 @@
-"""Private immutable v3 Evidence values, independent of eager Evidence results."""
+"""Immutable terminal Evidence values and committed output Findings."""
 
 from __future__ import annotations
 
@@ -11,10 +11,8 @@ from typing import Literal, TypeAlias, Union, get_args, get_origin, get_type_hin
 
 from marivo.analysis._pages import _BoundedPage
 from marivo.analysis.core.model import reject
-from marivo.analysis.datasets.descriptors import DatasetFieldId, DatasetFieldIdentity
 from marivo.analysis.materialization.contracts import invalid
 from marivo.analysis.refs import ArtifactRef
-from marivo.refs import RefPayloadV1, SemanticKind
 from marivo.render import Card, RenderableResult
 
 Scalar: TypeAlias = str | int | float | bool | Decimal | date | datetime | None
@@ -60,8 +58,6 @@ def _matches(value: object, annotation: object) -> bool:
         )
     if annotation is type(None):
         return value is None
-    if annotation is DatasetFieldIdentity:
-        return isinstance(value, DatasetFieldIdentity)
     return isinstance(annotation, type) and type(value) is annotation
 
 
@@ -76,11 +72,7 @@ class _Value(RenderableResult):
             if not _matches(value, hints[field.name]):
                 raise invalid("Evidence value does not match its closed field type")
             if type(value) is str:
-                if type(self) is FindingCoordinateV1 and field.name == "value":
-                    if len(value.encode("utf-8")) > 4096:
-                        raise invalid("Finding coordinate scalar byte bound exceeded")
-                else:
-                    _text(value)
+                _text(value)
             if type(value) is float and not math.isfinite(value):
                 raise invalid("non-finite Evidence number")
             if isinstance(value, Decimal) and not value.is_finite():
@@ -90,10 +82,7 @@ class _Value(RenderableResult):
         identity: object = getattr(self, "finding_id", getattr(self, "artifact_ref", None))
         if identity is not None:
             return type(self).__name__ + f" ref={str(identity)[:100]}"
-        field_id: object = getattr(self, "field_id", None)
-        if isinstance(field_id, DatasetFieldId):
-            return type(self).__name__ + f" field={field_id.value[:100]}"
-        for name in ("producer_id", "evidence_digest", "kind"):
+        for name in ("evidence_digest", "kind"):
             value: object = getattr(self, name, None)
             if isinstance(value, str):
                 return type(self).__name__ + f" {name}={value[:100]}"
@@ -120,14 +109,6 @@ class ArtifactEvidenceSummary(_Value):
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class GraphArtifactDigest(ArtifactEvidenceSummary):
-    artifact_ref: ArtifactRef
-    extractor_contract_versions: tuple[str, ...]
-    digest_version: Literal["v3"] = "v3"
-    evidence_schema: Literal["marivo.dataset_evidence/v1"] = "marivo.dataset_evidence/v1"
-
-
-@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
 class ArtifactIssueCounts(_Value):
     warning: int
     blocking: int
@@ -136,113 +117,6 @@ class ArtifactIssueCounts(_Value):
         _Value.__post_init__(self)
         _count(self.warning)
         _count(self.blocking)
-
-
-@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class FindingCoordinateV1(_Value):
-    field_id: DatasetFieldId
-    identity: DatasetFieldIdentity
-    value: Scalar
-
-    def __post_init__(self) -> None:
-        _Value.__post_init__(self)
-        if self.identity.kind == "entity_identity":
-            raise invalid("identity-bearing Finding coordinate")
-
-
-@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class CatalogGraphMetricV1(_Value):
-    metric: RefPayloadV1
-    kind: Literal["catalog"] = "catalog"
-
-    def __post_init__(self) -> None:
-        _Value.__post_init__(self)
-        if self.metric.kind is not SemanticKind.METRIC:
-            raise invalid("Observed graph quantity requires a Metric ref")
-
-
-@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class RuntimeGraphMetricV1(_Value):
-    expression_identity: str
-    kind: Literal["runtime"] = "runtime"
-
-
-@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class GraphQuantityBindingV1(_Value):
-    quantity_identity: str
-    definition_fingerprint: str
-    unit: str | None
-    value_type: str
-    approximation_identity: str
-
-
-@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class ObservedGraphQuantityV1(GraphQuantityBindingV1):
-    metric: CatalogGraphMetricV1 | RuntimeGraphMetricV1
-    graph_fingerprint: str
-    contribution_identity: str
-    kind: Literal["observed"] = "observed"
-
-
-@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class DerivedGraphQuantityV1(GraphQuantityBindingV1):
-    method: str
-    ordered_input_identities: tuple[str, ...]
-    kind: Literal["derived"] = "derived"
-
-
-@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class RowStatisticGraphQuantityV1(GraphQuantityBindingV1):
-    method: str
-    input_identity: str
-    input_domain: str
-    weighting: str
-    kind: Literal["row_statistic"] = "row_statistic"
-
-
-@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class RolledGraphQuantityV1(GraphQuantityBindingV1):
-    original_identity: str
-    contribution_identity: str
-    kind: Literal["original_rollup"] = "original_rollup"
-
-
-GraphQuantityV1: TypeAlias = (
-    ObservedGraphQuantityV1
-    | DerivedGraphQuantityV1
-    | RowStatisticGraphQuantityV1
-    | RolledGraphQuantityV1
-)
-
-
-@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class AssociationFindingSubjectV2(_Value):
-    quantity_a: GraphQuantityV1
-    quantity_b: GraphQuantityV1
-    kind: Literal["graph-association-v2"] = "graph-association-v2"
-
-
-@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class ForecastFindingSubjectV2(_Value):
-    quantity: GraphQuantityV1
-    kind: Literal["graph-forecast-v2"] = "graph-forecast-v2"
-
-
-FindingSubjectV1: TypeAlias = AssociationFindingSubjectV2 | ForecastFindingSubjectV2
-
-
-@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class GraphFindingDerivationV1(_Value):
-    producer_id: str
-    state_contract_version: str
-    extractor_contract_id: str
-    extractor_contract_version: str
-    policy_contract_id: str
-    policy_contract_version: str
-    ordered_input_bindings: tuple[str, ...]
-    definition_fingerprint: str
-    scope_id: str
-    kind: Literal["graph"] = "graph"
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
@@ -309,55 +183,6 @@ class ForecastPointFindingValueV1(_Value):
 
 
 FindingValueV1: TypeAlias = AssociationFindingValueV1 | ForecastPointFindingValueV1
-
-
-@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class GraphFinding(_Value):
-    finding_id: str
-    artifact_ref: ArtifactRef
-    session_id: str
-    finding_type: FindingType
-    epistemic_kind: Literal["algebraic", "estimated", "predicted"]
-    subject: FindingSubjectV1
-    coordinates: tuple[FindingCoordinateV1, ...]
-    canonical_item_key: str
-    value: FindingValueV1
-    derivation: GraphFindingDerivationV1
-    committed_at: datetime
-
-    def __post_init__(self) -> None:
-        _Value.__post_init__(self)
-        _aware(self.committed_at)
-        if self.finding_type != self.value.kind:
-            raise invalid("Finding kind does not match its exact value")
-        expected = {"association": "estimated", "forecast_point": "predicted"}.get(
-            self.finding_type, "algebraic"
-        )
-        if self.epistemic_kind != expected:
-            raise invalid("Finding epistemic kind does not match its producer")
-        subject = (
-            "graph-association-v2" if self.finding_type == "association" else "graph-forecast-v2"
-        )
-        if self.subject.kind != subject:
-            raise invalid("Finding subject does not match its value family")
-        if len({item.field_id for item in self.coordinates}) != len(self.coordinates):
-            raise invalid("duplicate Finding coordinate")
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class GraphFindingPage(_BoundedPage[GraphFinding]):
-    """Exact Artifact-scoped bounded Finding page."""
-
-    def __post_init__(self) -> None:
-        _BoundedPage.__post_init__(self)
-        if (
-            type(self.limit) is not int
-            or type(self.has_more) is not bool
-            or type(self.items) is not tuple
-        ):
-            raise invalid("invalid Finding page type")
-        if any(type(item) is not GraphFinding for item in self.items):
-            raise invalid("invalid Finding page item")
 
 
 @dataclass(frozen=True, slots=True, repr=False)

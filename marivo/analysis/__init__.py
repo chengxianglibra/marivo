@@ -19,6 +19,8 @@ if TYPE_CHECKING:
     from marivo._definition.correspondence import DeclaredCorrespondence as DeclaredCorrespondence
     from marivo._temporal import InstantAnchor as InstantAnchor
     from marivo.analysis import session as session
+    from marivo.analysis._contract import AnalysisAction as AnalysisAction
+    from marivo.analysis._contract import AnalysisContract as AnalysisContract
     from marivo.analysis.dsl.artifact import Artifact as Artifact
     from marivo.analysis.dsl.column import Column as Column
     from marivo.analysis.dsl.column import row_count as row_count
@@ -43,8 +45,6 @@ if TYPE_CHECKING:
     from marivo.analysis.evidence._dataset_types import ArtifactDigest as ArtifactDigest
     from marivo.analysis.evidence._dataset_types import Finding as Finding
     from marivo.analysis.evidence._dataset_types import FindingPage as FindingPage
-    from marivo.analysis.public_dsl import AnalysisAction as AnalysisAction
-    from marivo.analysis.public_dsl import AnalysisContract as AnalysisContract
     from marivo.analysis.refs import ArtifactRef as ArtifactRef
     from marivo.analysis.session._lazy_read_model import ArtifactSummary as ArtifactSummary
     from marivo.analysis.session._lazy_read_model import FailedRun as FailedRun

@@ -7,7 +7,6 @@ import json
 import os
 import sqlite3
 import sys
-from dataclasses import asdict
 from pathlib import Path
 from unittest.mock import patch
 
@@ -58,7 +57,6 @@ def contend(project: Path, session: str, metric: str, artifact: str) -> dict[str
             "session": error.session_ref,
             "before": before,
             "after": snapshot(runtime),
-            "statistics": asdict(runtime.statistics),
             "last_run_ref": runtime.last_run_ref,
             "artifact": retained.id,
         }

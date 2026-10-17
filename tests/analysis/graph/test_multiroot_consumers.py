@@ -18,9 +18,6 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.methods import builtin
-from marivo.analysis.methods.physical import DecimalType, Qualified
-from marivo.analysis.methods.semantics import MethodKey
 from marivo.datasource.adapters import PhysicalRequirement, SourceSession, provider_for
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
@@ -94,28 +91,6 @@ def test_wide_decimal_finish_keeps_extremes_and_half_even(
         None,
         (),
     )
-
-
-@pytest.mark.parametrize("backend", ("postgres", "mysql", "clickhouse"))
-def test_wide_ratio_decimal_does_not_grant_other_scales(backend: str) -> None:
-    from dataclasses import replace
-
-    implementations = [
-        item
-        for item in builtin.implementations(MethodKey("metric.ratio"))
-        if isinstance(item.qualification, Qualified)
-        and item.qualification.implementation_id.startswith(f"r93.c04.{backend}.")
-        and item.key.input_types == (DecimalType(38, 6),) * 2
-    ]
-    assert {item.key.input_domains for item in implementations} == {
-        ("entity", "entity"),
-        ("group", "group"),
-        ("singleton", "singleton"),
-    }
-    implementation = implementations[0]
-    assert implementation.precision == "native_numeric"
-    other_scale = replace(implementation.key, input_types=(DecimalType(38, 8),) * 2)
-    assert builtin.specialize_numeric(implementation, other_scale).key != other_scale
 
 
 def _data(

@@ -38,7 +38,7 @@ identities 只捕获已解析 Entity 及完整键，不接受裸 EntityRef 或�
 Query.coord 仍无源读取地构造 Column；准备期按完整键 schema 拒绝复合坐标作单量，
 早于 Run 准入及业务 compile/read；完整键、Population 元组谓词和导出保持合法。
 
-复用当前定义图、compiler、方法注册、物化、原子发布和 Store，不建第二 Runtime。
+复用当前定义图、compiler、物理内核、物化、原子发布和 Store，不建第二 Runtime。
 私有节点包含 Population 的来源身份选择/坐标运算、Session.read 的显式属性读取、Metric 域依赖/贡献过滤、
 原生 Ibis 数值子图及语义注解/Measure 声明、来源规约、Metric 组合/PerReduce、membership/window 绑定、Observe、Query 变换与 Values。
 自定义 Measure/Metric 数值 AST 由 Ibis 替代；语义边界仍归共同定义图，不建镜像数值 AST。

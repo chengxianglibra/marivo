@@ -9,7 +9,6 @@ from typing import Literal
 
 from marivo.analysis._pages import decode_keyset_cursor, encode_keyset_cursor
 from marivo.analysis.core.artifact_data import ArtifactManifest
-from marivo.analysis.datasets.descriptors import _exact_byte_count
 from marivo.analysis.errors import (
     AnalysisError,
     AnalysisRepair,
@@ -38,6 +37,7 @@ from marivo.analysis.session._lazy_read_model import (
     RunRecord,
     SessionRuntimeRecap,
     SucceededRun,
+    _exact_byte_count,
 )
 from marivo.introspection.live.model import LiveHelpTarget
 

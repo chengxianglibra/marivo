@@ -15,10 +15,12 @@ assert 'scipy.stats' not in sys.modules
 from marivo.analysis._capabilities.registry import REGISTRY
 names = ('Population', 'Query', 'Column', 'Artifact', 'ArtifactSummary')
 bindings = tuple(getattr(mv, name) for name in names)
+assert 'marivo.analysis.public_dsl' not in sys.modules
+assert 'marivo.analysis.forecast_models' not in sys.modules
 exports = tuple(mv.__all__)
 help_targets = REGISTRY.canonical_ids()
-for module in ('descriptors', 'state', 'handles', 'errors'):
-    importlib.import_module('marivo.analysis.datasets.' + module)
+for module in ('core.data_types', 'core.artifact_data', 'datasets.errors'):
+    importlib.import_module('marivo.analysis.' + module)
 assert bindings == tuple(getattr(mv, name) for name in names)
 assert all(name in mv.__all__ for name in names)
 assert tuple(mv.__all__) == exports
@@ -30,7 +32,7 @@ exports = tuple(mv.__all__)
 help_targets = REGISTRY.canonical_ids()
 members = Session.members
 bindings = Session.source_bindings
-for module in ('source_bindings', 'coordinates', 'contracts', 'errors'):
+for module in ('source_bindings', 'relationship_binding', 'contracts', 'errors'):
     importlib.import_module('marivo.analysis.observation.' + module)
 importlib.import_module('marivo.analysis.session._lazy_sources')
 assert Session.members is members
@@ -80,7 +82,7 @@ graph = grimp.build_graph(
 baseline = contract.check(deepcopy(graph), verbose=False)
 assert baseline.kept and not baseline.warnings, baseline.metadata
 
-source = 'marivo.analysis.datasets.descriptors'
+source = 'marivo.analysis.datasets.errors'
 helper = 'marivo.dataset_import_probe'
 for backend in ('pandas', 'ibis', 'pyarrow', 'duckdb'):
     for indirect in (False, True):
@@ -168,7 +170,7 @@ import marivo.analysis as mv
 from marivo.analysis.materialization import storage
 assert 'marivo.analysis._public' not in sys.modules
 assert 'marivo.analysis.session' not in sys.modules
-from marivo.analysis.materialization import graph_storage
+from marivo.analysis.materialization import terminal_storage
 assert 'marivo.analysis._capabilities.registry' not in sys.modules
 # A normal session facade access must still install wrappers before invocation.
 assert callable(mv.session.get_or_create)

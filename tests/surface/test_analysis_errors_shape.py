@@ -4,16 +4,12 @@ import pytest
 
 from marivo.analysis.datasets.errors import (
     DatasetConstructionError,
-    DatasetDefinitionError,
-    DatasetFieldSelectionError,
-    DatasetOwnershipError,
     DatasetRegistrationError,
 )
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
 from marivo.analysis.observation.errors import (
     ObservationBindingError,
     ObservationConstructionError,
-    ObservationPredicateError,
 )
 
 
@@ -22,12 +18,8 @@ from marivo.analysis.observation.errors import (
     [
         DatasetConstructionError,
         DatasetRegistrationError,
-        DatasetFieldSelectionError,
-        DatasetOwnershipError,
-        DatasetDefinitionError,
         ObservationConstructionError,
         ObservationBindingError,
-        ObservationPredicateError,
     ],
 )
 def test_dataset_error_hierarchy_and_bounded_repair(cls: type[DatasetConstructionError]) -> None:

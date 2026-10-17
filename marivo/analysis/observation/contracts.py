@@ -7,9 +7,7 @@ from typing import TYPE_CHECKING
 
 from marivo._temporal import PeriodCalendarSnapshotV1
 from marivo.analysis.core.time_authority import ReportTimeAuthority
-from marivo.analysis.datasets.descriptors import (
-    _canonical_digest,
-)
+from marivo.analysis.observation._identity import _canonical_digest
 from marivo.analysis.observation.errors import ObservationConstructionError
 from marivo.refs import (
     SemanticKind,

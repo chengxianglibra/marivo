@@ -33,7 +33,7 @@ PROBE_MODULES = (
     "tests.analysis.materialization.test_producer_recovery",
     "tests.analysis.materialization.test_public_refusals",
     "tests.analysis.materialization.test_analysis_state",
-    "tests.analysis.materialization.test_analysis_graph_publication",
+    "tests.analysis.materialization.test_terminal_publication",
     "tests.analysis.materialization.test_native_graph_failures",
     "tests.datasource.test_native_timeouts",
     "tests.datasource.test_control_boundaries",

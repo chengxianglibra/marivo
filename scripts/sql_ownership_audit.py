@@ -31,6 +31,31 @@ RETIRED_MODULES = frozenset(
         "source_preparation",
         "local_stage",
         "validation",
+        "graph_dataset",
+        "graph_preparation",
+        "graph_publication",
+        "graph_relation",
+        "graph_storage",
+        "graph_store",
+        "graph_attribution",
+        "graph_display",
+        "graph_reference",
+        "statistical_execution",
+        "runs_execution",
+        "deviation_execution",
+        "graph_members",
+        "graph_observation",
+        "graph_composition",
+        "graph_fields",
+        "graph_findings",
+        "graph_protocol",
+        "graph_snapshot",
+        "graph_value_tables",
+        "graph_spearman_execution",
+        "fit_state",
+        "business_coverage",
+        "statistical_findings",
+        "submissions",
     }
 )
 SUBMIT_NAMES = frozenset(
@@ -93,13 +118,6 @@ def _manifest() -> Manifest:
     )
     add("analysis/materialization/store", ("SessionStore._initialize",), ("read.execute",), store)
     add(
-        "analysis/materialization/graph_store",
-        ("publish",),
-        ("conn.execute", "conn.executemany"),
-        store,
-    )
-    add("analysis/materialization/graph_store", ("admit",), ("conn.execute",), store)
-    add(
         "analysis/materialization/store",
         ("SessionStore._initialize",),
         ("previous.execute",),
@@ -117,7 +135,6 @@ def _manifest() -> Manifest:
         ("conn.execute", "conn.executemany"),
         store,
     )
-    add("analysis/materialization/graph_findings", ("collection",), ("conn.execute",), store)
     add(
         "doctor",
         ("_state_section",),
@@ -151,12 +168,6 @@ def _manifest() -> Manifest:
     add("datasource/adapters", ("SourceSession.collect_bounded",), ("self.execute",), governed)
     add(
         "analysis/materialization/graph_source_execution",
-        ("_read", "execute_source_graph"),
-        ("source.execute",),
-        governed,
-    )
-    add(
-        "analysis/materialization/graph_source_execution",
         ("read_stage",),
         ("source.execute",),
         governed,
@@ -173,12 +184,6 @@ def _manifest() -> Manifest:
         compile_owner,
     )
     add("datasource/adapters", ("SourceSession.collect_bounded",), ("self.compile",), compile_owner)
-    add(
-        "analysis/materialization/graph_source_execution",
-        ("_issue",),
-        ("source.compile",),
-        compile_owner,
-    )
     add(
         "analysis/materialization/graph_source_execution",
         ("read_stage", "qualify_query_sources"),
@@ -227,43 +232,8 @@ def _manifest() -> Manifest:
     )
     add(
         "analysis/materialization/admission",
-        ("DatasetRuntime._execute_graph",),
-        ("marivo.analysis.materialization.graph_publication.execute",),
-        typed,
-    )
-    local_executors = (
-        "statistical_execution",
-        "runs_execution",
-        "deviation_execution",
-    )
-    add(
-        "analysis/materialization/graph_local_execution",
-        ("run_kernel",),
-        tuple(f"marivo.analysis.materialization.{module}.execute" for module in local_executors),
-        typed,
-    )
-    add(
-        "analysis/materialization/admission",
         ("DatasetRuntime._execute_query",),
         ("marivo.analysis.materialization.terminal_publication.execute",),
-        typed,
-    )
-    add(
-        "analysis/materialization/graph_source_execution",
-        ("execute_source_graph",),
-        ("marivo.analysis.materialization.graph_preparation.execute",),
-        typed,
-    )
-    add(
-        "analysis/materialization/graph_relation",
-        ("Relation.execute",),
-        ("self.binding.graph.execute",),
-        typed,
-    )
-    add(
-        "analysis/public_dsl",
-        ("_Value._run", "LogicalTable.execute"),
-        ("self._node.execute",),
         typed,
     )
     add(

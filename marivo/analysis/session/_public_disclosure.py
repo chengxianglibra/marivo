@@ -8,8 +8,8 @@ from marivo.analysis._capabilities.dataset_model import (
     operation,
     value_type,
 )
+from marivo.analysis._contract import AnalysisAction, AnalysisContract
 from marivo.analysis.dsl.population import MemberAxis, member
-from marivo.analysis.public_dsl import AnalysisAction, AnalysisContract
 
 
 def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:

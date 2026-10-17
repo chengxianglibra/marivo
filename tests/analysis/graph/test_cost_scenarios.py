@@ -4,9 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from marivo.analysis.methods.builtin import implementations
-from marivo.analysis.methods.physical import Qualified, SourceShape, TimeShape
-from marivo.analysis.methods.semantics import MethodKey
 from tests.analysis.graph.physical_workloads import workload
 from tests.support.source_trace import SourceTrace
 
@@ -77,16 +74,3 @@ def test_duckdb_local_original_sum_consumes_group_input(
             "SUM(" in sql.upper() and "GROUP BY" in sql.upper() for sql in source_trace.native_sql
         )
         assert work.session._runtime.store.resources(work.session.id) == ()
-
-
-def test_cost_sum_increment_does_not_grant_other_duckdb_local_consumers() -> None:
-    for name in ("cell.difference", "attribution.additive_difference"):
-        assert not any(
-            isinstance(item.key.shape, SourceShape)
-            and item.key.shape.backend == "duckdb"
-            and item.key.shape.time == TimeShape("instant", "us", "UTC")
-            and item.key.route == "ibis_python"
-            and isinstance(item.qualification, Qualified)
-            and item.qualification.implementation_id.startswith("r93.c09.local.duckdb.")
-            for item in implementations(MethodKey(name))
-        )

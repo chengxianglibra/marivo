@@ -7,8 +7,6 @@ import json
 from pathlib import Path
 from typing import TypeAlias
 
-from marivo.analysis.methods.physical import NoTime, QualificationKey
-
 Json: TypeAlias = None | bool | int | float | str | list["Json"] | dict[str, "Json"]
 
 
@@ -49,29 +47,3 @@ def arr(value: Json) -> list[Json]:
 
 def read(path: Path) -> dict[str, Json]:
     return obj(checked(json.loads(path.read_bytes())))
-
-
-def key_json(key: QualificationKey) -> dict[str, Json]:
-    time: dict[str, Json] = (
-        {"kind": "NoTime"}
-        if isinstance(key.shape.time, NoTime)
-        else {
-            "kind": "instant",
-            "unit": key.shape.time.unit,
-            "timezone": key.shape.time.timezone,
-        }
-    )
-    shape: dict[str, Json] = {
-        "kind": "SourceShape",
-        "backend": key.shape.backend,
-        "form": key.shape.form,
-        "table_kind": key.shape.table_kind,
-        "time": time,
-    }
-    return {
-        "method": f"{key.method.name}@v{key.method.version}",
-        "input_types": [value.name for value in key.input_types],
-        "input_domains": list(key.input_domains),
-        "shape": shape,
-        "route": key.route,
-    }

@@ -9,6 +9,8 @@ from marivo._temporal import Grain as Grain
 from marivo._temporal import InstantAnchor as InstantAnchor
 from marivo._temporal import TimeScope as TimeScope
 from marivo.analysis import grain as grain
+from marivo.analysis._contract import AnalysisAction as AnalysisAction
+from marivo.analysis._contract import AnalysisContract as AnalysisContract
 from marivo.analysis.dsl.artifact import Artifact as Artifact
 from marivo.analysis.dsl.column import Column as Column
 from marivo.analysis.dsl.column import row_count as row_count
@@ -38,8 +40,6 @@ from marivo.analysis.dsl.windows import trailing_periods as trailing_periods
 from marivo.analysis.evidence._dataset_types import ArtifactDigest as ArtifactDigest
 from marivo.analysis.evidence._dataset_types import Finding as Finding
 from marivo.analysis.evidence._dataset_types import FindingPage as FindingPage
-from marivo.analysis.public_dsl import AnalysisAction as AnalysisAction
-from marivo.analysis.public_dsl import AnalysisContract as AnalysisContract
 from marivo.analysis.refs import ArtifactRef as ArtifactRef
 from marivo.analysis.session._lazy_read_model import ArtifactSummary as ArtifactSummary
 from marivo.analysis.session._lazy_read_model import FailedRun as FailedRun

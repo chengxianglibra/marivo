@@ -179,64 +179,6 @@ class AnalysisStageUnavailableError(AnalysisError):
         )
 
 
-StatisticalErrorCode = Literal[
-    "r8.input_identity",
-    "r8.input_mode",
-    "r8.cell_policy",
-    "r8.grid_incomplete",
-    "r8.correspondence",
-    "r8.numeric_unqualified",
-    "r8.numeric_overflow",
-    "r8.retained_part",
-    "r8.numeric_precision",
-    "r8.candidate_ceiling",
-    "r8.no_valid_candidate",
-    "r8.forecast_history",
-    "r8.future_grid",
-]
-
-
-class StatisticalRelationError(AnalysisError):
-    """A statistical input or retained authority violates its exact method contract."""
-
-    def __init__(
-        self,
-        *,
-        code: StatisticalErrorCode,
-        operation: str,
-        method: str,
-        input_identity: str,
-        expected: str,
-        received: str,
-        repair: str,
-    ) -> None:
-        self.code = code
-        self.operation = operation
-        self.method = method
-        self.input_identity = input_identity
-        super().__init__(
-            message="Statistical relation contract failed.",
-            expected=expected,
-            received=received,
-            location=f"analysis.{operation}.{code}",
-            repair=AnalysisRepair(
-                kind="inspect",
-                action=repair,
-                help_target=LiveHelpTarget(
-                    surface="analysis",
-                    canonical_id="dsl.NumericComparison.runs"
-                    if operation == "runs"
-                    else "dsl.NumericComparison.correlate"
-                    if operation == "correlate"
-                    else "dsl.NumericComparison.forecast"
-                    if operation == "forecast"
-                    else "dsl.NumericComparison.deviation",
-                ),
-            ),
-            context={"code": code, "method": method, "input_identity": input_identity},
-        )
-
-
 class HelpTargetError(AnalysisError):
     """Private analysis-surface rejection adapted by unified help."""
 

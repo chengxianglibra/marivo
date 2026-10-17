@@ -363,7 +363,6 @@ def plan_result(
     for index, captured in enumerate((*root.inputs, *operation_dependencies(root.operation))):
         if memo is not None:
             from marivo.analysis.compiler.optimization import compilation_key
-            from marivo.analysis.methods import registry
 
             child = memo.capture(
                 compilation_key(
@@ -373,7 +372,6 @@ def plan_result(
                     required=("capture-prefix:" + repr((*prefix, index)),),
                 ),
                 partial(prefixed_input, captured, (*prefix, index)),
-                registry.REGISTRY,
             )
         else:
             child = prefixed_input(captured, (*prefix, index))

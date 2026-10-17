@@ -7,6 +7,9 @@ description: 组合语义表达式、显式坐标域和窗口，再发布终端�
 
 从已声明的模型解析业务表达式。构造 Query 不读取 schema 或业务行，也不创建 Run。
 
+分析对象为 Population、Query、Column 和终端 Artifact。旧 Logical/Materialized
+接收器与 `mv.runtime_metric` 工厂已退役；应先组合解析后的语义表达式，再进行观察。
+
 ```python
 import marivo
 import marivo.analysis as mv

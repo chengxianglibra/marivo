@@ -4,30 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Literal
 
 import pandas as pd
-import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.core.data_types import ScalarDataType
-from marivo.analysis.core.model import (
-    Binding,
-    Coordinate,
-    DerivedQuantity,
-    DomainSignature,
-    Signature,
-)
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.graph_exchange import (
-    ExchangeContract,
-    ExchangeResult,
-    _pandas_records,
-    from_arrow,
-)
-from marivo.analysis.methods.semantics import MethodKey
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.physical_workloads import Workload, workload
@@ -35,10 +19,6 @@ from tests.analysis.graph.reference_fixtures import reference_data
 from tests.analysis.graph.source_fixtures import author_source_project
 from tests.analysis.materialization.publication_fixtures import publication_counts
 from tests.datasource.source_cases import source_case
-
-
-def _exchange_rows(result: ExchangeResult) -> list[dict[str, object]]:
-    return _pandas_records(result.primary, result.contract.schema)
 
 
 def _scalar_output(result: mv.Artifact, total: int) -> None:
@@ -162,35 +142,3 @@ def test_source_local_comparison_keeps_its_existing_staged_prefix(
         assert ratios[("b", 9007199254740993, 1)] == 1
         assert pd.isna(ratios[("a", 9007199254740993, 2)])
         assert session._runtime.store.resources(session.id) == ()
-
-
-def test_final_exchange_owner_distinguishes_nullable_attribution_axes_from_identity_keys() -> None:
-    """Current public Attribution is local; this tests only the existing final key policy."""
-    binding = Binding("r96", "native", "nullable", "whole")
-    primary = pa.table(
-        {
-            "key_0": pa.array([None, "a"], type=pa.string()),
-            "value": pa.array([2, 3], type=pa.int64()),
-            "cell_tag": ["defined", "defined"],
-            "cell_reason": pa.array([None, None], type=pa.string()),
-        }
-    )
-    coordinates: tuple[tuple[str, Literal["group", "identity"]], ...] = (
-        ("attribution:axis:tenant", "group"),
-        ("tenant", "identity"),
-    )
-    for field, role in coordinates:
-        key = (Coordinate(ms.ref.entity("cost.facts"), field, role),)
-        domain = DomainSignature(binding, "group" if role == "group" else "entity", key, key, field)
-        signature = Signature(
-            domain, DerivedQuantity("input", "test@v1", ("raw",), None, "none", "input_owned")
-        )
-        contract = ExchangeContract(
-            signature, MethodKey("parts_transport"), "nullable", primary.schema, ("key_0",)
-        )
-        if role == "group":
-            result = from_arrow(primary, contract)
-            assert _exchange_rows(result) == primary.to_pylist()
-        else:
-            with pytest.raises(MaterializationError, match="null or duplicate complete part key"):
-                from_arrow(primary, contract)

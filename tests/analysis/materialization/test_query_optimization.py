@@ -42,8 +42,6 @@ from marivo.analysis.materialization.graph_source_execution import (
     execute_numeric_query,
     open_query_sources,
 )
-from marivo.analysis.methods import registry
-from marivo.analysis.methods.registry import MethodRegistry
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.semantic.errors import SemanticExpressionError
@@ -105,7 +103,7 @@ def _execute(
     ) as prepared:
         plan = plan_query(graph, prepared.schemas, context=prepared.context)
         if optimized:
-            plan = optimize_query(plan, registry.REGISTRY)
+            plan = optimize_query(plan)
 
         def observe(stage: LocalCompute, output: StageOutput) -> None:
             events.append(stage.stage_id)
@@ -334,7 +332,7 @@ def test_pending_check_is_kept_on_its_exact_fine_stage(
         assert isinstance(fine, LocalCompute)
         plan = replace(plan, checks=(PlannedCheck(obligation, fine.stage_id),))
         if optimized:
-            plan = optimize_query(plan, registry.REGISTRY)
+            plan = optimize_query(plan)
         plans.append(plan)
         events: list[str] = []
 
@@ -443,8 +441,8 @@ def test_source_occurrences_and_original_finish_are_never_collapsed(
     assert result.table["value.1"].tolist() == [70]
 
 
-def test_actual_plan_memo_hits_and_binding_registry_changes_invalidate(
-    optimization_session: Session, monkeypatch: pytest.MonkeyPatch
+def test_actual_plan_memo_hits_and_binding_changes_invalidate(
+    optimization_session: Session,
 ) -> None:
     session = optimization_session
     source = _wide(session)
@@ -463,9 +461,6 @@ def test_actual_plan_memo_hits_and_binding_registry_changes_invalidate(
         )
         fresh = plan_query(graph, changed, context=prepared.context, memo=memo)
         assert fresh is not first
-        replacement = MethodRegistry(tuple(reversed(registry.REGISTRY.registrations)))
-        monkeypatch.setattr(registry, "REGISTRY", replacement)
-        assert plan_query(graph, changed, context=prepared.context, memo=memo) is not fresh
         key = compilation_key(
             graph,
             prepared.schemas,
@@ -473,29 +468,19 @@ def test_actual_plan_memo_hits_and_binding_registry_changes_invalidate(
             required=("value.0",),
             relations=prepared.relations,
         )
-        planned = optimize_query(first, replacement)
-        lowered = memo.lower(key, lambda: lower_query(planned, prepared.relations), replacement)
-        assert (
-            memo.lower(key, lambda: lower_query(planned, prepared.relations), replacement)
-            is lowered
-        )
+        planned = optimize_query(first)
+        lowered = memo.lower(key, lambda: lower_query(planned, prepared.relations))
+        assert memo.lower(key, lambda: lower_query(planned, prepared.relations)) is lowered
         another = replace(key, required=("value.0", "presence"))
-        assert (
-            memo.lower(another, lambda: lower_query(planned, prepared.relations), replacement)
-            is not lowered
-        )
+        assert memo.lower(another, lambda: lower_query(planned, prepared.relations)) is not lowered
         changed_policy = replace(key, policy_version=key.policy_version + 1)
         assert (
-            memo.lower(
-                changed_policy, lambda: lower_query(planned, prepared.relations), replacement
-            )
+            memo.lower(changed_policy, lambda: lower_query(planned, prepared.relations))
             is not lowered
         )
         changed_kernel = replace(key, implementations=(*key.implementations, "test@v2"))
         assert (
-            memo.lower(
-                changed_kernel, lambda: lower_query(planned, prepared.relations), replacement
-            )
+            memo.lower(changed_kernel, lambda: lower_query(planned, prepared.relations))
             is not lowered
         )
 
@@ -706,9 +691,7 @@ def test_ordered_original_group_keeps_middle_overflow_before_cancellation(
     with open_query_sources(
         session._runtime.connection_service(), query._graph, session.catalog._state
     ) as prepared:
-        plan = optimize_query(
-            plan_query(query._graph, prepared.schemas, context=prepared.context), registry.REGISTRY
-        )
+        plan = optimize_query(plan_query(query._graph, prepared.schemas, context=prepared.context))
     assert any(group.law == "L8" for group in plan.fusion_groups)
 
 
@@ -745,7 +728,7 @@ def test_original_multi_consumer_and_filter_boundaries_prevent_fusion(
                 (branch.stage_id, ()),
             ),
         )
-        plan = optimize_query(baseline, registry.REGISTRY)
+        plan = optimize_query(baseline)
         result = execute_numeric_query(prepared, lower_query(plan, prepared.relations))
         control = execute_numeric_query(prepared, lower_query(baseline, prepared.relations))
     pd.testing.assert_frame_equal(result.table, control.table)
@@ -847,37 +830,6 @@ def test_common_block_keeps_same_period_filter_and_exact_checks(
     assert not any(group.law == "source_block" for group in plan.fusion_groups)
 
 
-def test_removing_registered_l8_does_not_change_runtime_rule_selection(
-    optimization_session: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    session = optimization_session
-    amount = session.catalog.fields.get("sales.orders.amount")
-    region = session.catalog.fields.get("sales.orders.region")
-    detail = session.catalog.fields.get("sales.orders.detail")
-    query = session.observe({"a": amount.sum()}, by=(region, detail)).rollup(by=(region,)).rollup()
-    from marivo.analysis.methods.descriptor import BY_NAME
-
-    with open_query_sources(
-        session._runtime.connection_service(), query._graph, session.catalog._state
-    ) as prepared:
-        baseline = plan_query(query._graph, prepared.schemas, context=prepared.context)
-        planned = optimize_query(baseline, registry.REGISTRY)
-        memo = InvocationMemo()
-        first = plan_query(query._graph, prepared.schemas, context=prepared.context, memo=memo)
-        descriptor = BY_NAME["state_rollup"]
-        monkeypatch.setitem(BY_NAME, "state_rollup", replace(descriptor, local_laws=()))
-        assert (
-            plan_query(query._graph, prepared.schemas, context=prepared.context, memo=memo)
-            is not first
-        )
-        refused = optimize_query(baseline, registry.REGISTRY)
-        assert any(group.law == "L8" for group in planned.fusion_groups)
-        assert not any(group.law == "L8" for group in refused.fusion_groups)
-        result = execute_numeric_query(prepared, lower_query(planned, prepared.relations))
-        control = execute_numeric_query(prepared, lower_query(refused, prepared.relations))
-    pd.testing.assert_frame_equal(result.table, control.table)
-
-
 def test_decimal_column_division_finishes_once_in_declared_float_carrier(
     optimization_session: Session,
 ) -> None:
@@ -923,8 +875,7 @@ def test_physical_binding_ids_do_not_change_logical_fingerprints_or_artifacts(
             session._runtime.connection_service(), query._graph, session.catalog._state
         ) as prepared:
             plan = optimize_query(
-                plan_query(query._graph, prepared.schemas, context=prepared.context),
-                registry.REGISTRY,
+                plan_query(query._graph, prepared.schemas, context=prepared.context)
             )
             bindings.append(
                 next(stage.binding_id for stage in plan.stages if isinstance(stage, SourceRead))

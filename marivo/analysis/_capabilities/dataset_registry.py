@@ -49,12 +49,7 @@ class DatasetDisclosureRegistry:
 
     @property
     def retained_catalog_inputs(self) -> tuple[ReadCapability, ...]:
-        """Reuse the unchanged native catalog owner inputs during later assembly.
-
-        Catalog reads already have native descriptors. They are intentionally
-        neither copied into Dataset providers nor reconstructed from prose.
-        Their public activation and semantic handoff remain with Slice 8.
-        """
+        """Return native Catalog descriptors for exact callable resolution."""
         from marivo.analysis._capabilities.catalog_inputs import CATALOG_INPUTS
 
         return CATALOG_INPUTS

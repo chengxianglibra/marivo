@@ -2,16 +2,12 @@
 
 from decimal import Decimal
 from fractions import Fraction
-from typing import Literal
 
 import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.core.model import Defined, Null, Undefined, Unknown
-from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
-from marivo.analysis.methods.references import standardize, weight_sum
 from tests.shared_fixtures import (
     DslCase,
     DslCaseFactory,
@@ -104,88 +100,6 @@ with patch.object(duckdb, 'connect', unavailable), patch.object(ms, 'load', unav
     finally:
         offline.rename(source)
     assert process.returncode == 0, process.stdout + process.stderr
-
-
-def test_exact_standardization_and_zero_weight_cells() -> None:
-    i, f = ScalarType("int64"), ScalarType("float64")
-    assert standardize((Defined(2**53 + 1), Defined(3)), (0.5, 0.5), i, f) == Defined(
-        float(Fraction(2**53 + 4, 2))
-    )
-    for cell in (Null("empty_contribution"), Undefined("zero_denominator"), Unknown("coverage")):
-        assert standardize((Defined(7), cell), (1, 0), i, i) == Defined(7.0)
-        with pytest.raises(ValueError, match="positive-weight"):
-            standardize((Defined(7), cell), (0.5, 0.5), i, f)
-    d = DecimalType(18, 6)
-    assert standardize(
-        (Defined(Decimal("1.000001")), Defined(Decimal("2.000000"))),
-        (Decimal("0.500000"), Decimal("0.500000")),
-        d,
-        d,
-    ) == Defined(Decimal("1.500000"))
-    with pytest.raises(ValueError, match="Duration"):
-        standardize((Defined(1),), (1,), DurationType("us"), i)
-
-
-@pytest.mark.parametrize("damage", [None, "value", "duplicate"])
-def test_standardization_proof_uses_keys_and_preserves_damage(
-    damage: Literal["value", "duplicate"] | None,
-) -> None:
-    from marivo.analysis.core.model import Binding, Coordinate, DomainSignature
-    from marivo.analysis.core.rules import ReferenceDerive
-    from marivo.analysis.errors import AnalysisError
-    from marivo.analysis.materialization.graph_exchange import ExchangePart
-    from marivo.analysis.materialization.graph_reference import finish
-
-    values = pd.DataFrame(
-        {
-            "key_0": ["a", "b"],
-            "value": [2, 4],
-            "cell_tag": ["defined", "defined"],
-            "cell_reason": [None, None],
-            "error_bound": [0.0, 0.0],
-        }
-    )
-    proof = values.iloc[[1, 0]].reset_index(drop=True)
-    if damage == "value":
-        proof["value"] = [5, 2]
-    elif damage == "duplicate":
-        proof = pd.concat((proof, proof.iloc[[1]]), ignore_index=True)
-    weights = values.copy()
-    weights["value"] = [0.5, 0.5]
-    domain = DomainSignature(Binding("proof", "sales", "facts", "all"), "singleton", (), (), "all")
-    params = ReferenceDerive(
-        "standardize",
-        domain,
-        "weights",
-        "facts",
-        "all",
-        (Coordinate(ms.ref.entity("sales.facts"), "tenant", "identity"),),
-        ms.ref.entity("sales.facts"),
-    )
-    parts = (
-        ExchangePart("stratum_values", values),
-        ExchangePart("reference_proof", proof),
-        ExchangePart("fixed_reference", weights),
-        ExchangePart("strata", weights[["key_0"]].iloc[[1, 0]].reset_index(drop=True)),
-    )
-    if damage is None:
-        assert finish(params, ScalarType("float64"), parts)["value"].tolist() == [3.0]
-    else:
-        with pytest.raises(AnalysisError, match="proof differs"):
-            finish(params, ScalarType("float64"), parts)
-
-
-def test_order_independent_represented_weight_sum() -> None:
-    for weights in ((0.5, 0.5), (0.1, 0.2, 0.7), (1.0 + 5e-13, 0.0)):
-        expected = sum((Fraction(value) for value in weights), Fraction())
-        assert weight_sum(weights, ScalarType("float64")) == expected
-        assert weight_sum(tuple(reversed(weights)), ScalarType("float64")) == expected
-
-
-def test_invalid_weights_reject() -> None:
-    for weights in ((), (0.0,), (-0.1, 1.1), (float("inf"),), (float("nan"),), (1.0 + 2e-12,)):
-        with pytest.raises((ValueError, OverflowError)):
-            weight_sum(weights, ScalarType("float64"))
 
 
 def test_public_references_source_and_fixed(
@@ -524,42 +438,6 @@ def test_zero_and_signed_share_support(analysis_dsl_case_factory: DslCaseFactory
     assert _plain(positive.share("value").execute())["value.share"].sum() == 1.0
 
 
-def test_zero_weight_does_not_hide_malformed_defined() -> None:
-    for bad in (True, 2**63, float("inf"), float("nan"), "7"):
-        with pytest.raises((ValueError, OverflowError)):
-            standardize(
-                (Defined(7), Defined(bad)), (1, 0), ScalarType("int64"), ScalarType("int64")
-            )
-
-
-def test_tiny_positive_weights_and_single_order_independent_finish() -> None:
-    f = ScalarType("float64")
-    with pytest.raises(ValueError, match="positive-weight"):
-        standardize((Defined(7.0), Undefined("zero_denominator")), (1.0, 1e-300), f, f)
-    values = (Defined(1e16), Defined(1.0), Defined(-1e16))
-    weights = (1 / 3, 1 / 3, 1 / 3)
-    expected = float(
-        sum(
-            (
-                Fraction(value) * Fraction(weight)
-                for value, weight in zip((1e16, 1.0, -1e16), weights, strict=True)
-            ),
-            Fraction(),
-        )
-    )
-    assert standardize(values, weights, f, f).value == expected
-    assert standardize(tuple(reversed(values)), tuple(reversed(weights)), f, f).value == expected
-    d = DecimalType(18, 6)
-    with pytest.raises(ValueError):
-        weight_sum((Decimal("0.999999"),), d)
-    for next_value in (1.0 + 1e-12, 1.0 - 1e-12):
-        if abs(Fraction(next_value) - 1) <= Fraction(1e-12):
-            assert weight_sum((next_value,), f) == Fraction(next_value)
-        else:
-            with pytest.raises(ValueError):
-                weight_sum((next_value,), f)
-
-
 def test_shared_reference_source_reexecution_and_fixed_inputs(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -679,64 +557,3 @@ def test_reference_preparation_captures_independent_source_origins(
         for value, weight in zip(table["count"], weights, strict=True)
     ) == len(raw.orders)
     pd.testing.assert_frame_equal(saved.to_pandas(), session.artifact(saved.id).to_pandas())
-
-
-@pytest.mark.parametrize(
-    "cell",
-    [Defined(1e12), Null("empty_contribution"), Undefined("zero_denominator"), Unknown("coverage")],
-)
-def test_zero_weight_error_propagation(cell: object) -> None:
-    from marivo.analysis.methods.references import standardized_error
-
-    assert isinstance(cell, (Defined, Null, Undefined, Unknown))
-    bound = standardized_error((Defined(1.0), cell), (1.0, 0.0), (0.0, 2.0), (0.0, 1e-6), 1.0)
-    expected = (
-        float(Fraction(1e12) * Fraction(1e-6) + Fraction(2) * Fraction(1e-6))
-        if isinstance(cell, Defined)
-        else 0.0
-    ) + 2e-12
-    assert bound == expected
-
-
-@pytest.mark.parametrize("damage", [None, "identity", "duplicate", "null", "reference_duplicate"])
-def test_penetration_proof_uses_complete_keys(
-    damage: Literal["identity", "duplicate", "null", "reference_duplicate"] | None,
-) -> None:
-    from marivo.analysis.core.model import Binding, DomainSignature
-    from marivo.analysis.core.rules import ReferenceDerive
-    from marivo.analysis.errors import AnalysisError
-    from marivo.analysis.materialization.graph_exchange import ExchangePart
-    from marivo.analysis.materialization.graph_reference import finish
-
-    members = pd.DataFrame(
-        {
-            "key_0": ["a", "a", "b"],
-            "key_1": [9007199254740992, 9007199254740993, 9007199254740993],
-            "key_2": [1, 2, 1],
-        }
-    )
-    values = members.iloc[[0, 1]].reset_index(drop=True)
-    reference = members.copy()
-    if damage == "null":
-        values["key_0"] = ["a", None]
-    elif damage == "reference_duplicate":
-        reference = pd.concat((reference, reference.iloc[[2]]), ignore_index=True)
-    proof = values.iloc[[1, 0]].reset_index(drop=True)
-    if damage == "identity":
-        proof["key_1"] = [9007199254740992, 9007199254740992]
-    elif damage == "duplicate":
-        proof = pd.concat((proof, proof.iloc[[1]]), ignore_index=True)
-    domain = DomainSignature(Binding("proof", "sales", "facts", "all"), "singleton", (), (), "all")
-    params = ReferenceDerive("penetration", domain, "members", None, "untimed")
-    parts = (
-        ExchangePart("stratum_values", values),
-        ExchangePart("reference_proof", proof),
-        ExchangePart("fixed_reference", reference),
-    )
-    if damage is None:
-        assert finish(params, ScalarType("float64"), parts)["value"].tolist() == [
-            float(Fraction(2, 3))
-        ]
-    else:
-        with pytest.raises(AnalysisError, match=r"complete identities|intersection proof differs"):
-            finish(params, ScalarType("float64"), parts)

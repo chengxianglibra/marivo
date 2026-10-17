@@ -1,1 +1,1 @@
-"""Private committed Dataset runtime; public activation belongs to Slice 8."""
+"""Private Query execution, atomic terminal publication and committed reads."""

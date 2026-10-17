@@ -12,7 +12,6 @@ from datetime import datetime
 from pathlib import PurePosixPath
 from typing import Literal, TypeAlias, cast, get_args
 
-from marivo.analysis.datasets import descriptors as d
 from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.render import Card, RenderableResult
@@ -168,10 +167,7 @@ class LocalReceipt:
         return digest(receipt_payload(self))
 
 
-StorageReceipt: TypeAlias = LocalReceipt
-
-
-def receipt_payload(value: StorageReceipt) -> dict[str, object]:
+def receipt_payload(value: LocalReceipt) -> dict[str, object]:
     return {
         "kind": "local",
         "project_relative_path": value.project_relative_path,
@@ -183,7 +179,7 @@ def receipt_payload(value: StorageReceipt) -> dict[str, object]:
     }
 
 
-def decode_receipt(value: object) -> StorageReceipt:
+def decode_receipt(value: object) -> LocalReceipt:
     obj = _obj(
         value,
         "kind project_relative_path format parquet_contract_version file_manifest realized_row_count realized_byte_count",
@@ -204,26 +200,6 @@ def decode_receipt(value: object) -> StorageReceipt:
         _int(byte_count["byte_count"]),
         _int(obj["parquet_contract_version"], minimum=1),
     )
-
-
-def schema_fingerprint(value: d.DatasetSchema) -> str:
-    return d._canonical_digest(d._descriptor_payload(value))
-
-
-def _identity_payload(value: d.DatasetFieldIdentity) -> dict[str, object]:
-    if isinstance(value, d._EntityFieldIdentity):
-        return {
-            "kind": value.kind,
-            "entity_ref": value.entity_ref.path,
-            "identity_signature": value.identity_signature,
-        }
-    if isinstance(value, d._CatalogFieldIdentity):
-        return {"kind": value.kind, "identity_id": value.identity_id}
-    if isinstance(value, d._RuntimeMetricFieldIdentity):
-        return {"kind": value.kind, "expression_fingerprint": value.expression_fingerprint}
-    if isinstance(value, d._GeneratedFieldIdentity):
-        return {"kind": value.kind, "producer_field_id": value.producer_field_id.value}
-    raise invalid("unregistered field identity")
 
 
 JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]

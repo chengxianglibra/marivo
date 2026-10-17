@@ -2,18 +2,18 @@
 
 from marivo.analysis.materialization import contracts as codec
 from marivo.analysis.materialization.contracts import (
+    LocalReceipt,
     ResourceRecord,
-    StorageReceipt,
 )
 
 
-def validate_receipt_owner(receipt: StorageReceipt, local_prefix: str) -> None:
+def validate_receipt_owner(receipt: LocalReceipt, local_prefix: str) -> None:
     path = receipt.project_relative_path
     if path != local_prefix and not path.startswith(local_prefix + "/"):
         raise codec.invalid("receipt is outside its owning Artifact directory")
 
 
-def owns_resource(receipt: StorageReceipt, resource: ResourceRecord) -> bool:
+def owns_resource(receipt: LocalReceipt, resource: ResourceRecord) -> bool:
     """Match exact ownership; malformed persisted locators raise IntegrityError."""
     path = receipt.project_relative_path
     return (

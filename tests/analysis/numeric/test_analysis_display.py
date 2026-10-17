@@ -11,7 +11,6 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.graph_display import ranked
 from tests.analysis.statistics.pandas_workflows import plain, receipt_paths
 from tests.shared_fixtures import (
     DslCase,
@@ -155,28 +154,6 @@ def test_business_display_identifies_current_and_baseline_windows(
     } == {"CNY"}
     output.show(n=0)
     assert "rows: 4" in capsys.readouterr().out
-
-
-def test_exact_ties_and_nondefined_tail() -> None:
-    rows: list[dict[str, object]] = [
-        {"key_0": 2, "value": Decimal("2.000000"), "cell_tag": "defined"},
-        {"key_0": 1, "value": Decimal("2.000000"), "cell_tag": "defined"},
-        {"key_0": 3, "value": Decimal("1.999999"), "cell_tag": "defined"},
-    ]
-    rows.extend(
-        {"key_0": key, "value": None, "cell_tag": tag}
-        for key, tag in ((6, "null"), (4, "unknown"), (5, "undefined"))
-    )
-    for ties, expected in (
-        ("ordinal", [1, 2, 3]),
-        ("dense", [1, 1, 2]),
-        ("min", [1, 1, 3]),
-        ("max", [2, 2, 3]),
-    ):
-        result = ranked(rows, ("key_0",), "descending", ties, ())
-        assert [result[(key,)][0] for key in (1, 2, 3)] == expected
-        assert [result[(key,)][1] for key in (4, 5, 6)] == [4, 5, 6]
-        assert ranked(list(reversed(rows)), ("key_0",), "descending", ties, ()) == result
 
 
 @pytest.mark.parametrize(("order", "ties"), [("ascending", "ordinal"), ("descending", "dense")])
@@ -531,15 +508,6 @@ def test_complete_composite_keys_scalar_columns_and_nulls(
     with pytest.raises(AnalysisError) as caught:
         query.execute()
     assert caught.value.expected == "exactly one attribute row for every requested identity"
-
-
-def test_represented_float_order_has_no_epsilon_ties() -> None:
-    rows = [
-        {"key_0": key, "value": value, "cell_tag": "defined"}
-        for key, value in ((1, 1.0), (2, 1.0 + 2**-52), (3, -0.0), (4, 0.0))
-    ]
-    result = ranked(rows, ("key_0",), "ascending", "dense", ())
-    assert [result[(key,)][0] for key in (1, 2, 3, 4)] == [2, 3, 1, 1]
 
 
 def test_empty_original_domain_and_numeric_view_continuations(

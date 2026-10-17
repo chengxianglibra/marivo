@@ -29,7 +29,6 @@ from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.layout import MaterializationLayout
 
 if TYPE_CHECKING:
-    from marivo.analysis.materialization.graph_store import GraphRun
     from marivo.analysis.materialization.terminal_store import TerminalRun
 
 
@@ -485,12 +484,6 @@ class SessionStore:
                 "SELECT s.* FROM sessions s JOIN runtime_state r ON r.current_session_ref=s.session_ref WHERE r.singleton_key=1",
             )
             return None if row is None else self._session(row)
-
-    def _graph_run(self, run_ref: str) -> GraphRun | None:
-        from marivo.analysis.materialization.graph_store import run
-
-        with self._read() as conn:
-            return run(self, conn, run_ref)
 
     def _resource_run(self, run_ref: str) -> TerminalRun | None:
         from marivo.analysis.materialization.terminal_store import run

@@ -1,4 +1,4 @@
-"""Installed-origin assertions and public graph journey process entrypoint."""
+"""Installed-origin assertions and public Query journey process entrypoint."""
 
 from __future__ import annotations
 
@@ -109,27 +109,21 @@ def surface_snapshot() -> list[dict[str, object]]:
     from tests.surface.exports import ANALYSIS_PUBLIC
 
     assert set(names) == set(exports) == set(ANALYSIS_PUBLIC)
-    for logical_name, materialized_name in (
-        ("LogicalAnalysisDomain", "MaterializedAnalysisDomain"),
-        ("LogicalNumericRelation", "MaterializedNumericRelation"),
-        ("LogicalRatioRelation", "MaterializedRatioRelation"),
-    ):
-        logical = getattr(mv, logical_name)
-        materialized = getattr(mv, materialized_name)
-        assert not any(hasattr(logical, member) for member in ("render", "show", "to_pandas"))
-        assert not hasattr(materialized, "render")
-        assert all(callable(getattr(materialized, member)) for member in ("show", "to_pandas"))
-    for family in ("Deviation", "TimeRun", "Association", "Forecast"):
-        logical = getattr(mv, f"Logical{family}Result")
-        materialized = getattr(mv, f"Materialized{family}Result")
-        assert callable(logical.execute)
-        assert not hasattr(logical, "to_pandas")
-        assert all(callable(getattr(materialized, member)) for member in ("show", "contract"))
+    assert callable(mv.Query.execute)
+    assert callable(mv.Query.contract) and callable(mv.Population.contract)
+    assert not hasattr(mv.Population, "execute")
+    assert not hasattr(mv.Query, "to_pandas")
+    assert not hasattr(mv.Artifact, "execute") and not hasattr(mv.Artifact, "contract")
+    assert all(callable(getattr(mv.Artifact, member)) for member in ("show", "to_pandas"))
     for name in names:
         value = getattr(mv, name)
         entry = exports[name]
         assert value is entry.implementation
-        signatures = {"__call__": str(inspect.signature(value))} if callable(value) else {}
+        signatures = (
+            {"__call__": str(inspect.signature(value))}
+            if callable(value) and not inspect.isclass(value)
+            else {}
+        )
         if inspect.isclass(value):
             for member_name, member in inspect.getmembers(value, inspect.isfunction):
                 if not member_name.startswith("_") and member.__module__.startswith("marivo."):
