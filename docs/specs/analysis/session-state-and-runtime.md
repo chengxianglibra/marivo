@@ -50,7 +50,11 @@ any complete-key transport to a later source consumer has a qualified planned
 route. No hidden source write or local SQL engine supplies a fallback.
 
 Stage normalization validates the ordered schema, complete-key uniqueness, actual
-dtypes, nullability, timezone and lossless representation. An input producer may
+dtypes, nullability, timezone and units. Under the revised
+[source handoff contract](lazy-analysis-dsl-execution.md#151-ibis-原生返回与-pandas-类型交接),
+native source numerical precision loss is accepted and backend type differences
+are normalized in pandas; this adjustment still requires implementation. Saved-output
+fidelity applies to the final accepted values, not the original database values. An input producer may
 serve multiple consumers; consumers do not mutate shared frames. A stage remains
 available until its last scheduled consumer, then its execution-only data can be
 released. RequiredSlots retains coordinate, mapping, presence and check support

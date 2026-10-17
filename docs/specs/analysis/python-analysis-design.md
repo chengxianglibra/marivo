@@ -170,12 +170,21 @@ complete grain, unit, time and null constraints still apply. No live refresh,
 module replay or source snapshot is inferred. Fingerprints describe the definitions
 and policies actually consumed and are not saved in the Artifact.
 
-Execution preparation resolves real source schemas, lossless physical carriers,
+Execution preparation resolves real source schemas, supported physical type families,
 connections and per-use paths before passing source-free facts to the compiler.
 Each field occurrence is validated before sharing its physical column, so a native
 read cannot hide a later invalid anchor or route. Datasource Timestamp and Duration
-metadata remains authoritative across Entity projections. Precision-losing source
-carriers reject before the affected business read.
+metadata remains authoritative across Entity projections. The 2026-10-17 revised
+source contract accepts native Ibis/provider numerical precision loss. Ibis lowering
+adds no casts solely to standardize backend result dtypes or preserve transport
+precision; conversions required by business semantics remain. Backend return-type
+differences are handled at the existing pandas-to-StageOutput boundary, retaining
+keys, null policies, units and time semantics. Downstream stages and publication
+use the resulting effective types; casting cannot recover lost source precision.
+This is a pending implementation adjustment: non-DuckDB numerical Query rejection,
+strict carrier checks and the DuckDB-specific read path still exist. See the
+[source handoff contract](lazy-analysis-dsl-execution.md#151-ibis-原生返回与-pandas-类型交接)
+and [remote implementation sequence](../../superpowers/plans/2026-10-13-lazy-analysis-dsl-redesign-implementation.md#81-远端数值-query-最小实施顺序).
 
 The compiler fixes source IDs, demand slots, complete keys, stage dependencies,
 method routes and consume/publish checks. Source Ibis executes through the selected

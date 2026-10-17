@@ -88,6 +88,42 @@ Local trust and publication behavior follow the
 Test producer validation, malformed/unreadable inputs, missing payloads,
 ownership, atomicity and recovery at their owning boundary.
 
+## Remote numerical Query extension
+
+The [implementation plan §8.1](../superpowers/plans/2026-10-13-lazy-analysis-dsl-redesign-implementation.md#81-远端数值-query-最小实施顺序)
+defines the pending sequence: PostgreSQL ordinary Query, other backends and numeric
+methods, temporal/dependent reads, then specialized connectors and optimizations.
+No step is qualified by this documentation update. The revised
+[handoff contract](../specs/analysis/lazy-analysis-dsl-execution.md#151-ibis-原生返回与-pandas-类型交接)
+accepts native Ibis/provider numerical precision loss. No business-independent
+Ibis casts standardize backend dtypes; pandas normalizes actual returned types
+for subsequent stages and publication.
+
+| Step / boundary | Existing owners to extend | Required evidence |
+| --- | --- | --- |
+| Ordinary Query and pandas handoff | [source profiles](../../tests/datasource/test_source_profiles.py), [computation Runtime](../../tests/analysis/graph/test_computation_runtime.py) | Public Query → Artifact on each newly admitted backend; nullable large integers and Decimal record native and normalized values/dtypes, without a lossless-source oracle; verify keys, None groups, empty/all-NA behavior and saved-value round trips |
+| Method qualification | [computation Runtime](../../tests/analysis/graph/test_computation_runtime.py), [native numeric](../../tests/analysis/numeric/test_native_numeric.py), [native finishes](../../tests/analysis/graph/test_multiroot_consumers.py) | Actual admitted aggregate/dtype shapes, paired samples, zero denominators and applicable overflow policy; rejected methods assert their specific cause. A blanket non-DuckDB rejection is not a method qualification test |
+| Temporal and dependent reads | [period carriers](../../tests/analysis/numeric/test_period_native_carriers.py), [Trino encoded time](../../tests/analysis/temporal/test_encoded_time_trino.py), existing graph/temporal owners | Public Query exercises actual engine/time rewrites, scope bounds and representative windows; dependent composite-key/None tuples and one two-datasource handoff. Retain negative cases for unsupported shapes |
+| Specialized sources and optimization | [producer recovery](../../tests/analysis/materialization/test_producer_recovery.py), graph optimization owners, [control boundaries](../../tests/datasource/test_control_boundaries.py) | Trino connector and ClickHouse Distributed producers after ordinary routes work; compare fused/non-fused keys, NA, ordering, checks and numerical behavior under the selected method; run affected native timeout/read-only/cleanup cases |
+
+Source profiles alone do not qualify numerical Query. Existing remote period-carrier
+rejection tests and direct encoded-time expressions do not establish the public
+pipeline either. `test_count_rollup_backends.py` currently selects DuckDB table/view
+cases, despite its name. Reuse its oracles only after adding actual service cases.
+Use one independent-process source-offline read for the initial shared handoff;
+extend existing producer recovery only where connector behavior adds a distinct
+boundary, rather than replaying all local journeys on every backend.
+
+Use `make runtime-test TESTS='tests/analysis/graph/test_computation_runtime.py'`
+or the relevant owning files/nodes, with already-running selected services.
+Extend cases before claiming the new coverage; enabling flags or an empty/skipped
+selection is not a pass. Reuse [source fixtures](../../tests/datasource/source_cases.py)
+and [service setup](../../tests/datasource/environment/README.md), isolate test
+objects, and respect the environment's Trino/ClickHouse selection constraints.
+Compile-only and synthetic driver results remain local evidence. The final code
+candidate needs the regular `make check-agent`; full slow, installed-package and
+release acceptance remain separate and are not required by this docs-only change.
+
 ## Commands and evidence
 
 - `make test`: daily local selection, excluding cases explicitly marked `slow`, `runtime` or `release`.

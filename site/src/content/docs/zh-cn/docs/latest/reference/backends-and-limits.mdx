@@ -56,7 +56,9 @@ def total():
 
 来源 Ibis 在所选声明 datasource 执行并返回 pandas；字面量/参照和本地域/值阶段使用 pandas，PyArrow 负责编码与读取终端输出。Artifact 是只读产物，不能进入 DSL；没有固定 Artifact 执行路线或隐藏本地 SQL 引擎。
 
-已准入来源交接保留真实类型，并拒绝已知有损精度变化。整数不经过 float，Duration 保留精确 ticks，timestamp 保留时区/精度资格。后端转换及来源解析仍有自身合同，导出成功不证明来源正确。本地计算是 eager，可能保留全部所需向量；失败不换路线或截断输入。
+计划中的远端数值 Query 扩展接受 Ibis/provider 原生数值精度损失。Ibis lowering 不为统一后端返回类型或传输保真添加 cast，业务语义必需的转换仍保留。相同表达式在不同后端的返回类型差异由 pandas 交接处理，保留完整键、空值政策、单位和时间语义。cast 不能恢复来源精度；产物往返保真针对实际已提交值。
+
+此合同调整仍待实施：当前数值 Query 仅准入 DuckDB，远端路线需要代码扩展及 Runtime 验证。本地计算是 eager，可能保留全部所需向量；失败不换路线或截断输入。
 
 DuckDB 原生 INTERVAL 仅在来源侧检查拒绝 year、month、day 分量后按微秒准入，不能仅靠 cast 当作 elapsed time，也不会产生纳秒精度。合格文件路线中的 Arrow Duration 保留文件声明的 tick 单位。
 

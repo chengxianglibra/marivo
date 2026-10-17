@@ -361,14 +361,15 @@ outer 的缺侧仍用非空 boolean presence 和端点投影表示；presence �
 | 展示 / 导出 | 从 value 的缺失性显示 NA；检查失败显示结构化错误 | 不构造 N×Q 个 Python Cell 对象，不恢复已放弃的缺失原因 |
 
 Arrow validity 是存储/读取布局，pandas mask 是本地计算布局，Marivo 不再定义第二套编码协议。
-绑定类型确定后复用原生数组，不能因 NA 将 int64/Decimal 强制转为浮点；格式转换只放在必要边界。
-来源 schema、后端及驱动/Ibis 转换路线的类型合同由 datasource 拥有，物理准入检查所需精确类型是否有合格路线；
-已知有损或无法保证必需精度时拒绝，不能只凭 Ibis 可执行接纳。完整责任边界由
-[执行 §1.5.1](lazy-analysis-dsl-execution.md#151-来源类型准入与无损交接)拥有。
-来源返回与字面量输入在同一入口按已知 schema 规范化列序、完整键、dtype、时区和缺失表示；
-执行入口检查实际返回布局及必要值约束，本地算子不各自猜类型或利用 pandas index 对齐。
-schema-only 只检查类型与路线资格，不检测具体值是否已经损失精度；类型规范化或事后 cast 不能恢复该损失。
-已接收类型化值的阶段交接、产物存储和导出保持无损表示，数值计算仍服从各方法合同。
+来源接受 Ibis/provider 原生数值类型与精度，不为统一返回 dtype 在 Ibis 层加入业务无关 cast。
+相同表达式的后端类型差异由 pandas → StageOutput 的已有入口处理；本地消费者与输出 schema
+使用交接后的有效类型。复用原生数组及 nullable 表示，不盲目恢复声明 dtype，不建立另一套 transport。
+完整责任边界由[执行 §1.5.1](lazy-analysis-dsl-execution.md#151-ibis-原生返回与-pandas-类型交接)拥有。
+来源返回与字面量输入复用规范化入口，但来源原生精度容忍不改变字面量自身的类型合同。
+入口校验列序、完整键、nullability、时区、单位和必要值约束；本地算子不各自猜类型或利用 pandas index 对齐。
+schema-only 检查表达式/类型族/方法能力，不证明无损；事后 cast 也不能恢复已丢失的精度。
+本地计算仍服从各方法合同，终端存储与导出保留交接、计算完成后的实际输出值。
+这项 2026-10-17 取舍尚需代码适配；现有非 DuckDB 拒绝、严格 carrier 校验及 DuckDB 特化读取不能作为已完成证据。
 
 source/local 共用已解析的政策与检查描述，各自 lowering 数值操作；sum 使用忽略 NA 后的和及单位元 0，
 mean 保存非 NA 的 sum/valid_count；无需通用 sample_count/null_count 或逐格原因。
@@ -1145,7 +1146,7 @@ AGENTS 与 packaged semantic/analysis skills 的修改继续遵守仓库明确�
 | Population.contract 没有 owner | 字面量/来源/Query 域披露轴、已有归属和依赖；禁止业务/schema 读取时仍可调用，未知键集不枚举 |
 | 只取键或计数绕过错误 | 用一个原问题必要失败，验证 population/row_count/空选择仍保持该检查 |
 | 窗口被当作显示后处理 | 回看起点超出显示范围、认证日历无法覆盖请求范围时拒绝，以及一例状态采样次序 |
-| 来源精度与导出保证混同 | 来源转换准入和产物往返分开验证；大整数/Decimal/时区搭配 NA，已知有损路线拒绝；已接收值、仅键/空表及独立副本无损 |
+| 来源精度与导出保证混同 | Ibis 原生返回允许数值精度损失，pandas 交接验证实际类型、NA、完整键与时间语义；记录大整数/Decimal 的实际表现，产物按已保存值验证往返 |
 
 业务数值与多轮过程复用[场景验证](lazy-analysis-dsl-scenario-validation.md)及已有实施计划，
 不按每个目录/私有 dataclass 复制一套镜像测试，不机械构造全部算子 × 后端 × 生命周期矩阵。

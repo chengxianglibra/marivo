@@ -58,7 +58,9 @@ This declares fields and a named Metric. A declaration or successful preview doe
 
 Source Ibis executes through the selected declared datasource and returns pandas. Literal/reference and local domain/value stages use pandas. PyArrow encodes and reads terminal output. An Artifact is read-only output and cannot enter the DSL; there is no fixed-Artifact execution route or hidden local SQL engine.
 
-Admitted source-to-pandas carriers preserve their actual types and reject known lossy precision changes. Signed integers are not converted through float, Duration retains exact ticks, and timestamps keep timezone/precision qualifications. Native backend conversion and source parsing retain their own contracts; output export does not prove source correctness. Local execution is eager and may retain full required vectors in memory. Failure never switches route or truncates input.
+The planned remote numerical Query extension accepts native Ibis/provider numerical precision loss. Ibis lowering will not add casts solely to standardize backend result types or preserve transport precision; business-required conversions remain. Differences in the types returned by the same expression will be handled at the pandas handoff, retaining complete keys, null policies, units and time semantics. Casting cannot recover lost source precision; saved-output fidelity concerns the values actually committed.
+
+This contract adjustment still requires implementation: numerical Query currently admits only DuckDB, and remote routes need code changes and Runtime validation. Local execution is eager and may retain full required vectors in memory. Failure never switches route or truncates input.
 
 DuckDB native INTERVAL is admitted in microseconds only after a source-native check rejects year, month and day components. It cannot become elapsed time merely by casting and does not supply nanosecond precision. Arrow Duration on a qualified file route preserves the file's declared tick unit.
 

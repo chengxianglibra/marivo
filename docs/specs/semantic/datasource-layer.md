@@ -287,6 +287,13 @@ Marivo does not add a per-value Arrow round-trip audit. Source schema and
 projection admission, requested row/time bounds, and downstream key, Cell,
 time, and persistence-schema checks remain in force.
 
+For the pending numerical Query extension, no Ibis casts are added solely to
+standardize backend return types or preserve transport precision. Business-required
+conversions remain; differing native result types meet at the pandas-to-StageOutput
+boundary. The [analysis handoff contract](../analysis/lazy-analysis-dsl-execution.md#151-ibis-原生返回与-pandas-类型交接)
+owns this adjustment and its current implementation limits. Datasource access
+alone does not qualify a non-DuckDB numerical Query.
+
 Missing selected optional drivers raise `DatasourceConnectionError` with the
 backend-specific `marivo[backend]` installation repair. Unselected drivers are
 not imported by provider discovery.

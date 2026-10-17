@@ -5,6 +5,7 @@ Date: 2026-10-17
 Status: 本地实施与约定验收已完成，状态核对基于 `405bd006f8`。R1/R2 与 [S0–S6](../../specs/semantic/expression-model-implementation-plan.md) 提供基础能力，R3–R8 已在 `7508aca650` 交付，外部依赖 typing 收尾在 `405bd006f8` 完成。新数值 Query 的远端后端路线仍有代码能力缺口；远端 Runtime、完整 slow 集合和 release 验收未完成，不能合并称为“只差验收”。当前状态与证据边界见 §8，日期化实施过程见 §9。
 
 本次修订只同步计划及相关文档状态，不修改实现或重跑行为验收。R1/R2 的旧任务表和 §9 日期化交接保留为历史记录；其中旧包装类、原定义版本、未提交状态和开发期失败均不构成当前待办或当前合同。当前作者值、语义使用位置、分支需求及空值政策以 v0.37 和当前 owning specs 为准；历史审查不重启，文档同步不新增行为验收证据。
+2026-10-17 用户取舍：允许 Ibis/provider 原生数值精度损失，不在 Ibis 层添加业务无关的类型转换；相同表达式跨后端的返回类型差异交给 pandas 入口。该取舍替代旧的来源无损准入要求，最小实施顺序见 §8.1；旧 DuckDB 实现与历史无损测试记录保持原样，不代表新路线已交付。
 当前优先修订（2026-10-15，Slack `1792053438.175219` / `1792053465.849969`）：取消语义对象必须匹配构造时原定义版本及同路径改版拒绝；agent/用户承担分析期间语义定义变更的后果。实际计算/依赖身份、缓存正确性、持久化记录和其它语义检查保留。capture/finalize为默认时间/坐标/Ibis前向闭包保留。完整supersession、下一阶段清理与证据边界见下文user-priority checkpoint；历史评审/验收不回写成新合同通过。
 v0.32 统一 Query.execute → 终端 Artifact；所有 DSL 组合在执行前完成，产物不承载图、内部组件或续算。
 执行分工与架构 v0.12 同步：Ibis 负责源端计算，pandas 统一本地执行，PyArrow 只负责存储和读取。
@@ -318,9 +319,10 @@ Help 与当前文档随对应公开行为更新，R8 只做全局切换和遗漏
 
 日志：`/tmp/marivo-r26-fixes-targeted.log`、`/tmp/marivo-r26-fixes-lint.log`、`/tmp/marivo-r26-fixes-type.log`、`/tmp/marivo-r26-fixes-docs.log`、`/tmp/marivo-r26-fixes-site.log`、`/tmp/marivo-r26-fixes-check.log`、`/tmp/marivo-r26-fixes-base.log`。
 
-R2.2–R2.4 同时落实[来源类型准入](../../specs/analysis/lazy-analysis-dsl-execution.md#151-来源类型准入与无损交接)：
-schema-only 只检查声明类型及后端/转换路线资格，不能证明具体值未丢精度；已知有损或无法保证必需精度的路线拒绝。
-实际返回布局仍须校验；用大整数与 NA 的代表性真实读取和一次无损往返覆盖该边界，不以事后 cast 充当修复。
+R2.2–R2.4 当时采用来源无损准入；上述代码与验证记录属于历史事实。
+后续按[来源交接修订](../../specs/analysis/lazy-analysis-dsl-execution.md#151-ibis-原生返回与-pandas-类型交接)和 §8.1 实施：
+schema-only 检查类型族、表达式和后端方法能力，接受原生数值精度损失；实际返回类型在 pandas 交接。
+大整数与 NA、Decimal 用例记录真实返回及交接结果，产物按实际保存值验证往返，不以事后 cast 充当精度修复。
 R2.5/2.6 复用[场景 §8.7](../../specs/analysis/lazy-analysis-dsl-scenario-validation.md#87-构造披露执行后阅读与重开)，
 普通 observe 验收必须覆盖空 Finding 与实际读取/检查 Evidence，断源重开保留原摘要，不虚构完整性认证；
 Catalog 条目/Query.contract 在构造期披露定义与依赖，Artifact 只提供终端阅读。
@@ -699,7 +701,7 @@ R3–R8 实施时已获授权并完成两份 packaged skills 同步，无待授�
 | 本地实现与公开切换 | `7508aca650` 完成 R3–R8；Population/Query/Column、Store 10 终端读写、有限优化、Help/类型/英中文档及授权技能已交付 | 首版明确排除的能力和未准入路线不在完成声明中 |
 | 完整常规工程门禁 | `405bd006f8` 收尾后的无收窄 `make check-agent` 通过：4588 默认测试、lint/import、366 文件 typing 与 API 文档；原五项 helper typing 诊断已关闭 | 默认测试排除 slow/runtime/release；此结果不覆盖这些集合 |
 | 独立本地验收 | 六条业务链及冷读 7/7、身份边界 6/6、审查问题与组合探针 27/27 通过；最终工程候选按产品文件 SHA 等价重绑定 | 重绑定没有冒充再次执行业务，也不构成第三轮正式审查 |
-| 远端代码能力缺口 | [数值来源准备](../../../marivo/analysis/materialization/graph_source_execution.py) 明确拒绝非 DuckDB provider；datasource 可连接其它后端不代表新数值 Query 可执行 | PostgreSQL/MySQL/Trino/ClickHouse 数值 Query 支持需要补齐并准入实际后端/类型/方法路线，再做 Runtime 验证 |
+| 远端代码能力缺口 | [数值来源准备](../../../marivo/analysis/materialization/graph_source_execution.py) 明确拒绝非 DuckDB provider；datasource 可连接其它后端不代表新数值 Query 可执行 | 按 §8.1 补齐表达式/方法准入、pandas 类型交接、时间与依赖路线；来源无损传输不再是前置条件，仍需真实 Runtime 验证 |
 | 保留的其它能力限制 | 来源 approx_quantile、内部样本 approx_nunique、原指标 approx_* 重算缺合格内核时拒绝；Catalog 的 Population/sample/window/routed-field preview 未扩权 | 如要支持，属于新增代码能力及验证，不属于本轮首版漏项；不能用 exact 静默替代 approximate |
 | 未完成的远端 Runtime 验收 | 本轮没有当前版本的完整远端实服验收；helper typing 与替身/驱动本地探针只证明各自范围 | 原生类型/精度/时间、权限、超时、分布式来源及冷读仍需实际路线证据；现有 Trino/ClickHouse producer recovery 正例消费数值 Query，受上述代码缺口阻塞，不能只启动服务便视为可验收 |
 | 未运行的完整 slow / release 验收 | 已有定向 slow 和跨进程冷读通过；未运行完整 slow 集合、当前候选安装 wheel/installed journeys、全后端矩阵或 `make release-check` | 这些验收按需或发布准备时运行；不能由常规门禁、API 构建或单个本地 release 标记用例替代 |
@@ -713,6 +715,49 @@ R3–R8 实施时已获授权并完成两份 packaged skills 同步，无待授�
 历史 `3a4e741cfa` 的 3964 passed / 504 failed / 10 setup errors 是实施前基线，保留在 §9 追溯；
 不能继续作为当前失败状态。两轮正式审查的已知问题与两个组合残留已关闭，无待授权技能同步项。
 本次仅修改文档，检查受影响内容、链接、围栏及差异，不新增实现、Runtime 或 release 通过声明。
+
+### 8.1 远端数值 Query 最小实施顺序
+
+**状态：以下全部待实施、待验证。** 本节采用用户确认的 Ibis 原生返回 / pandas 类型交接取舍，
+不重新打开已完成的 R1–R8 本地验收，也不把文档更新计作代码交付。
+唯一交接合同见[执行 §1.5.1](../../specs/analysis/lazy-analysis-dsl-execution.md#151-ibis-原生返回与-pandas-类型交接)。
+接受原生数值精度损失；不新增无损 transport、统一后端 dtype 的 Ibis cast 或全局精度配置。
+单位、时间语义、明确运算规则与错误政策所必需的转换仍保留。pandas 负责实际返回类型与后续计算/存储类型衔接，
+不能盲目回 cast、截断小数、吞掉错误或声称恢复精度；已提交 Artifact 保留其实际保存值。
+
+#### 可复用实现与代码缺口
+
+| 已有实现，可继续复用 | 必须补齐或调整的部分 |
+| --- | --- |
+| [SourceSession](../../../marivo/datasource/adapters.py) 的 backend 选择、绑定、SQL 归属、编译执行、只读设置、连接清理；现有 EngineProfile | 取消数值 Query 的全局 DuckDB 拒绝须随实际路线逐项准入；不直接放开全部 provider。核对 DuckDB 特化读取及为 carrier 保真/统一 dtype 添加的 cast，按业务必要性清理，不能视为新取舍已经实现 |
+| [StageOutput](../../../marivo/analysis/materialization/graph_exchange.py) 的列序、键、nullable 及阶段交接；统一调度与 Store 10 | 调整严格声明 carrier 假设；普通字段、聚合值和内部组件均在 pandas 接纳原生类型差异，后续内核及输出 schema 使用有效类型；保留完整键、时间、单位和值约束 |
+| [observation lowering](../../../marivo/analysis/compiler/observation.py) 和[原生数值 lowering](../../../marivo/semantic/metric_graph_lowering.py) | 为实际 backend / dtype / method 检查编译与执行能力；现有远端物理准入不含 window/sort，不能继承 DuckDB 或旧方法注册表的资格。已知静态不支持在 Run/业务读取前拒绝，动态输入在其消费前复核 |
+| source_time 的解析/时区规则及[temporal_sql](../../../marivo/analysis/materialization/temporal_sql.py) 的后端重写 | [query_preparation](../../../marivo/analysis/materialization/query_preparation.py) 当前写死 engine="duckdb"，temporal rewrite 尚未接入新链；ordinary observe、read、drill 共用实际 engine 路线 |
+| Query 依赖键交接、多来源本地组合、有限优化、终端冷读 | 基础未融合路线先通过；远端聚合合并须有自身等价证据，不能因同样是 int/Decimal 就继承精确重排资格；不新增跨 datasource 标量关系连接能力 |
+
+#### 顺序与每步 Runtime 范围
+
+各步只交付能够贯通 public Query → Artifact 的能力，复用现有 fixture 和测试 owner。
+PostgreSQL 作为首个普通路线，便于先验证共有接口；这是实施顺序选择，不是已具备资格的结论。
+
+| 顺序 | 最小代码交付 | 对应 Runtime 验证 |
+| --- | --- | --- |
+| 1. PostgreSQL 普通闭环 | 接通表达式编译准入、pandas 类型交接及实际输出 schema；先做普通分组 count/sum/min/max、直接值读取和发布；复用既有 SourceSession/调度/Store | 一个真实表经公开 Query 执行与导出；nullable 大整数、Decimal、空/全 NA、复合键/None 分类验证交接及分组政策，记录原生精度；失败不得发布成功。选一个产物做独立进程断源冷读，以已保存值为 oracle |
+| 2. 其它后端普通路线与数值方法 | 同一入口扩展 MySQL、Trino、ClickHouse；分别准入 mean、weighted_mean、count_distinct 及 quantile 的实际类型/算法。需要 window/sort 的 quantile 路线等第 3 步完成相应能力再放行，不能静默替换成近似 | 每个新后端执行一组代表性普通 Query，验证原生返回→pandas→Artifact；方法特有用例覆盖配对、空输入、零分母与实际溢出政策，ClickHouse 核对 distinct/nullable。未准入方法验证具体拒绝原因，不能用通用 DuckDB gate 冒充方法负例 |
+| 3. 时间与依赖来源 | 传入实际 engine、接入已有时间重写，补所需 window/sort；贯通期间/窗口、版本锚点、依赖 Query 完整键及 drill。共享交接入口不增加第二个执行器 | 按受影响后端验证实际时区/解析、DST 与请求范围；代表性窗口和期间结果。用包含复合键/None 的上游名单验证完整元组谓词；选两个不同 datasource 做一次依赖/本地组合；不把同源多表作为跨源证明 |
+| 4. 特化来源及优化 | 在普通路线基础上准入 Trino 不同 connector 与 ClickHouse Distributed；对拟开放的合并优化补后端证据，证据不足保留未融合计划 | Trino Iceberg/非 Iceberg、ClickHouse MergeTree/Distributed 的相关 producer 用例；优化前后核对 keys、NA、次序、必要检查/失败，数值遵循所选原生方法且不要求跨后端逐位一致。只对改动影响的 native timeout、只读和清理边界追加实服检查 |
+
+精度用例要同时记录原生 Ibis/pandas 返回和交接后的 dtype、值及 NA；不要求复制原始数据库值，
+也不把 dtype 归一化当作精度恢复。完整键唯一性、样本配对、分组、过滤与错误政策仍独立验证；
+精度容忍不为改变这些语义的优化提供许可。Artifact 冷读只比较已提交的结果，不另行重算来源。
+不将全部本地业务链乘以全部 backend/存储组合；每个后端仅覆盖新增能力及有差异的物理路径。
+
+测试 owner 和执行命令由 [Runtime 覆盖说明](../../testing/runtime-coverage.md#remote-numerical-query-extension)维护。
+现有 source profile 只能证明 datasource 访问；period native carrier 的远端拒绝用例只能证明边界，
+Trino encoded-time 的直接表达式用例只能证明时间内核；这些都不替代公开 Query 正例。
+每步更新实现、定向本地测试、类型及披露文档，再执行相关 Runtime；最终代码候选运行无收窄的
+`make check-agent`。服务不可用、跳过或只编译须单列，不能记作实服通过。
+完整 slow、安装 wheel/installed journeys 和 `make release-check` 仍是独立范围，按发布需要执行。
 
 ## 9. R3–R8 团队实施记录（2026-10-17）
 

@@ -1842,8 +1842,10 @@ Artifact 没有 contract，不能从 findings/evidence_digest 恢复 DSL 权限�
 [执行 §1.5](lazy-analysis-dsl-execution.md#15-单一执行路线与终端读写)拥有。
 
 - 来源经 Ibis/SourceSession.execute 返回 pandas；字面量和本地阶段共用同一 schema 规范化入口，覆盖完整复合键、NA、整数/Decimal 和时区。
-- 来源类型资格与产物往返分开验收：schema-only 按已声明后端/类型/转换路线选择资格，不扫描值；
-  已知有损或不能保证必需精度的路线拒绝，执行返回布局仍校验。用大整数与 NA 的代表性输入检查真实路线，不能事后 cast 后宣称精度恢复。
+- 来源类型交接与产物往返分开验收：schema-only 检查后端表达式/类型族/方法能力，不扫描值；
+  接受 Ibis/provider 原生数值精度损失，不为统一 dtype 添加业务无关 cast。大整数与 NA、Decimal 用例记录原生返回和 pandas 交接后的值及类型，不以无损为通过条件。
+  校验完整键、NA/空输入、分组、配对和错误政策，产物以实际保存值验证往返；不能事后 cast 后宣称精度恢复。
+  这是待实施的 2026-10-17 取舍，远端步骤与实服范围见[实施计划 §8.1](../../superpowers/plans/2026-10-13-lazy-analysis-dsl-redesign-implementation.md#81-远端数值-query-最小实施顺序)。
 - 本地选择、规约、对齐和 share 复用 pandas/已准入数值内核；Marivo 调度/lowering 不直接调用 Ibis Arrow 导出或 Arrow compute，不创建隐式 DuckDB 本地连接。检查针对阶段边界，不禁止依赖内部使用 Arrow。
 - DuckDB 用作测试来源时仍通过 datasource 的 Ibis 路线；不能让 DuckDB 代替 pandas 完成本地阶段，或将来源通过宣称为远端后端全部合格。
 - 同一执行内“来源名单 → 完整元组谓词 → 新来源”和“多来源 → pandas 组合”保持实际依赖；share 的分子/分母消费同一实际输入，共享表不被原地修改。
