@@ -1,5 +1,35 @@
 # Semantic Object Model
 
+Pending design amendment (2026-10-17):
+[Expression redesign v0.37](expression-model-redesign.md#26-原生-ibis-与自动延迟绑定)
+replaces the custom Measure/Metric numeric AST with native Ibis expressions and controlled
+Deferred inputs. Named and anonymous expressions share the same checks; semantic stage,
+unit, additivity, contribution roots and time obligations remain Marivo-owned. Physical dtype
+binds automatically during execute preparation. This is not implemented: the closed-expression
+and Ibis-return rejection rules below remain the current API contract, not the proposed target.
+
+The same pending v0.37 design adds ordered first/last, native approximate reductions,
+explicit overlapping membership buckets, operator-local sum empty policy, and reusable named
+window Metrics. Named and anonymous inputs share the same deferred capture and checks;
+[semantic boundaries](expression-model-redesign.md#39-五项能力共用的检查边界) and
+[conditional migration equivalence](expression-model-redesign.md#a11-等价迁移的判定条件)
+are proposal contracts. Retired APIs and unsupported capabilities described below remain current
+until implementation and disclosure cutover; this note does not enable those APIs.
+The reviewed v0.37 proposal gives explicit membership paths priority and infers identity only
+when no path is supplied. Member-set products and complete target domains retain their bindings;
+classifying target identities does not traverse contribution-assignment paths. Axis-free rules
+use Metric.window; observe fixes the logical time binding, without freezing source data. Window
+Metrics allow qualified spatial rollup with that binding preserved; time-axis coarsening,
+replacement or removal is rejected. Scalar to-date uses the endpoint. The ordinary H/W recipe
+for legacy first-seen is equivalent only under consistent inputs; it adds no general window
+sharing requirement or runtime rejection policy. Ordered first/last retains its sampling checks.
+
+The pending [fanout amendment](expression-model-redesign.md#371-fanout-的表达方式与能力边界)
+separates existence selection, membership buckets, association-event roots and modeled allocation
+roots. Relationships do not grant counting or allocation rules. Logical contribution semantics
+admit qualified equivalent physical plans without restoring fanout_policy or author-defined joins.
+This proposal does not enable capabilities marked unsupported in the current contract below.
+
 Status: R1.3 authoring contract, 2026-10-15; R1.4 publication and R2 execution remain pending.
 Semantic owns authored business meaning and normalized declarations.
 Analysis owns invocation checks, exact implementation admission and execution.

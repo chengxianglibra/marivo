@@ -1,8 +1,11 @@
 # Analysis 模块架构与实现分层方案
 
-Date: 2026-10-14
+Date: 2026-10-17
 
-Status: proposed v0.10，基于工作树中的语义表达式与 Lazy Analysis DSL v0.35。
+Status: proposed v0.12，基于语义表达式与 Lazy Analysis DSL v0.37。
+v0.12 增补有序/近似规约、nullable sum、成员分桶和命名窗口；本次仍只修订设计。
+2026-10-17 fanout 修订以逻辑贡献约束准入物理计划，不固定 aggregate-then-join；仍不声明新增实现或后端资格。
+v0.11 将 Measure/Metric 数值计算收敛到原生 Ibis DAG，自动延迟类型绑定；本修订尚未实施。
 本文是独立的目标实现架构，不是当前实现说明，也不表示任何重构阶段或后端验收已经完成。
 本文与目标设计和实施计划同步命名；不修改实现、测试、技能或发布文档。
 v0.7 收敛执行分工：Ibis 负责源端计算，pandas 统一本地执行，PyArrow 只负责存储和读取。
@@ -61,7 +64,7 @@ Population 表示分析总体，覆盖身份名单、分析坐标和内部样本
 ## 2. 当前实现：保留的基础与必须调整的结构
 
 架构起草时的静态核对基线为 `main`，HEAD `970a5df89f7cd62b809f7b948e920a1e8cff94f0`。
-两份设计稿及关联文档含已有工作树修改，目标合同以本轮 v0.35 为准；以下代码定位是改造起点，不是目标行为。
+两份设计稿及关联文档含已有工作树修改，目标合同以本轮 v0.37 为准；以下代码定位是改造起点，不是目标行为。
 当前行为仍由 [Python Analysis Design](python-analysis-design.md) 和
 [Session State and Runtime](session-state-and-runtime.md) 约束。
 
@@ -179,8 +182,8 @@ Session 是资源与归属入口，不能成为藏有所有绑定、编译和规
 
 | 定义族 | 首期节点范围 | 含义 owner |
 | --- | --- | --- |
-| Row | FieldRef、有限数值常量、Negate/Add/Subtract/Multiply/Divide、Measure 语义断言 | semantic |
-| Metric | SourceAggregate、EntityCount、SourceWeightedMean、算术、ContributionFilter、PerReduce、PerWeightedMean、MemberCount | semantic；MemberCount 的实际身份绑定归 analysis |
+| Row | 受控语义叶子、原生 Ibis 数值子图、Measure 语义断言及阶段/单位/权限注解 | semantic；数值 operation/type 归 Ibis |
+| Metric | 来源规约及配对边界、原生 Ibis 数值子图、ContributionFilter、PerReduce、PerWeightedMean、MemberCount | semantic；数值 operation/type 归 Ibis；MemberCount 实际绑定归 analysis |
 | Population | 字面量键、来源身份选择、集合/投影/积、坐标筛选、classify/image/preimage、QueryKeys | analysis |
 | Query | Observe、PopulationRows、ReadFields、Values、select/where/top/reduce、rollup/drill、align/compare/share | analysis |
 | 结果标量与谓词 | 绑定 Column/坐标引用、字面量、有限算术、比较、状态测试、域测试和布尔组合 | analysis |
@@ -189,7 +192,34 @@ Session 是资源与归属入口，不能成为藏有所有绑定、编译和规
 仅命名不增加计算节点或改变计算指纹。Measure 新增的单位/可加断言则进入语义定义，并保留授权来源。
 算子默认政策在构造时规范化，进程内节点持有明确政策及规则版本；冷存只记录完成值，不恢复这些节点。
 
-行、Metric、结果 Column 的算术可共享数值政策实现，但必须有不同的阶段类型。
+行、Metric、结果 Column 可共享数值政策实现，但必须保留不同阶段合同。
+Measure/Metric 自建的数值 AST 和依赖旧节点的构图/翻译入口由 Ibis 替换，切换后删除，不保留兼容双读。
+保留基于 Ibis operation 的语义规则、政策改写、源端适配及 pandas 内核执行分派；不将删除 AST 解释为删除执行器。
+语义边界引用 Ibis 子图及稳定叶子映射；对受支持 operation 做注解、约束、规范摘要和执行分派，不复制可执行 AST。
+作者侧命名/匿名数值值始终是原生 Ibis Deferred，内部受控 Resolver 保存叶子、配方及声明记录，schema 已知也不切换为裸 Value。
+不继承 final Deferred、不让 Ibis 猜测普通包装对象；声明元数据不改变表达式载体或求值范围。
+带关系的裸 Value 仅用于内部绑定/lowering，不接入作者入口；既有 Entity/Dimension 受限 Ibis 合同继续独立。
+定义条目及 Query.contract 拥有动态披露，不向 Deferred 注入 show/contract。
+
+受控解析器在 schema 准备前遍历 Resolver 配方，发现闭包、语义方法和使用位置；物理绑定后递归构造 Ibis 数值子图。
+普通调用委托获准 Ibis 构造器，time/per/divide 等先归一语义边界，不能对混合配方直接调用原生 resolve。
+只接纳明确的 Resolver 变体及自有叶子，不执行未知 resolver/callable。
+原生顶层函数返回 Deferred 后继续 `.sum(time=...)` 等链式调用也须成立，不引入 ms.ibis/ms.require。
+实现前须通过[统一机制验收](lazy-analysis-dsl-scenario-validation.md#94-原生-ibis-表达式与自动延迟类型绑定)，不能用伪 dtype 或仅装饰器源码改写补漏洞。
+
+execute preparation 自动取得闭包所需 schema，解析真实 Ibis DAG 并检查类型、单位、权限、根和阶段；
+声明/observe/contract 保持 source-free，dtype 未知明确披露。类型/规则/路线进入绑定缓存键，不能复用旧 schema 的计划。
+语义规约的 time/nulls 及除零政策仍由 Marivo 归一/lower；源端与合格 pandas 内核保持同一合同。
+条件及所有分支的原始依赖、静态约束与时间义务不能被优化擦除；数据检查域按语义提案 §3.6.5 显式传播。
+ifelse/cases/coalesce 只向实际需要的分支传递行/格子需求；命名不形成 eager 根，独立观察形成独立需求。
+对 Metric 分支按完整格子向子规约传递需求，不改成逐行筛选；本地先遮罩输入再调用内核，源端须有同义的安全 lowering。
+不把后置 Query 筛选、丢列或乘零当作分支需求缩减。无合格路线在准备阶段拒绝，不改变错误语义或增加隐藏引擎。
+
+语义注解按“逻辑作用域 + 有序操作数角色路径”的使用位置关联，不能用裸 Ibis op 相等性作唯一键。
+共享数值结构仍保留政策、贡献、时间、需求域和声明断言的独立使用记录；只有完整语义相容才共享执行。
+指纹分为 source-free 的声明计算指纹和 schema 绑定后的执行指纹；前者摘要配方/语义依赖/默认化政策，
+后者再包含实际图、schema、观察绑定、使用语义、需求域程序和后端/内核资格。名称/别名/随机使用 ID 不污染计算指纹。
+源字段从 int64 变成 float64 可令同一 cast 配方的 Ibis 图改变；声明指纹保持，绑定指纹必须变化。
 禁止使用一个 `Expr(stage: str, payload: object)` 承载所有阶段，也不提供任意 op 字符串或回调扩展口。
 
 ### 4.2 Population 依赖如何跨层
@@ -302,7 +332,8 @@ Query 构造后可继续组合；execute 完成全部必要计算和检查，原
 ### 5.3 Nullable 值、presence 与检查
 
 逻辑值为类型化 value 或 NA，物理上只有一列 nullable value；不再有逐格状态码、原因码和 carrier 变体。
-普通 NA 的来源不保留；sum 忽略 NA，空输入与全 NA 都为 0，不为区分两者保存隐藏支持计数。
+普通 NA 的来源不保留；sum 默认 empty="zero"，可显式 empty="null"。
+二者都不区分空输入与全 NA；nullable sum 的计划内合并按需保留有效值支持，不保存缺失原因。
 outer 的缺侧仍用非空 boolean presence 和端点投影表示；presence 不由值是否为空推断。
 
 必要检查属于算子与执行计划：nulls="error"、显式 zero_denominator="error" 下共同非 NA 输入的零分母、
@@ -354,14 +385,21 @@ nulls="error" 的检查需要时可计算临时 NA 计数，但通过后不作�
 
 | 计算族 | 同一次贡献处理可产出的物理组件 | 必须保留的区别 |
 | --- | --- | --- |
-| 来源 sum/mean | sum 只需精确和；mean 需精确和及 valid_count | 不保留空输入/全 NA 区别；严格检查在 ignore 前完成，计划内合并仍需相同贡献与政策 |
+| 来源 sum/mean | zero sum 只需合格和；nullable sum 另需有效值支持；mean 需和及 valid_count | 不区分空输入/全 NA；严格检查在 ignore 前完成，合并需相同贡献与政策 |
 | 来源 min/max/count | nullable 极值或对应计数 | 空/全 NA 的极值均为 NA；count 按自身样本单位合并 |
 | weighted_mean | valid_pair_count、sum(value×weight)、sum(weight) | 分子、分母共享同一配对 mask；空配对与有效配对的零权重和分开 |
 | Metric 算术/ratio | 子组件的精确引用和需要保留的实际状态 | 可共用同一物理组件，公式中的两次使用和角色仍分别存在 |
 | PerReduce / QueryReduce | 各自样本空间中的已准入状态 | 不能因为物理列都是 sum/count 就替代来源状态或隐藏内部样本信息 |
+| 有序 PerReduce | 时间键、nullable 值及所需采样/检查信息 | first/last 保持空间先于时间、排序唯一和 include_null；完成值不能证明跨分区锚点兼容 |
+| 近似规约 | 直接消费合法原样本；优化才按需保留兼容 sketch | exact/approx 为定义事实，算法/版本为执行事实；完成估计值不构成合并状态 |
+| Membership binding | 根完整贡献键与完整桶键的集合关系，加独立请求域 K | 逐根显式路径优先（含自关系），无路径时推导恒等；目标域分类不走事实分配路径；描述内相关元组、描述间集合乘积；同桶去重、多根分别规约；显式域保留绑定及空桶，成员时点/未匹配政策属于使用位置 |
+| Window binding | 输出端点到贡献窗口的映射及实际依赖 | 只有无轴规则加 Metric.window，在 observe 固定逻辑绑定，命名/匿名同一路径；保留时间绑定做空间上卷，拒绝日历轴粗化/替换/删除 |
 
 同根、同贡献/过滤/期间/配对合同的组件可以在一条聚合中一起计算，减少重复扫描；
-不同根先分别规约，禁止关联明细后同时聚合导致贡献倍增。小型违规计数能与该消费者的聚合同读时，一并返回；
+不同根逻辑上按各自贡献规约，禁止把关联明细的乘积当成各根新贡献。小型违规计数能与该消费者的聚合同读时，一并返回；
+显式 membership 的跨桶复用是已声明语义，不授权作者自定义跨事实关系程序或跨桶完成值自动求和。
+物理计划可按完整贡献键/桶键去重后回取数值，或预聚合后关联；按[执行 §1.1.4](lazy-analysis-dsl-execution.md#114-fanout-的执行准入)
+保持语义与充分信息，不以原始来源是否参与 join 判断合法性。关联事件与分配记录已有自己的贡献键时，不能套用 membership 去重。
 检查需要不同作用域时保留单独计划及证据，不能从另一读取的成功推断本次输入已检查。
 
 执行内组件按完整键和相同运输合同组织宽列，由量 ID、组件 ID 定位。
@@ -406,7 +444,7 @@ repr/contract 和模型加载都不触发这个边界。
 
 | 绑定记录 | 内容 |
 | --- | --- |
-| ObservationBinding | 命名 Metric、期间/窗口、共同条件、可选 members、输出域请求 |
+| ObservationBinding | 命名/匿名 Metric 输入、期间/日历、observe 固定的窗口逻辑绑定、共同条件、可选 members、输出域请求 |
 | ContributionBinding | 每个来源规约出现的根、固有条件、共同条件、时间角色和身份归属路径 |
 | CoordinateBinding | 完整输出轴、各根到输出键的单值分类，以及目标域模式 |
 | SampleBinding | 每个外部 k 内的 J_k，Field 推导或显式 Population，及贡献到 (k,j) 的绑定 |
@@ -425,11 +463,13 @@ repr/contract 和模型加载都不触发这个边界。
 1. 解析 Metric 依赖闭包，保留每个来源规约出现及显式域依赖；常量不制造来源。
 2. 绑定每个根的固有条件、共同条件、时间角色、可选身份限制和字段路径。
 3. 为各根构造完整输出分类；从所选贡献的键像或显式请求确定共同输出域 K。
-4. 在各根自己的贡献关系上求量和必要支持信息；不同事实根先分别规约。
+4. 在各根自己的贡献关系上求量和必要支持信息；各根逻辑规约，有内部样本时保留完整 (k,j) 及嵌套采样键。
 5. 将各组件补齐到 K，在成功读取且无贡献时按该组件的规约规则完成。
 6. 逐键执行 Metric 公式，组装命名量，保留组件、政策、nullable 值及证据。
 
-多根收入/退款不能先 join 原始事实再 sum。组件完成值按完整键组合，不能以某一个根的键集覆盖其它根。
+多根收入/退款不能将 join 乘积上的 sum 当成原组件；组件完成值按完整键组合，不能以某一个根的键集覆盖其它根。
+这不是固定物理阶段顺序：compiler 可使用已准入的单值关联、半连接、贡献键集合去重或预聚合计划，
+须满足[语义 §3.7.2](../semantic/expression-model-redesign.md#372-逻辑贡献约束与物理执行策略)的身份、次序、政策和充分性条件。
 源 Null 被规约忽略时，其分类键仍在键像中；字段 Null 归 None，缺字段映射不伪造成 None。
 by=Population 的覆盖检查针对实际被消费贡献，不能先做 inner join 将域外贡献删掉后宣称覆盖完整。
 
@@ -560,7 +600,7 @@ optimizer 是 compiler 的一组私有 pass，由同一编译入口按固定顺�
 | 1. 反向需求传播 | 从输出列、明确 Finding/Evidence 输出及 obligations 推导每个输入的 RequiredSlots | keys、presence、nullable 值、公式子状态、检查支持列都属于需求；不能仅按最终 value 列裁剪 |
 | 2. 精确选路 | 绑定事实 + schema + registry → 来源 Ibis 或本地 pandas stage、检查截止点 | 没有资格的原操作不能靠融合获得资格；不枚举本地计算引擎，I/O 准备仍归调用入口 |
 | 3. 执行内投影与局部融合 | 合格 stage → 需求列、内部组件、可合并的筛选/规约组 | 复用 local_laws 的具体检查；单消费者和相同实际输入满足时融合；保留多消费者的中间结果 |
-| 4. 同根来源合并 | 相同绑定、贡献出现、期间、过滤和政策的组件 → 共同投影/聚合 | 不把同 Entity 名称等同于同贡献合同；不同 Metric 根独立规约，不合并 per 的 `(k,j)` |
+| 4. 同根来源合并 | 相同绑定、贡献出现、期间、过滤和政策的组件 → 共同投影/聚合 | 不把同 Entity 名称等同于同贡献合同；保持各根逻辑规约与 per 的 `(k,j)`，物理融合不得隐式改变贡献次数 |
 | 5. nullable lowering | 计划 → 原生 nullable Ibis 表达式/pandas 本地内核 | 不生成 carrier/状态码；验证每个需求与 obligation 都有产出/执行位置，检查不被后置选择消去 |
 
 第一版用有限、定向的遍历，不使用 e-graph、全局 join 枚举或猜测基数的 cost-based optimizer。
@@ -581,6 +621,7 @@ Ibis 负责将关系表达式编译到目标后端，SQL 后端沿其 SQLGlot �
   只在实际状态及运输条件充分时应用。现行 local_laws 的实现编号 L8 对应这种状态合并，
   两套编号的关系见[理论/实现编号表](algebra-theory.md#实现编号与理论定律的对应)，不能直接按编号套用。
 - 字段键像不是各列键集的笛卡尔积；per、时间样本规约和重叠窗口都保留完整使用位置及次序。
+- fanout 计划保持每个根/使用位置/窗口的贡献单位：存在性选根、membership 集合出现、独立关联事件与分配记录不能互换。预聚合保留所需身份及内部键，不以完成均值/P95/去重数替代充分状态；无等价路线时报告能力缺口，不增加公开策略开关。
 - 同定义指纹不证明共同实际输入；CTE、公共子表达式或后端 EXPLAIN 中一次扫描也不替代 §9.3 的输入合同。
 - 浮点规约拆分/融合须满足[方法精度合同](lazy-analysis-dsl-execution.md#14-数学定律的实现边界)，不能由实数结合律或采用 fsum 推导；无法证明时保留原路线，数值容差不放宽筛选、排名、NA 与错误结果。
 
@@ -751,7 +792,14 @@ report timezone 只是构造时默认；输出保存绝对坐标、时区和实�
 日期/无偏移边界字符串按该构造时区解释，naive datetime 拒绝；来源 naive 时间仍归来源解析合同，不能套用报告时区。
 时间角色、窗口公式、认证日历对象及其规则只在 logic；冷存不重建日历导航或窗口计算。
 
-窗口计划先形成全部输出桶及其名义/实际区间和窗口映射，再确定所有 W(t) 的读取范围；
+窗口计划只消费 Metric.window 规则和观察期间/日历，不维护绑定/未绑定窗口两个公开形态。
+标量 to_date 按端点 e 的 left < e <= right 选择重置期间，不用显示起点；日历输出另检查桶的唯一包含。
+普通窗口分支不强制共享实际输入；first-seen 的精确 H/W 组合只在一致输入前提下具备迁移等价性，
+缺少证明不触发普通算术执行拒绝，不新增 first_seen 识别/节点、快照 API 或自定义 AST。
+observe 固定逻辑日历/端点/W(t)，实际 schema、覆盖与数据检查仍按原阶段执行，不因此固定来源快照。
+绑定沿 Query 运输；规划时检查待上卷原量的依赖闭包，含 window 时只允许保留原时间绑定的空间上卷，
+拒绝日历轴粗化、替换或删除（含单桶/count=1）；标量观察保留原端点。重新评价粗粒度窗口须新 observe。
+窗口计划先形成全部输出桶（或标量端点）及其名义/实际区间和窗口映射，再确定所有 W(t) 的读取范围；
 来源贡献带 `(output_key, component, occurrence)` 进入相应窗口，同一事实进入不同重叠窗口是不同使用。
 首期直接对完整窗口求原指标，只有资格和信息满足时才采用预聚合/滑动摘要，
 不强迫 Metric 作者实现 merge/finalize，也不将显示范围当作读取范围。
@@ -759,7 +807,7 @@ report timezone 只是构造时默认；输出保存绝对坐标、时区和实�
 Cum 的数学零延拓不生成期初业务格子、初始状态或缺测补值。
 
 普通来源规约的 during=None 表示不追加时间过滤，即使该规约已有业务时间角色也合法。
-任一依赖需要采样/时间样本规约，或输出要求日历时，仍在完整闭包检查显式期间；
+任一依赖需要采样/时间样本规约/window，或输出要求日历时，仍在完整闭包检查显式期间；
 固有日期条件、空成员或只取键都不能免除它。时间样本规约是 per 的受约束用法，不建第二时间计算语言。
 
 period_offset/previous_year/ordinal 只产生两侧键的受约束对应；
@@ -767,10 +815,10 @@ period_offset/previous_year/ordinal 只产生两侧键的受约束对应；
 ordinal 的相同粒度、相容日历和完整桶限制，以及闰日的 exact 失败/outer 缺侧，分别按
 [DSL §4.7](lazy-analysis-dsl-redesign.md#47-对齐比较与参照)和[§4.9.5](lazy-analysis-dsl-redesign.md#495-期间映射同比环比与当前时间轴)绑定。
 coarsen 只承诺合法完整坐标映射，不替代原指标充分状态检查。
-通用期末库存/余额 closing 规约不在本版范围内；不补 first/last、forward fill 或 end 减 tick 的替代路线。
+有序 per(time).first/last 已纳入，必须保持排序、NA 和采样合同；它们不是通用边界 closing、forward fill 或 end 减 tick 的替代路线。
 
 首版不声明、注入或消费外部业务缺口，不为上游漏数通知建立 BoundGraph 节点、传播或恢复路线。
-成功读取且无贡献时 sum/count 为 0，其余按规约完成；没有完整性证明本身不拒绝计算。
+成功读取且无贡献时 sum 按 empty 为 0 或 NA、count 为 0，其余按规约完成；没有完整性证明本身不拒绝计算。
 缺日、来源最大时间或执行成功不产生新的完整性结论。
 日历认证范围、完整键映射、请求域与对应/参照覆盖仍由各算子的既有规则检查；
 来源失败、非法键/值及本次输入或组件不足各自报错，必要检查失败不发布部分 Artifact。
@@ -1007,7 +1055,7 @@ marivo/
 | 出口 | 读取的权威 | 披露范围 |
 | --- | --- | --- |
 | Help | 静态公开注册和签名 | canonical 入口、参数、阶段、最短例子 |
-| Metric.contract | 定义事实和完整依赖 | 阶段、政策、授权、归属、绑定要求和收录阻碍 |
+| Catalog 定义条目 / Query.contract 的指标事实 | 声明记录、定义事实和完整依赖 | 阶段、政策、授权、归属、绑定要求；收录阻碍由收录结果/错误披露，不调用 Deferred.contract |
 | Population.contract | Population 定义、已有绑定和纯准入规则 | 有序轴/类型/角色、归属、字面量或动态依赖、选择期间/属性锚点、可判定操作及待检查条件 |
 | Query.contract | 绑定签名、输入角色和已知资格 | 主输入/域/参照、明确新读、待检查条件 |
 | Artifact.show / findings / evidence_digest | 已提交数据及输出记录 | 有界预览与事实摘要；没有 DSL contract 或续算提示 |
@@ -1062,7 +1110,7 @@ AGENTS 与 packaged semantic/analysis skills 的修改继续遵守仓库明确�
 | 多套本地执行路线复活 | 来源/字面量/本地阶段共用 pandas StageOutput；Marivo 调度/lowering 不直接调用 Ibis Arrow 导出、Arrow compute 或隐式 DuckDB 连接；PyArrow 的直接职责只在存储/读取边界 |
 | per 与普通 mean 混淆 | 50/200 样本选择反例，及 400/200 的内部身份信息不足反例 |
 | share 由两次读取拼出 | 检查同一消费者实际输入的 stage 交接与分母范围；不做跨读对账测试 |
-| nullable 与失败边界 | 空输入/全 NA 的 sum 均为 0；各阶段零分母默认 NA、显式 error 失败；共同配对与实际覆盖条件按算子检查；无逐格四态 |
+| nullable 与失败边界 | 空输入/全 NA 的 sum 按 empty 为 0 或 NA；各阶段零分母默认 NA、显式 error 失败；共同配对与实际覆盖条件按算子检查；无逐格四态 |
 | 终端输出偷偷依赖图 | 无 semantic/graph loader 仍能 show/export/findings；新/重开接口相同，无 producer 引用；证据无可恢复 derivation |
 | 普通观察漏存读取与检查事实 | Finding 为空仍保存本次读取范围和实际检查摘要；断源重开一致，无虚构完整性认证 |
 | Population.contract 没有 owner | 字面量/来源/Query 域披露轴、已有归属和依赖；禁止业务/schema 读取时仍可调用，未知键集不枚举 |
@@ -1117,4 +1165,4 @@ Artifact 无计算上下文或 DSL 输入路径，后处理交 pandas；每个�
 
 该历史探针只说明存储 API 可行，不能作为本次 pandas 执行路线的验收证据。
 
-当前交付状态：**架构方案已收敛为 Ibis 源端计算、pandas 统一本地执行、PyArrow 存储/读取和终端 Artifact，全部目标重构仍待实施。**
+当前交付状态：**原生 Ibis 表达式及自动延迟绑定为待实施修订；已有 R1/R2 进度以 current owner 为准。源端 Ibis、pandas 本地计算、PyArrow 存储/读取及终端 Artifact 的分工不变。**

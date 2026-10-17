@@ -1,8 +1,12 @@
 # Lazy Analysis DSL 定义
 
-Date: 2026-10-14
+Date: 2026-10-17
 
-Status: proposed v0.35；设计提案，尚未实施，不构成当前 API、后端能力或 Runtime 验收声明。
+Status: proposed v0.37；本次能力补全和原生 Ibis 修订尚未实施，不构成当前 API、后端能力或 Runtime 验收声明。
+v0.37 补齐 first/last、approx_*、membership 分桶、来源/内部样本 sum(empty=) 及命名窗口 Metric；规则与语义提案同步。
+2026-10-17 fanout 修订约束贡献身份、出现次数和规约次序，不固定 join/aggregate 顺序；
+各类表达与能力边界由[语义 §3.7.1–§3.7.2](../semantic/expression-model-redesign.md#371-fanout-的表达方式与能力边界)拥有，仍为未实施提案。
+v0.36 与语义提案 §2.6/§3.6 同步：命名和匿名 Measure/Metric 直接使用受控原生 Ibis 数值表达式，execute 自动绑定物理类型。
 本文仅定义目标 DSL 的对象、签名、绑定规则与求值语义；v0.28 统一行/Metric 计算表达式，
 装饰器只负责声明，政策归各算子；显式不可变域依赖的持久解析要求归模型收录。
 v0.29 将分析总体统一命名为 Population，同步类型、取总体方法和成员测试名称，计算语义不变。
@@ -36,10 +40,11 @@ Artifact 只读、展示和导出，不进入新的 DSL 图。完整输入求值
 PyArrow 不承担 DSL 求值，DuckDB 只作为来源后端；具体交接与资源边界见
 [执行分工](lazy-analysis-dsl-execution.md#15-单一执行路线与终端读写)。
 
-本版包含 Population、观察、选择/Top-N、对齐/比较、参照/份额、原指标上卷与端点细化、
+本版包含 Population、显式 membership 分桶、观察、选择/Top-N、对齐/比较、参照/份额、原指标上卷与端点细化、
 sum/mean/row_count 结果规约、原指标窗口和期间对应。普通分类、描述/配对统计和格子滚动统计交 pandas。
 不包含 Event、journey、lifecycle、funnel、Anchor、retention、序列回放、预测、抽样或变化归因；
-不提供自动比较下钻、原生 Metric Ibis 桥接或外部结果回灌。
+不提供自动比较下钻或外部结果回灌。Measure/Metric 的原生 Ibis 数值语言由语义提案拥有，
+不新增 ms.ibis 桥接、ms.require 或手工类型准备 API，也不因此扩展 Query Column 的原生 Ibis 接入。
 
 以下能力不在本版合同内；后续问题通过新 Query、调整算子顺序、在语义层声明唯一路径或 pandas 处理。
 Artifact 的终端边界是设计约束，不是待补齐的结果能力：
@@ -47,8 +52,8 @@ Artifact 的终端边界是设计约束，不是待补齐的结果能力：
 - execute 保留请求、Artifact 回灌、执行后 DSL 续算与固定离线细比较；
 - Query.window 重设窗口、显式参照份额 share(of=...)、rollup/drill 的显式 Population 形态；
 - observe 主体路由补全、期末左极限版本锚点及通用期末状态 closing 规约；
-- 绝对时长回看、不含当期回看窗口、命名期间映射与父期间内日序配对；
-- 结果规约的 nulls 选项；sum 的 empty 参数已移除。
+- 不含当期回看窗口、命名期间映射与父期间内日序配对；
+- 结果 Column 规约的 nulls/empty 选项；来源/内部样本 sum 的 empty 政策见语义 §3.4。
 
 ### 语义定义更新原则（2026-10-15 批准）
 
@@ -201,9 +206,11 @@ Grain 沿用 [统一时间语义](../temporal-semantics.md#unified-grain-and-tim
 内建粒度由 mv.grain(unit, count=...) 构造，认证日历粒度由 catalog 中的 calendar.grain(level) 取得。
 LiteralValue 为 bool/int/有限float/Decimal/str/date/带时区datetime/timedelta 的封闭联合；
 None 不作算术字面量，只可作为字段 Null 坐标。
-FieldPredicate 是有限类型化字段谓词，不是未绑定 Ibis BooleanValue；
+MetricInput 是语义提案定义的受控延迟输入约束；命名 Metric 与匿名数值输入均为原生 Ibis Deferred，
+声明信息由内部 Resolver 持有。observe 消费时检查指标阶段，不接受带关系的裸 Ibis Value，不增加转换步骤。
+FieldPredicate 是有语义绑定的字段谓词；可消费受控 Ibis 布尔子图或其延迟构造，不能接收无绑定的外部 BooleanValue；
 ColumnPredicate 绑定当前 Query；PopulationPredicate 由接收者确定唯一作用域。
-Axis 为身份、Field、Calendar 或 CorrespondenceAxis 绑定，仅用于逻辑表达式。
+Axis 为身份、Field、Calendar 或 CorrespondenceAxis 绑定，仅用于逻辑表达式；membership 描述展开为保留其分配规则的 Field 轴。
 Population 是有限完整键的 logical 域；Artifact 中的数据轴描述不是 Axis，不构造 Population。
 Population.axes 提供当前有序、已绑定的坐标轴；member() 只定位唯一相容身份轴。
 CorrespondenceAxis 的 projections 只公开已有端点轴绑定，沿 current/baseline 或 left/right 路径定位；
@@ -262,10 +269,10 @@ class Session:
 
     def observe(
         self,
-        metrics: Mapping[str, Metric],
+        metrics: Mapping[str, MetricInput],
         *,
-        during: TimeScope | CalendarAxis | ObservationWindow | None = None,
-        by: tuple[Axis, ...] | Population = (),
+        during: TimeScope | CalendarAxis | None = None,
+        by: tuple[Axis | MembershipAxis, ...] | Population = (),
         where: FieldPredicate | PopulationPredicate | None = None,
         members: Population | None = None,
     ) -> Query: ...
@@ -323,8 +330,8 @@ member_count 在显式 P 上要求条件可单值解释，不重写已选身份�
 多值贡献条件不能被猜成“任意贡献满足”。常量不新增来源，固有分支过滤不被共同条件删除。
 不同条件/范围的观察分别构造，再 align/select/compare，不嵌套默认上下文。
 
-during=scope 为范围合计，scope.by(mv.grain("day")) 同时提供范围和完整日历；
-during=window 使用 window.axis 和每点 W(t)。by 只列其它轴，
+during=scope 为普通 Metric 提供范围合计，为窗口 Metric 提供 scope.end 评价端点；
+scope.by(mv.grain("day")) 同时提供范围和完整日历，窗口规则仅来自 Metric.window。by 只列其它轴，
 高级完整域须与 during 的同一日历绑定相容。冲突拒绝，不生成重复轴。
 所有适用分支只接这一份上下文；期间不覆盖业务时间角色、属性锚点或固有固定范围。
 
@@ -336,7 +343,7 @@ during=window 使用 window.axis 和每点 W(t)。by 只列其它轴，
 | --- | --- |
 | 不要求时间采样或时间样本规约的普通来源规约，以及仅由这些指标和常量组成的表达式 | 合法，有无业务时间角色均可；按定义及显式 where/members 取贡献，不新增时间约束 |
 | member_count 及仅由它与上述普通规约组成的表达式 | 合法；仍须提供显式身份域，版本/属性等其它绑定要求不变 |
-| 任一依赖要求按观察期间采样，或定义包含时间样本规约 | 拒绝；必须显式传入 TimeScope、CalendarAxis 或 ObservationWindow |
+| 任一依赖要求按观察期间采样、包含时间样本规约或 window | 拒绝；必须显式提供期间/端点及所需日历；ObservationWindow 不作为 during 输入 |
 | by 请求日历轴，包括含日历轴的显式 Population | 拒绝；必须显式提供与输出日历相容的 during，不从 by 反推观察期间 |
 
 固有日期过滤和 where 中的 within(scope) 照常限制贡献，普通规约不必重复传入 during。
@@ -367,7 +374,8 @@ Session.instant/time_scope 的构造只读取本地 Session 时区元数据，�
 Field.at 显式绑定属性版本，非版本化字段不能假装有历史语义。
 
 Field 支持类型化比较、is_null/within 和布尔组合，不提供原生 expr。
-数值行表达式提供语义提案限定的算术，新增业务可加性由 Measure 声明；不扩展完整 Ibis API。
+数值行表达式使用语义提案 §2.6/§3.6 准入的原生 Ibis 运算；新增业务可加性仍由 Measure 声明。
+未知 dtype 自动留到 execute 准备，匿名与命名式不需要不同构造入口；不承诺全 Ibis API。
 多值/多字段筛选统一使用 in_population(coordinates(...))。
 字段轴的源 Null 默认归 None；缺映射、非法计算和实际覆盖检查失败按错误处理，不伪装为空分类。
 None 展示 `<null>`，真实同名字符串转义；规范排序 None 在前。
@@ -428,7 +436,7 @@ class Population:
     def intersection(self, other: Population) -> Population: ...
     def difference(self, other: Population) -> Population: ...
     def read(self, fields: Mapping[str, Field]) -> Query: ...
-    def classify(self, *, by: tuple[MemberAxis | Field, ...]) -> Population: ...
+    def classify(self, *, by: tuple[MemberAxis | Field | MembershipAxis, ...]) -> Population: ...
     def image(
         self,
         *,
@@ -461,8 +469,10 @@ Population.where 只接受 in_population 及其布尔组合，测试接收者已
 再按返回的 Column 筛选并取 population()。read 返回 Query，筛选在同一逻辑输入上组合；已导出的旧属性筛选由 pandas 处理。
 
 read 保留完整输入身份键，字段成为量列；同 customer_id 的两个订单仍两行。
-classify(by=...) 只接收 Field 与接收者原有的 MemberAxis：明确读取身份上的单值字段并取完整分类元组的集合像，
-可以同时列出原身份轴；不接 CalendarAxis、CorrespondenceAxis、其它身份轴、任意回调或多值分类。
+classify(by=...) 接收 Field、接收者原有的 MemberAxis，以及 owner 与接收者完整身份/角色/版本相容的 MembershipAxis：
+它在构造目标桶域，直接读取当前成员身份的单值字段，不执行事实根到桶的分配路径；描述中的自关系路径也不在此展开。
+membership 保留下游分桶描述，事实消费者再按显式路径优先规则绑定。
+可以同时列出原身份轴；不接 CalendarAxis、CorrespondenceAxis、其它身份轴、任意回调或 owner 不相容的 membership。
 缺少完整属性映射时失败，不静默删除引用或补 Null。
 仅投影已有轴使用 project；classify 的新属性读取不会被解释成对旧坐标的投影。
 image 只表示沿关系取目标身份，不与按字段分类共用方法名。
@@ -505,7 +515,7 @@ Metric 没有 expr/during/route，也没有 on 树位置参数。
 where 仅形成单一来源规约或完整配对作用域的新固有过滤定义。
 它接受 FieldPredicate 或 PopulationPredicate，显式捕获域的不可变字面量/逻辑定义；
 与 FieldPredicate 组合后的域依赖也须保留，不能靠谓词类型包装绕过归属检查。
-per 接受 Field、非空字段元组或显式 Population，选定内部样本后规约；规则见
+per 接受 Field、MembershipAxis、二者的非空元组或显式 Population，选定内部样本后规约；规则见
 [语义提案 §3.5](../semantic/expression-model-redesign.md#35-内部域规约与-query-格子统计)。
 @ms.metric 只声明函数局部名、可选 domain 与 ai_context，派生表达式不继承旧声明身份；不保留 named 或 RuntimeMetric。
 / 与 divide 规范化为同一节点，均保存分子分母角色；角色不自动授权观察路由。
@@ -523,7 +533,13 @@ Metric.per(固定名单) 后规约可显式定义新来源计算；只数名单�
 
 #### 4.3.1 结果组合的有限边界
 
-来源条件使用类型化字段谓词；行/Metric 组合只支持语义提案的闭合节点，不开放 Ibis 或回调逃生入口。
+来源条件使用有语义绑定的字段谓词；行/Metric 组合以原生 Ibis 数值图及语义注解为准，
+移除重复的 Marivo 数值 AST。未知操作、任意关系程序和回调仍拒绝；observe 检查阶段、贡献和已知事实，
+保留待真实 schema 验证的义务，不为匿名表达式提前连接来源。
+已知 schema 也不改变数值作者侧的 Deferred 载体；Catalog 条目及 Query.contract 披露语义事实。
+声明仅命名不新增 eager 求值根。ifelse/cases/coalesce 的分支需求域由[语义提案 §3.6.5](../semantic/expression-model-redesign.md#365-条件分支的需求域与检查范围)拥有，
+命名/内联等价；Query 后置筛选或丢列不反向取消已有严格检查。
+语义使用位置、声明计算指纹及绑定执行指纹分别描述消费、逻辑定义和实际计划，不能用 Ibis op 相等性混同。
 Query 只保留同域 Column 算术、比较、is_null 和 select/where。
 这些操作为主体选择、参照与比较运输实际合同，不扩成另一套通用表格表达式语言。
 结果条件赋值、封顶/截断、标签分类和一般配对统计交 pandas，见 §4.6.1。
@@ -540,6 +556,7 @@ Metric 完成值加非零常数不继承可加性，不能与逐行加常数后 
 其规则及反例由[语义 §3.3](../semantic/expression-model-redesign.md#33-指标依赖与比率)拥有。
 数值编码 Dimension、变量乘除、过滤、相消或乘零不能自动获得求和权限；不扫描 Catalog 猜等价声明。
 来源 sum/count/mean 等精确方法逐项校验意义；未知单位不能自动换算。
+approx_nunique/approx_median/approx_quantile 按定义保持近似意图、单位及单值结果要求，不授予合并完成值的权限。
 声明、路径、规则版本和本次中间状态由执行计划管理，完成值不能替代充分信息。
 
 #### 4.3.3 时间样本规约与派生依赖
@@ -547,6 +564,69 @@ Metric 完成值加非零常数不继承可加性，不能与逐行加常数后 
 时间角色、per(状态采样轴) 后规约的空间/时间次序由[语义提案§3.2](../semantic/expression-model-redesign.md#32-时间角色和时间样本规约)拥有。
 本次观察只提供期间/目标空间，计划中的原指标粗化需要可对齐的时间规约前信息；
 不能用完成P95或失去时点的分布补它，数值见证见 [场景验证 §7.8](lazy-analysis-dsl-scenario-validation.md#78-采样带宽-p95-与依赖指标)。
+first/last 在同一内部时间样本上有序选择；排序唯一性、include_null、采样覆盖与 strict 域见语义 §3.2.1。
+
+#### 4.3.4 显式成员关系分桶
+
+```python
+def membership(
+    by: Field | tuple[Field, ...],
+    *,
+    via: tuple[tuple[RelationshipRef, ...], ...],
+    unmatched: Literal["exclude", "null"],
+) -> MembershipAxis: ...
+```
+
+这是多值分桶的唯一公开入口；返回不可变的坐标绑定描述，不是 Population、数值表达式或物理表。
+by 的非空字段元组来自同一个成员 Entity；一个真实成员给出一个完整桶元组，不把各字段独立展开成笛卡尔积。
+via 是有序路径集合，可以为 ()；其中每条路径必须非空，起点推导贡献根，终点均为 by 的 owner。
+对每个被分桶的根独立绑定：先选该根唯一的显式路径，检查方向、终点、完整身份、角色与版本；
+只有未提供该根路径时，才在根与 owner 身份相容的条件下推导恒等绑定，直接读取自身成员字段。
+显式自关系或合法自返路径照常表达另一种成员分配，不与推导恒等关系竞争；多条显式路径仍拒绝。
+显式路径无效时报告其错误，不退回恒等绑定；恒等绑定不需要伪关系或空路径项。
+via=() 只适用于全部根都能恒等绑定的消费；描述可保留其它根的合法路径，当前只消费相关根的绑定。
+缺路径、竞争路径、方向或完整键/版本不相容均拒绝，不自动选路。
+字段及关系是已解析语义对象；schema 通过同一 execute 准备绑定。构造不读来源、不创建 Session。
+
+```python
+tag_buckets = mv.membership(TagId, via=((OrderTags,),), unmatched="exclude")
+tag_query = s.observe({"revenue": Revenue}, during=period, by=(tag_buckets,))
+tag_mean = Revenue.per(tag_buckets).mean()
+full_tags = mv.coordinates(by=(tag_buckets,), keys=(("A",), ("B",)))
+full_query = s.observe({"revenue": Revenue}, during=period, by=full_tags)
+full_tag_mean = Revenue.per(full_tags).mean()
+```
+
+同一作用域可以显式列出多个 membership，并与普通单值轴组合：`by=(tags, channels)` 或 `per((tags, channels))`
+表示对每条根贡献的两个成员集合取笛卡尔积；不推断相关性。要表达真实相关的标签/渠道对，使用同一成员 Entity
+上的 `membership((TagId, ChannelId), ...)`，只保留实际联合元组，不补交叉组合。
+每个描述先形成成员键集合，再对组合的完整桶元组与根贡献键去重；同桶一次、跨桶可重复。
+重复/冲突的字段轴或不同路由冒充同一轴均拒绝，不自动覆盖、合并或重排；不跨窗口或指标位置全局去重。
+unmatched 无默认值，逐描述决定空成员集变成空集或一个全 None 元组；因此 exclude 的空因子令组合为空，
+null 因子可继续与其它成员集合组合。真实成员的字段 Null 同样按完整坐标相等性去重，不制造第二种 Null 哨兵。
+成员版本/属性时点沿已有声明绑定，不推断当前版本；检查不会变成全来源健康扫描。
+普通 Field.via 与 members 的归属约束保持单值，不接受此描述作为数值字段或替代主体路由。
+
+MembershipAxis 在消费时展开为其有序字段轴，保留分桶组、路径、恒等规则和 unmatched 绑定；不是一个嵌套元组值列。
+coordinates(by=(membership, ...), keys=...) 接收展开后的完整字段值元组，提供带绑定的手写域；
+来源驱动的完整域使用 `s.members(TagEntity).classify(by=(tag_buckets,))`，按目标成员身份直接读取分类；
+这与贡献根的选路分开，即使描述含 TagEntity 的显式自关系，构造桶域也不沿它映射成员。
+多个完整成员域可用 product 组合，稀疏联合域直接用 coordinates；无需先运行事实分桶 Query，也不靠字段同名猜回绑定。
+Query.population 仍只给实际逻辑输出键，不能补出未出现的桶。纯 coordinates 的键运算不读取成员路径，
+消费事实分桶时才沿该路径取成员；classify 只读取当前成员身份的分类，不执行描述中的分配路径。
+上述各域均保持 lazy，保留自身来源/属性时点和 Session 约束。
+Population 的 project、集合和 product 保留所选轴所需分桶绑定；集合要求相同有序轴及绑定，投影不丢弃其成员路径与版本。
+
+per(membership) 在每个外部格子内生成实际桶样本；per(带绑定 Population) 选择该完整内部样本域，包括空桶，
+子指标按各自 empty/NA 政策完成后再规约。外部 by=Population 则要求覆盖全部被消费桶，不能用漏键过滤。
+成员分配关系与请求输出域 K 分开：完整 K 可含没有贡献的桶，但不新增根事实；命名 Metric 与匿名体完全相同。
+重叠桶的原指标总计按贡献并集重算；Query.reduce 的格子 sum 只是格子统计，二者不能冒充等价。
+跨桶可加性与 share 仍检查完整不交分区；不提供自动均分、加权分配或“归一化修复重叠”。
+多根指标逐根逐描述建立路径或恒等绑定，独立规约，再按完整桶键组合；缺少任一绑定即拒绝。
+这里的独立规约是逻辑贡献约束，不指定物理 aggregate/join 顺序；合法计划可先构造成员键集合，再回取根值规约。
+存在性筛选使用 preimage；真实关联次数使用独立关联 Entity 的 count；加权分摊使用显式分配根上的行量，
+不能把这三种含义合并为 membership 去重或公开 fanout_policy。来源建模不能表达的通用事件匹配不属于 Metric 能力。
+具体边界与执行等价条件由[语义 §3.7](../semantic/expression-model-redesign.md#37-显式重叠成员分桶)拥有。
 
 ### 4.4 最小规约与有效样本
 
@@ -561,7 +641,7 @@ Query 格子统计由 Query.reduce 拥有；样本单位和方法资格仍分别
 | Column.mean | 忽略 NA | NA；保留有效值 sum/count 供本次计划使用，分母不是全部 Population 大小 |
 | row_count | 不读取量值 | 空输入为 0；计全部当前坐标，包括值为 NA 的格子 |
 
-没有 empty 参数，也不保存用于区分空输入与全 NA 的隐藏计数。显式 row_count 与有效值数有各自的统计含义。
+Column 结果规约没有 empty 参数，也不保存用于区分空输入与全 NA 的隐藏计数。显式 row_count 与有效值数有各自的统计含义。
 结果规约不新增 nulls 参数；需要严格的全非空样本，可显式检查或在原 Metric 上声明 nulls="error"。
 多项规约消费同一输入，各量独立选取非 NA 样本；加权/配对运算才使用共同 mask。
 NA 被跳过不等于对整个 Population 的估计，量定义与有效样本政策在本次计划内保留；Artifact 仅记录必要输出描述。
@@ -585,7 +665,7 @@ def identities(
 
 def coordinates(
     *,
-    by: tuple[Field, ...],
+    by: tuple[Field | MembershipAxis, ...],
     keys: tuple[tuple[LiteralValue | None, ...], ...],
 ) -> Population: ...
 
@@ -604,7 +684,7 @@ Field 在 by 中是字段绑定轴，须有合法单值分类；按原类型形�
 | 操作 | 定义与约束 |
 | --- | --- |
 | identities(entity, keys) | 唯一手写身份名单入口；Entity 只给一次，每个键是按声明次序的完整主键元组，允许未经来源确认的身份引用；空 keys 仍是该 Entity 的类型化空域 |
-| coordinates(by, keys) | 唯一手写字段坐标域入口，声明字段轴的完整有限元组，允许稀疏域 |
+| coordinates(by, keys) | 唯一手写字段坐标域入口，声明展开后的完整有限元组，允许稀疏域；显式 MembershipAxis 保留其分桶绑定 |
 | product(*factors) | 至少两个不重复轴因子，按参数次序拼轴并作笛卡尔积；日历因子提供完整桶，任一空因子使结果为空 |
 | Query.population() | 当前逻辑输出坐标；保留筛选、来源依赖及必要检查，不提前固定键 |
 | Population.project(by) | 从已有轴或本次图的端点投影中选取/重排并去重完整元组，不读新属性；投影须全定义，outer 缺侧先按 presence 筛选 |
@@ -616,7 +696,7 @@ Field 在 by 中是字段绑定轴，须有合法单值分类；按原类型形�
 | 轴 | 允许的手写坐标 |
 | --- | --- |
 | 身份轴 | identities 的完整主键元组；Session.values 的 by 可用从 Population.axes 取得的已绑定身份轴，坐标同为完整主键元组 |
-| Field | 与字段 kind 相容的 LiteralValue，或表示源 Null 分类的 None；bool 不冒充整数 |
+| Field（含 MembershipAxis 展开的字段） | 与字段 kind 相容的 LiteralValue，或表示源 Null 分类的 None；bool 不冒充整数 |
 | CalendarAxis / CorrespondenceAxis | 不接受手写坐标，包括日期标签、桶序号或端点元组；不能用普通标量冒充内部键 |
 
 日历域由 TimeScope.by(Grain) 取得，并通过 product 组合；对应域来自明确的 align/compare。
@@ -630,7 +710,7 @@ in_population(Population) 则只筛已有输入，不生成键；请求完整输
 by=轴元组的 K 依 §5.1 推导。Metric.per(Population) 则显式选择内部样本，
 每个样本绑定子指标的贡献条件；域外贡献不属于该问题，不要求先 where 或覆盖未选择贡献。
 这是内部选择合同，不改变 observe(by=Population) 的外部覆盖要求，也不增加外部输出轴。
-域只传坐标和轴绑定，不传供给方指标、贡献过滤、期间或隐藏名单。
+域只传坐标和轴绑定（包括显式 membership 的分配规则），不传供给方指标、贡献过滤、期间或隐藏名单。
 
 所有域保持 lazy；s.query(population) 可 select 坐标、where、row_count、取域和 align，
 没有原指标可供 rollup/drill。执行后得到仅键 Artifact，没有占位量，也不能重新进入 DSL。
@@ -683,6 +763,7 @@ coarsen 保留 scope、时区、截断区间与父子映射；相同 grain 保�
 改变 grain 仅构造候选粗化，实际区间须完整映到唯一目标桶，不能细化或扩大读取窗口。
 日→月→年须与同 scope 下合法直接粗化相容；跨月周不能自动归某月，年桶仍只含原 scope 区间。
 坐标映射不授予指标可加性或充分状态，能否原指标合并仍由 rollup 检查。
+对依赖 window 的原量，候选 coarsen 不能通过 §4.9.4 的原时间绑定保留要求；应在粗轴上新 observe。
 
 ### 4.6 查询、结果与值表达式
 
@@ -963,16 +1044,33 @@ zero_denominator 只控制 share 新生成的份额，按语义 §3.4 处理，�
 
 ### 4.9 滚动窗口、累计与期间比较
 
-所有时间动作仍 lazy。ObservationWindow 与 CalendarCorrespondence 是绑定值，
-没有独立执行生命周期；期间只在 observe 绑定，Metric 没有时间默认。
+所有时间动作仍 lazy。ObservationWindow 只表示无轴的不可变窗口规则，没有绑定轴的第二形态或独立执行生命周期。
+Metric.window 是应用窗口的唯一入口；observe(during=...) 只接 TimeScope、CalendarAxis 或 None。
+期间、评价端点与日历在 observe 形成一次逻辑绑定：固定输出轴、端点及 W(t) 规则，不提前读取业务数据或冻结快照。
+后续 Query 操作运输该绑定，不能重选窗口或把“期”重新解释为另一粒度；实际 schema/日历覆盖与数据检查仍在各自阶段完成。
+Metric 可以拥有显式窗口变换，但没有隐藏的 during 默认。CalendarCorrespondence 仍按原合同绑定。
 
 ```python
-def trailing_periods(axis: CalendarAxis, *, count: int) -> ObservationWindow: ...
-def since(axis: CalendarAxis, *, start: InstantAnchor) -> ObservationWindow: ...
-def to_date(axis: CalendarAxis, *, grain: Grain) -> ObservationWindow: ...
+def all_history() -> ObservationWindow: ...
+def trailing_duration(*, duration: timedelta) -> ObservationWindow: ...
+def trailing_periods(*, count: int) -> ObservationWindow: ...
+def since(*, start: datetime | InstantAnchor) -> ObservationWindow: ...
+def to_date(*, grain: Grain) -> ObservationWindow: ...
 def period_offset(by: int) -> CalendarCorrespondence: ...
 def previous_year() -> CalendarCorrespondence: ...
 ```
+
+构造器仍由 mv 提供一个 canonical 入口，不再复制一套 ms.cumulative/ms.window 工厂。
+无轴规则只捕获常量和可独立解析的日历定义，可在受限声明体中调用或捕获；其内部属于依赖中立时间合同，不加载 Session 执行器。
+since 的 datetime 必须带明确时区，归一到精确时点；不能从声明加载环境猜时区。
+InstantAnchor 保留原有归属；捕获 Session anchor 的定义只在相容会话内可用，不能冒充独立可加载模型。
+duration 是有限正 timedelta，以固定实际时长计，不接月/年等可变单位；count 是非 bool 正整数。
+持续时长先在唯一 instant 轴减去 Δ，再呈现本地边界；不能直接做跨 DST 的本地墙钟减法。
+显式 grain/时区约束与消费方日历冲突即拒绝；无轴规则不冻结一个未来 Session 的实际日历或“现在”。
+
+`Revenue.window(mv.to_date(grain=month))` 可直接匿名观察或由 @metric 返回，均配 `during=days`。
+Metric.window 返回同一种受控 Deferred；命名只追加声明记录，不改变规则、需求域或计算指纹。
+不保留构造器的 axis 参数或 during=window 别名；旧提案示例统一改写为 Metric.window(rule) 加显式观察期间。
 
 期间对应与 §4.7 的 ordinal 一样不带轴，在 align/compare 绑定时从两侧操作数取得唯一日历轴。
 同比写法为 `current.compare(baseline, match=mv.previous_year())`。
@@ -996,23 +1094,32 @@ x(g,t)=Evaluate(m, Bind(m,g,W(t),context;B)) 是完整窗口基准语义，
 显式 P 的筛选和固有日期条件保留；十月订单主体不能自动扩大成七日完整来源。
 重叠窗口保留(output_key,component,contribution_occurrence)，不全局去重。
 
-#### 4.9.2 三类窗口的边界
+#### 4.9.2 窗口的边界
 
 | 窗口 | 对输出桶t的贡献范围 |
 | --- | --- |
-| trailing_periods(n) | 含当前桶的 n 期：从首前驱期间起点到t终点 |
+| all_history() | 无显式下界、时间早于 actual_end(t) 的全部合格来源贡献；显示起点不截断历史 |
+| trailing_duration(Δ) | [actual_end(t)−Δ,actual_end(t))，按实际经过时长 |
+| trailing_periods(n) | 含当前桶的 n 期：从首前驱期间起点到 actual_end(t) |
 | since(a) | [a,actual_end(t))，a须早于所有评价端点 |
-| to_date(p) | [containing_period(t,p).start,actual_end(t)) |
+| to_date(p) | [reset_period(actual_end(t),p).start,actual_end(t))；输出日历桶另须满足唯一包含约束 |
 
 期间回看要求完整的day/week/month/quarter/year或语义桶，部分桶不能冒充完整期。
 所需前驱来自完整日历；认证不足报日历覆盖错误，不制造期间。
-count为非bool正整数，所有窗口半开。
-to_date要求唯一包含层级，跨月周不能归某个月；可明确使用实际端点的部分期间累计。
-回看按日历期间计，七自然日不等于168小时；绝对时长回看使用小时粒度的 trailing_periods。
-不含当期的回看、隐式全历史起点、期初零、min_periods、插值、前值填充或任意累计seed均不提供。
+count为非bool正整数，有限窗口半开，all_history 只有严格上界；不扫描最小事件时间来伪造历史起点。
+to_date 的重置期间由精确评价端点 e 确定：选择唯一满足 left < e <= right 的期间，故 e 恰在边界时使用刚结束的期间，
+不靠减一微秒/一个精度 tick 近似。标量 TimeScope 的起点不参与该选择；例如 [09-01,10-08) 与 [10-01,10-08)
+的标量 MTD 都求 [10-01,10-08)，不能因第一个显示范围跨月而拒绝。
+有 CalendarAxis 时还要求每个名义输出桶唯一包含于一个重置期间，跨月周不能归某个月；截断桶用 actual_end 评价。
+标量端点合同不放宽这一日历层级约束；所需重置边界/前驱仍由相同日历权威给出并检查认证覆盖。
+trailing_periods 按日历期间计，七自然日不等于168小时；固定时长用 trailing_duration，可在日输出端点评价，
+不要求为了得到168小时窗口而改变成小时输出。切穿预聚合日值时须重新取原贡献，不能按比例切分日总额。
+all_history 是显式选择全部可用历史，不保证业务历史完整；固有 where、members 和来源保留范围仍有效。
+已声明有有限采样覆盖要求的状态指标不能由无下界窗口自动满足，应显式 since 或其它有限窗口。
+不含当期的回看、期初零、min_periods、插值、前值填充或任意累计seed均不提供。
 这里的“期初零”指业务输出或初始状态；[代数 Cum 的零延拓](algebra-theory.md#54-固定域上的线性与时间边界)
 只用于固定格子算子的恒等式，不生成额外日期，也不把缺测变成零。
-不同窗口分支分别observe，再按真实完整输出轴align/select。
+不同窗口可分别 observe 后按完整输出轴 align/select，也可用各分支显式 Metric.window 后按共同输出键组合。
 
 #### 4.9.3 覆盖、缺桶与执行检查
 
@@ -1028,8 +1135,8 @@ to_date要求唯一包含层级，跨月周不能归某个月；可明确使用�
 
 | 事实 | 行为 |
 | --- | --- |
-| 成功读取且无贡献 | sum/count 为 0；mean 等无有效值为 NA |
-| 已读普通 NA | 按算子忽略或报错；sum 全 NA 为 0，不追踪其与空输入的区别 |
+| 成功读取且无贡献 | sum 按 empty 政策为 0 或 NA，count 为 0；mean 等无有效值为 NA |
+| 已读普通 NA | 按算子忽略或报错；sum 无有效值按 empty，不追踪其与空输入的区别 |
 | 日历认证范围、完整键映射或请求域覆盖检查失败 | 结构化错误，不发布部分 Artifact |
 | 本次计算缺少必需字段或充分信息 | 信息不足错误，不当作普通 NA；导出后缺日期由外部统计自行检查 |
 | 重复键、非法值、来源读取失败 | 结构化错误 |
@@ -1041,13 +1148,30 @@ to_date要求唯一包含层级，跨月周不能归某个月；可明确使用�
 
 #### 4.9.4 原指标窗口与外部统计
 
-窗口只在 observe(...,during=window) 绑定，直接对完整输入求原指标。
-Query 不提供重设窗口；换窗口时构造新的 observe，不能借窗口扩大 where/top 已选范围。
-Metric没有隐藏时间默认，因此不存在更近分支覆盖；固有固定范围冲突仍拒绝。
+窗口在 observe 取得本次端点后，直接对 W(t) 的完整输入求原指标；规则只来自 Metric.window。
+Query 不提供重设窗口；换窗口或评价粒度时构造新的 observe，不能借窗口扩大 where/top 已选范围。
+本版对待上卷原量的整个依赖闭包检查 window（包括 per 或条件表达式内的 window）：
+若 observe 绑定了日历轴，rollup 必须原样保留该时间轴及其每个端点/W(t)，只允许按其它轴做合格的空间上卷。
+粗化、替换或删除该时间轴均拒绝，即使只有一个桶、count=1、规则为 all_history，或碰巧能算出相同值也不例外。
+该拒绝在规划时给出 window 依赖位置和原/目标轴；Query.contract 的上卷指引只列保留该时间绑定的候选。
+标量 TimeScope 观察可保持原端点/W 做空间上卷；没有日历轴不意味着可以改端点。普通无窗口量仍按原 rollup 合同处理。
+where/top 只选择既有坐标，select/空间上卷保留原时间绑定及必要检查，不把选中端点重组成新窗口。
+时间格子的 sum/mean 属于 Query.reduce；粗粒度原窗口值须新 observe，不能在 rollup 中选择“并集”“末端点”或“完成值相加”。
+同一依赖路径只允许一次窗口；已有子窗口时再次 window 拒绝，不以相同规则为由重复应用。
+不同算术分支各自带窗口合法；普通 during=CalendarAxis 只提供输出坐标，不覆盖这些规则。
+普通窗口分支沿用[执行 §1.1.1](lazy-analysis-dsl-execution.md#111-共享逻辑节点与执行内输入)的读取合同，
+不因基础表达式相同而强制共同输入、快照或共享扫描。旧 first-seen 的 H/W 配方只在一致输入前提下等价；
+这不是普通 window 的准入条件，也不由名称、哈希或 Python 变量复用自动证明。具体条件见
+[语义附录 A.1.1](../semantic/expression-model-redesign.md#a11-等价迁移的判定条件)。
+无轴规则不能直接传 during；窗口 Metric 不能省略 during，不能隐式取当前时间。
+TimeScope 可为 all_history/since/trailing_duration/to_date 提供唯一 end 评价端点；标量 to_date 按 §4.9.2 选重置期间，不用 scope.start 截断 W；
+trailing_periods 必须有 CalendarAxis 才能确定“期”。状态采样/内部域的额外期间要求继续按各自合同检查。
+来源叶子须有合法时间角色；不同根保留各自显式角色，不用一个字段覆盖所有根。
+过滤、版本、Population 选择与固有固定范围不被窗口扩大；约束冲突仍拒绝。
 
 当前格子滚动统计交 pandas，状态与日历检查见 [终端窗口示例](lazy-analysis-dsl-examples.md#214-终端-artifact-与-pandas-日格子统计)；
 它不替代原窗口指标的组件重算。
-distinct需精确身份集合，quantile需精确bag/分布或完整输入；
+精确 distinct 需精确身份集合，精确 quantile 需精确 bag/分布或完整输入；近似规约从窗口贡献重新求值，或使用另证合格的兼容 sketch，不能合并完成估计值；
 来源 mean/weighted_mean 的合格路线保留 sum/count 或共同配对的乘积和/权重和，不能合并完成均值。
 内部 per 规约还须保留足以按内部键重新完成子指标的信息，不能直接套用来源规约摘要。
 状态采样规约仍检查时间规约前的采样时点对齐；重叠窗口和累计端点不因显示成多行就可直接相加。
@@ -1077,14 +1201,16 @@ outer只有基期的行不能丢弃或伪造当前坐标。
 ### 5.1 身份约束、贡献与输出域
 
 省略 members 时按各组件定义直接形成贡献；显式身份域 P 再沿合法路径限制贡献归属。
-多个根独立规约后组合，不原始 join；同根不同使用保留各自出现。
-每个组件有值读取 v、贡献 C 及完整分类 a:C→K；窗口出现还携带输出目标。
+多个根逻辑上按各自贡献规约后组合，同根不同使用保留各自出现；有 per 时保持完整 (k,j) 而非先压到最终 k。
+物理关系展开不得改变各根的贡献次数；合法关系读取、键集合去重及预聚合计划按
+[语义 §3.7.2](../semantic/expression-model-redesign.md#372-逻辑贡献约束与物理执行策略)准入，不以是否先 join 原始表作一刀切判定。
+每个组件有值读取 v、贡献出现 C 及完整分类 a:C→K；membership 先将根事实展开为完整桶上的集合出现，窗口出现还携带输出目标。
 
 | 有效输出轴 | K |
 | --- | --- |
 | 零轴 | 标量单例，包括无贡献或空 P |
 | member()，可附加 P 上单值字段 | 显式 P 的完整身份及其分类元组，含无贡献身份；缺 P 时不能仅靠标记猜 Entity |
-| 普通字段，未请求身份轴 | 各组件有效贡献的完整分类像并集；有无 members 都遵守此规则 |
+| 普通字段或显式 membership，未请求身份轴 | 各组件有效贡献的完整分类/成员桶像并集；多 membership 为每根贡献的集合乘积；有无 members 都遵守此规则 |
 | 仅日历 | 全部请求桶，包括空桶 |
 | 上述非日历轴加日历 | 已确定的完整非日历元组域 × 请求日历桶 |
 | 显式 Population | 该 Population 的完整坐标，包括无贡献坐标 |
@@ -1134,7 +1260,8 @@ member_count 须有 P 且每格身份分类明确；其贡献 C=M 的分类像�
 | Query.share | 本次输入的总体、可加贡献包含与完整映射 |
 | reduce | 当前格子上的 sum/mean/row_count，创建有明确样本的新量 |
 
-rollup只消费选中坐标的原信息，不恢复未选贡献。均值不能合并完成均值，
+rollup只消费选中坐标的原信息，不恢复未选贡献。依赖 window 的原量先通过 §4.9.4 的时间绑定保留检查，
+不能因有原始输入或充分摘要就重绑窗口。均值不能合并完成均值，
 比率须重求组件再组合；tag重叠分组不是不交分区。
 per(...).mean() 的地区 sum/count 不能区分“两个地区是同一客户”与“两个不同客户”，
 总体值可能为 400 或 200；先按内部身份合并子指标才有充分状态。执行器必须规划必要的内部键/子状态，

@@ -1,8 +1,11 @@
 # Lazy Analysis DSL：执行、保存与结果交接
 
-Date: 2026-10-14
+Date: 2026-10-17
 
-Status: proposed v0.35；尚未实施，不构成当前 API、后端能力或 Runtime 验收声明。
+Status: proposed v0.37；原生 Ibis 修订尚未实施，不构成当前 API、后端能力或 Runtime 验收声明。
+v0.37 增补有序/近似/nullable sum、membership 与窗口的执行边界；仍未实施。
+2026-10-17 fanout 修订采用贡献语义约束，允许已证明等价且已准入的不同物理策略；新增边界见 §1.1.4。
+v0.36 复用 schema preparation 自动绑定原生 Ibis 数值图；详细语义由语义提案 §2.6/§3.6 拥有。
 v0.35 明确分阶段检查、浮点优化准入、旧 Session 拒绝与历史产物边界；移除资源预算设计。
 v0.34 明确来源类型准入、多 datasource 路线、普通观察 Evidence 和 Population.contract 的责任。
 执行分工仍为 Ibis 源端计算、pandas 统一本地执行、PyArrow 存储和读取；Artifact 始终为终端产物。
@@ -25,7 +28,8 @@ evidence_digest() 不接受参数，直接返回全部 Evidence（.items）及�
 
 复用当前定义图、compiler、方法注册、物化、原子发布和 Store，不建第二 Runtime。
 私有节点包含 Population 的来源身份选择/显式读取/坐标运算、Metric 域依赖/贡献过滤、
-类型化行表达式/Measure 声明、来源规约、Metric 组合/PerReduce、Observe、Query 变换与 Values。
+原生 Ibis 数值子图及语义注解/Measure 声明、来源规约、Metric 组合/PerReduce、membership/window 绑定、Observe、Query 变换与 Values。
+自定义 Measure/Metric 数值 AST 由 Ibis 替代；语义边界仍归共同定义图，不建镜像数值 AST。
 图不包含 ArtifactRead、FixedLeaf 或从 Artifact 派生的数据叶子；执行结果不是后继图的输入。
 来源 Ibis 在合法 schema/关系绑定后 lower，并沿 SourceSession.execute 返回 pandas；
 本地 stage 统一用 pandas/现有数值内核完成本次计划内的组合、检查和中间关系消费。
@@ -41,6 +45,12 @@ Query 依赖可含来源、字面量或两者，仍需明确多来源/本地 sta
 共享 Population/Metric/Query 只共享定义，不承诺同一次读取或相同值。
 `artifact = q.execute()` 不替换 q、不缓存其业务答案；以后执行 q 是新求值。
 同次 execute 也不自动提供跨源快照；独立 Metric 根无需共同读取时点，不追加对账或重试来制造保证。
+普通窗口分支遵循同一读取合同；即使基础贡献作用域相同，也不强制共享扫描、共同输入或快照，
+不因缺少这些保证而拒绝一般窗口算术。命名/内联不改变此规则。
+first-seen 的 H/W 改写只在两者实际消费同一合格历史 U 时具有迁移等价性；稳定输入、合格共同输入路线
+或已有后端一致性保证可满足前提，定义/变量/哈希相同不能证明。未证明时不宣称 first-seen 等价，
+但不为普通表达式增加执行门禁，也不通过识别公式或名称偷偷启用特殊读取模式。
+可在已有路线允许时共享输入；不新增一致性探测、全局快照或固定结果 API。
 执行器可以在本次 invocation 内暂存/复用中间输入，其生存期由计划消费关系管理。
 这不是公开固定结果对象，也不产生跨 execute 的固定输入保证。
 
@@ -74,6 +84,47 @@ Metric.where 保持完整贡献作用域；Metric.per 按 (外部格子 k, 内�
 模型收录的独立解析条件由[语义 §2.4](../semantic/expression-model-redesign.md#24-命名与模型收录是不同边界)拥有。
 模型加载和分析 Artifact 的保存互不替代；不能通过执行名单、剥离 Session 或提升 Artifact 使模型收录通过。
 脚本显式提供的外部键/数值作为新的字面量输入处理，不消费旧 Artifact 的绑定、检查或历史图。
+
+#### 1.1.3 五项扩展的执行边界
+
+有序/近似规约与 sum(empty=) 仍在原 SourceAggregate/PerReduce 边界检查；membership 和 window
+是贡献/坐标绑定描述，不复制 Ibis 数值 AST，也不增加第二 Runtime。模型导入和声明只捕获配方。
+
+| 能力 | 准备与执行必须保持 |
+| --- | --- |
+| first/last | 识别唯一时间排序、include_null 和 nulls；先按同时点完成子指标再选择。不能用未排序的后端 first/last；严格 NA 检查覆盖完整被需求样本域，不限于最后输出的一条 |
+| approx_* | 检查真实 dtype、定义精确性、q 及具体后端/本地路线；实际算法/版本进入绑定指纹与必要结果描述。未知算法误差不能写成有界保证；无路线在业务计算前拒绝，不隐式改成精确或反之 |
+| nullable sum | empty 在真实 Ibis lowering 前由语义适配消费；需要时共同取得 sum 与有效值支持，再按政策完成。空输入/全 NA 与有效零区分，严格 NA 先检查，缺坐标不被造出 |
+| membership | 每根逐描述优先采用唯一合法显式路径（含自关系），无路径时才推导相容恒等绑定；描述内保留相关元组，描述间按集合乘积组合，逐因子处理 unmatched，再按完整贡献键/桶键对去重。请求 K 与分配关系独立，coordinates/classify 的显式绑定保留到 per/observe；完整键跨源传递需合法路线，各根独立规约 |
+| window | 唯一输入为 Metric.window 的无轴规则，加 during 的期间/日历；绑定到 W(t) 后保留实际出现位置。observe 固定逻辑时间绑定，后续只运输，不重绑；窗口原量的日历轴粗化/替换/删除在规划时拒绝。普通分支不新增共同输入要求。标量 to_date 以 left < end <= right 选重置期间，不检查显示起点属于该期间；日历桶唯一包含另检。固定 duration 不换成 civil period |
+
+只能在证明输入、政策、身份、顺序和数值路线等价时使用预聚合、键集合去重、共享扫描或 sketch 合并；
+aggregate_then_join 是候选优化，不是必须采用的执行骨架或公开 policy。具体要求见 §1.1.4。
+共享数值结构不共享不相容的桶/窗口/NA 政策；必要检查保留原语义使用位置。
+条件分支需求先选输出端点/桶，再展开其完整贡献；first/last 和近似计算不能偷偷缩小所选样本上的 strict 检查域。
+声明中未选中的分支仍做静态与 schema 检查。对被需求数据的映射、采样和严格错误阻止整次发布；
+不做未被请求贡献的全表健康扫描，也不声称消除来源连接/解码错误。
+直接从贡献求值是基准语义，不要求先提供优化摘要。中间支持数、成员键和 sketch 只在本次计划按需保留；
+Artifact 保存实际输出及必要算法/规则说明，不保存可执行窗口、成员程序或合并状态，重开不能继续 DSL。
+
+#### 1.1.4 Fanout 的执行准入
+
+[语义 §3.7.1–§3.7.2](../semantic/expression-model-redesign.md#371-fanout-的表达方式与能力边界)
+拥有贡献单位、表达方式和等价条件；执行计划消费这些事实，不按 SQL 中 join/aggregate 的文本顺序决定合法性。
+逻辑上的多根独立规约允许物理阶段融合，也允许先沿合法关系取键再按原根身份回取数值，
+但不能用关系乘积的行数代替某个根的贡献次数。存在性选择、membership 集合出现和真实关联事件须分别保留。
+
+规划器只选择已有具体资格的路线；无需建立通用策略枚举器、公开 fanout_policy 或成本优化框架。
+预聚合必须保留完整目标键、内部样本/采样键、成员归属、原过滤/时间/窗口、必要检查与充分状态。
+不能先压到最终展示键再尝试恢复逐客户子式，也不能合并完成 P95、独立去重数或重叠桶完成值冒充原量。
+count_distinct、mean、quantile 等不因非可加就一律拒绝：直接消费合法贡献仍可获准，摘要合并单独判断。
+
+计划可以使用单值关联、存在性半连接、完整贡献键/桶键集合去重、预聚合后关联或分支规约后对齐；
+它们均须满足原 NA/empty/未匹配/配对政策、外域覆盖、检查需求域和方法精度合同。
+去重不能跨使用位置、输出窗口或根，也不能抹去独立关联事件键。分配权重必须来自明确贡献模型，
+执行器不自动均分、归一化或引入匹配程序。无法构造等价计划时保留细粒度直接求值路线；
+若该路线也无资格，则报告具体缺失绑定、信息或后端/交接能力，不替换业务问题。
+等价计划的比较以相同实际输入为前提，不追加跨源快照、共同扫描或全表数据健康验证要求。
 
 ### 1.2 默认保存信息
 
@@ -184,18 +235,18 @@ schema-only 准备只解析声明类型、精度、时区及对应路线资格�
 
 ## 2. Agent 读取与错误契约
 
-Help拥有静态语法，Metric.contract拥有定义、规范政策、显式依赖、归属、收录阻碍及绑定要求，
+Help 拥有静态语法；Catalog 定义条目和 Query.contract 披露指标定义、规范政策、显式依赖、归属及待检查要求，
 Population.contract 拥有域定义和已有绑定，Query.contract 拥有本次逻辑上下文；
 Artifact.show 展示已提交答案与有界 Finding/Evidence 摘要。
 Artifact 没有 DSL contract；有 Top-N 展示次序时沿用，否则按完整键规范排序。
 默认政策由 [语义提案 §3.4](../semantic/expression-model-redesign.md#34-样本政策的归属) 和
 [DSL §4.4](lazy-analysis-dsl-redesign.md#44-最小规约与有效样本) 拥有，实例只显示其已解析值。
 执行内输入合同集中在§1.1.1，各算子说明自身需要的局部依据。
-三个 contract 与新/重开产物阅读的完整调用见[场景 §8.7](lazy-analysis-dsl-scenario-validation.md#87-构造披露执行后阅读与重开)。
+Population/Query contract 与新/重开产物阅读的完整调用见[场景 §8.7](lazy-analysis-dsl-scenario-validation.md#87-构造披露执行后阅读与重开)。
 
 ### 2.1 repr 与输入权威
 
-所有公开对象提供 bounded 单行 repr，不触发业务或 schema 读取。
+Marivo 公开结果和定义条目提供 bounded 单行 repr，不触发业务或 schema 读取；原生 Deferred 的 repr 不承担该结果披露合同。
 Query repr 包含 kind、逻辑身份、来源/字面量依赖摘要及 contract 定位；Population 不提前枚举未知键集。
 Metric 显示匿名/命名身份及已知域依赖，不把声明名称显示成已发布 Catalog Ref。
 Artifact repr 包含 kind、Session/Artifact ID 并指向 show；不显示虚构的执行状态或续算资格。
@@ -234,9 +285,9 @@ Population.where 不接受 FieldPredicate；需要当前字段条件时用来源
 | --- | --- |
 | 来源构造器收到结果Column/统计请求 | Query 格子统计的 sum/mean/row_count 使用 reduce；其它结果处理按 §3 交 pandas；新来源指标明确来源定义 |
 | 结果select/reduce收到Field/Metric | 新指标先observe，语义字段先合法read/分组；Query 已有轴使用coord，随后显式对齐 |
-| Ibis cases/least 等收到行/Metric/结果表达式 | 只使用当前阶段获准的算子；结果普通处理交 pandas，复杂来源值先建合法来源字段，不自动转换阶段 |
+| Ibis cases/least 等混合行/Metric/结果阶段或使用未知规则 | 同阶段且单位/贡献相容的行或 Metric 数值式可以直接使用；混合阶段与未知操作拒绝，Query 结果普通处理交 pandas |
 | 来源Metric由裸后端Ibis表/memtable拼入 | 指向合法Entity与声明字段，说明缺少的来源/单位/权限，不能转型绕过 |
-| @ms.metric 收到来源表参数、Ibis scalar 或全局计算政策 | 使用零参数声明体返回 Metric；政策移到实际 sum/divide 等节点，名称从函数名捕获，domain 在收录时限定，不创建 Session 或执行查询 |
+| @ms.metric 收到来源表参数、自由行值、外部 Ibis 图或全局计算政策 | 零参数体返回合法 Metric 阶段的受控原生 Deferred；带关系的裸 Value 不作为作者入口；政策归实际算子，不能仅凭 Scalar shape 放行；不创建 Session 或执行查询 |
 | 旧 ms.aggregate/ratio、entities=、fanout_policy、empty= 声明 | 按[语义附录 A.1](../semantic/expression-model-redesign.md#a1-拟替代的已提交合同)指出当前声明的替代写法及非等价项；不静默迁移或累积成新的批量诊断框架 |
 | @ms.measure 返回 Metric 或逐行乘积直接 sum 缺授权 | Measure 体返回同根行表达式；已有单位/许可可继承，仅对缺少的新业务权限作显式声明，不修改原叶子的权限 |
 | Metric 依赖活动 Session、可变外部值或未受支持回调 | 指出捕获位置和预期的不可变定义/精确引用；不 pickle 对象或自动执行域 |
@@ -248,14 +299,14 @@ Population.where 不接受 FieldPredicate；需要当前字段条件时用来源
 | DSL 收到 Artifact 或 Artifact 数据轴 | 使用原 Query 在执行前组合，或 to_pandas 后处理；不得把产物转成隐式数据叶子 |
 | 需要 Query/Population 的位置收到 Artifact ID 字符串 | 报告所需类型；精确旧答案用 Session.artifact(id) 阅读，不自动解析为计算输入；合法字面量位置的字符串仍按普通值处理 |
 | Metric.per 缺贡献到 (k,j) 的绑定，或输入阶段错误 | 列明实际轴、根和缺失绑定；使用合法字段/域，Query 格子统计用 reduce；Artifact 交 pandas；不要求裸 j→k 或补齐域外未选择贡献 |
-| 算子政策不适用或 lowering 无法保持 | 指出实际节点和政策；例如 sum 不接 empty，mean 不能补零；无合格路线明确失败，不退回后端默认 |
+| 算子政策不适用或 lowering 无法保持 | 指出实际节点和政策；例如 sum 的 empty 只能是 zero/null，mean 不接 empty；无合格路线明确失败，不退回后端默认 |
 | Column属于另一输入域 | 先按已有合法映射align/broadcast，再构造结果表达式 |
-| 已知单位不相容，例如 CNY + USD | 行/Metric 构造报 SemanticError，Query Column 构造报 AnalysisError；列明双方单位与位置，要求显式合法换算后重新组合，不隐式换汇 |
+| 已知单位不相容，例如 CNY + USD | 行/Metric 最早可检查的构造/消费边界报 SemanticError，Query Column 构造报 AnalysisError；列明双方单位与位置，要求显式合法换算后重新组合，不隐式换汇 |
 | 独立参照列单位缺失或不相容 | 列明参照列及双方实际单位；用 values 的 columns={"budget": "CNY"} 等映射创建新参照，裸常量不携带单位，旧结果不补写单位 |
 | values 的 columns 收到嵌套列定义或缺少行中量名 | 直接提供完整的列名到 str / None 单位映射；"1" 为无量纲，None 为明确未声明，量名与每行完全一致 |
 | TimeScope.by/coarsen/to_date 的 grain 收到字符串，或 by/coarsen 另收到 count | 使用 mv.grain(unit, count=...) 或已加载认证日历的 grain(level)；粒度消费者仍校验合法分桶、粗化或包含关系 |
-| identities/coordinates/values 手写键与轴不相容，或请求 CalendarAxis/CorrespondenceAxis | 列明轴及所需字段 kind 或完整主键元组；身份名单用 identities，coordinates 只接 Field 轴；字段 Null 用 None，量值不接 None；日历用 TimeScope.by/product，已有日历与对应域用 population/project/where 复用 |
-| Population.classify 的 by 收到日历、对应或其它身份轴 | 只读取单值 Field，并可保留接收者的原 MemberAxis；已有坐标用 project，关系像用 image 的 via 元组 |
+| identities/coordinates/values 手写键与轴不相容，或请求 CalendarAxis/CorrespondenceAxis | 列明轴及所需字段 kind 或完整主键元组；身份名单用 identities，coordinates 接 Field 或显式 MembershipAxis 展开的字段轴并保留分桶绑定；字段 Null 用 None，量值不接 None；日历用 TimeScope.by/product，已有日历与对应域用 population/project/where 复用 |
+| Population.classify 的 by 收到日历、对应或其它身份轴 | 读取单值 Field、保留原 MemberAxis，或对 owner 身份相容的 MembershipAxis 直接读取目标成员分类；不在 classify 执行事实分配路径。已有坐标用 project，关系像用 image 的 via 元组 |
 | 本地时刻存在 DST 歧义或不存在 | 提供明确偏移或带时区值；范围/since/at 复用精确 InstantAnchor，不用 end 减 tick 近似边界前版本 |
 | 时间构造器收到 naive datetime | 提供带时区 datetime；需按报告时区解释的日历边界使用该构造器支持的日期或无偏移字符串，来源字段仍遵守来源时间合同 |
 | ordinal 两端粒度/日历不相容或含截断桶 | 重新构造同粒度、相容日历且边界完整的观察；不自动重采样、补桶或把 outer 当作修复截断桶的办法 |
@@ -265,6 +316,10 @@ Population.where 不接受 FieldPredicate；需要当前字段条件时用来源
 | preimage 的 targets 是字段域或另一 Entity 身份域 | 指出声明关系的目标 Entity；使用该 Entity 的身份域，不能按字段同名自动转换 |
 | FieldPredicate与ColumnPredicate混用 | 指出当前作用域及各输入归属，分别在观察/成员或结果上构造条件 |
 | 未绑定域或域轴不相容 | 列实际轴/角色及缺失映射；由合法接收者绑定，不能凭标签或改名修复 |
+| membership 的某根有多条显式路径、显式路径无效，或无路径且无法恒等绑定 | 列明根、目标 owner 和问题路径；提供唯一合法路径，只有未提供路径且身份相容时才推导恒等。合法自关系不是歧义，错误路径不能靠恒等回退掩盖 |
+| 请求隐式关联次数、自动分摊或通用跨根事件匹配 | 按语义 §3.7.1 指明当前贡献单位；真实关联/分配使用明确来源及完整键，无法由受支持来源构造的配对由上游提供；不建议修改 fanout_policy、按量值去重或放宽仅限条件/坐标的路径 |
+| fanout 候选预聚合丢失内部键、贡献身份或充分状态 | 保留所需细度并选择已有资格的等价计划；无路线时列明缺失信息或执行资格，不先压到展示键、不合并完成 P95/去重数，也不新增跨源快照要求 |
+| window 原量的 rollup 请求粗化、替换或删除已绑定时间轴 | 规划时指出原时间绑定、目标轴与 window 依赖位置；保留原轴做合格空间上卷，或用新 observe 明确绑定目标粒度。格子统计用 reduce；不能靠追加摘要、单桶/count=1 或换后端绕过 |
 | Query 上卷缺合格的充分信息执行路线 | 指明所需内部键/组件及未支持的 stage，重新构造目标观察；不能以完成均值替代或建议 Artifact 续算 |
 | 名单谓词无合格后端类型/表达式路线，或超过已知后端原生限制 | 复用 DomainPreparationError，字段约束见[架构 §9.2](analysis-implementation-architecture.md#92-名单和多来源的执行内交接)；由调用方重建范围或改用已有合格来源路线，不转成各列 IN、临时表或隐式全源读取 |
 | 显式 error 政策下的零分母 | 报告实际行/Metric/Column 或 share/compare/weighted_mean 节点、政策和有界坐标；期望非零分母、实际为零；修复输入或由用户明确选择本算子的 null 政策，不要求搬动表达式阶段，不自动降级；失败不发布部分结果 |
@@ -284,6 +339,43 @@ Artifact 中的 Evidence 是阅读材料，不参与后续 DSL 授权；外部�
 ### 2.4 检查时机与能力披露
 
 在信息足够的最早边界检查；不能把已知非法输入一律延迟到 execute，也不能为提前判断而读取业务数据。
+
+原生 Ibis 的命名/匿名输入共用[语义提案 §2.6](../semantic/expression-model-redesign.md#26-原生-ibis-与自动延迟绑定)。
+作者侧命名与匿名值始终为受控原生 Deferred，已知 schema 不提前切换成裸 Value。
+消费时先遍历获准 Resolver 配方，发现完整闭包、语义方法、政策和使用位置，再进入 schema preparation；
+内部解析器拦截语义方法，其余调用委托获准 Ibis 构造器，不对混合配方直接原生 resolve。
+execute 准备自动获取完整必要闭包的 schema，解析受控 Deferred，取得真实 operation DAG 后完成物理 numeric dtype、
+单位/阶段/根剩余义务、政策 lowering 和路线资格检查，再进入依赖这些事实的业务计算。
+语义检查不能只检查 DAG 的返回类型；条件、所有分支、规约参数及原始依赖义务都要保留。
+不增加 ms.require、手工 schema、假 float64、来源全表预检或公开准备生命周期。
+schema 获取可能有网络/文件 I/O；contract/observe/load 保持无来源 I/O，显式显示 dtype 未绑定。
+
+源端可编译不证明跨源 Metric 数值函数有合格本地内核。先逐根规约，再以完整坐标键交付 pandas；
+聚合后的 sqrt/ifelse 等仍须在该位置执行，不能为了下推改成逐行运算或隐藏 DuckDB 本地求值。
+本地能力缺失在准备阶段给出具体操作/类型缺口；Artifact 不保存 Ibis 图或延迟配方。
+物理类型变化重新绑定并参与缓存键；不重跑作者函数。值域、NA、除零、溢出等检查在实际数据阶段执行。
+按 Ibis operation 到合格 pandas 内核的分派继续存在；删除的是旧 Marivo 数值 AST 及其重复构图/翻译入口。
+
+语义使用位置按逻辑作用域和操作数角色路径关联；结构相等的 Ibis op 不合并政策或权限。
+相同计算多处消费保留各处需求域，完整语义相容时才允许按域并集共享执行，不改变读取保证。
+source-free 声明计算指纹来自受控配方与语义事实；绑定执行指纹再纳入真实 schema/图、观察与需求域程序、
+实际消费依赖及规则/路线版本。只用声明指纹不能复用已绑定计划，动态域和业务数据仍每次执行求值。
+
+#### 2.4.1 条件分支与严格检查的执行域
+
+完整数值语义由[语义提案 §3.6.5](../semantic/expression-model-redesign.md#365-条件分支的需求域与检查范围)拥有。
+所有分支的符号、类型、单位、贡献根和权限都检查，包括未选分支；schema 准备保持静态完整闭包。
+执行时 ifelse 的条件在当前需求域求值，True 进入真分支，False/NA 进入假分支；cases 按首次匹配，
+coalesce 按左侧已求值结果的 NA 域继续，不捕获严格错误。普通算术、nullif、least/greatest、and/or 无隐含短路。
+
+行条件的需求域是贡献行；Metric 条件的需求域是完整输出坐标，再映射到各子规约的完整贡献。
+准备阶段验证条件到动态需求的 stage 路线，执行时计算域；不把格子条件下推成原始行条件。
+本地必须先选择输入域再算 sqrt/divide 等；源端须避免无需求分支的非法计算，不能先全域求值再掩码结果。
+无法保证同义时准备阶段拒绝。声明和匿名变量都不形成 eager 根；仅命名、内联和提取公共子式的结果及错误一致。
+额外观察一个严格子式会增加独立根需求；后置筛选、Top-N、丢列或乘零不能取消该需求。
+连接/读取/解码错误仍由其 owner 处理；此规则不保证未选分支零来源 I/O。
+
+#### 2.4.2 检查与披露汇总
 
 | 边界 | 可判定内容与行为 |
 | --- | --- |
@@ -371,7 +463,7 @@ if values.isna().any().any():
     raise ValueError("This statistic requires non-missing input values.")
 ```
 
-配对统计使用一份共同非 NA mask；sum 默认忽略 NA 且空/全 NA 为 0，mean 以有效值数作分母。
+配对统计使用一份共同非 NA mask；sum 默认忽略 NA，空/全 NA 按 empty 为 0 或 NA，mean 以有效值数作分母。
 数据集合法执行时已通过必要失败检查，不要求外部示例再拒绝已删除的 Unknown/Undefined 状态。
 presence False 与值为 NA 仍是不同事实。跨表计算明确完整业务键、唯一性与缺侧，
 不用 RangeIndex 对齐；包含空分类时 groupby(dropna=False)，不能借 pandas 默认行为改变 Population。

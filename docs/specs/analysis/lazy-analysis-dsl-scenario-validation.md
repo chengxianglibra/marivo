@@ -1,22 +1,23 @@
 # Lazy Analysis DSL：五个业务场景与时间分析的设计验证
 
-Date: 2026-10-14
+Date: 2026-10-17
 
 Status: design validation；模拟数据与独立数值校验，不是新 DSL 的运行时验收。
 
 验证对象是 [Lazy Analysis DSL 定义](lazy-analysis-dsl-redesign.md)
-proposed v0.35，理论依据是 [核心分析代数](algebra-theory.md) proposed v0.24。
+proposed v0.37，理论依据是 [核心分析代数](algebra-theory.md) proposed v0.25。
 执行与交接合同见 [执行、保存与结果交接](lazy-analysis-dsl-execution.md)，
 完整组合示例见 [多轮分析示例](lazy-analysis-dsl-examples.md)。
 附录中的版本、HEAD 和 SHA-256 属于当时的历史核验记录，不用于定位拆分后的文档。
 附录 A 的 189 项历史数值代码保持原样；C/H/J 按 nullable 规则校验，K 验证统一零分母政策的数值边界，其余历史数值标识保留；其中 Domain/domain 是历史集合术语，不是当前目标 API 名称。
 
-本文与 v0.35 提案及 [统一语义表达式](../semantic/expression-model-redesign.md) 同步修订。
+本文与 v0.37 提案及 [统一语义表达式](../semantic/expression-model-redesign.md) 同步修订。
 本轮补齐粗化组合、身份对应、属性版本读取和披露代码；首版移除外部业务缺口声明及消费承诺。
 本次补齐声明改写、分阶段检查、元组谓词、浮点优化、完整期间配对和格式边界的关键反例；
 移除资源预算要求，沿用 §9 的验收入口，不扩展新的验收矩阵。
 继续采用 Ibis 源端计算、pandas 统一本地执行、PyArrow 存储/读取和终端 Artifact。
 既有数值 oracle 保持不变；附录 K 的零分母见证仍有效，新增合同条款的真实 DSL 验收仍待实施。
+2026-10-17 fanout 修订的表达边界与少量独立数值见证见 §9.6；不固定执行策略，不计入189项历史 oracle。
 来源使用类型化行表达式与接收者规约，指标使用同一算术与显式 per 样本规约；观察上下文只绑定一次，Query.reduce 只保留 sum/mean/row_count；普通分类、描述统计与格子窗口交 pandas。
 此前 175 项 oracle 与后续 6 项 P95/比率、8 项贡献/配对见证均保持原样，共 189 项独立数值检查；
 这些代码逐字保留；pandas 片段与交接反例独立执行。v0.22 的附录 D 域见证保留，
@@ -61,7 +62,7 @@ SaaS 固定账户与实验单位才显式绑定身份约束，并明确输出完
 
 证据分为三层，不能互相替代：
 
-- **提案核对**：逐项检查下文调用是否出现在 v0.35 的签名和规则中，检查绑定、单位和执行内组合前提。
+- **提案核对**：逐项检查下文调用是否出现在 v0.37 的签名和规则中，检查绑定、单位和执行内组合前提。
 - **独立数值 oracle**：附录使用 Python 标准库和 `Fraction`，从明确数据计算预期结果与反例。
   它不实现或调用 DSL，也不模拟 `AnalysisError`，只能验证算式和反例。
 - **未来实现验收**：将同一批数据送入真正的新 DSL，对照数值、NA、必要错误、保留能力和读取边界。
@@ -954,35 +955,36 @@ Analysis 不从“收入”列名猜时间角色、paid 条件或空值规则，
 
 ```python
 catalog = ms.load()
+from datetime import timedelta
+
 s = mv.session.get_or_create("scenario-temporal-sales", report_timezone="Asia/Shanghai")
 income = catalog.metrics.get(ms.ref.metric("sales.revenue"))
 order_count = catalog.metrics.get(ms.ref.metric("sales.order_count"))
 aov = catalog.metrics.get(ms.ref.metric("sales.average_order_value"))
 display = s.time_scope(start="2026-10-07", end="2026-10-09")
 days = display.by(mv.grain("day"))
-seven = mv.trailing_periods(days, count=7)
+seven = mv.trailing_periods(count=7)
 
 rolling_query = s.observe(
-    {"income": income, "orders": order_count, "aov": aov},
-    during=seven,
+    {"income": income.window(seven), "orders": order_count.window(seven), "aov": aov.window(seven)},
+    during=days,
 )
 rolling = rolling_query.execute()
-hours = display.by(mv.grain("hour"))
 elapsed = s.observe(
-    {"income": income},
-    during=mv.trailing_periods(hours, count=168),
+    {"income": income.window(mv.trailing_duration(duration=timedelta(hours=168)))},
+    during=days,
 ).execute()
 mtd = s.observe(
-    {"income": income},
-    during=mv.to_date(days, grain=mv.grain("month")),
+    {"income": income.window(mv.to_date(grain=mv.grain("month")))},
+    during=days,
 )
 ytd = s.observe(
-    {"income": income},
-    during=mv.to_date(days, grain=mv.grain("year")),
+    {"income": income.window(mv.to_date(grain=mv.grain("year")))},
+    during=days,
 )
 since_january = s.observe(
-    {"income": income},
-    during=mv.since(days, start=s.instant("2026-01-01")),
+    {"income": income.window(mv.since(start=s.instant("2026-01-01")))},
+    during=days,
 )
 joined = mtd.align(ytd)
 cumulative = joined.select({"mtd": joined["left.income"], "ytd": joined["right.income"]}).execute()
@@ -992,7 +994,7 @@ cumulative.show()
 
 每种窗口分别 observe，默认信任声明的数据源，无需额外完整性调用。
 MTD/YTD 共用同一真实输出日历，以默认 exact 组合端点；Metric 不保存观察期间默认。
-绝对时长回看使用小时粒度的 trailing_periods，输出为逐小时格子，不改写日窗口。
+v0.37 用 trailing_duration 在原日输出端点评价固定168小时；它与日历七日、小时输出是独立选择。
 since_january独立保留起点，跨年不随YTD重置。
 
 | 当前日 | 七日收入 | 七日订单数 | 七日客单价 | MTD | YTD / since_january |
@@ -1012,13 +1014,13 @@ v0.25 不提供父期间内日序配对，调用方显式构造同日号的基�
 
 ```python
 prior_days = s.time_scope(start="2026-09-07", end="2026-09-09").by(mv.grain("day"))
-current_mtd = s.observe({"income": income}, during=mv.to_date(days, grain=mv.grain("month")))
-prior_mtd = s.observe({"income": income}, during=mv.to_date(prior_days, grain=mv.grain("month")))
+current_mtd = s.observe({"income": income.window(mv.to_date(grain=mv.grain("month")))}, during=days)
+prior_mtd = s.observe({"income": income.window(mv.to_date(grain=mv.grain("month")))}, during=prior_days)
 mom = current_mtd.compare(prior_mtd, match=mv.ordinal(), time_axis="current").execute()
 last_year_days = s.time_scope(start="2025-10-07", end="2025-10-09").by(
     mv.grain("day")
 )
-prior_rolling = s.observe({"income": income}, during=mv.trailing_periods(last_year_days, count=7))
+prior_rolling = s.observe({"income": income.window(mv.trailing_periods(count=7))}, during=last_year_days)
 yoy = (
     rolling_query.select({"income": rolling_query["income"]})
     .compare(prior_rolling, match=mv.previous_year(), time_axis="current")
@@ -1099,17 +1101,17 @@ ship_days = logistics_s.time_scope(
     end="2026-10-04",
 ).by(mv.grain("day"))
 hubs = mv.coordinates(by=(hub,), keys=(("H1",), ("H2",)))
-ship_seven = mv.trailing_periods(ship_days, count=7)
+ship_seven = mv.trailing_periods(count=7)
 p95 = duration.quantile(0.95, time=dispatched_at)
 
 direct_p95 = logistics_s.observe(
-    {"p95_hours": p95},
-    during=ship_seven,
+    {"p95_hours": p95.window(ship_seven)},
+    during=ship_days,
     by=mv.product(hubs, ship_days),
 ).execute()
 network_p95 = logistics_s.observe(
-    {"p95_hours": p95},
-    during=ship_seven,
+    {"p95_hours": p95.window(ship_seven)},
+    during=ship_days,
 ).execute()
 direct_p95.show()
 network_p95.show()
@@ -1169,7 +1171,7 @@ catalog = ms.load()
 retail = catalog.period_calendars.get(ms.ref.period_calendar("sales.retail_445"))
 fiscal_days = display.by(retail.grain("day"))
 fiscal_mtd = s.observe(
-    {"income": income}, during=mv.to_date(fiscal_days, grain=retail.grain("month"))
+    {"income": income.window(mv.to_date(grain=retail.grain("month")))}, during=fiscal_days
 ).execute()
 fiscal_current_scope = retail.period("month", "FY2026-P08")
 fiscal_prior_scope = retail.period("month", "FY2025-P08")
@@ -1260,7 +1262,7 @@ value.weighted_mean(weight=weight) 从明确输入建立共同配对并 lower �
 ```python
 launch = s.instant("2026-09-30T12:00:00")
 same_launch = s.instant("2026-09-30T04:00:00+00:00")
-since_launch = s.observe({"income": income}, during=mv.since(days, start=launch)).execute()
+since_launch = s.observe({"income": income.window(mv.since(start=launch))}, during=days).execute()
 october_scope = s.time_scope(start="2026-10-01", end="2026-11-01")
 new_york_october = s.time_scope(
     start="2026-10-01", end="2026-11-01", timezone="America/New_York"
@@ -1365,14 +1367,14 @@ shares_query.execute().show()
 | SaaS固定账户均额 | 完整账户 observe 后 reduce；新来源计算也可 Metric.per(cohort).mean() | 显式完整域保留零活动成员；新来源计算与固定答案统计分别验证 |
 | 时间窗口不同 | 每种窗口分别observe，再align/select | 没有Metric.during或最近默认继承 |
 | 来源完整性 | observe 默认信任来源，按已读数据求值 | 首版不声明或消费外部业务缺口；默认信任不冒充已检查证据 |
-| 行表达式 | 同贡献根上的有限算术，Measure 声明新业务授权 | 不复制 Ibis API；跨根逐行算术拒绝，schema 到来源绑定才解析 |
+| 行表达式 | 同贡献根上的原生 Ibis 数值表达式，Measure 声明新业务授权 | 移除自定义数值 AST；跨根逐行算术拒绝，schema 自动延迟绑定 |
 | 分类与参照 | pandas 分类汇总；values/broadcast 仅保留类型化参照 | 外部分类不回灌；Query 可在执行前投影，产物完整键供 pandas 选择 |
 | 配对规约 | 来源/Metric 内部 weighted_mean；普通固定格子配对交 pandas | 来源状态由 Marivo 维护，外部处理显式选择共同有效样本 |
 | 模型与临时指标 | 同一计算表达式，@ms.metric 只声明稳定名称 | 命名不登记；模型收录要求独立可持久解析的依赖闭包 |
 | 显式域依赖 | Metric.where(in_population(P)) 与 Metric.per(P) 后规约 | 前者筛当前分支贡献，后者逐个绑定所选完整样本；保留域选择程序、版本和原有 Session 归属 |
 
 这些是目标API表达检查。189项独立数值见证不验证Marivo resolver、typed error、物理路线或冷恢复。
-行/指标共享一套计算表达式原则，阶段仍由类型区分；Ibis 是来源 lowering，无第二套 Metric 函数体语言。
+行/指标共享原生 Ibis 数值语言及受控 Deferred，阶段由语义检查区分；不保留第二套 Marivo 数值 AST。
 不可变 runtime 名单可显式进入 Metric：where 只约束该分支，per 选择完整名单并逐样本求子值；
 它们不接收 Artifact 或导出数值列。Query 格子统计用 reduce，已执行答案统计用 pandas；模型收录资格另行检查。
 
@@ -1404,11 +1406,11 @@ shares_query.execute().show()
 | Query依赖与主输入 | Query 披露来源/字面量依赖；Artifact 没有 contract，DSL 拒绝以 Artifact/ID/数据轴充当计算依赖；字面量字符串不解析为产物引用 | [执行与披露 §2.1](lazy-analysis-dsl-execution.md#21-repr-与输入权威)、DSL §5.3 |
 | 域谓词绑定 | 固定West域的in_population尚未绑定时披露轴/依赖；绑定来源身份选择可读取所需属性，绑定 Population/Query 只测已有坐标，contract显示具体测试与新读 | [执行与披露 §2.2](lazy-analysis-dsl-execution.md#22-域测试的未绑定与已绑定披露) |
 | 比较命名 | SaaS 从恒等比较保留的共享身份轴取得流失账户；outer缺基期时baseline_present=False、端点值为 NA。align预算参照仍使用left/right | DSL §4.6–4.7；本文 §9.1-3 |
-| 小型图资格与成本 | 电商净额/带宽时间样本规约/配对规约只用闭合节点集合；每类独立验证直接 lowering、Query rollup/执行内组件及输出数据往返。未知节点/规则版本给出位置，不以直接来源求值推导离线资格 | 语义§6.1；本文 §9.1-46 |
+| 小型图资格与成本 | 电商净额/带宽时间样本规约/配对规约只用准入 Ibis 数值图及语义边界；每类独立验证直接 lowering、Query rollup/执行内组件及输出数据往返。未知节点/规则版本给出位置，不以直接来源求值推导离线资格 | 语义§6.1；本文 §9.1-46 |
 | 同一构造与命名 | 模型/runtime 写同一表达式，两种零参数声明都捕获函数局部名，模型收录限定业务身份；政策在算子上，派生式匿名。Measure 继承已有单位/权限，只补充新业务断言 | [语义 §2](../semantic/expression-model-redesign.md#2-同一构造装饰与命名方式)；本文 §9.1-63–64 |
 | 不可变域与模型收录 | 字面量和来源/Query 程序可构造；保留选择范围与归属。仅会话逻辑闭包在收录时拒绝，Artifact 依赖在构造时即拒绝 | [执行与恢复 §1.1.2](lazy-analysis-dsl-execution.md#112-metric-显式域依赖)；本文 §9.1-65–66 |
 | 分支与内部样本 | A=100、C=300、完整域 A/B：筛分子比率 1/4；per(A/B) 均值 50，全体实际出现均值 200，仅所选活跃客户均值 100；外部 by=A/B 才因未覆盖 C 拒绝 | 语义 §3.5；本文 §9.1-67；附录 G |
-| 政策归一与恢复 | 政策归各节点，装饰器无政策；sum 空输入与全 NA 均为 0，不要求区分，count 固定语义；不适用政策和无合法 lowering 拒绝，进程内不套新默认，冷存不恢复政策 | 语义 §3.4；本文 §9.1-68 |
+| 政策归一与恢复 | 政策归各节点，装饰器无政策；sum 默认空/全 NA 为 0，显式 empty=null 为 NA，不区分二者，count 固定语义；不适用政策和无合法 lowering 拒绝，进程内不套新默认，冷存不恢复政策 | 语义 §3.4；本文 §9.1-68 |
 
 以上是未实施的合同验收；189项数学见证保持原样，不能验证repr、typed error、默认政策编码或恢复行为。
 首版最小规约的 nullable 政策由 DSL §4.4 拥有，导出布局由 [执行与交接 §3](lazy-analysis-dsl-execution.md#3-pandas-导出合同) 拥有。被移除的结果方法不再列为实现验收对象；
@@ -1482,12 +1484,12 @@ v0.25 另将以下边缘能力移出首版。表中每项都有替代路径，�
 | 移出的能力 | 替代路径 |
 | --- | --- |
 | execute(retain=...)、retain_input、retain_detail、Artifact.drill、固定离线细比较 | Artifact 无任何 DSL 方法；细项在端点来源 Query 上 drill(add=...) 后再 compare，或在原 observe 的 by 中直接请求细轴/身份轴 |
-| Query.window | 用 `during=window` 重新 observe（§7.2、§7.5） |
+| Query.window | 用 `base.window(rule)` 构造新 Metric，再以 `during=scope/axis` observe（§7.2、§7.5） |
 | share(of=...) | 对筛选前总体先 share 再 where/top（§2.4）；预算达成等普通比值用 `/` |
 | rollup(by=Population)、drill 的 Population 形态 | 在原 observe 上以 by=Population 请求完整域 |
 | observe(routes=...)、ContributionRole | 贡献归属路径缺失或歧义为结构化错误，修复是在语义层声明唯一路径或分别 observe（§7.11） |
 | BeforeEndAnchor、scope.before_end、TimeAnchor | 只用 InstantAnchor；at=end 选择边界时刻生效的版本，边界换版时期间内最后旧版本不可表达（§7.10） |
-| trailing_duration、trailing_periods(include_current=...) | 绝对时长回看用小时粒度 trailing_periods（§7.2）；不含当期的回看不提供 |
+| trailing_periods(include_current=...) | 不含当期的回看不提供；trailing_duration 已在 v0.37 纳入，输出粒度不决定固定持续时长 |
 | calendar_correspondence、within_period | 同日号基期由调用方构造基期日轴后用 ordinal（§7.3）；财务期间对比显式选出两个期间（§7.6） |
 | Column.sum/mean(nulls=, empty=) | 固定政策：sum/mean 忽略 NA，sum 空/全 NA 为 0、mean 无有效值为 NA；不再提供 empty。Column.divide 已纳入统一除法合同，不属于移除项 |
 
@@ -1517,7 +1519,6 @@ literal_population = mv.identities(ms.ref.entity("sales.orders"), keys=(("A09",)
 source_population = disclosure_s.members(ms.ref.entity("sales.orders"), where=paid_at.within(scope))
 query = disclosure_s.observe({"revenue": revenue}, during=scope, by=(region,))
 query_population = query.population()
-revenue.contract().show()
 for population in (literal_population, source_population, query_population):
     population.contract().show()
 query.contract().show()
@@ -1535,7 +1536,7 @@ assert reopened_page.items == () and reopened_page.next_cursor is None
 reopened.evidence_digest().show()
 ```
 
-Metric.contract 披露收入定义、时间角色、节点政策及待绑定要求；三个 Population.contract 分别披露字面量身份、
+Query.contract 同时披露收入定义、时间角色、节点政策及待绑定要求，命名 Deferred 不另有 contract；三个 Population.contract 分别披露字面量身份、
 来源选择及其期间、Query 字段坐标依赖。未知来源键集保持未求值，不能靠 contract 完成 schema 或业务检查。
 Query.contract 披露本次期间、分组、来源依赖和必要检查，不把逻辑合法写成后端已验收。
 普通 observe 不产生方法 Finding，所以两次 findings 都是有界空页、没有后续 cursor；不为展示分页捏造发现。
@@ -1637,12 +1638,12 @@ Artifact 没有 contract，不能从 findings/evidence_digest 恢复 DSL 权限�
     没有执行后数据算子；pandas 派生值不回灌。
 31. **直接窗口。** 无 merge 但有完整输入路线仍可求 P95=66.05；Artifact 不保存 quantile bag 或提供 rollup，不否定 Metric 定义。
 32. **日历窗口。** 上海10-07七日[10-01,10-08)，含当前完整日；不含当期的回看不提供。
-    纽约167/169小时与168不同，168小时回看用小时粒度 trailing_periods；缺桶不补第八行，切穿日值不能拆分。
+    纽约167/169小时与168不同，168小时回看用 trailing_duration，保持所请求输出端点；缺桶不补第八行，切穿日值不能拆分。
 33. **默认信任与实际覆盖检查。** 无完整性声明时照常按已读数据求值，空日收入0，本文时间示例默认 null 政策的 AOV 为 NA；
     首版不声明或消费外部业务缺口，成功读取不证明上游完整。认证日历范围不足、完整键映射/请求域覆盖检查失败及来源读取失败仍报错；
     需要未输出日期时构造新 Query，导出后的缺日期由外部统计检查；冷存不保存检查图，默认信任不生成完整性证据。
 34. **累计起点。** MTD1220/1300，YTD1920/2000，财务月1270/1350；
-    每种窗口分别observe，不通过Metric默认覆盖。显示起点不作累计起点。
+    每种窗口只通过 Metric.window 声明，observe 提供期间/日历，不通过隐藏默认覆盖。显示起点不作累计起点。
     Cum 的数学零延拓不增加期初业务格子或缺测补值；两天都只有 A 的 distinct 窗口为1，不能把日计数累计成2。
 35. **窗口充分性。** 七日 AOV 为305/26、150/13，日均为1810/33、1700/33；完成比率/P95+count不足。
     本次 Query 计划获取所需组件；Artifact 不保留组件，换窗口须新 observe。
@@ -1662,21 +1663,21 @@ Artifact 没有 contract，不能从 findings/evidence_digest 恢复 DSL 权限�
 42. **共同条件。** APAC收入100/退款10、EMEA200/20，APAC净90，不能漏过滤退款成70；
     member_count 可单值分类才适用，显式 P 的定义不改写。
 43. **一次上下文。** scope.by(mv.grain("day"))与相容高级绑定等价；冲突拒绝；
-    Metric不接受during/route。不同窗口分别Query，不采用最近绑定优先。
+    Metric不接受during/route。不同窗口可分别 Query 或显式 Metric.window 分支，不采用最近绑定优先。
 44. **默认保存信息。** AOV 组件只服务本次计划，Artifact 保存显式输出与实际 Finding/Evidence。
     execute 无保留请求；证据不含图/内部组件闭包，data reader 不依赖 Catalog。
     普通 observe 的 Finding 为空，读取范围和实际检查摘要仍按执行 §1.2 保存为 Evidence，断源重开一致。
 45. **时间样本规约顺序。** [10,0]/[0,10]先空间后P95为10，不是19；状态轴/间隔/时间规约前对齐不可丢。
 46. **小型组合图。** ERROR/日志1/1、9/99总体0.1；引用捕获定义版本/重复出现/阶段，
     不要求原生Metric Column或原始多根join，schema在来源绑定阶段才解析。
-    进程内仅接纳语义提案 §6.1 的闭合节点；未知节点/规则版本定位拒绝，直接求值资格不自动授予本次摘要合并路线。
+    进程内仅接纳语义提案 §6.1 的 Ibis 数值图及语义边界；未知节点/规则版本定位拒绝，直接求值资格不自动授予本次摘要合并路线。
 47. **声明体边界。** @metric 的零参数体返回 Metric，@measure 的零参数体返回同根行表达式；
-    模型/runtime 同语言，不接受 Ibis 表参数/scalar、任意回调、控制流或执行查询。
+    模型/runtime 同语言，可接收合法阶段的受控原生 Deferred；不接受表参数、外部无绑定图、任意回调、控制流或执行查询。
     装饰器只做受限图构造与声明；loader 不读来源。Metric 装饰器不接全局政策，Measure 的业务单位/权限显式保留。
     行/Metric/Column 混用必须给出预期阶段、实收定义与具体修复，不自动转换。
     validator 按已解析符号和接收者阶段检查 sum/where/per；ms.ref.domain 在 decorator 参数中解析，不扩大函数体调用白名单。
     Dimension/TimeDimension 等原有字段体保留受限 Ibis，ms.bind 只在原合同允许的该类体中保留，新 Measure/Metric 体拒绝。
-48. **统一除法与配对。** / 与 divide 是同一进程内 Divide 节点，持有 N/D 及同样默认政策；
+48. **统一除法与配对。** / 与 divide 归一到同一 Ibis 除法及语义政策注解，持有 N/D 及同样默认政策；
     依赖充分时按原式重算，缺状态拒绝。共同 value=[10,Null]/weight=[1,9] 得10不是1；
     分组10/30、权重1/9合并28不是20。计算角色不自动成为公开路由，不开放树位置修改。
     共同非 NA 零分母/有效零权重和默认 null、显式 error 失败；NA/0 与无有效配对在两种政策下均为 NA。
@@ -1698,7 +1699,7 @@ Artifact 没有 contract，不能从 findings/evidence_digest 恢复 DSL 权限�
 53. **Session 时间默认与精确时刻。** 上海 Session 的日期默认解析为当地午夜，显式纽约只覆盖本次 scope；
     带偏移输入保持绝对时刻，DST 歧义/不存在时刻拒绝，恢复不取主机默认。
     十月 end 在 11 月零点选新版本；不提供左极限，十月内最后的旧版本不可表达，也不能用 end 减 tick 取得。
-    naive datetime 构造拒绝，来源 naive 时间不套用报告时区；不提供通用期末 closing、first/last 或 forward fill。
+    naive datetime 构造拒绝，来源 naive 时间不套用报告时区；提供 §9.5 的有序内部采样 first/last；不把它扩成通用 as-of closing 或 forward fill。
 54. **关系像与有界逆像。** O1→A、O2→A、O3→B，像为客户 {A,B}，对客户 {A} 的逆像为订单 {O1,O2}；
     接收者仅含 O1 时不能加入 O2。先取 O1 的客户像再对全域取逆像不还原 O1，字段像不能作客户身份 targets。
     Null 关联无像，存在多匹配不复制来源身份；固定来源身份后的关系读取仍是明确新依赖。
@@ -1731,11 +1732,11 @@ Artifact 没有 contract，不能从 findings/evidence_digest 恢复 DSL 权限�
     ValueRow 的坐标按对应轴同样检查；字段 Null 可作键，不能作量值或身份键分量；普通字段值不能冒充 Entity 身份，完整复合键、有限值与 kind 检查保留。
     CalendarAxis/CorrespondenceAxis 拒绝手写键，包括空输入，不从日期标签、序号或端点元组猜绑定；
     日历域用 TimeScope.by/product，已有日历与对应域用 population/project/where 复用，保留真实轴和端点绑定。
-62. **分类参数。** Population.classify(by=...) 仅接 Field 与接收者原有 MemberAxis；字段分类及“原身份×分类”示例保持合法。
+62. **分类参数。** Population.classify(by=...) 接 Field、接收者原有 MemberAxis 及 owner 与接收者身份相容的 MembershipAxis；直接读目标成员字段，保留分配描述但不执行其中的自关系/多值路径。
     CalendarAxis、CorrespondenceAxis、外来身份轴及多值字段拒绝；关系像只用 image(via=..., at=...)，已有坐标投影继续用 project。
 63. **同一 Metric 表达式。** 模型声明体与 runtime 使用同一接收者规约、算术和 per 后规约；
     同实际输入有同值、NA、政策及失败。无 loader/Session 的构造不登记、不读业务来源。
-    裸 Ref 不支持表达式转发，先取得精确对象；声明体零参数，返回行值或 Ibis scalar 必须拒绝。
+    裸 Ref 不支持表达式转发，先取得语义对象；Metric 声明体零参数，返回行值必须拒绝；Ibis Scalar shape 本身既不授予也不否定 Metric 资格。
 64. **声明名与标签。** 两种装饰器在构造时捕获函数局部名；Metric 由显式或模型唯一默认 domain 限定，Measure 由所属 Entity 限定。
     后续 Python 别名与 observe 标签不重命名；不保留 named 或 name 覆盖。
     Metric 和只命名的 Measure 不改变计算指纹、政策、依赖或归属；新增业务单位/权限断言进入语义指纹。
@@ -1748,7 +1749,7 @@ Artifact 没有 contract，不能从 findings/evidence_digest 恢复 DSL 权限�
     子 sum 的空集为零时 per(P).mean()=50，全局 per(customer_id).mean()=200，先筛 P 再按出现键平均=100。
     per(P) 直接选择样本，不要求覆盖 C；observe(by=P) 未筛 C 时仍因输出覆盖失败。
     未获支持的轴能力、未完成 MetricSamples、缺贡献到 (k,j) 的绑定拒绝；不要求裸 j→k，Artifact 后处理只用 pandas，不能隐式变为重新观察。
-68. **节点政策。** sum() 空输入与全 NA 均为 0，不保存区分二者的隐藏计数；nulls="error" 检查所选原样本。
+68. **节点政策。** sum() 默认空输入与全 NA 均为 0；sum(empty="null") 两者均为 NA，合并按需保存有效值支持但不区分二者；nulls="error" 检查所选原样本。
     mean 不接 empty/zero_denominator，count 固定规则；divide/weighted_mean/share/compare 的政策只作用该节点。
     外层 compare/share 的 null 不能吞掉输入严格 Metric 的 error；Session/observe/execute/装饰器不增加全局覆盖。
     来源/内部 quantile 的0/1端点合法，分别与同政策 min/max 相同；越界或非有限 q 拒绝。
@@ -1756,7 +1757,7 @@ Artifact 没有 contract，不能从 findings/evidence_digest 恢复 DSL 权限�
     min/max/mean/median/quantile 忽略 NA 后为空则 NA，count_distinct 为空则 0；可用的 nulls="error" 在规约前检查原样本。
     装饰器政策参数拒绝，已有定义/引用使用原规则版本；冷存不恢复节点或政策，不能退回后端默认。
     [语义附录 A.1](../semantic/expression-model-redesign.md#a1-拟替代的已提交合同) 的旧参数/工厂在声明校验或模型加载拒绝，不静默忽略；
-    修复依照作者改写表；empty="null" 与重叠 fanout 没有机械等价替换，不提供 codemod 或兼容 loader。
+    修复依照作者改写表；sum(empty="null") 与显式 membership 可在附录 A.1.1 条件下等价，不提供 codemod 或兼容 loader。
     TimeField.via 保持明确的跨 Entity 时间路径，状态采样角色保留，fold 改为显式 per 规约；近似定义不自动替换。
 69. **Measure 声明一致。** Quantity * UnitPrice 只形成行表达式，未声明新业务授权时 sum 拒绝；
     预定义/runtime Measure 使用同一零参数体、函数命名和事实继承；相同新授权后同值同权限，原单价保持不可加。
@@ -1847,6 +1848,125 @@ Artifact 没有 contract，不能从 findings/evidence_digest 恢复 DSL 权限�
   无合格数值等价依据的改写不准入，浮点容差不放宽 where/Top-N、NA、零分母及错误结果。
 - 本地输入与中间副本的内存成本显式记录；无合格路线或执行失败不换引擎、不静默截断、不扩大来源读取，不发布部分 Artifact。
 - 阶段数据和隐藏组件在本次消费者结束后释放；只需来源计算的计划可直接发布，下一次 execute 不复用历史 Artifact。
+
+### 9.4 原生 Ibis 表达式与自动延迟类型绑定
+
+以下是 v0.36 的待实现验收条件；历史 oracle 和 Ibis 构造探针不证明这些已通过。
+每个合法例都要覆盖命名声明与匿名直接消费；禁止通过增加 ms.ibis/ms.require 或手工 schema 满足测试。
+
+| 最小场景 | 可核验结果 |
+| --- | --- |
+| 同根 `ibis.ifelse(amount > cost, amount - cost, 0)`；顶层 coalesce/least；方法 sqrt/cast/round | 受控延迟配方保留叶子/条件/分支；装饰器与普通脚本走同一路径；顶层函数结果可继续 `.mean()` 与 `.mean(time=paid_at)` |
+| `(revenue / reference_revenue).sqrt()` 的命名与匿名输入 | 同值、NA、错误、政策和计算指纹；声明元数据独立；不把 sqrt 下沉到逐行计算 |
+| 缺 schema 时构造、load、contract、observe | 无来源 I/O，dtype 明确 pending；execute 自动 schema 准备，无新用户生命周期 |
+| 同配方绑定整数/Decimal/字符串 schema，及两次执行之间 schema 变化 | 前两者按真实类型推导和精度准入；不合法字符串输入拒绝；新 schema 不复用错误旧计划，不填假 float64 |
+| CNY+USD、sqrt(CNY)、有单位的 log、条件分支单位矛盾 | 最早可判定边界拒绝；显式结果 unit 不能覆盖内部冲突；无单位不能默认 1 |
+| abs/clip/ifelse 行式直接 sum，与显式新 Measure 授权 | 前者不自动获得求和许可，后者在根/单位/时间合法时可授权；状态固定轴不被授权擦除 |
+| sqrt(sum(x)) 分区和 9/16 | 分区值 3/4，总体 5；不能相加得到 7；计划依据子指标状态重算 |
+| amount.sum()+amount、多事实根行算术、跨根条件、外部同名 table、as_scalar 子查询、裸 Ibis window/UDF | 包括数值返回值在内都拒绝；Scalar/Column 广播不能跨语义阶段 |
+| 独立两根规约后数值组合 | 保留各自过滤/时间/根，完整坐标键对齐；无合格本地内核在准备阶段拒绝，不隐藏 join 或 DuckDB |
+| 原生 sum、/、reduction where= 与语义方法 | 归一到同一语义边界/政策；sum 空/全 NA 为 0、除零默认 NA、strict 失败；time= 不误传原生方法 |
+| 恒真分支、乘零、相消、name 别名、优化 | 原始依赖及严格检查/贡献义务保留；未选分支仍接受静态检查，值域检查尊重实际选中值 |
+| 未登记 operation、未知 Deferred resolver、pipe/回调、隐藏 execute/compile | 按真实符号和接收者拒绝且不执行；不能以结果断言或数值 dtype 放行 |
+| 模型收录、缓存和终端产物 | 同一依赖闭包额外检查独立加载；声明指纹摘要配方，绑定指纹摘要真实图/schema/政策/作用域/路线；Artifact 不带 Ibis 图、配方或 callable |
+| 数值语言清理 | 删除旧 Measure/Metric 数值 AST 及依赖旧节点的重复入口；保留基于 Ibis op 的检查、政策改写、源端适配和 pandas 内核分派，不建立第二数值 AST |
+| schema 已知/未知、命名/匿名输入的完整组合 | 数值作者值均为原生 Deferred，命名记录位于受控 Resolver；包括 Dimension/TimeField 条件及 time 参数，kind 不丢失；顶层 ifelse 后仍可接 mean(time=)、per 和 divide；不继承 final Deferred、不向 Ibis 传普通数值包装对象 |
+| 裸 Ibis Value 与外来 Resolver | 带关系的 Value 不进入作者入口；未知 Resolver 在调用前拒绝；获准 Literal 只作为子项；Entity/Dimension 原有受限 Ibis 体独立检查 |
+| schema 之前的闭包发现 | 受控解析器先从配方找叶子/规约/per/政策/使用位置；schema 准备不需要先执行整份原生 resolve；无额外来源 I/O |
+| 结构相等的 Divide 使用 null/error 政策，或相同行式有不同 Measure 授权 | Ibis 数值结构允许相等；语义使用位置和政策/权限不能覆盖，禁止以 dict[op, annotation] 单键实现语义身份；不同政策的声明指纹不同 |
+| 同式命名、内联、别名和共享子式 | 声明计算指纹相同、检查域和结果一致；各使用记录仍独立。仅完整语义相容才共享执行，需求域取并集时不能漏掉另一消费者的严格失败 |
+| 同一 x.cast("float64") 配方绑定 int64/float64 | 声明计算指纹相同；原生图可为 Cast/Field，绑定执行指纹不同；不按旧 schema 复用计划，不依赖 repr/内存地址/随机别名 |
+| ifelse(d != 0, n.divide(d, zero_denominator="error"), 0) | d=0 或 NA 时选假分支返回 0；内联、匿名变量或仅命名均同义。独立观察严格除法时 d=0 必须失败；乘零和后置筛选不能消去失败 |
+| cases、coalesce、普通运算 | cases 只在未匹配域继续；coalesce 只在前项 NA 域继续且不能吞严格失败；nullif、least/greatest、and/or 不提供隐含短路 |
+| 分支静态检查和执行域 | 未选分支的未知操作、单位/根/类型冲突仍拒绝；结构/单位合法的未选 sqrt(-1) 不做值域计算。行域与 Metric 格子域分别传播，不能跨规约/per 改次序；先全域计算再掩码的内核不准入 |
+| 条件依赖的 source/local 路线 | 准备阶段验证动态需求域的传播能力，执行时求域；无同义路线明确失败，不改成 eager 全分支检查。静态完整 schema 闭包和实际来源错误仍保留 |
+
+Ibis 版本适配、原生构造、语义检查、来源数值路线与 pandas 本地路线须分别有证据；
+类型检查通过不代表后端语义/精度通过，文档示例语法通过不代表当前 API 能运行。
+
+### 9.5 五项能力补全与等价迁移
+
+这是 v0.37 的待实现验收，不是已通过测试。每个合法表达式都要比较 @metric 命名、匿名内联与匿名复用；
+对真实 Ibis/schema、来源和 pandas 路线分别验证。下表的确定数值只来自给定有限输入，不代表 Runtime 验收。
+共同输入、窗口/成员绑定和方法资格须相同；不同 execute 不承诺同一读取快照，近似结果也不以逐位相等作为通用断言。
+
+| 场景 | 必须观察到的结果或拒绝 |
+| --- | --- |
+| 两时点两实体 A=[10,NA]、B=[NA,20]，记录/时点齐全，空间 sum(empty="null") 后 last(include_null=False) | 每时点总量为10/20，结果20；不得取各实体末次非 NA 后相加成30；空间上卷须重算正确次序 |
+| 已完成内部时间样本 [10,NA] 与 [NA,10] | 按 include_null=True/False 的顺序，前者 last=NA/10、first=10/10；后者 first=NA/10、last=10/10。nulls="error" 对两序列和两方法均失败，即使 NA 不会被选中 |
+| 缺少声明要求的采样点，或多内部轴在排序时有同刻不同样本 | 缺测不当普通 NA 跳过；歧义排序拒绝，不使用来源行顺序；无样本且无缺测义务时返回 NA |
+| first/last 与边界快照 | 期间最后样本不冒充精确期末状态；范围外最后已知值不自动进入，命名不改变评价锚点 |
+| approx_nunique/approx_median/approx_quantile(0.95) | 保持非 NA 输入、计数/数值单位和标量结果，原生同名调用归一；q 越界/数组、错误字段 kind、无合格 dtype 或执行路线明确拒绝 |
+| exact 与 approximate，或两种 sketch 不兼容 | 声明意图与绑定算法分开；不静默换算法种类、不相加去重估计、不合并完成 P95；没有承诺的误差界不出现在结果保证中 |
+| sum 空输入、全 NA、[-10,10] | empty=zero 得0/0/0；empty=null 得NA/NA/0；nulls=error 对全 NA 失败、真正空输入按 empty 完成 |
+| nullable sum 的分区合并与缺桶 | 有效零与全 NA 分区合并得有效零；全无有效值仍 NA；需保存必要支持信息；未请求/不存在的坐标不会由 empty 生成 |
+| 订单 O1=100，关联 (O1,A) 两次、(O1,B) 一次 | A=100、B=100，并集原量100；同桶对去重，跨桶出现保留；格子 sum=200 只作为显式格子统计 |
+| 未匹配订单 O2=50；两种 unmatched | exclude 不把 O2 放入标签桶；null 形成 NA 分类桶50；空成员集和数值 NA 不混同；实际成员版本/时点保留 |
+| 订单根 Revenue=100 分到标签 A/B，标签根 Budget 为 A=50/B=25 | Revenue / Budget 在 A/B 为2/4：订单走显式路径，标签恒等绑定；不要求自环。缺路径、多条显式竞争路径、身份/角色/版本不相容或隐式贡献倍增拒绝；合法物理关联不因包含原始表而拒绝 |
+| 单一联合成员元组与多个独立成员描述 | 单描述只保留真实相关元组；显式 (tags, channels) 按集合乘积。订单100、tags={A,B}、channels={web,store} 得四桶各100，并集100；重复/冲突轴拒绝，Field.via 不获得多值读取资格 |
+| 多成员空集合 | 每个因子独立应用 unmatched；exclude 的空因子使乘积为空，null 因子产生一个全 None 元组再参与乘积；重复关联和真实 Null 分类按完整键集合去重 |
+| 完整成员输出域与内部域 | coordinates(by=(tags,), keys=(("A",),("B",))) 携带绑定；仅A有100时，sum默认为A=100/B=0、per该域mean=50；empty=null 则B=NA、mean=100。域不制造根贡献 |
+| 来源完整域、实际域与覆盖 | TagEntity 身份域 classify(by=(tags,)) 直接读取目标分类保留A/B；描述含自关系也不在此执行。Query.population 不补未出现B；project/集合/product 保留绑定。外部漏掉有贡献桶报覆盖错误，内部 per 可选子域 |
+| 显式自关系优先及无路径恒等 | 根E的A=100/B=20，自关系A→B、B→A；显式路径分桶为A=20/B=100，无路径恒等为A=100/B=20。自关系不被当作恒等竞争者；两条显式路径拒绝，显式无效路径报错而非回退 |
+| 目标域分类与事实选路分开 | 上述E身份域用相同描述classify仍读A/B自身分类；字段值不沿自关系互换。事实observe/per才采用显式路径；命名/内联采用同一规则 |
+| 多根与内部 membership 检查 | 每根逐描述优先用唯一显式路径，无路径时才推导相容恒等；per 的 sum 无不交及可加证明不能当总体求和；普通单值字段约束不变 |
+| 同规则命名 window、匿名内联与匿名复用 | 相同观察绑定产生相同求值、需求域及计算指纹；构造器 axis 参数及 during=ObservationWindow 均拒绝，没有绑定/未绑定双形态或别名 |
+| 显示十月，九月收入100、十月收入20；同一用户两月各出现一次 | 全历史截至十月端点收入120、去重人数1；显示起点不重置为20；MTD只消费十月；基础比率按窗口组件重算 |
+| 标量 to_date 与精确边界 | end=10-08、start=09-01或10-01均求[10-01,10-08)；end=11-01零点选择刚结束十月。无精度 tick 技巧；日历跨月周仍因名义桶不唯一包含而拒绝 |
+| 旧 first-seen / trailing 迁移 | A于09-30和10-02出现、B于10-03首次出现；[10-01,10-04)活跃去重2，first-seen新增1，全历史2。按语义附录的精确H/W组合得到1；旧首次桶、身份/过滤/时区和合法固定跨度保持 |
+| first-seen 一致输入的迁移前提 | H/W确实为同一历史U的限制时精确组合等价；稳定输入、已有一致性保证或合格共同输入路线均可支持。独立变化读取、approx计数、历史被显示范围截断不能证明等价 |
+| first-seen 未证实前提及普通窗口组合 | H读到1次、W随后读到2次时H==W为False，不能声称新增计数等价；合法普通配方不因此触发新增执行拒绝。命名new_users不启用特殊语法/读取模式，普通MTD+YTD不要求新增共同输入路线；不同窗口分支加外层per/count不是嵌套window |
+| 窗口绑定与合格空间上卷 | observe固定逻辑轴/端点/W，未读取或冻结业务数据。按地区的窗口收入保留原日历轴做空间上卷时，依原量/充分信息合同检查；标量观察同样保留原端点，where/top不重绑W |
+| 窗口时间轴上卷拒绝 | 依赖闭包含window时，粗化/替换/删除其日历轴均拒绝，包括经per/条件包装、只有一桶及count=1。无窗口量的合法日→月上卷保持原合同；重新评价月窗口使用新observe |
+| 七日窗口时间合并反例 | 相邻端点各7个单位日贡献：完成值之和14、贡献并集8、末端点窗口7。rollup不任选其一；Query.reduce显式格子sum为14。trailing_periods(7)不能因日→月rollup被重解释为七个月 |
+| DST 周的七自然日与固定 timedelta(days=7) | 前者按日历可能167/169小时，后者恒168小时；两者可在相同日输出端点评价；切穿日值须重取贡献，不改小时输出或按比例拆日总额 |
+| 窗口缺端点、无时间角色、重复/嵌套、状态 all_history 无有限覆盖域 | 在最早可判定边界拒绝；不同分支各自窗口可组合；CalendarAxis 不覆盖 Metric 规则，固有过滤/主体选择不被扩大 |
+| 分支、复用与两层指纹 | 未选分支仍检查语义/schema；动态桶/窗口只展开被需求输出；独立观察增加 strict 域。empty/include_null/q/成员政策/规则不同则定义指纹不同，真实 schema/算法/日历绑定改变执行指纹 |
+| 不读来源构造与终端边界 | 无 ms.ibis/ms.require，无假 dtype、回放模型或隐藏连接；窗口/成员参数捕获不可变依赖；Artifact 不保留可执行图、sketch 或续算组件 |
+| 旧声明修复 | 保留五项表达能力但拒绝旧工厂/默认参数；依据语义附录 A.1.1 逐声明说明等价条件，失败不以降级算法、默认零或半连接修复 |
+
+源端 first/last 的 null/order 语义、精确与近似算法、nullable sum、成员集合和窗口边界分别需要路线证据。
+静态文档检查不替代这些证据；不能用既有 R1/R2 或历史 oracle 的通过数量宣称本节完成。
+
+### 9.6 Fanout 语义与执行策略边界
+
+本节核对[语义 §3.7.1–§3.7.2](../semantic/expression-model-redesign.md#371-fanout-的表达方式与能力边界)，
+不增加公开 policy、通用配对/分配程序或执行策略验收矩阵。固定模拟输入只用于比较算式，
+不为普通多根查询增加共同快照或共享扫描要求。
+
+| 场景 | 独立预期与未来实现检查 |
+| --- | --- |
+| 同一客户两笔订单100/200、三笔退款10/20/30 | 各根原量为300/60，净额240；原始行乘积直接sum为900/120、净额780，必须拒绝这种重解释或由等价计划消除倍增 |
+| 单侧输出键与空输入 | 只有退款的地区仍进入共同K；成功读取后收入sum默认0，empty=null为NA，不靠inner join删地区或对全部规约统一补零 |
+| O1=100，桥关联A两次/B一次 | membership为A100/B100、并集100；存在性选根只选O1一次；以完整事件键建模的三条关联则count=3，三者不能混同 |
+| 两笔不同订单均为100 | 合计200；sum(distinct amount)=100是错误修复，身份去重不能变成数值去重 |
+| 订单100，分配记录A/B权重0.25/0.75 | 显式分配金额25/75，总计100；membership仍为100/100，不自动均分或推导权重守恒 |
+| A/B收入100/0、预算10/90，按共同客户样本求比率均值 | (10+0)/2=5，不是100/100=1；各根保留完整(k,j)，不能提前压到最终k |
+| 两部分均值0/100，有效样本数1/3；精确P95或跨根去重并集 | 合并均值为75而非50；P95和去重并集不能仅消费完成值。直接合法贡献规约可准入，摘要不足只拒绝对应合并路线 |
+| 时间最近匹配或跨根条件配对 | 仅有两侧总量不能恢复匹配；缺少明确配对来源时报告表达能力边界，不启用隐藏join或改成内部同键weighted_mean |
+| 候选物理计划与检查 | 在相同实际输入上，对已有资格的键集合去重/回取或预聚合计划，与直接贡献求值对照完整键、值、NA/empty和必要错误；不要求实现所有策略，不用语义合法宣称后端已支持 |
+
+以下8项是独立算术见证，未调用 Marivo；未来真实路线仍按上一表检查，数值通过不证明编译或Runtime通过。
+
+<!-- fanout-oracle:start -->
+```python
+from fractions import Fraction
+
+orders = {"O1": 100, "O2": 200}
+refunds = {"R1": 10, "R2": 20, "R3": 30}
+assert sum(orders.values()) - sum(refunds.values()) == 240
+assert sum(o - r for o in orders.values() for r in refunds.values()) == 780
+links = [("O1", "A"), ("O1", "A"), ("O1", "B")]
+memberships = set(links)
+assert {tag: sum(orders[oid] for oid, bucket in memberships if bucket == tag)
+        for tag in ("A", "B")} == {"A": 100, "B": 100}
+assert (len({oid for oid, _ in memberships}), len(links)) == (1, 3)
+assert (sum([100, 100]), sum(set([100, 100]))) == (200, 100)
+assert [100 * w for w in (Fraction(1, 4), Fraction(3, 4))] == [25, 75]
+assert (Fraction(100, 10) + Fraction(0, 90)) / 2 == 5 != Fraction(100, 100)
+assert Fraction(0 * 1 + 100 * 3, 1 + 3) == 75 != Fraction(0 + 100, 2)
+```
+<!-- fanout-oracle:end -->
 
 ## 附录 A：可复现的独立数值 oracle
 

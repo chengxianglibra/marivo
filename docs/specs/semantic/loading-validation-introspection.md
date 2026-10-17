@@ -1,5 +1,36 @@
 # Loading, Validation, and Introspection
 
+Pending validation design (2026-10-17):
+[Expression redesign v0.37](expression-model-redesign.md#36-沿-ibis-图推导与语义检查边界)
+separates safe Deferred capture and known semantic checks from automatic physical-type binding.
+Load and declaration remain source-free; execute preparation obtains the required schema,
+resolves the native Ibis operation DAG, and checks all remaining type, stage, unit, root and
+route obligations before dependent business computation. Named and anonymous inputs use one
+mechanism. Unknown operations fail closed; pending checks are not readiness evidence.
+This amendment is not implemented and does not introduce a public preflight/require API.
+
+The same pending v0.37 design adds ordered first/last, native approximate reductions,
+explicit overlapping membership buckets, operator-local sum empty policy, and reusable named
+window Metrics. Named and anonymous inputs share the same deferred capture and checks;
+[semantic boundaries](expression-model-redesign.md#39-五项能力共用的检查边界) and
+[conditional migration equivalence](expression-model-redesign.md#a11-等价迁移的判定条件)
+are proposal contracts. Retired APIs and unsupported capabilities described below remain current
+until implementation and disclosure cutover; this note does not enable those APIs.
+The reviewed v0.37 proposal gives explicit membership paths priority and infers identity only
+when no path is supplied. Member-set products and complete target domains retain their bindings;
+classifying target identities does not traverse contribution-assignment paths. Axis-free rules
+use Metric.window; observe fixes the logical time binding, without freezing source data. Window
+Metrics allow qualified spatial rollup with that binding preserved; time-axis coarsening,
+replacement or removal is rejected. Scalar to-date uses the endpoint. The ordinary H/W recipe
+for legacy first-seen is equivalent only under consistent inputs; it adds no general window
+sharing requirement or runtime rejection policy. Ordered first/last retains its sampling checks.
+
+The pending [fanout amendment](expression-model-redesign.md#372-逻辑贡献约束与物理执行策略)
+checks contribution identity, multiplicity, complete target/internal keys, policies, reduction order
+and sufficient information. Qualified physical plans may use joins, key deduplication or pre-aggregation;
+no fixed strategy or public fanout_policy is required. Preparation reports missing expression/binding,
+information or execution qualification separately, without implying implementation or source-health proof.
+
 Status: current loading and Analysis handoff contract, 2026-10-08.
 Semantic owns declaration resolution and scoped readiness. Analysis owns bound
 algebraic construction, exact physical admission, execution and retained results.

@@ -1,5 +1,35 @@
 # Python Analysis Design
 
+Pending expression amendment (2026-10-17):
+[Expression redesign v0.37](../semantic/expression-model-redesign.md#26-原生-ibis-与自动延迟绑定)
+proposes native Ibis numeric graphs for named and anonymous Measure/Metric inputs, replacing
+their custom numeric AST. It reuses execute-time schema preparation for automatic dtype
+binding and preserves semantic boundaries plus qualified pandas local execution. No ms.ibis,
+ms.require, hidden local engine or Artifact graph is introduced. Current R2 execution does
+not establish support for this proposed input language; live APIs below retain their contracts.
+
+The same pending v0.37 design adds ordered first/last, native approximate reductions,
+explicit overlapping membership buckets, operator-local sum empty policy, and reusable named
+window Metrics. Named and anonymous inputs share the same deferred capture and checks;
+[semantic boundaries](../semantic/expression-model-redesign.md#39-五项能力共用的检查边界) and
+[conditional migration equivalence](../semantic/expression-model-redesign.md#a11-等价迁移的判定条件)
+are proposal contracts. Retired APIs and unsupported capabilities described below remain current
+until implementation and disclosure cutover; this note does not enable those APIs.
+The reviewed v0.37 proposal gives explicit membership paths priority and infers identity only
+when no path is supplied. Member-set products and complete target domains retain their bindings;
+classifying target identities does not traverse contribution-assignment paths. Axis-free rules
+use Metric.window; observe fixes the logical time binding, without freezing source data. Window
+Metrics allow qualified spatial rollup with that binding preserved; time-axis coarsening,
+replacement or removal is rejected. Scalar to-date uses the endpoint. The ordinary H/W recipe
+for legacy first-seen is equivalent only under consistent inputs; it adds no general window
+sharing requirement or runtime rejection policy. Ordered first/last retains its sampling checks.
+
+The pending [fanout amendment](../semantic/expression-model-redesign.md#371-fanout-的表达方式与能力边界)
+specifies logical contribution semantics instead of a fixed aggregate-then-join execution order.
+Existence, overlapping buckets, association events and modeled allocations remain distinct;
+general cross-root matching is not a Metric operation. Equivalent plans preserve complete keys,
+multiplicity, policies, checks and sufficient information. Current R2 progress does not qualify this proposal.
+
 Status: R2.6 terminal output reading, 2026-10-16; legacy execution sections remain
 until their owning R2 work packages replace them. This document owns the implemented
 Analysis DSL's public model and the path from algebraic definition to execution.

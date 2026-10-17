@@ -1,5 +1,35 @@
 # Semantic Authoring Workflow
 
+Pending authoring design (2026-10-17):
+[Expression redesign v0.37](expression-model-redesign.md#26-原生-ibis-与自动延迟绑定)
+uses native Ibis numeric expressions over controlled semantic inputs for both local and named
+Measure/Metric definitions. Source-free construction retains unresolved physical dtype;
+execute preparation binds it automatically, without ms.ibis/ms.require or manual schema.
+Existing physical capture/finalize closes semantic dependencies, not physical types.
+The proposal does not change the current authoring workflow or live Help yet.
+
+The same pending v0.37 design adds ordered first/last, native approximate reductions,
+explicit overlapping membership buckets, operator-local sum empty policy, and reusable named
+window Metrics. Named and anonymous inputs share the same deferred capture and checks;
+[semantic boundaries](expression-model-redesign.md#39-五项能力共用的检查边界) and
+[conditional migration equivalence](expression-model-redesign.md#a11-等价迁移的判定条件)
+are proposal contracts. Retired APIs and unsupported capabilities described below remain current
+until implementation and disclosure cutover; this note does not enable those APIs.
+The reviewed v0.37 proposal gives explicit membership paths priority and infers identity only
+when no path is supplied. Member-set products and complete target domains retain their bindings;
+classifying target identities does not traverse contribution-assignment paths. Axis-free rules
+use Metric.window; observe fixes the logical time binding, without freezing source data. Window
+Metrics allow qualified spatial rollup with that binding preserved; time-axis coarsening,
+replacement or removal is rejected. Scalar to-date uses the endpoint. The ordinary H/W recipe
+for legacy first-seen is equivalent only under consistent inputs; it adds no general window
+sharing requirement or runtime rejection policy. Ordered first/last retains its sampling checks.
+
+The pending [fanout amendment](expression-model-redesign.md#371-fanout-的表达方式与能力边界)
+asks authors to select the contribution meaning: preimage for existence, membership for overlapping
+buckets, or explicit association/allocation Entities for those contribution units. General matching
+requires an explicitly modeled source; a physical fanout strategy does not supply business rules.
+These are target authoring boundaries, not additions to the current workflow or live Help.
+
 Status: current authoring workflow, 2026-10-08. This document defines agent-native
 authoring across `marivo.datasource` and `marivo.semantic`.
 

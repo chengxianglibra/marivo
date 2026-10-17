@@ -1,8 +1,8 @@
 # Lazy Analysis DSL：多轮分析示例
 
-Date: 2026-10-14
+Date: 2026-10-17
 
-Status: proposed v0.35 examples；使用目标 API，不能直接在当前 Marivo 版本运行。
+Status: proposed v0.37 examples；使用目标 API，不能直接在当前 Marivo 版本运行。
 本文演示 [DSL 定义](lazy-analysis-dsl-redesign.md) 的组合方式，不另行定义算子合同。
 执行与导出布局见 [执行、保存与结果交接](lazy-analysis-dsl-execution.md)，
 独立数值 oracle 与待实施验收见 [场景验证](lazy-analysis-dsl-scenario-validation.md)。
@@ -27,13 +27,14 @@ execute 返回终端 Artifact，保存输出、必要描述与实际 Finding/Evi
 各示例共用[单一执行路线](lazy-analysis-dsl-execution.md#15-单一执行路线与终端读写)：Ibis 完成源端计算并返回 pandas，
 本次不能下推的阶段使用 pandas 本地内核，PyArrow 只负责产物存储和读取。来源本身可以是 DuckDB，
 但示例不选择本地引擎，也不把 Artifact 或导出表自动注册回 DSL；后续 pandas 配方属于调用方处理。
-本次同步 v0.35 的完整期间配对与恢复边界；原有零分母数值政策保持，默认 AOV 与零基期比较产生普通 NA。
+v0.35 已同步完整期间配对与恢复边界；v0.36 增补 §6.4 的原生 Ibis 与自动绑定示例；v0.37 增补 §6.5 五项能力对照；原有零分母数值政策保持，默认 AOV 与零基期比较产生普通 NA。
 普通 observe 的 Finding 为空，读取与实际检查摘要仍按执行合同保存为 Evidence；
 示例中的多来源组合只承诺已准入路线，导出精度也不替代来源转换资格。
+fanout 的语义表达对照见 §7.7；示例不固定物理 join/aggregate 顺序，也不构成新增执行策略的验收。
 
 ## 2. 完整多轮分析示例
 
-代码使用目标 v0.35 API，不是当前版本可运行示例。§2 各块按顺序构成会话；
+代码使用目标 v0.37 API，不是当前版本可运行示例。§2 各块按顺序构成会话；
 命名可在模型或分析代码中构造，loader 才收录模型。§6 单独对照两种使用位置。
 不变模拟输入用于手算，不要求真实来源跨读取不变。
 首先粗比较再选异常；第二轮分别细化端点，不提前预知客户细键。
@@ -140,7 +141,6 @@ baseline_region_query = s.observe(
     by=region_keys,
 )
 regional_pair = current_region_query.align(baseline_region_query)
-revenue.contract().show()
 current_region_query.contract().show()
 regional_comparison_artifact = regional_pair.select({
     "revenue.absolute": regional_pair["left.revenue"] - regional_pair["right.revenue"],
@@ -499,33 +499,35 @@ restored_customers.evidence_digest().show()
 完整数值输入以场景验证为准，所有示例只作独立数值见证。
 
 ```python
+from datetime import timedelta
+
 temporal_s = mv.session.get_or_create("temporal-sales", report_timezone="Asia/Shanghai")
 income = catalog.metrics.get(ms.ref.metric("sales.revenue"))
 order_count = catalog.metrics.get(ms.ref.metric("sales.order_count"))
 temporal_aov = catalog.metrics.get(ms.ref.metric("sales.average_order_value"))
 display = temporal_s.time_scope(start="2026-10-07", end="2026-10-09")
 output_days = display.by(mv.grain("day"))
-seven = mv.trailing_periods(output_days, count=7)
+seven = mv.trailing_periods(count=7)
 
 rolling = temporal_s.observe(
-    {"income": income, "orders": order_count, "aov": temporal_aov},
-    during=seven,
+    {"income": income.window(seven), "orders": order_count.window(seven), "aov": temporal_aov.window(seven)},
+    during=output_days,
 ).execute()
 elapsed = temporal_s.observe(
-    {"income": income},
-    during=mv.trailing_periods(display.by(mv.grain("hour")), count=168),
+    {"income": income.window(mv.trailing_duration(duration=timedelta(hours=168)))},
+    during=output_days,
 ).execute()
 mtd = temporal_s.observe(
-    {"income": income},
-    during=mv.to_date(output_days, grain=mv.grain("month")),
+    {"income": income.window(mv.to_date(grain=mv.grain("month")))},
+    during=output_days,
 )
 ytd = temporal_s.observe(
-    {"income": income},
-    during=mv.to_date(output_days, grain=mv.grain("year")),
+    {"income": income.window(mv.to_date(grain=mv.grain("year")))},
+    during=output_days,
 )
 since_january = temporal_s.observe(
-    {"income": income},
-    during=mv.since(output_days, start=temporal_s.instant("2026-01-01")),
+    {"income": income.window(mv.since(start=temporal_s.instant("2026-01-01")))},
+    during=output_days,
 )
 cumulative_joined = mtd.align(ytd)
 cumulative = cumulative_joined.select(
@@ -539,7 +541,7 @@ temporal_aov 直接使用 §2.1/§6.1 的同一 sales.average_order_value 声明
 MTD/YTD用相同真实输出日历，所以exact可组合；since_january独立定义起点。
 10-07/08七日收入1220/1200、订单104/104、AOV305/26与150/13，
 MTD1220/1300、YTD1920/2000。显示仅两天但读取更早窗口。
-elapsed 是小时粒度的 168 期回看，输出为小时格；绝对时长回看不另设入口。
+elapsed 在相同日输出端点评价固定168小时窗口；输出粒度与贡献窗口长度分别声明。
 v0.25 不提供父期间内日序配对；上月同进度改为分别对 10-07…08 与 09-07…08 求月累计，
 再 compare(match=mv.ordinal()) 按位置配对，上月610/650，环比100%；
 这里两侧都是同一时区的完整 day 桶，桶数相同；改为不同粒度或截断桶会拒绝，outer 也不放宽此条件。
@@ -622,10 +624,7 @@ anchor_s = mv.session.get_or_create("anchor-example", report_timezone="Asia/Shan
 october = anchor_s.time_scope(start="2026-10-01", end="2026-11-01")
 launch = anchor_s.instant("2026-10-15T09:30:00")
 absolute_launch = anchor_s.instant("2026-10-15T01:30:00+00:00")
-since_launch = mv.since(
-    anchor_s.time_scope(start="2026-10-16", end="2026-10-18").by(mv.grain("day")),
-    start=launch,
-)
+since_launch = mv.since(start=launch)
 new_york_scope = anchor_s.time_scope(
     start="2026-10-01", end="2026-11-01", timezone="America/New_York"
 )
@@ -761,7 +760,7 @@ intrinsic_october_revenue = relation_s.observe({"revenue": october_definition}).
 
 ## 6. 预定义与 runtime 共用表达式与声明
 
-以下片段使用目标 v0.35 API。Amount、Cost、Quantity、UnitPrice、UnitCost 是已声明的 Measure，
+以下片段使用目标 v0.37 API。Amount、Cost、Quantity、UnitPrice、UnitCost 是已声明的 Measure，
 Orders 是 Entity，PaidAt、Status、CustomerId 是字段；模型模块直接引用这些对象，
 分析代码从 Catalog 取得其作用域解析的对象。示例假设业务定义未改变；不要求强制匹配构造时原定义版本，变更后果由 agent/用户承担。实际消费定义仍进入计算指纹，代码位置不改变计算规则。
 
@@ -896,6 +895,194 @@ selected = s.observe({"revenue": selected_revenue}, during=september).execute()
 字面量域和来源/Query 程序是显式依赖，不包含 Artifact 键引用。selected_revenue 仍依赖原选择程序，
 不会把它变成已求值名单；可以在同 Session 观察，模型收录拒绝带执行 Session 的闭包。
 字面量域若轴可独立解析则可收录；Artifact 在表达式构造时就拒绝，不等待模型收录。
+
+### 6.4 原生 Ibis：命名、匿名与延迟类型绑定
+
+以下为待实施示例。amount/cost 已完成语义解析，同根且单位为 CNY；revenue/reference_revenue
+是单位相同的 Metric。此处不要求来源 schema，不提供 dtype、ms.ibis 或 ms.require。
+
+```python
+import ibis
+
+positive = ibis.ifelse(amount > cost, amount - cost, 0)
+
+@ms.measure(additivity=ms.additive_all())
+def positive_margin():
+    return positive
+
+@ms.metric()
+def revenue_index():
+    return (revenue / reference_revenue).sqrt()
+
+anonymous_index = (revenue / reference_revenue).sqrt()
+query = s.observe({"named": revenue_index, "anonymous": anonymous_index})
+artifact = query.execute()
+```
+
+positive 是原生条件表达式，但不自动取得业务求和许可；positive_margin 明确声明该授权。
+revenue_index 与 anonymous_index 的延迟配方、语义检查、除零政策及结果相同，仅声明元数据不同。
+execute 自动读取必要 schema，生成真实 dtype 的 Ibis 图并完成检查；上面的普通 Python 组合和装饰器
+使用同一受控 Deferred 机制，不能只有装饰器示例能运行。原生顶层函数的匿名后续链也须成立：
+
+```python
+anonymous_mean = ibis.ifelse(amount > cost, amount - cost, 0).mean()
+positive_total = positive_margin.sum()
+```
+
+mean 不授予求和权限；直接 positive.sum() 仍缺业务授权。这里 mean/sum 是归一后的语义规约，
+继承已冻结的唯一默认时间；显式 time= 等参数按语义接收者合同处理，不能直接传给已绑定裸 Ibis 方法。
+类型不合法（例如物理 amount 为字符串）、不相容单位、跨根或无本地内核分别在拥有该信息的边界失败。
+具体机制由[语义提案 §2.6](../semantic/expression-model-redesign.md#26-原生-ibis-与自动延迟绑定)拥有。
+
+即使已有可信 schema，amount/revenue 等数值作者值和这些中间结果也始终是原生 Deferred；命名信息存在内部声明 Resolver。
+不接收裸后端 Ibis Value 来替换作者值，不调用作者表达式自身的 `.resolve()`/`.show()`；通过 Catalog 条目或 Query.contract 披露。
+命名不是提前执行。下例 numerator/denominator 为已解析的相容 Metric，分母为无量纲数值：
+
+```python
+@ms.metric()
+def strict_ratio():
+    return numerator.divide(denominator, zero_denominator="error")
+
+safe_named = ibis.ifelse(denominator != 0, strict_ratio, 0)
+safe_inline = ibis.ifelse(
+    denominator != 0,
+    numerator.divide(denominator, zero_denominator="error"),
+    0,
+)
+safe_query = s.observe({"named": safe_named, "inline": safe_inline})
+strict_query = s.observe({"safe": safe_named, "strict": strict_ratio})
+```
+
+分母为 0 或 NA 时，safe_query 的两项均选假分支返回 0；静态类型、单位和根检查仍覆盖真分支。
+分母为 0 时，strict_query 的独立 strict 请求须检查除法并使 execute 失败；safe 不能取消另一处需求。
+只有 safe_named 的请求不因严格子式已命名而失败。`strict_ratio * 0` 仍检查严格除法，普通乘法不提供短路。
+`ibis.coalesce(strict_ratio, 0)` 也不能捕获严格除零：只有成功求值为 NA 才尝试后项。
+
+默认 `numerator / denominator` 与 strict_ratio 即使对应相等的 Ibis Divide，也保留不同使用位置和政策。
+这类差异进入声明计算指纹；仅命名不改变指纹。相同 cast 配方遇到不同实际 schema 时，声明计算指纹不变，
+绑定执行指纹变化，不能复用旧物理计划。所有示例仍为待实现合同，并非当前版本运行证据。
+
+
+### 6.5 五项能力：相同配方，命名与匿名共用
+
+以下均为 v0.37 目标写法，尚未实现。Inventory/Amount/Latency/CustomerId/TagId/SnapshotAt 和
+OrderTags 是已 finalize/resolve 的语义依赖，Revenue 是完成 Metric；不使用裸 Ibis table、手写 schema 或 ms.require。
+OrderTags 是根订单到标签 Entity 的声明成员关系，s/period/days 由调用方提供。
+
+```python
+from datetime import timedelta
+
+@ms.metric()
+def closing_inventory():
+    return Inventory.sum(time=SnapshotAt, empty="null").per(SnapshotAt).last(include_null=True)
+
+closing_inline = Inventory.sum(time=SnapshotAt, empty="null").per(SnapshotAt).last(include_null=True)
+
+@ms.metric()
+def latency_p95_approx():
+    return Latency.approx_quantile(0.95)
+
+p95_inline = Latency.approx_quantile(0.95)
+users_approx = CustomerId.approx_nunique()
+
+@ms.metric()
+def revenue_nullable():
+    return Amount.sum(empty="null")
+
+nullable_inline = Amount.sum(empty="null")
+tag_buckets = mv.membership(TagId, via=((OrderTags,),), unmatched="exclude")
+
+@ms.metric()
+def mean_tag_revenue():
+    return Revenue.per(tag_buckets).mean()
+
+tag_mean_inline = Revenue.per(tag_buckets).mean()
+tag_query = s.observe({"revenue": Revenue}, during=period, by=(tag_buckets,))
+full_tags = mv.coordinates(by=(tag_buckets,), keys=(("A",), ("B",)))
+full_tag_query = s.observe({"revenue": Revenue}, during=period, by=full_tags)
+full_tag_mean = Revenue.per(full_tags).mean()
+
+month_rule = mv.to_date(grain=mv.grain("month"))
+
+@ms.metric()
+def revenue_mtd():
+    return Revenue.window(month_rule)
+
+mtd_inline = Revenue.window(month_rule)
+q_named = s.observe({"value": revenue_mtd}, during=days)
+q_inline = s.observe({"value": mtd_inline}, during=days)
+history = Revenue.window(mv.all_history())
+elapsed_week = Revenue.window(mv.trailing_duration(duration=timedelta(days=7)))
+calendar_week = Revenue.window(mv.trailing_periods(count=7))
+```
+
+每对 named/inline 的配方、政策、检查域与声明计算指纹相同，声明身份不同；schema 已知/未知均保持 Deferred。
+q_named 与 q_inline 使用同一规则和观察轴；没有 during=window 的第二入口。
+这里展示配方等价，不承诺独立 execute 读取相同快照或近似计算产生逐位相同结果。
+无轴规则及 tag_buckets 不依赖 s，命名声明可独立收录；具体 Query/days 不进入模型闭包。
+全部窗口表达式消费时须提供评价端点，calendar_week 还须 CalendarAxis；窗口不能补造基础指标的时间角色。
+
+closing_inventory 的 last 保留末次 NA；改成 include_null=False 是选择末次非 NA，不是格式选项。
+第一步 sum(empty="null") 同样重要：若改成默认 zero，末次全 NA 会成为有效零，后续跳 NA 的含义随之改变。
+tag_mean 是标签桶统计；一笔收入可进入多个标签，不能把它解释成去重客户均额或总体收入。
+elapsed_week 的七天恒为168小时；calendar_week 是七个输出日历期间，两者在 DST 周可能不同。
+原 first-seen、固定时长、空集和成员集合的迁移条件见[语义附录 A.1.1](../semantic/expression-model-redesign.md#a11-等价迁移的判定条件)。
+
+
+完整域例：仅 A 有100收入时，默认 sum 的 full_tag_query 为 A=100/B=0，full_tag_mean 为50；
+若子指标为 sum(empty="null")，B 为 NA、忽略 NA 的 mean 为100。按实际成员桶 per(tag_buckets) 则只有 A，mean 为100。
+full_tags 的绑定明确且不依赖事实 Query；来源域可写 `s.members(TagEntity).classify(by=(tag_buckets,))`，
+此处直接读目标 TagEntity 的身份分类，不走 OrderTags，也不执行描述可能携带的 TagEntity 自关系。来源域会保留其 Session/时点，不能伪装成 source-free 模型参数。
+
+若同时存在 OrderChannels，独立集合组合可写：
+
+```python
+channels = mv.membership(ChannelId, via=((OrderChannels,),), unmatched="exclude")
+by_tag_channel = s.observe({"revenue": Revenue}, during=period, by=(tag_buckets, channels))
+mean_tag_channel = Revenue.per((tag_buckets, channels)).mean()
+```
+
+一笔100属于标签 A/B、渠道 web/store 时，四桶各100，并集总额100。真实相关标签/渠道对须改用同一个成员 Entity
+上的字段元组描述；不能从两个独立集合猜出相关性。若另有标签根 Budget，`Revenue / Budget` 复用 tag_buckets 时，
+订单根走 OrderTags、标签根恒等绑定，先分别规约再相除，不能把 Budget join 到订单明细。
+
+标量 MTD 在 `during=s.time_scope(start="2026-09-01", end="2026-10-08")` 与起点改为10-01时，
+都取[10-01,10-08)；端点恰为11-01零点时取完整十月。不要求显示起点在同一月，也不通过减一微秒选择月份。
+旧 first-seen 的重置/滚动迁移可在一致输入前提下使用精确 H/W 计数组合，完整命名/匿名配方见语义附录 A.1.1；
+A在09-30及10-02出现、B在10-03出现，十月窗口活跃去重2、首次新增1，不能把两者作为等价例子。
+这不要求所有窗口分支共享输入；前提未证实时配方仍是合法普通表达式，只是不再具有已证明的 first-seen 迁移等价性。
+
+
+显式路径优先于推导恒等。以下 EmployeeId 属于 EmployeeEntity，ReportsTo 为 Employee→Employee 的合法自关系，
+Payroll 为该根上的金额指标；其它上下文与本节相同：
+
+```python
+manager_buckets = mv.membership(EmployeeId, via=((ReportsTo,),), unmatched="exclude")
+self_buckets = mv.membership(EmployeeId, via=(), unmatched="exclude")
+by_manager = s.observe({"payroll": Payroll}, during=period, by=(manager_buckets,))
+by_self = s.observe({"payroll": Payroll}, during=period, by=(self_buckets,))
+all_manager_keys = s.members(EmployeeEntity).classify(by=(manager_buckets,))
+```
+
+by_manager 沿 ReportsTo 分配贡献；by_self 才读取根自身分类。all_manager_keys 构造完整目标桶域，
+直接读取所选 Employee 身份分类，不沿 ReportsTo 展开。无效显式路径不会退回 self_buckets 的含义。
+
+窗口逻辑绑定在 observe 固定；以下 Region 为已解析的单值分组字段，days 为输出日历轴：
+
+```python
+week_rule = mv.trailing_duration(duration=timedelta(days=7))
+regional_week = s.observe({"value": Revenue.window(week_rule)}, during=days, by=(Region,))
+all_regions_week = regional_week.rollup(by=(days,))
+cell_sum = regional_week.reduce({"sum_of_cells": regional_week["value"].sum()})
+coarse_week = s.observe(
+    {"value": Revenue.window(week_rule)},
+    during=days.coarsen(mv.grain("month")),
+)
+```
+
+all_regions_week 保留每个原端点/W，仍须通过原指标的空间合并检查。`regional_week.rollup(by=(days.coarsen(mv.grain("month")),))` 与 `regional_week.rollup()` 均拒绝，
+不能借保留了原始输入就改变或删除时间绑定。coarse_week 是显式的新观察，按粗轴实际端点重新绑定七日窗口；
+cell_sum 只是当前格子的统计。相邻两个端点的七日值均为7时，格子和14、贡献并集8、末端点值7不是同一问题。
 
 ## 7. 五个核心 Metric 场景
 
@@ -1058,3 +1245,43 @@ Query 内组件充分时 rollup 应重算410，不能把地区完成值相加成
 `(Amount + 10).sum()` 则每条贡献加10；若各地区各一条，合计420，和前一表达式有不同含义。
 给它们加装饰器或换函数名不会改变这一区别。复审数值反例见
 [场景验证附录 I](lazy-analysis-dsl-scenario-validation.md#附录-i第一性原理复审反例)。
+
+### 7.7 多根与 fanout：先声明贡献含义
+
+以下是独立目标 API 片段。OrderAmount/RefundAmount 分属订单和退款根；OrderTags 是订单到标签的声明关系，
+RefundOrder 是退款到订单的单值声明关系，TagId 属于标签 Entity；所有输入均已解析。
+相同观察期间对两个组件分别使用支付和退款时间，不自动改成同一批订单的最终退款。
+
+```python
+order_revenue = OrderAmount.sum(time=OrderPaidAt)
+refund_total = RefundAmount.sum(time=RefundedAt)
+net_revenue = order_revenue - refund_total
+tags = mv.membership(
+    TagId,
+    via=((OrderTags,), (RefundOrder, OrderTags)),
+    unmatched="exclude",
+)
+tag_net = s.observe(
+    {"net_revenue": net_revenue}, during=period, by=(tags,),
+)
+```
+
+订单 O1=100、退款 R1=20 归属 O1，O1 属于 A/B 两标签；同一 (O1,A) 的桥记录出现两次。
+membership 下收入 A/B 各100，退款各20，净额各80；原指标的贡献并集净额仍80，两个格子的 sum 则为160。
+执行器可以沿关系取得不同贡献键/桶键后回取数值，也可采用保持相同语义的预聚合计划；
+不能将桥记录或订单×退款的乘积当成新增订单/退款。缺少退款根的合法成员路径时拒绝绑定。
+
+若问题改变，显式改变贡献单位：
+
+| 问题 | 表达与边界 |
+| --- | --- |
+| 只统计关联到所选标签的订单 | 在有限订单身份域上 preimage(tag_population, via=(OrderTags,))，再用 in_population 约束订单组件；无论关联几次只选一次 |
+| 统计两条真实关联事件 | 以 EventId 为完整键的关联 Entity.count；同端点 E1/E2 都计入，membership 不能替代事件计数 |
+| 将订单100按 A/B 的0.25/0.75分配 | 以分配记录为贡献根，显式构造已授权分配金额25/75再规约；不是 membership 的100/100，也不是 weighted_mean |
+| 各客户达成率的均值 | (Revenue / Budget).per(CustomerId).mean()；要求两个根都能绑定共同客户轴，先按客户完成比率再平均 |
+| 每笔订单找此前最近点击 | 上游先给出有明确匹配与完整键的贡献来源；Metric 体不提供任意时间 join 或通用触点归因 |
+
+达成率例中 A/B 的收入为100/0、预算为10/90，客户比率均值为5，总收入/总预算则为1。
+不能先压到最终展示粒度再恢复客户比率；有 per 时保留完整 (外部格子, 客户) 样本。
+分配记录的权重和等于1是该模型的业务前提，不由本片段自动验证。完整分类、充分状态和执行边界由
+[语义 §3.7.1–§3.7.2](../semantic/expression-model-redesign.md#371-fanout-的表达方式与能力边界)拥有。

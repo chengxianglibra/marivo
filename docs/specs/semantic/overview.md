@@ -1,5 +1,35 @@
 # Semantic and Datasource Layer — Design Overview
 
+Design amendment (2026-10-17, not implemented):
+[Expression redesign v0.37](expression-model-redesign.md#26-原生-ibis-与自动延迟绑定)
+proposes native Ibis numeric expressions for both named and anonymous Measure/Metric inputs,
+with automatic physical-type binding during execution preparation. It replaces the custom
+numeric AST while retaining semantic identities, constraints and governed reductions.
+There is no ms.ibis/ms.require bridge or new user preparation step. The current authoring
+contracts below and live Help remain in force until implementation and disclosure cutover.
+
+The same pending v0.37 design adds ordered first/last, native approximate reductions,
+explicit overlapping membership buckets, operator-local sum empty policy, and reusable named
+window Metrics. Named and anonymous inputs share the same deferred capture and checks;
+[semantic boundaries](expression-model-redesign.md#39-五项能力共用的检查边界) and
+[conditional migration equivalence](expression-model-redesign.md#a11-等价迁移的判定条件)
+are proposal contracts. Retired APIs and unsupported capabilities described below remain current
+until implementation and disclosure cutover; this note does not enable those APIs.
+The reviewed v0.37 proposal gives explicit membership paths priority and infers identity only
+when no path is supplied. Member-set products and complete target domains retain their bindings;
+classifying target identities does not traverse contribution-assignment paths. Axis-free rules
+use Metric.window; observe fixes the logical time binding, without freezing source data. Window
+Metrics allow qualified spatial rollup with that binding preserved; time-axis coarsening,
+replacement or removal is rejected. Scalar to-date uses the endpoint. The ordinary H/W recipe
+for legacy first-seen is equivalent only under consistent inputs; it adds no general window
+sharing requirement or runtime rejection policy. Ordered first/last retains its sampling checks.
+
+The pending [fanout amendment](expression-model-redesign.md#371-fanout-的表达方式与能力边界)
+constrains contribution identity, multiplicity, buckets and reduction order, rather than fixing
+physical join/aggregate order. Existence selection, overlapping buckets, association events and
+modeled allocations have distinct meanings; general cross-root matching remains outside Metric.
+Equivalent plans require preserved keys, policies, checks and sufficient information. This is unimplemented.
+
 Status: R1.3 expression authoring, 2026-10-15; Catalog Metric publication (R1.4) and new execution (R2) remain separate work. Semantic declarations and datasource
 access feed the typed, algebra-based Analysis DSL. This document specifies
 ownership and meaning; exact callable contracts are exposed by native Help.
