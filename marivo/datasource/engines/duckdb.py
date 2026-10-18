@@ -6,6 +6,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+import ibis.expr.operations as ops
+import ibis.expr.types as ir
 from ibis.backends import BaseBackend
 
 from marivo.datasource._lifetime import BackendLease
@@ -80,6 +82,21 @@ register_provider_statements(
                 "ORDER BY column_index"
             ),
             literal_slots=frozenset({"database", "schema", "table"}),
+            allowed_purposes=frozenset({"datasource.metadata.duckdb"}),
+        ),
+        "tables.original_collation": ProviderStatement(
+            statement_id="duckdb.tables.original_collation",
+            template=(
+                "SELECT sql NOT ILIKE '%COLLATE%' AND current_setting('default_collation') = '' AS qualified "
+                "FROM duckdb_tables() WHERE database_name = {database} "
+                "AND schema_name = {schema} AND table_name = {table} LIMIT 1"
+            ),
+            literal_slots=frozenset({"database", "schema", "table"}),
+            allowed_purposes=frozenset({"datasource.metadata.duckdb"}),
+        ),
+        "original.default_collation": ProviderStatement(
+            statement_id="duckdb.original.default_collation",
+            template="SELECT current_setting('default_collation') = '' AS qualified",
             allowed_purposes=frozenset({"datasource.metadata.duckdb"}),
         ),
         "namespace.current": ProviderStatement(
@@ -258,6 +275,43 @@ def _duckdb_rows(
     return execute_provider_statement(
         backend, PROFILE, statement_id, values=values, purpose="datasource.metadata.duckdb"
     )
+
+
+def uncollated_original_input(
+    backend: BaseBackend, table: ir.Table, *, file_source: bool = False
+) -> bool:
+    """Qualify original grouping without changing native string equality."""
+    if file_source:
+        rows = execute_provider_statement(
+            backend,
+            PROFILE,
+            "duckdb.original.default_collation",
+            purpose="datasource.metadata.duckdb",
+        )
+        return len(rows) == 1 and rows[0].get("qualified") is True
+    operation = table.op()
+    if not isinstance(operation, ops.DatabaseTable):
+        return False
+    namespace = operation.namespace
+    current = execute_provider_statement(
+        backend, PROFILE, "duckdb.namespace.current", purpose="datasource.metadata.duckdb"
+    )
+    if len(current) != 1:
+        return False
+    database = namespace.catalog or current[0].get("database_name")
+    schema = namespace.database or current[0].get("schema_name")
+    if not isinstance(database, str) or not isinstance(schema, str):
+        return False
+    rows = execute_provider_statement(
+        backend,
+        PROFILE,
+        "duckdb.tables.original_collation",
+        values={"database": database, "schema": schema, "table": operation.name},
+        purpose="datasource.metadata.duckdb",
+    )
+    # A view can inherit a base column's collation without exposing COLLATE in
+    # its own SQL. Missing table metadata therefore retains that unknown boundary.
+    return len(rows) == 1 and rows[0].get("qualified") is True
 
 
 def _inspect_duckdb(

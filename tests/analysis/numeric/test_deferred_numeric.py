@@ -4,6 +4,8 @@ from dataclasses import replace
 from decimal import Decimal
 
 import ibis
+import ibis.expr.datatypes as dt
+import ibis.expr.operations as ops
 import pandas as pd
 import pytest
 from ibis.common.deferred import Deferred, Variable, resolver
@@ -13,6 +15,7 @@ from marivo._definition.expressions import (
     RowExpression,
     RowField,
     SourceAggregate,
+    SourceWeightedMean,
 )
 from marivo._definition.types import ExactRef, SumAll
 from marivo.analysis.compiler.graph_plan import LocalCompute
@@ -24,6 +27,34 @@ from marivo.refs import ref
 from marivo.semantic._numeric_lowering import NumericCheck, NumericValue, lower_source_reduction
 from marivo.semantic._numeric_recipe import lower_recipe
 from marivo.semantic.errors import SemanticExpressionError
+
+
+def test_nonnullable_source_inputs_keep_null_branches_physically_nullable() -> None:
+    table = ibis.table({"x": dt.Int64(nullable=False)}, name="nonnull_values")
+    field = RowField(
+        ExactRef(ref.measure("sales.facts.x"), "v1"),
+        ExactRef(ref.entity("sales.facts"), "v1"),
+        None,
+        SumAll(),
+    )
+    for node in (
+        SourceAggregate(field, "min", None),
+        SourceAggregate(field, "max", None),
+        SourceAggregate(field, "sum", None),
+        SourceWeightedMean(field, field, None),
+    ):
+        lowered = lower_source_reduction(node, table, {"sales.facts.x": table.x})
+        null_casts = [
+            cast
+            for cast in lowered.value.op().find(ops.Cast)
+            if isinstance(cast.arg, ops.Literal) and cast.arg.value is None
+        ]
+        assert null_casts
+        assert all(cast.to.nullable for cast in null_casts)
+        # ClickHouse validates every CAST, including an unselected conditional branch.
+        assert "Nullable(" in ibis.to_sql(
+            table.aggregate(value=lowered.value), dialect="clickhouse"
+        )
 
 
 def test_native_branches_mask_source_checks_and_invalid_function_inputs() -> None:

@@ -113,7 +113,7 @@ def test_nullable_integer_axis_preserves_direct_drill_and_original_rollup(
 def test_drill_refuses_unsafe_shared_integer_key_promotion_before_recomputation(
     core_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.materialization import drill_execution
+    from marivo.analysis.materialization import drill_execution, source_original
     from marivo.analysis.materialization.errors import MaterializationError
     from tests.analysis.materialization.publication_fixtures import publication_counts
 
@@ -148,10 +148,9 @@ def test_drill_refuses_unsafe_shared_integer_key_promotion_before_recomputation(
 
     monkeypatch.setattr(SourceSession, "execute", floating_nullable_columns)
     monkeypatch.setattr(drill_execution, "drill_components", forbidden)
+    monkeypatch.setattr(source_original, "finish_native_original", forbidden)
     before = publication_counts(core_session)
-    with pytest.raises(
-        MaterializationError, match=r"complete integer keys.*shared coordinate carrier"
-    ):
+    with pytest.raises(MaterializationError, match=r"complete integer keys.*carrier"):
         query.execute()
     assert publication_counts(core_session) == before
 

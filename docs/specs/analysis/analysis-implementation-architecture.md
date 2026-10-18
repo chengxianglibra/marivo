@@ -633,8 +633,9 @@ Ibis 负责将关系表达式编译到目标后端，SQL 后端沿其 SQLGlot �
   两套编号的关系见[理论/实现编号表](algebra-theory.md#实现编号与理论定律的对应)，不能直接按编号套用。
 - 字段键像不是各列键集的笛卡尔积；per、时间样本规约和重叠窗口都保留完整使用位置及次序。
 - fanout 计划保持每个根/使用位置/窗口的贡献单位：存在性选根、membership 集合出现、独立关联事件与分配记录不能互换。预聚合保留所需身份及内部键，不以完成均值/P95/去重数替代充分状态；无等价路线时报告能力缺口，不增加公开策略开关。
-- 同定义指纹不证明共同实际输入；CTE、公共子表达式或后端 EXPLAIN 中一次扫描也不替代 §9.3 的输入合同。
-- 浮点规约拆分/融合须满足[方法精度合同](lazy-analysis-dsl-execution.md#14-数学定律的实现边界)，不能由实数结合律或采用 fsum 推导；无法证明时保留原路线，数值容差不放宽筛选、排名、NA 与错误结果。
+- share/top/reduce 内部的同输入要求不能用同定义指纹、CTE 名称或后端 EXPLAIN 代替；
+  此要求不适用于 rollup/drill 的后续来源重算，参见 §9.3。
+- 浮点规约拆分/融合须满足[方法精度合同](lazy-analysis-dsl-execution.md#14-数学定律的实现边界)，不能由实数结合律或采用 fsum 推导；同一已选方法内的数值容差不放宽筛选、排名、NA 与错误结果。已准入的来源重算接受原生计算及 pandas 交接精度差异，后续筛选/排名基于该结果；此前完成的父选择键固定，不以旧 host 值逐位一致作为准入条件。
 
 现有 runtime 的 `_selection_groups`、`_reduction_groups` 及相应 local_laws 检查是迁移起点。
 将融合成员、必需 parts、键/mask 运输和原检查定位编码进编译产物后，runtime 只执行融合组，
@@ -649,11 +650,15 @@ R6.5 已在真实 DuckDB 来源上接通同实际输入的精确直接 sum/count
 消费字段/完整身份及路径/属性锚点、坐标、时间/期间、谓词、membership 与 Population fibers、内部样本、日历、窗口和覆盖。
 Ibis AST 相等、同名 Entity 或同形表都不能代替该合同。匹配合同取得仅本次 invocation 的物理绑定 ID，
 它不进入定义指纹、语义记录或 Artifact 的计划载荷；真正的来源由 SourceRead 的已绑定权威选择。
+这个 ID 区分逻辑贡献及实际 source owner，不证明原始行未变化。重算不检查来源版本、
+事务引擎或共同快照；任何后端都可以在固定父键内读取当前贡献。
 
 来源合并要求期间、谓词、轴、来源字段、完整身份及 null/empty 政策相同，保留检查、参数和多消费者屏障。
 一次原生聚合产生独立 value/check slots，一次联合原始投影拆回完整独立 ComponentFrames；
 每个逻辑贡献仍保留原出现位置、值槽、检查与消费者计数，不能因复用一次物理读取而合并 `m + m` 的两次使用。
 不同成员 fibers 或不同物理 datasource 文件不共享来源块。RequiredSlots 和末位组件释放继续有效。
+上述读取复用是减少传输的执行选择，不是跨读一致性前提。已有合格重读路线的目标不再要求
+父输出携带整份原始贡献；未合格数值方法或内部身份仍需要的 components 按算法需求保留。
 
 L8 的 LocalCompute.fused_steps 保存原有序阶段。物理 schedule 使用外层融合阶段，Runtime 按已选顺序执行每个成员，
 不重新咨询全局 registry 判定定律。每个中间完成和溢出检查均保留；中间组和溢出后最终总和可抵消的输入仍在原中间目标失败。
@@ -663,6 +668,69 @@ FusionGroup 及实际成功检查 Evidence 保留逻辑成员身份，Artifact �
 Decimal 对照包括低精度 ambient context。浮点 sum、per/内部样本、窗口、不同政策、待完成检查、Top/share/filter 屏障和共享中间结果
 继续采用其合格原路线，不因本节获得新融合权利。移除 L8 会阻止新的融合并使依赖该规则的调用内 memo 失效；
 已编译融合组仍执行其选定的有序成员。本地聚焦对照不代替完整独立验收或远端 Runtime 资格。
+
+2026-10-18 来源优化增量复用同一阶段链：准备层提供 owner 和物理输入事实，
+`query_key_fusion` 构造合格终点/名单关系，`source_original` 保留父选择和检查后构造各贡献根的目标规约。
+多根独立消费原始纤维，只对齐完成值。
+同源 image/preimage 祖先域若仅用于检查，可复用既有 check carrier 合并进真实消费读取，
+不再为这些检查单独运输完整身份域；真实终点域、MemberCount 和 keyed members 输入保留。
+MySQL 合格完整参数键使用 invocation 内 JSON membership 对象，字符串要求 binary NO PAD；
+现有 native collation membership 不变。SourceSession 读取实际 packet capacity，并在最终
+Ibis SQL 编译后按连接编码检查请求大小；JSON 成员长度和文档大小在构造时检查。
+`source_original_complex` 为普通 observe 后的空间上卷
+运输分组样本叶子，使用同一来源 lowerer 和原有 host 公式内核，保留细/目标及嵌套阶段的检查期限。
+来源样本域保留捕获期间；合格单父 Top/坐标 where 在 host 完成原父公式后筛选分组目标状态。
+复杂 drill 的完整辅助父键先校验，新增属性和映射检查仍在选中纤维内完成。
+`compiler/native_formula.py` 拥有纯公式衔接和紧凑状态描述，`compiler/source_predicates.py` 拥有来源字符串比较规则。
+来源结果在既有 pandas 交接边界完成必要的精确除法/插值与原公式，不为每种算子运输完整 raw components。
+`compiler/native_query.py` 描述来源关联后仍由 host 完成的端点输入、存在性、检查和输出布局；
+align/compare/broadcast 使用既有关系内核，不能只运输数值而丢失缺格与键对应错误。
+Trino/ClickHouse 已准入完整字符串轴的同源端点关联；ClickHouse outer 输入显式 nullable，
+presence 字面量也使用实际 Cast，避免 Ibis 同类型优化移除 cast 后默认填 False。
+实际 join_use_nulls=0/1 均保持 present-NA 与 absent 的区别。
+共享分组块保留每个 FormulaInput 自己的 presence，不能把公共外连接域当成每个消费者的存在域。
+Trino/ClickHouse 每个消费 read 独立取得 owner/方法/完整字符串网格资格。多参数替换保持
+依赖闭包完整；混合消费只内联合格来源边，再按真实终点可达性保留 host 所需 producer。
+各 FormulaProgram 的 Member/sample/output 域分别决定是否仍需运输，不能只看最终公式。
+兼容 per 网格共享分组块，不同 per/window 消费仍各自完成，不将共享名单回传来源；
+参数替换后复用既有关联融合，保留各自 checks、presence 与独立 formula finish。
+实际 host 样本/输出域消费的已完成 where/Top 名单保留固定完整键依赖，不能把另一消费边
+改成在变化后来源上重选；该具体依赖允许必要参数运输，不新增源数据一致性保证。
+DuckDB、PostgreSQL、MySQL、Trino 和 ClickHouse 的关系路线分别按实际类型和物理事实准入；
+PostgreSQL 数组键路线保留。四个远端原量增量接通整数/float/Decimal 的同 owner 多根表关系，
+每根独立规约后以 distinct 完整键域及 left join 对齐，行配方与 Metric 算术复用原 lowerer；
+允许 nullable 值但保留完整非空身份；整数均值走紧凑状态，小数均值消费合格 native 完成值。
+字符串坐标分别要求确定性 collation / binary NO PAD；ClickHouse FixedString 不越过 bytes 载体边界。
+Trino/ClickHouse 数值属性及合格聚合 where/Top 可在来源完成，NaN 显式规范化为 missing；
+固定父键、完整键平局和必要检查仍保留，不建立数值 wire codec。
+DuckDB 同样归一化 NaN；合格多 binding/common-read 公式复用 native_formula 完成，
+每个逻辑输入保留独立存在域和 checks。Column 四则与浮点 unary 的来源 lowering
+传递完整 NumericValue 检查，nullable 除法按实际有效配对执行零分母政策。
+Select 浮点输出单独保留 finite 检查；filter/Top 的 unary 不凭空引入该输出检查。
+格子 sum 对合格 float/Decimal 使用 native 累计，保留非有限值、输出范围和空输入政策，
+不再仅因与本地 fsum/Decimal 累计舍入不同回退。
+Trino/ClickHouse 普通 per/window 空间重算复用 tagged sample leaves 和既有 FormulaProgram 完成器，
+fine/target 各自保留完整样本域、lookback 和必要错误，不从父均值推导上卷均值。
+选后多父样本空间上卷复用 NativeOriginalPhaseFinish：父 compact phase 完成检查及 host 选择后，
+完整父键参数化目标 compact phase。target 先筛贡献，再按完整身份和样本键去重规约；
+窗口参数保留 endpoint 与样本的关联，target domain 保留固定名单。
+`source_original_calendar` 对普通 Calendar sum 及其公式按 owner/逻辑出现位置独立规约，
+细/目标各复用 query.combine；目标 SourceRead 依赖已检查父结果。合法普通 Calendar 粗化
+使用规范目标桶重算原贡献，各根保留时间字段、期间和身份，不跨 owner 去重。
+DuckDB/PostgreSQL Decimal median/quantile 的原量路线选择既有 exact native value，
+不进入整数分位端点状态，也不为复现本地有理插值回退；其它后端不因此获得近似替换资格。
+其它跨 owner 复杂公式、远端动态样本域、复杂样本 drill 及其它时间改写仍保留原边界，
+不能由来源精度容忍推导重排资格。原指标新增路线按实际表达式和类型准入，
+不额外查询 PG 基表种类或 MySQL InnoDB 引擎来保证来源不变。
+DuckDB 原量存在显式/默认 collation 时保留原路线；普通 Query 字符串关系下推使用字节比较、
+排序和分组，避免与原 pandas 的大小写、Unicode 及完整成员键语义不同。
+原生 Metric 已 lowering 的 membership 保留来源 collation 语义。
+`source_original_dependent` 复用现有参数化 SourceRead：先完成父 fine-grid 检查和 host 选择，
+再把固定完整键通过已有参数运输传给合格数据源重算。来源数据可变化，不要求跨读 snapshot、
+物化输入或相等性验证；Top-N 不能重选父键。share 仍消费其已完成细值计算分母。
+这些组件和物理计划不进入终端 Artifact。
+实际 read Evidence 分别保留每个逻辑贡献的过滤和期间；returned_rows 记录来源批次实际行数，
+并注明物理提交范围，不能把本地完成后的输出行数当作传输量，也不能把多根共享行数重复加总。
 
 ### 8.5 编译复用与运行结果缓存分开
 
@@ -737,6 +805,11 @@ R3 须贯通至少两个不同已声明 datasource ID 经 pandas 组合的真实
 
 ### 9.3 局部同输入保证
 
+来源 rollup/drill 重算允许读取父阶段之后变化的数据：父选择先产出 checked 完整键，
+后续来源阶段可用参数关系限定当前贡献再规约。共享快照或单次物化不是该路线的前置条件。
+父排名不在目标重算时重做；原量类型、数值方法、父检查与目标实际输入检查保持。
+这与下面算子内部消费某个已完成输入的要求分开。
+
 share、top、reduce 的语义要求其内部步骤消费同一份实际输入。
 为此将接收者输入安排为一个已物化 stage 输出，或使用已证明等价的单条来源执行路线。
 后续步骤引用这个 invocation 内实际数据实例，不能凭共享 Node ID 获得该保证。
@@ -791,7 +864,7 @@ PyArrow 的按批写入和预览扫描仅属于 §12 的存储/读取行为，�
 | --- | --- | --- |
 | 选择、算术、Top-N、sum/mean/row_count | Query 构造明确的本次依赖 | Artifact.to_pandas 后处理 |
 | 对齐、比较、广播 | Query 检查完整坐标、单位与定义约束 | pandas 按完整业务键显式对齐，脚本判断可比性 |
-| 原指标 rollup、业务 share | Query 使用实际输入与充分中间信息 | 不提供 DSL 入口；完成值不恢复缺失组件 |
+| 原指标 rollup、业务 share | rollup 使用固定父键内的来源重算或充分中间信息；share 消费已完成细值 | 不提供 DSL 入口；完成值不恢复缺失组件 |
 | drill、新期间观察 | 从合法观察端点构造 Query | 需新 Query；可能重新读取和选择 |
 | 输出读取 | Query 不隐式执行 | Artifact.show/findings/evidence_digest/to_pandas |
 
@@ -802,7 +875,8 @@ lowering 实现一般对齐后逐点比较，同一 m 的上下文比较只是[�
 
 ### 10.2 充分信息属于本次计划
 
-Query.rollup 先保留选中细坐标及必要完成检查，再按原指标定义在合法分区上合并输入/组件。
+Query.rollup 先保留选中细坐标及必要完成检查，再按原指标定义在合法分区上重算来源或合并输入/组件。
+来源重算接受数据变化，固定父选择与原观察的期间和条件，不要求保留原始贡献快照。
 mean 不能平均完成均值，ratio 需要子组件，PerReduce 可能需要共同内部身份与子状态；
 只有支持该目标且成本可接受的路线才准入。没有低成本摘要的指标仍可走合格完整输入路线。
 反向需求传播决定计算哪些内部槽，最后一次消费后释放；不为未来未知问题保留状态。
@@ -1184,7 +1258,7 @@ Artifact 无计算上下文或 DSL 输入路径，后处理交 pandas；每个�
 | Query 宽中间表只消费两个量 | 物理列仅为需求闭包，包含必要 nullable value/检查；无关中间槽不传递 | 投影前后扫描字节、转换次数和内存，而非仅最终列数 |
 | 来源/字面量归一化与本地交接 | 同一 schema 下使用相同列序、键、dtype、时区与缺失规则；共享输入不被消费者原地修改 | 本地阶段间 pandas 数据传递与副本成本，不经 Arrow 或 DuckDB 中转 |
 | nullable 与冷恢复 | NA、精确 dtype、独立 presence、空表与零轴 0/1 行一致；旧四态格式明确拒绝 | 无状态列/书表/remap；只读取所需 value/parts，保留 validity |
-| 优化与未优化对照 | 完整 keys、NA、次序、检查与失败位置一致，值/parts 满足方法精度；首期不改变浮点求和分组，数值容差不改变离散结果；覆盖 share/filter、per、显式严格 NA、零分母和原量 rollup | stage/扫描/转换是否减少，选择性差时是否反而增加工作 |
+| 优化与未优化对照 | 完整 keys、NA、次序、检查与失败位置一致，值/parts 满足方法精度；同一已选方法内不以数值容差改变离散结果；来源重算允许原生舍入及其下游选择差异，固定此前父选择键；覆盖 share/filter、per、显式严格 NA、零分母和原量 rollup | stage/扫描/转换是否减少，选择性差时是否反而增加工作 |
 | 共享子图与多量编译 | 使用位置保留；重复共享不造成不必要的指数级展开 | 10/100/500 个节点的 capture、Ibis/SQLGlot 时间、节点数、SQL 大小和内存 |
 | 阻塞算子与保存 | 明确物化成本；失败后无成功 Artifact 或遗留 Run 资源；旧已提交结果仍可读取 | 高基数分组/关联/排序的内存，压缩与行组设置的写入/读取取舍 |
 

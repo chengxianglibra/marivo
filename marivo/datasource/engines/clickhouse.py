@@ -27,6 +27,7 @@ from marivo.datasource.engines.base import (
     require_field,
     structured_exception_chain,
 )
+from marivo.datasource.errors import DatasourceSourceCapabilityError, repair
 from marivo.datasource.ir import DatasourceIR, TableSourceIR
 from marivo.datasource.strptime import python_to_mysql_strptime
 
@@ -282,6 +283,22 @@ def table_engine(
         values={"table": source.table, "database": clickhouse_database(source, datasource)},
     )
     return str(rows[0]["engine"]) if len(rows) == 1 and rows[0].get("engine") else None
+
+
+def decoded_string_columns(
+    backend: BaseBackend, datasource: DatasourceIR, source: TableSourceIR
+) -> frozenset[str]:
+    """Find native String carriers; FixedString currently arrives as bytes."""
+    rows = _clickhouse_rows(
+        backend,
+        "clickhouse.columns.fallback",
+        values={"table": source.table, "database": clickhouse_database(source, datasource)},
+    )
+    return frozenset(
+        str(row["name"])
+        for row in rows
+        if str(row.get("type")) in ("String", "Nullable(String)", "LowCardinality(String)")
+    )
 
 
 _CH_PARTITION_FUNC_RE = re.compile(r"^(\w+)\((\w+)\)$")
@@ -838,6 +855,34 @@ def classify_table_resolution_failure(exc: Exception) -> Literal["metadata_unava
         if getattr(candidate, "name", None) == "ACCESS_DENIED":
             return "metadata_unavailable"
     return None
+
+
+def validate_query_size(backend: BaseBackend, sql: str) -> None:
+    """Check the known native parser byte limit without another metadata read."""
+    connection = getattr(backend, "con", None)
+    getter = getattr(connection, "get_client_setting", None)
+    value = getter("max_query_size") if callable(getter) else None
+    if value is None:
+        settings = getattr(connection, "server_settings", None)
+        if isinstance(settings, dict):
+            value = getattr(settings.get("max_query_size"), "value", None)
+    # Missing connection facts retain the native provider error boundary. They
+    # do not qualify an unlimited request. Zero explicitly disables this limit.
+    if not isinstance(value, (str, int)) or not str(value).isdecimal():
+        return
+    limit = int(value)
+    size = len((sql + "\n FORMAT Native").encode("utf-8"))
+    if limit and size > limit:
+        raise DatasourceSourceCapabilityError(
+            message="The ClickHouse source request exceeds its native parser capacity.",
+            expected=f"a UTF-8 query within max_query_size={limit} bytes",
+            received=f"{size} query bytes including FORMAT Native",
+            repair=repair(
+                kind="reconnect",
+                canonical_id="clickhouse",
+                action="Reduce the selected key domain or query size, or increase max_query_size in the datasource settings and reconnect.",
+            ),
+        )
 
 
 @contextmanager

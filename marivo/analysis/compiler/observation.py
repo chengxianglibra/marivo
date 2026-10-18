@@ -77,6 +77,8 @@ class ReductionInput:
     preserve_sample_presence: bool = False
     calendars: tuple[tuple[str, CalendarCoordinate], ...] = ()
     sampled: bool = False
+    retain_quantile_bounds: bool = False
+    native_quantile_value: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +93,7 @@ class FormulaInput:
     keys: tuple[str, ...] = ()
     coverage: tuple[SampleCoverage, ...] = ()
     key_groups: tuple[tuple[str, ...], ...] = ()
+    presence: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,6 +204,7 @@ def lower_observation(
     table: ir.Table,
     columns: Mapping[str, str],
     predicates: tuple[FieldPredicate, ...],
+    row_checks: tuple[tuple[str, str, str], ...] = (),
 ) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...]]:
     """Emit grouped nullable values and ephemeral check columns in one read."""
     window_slot: str | None = None
@@ -215,7 +219,10 @@ def lower_observation(
     if window_slot is not None:
         fields[window_slot] = table[window_slot]
     selected = [lower_field_predicate(node, fields) for node in predicates]
-    predicate_checks = tuple(check for item in selected for check in item.checks)
+    predicate_checks = (
+        *tuple(check for item in selected for check in item.checks),
+        *(NumericCheck(table[name], expected, received) for name, expected, received in row_checks),
+    )
 
     def output_axes(available: Mapping[str, ir.Value]) -> dict[str, ir.Value]:
         result = {slot: available[path] for slot, path in prepared.axes}
@@ -285,7 +292,11 @@ def lower_observation(
     ):
         node = prepared.node
         value = lower_row(node.operand, fields).value
-        if prepared.duration is not None or value.type().is_decimal():
+        if (
+            prepared.duration is not None
+            or (value.type().is_decimal() and not prepared.native_quantile_value)
+            or prepared.retain_quantile_bounds
+        ):
             q = 0.5 if node.reducer == "median" else node.q
             assert q is not None
             probability = Fraction(str(q))

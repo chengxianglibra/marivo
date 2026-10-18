@@ -1010,7 +1010,7 @@ def test_broadcast_after_original_share_uses_only_target_coordinate_schema(
 
 
 @pytest.mark.parametrize("precision", (12, 38))
-def test_decimal_quantile_finishes_exact_rank_endpoints_once(
+def test_decimal_quantile_keeps_local_endpoints_and_native_rollup(
     optimization_session: Session,
     precision: int,
 ) -> None:
@@ -1036,10 +1036,13 @@ def test_decimal_quantile_finishes_exact_rank_endpoints_once(
     quantile = value.quantile(0.95, time=time)
     direct = session.observe({"p95": quantile}, by=(region,))
     fine = session.observe({"p95": quantile}, by=(region, detail)).rollup(by=(region,))
-    for query in (direct, fine):
+    # Original recomputation accepts the native Decimal quantile and handoff;
+    # ordinary local endpoint interpolation keeps its exact rational finish.
+    native = Decimal("85.14" if precision == 12 else "123456789012345675254913246067970539.52")
+    for query, target in ((direct, expected), (fine, native)):
         _same(session, query)
         result = query.execute().to_pandas()
-        assert result[("value", "p95")].tolist() == [expected]
+        assert result[("value", "p95")].tolist() == [target]
         assert str(result[("value", "p95")].dtype) == f"decimal128({precision}, 2)[pyarrow]"
     days = session.time_scope(start="2026-01-01", end="2026-01-03").by(mv.grain("day"))
     windowed = session.observe(

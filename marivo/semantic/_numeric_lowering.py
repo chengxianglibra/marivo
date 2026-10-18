@@ -93,7 +93,7 @@ def numeric_binary(
                 *checks,
                 NumericCheck(zero, "a nonzero denominator", "divide(zero_denominator='error')"),
             )
-        safe = zero.ifelse(ibis.null().cast(b.type()), b)
+        safe = zero.ifelse(ibis.null().cast(b.type().copy(nullable=True)), b)
         value = a / safe
     elif operation == "add":
         value = add_numeric(a, b)
@@ -185,8 +185,12 @@ def lower_source_reduction(
             )
         product = numeric_binary("multiply", NumericValue(value), NumericValue(weight.value))
         checks.extend(product.checks)
-        numerator = _source_sum(pair.ifelse(product.value, ibis.null().cast(product.value.type())))
-        denominator = _source_sum(pair.ifelse(weight.value, ibis.null().cast(weight.value.type())))
+        numerator = _source_sum(
+            pair.ifelse(product.value, ibis.null().cast(product.value.type().copy(nullable=True)))
+        )
+        denominator = _source_sum(
+            pair.ifelse(weight.value, ibis.null().cast(weight.value.type().copy(nullable=True)))
+        )
         numerator = numerator.fill_null(ibis.literal(0).cast(numerator.type()))
         denominator = denominator.fill_null(ibis.literal(0).cast(denominator.type()))
         divided = numeric_binary(
@@ -219,7 +223,9 @@ def lower_source_reduction(
         if node.empty == "zero":
             result = result.fill_null(ibis.literal(0).cast(result.type()))
         else:
-            result = (value.count() == 0).ifelse(ibis.null().cast(result.type()), result)
+            result = (value.count() == 0).ifelse(
+                ibis.null().cast(result.type().copy(nullable=True)), result
+            )
         return NumericValue(
             result,
             (
@@ -249,7 +255,9 @@ def lower_source_reduction(
         assert node.q is not None
         result = value.quantile(node.q)
     if node.reducer not in ("count", "count_distinct", "approx_nunique"):
-        result = (value.count() == 0).ifelse(ibis.null().cast(result.type()), result)
+        result = (value.count() == 0).ifelse(
+            ibis.null().cast(result.type().copy(nullable=True)), result
+        )
     return NumericValue(
         result, (*(_aggregate_check(c) for c in checks), *_finite_check(result, node.reducer))
     )

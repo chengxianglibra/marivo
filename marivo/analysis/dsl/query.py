@@ -839,11 +839,12 @@ class Query:
     def rollup(
         self, *, by: tuple[Deferred | MemberAxis | ComparisonAxis | CalendarAxis, ...] = ()
     ) -> Query:
-        """Recompute original Metrics from this invocation's selected contributions.
+        """Recompute original Metrics within the selected parent keys.
 
         Args: by: Retained axes or a lawful coarsened calendar.
         Returns: A Query at the requested grain. Example: ``q.rollup(by=())``.
         Constraints: Fine-grid checks complete first; completed values are never summed.
+        Source data may change before recomputation; selected parent keys remain fixed.
         """
         from marivo._definition.expressions import MetricWindow
         from marivo._definition.graph import walk
@@ -948,6 +949,7 @@ class Query:
         Returns: A Query retaining original metrics and parent coordinates.
         Example: ``q.top(5,by=q['sales']).drill(add=(channel,))``.
         Constraints: Parent checks complete before version-exact attribute reads.
+        Source data may change before recomputation; selected parent keys remain fixed.
         """
         signature = self._graph.signature
         if not signature.quantities or any(

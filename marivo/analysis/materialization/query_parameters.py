@@ -6,6 +6,7 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import ibis
+import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 import pyarrow as pa
@@ -17,7 +18,7 @@ from marivo.analysis.compiler.observation import ibis_type
 from marivo.analysis.compiler.parameters import parameter_domains
 from marivo.analysis.compiler.queries import prefixed_input
 from marivo.analysis.compiler.query_program import QueryParameter
-from marivo.analysis.core.data_types import DataColumn
+from marivo.analysis.core.data_types import DataColumn, ScalarDataType
 from marivo.analysis.core.graph import BoundGraph, capture_query
 from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.methods.physical import stage_arrow_type
@@ -101,6 +102,8 @@ def instantiate(
     output: StageOutput,
     *,
     relation: ir.Table | None = None,
+    provider: str | None = None,
+    source: SourceSession | None = None,
 ) -> ir.Table:
     """Substitute an owned relation, or instantiate admitted inline key tuples."""
     if relation is not None:
@@ -108,7 +111,83 @@ def instantiate(
     import pandas as pd
 
     records = tuple(output.table.loc[:, list(output.keys)].itertuples(index=False, name=None))
-    expression = _tuple_predicates(expression, name, columns, records)
+    if provider == "mysql":
+        # Native readers can return nullable integer keys as unambiguous floats.
+        # Normalize against the planned key schema before forming JSON names.
+        records = tuple(
+            tuple(row[column.slot_id] for column in columns)
+            for row in parameter_data(columns, output).to_pylist()
+        )
+    if (
+        provider in ("postgres", "trino", "clickhouse")
+        and (records or provider in ("trino", "clickhouse"))
+        and columns
+        and all(
+            isinstance(column.dtype, ScalarDataType)
+            and column.dtype.name
+            in (
+                ("int64", "string", "boolean", "date")
+                if provider == "postgres"
+                else ("int64", "string")
+            )
+            for column in columns
+        )
+    ):
+        if provider == "clickhouse":
+            fields = {
+                f"field_{index}": ibis_type(column.dtype) for index, column in enumerate(columns)
+            }
+            array_type = dt.Array(dt.Struct(fields))
+            literal = ibis.literal(
+                tuple(
+                    {
+                        f"field_{index}": None if pd.isna(value) else value
+                        for index, value in enumerate(row)
+                    }
+                    for row in records
+                ),
+                type=array_type,
+            )
+            # Empty arrays otherwise have element type Nothing in native SQL.
+            # The explicit key schema supplies the tuple field types and NA contract.
+            literal = ops.Cast(literal, to=array_type).to_expr()
+            expanded = literal.name("__keys").as_table().unnest("__keys")
+            keys = expanded.select(
+                **{
+                    column.slot_id: expanded["__keys"][f"field_{index}"]
+                    for index, column in enumerate(columns)
+                }
+            )
+            return _replace_parameter(expression, name, keys)
+        arrays = (
+            ibis.literal(True)
+            .as_table()
+            .select(
+                **{
+                    f"__keys_{index}": ibis.literal(
+                        tuple(None if pd.isna(row[index]) else row[index] for row in records),
+                        type=dt.Array(ibis_type(column.dtype)),
+                    )
+                    for index, column in enumerate(columns)
+                }
+            )
+        )
+        expanded = arrays.unnest("__keys_0", offset="__keys_position")
+        keys = expanded.select(
+            **{
+                column.slot_id: expanded["__keys_0"]
+                if index == 0
+                else expanded[f"__keys_{index}"][expanded["__keys_position"]]
+                for index, column in enumerate(columns)
+            }
+        )
+        from marivo.analysis.compiler.source_predicates import source_parameter_comparisons
+
+        expression = source_parameter_comparisons(expression, name, provider)
+        return _replace_parameter(expression, name, keys)
+    expression = _tuple_predicates(
+        expression, name, columns, records, provider=provider, source=source
+    )
     if not any(node.name == name for node in expression.op().find(ops.UnboundTable)):
         return expression
     rows = tuple(
@@ -160,6 +239,9 @@ def _tuple_predicates(
     name: str,
     columns: tuple[DataColumn, ...],
     records: tuple[tuple[object, ...], ...],
+    *,
+    provider: str | None = None,
+    source: SourceSession | None = None,
 ) -> ir.Table:
     """Instantiate qualified right-side key lookups as null-safe AND/OR predicates."""
     import math
@@ -216,9 +298,19 @@ def _tuple_predicates(
             else:
                 if {key for _, key in pairs} != {column.slot_id for column in columns}:
                     continue
+                predicate = None
+                if provider == "mysql" and len(pairs) == len(columns):
+                    from marivo.analysis.materialization.mysql_key_parameters import (
+                        membership,
+                        qualifies_strings,
+                    )
+
+                    values_by_key = {key: value.to_expr() for value, key in pairs}
+                    if qualifies_strings(values_by_key, source):
+                        predicate = membership(columns, records, values_by_key, source)
                 typed = {column.slot_id: column.dtype for column in columns}
                 rows = []
-                for record in records:
+                for record in records if predicate is None else ():
                     values = dict(zip((column.slot_id for column in columns), record, strict=True))
                     rows.append(
                         ibis.and_(
@@ -239,7 +331,8 @@ def _tuple_predicates(
                         rows[index] | rows[index + 1] if index + 1 < len(rows) else rows[index]
                         for index in range(0, len(rows), 2)
                     ]
-                predicate = rows[0] if rows else ibis.literal(False)
+                if predicate is None:
+                    predicate = rows[0] if rows else ibis.literal(False)
                 substitutions: dict[ops.Node, ops.Node] = {}
                 left_by_key = {key: value for value, key in pairs}
                 for field in chain.find(ops.Field):

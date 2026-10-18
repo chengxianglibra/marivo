@@ -21,6 +21,8 @@ from marivo.analysis.core.model import Obligation, reject
 from marivo.analysis.methods.physical import QUERY_COMBINE_KERNEL
 
 if TYPE_CHECKING:
+    from marivo.analysis.compiler.native_formula import NativeOriginalFinisher
+    from marivo.analysis.compiler.native_query import NativeQueryFinish
     from marivo.analysis.compiler.observation import FormulaProgram, ReductionInput
     from marivo.analysis.compiler.optimization import (
         FusionGroup,
@@ -101,6 +103,10 @@ class SourceRead:
     component_layout: ComponentLayout | None = None
     binding_id: str = ""
     common_reads: tuple[SourceRead, ...] = ()
+    native_reductions: tuple[ReductionInput, ...] = ()
+    native_original_finish: NativeOriginalFinisher | None = None
+    native_reads: tuple[SourceRead, ...] = ()
+    native_query_finish: NativeQueryFinish | None = None
 
 
 @dataclass(frozen=True, slots=True)

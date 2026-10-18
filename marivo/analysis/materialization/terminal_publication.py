@@ -153,47 +153,59 @@ def _compute(
         stage = request.stage
         if prepared is None:
             raise invalid("source read requires prepared connections")
-        period = stage.period
-        filters = "; ".join(predicate_summary(item) for item in stage.predicates)
-        evidence.append(
-            OutputEvidence(
-                "read",
-                "Actual contribution read; source completeness and cross-source snapshot consistency were not audited.",
-                (
-                    ("source", stage.source_id),
+        for logical in stage.native_reads or (stage,):
+            period = logical.period
+            filters = "; ".join(predicate_summary(item) for item in logical.predicates)
+            evidence.append(
+                OutputEvidence(
+                    "read",
+                    "Actual contribution read; source completeness and cross-source snapshot consistency were not audited.",
                     (
-                        "datasource",
-                        prepared.sources.get(stage.source_id, prepared.source).datasource.name,
-                    ),
-                    ("timezone", None if period is None else period.timezone),
-                    ("contribution", stage.stage_id),
-                    *(
+                        ("source", logical.source_id),
                         (
+                            "datasource",
+                            prepared.sources.get(
+                                logical.source_id, prepared.source
+                            ).datasource.name,
+                        ),
+                        ("timezone", None if period is None else period.timezone),
+                        ("contribution", logical.stage_id),
+                        ("physical_stage", stage.stage_id),
+                        *(
                             (
-                                "logical_contributions",
-                                ";".join(member.stage_id for member in stage.common_reads),
-                            ),
-                        )
-                        if stage.common_reads
-                        else ()
+                                (
+                                    "logical_contributions",
+                                    ";".join(member.stage_id for member in stage.common_reads),
+                                ),
+                            )
+                            if stage.common_reads
+                            else ()
+                        ),
+                        ("time_constraint", "none added" if period is None else "half-open period"),
+                        (
+                            "period_start",
+                            None
+                            if period is None or period.start is None
+                            else datetime.fromisoformat(period.start.isoformat()),
+                        ),
+                        (
+                            "period_end",
+                            None
+                            if period is None
+                            else datetime.fromisoformat(period.end.isoformat()),
+                        ),
+                        ("filters", filters[:4096] if filters else "none added"),
+                        (
+                            "returned_rows",
+                            output.source_rows
+                            if output.source_rows is not None
+                            else len(output.table),
+                        ),
+                        ("row_count_scope", "physical source submission"),
+                        ("fact_source", "actual source execution"),
                     ),
-                    ("time_constraint", "none added" if period is None else "half-open period"),
-                    (
-                        "period_start",
-                        None
-                        if period is None or period.start is None
-                        else datetime.fromisoformat(period.start.isoformat()),
-                    ),
-                    (
-                        "period_end",
-                        None if period is None else datetime.fromisoformat(period.end.isoformat()),
-                    ),
-                    ("filters", filters[:4096] if filters else "none added"),
-                    ("returned_rows", len(output.table)),
-                    ("fact_source", "actual source execution"),
-                ),
+                )
             )
-        )
         for name, check in request.numeric_checks:
             if any(column.slot_id == name for column in stage.columns):
                 # These checks travel with their values. Only the local formula
@@ -206,6 +218,32 @@ def _compute(
                     (
                         ("version", 1),
                         ("check", name),
+                        ("scope", stage.stage_id),
+                        ("result", "passed"),
+                    ),
+                )
+            )
+        if stage.native_original_finish is not None:
+            evidence.append(
+                OutputEvidence(
+                    "check",
+                    "Demanded original formulas and sample checks passed in the existing numeric kernel.",
+                    (
+                        ("version", 1),
+                        ("check", "original_finish"),
+                        ("scope", stage.stage_id),
+                        ("result", "passed"),
+                    ),
+                )
+            )
+        if stage.native_query_finish is not None:
+            evidence.append(
+                OutputEvidence(
+                    "check",
+                    "Complete endpoint keys, presence and demanded Query relation checks passed.",
+                    (
+                        ("version", 1),
+                        ("check", "query_relation_finish"),
                         ("scope", stage.stage_id),
                         ("result", "passed"),
                     ),
@@ -479,9 +517,19 @@ def execute(
                 if lowered.plan.checks:
                     raise invalid("Query check route is not implemented; no business row was read")
                 if prepared is not None:
-                    from marivo.analysis.materialization.query_key_fusion import fuse_query_keys
+                    from marivo.analysis.materialization.query_key_fusion import (
+                        fuse_query_keys,
+                        fuse_query_terminal,
+                    )
+                    from marivo.analysis.materialization.source_original import fuse_source_original
+                    from marivo.analysis.materialization.source_original_dependent import (
+                        fuse_dependent_original,
+                    )
 
+                    lowered = fuse_dependent_original(prepared, lowered)
+                    lowered = fuse_source_original(prepared, lowered)
                     lowered = fuse_query_keys(prepared, lowered)
+                    lowered = fuse_query_terminal(prepared, lowered)
                     qualify_query_sources(prepared, lowered)
                 run_ref = _new_run_ref()
                 terminal_store.admit(store, session, run_ref)

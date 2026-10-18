@@ -79,6 +79,9 @@ def _combine_program(
     inputs = inputs[: len(program.values)]
     grouped: dict[tuple[int, ...], tuple[FormulaInput, list[pd.DataFrame]]] = {}
     for binding, frame in zip(program.values, inputs, strict=True):
+        if binding.presence is not None:
+            frame = frame.copy()
+            frame["__numeric_present"] = frame[binding.presence]
         if binding.occurrence in grouped:
             original, frames = grouped[binding.occurrence]
             frames.append(frame.rename(columns={binding.column.slot_id: original.column.slot_id}))

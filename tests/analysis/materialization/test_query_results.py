@@ -416,7 +416,7 @@ def test_dependent_source_uses_complete_null_safe_key_relations(
     assert session.query(remainder).execute().to_pandas().iloc[:, 0].tolist() == [1]
 
 
-def test_query_population_key_relation_keeps_consumer_expression_bounded(
+def test_aggregate_population_subquery_keeps_consumer_expression_bounded(
     result_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import ibis.expr.operations as ops
@@ -448,11 +448,11 @@ def test_query_population_key_relation_keeps_consumer_expression_bounded(
         statements.clear()
         result = consumer.execute().to_pandas()
         assert result[("value", "total")].tolist() == [count]
-        assert len(statements) == 2
+        assert len(statements) == 1
         sql, nodes = statements[-1]
         assert "region_0" not in sql
         assert "UNION" not in sql
-        assert "_marivo_keys_" in sql
+        assert "_marivo_keys_" not in sql
         sizes.append((len(sql), nodes))
     assert abs(sizes[1][0] - sizes[0][0]) <= 128
     assert sizes[1][1] == sizes[0][1]
@@ -629,7 +629,7 @@ def test_source_read_population_fusion_checks_source_contracts_before_selection(
     assert len(statements) == 1
 
 
-def test_top_selected_population_keeps_checked_staged_execution(
+def test_top_selected_population_keeps_checks_in_source_subquery(
     result_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import marivo.semantic as ms
@@ -650,8 +650,8 @@ def test_top_selected_population_keeps_checked_staged_execution(
     monkeypatch.setattr(SourceSession, "execute", record)
     result = session.observe({"total": amount.sum()}, members=selected).execute().to_pandas()
     assert result[("value", "total")].tolist() == [30]
-    assert len(statements) == 3
-    assert "_marivo_keys_" in statements[-1]
+    assert len(statements) == 1
+    assert "_marivo_keys_" not in statements[-1]
 
 
 def test_float_nan_attribute_selection_keeps_pandas_missing_value_semantics(
@@ -678,8 +678,8 @@ def test_float_nan_attribute_selection_keeps_pandas_missing_value_semantics(
     monkeypatch.setattr(SourceSession, "execute", record)
     result = session.observe({"rows": entity.count()}, members=selected).execute().to_pandas()
     assert result[("value", "rows")].tolist() == [1]
-    assert len(statements) == 3
-    assert "_marivo_keys_" in statements[-1]
+    assert len(statements) == 1
+    assert "_marivo_keys_" not in statements[-1]
 
 
 def test_submicrosecond_timestamp_selection_keeps_exact_pandas_literal(
@@ -725,7 +725,7 @@ def test_submicrosecond_timestamp_selection_keeps_exact_pandas_literal(
     assert "_marivo_keys_" in statements[-1]
 
 
-def test_shared_source_selection_keeps_one_checked_key_carrier(
+def test_shared_source_selection_keeps_one_checked_source_statement(
     result_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import ibis.expr.types as ir
@@ -765,9 +765,9 @@ def test_shared_source_selection_keeps_one_checked_key_carrier(
     result = consumer.execute().to_pandas()
     assert result[("value", "selected")].tolist() == [40]
     assert result[("value", "other")].tolist() == [20]
-    assert uploads == [2]
-    assert len(statements) == 4
-    assert all("_marivo_keys_" in sql for sql in statements[-2:])
+    assert uploads == []
+    assert len(statements) == 1
+    assert "_marivo_keys_" not in statements[0]
 
 
 def test_session_read_preserves_identity_and_feeds_a_new_source(result_session: Session) -> None:

@@ -24,6 +24,7 @@ from marivo.datasource.engines.base import (
     require_field,
     structured_exception_chain,
 )
+from marivo.datasource.ir import DatasourceIR, TableSourceIR
 from marivo.datasource.strptime import python_to_postgres_strptime
 
 if TYPE_CHECKING:
@@ -61,6 +62,18 @@ register_provider_statements(
                 "SELECT obj_description(pg_catalog.to_regclass({qualified}), 'pg_class') AS comment"
             ),
             literal_slots=frozenset({"qualified"}),
+            allowed_purposes=frozenset({"datasource.metadata.postgres"}),
+        ),
+        "column.collation": ProviderStatement(
+            statement_id="postgres.column.collation",
+            template=(
+                "SELECT COALESCE(c.collisdeterministic, TRUE) AS deterministic "
+                "FROM pg_catalog.pg_attribute a "
+                "LEFT JOIN pg_catalog.pg_collation c ON c.oid = a.attcollation "
+                "WHERE a.attrelid = pg_catalog.to_regclass({qualified}) "
+                "AND a.attname = {column} AND a.attnum > 0 AND NOT a.attisdropped"
+            ),
+            literal_slots=frozenset({"qualified", "column"}),
             allowed_purposes=frozenset({"datasource.metadata.postgres"}),
         ),
         "columns": ProviderStatement(
@@ -109,11 +122,10 @@ register_provider_statements(
                 "SELECT c.relkind AS relation_kind, pg_get_viewdef(c.oid) AS view_definition "
                 "FROM pg_class c "
                 "JOIN pg_namespace n ON n.oid = c.relnamespace "
-                "WHERE c.relname = {table} "
-                "AND n.nspname = {schema} "
+                "WHERE c.oid = pg_catalog.to_regclass({qualified}) "
                 "LIMIT 1"
             ),
-            literal_slots=frozenset({"schema", "table"}),
+            literal_slots=frozenset({"qualified"}),
             allowed_purposes=frozenset({"datasource.metadata.postgres"}),
         ),
         "partition.key": ProviderStatement(
@@ -144,6 +156,24 @@ register_provider_statements(
         ),
     },
 )
+
+
+def deterministic_collation(
+    backend: BaseBackend, datasource: DatasourceIR, source: TableSourceIR, column: str
+) -> bool:
+    """Read one physical column's deterministic-collation fact from the catalog."""
+    qualified = ".".join(
+        quote_identifier(part, PROFILE)
+        for part in table_name_parts(TableRefRequest(source, datasource))
+    )
+    rows = execute_provider_statement(
+        backend,
+        PROFILE,
+        "postgres.column.collation",
+        values={"qualified": qualified, "column": column},
+        purpose="datasource.metadata.postgres",
+    )
+    return len(rows) == 1 and rows[0].get("deterministic") is True
 
 
 def _postgres_rows(
@@ -297,9 +327,7 @@ def _inspect_postgres(
     is_view: bool | None = None
     view_definition: str | None = None
     try:
-        kind_rows = _postgres_rows(
-            backend, "postgres.tables.kind", {"schema": schema_name, "table": table}
-        )
+        kind_rows = _postgres_rows(backend, "postgres.tables.kind", {"qualified": qualified})
         if kind_rows:
             relation_kind = str(kind_rows[0].get("relation_kind") or "")
             is_view = relation_kind in ("v", "m")

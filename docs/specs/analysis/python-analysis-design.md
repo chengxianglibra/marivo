@@ -153,16 +153,57 @@ from the prepared connection and its bound
 physical inputs. The consumer retains complete-tuple, null-safe membership;
 producer keys do not cross the host boundary. Source-wide identity and attribute
 cardinality checks retain their original scope before selection, including empty
-selections. Floating-point producer slots retain the host boundary because native
-NaN predicates need not match pandas missing-value semantics. Other pending
-checks, shared producers, unsupported local operations and cross-source
-dependencies retain their materialization boundary.
+selections. Trino and ClickHouse numeric field values normalize NaN to missing
+before source filtering and ranking; complete numeric identity coordinates retain
+their separately qualified boundary. DuckDB also admits
+ordinary single-reduction key producers, direct-slot Top-N, and shared key
+producers whose scalar consumers execute in one qualified source statement.
+PostgreSQL, MySQL, Trino Iceberg and ClickHouse MergeTree additionally admit
+qualified count producers and string-only terminal field selections, filters,
+Top and row counts. MySQL grouped string keys require binary NO PAD collation;
+ClickHouse FixedString retains its existing encoded carrier boundary. Nullable
+numeric attributes on PostgreSQL/MySQL retain their separately qualified boundary.
+Trino/ClickHouse admit direct integer, float and Decimal attribute filtering and
+Top, plus supported sum/min/max/mean/weighted-mean aggregate producers. These
+operations use native source values before pandas conversion, accepting its
+rounding differences while preserving missing values, complete-key tie breaks
+and required parent failures, including Top-0. Qualified DuckDB, Trino and
+ClickHouse also admit checked multi-input Metric formulas and Column arithmetic,
+including computed Top expressions. Every logical binding retains its own complete
+grid, presence and checks. Floating NaN is normalized to missing; nullable division
+applies its zero-denominator policy to valid pairs, and Top-0 cannot erase required
+formula or overflow failures. Qualified DuckDB, Trino and
+ClickHouse shared consumers may transport independent grouped leaves in one source block,
+with separate complete grids, presence and host formula finishes. Unsupported
+operations and cross-source dependencies retain their materialization boundary.
+Qualified cell sums use native integer, float or Decimal accumulation, accepting
+source rounding while retaining null results for empty/all-missing input and
+required finite-value and range checks. Duration retains its unit-aware finish.
+Mixed host/source consumers keep the producer where a real host domain needs it,
+while eligible source edges use its relation without uploading keys. Compatible
+per grids may share a grouped block; different per or window grids finish
+independently while keeping the shared population source-local. Each window
+retains its own W(t); this does not promise one physical scan.
+When a real host sample/output domain has already completed a where/Top selection,
+other consumers retain its fixed complete keys, including necessary parameter
+transport. They cannot rerun that selector against changed data to replace the
+completed domain; source contributions themselves may still change.
+Qualified DuckDB Population set operations, products, projections and filters can
+stay in the same source relation; terminal union retains the left-first display
+order. Multiple parameter producers for one read are replaced atomically, so a
+shared ancestor is not pruned while another producer still needs it.
+For same-source image/preimage chains, ancestor domains used only for checks
+are reduced to check summaries in the consuming relation. Terminal domains,
+MemberCount inputs and keyed member data remain real inputs. A Query-produced
+preimage can consequently stay source-local without downloading the ancestor
+identity domain or sending the selected keys back to the same source.
 
 Source-local filters preserve the local nullable True-only predicate contract.
 PostgreSQL string comparisons use UTF-8 bytes after a JSON string round-trip that
 preserves fixed-width character padding. MySQL comparisons use a JSON string
 round-trip and binary bytes, preserving decoded characters across source character
-sets independently of collation and trailing-space comparison rules. These
+sets independently of collation and trailing-space comparison rules. Trino uses
+UTF-8 bytes and ClickHouse uses native String byte comparison. These
 conversions affect comparison operands only; published values and complete
 membership keys retain their existing contracts. String literals containing
 U+0000, timestamp literals with submicrosecond pandas precision, and Duration
@@ -175,8 +216,31 @@ its owning source connection without expanding each key into SQL predicates or
 literal unions. The source owner admits only its own key relations alongside
 qualified business sources and removes them when it closes, including failed
 invocations. These are physical arrangements; neither changes the captured Query
-dependency nor persists a previous execution's population. Remote providers retain
-their admitted inline key route for producers outside the qualified fusion subset.
+dependency nor persists a previous execution's population. PostgreSQL int64,
+string, boolean and date key tuples can use typed arrays with one ordinal
+expansion. This bounds expression structure; the key payload still grows with
+the domain. PostgreSQL membership string comparisons preserve returned CHAR
+padding through the same JSON/UTF-8 byte route. Existing native Metric membership
+keeps its source collation semantics; byte comparison applies to newly moved
+host Query relations. MySQL complete int64/string/boolean/date tuples can use
+one invocation-local JSON membership object instead of per-key predicates;
+string components require verified binary NO PAD source collations. Other
+collations keep their native membership semantics. NULL, empty strings and
+complete tuple association remain distinct, including integers beyond 2**53.
+The object uses the active session's packet capacity and connection encoding;
+encoded JSON member lengths, document storage and final SQL request size are
+checked before the target read. Oversized domains fail with a repair to reduce
+the selected keys or adjust the datasource limit, rather than splitting and
+merging completed aggregates. Other key types and relation shapes retain their
+admitted inline route outside the qualified fusion subset.
+ClickHouse source compilation checks the active client's `max_query_size`
+override, or its cached server setting, against UTF-8 SQL including the driver's
+`FORMAT Native` suffix. Missing connection facts retain native enforcement;
+zero disables this parser-size limit only. Array transport bounds the expression
+tree, not request bytes. Trino's coordinator query-length configuration is not
+exposed by its current connection, so its typed-array route does not promise an
+arbitrarily large key domain. Parser depth, memory and HTTP/proxy limits remain
+native restrictions; no guessed universal key-count threshold is introduced.
 
 `session.observe(metrics, during=..., by=..., where=..., members=...)` binds the
 observation once. A tuple `by` classifies observed coordinates; a Population
@@ -230,6 +294,17 @@ alignment or complete reference transport. `select` preserves output names and
 units. `top` breaks ties by complete keys and preserves its selected display
 order. `reduce` provides sum, mean and row_count over current represented cells;
 it does not recompute the original Metric.
+
+Source recomputation by rollup/drill may read changed data after the parent read.
+Parent where/Top completes its checks and fixes complete selected keys; the target
+recomputes the original formula over current contributions under those keys and
+the captured period and predicates. It does not rerank the parent. Inserts,
+updates and deletes may change the answer; empty contributions retain their
+existing policy. No shared snapshot, cross-read equality check or retry is required.
+This applies to every datasource, including DuckDB, PostgreSQL and MySQL. Neither
+a base-table kind nor a transactional storage engine is required to keep the
+parent and recomputation data unchanged. Physical types, key collations and
+numeric-method qualifications remain independent requirements.
 
 Alignment, comparison, broadcast, original rollup, endpoint drill and share follow
 the [target operator contract](lazy-analysis-dsl-redesign.md#46-查询结果与值表达式)
@@ -287,6 +362,105 @@ behavioral equivalence is established. Backend-specific time preparation and
 temporal rewrites use the actual selected engine for observe, read and drill.
 A required check consumes its actual producer output before the declared deadline;
 selection or projection cannot erase that obligation.
+
+Qualified DuckDB terminal field chains keep direct projections, nullable filters,
+Top-N and exact int64 cell sum/row_count at the source. Top display order is
+restored locally over the bounded returned rows. Qualified ordinary original
+rollup, drill and additive share can also keep contribution identities and raw
+values at the source. Multiple roots on one DuckDB source session reduce
+independently and align completed grids, preserving each root's identities and
+empty policies. Parent selection and every required fine-grid check remain
+part of the plan, including empty selection. Qualified integer mean/weighted
+mean and integer quantiles transport compact exact states to the existing host finisher instead
+of changing the original arithmetic. A plain observation followed by spatial
+rollup can transport grouped internal samples and bound calendar/window leaves
+in one statement. The existing local kernel checks the fine formula before
+finishing the target formula, preserving explicit finite empty samples, complete
+internal identities, endpoint occurrences and lookback periods. Source-backed
+sample domains retain their independently captured period and travel in the same
+statement. Sample/window parents with Top-0/Top-1, or a coordinate predicate
+fixing every removed coordinate, can finish selection locally over grouped
+leaves before finishing the selected target. Complex drill retains the full
+selected parent key and checks added attributes after selection. Nested plain
+spatial rollups retain every intermediate finish and overflow check. DuckDB
+originals qualify typed table and CSV/Parquet/JSON inputs with their actual owner
+and collation facts. Explicit/default collation or unverifiable inherited view
+collation retains the existing boundary. Selected file recomputation passes fixed
+parent keys to a later read; it does not rerun the parent selector against changed
+file data. Direct Query
+string comparisons, ordering and membership use UTF-8 bytes, preserving pandas
+case-sensitive behavior even on collated DuckDB fields. Float and Decimal
+source reductions use qualified native completed values; fractional values do
+not pass through integer-state truncation. DuckDB/PostgreSQL Decimal median and
+quantile recomputation uses the existing exact native method, accepting its
+rounding without requiring the local rational interpolation result. This does not
+substitute approximate quantiles on other providers. Other sample selections
+and unqualified temporal rewrites retain their separately
+qualified routes. Plain Calendar sums and their Metric formulas can return grouped
+leaves independently from each source owner. The existing host formula checks the
+complete fine parent before target reads begin. Each root retains its own time
+field, period, filters and identity. Legal plain Calendar coarsening, such as day
+to month, regroups original contributions using the target Calendar; it does not
+sum completed parent values or relax the fixed time-axis contract for windows.
+
+PostgreSQL and MySQL original recomputation have their own finite qualification: direct,
+signed integer, float or Decimal values, including nullable operands, and complete
+nonnull identities from table relations,
+supported source methods, and deterministic string
+coordinate collations (MySQL requires binary NO PAD). Sum/count/distinct/min/max
+and PostgreSQL integer quantile bounds
+retain their owning methods; share uses the original local integer division.
+Integer mean/weighted-mean use compact states; fractional native values retain
+their source numeric finish. Qualified row arithmetic and Metric formulas follow
+their existing numeric lowerers, retaining NULL, overflow and division checks.
+Multiple roots on the same source session reduce independently, then align
+completed grids through a distinct complete-key domain and left joins; their raw
+facts are never multiplied across roots. Qualified parent where/Top can finish on the
+host and parameterize a later source read with complete selected keys, without
+transporting the parent's raw contributions. No fidelity-only
+numeric cast or alternate cursor transport is added.
+
+Qualified DuckDB, Trino and ClickHouse align, compare and broadcast join source endpoint relations and
+return only the joined carriers and independent check summaries. The existing
+host relation kernel owns exact-key correspondence, missing-cell policies,
+arithmetic and final layout/order. Presence is distinct from a present null
+value; downstream Top-0 cannot erase endpoint failures. The Trino/ClickHouse
+route currently admits complete string axes. ClickHouse explicitly makes outer
+join input carriers nullable, including presence, preserving absent sides under
+both `join_use_nulls=0` and `1`. Other remote relation joins,
+transformed/calendar correspondences and Top-ordered broadcast
+targets retain their original route.
+Trino and ClickHouse original recomputation is qualified by the actual physical
+input, supported expressions and native pandas handoff. Parent and target reads
+need no shared snapshot. For selected recomputation, the checked parent finishes
+where/Top on the host and passes only its complete selected keys to a later source
+read. The target retains those keys even if another group later ranks higher.
+Typed arrays transport the key tuples without a per-row UNION expression tree;
+the request still grows with the selected key data.
+The finite ordinary route admits same-session table roots with signed integer,
+float or Decimal operands, including nullable values, qualified row arithmetic
+and Metric formulas, and string coordinates:
+sum/count/min/max/exact distinct and qualified native mean/weighted-mean.
+Trino and ClickHouse also admit integer mean/weighted-mean states finished by the
+existing host owner. Native source calculation and pandas conversion may lose
+precision relative to the original host route, including Trino compact Decimal
+totals. This accepted rounding difference does not trigger fallback. Subsequent
+filters and rankings use the recomputed values. The parent retains its existing
+numeric method before value selection, and completed parent selections stay fixed.
+Trino does not require Iceberg; ClickHouse currently requires MergeTree.
+Same-owner Trino/ClickHouse spatial rollups of per/window formulas transport
+grouped sample leaves for both fine and target phases. The existing host formula
+kernel retains sample identity, captured sample domains, lookback rows and fine
+errors, including empty policies and zero denominators. It never averages already
+completed parent means to obtain the rolled-up sample mean.
+Selected per/window spatial rollups first complete the parent formula and
+where/Top on the host, then pass complete parent keys to the source. Multiple
+selected parents sharing a sample are recomputed from their combined contribution
+identities, not from their finished parent means. Window selection retains the
+complete endpoint/sample tuple. A source change may alter target contributions
+but cannot rerank the completed parent selection.
+Other cross-owner complex formulas, remote sample-domain reads, complex sampled drill, numeric
+coordinates and Distributed topology retain their existing routes.
 
 ## Terminal publication, reading and acceptance
 

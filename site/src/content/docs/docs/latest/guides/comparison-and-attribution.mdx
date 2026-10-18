@@ -46,6 +46,27 @@ followup.execute().show()
 
 A declared additional field must be single-valued at an identity axis. A raw customer_id plus channel groups contribution images; it does not assert a customer identity domain. Saved comparison rows can be inspected or grouped in pandas; they cannot be passed back as a Query.
 
+Source `rollup` and `drill` may read data that changed after the parent was evaluated.
+For example, after `current.top(1, by=current["revenue"])` selects a region, a subsequent
+drill keeps that selected region even if another region later becomes larger. New or
+deleted contributions within the selected region can change the recomputed values.
+No snapshot or cross-read consistency is promised. Source calculation and native
+result conversion may also produce different rounding from local calculation.
+Recomputation accepts this precision loss; subsequent filters and rankings use
+the returned values, while completed parent selections stay fixed. Qualified
+source-side Query filtering and Top also use native numeric values, with NaN
+treated as missing and complete keys retained for ties.
+Qualified formulas spanning multiple roots on one source session reduce each root
+separately before aligning completed values. Row arithmetic retains its declared
+NULL, overflow and division checks, including checks before an empty Top result.
+For sampled metrics, a qualified rollup recomputes over the combined contributions
+of the selected parents. It does not average their already completed means.
+Windowed metrics retain each endpoint's lookback period; selecting parent rows
+does not change the definition of that window.
+Plain Calendar totals can regroup original contributions from day to month.
+Qualified formulas across sources reduce each source separately, complete the
+parent formula, then read target totals; they do not require a shared snapshot.
+
 ## Transport a complete reference
 
 {/* example: broadcast-reference */}

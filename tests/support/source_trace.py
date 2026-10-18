@@ -2,16 +2,24 @@
 
 import json
 import os
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from time import perf_counter
 
+import ibis.expr.types as ir
 import pandas as pd
+import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
+from marivo.analysis.core.data_types import DataColumn
+from marivo.analysis.materialization import query_parameters
+from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.datasource.adapters import (
     BoundSource,
     CompiledRead,
+    Parameter,
     PhysicalRequirement,
     QualifiedSource,
     SourceSession,
@@ -21,6 +29,13 @@ from marivo.datasource.adapters import (
 @dataclass
 class SourceTrace:
     native_sql: list[str] = field(default_factory=list)
+    returned_rows: list[int] = field(default_factory=list)
+    returned_columns: list[tuple[str, ...]] = field(default_factory=list)
+    uploaded_key_rows: list[int] = field(default_factory=list)
+    uploaded_key_bytes: list[int] = field(default_factory=list)
+    source_seconds: list[float] = field(default_factory=list)
+    returned_pandas_bytes: list[int] = field(default_factory=list)
+    returned_arrow_bytes: list[int] = field(default_factory=list)
     owners: list[SourceSession] = field(default_factory=list)
     qualifications: list[dict[str, object]] = field(default_factory=list)
     artifacts: list[dict[str, object]] = field(default_factory=list)
@@ -87,6 +102,10 @@ class SourceTrace:
                         "artifacts": self.artifacts,
                         "submissions": submissions,
                         "actual_native_submissions": self.native_sql,
+                        "source_returned_rows": self.returned_rows,
+                        "source_returned_columns": self.returned_columns,
+                        "uploaded_key_rows": self.uploaded_key_rows,
+                        "uploaded_key_bytes": self.uploaded_key_bytes,
                         "connection_disconnected": True,
                         "boundary": "Actual source qualification/submission and committed output metadata; no persisted graph or general backend qualification is inferred",
                     },
@@ -95,19 +114,84 @@ class SourceTrace:
             )
 
 
-def capture_source(monkeypatch: pytest.MonkeyPatch) -> SourceTrace:
+def capture_source(monkeypatch: pytest.MonkeyPatch, *, measure_cost: bool = False) -> SourceTrace:
     trace = SourceTrace()
     execute = SourceSession.execute
     enter = SourceSession.__enter__
     qualify = SourceSession.qualify
+    bind_keys = SourceSession._bind_key_relation
+    instantiate = query_parameters.instantiate
+    compile_read = SourceSession.compile
+    pending_keys: list[tuple[int, int]] = []
+    compiled_keys: dict[int, tuple[tuple[int, int], ...]] = {}
 
     def captured_execute(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
         submitted_before = len(owner.submissions)
+        started = perf_counter()
         try:
-            return execute(owner, read)
+            result = execute(owner, read)
+            trace.source_seconds.append(perf_counter() - started)
+            if measure_cost:
+                trace.returned_pandas_bytes.append(int(result.memory_usage(deep=True).sum()))
+                trace.returned_arrow_bytes.append(
+                    pa.Table.from_pandas(result, preserve_index=False).nbytes
+                )
+            trace.returned_rows.append(len(result))
+            trace.returned_columns.append(tuple(result.columns))
+            return result
         finally:
             if len(owner.submissions) > submitted_before:
                 trace.native_sql.append(read.sql)
+                for rows, size in compiled_keys.pop(id(read), ()):
+                    trace.uploaded_key_rows.append(rows)
+                    trace.uploaded_key_bytes.append(size)
+
+    def captured_keys(owner: SourceSession, data: pa.Table) -> ir.Table:
+        result = bind_keys(owner, data)
+        trace.uploaded_key_rows.append(data.num_rows)
+        trace.uploaded_key_bytes.append(data.nbytes)
+        return result
+
+    def captured_parameter(
+        expression: ir.Table,
+        name: str,
+        columns: tuple[DataColumn, ...],
+        output: StageOutput,
+        *,
+        relation: ir.Table | None = None,
+        provider: str | None = None,
+        source: SourceSession | None = None,
+    ) -> ir.Table:
+        result = instantiate(
+            expression, name, columns, output, relation=relation, provider=provider, source=source
+        )
+        if relation is None:
+            data = query_parameters.parameter_data(columns, output)
+            pending_keys.append((data.num_rows, data.nbytes))
+        return result
+
+    def compiled(
+        owner: SourceSession,
+        qualified: QualifiedSource | Sequence[QualifiedSource],
+        expression: ir.Expr,
+        *,
+        params: Mapping[ir.Scalar, Parameter] | None = None,
+        purpose: str,
+        expected_schema: pa.Schema,
+    ) -> CompiledRead:
+        payloads = tuple(pending_keys)
+        pending_keys.clear()
+        result = compile_read(
+            owner,
+            qualified,
+            expression,
+            params=params,
+            purpose=purpose,
+            expected_schema=expected_schema,
+        )
+        if purpose != "query.prepare":
+            compiled_keys[id(result)] = payloads
+        return result
 
     def entered(owner: SourceSession) -> SourceSession:
         result = enter(owner)
@@ -129,7 +213,10 @@ def capture_source(monkeypatch: pytest.MonkeyPatch) -> SourceTrace:
         )
         return result
 
+    monkeypatch.setattr(query_parameters, "instantiate", captured_parameter)
+    monkeypatch.setattr(SourceSession, "compile", compiled)
     monkeypatch.setattr(SourceSession, "execute", captured_execute)
+    monkeypatch.setattr(SourceSession, "_bind_key_relation", captured_keys)
     monkeypatch.setattr(SourceSession, "__enter__", entered)
     monkeypatch.setattr(SourceSession, "qualify", qualified)
     return trace

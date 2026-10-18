@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, NoReturn
+from typing import TYPE_CHECKING, Literal, NoReturn
 from uuid import uuid4
 
 import ibis.expr.operations as ops
@@ -69,6 +69,299 @@ class PreparedSources:
     sources: dict[str, SourceSession] = field(default_factory=dict)
     context: QueryContext = field(default_factory=QueryContext)
     entities: dict[str, ir.Table] = field(default_factory=dict)
+    original_input_qualifications: dict[
+        tuple[SourceSession, ops.Node], Literal["qualified", "other", "unavailable"]
+    ] = field(default_factory=dict)
+    collation_qualifications: dict[
+        tuple[SourceSession, ops.Node, str], Literal["deterministic", "other", "unavailable"]
+    ] = field(default_factory=dict)
+
+
+def _original_input_fact(
+    prepared: PreparedSources, owner: SourceSession, bound: BoundSource, leaf: ops.Node
+) -> Literal["qualified", "other", "unavailable"]:
+    from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
+
+    key = (owner, leaf)
+    if key not in prepared.original_input_qualifications:
+        try:
+            if owner.provider.name == "duckdb":
+                from marivo.datasource.engines.duckdb import uncollated_original_input
+
+                qualified = uncollated_original_input(
+                    owner._backend,
+                    leaf.to_expr(),
+                    file_source=isinstance(
+                        bound.source, (CsvSourceIR, JsonSourceIR, ParquetSourceIR)
+                    ),
+                )
+            elif not isinstance(bound.source, TableSourceIR) or not isinstance(
+                leaf, ops.DatabaseTable
+            ):
+                qualified = False
+            elif owner.provider.name == "clickhouse":
+                qualified = owner.clickhouse_table_engine(bound) == "MergeTree"
+            else:
+                qualified = owner.provider.name in ("postgres", "mysql", "trino")
+            prepared.original_input_qualifications[key] = "qualified" if qualified else "other"
+        except Exception:
+            prepared.original_input_qualifications[key] = "unavailable"
+    return prepared.original_input_qualifications[key]
+
+
+def qualify_original_strings(
+    prepared: PreparedSources, table: ir.Table, columns: tuple[str, ...]
+) -> str | None:
+    """Require qualified native collations for consumed remote string keys."""
+    from marivo.analysis.materialization.query_preparation import physical_fields
+    from marivo.datasource.engines.postgres import deterministic_collation
+    from marivo.datasource.ir import TableSourceIR
+
+    for column in columns:
+        value = table[column]
+        if not value.type().is_string():
+            continue
+        fields = physical_fields(value)
+        if not fields:
+            return "original string coordinate has no qualified physical collation"
+        for physical_field in fields:
+            matched = False
+            for path, bound in prepared.bound.items():
+                if physical_field.rel != bound.relation.op():
+                    continue
+                matched = True
+                owner = prepared.sources.get(path, prepared.source)
+                if owner.provider.name not in ("postgres", "mysql", "trino", "clickhouse"):
+                    continue
+                if not isinstance(bound.source, TableSourceIR):
+                    return "Remote original strings require a physical table collation"
+                key = (owner, bound.relation.op(), physical_field.name)
+                if key not in prepared.collation_qualifications:
+                    try:
+                        if owner.provider.name == "clickhouse":
+                            from marivo.datasource.engines.clickhouse import decoded_string_columns
+
+                            identity = bound.facts.source_identity
+                            if identity not in owner._query_decoded_strings:
+                                owner._query_decoded_strings[identity] = decoded_string_columns(
+                                    owner._backend, owner.datasource, bound.source
+                                )
+                            deterministic = (
+                                physical_field.name in owner._query_decoded_strings[identity]
+                            )
+                        elif owner.provider.name == "trino":
+                            from marivo.datasource.engines.trino import (
+                                _trino_namespace,
+                                _trino_rows,
+                            )
+
+                            catalog, schema = _trino_namespace(
+                                bound.source.database,
+                                catalog=str(owner.datasource.fields["catalog"]),
+                                default_schema=str(owner.datasource.fields.get("schema", "")),
+                            )
+                            rows = _trino_rows(
+                                owner._backend,
+                                "trino.columns",
+                                values={
+                                    "catalog": catalog,
+                                    "schema": schema,
+                                    "table": bound.source.table,
+                                },
+                            )
+                            for row in rows:
+                                metadata_key = (
+                                    owner,
+                                    bound.relation.op(),
+                                    str(row.get("column_name")),
+                                )
+                                prepared.collation_qualifications[metadata_key] = (
+                                    "deterministic"
+                                    if str(row.get("data_type", "")).lower().startswith("varchar")
+                                    else "other"
+                                )
+                            deterministic = (
+                                prepared.collation_qualifications.get(key) == "deterministic"
+                            )
+                        elif owner.provider.name == "mysql":
+                            from marivo.datasource.engines.mysql import original_string_column
+
+                            deterministic = original_string_column(
+                                owner._backend, owner.datasource, bound.source, physical_field.name
+                            )
+                        else:
+                            deterministic = deterministic_collation(
+                                owner._backend, owner.datasource, bound.source, physical_field.name
+                            )
+                        prepared.collation_qualifications[key] = (
+                            "deterministic" if deterministic else "other"
+                        )
+                    except Exception:
+                        prepared.collation_qualifications[key] = "unavailable"
+                fact = prepared.collation_qualifications[key]
+                if fact == "unavailable":
+                    return (
+                        "Remote original strings require visible deterministic collation metadata"
+                    )
+                if fact != "deterministic":
+                    return "Remote original strings retain a nondeterministic collation boundary"
+            if not matched:
+                return "original string coordinate has an unqualified physical source"
+    return None
+
+
+def qualify_original_source(
+    prepared: PreparedSources,
+    reads: tuple[SourceRead, ...],
+    raw: ir.Table,
+    *,
+    sampled: bool = False,
+) -> str | None:
+    """Qualify typed numeric recipes independently of complete identity carriers."""
+    from marivo._definition.expressions import (
+        EntityCount,
+        RowNode,
+        SourceAggregate,
+        SourceWeightedMean,
+    )
+    from marivo.analysis.materialization.query_preparation import physical_fields
+    from marivo.datasource.ir import TableSourceIR
+    from marivo.semantic._numeric_lowering import lower_row
+
+    if not reads:
+        return "original fiber has no source reads"
+    owner = prepared.sources.get(reads[0].source_id, prepared.source)
+    if owner.provider.name == "duckdb":
+        physical = (ops.DatabaseTable, ops.UnboundTable, ops.InMemoryTable, ops.SQLQueryResult)
+        leaves = set(raw.op().find(physical))
+        qualified: set[ops.Node] = set()
+        for path, bound in prepared.bound.items():
+            if prepared.sources.get(path, prepared.source) is not owner:
+                continue
+            for leaf in bound.relation.op().find(physical):
+                if leaf not in leaves:
+                    continue
+                fact = _original_input_fact(prepared, owner, bound, leaf)
+                if fact == "unavailable":
+                    return "original recomputation requires visible input collation metadata"
+                if fact != "qualified":
+                    return "original recomputation retains an explicit, default or unknown inherited collation boundary"
+                qualified.add(leaf)
+        if not leaves or not leaves <= qualified:
+            return "original recomputation requires typed physical inputs from one source owner"
+        return None
+    if (
+        owner.provider.name not in ("postgres", "mysql", "trino", "clickhouse")
+        or owner._backend.name != owner.provider.name
+        or owner.datasource.backend_type != owner.provider.name
+    ):
+        return "original fiber has no qualified physical backend route"
+
+    def physical_value(value: ir.Value, *, role: Literal["identity", "recipe"]) -> bool:
+        fields = physical_fields(value)
+        if len(fields) != 1:
+            return False
+        field = fields[0]
+        for path, bound in prepared.bound.items():
+            if (
+                prepared.sources.get(path, prepared.source) is not owner
+                or field.rel != bound.relation.op()
+            ):
+                continue
+            if not isinstance(bound.source, TableSourceIR):
+                return False
+            if _original_input_fact(prepared, owner, bound, field.rel) != "qualified":
+                return False
+            physical = bound.facts.schema.field(field.name)
+            if role == "identity":
+                return not physical.nullable and (
+                    pa.types.is_signed_integer(physical.type) or pa.types.is_string(physical.type)
+                )
+            # Each recipe field has already passed source type admission. Its
+            # numeric/result and control types are owned by the closed lowerer.
+            return True
+        return False
+
+    coordinate_columns: list[str] = []
+    for read in reads:
+        if read.component_layout is not None:
+            coordinate_columns.extend(name for _, name in read.component_layout.identity)
+        if read.reduction is not None:
+            coordinate_columns.extend(
+                dict(read.field_columns)[path] for _, path in read.reduction.axes
+            )
+        coordinate_columns.extend(
+            name for _, name in read.field_columns if raw[name].type().is_string()
+        )
+    issue = qualify_original_strings(
+        prepared,
+        raw,
+        tuple(dict.fromkeys(name for name in coordinate_columns if raw[name].type().is_string())),
+    )
+    if issue is not None:
+        return issue
+    for read in reads:
+        reduction = read.reduction
+        if (
+            reduction is None
+            or read.component_layout is None
+            or not read.binding_id
+            or reduction.duration is not None
+            or (
+                not sampled
+                and (
+                    reduction.calendar is not None
+                    or reduction.calendars
+                    or reduction.sampled
+                    or reduction.preserve_sample_presence
+                    or reduction.window_key is not None
+                )
+            )
+            or prepared.sources.get(read.source_id, prepared.source) is not owner
+        ):
+            return "Remote original fiber lacks an exact prepared physical binding"
+        fields = dict(read.field_columns)
+        if any(not raw[fields[path]].type().is_string() for _, path in reduction.axes):
+            return "Remote original numeric coordinates retain their pandas key boundary"
+        if any(
+            not physical_value(raw[name], role="identity")
+            for _, name in read.component_layout.identity
+        ):
+            return (
+                "Remote original identity requires direct physically nonnull integer or string keys"
+            )
+        node = reduction.node
+        if isinstance(node, EntityCount):
+            continue
+        operands: tuple[RowNode, ...]
+        if isinstance(node, SourceWeightedMean):
+            operands = (node.value, node.weight)
+        elif isinstance(node, SourceAggregate) and (
+            node.reducer
+            in (
+                "sum",
+                "count",
+                "count_distinct",
+                "min",
+                "max",
+                "median",
+                "quantile",
+            )
+            or node.reducer == "mean"
+        ):
+            operands = (node.operand,)
+        else:
+            return "Remote original method retains its established host numeric finisher"
+        for operand in operands:
+            value = lower_row(operand, {path: raw[name] for path, name in read.field_columns}).value
+            if not value.type().is_numeric():
+                return "Remote original recipes require a numeric result"
+            origins = physical_fields(value)
+            if not origins or any(
+                not physical_value(field.to_expr(), role="recipe") for field in origins
+            ):
+                return "Remote original recipes require typed physical inputs from one source owner"
+    return None
 
 
 def _preparation_error(expected: str, received: str) -> MaterializationError:
@@ -437,12 +730,33 @@ def prepare_query_sources(
             contribution.calendars,
             contribution.coverage,
         )
+        schema = table.schema().to_pyarrow()
+
+        def physical_identity_nonnull(relation: ir.Table, name: str, owner: SourceSession) -> bool:
+            origins = physical_fields(relation[name])
+            if len(origins) != 1:
+                return False
+            field = origins[0]
+            return any(
+                field.rel == bound.relation.op()
+                and owners[path] is owner
+                and not bound.facts.schema.field(field.name).nullable
+                for path, bound in bounds.items()
+            )
+
+        logical_binding = owners[root].provider.name == "duckdb" or (
+            owners[root].provider.name in ("postgres", "mysql", "trino", "clickhouse")
+            and owners[root]._backend.name == owners[root].provider.name
+            and all(
+                physical_identity_nonnull(table, name, owners[root])
+                for name in registry.entities[root].primary_key
+            )
+        )
         binding_id = (
             source_bindings.setdefault(source_contract, f"source:{uuid4().hex}")
-            if owners[root].provider.name == "duckdb"
+            if logical_binding
             else ""
         )
-        schema = table.schema().to_pyarrow()
         keys = tuple(_admitted(schema, name, name) for name in registry.entities[root].primary_key)
         fields = []
         originals = dict(prepared.originals)
@@ -714,7 +1028,14 @@ def qualify_query_sources(prepared: PreparedSources, lowered: LoweredQuery) -> N
                 parameter.columns,
                 tuple(column.slot_id for column in parameter.columns),
             )
-            expression = instantiate(expression, parameter.placeholder, parameter.columns, empty)
+            expression = instantiate(
+                expression,
+                parameter.placeholder,
+                parameter.columns,
+                empty,
+                provider=prepared.sources.get(read.stage.source_id, prepared.source).provider.name,
+                source=prepared.sources.get(read.stage.source_id, prepared.source),
+            )
         read = replace(read, expression=expression)
         _admit_numeric_method(prepared.sources.get(read.stage.source_id, prepared.source), read)
         read = replace(read, expression=_native_query_expression(prepared, read))
@@ -788,8 +1109,16 @@ def _admit_numeric_method(source: SourceSession, read: LoweredRead) -> None:
 
     if source.provider.name == "duckdb":
         return
-    for stage in read.stage.common_reads or (read.stage,):
-        node = stage.reduction.node if stage.reduction is not None else None
+    reductions = (
+        *(
+            stage.reduction
+            for stage in read.stage.common_reads or (read.stage,)
+            if stage.reduction is not None
+        ),
+        *read.stage.native_reductions,
+    )
+    for reduction in reductions:
+        node = reduction.node
         if isinstance(node, SourceAggregate) and node.reducer not in (
             "count",
             "count_distinct",
@@ -899,6 +1228,7 @@ def _complete_source_frame(
     value_keys: tuple[str, ...] = (),
 ) -> StageOutput:
     """Complete one logical source occurrence and its original fine checks."""
+    source_rows = len(frame)
     from marivo.analysis.materialization.query_components import ComponentFrame
 
     components: tuple[ComponentFrame, ...] = ()
@@ -940,6 +1270,27 @@ def _complete_source_frame(
             numeric_failure(check.expected, received)
     if "__numeric_present" in frame.columns and "__numeric_present" not in retained_checks:
         frame = frame.loc[frame["__numeric_present"].fillna(False)]
+    if stage.native_original_finish is not None:
+        from marivo.analysis.compiler.native_formula import (
+            NativeOriginalBatchFinish,
+            NativeOriginalPhaseFinish,
+        )
+        from marivo.analysis.materialization.graph_exchange import source_columns
+        from marivo.analysis.materialization.source_original import finish_native_original
+
+        if not isinstance(
+            stage.native_original_finish, (NativeOriginalBatchFinish, NativeOriginalPhaseFinish)
+        ):
+            source_columns(
+                frame,
+                tuple(column for column in stage.columns if column.slot_id in stage.keys),
+                stage.keys,
+            )
+        frame = finish_native_original(stage.native_original_finish, frame)
+    if stage.native_query_finish is not None:
+        from marivo.analysis.materialization.query_key_fusion import finish_native_query
+
+        frame = finish_native_query(stage.native_query_finish, frame)
     from fractions import Fraction
 
     from marivo._definition.expressions import SourceAggregate, SourceWeightedMean
@@ -1035,17 +1386,21 @@ def _complete_source_frame(
             except (pa.ArrowException, OverflowError, ValueError, TypeError) as error:
                 numeric_failure("lossless signed int64 Duration ticks", str(error))
     output = frame.loc[:, [c.slot_id for c in stage.columns]]
-    if stage.keys:
+    if stage.keys and stage.native_query_finish is None:
         output = output.sort_values(
             list(stage.keys), kind="stable", na_position="last"
         ).reset_index(drop=True)
-    return StageOutput.from_source_frame(
+    completed = StageOutput.from_source_frame(
         output,
         stage.columns,
         stage.keys,
         components=components,
         value_keys=value_keys,
+        source_rows=source_rows,
     )
+    if stage.native_query_finish is not None:
+        completed = replace(completed, layout=stage.native_query_finish.program.output_layout)
+    return completed
 
 
 def _complete_common_read(
@@ -1067,6 +1422,9 @@ def _complete_common_read(
             else common_slot(index, column.slot_id)
             for column in member.columns
         }
+        presence = common_slot(index, "__numeric_present")
+        if presence in frame.columns and "__numeric_present" not in names:
+            names["__numeric_present"] = presence
         suffix = f".block{index}"
         names.update(
             {name.removesuffix(suffix): name for name, _ in numeric_checks if name.endswith(suffix)}
@@ -1112,6 +1470,15 @@ def _complete_common_read(
             else result.join(other)
         )
     result = result.loc[:, [column.slot_id for column in stage.columns]]
+    retained_checks = {name for name, _ in numeric_checks}
+    retained_checks.update(
+        common_slot(index, name)
+        for index in range(len(stage.common_reads))
+        for name in ("__numeric_present", "__sample_present")
+    )
+    for column in stage.columns:
+        if column.slot_id in retained_checks and column.dtype == ScalarDataType("boolean"):
+            result[column.slot_id] = result[column.slot_id].astype("boolean").fillna(False)
     if stage.keys:
         result = result.sort_values(
             list(stage.keys), kind="stable", na_position="last"
@@ -1121,6 +1488,7 @@ def _complete_common_read(
         stage.columns,
         stage.keys,
         components=tuple(components),
+        source_rows=len(frame),
     )
 
 
@@ -1220,7 +1588,13 @@ def execute_numeric_query(
                         )
                         parameter_relations[key] = relation
                 expression = instantiate(
-                    expression, parameter.placeholder, parameter.columns, source, relation=relation
+                    expression,
+                    parameter.placeholder,
+                    parameter.columns,
+                    source,
+                    relation=relation,
+                    provider=owner.provider.name,
+                    source=owner,
                 )
             except (
                 TypeError,

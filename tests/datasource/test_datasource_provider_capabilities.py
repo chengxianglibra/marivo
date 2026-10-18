@@ -132,6 +132,14 @@ def test_registered_statements_are_pinned_by_snapshot() -> None:
         ): "a4c4ac1c8ed42516de7b86109f2dfe3cbf7aadbc008851126b988472d2565952",
         (
             "duckdb",
+            "duckdb.tables.original_collation",
+        ): "5330dd17bb2735e635c38a7f2a2b15aac08b4c655686be3d2e2555523b15e9d1",
+        (
+            "duckdb",
+            "duckdb.original.default_collation",
+        ): "82b2e415304f41a084f538afa28ca29adaf114c2cf79174de0e18c74f11b12d6",
+        (
+            "duckdb",
             "duckdb.tables.columns",
         ): "514968e568aa525319ce845f27fefffc10e058ee75d1952afeba7d9821fb2556",
         (
@@ -152,6 +160,10 @@ def test_registered_statements_are_pinned_by_snapshot() -> None:
         ): "9caeecc09a5e820921a3a5f205cb74323e9d4310a572c8900482f58cf57f7a3a",
         (
             "mysql",
+            "mysql.query.packet_limit",
+        ): "d6c38038ff8b263621813311b8b5b0c60b0220096457c2eeb1f994709cda6cd0",
+        (
+            "mysql",
             "mysql.columns.show",
         ): "3a76e6a0680dff91eeff9d76183b8dbd2dfe69e6110fb2e102aef91a79a63d02",
         (
@@ -162,6 +174,10 @@ def test_registered_statements_are_pinned_by_snapshot() -> None:
             "mysql",
             "mysql.partitions",
         ): "31145d6f5be99a01ce1da201c7fede2010fa929e36f4fb9d36298a3aa8b01d88",
+        (
+            "mysql",
+            "mysql.original.column",
+        ): "da175204ea09e7ce84b2c0bb0c69158c49c864b38d962268513f4a15be5abdc6",
         (
             "mysql",
             "mysql.partitions_schema",
@@ -192,6 +208,10 @@ def test_registered_statements_are_pinned_by_snapshot() -> None:
         ): "6b75885449628a723cfe4e55ab0aa79b1ed3103ff0bd29723238e45276e62b89",
         (
             "postgres",
+            "postgres.column.collation",
+        ): "8c5a9abd6b11bfe77066b6f0a3ba54fd17bdeb730524db42f4cd4d5936d8aae1",
+        (
+            "postgres",
             "postgres.columns",
         ): "b46809c22735331fac831c188a7bfbcaac045d1dca5b990fd0583df78b2cea41",
         (
@@ -217,7 +237,7 @@ def test_registered_statements_are_pinned_by_snapshot() -> None:
         (
             "postgres",
             "postgres.tables.kind",
-        ): "6a5af7a08b1cd022e3bdcbf5c5ea9003856fb3f5c6ba10039f6c9dab7fff6d27",
+        ): "a6940c60141f67087a241880e6b8a238cb0555ee126d57777476dfffb4c24c24",
         (
             "trino",
             "trino.columns",

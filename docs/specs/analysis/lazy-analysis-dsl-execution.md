@@ -58,6 +58,10 @@ Query 依赖可含来源、字面量或两者，仍需明确多来源/本地 sta
 共享 Population/Metric/Query 只共享定义，不承诺同一次读取或相同值。
 `artifact = q.execute()` 不替换 q、不缓存其业务答案；以后执行 q 是新求值。
 同次 execute 也不自动提供跨源快照；独立 Metric 根无需共同读取时点，不追加对账或重试来制造保证。
+rollup/drill 的来源重算也接受父读取之后的数据变化，不要求共同快照或物化输入。
+父 where/Top 先完成必要检查并固定选中完整键；目标按这些键、捕获的期间/条件和原公式读取当前贡献，
+不重跑排名替换父键。选中键下新增、更新、删除会改变重算值；空贡献沿现有 empty/null 政策完成。
+检查覆盖各阶段实际读取的数据，不做跨读相等检查或一致性重试。
 普通窗口分支遵循同一读取合同；即使基础贡献作用域相同，也不强制共享扫描、共同输入或快照，
 不因缺少这些保证而拒绝一般窗口算术。命名/内联不改变此规则。
 first-seen 的 H/W 改写只在两者实际消费同一合格历史 U 时具有迁移等价性；稳定输入、合格共同输入路线
@@ -71,6 +75,7 @@ reduce、top 和 share 各自消费同一份实际输入。share 的分子/分�
 不能展开成两条独立读取后仅凭相同逻辑节点证明支持。
 后置 where/top 不能越过 share 改变分母和必要检查；前置筛选按调用顺序进入总体。
 无共同输入路线时报告执行能力缺口，不能建议先 execute 再调用 Artifact.share。
+这里的局部输入要求不扩展为前置 rollup/drill 重算与其父读取必须一致。
 多轮中需要已见数据的精确值时继续 pandas；重新 Query 求值不承诺重复那份输入。
 
 #### 1.1.2 Metric 显式域依赖
@@ -204,8 +209,10 @@ where(~p) 不能优化成 Population 补集，分组不得丢弃合法 None 键�
 不引入全局误差开关、跨后端逐位一致保证或新的确定性求和框架。
 精度合同不是任意重排许可：例如 fsum([1e16, 1, -1e16]) 为 1，
 而 fsum([fsum([1e16, 1]), fsum([-1e16])]) 为 0；换成 fsum 仍不能证明分组后合并等价。
-无法证明规约拆分/融合符合方法合同，就保留原计算路线。任何准入的数值误差都不能放宽完整键、NA mask、
-零分母/error 政策、where 判定、排名和 Top-N 身份的要求；可能改变这些离散结果的改写不准入。
+同一已选方法内部的规约拆分/融合仍须符合该方法合同，不能仅用数值容差放宽 where 判定、排名和 Top-N 身份。
+来源重算采用已准入的原生计算与 pandas 交接，允许与原 host 路线产生不同舍入；后续 where/Top
+基于实际重算值求值，可以因此得到不同选择。此前已完成的父选择完整键保持固定；完整键、NA mask、
+零分母及错误政策仍须保持。不得仅因与旧 host 数值不同而回退来源重算。
 定律中的固定实例与实际读取保证采用 §1.1.1，等式只对满足前提的同实际输入成立。
 
 ### 1.5 单一执行路线与终端读写
@@ -234,6 +241,7 @@ DuckDB 只作为 Ibis 的一种已声明 datasource 后端，包括其已有文�
 
 来源 schema、表达式编译和执行由 datasource/Ibis 拥有。相同 Ibis 表达式在不同后端可以返回不同
 数值类型和精度；接受后端、驱动及 Ibis 原生转换造成的数值精度损失，不以无损传输作为路线准入条件。
+此合同也适用于来源重算返回的紧凑状态，不要求其完成值与旧 host 路线逐位一致。
 Marivo 不在 Ibis 层为统一 dtype 或保真主动添加与业务语义无关的 cast，不另建 cursor transport。
 DuckDB 读取使用 Ibis 的 Arrow 结果，将整数列直接转换为 pandas Arrow extension dtype，
 保留原生整数值及 null，避免 pandas 经 float64 推断而丢失精度；本地计算框架仍为 pandas。
@@ -263,6 +271,110 @@ lowering 使用近似算法，不能据此执行精确请求。这些代码准�
 精度容忍属于来源计算及其 pandas 交接；交接完成的值进入本地算子后仍服从该算子的数值合同。
 产物按最终输出类型保存，已提交值的重开/导出保持保真，不把来源原始类型当作恢复精度的依据。
 Artifact 往返成功只证明保存值可读，不能反向证明来源转换无损或跨后端答案一致。
+
+#### 1.5.2 来源关系融合与原指标重算
+
+优化以已经准备的 source owner、实际物理绑定、方法和检查为准。DuckDB 的合格字段关系可作为
+终点查询或后续名单子查询；direct select、True-only where、直接槽 Top-N、精确整数格子 sum 和 row_count
+保留完整键与必要检查。Top 返回的有界行仍由原本地次序 owner 恢复展示顺序。
+普通单规约名单和共享名单的标量消费者也可进入同一合格来源语句，避免 host 键往返。
+PostgreSQL、MySQL、Trino Iceberg 和 ClickHouse MergeTree 分别准入字符串字段终点、筛选、
+Top、row_count 和合格 count 名单。MySQL 聚合字符串键要求 binary NO PAD collation；
+ClickHouse FixedString 保留现有 bytes 载体的类型检查边界。Trino/ClickHouse 另准入直接
+整数、float、Decimal 数值属性的 where/Top，以及合格 sum/min/max/mean/weighted_mean
+聚合名单；float NaN 先规范化为 missing，再按 True-only 筛选和 NA-last 排名。采用来源
+原生值并接受 pandas 舍入差异，完整身份键、平局次序和 Top-0 前必要检查保持。
+PG/MySQL 数值属性及非身份数值坐标仍按各自资格处理。
+DuckDB、Trino/ClickHouse 的合格多 binding Metric 公式及 Column 四则运算也可在来源完成，
+包括 computed Top；每个逻辑输入保留自身完整域、存在性和检查。浮点 NaN 归一化为 missing，
+nullable 除法只对有效配对执行零分母政策，溢出和必要公式错误不能被 Top-0 清除。
+合格格子 sum 使用来源原生整数/float/Decimal 求和，接受原生舍入；保留空/全 NA 为 null、
+浮点非有限值及结果范围错误，Duration 仍保持单位与完成位置边界。
+DuckDB 和合格 Trino/ClickHouse 的共享名单可在同一来源块运输各消费者的独立分组叶子，
+分别保留存在性、完整域和公式完成；多个名单参数的依赖闭包原子替换。
+同一名单同时供 host 和来源消费时，只将合格来源消费边内联为关系；真正需要的 host 域
+仍保留。兼容 per 网格可共用分组块，不同 per/window 网格分别完成，但不再因网格不同
+而强制把共享名单下载后上传。每个窗口保留自身 W(t)，源端表达式仍可能重复扫描。
+若真正的 host 样本/输出域已经完成 where/Top 名单，另一消费边继续使用其固定完整键；
+不能在来源变化后内联重选替换该名单。此依赖仍可需要参数运输，不要求来源保持不变。
+同源 image/preimage 链中仅用于检查的祖先域可在消费来源语句中规约为检查摘要；
+终点输出域、MemberCount 和实际 keyed members 仍保留完整输入。Query 名单驱动的 preimage
+因而无需先下载祖先完整身份域，再将名单上传回同一来源。
+MySQL 的完整 int64/string/boolean/date 参数键可使用单个 invocation 内 JSON membership
+对象，避免逐键展开 OR/UNION；字符串组件需要已验证的 binary NO PAD collation，
+其它 native collation 继续原 membership 语义。NULL、空串、复合关联和大整数保持区分。
+目标读取前检查 JSON 单键长度、文档大小及当前连接编码下最终 SQL 请求是否满足实际
+max_allowed_packet；超限提供缩小名单或调整数据源限制的错误，不拆分合并最终聚合值。
+ClickHouse 编译检查当前 client override 或已缓存 server setting 的 max_query_size，
+按 UTF-8 SQL 加驱动 FORMAT Native 后缀计量；缺失事实保留原生执行边界，0 仅关闭此 parser 限制。
+类型化数组只限制表达式树，不限制请求字节。Trino 当前连接未暴露 coordinator 的 query.max-length，
+因此不承诺任意大名单；parser 深度、内存、HTTP/proxy 限制仍归数据源，不猜测通用键数阈值。
+
+普通 rollup/drill 可在 DuckDB 内保持选中父纤维和完整贡献身份并重新规约；
+同一实际 source-session 上的多根先各自规约，再对齐完成网格，不关联原始事实乘积。
+父级细值、strict/溢出/零分母和映射检查仍必须完成，空选择不能清除它们。
+来源重新规约不要求方法存在可合并完成值；整数输入的 mean、weighted_mean 和分位数运输必要的紧凑状态，
+由现有 host 数值 owner 完成除法、插值及原公式。可加 share 保留同一实际细输入和原分母范围。
+float/Decimal 的来源重算消费合格原生完成值，接受与本地内核不同的舍入；不得通过
+整数状态的 int 转换截去小数。精确与近似算法仍不能互换。
+DuckDB/PostgreSQL 的 Decimal median/quantile 重算使用既有精确原生方法的完成值，
+接受来源舍入；不为复现本地有理插值而回退，也不将小数端点送入整数状态。
+该资格不为 MySQL/Trino/ClickHouse 引入近似分位数替代。
+普通 observe 后的空间 rollup 还可在单语句内运输细/目标两阶段的分组样本；
+现有 host 内核先完成细公式及必要检查，再求目标公式。完整内部键、显式有限空样本、
+日历/窗口端点出现位置和展示前 lookback 保留，不把 per 内的子式完成值当作可合并的最终量。
+来源样本域保留自身捕获期间，与消费叶子进入同一语句。Top-0/Top-1 或固定全部被移除坐标的
+where 父选择，可先用分组叶子完成原父公式和选择，再完成目标；复杂 drill 保留完整父键，
+新增属性检查仍在选择之后。嵌套普通空间 rollup 逐级完成并检查，中间溢出不能被后级抵消。
+这些增量按实际表达式和类型准入。DuckDB 原量可使用已绑定类型的表或 CSV/Parquet/JSON；
+显式/默认 collation 或无法验证的 view 继承 collation 仍保留原边界。
+文件上的父选择先完成，再用固定完整键驱动后续读取，不通过重复内联父选择读取变化后的名单。
+普通 Calendar sum 及其 Metric 公式可由每个 owner 分别返回细/目标分组叶子，
+现有 host 公式先检查完整父结果，再读取并组合目标；不同 owner 的同名身份不合并。
+合法 day→month 等普通 Calendar 粗化使用目标分桶和原贡献重新规约，不累加已完成父值。
+此路线保留各根时间字段、期间和过滤，不放宽 window 时间轴的删除/粗化限制。
+其它未获得资格的样本选择和时间改写继续采用原路线。
+紧凑状态可能包含细/目标两份分组值；小输入不保证返回行更少，单语句也不证明单次物理扫描。
+
+PostgreSQL/MySQL 原指标重算按表关系、直接物理有符号整数/float/Decimal（允许 nullable 值）、
+完整非空身份和合格配方准入，
+字符串坐标分别要求确定性 collation / binary NO PAD。合格 sum/count/distinct/min/max 及 PostgreSQL 整数分位数边界沿原方法完成，
+share 由原 host 整数除法完成。整数 mean/weighted_mean 使用紧凑状态，float/Decimal 使用
+合格 native 完成值。行配方与 Metric 算术沿原 numeric lowerer 保留 NULL、溢出和零分母检查；
+同一实际 source-session 的多根分别规约，再以 distinct 完整键域和 left join 对齐完成网格，
+不关联各根原始事实乘积。未获准的字符串分类保留原边界，不添加为传输保真服务的数值 cast。
+合格父级 where/Top 在 host 完成后，仅传递固定完整键供来源重算，不再要求父载荷附带完整原始贡献。
+所有数据源均接受重算期间数据变化；不为此查询 PG 基表种类或 MySQL InnoDB 引擎，
+但各后端的 collation、物理类型、数值方法及真实关联拓扑资格继续保留。
+
+DuckDB 和合格 Trino/ClickHouse align/compare/broadcast 可在来源关联端点，运输关联载体与独立检查摘要；
+原 host 内核保留 complete-key 对应、存在性与值 NA 的区分、数值运算、输出布局和次序。
+Trino/ClickHouse 当前关联准入完整字符串轴；ClickHouse 外连接输入（包括 presence）显式 nullable，
+join_use_nulls=0/1 均保留缺侧语义。
+下游 Top-0 不能清除端点错误。Trino/ClickHouse 原指标重算按实际物理输入、表达式及 pandas 交接准入，
+不再要求 parent/target 共享 snapshot 或物化输入。选后重算先在 host 完成父检查和 where/Top，
+只将完整选中键传给后续来源读取；来源数据变化不能替换这些键。
+当前普通路线准入同一 source-session 的表根、有符号整数/float/Decimal（允许 nullable 值）、
+合格行配方及 Metric 算术与字符串坐标，
+覆盖 sum/count/min/max/精确 distinct 及合格 mean/weighted_mean。
+Trino/ClickHouse 另支持由既有 host owner 完成的整数 mean/weighted_mean 状态；父值选择保持原数值方法。
+Trino 的 Decimal 紧凑总和经 native pandas 转换可能与原 host 路线产生不同舍入；接受该精度损失，
+仍执行来源重算，不增加传输编码。
+Trino 不要求 Iceberg，ClickHouse 当前限定 MergeTree。同 owner 的普通 per/window 空间上卷
+运输 fine/target 分组样本叶子，由既有 host 公式保留样本身份、捕获域、lookback 及细阶段错误；
+不对已完成父均值再次平均。选后空间上卷先在 host 完成父公式及 where/Top，再传完整键
+到来源重算多个父纤维的联合贡献；窗口保留 endpoint/sample 复合元组。来源变化可改变目标值，
+不能重排此前父名单。除上述普通 Calendar 路线外的跨 owner 复杂公式、远端动态样本域、复杂样本 drill、数值坐标及 Distributed
+拓扑仍采用原有合格路线。
+
+确需向 PostgreSQL 传递 int64/string/boolean/date 完整键时，可用类型化数组加一次 ordinal 展开，
+避免逐元组的谓词或 UNION 节点。键数据仍需传输，不承诺 SQL/请求字节与名单大小无关。
+Trino/ClickHouse 的选后重算用类型化数组运输整数/字符串完整键，包含 Nullable 坐标和空名单；
+不会将各列独立展开成笛卡尔积，也不以传输键数代替来源返回行数。
+新移动到来源的 Query 字符串 membership、筛选和 Top 排序按返回字符串的 UTF-8 字节处理，
+保留 CHAR 填充和 Null-safe 完整元组关联，也不继承 DuckDB NOCASE 的大小写合并。
+已经在来源 lowering 的原生 Metric membership 保留原来源 collation 语义。
+其他 key dtype/provider 保留已准入的原路线。这些物理安排不增加持久状态或 Artifact 输入能力。
 
 ## 2. Agent 读取与错误契约
 

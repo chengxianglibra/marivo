@@ -673,7 +673,16 @@ have only `datasource.http_credentials`. Empty purpose sets grant no submission
 authority. Cross-provider and cross-purpose requests reject before native SQL.
 Each fact query that fails yields that fact's
 unavailable warning while inspection still succeeds; a total failure yields
-schema-only. Unknown view kind is `None`, not `False`. DuckDB catalog facts
+schema-only. MySQL invocation-local bulk key requests additionally read the
+active session's `max_allowed_packet` through this fixed metadata channel.
+ClickHouse compiled reads check `max_query_size` using the client's effective
+override or its existing server-settings cache, including the native result-format
+suffix in the UTF-8 byte count. This adds no metadata query. Unknown capacity
+retains native enforcement; a zero value disables only this parser-size limit.
+Their JSON storage and final compiled SQL bytes are checked against that
+capacity before the target business read; SQL is encoded with the native
+connection's encoding. This does not change the server setting, split completed
+aggregates, or replace Ibis execution. Unknown view kind is `None`, not `False`. DuckDB catalog facts
 are qualified by database, schema, and table. Composite unique constraints
 retain their constraint identity and column order. A consumer requiring one
 of those facts rejects the affected cell. Trino `$partitions` and ClickHouse

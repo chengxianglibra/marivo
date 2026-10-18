@@ -201,7 +201,10 @@ class SourceSession:
         self._issued: dict[int, tuple[CompiledRead, _IssuedRead]] = {}
         self._bindings_by_identity: dict[str, tuple[SourceIR, dict[str, object]]] = {}
         self._bound_sources: dict[str, BoundSource] = {}
+        self._query_string_facts: dict[tuple[str, str], bool] = {}
+        self._query_decoded_strings: dict[str, frozenset[str]] = {}
         self._key_relations: dict[str, ops.InMemoryTable] = {}
+        self._key_request_limit: tuple[int, str] | None = None
         self._closed = False
         self.submissions: list[SourceSubmission] = []
         self._query_logs: dict[int, _execution_log.QueryLog] = {}
@@ -240,6 +243,17 @@ class SourceSession:
         owned = self._key_relations.get(node.name)
         # Ibis rewrites may rebuild the node while retaining its immutable carrier.
         return owned is not None and node.schema == owned.schema and node.data is owned.data
+
+    def _mysql_key_capacity(self) -> int:
+        """Qualify invocation-local key payloads against the active MySQL session."""
+        self._ensure_open()
+        if self.provider.name != "mysql":
+            raise _invalid("MySQL key request capacity", self.provider.name)
+        if self._key_request_limit is None:
+            from marivo.datasource.engines.mysql import query_packet_limit
+
+            self._key_request_limit = query_packet_limit(self._backend)
+        return self._key_request_limit[0]
 
     def bind(
         self,
@@ -472,6 +486,26 @@ class SourceSession:
         sql = self._backend.compile(expression.as_table(), params=supplied, limit=None)
         if not isinstance(sql, str) or not sql:
             raise _invalid("nonempty Ibis compiled SQL", type(sql).__name__)
+        if self.provider.name == "clickhouse":
+            from marivo.datasource.engines.clickhouse import validate_query_size
+
+            validate_query_size(self._backend, sql)
+        if self._key_request_limit is not None:
+            limit, encoding = self._key_request_limit
+            # MySQLdb encodes the SQL with connection.encoding. COM_QUERY adds
+            # one command byte; key Arrow size is not the request size.
+            size = len(sql.encode(encoding)) + 1
+            if size > limit:
+                raise DatasourceSourceCapabilityError(
+                    message="The MySQL complete-key request exceeds its native capacity.",
+                    expected=f"an encoded MySQL key request within max_allowed_packet={limit} bytes",
+                    received=f"{size} request bytes",
+                    repair=repair(
+                        kind="reconnect",
+                        canonical_id="mysql",
+                        action="Reduce the selected key domain or increase the datasource packet limit and reconnect.",
+                    ),
+                )
         source_identity = "|".join(sorted({item.binding.facts.source_identity for item in sources}))
         issued = CompiledRead(
             expression,

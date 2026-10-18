@@ -215,6 +215,7 @@ class StageOutput:
     layout: ComparisonEndpoint | None = None
     components: tuple[ComponentFrame, ...] = ()
     population_frames: tuple[pd.DataFrame, ...] = ()
+    source_rows: int | None = None
 
     def __post_init__(self) -> None:
         if self._token is not _NORMALIZED:
@@ -234,6 +235,7 @@ class StageOutput:
         layout: ComparisonEndpoint | None = None,
         components: tuple[ComponentFrame, ...] = (),
         population_frames: tuple[pd.DataFrame, ...] = (),
+        source_rows: int | None = None,
     ) -> StageOutput:
         return cls(
             columns,
@@ -245,6 +247,7 @@ class StageOutput:
             layout,
             components,
             population_frames,
+            source_rows,
         )
 
     @classmethod
@@ -256,9 +259,12 @@ class StageOutput:
         *,
         components: tuple[ComponentFrame, ...] = (),
         value_keys: tuple[str, ...] = (),
+        source_rows: int | None = None,
     ) -> StageOutput:
         """Accept native source numeric types without casting back to declarations."""
         effective = source_columns(
             frame, columns, tuple(key for key in keys if key not in value_keys)
         )
-        return cls.from_frame(frame, effective, keys, components=components)
+        return cls.from_frame(
+            frame, effective, keys, components=components, source_rows=source_rows
+        )

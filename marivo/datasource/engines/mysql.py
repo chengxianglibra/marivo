@@ -30,6 +30,7 @@ from marivo.datasource.errors import (
     DatasourceSourceCapabilityError,
     repair,
 )
+from marivo.datasource.ir import DatasourceIR, TableSourceIR
 from marivo.datasource.strptime import python_to_mysql_strptime
 
 if TYPE_CHECKING:
@@ -180,6 +181,20 @@ register_provider_statements(
             identifier_slots=frozenset({"table_ref"}),
             allowed_purposes=frozenset({"datasource.metadata.mysql"}),
         ),
+        "original.column": ProviderStatement(
+            statement_id="mysql.original.column",
+            template=(
+                "SELECT COLLATION_NAME FROM information_schema.columns "
+                "WHERE TABLE_SCHEMA = {schema} AND TABLE_NAME = {table} AND COLUMN_NAME = {column}"
+            ),
+            literal_slots=frozenset({"schema", "table", "column"}),
+            allowed_purposes=frozenset({"datasource.metadata.mysql"}),
+        ),
+        "query.packet_limit": ProviderStatement(
+            statement_id="mysql.query.packet_limit",
+            template="SELECT @@session.max_allowed_packet AS packet_limit",
+            allowed_purposes=frozenset({"datasource.metadata.mysql"}),
+        ),
     },
 )
 
@@ -199,6 +214,44 @@ def _mysql_rows(
         identifiers=identifiers,
         purpose="datasource.metadata.mysql",
     )
+
+
+def original_string_column(
+    backend: BaseBackend, datasource: DatasourceIR, source: TableSourceIR, column: str
+) -> bool:
+    """Require the qualified binary NO PAD collation for original grid keys."""
+    schema = source.database or datasource.fields.get("database")
+    if not isinstance(schema, str):
+        return False
+    rows = _mysql_rows(
+        backend,
+        "mysql.original.column",
+        values={
+            "schema": schema,
+            "table": source.table,
+            "column": column,
+        },
+    )
+    return len(rows) == 1 and rows[0].get("COLLATION_NAME") == "utf8mb4_0900_bin"
+
+
+def query_packet_limit(backend: BaseBackend) -> tuple[int, str]:
+    """Read this connection's native packet limit and SQL encoding."""
+    rows = _mysql_rows(backend, "mysql.query.packet_limit")
+    limit = rows[0].get("packet_limit") if len(rows) == 1 else None
+    encoding = getattr(getattr(backend, "con", None), "encoding", None)
+    if not isinstance(limit, int) or limit < 1 or not isinstance(encoding, str):
+        raise DatasourceSourceCapabilityError(
+            message="The MySQL key request capacity is unavailable.",
+            expected="the active connection's positive max_allowed_packet and SQL encoding",
+            received="missing packet limit or connection encoding",
+            repair=repair(
+                kind="reconnect",
+                canonical_id="mysql",
+                action="Restore MySQL session metadata access and reconnect the datasource.",
+            ),
+        )
+    return limit, encoding
 
 
 def _inspect_mysql(
