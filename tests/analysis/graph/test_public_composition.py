@@ -291,7 +291,7 @@ def test_members_schema_preflight_does_not_submit_business_rows(
 
     monkeypatch.setattr(SourceSession, "execute", forbidden)
     current, _ = _observations(case)
-    assert current.contract().phase == "logical"
+    assert current.contract().kind == "Query"
     assert case.session.runs().items == ()
 
 

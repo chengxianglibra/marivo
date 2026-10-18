@@ -1198,7 +1198,6 @@ class Query:
             )
         return AnalysisContract(
             kind="Query",
-            phase="logical",
             actions=tuple(actions),
             domain=self._graph.signature.observation.coordinates.mode
             if self._graph.signature.observation
@@ -1206,8 +1205,6 @@ class Query:
             if axes
             else "scalar singleton",
             quantity=f"{len(quantities)} named Metric outputs",
-            required_parts=(),
-            retained_parts=(),
             _facts=(
                 ("definition", self._graph.fingerprint),
                 ("physical_dtype", "unresolved; schema-only preparation belongs to execution"),

@@ -190,7 +190,6 @@ class Population(PopulationParameter):
         """
         return AnalysisContract(
             kind="Population",
-            phase="logical",
             actions=(
                 AnalysisAction("session.query(population)", "analysis.session.query"),
                 AnalysisAction(
@@ -206,8 +205,6 @@ class Population(PopulationParameter):
             ),
             domain="complete coordinates",
             quantity="keys only",
-            required_parts=(),
-            retained_parts=(),
             _facts=(
                 ("axes", str(len(self.axes))),
                 ("definition", computation_fingerprint(self.definition)),

@@ -135,7 +135,7 @@ def test_catalog_collection_repr_is_one_line(semantic_project_factory) -> None:
 def test_dataset_contract_render_is_silent(analysis_dsl_case_factory, capsys) -> None:
     case = analysis_dsl_case_factory("j2")
     result = case.session.observe({"revenue": case.catalog.metrics.get("sales.revenue")}).contract()
-    assert result.kind == "Query" and result.phase == "logical"
+    assert result.kind == "Query"
     assert capsys.readouterr().out == ""
 
 

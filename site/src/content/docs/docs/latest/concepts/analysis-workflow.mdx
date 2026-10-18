@@ -28,10 +28,18 @@ query = session.observe(
     by=(region,),
     where=region == "APAC",
 )
-query.contract().show()
+contract = query.contract()
+contract.show()
+contract.actions[0].show()
 result = query.execute()
 result.show(n=20)
 ```
+
+`Query.contract()` and `Population.contract()` return an `AnalysisContract` with
+`kind`, `domain`, `quantity` and `actions`. Its card shows captured logical facts
+and valid next calls without reading schemas or business rows or creating a Run.
+Each action exposes `call` and `help_target`; `action.show()` prints both.
+Terminal Artifacts expose their own result cards and have no contract.
 
 Each contribution root needs a valid scalar path to an ordinary grouping field.
 Use `field.via((relationship,))` to capture an explicit scalar role and
@@ -47,6 +55,7 @@ complete finite output domain, including requested empty coordinates:
 
 ```python
 regions = mv.coordinates(by=(region,), keys=(("APAC",), ("EMEA",)))
+regions.contract().show()
 query = session.observe({"revenue": revenue}, during=scope, by=regions)
 keys_only = session.query(regions)
 keys_only.execute().show()

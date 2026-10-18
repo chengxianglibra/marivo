@@ -794,15 +794,10 @@ def test_dataset_contract_render_does_not_instrument_shared_semantic_show(
     )
     report.show()
     contract = AnalysisContract(
-        kind="numeric",
-        phase="logical",
-        actions=(
-            AnalysisAction("relation.execute()", "analysis.dsl.LogicalNumericRelation.execute"),
-        ),
+        kind="Query",
+        actions=(AnalysisAction("query.execute()", "analysis.Query.execute"),),
         domain="customers",
         quantity="revenue",
-        required_parts=(),
-        retained_parts=(),
     )
     contract.show()
     capsys.readouterr()

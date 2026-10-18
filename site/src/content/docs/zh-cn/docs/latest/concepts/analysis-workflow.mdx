@@ -26,10 +26,17 @@ query = session.observe(
     by=(region,),
     where=region == "APAC",
 )
-query.contract().show()
+contract = query.contract()
+contract.show()
+contract.actions[0].show()
 result = query.execute()
 result.show(n=20)
 ```
+
+`Query.contract()` 与 `Population.contract()` 返回 `AnalysisContract`，公开字段为
+`kind`、`domain`、`quantity` 和 `actions`。卡片展示已捕获的逻辑事实与有效后续调用，
+不读取 schema 或业务行，也不创建 Run。每个 action 提供 `call` 和 `help_target`，
+`action.show()` 打印这两项信息。终端 Artifact 使用自身的结果卡片，没有 contract。
 
 每个贡献根到普通分组字段都需要合法的标量路径。用
 `field.via((relationship,))` 捕获显式标量角色；版本属性通过
@@ -44,6 +51,7 @@ result.show(n=20)
 
 ```python
 regions = mv.coordinates(by=(region,), keys=(("APAC",), ("EMEA",)))
+regions.contract().show()
 query = session.observe({"revenue": revenue}, during=scope, by=regions)
 keys_only = session.query(regions)
 keys_only.execute().show()

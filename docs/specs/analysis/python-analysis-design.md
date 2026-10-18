@@ -36,6 +36,12 @@ are retired. Current contract cards share only the lightweight `AnalysisAction`
 and `AnalysisContract` values; they do not import the retired DSL or restore
 executable receivers from saved outputs.
 
+`Query.contract()` and `Population.contract()` return a logical `AnalysisContract`
+with public fields `kind`, `domain`, `quantity` and `actions`. Each immutable
+`AnalysisAction` carries a receiver `call` and its canonical `help_target`.
+The bounded card adds captured definition facts without schema or business reads
+or Run admission. `Artifact` remains terminal and has no contract.
+
 ```python
 import marivo
 import marivo.analysis as mv
@@ -46,7 +52,9 @@ revenue = session.catalog.metrics.get("sales.revenue")
 region = session.catalog.fields.get("sales.orders.region")
 period = session.time_scope(start="2026-08-01", end="2026-09-01")
 query = session.observe({"revenue": revenue}, during=period, by=(region,))
-query.contract().show()
+contract = query.contract()
+contract.show()
+contract.actions[0].show()
 artifact = query.execute()
 artifact.show(n=20)
 exported = artifact.to_pandas()

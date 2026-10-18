@@ -17,7 +17,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         value_type(
             "AnalysisContract",
             AnalysisContract,
-            summary="Bounded logical Query or Population facts and valid next calls.",
+            summary="Logical kind, domain, quantity and valid next calls for a Query or Population.",
             acquisition="Call query.contract() or population.contract().",
             producers=("Query.contract", "Population.contract"),
             consumers=("AnalysisContract.show",),
