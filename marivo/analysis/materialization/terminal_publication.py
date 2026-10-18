@@ -479,6 +479,9 @@ def execute(
                 if lowered.plan.checks:
                     raise invalid("Query check route is not implemented; no business row was read")
                 if prepared is not None:
+                    from marivo.analysis.materialization.query_key_fusion import fuse_query_keys
+
+                    lowered = fuse_query_keys(prepared, lowered)
                     qualify_query_sources(prepared, lowered)
                 run_ref = _new_run_ref()
                 terminal_store.admit(store, session, run_ref)

@@ -6,8 +6,11 @@ from collections.abc import Callable
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
+from typing import Literal
 
+import ibis.expr.types as ir
 import pandas as pd
+import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
@@ -367,6 +370,232 @@ def test_native_time_dependencies_and_drill(
         with pytest.raises(AnalysisError, match="denominator"):
             session.observe({"zero": session.catalog.metrics.get("sales.zero_error")}).execute()
         assert publication_counts(session) == before
+
+
+@pytest.mark.parametrize("backend,profile", source_params(CASES))
+@pytest.mark.parametrize("selection", ("string", "null", "nul"))
+def test_same_source_read_filter_population_consumer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    backend: str,
+    profile: str,
+    selection: Literal["string", "null", "nul"],
+) -> None:
+    from marivo.datasource.adapters import CompiledRead, SourceSession
+
+    big = 9007199254740993
+    columns = (
+        DATA.columns.replace(
+            "category VARCHAR(10)",
+            "category VARCHAR(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci",
+        )
+        if backend == "mysql"
+        else DATA.columns
+    )
+    data = SourceData(
+        columns,
+        f"({big},'a','e',1.25,1,1,DATE '2026-07-01'),"
+        f"({big},'b',NULL,2.75,2,3,DATE '2026-07-01'),"
+        f"({big + 1},'a',NULL,NULL,3,100,DATE '2026-07-02'),"
+        f"({big + 1},'b','E',NULL,4,5,DATE '2026-07-02'),"
+        f"({big + 2},'a','e ',NULL,5,7,DATE '2026-07-02'),"
+        f"({big + 2},'b','é',NULL,6,11,DATE '2026-07-02')",
+        DATA.clickhouse_columns,
+        [
+            {
+                "id": identity,
+                "tenant": tenant,
+                "category": category,
+                "amount": amount,
+                "big": value,
+                "weight": weight,
+                "day": date(2026, 7, day),
+            }
+            for identity, tenant, category, amount, value, weight, day in (
+                (big, "a", "e", Decimal("1.25"), 1, 1, 1),
+                (big, "b", None, Decimal("2.75"), 2, 3, 1),
+                (big + 1, "a", None, None, 3, 100, 2),
+                (big + 1, "b", "E", None, 4, 5, 2),
+                (big + 2, "a", "e ", None, 5, 7, 2),
+                (big + 2, "b", "é", None, 6, 11, 2),
+            )
+        ],
+    )
+    monkeypatch.chdir(tmp_path)
+    with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
+        if backend == "duckdb":
+            assert case.environment["read_only"] is True
+        elif backend == "postgres":
+            assert case.environment["read_only_privileges_verified"] is True
+        else:
+            assert len(case.environment["denied"]) >= 2
+        _project(backend, case, monkeypatch, semantic_project_factory)
+        session = mv.session.get_or_create("same_source_population", report_timezone="UTC")
+        category = session.catalog.fields.get("sales.facts.category")
+        weight = session.catalog.fields.get("sales.facts.weight")
+        members = session.members(ms.ref.entity("sales.facts"))
+        attributes = session.read(members, {"category": category})
+        predicate = (
+            attributes["category"].is_null()
+            if selection == "null"
+            else attributes["category"] == (chr(0) if selection == "nul" else "e")
+        )
+        selected = attributes.where(predicate).population()
+        consumer = session.observe(
+            {"weight": weight.sum(empty="zero")},
+            by=() if selection == "nul" else (category,),
+            members=selected,
+        )
+        statements: list[str] = []
+        uploads: list[int] = []
+        execute = SourceSession.execute
+        bind_keys = SourceSession._bind_key_relation
+
+        def record(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
+            statements.append(read.sql)
+            return execute(owner, read)
+
+        def record_upload(owner: SourceSession, table: pa.Table) -> ir.Table:
+            uploads.append(table.num_rows)
+            return bind_keys(owner, table)
+
+        monkeypatch.setattr(SourceSession, "execute", record)
+        monkeypatch.setattr(SourceSession, "_bind_key_relation", record_upload)
+
+        def assert_fused_read() -> None:
+            assert len(statements) == 1
+            assert not uploads
+            assert statements[0].lstrip().startswith(("SELECT", "WITH"))
+            assert "JOIN" in statements[0] and statements[0].count("SELECT") > 1
+            assert all(str(identity) not in statements[0] for identity in (big, big + 1, big + 2))
+
+        result = consumer.execute().to_pandas()
+        expected = {"string": 1, "null": 103, "nul": 0}[selection]
+        assert result[("value", "weight")].tolist() == [expected]
+        if selection != "nul":
+            coordinate = result[("coordinate", "axis.0")]
+            assert coordinate.isna().all() if selection == "null" else coordinate.tolist() == ["e"]
+        else:
+            assert all(chr(0) not in statement for statement in statements)
+        if selection != "nul":
+            assert_fused_read()
+        else:
+            # A NUL literal keeps the original pandas selection semantics.
+            assert len(statements) >= 2
+            assert uploads == ([0] if backend == "duckdb" else [])
+        if selection == "string":
+            empty = attributes.where(attributes["category"] == "absent").population()
+            for condition, expected in (
+                (~mv.in_population(selected), 126),
+                (mv.in_population(empty), 0),
+            ):
+                statements.clear()
+                uploads.clear()
+                result = (
+                    session.observe({"weight": weight.sum(empty="zero")}, where=condition)
+                    .execute()
+                    .to_pandas()
+                )
+                assert result[("value", "weight")].tolist() == [expected]
+                assert_fused_read()
+
+
+@pytest.mark.parametrize("backend,profile", source_params([("mysql", "innodb-table")]))
+def test_mysql_source_selection_preserves_fetched_char_and_charset_values(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    backend: str,
+    profile: str,
+) -> None:
+    from marivo.datasource.adapters import CompiledRead, SourceSession
+
+    data = SourceData(
+        DATA.columns.replace(
+            "category VARCHAR(10)",
+            "category CHAR(10) CHARACTER SET latin1 COLLATE latin1_general_ci",
+        ),
+        "(1,'a','e ',NULL,1,1,DATE '2026-07-01'),"
+        "(2,'b','é',NULL,2,2,DATE '2026-07-01'),"
+        "(3,'a','E',NULL,3,4,DATE '2026-07-01'),"
+        "(4,'b',NULL,NULL,4,8,DATE '2026-07-01')",
+        DATA.clickhouse_columns,
+        [],
+    )
+    monkeypatch.chdir(tmp_path)
+    with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
+        assert len(case.environment["denied"]) >= 2
+        _project(backend, case, monkeypatch, semantic_project_factory)
+        session = mv.session.get_or_create("source_char_selection", report_timezone="UTC")
+        category = session.catalog.fields.get("sales.facts.category")
+        weight = session.catalog.fields.get("sales.facts.weight")
+        members = session.members(ms.ref.entity("sales.facts"))
+        attributes = session.read(members, {"category": category})
+        selected = attributes.where(attributes["category"] == "e").population()
+        statements: list[str] = []
+        execute = SourceSession.execute
+
+        def record(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
+            statements.append(read.sql)
+            return execute(owner, read)
+
+        monkeypatch.setattr(SourceSession, "execute", record)
+        result = session.observe({"weight": weight.sum()}, members=selected).execute().to_pandas()
+        assert result[("value", "weight")].tolist() == [1]
+        assert len(statements) == 1
+        assert statements[0].lstrip().startswith(("SELECT", "WITH"))
+
+
+@pytest.mark.parametrize("backend,profile", source_params(CASES))
+def test_empty_source_selection_retains_original_identity_check(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    backend: str,
+    profile: str,
+) -> None:
+    from marivo.analysis.errors import AnalysisError
+    from marivo.datasource.adapters import CompiledRead, SourceSession
+
+    data = SourceData(
+        DATA.columns,
+        "(1,'a','x',1.25,1,1,DATE '2026-07-01'),(NULL,'b',NULL,2.75,2,3,DATE '2026-07-01')",
+        DATA.clickhouse_columns.replace("id Int64", "id Nullable(Int64)"),
+        [dict(DATA.rows[0]), {**DATA.rows[1], "id": None, "category": None}],
+    )
+    monkeypatch.chdir(tmp_path)
+    with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
+        if backend == "duckdb":
+            assert case.environment["read_only"] is True
+        elif backend == "postgres":
+            assert case.environment["read_only_privileges_verified"] is True
+        else:
+            assert len(case.environment["denied"]) >= 2
+        _project(backend, case, monkeypatch, semantic_project_factory)
+        session = mv.session.get_or_create("source_check_selection", report_timezone="UTC")
+        category = session.catalog.fields.get("sales.facts.category")
+        weight = session.catalog.fields.get("sales.facts.weight")
+        members = session.members(ms.ref.entity("sales.facts"))
+        attributes = session.read(members, {"category": category})
+        selected = attributes.where(attributes["category"] == "absent").population()
+        statements: list[str] = []
+        execute = SourceSession.execute
+
+        def record(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
+            statements.append(read.sql)
+            return execute(owner, read)
+
+        def no_key_upload(*args: object, **kwargs: object) -> None:
+            raise AssertionError("the source must check its original identities before selection")
+
+        monkeypatch.setattr(SourceSession, "execute", record)
+        monkeypatch.setattr(SourceSession, "_bind_key_relation", no_key_upload)
+        with pytest.raises(AnalysisError, match="non-null complete identity keys"):
+            session.observe({"weight": weight.sum()}, members=selected).execute()
+        assert len(statements) == 1
+        assert statements[0].lstrip().startswith(("SELECT", "WITH"))
+        assert "SUM(" in statements[0].upper()
 
 
 @pytest.mark.parametrize("backend,profile", source_params([("postgres", "table")]))

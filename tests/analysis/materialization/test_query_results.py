@@ -452,9 +452,322 @@ def test_query_population_key_relation_keeps_consumer_expression_bounded(
         sql, nodes = statements[-1]
         assert "region_0" not in sql
         assert "UNION" not in sql
+        assert "_marivo_keys_" in sql
         sizes.append((len(sql), nodes))
     assert abs(sizes[1][0] - sizes[0][0]) <= 128
     assert sizes[1][1] == sizes[0][1]
+
+
+def test_source_read_population_fuses_without_materializing_selected_keys(
+    result_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import ibis.expr.operations as ops
+
+    import marivo.semantic as ms
+    from marivo.datasource.adapters import CompiledRead, SourceSession
+
+    session = result_session
+    region = session.catalog.fields.get("sales.orders.region")
+    amount = session.catalog.fields.get("sales.orders.amount")
+    members = session.members(ms.ref.entity("sales.orders"))
+    attributes = session.read(members, {"region": region})
+    selected = attributes.where(attributes["region"] == "selected").population()
+    consumer = session.observe({"total": amount.sum()}, members=selected)
+    statements: list[tuple[str, int]] = []
+    original = SourceSession.execute
+
+    def record(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
+        statements.append((read.sql, len(read.expression.op().find(ops.Node))))
+        return original(owner, read)
+
+    def no_key_upload(*args: object, **kwargs: object) -> None:
+        raise AssertionError("a same-source member selection must stay in the source query")
+
+    monkeypatch.setattr(SourceSession, "execute", record)
+    monkeypatch.setattr(SourceSession, "_bind_key_relation", no_key_upload)
+    sizes = []
+    for count in (1_000, 10_000, 100_000):
+        with duckdb.connect(str(session.project_root / "results.duckdb")) as connection:
+            connection.execute("DELETE FROM orders")
+            connection.execute(
+                "INSERT INTO orders SELECT 9007199254740993 + i, "
+                "CASE WHEN i % 2 = 0 THEN 'selected' ELSE 'other' END, 1, 'Web' "
+                "FROM range(?) AS rows(i)",
+                [count],
+            )
+        statements.clear()
+        result = consumer.execute().to_pandas()
+        assert result[("value", "total")].tolist() == [count // 2]
+        assert len(statements) == 1
+        sql, nodes = statements[0]
+        assert "JOIN" in sql
+        assert "'selected'" in sql
+        assert "_marivo_keys_" not in sql
+        sizes.append((len(sql), nodes))
+    assert max(length for length, _ in sizes) - min(length for length, _ in sizes) <= 128
+    assert len({nodes for _, nodes in sizes}) == 1
+
+
+def test_source_read_population_fusion_preserves_complete_keys_and_complements(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import marivo.semantic as ms
+    from marivo.datasource.adapters import CompiledRead, SourceSession
+
+    large = 2**53 + 1
+    database = tmp_path / "accounts.duckdb"
+    with duckdb.connect(str(database)) as connection:
+        connection.execute(
+            "CREATE TABLE accounts(tenant VARCHAR,id BIGINT,region VARCHAR,amount BIGINT)"
+        )
+        connection.executemany(
+            "INSERT INTO accounts VALUES (?,?,?,?)",
+            [
+                ("t1", large, "east", 10),
+                ("t2", large + 1, "east", 20),
+                ("t1", large + 1, "west", 100),
+                ("t2", large, None, 200),
+            ],
+        )
+    semantic_project_factory(
+        {
+            "datasources/warehouse.py": f"import marivo.datasource as md\nmd.duckdb(name='warehouse',path={str(database)!r})\n",
+            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='Analytics',default=True)\n",
+            "sales/model.py": """import marivo.datasource as md
+import marivo.semantic as ms
+accounts = ms.entity(name='accounts',datasource=ms.ref.datasource('warehouse'),source=md.table('accounts'),primary_key=['tenant','id'])
+region = ms.dimension_column(name='region',entity=accounts,column='region')
+amount = ms.measure_column(name='amount',entity=accounts,column='amount',additivity=ms.additive_all())
+""",
+        },
+        load=False,
+    )
+    monkeypatch.chdir(tmp_path)
+    session = mv.session.get_or_create("source-keys", report_timezone="UTC")
+    members = session.members(ms.ref.entity("sales.accounts"))
+    region = session.catalog.fields.get("sales.accounts.region")
+    amount = session.catalog.fields.get("sales.accounts.amount")
+    attributes = session.read(members, {"region": region})
+    selected = attributes.where(attributes["region"] == "east").population()
+    missing = attributes.where(attributes["region"].is_null()).population()
+    empty = attributes.where(attributes["region"] == "absent").population()
+    statements: list[str] = []
+    original = SourceSession.execute
+
+    def record(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
+        statements.append(read.sql)
+        return original(owner, read)
+
+    def no_key_upload(*args: object, **kwargs: object) -> None:
+        raise AssertionError("a same-source member selection must stay in the source query")
+
+    monkeypatch.setattr(SourceSession, "execute", record)
+    monkeypatch.setattr(SourceSession, "_bind_key_relation", no_key_upload)
+    for condition, expected in (
+        (mv.in_population(selected), 30),
+        (~mv.in_population(selected), 300),
+        (mv.in_population(missing), 200),
+        (mv.in_population(empty), 0),
+    ):
+        statements.clear()
+        result = (
+            session.observe({"total": amount.sum(empty="zero")}, where=condition)
+            .execute()
+            .to_pandas()
+        )
+        assert result[("value", "total")].tolist() == [expected]
+        assert len(statements) == 1
+        assert "IS NOT DISTINCT FROM" in statements[0]
+
+
+@pytest.mark.parametrize(
+    "selected_region,corruption,expected",
+    (
+        ("A", "null", "non-null complete identity keys"),
+        ("absent", "null", "non-null complete identity keys"),
+        ("A", "duplicate", "exactly one attribute row for every requested identity"),
+    ),
+)
+def test_source_read_population_fusion_checks_source_contracts_before_selection(
+    result_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    selected_region: str,
+    corruption: str,
+    expected: str,
+) -> None:
+    import marivo.semantic as ms
+    from marivo.datasource.adapters import CompiledRead, SourceSession
+
+    session = result_session
+    with duckdb.connect(str(session.project_root / "results.duckdb")) as connection:
+        connection.execute(
+            "UPDATE orders SET id=NULL WHERE id=4"
+            if corruption == "null"
+            else "INSERT INTO orders SELECT * FROM orders WHERE id=4"
+        )
+    region = session.catalog.fields.get("sales.orders.region")
+    amount = session.catalog.fields.get("sales.orders.amount")
+    members = session.members(ms.ref.entity("sales.orders"))
+    attributes = session.read(members, {"region": region})
+    selected = attributes.where(attributes["region"] == selected_region).population()
+    statements: list[str] = []
+    original = SourceSession.execute
+
+    def record(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
+        statements.append(read.sql)
+        return original(owner, read)
+
+    def no_key_upload(*args: object, **kwargs: object) -> None:
+        raise AssertionError("a same-source member selection must stay in the source query")
+
+    monkeypatch.setattr(SourceSession, "execute", record)
+    monkeypatch.setattr(SourceSession, "_bind_key_relation", no_key_upload)
+    with pytest.raises(AnalysisError, match=expected):
+        session.observe({"total": amount.sum()}, members=selected).execute()
+    assert len(statements) == 1
+
+
+def test_top_selected_population_keeps_checked_staged_execution(
+    result_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import marivo.semantic as ms
+    from marivo.datasource.adapters import CompiledRead, SourceSession
+
+    session = result_session
+    amount = session.catalog.fields.get("sales.orders.amount")
+    members = session.members(ms.ref.entity("sales.orders"))
+    attributes = session.read(members, {"amount": amount})
+    selected = attributes.top(1, by=attributes["amount"]).population()
+    statements: list[str] = []
+    original = SourceSession.execute
+
+    def record(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
+        statements.append(read.sql)
+        return original(owner, read)
+
+    monkeypatch.setattr(SourceSession, "execute", record)
+    result = session.observe({"total": amount.sum()}, members=selected).execute().to_pandas()
+    assert result[("value", "total")].tolist() == [30]
+    assert len(statements) == 3
+    assert "_marivo_keys_" in statements[-1]
+
+
+def test_float_nan_attribute_selection_keeps_pandas_missing_value_semantics(
+    result_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import marivo.semantic as ms
+    from marivo.datasource.adapters import CompiledRead, SourceSession
+
+    session = result_session
+    with duckdb.connect(str(session.project_root / "results.duckdb")) as connection:
+        connection.execute("ALTER TABLE orders ALTER COLUMN amount TYPE DOUBLE")
+        connection.execute("UPDATE orders SET amount='NaN'::DOUBLE WHERE id=4")
+    entity = session.catalog.entities.get("sales.orders")
+    amount = session.catalog.fields.get("sales.orders.amount")
+    attributes = session.read(session.members(ms.ref.entity("sales.orders")), {"amount": amount})
+    selected = attributes.where(attributes["amount"].is_null()).population()
+    statements: list[str] = []
+    original = SourceSession.execute
+
+    def record(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
+        statements.append(read.sql)
+        return original(owner, read)
+
+    monkeypatch.setattr(SourceSession, "execute", record)
+    result = session.observe({"rows": entity.count()}, members=selected).execute().to_pandas()
+    assert result[("value", "rows")].tolist() == [1]
+    assert len(statements) == 3
+    assert "_marivo_keys_" in statements[-1]
+
+
+def test_submicrosecond_timestamp_selection_keeps_exact_pandas_literal(
+    result_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import marivo.semantic as ms
+    from marivo.datasource.adapters import CompiledRead, SourceSession
+
+    session = result_session
+    with duckdb.connect(str(session.project_root / "results.duckdb")) as connection:
+        connection.execute("ALTER TABLE orders ADD COLUMN happened TIMESTAMPTZ")
+        connection.execute("UPDATE orders SET happened=TIMESTAMPTZ '2026-10-18 01:02:03.123456+00'")
+    model = session.project_root / "models/semantic/sales/model.py"
+    model.write_text(
+        model.read_text()
+        + "\nhappened = ms.time_dimension_column(name='happened', entity=orders, "
+        + "column='happened', granularity='second')\n"
+    )
+    happened = session.catalog.fields.get("sales.orders.happened")
+    amount = session.catalog.fields.get("sales.orders.amount")
+    attributes = session.read(
+        session.members(ms.ref.entity("sales.orders")), {"happened": happened}
+    )
+    selected = attributes.where(
+        attributes["happened"] < pd.Timestamp("2026-10-18T01:02:03.123456999Z")
+    )
+    assert len(selected.execute().to_pandas()) == 4
+    statements: list[str] = []
+    execute = SourceSession.execute
+
+    def record(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
+        statements.append(read.sql)
+        return execute(owner, read)
+
+    monkeypatch.setattr(SourceSession, "execute", record)
+    result = (
+        session.observe({"total": amount.sum(empty="zero")}, members=selected.population())
+        .execute()
+        .to_pandas()
+    )
+    assert result[("value", "total")].tolist() == [60]
+    assert len(statements) == 3
+    assert "_marivo_keys_" in statements[-1]
+
+
+def test_shared_source_selection_keeps_one_checked_key_carrier(
+    result_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import ibis.expr.types as ir
+    import pyarrow as pa
+
+    import marivo.semantic as ms
+    from marivo.datasource.adapters import CompiledRead, SourceSession
+
+    session = result_session
+    region = session.catalog.fields.get("sales.orders.region")
+    amount = session.catalog.fields.get("sales.orders.amount")
+    members = session.members(ms.ref.entity("sales.orders"))
+    attributes = session.read(members, {"region": region})
+    selected = attributes.where(attributes["region"] == "A").population()
+    condition = mv.in_population(selected)
+    consumer = session.observe(
+        {
+            "selected": amount.sum(empty="zero").where(condition),
+            "other": amount.sum(empty="zero").where(~condition),
+        }
+    )
+    statements: list[str] = []
+    uploads: list[int] = []
+    execute = SourceSession.execute
+    bind = SourceSession._bind_key_relation
+
+    def record(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
+        statements.append(read.sql)
+        return execute(owner, read)
+
+    def upload(owner: SourceSession, data: pa.Table) -> ir.Table:
+        uploads.append(data.num_rows)
+        return bind(owner, data)
+
+    monkeypatch.setattr(SourceSession, "execute", record)
+    monkeypatch.setattr(SourceSession, "_bind_key_relation", upload)
+    result = consumer.execute().to_pandas()
+    assert result[("value", "selected")].tolist() == [40]
+    assert result[("value", "other")].tolist() == [20]
+    assert uploads == [2]
+    assert len(statements) == 4
+    assert all("_marivo_keys_" in sql for sql in statements[-2:])
 
 
 def test_session_read_preserves_identity_and_feeds_a_new_source(result_session: Session) -> None:
@@ -559,7 +872,7 @@ def test_two_datasource_composite_parameters_compare_and_terminal_read(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import marivo.semantic as ms
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.adapters import CompiledRead, SourceSession
 
     databases = tuple(tmp_path / (name + ".duckdb") for name in ("crm", "billing"))
     for database, amounts in zip(databases, ((150, 50), (100, 25)), strict=True):
@@ -600,9 +913,20 @@ account_match = ms.relationship(name='account_match',from_entity=crm,to_entity=b
     right_amount = session.catalog.fields.get("sales.billing.amount")
     left = session.observe({"sales": left_amount.sum()}, by=left_members)
     right = session.observe({"sales": right_amount.sum()}, by=right_members)
-    chosen = right.where(right["sales"] > 50).population()
+    profiles = session.read(right_members, {"sales": right_amount})
+    chosen = profiles.where(profiles["sales"] > 50).population()
     filtered = session.observe({"sales": left_amount.sum()}, where=mv.in_population(chosen))
+    statements: list[str] = []
+    original = SourceSession.execute
+
+    def record(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
+        statements.append(read.sql)
+        return original(owner, read)
+
+    monkeypatch.setattr(SourceSession, "execute", record)
     assert filtered.execute().to_pandas()[("value", "sales")].tolist() == [150]
+    assert len(statements) == 3
+    assert "_marivo_keys_" in statements[-1]
     comparison = left.compare(
         right,
         match=mv.corresponding(via=(session.catalog.relationships.get("sales.account_match"),)),

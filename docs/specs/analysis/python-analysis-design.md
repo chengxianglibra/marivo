@@ -146,15 +146,37 @@ dependency. Reusing it does not fix a previous execution's rows. Its period,
 conditions and attribute anchors are not overwritten by the consuming observe.
 Population has no `execute`; publish through `session.query(population)`.
 
-For DuckDB consumers, prepared Query keys cross the source boundary as an
-invocation-local Arrow relation with the planned key types. Consumers reuse that
-relation within its owning source connection, preserving complete-tuple,
-null-safe membership without expanding each key into SQL predicates or literal
-unions. The source owner admits only its own key relations alongside qualified
-business sources and removes them when it closes, including failed invocations.
-The relation is physical execution state; it does not change the captured Query
-dependency or persist a previous execution's population. Other providers retain
-their admitted inline key route.
+For qualified DuckDB, PostgreSQL, MySQL, Trino and ClickHouse consumers, a
+single-consumer Query-key producer made of source field reads, filtering and
+direct projections can become a source-local key subquery. Source ownership comes
+from the prepared connection and its bound
+physical inputs. The consumer retains complete-tuple, null-safe membership;
+producer keys do not cross the host boundary. Source-wide identity and attribute
+cardinality checks retain their original scope before selection, including empty
+selections. Floating-point producer slots retain the host boundary because native
+NaN predicates need not match pandas missing-value semantics. Other pending
+checks, shared producers, unsupported local operations and cross-source
+dependencies retain their materialization boundary.
+
+Source-local filters preserve the local nullable True-only predicate contract.
+PostgreSQL string comparisons use UTF-8 bytes after a JSON string round-trip that
+preserves fixed-width character padding. MySQL comparisons use a JSON string
+round-trip and binary bytes, preserving decoded characters across source character
+sets independently of collation and trailing-space comparison rules. These
+conversions affect comparison operands only; published values and complete
+membership keys retain their existing contracts. String literals containing
+U+0000, timestamp literals with submicrosecond pandas precision, and Duration
+literals retain the host boundary. Native compilation and the selected source's
+existing physical qualification still apply, including ClickHouse join topology.
+
+When Query keys must cross the DuckDB source boundary, they use an invocation-local
+Arrow relation with the planned key types. Consumers reuse that relation within
+its owning source connection without expanding each key into SQL predicates or
+literal unions. The source owner admits only its own key relations alongside
+qualified business sources and removes them when it closes, including failed
+invocations. These are physical arrangements; neither changes the captured Query
+dependency nor persists a previous execution's population. Remote providers retain
+their admitted inline key route for producers outside the qualified fusion subset.
 
 `session.observe(metrics, during=..., by=..., where=..., members=...)` binds the
 observation once. A tuple `by` classifies observed coordinates; a Population
@@ -246,7 +268,8 @@ and [remote implementation sequence](../../superpowers/plans/2026-10-13-lazy-ana
 The compiler fixes source IDs, demand slots, complete keys, stage dependencies,
 method routes and consume/publish checks. Source Ibis executes through the selected
 datasource and returns pandas. Local stages use pandas and the existing numerical
-kernels. PyArrow belongs to terminal encoding and reading. No hidden local SQL
+kernels. PyArrow encodes terminal data and invocation-local transferred key
+relations. No hidden local SQL
 engine, Artifact scan, alternate executor or runtime route retry is introduced.
 Current optimization qualification includes finite filter fusion, RequiredSlots,
 invocation-scoped reuse, same-input exact direct-source sum/count blocks and L8
