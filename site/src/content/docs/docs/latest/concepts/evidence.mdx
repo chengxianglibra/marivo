@@ -3,7 +3,7 @@ title: Evidence and recovery
 description: Read committed output and saved Evidence without current sources.
 ---
 
-Store 10 saves final output under `.marivo/analysis/generations/v10/`.
+Store 11 saves final output under `.marivo/analysis/generations/v11/`.
 A single SQLite transaction publishes the output manifest, receipts, Findings,
 Evidence and Run success after the Parquet files are durable. Failed invocations
 publish no partial Artifact. Recovery reconciles the original Run and its exact
@@ -64,9 +64,26 @@ Finding pages and the complete Evidence digest need no Parquet or current model.
 changing current models does not change historical values. Session graphs show
 Run/output topology and saved summaries without definition fingerprints.
 
-Earlier Stores and graph/continuation formats are rejected without rewriting or
+`session.graph()` contains only same-Session Run-to-Artifact `produces` edges;
+failed and incomplete Runs are isolated nodes. Run records retain `dataset_input`
+as an invocation marker and have no consumed Artifact references. Every selected
+Run is a root and every selected Artifact a head; heads do not select a latest
+answer. The Session recap counts all Artifacts as heads and shows at most three refs.
+
+```python
+graph = session.graph(artifact_ref=artifact.id, direction="ancestors", max_nodes=100)
+graph.show()  # Artifact and its producer
+session.graph(artifact_ref=artifact.id, direction="descendants").show()  # Artifact alone
+```
+
+`max_nodes` stays within 1–500. Boundary fields identify selected nodes with
+omitted requested neighbors; `truncated` reports an incomplete selection.
+Without an Artifact focus, use `direction="ancestors"`.
+
+Store 10 and earlier Stores and graph/continuation formats are rejected without rewriting or
 migration. Changing a Session name cannot bypass the generation restriction;
 create a new-format Store in a fresh project and rerun the analysis script.
 Same-generation Session resume preserves identity and Run history.
+The terminal output v1 codec and Parquet profiles are unchanged in Store 11.
 
 Start discovery with `marivo.help("analysis")`.

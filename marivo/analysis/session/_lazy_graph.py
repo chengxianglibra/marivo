@@ -1,16 +1,14 @@
-"""Indexed, bounded Session-scoped topology from one v3 Store snapshot."""
+"""Bounded Session-scoped production topology from one Store snapshot."""
 
 from __future__ import annotations
 
 import heapq
 import sqlite3
-from collections import deque
 from typing import Literal, TypeAlias
 
 from marivo.analysis.errors import (
     ArtifactNotFoundError,
     SessionGraphArgumentError,
-    SessionGraphIntegrityError,
     SessionGraphLimitError,
     SessionGraphTooLargeError,
 )
@@ -29,7 +27,6 @@ from marivo.analysis.session._lazy_read_model import (
     SucceededRun,
 )
 from marivo.analysis.session._lazy_runtime_reads import (
-    _HEAD_SQL,
     OVERALL_GRAPH_SCAN_LIMIT,
     count,
     require_session,
@@ -57,27 +54,10 @@ class _Topology:
             values.append(node)
         return tuple(values)
 
-    def foreign(self, node: _Node) -> bool:
-        if node[0] != "artifact":
-            return False
-        row = _one(
-            self.conn, "SELECT session_ref FROM dataset_artifacts WHERE artifact_ref=?", (node[1],)
-        )
-        if row is None:
-            raise invalid("selected graph Artifact is missing")
-        return _text(row, "session_ref") != self.session_ref
-
     def adjacent(self, node: _Node, direction: GraphDirection) -> tuple[_Node, ...]:
-        limit = self.max_nodes + 1
         if node[0] == "run":
             if direction == "ancestors":
-                return self._nodes(
-                    "SELECT d.artifact_ref id,d.committed_at at FROM analysis_action_run_inputs i "
-                    "JOIN dataset_artifacts d USING(artifact_ref) WHERE i.session_ref=? AND i.run_ref=? "
-                    "GROUP BY d.artifact_ref ORDER BY d.committed_at DESC,d.artifact_ref DESC LIMIT ?",
-                    (self.session_ref, node[1], limit),
-                    "artifact",
-                )
+                return ()
             return self._nodes(
                 "SELECT d.artifact_ref id,d.committed_at at FROM analysis_action_run_terminals t "
                 "JOIN dataset_artifacts d ON d.artifact_ref=t.output_artifact_ref "
@@ -86,8 +66,6 @@ class _Topology:
                 "artifact",
             )
         if direction == "ancestors":
-            if self.foreign(node):
-                return ()
             return self._nodes(
                 "SELECT a.run_ref id,a.admitted_at at FROM analysis_action_run_terminals t "
                 "JOIN analysis_action_runs a USING(run_ref) WHERE t.session_ref=? "
@@ -95,19 +73,7 @@ class _Topology:
                 (self.session_ref, node[1]),
                 "run",
             )
-        return self._nodes(
-            "SELECT a.run_ref id,a.admitted_at at FROM analysis_action_run_inputs i "
-            "JOIN analysis_action_runs a USING(run_ref) WHERE i.artifact_ref=? AND i.session_ref=? "
-            "GROUP BY a.run_ref ORDER BY a.admitted_at DESC,a.run_ref DESC LIMIT ?",
-            (node[1], self.session_ref, limit),
-            "run",
-        )
-
-    def is_head(self, ref: str) -> bool:
-        return (
-            _one(self.conn, _HEAD_SQL + " AND d.artifact_ref=?", (self.session_ref, ref))
-            is not None
-        )
+        return ()
 
 
 def _overall(topology: _Topology) -> tuple[set[_Node], bool]:
@@ -116,10 +82,8 @@ def _overall(topology: _Topology) -> tuple[set[_Node], bool]:
     total = count(
         conn,
         "SELECT (SELECT count(*) FROM analysis_action_runs WHERE session_ref=?) + "
-        "(SELECT count(*) FROM dataset_artifacts WHERE session_ref=?) + "
-        "(SELECT count(DISTINCT i.artifact_ref) FROM analysis_action_run_inputs i "
-        "JOIN dataset_artifacts d USING(artifact_ref) WHERE i.session_ref=? AND d.session_ref<>?)",
-        (owner, owner, owner, owner),
+        "(SELECT count(*) FROM dataset_artifacts WHERE session_ref=?)",
+        (owner, owner),
     )
     if total > OVERALL_GRAPH_SCAN_LIMIT:
         raise SessionGraphTooLargeError.for_count(count=total, limit=OVERALL_GRAPH_SCAN_LIMIT)
@@ -143,23 +107,17 @@ def _overall(topology: _Topology) -> tuple[set[_Node], bool]:
     for node in attention:
         retain(node)
     heads = topology._nodes(
-        "SELECT artifact_ref id,committed_at at FROM (" + _HEAD_SQL + ") "
+        "SELECT artifact_ref id,committed_at at FROM dataset_artifacts WHERE session_ref=? "
         "ORDER BY committed_at DESC,artifact_ref DESC",
         (owner,),
         "artifact",
     )
     for node in heads:
         retain(node)
-    queue = deque(node for node in (*attention, *heads) if node in selected)
-    visited: set[_Node] = set()
-    while queue:
-        node = queue.popleft()
-        if node in visited:
-            continue
-        visited.add(node)
-        for parent in topology.adjacent(node, "ancestors"):
-            if retain(parent):
-                queue.append(parent)
+    for node in heads:
+        if node in selected:
+            for parent in topology.adjacent(node, "ancestors"):
+                retain(parent)
     remaining = topology._nodes(
         "SELECT a.run_ref id,a.admitted_at at FROM analysis_action_runs a "
         "JOIN analysis_action_run_terminals t USING(run_ref) WHERE a.session_ref=? AND t.outcome='succeeded' "
@@ -178,60 +136,35 @@ def _focused(topology: _Topology, ref: str, direction: GraphDirection) -> tuple[
     row = _one(
         topology.conn,
         "SELECT d.artifact_ref id,d.committed_at at FROM dataset_artifacts d WHERE d.artifact_ref=? "
-        "AND (d.session_ref=? OR EXISTS (SELECT 1 FROM analysis_action_run_inputs i "
-        "WHERE i.artifact_ref=d.artifact_ref AND i.session_ref=?))",
-        (ref, topology.session_ref, topology.session_ref),
+        "AND d.session_ref=?",
+        (ref, topology.session_ref),
     )
     if row is None:
         raise ArtifactNotFoundError.for_ref(ref)
     focus: _Node = ("artifact", ref)
     topology.times[focus] = _text(row, "at")
     selected = {focus}
-    frontier: tuple[_Node, ...] = (focus,)
-    truncated = False
-    while frontier:
-        candidates = {
-            neighbor for node in frontier for neighbor in topology.adjacent(node, direction)
-        } - selected
-        ordered = sorted(
-            candidates, key=lambda node: (topology.times[node], node[1], node[0]), reverse=True
-        )
-        admitted = ordered[: topology.max_nodes - len(selected)]
-        selected.update(admitted)
-        truncated |= len(admitted) < len(ordered)
-        frontier = tuple(admitted)
-    return selected, truncated
+    neighbors = topology.adjacent(focus, direction)
+    selected.update(neighbors[: topology.max_nodes - 1])
+    return selected, len(selected) < 1 + len(neighbors)
 
 
 def _ordered(
     topology: _Topology, selected: set[_Node], edges: tuple[SessionGraphEdge, ...]
 ) -> tuple[_Node, ...]:
-    successors: dict[_Node, set[_Node]] = {node: set() for node in selected}
-    incoming = dict.fromkeys(selected, 0)
-    for edge in edges:
-        run: _Node = ("run", edge.run_id)
-        artifact: _Node = ("artifact", edge.artifact_ref.ref)
-        source, target = (artifact, run) if edge.kind == "consumes" else (run, artifact)
-        if target not in successors[source]:
-            successors[source].add(target)
-            incoming[target] += 1
-    ready = [(topology.times[node], node) for node, degree in incoming.items() if degree == 0]
+    outputs: dict[_Node, _Node] = {
+        ("run", edge.run_id): ("artifact", edge.artifact_ref.ref) for edge in edges
+    }
+    produced = set(outputs.values())
+    ready = [(topology.times[node], node) for node in selected if node not in produced]
     heapq.heapify(ready)
     result = []
     while ready:
         _, node = heapq.heappop(ready)
         result.append(node)
-        for successor in successors[node]:
-            incoming[successor] -= 1
-            if incoming[successor] == 0:
-                heapq.heappush(ready, (topology.times[successor], successor))
-    if len(result) != len(selected):
-        raise SessionGraphIntegrityError.mismatch(
-            message="The selected Session graph contains a cycle.",
-            expected="acyclic Run-to-Artifact production and consumption",
-            received=", ".join(node[1] for node in sorted(selected - set(result)))[:1024],
-            location="session.graph",
-        )
+        if node in outputs:
+            output = outputs[node]
+            heapq.heappush(ready, (topology.times[output], output))
     return tuple(result)
 
 
@@ -271,11 +204,6 @@ def graph(
                 artifacts[identity] = summary_in_snapshot(store, conn, record)
         edge_values: list[SessionGraphEdge] = []
         for run in runs.values():
-            edge_values.extend(
-                SessionGraphEdge(kind="consumes", run_id=run.run_id, artifact_ref=ref)
-                for ref in run.input_artifact_refs
-                if ref.ref in artifacts
-            )
             if isinstance(run, SucceededRun) and run.output_artifact_ref.ref in artifacts:
                 edge_values.append(
                     SessionGraphEdge(
@@ -300,7 +228,7 @@ def graph(
                 for way in directions
                 for neighbor in topology.adjacent(node, way)
             )
-            if node[0] == "artifact" and (omitted or topology.foreign(node)):
+            if node[0] == "artifact" and omitted:
                 boundary_artifacts.add(node[1])
             elif node[0] == "run" and omitted:
                 boundary_runs.add(node[1])
@@ -312,22 +240,13 @@ def graph(
                 sorted(
                     edges,
                     key=lambda edge: (
-                        positions[("artifact", edge.artifact_ref.ref)]
-                        if edge.kind == "consumes"
-                        else positions[("run", edge.run_id)],
-                        positions[("run", edge.run_id)]
-                        if edge.kind == "consumes"
-                        else positions[("artifact", edge.artifact_ref.ref)],
-                        edge.kind,
+                        positions[("run", edge.run_id)],
+                        positions[("artifact", edge.artifact_ref.ref)],
                     ),
                 )
             ),
-            root_run_ids=tuple(run.run_id for run in ordered_runs if not run.input_artifact_refs),
-            head_artifact_refs=tuple(
-                item.artifact_ref
-                for item in ordered_artifacts
-                if topology.is_head(item.artifact_ref.ref)
-            ),
+            root_run_ids=tuple(run.run_id for run in ordered_runs),
+            head_artifact_refs=tuple(item.artifact_ref for item in ordered_artifacts),
             failed_run_ids=tuple(run.run_id for run in ordered_runs if isinstance(run, FailedRun)),
             incomplete_run_ids=tuple(
                 run.run_id for run in ordered_runs if isinstance(run, IncompleteRun)

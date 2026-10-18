@@ -67,7 +67,7 @@ _HUBS = (
         (),
         "decision_hub",
         guidance=(
-            "Metric-first Query: session.observe(named_metrics).execute() atomically publishes Store 10 output; Artifact opens metadata, previews bounded rows, exports complete pandas output and reads saved facts.",
+            "Metric-first Query: session.observe(named_metrics).execute() atomically publishes Store 11 output; Artifact opens metadata, previews bounded rows, exports complete pandas output and reads saved facts.",
             "Finite domains: session.members(Entity Ref), coordinates or identities; session.query(population).execute() publishes complete keys.",
             "Known inputs: reuse exact refs and scope. Existing object: contract().show() -> its exact Help target.",
             "Existing work: resume the Session; recovery does not replay sources.",

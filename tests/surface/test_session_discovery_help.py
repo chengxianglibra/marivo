@@ -33,7 +33,7 @@ def test_session_discovery_help_describes_absence_without_creating_store(
     assert absence in text
     assert "No creation" in text
     assert old.read_bytes() == b"preserve-old-store"
-    assert not (old.parent.parent / "v10").exists()
+    assert not (old.parent.parent / "v11").exists()
 
 
 def test_observe_help_distinguishes_field_axes_from_session_identity(

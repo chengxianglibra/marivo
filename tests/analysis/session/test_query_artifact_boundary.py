@@ -279,7 +279,7 @@ def test_session_reopen_remains_same_generation(
     resumed = mv.session.resume(first.id, by="id")
     named = mv.session.get_or_create("same-generation")
     assert resumed.id == named.id == first.id
-    assert MaterializationLayout(tmp_path).generation == 10
+    assert MaterializationLayout(tmp_path).generation == 11
     assert resumed.runs().items == ()
 
 
@@ -326,7 +326,7 @@ def test_old_store_is_rejected_without_rewriting_files(
         mv.session.resume("old-session")
     assert caught.value.stage == "store_generation"
     assert path.read_bytes() == before and tuple(path.parent.iterdir()) == files
-    assert not (path.parent.parent / "v10").exists()
+    assert not (path.parent.parent / "v11").exists()
 
 
 def test_new_help_targets_resolve_and_disclose_phase_boundary(capsys) -> None:
@@ -355,7 +355,7 @@ def test_execute_help_discloses_actual_effects_for_string_and_callable(capsys) -
         marivo.help(target)
         text = capsys.readouterr().out
         assert "new Run" in text and "reads sources" in text
-        assert "atomically publishes" in text and "Store 10" in text
+        assert "atomically publishes" in text and "Store 11" in text
         assert "committed" in text or "output" in text
         assert "fails before data reads" not in text
 

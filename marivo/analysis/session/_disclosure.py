@@ -129,6 +129,14 @@ def provider() -> DisclosureProvider:
                 consumers=acquisitions[value.__name__][2],
                 constraints=(
                     "Retained metadata is not current source truth or a freshness verdict.",
+                )
+                + (
+                    (
+                        "Edges are Run-to-Artifact production only; root_run_ids contains every selected Run and head_artifact_refs every selected Artifact, not a latest-answer selection.",
+                        "boundary_artifact_refs and boundary_run_ids identify selected nodes with omitted requested neighbors; truncated reports an incomplete selection.",
+                    )
+                    if value is r.SessionGraph
+                    else ()
                 ),
             )
         )
@@ -215,7 +223,7 @@ def provider() -> DisclosureProvider:
             "observe",
             "Query",
             "result = session.observe(metrics)",
-            "Bind named Metrics, fields, conditions and a frozen period without schema reads or a Run; execute evaluates ordinary numeric routes and atomically publishes terminal output in Store 10; committed output reading requires no current source or Catalog.",
+            "Bind named Metrics, fields, conditions and a frozen period without schema reads or a Run; execute evaluates ordinary numeric routes and atomically publishes terminal output in Store 11; committed output reading requires no current source or Catalog.",
         ),
         (
             Session,
@@ -257,7 +265,7 @@ def provider() -> DisclosureProvider:
             "graph",
             "SessionGraph",
             "result = session.graph(artifact_ref=artifact_ref)",
-            "Read bounded Run-to-output topology and committed terminal Artifact summaries without reading Parquet or semantic graphs.",
+            "Read bounded same-Session Run-to-Artifact production topology without reading Parquet or semantic graphs; omitted requested neighbors remain explicit boundaries.",
         ),
         (
             Session,
@@ -320,9 +328,9 @@ def provider() -> DisclosureProvider:
         "artifact_id": "Use an exact committed Artifact ID string from this Session; objects and Refs are not IDs.",
         "metrics": "Pass a nonempty ordered mapping from output names to resolved Metric expressions; Artifact objects and IDs are rejected.",
         "entity": "Governed Entity Ref from catalog.",
-        "artifact_ref": "Choose a committed Artifact ref to scope the graph, or None for the bounded Session graph.",
+        "artifact_ref": "Choose a committed Artifact ref from this Session, or None for the bounded Session graph.",
         "status": "Choose incomplete, failed, succeeded or None.",
-        "direction": "Choose ancestors or descendants.",
+        "direction": "With an Artifact focus, ancestors includes its producer and descendants returns only the terminal Artifact. Without a focus, use ancestors.",
         "max_nodes": "Choose a positive graph node bound within the Runtime limit.",
     }
     for receiver, name, output, code, effect in operations:

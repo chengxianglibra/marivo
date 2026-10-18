@@ -95,7 +95,7 @@ def test_session_creation_and_history_preserve_foreign_entries(
     assert mv.session.resume("second", by="name").id == second.id
     with pytest.raises(SessionNotFoundError):
         mv.session.resume("legacy-session", by="id")
-    assert first._runtime.store.layout.generation == 10
+    assert first._runtime.store.layout.generation == 11
     assert all(
         path is not None and path.read_bytes() == b"preserve-unreadable-legacy-bytes"
         for path in foreign
@@ -179,7 +179,7 @@ def test_session_discovery_rejects_invalid_current_store_without_mutation(
         path.write_bytes(b"invalid-sqlite")
     elif state == "incomplete_schema":
         with sqlite3.connect(path) as connection:
-            connection.execute("PRAGMA user_version=10")
+            connection.execute("PRAGMA user_version=11")
     else:
         from marivo.analysis.materialization.store import SessionStore
 
@@ -211,7 +211,7 @@ def test_session_discovery_reports_store_access_failure(
         for read in (mv.session.current, mv.session.recent):
             with pytest.raises(IntegrityError) as caught:
                 read()
-            assert caught.value.received == "selected Store 10 is unavailable"
+            assert caught.value.received == "selected Store 11 is unavailable"
     assert _project_state(tmp_path) == before
 
 

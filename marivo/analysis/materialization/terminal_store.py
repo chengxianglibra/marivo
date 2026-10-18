@@ -37,7 +37,6 @@ class TerminalRun:
     terminal_at: str | None
     output_artifact_ref: str | None
     failure: RunFailure | None
-    input_artifact_refs: tuple[str, ...] = ()
 
 
 def run(store: SessionStore, conn: sqlite3.Connection, ref: str) -> TerminalRun | None:

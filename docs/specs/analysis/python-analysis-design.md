@@ -1,6 +1,6 @@
 # Python Analysis Design
 
-Status: current expression and terminal execution architecture, 2026-10-17.
+Status: current expression and terminal execution architecture, 2026-10-18.
 Native Deferred expressions and the S0–S6 source, sampling, membership and window
 routes and the R3–R8 Population/Query operations are implemented. Focused local
 checks cover the principal routes; full independent acceptance and any remote
@@ -18,7 +18,7 @@ this document owns the current objects, boundaries and implementation path.
 | Analysis binding | This Session's contribution occurrences, complete coordinates, periods, paths and versions |
 | Compiler and physical kernels | Schema-qualified routes, demanded slots, dependencies and check deadlines |
 | Runtime | Execute the fixed stage schedule, release resources and publish atomically |
-| Store 10 and reader | Committed output data and self-contained records; metadata opening and requested reads |
+| Store 11 and reader | Committed output data and self-contained records; metadata opening and requested reads |
 
 Semantic and datasource authoring begin at [the semantic overview](../semantic/overview.md).
 The [implementation architecture](analysis-implementation-architecture.md) describes
@@ -237,9 +237,10 @@ Artifact exposes `id`, `session_id`, `show(n=20)`, `to_pandas()`, `findings()` a
 method. `session.artifact(id)` opens exact committed metadata without current
 Catalog/source access or Parquet scans. New and reopened handles share the same
 reader; preview is bounded, complete export is isolated, and consumed receipt
-verification can still read a whole part. Store 10 rejects older graph formats
-without rewriting them. Detailed transaction, concurrency and resource contracts
-belong to [Runtime](session-state-and-runtime.md).
+verification can still read a whole part. Store 11 retains only same-Session
+Run-to-Artifact production topology, with no consumed Artifact references. Store 10
+and earlier formats reject without rewriting or migration. Detailed transaction,
+concurrency and resource contracts belong to [Runtime](session-state-and-runtime.md).
 
 Static/type checks, local DuckDB tests, remote Runtime tests and release acceptance
 are different evidence. Source capability follows the exact backend, dtype and

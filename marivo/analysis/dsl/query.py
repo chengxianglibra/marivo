@@ -75,7 +75,7 @@ class Query:
     """A lazy named Metric definition owned by one Session.
 
     Acquire through session.observe(metrics). This surface captures definitions and ordinary observation bindings;
-    execute() evaluates ordinary numeric stages and atomically publishes terminal output in Store 10; committed output reads require no current source or Catalog.
+    execute() evaluates ordinary numeric stages and atomically publishes terminal output in Store 11; committed output reads require no current source or Catalog.
     """
 
     _graph: BoundGraph

@@ -76,7 +76,7 @@ def test_new_generation_preserves_old_store_bytes(
     monkeypatch.chdir(tmp_path)
     with pytest.raises(IntegrityError):
         mv.session.get_or_create("new")
-    assert not (old.parent.parent / "v10").exists()
+    assert not (old.parent.parent / "v11").exists()
     assert old.read_bytes() == b"existing-generation-bytes"
 
 

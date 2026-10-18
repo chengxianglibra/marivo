@@ -352,23 +352,3 @@ class SessionGraphTooLargeError(AnalysisError):
                 ),
             ),
         )
-
-
-class SessionGraphIntegrityError(AnalysisError):
-    @classmethod
-    def mismatch(
-        cls, *, message: str, expected: str, received: str, location: str
-    ) -> SessionGraphIntegrityError:
-        return cls(
-            message=message,
-            expected=expected,
-            received=received,
-            location=location,
-            repair=_runtime_read_repair(
-                action=(
-                    "Inspect the named Run and Artifact records, then regenerate the computation "
-                    "in a fresh Session when canonical storage is corrupt."
-                ),
-                target="session.graph",
-            ),
-        )

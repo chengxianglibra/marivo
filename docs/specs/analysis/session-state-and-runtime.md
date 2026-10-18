@@ -1,7 +1,7 @@
 # Session State and Runtime
 
-Status: current Store 10 terminal execution, publication and reading contract,
-2026-10-17. [Analysis Design](python-analysis-design.md) owns construction and
+Status: current Store 11 terminal execution, publication and reading contract,
+2026-10-18. [Analysis Design](python-analysis-design.md) owns construction and
 compilation; [Operators and Frames](operators-and-frames.md) owns computation.
 This document does not qualify every target DSL route or remote backend.
 
@@ -75,7 +75,7 @@ must retain it in their selected route.
 
 ## Store generation and data layout
 
-The current Store is generation 10 under `.marivo/analysis/generations/v10/`.
+The current Store is generation 11 under `.marivo/analysis/generations/v11/`.
 Its SQLite database owns Sessions, Runs, Artifact manifests, resources and output
 records. Final values live in committed project-local Parquet. There is no
 configurable result database, saved execution graph or historical input mode.
@@ -94,7 +94,11 @@ group. The shared reader batch profile is at most 64 Ki rows. These file profile
 do not bound upstream eager pandas memory or claim streaming execution.
 Each output part has an explicit schema and committed local receipt.
 
-Store 10 is an incompatible format switch. Earlier Stores and graph/continuation
+Store 11 removes the obsolete Artifact-input relation and index. Run records expose
+no consumed Artifact references; `dataset_input` remains the invocation marker.
+The terminal output v1 codec and Parquet profiles are unchanged.
+
+Store 11 is an incompatible format switch. Store 10 and earlier Stores and graph/continuation
 formats reject without mutation, migration, dual reads or rebuilding. Changing
 a Session name inside an incompatible project does not grant a new format.
 Preserve the old project state, use a fresh current-format project and rerun the
@@ -169,8 +173,17 @@ Runs under the writer guard, preserves history and cannot abandon committed
 success. Retrying a corrected Query is a new invocation rather than resume of
 failed computation.
 
-Session graph reads show Run/output topology and saved output summaries. They do
-not reconstruct computation lineage, select a latest answer or replay an origin.
+Session graph reads show same-Session Run-to-Artifact production edges and saved
+output summaries. Failed and incomplete Runs remain isolated nodes. Every selected
+Run is a root and every selected Artifact a head; heads do not select a latest
+answer. The recap counts all Artifacts as heads and displays at most three refs.
+An Artifact-focused `ancestors` read includes its unique producer; `descendants`
+returns only the terminal Artifact. Without a focus, only `ancestors` is admitted.
+Selection preserves attention priority, deterministic producer-before-output order
+and the existing node/scan bounds. Boundary fields identify selected nodes with
+omitted requested neighbors; `truncated` reports an incomplete selection. Reads use
+one SQLite snapshot without Parquet, current models or source access. They do not
+reconstruct computation lineage or replay an origin.
 Invalid Session/cursor ownership, missing records, incomplete publication and
 unreadable/incompatible current Store state remain structured errors.
 

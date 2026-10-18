@@ -314,7 +314,7 @@ class Session:
             where: Field condition appended separately to each contribution occurrence.
         Returns: An immutable Query owned by this Session.
         Example: ``query = session.observe({'revenue': revenue, 'aov': aov})``.
-        Constraints: Binds ordinary fields, conditions and time without schema/business reads or a Run. execute() prepares, evaluates and atomically publishes ordinary numeric output to Store 10. Artifact reads committed output without current-source or Catalog access. Artifact objects and IDs are not Metric inputs.
+        Constraints: Binds ordinary fields, conditions and time without schema/business reads or a Run. execute() prepares, evaluates and atomically publishes ordinary numeric output to Store 11. Artifact reads committed output without current-source or Catalog access. Artifact objects and IDs are not Metric inputs.
         """
         from ibis.common.deferred import Deferred
 
@@ -480,12 +480,12 @@ class Session:
         direction: GraphDirection = "ancestors",
         max_nodes: int = 100,
     ) -> SessionGraph:
-        """Read bounded committed Run and Artifact topology.
+        """Read bounded same-Session Run-to-Artifact production topology.
 
         Args:
-            artifact_ref: Optional exact graph root.
-            direction: Ancestors or descendants of the root.
-            max_nodes: Positive bounded graph size.
+            artifact_ref: Optional exact committed Artifact from this Session.
+            direction: Ancestors includes the producer; descendants returns only the terminal Artifact. Without a focus, use ancestors.
+            max_nodes: Node bound within [1, 500]; omitted neighbors become boundaries.
         Returns: The typed committed SessionGraph.
         Example: ``session.graph(artifact_ref=ref).show()``.
         Constraints: Graph reads never execute or infer origin lineage. Terminal Artifact summaries use committed metadata without reading Parquet or semantic graphs.

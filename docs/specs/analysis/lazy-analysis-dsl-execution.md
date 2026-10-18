@@ -23,6 +23,7 @@ v0.34 明确来源类型准入、多 datasource 路线、普通观察 Evidence �
 R2.5 已接通公开 Query.execute、Store 10 原子终端发布与无图输出记录；返回已提交身份。
 R2.6 接通公开元数据打开、有界预览、完整 pandas 导出和无图记录阅读。Finding 保留分页；
 evidence_digest() 不接受参数，直接返回全部 Evidence（.items）及集合摘要，.show() 保持有界。
+2026-10-18 格式切换至 Store 11，删除旧 Artifact 消费关系；终端输出 v1 编码保持不变。
 S0–S6 已实现原生 Deferred 摄入、自动类型准备、有序/近似规约、nullable sum、membership 与基础窗口。
 Population、Session.read、Query 值操作、对应/广播及原指标组合已完成 R3–R8 约定的本地验收。
 这不授予未准入的方法或 preview 扩展资格，也不构成全部远端 Runtime 或 release 验收声明。

@@ -116,7 +116,7 @@ def provider() -> DisclosureProvider:
             "execute",
             (),
             "Artifact",
-            "After preparation, each execute admits a new Run, reads sources when needed, evaluates numeric stages and atomically publishes Store 10 output. Read the committed Artifact without current-source or Catalog access.",
+            "After preparation, each execute admits a new Run, reads sources when needed, evaluates numeric stages and atomically publishes Store 11 output. Read the committed Artifact without current-source or Catalog access.",
             "result = query.execute()",
             ("query",),
             "entry",

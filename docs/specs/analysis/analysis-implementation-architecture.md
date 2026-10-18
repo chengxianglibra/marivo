@@ -25,6 +25,7 @@ Artifact 保存输出数据、必要描述与实际 Finding/Evidence；不携带
 普通原生字段 semantic Metric preview 复用数值内核；路径/锚点和 Population preview 在连接前拒绝。
 R2.5 已接通公开 Query.execute、Store 10 原子终端发布与无图输出记录；返回已提交身份。
 R2.6 已接通元数据打开、预览、完整导出和自包含 Finding/Evidence 阅读。
+2026-10-18 格式切换至 Store 11，删除旧 Artifact 消费关系；终端输出 v1 编码保持不变。
 本轮已接通 Population、Session.read(population, fields)、Query 值变换/比较/广播、原量组合与期间对应。
 新数值 source 路线仅准入 DuckDB；这不限制 datasource 层其它后端的访问能力。远端数值支持需要补齐
 并准入实际后端/类型/方法路线，再做 Runtime 验证；不能将当前代码拒绝解释为仅缺测试记录。
@@ -90,7 +91,7 @@ Population 表示分析总体，覆盖身份名单、分析坐标和内部样本
 | [SourceSession.execute](../../../marivo/datasource/adapters.py) 已通过 Ibis 返回 pandas；固定执行和 Cell/Parquet 编码已有独立边界 | 保留 pandas 来源交接；统一执行内 pandas 数据合同，PyArrow 只承担产物编解码与读取；不重新引入 cursor、batch 协议或来源临时表体系 |
 
 起草基线的历史闭合格式为 Store 9、graph DAG v10、descriptor v6、continuation v5。
-这些是起草时的源码核对结果，当前终端输出使用 Store 10；旧模块中的历史注释不能替代实际 schema。格式切换见 §12。
+这些是起草时的源码核对结果，当前终端输出使用 Store 11；旧模块中的历史注释不能替代实际 schema。格式切换见 §12。
 
 forecasting、association 等专用 DSL 接收器随旧图执行链退役。
 当前 Query 路线仍消费的数值内核、资源与存储检查按实际依赖保留；

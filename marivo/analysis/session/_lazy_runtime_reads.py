@@ -192,22 +192,12 @@ def run_in_snapshot(
     if value is None or value.session_ref != session_ref:
         raise invalid("selected Run identity mismatch")
     admitted_at = aware_datetime(value.admitted_at)
-    inputs = tuple(ArtifactRef(ref=ref) for ref in value.input_artifact_refs)
-    for ref in inputs:
-        if (
-            _one(
-                conn, "SELECT artifact_ref FROM dataset_artifacts WHERE artifact_ref=?", (ref.ref,)
-            )
-            is None
-        ):
-            raise invalid("selected Run input Artifact is missing")
     if value.lifecycle == "incomplete":
         return IncompleteRun(
             run_id=run_id,
             session_id=session_ref,
             admitted_at=admitted_at,
             dataset_input=value.dataset_input,
-            input_artifact_refs=inputs,
         )
     if value.terminal_at is None:
         raise invalid("terminal Run has no terminal time")
@@ -241,7 +231,6 @@ def run_in_snapshot(
             session_id=session_ref,
             admitted_at=admitted_at,
             dataset_input=value.dataset_input,
-            input_artifact_refs=inputs,
             finished_at=terminal_at,
             output_artifact_ref=ArtifactRef(ref=value.output_artifact_ref),
         )
@@ -252,7 +241,6 @@ def run_in_snapshot(
         session_id=session_ref,
         admitted_at=admitted_at,
         dataset_input=value.dataset_input,
-        input_artifact_refs=inputs,
         failed_at=terminal_at,
         failure=value.failure,
     )
@@ -359,14 +347,6 @@ def summary_in_snapshot(
     )
 
 
-_HEAD_SQL = (
-    "SELECT d.artifact_ref,d.committed_at FROM dataset_artifacts d WHERE d.session_ref=? "
-    "AND NOT EXISTS (SELECT 1 FROM analysis_action_run_inputs i "
-    "JOIN analysis_action_run_terminals t USING(run_ref) WHERE i.artifact_ref=d.artifact_ref "
-    "AND i.session_ref=d.session_ref AND t.outcome='succeeded')"
-)
-
-
 def recap(store: SessionStore, session_ref: str) -> SessionRuntimeRecap:
     with store._read() as conn:
         require_session(store, conn, session_ref)
@@ -384,10 +364,10 @@ def recap(store: SessionStore, session_ref: str) -> SessionRuntimeRecap:
         artifact_count = count(
             conn, "SELECT count(*) FROM dataset_artifacts WHERE session_ref=?", (session_ref,)
         )
-        head_count = count(conn, "SELECT count(*) FROM (" + _HEAD_SQL + ")", (session_ref,))
         heads = _rows(
             conn,
-            _HEAD_SQL + " ORDER BY d.committed_at DESC,d.artifact_ref DESC LIMIT 3",
+            "SELECT artifact_ref FROM dataset_artifacts WHERE session_ref=? "
+            "ORDER BY committed_at DESC,artifact_ref DESC LIMIT 3",
             (session_ref,),
         )
         attention = _rows(
@@ -397,24 +377,17 @@ def recap(store: SessionStore, session_ref: str) -> SessionRuntimeRecap:
             "ORDER BY a.admitted_at DESC,a.run_ref DESC LIMIT 3",
             (session_ref,),
         )
-        foreign_count = count(
-            conn,
-            "SELECT count(DISTINCT i.artifact_ref) FROM analysis_action_run_inputs i "
-            "JOIN dataset_artifacts d USING(artifact_ref) WHERE i.session_ref=? AND d.session_ref<>i.session_ref",
-            (session_ref,),
-        )
         return SessionRuntimeRecap(
             session_id=session_ref,
             run_count=run_count,
             artifact_count=artifact_count,
-            head_artifact_count=head_count,
+            head_artifact_count=artifact_count,
             head_artifact_refs=tuple(ArtifactRef(ref=_text(row, "artifact_ref")) for row in heads),
             succeeded_run_count=counts.get("succeeded", 0),
             failed_run_count=counts.get("failed", 0),
             incomplete_run_count=counts.get("incomplete", 0),
             attention_run_ids=tuple(_text(row, "run_ref") for row in attention),
-            overall_graph_available=run_count + artifact_count + foreign_count
-            <= OVERALL_GRAPH_SCAN_LIMIT,
+            overall_graph_available=run_count + artifact_count <= OVERALL_GRAPH_SCAN_LIMIT,
         )
 
 

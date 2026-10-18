@@ -219,7 +219,7 @@ class DatasetRuntime:
         direction: GraphDirection = "ancestors",
         max_nodes: int = 100,
     ) -> SessionGraph:
-        """Read bounded local topology and exact consumed foreign boundaries."""
+        """Read bounded same-Session production topology and omitted-neighbor boundaries."""
         ref = ArtifactRef(ref=artifact_ref) if isinstance(artifact_ref, str) else artifact_ref
         return _lazy_graph.graph(
             self.store, self.session_ref, artifact_ref=ref, direction=direction, max_nodes=max_nodes

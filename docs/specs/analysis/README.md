@@ -14,7 +14,7 @@ A design document is not a release or backend qualification certificate.
 | --- | --- |
 | [Python Analysis Design](python-analysis-design.md) | Population, Query, Column, terminal Artifact and the binding/compiler boundaries |
 | [Operators and Frames](operators-and-frames.md) | Nullable numerical policies, complete keys, contribution occurrences and operator meaning |
-| [Session State and Runtime](session-state-and-runtime.md) | Fresh Run identity, stage scheduling, resource ownership, atomic Store 10 publication and reads |
+| [Session State and Runtime](session-state-and-runtime.md) | Fresh Run identity, stage scheduling, resource ownership, atomic Store 11 publication and reads |
 | [Timezones and Calendars](timezone-and-calendar-design.md) | Exact boundaries, source/calendar/report authority, windows, periods and time output |
 | [Analysis Evidence Access](evidence-access-surface.md) | Self-contained saved Evidence/Findings and their interpretation limits |
 
@@ -48,7 +48,7 @@ datasource: qualified Ibis execution returning pandas
     -> analysis: Population / Query / Column and exact observation bindings
     -> compiler: physical methods, full keys, demanded slots, schedule and checks
     -> Runtime: pandas stage outputs, resource cleanup and atomic publication
-    -> Store 10: committed values, coordinates, presence and actual output records
+    -> Store 11: committed values, coordinates, presence and actual output records
     -> Artifact: bounded reads, complete export and saved facts
     -> pandas: ordinary post-execution analysis
 ```

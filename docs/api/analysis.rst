@@ -101,13 +101,20 @@ published schema; it does not cast values back merely to match source declaratio
 Complete keys, null policies, units and time semantics still apply. Saved-output
 fidelity concerns the values actually committed.
 
-Every admitted execute is a fresh evaluation. Atomic Store 10 publication commits
+Every admitted execute is a fresh evaluation. Atomic Store 11 publication commits
 output, Findings/Evidence and success together. Metadata opening by exact Artifact
 ID needs no current Catalog, source or Parquet scan. New and reopened Artifacts
 use the same saved-output reader; receipt verification may read a full consumed
 part even for bounded preview. Older graph/continuation formats reject unchanged.
 Pandas export keeps complete keys, NA, presence, projections, timezone and order;
 its data-only metadata carries no executable semantic authority.
+
+Session graphs contain same-Session Run-to-Artifact production edges only.
+Run variants retain an invocation marker and lifecycle, without consumed Artifact
+references. Every selected Run is a root and every selected Artifact a head.
+Focused ancestors includes the producer; descendants returns the terminal Artifact
+alone. Boundary fields disclose omitted requested neighbors. Store 10 and earlier
+Stores reject without migration; the terminal output v1 codec is unchanged.
 
 The principal routes have focused local evidence. Full independent acceptance,
 remote Runtime checks and release gates are separate. Native Help and structured

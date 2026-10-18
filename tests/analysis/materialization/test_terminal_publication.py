@@ -547,7 +547,7 @@ def test_old_store_rejection_preserves_bytes_and_name_cannot_bypass(tmp_path: Pa
         with pytest.raises(IntegrityError, match="user_version=9"):
             SessionStore.open_existing(tmp_path)
     assert old.read_bytes() == before
-    assert not (old.parent.parent / "v10").exists()
+    assert not (old.parent.parent / "v11").exists()
 
 
 def test_private_cold_roundtrip_does_not_need_producer_or_catalog(
@@ -805,15 +805,20 @@ def test_metadata_and_records_need_no_parquet_or_current_model(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    from marivo.datasource.adapters import SourceSession
+
     session = source_session
     amount = session.catalog.fields.get("sales.orders.amount")
     artifact = session.observe({"total": amount.sum()}).execute()
+    before = session.runs().items
 
     def forbidden(*args: object, **kwargs: object) -> NoReturn:
         pytest.fail("metadata and record reads must not consume Parquet or current semantics")
 
     monkeypatch.setattr(pq, "ParquetFile", forbidden)
     monkeypatch.setattr(Session, "catalog", property(forbidden))
+    monkeypatch.setattr(SourceSession, "__enter__", forbidden)
+    monkeypatch.setattr(SourceSession, "execute", forbidden)
     reopened = session.artifact(artifact.id)
     assert reopened.id == artifact.id and "Artifact" in repr(reopened)
     reopened.show(n=0)
@@ -822,7 +827,11 @@ def test_metadata_and_records_need_no_parquet_or_current_model(
     facts = reopened.evidence_digest().items
     assert any(item.kind == "read" for item in facts)
     assert session.graph().artifacts[0].artifact_ref.ref == artifact.id
+    assert len(session.graph(artifact_ref=artifact.id).edges) == 1
+    assert session.graph(artifact_ref=artifact.id, direction="descendants").runs == ()
+    assert "heads=1" in session.render()
     assert session.get_run(artifact._manifest.run_id).lifecycle == "succeeded"
+    assert session.runs().items == before
 
 
 def test_public_read_isolated_copy_and_historical_values(source_session: Session) -> None:

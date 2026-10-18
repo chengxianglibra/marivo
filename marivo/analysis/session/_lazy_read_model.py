@@ -1,4 +1,4 @@
-"""Immutable terminal projections for the private Dataset v3 read surface."""
+"""Immutable terminal projections for the Session production read surface."""
 
 from __future__ import annotations
 
@@ -100,7 +100,6 @@ class _RunBase(RenderableResult):
     session_id: str
     admitted_at: datetime
     dataset_input: InvocationInput
-    input_artifact_refs: tuple[ArtifactRef, ...]
 
     def __post_init__(self) -> None:
         if type(self) not in (IncompleteRun, SucceededRun, FailedRun):
@@ -110,7 +109,6 @@ class _RunBase(RenderableResult):
         _aware(self.admitted_at)
         if type(self.dataset_input) is not InvocationInput:
             raise invalid("Run input must use the exact typed projection")
-        _ordered_refs(self.input_artifact_refs)
         if isinstance(self, SucceededRun):
             _aware(self.finished_at)
             if (
@@ -139,7 +137,6 @@ class _RunBase(RenderableResult):
                 "shape",
                 self.dataset_input.kind,
             )
-            .listing("inputs", (str(ref) for ref in self.input_artifact_refs))
         )
 
 
@@ -271,12 +268,12 @@ class ArtifactSummary(RenderableResult):
 
 @dataclass(frozen=True, slots=True, kw_only=True, repr=False)
 class SessionGraphEdge(RenderableResult):
-    kind: Literal["consumes", "produces"]
+    kind: Literal["produces"]
     run_id: str
     artifact_ref: ArtifactRef
 
     def __post_init__(self) -> None:
-        if self.kind not in ("consumes", "produces"):
+        if self.kind != "produces":
             raise invalid("unregistered graph edge kind")
         _identity(self.run_id)
         _refs((self.artifact_ref,))
@@ -292,6 +289,11 @@ class SessionGraphEdge(RenderableResult):
 
 @dataclass(frozen=True, repr=False, slots=True, kw_only=True)
 class SessionGraph(RenderableResult):
+    """Selected production records; roots/heads contain every selected Run/Artifact.
+
+    Boundaries identify selected nodes whose requested neighbor was omitted.
+    """
+
     session_id: str
     artifacts: tuple[ArtifactSummary, ...]
     runs: tuple[RunRecord, ...]

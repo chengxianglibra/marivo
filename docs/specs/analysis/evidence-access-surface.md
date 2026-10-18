@@ -1,6 +1,6 @@
 # Analysis Evidence Access
 
-Status: current Store 10 output-record contract, 2026-10-17.
+Status: current Store 11 output-record contract, 2026-10-18.
 Evidence and Findings describe an exact committed Artifact. Runtime commits them
 with its output manifest and successful Run. They are output facts, not an
 executable derivation graph or a business narrative.

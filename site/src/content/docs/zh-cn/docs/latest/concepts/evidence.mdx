@@ -3,7 +3,7 @@ title: 证据与恢复
 description: 不依赖当前来源的产物阅读与已保存 Evidence。
 ---
 
-Store 10 将最终输出保存在 `.marivo/analysis/generations/v10/`。
+Store 11 将最终输出保存在 `.marivo/analysis/generations/v11/`。
 Parquet 文件持久化后，通过一个 SQLite 事务共同发布 manifest、receipt、Finding、
 Evidence 和 Run 成功状态。失败调用不会发布部分 Artifact；恢复只协调原 Run 及其确切
 资源 journal，不重放计算。
@@ -54,7 +54,22 @@ Finding 分页与完整 Evidence 摘要不依赖 Parquet 或当前模型。
 `digest.show()` 保持有界，`.items` 包含全部已保存事实。
 当前模型的改名、删除或变化不影响历史值。Session 图只展示 Run/输出关系和已保存摘要，不包含定义指纹。
 
-旧 Store 及图/continuation 格式明确拒绝，不改写或迁移。更换 Session 名称不能绕过代际限制；
+`session.graph()` 只包含同一 Session 的 Run→Artifact `produces` 边；失败与未完成
+Run 是独立节点。Run 的 `dataset_input` 保留为执行标记，不再提供消费 Artifact 引用。
+所有选中 Run 都是 root，所有选中 Artifact 都是 head；head 不代表“最新答案”。
+Session 摘要将所有 Artifact 计为 head，最多展示三个引用。
+
+```python
+graph = session.graph(artifact_ref=artifact.id, direction="ancestors", max_nodes=100)
+graph.show()  # Artifact and its producer
+session.graph(artifact_ref=artifact.id, direction="descendants").show()  # Artifact alone
+```
+
+`max_nodes` 范围仍为 1–500。boundary 字段标识存在未选中请求邻居的已选节点，
+`truncated` 表示选择不完整。未指定 Artifact 时使用 `direction="ancestors"`。
+
+Store 10 及更早 Store 和图/continuation 格式明确拒绝，不改写或迁移。更换 Session 名称不能绕过代际限制；
 请在新项目创建新格式 Store 并重新运行分析脚本。同代际 Session resume 保留身份和 Run 历史。
+Store 11 的终端输出 v1 编码与 Parquet 规格保持不变。
 
 从 `marivo.help("analysis")` 开始发现。
