@@ -12,6 +12,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Literal
+from uuid import uuid4
 
 import ibis
 import ibis.expr.operations as ops
@@ -200,6 +201,7 @@ class SourceSession:
         self._issued: dict[int, tuple[CompiledRead, _IssuedRead]] = {}
         self._bindings_by_identity: dict[str, tuple[SourceIR, dict[str, object]]] = {}
         self._bound_sources: dict[str, BoundSource] = {}
+        self._key_relations: dict[str, ops.InMemoryTable] = {}
         self._closed = False
         self.submissions: list[SourceSubmission] = []
         self._query_logs: dict[int, _execution_log.QueryLog] = {}
@@ -215,6 +217,29 @@ class SourceSession:
     def _ensure_open(self) -> None:
         if self._closed:
             raise _invalid("an open source session", "closed source session")
+
+    def _bind_key_relation(self, data: pa.Table) -> ir.Table:
+        """Capture one invocation-local Arrow key relation for this DuckDB owner."""
+        self._ensure_open()
+        if self.provider.name != "duckdb":
+            raise _invalid("DuckDB for an invocation-local key relation", self.provider.name)
+        if (
+            not data.schema.names
+            or len(set(data.schema.names)) != len(data.schema.names)
+            or any(pa.types.is_null(field.type) for field in data.schema)
+        ):
+            raise _invalid("unique key columns with concrete Arrow types", str(data.schema))
+        relation = ibis.memtable(data, schema=ibis.Schema.from_pyarrow(data.schema))
+        node = relation.op().copy(name="_marivo_keys_" + uuid4().hex)
+        self._key_relations[node.name] = node
+        return node.to_expr()
+
+    def _owns_key_relation(self, node: ops.Relation) -> bool:
+        if not isinstance(node, ops.InMemoryTable):
+            return False
+        owned = self._key_relations.get(node.name)
+        # Ibis rewrites may rebuild the node while retaining its immutable carrier.
+        return owned is not None and node.schema == owned.schema and node.data is owned.data
 
     def bind(
         self,
@@ -433,7 +458,10 @@ class SourceSession:
             node for relation_node in relation_nodes for node in relation_node.find(physical_leaves)
         }
         observed_leaves = set(expression.op().find(physical_leaves))
-        if not observed_leaves <= allowed_leaves:
+        if any(
+            node not in allowed_leaves and not self._owns_key_relation(node)
+            for node in observed_leaves
+        ):
             raise _invalid(
                 "only physical inputs from the bound source", "additional physical input"
             )
@@ -577,6 +605,13 @@ class SourceSession:
         self._issued.clear()
         self._bindings_by_identity.clear()
         self._bound_sources.clear()
+        for node in self._key_relations.values():
+            try:
+                self._backend.drop_view(node.name, force=True)
+            except BaseException as error:
+                if failure is None:
+                    failure = error
+        self._key_relations.clear()
         try:
             self._release_backend()
         except BaseException as error:

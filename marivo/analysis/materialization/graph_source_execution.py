@@ -1156,6 +1156,7 @@ def execute_numeric_query(
     from marivo.analysis.materialization.query_runtime_types import source_value_keys
 
     value_keys = source_value_keys(lowered.plan)
+    parameter_relations: dict[tuple[SourceSession, str], ir.Table] = {}
 
     def transport(stage_id: str, output: StageOutput) -> StageOutput:
         if not lowered.plan.required_slots:
@@ -1200,16 +1201,26 @@ def execute_numeric_query(
 
     def dependent(stage: SourceRead, inputs: tuple[StageOutput, ...]) -> StageOutput:
         from marivo.analysis.core.domain_captures import DomainPreparationError
-        from marivo.analysis.materialization.query_parameters import instantiate
+        from marivo.analysis.materialization.query_parameters import instantiate, parameter_data
 
         assert prepared is not None
         request = lowered.read(stage.stage_id)
         expression = request.expression
+        owner = prepared.sources.get(stage.source_id, prepared.source)
         for parameter in stage.parameters:
             source = inputs[stage.inputs.index(parameter.stage_id)]
             try:
+                relation = None
+                if owner.provider.name == "duckdb" and parameter.columns:
+                    key = (owner, parameter.placeholder)
+                    relation = parameter_relations.get(key)
+                    if relation is None:
+                        relation = owner._bind_key_relation(
+                            parameter_data(parameter.columns, source)
+                        )
+                        parameter_relations[key] = relation
                 expression = instantiate(
-                    expression, parameter.placeholder, parameter.columns, source
+                    expression, parameter.placeholder, parameter.columns, source, relation=relation
                 )
             except (
                 TypeError,

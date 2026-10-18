@@ -1,4 +1,4 @@
-"""Schema-only Query-key templates and per-invocation literal instantiation."""
+"""Schema-only Query-key templates and invocation-local parameter relations."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import ibis
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
+import pyarrow as pa
 
 from marivo._definition.graph import computation_fingerprint
 from marivo._definition.relations import QueryKeys
@@ -19,6 +20,7 @@ from marivo.analysis.compiler.query_program import QueryParameter
 from marivo.analysis.core.data_types import DataColumn
 from marivo.analysis.core.graph import BoundGraph, capture_query
 from marivo.analysis.materialization.graph_exchange import StageOutput
+from marivo.analysis.methods.physical import stage_arrow_type
 
 if TYPE_CHECKING:
     from marivo.analysis.compiler.optimization import InvocationMemo
@@ -79,14 +81,36 @@ def prepare_parameters(
     return tuple(parameters), tuple(prepared_inputs)
 
 
+def parameter_data(columns: tuple[DataColumn, ...], output: StageOutput) -> pa.Table:
+    """Encode checked complete keys with the planned names and physical types."""
+    keys = output.table.loc[:, list(output.keys)].copy(deep=False)
+    keys.columns = [column.slot_id for column in columns]
+    schema = pa.schema(
+        [
+            pa.field(column.slot_id, stage_arrow_type(column.dtype), nullable=column.nullable)
+            for column in columns
+        ]
+    )
+    return pa.Table.from_pandas(keys, schema=schema, preserve_index=False, safe=True)
+
+
 def instantiate(
-    expression: ir.Table, name: str, columns: tuple[DataColumn, ...], output: StageOutput
+    expression: ir.Table,
+    name: str,
+    columns: tuple[DataColumn, ...],
+    output: StageOutput,
+    *,
+    relation: ir.Table | None = None,
 ) -> ir.Table:
-    """Replace one pretyped input relation with complete inline key tuples."""
+    """Substitute an owned relation, or instantiate admitted inline key tuples."""
+    if relation is not None:
+        return _replace_parameter(expression, name, relation)
     import pandas as pd
 
     records = tuple(output.table.loc[:, list(output.keys)].itertuples(index=False, name=None))
     expression = _tuple_predicates(expression, name, columns, records)
+    if not any(node.name == name for node in expression.op().find(ops.UnboundTable)):
+        return expression
     rows = tuple(
         ibis.literal(True)
         .as_table()
@@ -111,6 +135,10 @@ def instantiate(
             )
             .filter(ibis.literal(False))
         )
+    return _replace_parameter(expression, name, table)
+
+
+def _replace_parameter(expression: ir.Table, name: str, table: ir.Table) -> ir.Table:
     replacements = {
         node: table.op() for node in expression.op().find(ops.UnboundTable) if node.name == name
     }

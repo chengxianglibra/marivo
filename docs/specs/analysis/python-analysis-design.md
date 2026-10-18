@@ -146,6 +146,16 @@ dependency. Reusing it does not fix a previous execution's rows. Its period,
 conditions and attribute anchors are not overwritten by the consuming observe.
 Population has no `execute`; publish through `session.query(population)`.
 
+For DuckDB consumers, prepared Query keys cross the source boundary as an
+invocation-local Arrow relation with the planned key types. Consumers reuse that
+relation within its owning source connection, preserving complete-tuple,
+null-safe membership without expanding each key into SQL predicates or literal
+unions. The source owner admits only its own key relations alongside qualified
+business sources and removes them when it closes, including failed invocations.
+The relation is physical execution state; it does not change the captured Query
+dependency or persist a previous execution's population. Other providers retain
+their admitted inline key route.
+
 `session.observe(metrics, during=..., by=..., where=..., members=...)` binds the
 observation once. A tuple `by` classifies observed coordinates; a Population
 requests a complete output domain. The requested domain must cover every consumed

@@ -5,12 +5,17 @@ from __future__ import annotations
 import subprocess
 import sys
 from collections.abc import Iterator
+from contextlib import nullcontext
 from dataclasses import replace
+from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from typing import NoReturn
 from unittest.mock import Mock
 
 import ibis
+import ibis.expr.operations as ops
+import ibis.expr.types as ir
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -383,6 +388,166 @@ def test_borrowed_session_leaves_backend_owned_by_original(session: SourceSessio
     borrowed.close()
     assert borrowed._closed
     assert len(session.execute(_read(session))) == 2
+
+
+def _key_read(source: SourceSession, keys: ir.Table) -> CompiledRead:
+    bound = source.bind(TableSourceIR("facts"), source_identity="facts@keys")
+    qualified = source.qualify(
+        bound, PhysicalRequirement("basic.keys", 1, frozenset({"scan", "join", "project"}))
+    )
+    expression = bound.relation.limit(1).cross_join(keys).select(*keys.columns)
+    return source.compile(
+        qualified,
+        expression,
+        purpose="basic.keys",
+        expected_schema=expression.schema().to_pyarrow(),
+    )
+
+
+def test_private_key_relation_keeps_arrow_schema_and_native_values(
+    session: SourceSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    instant = datetime(2026, 10, 18, 1, 2, 3, 456789, tzinfo=timezone.utc)
+    data = pa.table(
+        {
+            "key": pa.array([2**53 + 1, None], type=pa.int64()),
+            "decimal": pa.array([Decimal("123456789.1250"), None], type=pa.decimal128(20, 4)),
+            "instant": pa.array([instant, None], type=pa.timestamp("us", tz="UTC")),
+            "flag": pa.array([False, None], type=pa.bool_()),
+            "label": pa.array(["", None], type=pa.string()),
+        }
+    )
+    execute = Mock(wraps=session._backend.to_pyarrow)
+    monkeypatch.setattr(session._backend, "to_pyarrow", execute)
+    keys = session._bind_key_relation(data)
+    second = session._bind_key_relation(data)
+    node = keys.op()
+    assert isinstance(node, ops.InMemoryTable)
+    assert node.name.startswith("_marivo_keys_") and node.name != second.op().name
+    assert node.data.to_pyarrow(keys.schema()) is data
+    assert keys.schema() == ibis.Schema.from_pyarrow(data.schema)
+    execute.assert_not_called()
+    assert session.submissions == []
+
+    frame = session.execute(_key_read(session, keys))
+    assert frame["key"].tolist() == [2**53 + 1, pd.NA]
+    assert frame["decimal"].iloc[0] == Decimal("123456789.1250")
+    assert frame["instant"].iloc[0] == instant
+    assert not frame["flag"].iloc[0]
+    assert frame["label"].iloc[0] == ""
+    assert frame.iloc[1].isna().all()
+    assert len(execute.call_args_list) == 1
+
+
+def test_private_key_relation_requires_bound_source_and_exact_session_owner(
+    session: SourceSession,
+) -> None:
+    data = pa.table({"key": pa.array([10], type=pa.int64())})
+    owned = session._bind_key_relation(data)
+    bound = session.bind(TableSourceIR("facts"), source_identity="facts@v1")
+    qualified = session.qualify(
+        bound, PhysicalRequirement("basic.keys", 1, frozenset({"scan", "join"}))
+    )
+    with pytest.raises(DatasourceSourceCapabilityError, match="unbound expression"):
+        session.compile(
+            qualified,
+            owned,
+            purpose="basic.keys",
+            expected_schema=owned.schema().to_pyarrow(),
+        )
+    rebuilt = owned.op().copy().to_expr()
+    assert rebuilt.op() is not owned.op()
+    assert session.execute(_key_read(session, rebuilt))["key"].tolist() == [10]
+    with SourceSession(
+        session.provider, session.datasource, session._backend, owns_backend=False
+    ) as foreign:
+        foreign_keys = foreign._bind_key_relation(data)
+        arbitrary = ibis.memtable(data)
+        changed_data = ibis.memtable(pa.table({"key": [11]}))
+        forged_name = changed_data.op().copy(name=owned.op().name).to_expr()
+        for keys in (foreign_keys, arbitrary, forged_name):
+            with pytest.raises(DatasourceSourceCapabilityError, match="additional physical input"):
+                _key_read(session, keys)
+
+
+def test_private_key_relation_accepts_typed_empty_and_rejects_null_type(
+    session: SourceSession,
+) -> None:
+    empty = session._bind_key_relation(pa.table({"key": pa.array([], type=pa.int64())}))
+    assert session.execute(_key_read(session, empty)).empty
+    with pytest.raises(DatasourceSourceCapabilityError, match="concrete Arrow types"):
+        session._bind_key_relation(pa.table({"key": [None]}))
+    session.close()
+    with pytest.raises(DatasourceSourceCapabilityError, match="closed source session"):
+        session._bind_key_relation(pa.table({"key": pa.array([], type=pa.int64())}))
+
+
+@pytest.mark.parametrize("fail", (False, True))
+def test_private_key_relations_close_on_borrowed_success_and_failure(
+    session: SourceSession, monkeypatch: pytest.MonkeyPatch, fail: bool
+) -> None:
+    backend = session._backend
+    drop = Mock(wraps=backend.drop_view)
+    monkeypatch.setattr(backend, "drop_view", drop)
+    execute = backend.to_pyarrow
+    with (
+        pytest.raises(RuntimeError, match="read failed") if fail else nullcontext(),
+        SourceSession(
+            session.provider, session.datasource, backend, owns_backend=False
+        ) as borrowed,
+    ):
+        keys = borrowed._bind_key_relation(pa.table({"key": [10]}))
+        unused = borrowed._bind_key_relation(pa.table({"key": [11]}))
+        read = _key_read(borrowed, keys)
+        borrowed.execute(read)
+        assert keys.op().name in backend.list_tables()
+        if fail:
+            monkeypatch.setattr(
+                backend, "to_pyarrow", Mock(side_effect=RuntimeError("read failed"))
+            )
+            borrowed.execute(read)
+    assert {call.args[0] for call in drop.call_args_list} == {
+        keys.op().name,
+        unused.op().name,
+    }
+    assert all(call.kwargs == {"force": True} for call in drop.call_args_list)
+    assert keys.op().name not in backend.list_tables()
+    assert unused.op().name not in backend.list_tables()
+    assert not borrowed._backend_disconnected
+    monkeypatch.setattr(backend, "to_pyarrow", execute)
+    assert len(session.execute(_read(session))) == 2
+
+
+def test_private_key_relation_cleanup_precedes_owned_connection_release(
+    session: SourceSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = Mock()
+    drop = Mock(wraps=session._backend.drop_view)
+    disconnect = Mock(wraps=session._backend.disconnect)
+    calls.attach_mock(drop, "drop")
+    calls.attach_mock(disconnect, "disconnect")
+    monkeypatch.setattr(session._backend, "drop_view", drop)
+    monkeypatch.setattr(session._backend, "disconnect", disconnect)
+    keys = session._bind_key_relation(pa.table({"key": [10]}))
+    session.execute(_key_read(session, keys))
+    session.close()
+    assert [call[0] for call in calls.mock_calls] == ["drop", "disconnect"]
+    drop.assert_called_once_with(keys.op().name, force=True)
+    assert session._backend_disconnected
+
+
+def test_private_key_relation_rejects_non_duckdb_provider() -> None:
+    backend = Mock()
+    backend.name = "postgres"
+    with SourceSession(
+        provider_for("postgres"), _datasource("postgres"), backend, owns_backend=False
+    ) as source:
+        with pytest.raises(DatasourceSourceCapabilityError) as caught:
+            source._bind_key_relation(pa.table({"key": [10]}))
+        assert caught.value.received == "postgres"
+        assert "DuckDB" in caught.value.expected
+    backend.execute.assert_not_called()
+    backend.drop_view.assert_not_called()
 
 
 def test_stub_provider_cannot_grant_basic_route() -> None:

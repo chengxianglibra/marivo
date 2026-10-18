@@ -369,7 +369,7 @@ def test_query_keys_drive_a_later_typed_source_read(result_session: Session) -> 
     assert follow.execute().to_pandas()[("value", "selected")].tolist() == [40]
 
 
-def test_dependent_source_uses_complete_null_safe_tuple_predicates(
+def test_dependent_source_uses_complete_null_safe_key_relations(
     result_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from marivo.datasource.adapters import CompiledRead, SourceSession
@@ -405,7 +405,8 @@ def test_dependent_source_uses_complete_null_safe_tuple_predicates(
     assert result[("value", "total")].tolist() == [57]
     assert len(statements) == 1
     assert "UNION" not in statements[0]
-    assert " OR " in " ".join(statements[0].split())
+    assert "JOIN" in statements[0]
+    assert "'Store'" not in statements[0]
     assert "IS NOT DISTINCT FROM" in statements[0]
     import marivo.semantic as ms
 
@@ -413,6 +414,47 @@ def test_dependent_source_uses_complete_null_safe_tuple_predicates(
     assert session.query(selected).execute().to_pandas().iloc[:, 0].tolist() == [2, 3, 4]
     remainder = session.members(ms.ref.entity("sales.orders"), where=~mv.in_population(chosen))
     assert session.query(remainder).execute().to_pandas().iloc[:, 0].tolist() == [1]
+
+
+def test_query_population_key_relation_keeps_consumer_expression_bounded(
+    result_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import ibis.expr.operations as ops
+
+    from marivo.datasource.adapters import CompiledRead, SourceSession
+
+    session = result_session
+    region = session.catalog.fields.get("sales.orders.region")
+    amount = session.catalog.fields.get("sales.orders.amount")
+    producer = session.observe({"total": amount.sum()}, by=(region,))
+    selected = producer.where(producer["total"] > 0).population()
+    consumer = session.observe({"total": amount.sum()}, where=mv.in_population(selected))
+    statements: list[tuple[str, int]] = []
+    original = SourceSession.execute
+
+    def record(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
+        statements.append((read.sql, len(read.expression.op().find(ops.Node))))
+        return original(owner, read)
+
+    monkeypatch.setattr(SourceSession, "execute", record)
+    sizes = []
+    for count in (1_000, 10_000):
+        with duckdb.connect(str(session.project_root / "results.duckdb")) as connection:
+            connection.execute("DELETE FROM orders")
+            connection.execute(
+                "INSERT INTO orders SELECT i, 'region_' || i, 1, 'Web' FROM range(?) AS rows(i)",
+                [count],
+            )
+        statements.clear()
+        result = consumer.execute().to_pandas()
+        assert result[("value", "total")].tolist() == [count]
+        assert len(statements) == 2
+        sql, nodes = statements[-1]
+        assert "region_0" not in sql
+        assert "UNION" not in sql
+        sizes.append((len(sql), nodes))
+    assert abs(sizes[1][0] - sizes[0][0]) <= 128
+    assert sizes[1][1] == sizes[0][1]
 
 
 def test_session_read_preserves_identity_and_feeds_a_new_source(result_session: Session) -> None:
@@ -522,10 +564,10 @@ def test_two_datasource_composite_parameters_compare_and_terminal_read(
     databases = tuple(tmp_path / (name + ".duckdb") for name in ("crm", "billing"))
     for database, amounts in zip(databases, ((150, 50), (100, 25)), strict=True):
         with duckdb.connect(str(database)) as connection:
-            connection.execute("CREATE TABLE accounts(tenant VARCHAR,id VARCHAR,amount BIGINT)")
+            connection.execute("CREATE TABLE accounts(tenant VARCHAR,id BIGINT,amount BIGINT)")
             connection.executemany(
                 "INSERT INTO accounts VALUES (?,?,?)",
-                [("t1", "A", amounts[0]), ("t2", "A", amounts[1])],
+                [("t1", 9007199254740993, amounts[0]), ("t2", 9007199254740993, amounts[1])],
             )
     semantic_project_factory(
         {
