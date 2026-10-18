@@ -424,3 +424,44 @@ print(json.dumps({'pid': __import__('os').getpid(), 'values': frame[('value','va
         assert process.returncode == 0, process.stdout + process.stderr
         reports.append(__import__("json").loads(process.stdout.splitlines()[-1]))
     assert len({os.getpid(), *(report["pid"] for report in reports)}) == 3
+
+
+@pytest.mark.parametrize(
+    "read_zone,expected_ids,expected_total",
+    (
+        ("UTC", ["b", "one", "two"], 100),
+        ("Asia/Shanghai", ["b", "end", "two"], 990),
+    ),
+)
+def test_population_time_predicate_uses_source_authority_and_owns_its_period(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    read_zone: str,
+    expected_ids: list[str],
+    expected_total: int,
+) -> None:
+    _project(tmp_path, monkeypatch, semantic_project_factory, read_zone=read_zone)
+    session = mv.session.get_or_create("within-members", report_timezone="Asia/Shanghai")
+    scope = session.time_scope(start="2026-08-01", end="2026-08-02")
+    time = session.catalog.fields.get("sales.orders.happened")
+    metric = session.catalog.metrics.get("sales.total")
+    members = session.members(ms.ref.entity("sales.orders"), where=time.within(scope))
+    assert case_members(session, members) == expected_ids
+    for period in (scope, session.time_scope(start="2026-07-01", end="2026-09-01")):
+        for condition in ("members", "predicate"):
+            query = session.observe(
+                {"value": metric},
+                during=period,
+                members=members if condition == "members" else None,
+                where=mv.in_population(members) if condition == "predicate" else None,
+            )
+            assert query.execute().to_pandas()[("value", "value")].tolist() == [expected_total]
+    # Image and set selection consume the same already governed identity selection.
+    buyer = session.catalog.relationships.get("sales.buyer")
+    assert case_members(session, members.image(via=(buyer,))) == ["A", "B"]
+    assert case_members(session, members.intersection(members)) == expected_ids
+    assert case_members(session, members.difference(members)) == []
+    assert session.observe({"value": metric}, during=scope).execute().to_pandas()[
+        ("value", "value")
+    ].tolist() == [expected_total]

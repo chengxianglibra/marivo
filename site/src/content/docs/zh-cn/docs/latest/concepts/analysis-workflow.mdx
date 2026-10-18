@@ -61,6 +61,7 @@ keys_only.execute().show()
 来源 Null 类别与缺少坐标保持区别。
 
 `session.members(ms.ref.entity("sales.customers"))` 从来源选择实际存在的完整 Entity 身份。
+`session.members` 要求 Entity Ref；传入已解析 Entity 时，会返回具体的类型化修复指引。
 `mv.identities(session.catalog.entities.get("sales.customers"), keys=(("C1",),))` 则捕获明确的身份引用，不证明来源档案存在。
 复合主键仍是一个身份轴，包含按声明顺序排列的全部分量。identities 只接已解析 Entity，
 裸 Ref 须先通过 catalog 解析。
@@ -89,7 +90,9 @@ Population 支持 `project(by=...)`、`union`、`intersection`、`difference`，
 
 ## 显式分配重叠成员桶
 
-membership 描述绑定成员分桶字段与贡献分配路径。同一个描述内的多个字段保持相关：
+membership 描述绑定成员分桶字段与贡献分配路径。同一个描述内的多个字段保持相关。
+放入 `via` 前，使用 `session.catalog.relationships.get(...)` 解析每个 Relationship；
+裸 Relationship Ref 是查找键：
 
 ```python
 tag = session.catalog.fields.get("sales.tags.label")

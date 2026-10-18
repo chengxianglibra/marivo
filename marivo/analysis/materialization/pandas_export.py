@@ -36,7 +36,7 @@ def export_frame(
     data = manifest.data
     positions = None
     order = next((part for part in data.attachments if part.name == "display_order"), None)
-    if order is not None and isinstance(request, PreviewRead):
+    if order is not None:
         selection = reader.read(ReadLayout(order.schema, order.rows), request)
         positions = tuple(int(index) for index in selection["row_index"])
     raw = reader.read(ReadLayout(data.schema, data.rows, positions), request)

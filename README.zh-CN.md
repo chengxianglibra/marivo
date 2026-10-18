@@ -108,7 +108,7 @@ marivo.help()
 marivo.help("authoring")
 marivo.help("analysis")
 marivo.help("semantic.metric")
-marivo.help("analysis.observe")
+marivo.help("analysis.session.observe")
 ```
 
 `marivo.help()` 介绍核心概念，并引导到 `authoring` 或 `analysis`。

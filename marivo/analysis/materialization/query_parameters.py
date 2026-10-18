@@ -101,9 +101,7 @@ def instantiate(
         for row in records
     )
     if rows:
-        table = rows[0]
-        for row in rows[1:]:
-            table = table.union(row)
+        table = ibis.union(rows[0], *rows[1:])
     else:
         table = (
             ibis.literal(True)
@@ -207,7 +205,13 @@ def _tuple_predicates(
                             )
                         )
                     )
-                predicate = ibis.or_(*rows) if rows else ibis.literal(False)
+                # Keep the OR tree shallow for complete domains with many tuples.
+                while len(rows) > 1:
+                    rows = [
+                        rows[index] | rows[index + 1] if index + 1 < len(rows) else rows[index]
+                        for index in range(0, len(rows), 2)
+                    ]
+                predicate = rows[0] if rows else ibis.literal(False)
                 substitutions: dict[ops.Node, ops.Node] = {}
                 left_by_key = {key: value for value, key in pairs}
                 for field in chain.find(ops.Field):

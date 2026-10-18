@@ -99,6 +99,9 @@ class OutputRead:
                     "display order contains duplicate or out-of-range primary row positions"
                 )
             if not positions:
+                if isinstance(request, ExportRead):
+                    with self._open(layout):
+                        pass
                 return normalize_stage_frame(
                     pd.DataFrame(columns=[column.slot_id for column in schema.columns]),
                     schema.columns,

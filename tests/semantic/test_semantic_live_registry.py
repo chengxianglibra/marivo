@@ -792,6 +792,11 @@ def test_terminal_result_help_matrix_accepts_type_string_and_instance() -> None:
         )
         assert all(resolution.kind == "type_contract" for resolution in resolutions)
         assert {resolution.type_name for resolution in resolutions} == {contract.name}
+        for method_name in ("show", "render"):
+            route = route_help_target(getattr(instance, method_name))
+            assert isinstance(route, NativeHelpRoute)
+            assert route.owner == "semantic"
+            assert route.resolved.type_name == contract.name
 
 
 def test_registry_includes_authoring_topic() -> None:

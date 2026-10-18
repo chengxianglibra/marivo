@@ -111,6 +111,22 @@ def _enrich(target: object) -> ResolvedLiveTarget[SemanticHelpDescriptor] | None
             surface="semantic",
             type_name=contract.name,
         )
+    receiver = getattr(target, "__self__", None)
+    method_name = getattr(target, "__name__", None)
+    receiver_contract = TYPE_CONTRACTS.get(type(receiver))
+    if (
+        receiver_contract is not None
+        and method_name in ("show", "render")
+        and method_name in receiver_contract.public_methods
+    ):
+        try:
+            REGISTRY.by_callable(target)
+        except KeyError:
+            return ResolvedLiveTarget(
+                kind="type_contract",
+                surface="semantic",
+                type_name=receiver_contract.name,
+            )
     return None
 
 

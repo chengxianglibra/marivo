@@ -28,7 +28,7 @@ def _catalog_inputs() -> tuple[ReadCapability, ...]:
             "catalog.readiness",
             "catalog.readiness(refs=...)",
             "catalog.readiness",
-            "Check semantic readiness for refs.",
+            "Check physical semantic inputs and their dependency closures without querying.",
         ),
     )
 
@@ -128,7 +128,7 @@ def _catalog_inputs() -> tuple[ReadCapability, ...]:
 
     examples = {
         "catalog.require": 'result = catalog.require(ms.ref.metric("sales.revenue"))',
-        "catalog.readiness": 'result = catalog.readiness(refs=[ms.ref.metric("sales.revenue")])',
+        "catalog.readiness": 'result = catalog.readiness(refs=[ms.ref.entity("sales.orders")])',
         "catalog.period_calendars.grain": 'result = calendar.grain("fiscal_week")',
         "catalog.period_calendars.period": 'scope = calendar.period("fiscal_week", "FY2026-W01")',
         "catalog.period_calendars.period_on": 'from datetime import date\nscope = calendar.period_on("fiscal_week", date(2026, 1, 1))',

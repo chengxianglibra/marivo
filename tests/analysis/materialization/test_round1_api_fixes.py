@@ -252,17 +252,46 @@ def test_top_uses_null_first_complete_keys_but_keeps_score_na_last(
     scores = different.select({"score": different["v"].divide(different["v"]) * different["v"]})
     saved = scores.top(3, by=scores["score"]).execute()
     exported = saved.to_pandas()
-    assert pd.isna(exported.iloc[0, 0]) and exported.iloc[1:, 0].tolist() == ["<null>", "A"]
-    assert pd.isna(exported[("value", "score")].iloc[0])
+    assert exported.iloc[:2, 0].tolist() == ["A", "<null>"] and pd.isna(exported.iloc[2, 0])
+    assert exported[("value", "score")].iloc[:2].tolist() == [2.0, 1.0]
+    assert pd.isna(exported[("value", "score")].iloc[2])
     preview = export_frame(saved._manifest, OutputRead(case.root), PreviewRead(2))
     assert preview.iloc[:, 0].tolist() == ["A", "<null>"]
     assert preview[("value", "score")].tolist() == [2.0, 1.0]
     assert scores.top(2, by=scores["score"]).execute().to_pandas().iloc[:, 0].tolist() == [
-        "<null>",
         "A",
+        "<null>",
     ]
+    ascending = scores.top(3, by=scores["score"], descending=False).execute().to_pandas()
+    assert ascending.iloc[:2, 0].tolist() == ["<null>", "A"] and pd.isna(ascending.iloc[2, 0])
     scalar = session.values(by=(), columns={"v": None}, rows=(((), {"v": 1}),))
     assert scalar.top(1, by=scalar["v"]).execute().to_pandas()[("value", "v")].tolist() == [1]
+
+
+def test_partitioned_top_keeps_complete_key_ties_after_score_projection(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    session = analysis_dsl_case_factory("j1").session
+    region = session.catalog.fields.get("sales.customer.region")
+    channel = session.catalog.fields.get("sales.order.channel")
+    values = session.values(
+        by=(region, channel),
+        columns={"score": None},
+        rows=(
+            (("B", "C"), {"score": 30}),
+            (("A", "B"), {"score": 10}),
+            (("B", "A"), {"score": 20}),
+            (("A", "C"), {"score": 20}),
+            (("A", "A"), {"score": 10}),
+        ),
+    )
+    ranked = values.top(2, by=values["score"], partition_by=(region,))
+    artifact = ranked.select({"selected": 1}).execute()
+    expected = [("A", "C"), ("A", "A"), ("B", "C"), ("B", "A")]
+    for selected in (artifact, session.artifact(artifact.id)):
+        frame = selected.to_pandas()
+        assert list(frame.iloc[:, :2].itertuples(index=False, name=None)) == expected
+        assert frame[("value", "selected")].tolist() == [1] * 4
 
 
 def test_literal_population_failures_use_structured_public_errors_without_reads(

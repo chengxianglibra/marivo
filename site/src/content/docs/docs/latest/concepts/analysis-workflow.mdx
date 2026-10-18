@@ -69,6 +69,8 @@ Entity identities. `mv.identities(session.catalog.entities.get("sales.customers"
 identity references, which do not prove source presence. Composite primary keys
 remain one identity axis with all components in declared order. `identities`
 requires the resolved Entity; resolve a bare Ref through the catalog first.
+`session.members` requires an Entity Ref and reports a typed repair when passed
+a resolved Entity instead.
 
 `query.coord(axis)` locates a scalar coordinate Column. Construction does not read
 sources; preparation rejects a composite identity as one quantity before admitting
@@ -100,7 +102,9 @@ to publish keys; Population has no `execute()` method.
 ## Allocate overlapping memberships explicitly
 
 A membership descriptor binds the member bucket fields and the contribution
-allocation paths. Multiple fields in one descriptor are correlated:
+allocation paths. Multiple fields in one descriptor are correlated.
+Resolve each Relationship through `session.catalog.relationships.get(...)`
+before placing it in `via`; bare Relationship Refs are lookup keys:
 
 ```python
 tag = session.catalog.fields.get("sales.tags.label")

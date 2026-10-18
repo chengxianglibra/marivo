@@ -128,7 +128,7 @@ def _identity_condition(
 ) -> ContributionBinding:
     from marivo.analysis.binding.observe import bind_observation
 
-    assert node.predicate is not None and not isinstance(node.predicate, RowExpression)
+    assert node.predicate is not None
     binding = bind_observation(
         (("identity", ContributionFilter(EntityCount(node.entity, None), node.predicate)),),
         {},
@@ -267,9 +267,7 @@ def prepare_population(
                 ).filter(ibis.literal(False)),
                 key_groups,
             )
-        table = rows[0]
-        for row in rows[1:]:
-            table = table.union(row)
+        table = ibis.union(rows[0], *rows[1:])
         return PreparedPopulation(table, key_groups)
     assert isinstance(definition, PopulationProgram)
     node = definition.root
@@ -339,31 +337,7 @@ def prepare_population(
             source = source.filter(version_predicate(source, contract.version, selection))
         checks: tuple[tuple[str, str, str], ...] = ()
         summary: ir.Table | None = None
-        if isinstance(node.predicate, RowExpression):
-            from marivo._definition.graph import direct_refs
-            from marivo.refs import SemanticKind
-            from marivo.semantic._numeric_lowering import lower_field_predicate
-
-            fields: dict[str, ir.Value] = {}
-            for reference in direct_refs(node.predicate):
-                if reference.ref.kind in (
-                    SemanticKind.DIMENSION,
-                    SemanticKind.TIME_DIMENSION,
-                    SemanticKind.MEASURE,
-                ):
-                    fields[reference.ref.path] = _field(
-                        FieldRead(reference, node.entity), source, state
-                    )
-            lowered = lower_field_predicate(node.predicate, fields)
-            if lowered.checks:
-                reject(
-                    "a source identity predicate with completed data checks",
-                    "strict arithmetic checks",
-                    "Evaluate the checked quantity before selecting its identity domain.",
-                    "population.prepare",
-                )
-            source = source.filter(lowered.value)
-        elif node.predicate is not None:
+        if node.predicate is not None:
             from marivo.analysis.materialization.population_condition import filter_contribution
             from marivo.analysis.materialization.query_preparation import prepare_fields
             from marivo.datasource.timezone import probe_engine_timezone
@@ -378,14 +352,28 @@ def prepare_population(
                 defer_population_conditions=True,
             )
             source = identity_fields.table
+            if isinstance(node.predicate, RowExpression):
+                from marivo.semantic._numeric_lowering import lower_field_predicate
+
+                fields = {key: source[slot] for key, slot in identity_fields.columns}
+                lowered = lower_field_predicate(node.predicate, fields)
+                if lowered.checks:
+                    reject(
+                        "a source identity predicate with completed data checks",
+                        "strict arithmetic checks",
+                        "Evaluate the checked quantity before selecting its identity domain.",
+                        "population.prepare",
+                    )
+                source = source.filter(lowered.value)
             checks = identity_fields.checks
             if checks:
                 summary = source.aggregate(
                     **{name: source[name].any().fill_null(False) for name, _, _ in checks}
                 )
-            source = filter_contribution(
-                source, contribution, dict(identity_fields.columns), entities, state
-            )
+            if contribution.population_conditions:
+                source = filter_contribution(
+                    source, contribution, dict(identity_fields.columns), entities, state
+                )
         keys = state.registry.entities[node.entity.ref.path].primary_key
         null_key = "__identity_null"
         output = source.select(

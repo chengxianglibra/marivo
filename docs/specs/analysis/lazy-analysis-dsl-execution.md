@@ -430,7 +430,7 @@ contract 与构造/绑定共用纯规则，显示已知可用操作、已知缺�
 不抽样、截断、转成 float 蒙混过关或返回部分表。Query 不能隐式执行后导出。
 
 采用一种固定的宽表布局，不另设 values-only/flatten 模式：
-行使用 RangeIndex，按 Artifact 完整键的规范顺序排列；它只表示导出行位置，不是业务身份。
+行使用 RangeIndex，沿用 Artifact 保存的 Top-N 展示次序，无该次序时按完整键的规范顺序排列；它只表示导出行位置，不是业务身份。
 列为两层 pandas MultiIndex，层名为 `kind`、`name`。各类按下表顺序出现；
 轴按保存的轴顺序，量按保存的命名顺序，presence 按规范业务角色路径序排列。
 

@@ -139,7 +139,7 @@ marivo.help()
 marivo.help("authoring")
 marivo.help("analysis")
 marivo.help("semantic.metric")
-marivo.help("analysis.observe")
+marivo.help("analysis.session.observe")
 ```
 
 `marivo.help()` introduces Marivo's core concepts and routes to two secondary

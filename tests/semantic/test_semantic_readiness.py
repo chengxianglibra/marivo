@@ -8,6 +8,7 @@ from collections.abc import Callable
 from dataclasses import fields
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import ibis
 import pytest
@@ -78,6 +79,21 @@ def _ready_project(
             f"md.duckdb(name='warehouse', path={str(datasource_path)!r})\n"
         )
     return semantic_project_factory(files)
+
+
+def test_analysis_readiness_help_example_accepts_physical_selection(
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+) -> None:
+    from marivo.analysis._capabilities.catalog_inputs import CATALOG_INPUTS
+
+    catalog = ms.SemanticCatalog(_ready_project(semantic_project_factory))
+    descriptor = next(item for item in CATALOG_INPUTS if item.id == "catalog.readiness")
+    assert descriptor.example is not None
+    namespace: dict[str, object] = {"session": SimpleNamespace(catalog=catalog)}
+    exec(compile(descriptor.example, "<readiness-help-example>", "exec"), namespace)
+    report = namespace["result"]
+    assert isinstance(report, ReadinessReport)
+    assert report.analysis_ready_inputs == (ms.ref.entity("sales.orders"),)
 
 
 def _without_checked_at(report: ReadinessReport) -> dict[str, object]:
@@ -323,6 +339,12 @@ def test_cross_datasource_metric_certification_checks_physical_inputs(
     assert caught.value.kind == "invalid_expression_stage"
     assert caught.value.repair is not None
     assert "physical fields and Entities" in caught.value.repair.action
+    assert caught.value.hint == (
+        'Run marivo.help("semantic.readiness") to inspect physical input requirements.'
+    )
+    assert caught.value.repair.help_target == LiveHelpTarget(
+        surface="semantic", canonical_id="readiness"
+    )
     inputs = (ms.ref.measure("sales.orders.amount"), ms.ref.measure("sales.refunds.amount"))
     report = catalog.readiness(refs=inputs)
     assert report.status == "ready"

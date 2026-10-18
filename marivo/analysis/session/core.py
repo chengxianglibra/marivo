@@ -20,7 +20,7 @@ from marivo.analysis.session._lazy_read_model import (
     RunRecord,
     SessionGraph,
 )
-from marivo.refs import EntityKind, Ref
+from marivo.refs import EntityKind, Ref, SemanticKind
 from marivo.semantic.catalog import SemanticCatalog
 
 if TYPE_CHECKING:
@@ -203,8 +203,20 @@ class Session:
             condition_populations,
         )
         from marivo.semantic._deferred_semantics import consume_predicate
-        from marivo.semantic.expressions import _Resolver
+        from marivo.semantic.expressions import Entity, _Resolver
 
+        if not isinstance(entity, Ref) or entity.kind is not SemanticKind.ENTITY:
+            repair = (
+                f"Pass ms.ref.entity({entity.ref.ref.path!r})."
+                if isinstance(entity, Entity)
+                else "Pass ms.ref.entity(path) for the intended Entity."
+            )
+            reject(
+                "an EntityRef lookup key",
+                f"{entity.kind.value} Ref" if isinstance(entity, Ref) else type(entity).__name__,
+                repair,
+                "session.members.entity",
+            )
         resolved = _Resolver(self.catalog._state).entity(entity.path)
         predicate = (
             consume_predicate(where)

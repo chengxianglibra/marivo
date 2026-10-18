@@ -124,6 +124,7 @@ def test_per_completes_ratio_per_sample_and_retains_empty_samples(
     captured = session.observe({"revenue": revenue}, by=omitted).population()
     with pytest.raises(MaterializationError) as failure:
         session.query(captured).execute()
+    assert failure.value.expected is not None
     assert "covering every observed coordinate" in failure.value.expected
 
 
@@ -209,8 +210,10 @@ def test_population_filters_and_relationship_images_preserve_typed_keys(
 
 
 def test_metric_population_condition_selects_facts_without_multiplicity(
-    semantic_project_factory, tmp_path, monkeypatch
-):
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     session = _session(semantic_project_factory, tmp_path, monkeypatch)
     revenue = session.catalog.metrics.get("sales.revenue")
     customer = session.catalog.fields.get("sales.orders.customer")
@@ -253,3 +256,24 @@ def test_zero_axis_population_preserves_the_unit_tuple(
         unit = mv.product(unit, session.members(ms.ref.entity("sales.tags"))).project(by=())
     result = session.query(unit).execute().to_pandas()
     assert result.shape == (0 if empty else 1, 0)
+
+
+def test_medium_complete_identity_domain_materializes_and_filters_preimage(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _session(semantic_project_factory, tmp_path, monkeypatch)
+    entity = session.catalog.entities.get("sales.tags")
+    literal = mv.identities(entity, keys=tuple((key,) for key in range(1, 2001)))
+    frame = session.query(literal).execute().to_pandas()
+    assert frame.iloc[:, 0].tolist() == list(range(1, 2001))
+    targets = session.query(literal).population()
+    path = (
+        session.catalog.relationships.get("sales.order_links"),
+        session.catalog.relationships.get("sales.link_tags"),
+    )
+    selected = session.members(ms.ref.entity("sales.orders")).preimage(targets, via=path)
+    revenue = session.catalog.metrics.get("sales.revenue")
+    result = session.observe({"value": revenue}, members=selected).execute().to_pandas()
+    assert result[("value", "value")].tolist() == [40]

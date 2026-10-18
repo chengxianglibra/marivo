@@ -1854,7 +1854,7 @@ Artifact 没有 contract，不能从 findings/evidence_digest 恢复 DSL 权限�
   按[架构 §9.2](analysis-implementation-architecture.md#92-名单和多来源的执行内交接)核对 Ibis 类型/表达式资格与实际后端原生限制，
   动态规模在上游就绪后检查，不加 Marivo 大小配额；不使用 memtable、拆列 IN、业务临时表或拆批求和。
 - PyArrow 只编码/读取输出数据；阶段交接不往返 Arrow，产物预览和完整导出不调用来源、compiler 或本地 DSL 内核。
-- 发布请求只包含最终 pandas 输出和记录，writer 编码后提交存储引用；Top-N 展示行号绑定该主表 receipt，预览不重建完整键索引，导出仍按规范键序。
+- 发布请求只包含最终 pandas 输出和记录，writer 编码后提交存储引用；Top-N 展示行号绑定该主表 receipt，预览不重建完整键索引，完整导出沿用相同次序。
 - 来源和本地的已准入同义操作保持 NA/空输入、配对、完整键和失败政策；类型归一化不被解释为修复来源已发生的精度损失。
 - 优化遵守[方法精度](lazy-analysis-dsl-execution.md#14-数学定律的实现边界)；用 [1e16,1,-1e16] 验证不能把一次 fsum 当作任意分组 fsum 合并。
   无合格数值等价依据的改写不准入，浮点容差不放宽 where/Top-N、NA、零分母及错误结果。

@@ -34,7 +34,7 @@ from marivo.analysis.materialization.terminal_storage import write_output
 from tests.shared_fixtures import DslCase, DslCaseFactory
 from tests.support.paths import PROJECT_ROOT
 
-_Kind = Literal["numeric", "comparison", "calendar", "top"]
+_Kind = Literal["numeric", "comparison", "calendar", "top", "empty_top"]
 
 
 def _capture(case: DslCase, kind: _Kind) -> mv.Artifact:
@@ -55,14 +55,14 @@ def _capture(case: DslCase, kind: _Kind) -> mv.Artifact:
             {"value": metric},
             during=session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day")),
         )
-    elif kind == "top":
-        query = query.top(2, by=query["value"])
+    elif kind in ("top", "empty_top"):
+        query = query.top(0 if kind == "empty_top" else 2, by=query["value"])
     else:
         query = query.select({"value": query["value"], "twice": query["value"] * 2})
     return query.execute()
 
 
-@pytest.mark.parametrize("kind", ("numeric", "comparison", "calendar", "top"))
+@pytest.mark.parametrize("kind", ("numeric", "comparison", "calendar", "top", "empty_top"))
 def test_projection_reads_each_receipt_once_per_call(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch, kind: _Kind
 ) -> None:
@@ -70,7 +70,7 @@ def test_projection_reads_each_receipt_once_per_call(
     artifact = _capture(case, kind)
     expected = artifact.to_pandas()
     data = artifact._manifest.data
-    handles = (data.rows, *(part.rows for part in data.attachments if part.name != "display_order"))
+    handles = (data.rows, *(part.rows for part in data.attachments))
     wanted = Counter(handle.receipt.project_relative_path for handle in handles)
     opened: list[str] = []
     original = OutputRead._open
@@ -208,7 +208,10 @@ def test_cold_projection_reads_once_without_source(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     artifact = _capture(case, "top")
-    expected = artifact.to_pandas().to_json(orient="split", date_format="iso")
+    frame = artifact.to_pandas()
+    assert frame.iloc[:, 0].tolist() == ["B", "A"]
+    assert frame[("value", "value")].tolist() == [120.0, 60.0]
+    expected = frame.to_json(orient="split", date_format="iso")
     before = case.session.runs().items
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     (case.root / "models").rename(case.root / "models.offline")
@@ -236,7 +239,7 @@ before = len(session.runs().items)
 for _ in range(2):
     reads.clear()
     assert artifact.to_pandas().to_json(orient='split',date_format='iso') == sys.argv[3]
-    assert len(reads) == 1
+    assert len(reads) == 2
 assert len(session.runs().items) == before
 """
     completed = subprocess.run(

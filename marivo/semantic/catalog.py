@@ -2061,9 +2061,10 @@ def _normalize_semantic_input(
             refs=(exact_ref.key,),
             expected="a physical Entity, field, Relationship, or authored temporal object",
             received=f"published {exact_ref.kind.value} {exact_ref.key}",
+            hint='Run marivo.help("semantic.readiness") to inspect physical input requirements.',
             repair_value=repair(
                 kind="inspect",
-                canonical_id="load",
+                canonical_id="readiness",
                 action=(
                     "Inspect its definition with catalog.describe(ref).show(), then "
                     "check the physical fields and Entities it reads instead."

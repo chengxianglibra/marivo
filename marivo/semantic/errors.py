@@ -188,7 +188,7 @@ def _hint_from_catalog(kind: ErrorKind, **_kwargs: Any) -> str:
     hint = default_hint_for_error_kind(kind.value)
     if hint is not None:
         return hint
-    return 'Run marivo.help("semantic.constraints") to inspect semantic constraints.'
+    return 'Run marivo.help("authoring") and follow the owning semantic contract.'
 
 
 HINTS: dict[ErrorKind, Callable[..., str]] = {

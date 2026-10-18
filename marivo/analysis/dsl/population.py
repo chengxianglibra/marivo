@@ -587,6 +587,15 @@ def membership(
         )
     starts = set()
     for path in via:
+        for relationship in path:
+            if not isinstance(relationship, RelationshipParameter):
+                reject(
+                    "resolved Relationship values in each via path",
+                    type(relationship).__name__,
+                    "Resolve each relationship with session.catalog.relationships.get(relationship_ref), "
+                    "then pass the resolved values in via=((relationship,),).",
+                    "membership.via",
+                )
         if (
             not path
             or any(left.to_entity.ref != right.from_entity.ref for left, right in pairwise(path))
