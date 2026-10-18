@@ -515,24 +515,6 @@ class SessionStore:
             return self._resources(conn, session_ref)
 
     @staticmethod
-    def _run_resources(conn: sqlite3.Connection, run_ref: str) -> tuple[ResourceRecord, ...]:
-        return tuple(
-            ResourceRecord(
-                _text(row, "run_ref"),
-                _text(row, "resource_kind"),
-                _text(row, "execution_domain_id"),
-                _text(row, "ownership_nonce"),
-                _text(row, "cleanup_capability_id"),
-                _text(row, "safe_locator"),
-            )
-            for row in _rows(
-                conn,
-                "SELECT * FROM action_resource_journal WHERE run_ref=? ORDER BY resource_kind,execution_domain_id,safe_locator",
-                (run_ref,),
-            )
-        )
-
-    @staticmethod
     def _resources(conn: sqlite3.Connection, session_ref: str) -> tuple[ResourceRecord, ...]:
         rows = _rows(
             conn,

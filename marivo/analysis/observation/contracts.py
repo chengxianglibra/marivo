@@ -7,17 +7,11 @@ from typing import TYPE_CHECKING
 
 from marivo._temporal import PeriodCalendarSnapshotV1
 from marivo.analysis.core.time_authority import ReportTimeAuthority
-from marivo.analysis.observation._identity import _canonical_digest
 from marivo.analysis.observation.errors import ObservationConstructionError
-from marivo.refs import (
-    SemanticKind,
-    _create_ref,
-)
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.catalog import (
     SemanticCatalog,
 )
-from marivo.semantic.metric_graph_lowering import dependency_digest
 from marivo.semantic.validator import Registry
 
 if TYPE_CHECKING:
@@ -42,13 +36,6 @@ class ObservationOwner:
     )
 
 
-@dataclass(slots=True, repr=False)
-class ObservationSourceContext:
-    """Explicit current Session semantics, resolved only for authored enrichment."""
-
-    current: ObservationOwner | None = None
-
-
 def construction_error(
     expected: str,
     received: str,
@@ -57,33 +44,4 @@ def construction_error(
 ) -> ObservationConstructionError:
     return ObservationConstructionError(
         expected=expected, received=received, repair=repair, location="observation.construction"
-    )
-
-
-def path_dependency_fingerprint(
-    owner: ObservationOwner, source: str, paths: tuple[tuple[str, ...], ...]
-) -> str:
-    """Bind ordered paths to their owning semantic source and join definitions."""
-    registry = owner.semantic_registry
-    if source not in registry.entities:
-        raise construction_error("current semantic source Entity", "unknown path source")
-    entity_ids = {source}
-    for path in paths:
-        for relationship_id in path:
-            relationship = registry.relationships.get(relationship_id)
-            if relationship is None:
-                raise construction_error(
-                    "current governed relationship path", "unknown path relationship"
-                )
-            entity_ids.update((relationship.from_entity, relationship.to_entity))
-    # The semantic owner includes relationships joining reached Entities in its
-    # canonical dependency closure, together with source and datasource facts.
-    # Retain authored path order separately; no second input graph is created.
-    dependencies = dependency_digest(
-        registry,
-        sidecar=owner.sidecar,
-        semantic_refs=tuple(_create_ref(SemanticKind.ENTITY, name) for name in sorted(entity_ids)),
-    )
-    return _canonical_digest(
-        ("observation.path-dependencies/v1", source, paths, dependencies.digest)
     )

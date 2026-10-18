@@ -505,7 +505,7 @@ def test_dst_grid_keeps_instant_edges_and_fixed_coordinate(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     source_trace: SourceTrace,
 ) -> None:
-    from marivo.analysis.core.time_grid import bind_grid
+    from marivo._temporal_grid import bind_grid
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))

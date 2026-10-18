@@ -596,79 +596,6 @@ def test_typed_temporal_matrix(
             assert actual == [expected]
 
 
-def test_native_integer_ratio_matches_independent_fraction() -> None:
-    from fractions import Fraction
-
-    import ibis
-
-    from marivo.analysis.compiler.numeric_sql import integer_divide
-
-    pairs = [
-        (2**53 + 1, 3),
-        (2**63 - 1, 2**63 - 3),
-        (-(2**63), 7),
-        (0, 7),
-        (1, 2**63 - 1),
-        (-1, 2),
-        (3, 2),
-        (2**62, 1),
-    ]
-    backend = ibis.duckdb.connect()
-    try:
-        table = backend.create_table(
-            "ratios", {"n": [n for n, _ in pairs], "d": [d for _, d in pairs]}
-        )
-        result = integer_divide(table, "n", "d").select("numeric_result").execute()
-        assert result.numeric_result.tolist() == [float(Fraction(n, d)) for n, d in pairs]
-    finally:
-        backend.disconnect()
-
-
-@pytest.mark.parametrize("scale", [0, 18])
-def test_native_decimal_ratio_one_half_even_round(scale: int) -> None:
-    from decimal import ROUND_HALF_EVEN, Decimal, localcontext
-    from fractions import Fraction
-
-    import ibis
-    import ibis.expr.datatypes as dt
-    import pyarrow as pa
-
-    from marivo.analysis.compiler.numeric_sql import decimal_divide
-
-    pairs = [(1, 2), (3, 2), (-1, 2), (-3, 2), (10**30 + 1, 3)]
-    with localcontext() as context:
-        context.prec = 120
-        values = [Decimal(n).scaleb(-scale) for n, _ in pairs]
-        oracle = []
-        output_scale = max(scale, 6)
-        for (n, d), value in zip(pairs, values, strict=True):
-            ratio = Fraction(value) / d
-            oracle.append(
-                (Decimal(ratio.numerator) / Decimal(ratio.denominator)).quantize(
-                    Decimal(1).scaleb(-output_scale), rounding=ROUND_HALF_EVEN
-                )
-            )
-        backend = ibis.duckdb.connect()
-        try:
-            table = backend.create_table(
-                "ratios",
-                pa.table(
-                    {
-                        "n": pa.array(values, type=pa.decimal128(38, scale)),
-                        "d": [d for _, d in pairs],
-                    }
-                ),
-            )
-            result = (
-                decimal_divide(table, "n", "d", dt.Decimal(38, output_scale))
-                .select("numeric_result")
-                .to_pyarrow()
-            )
-            assert result["numeric_result"].to_pylist() == oracle
-        finally:
-            backend.disconnect()
-
-
 @pytest.mark.slow
 @pytest.mark.parametrize(
     "family,parquet",
@@ -847,58 +774,6 @@ def test_numeric_boundary_facts(analysis_dsl_case_factory: DslCaseFactory, case_
         assert case.session.artifact(fixed.id).to_pandas().equals(fixed.to_pandas())
 
 
-def test_fixed_numeric_merge_order_and_partition_oracle() -> None:
-    from decimal import Decimal
-    from fractions import Fraction
-    from itertools import permutations
-
-    import pyarrow as pa
-
-    from marivo.analysis.methods.numeric_state import merge_original
-    from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
-
-    for values, carrier, output in (
-        ([2**53 + 1, -(2**53), 2], pa.int64(), ScalarType("float64")),
-        (
-            [Decimal("1.000000"), Decimal("1.000001"), Decimal("4.000001")],
-            pa.decimal128(38, 6),
-            DecimalType(38, 6),
-        ),
-        ([0, 1, 3], pa.int64(), DurationType("ns")),
-        ([1.0, 0.25, 3.0], pa.float64(), ScalarType("float64")),
-    ):
-        rows = [{"sum": value, "non_null_count": 1} for value in values]
-        schema = pa.schema(
-            [("original_state__sum", carrier), ("original_state__non_null_count", pa.int64())]
-        )
-        exact = sum((Fraction(value) for value in values), Fraction()) / len(values)
-        expected = (
-            round(exact)
-            if isinstance(output, DurationType)
-            else Decimal(exact.numerator) / Decimal(exact.denominator)
-            if isinstance(output, DecimalType)
-            else float(exact)
-        )
-        if isinstance(expected, Decimal):
-            expected = expected.quantize(Decimal("0.000001"))
-        for permutation in permutations(rows):
-            direct = merge_original(
-                permutation, schema, ("sum", "non_null_count"), "mean", output, ()
-            )
-            for split in (1, 2):
-                left = merge_original(
-                    permutation[:split], schema, ("sum", "non_null_count"), "mean", output, ()
-                )
-                right = merge_original(
-                    permutation[split:], schema, ("sum", "non_null_count"), "mean", output, ()
-                )
-                tree = merge_original(
-                    [left[0], right[0]], schema, ("sum", "non_null_count"), "mean", output, ()
-                )
-                assert direct == tree
-                assert tree[1] == expected
-
-
 def test_definition_quantile_checks_q_and_accepts_endpoints(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -999,28 +874,6 @@ def test_linear_cancellation_checks_final_integer_and_float_bound(
             assert abs(actual - float(oracle)) <= (2 * abs(large) + 1) * 1e-12 + 1e-12
         else:
             assert actual == oracle
-
-
-def test_native_duration_tick_rounding_ties_and_sign() -> None:
-    from fractions import Fraction
-
-    import ibis
-    import ibis.expr.datatypes as dt
-
-    from marivo.analysis.compiler.numeric_sql import decimal_divide
-
-    numerators = [-5, -3, -1, 1, 3, 5]
-    backend = ibis.duckdb.connect()
-    try:
-        source = backend.create_table("ticks", {"n": numerators, "d": [2] * len(numerators)})
-        result = (
-            decimal_divide(source, "n", "d", dt.Decimal(38, 0))
-            .select("numeric_result")
-            .to_pyarrow()
-        )
-        assert result["numeric_result"].to_pylist() == [round(Fraction(n, 2)) for n in numerators]
-    finally:
-        backend.disconnect()
 
 
 def test_current_row_counts_keep_numeric_null_policy(

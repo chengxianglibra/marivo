@@ -34,6 +34,30 @@ class LoweredQuery:
         raise compilation_error(f"a lowered read for {stage_id}", "missing lowered stage")
 
 
+def _attach_preparation_checks(
+    expression: ir.Table,
+    table: ir.Table,
+    checks: tuple[tuple[str, NumericCheck], ...],
+    preparation_checks: tuple[tuple[str, str, str], ...],
+) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...]]:
+    """Attach source-wide preparation facts to a lowered source expression."""
+    if not preparation_checks:
+        return expression, checks
+    summary = table.aggregate(
+        **{name: table[name].any().fill_null(False) for name, _, _ in preparation_checks}
+    )
+    if "__numeric_present" not in expression.columns:
+        expression = expression.mutate(__numeric_present=ibis.literal(True))
+    expression = summary.left_join(expression, ibis.literal(True))
+    return expression, (
+        *checks,
+        *(
+            (name, NumericCheck(summary[name], expected, received))
+            for name, expected, received in preparation_checks
+        ),
+    )
+
+
 def _query_predicate(
     node: FieldPredicate, table: ir.Table, columns: dict[str, str]
 ) -> ir.BooleanValue:
@@ -95,23 +119,9 @@ def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery
                 expression, checks = lower_observation(
                     stage.reduction, filtered, columns, stage.predicates
                 )
-            if stage.preparation_checks:
-                summary = table.aggregate(
-                    **{
-                        name: table[name].any().fill_null(False)
-                        for name, _, _ in stage.preparation_checks
-                    }
-                )
-                if "__numeric_present" not in expression.columns:
-                    expression = expression.mutate(__numeric_present=ibis.literal(True))
-                expression = summary.left_join(expression, ibis.literal(True))
-                checks = (
-                    *checks,
-                    *(
-                        (name, NumericCheck(summary[name], expected, received))
-                        for name, expected, received in stage.preparation_checks
-                    ),
-                )
+            expression, checks = _attach_preparation_checks(
+                expression, table, checks, stage.preparation_checks
+            )
             lowered.append(LoweredRead(stage, expression, checks))
         else:
             conditions = [_query_predicate(p, filtered, columns) for p in stage.predicates]
@@ -124,21 +134,8 @@ def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery
                     else {}
                 ),
             )
-            if stage.preparation_checks:
-                summary = table.aggregate(
-                    **{
-                        name: table[name].any().fill_null(False)
-                        for name, _, _ in stage.preparation_checks
-                    }
-                )
-                if "__numeric_present" not in expression.columns:
-                    expression = expression.mutate(__numeric_present=ibis.literal(True))
-                expression = summary.left_join(expression, ibis.literal(True))
-                checks = tuple(
-                    (name, NumericCheck(summary[name], expected, received))
-                    for name, expected, received in stage.preparation_checks
-                )
-                lowered.append(LoweredRead(stage, expression, checks))
-            else:
-                lowered.append(LoweredRead(stage, expression))
+            expression, checks = _attach_preparation_checks(
+                expression, table, (), stage.preparation_checks
+            )
+            lowered.append(LoweredRead(stage, expression, checks))
     return LoweredQuery(plan, tuple(lowered))

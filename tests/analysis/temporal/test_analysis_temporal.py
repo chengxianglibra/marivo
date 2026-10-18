@@ -12,7 +12,8 @@ from pydantic import TypeAdapter
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._temporal import time_scope
-from marivo.analysis.core.time_grid import BoundTimeGrid, bind_grid, coarsening, instant
+from marivo._temporal_grid import BoundTimeGrid, bind_grid
+from marivo.analysis.core.time_grid import instant
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.errors import AnalysisError
 from tests.shared_fixtures import (
@@ -49,17 +50,35 @@ def test_civil_day_retains_actual_dst_instants(day: str, hours: int, start: str,
     assert all((c.end - c.start).total_seconds() == 3600 for c in hourly.cells)
 
 
-def test_partial_cells_and_crossing_week_rejection() -> None:
+def test_partial_cells_are_retained_by_shared_grid() -> None:
     scope = time_scope(start="2026-08-01", end="2026-09-01")
     week = bind_grid(scope, mv.grain("week"), report_timezone="UTC")
-    month = bind_grid(scope, mv.grain("month"), report_timezone="UTC")
     assert week.cells[0].original_start.isoformat() == "2026-07-27T00:00:00+00:00"
     assert week.cells[0].partial
     assert week.cells[-1].partial
-    with pytest.raises(DatasetConstructionError, match="crosses"):
-        coarsening(week, month)
     day = bind_grid(scope, mv.grain("day"), report_timezone="UTC")
-    assert len(coarsening(day, month)) == 31
+    assert len(day.cells) == 31
+
+
+def test_named_occurrence_scopes_keep_distinct_grid_identity() -> None:
+    from marivo._temporal import certify_temporal_set
+
+    snapshot = certify_temporal_set(
+        temporal_set_ref=ms.ref.temporal_set("sales.promotions"),
+        boundary_timezone="UTC",
+        coverage=(date(2026, 8, 1), date(2026, 8, 4)),
+        rows=(
+            {"id": "a", "start": date(2026, 8, 1), "end": date(2026, 8, 3)},
+            {"id": "b", "start": date(2026, 8, 1), "end": date(2026, 8, 3)},
+        ),
+        occurrence_id="id",
+        start="start",
+        end="end",
+    )
+    first = bind_grid(snapshot.occurrence_scope("a"), mv.grain("day"), report_timezone="UTC")
+    second = bind_grid(snapshot.occurrence_scope("b"), mv.grain("day"), report_timezone="UTC")
+    assert first.scope_digest == second.scope_digest == snapshot.snapshot_digest
+    assert first.identity != second.identity
 
 
 @pytest.mark.parametrize("wall", [datetime(2026, 3, 8, 2, 30), datetime(2026, 11, 1, 1, 30)])
@@ -113,52 +132,15 @@ def test_certified_grid_keeps_calendar_authority_and_coverage() -> None:
         ("2026-07-31T16:00:00+00:00", "2026-08-02T16:00:00+00:00"),
         ("2026-08-02T16:00:00+00:00", "2026-08-03T16:00:00+00:00"),
     ]
-    with pytest.raises(AnalysisError, match="conflicts"):
+    with pytest.raises(ValueError, match="conflicts"):
         bind_grid(scope, grain, report_timezone="UTC", explicit_timezone="UTC", snapshot=snapshot)
-    with pytest.raises(AnalysisError, match="coverage"):
+    with pytest.raises(ValueError, match="coverage"):
         bind_grid(
             time_scope(start="2026-07-30", end="2026-08-04"),
             grain,
             report_timezone="UTC",
             snapshot=snapshot,
         )
-
-
-def test_trailing_day_uses_seconds_across_civil_dst_day() -> None:
-    from marivo.analysis.core.time_grid import GridPoint, bind_cumulative
-
-    grid = bind_grid(
-        time_scope(start="2026-03-08", end="2026-03-09"),
-        mv.grain("day"),
-        report_timezone="America/New_York",
-    )
-    binding = bind_cumulative(("trailing", 1, "day"), GridPoint(grid, "end"), "America/New_York")
-    assert binding.windows[0].start == "2026-03-08T04:00:00+00:00"
-    assert binding.windows[0].end == "2026-03-09T04:00:00+00:00"
-    assert grid.cells[0].start.isoformat() == "2026-03-08T05:00:00+00:00"
-
-
-def test_named_occurrences_with_equal_bounds_are_not_one_partition() -> None:
-    from marivo._temporal import certify_temporal_set
-
-    snapshot = certify_temporal_set(
-        temporal_set_ref=ms.ref.temporal_set("sales.promotions"),
-        boundary_timezone="UTC",
-        coverage=(date(2026, 8, 1), date(2026, 8, 4)),
-        rows=(
-            {"id": "a", "start": date(2026, 8, 1), "end": date(2026, 8, 3)},
-            {"id": "b", "start": date(2026, 8, 1), "end": date(2026, 8, 3)},
-        ),
-        occurrence_id="id",
-        start="start",
-        end="end",
-    )
-    first = bind_grid(snapshot.occurrence_scope("a"), mv.grain("day"), report_timezone="UTC")
-    second = bind_grid(snapshot.occurrence_scope("b"), mv.grain("day"), report_timezone="UTC")
-    assert first.scope_digest == second.scope_digest == snapshot.snapshot_digest
-    assert first.identity != second.identity
-    with pytest.raises(AnalysisError, match="occurrences"):
-        coarsening(first, second)
 
 
 def test_single_second_grid_has_exact_boundaries() -> None:

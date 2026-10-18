@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-import os
-import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone, tzinfo
-from pathlib import Path
+from datetime import timezone, tzinfo
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from marivo._timezones import (
+    fixed_offset_timezone_candidate,
+    parse_timezone,
+    system_timezone_candidate,
+)
 from marivo.analysis.errors import TimezoneInvalidError
 
 
@@ -46,38 +48,20 @@ def resolve_system_timezone() -> ResolvedTimezone:
     2. /etc/localtime symlink pointing into zoneinfo/ (Linux).
     3. Local offset fallback from datetime.now().astimezone().
     """
-    env_tz = os.environ.get("TZ")
-    if env_tz:
-        try:
-            return ResolvedTimezone(name=env_tz, tz=zoneinfo_from_name(env_tz), resolution="iana")
-        except TimezoneInvalidError:
-            return _fixed_offset_fallback()
-
-    localtime = Path("/etc/localtime")
-    if localtime.is_symlink():
-        target = str(localtime.resolve())
-        marker = "/zoneinfo/"
-        if marker in target:
-            candidate = target.split(marker, 1)[1]
-            try:
-                return ResolvedTimezone(
-                    name=candidate, tz=zoneinfo_from_name(candidate), resolution="iana"
-                )
-            except TimezoneInvalidError:
-                return _fixed_offset_fallback()
-
-    return _fixed_offset_fallback()
+    candidate = system_timezone_candidate(allow_fixed_offset=False)
+    if candidate is None:
+        return _fixed_offset_fallback()
+    name, tz, resolution = candidate
+    return ResolvedTimezone(name=name, tz=tz, resolution=resolution)
 
 
 def _fixed_offset_fallback() -> ResolvedTimezone:
     """Build a fixed-offset fallback from the local system clock."""
-    local_tz = datetime.now().astimezone().tzinfo
-    if local_tz is None:
-        local_tz = ZoneInfo("UTC")
+    name, local_tz, resolution = fixed_offset_timezone_candidate()
     return ResolvedTimezone(
-        name=str(timezone(local_tz.utcoffset(None) or timedelta(0))),
+        name=name,
         tz=local_tz,
-        resolution="fixed_offset",
+        resolution=resolution,
         warning="system timezone could not be resolved as IANA; fixed offset fallback is in use",
     )
 
@@ -89,12 +73,13 @@ def restore_timezone(name: str, resolution: str) -> tzinfo:
     if resolution == "fixed_offset":
         if name == "UTC":
             return timezone.utc
-        match = re.fullmatch(r"UTC([+-])(\d{2}):(\d{2})(?::(\d{2}))?", name)
-        if match is not None:
-            hours, minutes, seconds = (int(match[index] or 0) for index in (2, 3, 4))
-            if hours < 24 and minutes < 60 and seconds < 60:
-                offset = timedelta(hours=hours, minutes=minutes, seconds=seconds)
-                return timezone(offset if match[1] == "+" else -offset)
+        try:
+            normalized, tz = parse_timezone(name)
+        except (ValueError, ZoneInfoNotFoundError):
+            pass
+        else:
+            if normalized == name and isinstance(tz, timezone):
+                return tz
     raise TimezoneInvalidError(
         message="Persisted report timezone is not a canonical IANA name or fixed UTC offset.",
         context={"kind": "PersistedTimezoneInvalid", "tz": name, "resolution": resolution},

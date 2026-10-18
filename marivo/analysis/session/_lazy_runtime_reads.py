@@ -12,7 +12,6 @@ from marivo.analysis.core.artifact_data import ArtifactManifest
 from marivo.analysis.errors import (
     AnalysisError,
     AnalysisRepair,
-    ArtifactNotFoundError,
     RunNotFoundError,
     SessionNotFoundError,
     SessionStateError,
@@ -358,28 +357,6 @@ def summary_in_snapshot(
         ),
         issue_counts=ArtifactIssueCounts(warning=0, blocking=0),
     )
-
-
-def missing_artifact(artifact_ref: str) -> ArtifactNotFoundError:
-    return ArtifactNotFoundError(
-        message="The selected Artifact does not exist in this Store.",
-        expected="an exact committed Artifact ref from this Store",
-        received=artifact_ref,
-        location="session.artifact",
-        repair=AnalysisRepair(
-            kind="inspect",
-            action="Read bounded Run outputs or the Session graph and select an exact Artifact ref.",
-            help_target=LiveHelpTarget(surface="analysis", canonical_id="runtime.runs"),
-        ),
-    )
-
-
-def artifact_summary(store: SessionStore, artifact_ref: str) -> ArtifactSummary:
-    with store._read() as conn:
-        record = terminal_store.manifest(store, conn, artifact_ref)
-        if record is None:
-            raise missing_artifact(artifact_ref)
-        return summary_in_snapshot(store, conn, record)
 
 
 _HEAD_SQL = (

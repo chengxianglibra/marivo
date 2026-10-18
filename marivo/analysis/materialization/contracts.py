@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import re
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
@@ -15,9 +14,6 @@ from typing import Literal, TypeAlias, cast, get_args
 from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.render import Card, RenderableResult
-
-_HASH = re.compile(r"[0-9a-f]{64}\Z")
-# Bound realization metadata independently of the generic JSON byte envelope.
 
 
 def parse_timestamp(value: str) -> datetime:
@@ -96,11 +92,6 @@ def _array(value: object) -> tuple[object, ...]:
     if type(value) is not list:
         raise invalid("invalid array")
     return tuple(value)
-
-
-def _hash(value: str) -> None:
-    if _HASH.fullmatch(value) is None:
-        raise invalid("invalid SHA-256 digest")
 
 
 def _relative(value: str) -> None:

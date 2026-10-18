@@ -19,6 +19,7 @@ from marivo._definition.correspondence import (
 from marivo._definition.deferred import RelationshipParameter
 from marivo._definition.types import AxisBinding, CalendarCoordinate
 from marivo._temporal import (
+    InstantAnchor,
     PeriodCalendarSnapshotV1,
     anchor_from_datetime,
     builtin_grain,
@@ -724,6 +725,23 @@ def _layout(
     )
 
 
+def _calendar_containment_image(
+    fine: CalendarCoordinate, coarse: CalendarCoordinate
+) -> tuple[tuple[int, ...] | None, tuple[InstantAnchor, InstantAnchor] | None]:
+    """Map each fine cell to its unique nominal/actual containing coarse cell."""
+    image: list[int] = []
+    for nominal_start, nominal_end, start, end in fine.cells:
+        choices = tuple(
+            index
+            for index, (nominal_a, nominal_b, a, b) in enumerate(coarse.cells)
+            if nominal_a <= nominal_start and nominal_end <= nominal_b and a <= start and end <= b
+        )
+        if len(choices) != 1:
+            return None, (start, end)
+        image.append(choices[0])
+    return tuple(image), None
+
+
 def _coarsened_calendar(
     fine: CalendarCoordinate, coarse: CalendarCoordinate
 ) -> tuple[int, ...] | None:
@@ -736,17 +754,8 @@ def _coarsened_calendar(
         != (min(cell[2] for cell in coarse.cells), max(cell[3] for cell in coarse.cells))
     ):
         return None
-    image: list[int] = []
-    for nominal_start, nominal_end, start, end in fine.cells:
-        choices = tuple(
-            index
-            for index, (nominal_a, nominal_b, a, b) in enumerate(coarse.cells)
-            if nominal_a <= nominal_start and nominal_end <= nominal_b and a <= start and end <= b
-        )
-        if len(choices) != 1:
-            return None
-        image.append(choices[0])
-    return tuple(image)
+    image, _ = _calendar_containment_image(fine, coarse)
+    return image
 
 
 def broadcast_mapping(

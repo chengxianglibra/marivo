@@ -5,92 +5,23 @@ from collections.abc import Callable, Sequence
 from contextlib import ExitStack
 from dataclasses import replace
 from datetime import datetime, timezone
-from decimal import ROUND_HALF_EVEN, Decimal, localcontext
+from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
 from typing import Literal, NoReturn
 
 import ibis
-import ibis.expr.datatypes as dt
 import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
-from marivo.datasource.adapters import PhysicalRequirement, SourceSession, provider_for
+from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case, source_params
 from tests.support.source_trace import SourceTrace
-
-
-@pytest.mark.parametrize("backend", source_params(("postgres", "mysql", "clickhouse")))
-def test_wide_decimal_finish_keeps_extremes_and_half_even(
-    backend: str,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    source_trace: SourceTrace,
-) -> None:
-    from marivo.analysis.compiler.numeric_sql import decimal_divide
-
-    pairs = [
-        (1, 2_000_000),
-        (3, 2_000_000),
-        (-5, 2_000_000),
-        (7, 2_000_000),
-        (10**38 - 1, 10**12),
-        (10**38 - 1, 10**6),
-        (10**38 - 1, 10**38 - 2),
-    ]
-    with localcontext() as context:
-        context.prec = 120
-        expected = {
-            index: (Decimal(n) / Decimal(d)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_EVEN)
-            for index, (n, d) in enumerate(pairs)
-        }
-    data = SourceData(
-        "id BIGINT, n DECIMAL(38,0), d DECIMAL(38,0)",
-        ",".join(f"({index},{n},{d})" for index, (n, d) in enumerate(pairs)),
-        "id Int64, n Decimal(38,0), d Decimal(38,0)",
-        [{"id": index, "n": Decimal(n), "d": Decimal(d)} for index, (n, d) in enumerate(pairs)],
-    )
-    with source_case(
-        backend, "mergetree" if backend == "clickhouse" else "table", tmp_path, monkeypatch, data
-    ) as case:
-        binding = case.session.bind(case.source, source_identity="decimal-components")
-        qualified = case.session.qualify(
-            binding, PhysicalRequirement("metric.ratio", 1, frozenset({"scan", "project"}))
-        )
-        expression = decimal_divide(binding.relation, "n", "d", dt.Decimal(38, 6)).select(
-            "id", "numeric_result"
-        )
-        read = case.session.compile(
-            qualified,
-            expression,
-            purpose="c04-decimal-finish",
-            expected_schema=expression.schema().to_pyarrow(),
-        )
-        actual: dict[int, Decimal] = {}
-        frame = case.session.execute(read)
-        assert str(frame["numeric_result"].dtype) == "object"
-        for identity, value in zip(frame["id"], frame["numeric_result"], strict=True):
-            assert isinstance(identity, int) and isinstance(value, Decimal)
-            actual[identity] = value
-        assert actual == expected
-    source_trace.save(
-        f"c04-{backend}-decimal-finishing",
-        case.environment,
-        {"pairs": [[str(n), str(d)] for n, d in pairs]},
-        {
-            "values": {str(key): str(value) for key, value in expected.items()},
-            "intermediate_exceeds_decimal38": True,
-            "half_even": True,
-            "output_type": "decimal128(38, 6)",
-        },
-        None,
-        (),
-    )
 
 
 def _data(

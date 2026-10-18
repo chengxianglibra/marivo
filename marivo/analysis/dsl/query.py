@@ -772,6 +772,7 @@ class Query:
     ) -> tuple[
         tuple[ComparisonAxis, ...], tuple[int, ...], tuple[tuple[int, tuple[int, ...]], ...]
     ]:
+        from marivo.analysis.binding.correspondence import _calendar_containment_image
         from marivo.analysis.dsl.population import _calendar_population
 
         signature = self._graph.signature
@@ -802,7 +803,6 @@ class Query:
                     location,
                 )
             position, source = calendars[0]
-            mapping = []
             if source.timezone != axis.timezone or source.snapshot_digest != axis.snapshot_digest:
                 reject(
                     "the same frozen calendar authority",
@@ -810,23 +810,15 @@ class Query:
                     "Coarsen the original CalendarAxis.",
                     location,
                 )
-            for nominal_start, nominal_end, start, end in source.cells:
-                choices = tuple(
-                    index
-                    for index, (nominal_a, nominal_b, a, b) in enumerate(axis.cells)
-                    if nominal_a <= nominal_start
-                    and nominal_end <= nominal_b
-                    and a <= start
-                    and end <= b
+            mapping, failed_interval = _calendar_containment_image(source, axis)
+            if mapping is None:
+                assert failed_interval is not None
+                reject(
+                    "one containing target bucket per original actual interval",
+                    repr(failed_interval),
+                    "Use a lawful coarsening without changing scope.",
+                    location,
                 )
-                if len(choices) != 1:
-                    reject(
-                        "one containing target bucket per original actual interval",
-                        repr((start, end)),
-                        "Use a lawful coarsening without changing scope.",
-                        location,
-                    )
-                mapping.append(choices[0])
             if source.cells and (
                 min(cell[2] for cell in source.cells),
                 max(cell[3] for cell in source.cells),
@@ -838,7 +830,7 @@ class Query:
                     location,
                 )
             positions.append(position)
-            maps.append((len(positions) - 1, tuple(mapping)))
+            maps.append((len(positions) - 1, mapping))
         if len(set(positions)) != len(positions):
             reject("distinct output axes", repr(axes), "Retain each axis once.", location)
         return axes, tuple(positions), tuple(maps)

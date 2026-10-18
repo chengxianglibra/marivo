@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone, tzinfo
-from pathlib import Path
+from datetime import timezone, tzinfo
 from typing import Literal
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfoNotFoundError
 
-from marivo._timezones import parse_timezone as parse_timezone
+from marivo._timezones import (
+    fixed_offset_timezone_candidate,
+    system_timezone_candidate,
+)
+from marivo._timezones import (
+    parse_timezone as parse_timezone,
+)
 from marivo.datasource.engines import profile_for_backend
 from marivo.datasource.errors import DatasourceConnectionError, repair
 
@@ -28,47 +32,24 @@ class DatasourceEngineTimezone:
 
 
 def _resolve_system_timezone() -> DatasourceEngineTimezone:
-    env_tz = os.environ.get("TZ")
-    if env_tz:
-        try:
-            name, tz = parse_timezone(env_tz)
-            return DatasourceEngineTimezone(
-                engine_timezone_name=name,
-                engine_timezone_tz=tz,
-                engine_timezone_resolution="fixed_offset" if isinstance(tz, timezone) else "iana",
-                read_tz_resolution="system_fallback",
-            )
-        except (ZoneInfoNotFoundError, ValueError):
-            return _fixed_offset_fallback()
-
-    localtime = Path("/etc/localtime")
-    if localtime.is_symlink():
-        target = str(localtime.resolve())
-        marker = "/zoneinfo/"
-        if marker in target:
-            candidate = target.split(marker, 1)[1]
-            try:
-                return DatasourceEngineTimezone(
-                    engine_timezone_name=candidate,
-                    engine_timezone_tz=ZoneInfo(candidate),
-                    engine_timezone_resolution="iana",
-                    read_tz_resolution="system_fallback",
-                )
-            except ZoneInfoNotFoundError:
-                return _fixed_offset_fallback()
-
-    return _fixed_offset_fallback()
+    candidate = system_timezone_candidate(allow_fixed_offset=True)
+    if candidate is None:
+        return _fixed_offset_fallback()
+    name, tz, resolution = candidate
+    return DatasourceEngineTimezone(
+        engine_timezone_name=name,
+        engine_timezone_tz=tz,
+        engine_timezone_resolution=resolution,
+        read_tz_resolution="system_fallback",
+    )
 
 
 def _fixed_offset_fallback() -> DatasourceEngineTimezone:
-
-    local_tz = datetime.now().astimezone().tzinfo
-    if local_tz is None:
-        local_tz = ZoneInfo("UTC")
+    name, local_tz, resolution = fixed_offset_timezone_candidate()
     return DatasourceEngineTimezone(
-        engine_timezone_name=str(timezone(local_tz.utcoffset(None) or timedelta(0))),
+        engine_timezone_name=name,
         engine_timezone_tz=local_tz,
-        engine_timezone_resolution="fixed_offset",
+        engine_timezone_resolution=resolution,
         read_tz_resolution="system_fallback",
         warning="system timezone could not be resolved as IANA; fixed offset fallback is in use",
     )

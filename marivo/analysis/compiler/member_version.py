@@ -1,4 +1,4 @@
-"""Exact member version selection shared by construction and Ibis lowering."""
+"""Lower exact member version predicates through Ibis."""
 
 from __future__ import annotations
 
@@ -8,91 +8,13 @@ from zoneinfo import ZoneInfo
 import ibis
 import ibis.expr.types as ir
 
-from marivo._temporal import BeforeEndBoundary
-from marivo.analysis.core.time_grid import GridPoint, GridVersionSelection
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.semantic.ir import (
-    TargetEntityContract,
     TargetSnapshotSelection,
     TargetSnapshotVersion,
     TargetValiditySelection,
     TargetValidityVersion,
 )
-from marivo.semantic.validator import normalize_target_version_selection
-
-
-def selection(
-    contract: TargetEntityContract,
-    at: datetime | BeforeEndBoundary | GridPoint | None,
-    report_timezone: str,
-) -> TargetSnapshotSelection | TargetValiditySelection | GridVersionSelection | None:
-    """Resolve declared version facts without querying available source rows."""
-    if (contract.version is None) != (at is None):
-        raise DatasetConstructionError(
-            expected="an explicit anchor for versioned Entities and no anchor otherwise",
-            received=f"{contract.ref.path}: {at!r}",
-            repair="Supply at for this versioned Entity, or remove it for an unversioned Entity.",
-            location="analysis.members.version",
-        )
-    if isinstance(at, GridPoint):
-        selections: list[tuple[str, TargetSnapshotSelection | TargetValiditySelection]] = []
-        for cell in at.grid.cells:
-            anchor = selection(
-                contract,
-                BeforeEndBoundary(cell.end)
-                if at.side == "before_end"
-                else cell.start
-                if at.side == "start"
-                else cell.end,
-                report_timezone,
-            )
-            assert isinstance(anchor, (TargetSnapshotSelection, TargetValiditySelection))
-            selections.append((cell.identity, anchor))
-        return GridVersionSelection(at.grid.identity, tuple(selections))
-    if at is None:
-        return None
-    if not isinstance(at, (datetime, BeforeEndBoundary)):
-        raise DatasetConstructionError(
-            expected="datetime or TimeScope.before_end",
-            received=type(at).__name__,
-            repair="Pass an exact datetime or a scope's typed before_end boundary.",
-            location="analysis.members.version",
-        )
-    if isinstance(at, datetime) and at.tzinfo is None:
-        raise DatasetConstructionError(
-            expected="an aware datetime instant",
-            received=at.isoformat(),
-            repair="Attach the intended timezone or use a civil TimeScope.before_end boundary.",
-            location="analysis.members.version",
-        )
-    boundary = at.end if isinstance(at, BeforeEndBoundary) else at
-    if not isinstance(boundary, datetime):
-        boundary = datetime.combine(boundary, time())
-    if boundary.tzinfo is None:
-        zone = (
-            ZoneInfo(at.boundary_timezone or report_timezone)
-            if isinstance(at, BeforeEndBoundary)
-            else ZoneInfo(report_timezone)
-        )
-        localized = boundary.replace(tzinfo=zone)
-        from datetime import timezone
-
-        if (
-            localized.astimezone(timezone.utc).astimezone(zone).replace(tzinfo=None) != boundary
-            or localized.utcoffset() != boundary.replace(tzinfo=zone, fold=1).utcoffset()
-        ):
-            raise DatasetConstructionError(
-                expected="an unambiguous report-local instant",
-                received=boundary.isoformat(),
-                repair="Supply an aware datetime for a DST fold and correct a nonexistent civil time.",
-                location="analysis.members.version",
-            )
-        boundary = localized
-    return normalize_target_version_selection(
-        contract,
-        boundary=boundary,
-        interpretation="before_endpoint" if isinstance(at, BeforeEndBoundary) else "instant",
-    )
 
 
 def _bound(column: ir.Value, boundary: datetime) -> ir.Value:
@@ -163,23 +85,3 @@ def version_predicate(
         repair="Rebuild the member graph with the declared version's explicit anchor.",
         location="analysis.members.version",
     )
-
-
-def select_version(
-    table: ir.Table,
-    version: TargetSnapshotVersion | TargetValidityVersion | None,
-    selected: TargetSnapshotSelection | TargetValiditySelection | GridVersionSelection | None,
-) -> ir.Table:
-    """Read the exact selected version or union of grid-selected versions once."""
-    if isinstance(selected, GridVersionSelection):
-        from functools import reduce
-        from operator import or_
-
-        return table.filter(
-            reduce(
-                or_,
-                (version_predicate(table, version, anchor) for _, anchor in selected.selections),
-            )
-        )
-    predicate = version_predicate(table, version, selected)
-    return table.filter(predicate) if version is not None else table

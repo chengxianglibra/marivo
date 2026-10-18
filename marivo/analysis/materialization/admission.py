@@ -15,10 +15,7 @@ from marivo.analysis.materialization.errors import (
 from marivo.analysis.materialization.reconciliation import reconcile_session
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.writer_guard import session_writer_guard
-from marivo.analysis.observation.contracts import (
-    ObservationOwner,
-    ObservationSourceContext,
-)
+from marivo.analysis.observation.contracts import ObservationOwner
 from marivo.analysis.refs import ArtifactRef
 from marivo.analysis.session import _lazy_graph, _lazy_runtime_reads
 from marivo.analysis.session._lazy_read_model import (
@@ -64,7 +61,6 @@ class DatasetRuntime:
         self.session_ref = session_ref
         self._hook = event
         self.last_run_ref: str | None = None
-        self._source_context = ObservationSourceContext()
         self.connection_config = DatasourceConnectionConfig(
             store.project_root, cr.current_resolver()
         )
@@ -190,7 +186,7 @@ class DatasetRuntime:
         catalog: SemanticCatalog | None = None,
         period_calendar_snapshots: tuple[PeriodCalendarSnapshotV1, ...] = (),
     ) -> ObservationOwner:
-        owner = make_source_owner(
+        return make_source_owner(
             semantic_registry=semantic_registry,
             sidecar=sidecar,
             session_id=self.session_ref,
@@ -199,8 +195,6 @@ class DatasetRuntime:
             period_calendar_snapshots=period_calendar_snapshots,
             report_time=self.report_time,
         )
-        self._source_context.current = owner
-        return owner
 
     def _event(self, point: str) -> None:
         if self._hook is not None:
@@ -230,10 +224,6 @@ class DatasetRuntime:
         return _lazy_graph.graph(
             self.store, self.session_ref, artifact_ref=ref, direction=direction, max_nodes=max_nodes
         )
-
-    def show_session(self) -> None:
-        """Render the bounded Session recap from one read-only snapshot."""
-        _lazy_runtime_reads.recap(self.store, self.session_ref).show()
 
     def _execute_query(self, graph: BoundGraph, state: CompiledSemanticState | None) -> Artifact:
         """Execute a bound Query and publish through this Runtime's Store."""

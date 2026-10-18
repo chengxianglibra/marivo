@@ -45,7 +45,7 @@ A1 的第 5 节参数已进入可执行 API、owning specs、Help、错误修复
 | [graph_source_execution.py](../../../marivo/analysis/materialization/graph_source_execution.py) | 检查结果独立读取；纯 native 计划已直接读取最终表达式 | 首先减少检查往返；继续复用后端优化，不再为了融合制造中间 source 表 |
 | [graph_local_execution.py](../../../marivo/analysis/materialization/graph_local_execution.py) 的 `_transport_stage` | 每阶段转换行、构建键索引和 mask、筛选 parts，再构造 ExchangeResult | 在连续筛选中复用索引与行位置，只构造被实际消费的结果 |
 | [local_laws.py](../../../marivo/analysis/core/local_laws.py) | L1/L7/L8/L9 辅助函数仅有测试调用；`StateEquation` 只表示状态等式 | 在具体执行路径使用规律的准入条件，不能直接把辅助函数当优化器 |
-| [numeric_state.py](../../../marivo/analysis/methods/numeric_state.py) | 已有 `checked_sum`、`finish_division`、`merge_original` | 优先复用和收敛现有内核，不另造聚合协议 |
+| [numeric_state.py](../../../marivo/analysis/methods/numeric_state.py) | 已有 `checked_sum`、`finish_division` 及当前本地数值内核 | 优先复用和收敛现有内核，不另造聚合协议 |
 
 本次讨论中的临时内存探针提供了方向性证据，未归档成可复现的性能基线：
 
