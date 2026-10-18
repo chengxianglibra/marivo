@@ -104,56 +104,6 @@ class ColumnProfile:
 
 
 @dataclass(frozen=True, repr=False)
-class DiscoverySnapshotContract(RenderableResult):
-    """Query-free read contract for one :class:`DiscoverySnapshot`."""
-
-    snapshot_id: str
-    columns: tuple[str, ...]
-    retained_row_count: int
-    value_evidence_state: Literal["available", "value_evidence_unavailable"]
-    retained_values_shape: Literal["dict_rows"]
-    available_reads: tuple[str, ...]
-
-    def _repr_identity(self) -> str:
-        return (
-            f"DiscoverySnapshotContract snapshot={self.snapshot_id} rows={self.retained_row_count}"
-        )
-
-    def _card(self) -> Card:
-        retained_values = (
-            "available via .retained_values"
-            if ".retained_values" in self.available_reads
-            else "unavailable; sample(..., persist_values=True) is required"
-        )
-        return (
-            Card(
-                identity=self._repr_identity(),
-                available=(
-                    ".snapshot_id",
-                    ".columns",
-                    ".retained_row_count",
-                    ".value_evidence_state",
-                    ".retained_values_shape",
-                    ".available_reads",
-                    ".show()",
-                ),
-            )
-            .status(
-                f"value_evidence={self.value_evidence_state} "
-                f"retained_rows={self.retained_row_count}"
-            )
-            .field("selected columns", repr(self.columns))
-            .field("retained row shape", "tuple[dict[str, JsonScalar], ...]")
-            .field("retained values", retained_values)
-            .listing("query-free reads", self.available_reads)
-            .field("typed consumers", "none; snapshot is generic evidence")
-        )
-
-    def __str__(self) -> str:
-        return self.render()
-
-
-@dataclass(frozen=True, repr=False)
 class DiscoverySnapshot(RenderableResult):
     """Immutable bounded rows and profiles from one explicit source acquisition."""
 
@@ -189,7 +139,6 @@ class DiscoverySnapshot(RenderableResult):
                     ".coverage",
                     ".source_params",
                     ".retained_values",
-                    ".contract()",
                     ".show()",
                 ),
             )
@@ -218,6 +167,8 @@ class DiscoverySnapshot(RenderableResult):
                     f"persist_values={self.persist_values} cache={self.cache_status}"
                 ),
             )
+            .field("retained row shape", "tuple[dict[str, JsonScalar], ...]")
+            .field("typed consumers", "none; snapshot is generic evidence")
             .field(
                 "reacquire boundary",
                 "only missing columns, missing retained values, stale evidence, or identity mismatch",
@@ -237,32 +188,6 @@ class DiscoverySnapshot(RenderableResult):
                 row_count=len(self.profiles),
                 label="profiles",
             )
-        )
-
-    def contract(self) -> DiscoverySnapshotContract:
-        """Return the query-free read contract for this generic evidence snapshot.
-
-        Returns:
-            A bounded contract describing selected columns, retained row shape,
-            value-evidence availability, and direct field reads.
-
-        Example:
-            ``snapshot.contract().show()``
-
-        Constraints:
-            This method never refreshes the snapshot, connects to a datasource,
-            or infers semantic meaning from the retained evidence.
-        """
-        available_reads = [".columns", ".profiles", ".coverage", ".source_params"]
-        if self.value_evidence_state == "available":
-            available_reads.append(".retained_values")
-        return DiscoverySnapshotContract(
-            snapshot_id=self.id,
-            columns=self.columns,
-            retained_row_count=self.coverage.retained_row_count,
-            value_evidence_state=self.value_evidence_state,
-            retained_values_shape="dict_rows",
-            available_reads=tuple(available_reads),
         )
 
 

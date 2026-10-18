@@ -25,7 +25,7 @@ assert bindings == tuple(getattr(mv, name) for name in names)
 assert all(name in mv.__all__ for name in names)
 assert tuple(mv.__all__) == exports
 assert REGISTRY.canonical_ids() == help_targets
-assert {'Query', 'Artifact', 'Query.execute'} <= set(help_targets)
+assert {'query', 'artifact', 'query.execute'} <= set(help_targets)
 from marivo.analysis.session.core import Session
 
 exports = tuple(mv.__all__)

@@ -8,7 +8,7 @@ source reads. Named declarations attach immutable metadata to the same Deferred 
 model loading collects only exported root declarations. Derived aliases do not publish a
 new declaration. Declaration bodies are inspected and captured without invoking author functions.
 
-Use `catalog.describe(ref).show()` for definition facts and `Query.contract()` for execution
+Use `catalog.describe(ref).show()` for definition facts and `Query.show()` for execution
 facts. Native Deferred values have no Marivo `.show()` or `.contract()` methods. Real physical
 dtypes are checked during automatic execution preparation; no manual schema or conversion API
 is required. Implementation and execution acceptance for the additional capabilities below
@@ -127,7 +127,7 @@ view or a qualified Ibis expression and bind it through normal Semantic facts;
 neither provenance text nor terminal raw-query rows are Analysis inputs.
 
 A `DiscoverySnapshot` retains generic bounded rows, profiles, source evidence,
-coverage, and cache identity. Its `.contract()` is a query-free read contract;
+coverage, and cache identity. Its `.show()` displays captured facts without a source query;
 when `persist_values=True`, `retained_values` is a tuple of dictionaries keyed
 by the selected column names. It does not produce semantic-shaped projections
 or business judgment requirements.

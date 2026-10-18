@@ -8,10 +8,12 @@ from decimal import Decimal
 from typing import Literal, TypeAlias
 
 from marivo._definition.query import (
+    CoordinateSlot,
     Statistic,
     ValueBinary,
     ValueExpression,
     ValueLiteral,
+    ValueSlot,
     ValueUnary,
 )
 from marivo._definition.relations import QueryKeys
@@ -55,7 +57,39 @@ class Column:
     _query: QueryKeys | None = None
 
     def __repr__(self) -> str:
-        return f"<Column input={self._input_id[:16]} kind={self._kind} unit={self._unit}; use query.contract().show()>"
+        return f"<Column input={self._input_id[:16]} kind={self._kind}; use .show()>"
+
+    def show(self) -> None:
+        """Print captured Column binding facts without reading its source.
+
+        Returns: None; prints input identity, role, position, kind and unit.
+        Example: ``query['revenue'].show()``.
+        Constraints: Computed expressions may have no single name or coordinate.
+        Unresolved types remain unresolved until execution.
+        """
+        expression = self._expression
+        role = "coordinate" if isinstance(expression, CoordinateSlot) else "value"
+        facts = [
+            ("input", self._input_id),
+            ("role", role),
+            ("kind", self._kind),
+            ("unit", self._unit or "undeclared"),
+        ]
+        if self._query is not None and isinstance(expression, ValueSlot):
+            facts.append(("name", self._query.names[expression.index]))
+        elif isinstance(expression, CoordinateSlot):
+            facts.append(("coordinate_index", str(expression.index)))
+        else:
+            facts.append(("expression", type(expression).__name__))
+        print("logical Column")
+        for name, value in facts:
+            if len(value.encode("utf-8")) > 600:
+                print(f"{name}=omitted ({len(value)} characters)")
+                if name == "name":
+                    print("Complete names: query.output_names")
+            else:
+                print(f"{name}={value}")
+        print("Help: analysis.column")
 
     def _binary(
         self,

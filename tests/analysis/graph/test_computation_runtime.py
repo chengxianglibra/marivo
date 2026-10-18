@@ -524,7 +524,7 @@ def test_computed_measure_graph_reads_only_at_execute(
         query = computation_session.observe(
             {"value": computation_session.catalog.metrics.get(f"sales.{metric}")}
         )
-        query.contract()
+        query.show()
         assert computation_session.runs().items == ()
     expected = Decimal("51.50") if metric == "net_total" else 36.5
     assert query.execute().to_pandas()[("value", "value")].iloc[0] == expected

@@ -33,7 +33,7 @@ def _bounded(text: str, *, root: bool = False) -> str:
 def render_root_help() -> str:
     lines = [
         "marivo.ontology",
-        render_fingerprint(EnvironmentFingerprint.current(), reveal=True),
+        render_fingerprint(EnvironmentFingerprint.current(), reveal=False),
         "",
         "  Python imports:",
         "    import marivo",
@@ -84,16 +84,6 @@ def _render_type(type_name: str, original: object | None) -> str:
         lines.append("  Detail: call .show() for bounded readable state.")
     if type_name == "SemanticEdgeRef":
         lines.append("  Serialization: call .to_dict() for marivo.ontology_ref/v1 identity.")
-    if original is not None and TYPE_CONTRACTS.get(type(original)) is contract:
-        public_values = []
-        for name in contract.public_properties:
-            try:
-                value = getattr(original, name)
-            except (AttributeError, RuntimeError):
-                continue
-            public_values.append(f"{name}={value!r}")
-        if public_values:
-            lines.append("  Runtime fields: " + ", ".join(public_values))
     return _bounded("\n".join(lines))
 
 
@@ -107,36 +97,6 @@ def _render_error_contract(error_name: str) -> str:
             )
         )
     )
-
-
-def _render_error_briefing(error_name: str, original: object) -> str:
-    lines = [f"ontology.{error_name}", "  Ontology error briefing."]
-    for name in ("message", "expected", "received", "location", "location_label"):
-        value = getattr(original, name, None)
-        if value is not None:
-            label = "Location" if name == "location_label" else name.title()
-            lines.append(f"  {label}: {value}")
-
-    repair = getattr(original, "repair", None)
-    if repair is None:
-        return _bounded("\n".join(lines))
-    help_target = getattr(repair, "help_target", None)
-    if not isinstance(help_target, LiveHelpTarget):
-        raise RuntimeError("error_briefing requires repair.help_target")
-    lines.extend(
-        (
-            "  Repair:",
-            f"    Kind: {repair.kind}",
-            f"    Action: {repair.action}",
-        )
-    )
-    if repair.snippet is not None:
-        lines.append("    Snippet:")
-        lines.extend(f"      {line}" for line in repair.snippet.splitlines())
-    if repair.candidates:
-        lines.append("    Candidates: " + ", ".join(repair.candidates))
-    lines.append(f"    Next help: {_help_invocation(help_target)}")
-    return _bounded("\n".join(lines))
 
 
 def render_help_target(
@@ -189,10 +149,6 @@ def render_help_target(
         return _render_type(resolved.type_name, original_target)
     if resolved.kind == "error_contract" and resolved.error_name is not None:
         return _render_error_contract(resolved.error_name)
-    if resolved.kind == "error_briefing" and resolved.error_name is not None:
-        if resolved.original is None:
-            raise RuntimeError("error_briefing requires original target")
-        return _render_error_briefing(resolved.error_name, resolved.original)
     raise AssertionError(f"unsupported ontology help resolution {resolved.kind!r}")
 
 

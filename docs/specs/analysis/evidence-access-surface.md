@@ -66,8 +66,9 @@ is not an executed completeness audit; calendar certification does not certify
 business capture, and a saved result does not certify freshness or suitability
 for the current question.
 
-Use `marivo.help("analysis.evidence")`, `marivo.help(fact)` or
-`marivo.help(coordinate)` for the owning static contract. Query/Population
-contracts describe legal work before execution; Artifact cards disclose actual
+Use `marivo.help("analysis.evidence")`, `marivo.help(type(fact))` or
+`marivo.help(type(coordinate))` for the owning static contract. Query/Population
+`.show()` describes captured inputs before execution; static type Help lists
+operations, and execution validates their actual inputs. Artifact cards disclose actual
 saved output and read actions. The packaged analysis workflow owns investigation
 judgment and does not introduce another evidence store.

@@ -12,7 +12,7 @@ import marivo.semantic as ms
 from marivo._authoring.model import AuthoringRepair
 from marivo._help.model import MarivoHelpTargetError
 from marivo.introspection.live.model import LiveHelpTarget
-from marivo.semantic.errors import SemanticLoadError, SemanticRuntimeError
+from marivo.semantic.errors import SemanticHelpTargetError, SemanticLoadError, SemanticRuntimeError
 
 
 def test_registry_graph_reaches_every_required_semantic_leaf_within_four_edges() -> None:
@@ -87,7 +87,7 @@ def test_retired_value_policy_variants_are_not_help_targets(
         with pytest.raises(SemanticHelpTargetError):
             resolve_live_target(query, SEMANTIC_LIVE_SURFACE)
     assert (
-        resolve_live_target("Metric.divide", SEMANTIC_LIVE_SURFACE).canonical_id == "Metric.divide"
+        resolve_live_target("metric.divide", SEMANTIC_LIVE_SURFACE).canonical_id == "metric.divide"
     )
 
 
@@ -107,7 +107,7 @@ def test_semantic_live_surface_rejects_cross_surface_target() -> None:
 
 @pytest.mark.parametrize(
     "target",
-    ("preview", "catalog.preview", "SemanticCatalog.preview", "ms.SemanticCatalog.preview"),
+    ("preview",),
 )
 def test_registered_preview_string_paths_resolve_to_one_descriptor(target: str) -> None:
     from marivo.introspection.live.resolve import resolve_live_target
@@ -249,17 +249,12 @@ def test_loaded_entry_help_is_reference_briefing_without_runtime_effects(
     monkeypatch.setattr("marivo.semantic.reader.SemanticProject.load", fail)
     monkeypatch.setattr("marivo.datasource.backends.build_backend", fail)
 
-    resolved = resolve_live_target(entry, SEMANTIC_LIVE_SURFACE)
-    assert resolved.kind == "reference_briefing"
-    assert resolved.reference_id == "sales"
-    assert marivo.help(entry) is None
-    # Catalog values share their type's contract with finalized values.
-    value_help = resolve_live_target(
-        catalog.describe(ms.ref.metric("sales.revenue")), SEMANTIC_LIVE_SURFACE
-    )
-    assert value_help.kind == "type_contract"
-    assert value_help.type_name == "ExpressionContract"
-    assert marivo.help(catalog.describe(ms.ref.metric("sales.revenue"))) is None
+    with pytest.raises(SemanticHelpTargetError):
+        resolve_live_target(entry, SEMANTIC_LIVE_SURFACE)
+    # Definition facts remain available through the explicit Catalog operation.
+    value = catalog.describe(ms.ref.metric("sales.revenue"))
+    assert value is not None
+    assert marivo.help(type(value)) is None
 
 
 def test_error_help_preserves_instances_with_and_without_repair() -> None:
@@ -285,19 +280,11 @@ def test_error_help_preserves_instances_with_and_without_repair() -> None:
         message="semantic project is invalid",
     )
 
-    briefing = resolve_live_target(with_repair, SEMANTIC_LIVE_SURFACE)
-    contract = resolve_live_target(without_repair, SEMANTIC_LIVE_SURFACE)
-    error_class = resolve_live_target(SemanticLoadError, SEMANTIC_LIVE_SURFACE)
-
-    assert briefing.kind == "error_briefing"
-    assert contract.kind == "error_briefing"
-    assert contract.original is without_repair
-    assert error_class.kind == "error_contract"
+    for error in (with_repair, without_repair):
+        with pytest.raises(SemanticHelpTargetError):
+            resolve_live_target(error, SEMANTIC_LIVE_SURFACE)
+    assert resolve_live_target(SemanticLoadError, SEMANTIC_LIVE_SURFACE).kind == "error_contract"
     assert with_repair.repair is not None
-    assert with_repair.repair.help_target == LiveHelpTarget(
-        surface="analysis",
-        canonical_id="observe",
-    )
 
 
 def test_expression_error_help_has_one_owner_and_preserves_repairs(
@@ -312,21 +299,18 @@ def test_expression_error_help_has_one_owner_and_preserves_repairs(
         ms.aggregate(name="old_revenue")
     error = caught.value
     assert error.expected and error.received and error.repair
-    for target in (SemanticExpressionError, "SemanticExpressionError"):
+    for target in (SemanticExpressionError, "semantic_expression_error"):
         resolved = resolve_live_target(target, SEMANTIC_LIVE_SURFACE)
         assert resolved.kind == "error_contract"
         assert resolved.error_name == "SemanticExpressionError"
     assert marivo.help is public_help
     public_help(SemanticExpressionError)
     class_help = capsys.readouterr().out
-    public_help("semantic.SemanticExpressionError")
+    public_help("semantic.semantic_expression_error")
     assert capsys.readouterr().out == class_help
-    public_help(error)
-    instance_help = capsys.readouterr().out
-    assert error.expected in instance_help
-    assert error.received in instance_help
-    assert error.repair.action in instance_help
-    assert "SemanticExpressionError" in instance_help
+    with pytest.raises(MarivoHelpTargetError):
+        public_help(error)
+    assert error.expected and error.received and error.repair.action
 
 
 def test_live_help_performs_no_runtime_effects(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -361,10 +345,10 @@ def test_field_null_predicate_has_one_resolvable_reachable_help_contract(
 
     from marivo.semantic._capabilities.registry import REGISTRY
 
-    marivo.help("semantic.Dimension.isnull")
+    marivo.help("semantic.dimension.isnull")
     expected = capsys.readouterr().out
     assert "region.isnull()" in expected
-    descriptor = REGISTRY.by_canonical_id("Dimension.isnull")
+    descriptor = REGISTRY.by_canonical_id("dimension.isnull")
     assert descriptor.callable_path is None
     distances = {"authoring": 0}
     queue = deque(("authoring",))
@@ -377,7 +361,7 @@ def test_field_null_predicate_has_one_resolvable_reachable_help_contract(
             if route.surface == "semantic" and target is not None and target not in distances:
                 distances[target] = distances[node] + 1
                 queue.append(target)
-    assert distances["Dimension.isnull"] <= 3
+    assert distances["dimension.isnull"] <= 3
 
 
 def test_capture_finalization_has_owned_help_and_navigation(
@@ -389,7 +373,7 @@ def test_capture_finalization_has_owned_help_and_navigation(
     assert callable(marivo.help)
     for target, method in (
         ("finalize", ms.finalize),
-        ("FinalizedDeclarations.resolve", FinalizedDeclarations.resolve),
+        ("finalized_declarations.resolve", FinalizedDeclarations.resolve),
     ):
         marivo.help("semantic." + target)
         expected = capsys.readouterr().out
@@ -397,7 +381,7 @@ def test_capture_finalization_has_owned_help_and_navigation(
         assert capsys.readouterr().out == expected
         assert len(expected.splitlines()) <= 72 and len(expected) <= 7000
         assert target in {route.canonical_id for route in REGISTRY.routes("expressions")}
-    marivo.help("semantic.FinalizedDeclarations")
+    marivo.help("semantic.finalized_declarations")
     assert "resolve" in capsys.readouterr().out
 
 
@@ -408,7 +392,7 @@ def test_expression_display_has_one_owner_for_all_receiver_forms(
     from marivo.semantic._capabilities.registry import REGISTRY
 
     assert callable(marivo.help)
-    marivo.help("semantic.Entity.show")
+    marivo.help("semantic.entity.show")
     expected = capsys.readouterr().out
     assert "orders.show()" in expected and "None" in expected
     for receiver in (expressions.Entity, expressions.Relationship):
@@ -419,8 +403,8 @@ def test_expression_display_has_one_owner_for_all_receiver_forms(
         for row in REGISTRY.descriptors
         if row.callable_path == "marivo.semantic.expressions._ExpressionDisplay.show"
     ]
-    assert owners == ["Entity.show"]
-    marivo.help("semantic.SemanticCatalog.describe")
+    assert owners == ["entity.show"]
+    marivo.help("semantic.semantic_catalog.describe")
     assert "catalog.describe(" in capsys.readouterr().out
 
 
@@ -436,7 +420,7 @@ def test_frozen_declaration_display_resolves_and_display_routes_are_reachable(
     assert callable(marivo.help)
     with loader_context(LoaderContext()):
         finalized = ms.finalize()
-    marivo.help("semantic.FinalizedDeclarations.show")
+    marivo.help("semantic.finalized_declarations.show")
     expected = capsys.readouterr().out
     for operation in (FinalizedDeclarations.show, finalized.show):
         marivo.help(operation)
@@ -454,7 +438,7 @@ def test_frozen_declaration_display_resolves_and_display_routes_are_reachable(
             if route.surface == "semantic" and target is not None and target not in distances:
                 distances[target] = distances[node] + 1
                 queue.append(target)
-    for target in ("Entity.show", "FinalizedDeclarations.show"):
+    for target in ("entity.show", "finalized_declarations.show"):
         assert distances[target] <= 3
 
 
@@ -477,10 +461,81 @@ def test_advertised_semantic_native_methods_have_exact_public_help_routes() -> N
             string_route = route_help_target(qualified)
             assert isinstance(string_route, NativeHelpRoute)
             assert string_route.resolved == route.resolved
-            if route.owner == "semantic":
-                native_route = route_help_target(f"semantic.{contract.name}.{method_name}")
-                assert isinstance(native_route, NativeHelpRoute)
-                assert native_route.resolved == route.resolved
+
+
+def test_type_method_navigation_uses_the_actual_documentation_owner(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import re
+
+    from marivo._help.route import NativeHelpRoute, route_help_target
+    from marivo.datasource._capabilities.registry import TYPE_CONTRACTS as DATASOURCE_TYPES
+    from marivo.ontology._capabilities.registry import TYPE_CONTRACTS as ONTOLOGY_TYPES
+    from marivo.semantic._capabilities.registry import TYPE_CONTRACTS as SEMANTIC_TYPES
+
+    for type_obj, contract in (
+        *SEMANTIC_TYPES.items(),
+        *DATASOURCE_TYPES.items(),
+        *ONTOLOGY_TYPES.items(),
+    ):
+        marivo.help(type_obj)
+        page = capsys.readouterr().out
+        method_targets = dict(re.findall(r'  (\w+): marivo.help\("([a-z_.]+)"\)', page))
+        assert set(contract.public_methods) <= method_targets.keys(), contract.name
+        assert set(contract.type_page_methods) <= set(contract.public_methods)
+        for name in contract.public_methods:
+            route = route_help_target(method_targets[name])
+            assert isinstance(route, NativeHelpRoute), (contract.name, name)
+            marivo.help(method_targets[name])
+            assert f"Target: {method_targets[name]}\n" in capsys.readouterr().out
+
+    marivo.help("semantic.semantic_catalog")
+    page = capsys.readouterr().out
+    assert 'preview: marivo.help("semantic.preview")' in page
+    assert 'show: marivo.help("analysis.runtime.values.show")' in page
+    marivo.help("semantic.relationship")
+    assert 'contract: marivo.help("semantic.entity.contract")' in capsys.readouterr().out
+    marivo.help("semantic.period_calendar_entry")
+    assert (
+        'period: marivo.help("analysis.catalog.period_calendars.period")' in capsys.readouterr().out
+    )
+
+
+def test_unregistered_method_requires_explicit_type_page_ownership(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dataclasses import replace
+
+    from marivo.preview import PreviewResult
+    from marivo.semantic._capabilities import registry
+
+    contracts = dict(registry.TYPE_CONTRACTS)
+    contracts[PreviewResult] = replace(contracts[PreviewResult], type_page_methods=())
+    monkeypatch.setattr(registry, "TYPE_CONTRACTS", contracts)
+    with pytest.raises(MarivoHelpTargetError):
+        marivo.help(PreviewResult)
+
+
+@pytest.mark.parametrize(
+    ("target", "syntax"),
+    (
+        ("semantic.metric.where", "revenue.where"),
+        ("semantic.row.sum", "amount.sum"),
+        ("semantic.field.via", "region.via"),
+        ("semantic.metric_samples.first", "samples.first"),
+    ),
+)
+def test_native_deferred_grammar_keeps_expression_kind_and_syntax(
+    target: str,
+    syntax: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    marivo.help(target)
+    page = capsys.readouterr().out
+    assert f"Target: {target}\nKind: expression\n" in page
+    assert f"Syntax: {syntax}(...)" in page
+    assert "  Example:\n" in page
+    assert "Signature:" not in page
 
 
 def test_entity_help_preserves_the_supported_table_decorator(
@@ -501,7 +556,7 @@ def test_ordered_sample_help_discloses_inference_and_null_default(
     from marivo._authoring.model import AuthoringCapability
     from marivo.semantic._capabilities.registry import REGISTRY
 
-    target = f"MetricSamples.{method}"
+    target = f"metric_samples.{method}"
     descriptor = REGISTRY.by_canonical_id(target)
     assert isinstance(descriptor, AuthoringCapability)
     parameters = {
@@ -521,9 +576,64 @@ def test_ordered_sample_help_discloses_inference_and_null_default(
 def test_per_help_covers_observed_and_complete_sample_domains(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    marivo.help("semantic.Metric.per")
+    marivo.help("semantic.metric.per")
     text = capsys.readouterr().out
     for family in ("Dimension", "TimeField", "MembershipAxis", "tuple[", "Population"):
         assert family in text
     assert "Field samples use observed keys" in text
     assert "Population binds every compatible member, including empty samples" in text
+
+
+def test_semantic_concept_constructor_and_expression_role_share_one_navigation(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A Metric concept leads to both its definition and complete expression grammar."""
+    from marivo._help.render import render_help_text
+
+    concept = render_help_text("semantic.metric")[0]
+    assert "Kind: object" in concept
+    for target in (
+        "semantic.metric.define",
+        "semantic.metric.where",
+        "semantic.metric.per",
+        "semantic.metric.divide",
+        "semantic.metric.window",
+    ):
+        assert target in concept
+        assert render_help_text(target)[0]
+    marivo.help(ms.metric)
+    assert capsys.readouterr().out == render_help_text("semantic.metric.define")[0] + "\n"
+    for retired in ("semantic.objects.metric", "semantic.Metric.where", "ms.metric"):
+        with pytest.raises(MarivoHelpTargetError):
+            render_help_text(retired)
+
+
+def test_semantic_concept_outputs_follow_each_actual_construction_mode() -> None:
+    from marivo._help.render import render_help_text
+
+    metric = render_help_text("semantic.metric")[0]
+    assert "lookup key: Ref[metric]" in metric
+    assert 'marivo.help("semantic.metric.define"); returns Deferred' in metric
+    assert "output: Ref[metric]" not in metric
+    measure = render_help_text("semantic.measure")[0]
+    assert 'marivo.help("semantic.measure.from_column"); returns Ref[measure]' in measure
+    assert 'marivo.help("semantic.measure.define"); returns Deferred' in measure
+
+
+def test_scalar_field_role_links_governed_acquisition_and_existing_grammar() -> None:
+    from marivo._help.render import render_help_text
+
+    page = render_help_text("semantic.field")[0]
+    assert "Kind: topic" in page
+    assert "Dimension, TimeField or Measure" in page
+    for target in (
+        "semantic.dimension",
+        "semantic.time_dimension",
+        "semantic.measure",
+        "semantic.field.via",
+        "semantic.field.at",
+        "semantic.dimension.isnull",
+    ):
+        assert target in page
+        assert render_help_text(target)[0]
+    assert "semantic.field" in render_help_text("semantic.expressions")[0]

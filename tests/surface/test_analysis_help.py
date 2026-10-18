@@ -31,7 +31,7 @@ def test_invalid_objects_have_bounded_resolvable_repairs(target: object) -> None
     (
         ("analysis.session.memebrs", "analysis.session.members"),
         ("analysis.session.resum", "analysis.session.resume"),
-        ("analysis.Population.wher", "analysis.Population.where"),
+        ("analysis.population.wher", "analysis.population.where"),
     ),
 )
 def test_analysis_typo_repair_preserves_closest_registered_leaf(target: str, expected: str) -> None:
@@ -55,8 +55,11 @@ def test_unqualified_receiver_method_remains_unregistered() -> None:
 
 @pytest.mark.parametrize("name", ("instant", "time_scope"))
 def test_time_construction_help_has_only_session_entry(name: str) -> None:
-    with pytest.raises(MarivoHelpTargetError):
-        public_help("analysis." + name)
+    if name == "time_scope":
+        assert isinstance(route_help_target("analysis.time_scope"), NativeHelpRoute)
+    else:
+        with pytest.raises(MarivoHelpTargetError):
+            public_help("analysis." + name)
     assert isinstance(route_help_target("analysis.session." + name), NativeHelpRoute)
 
 

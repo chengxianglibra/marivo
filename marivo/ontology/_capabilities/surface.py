@@ -33,26 +33,11 @@ def _help_target_error(target: object, suggestions: tuple[str, ...]) -> NoReturn
 
 def _enrich(target: object) -> ResolvedLiveTarget[OntologyDescriptor] | None:
     """Resolve concrete ontology values and errors before callable dispatch."""
-    error_type = type(target)
-    if ERROR_TYPES.get(error_type.__name__) is error_type:
-        return ResolvedLiveTarget(
-            kind="error_briefing",
-            surface="ontology",
-            error_name=error_type.__name__,
-            original=target,
-        )
     if isinstance(target, type) and ERROR_TYPES.get(target.__name__) is target:
         return ResolvedLiveTarget(
             kind="error_contract",
             surface="ontology",
             error_name=target.__name__,
-        )
-    contract = TYPE_CONTRACTS.get(type(target))
-    if contract is not None:
-        return ResolvedLiveTarget(
-            kind="type_contract",
-            surface="ontology",
-            type_name=contract.name,
         )
     return None
 

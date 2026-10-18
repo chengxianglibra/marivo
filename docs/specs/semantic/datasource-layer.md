@@ -250,7 +250,7 @@ self-described physical types. Table, CSV, and JSON sources do not accept author
 physical types: the source is the authority for those facts. The `columns=`
 argument is an optional projection mapping stable output aliases to physical
 column names or JSON paths. Omitting it exposes all discoverable columns. Source
-construction, `ms.entity`, `ms.load()`, and `dataset.contract()` remain source-I/O
+construction, `ms.entity`, `ms.load()`, and `query.show()` remain source-I/O
 free. Database metadata is read only when execution needs types, and only for the
 required dependency closure. CSV and JSON types are inferred during their actual
 read; remote JSON is not fetched only to inspect its schema.
@@ -592,7 +592,7 @@ post-execution failures surface as `DatasourceAuthoringError` values with
 not escape as raw driver exceptions.
 
 The snapshot card makes datasource/source/scope identity, selected columns,
-coverage, and value/cache state explicit; use `snapshot.contract().show()` for
+coverage, and value/cache state explicit; use `snapshot.show()` for
 these query-free mechanical read facts. Values default to memory-only. A later
 process can recover snapshot identity, profiles, and coverage but not retained
 values unless the original sample used `persist_values=True` with explicit

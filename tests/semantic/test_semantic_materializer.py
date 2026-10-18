@@ -692,7 +692,7 @@ def test_dataset_decorator_body_rejected(semantic_project_factory) -> None:
     assert error.location is not None and error.location.line == 3
     assert error.expected == "name = ms.entity(...) without a decorated function body"
     assert error.repair is not None
-    assert error.repair.help_target.canonical_id == "entity"
+    assert error.repair.help_target.canonical_id == "entity.define"
 
 
 @pytest.mark.parametrize(

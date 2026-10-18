@@ -45,7 +45,7 @@ def test_comparison_owns_independent_nullable_columns(
     comparison = current.compare(baseline)
     assert isinstance(comparison, mv.Query)
     before = run_ids(case.session)
-    comparison.contract().show()
+    comparison.show()
     assert "execute" in capsys.readouterr().out
     assert run_ids(case.session) == before
     assert "\n" not in repr(comparison)

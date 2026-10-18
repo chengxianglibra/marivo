@@ -14,7 +14,7 @@ def _catalog_inputs() -> tuple[ReadCapability, ...]:
         member.property_name: f"CatalogCollection[{member.item_type_name}]"
         for member in CATALOG_MEMBER_CONTRACTS
     }
-    for name, target in (("require", "SemanticCatalog.require"), ("readiness", "readiness")):
+    for name, target in (("require", "semantic_catalog.require"), ("readiness", "readiness")):
         contract = SEMANTIC_REGISTRY.by_canonical_id(target)
         assert isinstance(contract, AuthoringCapability) and contract.output_family is not None
         outputs[name] = contract.output_family

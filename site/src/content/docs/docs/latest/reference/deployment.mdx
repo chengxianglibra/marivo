@@ -20,11 +20,11 @@ python3 -m venv .venv
 .venv/bin/python -c "import marivo; print(marivo.__name__)"
 ```
 
-After install, run `marivo doctor` from the selected environment to verify the
+If the environment identity is uncertain, run `marivo doctor` to inspect the
 Marivo version, Python executable, loaded package path, and project state. If
 the environment is not activated, invoke the `marivo` executable belonging to
-that environment. The CLI is a bootstrap check only. After entry, use Python
-for focused live contracts:
+that environment. Use `.venv/bin/python -m marivo help analysis` for static capability discovery.
+CLI and Python share the same focused Help targets:
 
 {/* example: deployment-connection-check */}
 

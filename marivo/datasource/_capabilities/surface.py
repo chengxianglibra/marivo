@@ -10,7 +10,6 @@ from marivo._authoring.model import AuthoringCapability
 from marivo.datasource._capabilities.registry import ERROR_TYPES, REGISTRY, TYPE_CONTRACTS
 from marivo.datasource.errors import DatasourceHelpTargetError
 from marivo.introspection.live.errors import build_help_target_error_payload
-from marivo.introspection.live.model import LiveHelpTarget
 from marivo.introspection.live.resolve import (
     LiveSurface,
     ResolvedLiveTarget,
@@ -59,34 +58,11 @@ def _cross_surface_owner(target: object) -> str | None:
 
 def _enrich(target: object) -> ResolvedLiveTarget[AuthoringCapability] | None:
     """Resolve concrete datasource runtime values before callable dispatch."""
-    error_type = type(target)
-    if ERROR_TYPES.get(error_type.__name__) is error_type:
-        repair = getattr(target, "repair", None)
-        help_target = getattr(repair, "help_target", None)
-        if not isinstance(help_target, LiveHelpTarget):
-            return ResolvedLiveTarget(
-                kind="error_contract",
-                surface="datasource",
-                error_name=error_type.__name__,
-            )
-        return ResolvedLiveTarget(
-            kind="error_briefing",
-            surface="datasource",
-            error_name=error_type.__name__,
-            original=target,
-        )
     if isinstance(target, type) and ERROR_TYPES.get(target.__name__) is target:
         return ResolvedLiveTarget(
             kind="error_contract",
             surface="datasource",
             error_name=target.__name__,
-        )
-    contract = TYPE_CONTRACTS.get(type(target))
-    if contract is not None:
-        return ResolvedLiveTarget(
-            kind="type_contract",
-            surface="datasource",
-            type_name=contract.name,
         )
     return None
 

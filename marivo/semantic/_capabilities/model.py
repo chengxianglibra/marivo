@@ -239,6 +239,7 @@ class SemanticTypeContract:
     producers: tuple[LiveHelpTarget, ...]
     public_properties: tuple[str, ...] = ()
     public_methods: tuple[str, ...] = ()
+    type_page_methods: tuple[str, ...] = ()
     consumers: tuple[LiveHelpTarget, ...] = ()
     guidance: tuple[str, ...] = ()
     notes: tuple[str, ...] = ()

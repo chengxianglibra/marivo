@@ -1,6 +1,5 @@
 """Public logical contract shape, cards and native Help stay aligned."""
 
-from dataclasses import fields
 from typing import Literal
 
 import pytest
@@ -11,24 +10,11 @@ from marivo.datasource.adapters import SourceSession
 from tests.shared_fixtures import DslCaseFactory, rendered_help
 
 
-def test_contract_public_fields_and_help_snapshot() -> None:
-    contract = mv.coordinates(by=(), keys=((),)).contract()
-    assert tuple(field.name for field in fields(contract) if not field.name.startswith("_")) == (
-        "kind",
-        "actions",
-        "domain",
-        "quantity",
-    )
-    text = rendered_help("analysis.AnalysisContract")
-    assert text == rendered_help(mv.AnalysisContract) == rendered_help(contract)
-    assert [line for line in text.splitlines() if line.startswith("  ")] == [
-        "  actions: tuple[marivo.analysis._contract.AnalysisAction, ...]",
-        "  domain: <class 'str'>",
-        "  kind: <class 'str'>",
-        "  quantity: str | None",
-    ]
-    assert "Producer: Query.contract" in text and "Producer: Population.contract" in text
-    assert "Consumer: AnalysisContract.show" in text
+def test_removed_action_contract_is_not_public() -> None:
+    assert "AnalysisContract" not in mv.__all__
+    assert "AnalysisAction" not in mv.__all__
+    assert not hasattr(mv.Population, "contract")
+    assert not hasattr(mv.Query, "contract")
 
 
 @pytest.mark.parametrize("kind", ("Query", "Population"))
@@ -48,27 +34,17 @@ def test_contract_cards_and_actions_without_source_reads_or_runs(
     monkeypatch.setattr(SourceSession, "execute", forbidden)
     population = case.session.members(ms.ref.entity("sales.customer"))
     receiver = case.session.observe({"revenue": metric}) if kind == "Query" else population
-    contract = receiver.contract()
-    assert contract.kind == kind
     assert capsys.readouterr().out == ""
-    assert repr(contract) == f"<AnalysisContract kind={kind}; use .show()>"
-    assert contract.show() is None
+    assert ".show()" in repr(receiver)
+    assert receiver.show() is None
     text = capsys.readouterr().out
-    assert text.splitlines()[:2] == [
-        f"logical {kind}",
-        "domain=singleton; quantity=1 named Metric outputs"
-        if kind == "Query"
-        else "domain=complete coordinates; quantity=keys only",
-    ]
+    assert text.startswith(f"logical {kind}\n")
     assert len(text.encode("utf-8")) <= 8193
-    assert all(name not in text for name in ("phase=", "required_parts", "retained_parts"))
     assert "definition=" in text and "owner=" in text
-    for action in contract.actions:
-        assert f"call={action.call}; help={action.help_target}\n" in text
-        assert rendered_help(action.help_target)
-    assert rendered_help(contract.show) == rendered_help("analysis.AnalysisContract.show")
-    assert rendered_help(receiver.contract) == rendered_help(f"analysis.{kind}.contract")
-    contract.show()
+    assert "call=" not in text
+    target = f"analysis.{kind.lower()}.show"
+    assert rendered_help(receiver.show) == rendered_help(target)
+    receiver.show()
     assert capsys.readouterr().out == text
     assert case.session.runs().items == ()
 
@@ -102,7 +78,7 @@ def test_selected_member_scope_survives_contract_transform_and_saved_evidence(
         )
         selected = query.select({"revenue": query["revenue"]})
         for receiver in (members, query, selected):
-            receiver.contract().show()
+            receiver.show()
             card = capsys.readouterr().out
             assert "sales.customer.region" in card and "east" in card
             if isinstance(receiver, mv.Query):
@@ -141,9 +117,9 @@ def test_population_scope_is_bounded_for_large_literal_and_nested_domains(
     case = analysis_dsl_case_factory("j2")
     entity = case.catalog.entities.get("sales.customer")
     large = mv.identities(entity, keys=tuple((f"member-{i}",) for i in range(5000)))
-    large.contract().show()
+    large.show()
     first = capsys.readouterr().out
-    large.contract().show()
+    large.show()
     assert capsys.readouterr().out == first
     assert "5000" in first and "member-4999" not in first
     assert len(first.encode()) <= 8193
@@ -151,7 +127,7 @@ def test_population_scope_is_bounded_for_large_literal_and_nested_domains(
     east = case.session.members(ms.ref.entity("sales.customer"), where=region == "east")
     south = case.session.members(ms.ref.entity("sales.customer"), where=region == "south")
     domain = east.union(south).difference(south)
-    domain.contract().show()
+    domain.show()
     scope = capsys.readouterr().out
     assert "east" in scope and "south" in scope
     assert "union" in scope.lower() and "difference" in scope.lower()
@@ -171,9 +147,57 @@ def test_unicode_scope_keeps_every_continuation_visible(
     population = domains[0]
     for domain in domains[1:]:
         population = population.union(domain)
-    contract = population.contract()
-    contract.show()
+    population.show()
     card = capsys.readouterr().out
     assert "omitted" in card
     assert len(card.encode()) <= 8193
-    assert all(action.help_target in card for action in contract.actions)
+    assert "Help: analysis.population" in card
+
+
+def test_output_names_and_column_show_preserve_complete_metadata(
+    analysis_dsl_case_factory: DslCaseFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    case = analysis_dsl_case_factory("j2")
+    metric = case.catalog.metrics.get("sales.revenue")
+    names = tuple(f"amount_{index}" for index in range(20))
+    query = case.session.observe(dict.fromkeys(names, metric))
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("metadata disclosure accessed a source")
+
+    monkeypatch.setattr(SourceSession, "__enter__", forbidden)
+    monkeypatch.setattr(SourceSession, "execute", forbidden)
+    assert query.output_names == names
+    query.show()
+    text = capsys.readouterr().out
+    assert "outputs_omitted=12" in text and "query.output_names" in text
+    column = query[query.output_names[-1]]
+    assert ".show()" in repr(column)
+    assert column.show() is None
+    card = capsys.readouterr().out
+    assert "name=amount_19" in card and "role=value" in card
+    assert "kind=numeric" in card and "unit=CNY" in card
+    assert "Help: analysis.column" in card
+    assert case.session.runs().items == ()
+
+
+def test_long_captured_output_facts_are_explicitly_omitted(
+    analysis_dsl_case_factory: DslCaseFactory,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    case = analysis_dsl_case_factory("j2")
+    name, unit = "value_" + "x" * 9000, "unit_" + "z" * 9000
+    query = case.session.values(by=(), columns={name: unit}, rows=(((), {name: 1}),))
+    assert query.output_names == (name,)
+    query.show()
+    card = capsys.readouterr().out
+    assert "output[0]=omitted" in card and "query.output_names" in card
+    assert len(card.encode()) <= 8192
+    assert len(repr(query[name])) < 200
+    query[name].show()
+    card = capsys.readouterr().out
+    assert "name=omitted" in card and "unit=omitted" in card
+    assert len(card.encode()) <= 8192
+    assert case.session.runs().items == ()

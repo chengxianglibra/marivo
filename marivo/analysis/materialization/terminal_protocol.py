@@ -50,7 +50,7 @@ def invalid(received: str) -> IntegrityError:
         received=received,
         repair="Preserve the selected Store and output files. Inspect the exact terminal record; old graph/continuation formats cannot be migrated or replayed.",
         stage="terminal_output",
-        help_target="Artifact",
+        help_target="artifact",
     )
 
 

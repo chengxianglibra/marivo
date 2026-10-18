@@ -114,8 +114,6 @@ ANALYSIS_PUBLIC = (
     "RunPage",
     "SessionGraph",
     "Session",
-    "AnalysisAction",
-    "AnalysisContract",
     "session",
 )
 

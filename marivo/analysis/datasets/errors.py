@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
 from marivo.introspection.live.model import LiveHelpTarget
+from marivo.introspection.live.targets import canonical_target
 
 
 class DatasetConstructionError(AnalysisError):
@@ -30,7 +31,10 @@ class DatasetConstructionError(AnalysisError):
             repair=AnalysisRepair(
                 kind="retry",
                 action=repair[:480],
-                help_target=LiveHelpTarget(surface="analysis", canonical_id=help_target),
+                help_target=LiveHelpTarget(
+                    surface="analysis",
+                    canonical_id=canonical_target(help_target) if help_target is not None else None,
+                ),
             ),
         )
 

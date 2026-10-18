@@ -48,7 +48,6 @@ from marivo._definition.types import (
     Owner,
 )
 from marivo._temporal import CalendarAxis, InstantAnchor, anchor_from_datetime
-from marivo.analysis._contract import AnalysisAction, AnalysisContract
 from marivo.analysis._scope import scope_summary
 from marivo.analysis.core.model import reject
 from marivo.semantic._deferred_semantics import consume_field
@@ -156,7 +155,12 @@ class Population(PopulationParameter):
 
     @property
     def axes(self) -> tuple[ComparisonAxis, ...]:
-        """Return the ordered bound axes without reading any source."""
+        """Return all complete coordinate axes in definition order.
+
+        Returns: The captured axis tuple; reading is source/schema free.
+        Example: ``population.project(by=population.axes)``.
+        Constraints: Read-only metadata; never enumerates the population keys.
+        """
         return self.definition.axes
 
     @property
@@ -166,75 +170,50 @@ class Population(PopulationParameter):
     def __repr__(self) -> str:
         return f"<Population id={computation_fingerprint(self.definition)[:16]} axes={len(self.axes)}; use .show()>"
 
-    def show(self) -> str:
-        """Return bounded captured domain facts without enumerating source keys."""
-        return "\n".join(
-            (
-                repr(self),
-                *(
-                    axis.identity
-                    if isinstance(axis, (CalendarCoordinate, CorrespondenceAxis))
-                    else axis.field.ref.key
-                    if axis.field
-                    else axis.entity.ref.key
-                    for axis in self.axes[:8]
-                ),
-            )
-        )
+    def show(self) -> None:
+        """Print bounded captured domain facts without enumerating source keys.
 
-    def contract(self) -> AnalysisContract:
-        """Return source-free domain facts and valid next operations.
-
-        Returns: An AnalysisContract describing the captured finite coordinate program.
-        Example: ``population.contract().show()``.
-        Constraints: This does not read business rows or infer unknown keys.
+        Returns: None; prints coordinates, scope, ownership and captured key count.
+        Example: ``population.show()``.
+        Constraints: No schema/source reads or evaluation; full axes remain in axes.
         """
         owner = _owner(self.definition)
-        return AnalysisContract(
-            kind="Population",
-            actions=(
-                AnalysisAction("session.query(population)", "analysis.session.query"),
-                AnalysisAction(
-                    "population.project(by=population.axes)", "analysis.Population.project"
-                ),
-                AnalysisAction("population.union(population)", "analysis.Population.union"),
-                AnalysisAction(
-                    "population.intersection(population)", "analysis.Population.intersection"
-                ),
-                AnalysisAction(
-                    "population.difference(population)", "analysis.Population.difference"
-                ),
+        facts = (
+            ("axes", str(len(self.axes))),
+            ("definition", computation_fingerprint(self.definition)),
+            ("scope", scope_summary(self.definition)),
+            ("owner", owner.session_id if owner is not None else "unbound"),
+            (
+                "keys",
+                f"{len(self.definition.keys)} captured complete literal coordinates"
+                if isinstance(self.definition, LiteralPopulation)
+                else "unevaluated program; show does not enumerate keys",
             ),
-            domain="complete coordinates",
-            quantity="keys only",
-            _facts=(
-                ("axes", str(len(self.axes))),
-                ("definition", computation_fingerprint(self.definition)),
-                ("scope", scope_summary(self.definition)),
-                ("owner", owner.session_id if owner is not None else "unbound"),
+            *(
                 (
-                    "keys",
-                    f"{len(self.definition.keys)} captured complete literal coordinates"
-                    if isinstance(self.definition, LiteralPopulation)
-                    else "unevaluated program; contract does not enumerate keys",
-                ),
-                *(
-                    (
-                        f"axis[{index}]",
-                        f"calendar={axis.grain} timezone={axis.timezone} cells={len(axis.cells)}"
-                        if isinstance(axis, CalendarCoordinate)
-                        else f"correspondence={axis.identity}"
-                        if isinstance(axis, CorrespondenceAxis)
-                        else f"{axis.field.ref.key if axis.field else axis.entity.ref.key}; path={axis.path}; at={axis.at}",
-                    )
-                    for index, axis in enumerate(self.axes[:6])
-                ),
-                (
-                    "next",
-                    "project, union, intersection, difference, product; session.query(population)",
-                ),
+                    f"axis[{index}]",
+                    f"calendar={axis.grain} timezone={axis.timezone} cells={len(axis.cells)}"
+                    if isinstance(axis, CalendarCoordinate)
+                    else f"correspondence={axis.identity}"
+                    if isinstance(axis, CorrespondenceAxis)
+                    else f"{axis.field.ref.key if axis.field else axis.entity.ref.key}; path={axis.path}; at={axis.at}",
+                )
+                for index, axis in enumerate(self.axes[:6])
             ),
         )
+        print("logical Population")
+        omitted = 0
+        for name, value in facts:
+            if len(value.encode("utf-8")) > 600:
+                print(f"{name}=omitted ({len(value)} characters)")
+                omitted += 1
+            else:
+                print(f"{name}={value}")
+        if omitted:
+            print(f"facts_omitted={omitted}; complete coordinates: population.axes")
+        if len(self.axes) > 6:
+            print(f"axes_omitted={len(self.axes) - 6}; complete axes: population.axes")
+        print("Help: analysis.population")
 
     def project(
         self, *, by: tuple[Deferred | MembershipAxis | MemberAxis | ComparisonAxis, ...]

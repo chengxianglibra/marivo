@@ -676,7 +676,7 @@ def execute(
                     repair=failure.repair.action,
                     stage="numeric_value",
                     run_ref=run_ref,
-                    help_target="Query.execute",
+                    help_target="query.execute",
                 ) from failure
             if not isinstance(failure, Exception):
                 raise
@@ -686,5 +686,5 @@ def execute(
                 repair="Inspect the original Run and resource obligations, correct the failure, then execute a new invocation.",
                 stage=phase,
                 run_ref=run_ref,
-                help_target="session.get_run" if run_ref else "Query.execute",
+                help_target="session.get_run" if run_ref else "query.execute",
             ) from failure

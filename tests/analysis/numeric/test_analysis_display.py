@@ -138,7 +138,8 @@ def test_business_display_identifies_current_and_baseline_windows(
         (current, "2026-08-01", "2026-09-01"),
         (baseline, "2026-07-01", "2026-08-01"),
     ):
-        period = dict(query.contract()._facts)["period"]
+        query.show()
+        period = capsys.readouterr().out
         assert start in period and end in period and "UTC" in period
     output = current.compare(baseline).execute()
     assert {column.name for column in output._manifest.data.schema.values} == {

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Mapping
+from dataclasses import replace
 from types import MappingProxyType
 from typing import Literal, get_args
 
@@ -48,6 +49,7 @@ from marivo.semantic._capabilities.model import (
     SemanticRootSection,
     SemanticTypeContract,
 )
+from marivo.semantic._capabilities.naming import semantic_target
 
 OUTPUT_FAMILIES = frozenset(
     {
@@ -350,7 +352,7 @@ def _capability(
         canonical_id=canonical_id,
         kind=kind,
         surface="semantic",
-        public_entrypoint=(public_entrypoint if callable_path is not None else None)
+        public_entrypoint=public_entrypoint
         or (f"ms.{canonical_id}" if callable_path is not None else None),
         callable_path=callable_path,
         summary=summary,
@@ -1656,7 +1658,12 @@ def _validate_registry(registry: SemanticCapabilityRegistry) -> None:
     if len(root_routes) > registry.render_budget("root").max_outgoing_routes:
         raise ValueError("semantic root exceeds its route budget")
 
-    known_semantic_type_targets = {"SemanticCatalog", "CatalogEntry"}
+    known_semantic_type_targets = {
+        "SemanticCatalog",
+        "CatalogEntry",
+        "semantic_catalog",
+        "catalog_entry",
+    }
     from marivo.datasource._capabilities.registry import REGISTRY as DATASOURCE_REGISTRY
 
     def validate_target(target: LiveHelpTarget, *, owner: str) -> None:
@@ -1729,7 +1736,7 @@ def _validate_registry(registry: SemanticCapabilityRegistry) -> None:
     for contract in object_contracts:
         kind = contract.semantic_kind
         expected_ref_family = f"Ref[{kind.value}]"
-        if contract.canonical_id != f"objects.{kind.value}":
+        if contract.canonical_id not in {f"objects.{kind.value}", kind.value}:
             raise ValueError(f"invalid semantic object-kind canonical id: {kind.value}")
         if contract.catalog_collection != catalog_collection_by_kind[kind]:
             raise ValueError(f"semantic object catalog collection drift: {kind.value}")
@@ -1919,6 +1926,151 @@ def _validate_registry(registry: SemanticCapabilityRegistry) -> None:
         raise ValueError("semantic Help graph exceeds four global edges: " + ", ".join(too_deep))
 
 
+def _canonical_link(target: LiveHelpTarget) -> LiveHelpTarget:
+    if target.canonical_id is None:
+        return target
+    from marivo.introspection.live.targets import canonical_target
+
+    identity = (
+        semantic_target(target.canonical_id)
+        if target.surface == "semantic"
+        else canonical_target(target.canonical_id)
+    )
+    return target.model_copy(update={"canonical_id": identity})
+
+
+def _canonical_descriptor(row: SemanticHelpDescriptor) -> SemanticHelpDescriptor:
+    identity = semantic_target(row.canonical_id)
+    if isinstance(row, AuthoringCapability):
+        return row.model_copy(
+            update={
+                "canonical_id": identity,
+                "see_also": tuple(_canonical_link(t) for t in row.see_also),
+            }
+        )
+    if isinstance(row, SemanticObjectContract):
+        return replace(
+            row,
+            canonical_id=identity,
+            ref_target=_canonical_link(row.ref_target),
+            decisions=tuple(
+                replace(d, next_targets=tuple(_canonical_link(t) for t in d.next_targets))
+                for d in row.decisions
+            ),
+            construction_modes=tuple(
+                replace(m, target=_canonical_link(m.target)) for m in row.construction_modes
+            ),
+            relationships=tuple(
+                replace(r, target=_canonical_link(r.target)) for r in row.relationships
+            ),
+            supporting_targets=tuple(_canonical_link(t) for t in row.supporting_targets),
+            check_targets=tuple(_canonical_link(t) for t in row.check_targets),
+        )
+    if isinstance(row, SemanticNavigationTopic):
+        members: list[SemanticNavigationRoute | SemanticObjectIndexEntry] = []
+        for member in row.members:
+            if isinstance(member, SemanticObjectIndexEntry):
+                contract = _canonical_descriptor(member.contract)
+                assert isinstance(contract, SemanticObjectContract)
+                members.append(replace(member, contract=contract))
+            else:
+                members.append(
+                    replace(
+                        member,
+                        target=_canonical_link(member.target),
+                        owns_discovery=member.owns_discovery
+                        and member.target.canonical_id != "expressions.Metric",
+                    )
+                )
+        return replace(row, canonical_id=identity, members=tuple(members))
+    if isinstance(row, SemanticBuilderTopic):
+        return replace(
+            row, canonical_id=identity, members=tuple(_canonical_link(t) for t in row.members)
+        )
+    return replace(
+        row,
+        canonical_id=identity,
+        routes=tuple(
+            replace(r, targets=tuple(_canonical_link(t) for t in r.targets)) for r in row.routes
+        ),
+    )
+
+
+def _canonical_registry(registry: SemanticCapabilityRegistry) -> SemanticCapabilityRegistry:
+    # The Metric role shares its object page; its operations are already linked there.
+    metric_operations = tuple(
+        t
+        for r in registry.help_descriptors
+        if isinstance(r, SemanticBuilderTopic) and r.canonical_id == "expressions.Metric"
+        for t in r.members
+    )
+    registry = replace(
+        registry,
+        _help_descriptors=tuple(
+            replace(
+                r,
+                supporting_targets=tuple(
+                    dict.fromkeys((*r.supporting_targets, *metric_operations))
+                ),
+            )
+            if isinstance(r, SemanticObjectContract) and r.semantic_kind == SemanticKind.METRIC
+            else r
+            for r in registry.help_descriptors
+        ),
+    )
+    rows = tuple(
+        _canonical_descriptor(r)
+        for r in registry.help_descriptors
+        if r.canonical_id != "expressions.Metric"
+    )
+    canonical_objects = {r.canonical_id: r for r in rows if isinstance(r, SemanticObjectContract)}
+    rows = tuple(
+        replace(
+            r,
+            members=tuple(
+                replace(m, contract=canonical_objects[m.contract.canonical_id])
+                if isinstance(m, SemanticObjectIndexEntry)
+                else m
+                for m in r.members
+            ),
+        )
+        if isinstance(r, SemanticNavigationTopic)
+        else r
+        for r in rows
+    )
+    exact = tuple(r for r in rows if isinstance(r, AuthoringCapability))
+    objects = tuple(r for r in rows if isinstance(r, SemanticObjectContract))
+    by_id = {r.canonical_id: r for r in rows}
+    if len(by_id) != len(rows):
+        raise ValueError("duplicate canonical semantic Help address")
+    return replace(
+        registry,
+        _help_descriptors=rows,
+        _descriptors=exact,
+        _by_id=MappingProxyType(by_id),
+        _by_callable_path=MappingProxyType(
+            {r.callable_path: r for r in exact if r.callable_path is not None}
+        ),
+        _object_contracts=objects,
+        _root_sections=tuple(
+            replace(s, members=tuple(_canonical_link(t) for t in s.members))
+            for s in registry.root_sections
+        ),
+        _source_contracts=MappingProxyType(
+            {semantic_target(k): v for k, v in registry._source_contracts.items()}
+        ),
+        _repair_contracts=MappingProxyType(
+            {
+                k: replace(v, help_target=_canonical_link(v.help_target))
+                for k, v in registry._repair_contracts.items()
+            }
+        ),
+        _render_classes=MappingProxyType(
+            {r.canonical_id: _render_class_for_descriptor(r) for r in rows}
+        ),
+    )
+
+
 def _finalize_registry(
     descriptors: tuple[AuthoringCapability, ...],
     *,
@@ -1962,7 +2114,14 @@ def _finalize_registry(
         _render_budgets=MappingProxyType(dict(render_budgets)),
     )
     _validate_registry(registry)
-    return registry
+    return (
+        _canonical_registry(registry)
+        if any(
+            isinstance(r, SemanticObjectContract) and r.canonical_id.startswith("objects.")
+            for r in active_help_descriptors
+        )
+        else registry
+    )
 
 
 def _ref_factory_capabilities() -> tuple[AuthoringCapability, ...]:
@@ -2145,7 +2304,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
         _capability(
             "Entity.show",
             "marivo.semantic.expressions._ExpressionDisplay.show",
-            "Print bounded Entity or Relationship metadata. Native numerical Deferred inputs have no show method; inspect Catalog definitions and Query contracts instead. No source reads.",
+            "Print bounded Entity or Relationship metadata. Native numerical Deferred inputs have no show method; inspect Catalog definitions and Query.show() instead. No source reads.",
             kind="method",
             output="None",
             inputs=(AuthoringInputRequirement(role="receiver", family="Expression"),),
@@ -3115,7 +3274,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "SemanticCatalog.describe",
             "marivo.semantic.catalog.SemanticCatalog.describe",
-            "Describe one compiled Entity, field, Metric or Relationship without source reads. Native Deferred inputs have no business attributes; definition facts live here and execution facts live on Query.contract().",
+            "Describe one compiled Entity, field, Metric or Relationship without source reads. Native Deferred inputs have no business attributes; definition facts live here and execution facts live on Query.show().",
             kind="method",
             output="ExpressionContract",
             inputs=(
@@ -3203,6 +3362,26 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 for prefix in ("row", "Metric", "MetricSamples")
             ),
             SemanticNavigationTopic(
+                canonical_id="field",
+                summary="A constructed scalar Dimension, TimeField or Measure retains its semantic owner. Capture physical fields with their constructors, then finalize and resolve their Refs before composition. Common field recipes select a governed path, choose a version anchor or test missing values; there is no separate public Field constructor.",
+                members=(
+                    _navigation_route(
+                        "Dimension definition", _target("objects.dimension"), owns_discovery=False
+                    ),
+                    _navigation_route(
+                        "TimeDimension definition",
+                        _target("objects.time_dimension"),
+                        owns_discovery=False,
+                    ),
+                    _navigation_route(
+                        "Measure definition", _target("objects.measure"), owns_discovery=False
+                    ),
+                    _navigation_route("single-valued relationship path", _target("Field.via")),
+                    _navigation_route("attribute version anchor", _target("Field.at")),
+                    _navigation_route("missing-value predicate", _target("Dimension.isnull")),
+                ),
+            ),
+            SemanticNavigationTopic(
                 canonical_id="expressions",
                 summary="Constructed fields retain kinds and consumed definition identities. Row arithmetic uses one contribution root; reduce before Metric arithmetic. Numeric Dimensions never gain sum permission. Per produces internal samples; finish with a reducer. Bare Refs are lookup keys. Local declarations do not publish Catalog Metrics or execute queries.",
                 members=tuple(
@@ -3216,10 +3395,8 @@ def _build_registry() -> SemanticCapabilityRegistry:
                         ("complete row counts", "Entity.count"),
                         ("sample reductions", "expressions.MetricSamples"),
                         ("Metric operations", "expressions.Metric"),
-                        ("scalar field paths", "Field.via"),
-                        ("attribute versions", "Field.at"),
+                        ("scalar field operations", "field"),
                         ("half-open time predicates", "TimeField.within"),
-                        ("field missing-value predicates", "Dimension.isnull"),
                     )
                 ),
             ),
@@ -3284,6 +3461,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         *,
         properties: tuple[str, ...] = (),
         methods: tuple[str, ...] = (),
+        type_page_methods: tuple[str, ...] = (),
         consumers: tuple[str | LiveHelpTarget, ...] = (),
         guidance: tuple[str, ...] = (),
         notes: tuple[str, ...] = (),
@@ -3291,7 +3469,8 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
     ) -> None:
         def targets(values: tuple[str | LiveHelpTarget, ...]) -> tuple[LiveHelpTarget, ...]:
             return tuple(
-                value if isinstance(value, LiveHelpTarget) else _target(value) for value in values
+                _canonical_link(value if isinstance(value, LiveHelpTarget) else _target(value))
+                for value in values
             )
 
         contracts[cls] = SemanticTypeContract(
@@ -3299,6 +3478,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             producers=targets(producers),
             public_properties=properties,
             public_methods=methods,
+            type_page_methods=type_page_methods,
             guidance=guidance,
             consumers=targets(consumers),
             notes=notes,
@@ -3499,6 +3679,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             "sample_policy",
         ),
         methods=show_render,
+        type_page_methods=show_render,
         guidance=_display_help(),
     )
     add(

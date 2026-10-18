@@ -149,20 +149,20 @@ def test_run_and_edge_help_pin_production_only_fields(session: mv.Session) -> No
         (mv.SucceededRun, ("finished_at", "output_artifact_ref")),
     ):
         assert tuple(field.name for field in fields(value)) == base + extra
-        text = rendered_help("analysis." + value.__name__)
+        text = rendered_help(value)
         assert text == rendered_help(value)
         assert "input_artifact_refs" not in text
     artifact = _publish(session)
     run = session.get_run(artifact._manifest.run_id)
-    assert rendered_help(run) == rendered_help(mv.SucceededRun)
+    assert rendered_help(type(run)) == rendered_help(mv.SucceededRun)
     edge = session.graph().edges[0]
-    text = rendered_help("analysis.runtime.SessionGraphEdge")
-    assert text == rendered_help(SessionGraphEdge) == rendered_help(edge)
+    text = rendered_help("analysis.runtime.session_graph_edge")
+    assert text == rendered_help(SessionGraphEdge) == rendered_help(type(edge))
     assert "  kind: Literal['produces']\n" in text
     assert get_args(get_type_hints(SessionGraphEdge)["kind"]) == ("produces",)
     with pytest.raises(IntegrityError, match="unregistered graph edge kind"):
         replace(edge, kind="consumes")
-    graph_help = rendered_help("analysis.SessionGraph")
+    graph_help = rendered_help("analysis.session_graph")
     assert "every selected Run" in graph_help and "every selected Artifact" in graph_help
     assert "omitted requested neighbors" in graph_help
     text = rendered_help("analysis.session.graph")

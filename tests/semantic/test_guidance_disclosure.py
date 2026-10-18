@@ -90,9 +90,9 @@ def test_definition_read_does_not_prescribe_readiness(
     assert "catalog = ms.load()" not in authoring
     for target in ("semantic.objects", "semantic.builders", "semantic.checks"):
         assert target in authoring
-    show_help("semantic.metric")
+    show_help("semantic.metric.define")
     assert "readiness(" not in capsys.readouterr().out
-    show_help("semantic.dimension_column")
+    show_help("semantic.dimension.from_column")
     constructor = capsys.readouterr().out
     assert "Postcondition after saving" in constructor
     assert "catalog = ms.load()" in constructor
@@ -125,13 +125,12 @@ def test_error_instance_keeps_concrete_facts(
     )
     monkeypatch.setattr("marivo.semantic.reader.SemanticProject.load", _no_io)
     monkeypatch.setattr("marivo.datasource.backends.build_backend", _no_io)
-    show_help(error)
-    text = capsys.readouterr().out
+    # Concrete facts are owned by the exception itself; Help accepts its type.
+    text = str(error)
     for fact in (error.kind, error.message, error.expected, error.received, "sales.revenue"):
         assert fact is not None and fact in text
-    assert "semantic project" in text
-    assert ('marivo.help("datasource.inspect")' in text) is with_repair
-    _assert_current_help_budget(text)
+    show_help(type(error))
+    assert "SemanticLoadError" in capsys.readouterr().out
 
 
 def test_dynamic_error_values_are_bounded_with_full_read_path(
@@ -150,16 +149,11 @@ def test_dynamic_error_values_are_bounded_with_full_read_path(
             snippet="\n".join("entry.show()" for _ in range(100)),
         ),
     )
-    show_help(error)
-    text = capsys.readouterr().out
-    assert "large message" in text
-    assert "Expected: one domain" in text
-    assert "Received: none" in text
-    assert 'marivo.help("datasource.inspect")' in text
-    assert "omitted" in text
-    assert "exc.message" in text and "exc.repair" in text
-    _assert_current_help_budget(text)
     assert len(error.message) > 20_000
+    assert error.expected == "one domain"
+    assert error.received == "none"
+    assert error.repair is not None
+    assert error.repair.help_target.display == "datasource.inspect"
 
 
 def test_aggregate_error_help_retains_order_and_reports_omissions(
@@ -176,15 +170,9 @@ def test_aggregate_error_help_retains_order_and_reports_omissions(
             for index in range(100)
         )
     )
-    show_help(error)
-    text = capsys.readouterr().out
-    assert text.index("failure_000") < text.index("failure_001")
-    match = re.search(r"Omitted errors: (\d+)", text)
-    assert match is not None
-    shown = len(re.findall(r"Error \d+: SemanticLoadError", text))
-    assert shown + int(match.group(1)) == len(error.errors)
-    assert "for error in exc.errors: print(error)" in text
-    _assert_current_help_budget(text)
+    assert len(error.errors) == 100
+    assert error.errors[0].message == "failure_000"
+    assert error.errors[1].message == "failure_001"
 
 
 def test_readiness_card_discloses_scope_and_repair_without_empty_fix() -> None:
@@ -201,7 +189,7 @@ def test_readiness_card_discloses_scope_and_repair_without_empty_fix() -> None:
                 repair=AuthoringRepair(
                     kind="inspect",
                     action="Browse current metrics.",
-                    help_target=LiveHelpTarget(surface="semantic", canonical_id="SemanticCatalog"),
+                    help_target=LiveHelpTarget(surface="semantic", canonical_id="semantic_catalog"),
                 ),
             ),
         ),
@@ -214,7 +202,7 @@ def test_readiness_card_discloses_scope_and_repair_without_empty_fix() -> None:
     assert "Not found -> fix:" not in text
     assert "analysis_ready: metric:sales.ready" in text
     assert "Browse current metrics." in text
-    assert 'marivo.help("semantic.SemanticCatalog")' in text
+    assert 'marivo.help("semantic.semantic_catalog")' in text
     large = replace(
         report,
         input_summary=ReadinessInputSummary(
@@ -244,7 +232,7 @@ def test_source_health_cards_disclose_failed_facts_and_scope_without_queries(
         repair=AuthoringRepair(
             kind="reauthor",
             action="Repair the declared amount field.",
-            help_target=LiveHelpTarget(surface="semantic", canonical_id="measure_column"),
+            help_target=LiveHelpTarget(surface="semantic", canonical_id="measure.from_column"),
         ),
         user_data_queried=True,
         scopes=((entity, md.unpruned(max_rows=10, timeout_seconds=5)),),
@@ -254,7 +242,7 @@ def test_source_health_cards_disclose_failed_facts_and_scope_without_queries(
     report_text = report.render()
     assert "sales.revenue" in report_text
     assert "Repair the declared amount field." in report_text
-    assert 'marivo.help("semantic.measure_column")' in report_text
+    assert 'marivo.help("semantic.measure.from_column")' in report_text
     text = check.render()
     assert "user_data_queried=True" in text
     for value in ('"null_count": 2', '"max_rows": 10', '"timeout_seconds": 5'):
@@ -286,7 +274,9 @@ def test_decorator_help_example_loads_the_declared_object(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    descriptor = REGISTRY.by_canonical_id(target)
+    from marivo.semantic._capabilities.naming import semantic_target
+
+    descriptor = REGISTRY.by_canonical_id(semantic_target(target))
     assert isinstance(descriptor, AuthoringCapability)
     assert descriptor.minimal_example is not None
     monkeypatch.setattr("marivo.datasource.backends.build_backend", _no_io)

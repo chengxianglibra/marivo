@@ -106,9 +106,13 @@ def repair(
     preserves_evidence: bool | None = None,
 ) -> AuthoringRepair:
     """Construct a datasource-owned typed repair."""
+    from marivo.introspection.live.targets import canonical_target
+
     return AuthoringRepair(
         kind=kind,
-        help_target=LiveHelpTarget(surface="datasource", canonical_id=canonical_id),
+        help_target=LiveHelpTarget(
+            surface="datasource", canonical_id=canonical_target(canonical_id)
+        ),
         action=action,
         snippet=snippet,
         candidates=candidates,

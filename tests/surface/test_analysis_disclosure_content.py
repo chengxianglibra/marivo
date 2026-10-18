@@ -26,7 +26,7 @@ def test_every_advertised_native_member_has_exact_help() -> None:
                     assert text == render_help_text("analysis." + resolved.canonical_id)[0]
     assert (
         render_help_text(mv.ordinal().show)[0]
-        == render_help_text("analysis.CalendarCorrespondence.show")[0]
+        == render_help_text("analysis.calendar_correspondence.show")[0]
     )
 
 
@@ -36,22 +36,22 @@ def test_parameter_semantics_and_real_producers() -> None:
         if isinstance(descriptor, TypeInput):
             for producer in descriptor.producers:
                 assert render_help_text("analysis." + producer)[0]
-            if descriptor.canonical_id != "Population":
+            if descriptor.canonical_id != "population":
                 assert "session.members" not in descriptor.producers, descriptor.canonical_id
     for target, producer in (
-        ("Query", "session.observe"),
-        ("Query", "session.read"),
-        ("Query", "session.values"),
-        ("Population", "session.members"),
-        ("Population", "Query.population"),
-        ("Artifact", "Query.execute"),
-        ("Column", "Query.__getitem__"),
+        ("query", "session.observe"),
+        ("query", "session.read"),
+        ("query", "session.values"),
+        ("population", "session.members"),
+        ("population", "query.population"),
+        ("artifact", "query.execute"),
+        ("column", "query.__getitem__"),
     ):
         descriptor = registry.by_canonical_id(target)
         assert isinstance(descriptor, TypeInput) and producer in descriptor.producers
         callable_descriptor = registry.by_canonical_id(producer)
         assert isinstance(callable_descriptor, CallableInput)
-        assert target in str(
+        assert descriptor.bindings[0].implementation.__name__ in str(
             callable_descriptor.bindings[0].implementation.__annotations__["return"]
         )
 
@@ -69,7 +69,7 @@ def test_family_projection_preserves_every_canonical_member() -> None:
         (mv.Column, ("sum", "mean", "divide", "is_null")),
     ):
         for method in methods:
-            target = owner.__name__ + "." + method
+            target = owner.__name__.lower() + "." + method
             descriptor = registry.by_callable(getattr(owner, method))
             assert isinstance(descriptor, CallableInput)
             assert descriptor.canonical_id == target and descriptor.discovery_group
@@ -86,14 +86,14 @@ def test_registration_rejects_incomplete_example_or_foreign_family(fault: str) -
         (i, p)
         for i, p in enumerate(providers)
         if any(
-            isinstance(d, CallableInput) and d.canonical_id == "Query.reduce" for d in p.descriptors
+            isinstance(d, CallableInput) and d.canonical_id == "query.reduce" for d in p.descriptors
         )
     )
     descriptors = list(provider.descriptors)
     position, descriptor = next(
         (i, d)
         for i, d in enumerate(descriptors)
-        if isinstance(d, CallableInput) and d.canonical_id == "Query.reduce"
+        if isinstance(d, CallableInput) and d.canonical_id == "query.reduce"
     )
     if fault == "input":
         broken = replace(descriptor, example=replace(descriptor.example, requires=()))
@@ -102,7 +102,7 @@ def test_registration_rejects_incomplete_example_or_foreign_family(fault: str) -
             descriptor, parameters=(replace(descriptor.parameters[0], acquisition=""),)
         )
     elif fault == "family":
-        broken = replace(descriptor, discovery_family="Query.compare")
+        broken = replace(descriptor, discovery_family="query.compare")
     elif fault == "missing_family":
         broken = replace(descriptor, discovery_family="Missing.reduce")
     else:

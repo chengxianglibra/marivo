@@ -497,7 +497,7 @@ attributes = attribute_s.read(fixed_customers, {
 })
 selected_gold = attributes.where(attributes["tier_at_end"] == "Gold").population()
 gold_query = attribute_s.query(selected_gold)
-attributes.contract().show()
+attributes.show()
 attributes_artifact = attributes.execute()
 gold_artifact = gold_query.execute()
 attributes_artifact.show()
@@ -506,7 +506,7 @@ gold_artifact.show()
 
 属性表仍有 C1/C2 两个完整身份，值分别为 `(Silver, Gold)`、`(Bronze, Bronze)`；Gold 身份结果只有 C1，不含新增 C3。
 Session.query 在读取属性前绑定字面量名单的 Session，population() 复用其逻辑键域；这一步不执行或查询身份存在性。
-`read` 的新属性读取和两个锚点在 Query.contract 中可见；构造与 contract 不读取来源，两个 execute 独立求值。
+`read` 的新属性读取和两个锚点在 Query.show 中可见；构造与 show 不读取来源，两个 execute 独立求值。
 `at=october.end` 精确命中 11 月 1 日的新版本；显式 start 可以读取当时的 Silver，但不代表取得期间结束前的最后版本。
 首版没有左极限选择，不能用 end 减 tick 代替。非版本化字段不能接受伪历史选择；
 将名单增加 C404 后，必需属性映射缺失应在执行检查中失败，不删该键或补普通 NA。
@@ -577,7 +577,7 @@ align 使用 left/right，compare 使用 current/baseline；非恒等对应保�
 对 partial_billing 使用默认 exact 必须失败；outer 的 t2/A 行保留 current=200、baseline=NA，presence 为 True/False，差额与比例均为 NA。
 不能仅因两端键文本相同而省略 match，也不能将两个 account_id 字段分类轴传给 corresponding 冒充身份轴。
 via 方向为 CRM → Billing，单跳仍是非空元组；反向或不具备一对一结构的路径拒绝。
-此关系的完整键可直接对应，不增加档案读取；其它需要查值的关系必须在 Query.contract 中披露实际依赖。
+此关系的完整键可直接对应，不增加档案读取；其它需要查值的关系必须在 Query.show 中披露实际依赖。
 同信息的 pandas merge 须显式使用两个键分量并检查 one_to_one 和缺侧；只按 account_id 会制造错误配对。
 
 ## 4. 制造：总体不良率与分层质量的反转
@@ -1411,7 +1411,7 @@ shares_query.execute().show()
 | 数值默认与已有政策 | 行/Metric/Column 的 0/0、非零数/0 默认为 NA，显式 error 失败；NA/0 在两种政策下均为 NA。share/compare/weighted_mean 同规则；有效配对 value=[10,20]、weight=[1,−1] 的零权重和按政策处理，无有效配对两种政策均为 NA。Artifact 读取已输出值，不重新解释政策 | 语义§3.4；DSL§4.4；附录 K |
 | 阶段错误与修复 | 误把Column送入来源构造器，或把Metric送入reduce，错误给出实收/预期及可用入口；Marivo接收前已发生的Ibis错误由静态Help说明。修复不自动observe、align或改统计政策 | [执行与披露 §2.3](lazy-analysis-dsl-execution.md#23-跨阶段错误给出有效修复) |
 | Query依赖与主输入 | Query 披露来源/字面量依赖；Artifact 没有 contract，DSL 拒绝以 Artifact/ID/数据轴充当计算依赖；字面量字符串不解析为产物引用 | [执行与披露 §2.1](lazy-analysis-dsl-execution.md#21-repr-与输入权威)、DSL §5.3 |
-| 域谓词绑定 | 固定West域的in_population尚未绑定时披露轴/依赖；绑定来源身份选择可读取所需属性，绑定 Population/Query 只测已有坐标，contract显示具体测试与新读 | [执行与披露 §2.2](lazy-analysis-dsl-execution.md#22-域测试的未绑定与已绑定披露) |
+| 域谓词绑定 | 固定West域的in_population尚未绑定时披露轴/依赖；绑定来源身份选择可读取所需属性，绑定 Population/Query 只测已有坐标，show 显示具体测试与新读 | [执行与披露 §2.2](lazy-analysis-dsl-execution.md#22-域测试的未绑定与已绑定披露) |
 | 比较命名 | SaaS 从恒等比较保留的共享身份轴取得流失账户；outer缺基期时baseline_present=False、端点值为 NA。align预算参照仍使用left/right | DSL §4.6–4.7；本文 §9.1-3 |
 | 小型图资格与成本 | 电商净额/带宽时间样本规约/配对规约只用准入 Ibis 数值图及语义边界；每类独立验证直接 lowering、Query rollup/执行内组件及输出数据往返。未知节点/规则版本给出位置，不以直接来源求值推导离线资格 | 语义§6.1；本文 §9.1-46 |
 | 同一构造与命名 | 模型/runtime 写同一表达式，两种零参数声明都捕获函数局部名，模型收录限定业务身份；政策在算子上，派生式匿名。Measure 继承已有单位/权限，只补充新业务断言 | [语义 §2](../semantic/expression-model-redesign.md#2-同一构造装饰与命名方式)；本文 §9.1-63–64 |
@@ -1480,7 +1480,7 @@ shares_query.execute().show()
 | CalendarAxis.coarsen | 重采样/期间映射已有 | 保留完整父子映射及原读取范围，服务合法原上卷 |
 | trailing_periods、since/to_date | rolling/expanding/期间分组已有 | 保留原指标贡献窗口、认证日历和覆盖；不承诺通用序列处理 |
 | ordinal/period_offset/previous_year | 位置/日期映射可实现 | 不带轴，在 align/compare 绑定时取两侧日历轴；保留完整期间和端点对应，不猜闰日/53 周 |
-| get_or_create/resume/artifact、Query.execute/contract、Artifact.show/to_pandas/findings | 非统计算子 | 保留会话/固定答案/执行/交接基础，不据此为其它算子自动授权 |
+| get_or_create/resume/artifact、Query.execute/show、Artifact.show/to_pandas/findings | 非统计算子 | 保留会话/固定答案/执行/交接基础，不据此为其它算子自动授权 |
 | 结果 min/max/count_defined/count_distinct/quantile | 普通描述统计及有效值计数可直接完成，当前无必要语义续算案例 | 移出首版；来源指标同名方法不受影响 |
 | record、结果 weighted_mean/correlation | pandas 可对同一有效配对求统计，现有示例只读取最终数字 | 移出首版，不保留 RecordColumn；来源/Metric 内部配对仍由 ms 拥有 |
 | case、minimum/maximum、with_axes、axis(name) | 条件赋值、clip、分类分组已有；当前 GRR/分类汇总为终端处理 | 移出首版；主体选择用已有 where，普通标签留在 pandas |
@@ -1513,7 +1513,7 @@ pandas 基线参见官方 [分组](https://pandas.pydata.org/docs/user_guide/gro
 ### 8.7 构造披露、执行后阅读与重开
 
 本例复用 sales 的声明，只检查各阅读入口的责任，不假定当前来源一定含有某个订单。
-定义和 contract 阶段不读业务或 schema；属性读取的实际例子见 §3.4，份额分母的上下文见 §7.12。
+定义和 show 阶段不读业务或 schema；属性读取的实际例子见 §3.4，份额分母的上下文见 §7.12。
 
 ```python
 catalog = ms.load()
@@ -1527,8 +1527,8 @@ source_population = disclosure_s.members(ms.ref.entity("sales.orders"), where=pa
 query = disclosure_s.observe({"revenue": revenue}, during=scope, by=(region,))
 query_population = query.population()
 for population in (literal_population, source_population, query_population):
-    population.contract().show()
-query.contract().show()
+    population.show()
+query.show()
 artifact = query.execute()
 artifact.show(n=5)
 page = artifact.findings(limit=20, cursor=None)
@@ -1543,9 +1543,9 @@ assert reopened_page.items == () and reopened_page.next_cursor is None
 reopened.evidence_digest().show()
 ```
 
-Query.contract 同时披露收入定义、时间角色、节点政策及待绑定要求，命名 Deferred 不另有 contract；三个 Population.contract 分别披露字面量身份、
-来源选择及其期间、Query 字段坐标依赖。未知来源键集保持未求值，不能靠 contract 完成 schema 或业务检查。
-Query.contract 披露本次期间、分组、来源依赖和必要检查，不把逻辑合法写成后端已验收。
+Query.show 同时披露收入定义、时间角色、节点政策及待绑定要求，命名 Deferred 不另有 contract；三个 Population.show 分别披露字面量身份、
+来源选择及其期间、Query 字段坐标依赖。未知来源键集保持未求值，不能靠 show 完成 schema 或业务检查。
+Query.show 披露本次期间、分组、来源依赖和必要检查，不把逻辑合法写成后端已验收。
 普通 observe 不产生方法 Finding，所以两次 findings 都是有界空页、没有后续 cursor；不为展示分页捏造发现。
 Evidence 摘要只描述本次实际读取范围和实际执行的检查，不认证业务完整性或生成业务/因果判断。
 新产物和重开产物读取同一输出记录；真实实现还须在来源、Catalog 和图解码器不可用时验证这些读取。
@@ -1569,7 +1569,7 @@ Artifact 没有 contract，不能从 findings/evidence_digest 恢复 DSL 权限�
 再观察实际维护的业务事实或执行前组合；不能仅验证数值相等，也不将尚未测试的下推/性能当收益。
 以下是真实实现的行为验收要求，不是本轮文档检查或数值 oracle 的通过声明。
 每个行为有明确输入、nullable 值、坐标和拒绝边界；检查不引入跨读一致性。
-构造/repr/Population.contract/Query.contract 无业务或 schema I/O；新/重开 Artifact 的阅读接口与数据一致，无图或 DSL 续算；
+构造/repr/Population.show/Query.show 无业务或 schema I/O；新/重开 Artifact 的阅读接口与数据一致，无图或 DSL 续算；
 未知执行路线明确拒绝，不偷偷换算法或发布部分Artifact。
 
 补充代码复用下表的既有验收条目，不另增一套测试矩阵：
@@ -1579,7 +1579,7 @@ Artifact 没有 contract，不能从 findings/evidence_digest 恢复 DSL 权限�
 | §3.4 Session.read 与 Field.at | 2、13、14 | R3 |
 | §3.5 声明身份对应 | 3、20、59 | R5 |
 | §7.12 日历粗化、原上卷和月内份额 | 9、12、56、60 | R6；R7 复用时间边界 |
-| §8.7 contract 与产物阅读 | 14、24、30；§9.2 的 Finding/Evidence 阅读 | R2、R3、R4，随各算子扩展 |
+| §8.7 实例披露与产物阅读 | 14、24、30；§9.2 的 Finding/Evidence 阅读 | R2、R3、R4，随各算子扩展 |
 
 本表说明组合场景何时接通，不重分配单条验收的 owner；各条主归属仍以实施计划 §5.2 为准。
 
@@ -1614,7 +1614,7 @@ Artifact 没有 contract，不能从 findings/evidence_digest 恢复 DSL 权限�
     旧产物的属性筛选只在 pandas 进行；Population.where 不隐式读取新属性。
     §3.4 的固定 C1/C2 在 at=end 读取 Gold/Bronze，不纳入 C3；缺少必需版本/属性映射时失败，不补 NA 或重选名单。
 14. **身份名单。** 来源O1/O2与名单O2/O3得O2，不产生O3；复合键、跨Entity、空名单精确检查。
-    Population.contract 对字面量/来源/Query 域均披露有序轴/角色、已有归属、选择期间及依赖；
+    Population.show 对字面量/来源/Query 域均披露有序轴/角色、已有归属、选择期间及依赖；
     禁止业务与 schema 读取仍可调用，未知键集不枚举，待检查条件不能显示为已经验证。
 15. **无列计数与父域。** 同row_count请求分别绑定两行/三行结果；显式空父纤维按原算子空输入规则完成。
 16. **精确去重。** 日计数1/1无法区分A/A与A/B；Query 精确合并需本次实际集合或充分输入，Artifact 不保存内部集合。
@@ -1720,10 +1720,10 @@ Artifact 没有 contract，不能从 findings/evidence_digest 恢复 DSL 权限�
     地区×月份默认不猜按月分组；缺失/歧义轴或无合法合并时拒绝。
     共同非 NA 零分母默认份额为 NA、显式 error 失败，NA 分子仍为 NA；参照按原政策完成，原输入检查不被省略，重叠分组和非可加量仍检查真实支持。
 57. **份额执行与产出。** Query.share 的分子/分母消费同一实际输入，无合格路线报缺口，不能提示先 execute 再 share。
-    构造/contract 不读取分母。先 share 再筛 East，Artifact 保持320/470，阅读不重算；
+    构造/show 不读取分母。先 share 再筛 East，Artifact 保持320/470，阅读不重算；
     跨产物普通比值交 pandas，不获得贡献包含证明。
     已知非法构造立即拒绝；schema/后端才能判定的缺口在 execute 准备报出，实际数据检查在发布前完成。
-    contract 披露具体待绑定/待检查要求，不执行读取，也不把 share/rollup 的待定资格显示成已支持。
+    show 披露具体待绑定/待检查要求，不执行读取，也不把 share/rollup 的待定资格显示成已支持。
 58. **期间省略准入。** 省略 during 与显式 None 等价，普通规约有无时间角色均表示不追加时间过滤；
     已选名单、固有日期条件、where.within 保持原范围，member_count 仍需显式 P，其它字段/版本要求不变。
     任一依赖要求按期间采样/时间样本规约，或 by 的轴/Population 含日历轴时拒绝省略；混合普通规约、空 P 或乘零不免除要求。
@@ -1870,7 +1870,7 @@ Artifact 没有 contract，不能从 findings/evidence_digest 恢复 DSL 权限�
 | --- | --- |
 | 同根 `ibis.ifelse(amount > cost, amount - cost, 0)`；顶层 coalesce/least；方法 sqrt/cast/round | 受控延迟配方保留叶子/条件/分支；装饰器与普通脚本走同一路径；顶层函数结果可继续 `.mean()` 与 `.mean(time=paid_at)` |
 | `(revenue / reference_revenue).sqrt()` 的命名与匿名输入 | 同值、NA、错误、政策和计算指纹；声明元数据独立；不把 sqrt 下沉到逐行计算 |
-| 缺 schema 时构造、load、contract、observe | 无来源 I/O，dtype 明确 pending；execute 自动 schema 准备，无新用户生命周期 |
+| 缺 schema 时构造、load、show、observe | 无来源 I/O，dtype 明确 pending；execute 自动 schema 准备，无新用户生命周期 |
 | 同配方绑定整数/Decimal/字符串 schema，及两次执行之间 schema 变化 | 前两者按真实类型推导和精度准入；不合法字符串输入拒绝；新 schema 不复用错误旧计划，不填假 float64 |
 | CNY+USD、sqrt(CNY)、有单位的 log、条件分支单位矛盾 | 最早可判定边界拒绝；显式结果 unit 不能覆盖内部冲突；无单位不能默认 1 |
 | abs/clip/ifelse 行式直接 sum，与显式新 Measure 授权 | 前者不自动获得求和许可，后者在根/单位/时间合法时可授权；状态固定轴不被授权擦除 |

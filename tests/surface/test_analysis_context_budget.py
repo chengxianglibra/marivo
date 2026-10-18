@@ -71,7 +71,7 @@ class Trace:
 def test_repeated_reads_are_charged(tmp_path: Path) -> None:
     trace = Trace(tmp_path)
     first = trace.help(mv.Column.mean)
-    trace.help("analysis.Column.mean")
+    trace.help("analysis.column.mean")
     assert trace.metrics() == {
         "raw_characters": len(first) * 2,
         "characters": len(first) * 2,
@@ -102,9 +102,9 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     trace.help("analysis")
     trace.help("analysis.entry")
     trace.help(session.members)
-    trace.read("members contract", members.contract().show)
+    trace.read("members metadata", members.show)
     trace.help(session.observe)
-    trace.read("observation contract", values.contract().show)
+    trace.read("observation metadata", values.show)
     trace.help(values.rollup)
     logical_total = values.rollup()
     trace.help(logical_total.execute)
@@ -125,7 +125,7 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     assert mean.to_pandas()[("value", "value")].tolist() == [1.0]
 
     trace = traces["comparison_ratio"] = Trace(case.root)
-    trace.read("observation contract", values.contract().show)
+    trace.read("observation metadata", values.show)
     trace.help(values.compare)
     earlier = session.observe(
         {"value": metric},
@@ -141,20 +141,20 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     )
     trace.help(mv.Column.divide)
     quotient = amounts.select({"value": amounts["count"] / amounts["revenue"]})
-    trace.read("ratio contract", quotient.contract().show)
+    trace.read("ratio metadata", quotient.show)
 
     trace = traces["selected_members"] = Trace(case.root)
     trace.help(values.where)
     selected = values.where(values["value"] > 0)
-    trace.read("selection contract", selected.contract().show)
+    trace.read("selection metadata", selected.show)
     trace.help(selected.population)
     selected_members = selected.population()
-    trace.read("selected members contract", selected_members.contract().show)
+    trace.read("selected members metadata", selected_members.show)
     assert isinstance(selected_members, mv.Population)
 
     trace = traces["spearman"] = Trace(case.root)
-    trace.help("analysis.Artifact.to_pandas")
-    trace.help("analysis.Query.select")
+    trace.help("analysis.artifact.to_pandas")
+    trace.help("analysis.query.select")
     exported = amounts.execute().to_pandas()
     association = exported[("value", "count")].corr(
         exported[("value", "revenue")], method="spearman"
@@ -165,12 +165,12 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
 
     trace = traces["missing_subject"] = Trace(case.root)
     scalar = values.reduce({"value": values["value"].sum()})
-    trace.read("scalar contract", scalar.contract().show)
+    trace.read("scalar metadata", scalar.show)
     trace.help(scalar.population)
     with pytest.raises(AnalysisError) as captured:
         scalar.population().project(by=(mv.member(),))
     trace.read("error", lambda: print(captured.value))
-    trace.help(captured.value)
+    trace.help(type(captured.value))
     assert captured.value.repair is not None
     target = captured.value.repair.help_target
     trace.help(target.surface + ("." + target.canonical_id if target.canonical_id else ""))
@@ -186,7 +186,7 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     )
     trace = traces["drift"] = Trace(case.root)
     trace.help("analysis.session.observe")
-    trace.help("analysis.Artifact.to_pandas")
+    trace.help("analysis.artifact.to_pandas")
     from tests.analysis.statistics.pandas_workflows import forecast
 
     future = forecast(daily.execute().to_pandas()[("value", "value")], model="drift")

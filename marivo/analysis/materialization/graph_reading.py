@@ -202,7 +202,7 @@ class TerminalReader:
                 received=f"{type(error).__name__}: {error}",
                 repair="Preserve the output files. Check the selected Artifact receipts and available memory; export cannot return partial rows.",
                 stage="terminal_reading",
-                help_target="Artifact",
+                help_target="artifact",
             ) from error
 
     def show(self, manifest: ArtifactManifest, *, n: int) -> None:

@@ -177,6 +177,7 @@ class VariantInput:
 
     implementation: type[object]
     fields: tuple[FieldInput, ...]
+    applicability: str | None = None
 
 
 def variant_fields(value: type[object]) -> tuple[FieldInput, ...]:
@@ -194,8 +195,8 @@ def variant_fields(value: type[object]) -> tuple[FieldInput, ...]:
     return public_fields(value)
 
 
-def variant(value: type[object]) -> VariantInput:
-    return VariantInput(value, variant_fields(value))
+def variant(value: type[object], applicability: str | None = None) -> VariantInput:
+    return VariantInput(value, variant_fields(value), applicability)
 
 
 @dataclass(frozen=True, slots=True)
@@ -231,7 +232,10 @@ Descriptor = CallableInput | TypeInput | NavigationInput | ReadCapability
 
 
 def with_sealed_variants(
-    descriptors: Sequence[Descriptor], variants: Mapping[str, tuple[type[object], ...]]
+    descriptors: Sequence[Descriptor],
+    variants: Mapping[str, tuple[type[object], ...]],
+    *,
+    applicability: Mapping[type[object], str] | None = None,
 ) -> tuple[Descriptor, ...]:
     """Attach owner-declared sealed variants to their exact type descriptors."""
     type_ids = {d.canonical_id for d in descriptors if isinstance(d, TypeInput)}
@@ -240,7 +244,13 @@ def with_sealed_variants(
             "registered type owners for sealed variants", repr(sorted(variants.keys() - type_ids))
         )
     return tuple(
-        replace(item, variants=tuple(variant(t) for t in variants[item.canonical_id]))
+        replace(
+            item,
+            variants=tuple(
+                variant(t, applicability.get(t) if applicability is not None else None)
+                for t in variants[item.canonical_id]
+            ),
+        )
         if isinstance(item, TypeInput) and item.canonical_id in variants
         else item
         for item in descriptors

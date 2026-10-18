@@ -59,7 +59,7 @@ def test_base_template_omits_missing_optional_sections() -> None:
 
 
 @pytest.mark.parametrize("with_repair", (False, True))
-def test_error_and_live_help_share_exact_run_inspection(with_repair: bool) -> None:
+def test_error_instance_owns_exact_run_inspection(with_repair: bool) -> None:
     error = (
         MaterializationError(
             expected="complete input",
@@ -70,11 +70,12 @@ def test_error_and_live_help_share_exact_run_inspection(with_repair: bool) -> No
         if with_repair
         else AnalysisError(message="execution failed", run_ref="run_exact")
     )
-    for rendered in (str(error), render_help_text(error)[0]):
-        assert "Run: run_exact" in rendered
-        assert "session.get_run('run_exact').show()" in rendered
-        assert "marivo.help('analysis.session.get_run')" in rendered
+    rendered = str(error)
+    assert "Run: run_exact" in rendered
+    assert "session.get_run('run_exact').show()" in rendered
+    assert "marivo.help('analysis.session.get_run')" in rendered
     assert "optional run_ref" in render_help_text(AnalysisError)[0]
+    assert "run_exact" not in render_help_text(type(error))[0]
 
 
 def test_datasource_env_var_missing_mentions_cache_and_validation() -> None:

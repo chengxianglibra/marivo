@@ -175,16 +175,14 @@ let analysis consume it — business definitions never hide in one-off scripts.
 Authoring guidance is split so each surface has one job (elaborated in
 [authoring-workflow.md](authoring-workflow.md)):
 
-- **`marivo.help(...)` — public help coordinator.** `python -m marivo help`
-  only confirms the active interpreter, package version, and environment
-  fingerprint before handing off to Python. `marivo.help(...)` is the only
-  public focused-help entry point; qualified semantic and datasource targets
-  expose constructors, required and
-  optional parameters, allowed values, defaults, omit rules, and static
-  constraints from their native registries. `md` and `ms` execute their
-  domain APIs and intentionally expose no separate `.help()` aliases. Help says
-  *what must be settled*. Entry briefings add identity and usage navigation;
-  error briefings preserve the concrete instance's facts and optional repair.
+- **CLI and Python Live Help — static capability discovery.**
+  `python -m marivo help <target>` and `marivo.help(target)` share one native
+  registry. Targets are lowercase semantic paths independent of Python symbols.
+  Object pages explain meaning and link definition operations; callable and
+  expression pages own exact usage, constraints, effects and examples.
+  `semantic.metric` is the object page; `semantic.metric.define` describes
+  `ms.metric`. Native Deferred syntax is explicitly declared by semantic role.
+  Result `.show()` and typed fields own instance facts; errors own actual repair.
 - **Datasource exploration — runtime evidence.** Metadata inspection is the
   preferred schema path. Optional explicitly scoped sampling supplies generic
   bounded rows and profiles; governed raw SQL handles source-specific

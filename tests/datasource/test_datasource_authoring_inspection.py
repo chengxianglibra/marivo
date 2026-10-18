@@ -323,7 +323,7 @@ def test_unknown_partition_state_returns_typed_rescope_repair_without_query(
     )
     assert error.repair is not None
     assert error.repair.kind == "rescope"
-    assert error.repair.help_target.canonical_id == "SourceInspection.partitions"
+    assert error.repair.help_target.canonical_id == "source_inspection.partitions"
     assert error.repair.preserves_evidence is True
     assert query_spy.user_data_queries == 0
 
@@ -882,6 +882,6 @@ def test_partition_listing_rejects_invalid_bounds_before_metadata_query(
     )
     assert error.repair is not None
     assert error.repair.kind == "retry"
-    assert error.repair.help_target.canonical_id == "SourceInspection.partitions"
+    assert error.repair.help_target.canonical_id == "source_inspection.partitions"
     assert error.repair.snippet == 'inspection.partitions(limit=100, order="desc")'
     assert error.repair.preserves_evidence is True

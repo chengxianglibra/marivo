@@ -47,7 +47,7 @@ page = saved.findings(limit=20)
 digest = saved.evidence_digest()
 print(digest.items)  # all actual saved Evidence; no limit or cursor
 if digest.items:
-    marivo.help(digest.items[0])  # nested saved-fact contract
+    marivo.help(type(digest.items[0]))  # static saved-fact type
 ```
 
 Finding 分页与完整 Evidence 摘要不依赖 Parquet 或当前模型。

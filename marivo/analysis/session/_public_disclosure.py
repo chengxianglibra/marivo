@@ -4,32 +4,14 @@ from marivo.analysis._capabilities.dataset_model import (
     Descriptor,
     ExampleInput,
     ExportInput,
-    bind,
     operation,
     value_type,
 )
-from marivo.analysis._contract import AnalysisAction, AnalysisContract
 from marivo.analysis.dsl.population import MemberAxis, member
 
 
 def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
     descriptors: list[Descriptor] = [
-        value_type(
-            "AnalysisContract",
-            AnalysisContract,
-            summary="Logical kind, domain, quantity and valid next calls for a Query or Population.",
-            acquisition="Call query.contract() or population.contract().",
-            producers=("Query.contract", "Population.contract"),
-            consumers=("AnalysisContract.show",),
-        ),
-        value_type(
-            "AnalysisAction",
-            AnalysisAction,
-            summary="One mechanically valid logical receiver call and its canonical Help target.",
-            acquisition="Read contract.actions.",
-            producers=("AnalysisContract",),
-            consumers=("AnalysisAction.show",),
-        ),
         value_type(
             "MemberAxis",
             MemberAxis,
@@ -54,27 +36,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             discovery_group="inputs.population",
         ),
     ]
-    for owner, receiver in ((AnalysisAction, "action"), (AnalysisContract, "contract")):
-        function = owner.show
-        descriptors.append(
-            operation(
-                f"{owner.__name__}.show",
-                f"{receiver}.show",
-                function,
-                bindings=(bind(function, owner),),
-                summary="Print bounded source-free logical guidance.",
-                parameters=(),
-                output="None",
-                constraints=("No source or schema read; pending execution checks remain pending.",),
-                effects="Print metadata only.",
-                failures=("AnalysisError: inspect the exact receiver.",),
-                example=ExampleInput(f"result = {receiver}.show()", (receiver,), "result", "None"),
-            )
-        )
     return tuple(descriptors), (
-        *(
-            ExportInput(value.__name__, value, value.__name__)
-            for value in (AnalysisAction, AnalysisContract, MemberAxis)
-        ),
+        *(ExportInput(value.__name__, value, value.__name__) for value in (MemberAxis,)),
         ExportInput("member", member, "member"),
     )

@@ -14,6 +14,7 @@ import pytest
 
 from marivo._authoring.model import AuthoringCapability
 from marivo.introspection.live.model import LiveHelpTarget
+from marivo.introspection.live.targets import canonical_target
 from marivo.refs import SemanticKind
 from marivo.semantic._capabilities.catalog_members import CATALOG_COLLECTION_PROPERTIES
 from marivo.semantic._capabilities.model import (
@@ -43,6 +44,7 @@ from marivo.semantic._capabilities.registry import (
     _validate_registry,
 )
 from marivo.semantic._capabilities.surface import SEMANTIC_LIVE_SURFACE
+from marivo.semantic.errors import SemanticHelpTargetError
 
 
 def _semantic_target(canonical_id: str) -> LiveHelpTarget:
@@ -307,9 +309,9 @@ def test_object_construction_modes_return_the_owning_ref_kind() -> None:
             assert contract.construction_families == expected_values
             expected_output = (
                 "Deferred"
-                if descriptor.canonical_id == "measure"
+                if descriptor.canonical_id == "measure.define"
                 else "Deferred"
-                if descriptor.canonical_id == "metric"
+                if descriptor.canonical_id == "metric.define"
                 else expected
             )
             assert descriptor.output_family == expected_output
@@ -337,7 +339,7 @@ def test_registry_rejects_object_construction_output_drift_eagerly() -> None:
     metric = REGISTRY.object_contract(SemanticKind.METRIC)
     invalid_mode = replace(
         metric.construction_modes[0],
-        target=_semantic_target("dimension_column"),
+        target=_semantic_target("dimension.from_column"),
     )
     invalid = replace(metric, construction_modes=(invalid_mode, *metric.construction_modes[1:]))
     contracts = tuple(
@@ -399,7 +401,7 @@ def test_registry_rejects_multiple_discovery_owners_eagerly() -> None:
         invalid if descriptor is builders else descriptor
         for descriptor in REGISTRY.help_descriptors
     )
-    with pytest.raises(ValueError, match="multiple semantic discovery owners: load"):
+    with pytest.raises(ValueError, match=r"multiple semantic discovery owners: semantic\.load"):
         _finalize_fixture(help_descriptors=help_descriptors)
 
 
@@ -408,13 +410,17 @@ def test_registry_rejects_public_constructor_without_discovery_owner() -> None:
     trimmed = replace(
         dimension,
         construction_modes=tuple(
-            mode for mode in dimension.construction_modes if mode.target.canonical_id != "dimension"
+            mode
+            for mode in dimension.construction_modes
+            if mode.target.canonical_id != "dimension.define"
         ),
         decisions=tuple(
             replace(
                 decision,
                 next_targets=tuple(
-                    target for target in decision.next_targets if target.canonical_id != "dimension"
+                    target
+                    for target in decision.next_targets
+                    if target.canonical_id != "dimension.define"
                 ),
             )
             for decision in dimension.decisions
@@ -424,7 +430,7 @@ def test_registry_rejects_public_constructor_without_discovery_owner() -> None:
         trimmed if contract is dimension else contract for contract in REGISTRY.object_contracts
     )
 
-    with pytest.raises(ValueError, match="semantic discovery owner missing: dimension"):
+    with pytest.raises(ValueError, match=r"semantic discovery owner missing: dimension\.define"):
         _finalize_fixture(object_contracts=contracts)
 
 
@@ -462,7 +468,7 @@ def test_signature_parameter_drift_is_detected_adversarially() -> None:
     from marivo.introspection.live.reflect import import_registered_callable
     from marivo.semantic._capabilities.validation import _validate_parameter_metadata
 
-    descriptor = REGISTRY.by_canonical_id("entity")
+    descriptor = REGISTRY.by_canonical_id("entity.define")
     first = descriptor.input_requirements[0].model_copy(
         update={"parameter_names": ("removed_parameter",)}
     )
@@ -477,7 +483,7 @@ def test_output_family_drift_is_detected_adversarially() -> None:
     from marivo.introspection.live.reflect import import_registered_callable
     from marivo.semantic._capabilities.validation import _validate_output_metadata
 
-    descriptor = REGISTRY.by_canonical_id("dimension_column")
+    descriptor = REGISTRY.by_canonical_id("dimension.from_column")
     invalid = descriptor.model_copy(update={"output_family": "Ref[metric]"})
     with pytest.raises(AssertionError, match="output family drift"):
         _validate_output_metadata(invalid, import_registered_callable(descriptor.callable_path))
@@ -578,21 +584,21 @@ def test_every_registry_repair_routes_to_a_public_exact_target() -> None:
 
     expected = {
         "outside_loader_context": "semantic.authoring",
-        "missing_domain": "semantic.objects.domain",
+        "missing_domain": "semantic.domain",
         "invalid_binding_ref": "semantic.bind",
         "binding_target_missing": "semantic.bind",
-        "missing_time_fold": "semantic.Metric.per",
+        "missing_time_fold": "semantic.metric.per",
         "binding_alias_not_direct": "semantic.bind",
         "binding_entity_mismatch": "semantic.bind",
-        "invalid_filter": "semantic.Metric.where",
-        "filter_value_runtime_incompatible": "semantic.Metric.where",
+        "invalid_filter": "semantic.metric.where",
+        "filter_value_runtime_incompatible": "semantic.metric.where",
         "invalid_project": "semantic.authoring",
-        "domain_file_missing": "semantic.objects.domain",
-        "domain_file_mismatch": "semantic.domain",
-        "entity_constructor_as_decorator": "semantic.entity",
-        "duplicate_identity_key": "semantic.entity",
-        "missing_identity_key_column": "semantic.entity",
-        "identity_version_overlap": "semantic.entity",
+        "domain_file_missing": "semantic.domain",
+        "domain_file_mismatch": "semantic.domain.define",
+        "entity_constructor_as_decorator": "semantic.entity.define",
+        "duplicate_identity_key": "semantic.entity.define",
+        "missing_identity_key_column": "semantic.entity.define",
+        "identity_version_overlap": "semantic.entity.define",
         "organization_error": "semantic.authoring",
     }
     actual = {
@@ -635,7 +641,7 @@ def test_ref_factory_namespace_and_every_exact_method_share_registry_contracts()
     import marivo.semantic as ms
     from marivo.introspection.live.resolve import resolve_live_target
 
-    resolved = resolve_live_target(ms.ref, SEMANTIC_LIVE_SURFACE)
+    resolved = resolve_live_target("ref", SEMANTIC_LIVE_SURFACE)
     assert resolved.descriptor is REGISTRY.by_canonical_id("ref")
     assert resolve_live_target("ref", SEMANTIC_LIVE_SURFACE).descriptor is resolved.descriptor
     expected = {f"ref.{kind.value}" for kind in SemanticKind}
@@ -676,7 +682,7 @@ def test_source_check_namespace_and_every_exact_method_share_registry_contracts(
         if not name.startswith("_") and callable(value)
     }
     assert public_methods == set(expected_outputs)
-    resolved = resolve_live_target(ms.source_check, SEMANTIC_LIVE_SURFACE)
+    resolved = resolve_live_target("source_check", SEMANTIC_LIVE_SURFACE)
     assert resolved.descriptor is REGISTRY.by_canonical_id("source_check")
     assert (
         resolve_live_target("source_check", SEMANTIC_LIVE_SURFACE).descriptor is resolved.descriptor
@@ -726,7 +732,11 @@ def test_type_and_error_help_matrices_are_closed_and_equivalent() -> None:
         if contract.name == "ref":
             continue
         by_type = resolve_live_target(type_obj, SEMANTIC_LIVE_SURFACE)
-        by_name = resolve_live_target(contract.name, SEMANTIC_LIVE_SURFACE)
+        by_name = resolve_live_target(canonical_target(contract.name), SEMANTIC_LIVE_SURFACE)
+        if canonical_target(contract.name) in REGISTRY.canonical_ids():
+            assert by_type == by_name
+            assert by_name.kind == "descriptor"
+            continue
         assert by_type.kind == by_name.kind == "type_contract"
         assert by_type.type_name == by_name.type_name == contract.name
 
@@ -735,13 +745,12 @@ def test_type_and_error_help_matrices_are_closed_and_equivalent() -> None:
 
     for error_name, error_type in ERROR_TYPES.items():
         by_type = resolve_live_target(error_type, SEMANTIC_LIVE_SURFACE)
-        by_name = resolve_live_target(error_name, SEMANTIC_LIVE_SURFACE)
+        by_name = resolve_live_target(canonical_target(error_name), SEMANTIC_LIVE_SURFACE)
         repair_free_instance = error_type.__new__(error_type)
-        by_instance = resolve_live_target(repair_free_instance, SEMANTIC_LIVE_SURFACE)
+        with pytest.raises(SemanticHelpTargetError):
+            resolve_live_target(repair_free_instance, SEMANTIC_LIVE_SURFACE)
         assert by_type.kind == by_name.kind == "error_contract"
-        assert by_instance.kind == "error_briefing"
-        assert by_instance.original is repair_free_instance
-        assert by_type.error_name == by_name.error_name == by_instance.error_name == error_name
+        assert by_type.error_name == by_name.error_name == error_name
 
 
 def test_terminal_result_help_matrix_accepts_type_string_and_instance() -> None:
@@ -787,8 +796,7 @@ def test_terminal_result_help_matrix_accepts_type_string_and_instance() -> None:
         instance = object.__new__(result_type)
         resolutions = (
             resolve_live_target(result_type, SEMANTIC_LIVE_SURFACE),
-            resolve_live_target(contract.name, SEMANTIC_LIVE_SURFACE),
-            resolve_live_target(instance, SEMANTIC_LIVE_SURFACE),
+            resolve_live_target(canonical_target(contract.name), SEMANTIC_LIVE_SURFACE),
         )
         assert all(resolution.kind == "type_contract" for resolution in resolutions)
         assert {resolution.type_name for resolution in resolutions} == {contract.name}

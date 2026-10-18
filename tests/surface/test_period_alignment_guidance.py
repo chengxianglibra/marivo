@@ -11,13 +11,13 @@ from tests.shared_fixtures import DslCaseFactory
 @pytest.mark.parametrize(
     "target, expected",
     (
-        ("analysis.Query.compare", "absolute baseline"),
-        ("analysis.Query.align", "complete"),
+        ("analysis.query.compare", "absolute baseline"),
+        ("analysis.query.align", "complete"),
         ("analysis.ordinal", "complete"),
         ("analysis.period_offset", "calendar"),
         ("analysis.previous_year", "year"),
-        ("analysis.Query.rollup", "original"),
-        ("analysis.Artifact.to_pandas", "complete"),
+        ("analysis.query.rollup", "original"),
+        ("analysis.artifact.to_pandas", "complete"),
     ),
 )
 def test_native_help_discloses_alignment_constraints(
@@ -40,7 +40,7 @@ def test_paired_query_contract_and_terminal_rows_disclose_current_protocol(
     _, current = period(case.session, 8, 3)
     _, baseline = period(case.session, 7, 3)
     comparison = current.compare(baseline, match=mv.ordinal())
-    comparison.contract().show()
+    comparison.show()
     assert "execute" in capsys.readouterr().out
     selected = comparison.select({"value": comparison["value.absolute"]})
     defined = selected.where(~selected["value"].is_null())

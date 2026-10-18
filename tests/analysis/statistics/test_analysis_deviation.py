@@ -200,7 +200,7 @@ def test_construction_mode_identity_and_zero_business_reads(
     before = run_ids(case.session)
     monkeypatch.setattr(SourceSession, "execute", forbidden)
     selected = query.where(query["value"] > 0)
-    selected.contract()
+    selected.show()
     assert run_ids(case.session) == before
     for name in ("deviation", "correlate", "forecast", "runs", "rank"):
         assert not hasattr(query, name)

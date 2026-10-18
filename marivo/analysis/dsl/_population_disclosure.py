@@ -235,17 +235,9 @@ def provider() -> DisclosureProvider:
         ),
         (
             Population,
-            "contract",
-            "AnalysisContract",
-            "Describe domain bindings and valid next operations without enumerating keys.",
-            "result = population.contract()",
-            ("population",),
-        ),
-        (
-            Population,
             "show",
-            "str",
-            "Return bounded captured domain facts without source access.",
+            "None",
+            "Print bounded captured domain facts without source access.",
             "result = population.show()",
             ("population",),
         ),
@@ -296,7 +288,7 @@ def provider() -> DisclosureProvider:
                 effects="Return a new immutable definition or bounded source-free disclosure.",
                 failures=("AnalysisError: follow its exact axis, owner, path or version repair.",),
                 example=ExampleInput(code, method_requires, "result", output),
-                discovery_group="windows" if owner is _Window else "population",
+                discovery_group="windows" if owner is _Window else "population_tasks",
             )
         )
     for value, producers, consumers in (
@@ -338,6 +330,13 @@ def provider() -> DisclosureProvider:
         with_sealed_variants(
             descriptors,
             {"ObservationWindow": (AllHistory, TrailingDuration, TrailingPeriods, Since, ToDate)},
+            applicability={
+                AllHistory: "observation_window was returned by mv.all_history()",
+                TrailingDuration: "observation_window was returned by mv.trailing_duration(...)",
+                TrailingPeriods: "observation_window was returned by mv.trailing_periods(...)",
+                Since: "observation_window was returned by mv.since(...)",
+                ToDate: "observation_window was returned by mv.to_date(...)",
+            },
         ),
         tuple(exports),
     )

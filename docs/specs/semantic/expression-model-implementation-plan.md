@@ -38,7 +38,7 @@ S0–S6 的实现与有界验收见第 8 节；本方案不将其它 Lazy Analys
 | 能力 | 当前实现 | 本次处置 |
 | --- | --- | --- |
 | 物理捕获和解析 | `semantic/expressions.py` 中已有 `FinalizedDeclarations`，解析冻结 scope；裸 Ref 不参与运算 | 保留生命周期；数值及条件 Field 的解析结果改为受控 Deferred，Entity/Relationship 的元数据对象保留 |
-| Measure/Metric 作者值 | `semantic/expressions.py` 的 `NumericRowExpr`、`Metric`、`DeclaredMeasure`、`DeclaredMetric` 自行承载运算和披露 | 数值作者值统一为 Deferred；声明记录进入受控 resolver；定义披露移到 Catalog 条目和 Query.contract |
+| Measure/Metric 作者值 | `semantic/expressions.py` 的 `NumericRowExpr`、`Metric`、`DeclaredMeasure`、`DeclaredMetric` 自行承载运算和披露 | 数值作者值统一为 Deferred；声明记录进入受控 resolver；定义披露移到 Catalog 条目和 Query.show |
 | 数值定义图 | `_definition/expressions.py` 有 Row/Metric Add、Subtract、Multiply、Divide、比较和布尔节点；`graph.py` 遍历并摘要 | 删除数值节点族，引用 Ibis 配方和绑定后的子图；保留规约、声明授权、贡献和样本边界 |
 | 声明安全 | `validator.py` 检查语法；`_expression_binding.py` 的声明 builder 不调用原函数，按封闭接收者构图 | 保留先检查后构造；允许已核验 Ibis 符号，与匿名配方共用语义消费器 |
 | 收录与发布 | `loader.py::_collect_module_declarations/_publish_declarations` 已处理声明、限定名称、重复名和 Session 依赖；`_compiled_state.py`、Catalog 已有发布表达式支持 | 改为读取根声明 resolver，复用现有闭包和身份检查，不新建注册系统 |

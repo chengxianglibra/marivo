@@ -88,8 +88,8 @@ Marivo 保留 14 个 UTC 日历日内的受管事件文件。每个 UTC 日首�
 语义 `internal_load` 期间执行的声明。恢复已有分析会话并重新加载语义
 目录时，成功的内部声明不会重复写入；外层语义 `load` 和失败的声明仍会保留。
 
-原生分析面记录显式的 Session 创建、恢复、放弃 Run 和 Dataset 执行。
-纯 Dataset 构造、谓词、`.contract()` 和只读方法不会写入分析操作事件。
+原生分析面记录显式的 Session 创建、恢复、放弃 Run 和 Query 执行。
+纯 Query/Population 构造、谓词、`.show()` 和只读方法不会写入分析操作事件。
 会话事件可以包含持久化的 `session.question`；`md.raw_sql(...)` 记录其必填的
 `reason`。获取会话时记录是否新建，以及显式问题是否生效；省略 `question`
 会保留已有值。

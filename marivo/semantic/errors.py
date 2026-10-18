@@ -70,9 +70,11 @@ def repair(
     preserves_evidence: bool | None = None,
 ) -> AuthoringRepair:
     """Construct a semantic-owned typed repair."""
+    from marivo.semantic._capabilities.naming import semantic_target
+
     return AuthoringRepair(
         kind=kind,
-        help_target=LiveHelpTarget(surface="semantic", canonical_id=canonical_id),
+        help_target=LiveHelpTarget(surface="semantic", canonical_id=semantic_target(canonical_id)),
         action=action,
         snippet=snippet,
         candidates=candidates,

@@ -148,7 +148,7 @@ def _shared_key(column: DataColumn, inputs: tuple[tuple[DataColumn, pd.Series], 
                     received=f"{column.name}: integer keys outside the unambiguous float64 range",
                     repair="Use a source route that preserves one exact key type across all contributions.",
                     stage="stage_output",
-                    help_target="Query.execute",
+                    help_target="query.execute",
                 )
     return replace(column, dtype=dtype)
 

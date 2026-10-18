@@ -77,7 +77,7 @@ snapshot = inspection.sample(
     persist_values=True,
 )
 snapshot.show()
-snapshot.contract().show()
+snapshot.show()
 profiles = {profile.name: profile for profile in snapshot.profiles}
 profiles["order_id"].sample_distinct_count
 snapshot.retained_values[0]["order_id"]

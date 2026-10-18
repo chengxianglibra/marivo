@@ -33,8 +33,8 @@ unknown intents to bounded navigation; a focused target owns exact inputs,
 constraints, effects and a minimal example. Consult only the guidance needed for
 the next decision, reusing already established scope and inputs.
 
-For an existing Population or Query, `.contract().show()` discloses captured
-logical facts and mechanical continuations. These facts do not qualify the
+For an existing Population or Query, `.show()` discloses captured
+logical facts; type Help discloses public operations. These facts do not qualify the
 selected backend or prove business suitability. A committed Artifact instead
 exposes `.show()` and saved Finding/Evidence reads; it has no contract or
 computational continuation. Structured errors own the failed call's concrete
@@ -61,17 +61,12 @@ values; calling `.show()` on them does not inspect a catalog definition.
 bound calculation with named quantities. `Column` locates a value or coordinate
 on one exact Query input. `Artifact` is committed terminal output.
 
-These objects are the sole analysis DSL. The earlier Logical/Materialized
-receivers, graph/Cell publisher and `analysis.runtime_metric` forwarding module
-are retired. Current contract cards share only the lightweight `AnalysisAction`
-and `AnalysisContract` values; they do not import the retired DSL or restore
-executable receivers from saved outputs.
-
-`Query.contract()` and `Population.contract()` return a logical `AnalysisContract`
-with public fields `kind`, `domain`, `quantity` and `actions`. Each immutable
-`AnalysisAction` carries a receiver `call` and its canonical `help_target`.
-The bounded card adds captured definition facts without schema or business reads
-or Run admission. `Artifact` remains terminal and has no contract.
+These objects are the sole analysis DSL. Query, Population and Column expose
+metadata-only `.show()` cards; Artifact reads committed output. Generic
+`AnalysisContract` and `AnalysisAction` values are removed. Query.output_names
+returns all output names in definition order. Operation discovery belongs to
+static type Help; attribute Help uses an exact string target and never reads
+an instance or executes a getter.
 
 ```python
 import marivo
@@ -83,9 +78,9 @@ revenue = session.catalog.metrics.get("sales.revenue")
 region = session.catalog.fields.get("sales.orders.region")
 period = session.time_scope(start="2026-08-01", end="2026-09-01")
 query = session.observe({"revenue": revenue}, during=period, by=(region,))
-contract = query.contract()
-contract.show()
-contract.actions[0].show()
+query.show()
+marivo.help("analysis.query")
+names = query.output_names
 artifact = query.execute()
 artifact.show(n=20)
 exported = artifact.to_pandas()
@@ -315,7 +310,7 @@ policy. General arithmetic never acquires a share contribution proof.
 
 ## Definition graph and compiler
 
-Construction, repr, Help and contract inspection read no business rows or schemas
+Construction, repr, Help and logical object inspection read no business rows or schemas
 and create no Run. Captured definitions remain immutable. At a reference-resolving
 consumer, same-path definition changes alone do not reject the input; kind, root,
 complete grain, unit, time and null constraints still apply. No live refresh,

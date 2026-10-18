@@ -14,8 +14,9 @@ answer is sufficient.
 
 Governed semantic objects own reusable business meaning. The Analysis DSL owns
 typed computation and Evidence. `marivo.help("analysis")` provides progressive
-discovery; focused Help owns signatures, constraints, and examples. Population
-and Query `.contract()` expose captured logical facts and available actions.
+discovery; CLI `marivo help analysis` accesses the same static guidance. Focused
+Help owns signatures, constraints, and examples. Population and Query `.show()`
+expose captured logical facts; type Help owns public operation discovery.
 Artifact `.show()` exposes committed result state; terminal
 Artifacts have no computation contract. Structured errors own repair. A logical
 action need not be useful to the question or qualified for the selected source;
@@ -63,7 +64,7 @@ Before choosing an operation, establish the distinctions that affect the answer:
   question's freshness need; an Artifact is not an input to typed computation.
 
 Use these distinctions where they matter. Exact methods and admitted inputs
-come from live Help and the current object's contract, not a fixed operator recipe.
+come from live Help and captured object facts, not a fixed operator recipe.
 
 ## Question-driven decision loop
 
@@ -93,9 +94,9 @@ Choose disclosure according to the unresolved decision:
 
 - For an unknown method or missing input, start with `marivo.help("analysis")`
   and follow the relevant intent or input route.
-- For an existing Population or Query, inspect its contract for captured facts
-  and actions; follow the exact Help target when syntax or
-  constraints are unclear.
+- For an existing Population or Query, inspect `.show()` for captured facts;
+  follow the exact type or operation Help target when syntax or constraints are
+  unclear. Use Query.output_names for complete names when display omits outputs.
 - For a saved Artifact, inspect committed output and Evidence. Use recovery
   guidance when the saved identity or Session is missing; fresh source values
   require a new Query execution.
@@ -154,7 +155,7 @@ unsupported method; follow structured repair and disclose a blocked branch when
 the public contract cannot produce its required evidence. Do not bypass it with
 direct Ibis, DuckDB, pandas readers, backend handles, ad hoc SQL, or uploads.
 
-Before exporting, read `marivo.help("analysis.Artifact.to_pandas")`. Presentation
+Before exporting, read `marivo.help("analysis.artifact.to_pandas")`. Presentation
 may arrange, plot, label, or format existing results. Changing population,
 metric meaning, aggregation, or comparison is analytical work. For a method
 outside the installed surface, first complete supported upstream work, then

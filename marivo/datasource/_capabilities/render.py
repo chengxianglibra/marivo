@@ -14,6 +14,7 @@ from marivo.introspection.live.reflect import import_registered_callable as impo
 from marivo.introspection.live.render import bounded_help as _bounded
 from marivo.introspection.live.render import render_fingerprint
 from marivo.introspection.live.resolve import ResolvedLiveTarget
+from marivo.introspection.live.targets import canonical_target
 
 if TYPE_CHECKING:
     from marivo.datasource._capabilities.model import DatasourceTypeContract
@@ -34,7 +35,7 @@ _MARIVO_IMPORT = "import marivo"
 
 
 def _target_text(target: LiveHelpTarget) -> str:
-    return target.canonical_id or target.surface
+    return target.display
 
 
 def _with_python_imports(text: str) -> str:
@@ -73,7 +74,7 @@ def render_root_help() -> str:
 
     lines = [
         "marivo.datasource",
-        render_fingerprint(EnvironmentFingerprint.current(), reveal=True),
+        render_fingerprint(EnvironmentFingerprint.current(), reveal=False),
         "",
         "Python imports:",
         f"  {_DATASOURCE_IMPORT}",
@@ -134,7 +135,8 @@ def _render_authoring(descriptor: AuthoringCapability) -> str:
         ]
     for label, canonical_ids in route_groups:
         targets = tuple(
-            REGISTRY.by_canonical_id(canonical_id).canonical_id for canonical_id in canonical_ids
+            REGISTRY.by_canonical_id(canonical_target(canonical_id)).canonical_id
+            for canonical_id in canonical_ids
         )
         lines.append(
             f"    {label} -> "
@@ -226,18 +228,6 @@ def _render_type(type_name: str, original: object | None) -> str:
         )
     if "show" in contract.public_methods:
         lines.append("  Detail: call .show() for bounded readable state.")
-    if "contract" in contract.public_methods:
-        lines.append("  Contract: call .contract().show() for mechanical read facts.")
-    if original is not None:
-        try:
-            stored = vars(original)
-        except TypeError:
-            stored = {}
-        public_values = [
-            f"{name}={stored[name]!r}" for name in contract.public_properties if name in stored
-        ]
-        if public_values:
-            lines.append("  Runtime fields: " + ", ".join(public_values))
     return _bounded("\n".join(lines))
 
 
@@ -257,33 +247,6 @@ def _render_error_contract(error_name: str) -> str:
     return _bounded("\n".join(lines))
 
 
-def _render_error_briefing(error_name: str, original: object) -> str:
-    lines = [error_name, "  Datasource error repair."]
-    for name in ("message", "expected", "received", "location"):
-        value = getattr(original, name, None)
-        if value is not None:
-            lines.append(f"  {name.title()}: {value}")
-
-    repair = getattr(original, "repair", None)
-    help_target = getattr(repair, "help_target", None)
-    if repair is None or not isinstance(help_target, LiveHelpTarget):
-        raise RuntimeError("error_briefing requires repair.help_target")
-    lines.extend(
-        (
-            "  Repair:",
-            f"    Kind: {repair.kind}",
-            f"    Action: {repair.action}",
-        )
-    )
-    if repair.snippet is not None:
-        lines.append("    Snippet:")
-        lines.extend(f"      {line}" for line in repair.snippet.splitlines())
-    if repair.candidates:
-        lines.append("    Candidates: " + ", ".join(repair.candidates))
-    lines.append(f"    Next help: {_help_invocation(help_target)}")
-    return _bounded("\n".join(lines))
-
-
 def render_help_target(
     resolved: ResolvedLiveTarget[AuthoringCapability],
     *,
@@ -296,8 +259,4 @@ def render_help_target(
         return _with_python_imports(_render_type(resolved.type_name, original_target))
     if resolved.kind == "error_contract" and resolved.error_name is not None:
         return _with_python_imports(_render_error_contract(resolved.error_name))
-    if resolved.kind == "error_briefing" and resolved.error_name is not None:
-        if resolved.original is None:
-            raise RuntimeError("error_briefing requires original target")
-        return _with_python_imports(_render_error_briefing(resolved.error_name, resolved.original))
     raise RuntimeError(f"unsupported datasource help resolution: {resolved.kind}")

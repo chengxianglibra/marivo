@@ -18,7 +18,7 @@ Columns belong to their exact Query input. Compose with that input's columns or 
 ```python
 aligned = current.align(baseline, how="outer")
 difference = aligned.select({"difference": aligned["left.revenue"] - aligned["right.revenue"]})
-difference.contract().show()
+difference.show()
 ```
 
 Exact alignment requires unique complete matching keys; outer preserves missing sides with independent presence. Missing values do not supply keys or a zero-fill policy. Field Null is a valid category. Complete tuple membership predicates preserve every component and use null-safe AND/OR semantics; they do not independently test each column's membership.

@@ -46,14 +46,10 @@ def test_current_continuation_registry_resolves_to_actual_bound_methods(
         logical.where(logical["value"] > 0),
         logical.reduce({"total": logical["value"].sum()}),
     ):
-        contract = value.contract()
-        assert contract.actions
-        for action in contract.actions:
-            route = REGISTRY.resolve(action.help_target.removeprefix("analysis."))
+        for method in ("select", "where", "execute", "show"):
+            route = REGISTRY.resolve(f"query.{method}")
             assert route.descriptor is not None
-            method = action.call.split("(", 1)[0].rsplit(".", 1)[-1]
-            if hasattr(value, method):
-                assert REGISTRY.by_callable(getattr(value, method)) is route.descriptor
+            assert REGISTRY.by_callable(getattr(value, method)) is route.descriptor
 
 
 def test_artifact_metadata_rejects_graph_and_continuation_fields_without_writes(

@@ -50,7 +50,7 @@ def render_root() -> str:
                 "      Use governed semantic inputs to create typed analysis artifacts.",
                 "",
                 "  Help is static and side-effect-free. Current results expose show()",
-                "  and, when applicable, contract(); structured errors own repairs.",
+                "  for captured facts; structured errors own concrete repairs.",
                 "  Domain modules expose no public .help alias; use marivo.help(...).",
             )
         ),
@@ -76,7 +76,7 @@ def render_authoring() -> str:
                 '    marivo.help("ontology.authoring")',
                 "",
                 "  Current result or structured error:",
-                "    marivo.help(result_or_error)",
+                "    result.show(); marivo.help(type(result))",
                 "",
                 "  Surface roots when an exact target is already known:",
                 '    marivo.help("datasource")',

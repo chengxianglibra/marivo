@@ -15,7 +15,7 @@ The warehouse datasource and listed columns must exist. Save as models/semantic/
 
 {/* example: semantic-model-basics */}
 
-Inspect frozen capture with `finalized.show()`. After loading, use `catalog.describe(ms.ref.measure("sales.orders.amount")).show()` for definition facts. Native Deferred values have no Marivo `.show()` or `.contract()` methods; `Query.contract()` describes execution facts. Display does not execute a query.
+Inspect frozen capture with `finalized.show()`. After loading, use `catalog.describe(ms.ref.measure("sales.orders.amount")).show()` for definition facts. Native Deferred values have no Marivo `.show()` or `.contract()` methods; `Query.show()` describes captured execution facts. Display does not execute a query.
 
 ```python
 import marivo.datasource as md
@@ -71,7 +71,7 @@ missing_region_revenue = revenue.where(region.isnull())
 
 where accepts a single source reduction or common paired scope. Filter source child Metrics before composing them. per returns internal samples; reduce them to produce a Metric.
 
-Native fields share the null-predicate contract at `marivo.help("semantic.Dimension.isnull")`; native Deferred methods use these static Help routes instead of callable Help. A routed TimeField keeps its role and is accepted only as `time=`, including when choosing sum-permission coordinates.
+Native fields share the null-predicate contract at `marivo.help("semantic.dimension.isnull")`; native Deferred methods use these static Help routes instead of callable Help. A routed TimeField keeps its role and is accepted only as `time=`, including when choosing sum-permission coordinates.
 
 ## Units and explicit sum permission
 

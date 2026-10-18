@@ -472,7 +472,7 @@ index 与 revenue_index 的计算、依赖、政策、检查和执行资格相�
 2. 原生 Deferred 的后续属性、方法和算术继续捕获配方；因此 `ibis.ifelse(...).mean(time=PaidAt)`
    在进入消费边界前不会先落到裸 NumericColumn.mean。已取得 schema 的输入也不提前 resolve 为 Value。
    来源对象自身的语义操作（如 Entity.count）也返回这种 Deferred；后续方法链由同一解析器解释。
-   不给 Deferred 注入业务属性或 show/contract 方法；定义披露由 Catalog 条目、运行中事实由 Query.contract 等已有消费者提供。
+   不给 Deferred 注入业务属性或 show/contract 方法；定义披露由 Catalog 条目、运行中事实由 Query.show 等已有消费者提供。
 3. @measure/@metric 先验证声明语法，再按相同协议捕获；仅命名附加独立声明记录，新增业务断言则形成语义边界。
    引用命名 Metric 在计算上展开同一配方，既不提前求值，也不改检查范围。模型收录沿同一闭包追加身份与加载检查。
 4. 声明返回、observe 等 Marivo 消费边界先遍历受控 Resolver 配方，识别语义叶子、规约、per/window、membership 参数、政策参数、
@@ -1114,7 +1114,7 @@ membership 仅扩展被需求桶的合格贡献；window 仅扩展被需求输�
 Entity 等元数据对象及 Catalog 定义条目保留 bounded repr/show；
 字段的独立元数据披露由定义条目提供，作为计算输入的 Field 与 Measure/Metric 使用同一延迟协议；
 Measure/Metric 数值作者值统一为原生 Deferred，不再承诺自身有 Marivo show/contract。
-Catalog 定义披露及 Query.contract 披露阶段、贡献根/角色、
+Catalog 定义披露及 Query.show 披露阶段、贡献根/角色、
 单位与授权来源、时间、节点政策、域依赖/归属、所需绑定和模型收录阻碍，不执行或枚举域。
 NumericRowExpr、MetricSamples、图节点和类型别名留在所属能力下，不扩张顶层导航。
 Catalog/Query 的指标贡献披露只列出能定位具体根的语义角色；Divide 的 N/D 是计算依赖，不自动构成主体路由。
@@ -1135,7 +1135,7 @@ Query Column 的同类失败由 AnalysisError 拥有。未知单位保持未知�
 完整披露由 [执行与披露 §2](../analysis/lazy-analysis-dsl-execution.md#2-agent-读取与错误契约) 拥有。
 原生 Deferred 可能在进入 Marivo 消费边界前只捕获语法；不保证每次 Python 运算立刻有 Marivo 异常。
 contract 分开显示已知语义事实、未绑定 physical dtype、待检查义务和已知能力缺口；不得把 pending 显示为通过。
-命名和匿名 Deferred 均由其语义消费者（如 Query.contract）披露同一事实；Catalog 条目补充已收录声明身份。
+命名和匿名 Deferred 均由其语义消费者（如 Query.show）披露同一事实；Catalog 条目补充已收录声明身份。
 不把 `.show()` 捕获成可执行数值方法，不为获取披露要求用户先声明名称或做转换。
 Ibis 原生构造自身抛出的类型错误与 Marivo 消费时的结构化错误须区分，不伪称能拦截任意脚本中的 Ibis 调用。
 

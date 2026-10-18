@@ -63,9 +63,7 @@ def test_public_contract_actions_and_result_card(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     population = case.session.members(ms.ref.entity("sales.customer"))
-    for action in population.contract().actions:
-        assert isinstance(action, mv.AnalysisAction)
-        assert isinstance(route_help_target(action.help_target), NativeHelpRoute)
+    assert isinstance(route_help_target("analysis.population"), NativeHelpRoute)
     assert ".show()" in repr(population)
     subject_key = "subject-key-only-private-7b5d4e"
     with duckdb.connect(str(case.database_path)) as connection:
@@ -74,11 +72,8 @@ def test_public_contract_actions_and_result_card(
             'UPDATE "order" SET customer_id=? WHERE customer_id=?', [subject_key, "A"]
         )
     observed = _observe(case, "2026-08-01", "2026-09-01")
-    assert observed.contract().actions
-    assert all(
-        isinstance(route_help_target(action.help_target), NativeHelpRoute)
-        for action in observed.contract().actions
-    )
+    assert observed.output_names == ("value",)
+    assert isinstance(route_help_target("analysis.query"), NativeHelpRoute)
     saved = observed.execute()
     assert subject_key not in repr(saved) and ".show()" in repr(saved)
     assert saved._manifest.data.schema.values[0].unit == "CNY"

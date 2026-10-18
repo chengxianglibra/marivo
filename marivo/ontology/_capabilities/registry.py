@@ -32,6 +32,7 @@ class OntologyTypeContract:
     producers: tuple[LiveHelpTarget, ...]
     public_properties: tuple[str, ...] = ()
     public_methods: tuple[str, ...] = ()
+    type_page_methods: tuple[str, ...] = ()
 
 
 _LOCAL = AuthoringEffects(data_access="local_metadata_read", connection="none")
@@ -194,6 +195,7 @@ def _type_contracts() -> Mapping[type, OntologyTypeContract]:
                     "edge_count",
                 ),
                 public_methods=("render", "show"),
+                type_page_methods=("render", "show"),
             ),
             SemanticEdgeRef: OntologyTypeContract(
                 name="SemanticEdgeRef",
@@ -203,6 +205,7 @@ def _type_contracts() -> Mapping[type, OntologyTypeContract]:
                 ),
                 public_properties=("kind", "path", "key"),
                 public_methods=("to_dict",),
+                type_page_methods=("to_dict",),
             ),
         }
     )

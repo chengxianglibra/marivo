@@ -6,6 +6,7 @@ from dataclasses import replace
 from types import MappingProxyType
 from typing import NoReturn
 
+from marivo._authoring.model import AuthoringCapability
 from marivo.introspection.live.errors import build_help_target_error_payload
 from marivo.introspection.live.resolve import (
     LiveSurface,
@@ -13,7 +14,7 @@ from marivo.introspection.live.resolve import (
     build_string_target_index,
     build_suggestion_index,
 )
-from marivo.semantic._capabilities.model import SemanticHelpDescriptor
+from marivo.semantic._capabilities.model import SemanticHelpDescriptor, SemanticObjectContract
 from marivo.semantic._capabilities.registry import ERROR_TYPES, REGISTRY, TYPE_CONTRACTS
 from marivo.semantic.errors import SemanticHelpTargetError
 
@@ -71,45 +72,11 @@ def _enrich(target: object) -> ResolvedLiveTarget[SemanticHelpDescriptor] | None
             descriptor=descriptor,
         )
 
-    error_type = type(target)
-    if ERROR_TYPES.get(error_type.__name__) is error_type:
-        return ResolvedLiveTarget(
-            kind="error_briefing",
-            surface="semantic",
-            error_name=error_type.__name__,
-            original=target,
-        )
     if isinstance(target, type) and ERROR_TYPES.get(target.__name__) is target:
         return ResolvedLiveTarget(
             kind="error_contract",
             surface="semantic",
             error_name=target.__name__,
-        )
-    from marivo.refs import Ref
-
-    if type(target) is Ref:
-        return ResolvedLiveTarget(
-            kind="reference_briefing",
-            surface="semantic",
-            reference_id=target.path,
-            original=target,
-        )
-
-    from marivo.semantic.catalog import CatalogEntry
-
-    if isinstance(target, CatalogEntry):
-        return ResolvedLiveTarget(
-            kind="reference_briefing",
-            surface="semantic",
-            reference_id=target.path,
-            original=target,
-        )
-    contract = TYPE_CONTRACTS.get(type(target))
-    if contract is not None:
-        return ResolvedLiveTarget(
-            kind="type_contract",
-            surface="semantic",
-            type_name=contract.name,
         )
     receiver = getattr(target, "__self__", None)
     method_name = getattr(target, "__name__", None)
@@ -130,6 +97,17 @@ def _enrich(target: object) -> ResolvedLiveTarget[SemanticHelpDescriptor] | None
     return None
 
 
+def _descriptor_kind(descriptor: SemanticHelpDescriptor) -> str:
+    if isinstance(descriptor, SemanticObjectContract):
+        return "object"
+    if isinstance(descriptor, AuthoringCapability):
+        if descriptor.callable_path is not None:
+            return "callable"
+        if descriptor.public_entrypoint is not None:
+            return "expression"
+    return "topic"
+
+
 def _build_surface() -> LiveSurface[SemanticHelpDescriptor]:
     """Build the immutable semantic help surface from the private registry."""
     type_index = MappingProxyType(
@@ -138,16 +116,9 @@ def _build_surface() -> LiveSurface[SemanticHelpDescriptor]:
     string_targets = dict(
         build_string_target_index(REGISTRY, public_type_names=frozenset(type_index.values()))
     )
-    # Public type contracts also expose inherited methods owned by shared capabilities.
-    for type_obj, contract in TYPE_CONTRACTS.items():
-        for method in contract.public_methods:
-            try:
-                descriptor = REGISTRY.by_callable(getattr(type_obj, method))
-            except (AttributeError, KeyError):
-                continue
-            string_targets[f"{contract.name}.{method}"] = descriptor.canonical_id
     return LiveSurface(
         registry=REGISTRY,
+        descriptor_kind=_descriptor_kind,
         type_index=type_index,
         error_types=ERROR_TYPES,
         error_base=_NeverSemanticError,

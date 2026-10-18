@@ -10,6 +10,7 @@ from typing import cast
 from marivo._authoring.model import AuthoringCapability
 from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget
 from marivo.introspection.live.reflect import import_registered_callable as import_callable
+from marivo.introspection.live.targets import canonical_target
 from marivo.semantic._capabilities.catalog_members import CATALOG_COLLECTION_PROPERTIES
 from marivo.semantic._capabilities.registry import (
     INPUT_FAMILIES,
@@ -70,7 +71,10 @@ def _is_registered_semantic_target(target: LiveHelpTarget) -> bool:
     try:
         REGISTRY.by_canonical_id(target.canonical_id)
     except KeyError:
-        return any(contract.name == target.canonical_id for contract in TYPE_CONTRACTS.values())
+        return any(
+            canonical_target(contract.name) == target.canonical_id
+            for contract in TYPE_CONTRACTS.values()
+        )
     return True
 
 
@@ -172,7 +176,7 @@ def _annotation_output_family(
     text = (
         annotation.strip() if isinstance(annotation, str) else inspect.formatannotation(annotation)
     )
-    if descriptor.invocation_shape == "decorator" or descriptor.canonical_id == "entity":
+    if descriptor.invocation_shape == "decorator" or descriptor.canonical_id == "entity.define":
 
         def product(node: ast.expr) -> str:
             if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
@@ -262,6 +266,10 @@ def validate_semantic_live_surface() -> None:
             requirement.family in INPUT_FAMILIES for requirement in descriptor.input_requirements
         )
         assert all(target.surface and target.canonical_id for target in descriptor.see_also)
+        if descriptor.callable_path is None and descriptor.kind == "method":
+            assert descriptor.public_entrypoint is not None
+            assert descriptor.minimal_example is not None
+            assert descriptor.public_entrypoint in descriptor.minimal_example
         if descriptor.callable_path is not None:
             callable_obj = import_callable(descriptor.callable_path)
             assert REGISTRY.by_callable(callable_obj) is descriptor

@@ -20,33 +20,12 @@ from marivo.analysis._capabilities.model import (
 
 def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
     resolved = registry.resolve(target)
-    if resolved.kind in ("error_contract", "error_briefing"):
-        from marivo.analysis.errors import AnalysisError
-
-        lines = [resolved.error_name or "AnalysisError", "  Analysis error contract."]
-        original = resolved.original
-        if isinstance(original, AnalysisError):
-            for name in ("message", "expected", "received", "location"):
-                value = getattr(original, name)
-                if value is not None:
-                    lines.append(f"  {name.title()}: {value}")
-            lines.extend("  " + line for line in original._run_guidance())
-        if isinstance(original, AnalysisError) and original.repair is not None:
-            repair = original.repair
-            lines.extend(("  Repair:", "    Kind: " + repair.kind, "    Action: " + repair.action))
-            if repair.snippet:
-                lines.extend("    " + line for line in repair.snippet.splitlines())
-            if repair.candidates:
-                lines.append("    Candidates: " + ", ".join(repair.candidates))
-            help_target = repair.help_target
-            qualified = help_target.surface + (
-                "." + help_target.canonical_id if help_target.canonical_id else ""
-            )
-            lines.append('    Next help: marivo.help("' + qualified + '")')
-        else:
-            lines.append(
-                "  Fields: message, expected, received, location, optional run_ref and repair. Inspect the instance facts before choosing a repair."
-            )
+    if resolved.kind == "error_contract":
+        lines = [
+            resolved.error_name or "AnalysisError",
+            "  Analysis error contract.",
+            "  Fields: message, expected, received, location, optional run_ref and repair. Inspect the instance facts before choosing a repair.",
+        ]
         text = "\n".join(lines) + "\n"
         budget = ANALYSIS_HELP_RENDER_BUDGETS["current_briefing"]
         if len(text.splitlines()) > budget.max_lines or len(text) > budget.max_codepoints:
@@ -182,51 +161,19 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
             )
             lines.append("Type: " + name)
             lines.extend("  " + f.name + ": " + f.annotation for f in binding.fields)
-            lines.append("Methods: " + (", ".join(binding.methods) or "none"))
+            lines.append("Methods (exact targets):")
+            for name in binding.methods:
+                method = registry.by_callable(getattr(binding.implementation, name))
+                lines.append(f"  analysis.{method.canonical_id}: {method.summary}")
         if isinstance(descriptor, TypeInput):
             for index, variant in enumerate(descriptor.variants, 1):
                 lines.append(
-                    f"Value variant {index}: "
+                    f"Value variant {index}"
+                    + (f" ({variant.applicability})" if variant.applicability else "")
+                    + ": "
                     + "; ".join(f.name + ": " + f.annotation for f in variant.fields)
                 )
-            method_routes: list[str] = []
-            for binding in descriptor.bindings:
-                implementation = binding.implementation
-                if implementation.__module__ != "marivo.analysis._contract":
-                    continue
-                for name in binding.methods:
-                    owner = next(
-                        (
-                            base
-                            for base in implementation.__mro__
-                            if inspect.isfunction(vars(base).get(name))
-                        ),
-                        None,
-                    )
-                    if owner is None:
-                        continue
-                    target = registry.by_callable(getattr(implementation, name)).canonical_id
-                    callable_descriptor = registry.by_canonical_id(target)
-                    group = (
-                        callable_descriptor.discovery_group
-                        if isinstance(callable_descriptor, CallableInput)
-                        else None
-                    )
-                    parent = (
-                        registry.by_canonical_id(group.rpartition(".")[0])
-                        if group and group.count(".") > 1
-                        else None
-                    )
-                    method_routes.append(
-                        group
-                        if isinstance(parent, NavigationInput)
-                        and group in parent.members
-                        and parent.render_class == "navigation"
-                        else target
-                    )
-            routes = tuple(
-                dict.fromkeys(descriptor.producers + descriptor.consumers + tuple(method_routes))
-            )
+            routes = tuple(dict.fromkeys(descriptor.producers + descriptor.consumers))
             if len(routes) > ANALYSIS_HELP_RENDER_BUDGETS["public_type"].max_outgoing_routes:
                 grouped_routes: list[str] = []
                 for route in routes:
@@ -237,10 +184,6 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
             lines.extend("Producer: " + t for t in descriptor.producers)
             lines.extend("Consumer: " + t for t in descriptor.consumers)
             lines.extend("See: marivo.help('analysis." + t + "')" for t in routes)
-            if any(b.methods for b in descriptor.bindings):
-                lines.append(
-                    "Exact member contract: pass the bound public method to marivo.help(value.method)."
-                )
     text = "\n".join(lines) + "\n"
     # Translate only explicitly registered public type bindings. Reflection
     # remains attached to the real implementation, never to a signature stub.

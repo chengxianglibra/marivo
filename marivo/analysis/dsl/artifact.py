@@ -57,7 +57,12 @@ class Artifact:
 
     @property
     def id(self) -> str:
-        """Return the exact committed Artifact ID."""
+        """Return the stable identity of this committed Artifact.
+
+        Returns: The captured artifact id used by session.artifact(id).
+        Example: ``reopened = session.artifact(artifact.id)``.
+        Constraints: Read-only metadata; reading does not open Store data, load semantic definitions or access a source.
+        """
         return self._manifest.artifact_id
 
     @property

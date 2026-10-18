@@ -74,7 +74,7 @@ def test_named_metrics_capture_without_catalog_schema_rows_or_run(
     )
     assert query._graph.signature.owner == Owner(session.id, session._runtime.store.store_id)
     assert "outputs=2" in repr(query) and "\n" not in repr(query)
-    query.contract().show()
+    query.show()
     rendered = capsys.readouterr().out
     assert "revenue" in rendered and "aov" in rendered and "unresolved" in rendered
     assert session.runs().items == ()
@@ -332,15 +332,15 @@ def test_old_store_is_rejected_without_rewriting_files(
 def test_new_help_targets_resolve_and_disclose_phase_boundary(capsys) -> None:
     for target in (
         "analysis.session.observe",
-        "analysis.Query",
-        "analysis.Query.contract",
-        "analysis.Query.execute",
+        "analysis.query",
+        "analysis.query.show",
+        "analysis.query.execute",
         "analysis.session.artifact",
-        "analysis.Artifact",
-        "analysis.Artifact.show",
-        "analysis.Artifact.to_pandas",
-        "analysis.Artifact.findings",
-        "analysis.Artifact.evidence_digest",
+        "analysis.artifact",
+        "analysis.artifact.show",
+        "analysis.artifact.to_pandas",
+        "analysis.artifact.findings",
+        "analysis.artifact.evidence_digest",
     ):
         marivo.help(target)
         assert target in capsys.readouterr().out
@@ -351,7 +351,7 @@ def test_new_help_targets_resolve_and_disclose_phase_boundary(capsys) -> None:
 
 
 def test_execute_help_discloses_actual_effects_for_string_and_callable(capsys) -> None:
-    for target in ("analysis.Query.execute", mv.Query.execute):
+    for target in ("analysis.query.execute", mv.Query.execute):
         marivo.help(target)
         text = capsys.readouterr().out
         assert "new Run" in text and "reads sources" in text
@@ -364,7 +364,7 @@ def test_execute_help_discloses_actual_effects_for_string_and_callable(capsys) -
 def test_artifact_read_help_discloses_committed_reading_for_string_and_callable(
     capsys, name
 ) -> None:
-    for target in (f"analysis.Artifact.{name}", getattr(mv.Artifact, name)):
+    for target in (f"analysis.artifact.{name}", getattr(mv.Artifact, name)):
         marivo.help(target)
         text = capsys.readouterr().out
         assert "committed" in text or "output" in text
@@ -376,19 +376,19 @@ def test_artifact_read_help_discloses_committed_reading_for_string_and_callable(
     (
         (
             OutputEvidence("check", "Output checked.", (("rows", 1),)),
-            "runtime.OutputEvidence",
+            "runtime.output_evidence",
             ("kind:", "summary:", "values:", "coordinates:"),
         ),
         (
             OutputCoordinate("key.0", 1),
-            "runtime.OutputCoordinate",
+            "runtime.output_coordinate",
             ("slot_id:", "value:"),
         ),
     ),
 )
 def test_terminal_record_help_resolves_nested_types_and_methods(value, target, fields, capsys):
     rendered = []
-    for form in (f"analysis.{target}", type(value), value):
+    for form in (f"analysis.{target}", type(value)):
         marivo.help(form)
         text = capsys.readouterr().out
         assert f"analysis.{target}" in text

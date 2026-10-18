@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict
 
 from marivo._errors import MarivoError
 from marivo.introspection.live.model import LiveHelpTarget
+from marivo.introspection.live.targets import canonical_target
 
 RepairKind = Literal[
     "retry",
@@ -174,7 +175,9 @@ class AnalysisStageUnavailableError(AnalysisError):
             repair=AnalysisRepair(
                 kind="environment",
                 action=repair,
-                help_target=LiveHelpTarget(surface="analysis", canonical_id=target),
+                help_target=LiveHelpTarget(
+                    surface="analysis", canonical_id=canonical_target(target)
+                ),
             ),
         )
 
@@ -209,10 +212,7 @@ class HelpTargetError(AnalysisError):
             message += f". Did you mean: {', '.join(suggestions)}?"
         super().__init__(
             message=message,
-            expected=(
-                "None, canonical target string, registered public callable/type, "
-                "public analysis object, semantic object/ref, or AnalysisError"
-            ),
+            expected=("a canonical target string or registered public callable/type"),
             received=str(received),
             location="marivo.help.target",
             repair=AnalysisRepair(
@@ -260,7 +260,7 @@ def _runtime_read_repair(*, action: str, target: str, snippet: str | None = None
     return AnalysisRepair(
         kind="inspect",
         action=action,
-        help_target=LiveHelpTarget(surface="analysis", canonical_id=target),
+        help_target=LiveHelpTarget(surface="analysis", canonical_id=canonical_target(target)),
         snippet=snippet,
     )
 

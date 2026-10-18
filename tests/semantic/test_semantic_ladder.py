@@ -212,7 +212,9 @@ def test_layout_load_errors_have_registry_backed_structured_repairs(
 
     error = next(error for error in result.errors if error.kind == kind)
     assert error.repair is not None
-    assert error.repair.help_target.canonical_id == target
+    from marivo.semantic._capabilities.naming import semantic_target
+
+    assert error.repair.help_target.canonical_id == semantic_target(target)
     assert error.repair.preserves_evidence is True
     if snippet is not None:
         assert snippet in (error.repair.snippet or "")

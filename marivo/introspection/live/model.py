@@ -62,7 +62,7 @@ class LiveHelpTarget(BaseModel):
     def display(self) -> str:
         """Return the stable display form used by help and repair text."""
         if self.canonical_id is not None:
-            return self.canonical_id
+            return f"{self.surface}.{self.canonical_id}"
         return self.surface
 
 

@@ -65,8 +65,8 @@ Inspection & snapshots
    ExecutionCapabilities
    raw_sql
 
-``DiscoverySnapshot.contract().show()`` displays the query-free read contract
-for a snapshot, including its selected columns, retained-row shape, and value
+``snapshot.show()`` displays captured facts without a source query
+for a ``DiscoverySnapshot``, including its selected columns, retained-row shape, and value
 evidence state. When ``persist_values=True``, ``snapshot.retained_values`` is a
 tuple of dictionaries keyed by the selected column names; with the default
 ``persist_values=False`` it remains unavailable and no follow-up query occurs.
@@ -78,7 +78,7 @@ Datasource specs and explicit scopes expose bounded ``render()`` / ``show()``
 cards for agent-relevant state. Specs show only their core connection target,
 credential field names, and hidden-configuration count; scopes show guards and
 a bounded predicate preview. Read ``.fields`` / ``.env_refs`` or ``.values``
-for exact data, and ``.contract()`` for mechanical continuation.
+for exact data. Use focused type Help for available operations.
 
 .. autosummary::
    :toctree: api/

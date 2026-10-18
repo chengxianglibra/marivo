@@ -5,7 +5,7 @@ description: 用明确的阶段、单位与业务授权创作表达式。
 
 数值和条件 Field、Measure 与 Metric 统一使用原生 Ibis Deferred。命名声明仅向同一配方附加不可变元数据；加载时只收录导出的根声明，匿名派生表达式仍是本地输入。物理类型在 execute 准备阶段自动绑定。
 
-用 `finalized.show()` 查看物理捕获结果；加载后用 `catalog.describe(ms.ref.measure("sales.orders.amount")).show()` 查看定义事实。Deferred 没有 Marivo 的 `.show()` 或 `.contract()` 方法，执行事实由 `Query.contract()` 披露。
+用 `finalized.show()` 查看物理捕获结果；加载后用 `catalog.describe(ms.ref.measure("sales.orders.amount")).show()` 查看定义事实。Deferred 没有 Marivo 的 `.show()` 或 `.contract()` 方法，执行事实由 `Query.show()` 披露。
 
 
 物理 Entity/Field 构造器先捕获声明并返回类型化 Ref 查找键。依赖完整后调用 `ms.finalize()`，再从冻结结果解析所需值用于组合。命名声明与本地表达式共用同一张图；finalize 不重跑模块或 import effects。
@@ -20,7 +20,7 @@ warehouse datasource 及示例列需已存在。保存为 models/semantic/sales/
 
 {/* example: semantic-model-basics */}
 
-通过 `marivo.help("semantic.SemanticCatalog.describe")` 和 `marivo.help("semantic.FinalizedDeclarations.show")` 查看上述元数据入口的精确合同；展示不会执行查询。
+通过 `marivo.help("semantic.semantic_catalog.describe")` 和 `marivo.help("semantic.finalized_declarations.show")` 查看上述元数据入口的精确合同；展示不会执行查询。
 
 ```python
 import marivo.datasource as md
@@ -76,7 +76,7 @@ missing_region_revenue = revenue.where(region.isnull())
 
 where 只过滤单一来源规约或共同配对作用域。复合 Metric 应先改各来源子指标，再组合。per 返回内部样本，必须规约后才是 Metric。
 
-原生字段共用 `marivo.help("semantic.Dimension.isnull")` 的空值谓词合同；原生 Deferred 方法通过静态 Help 路由查询，不注册为 Marivo callable Help。带路径的 TimeField 保留时间角色，只能用于 `time=`，选择求和许可坐标时也不能丢弃路径。
+原生字段共用 `marivo.help("semantic.dimension.isnull")` 的空值谓词合同；原生 Deferred 方法通过静态 Help 路由查询，不注册为 Marivo callable Help。带路径的 TimeField 保留时间角色，只能用于 `time=`，选择求和许可坐标时也不能丢弃路径。
 
 ## 单位与显式求和授权
 

@@ -105,7 +105,7 @@ august = session.time_scope(start="2026-08-01", end="2026-09-01")
 baseline = session.observe({"revenue": revenue}, during=july, by=(region,))
 current = session.observe({"revenue": revenue}, during=august, by=(region,))
 change = current.compare(baseline)
-change.contract().show()
+change.show()
 artifact = change.execute()
 frame = artifact.to_pandas()
 assert frame[("value", "revenue.absolute")].tolist() == [-100, -100]
@@ -118,4 +118,4 @@ assert reopened.to_pandas().equals(frame)
 
 `execute()` 每次重新求值。Artifact 是终端产物：Query 组合先于执行，导出后使用 pandas 做自定义分析。重开依赖保存的输出，不依赖当前来源或模型。后续指南复用本脚本的 `session`、`revenue`、`amount`、`region`、`current` 和 `baseline`。
 
-导入 `marivo` 后可检查精确 API 契约：`marivo.help(catalog.readiness)` 和 `marivo.help(mv.ordinal().show)` 直接接受公开方法。通过 `marivo.help("semantic.Metric.per")` 和 `marivo.help("semantic.MetricSamples.first")` 查看支持的样本输入与排序默认值。
+导入 `marivo` 后可检查精确 API 契约：`marivo.help(catalog.readiness)` 和 `marivo.help(mv.ordinal().show)` 直接接受公开方法。通过 `marivo.help("semantic.metric.per")` 和 `marivo.help("semantic.metric_samples.first")` 查看支持的样本输入与排序默认值。

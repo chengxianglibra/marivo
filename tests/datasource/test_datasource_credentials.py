@@ -250,11 +250,11 @@ def test_secret_display_copy_serialization_and_help(capsys: pytest.CaptureFixtur
             operation(secret)
     for target in (
         "credential_scope",
-        "CredentialRequest",
-        "CredentialResolver",
-        "SecretValue",
-        "DatasourceCredentialError",
-        "DatasourceCredentialScopeError",
+        "credential_request",
+        "credential_resolver",
+        "secret_value",
+        "datasource_credential_error",
+        "datasource_credential_scope_error",
     ):
         show_help("datasource." + target)
     output = capsys.readouterr().out

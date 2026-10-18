@@ -15,11 +15,10 @@ from marivo.datasource.snapshot import DiscoverySnapshot
 
 PUBLIC_CALLABLE_TARGETS = {
     "credential_scope",
-    "CredentialResolver.resolve",
-    "SecretValue.reveal",
-    "CredentialRequest.show",
-    "DatasourceList.ids",
-    "DiscoverySnapshot.contract",
+    "credential_resolver.resolve",
+    "secret_value.reveal",
+    "credential_request.show",
+    "datasource_list.ids",
     "duckdb",
     "trino",
     "mysql",
@@ -41,13 +40,13 @@ PUBLIC_CALLABLE_TARGETS = {
     "unpruned",
     "inspect",
     "raw_sql",
-    "DatasourceCatalog.list",
-    "DatasourceCatalog.get",
-    "DatasourceCatalog.describe",
-    "DatasourceCatalog.test",
-    "SourceInspection.partitions",
-    "SourceInspection.source_column",
-    "SourceInspection.sample",
+    "datasource_catalog.list",
+    "datasource_catalog.get",
+    "datasource_catalog.describe",
+    "datasource_catalog.test",
+    "source_inspection.partitions",
+    "source_inspection.source_column",
+    "source_inspection.sample",
 }
 
 
@@ -60,11 +59,10 @@ def test_datasource_surface_uses_the_native_registry_without_copying() -> None:
 
 EXPECTED_EFFECTS = {
     "credential_scope": AuthoringEffects(data_access="none", connection="none"),
-    "CredentialResolver.resolve": AuthoringEffects(data_access="none", connection="none"),
-    "SecretValue.reveal": AuthoringEffects(data_access="none", connection="none"),
-    "CredentialRequest.show": AuthoringEffects(data_access="none", connection="none"),
-    "DatasourceList.ids": AuthoringEffects(data_access="none", connection="none"),
-    "DiscoverySnapshot.contract": AuthoringEffects(data_access="none", connection="none"),
+    "credential_resolver.resolve": AuthoringEffects(data_access="none", connection="none"),
+    "secret_value.reveal": AuthoringEffects(data_access="none", connection="none"),
+    "credential_request.show": AuthoringEffects(data_access="none", connection="none"),
+    "datasource_list.ids": AuthoringEffects(data_access="none", connection="none"),
     "duckdb": AuthoringEffects(data_access="none", connection="none"),
     "trino": AuthoringEffects(data_access="none", connection="none"),
     "mysql": AuthoringEffects(data_access="none", connection="none"),
@@ -108,26 +106,28 @@ EXPECTED_EFFECTS = {
         mutations=("project_state",),
         flags=(),
     ),
-    "DatasourceCatalog.list": AuthoringEffects(
+    "datasource_catalog.list": AuthoringEffects(
         data_access="local_metadata_read", connection="none"
     ),
-    "DatasourceCatalog.get": AuthoringEffects(data_access="local_metadata_read", connection="none"),
-    "DatasourceCatalog.describe": AuthoringEffects(
+    "datasource_catalog.get": AuthoringEffects(
         data_access="local_metadata_read", connection="none"
     ),
-    "DatasourceCatalog.test": AuthoringEffects(
+    "datasource_catalog.describe": AuthoringEffects(
+        data_access="local_metadata_read", connection="none"
+    ),
+    "datasource_catalog.test": AuthoringEffects(
         data_access="local_metadata_read",
         connection="opens_connection",
         mutations=("user_global_state", "project_state"),
         flags=("may_cache_resolved_secret",),
     ),
-    "SourceInspection.partitions": AuthoringEffects(
+    "source_inspection.partitions": AuthoringEffects(
         data_access="live_metadata_read",
         connection="opens_connection",
         mutations=("project_state",),
     ),
-    "SourceInspection.source_column": AuthoringEffects(data_access="none", connection="none"),
-    "SourceInspection.sample": AuthoringEffects(
+    "source_inspection.source_column": AuthoringEffects(data_access="none", connection="none"),
+    "source_inspection.sample": AuthoringEffects(
         data_access="scoped_data_read",
         connection="opens_connection",
         mutations=("project_state",),
@@ -180,7 +180,7 @@ def test_registry_effects_match_callable_contracts(
 
 
 def test_sample_effects_are_complete_and_orthogonal() -> None:
-    effects = REGISTRY.by_canonical_id("SourceInspection.sample").effects
+    effects = REGISTRY.by_canonical_id("source_inspection.sample").effects
     assert effects == AuthoringEffects(
         data_access="scoped_data_read",
         connection="opens_connection",
@@ -229,7 +229,7 @@ def test_registry_retains_direct_inspection_and_acquisition_facts() -> None:
     assert inspection.preconditions == ("a built-in or registered datasource ref",)
     assert inspection.repair_kinds == ("register", "reconnect")
 
-    sample = REGISTRY.by_canonical_id("SourceInspection.sample")
+    sample = REGISTRY.by_canonical_id("source_inspection.sample")
     assert sample.preconditions == (
         "a current SourceInspection",
         "an explicit AuthoringScope",
@@ -239,12 +239,12 @@ def test_registry_retains_direct_inspection_and_acquisition_facts() -> None:
 
 def test_type_contracts_list_registered_consumption_methods() -> None:
     assert tuple(target.canonical_id for target in TYPE_CONTRACTS[SourceInspection].consumers) == (
-        "SourceInspection.partitions",
-        "SourceInspection.source_column",
-        "SourceInspection.sample",
+        "source_inspection.partitions",
+        "source_inspection.source_column",
+        "source_inspection.sample",
     )
     assert TYPE_CONTRACTS[DiscoverySnapshot].consumers == ()
-    assert TYPE_CONTRACTS[DiscoverySnapshot].public_methods == ("contract", "show", "render")
+    assert TYPE_CONTRACTS[DiscoverySnapshot].public_methods == ("show", "render")
     assert "retained_values" in TYPE_CONTRACTS[DiscoverySnapshot].public_properties
 
 
@@ -252,10 +252,10 @@ def test_registry_resolves_functions_and_bound_methods() -> None:
     assert REGISTRY.by_callable(md.inspect) is REGISTRY.by_canonical_id("inspect")
     assert REGISTRY.by_callable(md.source_param) is REGISTRY.by_canonical_id("source_param")
     assert REGISTRY.by_callable(SourceInspection.source_column) is REGISTRY.by_canonical_id(
-        "SourceInspection.source_column"
+        "source_inspection.source_column"
     )
     assert REGISTRY.by_callable(md.load().list) is REGISTRY.by_canonical_id(
-        "DatasourceCatalog.list"
+        "datasource_catalog.list"
     )
 
 

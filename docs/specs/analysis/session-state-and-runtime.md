@@ -21,7 +21,7 @@ uses the current Store only; an absent current Store yields no current Session
 and an empty recent page without creating state. Invalid history arguments are
 still rejected before returning an absent-Store result.
 
-Query/Population construction, repr, Help and contract inspection create no Run
+Query/Population construction, repr, Help and `.show()` inspection create no Run
 and read no business rows or source schemas. `session.read(population, fields)`
 captures one explicit Session and complete identity domain; no ambient Session
 resolution occurs. Execution preparation may connect for actual schemas and

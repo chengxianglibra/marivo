@@ -122,15 +122,17 @@ Marivo also works directly in an empty current directory after package installat
 `marivo init` only materializes optional configuration, empty project directories,
 and agent skill links; it is not a runtime prerequisite.
 
-Verify the selected environment once:
+Discover capabilities with the selected project interpreter:
 
 ```bash
-.venv/bin/python -m marivo doctor
+.venv/bin/python -m marivo help analysis
 ```
 
-On Windows, use `.venv/Scripts/python.exe -m marivo doctor`.
+On Windows, use `.venv/Scripts/python.exe -m marivo help analysis`.
+Use `marivo doctor` when interpreter, package or project identity is uncertain.
 
-Then use the selected project interpreter for focused help.
+CLI and Python share the same exact Help targets. Python also accepts registered
+public types and bound methods:
 
 ```python
 import marivo
@@ -138,7 +140,7 @@ import marivo
 marivo.help()
 marivo.help("authoring")
 marivo.help("analysis")
-marivo.help("semantic.metric")
+marivo.help("semantic.metric.define")
 marivo.help("analysis.session.observe")
 ```
 

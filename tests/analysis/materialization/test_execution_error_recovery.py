@@ -38,7 +38,7 @@ def test_member_construction_is_lazy_and_execution_retains_complete_keys(
     with monkeypatch.context() as patch:
         patch.setattr(SourceSession, "execute", forbidden)
         logical = _members(case)
-        logical.contract().show()
+        logical.show()
         assert case.session.runs().items == ()
     captured = logical.execute()
     frame = captured.to_pandas()
@@ -82,7 +82,7 @@ def test_source_failure_retries_have_exact_readable_runs_and_retained_history(
         assert error.repair is not None
         assert error.repair.help_target.canonical_id == "session.get_run"
         assert "execute a new invocation" in error.repair.action
-        for text in (str(error), render_help_text(error)[0]):
+        for text in (str(error),):
             assert error.run_ref in text
             inspection = next(
                 line.strip().removeprefix("Inspect: ")
@@ -176,7 +176,7 @@ def test_pre_admission_failure_never_inherits_the_previous_run(
         error = caught.value
         assert error.run_ref is None
         assert "session.get_run(" not in str(error)
-        assert "session.get_run(" not in render_help_text(error)[0]
+        assert "session.get_run(" not in render_help_text(type(error))[0]
         assert case.session.runs().items == before
         assert case.session._runtime.last_run_ref == previous._manifest.run_id
         if typed:

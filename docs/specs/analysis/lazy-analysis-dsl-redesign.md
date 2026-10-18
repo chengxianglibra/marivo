@@ -131,7 +131,7 @@ m+m 保留两次使用，同名角色或数值相等不能证明贡献包含。
 
 ### 2.2 状态与副作用
 
-构造、字段定位、repr/contract 不读业务行、不创建 Run 或来源临时表。
+构造、字段定位、repr/show 不读业务行、不创建 Run 或来源临时表。
 物理类型在合法来源绑定时按 schema-only 边界解析，不扫描值猜类型；
 模型加载保持 source-I/O free，不靠伪造原生 Column 提前取得 dtype。
 execute 是业务执行入口；Query 变换返回 Query，Artifact 不提供 execute 或任何 DSL 变换。
@@ -454,14 +454,14 @@ class Population:
         *,
         via: tuple[RelationshipRef, ...],
     ) -> Population: ...
-    def contract(self) -> AnalysisContract: ...
+    def show(self) -> None: ...
 ```
 
 所有域共用集合、已有轴投影、纯坐标筛选和唯一保存路径；不按来源拆分公开域类型。
 Session.read 的 population 参数，以及 classify、image、preimage 的接收者，只接受单个已绑定 Entity 身份轴；preimage 的 targets 也须为
 路径目标 Entity 的单身份轴域。形状不符立即指出实际轴及所需投影，不引入可空 entity 或权限标志。
 这些对象始终 lazy；Population 不提供 execute，使用 s.query(population).execute() 保存完整键。
-Population.contract 只披露定义、已有绑定/归属和可判定操作，不枚举未知键集或触发业务/schema 读取；
+Population.show 只披露定义、已有绑定/归属和捕获的操作事实，不枚举未知键集或触发业务/schema 读取；
 具体披露归[执行 §2.1](lazy-analysis-dsl-execution.md#21-repr-与输入权威)，静态签名归 Help。
 
 Session.members(entity, at=..., where=...) 明确从该 Entity 来源选择身份，where 在来源作用域
@@ -543,7 +543,7 @@ Metric.per(固定名单) 后规约可显式定义新来源计算；只数名单�
 来源条件使用有语义绑定的字段谓词；行/Metric 组合以原生 Ibis 数值图及语义注解为准，
 移除重复的 Marivo 数值 AST。未知操作、任意关系程序和回调仍拒绝；observe 检查阶段、贡献和已知事实，
 保留待真实 schema 验证的义务，不为匿名表达式提前连接来源。
-已知 schema 也不改变数值作者侧的 Deferred 载体；Catalog 条目及 Query.contract 披露语义事实。
+已知 schema 也不改变数值作者侧的 Deferred 载体；Catalog 条目及 Query.show 披露语义事实。
 声明仅命名不新增 eager 求值根。ifelse/cases/coalesce 的分支需求域由[语义提案 §3.6.5](../semantic/expression-model-redesign.md#365-条件分支的需求域与检查范围)拥有，
 命名/内联等价；Query 后置筛选或丢列不反向取消已有严格检查。
 语义使用位置、声明计算指纹及绑定执行指纹分别描述消费、逻辑定义和实际计划，不能用 Ibis op 相等性混同。
@@ -825,7 +825,9 @@ class Query:
         time_axis: Literal["paired", "current"] = "paired",
         zero_denominator: Literal["null", "error"] = "null",
     ) -> Query: ...
-    def contract(self) -> AnalysisContract: ...
+    @property
+    def output_names(self) -> tuple[str, ...]: ...
+    def show(self) -> None: ...
 
     def drill(self, *, add: tuple[Axis, ...]) -> Query: ...
     def execute(self) -> Artifact: ...
@@ -1047,7 +1049,7 @@ partition_by 只使用已绑定轴或合法 coarsen，沿完整轴元组建立�
 | 先 where 只留 East，再 share | 320/320 | 筛选后的 East |
 
 后续筛选不改变已经绑定的分母；优化不能把筛选越过 share 后缩小参照。
-构造、repr、contract 不读数值或计算分母；同一来源 Query 的每次 execute 仍重新求值，
+构造、repr、show 不读数值或计算分母；同一来源 Query 的每次 execute 仍重新求值，
 绑定分母依赖不等于提前固定其值。分子与分母消费同一实际输入，
 不能分别执行两条来源分支后仅凭共同逻辑节点认定支持；执行与保存见
 [执行合同](lazy-analysis-dsl-execution.md#111-共享逻辑节点与执行内输入)。
@@ -1172,7 +1174,7 @@ Query 不提供重设窗口；换窗口或评价粒度时构造新的 observe，
 本版对待上卷原量的整个依赖闭包检查 window（包括 per 或条件表达式内的 window）：
 若 observe 绑定了日历轴，rollup 必须原样保留该时间轴及其每个端点/W(t)，只允许按其它轴做合格的空间上卷。
 粗化、替换或删除该时间轴均拒绝，即使只有一个桶、count=1、规则为 all_history，或碰巧能算出相同值也不例外。
-该拒绝在规划时给出 window 依赖位置和原/目标轴；Query.contract 的上卷指引只列保留该时间绑定的候选。
+该拒绝在规划时给出 window 依赖位置和原/目标轴；上卷约束由精确 Help 和实际校验负责，Query.show 不枚举动作候选。
 标量 TimeScope 观察可保持原端点/W 做空间上卷；没有日历轴不意味着可以改端点。普通无窗口量仍按原 rollup 合同处理。
 where/top 只选择既有坐标，select/空间上卷保留原时间绑定及必要检查，不把选中端点重组成新窗口。
 时间格子的 sum/mean 属于 Query.reduce；粗粒度原窗口值须新 observe，不能在 rollup 中选择“并集”“末端点”或“完成值相加”。

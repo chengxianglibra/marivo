@@ -26,17 +26,15 @@ from marivo._help.model import (
 )
 from marivo._help.render import PublicHelpTarget
 from marivo._help.render import help as public_help
-from marivo._help.route import _resolve_one, route_help_target
-from marivo.analysis._capabilities.dataset_model import Descriptor, TypeInput
+from marivo._help.route import route_help_target
+from marivo.analysis._capabilities.dataset_model import Descriptor
 from marivo.analysis._capabilities.registry import REGISTRY as ANALYSIS_REGISTRY
 from marivo.analysis._capabilities.surface import ANALYSIS_LIVE_SURFACE
-from marivo.analysis.errors import AnalysisError, AnalysisRepair
 from marivo.datasource._capabilities.registry import REGISTRY as DATASOURCE_REGISTRY
 from marivo.datasource._capabilities.surface import DATASOURCE_LIVE_SURFACE
 from marivo.introspection.live.model import (
     SURFACE_LIMITS,
     HelpSurface,
-    LiveHelpTarget,
     LiveSurfaceRegistry,
     ResolvableHelpDescriptor,
 )
@@ -48,6 +46,14 @@ from marivo.semantic._capabilities.model import SemanticHelpDescriptor
 from marivo.semantic._capabilities.registry import REGISTRY as SEMANTIC_REGISTRY
 from marivo.semantic._capabilities.surface import SEMANTIC_LIVE_SURFACE
 from tests.support.paths import PROJECT_ROOT
+
+
+def test_default_root_advertises_a_resolvable_canonical_target() -> None:
+    text, _, _ = help_render.render_help_text()
+    target = text.splitlines()[0].removeprefix("Target: ")
+    assert target == "root"
+    assert help_render.render_help_text(target)[0] == text
+
 
 _REGISTRIES: dict[HelpSurface, LiveSurfaceRegistry[ResolvableHelpDescriptor]] = {
     "datasource": DATASOURCE_REGISTRY,
@@ -151,69 +157,9 @@ def test_surface_name_routes_to_the_exact_native_root(owner: HelpSurface) -> Non
     assert route == SurfaceRootHelpRoute(owner)
 
 
-def test_every_unique_unqualified_registry_target_routes_to_its_only_owner() -> None:
-    canonical_ids = {
-        canonical_id
-        for registry in _REGISTRIES.values()
-        for canonical_id in registry.canonical_ids()
-        if canonical_id
-    }
-    for canonical_id in canonical_ids:
-        owners = [
-            owner for owner in _SURFACE_NAMES if _resolve_one(canonical_id, owner) is not None
-        ]
-        if len(owners) != 1:
-            continue
-        route = route_help_target(canonical_id)
-        assert isinstance(route, NativeHelpRoute)
-        assert route.owner == owners[0]
-        assert route.resolved.descriptor is _REGISTRIES[owners[0]].by_canonical_id(canonical_id)
-
-
-def test_unique_unqualified_target_skips_failed_surface_suggestions(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def fail_suggestions(*_args: object, **_kwargs: object) -> tuple[str, ...]:
-        raise AssertionError("exact cross-surface probes must not compute fuzzy suggestions")
-
-    monkeypatch.setattr("marivo.introspection.live.resolve.suggestions_for", fail_suggestions)
-
-    route = route_help_target("duckdb")
-
-    assert isinstance(route, NativeHelpRoute)
-    assert route.owner == "datasource"
-
-
-def test_unregistered_multi_owner_target_never_uses_surface_order() -> None:
-    with pytest.raises(MarivoHelpTargetError) as exc_info:
-        route_help_target("load")
-
-    error = exc_info.value
-    assert error.outcome == "ambiguous"
-    assert error.candidates == (
-        "datasource.load",
-        "semantic.load",
-        "ontology.authoring",
-    )
-    assert len(error.candidates) <= SURFACE_LIMITS.help_suggestion_limit
-
-
-@pytest.mark.parametrize("canonical_target", ("catalog.require", "catalog.readiness"))
-@pytest.mark.parametrize("target_template", ("{}", " {} ", "analysis {}", "mv.{}"))
-def test_exact_canonical_target_wins_over_cross_surface_entrypoint_alias(
-    canonical_target: str,
-    target_template: str,
-) -> None:
-    route = route_help_target(target_template.format(canonical_target))
-
-    assert isinstance(route, NativeHelpRoute)
-    assert route.owner == "analysis"
-    assert route.resolved.canonical_id == canonical_target
-
-
 @pytest.mark.parametrize(
-    ("method_name", "canonical_target"),
-    (("require", "SemanticCatalog.require"), ("readiness", "readiness")),
+    "method_name, canonical_target",
+    [("require", "semantic_catalog.require"), ("describe", "semantic_catalog.describe")],
 )
 def test_shared_catalog_callable_uses_its_native_semantic_contract(
     authoring_evidence_project: Path,
@@ -310,87 +256,6 @@ def test_default_analysis_error_repairs_resolve_on_their_declared_surface() -> N
         route_help_target(qualified)
 
 
-def test_type_and_error_names_remain_exactly_resolvable() -> None:
-    for owner in _SURFACE_NAMES:
-        surface = _SURFACES[owner]
-        for type_name in dict.fromkeys(surface.type_index.values()):
-            route = route_help_target(f"{owner}.{type_name}")
-            assert isinstance(route, NativeHelpRoute)
-            if owner == "analysis":
-                assert route.resolved.kind == "descriptor"
-                assert isinstance(
-                    route.resolved.descriptor,
-                    (TypeInput),
-                )
-                assert route.resolved.descriptor.canonical_id == type_name
-            elif owner == "semantic" and type_name == "ref":
-                assert route.resolved.kind == "descriptor"
-                assert route.resolved.descriptor is _REGISTRIES[owner].by_canonical_id("ref")
-            else:
-                assert route.resolved.kind == "type_contract"
-                assert route.resolved.type_name == type_name
-        for error_type in dict.fromkeys(surface.error_types.values()):
-            route = route_help_target(f"{owner}.{error_type.__name__}")
-            assert isinstance(route, NativeHelpRoute)
-            assert route.resolved.kind == "error_contract"
-            assert route.resolved.error_name == error_type.__name__
-
-
-def test_receiver_members_and_grouped_leaves_remain_exactly_resolvable() -> None:
-    for target in (
-        "datasource.SourceInspection.sample",
-        "semantic.readiness",
-        "analysis.Query.where",
-        "analysis.Artifact.findings",
-        "analysis.session.artifact",
-        "analysis.session.get_run",
-        "analysis.Artifact.to_pandas",
-        "analysis.session.observe",
-    ):
-        assert isinstance(route_help_target(target), NativeHelpRoute)
-
-
-def test_period_calendar_period_navigation_resolves_through_public_help() -> None:
-    from marivo.semantic.catalog import PeriodCalendarEntry
-
-    route = route_help_target("analysis.calendar.period")
-
-    assert isinstance(route, NativeHelpRoute)
-    assert route.owner == "analysis"
-    assert route.resolved.descriptor is ANALYSIS_REGISTRY.by_canonical_id("calendar.period")
-    assert public_help("analysis.calendar.period") is None  # type: ignore[func-returns-value]  # Runtime oracle pins the public no-value return.
-    assert public_help(PeriodCalendarEntry.period) is None  # type: ignore[func-returns-value]  # Runtime oracle pins the public no-value return.
-
-
-@pytest.mark.parametrize(
-    ("entry_type_name", "method_name", "target"),
-    (
-        ("PeriodCalendarEntry", "grain", "calendar.grain"),
-        ("PeriodCalendarEntry", "period_on", "calendar.period_on"),
-        ("PeriodCalendarEntry", "periods", "calendar.periods"),
-        ("TemporalSetEntry", "occurrence", "temporal_set.occurrence"),
-        ("TemporalSetEntry", "occurrences", "temporal_set.occurrences"),
-    ),
-)
-def test_temporal_catalog_member_navigation_resolves_through_public_help(
-    entry_type_name: str,
-    method_name: str,
-    target: str,
-) -> None:
-    import marivo.semantic.catalog as catalog_module
-
-    method = getattr(getattr(catalog_module, entry_type_name), method_name)
-    route = route_help_target(f"analysis.{target}")
-
-    assert isinstance(route, NativeHelpRoute)
-    assert route.owner == "analysis"
-    assert route.resolved.descriptor is ANALYSIS_REGISTRY.by_canonical_id(target)
-    from marivo.introspection.live.resolve import resolve_live_target
-
-    resolved = resolve_live_target(method, ANALYSIS_LIVE_SURFACE)
-    assert resolved.descriptor is route.resolved.descriptor
-
-
 def test_bound_method_renders_the_same_descriptor(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -413,69 +278,99 @@ def test_unknown_target_raises_one_bounded_global_error() -> None:
     assert len(error.candidates) <= SURFACE_LIMITS.help_suggestion_limit
 
 
-def test_ref_briefing_is_identity_only_and_performs_no_io(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def fail(*args: object, **kwargs: object) -> object:
-        raise AssertionError("Ref help must not load a project, inspect readiness, or query data")
-
-    monkeypatch.setattr("marivo.semantic.reader.SemanticProject.load", fail)
-    monkeypatch.setattr("marivo.config.load_project_config", fail)
-    monkeypatch.setattr("marivo.datasource.backends.build_backend", fail)
-    monkeypatch.setattr("marivo.datasource.backends.build_backend_with_secrets", fail)
-    monkeypatch.setattr("marivo.semantic.catalog.SemanticCatalog.readiness", fail)
-
-    reference = ms.ref.metric("sales.revenue")
-    from marivo.introspection.live.resolve import resolve_live_target
-
-    resolved = resolve_live_target(reference, SEMANTIC_LIVE_SURFACE)
-    assert resolved.kind == "reference_briefing"
-    assert resolved.reference_id == "sales.revenue"
-    assert public_help(reference) is None  # type: ignore[func-returns-value]  # Runtime oracle pins the public no-value return.
+@pytest.mark.parametrize(
+    "target", ["Query", "analysis.Query", "mv.Query", " query", "session.get_or_create"]
+)
+def test_legacy_string_aliases_are_rejected(target: str) -> None:
+    with pytest.raises(MarivoHelpTargetError):
+        public_help(target)
 
 
-def test_catalog_entry_briefing_uses_loaded_facts_without_datasource_io(
-    authoring_evidence_project: object,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    catalog = ms.load()
-    entry = catalog.require(ms.ref.datasource("warehouse"))
-    revenue = catalog.describe(ms.ref.metric("sales.revenue"))
-
-    def fail(*args: object, **kwargs: object) -> object:
-        raise AssertionError("CatalogEntry help must not load, query, or infer readiness")
-
-    monkeypatch.setattr("marivo.semantic.reader.SemanticProject.load", fail)
-    monkeypatch.setattr("marivo.datasource.backends.build_backend", fail)
-    monkeypatch.setattr("marivo.datasource.backends.build_backend_with_secrets", fail)
-    monkeypatch.setattr("marivo.semantic.catalog.SemanticCatalog.readiness", fail)
-
-    from marivo.introspection.live.resolve import resolve_live_target
-
-    resolved = resolve_live_target(entry, SEMANTIC_LIVE_SURFACE)
-    assert resolved.kind == "reference_briefing"
-    assert resolved.reference_id == "warehouse"
-    assert public_help(entry) is None  # type: ignore[func-returns-value]  # Runtime oracle pins the public no-value return.
-    value_help = resolve_live_target(revenue, SEMANTIC_LIVE_SURFACE)
-    assert value_help.kind == "type_contract"
-    assert value_help.type_name == "ExpressionContract"
-    assert public_help(revenue) is None  # type: ignore[func-returns-value]  # Runtime oracle pins the public no-value return.
+@pytest.mark.parametrize("value", [object(), ValueError("failure"), ms.ref.metric("sales.revenue")])
+def test_instances_do_not_enter_static_help(value: object) -> None:
+    with pytest.raises(MarivoHelpTargetError):
+        route_help_target(value)
 
 
-def test_error_instance_uses_qualified_repair_and_preserves_repair_free_facts() -> None:
-    repaired = AnalysisError(
-        message="inspect the datasource",
-        repair=AnalysisRepair(
-            kind="inspect",
-            action="Inspect the registered source.",
-            help_target=LiveHelpTarget(surface="datasource", canonical_id="inspect"),
-        ),
+def test_attribute_discovery_does_not_execute_getters(monkeypatch: pytest.MonkeyPatch) -> None:
+    from marivo._help import route as routing
+    from marivo.introspection.live.attributes import public_attributes
+
+    class Example:
+        field: int
+
+        @property
+        def value(self) -> str:
+            """A value requiring explicit reading."""
+            raise AssertionError("Help evaluated a getter")
+
+    surface = LiveSurface(
+        registry=ANALYSIS_REGISTRY,
+        type_index={Example: "Example"},
+        error_types={},
+        error_base=Exception,
     )
-    assert repaired.repair is not None
-    assert repaired.repair.help_target == LiveHelpTarget(
-        surface="datasource",
-        canonical_id="inspect",
+    monkeypatch.setattr(routing, "_native_surface", lambda _owner: surface)
+    assert set(public_attributes(Example)) == {"field", "value"}
+    for member in ("field", "value"):
+        text, _, _ = help_render.render_help_text(f"analysis.example.{member}")
+        assert f"Target: analysis.example.{member}" in text
+        assert "Kind: attribute" in text
+        assert f"example.{member}" in text
+
+
+def test_attribute_target_is_independent_and_typed() -> None:
+    text, _, _ = help_render.render_help_text("analysis.query.output_names")
+    assert "Kind: attribute" in text
+    assert "tuple[str, ...]" in text
+    assert "read-only" in text
+
+
+def test_every_public_attribute_has_an_independent_target() -> None:
+    from marivo.introspection.live.attributes import public_attributes
+    from marivo.introspection.live.targets import canonical_target
+
+    for owner, surface in _SURFACES.items():
+        for type_obj, type_name in surface.type_index.items():
+            for member in public_attributes(type_obj):
+                target = f"{owner}.{canonical_target(type_name)}.{member}"
+                text, _, _ = help_render.render_help_text(target)
+                assert f"Target: {target}\nKind: attribute" in text
+
+
+def test_semantic_concept_classes_share_their_canonical_object_pages() -> None:
+    from marivo.introspection.live.targets import canonical_target
+    from marivo.refs import Ref
+    from marivo.semantic._authoring_temporal import PeriodCorrespondence
+    from marivo.semantic.expressions import Entity, Relationship
+
+    for type_obj in (Entity, Relationship, Ref, PeriodCorrespondence):
+        assert help_render.render_help_text(type_obj) == help_render.render_help_text(
+            f"semantic.{canonical_target(type_obj.__name__)}"
+        )
+
+
+def test_attribute_access_uses_owning_frozen_model_contracts() -> None:
+    from pydantic import BaseModel, Field
+
+    from marivo._temporal import TimeScopeContractV1
+    from marivo.introspection.live.attributes import public_attributes
+
+    # Required time identity fields need no construction to discover immutability.
+    assert TimeScopeContractV1.model_config["frozen"] is True
+    assert public_attributes(TimeScopeContractV1)["kind"].access == "read-only"
+    text, _, _ = help_render.render_help_text("analysis.time_scope.kind")
+    assert "Access: read-only" in text
+
+    class PerFieldModel(BaseModel):
+        immutable: int = Field(frozen=True)
+        mutable: int
+
+    class Unspecified:
+        value: int
+
+    assert public_attributes(PerFieldModel)["immutable"].access == "read-only"
+    assert public_attributes(PerFieldModel)["mutable"].access == "read/write"
+    assert (
+        public_attributes(Unspecified)["value"].access == "readable; write policy is not declared"
     )
-    repair_free = AnalysisError(message="no repair")
-    assert repair_free.repair is None
-    assert repair_free.message == "no repair"

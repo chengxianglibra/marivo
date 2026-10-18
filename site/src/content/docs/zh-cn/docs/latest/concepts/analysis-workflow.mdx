@@ -7,9 +7,9 @@ description: 组合语义表达式、显式坐标域和窗口，再发布终端�
 
 `marivo-analysis` Skill 负责证据缺口、方法选择、语义交接和完成判断。
 未知能力从 `marivo.help("analysis")` 开始，沿相关意图找到精确契约。
-已有 Population 或 Query、但不确定后续操作时，查看 `.contract().show()`。
+已有 Population 或 Query 时，查看 `.show()` 获取实例事实，通过类型 Help 发现操作。
 已保存的 Artifact 没有 contract，应查看 `.show()` 和保存的 Evidence。
-实际执行才检验来源与方法资格；逻辑 contract 本身不证明这些能力。
+实际执行才检验来源与方法资格；捕获的逻辑事实本身不证明这些能力。
 
 卡片通过有界的范围摘要区分成员选择与完整输出坐标域。执行后，此声明范围保存为
 Evidence，供以后读取。读取级 filters 只描述对应来源 stage，不枚举全部群体限制，
@@ -43,17 +43,17 @@ query = session.observe(
     by=(region,),
     where=region == "APAC",
 )
-contract = query.contract()
-contract.show()
-contract.actions[0].show()
+query.show()
+marivo.help("analysis.query.select")
+names = query.output_names
 result = query.execute()
 result.show(n=20)
 ```
 
-`Query.contract()` 与 `Population.contract()` 返回 `AnalysisContract`，公开字段为
-`kind`、`domain`、`quantity` 和 `actions`。卡片展示已捕获的逻辑事实与有效后续调用，
-不读取 schema 或业务行，也不创建 Run。每个 action 提供 `call` 和 `help_target`，
-`action.show()` 打印这两项信息。终端 Artifact 使用自身的结果卡片，没有 contract。
+`query.show()` 与 `population.show()` 展示捕获的元数据，不读取 schema 或来源。
+`query.output_names` 按定义顺序返回全部输出名。公开操作通过类型 Help 发现，例如
+`marivo.help("analysis.query")`；属性使用独立 target，例如 `analysis.query.output_names`，
+查询属性 Help 不执行 getter。终端 Artifact 提供已提交结果读取，不能进入 typed computation。
 
 每个贡献根到普通分组字段都需要合法的标量路径。用
 `field.via((relationship,))` 捕获显式标量角色；版本属性通过
@@ -68,7 +68,7 @@ result.show(n=20)
 
 ```python
 regions = mv.coordinates(by=(region,), keys=(("APAC",), ("EMEA",)))
-regions.contract().show()
+regions.show()
 query = session.observe({"revenue": revenue}, during=scope, by=regions)
 keys_only = session.query(regions)
 keys_only.execute().show()
@@ -177,6 +177,6 @@ Artifact 不能成为语义表达式输入。
 `session.get_run(run_ref).show()` 检查；重试是新的执行调用。
 预览上限不截断执行或完整导出。
 
-使用 `marivo.help("analysis.Population")`、`marivo.help("analysis.membership")`、
-`marivo.help("analysis.Query.population")` 和 `marivo.help("analysis.windows")`
+使用 `marivo.help("analysis.population")`、`marivo.help("analysis.membership")`、
+`marivo.help("analysis.query.population")` 和 `marivo.help("analysis.windows")`
 查看聚焦的当前合同。

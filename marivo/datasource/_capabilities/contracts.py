@@ -40,21 +40,21 @@ def repair_for_authoring_code(code: str) -> AuthoringRepair:
     }:
         return repair(
             kind="rescope",
-            canonical_id="SourceInspection.partitions",
+            canonical_id="source_inspection.partitions",
             action="Rescope using the captured partition evidence.",
             preserves_evidence=True,
         )
     if code in {"cache_stale", "schema_stale", "fingerprint_stale"}:
         return repair(
             kind="reacquire",
-            canonical_id="SourceInspection.sample",
+            canonical_id="source_inspection.sample",
             action="Reacquire bounded evidence from the inspected source.",
             preserves_evidence=False,
         )
     if code == "acquisition_execution_failed":
         return repair(
             kind="reacquire",
-            canonical_id="SourceInspection.sample",
+            canonical_id="source_inspection.sample",
             action=(
                 "Only if the caller's remaining data-access budget permits, retry this exact "
                 "bounded acquisition at most once. Caller-provided read, row, and timeout limits "

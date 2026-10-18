@@ -24,23 +24,23 @@ REQUIRED_TARGETS = {
     "session.observe",
     "session.read",
     "session.values",
-    "Query",
-    "Query.population",
-    "Query.select",
-    "Query.where",
-    "Query.top",
-    "Query.reduce",
-    "Query.align",
-    "Query.compare",
-    "Query.rollup",
-    "Query.drill",
-    "Query.share",
-    "Query.execute",
-    "Population",
-    "Column",
-    "MembershipAxis",
-    "MemberAxis",
-    "PopulationPredicate",
+    "query",
+    "query.population",
+    "query.select",
+    "query.where",
+    "query.top",
+    "query.reduce",
+    "query.align",
+    "query.compare",
+    "query.rollup",
+    "query.drill",
+    "query.share",
+    "query.execute",
+    "population",
+    "column",
+    "membership_axis",
+    "member_axis",
+    "population_predicate",
     "coordinates",
     "identities",
     "membership",
@@ -51,12 +51,12 @@ REQUIRED_TARGETS = {
     "to_date",
     "trailing_duration",
     "trailing_periods",
-    "Session",
-    "Artifact",
-    "Artifact.show",
-    "Artifact.to_pandas",
-    "Artifact.findings",
-    "Artifact.evidence_digest",
+    "session",
+    "artifact",
+    "artifact.show",
+    "artifact.to_pandas",
+    "artifact.findings",
+    "artifact.evidence_digest",
 }
 
 
@@ -67,7 +67,9 @@ def test_exact_export_bindings_and_required_native_targets() -> None:
     assert set(disclosure.canonical_ids()) >= REQUIRED_TARGETS
     assert tuple(mv.__all__) == ANALYSIS_PUBLIC
     for name, entry in actual.items():
-        resolved = disclosure.resolve(entry.implementation)
+        resolved = disclosure.resolve(
+            entry.implementation if callable(entry.implementation) else entry.target
+        )
         assert (resolved.canonical_id or resolved.type_name) == entry.target
 
 

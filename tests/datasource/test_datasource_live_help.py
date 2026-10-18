@@ -45,8 +45,8 @@ def test_trino_help_matches_source_native_quantile_capability() -> None:
     [
         ("inspect", "inspect"),
         (md.inspect, "inspect"),
-        (md.SourceInspection.sample, "SourceInspection.sample"),
-        (md.SourceInspection.source_column, "SourceInspection.source_column"),
+        (md.SourceInspection.sample, "source_inspection.sample"),
+        (md.SourceInspection.source_column, "source_inspection.source_column"),
         (md.SourceInspection, "SourceInspection"),
         (DatasourceMissingError, "DatasourceMissingError"),
     ],
@@ -65,12 +65,7 @@ def test_help_resolves_supported_target_kinds(target: object, canonical_id: str)
 
 @pytest.mark.parametrize(
     "target",
-    (
-        "SourceInspection.sample",
-        "inspection.sample",
-        "md.SourceInspection.sample",
-        "md.inspection.sample",
-    ),
+    ("source_inspection.sample",),
 )
 def test_registered_sample_string_paths_resolve_to_one_descriptor(target: str) -> None:
     from marivo.datasource._capabilities.surface import DATASOURCE_LIVE_SURFACE
@@ -78,7 +73,7 @@ def test_registered_sample_string_paths_resolve_to_one_descriptor(target: str) -
 
     resolved = resolve_live_target(target, DATASOURCE_LIVE_SURFACE)
     assert resolved.kind == "descriptor"
-    assert resolved.canonical_id == "SourceInspection.sample"
+    assert resolved.canonical_id == "source_inspection.sample"
 
 
 def test_inspection_source_column_help_routes_to_exact_method() -> None:
@@ -86,17 +81,16 @@ def test_inspection_source_column_help_routes_to_exact_method() -> None:
     from marivo.introspection.live.resolve import resolve_live_target
 
     for target in (
-        "SourceInspection.source_column",
-        "inspection.source_column",
+        "source_inspection.source_column",
         md.SourceInspection.source_column,
     ):
         resolved = resolve_live_target(target, DATASOURCE_LIVE_SURFACE)
-        assert resolved.canonical_id == "SourceInspection.source_column"
+        assert resolved.canonical_id == "source_inspection.source_column"
 
 
 def test_unknown_string_raises_typed_bounded_error() -> None:
     with pytest.raises(MarivoHelpTargetError) as exc_info:
-        marivo.help("inspekt")
+        marivo.help("datasource.inspekt")
 
     assert len(exc_info.value.candidates) <= SURFACE_LIMITS.help_suggestion_limit
     assert "datasource.inspect" in exc_info.value.candidates
@@ -148,15 +142,21 @@ def test_runtime_help_accepts_only_registered_datasource_instances(
     datasource_runtime_targets: tuple[object, ...],
 ) -> None:
     from marivo.datasource._capabilities.surface import DATASOURCE_LIVE_SURFACE
+    from marivo.datasource.errors import DatasourceHelpTargetError
     from marivo.introspection.live.resolve import resolve_live_target
 
     for target in datasource_runtime_targets:
-        resolved = resolve_live_target(target, DATASOURCE_LIVE_SURFACE)
-        assert resolved.canonical_id or resolved.type_name or resolved.error_name
+        with pytest.raises(DatasourceHelpTargetError):
+            resolve_live_target(target, DATASOURCE_LIVE_SURFACE)
+        assert resolve_live_target(type(target), DATASOURCE_LIVE_SURFACE).kind in {
+            "type_contract",
+            "error_contract",
+        }
 
 
 def test_advertised_datasource_members_resolve_through_public_help() -> None:
     from marivo.datasource._capabilities.registry import TYPE_CONTRACTS
+    from marivo.introspection.live.targets import canonical_target
 
     for type_obj, contract in TYPE_CONTRACTS.items():
         for name in contract.public_methods:
@@ -167,24 +167,20 @@ def test_advertised_datasource_members_resolve_through_public_help() -> None:
             text, _, _ = render_help_text(method)
             assert text
             if method.__module__.startswith("marivo.datasource"):
-                assert text == render_help_text(f"datasource.{contract.name}.{name}")[0]
+                assert (
+                    text
+                    == render_help_text(f"datasource.{canonical_target(contract.name)}.{name}")[0]
+                )
 
 
-def test_snapshot_contract_help_matches_callable_and_bound_member(
+def test_snapshot_has_direct_fields_and_no_action_contract(
     datasource_runtime_targets: tuple[object, ...],
 ) -> None:
-    snapshot = next(
-        target for target in datasource_runtime_targets if isinstance(target, DiscoverySnapshot)
-    )
-    text = render_help_text("datasource.DiscoverySnapshot.contract")[0]
-    assert text == render_help_text(DiscoverySnapshot.contract)[0]
-    assert text == render_help_text(snapshot.contract)[0]
-    assert "DiscoverySnapshotContract" in text
-    result = snapshot.contract()
-    type_text = render_help_text("datasource.DiscoverySnapshotContract")[0]
-    assert type_text == render_help_text(type(result))[0]
-    assert render_help_text(result)[0]
-    assert "retained_values_shape" in type_text
+    snapshot = next(t for t in datasource_runtime_targets if isinstance(t, DiscoverySnapshot))
+    assert not hasattr(snapshot, "contract")
+    text = render_help_text("datasource.discovery_snapshot")[0]
+    assert "retained_values" in text
+    assert "coverage" in text
 
 
 def test_error_help_kind_depends_on_concrete_repair_target() -> None:
@@ -206,16 +202,15 @@ def test_error_help_kind_depends_on_concrete_repair_target() -> None:
     )
     without_repair = DatasourceMissingError(message="warehouse is missing")
 
-    briefing = resolve_live_target(with_repair, DATASOURCE_LIVE_SURFACE)
-    contract = resolve_live_target(without_repair, DATASOURCE_LIVE_SURFACE)
-    error_class = resolve_live_target(DatasourceMissingError, DATASOURCE_LIVE_SURFACE)
+    from marivo.datasource.errors import DatasourceHelpTargetError
 
-    assert briefing.kind == "error_briefing"
-    assert contract.kind == "error_contract"
-    assert error_class.kind == "error_contract"
-    assert contract == error_class
-    assert with_repair.repair is not None
-    assert with_repair.repair.help_target == LiveHelpTarget(surface="semantic")
+    for error in (with_repair, without_repair):
+        with pytest.raises(DatasourceHelpTargetError):
+            resolve_live_target(error, DATASOURCE_LIVE_SURFACE)
+    assert (
+        resolve_live_target(DatasourceMissingError, DATASOURCE_LIVE_SURFACE).kind
+        == "error_contract"
+    )
 
 
 def test_live_help_performs_no_datasource_effects(
@@ -230,5 +225,9 @@ def test_live_help_performs_no_datasource_effects(
     monkeypatch.setattr("marivo.config.load_project_config", fail)
 
     assert marivo.help() is None
-    for target in ("inspect", md.SourceInspection, *datasource_runtime_targets):
+    for target in (
+        "datasource.inspect",
+        md.SourceInspection,
+        *(type(t) for t in datasource_runtime_targets),
+    ):
         assert marivo.help(target) is None

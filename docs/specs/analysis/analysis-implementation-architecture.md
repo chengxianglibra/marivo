@@ -76,7 +76,7 @@ Population 表示分析总体，覆盖身份名单、分析坐标和内部样本
 当前行为仍由 [Python Analysis Design](python-analysis-design.md) 和
 [Session State and Runtime](session-state-and-runtime.md) 约束。
 以下表格记录历史起点。旧 `public_dsl.py`、graph/Cell 发布器与可执行结果接收器
-现已整体删除；当前公开对象直接来自 `dsl/`，共享披露值来自 `_contract.py`。
+现已整体删除；当前公开对象及其实例披露直接来自 `dsl/`；通用 `_contract.py` 已删除。
 
 | 现状与代码证据 | 架构判断 |
 | --- | --- |
@@ -210,7 +210,7 @@ Measure/Metric 自建的数值 AST 和依赖旧节点的构图/翻译入口由 I
 作者侧命名/匿名数值值始终是原生 Ibis Deferred，内部受控 Resolver 保存叶子、配方及声明记录，schema 已知也不切换为裸 Value。
 不继承 final Deferred、不让 Ibis 猜测普通包装对象；声明元数据不改变表达式载体或求值范围。
 带关系的裸 Value 仅用于内部绑定/lowering，不接入作者入口；既有 Entity/Dimension 受限 Ibis 合同继续独立。
-定义条目及 Query.contract 拥有动态披露，不向 Deferred 注入 show/contract。
+定义条目及 Query.show 拥有动态披露，不向 Deferred 注入 show/contract。
 
 受控解析器在 schema 准备前遍历 Resolver 配方，发现闭包、语义方法和使用位置；物理绑定后递归构造 Ibis 数值子图。
 普通调用委托获准 Ibis 构造器，time/per/divide 等先归一语义边界，不能对混合配方直接调用原生 resolve。
@@ -219,7 +219,7 @@ Measure/Metric 自建的数值 AST 和依赖旧节点的构图/翻译入口由 I
 实现前须通过[统一机制验收](lazy-analysis-dsl-scenario-validation.md#94-原生-ibis-表达式与自动延迟类型绑定)，不能用伪 dtype 或仅装饰器源码改写补漏洞。
 
 execute preparation 自动取得闭包所需 schema，解析真实 Ibis DAG 并检查类型、单位、权限、根和阶段；
-声明/observe/contract 保持 source-free，dtype 未知明确披露。类型/规则/路线进入绑定缓存键，不能复用旧 schema 的计划。
+声明/observe/show 保持 source-free，dtype 未知明确披露。类型/规则/路线进入绑定缓存键，不能复用旧 schema 的计划。
 语义规约的 time/nulls 及除零政策仍由 Marivo 归一/lower；源端与合格 pandas 内核保持同一合同。
 条件及所有分支的原始依赖、静态约束与时间义务不能被优化擦除；数据检查域按语义提案 §3.6.5 显式传播。
 ifelse/cases/coalesce 只向实际需要的分支传递行/格子需求；命名不形成 eager 根，独立观察形成独立需求。
@@ -447,7 +447,7 @@ Column 采用一个公开接口、内部闭合 kind，不按动态列名承诺 P
 目标 Query 构造完成可从声明判定的阶段、路径、单位、域形状和 Session 检查。
 尚未解析的物理 dtype 使用明确的未解析状态，在 execute 的 schema-only 准备边界解析后才选择物理实现；
 同时按 §5.4 检查来源转换路线的精确类型资格，不把未知类型写成 Any，不扫描值猜类型。
-repr/contract 和模型加载都不触发这个边界。
+repr/show 和模型加载都不触发这个边界。
 检查按[执行 §2.4](lazy-analysis-dsl-execution.md#24-检查时机与能力披露)归属构造、绑定、执行准备或实际输入。
 已知不相容单位等非法输入不能保留到执行；尚缺绑定/schema/数据则披露具体要求，不以未知冒充支持。
 
@@ -1136,11 +1136,11 @@ Query 的语义与物理资格由对应 compiler/methods 内核直接拥有；�
 | --- | --- | --- |
 | 旧 Metric v1 图及其 canonicalizer | 已删除；数值内核归 semantic/_numeric_lowering.py，物理 Entity 依赖指纹归 semantic/_physical_identity.py | 当前定义图、物理读取、数值编译与执行 |
 | 旧 Runtime descriptor 及 analysis 转发层 | 已删除；readiness 仅检查物理语义输入与认证时间产物 | exports、Help、typing、示例及相关调用 |
-| 历史 analysis/public_dsl.py | 已删除；Population/Query/Artifact/Column 位于 dsl，共享披露值位于 _contract.py | `_public.py`、Session、动态披露、终端读取 |
+| 历史 analysis/public_dsl.py | 已删除；Population/Query/Artifact/Column 及实例披露位于 dsl；通用 _contract.py 已删除 | `_public.py`、Session、动态披露、终端读取 |
 | materialization/graph_relation、graph_members、graph_observation | 纯构造/绑定移至 binding/core；运行依赖留在 materialization | Query 构造、Field/域绑定、执行内组合 |
 | core/cell_encoding.py、compiler/cell_lowering.py、materialization/cell_arrow.py | 新格式退役四态编码、压缩/展开和书表；仅将必要的 Arrow schema/编解码帮助函数保留在存储/读取边界 | SQL/pandas、存储、导出和公开状态谓词一起切换，不建立兼容层 |
 | core/model.py | 引入多量与按量状态绑定，使用 nullable 类型、证据与 obligation | 规则、规划、布局、发布、恢复、导出一起切换 |
-| 历史 core/rules.py、methods/semantics.py、descriptor.py | 已删除；当前操作直接由绑定、编译器与物理内核拥有 | planner、local/source dispatch、contract 推导 |
+| 历史 core/rules.py、methods/semantics.py、descriptor.py | 已删除；当前操作直接由绑定、编译器与物理内核拥有 | planner、local/source dispatch、动态能力推导 |
 | graph_storage.read_result、graph_dataset 的读取出口 | 只保留元数据、预览、导出阅读；graph_reading 生成/消费精确 ReadLayout | 终端 reader、nullable 投影、part 校验、show/to_pandas |
 | graph_local_execution 的筛选/规约融合分组 | 准入和融合决策迁入 compiler/optimization；执行器保留实际内核 | 原节点定位、obligations、消费者计数和 parts 运输 |
 | compiler/graph_plan.py | 从整图模式门禁改为明确 stage 依赖和逐输入资格 | SourceFactory/中间数据交接、资源规划和检查调度 |
@@ -1162,15 +1162,15 @@ Query 的语义与物理资格由对应 compiler/methods 内核直接拥有；�
 | 出口 | 读取的权威 | 披露范围 |
 | --- | --- | --- |
 | Help | 静态公开注册和签名 | canonical 入口、参数、阶段、最短例子 |
-| Catalog 定义条目 / Query.contract 的指标事实 | 声明记录、定义事实和完整依赖 | 阶段、政策、授权、归属、绑定要求；收录阻碍由收录结果/错误披露，不调用 Deferred.contract |
-| Population.contract | Population 定义、已有绑定和纯准入规则 | 有序轴/类型/角色、归属、字面量或动态依赖、选择期间/属性锚点、可判定操作及待检查条件 |
-| Query.contract | 绑定签名、输入角色和已知资格 | 主输入/域/参照、明确新读、待检查条件 |
+| Catalog 定义条目 / Query.show 的指标事实 | 声明记录、定义事实和完整依赖 | 阶段、政策、授权、归属、绑定要求；收录阻碍由收录结果/错误披露，不调用 Deferred.contract |
+| Population.show | Population 定义、已有绑定和纯准入规则 | 有序轴/类型/角色、归属、字面量或动态依赖、选择期间/属性锚点、可判定操作及待检查条件 |
+| Query.show | 绑定签名、输入角色和已知资格 | 主输入/域/参照、明确新读、待检查条件 |
 | Artifact.show / findings / evidence_digest | 已提交数据及输出记录 | 有界预览与事实摘要；没有 DSL contract 或续算提示 |
 | typed error | 失败 owner 的实际 expected/received/location | 从真实声明或已保存信息产生的具体 repair |
 
 动态能力使用与实际构造相同的纯准入规则，参数尚未给全时明确显示条件，
 Artifact 阅读不走 DSL 准入规则，也不维护可 rollup/share 的能力表。
-不为了 contract 读取数值/schema、展开未知 Population 或执行分母；
+不为了 show 读取数值/schema、展开未知 Population 或执行分母；
 Population 的实例披露由[执行 §2.1](lazy-analysis-dsl-execution.md#21-repr-与输入权威)拥有，未知键集保留为待求值依赖。
 错误归所属层 SemanticError/AnalysisError/DatasourceError；跨层保留原因，不把原错误换成无信息的 generic failure。
 
@@ -1220,7 +1220,7 @@ AGENTS 与 packaged semantic/analysis skills 的修改继续遵守仓库明确�
 | nullable 与失败边界 | 空输入/全 NA 的 sum 按 empty 为 0 或 NA；各阶段零分母默认 NA、显式 error 失败；共同配对与实际覆盖条件按算子检查；无逐格四态 |
 | 终端输出偷偷依赖图 | 无 semantic/graph loader 仍能 show/export/findings；新/重开接口相同，无 producer 引用；证据无可恢复 derivation |
 | 普通观察漏存读取与检查事实 | Finding 为空仍保存本次读取范围和实际检查摘要；断源重开一致，无虚构完整性认证 |
-| Population.contract 没有 owner | 字面量/来源/Query 域披露轴、已有归属和依赖；禁止业务/schema 读取时仍可调用，未知键集不枚举 |
+| Population.show 没有 owner | 字面量/来源/Query 域披露轴、已有归属和依赖；禁止业务/schema 读取时仍可调用，未知键集不枚举 |
 | 只取键或计数绕过错误 | 用一个原问题必要失败，验证 population/row_count/空选择仍保持该检查 |
 | 窗口被当作显示后处理 | 回看起点超出显示范围、认证日历无法覆盖请求范围时拒绝，以及一例状态采样次序 |
 | 来源精度与导出保证混同 | Ibis 原生返回允许数值精度损失，pandas 交接验证实际类型、NA、完整键与时间语义；记录大整数/Decimal 的实际表现，产物按已保存值验证往返 |

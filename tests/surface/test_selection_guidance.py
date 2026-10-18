@@ -20,7 +20,6 @@ def test_selection_discloses_population_for_retained_complete_identity(
         by=members,
     )
     selected = values.where(values["value"] > 0)
-    assert "query.population()" in {action.call for action in selected.contract().actions}
     assert isinstance(selected.population(), mv.Population)
     assert session.query(selected.population()).execute().to_pandas().iloc[:, 0].tolist() == [
         "A",

@@ -36,7 +36,7 @@ def test_semantic_error_repair_defaults_to_none() -> None:
 
 def test_repair_helper_builds_semantic_help_target() -> None:
     r = repair(kind="reauthor", canonical_id="metric", action="Review provenance separately.")
-    assert r.help_target == LiveHelpTarget(surface="semantic", canonical_id="metric")
+    assert r.help_target == LiveHelpTarget(surface="semantic", canonical_id="metric.define")
 
 
 def test_runtime_filter_incompatibility_preserves_authored_business_literals() -> None:
@@ -52,7 +52,7 @@ def test_runtime_filter_incompatibility_preserves_authored_business_literals() -
 
     assert err.repair is not None
     assert err.repair.kind == "user_choice"
-    assert err.repair.help_target == LiveHelpTarget(surface="semantic", canonical_id="Metric.where")
+    assert err.repair.help_target == LiveHelpTarget(surface="semantic", canonical_id="metric.where")
     assert err.repair.preserves_evidence is True
     assert "Preserve the authored filter literals" in err.repair.action
     assert "Do not replace business codes" in err.repair.action

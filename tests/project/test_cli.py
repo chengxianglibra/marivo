@@ -189,7 +189,7 @@ def test_rejects_invalid_toml_without_force(tmp_path: Path) -> None:
     "arguments",
     (("observe",), ("analysis", "observe"), ("semantic", "load"), ("datasource", "inspect")),
 )
-def test_cli_help_rejects_tracks_and_targets_as_bootstrap_only(
+def test_cli_help_rejects_unknown_or_multi_part_targets(
     arguments: tuple[str, ...],
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -432,3 +432,35 @@ def test_doctor_command_fix_snapshot_takes_precedence_over_json(
 
     captured = capsys.readouterr()
     assert captured.out == "FIX SNAP WINS\n"
+
+
+@pytest.mark.parametrize(
+    "target", [None, "analysis", "analysis.query", "analysis.query.output_names"]
+)
+def test_cli_and_python_help_have_identical_body(
+    target: str | None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    marivo.help(target)
+    expected = capsys.readouterr().out
+    main(["help"] if target is None else ["help", target])
+    captured = capsys.readouterr()
+    assert captured.out == expected
+    assert captured.err == ""
+
+
+def test_cli_help_render_failure_is_diagnostic_exit_one(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from marivo._help import render
+
+    def fail(_target: str | None = None) -> tuple[str, str, str | None]:
+        raise RuntimeError("broken renderer")
+
+    monkeypatch.setattr(render, "render_help_text", fail)
+    with pytest.raises(SystemExit) as error:
+        main(["help", "analysis"])
+    assert error.value.code == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "cause='RuntimeError'" in captured.err
+    assert "Traceback" not in captured.err

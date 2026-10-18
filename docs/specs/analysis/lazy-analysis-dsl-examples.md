@@ -152,7 +152,7 @@ baseline_region_query = s.observe(
     by=region_keys,
 )
 regional_pair = current_region_query.align(baseline_region_query)
-current_region_query.contract().show()
+current_region_query.show()
 regional_comparison_artifact = regional_pair.select({
     "revenue.absolute": regional_pair["left.revenue"] - regional_pair["right.revenue"],
 }).execute()
@@ -232,7 +232,7 @@ West后来收入变70仍追问West，旧结果仍90；不回写、不对账，�
 
 ```python
 cohort_population = orders_in(september).classify(by=(customer_axis,))
-cohort_population.contract().show()
+cohort_population.show()
 cohort_artifact = s.query(cohort_population).execute()
 cohort_frame = cohort_artifact.to_pandas()
 ```
@@ -655,7 +655,7 @@ fixed_customers = anchor_s.query(
 attributes = anchor_s.read(fixed_customers, {"tier": tier.at(october.end)})
 gold_customers = attributes.where(attributes["tier"] == "Gold").population()
 gold_query = anchor_s.query(gold_customers)
-attributes.contract().show()
+attributes.show()
 attributes.execute().show()
 gold_query.execute().show()
 ```
@@ -949,7 +949,7 @@ mean 不授予求和权限；直接 positive.sum() 仍缺业务授权。这里 m
 具体机制由[语义提案 §2.6](../semantic/expression-model-redesign.md#26-原生-ibis-与自动延迟绑定)拥有。
 
 即使已有可信 schema，amount/revenue 等数值作者值和这些中间结果也始终是原生 Deferred；命名信息存在内部声明 Resolver。
-不接收裸后端 Ibis Value 来替换作者值，不调用作者表达式自身的 `.resolve()`/`.show()`；通过 Catalog 条目或 Query.contract 披露。
+不接收裸后端 Ibis Value 来替换作者值，不调用作者表达式自身的 `.resolve()`/`.show()`；通过 Catalog 条目或 Query.show 披露。
 命名不是提前执行。下例 numerator/denominator 为已解析的相容 Metric，分母为无量纲数值：
 
 ```python

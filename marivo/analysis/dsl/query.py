@@ -45,7 +45,6 @@ from marivo._definition.types import (
     Owner,
 )
 from marivo._temporal import PeriodCalendarSnapshotV1, TimeScope
-from marivo.analysis._contract import AnalysisAction, AnalysisContract
 from marivo.analysis._scope import scope_summary
 from marivo.analysis.binding.observe import bind_observation
 from marivo.analysis.core.graph import BoundGraph, capture_query
@@ -433,7 +432,7 @@ class Query:
         signature = self._graph.signature
         contributions = signature.observation.contributions if signature.observation else ()
         sources = len({item.root.ref for item in contributions})
-        return f"<Query id={self._graph.fingerprint[:16]} session={signature.owner.session_id[:80]} outputs={len(signature.quantities)} sources={sources} contributions={len(contributions)}; use .contract().show()>"
+        return f"<Query id={self._graph.fingerprint[:16]} session={signature.owner.session_id[:80]} outputs={len(signature.quantities)} sources={sources} contributions={len(contributions)}; use .show()>"
 
     def __getitem__(self, name: str) -> Column:
         """Locate a named value without executing this Query.
@@ -1171,114 +1170,111 @@ class Query:
             )
         )
 
-    def contract(self) -> AnalysisContract:
-        """Describe captured outputs, bound context and unresolved physical types.
+    @property
+    def output_names(self) -> tuple[str, ...]:
+        """Return every output name in definition order.
 
-        Args: None.
-        Returns: A bounded AnalysisContract with known definition facts.
-        Example: ``query.contract().show()``.
-        Constraints: No business or schema reads, Run admission or capability guessing.
+        Returns: Complete captured output names, without schema or source reads.
+        Example: ``column = query[query.output_names[0]]``.
+        Constraints: Read-only metadata; does not execute this Query.
+        """
+        return tuple(quantity.name for quantity in self._graph.signature.quantities)
+
+    def show(self) -> None:
+        """Print bounded captured Query facts without evaluating the definition.
+
+        Returns: None; prints names, units, coordinates, scope and ownership.
+        Example: ``query.show()``.
+        Constraints: No schema or source reads or Run admission; physical types
+        remain unresolved until execution.
         """
         quantities = self._graph.signature.quantities
         observation = self._graph.signature.observation
         axes = self._graph.signature.axes
-        actions = [
-            AnalysisAction("query.execute()", "analysis.Query.execute"),
-            AnalysisAction("query.population()", "analysis.Query.population"),
-            AnalysisAction("query.reduce({'rows': mv.row_count()})", "analysis.Query.reduce"),
-        ]
-        if quantities:
-            name = quantities[0].name
-            actions.extend(
-                (
-                    AnalysisAction(
-                        f"query.select({{{name!r}: query[{name!r}]}})", "analysis.Query.select"
-                    ),
-                    AnalysisAction(
-                        f"query.where(~query[{name!r}].is_null())", "analysis.Query.where"
-                    ),
-                )
-            )
-        return AnalysisContract(
-            kind="Query",
-            actions=tuple(actions),
-            domain=self._graph.signature.observation.coordinates.mode
-            if self._graph.signature.observation
-            else "result coordinates"
-            if axes
-            else "scalar singleton",
-            quantity=f"{len(quantities)} named Metric outputs",
-            _facts=(
-                ("definition", self._graph.fingerprint),
-                ("scope", scope_summary(self._graph.root, observation)),
-                ("physical_dtype", "unresolved; schema-only preparation belongs to execution"),
-                ("execution", "Query.execute() atomically publishes terminal output"),
-                ("output", "terminal Artifact; preview, complete pandas export and saved facts"),
-                ("owner", self._graph.signature.owner.session_id),
-                ("dependencies", str(len(self._graph.root.inputs)))
-                if isinstance(self._graph.root, ResultQuery)
-                else ("dependencies", "source definitions"),
-                ("operation", type(self._graph.root.operation).__name__)
-                if isinstance(self._graph.root, ResultQuery)
-                else ("operation", "observe"),
-                (
-                    "period",
-                    repr(self._graph.signature.observation.period)
-                    if self._graph.signature.observation
-                    and self._graph.signature.observation.period
-                    else "None; no additional time filter",
-                ),
-                ("axes", str(len(self._graph.signature.axes))),
-                (
-                    "field_where",
-                    repr(observation.condition)[:400]
-                    if observation and observation.condition is not None
-                    else "None",
-                ),
-                *(
-                    (
-                        f"axis[{i}]",
-                        (
-                            axis.field.ref.path[:100]
-                            if axis.field is not None
-                            else axis.entity.ref.path[:100]
-                        )
-                        if isinstance(axis, AxisBinding)
-                        else f"calendar={axis.grain[:80]} timezone={axis.timezone} buckets={len(axis.cells)}"
-                        if isinstance(axis, CalendarCoordinate)
-                        else f"correspondence={axis.identity[:16]}",
-                    )
-                    for i, axis in enumerate(axes[:6])
-                ),
-                ("axes_omitted", str(max(0, len(axes) - 6))),
-                (
-                    "contributions",
-                    str(len(self._graph.signature.observation.contributions))
-                    if self._graph.signature.observation
-                    else "0",
-                ),
-                *(
-                    (
-                        f"source[{i}]",
-                        f"{c.root.ref.path[:100]} occurrence={c.occurrence} intrinsic_conditions={len(c.intrinsic_conditions)} reads={len(c.reads)}",
-                    )
-                    for i, c in enumerate(
-                        self._graph.signature.observation.contributions[:6]
-                        if self._graph.signature.observation
-                        else ()
-                    )
-                ),
-                (
-                    "sources_omitted",
-                    str(max(0, len(observation.contributions) - 6)) if observation else "0",
-                ),
-                *(
-                    (f"output[{index}]", f"{q.name[:100]} unit={q.unit or 'undeclared'}")
-                    for index, q in enumerate(quantities[:8])
-                ),
-                ("outputs_omitted", str(max(0, len(quantities) - 8))),
+        facts = (
+            ("definition", self._graph.fingerprint),
+            ("scope", scope_summary(self._graph.root, observation)),
+            ("physical_dtype", "unresolved; schema-only preparation belongs to execution"),
+            ("execution", "Query.execute() atomically publishes terminal output"),
+            ("output", "terminal Artifact; preview, complete pandas export and saved facts"),
+            ("owner", self._graph.signature.owner.session_id),
+            ("dependencies", str(len(self._graph.root.inputs)))
+            if isinstance(self._graph.root, ResultQuery)
+            else ("dependencies", "source definitions"),
+            ("operation", type(self._graph.root.operation).__name__)
+            if isinstance(self._graph.root, ResultQuery)
+            else ("operation", "observe"),
+            (
+                "period",
+                repr(self._graph.signature.observation.period)
+                if self._graph.signature.observation and self._graph.signature.observation.period
+                else "None; no additional time filter",
             ),
+            ("axes", str(len(self._graph.signature.axes))),
+            (
+                "field_where",
+                repr(observation.condition)
+                if observation and observation.condition is not None
+                else "None",
+            ),
+            *(
+                (
+                    f"axis[{i}]",
+                    (axis.field.ref.path if axis.field is not None else axis.entity.ref.path)
+                    if isinstance(axis, AxisBinding)
+                    else f"calendar={axis.grain} timezone={axis.timezone} buckets={len(axis.cells)}"
+                    if isinstance(axis, CalendarCoordinate)
+                    else f"correspondence={axis.identity[:16]}",
+                )
+                for i, axis in enumerate(axes[:6])
+            ),
+            ("axes_omitted", str(max(0, len(axes) - 6))),
+            (
+                "contributions",
+                str(len(self._graph.signature.observation.contributions))
+                if self._graph.signature.observation
+                else "0",
+            ),
+            *(
+                (
+                    f"source[{i}]",
+                    f"{c.root.ref.path} occurrence={c.occurrence} intrinsic_conditions={len(c.intrinsic_conditions)} reads={len(c.reads)}",
+                )
+                for i, c in enumerate(
+                    self._graph.signature.observation.contributions[:6]
+                    if self._graph.signature.observation
+                    else ()
+                )
+            ),
+            (
+                "sources_omitted",
+                str(max(0, len(observation.contributions) - 6)) if observation else "0",
+            ),
+            *(
+                (f"output[{index}]", f"{q.name} unit={q.unit or 'undeclared'}")
+                for index, q in enumerate(quantities[:8])
+            ),
+            ("outputs_omitted", str(max(0, len(quantities) - 8))),
         )
+        print("logical Query")
+        omitted = 0
+        remaining = 5500
+        for name, value in facts:
+            size = len(value.encode("utf-8"))
+            limit = 1800 if name == "scope" else 600
+            if size > min(limit, remaining):
+                print(f"{name}=omitted ({len(value)} characters)")
+                omitted += 1
+            else:
+                print(f"{name}={value}")
+                remaining -= size + len(name) + 2
+        if omitted:
+            print(f"facts_omitted={omitted}; complete coordinates: query.population().axes")
+        if len(quantities) > 8 or omitted:
+            print("Complete names: query.output_names; construct columns with query[name].")
+        if len(axes) > 6:
+            print("Complete axes: query.population().axes")
+        print("Help: analysis.query")
 
     def execute(self) -> Artifact:
         """Explicitly request evaluation and committed terminal output.

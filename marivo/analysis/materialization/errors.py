@@ -18,7 +18,7 @@ class MaterializationError(DatasetConstructionError):
         repair: str,
         stage: str = "materialization",
         run_ref: str | None = None,
-        help_target: str = "actions.execute",
+        help_target: str = "query.execute",
     ) -> None:
         self.stage = stage
         super().__init__(

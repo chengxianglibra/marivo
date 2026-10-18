@@ -18,7 +18,7 @@ Column 属于当前精确 Query 输入。使用该输入的列，或先明确 al
 ```python
 aligned = current.align(baseline, how="outer")
 difference = aligned.select({"difference": aligned["left.revenue"] - aligned["right.revenue"]})
-difference.contract().show()
+difference.show()
 ```
 
 exact 要求完整键唯一且完全对应，outer 通过独立 presence 保留缺侧。缺失值不能替代键或授权补零；字段 Null 是合法类别。完整元组成员谓词保留每个分量，使用 null-safe AND/OR，不能拆成各列独立成员测试。

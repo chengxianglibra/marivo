@@ -10,7 +10,7 @@ v0.37 增补有序/近似/nullable sum、membership 与窗口的执行边界；�
 2026-10-17 fanout 修订采用贡献语义约束，允许已证明等价且已准入的不同物理策略；新增边界见 §1.1.4。
 v0.36 复用 schema preparation 自动绑定原生 Ibis 数值图；详细语义由语义提案 §2.6/§3.6 拥有。
 v0.35 明确分阶段检查、浮点优化准入、旧 Session 拒绝与历史产物边界；移除资源预算设计。
-v0.34 明确来源类型准入、多 datasource 路线、普通观察 Evidence 和 Population.contract 的责任。
+v0.34 明确来源类型准入、多 datasource 路线、普通观察 Evidence 和 Population.show 的责任。
 执行分工仍为 Ibis 源端计算、pandas 统一本地执行、PyArrow 存储和读取；Artifact 始终为终端产物。
 本文承接 [DSL 定义](lazy-analysis-dsl-redesign.md)，拥有执行图、保存/恢复、Agent 披露和 pandas 导出布局。
 参数与算子语义由 DSL 定义拥有；设计取舍与验收见 [场景验证](lazy-analysis-dsl-scenario-validation.md)。
@@ -378,34 +378,34 @@ Trino/ClickHouse 的选后重算用类型化数组运输整数/字符串完整�
 
 ## 2. Agent 读取与错误契约
 
-Help 拥有静态语法；Catalog 定义条目和 Query.contract 披露指标定义、规范政策、显式依赖、归属及待检查要求，
-Population.contract 拥有域定义和已有绑定，Query.contract 拥有本次逻辑上下文；
+Help 拥有静态语法；Catalog 定义条目和 Query.show 披露指标定义、规范政策、显式依赖、归属及待检查要求，
+Population.show 拥有域定义和已有绑定，Query.show 拥有本次逻辑上下文；
 Artifact.show 展示已提交答案与有界 Finding/Evidence 摘要。
 Artifact 没有 DSL contract；有 Top-N 展示次序时沿用，否则按完整键规范排序。
 默认政策由 [语义提案 §3.4](../semantic/expression-model-redesign.md#34-样本政策的归属) 和
 [DSL §4.4](lazy-analysis-dsl-redesign.md#44-最小规约与有效样本) 拥有，实例只显示其已解析值。
 执行内输入合同集中在§1.1.1，各算子说明自身需要的局部依据。
-Population/Query contract 与新/重开产物阅读的完整调用见[场景 §8.7](lazy-analysis-dsl-scenario-validation.md#87-构造披露执行后阅读与重开)。
+Population/Query show 与新/重开产物阅读的完整调用见[场景 §8.7](lazy-analysis-dsl-scenario-validation.md#87-构造披露执行后阅读与重开)。
 
 ### 2.1 repr 与输入权威
 
 Marivo 公开结果和定义条目提供 bounded 单行 repr，不触发业务或 schema 读取；原生 Deferred 的 repr 不承担该结果披露合同。
-Query repr 包含 kind、逻辑身份、来源/字面量依赖摘要及 contract 定位；Population 不提前枚举未知键集。
+Query repr 包含 kind、逻辑身份、来源/字面量依赖摘要及 show 定位；Population 不提前枚举未知键集。
 Metric 显示匿名/命名身份及已知域依赖，不把声明名称显示成已发布 Catalog Ref。
 Artifact repr 包含 kind、Session/Artifact ID 并指向 show；不显示虚构的执行状态或续算资格。
 
-Population.contract 从自身定义、已有绑定及与构造共用的纯准入规则披露：有序轴/值类型/角色、
+Population.show 从自身定义、已有绑定及与构造共用的纯准入规则披露：有序轴/值类型/角色、
 已有 Session 归属、字面量或来源/Query 依赖、自己的选择期间与属性锚点，
-以及可判定的操作、尚缺的绑定和待执行检查。未知键集保持未求值，不枚举键或读取业务/schema 来补齐信息。
+以及已捕获的操作定义；未知的来源条件不由展示预测。未知键集保持未求值，不枚举键或读取业务/schema 来补齐信息。
 Help 拥有静态签名和例子；Population 实例不重复能力全集，也不把逻辑合法性显示为已执行检查通过。
-Query.contract 披露主输入、参照/域依赖、版本、必要检查和声明的读取范围；
+Query.show 披露主输入、参照/域依赖、版本、必要检查和声明的读取范围；
 动态范围尚未求出时保留依赖，实际读取及检查结果只由成功执行后的 §1.2 Evidence 披露。
-drill 指向有来源的观察端点，compare 不显示自动 drill，share 披露所选量和分母范围而不计算分母。
+操作选择由静态类型 Help 披露；share 可展示已捕获的所选量和分母范围，但不计算分母。
 Artifact.show 从已提交输出读取数据预览及事实摘要，不加载 Catalog，不重算或推断新 Finding。
 细节通过 Finding 分页与完整 evidence_digest() 读取；只为实际存在的输出提供阅读提示。
 展示被字节预算截断时，提示通过 to_pandas() 和 evidence_digest() 读取完整数据与事实，
 不提示 Artifact.show 未接受的参数。Evidence/Coordinate 作为嵌套结果接入 native Help，
-支持实例、类型及其阅读方法查询，不增加顶层导出。
+支持类型、精确字符串及绑定阅读方法查询；实例事实由其自身展示，不增加顶层导出。
 
 ### 2.2 域测试的未绑定与已绑定披露
 
@@ -491,7 +491,7 @@ execute 准备自动获取完整必要闭包的 schema，解析受控 Deferred�
 单位/阶段/根剩余义务、政策 lowering 和路线资格检查，再进入依赖这些事实的业务计算。
 语义检查不能只检查 DAG 的返回类型；条件、所有分支、规约参数及原始依赖义务都要保留。
 不增加 ms.require、手工 schema、假 float64、来源全表预检或公开准备生命周期。
-schema 获取可能有网络/文件 I/O；contract/observe/load 保持无来源 I/O，显式显示 dtype 未绑定。
+schema 获取可能有网络/文件 I/O；show/observe/load 保持无来源 I/O，显式显示 dtype 未绑定。
 
 源端可编译不证明跨源 Metric 数值函数有合格本地内核。先逐根规约，再以完整坐标键交付 pandas；
 聚合后的 sqrt/ifelse 等仍须在该位置执行，不能为了下推改成逐行运算或隐藏 DuckDB 本地求值。
@@ -527,7 +527,7 @@ coalesce 按左侧已求值结果的 NA 域继续，不捕获严格错误。普�
 | execute 准备 | 解析必要 schema，按后端、方法和输入形状核对类型、share 共同输入、rollup 充分信息及名单传递路线；无合格路线在依赖它的业务读取前失败 |
 | stage 实际输入就绪 | 实际键集/规模、配对、覆盖、NA、零分母等数据条件；动态名单求出后检查原生限制并实例化既定模板，必要检查完成前不发布产物 |
 
-contract 与构造/绑定共用纯规则，显示已知可用操作、已知缺口及尚需绑定/schema/数据的条件；
+show 披露已捕获输入与尚需绑定/schema/数据的条件；静态类型 Help 提供操作目录，实际构造与执行校验准入；
 它不读取 schema 或业务值，也不把“逻辑合法”或“等待检查”表述为后端已支持。
 已有信息足以确定 share/rollup 无合格路线时直接拒绝；仅因未选择后端或实际输入未到位而未知时，
 保留具体要求，到上述所属边界检查。来源错误保留 datasource 原因，由所在层提供修复；

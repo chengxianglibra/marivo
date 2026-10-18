@@ -333,6 +333,16 @@ def provider() -> DisclosureProvider:
         ),
         (
             Column,
+            "show",
+            (),
+            "None",
+            "Print captured input, role, name, unit and kind without source access.",
+            "result = column.show()",
+            ("column",),
+            "methods.rows",
+        ),
+        (
+            Column,
             "divide",
             (
                 P("other", "Same-input Column or compatible numeric literal."),

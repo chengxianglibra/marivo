@@ -18,9 +18,6 @@ _ACCEPTED_KINDS: tuple[str, ...] = (
     "canonical string",
     "registered callable or bound method",
     "registered public type",
-    "public runtime object owned by the surface",
-    "registered result instance",
-    "registered error instance or type",
 )
 
 

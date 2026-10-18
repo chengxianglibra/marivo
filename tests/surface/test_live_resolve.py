@@ -92,17 +92,11 @@ def test_resolve_canonical_string_to_descriptor():
     assert resolved.descriptor is PREVIEW
 
 
-def test_resolve_strips_surface_alias_and_name_prefix_from_target_string():
-    """Users paste the entrypoint shown in help (e.g. ``mv.session.get_or_create``
-    or the CLI form ``analysis mv.session.get_or_create``); the resolver must
-    strip the surface-name and alias prefixes to find the canonical id.
-    See issue #32.
-    """
+def test_resolve_rejects_surface_alias_and_name_prefix_from_target_string():
     surface = _surface((PREVIEW, READINESS))
-    for target in ("ms.preview", "semantic ms.preview", "semantic preview"):
-        resolved = resolve_live_target(target, surface)
-        assert resolved.kind == "descriptor"
-        assert resolved.descriptor is PREVIEW
+    for target in ("ms.preview", "semantic ms.preview", "semantic preview", "Preview"):
+        with pytest.raises(_FakeError):
+            resolve_live_target(target, surface)
 
 
 def test_resolve_callable_to_descriptor():
@@ -142,30 +136,18 @@ def test_resolve_callable_to_descriptor():
     assert resolved.descriptor is cap
 
 
-def test_resolve_error_instance_via_enrich():
-    from marivo.introspection.live.resolve import ResolvedLiveTarget
-
+def test_resolve_rejects_instances_before_enrichment():
     def enrich(target: object):
-        if isinstance(target, _FakeError):
-            return ResolvedLiveTarget(
-                kind="error_briefing",
-                surface="semantic",
-                error_name=type(target).__name__,
-                error_kind=target.kind,
-                original=target,
-            )
-        return None
+        raise AssertionError("Instances must not reach enrichment")
 
     surface = _surface((PREVIEW,), enrich=enrich)
-    resolved = resolve_live_target(_FakeError(), surface)
-    assert resolved.kind == "error_briefing"
-    assert resolved.error_name == "_FakeError"
-    assert resolved.error_kind == "fake"
+    with pytest.raises(_FakeError):
+        resolve_live_target(_FakeError(), surface)
 
 
 def test_resolve_error_type_to_error_contract():
     surface = _surface((PREVIEW,), error_types={"_FakeError": _FakeError})
-    resolved = resolve_live_target("_FakeError", surface)
+    resolved = resolve_live_target("_fake_error", surface)
     assert resolved.kind == "error_contract"
     assert resolved.error_name == "_FakeError"
 
@@ -198,19 +180,13 @@ _VALID_RESOLVED_CASES: tuple[dict[str, object], ...] = (
     },
     {"kind": "type_contract", "surface": "semantic", "type_name": "PreviewResult"},
     {
-        "kind": "reference_briefing",
-        "surface": "analysis",
-        "reference_id": "sales.revenue",
-        "original": object(),
+        "kind": "attribute",
+        "surface": "semantic",
+        "type_name": "PreviewResult",
+        "attribute_name": "rows",
+        "attribute_owner": object,
     },
     {"kind": "error_contract", "surface": "semantic", "error_name": "FakeError"},
-    {
-        "kind": "error_briefing",
-        "surface": "semantic",
-        "error_name": "FakeError",
-        "error_kind": "fake",
-        "original": object(),
-    },
 )
 
 
@@ -224,9 +200,8 @@ def test_resolved_target_rejects_missing_required_payload(payload: dict[str, obj
     required = {
         "descriptor": ("canonical_id", "descriptor"),
         "type_contract": ("type_name",),
-        "reference_briefing": ("reference_id", "original"),
+        "attribute": ("type_name", "attribute_name", "attribute_owner"),
         "error_contract": ("error_name",),
-        "error_briefing": ("error_name", "original"),
     }[payload["kind"]]
     for field in required:
         invalid = dict(payload)
@@ -240,18 +215,16 @@ def test_resolved_target_rejects_every_undocumented_payload(payload: dict[str, o
     allowed = {
         "descriptor": {"canonical_id", "descriptor"},
         "type_contract": {"type_name"},
-        "reference_briefing": {"reference_id", "original"},
+        "attribute": {"type_name", "attribute_name", "attribute_owner"},
         "error_contract": {"error_name"},
-        "error_briefing": {"error_name", "error_kind", "original"},
     }[payload["kind"]]
     sentinels: dict[str, object] = {
+        "attribute_owner": object,
+        "attribute_name": "unexpected",
         "canonical_id": "unexpected",
         "descriptor": PREVIEW,
         "type_name": "Unexpected",
-        "reference_id": "unexpected.ref",
         "error_name": "UnexpectedError",
-        "error_kind": "unexpected",
-        "original": object(),
     }
     for field, sentinel in sentinels.items():
         if field in allowed:

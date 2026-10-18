@@ -40,7 +40,7 @@ def provider() -> DisclosureProvider:
         parameters = tuple(P(name, guidance) for name in bind(value).signature.parameters)
         descriptors.append(
             operation(
-                target,
+                "grain.define",
                 "mv." + target,
                 value,
                 summary=guidance,
@@ -53,9 +53,9 @@ def provider() -> DisclosureProvider:
                 example=ExampleInput("result = " + call, (target,), "result", output),
             )
         )
-        exports.append(ExportInput(target, value, target))
+        exports.append(ExportInput(target, value, "grain.define"))
     for type_value, target, producer in (
-        (Grain, "Grain", "grain"),
+        (Grain, "Grain", "grain.define"),
         (TimeScope, "TimeScope", "session.time_scope"),
         (BeforeEndBoundary, "BeforeEndBoundary", "TimeScope"),
     ):
@@ -69,7 +69,7 @@ def provider() -> DisclosureProvider:
                 else "Construct with session.time_scope(...); its frozen timezone supports by(Grain). "
                 "Session.instant(...) constructs one exact boundary; no module-level time constructors are public."
                 if type_value is TimeScope
-                else f"Construct with mv.{producer}(...).",
+                else "Construct with mv.grain(...).",
                 producers=(producer,),
             )
         )
@@ -122,5 +122,18 @@ def provider() -> DisclosureProvider:
         ),
     }
     return DisclosureProvider(
-        "observation", with_sealed_variants(descriptors, sealed_variants), tuple(exports)
+        "observation",
+        with_sealed_variants(
+            descriptors,
+            sealed_variants,
+            applicability={
+                _temporal._BuiltinGrain: "grain.kind == 'builtin'",
+                _temporal._SemanticGrain: "grain.kind == 'semantic'",
+                _temporal._AbsoluteTimeScope: "time_scope.kind == 'absolute' without a frozen session timezone",
+                _temporal._SessionTimeScope: "time_scope.kind == 'absolute' constructed by session.time_scope(...)",
+                _temporal._CalendarPeriodTimeScope: "time_scope.kind == 'calendar_period'",
+                _temporal._TemporalOccurrenceTimeScope: "time_scope.kind == 'temporal_occurrence'",
+            },
+        ),
+        tuple(exports),
     )

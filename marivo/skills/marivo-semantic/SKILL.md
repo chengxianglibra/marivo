@@ -12,7 +12,7 @@ analysis can reference safely. Enter when a business question needs new or
 changed governed meaning, or when `marivo-analysis` identifies a reusable gap.
 Keep question-specific calculations and presentation logic in analysis.
 
-`marivo.help("authoring")` selects the owning surface; focused Help owns
+`marivo.help("authoring")` or CLI `marivo help authoring` selects the owning surface; focused Help owns
 constructors, effects, constraints, and examples. `.show()` and structured
 errors own result detail and repair. Project Python evaluated by `ms.load()` is
 the semantic source of truth. The agent interprets evidence and drafts Python;
@@ -48,7 +48,9 @@ model or assume that a state field establishes a complete behavioral history.
 
 Use `marivo.help("semantic.objects")` to select the object kind, then follow its
 object page for the stable decision checklist, legal construction modes, and
-evidence limitations. Use `marivo.help("semantic.builders")` when a constructor
+evidence limitations. Object pages link definition operations and expression
+roles; native Deferred methods are discovered through these exact targets,
+not through the generic Python Deferred type. Use `marivo.help("semantic.builders")` when a constructor
 needs a nested value or typed handle, and `marivo.help("semantic.checks")` when
 the unresolved question is what a particular inspection or check proves.
 
@@ -134,8 +136,8 @@ parts of the task that construction and existing leaf checks can establish.
 Leave authoring when its selected exit is satisfied. For analysis handoff, pass
 the exact ready refs or `analysis_ready_inputs` to `marivo-analysis` and continue
 the original question. Kind-level Help routes identify candidate consumers;
-their focused contracts own companion inputs. Population and Query contracts
-own valid computation continuations; returned Artifacts are terminal saved
+their focused contracts own companion inputs. Population and Query show captured
+facts; static type Help owns operation discovery. Returned Artifacts are terminal saved
 output and do not resume typed computation.
 
 For authoring-only work, report the slice, evidence and scope, material business

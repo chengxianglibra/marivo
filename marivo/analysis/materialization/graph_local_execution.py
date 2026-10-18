@@ -34,7 +34,7 @@ def run_local(
             received=stage.kernel,
             repair="Construct local stages through the Query compiler.",
             stage="local_compute",
-            help_target="Query.execute",
+            help_target="query.execute",
         )
     from marivo._definition.query import ComponentKeys, DrillValues, RollupValues, ShareValues
 
@@ -164,7 +164,7 @@ def run_local(
             else "an input table",
             repair="Return a new frame from the registered kernel; inputs are shared stage data.",
             stage="local_compute",
-            help_target="Query.execute",
+            help_target="query.execute",
         )
     return StageOutput.from_frame(
         frame,

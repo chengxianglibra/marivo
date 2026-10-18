@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, cast
 
@@ -17,13 +18,13 @@ from marivo.introspection.live.model import SURFACE_LIMITS, HelpSurface, Resolva
 from marivo.introspection.live.resolve import (
     LiveSurface,
     ResolvedLiveTarget,
-    _normalize_help_target,
     resolve_live_target,
     try_resolve_live_string_target,
 )
+from marivo.introspection.live.targets import canonical_target
 
 _SURFACES: tuple[HelpSurface, ...] = ("datasource", "semantic", "analysis", "ontology")
-_GLOBAL_TOPICS = ("authoring",)
+_GLOBAL_TOPICS = ("root", "authoring")
 
 if TYPE_CHECKING:
     from marivo._authoring.model import AuthoringCapability
@@ -121,11 +122,20 @@ def _exact_cross_surface_candidates(
         route = _resolve_one(target, owner)
         if route is None:
             continue
-        resolved = route.resolved
-        native_target = resolved.canonical_id or resolved.type_name or resolved.error_name
-        if native_target is not None:
-            candidates.append(f"{owner}.{native_target}")
+        candidates.append(native_route_target(route))
     return tuple(candidates)
+
+
+def native_route_target(route: NativeHelpRoute) -> str:
+    """Return the public address of an already resolved native page."""
+    resolved = route.resolved
+    identity = resolved.canonical_id or resolved.type_name or resolved.error_name
+    if identity is None:
+        raise RuntimeError("native Help route has no registered identity")
+    target = canonical_target(identity)
+    if resolved.kind == "attribute":
+        target += f".{resolved.attribute_name}"
+    return f"{route.owner}.{target}"
 
 
 def route_help_target(target: object | None) -> HelpRoute:
@@ -134,6 +144,8 @@ def route_help_target(target: object | None) -> HelpRoute:
         return TopicHelpRoute("root")
 
     if isinstance(target, str):
+        if not re.fullmatch(r"[a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)*", target):
+            raise MarivoHelpTargetError(target=target, outcome="unknown")
         if target in _SURFACES:
             return SurfaceRootHelpRoute(target)
         qualified = _qualified_string(target)
@@ -170,6 +182,8 @@ def route_help_target(target: object | None) -> HelpRoute:
             return route
         if target in _GLOBAL_TOPICS:
             return TopicHelpRoute(cast("GlobalTopic", target))
+    if isinstance(target, str) or (not isinstance(target, type) and not callable(target)):
+        raise MarivoHelpTargetError(target=target, outcome="unknown")
     routes: list[NativeHelpRoute] = []
     for owner in _SURFACES:
         route = _resolve_one(target, owner)
@@ -179,14 +193,7 @@ def route_help_target(target: object | None) -> HelpRoute:
     if len(routes) == 1:
         return routes[0]
     if len(routes) > 1:
-        if isinstance(target, str):
-            canonical_target = _normalize_help_target(target)
-            canonical_routes = tuple(
-                route for route in routes if route.resolved.canonical_id == canonical_target
-            )
-            if len(canonical_routes) == 1:
-                return canonical_routes[0]
-        elif callable(target):
+        if callable(target):
             # Shared catalog inputs can be retained by another surface. The
             # callable's defining module still identifies its native owner.
             module = getattr(target, "__module__", None)
@@ -200,10 +207,7 @@ def route_help_target(target: object | None) -> HelpRoute:
             )
             if len(native_routes) == 1:
                 return native_routes[0]
-        candidates = tuple(
-            f"{route.owner}.{route.resolved.canonical_id or route.resolved.type_name or route.resolved.error_name}"
-            for route in routes
-        )
+        candidates = tuple(native_route_target(route) for route in routes)
         raise MarivoHelpTargetError(
             target=target,
             outcome="ambiguous",
@@ -217,10 +221,7 @@ def route_help_target(target: object | None) -> HelpRoute:
             for candidate in _suggestions((error,)):
                 route = _resolve_one(candidate, owner)
                 if route is not None:
-                    resolved = route.resolved
-                    canonical = resolved.canonical_id or resolved.type_name or resolved.error_name
-                    if canonical is not None:
-                        qualified_candidates.setdefault(f"{owner}.{canonical}", None)
+                    qualified_candidates.setdefault(native_route_target(route), None)
     raise MarivoHelpTargetError(
         target=target,
         outcome="unknown",

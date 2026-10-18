@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 import marivo.analysis as mv
+from marivo._help.render import render_help_text
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
@@ -60,7 +61,7 @@ def test_file_construction_and_refusals_never_submit_business_rows(
                 "sales.average" if case_kind == "integer-mean" else "sales.total"
             )
             query = session.observe({"value": metric})
-            query.contract()
+            query.show()
             assert calls == [] and source_trace.native_sql == []
             assert session.runs().items == ()
             assert session._runtime.store.resources(session.id) == ()
@@ -130,5 +131,9 @@ def test_json_request_sources_are_refused_before_source_open(
         assert error.expected == "an existing local CSV or unparameterized GET JSON file on DuckDB"
         assert error.received and "JsonSourceIR" in error.received
         assert error.repair is not None and error.repair.action
+        target = error.repair.help_target.display
+        assert target == "analysis.query.execute"
+        assert f"marivo.help('{target}')" in str(error)
+        assert "Target: analysis.query.execute" in render_help_text(target)[0]
         assert calls == [] and session.runs().items == ()
         assert session._runtime.store.resources(session.id) == ()

@@ -33,7 +33,7 @@ def _stage_error(expected: str, received: str) -> MaterializationError:
         received=received,
         repair="Correct the source field type or stage layout; Marivo does not cast lossy values back.",
         stage="stage_output",
-        help_target="Query.execute",
+        help_target="query.execute",
     )
 
 

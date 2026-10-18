@@ -1,0 +1,78 @@
+"""Variant attribute Help preserves public receivers and field availability."""
+
+from datetime import timedelta
+
+import pytest
+
+import marivo.analysis as mv
+import marivo.semantic as ms
+from marivo._help.render import render_help_text
+from marivo._temporal import TimeScope
+
+
+def test_grain_field_help_matches_runtime_variant_availability() -> None:
+    builtin = mv.grain("day")
+    calendar = ms.ref.period_calendar("sales.fiscal")
+    semantic = ms.calendar_grain(calendar=calendar, level="week")
+
+    assert builtin.kind == "builtin"
+    assert semantic.kind == "semantic"
+    assert semantic.calendar == calendar
+    with pytest.raises(AttributeError):
+        _ = builtin.calendar
+
+    text, _, _ = render_help_text("analysis.grain.calendar")
+    assert "Target: analysis.grain.calendar\nKind: attribute" in text
+    assert "Python: grain.calendar" in text
+    assert "Applies when: grain.kind == 'semantic'" in text
+    assert "_SemanticGrain" not in text
+    type_text, _, _ = render_help_text("analysis.grain")
+    assert "grain.kind == 'semantic'" in type_text
+    assert "grain.kind == 'builtin'" in type_text
+
+    builtin_text, _, _ = render_help_text("analysis.grain.unit")
+    assert "Applies when: grain.kind == 'builtin'" in builtin_text
+    common_text, _, _ = render_help_text("analysis.grain.kind")
+    assert "Applies to all grain values." in common_text
+    assert "Applies when:" not in common_text
+
+
+def test_time_scope_field_help_does_not_evaluate_variant_getter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_if_read(_scope: TimeScope) -> str:
+        raise AssertionError("Help must not read a kind getter to discover applicability")
+
+    monkeypatch.setattr(TimeScope, "kind", property(fail_if_read))
+    text, _, _ = render_help_text("analysis.time_scope.calendar")
+    assert "Python: time_scope.calendar" in text
+    assert "Applies when: time_scope.kind == 'calendar_period'" in text
+    assert "_CalendarPeriodTimeScope" not in text
+
+    text, _, _ = render_help_text("analysis.time_scope.temporal_set")
+    assert "Applies when: time_scope.kind == 'temporal_occurrence'" in text
+    assert "_TemporalOccurrenceTimeScope" not in text
+
+
+def test_shared_variant_field_lists_each_applicable_public_condition() -> None:
+    text, _, _ = render_help_text("analysis.time_scope.boundary_timezone")
+    assert "Python: time_scope.boundary_timezone" in text
+    assert "time_scope.kind == 'absolute' constructed by session.time_scope(...)" in text
+    assert "time_scope.kind == 'calendar_period'" in text
+    assert "time_scope.kind == 'temporal_occurrence'" in text
+    assert "without a frozen session timezone" not in text
+    assert "Applies to all" not in text
+    assert "_SessionTimeScope" not in text
+
+
+def test_window_attribute_identifies_its_public_constructor() -> None:
+    window = mv.trailing_duration(duration=timedelta(days=1))
+    assert window.duration == timedelta(days=1)
+    with pytest.raises(AttributeError):
+        _ = mv.all_history().duration
+
+    text, _, _ = render_help_text("analysis.observation_window.duration")
+    assert "Python: observation_window.duration" in text
+    assert "Applies when: observation_window was returned by mv.trailing_duration(...)" in text
+    assert "_Window" not in text
+    assert "TrailingDuration" not in text

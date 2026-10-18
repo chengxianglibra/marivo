@@ -8,7 +8,7 @@ source reads. Named declarations attach immutable metadata to the same Deferred 
 model loading collects only exported root declarations. Derived aliases do not publish a
 new declaration. Declaration bodies are inspected and captured without invoking author functions.
 
-Use `catalog.describe(ref).show()` for definition facts and `Query.contract()` for execution
+Use `catalog.describe(ref).show()` for definition facts and `Query.show()` for execution
 facts. Native Deferred values have no Marivo `.show()` or `.contract()` methods. Real physical
 dtypes are checked during automatic execution preparation; no manual schema or conversion API
 is required. Implementation and execution acceptance for the additional capabilities below
@@ -119,7 +119,7 @@ shape, declaration location and a concrete reauthoring action.
 
 Native fields expose `is_null()` for a typed missing-value predicate; Dimension,
 TimeField and Measure receivers share the single
-`marivo.help("semantic.Dimension.isnull")` contract. Routed TimeFields retain
+`marivo.help("semantic.dimension.isnull")` contract. Routed TimeFields retain
 their path and are valid only as a source reduction's `time=` role, including
 when authoring sum-permission coordinates.
 

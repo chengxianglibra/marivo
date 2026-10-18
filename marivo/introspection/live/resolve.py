@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import difflib
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Generic, Literal, NoReturn, TypeVar
 
@@ -14,13 +14,13 @@ from marivo.introspection.live.model import (
     LiveSurfaceRegistry,
     ResolvableHelpDescriptor,
 )
+from marivo.introspection.live.targets import canonical_target
 
 ResolveKind = Literal[
     "descriptor",
     "type_contract",
-    "reference_briefing",
     "error_contract",
-    "error_briefing",
+    "attribute",
 ]
 
 
@@ -36,41 +36,32 @@ class ResolvedLiveTarget(Generic[DescriptorT]):
     canonical_id: str | None = None
     descriptor: DescriptorT | None = None
     type_name: str | None = None
-    reference_id: str | None = None
     error_name: str | None = None
-    error_kind: str | None = None
-    original: object | None = None
+    attribute_name: str | None = None
+    attribute_owner: type | None = None
 
     def __post_init__(self) -> None:
         """Reject every payload combination outside the documented matrix."""
         required: dict[ResolveKind, tuple[str, ...]] = {
+            "attribute": ("type_name", "attribute_name", "attribute_owner"),
             "descriptor": ("canonical_id", "descriptor"),
             "type_contract": ("type_name",),
-            "reference_briefing": ("reference_id", "original"),
             "error_contract": ("error_name",),
-            "error_briefing": ("error_name", "original"),
-        }
-        optional: dict[ResolveKind, tuple[str, ...]] = {
-            "error_briefing": ("error_kind",),
         }
         payload_names = (
+            "attribute_owner",
+            "attribute_name",
             "canonical_id",
             "descriptor",
             "type_name",
-            "reference_id",
             "error_name",
-            "error_kind",
-            "original",
         )
         required_names = required[self.kind]
-        optional_names = optional.get(self.kind, ())
         missing = tuple(name for name in required_names if getattr(self, name) is None)
         unexpected = tuple(
             name
             for name in payload_names
-            if name not in required_names
-            and name not in optional_names
-            and getattr(self, name) is not None
+            if name not in required_names and getattr(self, name) is not None
         )
         if missing or unexpected:
             raise ValueError(
@@ -82,8 +73,6 @@ class ResolvedLiveTarget(Generic[DescriptorT]):
             return f"ResolvedLiveTarget(kind={self.kind}, target={self.canonical_id!r})"
         if self.type_name is not None:
             return f"ResolvedLiveTarget(kind={self.kind}, type={self.type_name!r})"
-        if self.reference_id is not None:
-            return f"ResolvedLiveTarget(kind={self.kind}, ref={self.reference_id!r})"
         if self.error_name is not None:
             return f"ResolvedLiveTarget(kind={self.kind}, error={self.error_name!r})"
         return f"ResolvedLiveTarget(kind={self.kind})"
@@ -106,6 +95,8 @@ class LiveSurface(Generic[DescriptorT]):
     enrich: Callable[[object], ResolvedLiveTarget[DescriptorT] | None] | None = None
     string_target_index: Mapping[str, str] | None = None
     suggestion_index: LiveSuggestionIndex | None = None
+    descriptor_kind: Callable[[DescriptorT], str] | None = None
+    attribute_applicability: Mapping[type, str] = field(default_factory=dict)
 
 
 def resolve_live_target(
@@ -115,6 +106,8 @@ def resolve_live_target(
     """Resolve an allowlisted target without invoking domain behavior."""
     if isinstance(target, str):
         return _resolve_string(target, surface)
+    if not isinstance(target, type) and not callable(target):
+        _raise(surface, target)
     if surface.enrich is not None:
         enriched = surface.enrich(target)
         if enriched is not None:
@@ -123,7 +116,7 @@ def resolve_live_target(
         return _resolve_type(target, surface)
     if callable(target):
         return _resolve_callable(target, surface)
-    return _resolve_object(target, surface)
+    _raise(surface, target)
 
 
 def _resolved_descriptor(
@@ -168,83 +161,49 @@ def try_resolve_live_string_target(
                     surface,
                 )
         for type_name in surface.type_index.values():
-            if type_name == candidate:
+            if canonical_target(type_name) == candidate:
                 return ResolvedLiveTarget(
                     kind="type_contract",
                     surface=surface.registry.surface,
                     type_name=type_name,
                 )
-        bare = candidate.rsplit(".", 1)[-1]
-        error_type = surface.error_types.get(bare) or surface.error_types.get(candidate)
+        error_type = next(
+            (
+                value
+                for name, value in surface.error_types.items()
+                if canonical_target(name) == candidate
+            ),
+            None,
+        )
         if error_type is not None:
             return ResolvedLiveTarget(
                 kind="error_contract",
                 surface=surface.registry.surface,
                 error_name=error_type.__name__,
             )
+        for type_obj, type_name in surface.type_index.items():
+            parent, separator, member = candidate.rpartition(".")
+            if separator and canonical_target(type_name) == parent:
+                from marivo.introspection.live.attributes import public_attributes
+
+                if member in public_attributes(type_obj):
+                    return ResolvedLiveTarget(
+                        kind="attribute",
+                        surface=surface.registry.surface,
+                        type_name=type_name,
+                        attribute_name=member,
+                        attribute_owner=type_obj,
+                    )
     return None
 
 
-# Prefixes users paste from help output / CLI invocations. Canonical ids never
-# start with these, so stripping them is safe and lets
-# pasted legacy aliases such as ``mv.session.get_or_create`` still normalize
-# to the registered native id. See issue #32.
-_HELP_TARGET_PREFIXES = (
-    "analysis ",
-    "semantic ",
-    "datasource ",
-    "mv.",
-    "ms.",
-    "md.",
-    "mo.",
-)
-
-
 def _normalize_help_target(target: str) -> str:
-    normalized = target.strip()
-    changed = True
-    while changed:
-        changed = False
-        for prefix in _HELP_TARGET_PREFIXES:
-            if normalized.startswith(prefix):
-                normalized = normalized[len(prefix) :].strip()
-                changed = True
-                break
-    return normalized
+    """Retain exact input; public targets have no implicit aliases."""
+    return target
 
 
 def _help_target_candidates(target: str) -> tuple[str, ...]:
-    """Yield the exact target first, then the alias/name-stripped form."""
-    normalized = _normalize_help_target(target)
-    if normalized and normalized != target:
-        return (target, normalized)
     return (target,)
-
-
-def _public_entrypoint_path(public_entrypoint: str) -> str:
-    """Return the receiver/callable path before a trailing call expression."""
-    normalized = public_entrypoint.strip()
-    call_start = normalized.find("(")
-    if call_start > 0 and normalized.endswith(")"):
-        return normalized[:call_start].rstrip()
-    return normalized
-
-
-def _public_type_entrypoint_paths(
-    public_entrypoint: str,
-    *,
-    public_type_names: frozenset[str],
-) -> tuple[str, ...]:
-    """Return public type-qualified forms of a receiver-owned entrypoint."""
-    path = _public_entrypoint_path(public_entrypoint)
-    receiver, separator, remainder = path.partition(".")
-    if not separator or not remainder:
-        return ()
-    return tuple(
-        f"{type_name}.{remainder}"
-        for type_name in sorted(public_type_names)
-        if type_name.casefold() == receiver.casefold()
-    )
 
 
 def build_string_target_index(
@@ -252,43 +211,8 @@ def build_string_target_index(
     *,
     public_type_names: frozenset[str],
 ) -> Mapping[str, str]:
-    """Build registered public string identities without walking attributes.
-
-    Ambiguous presentation paths such as ``frame.components`` are deliberately
-    absent. Their concrete owner/member forms remain available through the
-    registered public type paths, so registry order can never select a winner.
-    """
-    candidates: dict[str, str] = {}
-    ambiguous: set[str] = set()
-
-    for canonical_id in registry.canonical_ids():
-        descriptor = registry.by_canonical_id(canonical_id)
-        identities = [descriptor.canonical_id]
-        if descriptor.public_entrypoint:
-            identities.append(_public_entrypoint_path(descriptor.public_entrypoint))
-            identities.extend(
-                _public_type_entrypoint_paths(
-                    descriptor.public_entrypoint,
-                    public_type_names=public_type_names,
-                )
-            )
-        if descriptor.callable_path:
-            callable_parts = descriptor.callable_path.split(".")
-            if len(callable_parts) >= 2 and callable_parts[-2] in public_type_names:
-                identities.append(".".join(callable_parts[-2:]))
-
-        for identity in identities:
-            normalized = _normalize_help_target(identity)
-            if not normalized or normalized in ambiguous:
-                continue
-            previous = candidates.get(normalized)
-            if previous is None or previous == canonical_id:
-                candidates[normalized] = canonical_id
-                continue
-            candidates.pop(normalized, None)
-            ambiguous.add(normalized)
-
-    return MappingProxyType(candidates)
+    """Index exact owner-declared canonical targets only."""
+    return MappingProxyType({target: target for target in registry.canonical_ids()})
 
 
 def _resolve_callable(
@@ -306,10 +230,23 @@ def _resolve_type(
     surface: LiveSurface[DescriptorT],
 ) -> ResolvedLiveTarget[DescriptorT]:
     if issubclass(target, surface.error_base):
+        # Private failure subclasses share their nearest registered error
+        # contract. Never advertise a new string target just from a class name.
+        error_name = next(
+            (
+                name
+                for base in target.__mro__
+                for name, registered in surface.error_types.items()
+                if base is registered
+            ),
+            None,
+        )
+        if error_name is None:
+            _raise(surface, target)
         return ResolvedLiveTarget(
             kind="error_contract",
             surface=surface.registry.surface,
-            error_name=target.__name__,
+            error_name=error_name,
         )
     # Constructor classes are registered as descriptors so their focused help
     # includes the live callable contract. Prefer that descriptor over a
@@ -321,20 +258,12 @@ def _resolve_type(
         pass
     type_name = surface.type_index.get(target)
     if type_name is not None:
-        return ResolvedLiveTarget(
-            kind="type_contract",
-            surface=surface.registry.surface,
-            type_name=type_name,
-        )
-    _raise(surface, target)
-
-
-def _resolve_object(
-    target: object,
-    surface: LiveSurface[DescriptorT],
-) -> ResolvedLiveTarget[DescriptorT]:
-    type_name = surface.type_index.get(type(target))
-    if type_name is not None:
+        try:
+            return _resolved_descriptor(
+                surface.registry.by_canonical_id(canonical_target(type_name)), surface
+            )
+        except KeyError:
+            pass
         return ResolvedLiveTarget(
             kind="type_contract",
             surface=surface.registry.surface,

@@ -247,7 +247,7 @@ class SourceInspection(RenderableResult):
         )
         card.field(
             label="focused acquisition help",
-            value='marivo.help("datasource.SourceInspection.sample")',
+            value='marivo.help("datasource.source_inspection.sample")',
         )
         if isinstance(self.source, TableSourceIR) and not self.source.columns:
             card.table(
@@ -502,7 +502,7 @@ def _partition_listing_field_error(
         ),
         repair=repair(
             kind="retry",
-            canonical_id="SourceInspection.partitions",
+            canonical_id="source_inspection.partitions",
             action="Use a bounded physical-value listing with a supported order.",
             snippet='inspection.partitions(limit=100, order="desc")',
             preserves_evidence=True,
@@ -547,7 +547,7 @@ def _source_column_error(
         effect_observed=DatasourceObservedEffects(query_executed=False),
         repair=repair(
             kind="reauthor",
-            canonical_id="SourceInspection.source_column",
+            canonical_id="source_inspection.source_column",
             action=action,
             candidates=candidates,
             preserves_evidence=True,

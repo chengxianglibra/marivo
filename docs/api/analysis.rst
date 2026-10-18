@@ -239,11 +239,5 @@ Canonical public exports
 .. autoclass:: Session
    :members:
 
-.. autoclass:: AnalysisAction
-   :members:
-
-.. autoclass:: AnalysisContract
-   :members:
-
 .. automodule:: marivo.analysis.session
    :members:

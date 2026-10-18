@@ -3143,7 +3143,7 @@ class SemanticCatalog(RenderableResult):
                 refs=(ref.key,),
                 repair_value=repair(
                     kind="inspect",
-                    canonical_id="SemanticCatalog.require",
+                    canonical_id="semantic_catalog.require",
                     action="Inspect the exact global object without widening this collection.",
                     candidates=(ref.key,),
                 ),

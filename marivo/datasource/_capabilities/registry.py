@@ -24,6 +24,7 @@ from marivo.datasource._capabilities.model import (
     DatasourceTypeContract,
 )
 from marivo.introspection.live.model import LiveHelpTarget
+from marivo.introspection.live.targets import canonical_target
 
 INPUT_FAMILIES = frozenset(
     {
@@ -87,7 +88,6 @@ OUTPUT_FAMILIES = frozenset(
         "PhysicalColumnName",
         "PartitionInspection",
         "DiscoverySnapshot",
-        "DiscoverySnapshotContract",
         "RawSqlResult",
         "Text",
         "None",
@@ -183,7 +183,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         ),
         "configured": ("datasource_configured",),
     }
-    descriptor_rows = (
+    descriptor_rows: tuple[AuthoringCapability, ...] = (
         _capability(
             "duckdb",
             "marivo.datasource.authoring.duckdb",
@@ -623,7 +623,6 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                 '    columns=("order_id", "status", "amount"),\n'
                 "    persist_values=True,\n"
                 ")\n"
-                "snapshot.contract().show()\n"
                 "snapshot.show()\n"
                 "# Retained rows use selected column names, for example:\n"
                 'snapshot.retained_values[0]["order_id"]\n'
@@ -643,16 +642,6 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             inputs=_inputs(("receiver", "DatasourceList")),
             example="names = md.list().ids()",
             public_entrypoint="datasources.ids",
-        ),
-        _capability(
-            "DiscoverySnapshot.contract",
-            "marivo.datasource.snapshot.DiscoverySnapshot.contract",
-            "Describe selected columns, retained row shape and value availability without refreshing or querying the source.",
-            kind="method",
-            output="DiscoverySnapshotContract",
-            inputs=_inputs(("receiver", "DiscoverySnapshot")),
-            example="snapshot.contract().show()",
-            public_entrypoint="snapshot.contract",
         ),
         _capability(
             "authoring",
@@ -709,6 +698,23 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             "diagnostics_boundaries": ("raw_sql", "authoring", "boundary.semantic_authoring"),
         }
     )
+    descriptor_rows = tuple(
+        row.model_copy(
+            update={
+                "canonical_id": canonical_target(row.canonical_id),
+                "see_also": tuple(
+                    t.model_copy(update={"canonical_id": canonical_target(t.canonical_id)})
+                    if t.canonical_id
+                    else t
+                    for t in row.see_also
+                ),
+            }
+        )
+        for row in descriptor_rows
+    )
+    groups = MappingProxyType(
+        {key: tuple(canonical_target(v) for v in values) for key, values in groups.items()}
+    )
     return DatasourceCapabilityRegistry(
         surface="datasource",
         _descriptors=descriptor_rows,
@@ -756,7 +762,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         DatasourceTestResult,
         RawSqlResult,
     )
-    from marivo.datasource.snapshot import DiscoverySnapshot, DiscoverySnapshotContract
+    from marivo.datasource.snapshot import DiscoverySnapshot
     from marivo.datasource.source import PartitionScope, UnprunedScope
 
     show_render = ("show", "render")
@@ -769,16 +775,18 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         *,
         properties: tuple[str, ...] = (),
         methods: tuple[str, ...] = (),
+        type_page_methods: tuple[str, ...] = (),
         consumers: tuple[str, ...] = (),
         guidance: tuple[str, ...] = (),
     ) -> None:
         contracts[cls] = DatasourceTypeContract(
             name=name,
-            producers=tuple(_target(value) for value in producers),
+            producers=tuple(_target(canonical_target(value)) for value in producers),
             public_properties=properties,
             public_methods=methods,
+            type_page_methods=type_page_methods,
             guidance=guidance,
-            consumers=tuple(_target(value) for value in consumers),
+            consumers=tuple(_target(canonical_target(value)) for value in consumers),
         )
 
     add(
@@ -887,6 +895,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
             "warnings",
         ),
         methods=show_render,
+        type_page_methods=show_render,
         guidance=_display_help(),
     )
     source_types: tuple[type, ...] = (TableSourceIR, ParquetSourceIR, CsvSourceIR, JsonSourceIR)
@@ -985,20 +994,6 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         ),
     )
     add(
-        DiscoverySnapshotContract,
-        "DiscoverySnapshotContract",
-        ("DiscoverySnapshot.contract",),
-        properties=(
-            "snapshot_id",
-            "columns",
-            "retained_row_count",
-            "value_evidence_state",
-            "retained_values_shape",
-            "available_reads",
-        ),
-        methods=show_render,
-    )
-    add(
         DiscoverySnapshot,
         "DiscoverySnapshot",
         ("SourceInspection.sample",),
@@ -1019,7 +1014,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
             "expires_at",
             "retained_values",
         ),
-        methods=("contract", *show_render),
+        methods=show_render,
     )
     return MappingProxyType(contracts)
 

@@ -128,8 +128,8 @@ Keep each fact with one owner:
 
 | Owner | Responsibility |
 | --- | --- |
-| Live Help | Static API facts and navigation |
-| Result `.show()` / `.contract()` | Current state and mechanically valid continuations |
+| CLI / Python Live Help | Static API facts, expression grammar and navigation |
+| Result `.show()` and typed fields | Captured definitions and committed state |
 | Structured errors | Concrete repair guidance |
 | Packaged skills | Workflow boundaries and judgment |
 
@@ -141,6 +141,11 @@ Keep each fact with one owner:
   example, and constraints. Every public API symbol resolves through
   `marivo.help("datasource.<target>")`, `marivo.help("semantic.<target>")`, or
   `marivo.help("analysis.<target>")`.
+- Help targets are lowercase snake_case semantic paths, independent of Python
+  symbols. CLI `python -m marivo help <target>` and Python use the same native
+  registry. Named pages disclose Target and Kind. Attribute/field targets have
+  Kind attribute and are queried by string without executing a getter. Native
+  Deferred syntax is explicitly owned by its semantic role, not inferred from Ibis.
 - `marivo.help()` introduces core concepts and routes only to `"authoring"`
   or `"analysis"`. Discover focused targets beneath those roots, with a minimal
   runnable example for each owning symbol. Keep routes bounded and targets
@@ -151,7 +156,10 @@ Keep each fact with one owner:
   default dataclass reprs are insufficient.
 - Terminal results provide bounded, deterministically ordered `.show()` output.
   Artifact cards include state-dependent continuations, not a capability matrix.
-  Analysis artifacts expose `.contract()` when they own valid next actions.
+  Query, Population and Column expose captured metadata through `.show()`;
+  Query.output_names exposes complete names. Type Help owns method discovery.
+  There is no generic analysis action contract. Independent semantic definition
+  and time identity contracts retain their owning purposes.
   Datasource and semantic authoring disclose operations, effects, input facts,
   errors, and typed repairs without a shared lifecycle graph. Terminal boundaries
   such as `RawSqlResult` remain contract-free because they cannot enter typed

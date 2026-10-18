@@ -105,7 +105,7 @@ august = session.time_scope(start="2026-08-01", end="2026-09-01")
 baseline = session.observe({"revenue": revenue}, during=july, by=(region,))
 current = session.observe({"revenue": revenue}, during=august, by=(region,))
 change = current.compare(baseline)
-change.contract().show()
+change.show()
 artifact = change.execute()
 frame = artifact.to_pandas()
 assert frame[("value", "revenue.absolute")].tolist() == [-100, -100]
@@ -118,4 +118,4 @@ assert reopened.to_pandas().equals(frame)
 
 `execute()` is a fresh evaluation. The Artifact is terminal: complete additional Query composition first; after export, use pandas for custom analysis. Reopening requires saved output, not a current source or model. The next guides reuse `session`, `revenue`, `amount`, `region`, `current` and `baseline` from this script.
 
-Import `marivo` to inspect exact API contracts: `marivo.help(catalog.readiness)` and `marivo.help(mv.ordinal().show)` accept public methods directly. Use `marivo.help("semantic.Metric.per")` and `marivo.help("semantic.MetricSamples.first")` for supported sample inputs and ordering defaults.
+Import `marivo` to inspect exact API contracts: `marivo.help(catalog.readiness)` and `marivo.help(mv.ordinal().show)` accept public methods directly. Use `marivo.help("semantic.metric.per")` and `marivo.help("semantic.metric_samples.first")` for supported sample inputs and ordering defaults.

@@ -134,8 +134,8 @@ def test_catalog_collection_repr_is_one_line(semantic_project_factory) -> None:
 
 def test_dataset_contract_render_is_silent(analysis_dsl_case_factory, capsys) -> None:
     case = analysis_dsl_case_factory("j2")
-    result = case.session.observe({"revenue": case.catalog.metrics.get("sales.revenue")}).contract()
-    assert result.kind == "Query"
+    result = case.session.observe({"revenue": case.catalog.metrics.get("sales.revenue")})
+    assert result.output_names == ("revenue",)
     assert capsys.readouterr().out == ""
 
 
@@ -143,7 +143,7 @@ def test_dataset_contract_show_prints_render_plus_newline(
     analysis_dsl_case_factory, capsys
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    result = case.session.observe({"revenue": case.catalog.metrics.get("sales.revenue")}).contract()
+    result = case.session.observe({"revenue": case.catalog.metrics.get("sales.revenue")})
     assert result.show() is None
     first = capsys.readouterr().out
     assert first and len(first) <= 8192

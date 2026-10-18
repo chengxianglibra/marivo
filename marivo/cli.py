@@ -175,20 +175,15 @@ def main(argv: list[str] | None = None) -> None:
     if parsed_argv == ["version"]:
         print("Use `marivo --version`.", file=sys.stderr)
         raise SystemExit(2)
-    if parsed_argv[:1] == ["help"] and len(parsed_argv) > 1:
-        from marivo._help.bootstrap import render_focused_help_rejection
-
-        print(render_focused_help_rejection(tuple(parsed_argv[1:])), file=sys.stderr)
-        raise SystemExit(2)
 
     parser = argparse.ArgumentParser(
         prog="marivo",
         description="Marivo project tooling",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "Help bootstrap:\n"
+            "Live Help:\n"
             "  marivo help\n"
-            "  Then use import marivo; marivo.help(...) for focused help.\n\n"
+            "  marivo help analysis.query.select\n\n"
             "Common diagnostics:\n"
             "  marivo doctor\n"
             "  marivo doctor --semantic\n"
@@ -226,11 +221,11 @@ def main(argv: list[str] | None = None) -> None:
     doctor_parser.add_argument(
         "--datasource", default=None, help="Limit datasource checks to one name"
     )
-    help_parser = subparsers.add_parser("help", help="Show the installed Python help bootstrap")
+    help_parser = subparsers.add_parser("help", help="Read live Help for one canonical target")
     help_parser.add_argument(
-        "extra",
-        nargs="*",
-        help=argparse.SUPPRESS,
+        "target",
+        nargs="?",
+        help="Complete canonical Help target",
     )
 
     args = parser.parse_args(parsed_argv)
@@ -267,16 +262,15 @@ def main(argv: list[str] | None = None) -> None:
         if code:
             raise SystemExit(code)
     elif args.command == "help":
-        if args.extra:
-            from marivo._help.bootstrap import render_focused_help_rejection
+        from marivo._help.model import MarivoHelpSurfaceError, MarivoHelpTargetError
+        from marivo._help.render import help as live_help
 
-            print(render_focused_help_rejection(tuple(args.extra)), file=sys.stderr)
-            raise SystemExit(2)
-        from marivo._help.bootstrap import render_bootstrap_help
-
-        with track_operation(
-            surface="cli",
-            capability_kind="command",
-            capability_id="help_bootstrap",
-        ):
-            print(render_bootstrap_help())
+        try:
+            with track_operation(surface="cli", capability_kind="command", capability_id="help"):
+                live_help(args.target)
+        except MarivoHelpTargetError as error:
+            print(str(error), file=sys.stderr)
+            raise SystemExit(2) from error
+        except MarivoHelpSurfaceError as error:
+            print(str(error), file=sys.stderr)
+            raise SystemExit(1) from error

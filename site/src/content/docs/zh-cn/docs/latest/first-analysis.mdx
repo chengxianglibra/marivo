@@ -16,7 +16,7 @@ description: 向 Agent 提供决策与范围，再审阅其有证据支持的回
 ## 理解 Agent 的工作
 
 Agent 验证所选环境、读取已有 catalog 对象，在一个 Session 中构造明确分析，
-并在下一决策需要结果时执行。执行前通过 Query/Population 的 `.contract()` 跟随合法操作，执行后通过 Artifact
+并在下一决策需要结果时执行。执行前通过 Query/Population 的 `.show()` 查看已捕获输入，执行后通过 Artifact
 `.show()` 读取已提交行，对不熟悉的调用使用 focused Help。Artifact 是终端产物，
 基于保存数据的自定义追问使用 `.to_pandas()`。
 

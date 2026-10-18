@@ -781,7 +781,7 @@ def test_dataset_contract_render_does_not_instrument_shared_semantic_show(
     telemetry_project: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from marivo.analysis import AnalysisAction, AnalysisContract
+    from marivo.analysis import coordinates
     from marivo.semantic.readiness import ReadinessInputSummary, ReadinessReport
 
     report = ReadinessReport(
@@ -793,13 +793,7 @@ def test_dataset_contract_render_does_not_instrument_shared_semantic_show(
         checked_at="2026-07-17T00:00:00+00:00",
     )
     report.show()
-    contract = AnalysisContract(
-        kind="Query",
-        actions=(AnalysisAction("query.execute()", "analysis.Query.execute"),),
-        domain="customers",
-        quantity="revenue",
-    )
-    contract.show()
+    coordinates(by=(), keys=((),)).show()
     capsys.readouterr()
     assert not list((telemetry_project / ".marivo" / "telemetry").glob("events-*.jsonl"))
 
@@ -870,7 +864,7 @@ def test_cli_help_is_tracked_but_read_only_doctor_is_not(
     path = _event_path(telemetry_project)
     cli_help = [
         record
-        for record in _capability_records(path, "help_bootstrap")
+        for record in _capability_records(path, "help")
         if _attrs(record)["marivo.surface"] == "cli"
     ]
     assert len(cli_help) == 2

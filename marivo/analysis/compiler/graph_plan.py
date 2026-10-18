@@ -195,7 +195,7 @@ def _plan_source_reads(
             expected="at least one source contribution for a Query execution plan",
             received="source-free Metric outputs",
             repair="Bind a source-backed Metric through session.observe before executing the Query.",
-            target="Query.execute",
+            target="query.execute",
         )
     by_source = {schema.source_id: schema for schema in schemas}
     from marivo._definition.types import FieldRead, coordinate_read_keys, field_read_key
@@ -320,7 +320,7 @@ def _plan_source_reads(
                 expected=f"an implemented {obligation.check_id} check bound to its source occurrence",
                 received=f"{obligation.fact.kind} premise without a Query check route",
                 repair="This check route is not delivered yet; no business row was read.",
-                target="Query.execute",
+                target="query.execute",
             )
         planned.extend(
             PlannedCheck(obligation, by_occurrence[route.occurrence].stage_id) for route in routes

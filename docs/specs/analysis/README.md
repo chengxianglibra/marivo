@@ -20,7 +20,7 @@ A design document is not a release or backend qualification certificate.
 
 Datasource and semantic work starts at [the semantic overview](../semantic/overview.md).
 Cross-layer time follows [Temporal Semantics](../temporal-semantics.md).
-Static facts, dynamic contracts and errors follow
+Static API facts, captured instance state and errors follow
 [Agent-Facing Public Surface](../agent-friendly-public-surface.md).
 
 ## Complete design and implementation sources
@@ -61,5 +61,5 @@ recover from a saved Artifact; a new execute reevaluates its sources.
 
 Static/type checks, local datasource acceptance, remote Runtime checks and release
 gates remain separate. Use native Help and structured errors for the exact
-admitted route; Query/Population contracts disclose valid next operations without
-reading unknown business keys or manufacturing capability.
+admitted route. Query/Population `.show()` describes captured inputs without
+reading unknown business keys; type Help owns operation discovery.

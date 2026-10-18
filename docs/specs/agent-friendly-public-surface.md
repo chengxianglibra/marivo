@@ -6,76 +6,50 @@ meaning, typed computation, bounded disclosure, exact ownership and concrete rep
 
 ## One public coordinator
 
-Import `marivo` for Help, `marivo.datasource as md`, `marivo.semantic as ms`, and
-`marivo.analysis as mv`. `marivo.help()` introduces the concepts and routes to
-`marivo.help("authoring")` or `marivo.help("analysis")`. Focused targets are
-progressively discovered beneath those roots. Optional ontology capabilities
-belong to their independent extension contract.
+CLI `python -m marivo help [target]` and Python `marivo.help(target)` share
+one native static Help registry. Root Help routes to authoring or analysis.
+Targets are exact lowercase snake_case semantic addresses, independent of Python
+symbols. Pages disclose Target and Kind: topic, object, callable, attribute,
+expression or error. Qualified strings, public callables and public types are
+accepted; instance facts are read through their owning objects, not Help.
 
-The analysis root has bounded entry, methods, inputs, artifacts, evidence and
-runtime hubs. Native descriptors own callable bindings, signatures, output
-families, examples, effects, errors and navigation. Public exports are pinned by
-independent snapshots, and every focused target resolves through the coordinator.
-There is no renderer-owned shadow inventory or compatibility execution alias.
+Task navigation and type/member indexes link to the same canonical leaves.
+`semantic.objects` selects an object kind; `semantic.metric` describes its
+meaning and operations; `semantic.metric.define` describes `ms.metric`.
+`semantic.metric.where` is explicitly supported Deferred syntax, not a Python
+class inferred by reflection. Native role pages disclose legal input acquisition.
 
-Discovery membership is distinct from exact resolvability. Each discovery member
-has one primary group; contextual prerequisite/result links may reference that
-same canonical leaf without creating aliases or duplicate membership. Task groups
-have stable descriptive names, not pages partitioned by descriptor position.
-Types and receiver members remain focused contracts; the explicit Dataset model
-topics provide its required type navigation without mixing all types into inputs
-or evidence discovery. Roots explain responsibilities, states and route choice.
-Entry summaries state the capability's purpose. Complete matching, replay,
-recovery and backend constraints remain on the exact callable Help page.
+Public fields and properties have independent attribute targets such as
+`analysis.query.output_names`. Query them by string without executing a getter;
+read the value directly in the original Python context. Type pages link every
+supported member. All public capabilities are reachable without guessing paths.
+Variant-only attributes state their public availability condition: for example,
+`analysis.grain.calendar` applies when `grain.kind == 'semantic'`. Type and
+attribute pages reuse the owning variant facts and use public receiver names.
+Private analysis error subclasses reuse their nearest registered error contract;
+the advertised target remains queryable by string and through the CLI.
 
-Exact examples declare only their actual external inputs and bind public helpers
-through standard imports. Session bootstrap needs no prior Session or Artifact.
-Catalog examples reuse the question's existing Session. Callable output types and
-input prerequisites link to their native owning contracts; a returned value's
-methods can be passed directly to the public Help coordinator.
-When a callable has several registered matches, its defining native surface
-selects the owner when present; otherwise resolution remains ambiguous. Qualified
-string targets retain their explicit surface. Advertised native consumption
-methods have focused contracts; inherited shared display methods retain their
-owning type's rendering guidance.
+Reflection owns installed signatures and supported members. Owning docstrings
+and domain rules own semantics, constraints, effects and examples. Native
+registries assemble these facts and explicit task memberships; renderers maintain
+no shadow inventories. Public export snapshots and behavior-owned checks are
+independent of render output. No old public target aliases are retained.
 
-For cold discovery, choose one task route. Once an analysis object exists, go
-from its contract directly to the selected exact Help target or pass its bound
-method to `marivo.help`; do not repeat the static method directory. Current-row
-statistics are available directly under `analysis.methods.metric.summary` from
-`analysis.methods`. They create a new quantity; original Metric rollup merges
-retained original state.
+For an existing object, read show() only when its captured facts are needed;
+read the exact operation Help when syntax or constraints are unknown. Do not
+restart root discovery for a known target. Structured errors own the actual
+expected/received facts and repairs derived from real state.
 
-Callable parameter semantics and minimal examples belong to the operation's
-own documentation. Reflection checks the binding and signature. Native
-`discovery_family` declarations group equivalent receiver variants under one
-summary while retaining every exact route; different meanings remain separate.
-Type producers name bounded real acquisition paths, not a generic entry point
-or an exhaustive method inventory. Signature parameters and the return contract
-are displayed once, followed by one example and its prerequisite/result links.
-
-Context acceptance measures complete fixed public journeys, including repeated
-Help reads, contracts, retained previews and errors. Character counts and page
-counts are reproducible proxies, not token counts or measured Agent efficiency.
-The eight-journey regression retains a pre-change SHA and output-size baseline;
-its cumulative normalized characters must fall at least 15%, no journey may
-grow more than 10%, and page counts must not increase. Only environment paths
-and explicitly known generated identities are normalized. Single-page budgets
-remain independent hard limits; complete contracts and repairs are not truncated
-for this optimization.
-
-Dataset contracts join admitted consumer identities to their native callable
-descriptors and disclose the public call plus canonical Help target. Shape and
-retained-state admission remain Dataset-owned; Help does not create another
-continuation registry. Omitted continuations disclose family-level navigation.
-Unknown-target suggestions preserve relevance and qualification. Error instances
-retain concrete facts even when an optional repair is absent.
-
+Complete public journeys count all Help, object displays, saved previews and
+errors, including repeated reads. Character and page budgets are proxies, not
+model token counts or measured agent efficiency. Retain historical baselines;
+never rewrite them to manufacture reductions. Full task correctness, failed
+lookups and repairs are assessed alongside text size.
 
 ## State distinguishes computation from inspection
 
 Population and Query construction is silent. Their bounded repr identifies the
-logical value and its disclosure entry. Construction and `contract()` do not read
+logical value and its disclosure entry. Construction and metadata `.show()` do not read
 source rows. Explicit Query execution returns a terminal Artifact whose repr
 points to `show()` for bounded saved-output inspection.
 
@@ -97,7 +71,7 @@ a complete-input execution budget.
 
 Public terminal read values have a bounded single-line repr and bounded explicit
 inspection. Authoring and runtime value cards expose render/show according to
-their native type contract. Population/Query own logical computation contracts;
+their native type contract. Population/Query display captured logical definitions;
 Artifact provides terminal saved-output inspection and cannot re-enter the DSL.
 Do not add a generic adapter that erases this distinction.
 
@@ -129,7 +103,7 @@ with their unit. Non-Defined Cells retain distinct tags and reasons. Entity
 identities remain redacted even with unlimited output. Interpretation facts come
 from captured definitions and retained data, without reading current business
 sources. Available saved Findings have a count and the receiver's actual read
-entry; full operation directories remain in `contract()` and focused Help.
+entry; full operation directories remain in static type Help.
 Non-data cards and bounded page protocols retain their existing purposes.
 
 ## Keep each guidance fact with its owner
@@ -137,7 +111,7 @@ Non-data cards and bounded page protocols retain their existing purposes.
 | Owner | Facts |
 | --- | --- |
 | Live Help | Static API, examples, parameters and progressive navigation |
-| Dataset contract | Current schema, roles and mechanically valid continuations |
+| Logical object show / typed fields | Captured scope, coordinates, outputs and ownership |
 | Retained result card | Bounded current state, quality and exact read continuations |
 | Structured error | Expected input, received facts and concrete repair |
 | Packaged skill | Workflow boundaries, analytical judgment and handoff |
@@ -174,8 +148,8 @@ next decision. Use exact artifact/field identities for later work; foreign Sessi
 inputs fail. Cold recovery reads committed authority and values without executing
 origin recipes or choosing a current datasource.
 
-Check mechanical legality through the object contract, then decide whether that
-legal operation answers the question. Algebraic contribution is not cause;
+Read captured facts through the object and operation constraints through Help;
+actual calls validate compatibility. Decide whether the operation answers the question. Algebraic contribution is not cause;
 association is not intervention evidence; Candidate scores are investigative
 leads; forecasts retain model assumptions. A typed digest never stores the agent's
 narrative conclusion as factual truth.

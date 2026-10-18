@@ -9,8 +9,6 @@ from marivo._temporal import Grain as Grain
 from marivo._temporal import InstantAnchor as InstantAnchor
 from marivo._temporal import TimeScope as TimeScope
 from marivo.analysis import grain as grain
-from marivo.analysis._contract import AnalysisAction as AnalysisAction
-from marivo.analysis._contract import AnalysisContract as AnalysisContract
 from marivo.analysis.dsl.artifact import Artifact as Artifact
 from marivo.analysis.dsl.column import Column as Column
 from marivo.analysis.dsl.column import row_count as row_count
@@ -95,8 +93,6 @@ __all__ = [  # noqa: RUF022 - public order is contractual
     "RunPage",
     "SessionGraph",
     "Session",
-    "AnalysisAction",
-    "AnalysisContract",
     "session",
 ]
 

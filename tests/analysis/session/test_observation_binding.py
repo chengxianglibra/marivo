@@ -176,7 +176,7 @@ def test_each_fact_occurrence_keeps_its_condition_and_complete_classification(
     assert isinstance(binding.coordinates.axes[1], AxisBinding)
     assert len(binding.coordinates.axes[0].cells) == 31
     assert session.runs().items == ()
-    query.contract().show()
+    query.show()
     assert "sales.refunds" in capsys.readouterr().out
     with pytest.raises(FrozenInstanceError):
         binding.period = None

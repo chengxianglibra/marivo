@@ -65,7 +65,7 @@ def test_time_scope_help_routes_to_calendar_capable_producer(
 ) -> None:
     import marivo.analysis as mv
 
-    show_help("analysis.TimeScope")
+    show_help("analysis.time_scope")
     text = capsys.readouterr().out
     assert "session.time_scope" in text
     assert "frozen timezone" in text
@@ -102,7 +102,7 @@ def test_catalog_discovery_separates_definitions_from_execution_values(
     assert "collection.show()" in guidance and "collection.refs" in guidance
     assert "catalog.describe(ref).show()" in guidance
     assert "Deferred" in guidance and "show()/contract()" in guidance
-    show_help("semantic.SemanticCatalog.describe")
+    show_help("semantic.semantic_catalog.describe")
     assert "ExpressionContract" in capsys.readouterr().out
 
     metric_ref = ms.ref.metric("sales.revenue")
@@ -127,8 +127,8 @@ def test_catalog_discovery_separates_definitions_from_execution_values(
     assert isinstance(entity, Entity) and isinstance(catalog.require(entity_ref), Entity)
     query = case.session.observe({"revenue": metric}, by=(field,))
     population = case.session.members(entity_ref)
-    assert isinstance(query, mv.Query) and query.contract().kind == "Query"
-    assert population.contract().kind == "Population"
+    assert isinstance(query, mv.Query) and query.output_names
+    assert population.axes
     assert case.session.runs().items == ()
 
 
@@ -136,7 +136,7 @@ def test_catalog_focused_help_preserves_owning_output_families() -> None:
     for member in CATALOG_MEMBER_CONTRACTS:
         page = rendered_help("analysis.catalog." + member.property_name)
         assert f"Result: CatalogCollection[{member.item_type_name}]\n" in page
-    for name, target in (("require", "SemanticCatalog.require"), ("readiness", "readiness")):
+    for name, target in (("require", "semantic_catalog.require"), ("readiness", "readiness")):
         contract = SEMANTIC_REGISTRY.by_canonical_id(target)
         assert isinstance(contract, AuthoringCapability)
         page = rendered_help("analysis.catalog." + name)

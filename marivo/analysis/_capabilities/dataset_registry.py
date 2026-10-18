@@ -6,7 +6,7 @@ import ast
 import inspect
 import re
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import Literal, NoReturn
 
@@ -152,13 +152,6 @@ class DatasetDisclosureRegistry:
         )
 
         def enrich(value: object) -> ResolvedLiveTarget[Descriptor] | None:
-            if isinstance(value, AnalysisError):
-                return ResolvedLiveTarget(
-                    kind="error_briefing",
-                    surface="analysis",
-                    error_name=type(value).__name__,
-                    original=value,
-                )
             if isinstance(value, type) and value in types:
                 return ResolvedLiveTarget(
                     kind="type_contract", surface="analysis", type_name=types[value]
@@ -197,6 +190,15 @@ class DatasetDisclosureRegistry:
             suggestion_index=self._suggestions,
             default_suggestions=root.members,
             help_target_error=help_target_error,
+            attribute_applicability=MappingProxyType(
+                {
+                    variant.implementation: variant.applicability
+                    for descriptor in self.descriptors
+                    if isinstance(descriptor, TypeInput)
+                    for variant in descriptor.variants
+                    if variant.applicability is not None
+                }
+            ),
         )
 
     def resolve(self, target: object) -> ResolvedLiveTarget[Descriptor]:
@@ -389,10 +391,67 @@ class DatasetDisclosureRegistry:
                 raise invalid("discoverable analytical capability", descriptor.canonical_id)
 
 
+def _canonical_descriptor(descriptor: Descriptor) -> Descriptor:
+    """Assign semantic addresses when native owning descriptors are assembled."""
+    from marivo.introspection.live.targets import canonical_target
+
+    def targets(values: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(canonical_target(value) for value in values)
+
+    if isinstance(descriptor, CallableInput):
+        return replace(
+            descriptor,
+            canonical_id=canonical_target(descriptor.canonical_id),
+            parameters=tuple(replace(p, targets=targets(p.targets)) for p in descriptor.parameters),
+            related=targets(descriptor.related),
+            discovery_group=canonical_target(descriptor.discovery_group)
+            if descriptor.discovery_group
+            else None,
+            discovery_family=canonical_target(descriptor.discovery_family)
+            if descriptor.discovery_family
+            else None,
+        )
+    if isinstance(descriptor, TypeInput):
+        return replace(
+            descriptor,
+            canonical_id=canonical_target(descriptor.canonical_id),
+            producers=targets(descriptor.producers),
+            consumers=targets(descriptor.consumers),
+        )
+    if isinstance(descriptor, NavigationInput):
+        return replace(
+            descriptor,
+            canonical_id=canonical_target(descriptor.canonical_id),
+            members=targets(descriptor.members),
+            related=targets(descriptor.related),
+            discovery_group=canonical_target(descriptor.discovery_group)
+            if descriptor.discovery_group
+            else None,
+        )
+    return replace(
+        descriptor,
+        id=canonical_target(descriptor.id),
+        help_target=canonical_target(descriptor.help_target),
+        related=targets(descriptor.related),
+    )
+
+
 def assemble(providers: tuple[DisclosureProvider, ...]) -> DatasetDisclosureRegistry:
+    from marivo.introspection.live.targets import canonical_target
+
+    native_navigation = navigation(providers)
+    providers = tuple(
+        replace(
+            p,
+            descriptors=tuple(_canonical_descriptor(d) for d in p.descriptors),
+            exports=tuple(replace(e, target=canonical_target(e.target)) for e in p.exports),
+        )
+        for p in providers
+    )
     result = DatasetDisclosureRegistry(
         providers,
-        tuple(d for p in providers for d in p.descriptors) + navigation(providers),
+        tuple(d for p in providers for d in p.descriptors)
+        + tuple(_canonical_descriptor(d) for d in native_navigation),
     )
     result.validate()
     return result

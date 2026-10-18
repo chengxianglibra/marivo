@@ -67,7 +67,7 @@ def _invalid(received: str) -> MaterializationError:
         received=received,
         repair="Preserve the original contribution row keys, version coordinates and field paths.",
         stage="query_drill",
-        help_target="Query.drill",
+        help_target="query.drill",
     )
 
 

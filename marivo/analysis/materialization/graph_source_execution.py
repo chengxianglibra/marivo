@@ -370,7 +370,7 @@ def _preparation_error(expected: str, received: str) -> MaterializationError:
         received=received,
         repair="Use a supported physical field type while preserving the requested key, time and unit contract; no business row was read.",
         stage="execute_preparation",
-        help_target="Query.execute",
+        help_target="query.execute",
     )
 
 
@@ -382,7 +382,7 @@ def _route_gap(expected: str, received: str, repair: str) -> NoReturn:
         expected=expected,
         received=received,
         repair=f"{repair} No business row was read and no Run was admitted.",
-        target="Query.execute",
+        target="query.execute",
     )
 
 
@@ -975,7 +975,7 @@ def open_query_sources(
                 received=f"{type(physical).__name__}: existing_local_file={_local_file(physical.path)}, backend={datasource.backend_type}{facts}",
                 repair="Use an existing local file without runtime request parameters, or a qualified table/Parquet source.",
                 stage="execute_preparation",
-                help_target="Query.execute",
+                help_target="query.execute",
             )
     datasources = tuple(
         dict.fromkeys(state.registry.entities[path].datasource for path in entities)
@@ -1213,7 +1213,7 @@ def read_stage(
             received=f"{source.provider.name}: {type(error).__name__}: {error}",
             repair="Use a method and value range supported by the backend's native Ibis pandas conversion, or author an explicit business-specific expression.",
             stage="source_conversion",
-            help_target="Query.execute",
+            help_target="query.execute",
         ) from error
     if stage.common_reads:
         return _complete_common_read(stage, frame, lowered.numeric_checks)
@@ -1265,7 +1265,7 @@ def _complete_source_frame(
                     stage="population_coverage"
                     if name == "__query_population_uncovered"
                     else "scalar_field_lookup",
-                    help_target="Query.execute",
+                    help_target="query.execute",
                 )
             numeric_failure(check.expected, received)
     if "__numeric_present" in frame.columns and "__numeric_present" not in retained_checks:

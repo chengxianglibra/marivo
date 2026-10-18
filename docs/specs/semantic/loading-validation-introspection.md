@@ -219,20 +219,12 @@ the same bounded card. Published Metrics report the physical definitions their
 computation reads. Contracts never read a source, rank axes, recommend an
 operator, or prescribe readiness merely because a definition was inspected.
 
-`marivo.help(entry)` composes that current catalog identity and usage navigation
-with the analysis registry's kind-level handoff. It shows only the first focused analysis target
-or policy choices, their registered call shapes, and the artifact family of an
-operator result. It does not infer readiness, enumerate downstream operators,
-or create a second programmable navigation result. The caller inspects the
-focused target for companion inputs, executes it only after readiness, and then
-uses the returned analysis artifact for state-specific continuation. A bare `Ref`
-does not receive this handoff because project membership and readiness are
-unknown until it is resolved to a current entry.
-
-The ordered catalog-member contract owns the global collection names used by
-the runtime catalog, semantic type help, and analysis catalog help. Adding a
-semantic kind must update that contract and pass the live-property consistency
-check; parallel hand-maintained discovery lists are not allowed.
+Static Help is queried by canonical strings, public callables or public types.
+Read entry state with `entry.show()` / `details()` and definition facts with
+`catalog.describe(ref).show()`. A Ref is a typed lookup identity, not evidence of
+current Catalog membership or readiness. Native Deferred values have no generic
+Marivo show/contract method; use Catalog definition metadata and role-specific
+expression Help. Query.show() owns captured execution definitions.
 
 ### Analysis-agent discovery and handoff
 
@@ -329,9 +321,10 @@ the version coordinate. Metric facts retain computation roots per component,
 spatial-before-temporal order, fixed null/empty rules, unit algebra, and exact
 state requirements. They are shared internal contracts, not new authoring
 fields, a second public capability index, or a promise that every materialized
-Dataset can perform every transformation. Bounded details and Help disclose
-facts through their existing native owners; Dataset `contract()` combines them
-with current coordinates, selection, and retained state.
+Query can perform every transformation. Bounded details and Help disclose
+facts through their existing native owners; `Query.show()` displays captured
+coordinates, selection and unresolved inputs. Static type Help owns operation
+discovery, and execution validates admission against the actual inputs.
 
 An analysis observation resolves its Metric contract once and passes that result
 to dispatch and component binding. Within one runtime-expression forest lowering,
@@ -351,9 +344,10 @@ current source bindings, and persisted Artifact state remain separate authority.
 Secrets appear only as env-var *names* — a resolved secret value is never
 rendered.
 
-`python -m marivo help` is an environment bootstrap only.
-`marivo.help(target=None)` is the sole public help coordinator, usable without
-an active project. Qualified content is rendered from its native datasource,
+`python -m marivo help [target]` and `marivo.help(target=None)` share the static
+Help coordinator and work without an active project. Targets are exact lowercase
+semantic paths; fields/properties have Kind attribute and are queried by string
+without reading their values. Qualified content is rendered from its native datasource,
 semantic, or analysis registry; `md` and `ms` expose no `.help()` aliases.
 `marivo.help("semantic.constraints")` is the focused entry to the authoring /
 validation constraint catalog. Help describes what parameters must satisfy; it

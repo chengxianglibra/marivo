@@ -239,7 +239,7 @@ def test_missing_domain_file_error_has_typed_repair(semantic_project_factory) ->
     error = domain_errors[0]
     assert error.repair is not None
     assert error.repair.help_target.surface == "semantic"
-    assert error.repair.help_target.canonical_id == "objects.domain"
+    assert error.repair.help_target.canonical_id == "domain"
 
 
 def test_empty_domain_file_error_has_typed_repair(semantic_project_factory) -> None:
@@ -256,7 +256,7 @@ def test_empty_domain_file_error_has_typed_repair(semantic_project_factory) -> N
     error = domain_errors[0]
     assert error.repair is not None
     assert error.repair.help_target.surface == "semantic"
-    assert error.repair.help_target.canonical_id == "objects.domain"
+    assert error.repair.help_target.canonical_id == "domain"
 
 
 def test_ai_context_raw_dict_load_error_names_canonical_form(semantic_project_factory) -> None:
