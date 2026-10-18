@@ -108,6 +108,11 @@ docs/superpowers/specs/*-qualification.md
 .mimocode/
 /evidence/
 
+# Local ecommerce acceptance records
+/docs/testing/codex-ecommerce-e2e-acceptance-plan.zh-CN.md
+/docs/testing/codex-ecommerce-e2e-results-2026-10-18.zh-CN.md
+/docs/testing/codex-ecommerce-fixes-reacceptance-2026-10-18.zh-CN.md
+
 # Sphinx autosummary-generated stub pages (build artifact)
 docs/api/api/
 
