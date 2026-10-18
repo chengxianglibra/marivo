@@ -57,6 +57,13 @@ OUTPUT_FAMILIES = frozenset(
         "Entity | Deferred | Relationship",
         "SemanticCatalog",
         "CatalogEntry",
+        "DatasourceDetails | DomainDetails | PeriodCalendarDetails | TemporalSetDetails | WorkScheduleDetails",
+        "DomainDetails",
+        "DatasourceDetails",
+        "TemporalSetDetails",
+        "WorkScheduleDetails",
+        "dict[str, object]",
+        "tuple[str, str]",
         "CatalogEntry | Entity | Deferred | Relationship",
         "CatalogCollection",
         "PreviewBatchResult",
@@ -146,6 +153,17 @@ INPUT_FAMILIES = frozenset(
         "Ref[dimension | time_dimension]",
         "Ref[dimension | time_dimension | measure]",
         "CatalogEntry",
+        "DomainEntry",
+        "DatasourceEntry",
+        "PeriodCalendarEntry",
+        "TemporalSetEntry",
+        "WorkScheduleEntry",
+        "ReadinessReport",
+        "SourceHealthReport",
+        "SourceHealthCheckResult",
+        "ReadinessInputSummary",
+        "ReadinessIssue",
+        "Dimension | TimeField | MembershipAxis | tuple[Dimension | TimeField | MembershipAxis, ...] | Population",
         "CatalogEntry | Ref",
         "CatalogCollection",
         "CatalogLookupKey | Ref",
@@ -1455,7 +1473,7 @@ def _repair_contracts() -> Mapping[str, SemanticRepairContract]:
             error_kind="entity_constructor_as_decorator",
             kind="reauthor",
             help_target=_target("entity"),
-            action="Assign ms.entity(...) to a name and remove the decorated function body.",
+            action="Assign ms.entity(name=...) to a name, or omit name and return one Table expression.",
             preserves_evidence=True,
         ),
         SemanticRepairContract(
@@ -2254,7 +2272,11 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             elif prefix == "Metric":
                 parameter, input_family, example = {
                     "where": ("predicate", "Predicate", "revenue.where(status == 'paid')"),
-                    "per": ("samples", "Dimension", "revenue.per(customer_id)"),
+                    "per": (
+                        "samples",
+                        "Dimension | TimeField | MembershipAxis | tuple[Dimension | TimeField | MembershipAxis, ...] | Population",
+                        "revenue.per(customer_id)",
+                    ),
                     "divide": ("other", "Deferred", "revenue.divide(order_count)"),
                     "window": ("rule", "WindowRule", "revenue.window(mv.all_history())"),
                 }[method]
@@ -2280,8 +2302,8 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             if method in {"first", "last"}:
                 inputs.extend(
                     (
-                        _parameter_input("dependency", "TimeField", "order_by"),
-                        _parameter_input("dependency", "bool", "include_null"),
+                        _parameter_input("dependency", "TimeField", "order_by", optional=True),
+                        _parameter_input("dependency", "bool", "include_null", optional=True),
                     )
                 )
             if method in {"divide", "weighted_mean"}:
@@ -2294,11 +2316,30 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                 "count_distinct",
             }:
                 inputs.append(_parameter_input("dependency", "Text", "nulls", optional=True))
+            summary = "Construct a native Deferred recipe at this receiver's stage without business source reads. "
+            if prefix == "Metric" and method == "per":
+                summary += (
+                    "per accepts a Dimension, TimeField, membership descriptor, a nonempty tuple of these, "
+                    "or a complete Population; finish with a sample reducer. Field samples use observed "
+                    "keys; Population binds every compatible member, including empty samples."
+                )
+            elif method in {"first", "last"}:
+                summary += (
+                    "order_by may name an internal TimeField; when omitted, exactly one internal "
+                    "TimeField must be inferable. Time keys must uniquely order the samples. "
+                    "include_null defaults to False (skip NA); True retains the selected sample's NA."
+                )
+            else:
+                summary += (
+                    "sum requires business permission, defaults empty/all-NA to null, and supports explicit "
+                    "empty=zero. window accepts a source-free rule and rejects nested windows. "
+                    "Divide defaults to null for a zero denominator; error stays on this operation."
+                )
             rows.append(
                 _capability(
                     f"{prefix}.{method}",
                     f"marivo.semantic.expressions.Entity.{method}" if prefix == "Entity" else None,
-                    "Construct a native Deferred recipe at this receiver's stage without business source reads. sum requires business permission and defaults empty/all-NA to null and supports explicit empty=zero; per requires a sample reducer. first/last require order_by on time samples and explicit include_null. window accepts a source-free rule and rejects nested windows. Divide defaults to null for a zero denominator; error stays on this operation.",
+                    summary,
                     kind="method",
                     output="Deferred",
                     inputs=tuple(inputs),
@@ -2354,6 +2395,69 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                 see_also=(_target("expressions"),),
             )
         )
+    return tuple(rows)
+
+
+def _result_method_capabilities() -> tuple[AuthoringCapability, ...]:
+    """Register native consumption methods advertised by semantic result types."""
+    rows: list[AuthoringCapability] = []
+    for owner, output in (
+        (
+            "CatalogEntry",
+            "DatasourceDetails | DomainDetails | PeriodCalendarDetails | TemporalSetDetails | WorkScheduleDetails",
+        ),
+        ("DomainEntry", "DomainDetails"),
+        ("DatasourceEntry", "DatasourceDetails"),
+        ("PeriodCalendarEntry", "PeriodCalendarDetails"),
+        ("TemporalSetEntry", "TemporalSetDetails"),
+        ("WorkScheduleEntry", "WorkScheduleDetails"),
+    ):
+        rows.append(
+            _capability(
+                f"{owner}.details",
+                f"marivo.semantic.catalog.{owner}.details",
+                "Return this entry's typed details. Temporal entries inspect local certified snapshot state; no datasource connection or business data reads.",
+                kind="method",
+                output=output,
+                inputs=(AuthoringInputRequirement(role="receiver", family=owner),),
+                effects=_LOCAL
+                if owner in {"PeriodCalendarEntry", "TemporalSetEntry", "WorkScheduleEntry"}
+                else _NONE,
+                example="details = entry.details()",
+                public_entrypoint="entry.details",
+            )
+        )
+    for module, owner in (
+        ("readiness", "ReadinessReport"),
+        ("readiness", "ReadinessInputSummary"),
+        ("readiness", "ReadinessIssue"),
+        ("source_health", "SourceHealthReport"),
+        ("source_health", "SourceHealthCheckResult"),
+    ):
+        rows.append(
+            _capability(
+                f"{owner}.to_dict",
+                f"marivo.semantic.{module}.{owner}.to_dict",
+                "Serialize this result's current facts to a dictionary without rerunning checks or reading business data.",
+                kind="method",
+                output="dict[str, object]",
+                inputs=(AuthoringInputRequirement(role="receiver", family=owner),),
+                example="facts = result.to_dict()",
+                public_entrypoint="result.to_dict",
+            )
+        )
+    rows.append(
+        _capability(
+            "JoinKey.to_tuple",
+            "marivo.semantic.ir.JoinKey.to_tuple",
+            "Return the relationship key's ordered (left column, right column) pair without data reads.",
+            kind="method",
+            output="tuple[str, str]",
+            inputs=(AuthoringInputRequirement(role="receiver", family="JoinKey"),),
+            example="columns = key.to_tuple()",
+            public_entrypoint="key.to_tuple",
+        )
+    )
     return tuple(rows)
 
 
@@ -3071,7 +3175,11 @@ def _build_registry() -> SemanticCapabilityRegistry:
         else row
         for row in descriptor_rows
     )
-    descriptor_rows = (*descriptor_rows, *_expression_capabilities())
+    descriptor_rows = (
+        *descriptor_rows,
+        *_expression_capabilities(),
+        *_result_method_capabilities(),
+    )
     object_contracts = _object_contracts()
     builder_topics = _builder_topics()
     return _finalize_registry(

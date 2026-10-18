@@ -456,3 +456,74 @@ def test_frozen_declaration_display_resolves_and_display_routes_are_reachable(
                 queue.append(target)
     for target in ("Entity.show", "FinalizedDeclarations.show"):
         assert distances[target] <= 3
+
+
+def test_advertised_semantic_native_methods_have_exact_public_help_routes() -> None:
+    from marivo._help.route import NativeHelpRoute, route_help_target
+    from marivo.semantic._capabilities.registry import TYPE_CONTRACTS
+
+    for result_type, contract in TYPE_CONTRACTS.items():
+        for method_name in contract.public_methods:
+            # Shared presentation methods keep their existing type-card contract.
+            if method_name in {"show", "render"}:
+                continue
+            method = getattr(result_type, method_name)
+            route = route_help_target(method)
+            assert isinstance(route, NativeHelpRoute), (contract.name, method_name)
+            assert route.resolved.kind == "descriptor", (contract.name, method_name)
+            canonical_id = route.resolved.canonical_id
+            assert canonical_id is not None
+            qualified = f"{route.owner}.{canonical_id}"
+            string_route = route_help_target(qualified)
+            assert isinstance(string_route, NativeHelpRoute)
+            assert string_route.resolved == route.resolved
+            if route.owner == "semantic":
+                native_route = route_help_target(f"semantic.{contract.name}.{method_name}")
+                assert isinstance(native_route, NativeHelpRoute)
+                assert native_route.resolved == route.resolved
+
+
+def test_entity_help_preserves_the_supported_table_decorator(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    marivo.help(ms.entity)
+    text = capsys.readouterr().out
+    assert "omitting name returns" in text
+    assert "omit name for the restricted Table decorator" in text
+    assert "not a decorator" not in text
+    assert "remove the decorated function body" not in text
+
+
+@pytest.mark.parametrize("method", ("first", "last"))
+def test_ordered_sample_help_discloses_inference_and_null_default(
+    method: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from marivo._authoring.model import AuthoringCapability
+    from marivo.semantic._capabilities.registry import REGISTRY
+
+    target = f"MetricSamples.{method}"
+    descriptor = REGISTRY.by_canonical_id(target)
+    assert isinstance(descriptor, AuthoringCapability)
+    parameters = {
+        name: requirement
+        for requirement in descriptor.input_requirements
+        for name in requirement.parameter_names
+    }
+    assert parameters["order_by"].min_count == 0
+    assert parameters["include_null"].min_count == 0
+    marivo.help(f"semantic.{target}")
+    text = capsys.readouterr().out
+    assert "when omitted, exactly one internal TimeField must be inferable" in text
+    assert "include_null defaults to False" in text
+    assert "Time keys must uniquely order the samples" in text
+
+
+def test_per_help_covers_observed_and_complete_sample_domains(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    marivo.help("semantic.Metric.per")
+    text = capsys.readouterr().out
+    for family in ("Dimension", "TimeField", "MembershipAxis", "tuple[", "Population"):
+        assert family in text
+    assert "Field samples use observed keys" in text
+    assert "Population binds every compatible member, including empty samples" in text

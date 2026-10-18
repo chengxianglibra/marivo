@@ -5,6 +5,7 @@ from marivo.analysis._capabilities.dataset_model import (
     DisclosureProvider,
     ExampleInput,
     ExportInput,
+    bind,
     operation,
     value_type,
 )
@@ -39,6 +40,21 @@ def provider() -> DisclosureProvider:
                 acquisition="Use ordinal(), period_offset(by), or previous_year().",
                 producers=("ordinal", "period_offset", "previous_year"),
                 consumers=("Query.align", "Query.compare"),
+            ),
+            operation(
+                "CalendarCorrespondence.show",
+                "correspondence.show",
+                CalendarCorrespondence.show,
+                bindings=(bind(CalendarCorrespondence.show, CalendarCorrespondence),),
+                summary="Return the bounded calendar rule before endpoint calendars bind.",
+                parameters=(),
+                output="str",
+                constraints=("Endpoint calendars bind only at Query.align/compare.",),
+                effects="Pure value rendering without I/O.",
+                failures=(),
+                example=ExampleInput(
+                    "result = correspondence.show()", ("correspondence",), "result", "str"
+                ),
             ),
         ),
         (

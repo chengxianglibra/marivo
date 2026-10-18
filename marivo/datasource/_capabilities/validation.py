@@ -121,6 +121,10 @@ def validate_datasource_live_surface() -> None:
             callable(getattr(type_obj, method_name, None))
             for method_name in contract.public_methods
         )
+        for method_name in contract.public_methods:
+            method = getattr(type_obj, method_name)
+            if method.__module__.startswith("marivo.datasource"):
+                REGISTRY.by_callable(method)
         assert all(
             REGISTRY.by_canonical_id(target.canonical_id or "").surface == target.surface
             for target in (*contract.producers, *contract.consumers)

@@ -155,6 +155,38 @@ def test_runtime_help_accepts_only_registered_datasource_instances(
         assert resolved.canonical_id or resolved.type_name or resolved.error_name
 
 
+def test_advertised_datasource_members_resolve_through_public_help() -> None:
+    from marivo.datasource._capabilities.registry import TYPE_CONTRACTS
+
+    for type_obj, contract in TYPE_CONTRACTS.items():
+        for name in contract.public_methods:
+            method = getattr(type_obj, name)
+            # Shared retained-data display methods have no datasource-specific owner.
+            if method.__module__ == "marivo._data_render":
+                continue
+            text, _, _ = render_help_text(method)
+            assert text
+            if method.__module__.startswith("marivo.datasource"):
+                assert text == render_help_text(f"datasource.{contract.name}.{name}")[0]
+
+
+def test_snapshot_contract_help_matches_callable_and_bound_member(
+    datasource_runtime_targets: tuple[object, ...],
+) -> None:
+    snapshot = next(
+        target for target in datasource_runtime_targets if isinstance(target, DiscoverySnapshot)
+    )
+    text = render_help_text("datasource.DiscoverySnapshot.contract")[0]
+    assert text == render_help_text(DiscoverySnapshot.contract)[0]
+    assert text == render_help_text(snapshot.contract)[0]
+    assert "DiscoverySnapshotContract" in text
+    result = snapshot.contract()
+    type_text = render_help_text("datasource.DiscoverySnapshotContract")[0]
+    assert type_text == render_help_text(type(result))[0]
+    assert render_help_text(result)[0]
+    assert "retained_values_shape" in type_text
+
+
 def test_error_help_kind_depends_on_concrete_repair_target() -> None:
     from marivo.datasource._capabilities.surface import DATASOURCE_LIVE_SURFACE
     from marivo.introspection.live.resolve import resolve_live_target

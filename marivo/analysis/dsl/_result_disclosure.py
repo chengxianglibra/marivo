@@ -136,6 +136,30 @@ def provider() -> DisclosureProvider:
             )
         )
         exports.append(ExportInput(cls.__name__, cls, cls.__name__))
+    for correspondence_type, summary in (
+        (
+            DeclaredCorrespondence,
+            "Return bounded declared path identities without resolving sources.",
+        ),
+        (CorrespondenceAxis, "Return bounded projection paths over retained endpoint bindings."),
+    ):
+        descriptors.append(
+            operation(
+                f"{correspondence_type.__name__}.show",
+                "correspondence.show",
+                correspondence_type.show,
+                bindings=(bind(correspondence_type.show, correspondence_type),),
+                summary=summary,
+                parameters=(),
+                output="str",
+                constraints=("Rendering reads only the immutable correspondence value.",),
+                effects="Pure value rendering without I/O.",
+                failures=(),
+                example=ExampleInput(
+                    "result = correspondence.show()", ("correspondence",), "result", "str"
+                ),
+            )
+        )
     for owner, name, parameters, output, summary, code, requires, group in (
         (
             Query,

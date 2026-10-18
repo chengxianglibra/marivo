@@ -186,6 +186,20 @@ def route_help_target(target: object | None) -> HelpRoute:
             )
             if len(canonical_routes) == 1:
                 return canonical_routes[0]
+        elif callable(target):
+            # Shared catalog inputs can be retained by another surface. The
+            # callable's defining module still identifies its native owner.
+            module = getattr(target, "__module__", None)
+            native_routes = tuple(
+                route
+                for route in routes
+                if isinstance(module, str)
+                and (
+                    module == f"marivo.{route.owner}" or module.startswith(f"marivo.{route.owner}.")
+                )
+            )
+            if len(native_routes) == 1:
+                return native_routes[0]
         candidates = tuple(
             f"{route.owner}.{route.resolved.canonical_id or route.resolved.type_name or route.resolved.error_name}"
             for route in routes

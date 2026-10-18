@@ -117,3 +117,5 @@ assert reopened.to_pandas().equals(frame)
 ```
 
 `execute()` is a fresh evaluation. The Artifact is terminal: complete additional Query composition first; after export, use pandas for custom analysis. Reopening requires saved output, not a current source or model. The next guides reuse `session`, `revenue`, `amount`, `region`, `current` and `baseline` from this script.
+
+Import `marivo` to inspect exact API contracts: `marivo.help(catalog.readiness)` and `marivo.help(mv.ordinal().show)` accept public methods directly. Use `marivo.help("semantic.Metric.per")` and `marivo.help("semantic.MetricSamples.first")` for supported sample inputs and ordering defaults.

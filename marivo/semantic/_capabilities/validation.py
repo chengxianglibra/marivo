@@ -20,6 +20,7 @@ from marivo.semantic._capabilities.registry import (
 from marivo.semantic.constraints import CONSTRAINTS
 
 _RETURN_FAMILY_ALIASES = {
+    "_CatalogObjectDetails": "DatasourceDetails | DomainDetails | PeriodCalendarDetails | TemporalSetDetails | WorkScheduleDetails",
     "Self": "Dimension | TimeField | Measure",
     "str": "Text",
     "DeclaredMeasure": "Measure",

@@ -211,6 +211,27 @@ def test_exact_canonical_target_wins_over_cross_surface_entrypoint_alias(
     assert route.resolved.canonical_id == canonical_target
 
 
+@pytest.mark.parametrize(
+    ("method_name", "canonical_target"),
+    (("require", "SemanticCatalog.require"), ("readiness", "readiness")),
+)
+def test_shared_catalog_callable_uses_its_native_semantic_contract(
+    authoring_evidence_project: Path,
+    method_name: str,
+    canonical_target: str,
+) -> None:
+    from marivo.semantic.catalog import SemanticCatalog
+
+    catalog = ms.load()
+    expected = help_render.render_help_text(f"semantic.{canonical_target}")
+    for method in (getattr(SemanticCatalog, method_name), getattr(catalog, method_name)):
+        route = route_help_target(method)
+        assert isinstance(route, NativeHelpRoute)
+        assert route.owner == "semantic"
+        assert route.resolved.descriptor is SEMANTIC_REGISTRY.by_canonical_id(canonical_target)
+        assert help_render.render_help_text(method) == expected
+
+
 def test_global_authoring_composition_topic_wins_over_native_duplicates() -> None:
     route = route_help_target("authoring")
     assert route == TopicHelpRoute("authoring")

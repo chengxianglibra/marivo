@@ -33,6 +33,11 @@ through standard imports. Session bootstrap needs no prior Session or Artifact.
 Catalog examples reuse the question's existing Session. Callable output types and
 input prerequisites link to their native owning contracts; a returned value's
 methods can be passed directly to the public Help coordinator.
+When a callable has several registered matches, its defining native surface
+selects the owner when present; otherwise resolution remains ambiguous. Qualified
+string targets retain their explicit surface. Advertised native consumption
+methods have focused contracts; inherited shared display methods retain their
+owning type's rendering guidance.
 
 For cold discovery, choose one task route. Once an analysis object exists, go
 from its contract directly to the selected exact Help target or pass its bound

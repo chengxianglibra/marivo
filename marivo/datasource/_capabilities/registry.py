@@ -43,6 +43,7 @@ INPUT_FAMILIES = frozenset(
         "AuthoringScope",
         "SourceInspection",
         "DiscoverySnapshot",
+        "DatasourceList",
         "Columns",
         "Column",
         "TableName",
@@ -86,10 +87,12 @@ OUTPUT_FAMILIES = frozenset(
         "PhysicalColumnName",
         "PartitionInspection",
         "DiscoverySnapshot",
+        "DiscoverySnapshotContract",
         "RawSqlResult",
         "Text",
         "None",
         "bool",
+        "list[str]",
     }
 )
 
@@ -326,6 +329,16 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             example="value = host_resolver.resolve(request)",
             constraints=("credential_resolution",),
             public_entrypoint="resolver.resolve",
+        ),
+        _capability(
+            "CredentialRequest.show",
+            "marivo.datasource.credentials.CredentialRequest.show",
+            "Print bounded request facts without resolving credentials or disclosing secret material.",
+            kind="method",
+            output="None",
+            inputs=_inputs(("receiver", "CredentialRequest")),
+            example="request.show()",
+            public_entrypoint="request.show",
         ),
         _capability(
             "SecretValue.reveal",
@@ -622,6 +635,26 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             public_entrypoint="inspection.sample",
         ),
         _capability(
+            "DatasourceList.ids",
+            "marivo.datasource.manage.DatasourceList.ids",
+            "Return configured datasource names in the retained display order.",
+            kind="method",
+            output="list[str]",
+            inputs=_inputs(("receiver", "DatasourceList")),
+            example="names = md.list().ids()",
+            public_entrypoint="datasources.ids",
+        ),
+        _capability(
+            "DiscoverySnapshot.contract",
+            "marivo.datasource.snapshot.DiscoverySnapshot.contract",
+            "Describe selected columns, retained row shape and value availability without refreshing or querying the source.",
+            kind="method",
+            output="DiscoverySnapshotContract",
+            inputs=_inputs(("receiver", "DiscoverySnapshot")),
+            example="snapshot.contract().show()",
+            public_entrypoint="snapshot.contract",
+        ),
+        _capability(
             "authoring",
             None,
             "Use built-in default for credential-free file sources; declare a separate datasource for credentials or persistence.",
@@ -723,7 +756,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         DatasourceTestResult,
         RawSqlResult,
     )
-    from marivo.datasource.snapshot import DiscoverySnapshot
+    from marivo.datasource.snapshot import DiscoverySnapshot, DiscoverySnapshotContract
     from marivo.datasource.source import PartitionScope, UnprunedScope
 
     show_render = ("show", "render")
@@ -950,6 +983,20 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
             "SourceInspection.source_column",
             "SourceInspection.sample",
         ),
+    )
+    add(
+        DiscoverySnapshotContract,
+        "DiscoverySnapshotContract",
+        ("DiscoverySnapshot.contract",),
+        properties=(
+            "snapshot_id",
+            "columns",
+            "retained_row_count",
+            "value_evidence_state",
+            "retained_values_shape",
+            "available_reads",
+        ),
+        methods=show_render,
     )
     add(
         DiscoverySnapshot,

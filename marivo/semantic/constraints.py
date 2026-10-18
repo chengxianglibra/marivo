@@ -156,9 +156,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "entity_constructor_as_decorator",
         "decorator",
         ("entity",),
-        "ms.entity(...) is an assignment-style constructor, not a decorator.",
-        "It returns a non-callable Ref[entity] when the declaration is evaluated.",
-        "Assign the result of ms.entity(...) to a name and remove the decorated function body.",
+        "ms.entity(name=...) declares directly; omit name for the restricted Table decorator.",
+        "An explicit name returns a non-callable Ref[entity]; omitting name returns a decorator.",
+        "Assign the explicitly named constructor result, or omit name and return one Table expression.",
     ),
     ConstraintId.ACTIVE_LOADER_CONTEXT: _constraint(
         ConstraintId.ACTIVE_LOADER_CONTEXT,

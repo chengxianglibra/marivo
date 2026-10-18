@@ -14,6 +14,22 @@ from marivo.analysis._capabilities.dataset_registry import assemble, prepare
 from marivo.analysis.datasets.errors import DatasetRegistrationError
 
 
+def test_every_advertised_native_member_has_exact_help() -> None:
+    registry = prepare()
+    for descriptor in registry.descriptors:
+        if isinstance(descriptor, TypeInput):
+            for binding in descriptor.bindings:
+                for name in binding.methods:
+                    method = getattr(binding.implementation, name)
+                    resolved = registry.by_callable(method)
+                    text, _, _ = render_help_text(method)
+                    assert text == render_help_text("analysis." + resolved.canonical_id)[0]
+    assert (
+        render_help_text(mv.ordinal().show)[0]
+        == render_help_text("analysis.CalendarCorrespondence.show")[0]
+    )
+
+
 def test_parameter_semantics_and_real_producers() -> None:
     registry = prepare()
     for descriptor in registry.descriptors:
