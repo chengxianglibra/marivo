@@ -12,7 +12,6 @@ from marivo.datasource.source import AuthoringScope, PartitionScope, UnprunedSco
 from marivo.refs import EntityKind, Ref, SemanticKind, SemanticKindTag
 from marivo.refs import ref as ref_factory
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
-from marivo.semantic.ir import composition_components
 
 if TYPE_CHECKING:
     from marivo.semantic.validator import Registry
@@ -69,7 +68,7 @@ def _semantic_kind(ref: str, registry: Registry) -> SemanticKind:
         )
     if ref in registry.measures:
         return SemanticKind.MEASURE
-    if ref in registry.metrics or ref in registry.declared_metrics:
+    if ref in registry.declared_metrics:
         return SemanticKind.METRIC
     if ref in registry.relationships:
         return SemanticKind.RELATIONSHIP
@@ -130,24 +129,7 @@ def dependency_entities(ref: str, kind: SemanticKind, registry: Registry) -> tup
         validate_preview_metric(metric)
         return tuple(root.ref.path for root in consume_metric(metric).roots)
 
-    ordered: list[str] = []
-    visited_metrics: set[str] = set()
-
-    def visit(metric_id: str) -> None:
-        if metric_id in visited_metrics:
-            return
-        visited_metrics.add(metric_id)
-        metric = registry.metrics[metric_id]
-        for entity_id in metric.entities:
-            if entity_id in registry.entities and entity_id not in ordered:
-                ordered.append(entity_id)
-        if metric.composition is not None:
-            for component in composition_components(metric.composition).values():
-                if component in registry.metrics:
-                    visit(component)
-
-    visit(ref)
-    return tuple(ordered)
+    return ()
 
 
 def dependency_entities_for_ref(ref: str, *, registry: Registry) -> tuple[str, ...]:

@@ -235,7 +235,7 @@ choose a semantic slice, acquire data on the agent's behalf, or advance to
 readiness automatically. There is no third public `marivo.authoring` module.
 
 `ReadinessReport.analysis_ready_inputs` is the direct semantic-to-analysis
-contract. It lists only directly requested refs or runtime expressions whose
+contract for physical readiness. It lists only directly requested physical refs whose
 dependency closures have no blocker; dependency refs remain diagnostic input
 rather than leaking into the handoff. Blockers and warnings remain on the same
 report. No additional transfer object or hidden authoring API exists between

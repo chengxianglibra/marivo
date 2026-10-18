@@ -47,7 +47,7 @@ from marivo.analysis.compiler.observation import (
     temporal_bound,
 )
 from marivo.analysis.core.data_types import DataColumn
-from marivo.semantic.metric_graph_lowering import (
+from marivo.semantic._numeric_lowering import (
     NumericCheck,
     lower_field_predicate,
     lower_row,

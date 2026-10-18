@@ -41,9 +41,9 @@ immutable values with complete defaults, coordinates and retained Ibis
 closures. Finalization closes capture; it never mutates returned values, refreshes
 them from live state, or replays module/import effects. Pure Measure/Metric
 constructs closed graphs from finalized values without executing the authored
-function or requiring loader/Session. R1.4 owns Catalog Metric collection/publication
-and discovery; R2 owns new execution. Retained legacy reader descriptions below
-are internal consumers, not accepted old authoring or new execution qualification.
+function or requiring loader/Session. The loader publishes named declarations;
+Query preparation and execution consume their current definition graphs.
+Old Metric IR and Runtime descriptor readers have been removed.
 
 Definition-update policy (approved 2026-10-15): a constructed semantic input is
 not required to match its original definition version. At a resolving consumer,
@@ -154,7 +154,7 @@ empty collections into one summary.
 | `catalog.preview(entry_or_ref, scope=scope_or_mapping, source_bindings=None)` | Read one current semantic object through an explicit datasource scope. |
 | `catalog.preview_many(entries_or_refs, scope=scope_or_mapping, source_bindings=None)` | Validate an ordered batch and its complete exact entity-ref scope mapping before connection. |
 | `catalog.source_health(entries_or_refs, checks=(), scope=None)` | Check current connectivity and schema/capability identity, plus only explicitly declared bounded data expectations, independently from readiness. |
-| `catalog.readiness(refs=[entry_or_ref_or_runtime_expr])` | Zero-query readiness gate over current entries, exact refs, or closed runtime metric expressions. |
+| `catalog.readiness(refs=[physical_entry_or_ref])` | Zero-query checks over physical declarations, their dependency closures and certified temporal artifacts. |
 
 Published DuckDB Metric previews reuse the pure nullable Row/Metric kernel for ordinary
 source reductions, weighted means and formulas, with at most 10,000 scoped
@@ -409,8 +409,12 @@ cross-module agent result protocol described in
 
 ## Materialization
 
-Materialization recombines registered Python functions into Ibis objects. It is
-an implementation detail of semantic internals and the analysis runtime — it is
+Physical materialization evaluates captured, restricted Entity and field expressions
+against their bound source. Current Metric preview and Query execution share the
+nullable numeric kernel in `marivo/semantic/_numeric_lowering.py`. Physical Entity
+dependency identity lives in `_physical_identity.py`; it retains its own consumed
+source contract. Terminal Artifact reading remains owned by Analysis and Store 10.
+Physical materialization is an implementation detail of semantic internals and the analysis runtime; it is
 **not** a public `SemanticProject` method. Agent-facing reads and previews go
 through the catalog:
 
@@ -421,7 +425,7 @@ catalog.preview(
     revenue,
     scope=md.unpruned(max_rows=1000, timeout_seconds=30),
 ).show()
-catalog.readiness(refs=[revenue]).show()
+catalog.readiness(refs=[ms.ref.measure("sales.orders.amount")]).show()
 ```
 These runtime methods accept an exact entry from the current compiled catalog or
 its exact ref and normalize immediately to the canonical ref. Ordered batches
@@ -430,17 +434,14 @@ pointer, or object identity reaches readiness output, persistence, replay, or
 recovery. Semantic authoring constructors and
 decorators remain ref-only.
 
-Backend resolution rules:
+Backend resolution follows the consuming route:
 
-- The compile target defaults to the `backend_type` of the metric's datasource.
-- The backend is obtained through the internal datasource connection service; the
-  live backend dialect must match the declared `backend_type` or the operation
-  fails closed.
-- With no live backend, a dry compiler for that `backend_type` is used when
-  available; otherwise a structured `compile_error` is returned rather than
-  executing a query.
-- Multi-datasource metrics fail closed in compile (federation is a separate
-  design).
+- Physical readers bind the declared source through an operation-owned connection.
+  The live backend must match the declared provider contract.
+- Ordinary Metric previews use the qualified DuckDB route and the shared nullable
+  numeric kernel; sample, window and routed-field preview restrictions remain explicit.
+- Query preparation qualifies the actual selected backend, expression, physical types
+  and method before execution. A valid semantic declaration grants no physical route.
 
 Target-design temporal materialization receives the exact temporal boundary and
 its closed interpretation from the consuming Analysis operation: an instant or
@@ -471,14 +472,10 @@ original source.
 Entity source provenance is source-aware. An ordinary table is `IBIS_TABLE`; a
 table with a column projection is `TABLE_PROJECTION` and never carries a raw
 SQL snippet; a retained Ibis SQL node is `SQL_VIEW`. A projected table still has
-one physical source. Metric-graph physical leaves therefore record one
-`physical_sources` item per entity with the entity, datasource, and the source's
-single canonical `to_dict()` payload. Output aliases remain inside that source's
-`columns` mapping rather than appearing as synthetic physical tables. The same
-source payload participates in the semantic dependency digest, so canonical
-reordering is identity-stable while rebinding or renaming a projected field
-changes identity. Physical types are not semantic declarations; the observed
-source types enter downstream realized schemas when execution first needs them.
+one physical source. Physical preparation binds the Entity, datasource and canonical
+source payload, including projected column aliases. The source payload participates in
+its physical dependency fingerprint. Physical types are not semantic declarations;
+observed types enter execution preparation and realized output schemas.
 
 To inspect a metric's caliber without executing analysis, use typed details and
 scoped readiness after the project has loaded successfully. Use
@@ -526,29 +523,13 @@ operation owns any required-match policy for its selected members, role, and
 exact version; an allowed absence also needs that operation's explicit result
 semantics. Versioned one sides still need exact version resolution, and missing
 matches or duplicate source rows are not proven at load.
-Tier-1 metric filters must resolve
-every local key to a declared dimension on the target entity; failures use
-`invalid_filter` with focused `semantic.where` repair. On failure the registry
-is `errored` and retains `load_errors`.
-
-When `K` is declared, assembly derives the versioned source row key as
-`(K, snapshot_coordinate)` or `(K, valid_from)`, without rewriting `K`.
-An unkeyed computation source contributes no identity-based uniqueness proof.
-Version coordinate refs must resolve
-on the owning Entity with coherent temporal types and timezone rules. A
-source-only Entity may omit `K`; member-domain input requires a complete
-non-empty identity signature. Analysis checks that consumer boundary; semantic
-assembly validates the referenced object identities. Static assembly does not inspect
-actual nulls, duplicates, or overlapping validity intervals; Analysis trusts
-those source-data declarations.
-
-Metric assembly lowers each component's computation root and intrinsic
-aggregate, filter, fold, unit, null/empty, and cumulative contract. Different
-component roots alone do not invalidate a derived graph. Analysis later binds
-every occurrence to one chosen Population and exact coordinates and validates
-paths, allocation, time compatibility, and required state. An opaque Tier-2
-expression is not granted reaggregation from an additivity label: an absent
-exact transformation contract yields a targeted consumer blocker.
+Current Metric declarations use the same controlled Deferred consumption as anonymous
+expressions. Source predicates must belong to their actual contribution scope; row
+arithmetic retains one root, while completed Metrics may compose separate roots.
+Each operator keeps its unit, time and null/empty policy checks. Analysis binds every
+occurrence to its selected Population and coordinates and validates required paths,
+coverage and sufficient state. There is no separate tier-1/tier-2 Metric assembly or
+legacy composition-resolution pass.
 
 For an entity backed by `md.table(columns=...)`, assembly also proves that every
 `primary_key` entry and every direct `ms.dimension_column(...)`,
@@ -679,39 +660,17 @@ second handwritten workflow.
 
 ## Readiness
 
-Two checks sit at the end of the write loop:
+Use scoped physical checks at the end of the write loop:
 
-- **`catalog.readiness(refs=[entry_or_ref_or_runtime_expr])`** runs static
-  checks over the compiled definition graph's dependency closure of exact current
-  entries, refs, and closed runtime metric expressions selected for
-  certification. Entries normalize to refs before duplicate detection or
-  dependency lowering. Runtime expressions lower through
-  the same bounded graph contract as analysis, including weighted-mean,
-  datasource-domain, depth, and occurrence checks. It is
-  the explicit certification and diagnostic at the end of an authoring change,
-  never writes stdout, and never queries. Analysis APIs do not invoke it
-  automatically.
-  Declared direct-only aggregate operations are checked against the selected
-  datasource's EngineProfile and installed Ibis translation using an independent
-  synthetic column. This opens no source, needs no credentials or optional
-  backend client driver, and inspects no physical schema or opaque Python body.
-  A known incompatibility produces `aggregate_backend_unsupported`, preserving
-  the aggregate and q, target ref, datasource and backend, with an explicit
-  authoring repair. Dependent catalog roots and nested runtime expressions are
-  excluded from `analysis_ready_inputs`; unrelated definitions remain outside
-  a scoped report. Loading still preserves structurally valid declarations.
-  Every `ReadinessReport` exposes `scope="semantic_static"` in its bounded
-  rendering and dictionary form. This certifies the selected semantic
-  dependency closures and known aggregate/backend compatibility only; it does
-  not promise that a particular analysis operation is executable.
-  Operation-specific temporal selection, fold,
-  grain, and artifact-shape checks remain owned by the consuming
-  analysis call.
-  A versioned Entity therefore does not need an ambient "current" anchor to pass
-  intrinsic static checks, and readiness cannot select its latest rows. Likewise,
-  a coherent multi-root Metric graph is distinct from proof that a particular
-  Population binding or coordinate fold is admissible. Readiness validates shared
-  semantic facts without assigning analysis choices or retained-state authority.
+- **`catalog.readiness(refs=[physical_entry_or_ref])`** checks physical declarations,
+  the compiled dependency closure, scoped load warnings and certified temporal artifacts.
+  Entries and physical values normalize to exact refs before duplicate detection.
+  None checks all loaded physical objects; published Measure/Metric declarations are
+  inspected through `catalog.describe()` and their physical inputs are checked here.
+  It never opens a datasource connection or executes a query. Analysis APIs do not
+  invoke it automatically. `scope="semantic_static"` identifies this boundary.
+  Query preparation owns physical types, aggregate/backend qualification, temporal
+  selection, fold, grain and operation-specific execution support.
   Readiness is independent of discovery snapshots and ordinary preview history.
   It evaluates only the current semantic project, the requested dependency
   closure, and dedicated certified temporal artifacts. Ordinary preview cannot
@@ -763,9 +722,8 @@ downstream affected refs without modifying the project.
 ### Analysis-ready inputs
 
 `ReadinessReport.analysis_ready_inputs` is the ordered result-owned list of
-directly requested refs and runtime expressions whose full dependency closures
-contain no blocker. Governed leaf refs remain visible in `input_summary.refs` but are
-never substituted for the originally requested runtime expression. Warnings
+directly requested physical refs whose full dependency closures contain no blocker.
+Dependencies remain visible in `input_summary.refs`. Warnings
 remain visible on the same report and require an explicit proceed-or-stop
 decision by the caller.
 
@@ -781,8 +739,8 @@ dependencies, ontology context and endpoint roles. A current catalog guess
 cannot supply that authority or grant computation admission.
 
 The report does not create a second transfer object or validation token. After
-readiness succeeds, an agent passes the listed canonical refs or runtime
-expressions to the ordinary analysis APIs. Independently navigated current
+readiness succeeds, an agent uses the checked physical refs and resolved expressions
+at the ordinary analysis boundaries. Independently navigated current
 catalog entries are also valid at the qualifying analysis boundaries; both
 forms normalize to refs at the actual operation boundary. Readiness remains
 explicit and is not invoked automatically by `members.observe(...)` or another
@@ -803,8 +761,9 @@ extend `semantic` first, then let `analysis` consume it — business definitions
 not hide inside one-off analysis scripts.
 
 Semantic readiness is the explicit certification boundary:
-`analysis_ready_inputs` carries the requested canonical refs or runtime
-expressions whose dependency closures passed. A missing required semantic object activates
+`analysis_ready_inputs` carries the requested canonical physical refs whose dependency
+closures passed. Expression execution support remains with Query preparation.
+A missing required semantic object activates
 `marivo-semantic` through the structured `semantic_authoring` repair and returns
 to the same semantic entry, requiring matching scoped readiness before
 resuming.
@@ -820,7 +779,7 @@ The current Analysis boundary preserves these independently owned contracts:
 - Original-state reduction consumes sufficient components, coverage and legal
   fold order; a displayed mean/ratio is not a mergeable state.
 - Native Help owns callable facts, result contracts own current continuations,
-  and Store 9 owns trusted local recovery without origin replay.
+  and Store 10 owns self-contained committed terminal outputs.
 
 ## Analysis resolution handoff
 
@@ -830,11 +789,10 @@ It does not add a second catalog, readiness object, or named statistical-weight
 role. `ms.statistical_weight` was withdrawn; neither it nor the dependent
 `mv.statistical_weight` is reactivated by this handoff.
 
-Resolve the closed observation input (Metric Ref or RuntimeMetricExpr) into the existing canonical graph with effective dependency
-fingerprints. Runtime expressions do not register persistent business definitions.
-The five factories share the same resolver as governed Metrics; they cannot
-accept CatalogEntry, SQL, callback or name-string substitutes for Ref. Preserve the definition-owned aggregate kind and q in algorithm selection;
-observation cannot override exactness.
+Resolve the controlled Deferred observation input through the current completed
+semantic scope. Named and anonymous expressions share one definition graph;
+there are no Runtime descriptor factories or v1 Metric graph readers. Preserve the
+operator-owned aggregate, q and null/empty policies during physical preparation.
 Every recursive occurrence retains its own root, filters, role/path, version,
 time requirement, contribution unit and component policy. Same-table or same-Ref
 occurrences with different bindings remain independent. Graph sharing does not
@@ -849,7 +807,7 @@ A unique direct/definition-bound route may be omitted; additional, duplicate,
 missing or incompatible explicit roots reject. A same-root role conflict names
 its exact component occurrences rather than choosing a path.
 
-Readiness continues to return directly requested refs/expressions whose static
+Readiness returns directly requested physical refs whose static
 dependency closure has no blocker. It cannot mark duplicate-key, classification,
 coverage, nonfinite, overflow, time-rule or state-completeness checks completed.
 The graph registers each data-dependent obligation against its actual consumed
@@ -867,11 +825,10 @@ declares, never components inferred from a function body, a result column name o
 numerically equal values.
 
 Construction rejects wrong Ref kind, cross-Session identity, conflicting temporal
-arguments, unavailable required declaration and mixed source/fixed dependencies
+arguments and unavailable required declarations
 before a Run or business-data read. Schema-only source preflight retains its existing
-boundary. Source-only new observations and retained fixed continuations do not
-share fallback resolution: fixed recovery uses committed definitions and parts,
-never loads current Semantic state to repair missing facts. Errors name expected
+boundary. Terminal Artifact reads use committed output receipts and parts; they
+do not resolve a Metric, reload Semantic state, or reconstruct a Query. Errors name expected
 and received facts, bound occurrence/Ref/field, and a concrete repair based on the
 actual catalog or retained parts. Exact callable signatures and errors belong
 to the native public contract; resolution alone never grants a physical route.

@@ -37,7 +37,6 @@ from marivo.semantic.ir import (
     DomainIR,
     EntityIR,
     EntityProvenance,
-    MetricIR,
     RelationshipIR,
     SemanticKind,
     SourceLocation,
@@ -421,7 +420,6 @@ _FROZEN_CLASSES = [
     DatasourceIR,
     EntityIR,
     DimensionIR,
-    MetricIR,
     RelationshipIR,
 ]
 
@@ -658,7 +656,7 @@ def test_materializer_class_exists() -> None:
     with pytest.raises(SemanticRuntimeError):
         m.dimension("test")
     with pytest.raises(SemanticRuntimeError):
-        m.metric("test")
+        m.measure("test")
 
 
 # ---------------------------------------------------------------------------

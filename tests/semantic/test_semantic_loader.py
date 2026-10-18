@@ -147,7 +147,6 @@ def test_single_model_load_result_ready(semantic_project_factory) -> None:
     assert "warehouse" in reg.datasources
     assert "sales.orders" in reg.entities
     assert "sales.revenue" in reg.declared_metrics
-    assert "sales.revenue" not in reg.metrics
 
     side = project._expression_sidecar
     assert side is not None
@@ -948,7 +947,6 @@ def test_field_ref_resolver_wired_after_load(semantic_project_factory) -> None:
 def test_field_ref_resolves_after_load(semantic_project_factory) -> None:
     """Ref[dimension] returned by a decorator resolves through the materializer."""
     from contextlib import contextmanager
-    from unittest.mock import patch
 
     import ibis
 
@@ -1002,12 +1000,11 @@ def test_field_ref_resolves_after_load(semantic_project_factory) -> None:
 
     fake_service = _FakeConnectionService()
 
-    with patch.object(project, "_connection_service", return_value=fake_service):
-        catalog = SemanticCatalog(project)
-        resolver = catalog._semantic_resolver(connections=project._connection_service())
-        table = resolver.entity(make_ref("sales.orders", SemanticKind.ENTITY))
+    catalog = SemanticCatalog(project)
+    resolver = catalog._semantic_resolver(connections=fake_service)
+    table = resolver.entity(make_ref("sales.orders", SemanticKind.ENTITY))
 
-        field_expr = resolver.dimension(make_ref("sales.orders.region", SemanticKind.DIMENSION))
+    field_expr = resolver.dimension(make_ref("sales.orders.region", SemanticKind.DIMENSION))
     assert field_expr is not None
 
 
@@ -1168,7 +1165,6 @@ def test_materialize_dataset_passes_short_table_name_through_for_trino(
     semantic_project_factory,
 ) -> None:
     from contextlib import contextmanager
-    from unittest.mock import patch
 
     import ibis
 
@@ -1223,12 +1219,11 @@ def test_materialize_dataset_passes_short_table_name_through_for_trino(
 
     fake_service = _FakeConnectionService()
 
-    with patch.object(project, "_connection_service", return_value=fake_service):
-        result = (
-            SemanticCatalog(project)
-            ._semantic_resolver(connections=project._connection_service())
-            .entity(make_ref("sales.orders", SemanticKind.ENTITY))
-        )
+    result = (
+        SemanticCatalog(project)
+        ._semantic_resolver(connections=fake_service)
+        .entity(make_ref("sales.orders", SemanticKind.ENTITY))
+    )
     assert isinstance(result, ibis.expr.types.Table)
     assert backend.calls == ["orders"]
 
@@ -1237,7 +1232,6 @@ def test_materialize_dataset_accepts_explicit_database_for_trino(
     semantic_project_factory,
 ) -> None:
     from contextlib import contextmanager
-    from unittest.mock import patch
 
     import ibis
 
@@ -1286,12 +1280,11 @@ def test_materialize_dataset_accepts_explicit_database_for_trino(
 
     fake_service = _FakeConnectionService()
 
-    with patch.object(project, "_connection_service", return_value=fake_service):
-        result = (
-            SemanticCatalog(project)
-            ._semantic_resolver(connections=project._connection_service())
-            .entity(make_ref("sales.orders", SemanticKind.ENTITY))
-        )
+    result = (
+        SemanticCatalog(project)
+        ._semantic_resolver(connections=fake_service)
+        .entity(make_ref("sales.orders", SemanticKind.ENTITY))
+    )
     assert isinstance(result, ibis.expr.types.Table)
 
 

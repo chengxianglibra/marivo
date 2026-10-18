@@ -34,13 +34,13 @@ from marivo.datasource.timezone import DatasourceEngineTimezone
 from marivo.refs import SemanticKind, ref
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._expression_binding import evaluate_expression_body
+from marivo.semantic._numeric_lowering import numeric_failure
 from marivo.semantic.ir import (
     HourPrefixParse,
     TargetDimensionContract,
     TargetSnapshotVersion,
     TargetValidityVersion,
 )
-from marivo.semantic.metric_graph_lowering import numeric_failure
 from marivo.semantic.validator import (
     normalize_target_dimension,
     normalize_target_entity,

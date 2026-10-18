@@ -10,18 +10,13 @@ from typing import TYPE_CHECKING, ClassVar, Literal, cast
 from marivo._authoring.model import AuthoringRepair
 from marivo._authoring.render import _repair_summary
 from marivo._compat import UTC
-from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import Ref, RefPayloadV1, SemanticKind, SemanticKindTag
 from marivo.refs import ref as ref_factory
 from marivo.render import Card, RenderableResult
 from marivo.semantic.errors import repair
-from marivo.semantic.runtime_metric import RuntimeMetricExpr, replay_payload
 
 if TYPE_CHECKING:
-    from marivo.semantic._metric_resolution import MetricTemporalContract
-    from marivo.semantic.ir import AggKind
     from marivo.semantic.reader import SemanticProject
-    from marivo.semantic.validator import Registry
 
 ReadinessStatus = Literal["ready", "ready_with_warnings", "blocked"]
 ReadinessSeverity = Literal["blocker", "warning", "advisory"]
@@ -32,9 +27,6 @@ ReadinessIssueKind = Literal[
     "fragile_string_ref",
     "time_dimension_pushdown_advisory",
     "undeclared_naive_time_axis",
-    "metric_graph_invalid",
-    "aggregate_backend_unsupported",
-    "snapshot_fold_unobservable",
     "period_calendar_artifact_missing",
     "period_calendar_artifact_stale",
     "period_calendar_artifact_invalid",
@@ -98,7 +90,7 @@ def _issue_summary(issue: ReadinessIssue) -> str:
 class ReadinessReport(RenderableResult):
     scope: ClassVar[Literal["semantic_static"]] = "semantic_static"
     status: ReadinessStatus
-    analysis_ready_inputs: tuple[Ref[SemanticKindTag] | RuntimeMetricExpr, ...]
+    analysis_ready_inputs: tuple[Ref[SemanticKindTag], ...]
     blockers: tuple[ReadinessIssue, ...]
     warnings: tuple[ReadinessIssue, ...]
     input_summary: ReadinessInputSummary
@@ -141,17 +133,11 @@ class ReadinessReport(RenderableResult):
                 label=f"advisories ({len(advisories)})",
                 items=(_issue_summary(issue) for issue in advisories),
             )
-        ready_refs = tuple(item for item in self.analysis_ready_inputs if type(item) is Ref)
+        ready_refs = self.analysis_ready_inputs
         if ready_refs:
             card = card.field(
                 label="analysis_ready",
                 value=", ".join(ref.key for ref in ready_refs),
-            )
-        runtime_inputs = tuple(item for item in self.analysis_ready_inputs if type(item) is not Ref)
-        if runtime_inputs:
-            card = card.field(
-                label="analysis_ready_runtime",
-                value=", ".join(item.label for item in runtime_inputs),
             )
         card = card.listing("checked refs", self.input_summary.refs)
         if self.input_summary.datasources:
@@ -165,8 +151,7 @@ class ReadinessReport(RenderableResult):
             "scope": self.scope,
             "status": self.status,
             "analysis_ready_inputs": [
-                RefPayloadV1.from_ref(item).to_dict() if type(item) is Ref else replay_payload(item)
-                for item in self.analysis_ready_inputs
+                RefPayloadV1.from_ref(item).to_dict() for item in self.analysis_ready_inputs
             ],
             "blockers": [issue.to_dict() for issue in self.blockers],
             "warnings": [issue.to_dict() for issue in self.warnings],
@@ -210,7 +195,6 @@ _EXECUTABLE_KINDS = frozenset(
         SemanticKind.DIMENSION,
         SemanticKind.TIME_DIMENSION,
         SemanticKind.MEASURE,
-        SemanticKind.METRIC,
         SemanticKind.RELATIONSHIP,
     }
 )
@@ -278,10 +262,6 @@ def _object_maps(project: SemanticProject) -> tuple[dict[str, SemanticKind], dic
         key = _exact_key(measure.semantic_id, SemanticKind.MEASURE)
         kinds[key] = SemanticKind.MEASURE
         objects[key] = measure
-    for metric in reg.metrics.values():
-        key = _exact_key(metric.semantic_id, SemanticKind.METRIC)
-        kinds[key] = SemanticKind.METRIC
-        objects[key] = metric
     for relationship in reg.relationships.values():
         key = _exact_key(relationship.semantic_id, SemanticKind.RELATIONSHIP)
         kinds[key] = SemanticKind.RELATIONSHIP
@@ -408,43 +388,6 @@ def _refs_with_issue(issues: Iterable[ReadinessIssue]) -> set[str]:
     return {ref for issue in issues for ref in issue.refs}
 
 
-def _aggregate_backend_issue(
-    *,
-    path: str,
-    agg: AggKind,
-    target: RefPayloadV1,
-    registry: Registry,
-    help_target: LiveHelpTarget,
-) -> ReadinessIssue | None:
-    """Check a declared Measure/Entity aggregate without binding its source."""
-    from marivo.semantic._aggregate_accuracy import aggregate_repair
-
-    entity_id = registry.measures[target.path].entity if target.kind == "measure" else target.path
-    entity = registry.entities[entity_id]
-    datasource = registry.datasources[entity.datasource]
-    action = aggregate_repair(agg, datasource.backend_type)
-    if action is None:
-        return None
-    expected = f"source-native agg={agg!r} with its declared exactness"
-    received = f"backend={datasource.backend_type}"
-    return _issue(
-        "aggregate_backend_unsupported",
-        "blocker",
-        (path,),
-        f"{path} requires {expected}, but datasource {entity.datasource!r} has {received} "
-        "with no implementation satisfying that definition.",
-        AuthoringRepair(kind="reauthor", help_target=help_target, action=action),
-        details={
-            "agg": list(agg) if isinstance(agg, tuple) else agg,
-            "target_ref": target.to_dict(),
-            "datasource": entity.datasource,
-            "backend": datasource.backend_type,
-            "expected": expected,
-            "received": received,
-        },
-    )
-
-
 def _undeclared_naive_time_axis_issues(
     checked_refs: Iterable[str],
     kinds: Mapping[str, SemanticKind],
@@ -502,124 +445,6 @@ def _undeclared_naive_time_axis_issues(
     return blockers, warnings
 
 
-def _temporal_contract_unobservable_issue(
-    *,
-    path: str,
-    temporal_contract: MetricTemporalContract,
-    root_entity: str,
-    registry: Registry,
-) -> ReadinessIssue | None:
-    """Return one blocker when an effective temporal contract cannot be observed."""
-
-    from marivo.semantic.ir import SnapshotVersioningIR
-
-    time_fold = temporal_contract.fold
-    status_time_dimension = temporal_contract.status_time_dimension
-    dim_ir = registry.dimensions.get(status_time_dimension)
-    if dim_ir is None:
-        return None
-    parse = getattr(dim_ir, "parse", None)
-    sample_interval = getattr(parse, "sample_interval", None)
-    if sample_interval is not None:
-        return None
-
-    fold_kind = time_fold.kind
-    partition_field: str | None = None
-    entity_ir = registry.entities.get(root_entity)
-    if entity_ir is not None:
-        versioning = getattr(entity_ir, "versioning", None)
-        if isinstance(versioning, SnapshotVersioningIR):
-            partition_field = versioning.partition_field
-
-    if fold_kind in {"first", "last"} and partition_field == status_time_dimension:
-        return None
-
-    reason = (
-        "snapshot_versioning_missing"
-        if fold_kind in {"first", "last"}
-        else "unsampled_non_selection_fold"
-    )
-    return _issue(
-        "snapshot_fold_unobservable",
-        "blocker",
-        (path,),
-        (
-            f"{path} has no legal observe path: time_fold={fold_kind} over "
-            f"{status_time_dimension} requires a sample_interval on the status "
-            "time dimension or snapshot versioning bound to it; neither is declared."
-        ),
-        repair(
-            kind="reauthor",
-            canonical_id="objects.metric",
-            action=(
-                "Declare sample_interval=(1, 'hour') (or another minute/hour interval) "
-                "on the status time dimension via parse=ms.timestamp(...), or bind "
-                "snapshot versioning with versioning=ms.snapshot(partition_field="
-                "<status_time_dimension>, grain='day') on the root entity for "
-                "first/last folds."
-            ),
-        ),
-        details={
-            "time_fold": fold_kind,
-            "status_time_dimension": status_time_dimension,
-            "root_entity": root_entity,
-            "snapshot_partition_field": partition_field,
-            "reason": reason,
-        },
-    )
-
-
-def _snapshot_fold_unobservable_issues(
-    checked_refs: Iterable[str],
-    kinds: Mapping[str, SemanticKind],
-    objects: Mapping[str, object],
-    registry: Registry | None,
-) -> list[ReadinessIssue]:
-    """Return blockers for metrics whose time fold has no legal observe path.
-
-    A semi-additive metric with a time_fold is observable only when either
-    (a) its status time dimension declares a ``sample_interval`` (sampled fold),
-    or (b) the fold is first/last and the root entity binds snapshot versioning
-    to the same status time dimension (snapshot selection). Any other
-    combination deadlocks the observe planner (reported as a single
-    ``snapshot-fold-deadlock`` error) and must be surfaced at readiness time
-    rather than reported analysis_ready.
-    """
-    from marivo.semantic._metric_resolution import resolve_metric_temporal_contract
-    from marivo.semantic.ir import MetricIR
-
-    blockers: list[ReadinessIssue] = []
-    if registry is None:
-        return blockers
-    for ref in checked_refs:
-        if kinds.get(ref) != SemanticKind.METRIC:
-            continue
-        metric = objects.get(ref)
-        if not isinstance(metric, MetricIR):
-            continue
-        temporal_contract = resolve_metric_temporal_contract(metric, registry)
-        if temporal_contract is None:
-            continue
-        root_entity = getattr(metric, "root_entity", None)
-        if not isinstance(root_entity, str) or not root_entity:
-            entities = tuple(getattr(metric, "entities", ()))
-            if len(entities) == 1:
-                root_entity = entities[0]
-            else:
-                continue
-
-        path = _display_path(ref)
-        issue = _temporal_contract_unobservable_issue(
-            path=path,
-            temporal_contract=temporal_contract,
-            root_entity=root_entity,
-            registry=registry,
-        )
-        if issue is not None:
-            blockers.append(issue)
-    return blockers
-
-
 def build_readiness_report(
     project: SemanticProject,
     *,
@@ -628,8 +453,8 @@ def build_readiness_report(
     """Build a semantic-static readiness report from current loaded state.
 
     Uses the compiled definition graph for dependency closure, then performs
-    static checks: load errors, unknown refs, declared aggregate backend support,
-    cross-datasource unfederated metrics, certified temporal artifact
+    static checks: load errors, unknown physical refs, cross-datasource dependencies,
+    certified temporal artifact
     integrity, and load warnings. It never reads ordinary
     discovery or preview history and never executes a datasource query.
     Load warnings outside an explicit requested closure are excluded.
@@ -709,68 +534,6 @@ def build_readiness_report(
             if len(entity_ids) > 1 and len(datasource_ids) > 1:
                 cross_datasource_refs.append(ref)
 
-    if reg is not None:
-        from marivo.semantic.metric_graph_canonical import MetricGraphContractError
-        from marivo.semantic.metric_graph_lowering import (
-            lower_catalog_metric,
-        )
-
-        for ref in direct_refs:
-            if kinds.get(ref) != SemanticKind.METRIC:
-                continue
-            path = _display_path(ref)
-            try:
-                lower_catalog_metric(reg, path, sidecar=project._expression_sidecar)
-            except (MetricGraphContractError, TypeError, ValueError) as exc:
-                blockers.append(
-                    _issue(
-                        "metric_graph_invalid",
-                        "blocker",
-                        (path,),
-                        f"{path} cannot lower to the bounded metric expression graph: {exc}",
-                        repair(
-                            kind="reauthor",
-                            canonical_id="objects.metric",
-                            action=(
-                                "Reduce the metric's recursive composition to depth at most 10 "
-                                "and 256 pre-CSE occurrences, or repair the dependency reported "
-                                "at the failing occurrence path."
-                            ),
-                        ),
-                        details={
-                            "max_depth": 10,
-                            "max_occurrences": 256,
-                            "lowering_error_kind": getattr(exc, "kind", "graph_contract"),
-                            "observed_count": getattr(exc, "observed_count", None),
-                            "limit": getattr(exc, "limit", None),
-                            "dependency_path": getattr(exc, "path", None),
-                            "occurrence_path": getattr(exc, "path", None),
-                        },
-                    )
-                )
-
-        for ref in checked_refs:
-            if kinds.get(ref) != SemanticKind.METRIC:
-                continue
-            path = _display_path(ref)
-            metric = reg.metrics[path]
-            if metric.aggregation is None or metric.aggregation_target is None:
-                continue
-            target_kind = (
-                SemanticKind.MEASURE
-                if metric.aggregation_target_kind == "measure"
-                else SemanticKind.ENTITY
-            )
-            issue = _aggregate_backend_issue(
-                path=path,
-                agg=metric.aggregation,
-                target=RefPayloadV1.from_ref(_exact_ref(metric.aggregation_target, target_kind)),
-                registry=reg,
-                help_target=LiveHelpTarget(surface="semantic", canonical_id="aggregate"),
-            )
-            if issue is not None:
-                blockers.append(issue)
-
     for ref in unknown_refs:
         path = _display_path(ref)
         blockers.append(
@@ -794,7 +557,6 @@ def build_readiness_report(
     )
     blockers.extend(naive_time_axis_blockers)
     warnings.extend(naive_time_axis_warnings)
-    blockers.extend(_snapshot_fold_unobservable_issues(checked_refs, kinds, objects, reg))
 
     # Period calendars are executable semantic dependencies. Unlike ordinary
     # preview output, a missing/stale certified artifact is a hard blocker
@@ -963,7 +725,7 @@ def build_readiness_report(
                     )
                 )
 
-    # Cross-datasource unfederated metrics.
+    # Cross-datasource physical dependencies.
     if reg is not None:
         for ref in cross_datasource_refs:
             path = _display_path(ref)
@@ -975,8 +737,8 @@ def build_readiness_report(
                     f"Semantic object {path} spans multiple datasources without federation support.",
                     repair(
                         kind="reauthor",
-                        canonical_id="objects.metric",
-                        action="Move integration upstream, enable a federated backend, or split the metric.",
+                        canonical_id="relationship",
+                        action="Move integration upstream or select physical inputs from one datasource.",
                     ),
                 )
             )

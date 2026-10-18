@@ -49,13 +49,9 @@ from marivo.semantic.errors import (
     _raise,
 )
 from marivo.semantic.ir import (
-    Additivity,
-    CumulativeComposition,
     DimensionIR,
-    DimensionKind,
     DomainIR,
     MeasureIR,
-    MetricIR,
     SourceLocation,
 )
 from marivo.semantic.validator import (
@@ -637,10 +633,7 @@ def _publish_declarations(
                     )
                     continue
                 full = f"{qualifier}.{name}"
-                existing_metric = registry.metrics.get(full)
-                physical = (
-                    _semantic_source_path(existing_metric) if existing_metric is not None else None
-                )
+                physical = None
             first = physical or sites.get(full)
             if first is not None:
                 errors.append(
@@ -792,215 +785,6 @@ def _closure_scope_error(
 # ---------------------------------------------------------------------------
 
 
-def _time_dimensions_for_entity(entity_id: str, registry: Registry) -> list[DimensionIR]:
-    """Return time dimensions on *entity_id*, sorted by semantic_id."""
-    return sorted(
-        (
-            dim
-            for dim in registry.dimensions.values()
-            if dim.entity == entity_id and dim.kind == DimensionKind.TIME
-        ),
-        key=lambda dim: dim.semantic_id,
-    )
-
-
-def _resolve_cumulative_over(metric: MetricIR, registry: Registry) -> MetricIR:
-    """Resolve omitted over= when exactly one time dimension exists on the base root entity."""
-    import dataclasses
-
-    if not isinstance(metric.composition, CumulativeComposition):
-        return metric
-    comp = metric.composition
-    if comp.over is not None:
-        return metric
-    base = registry.metrics.get(comp.base)
-    if base is None or base.root_entity is None:
-        return metric
-    candidates = _time_dimensions_for_entity(base.root_entity, registry)
-    if len(candidates) != 1:
-        return metric
-    resolved = dataclasses.replace(comp, over=candidates[0].semantic_id)
-    return dataclasses.replace(metric, composition=resolved)
-
-
-def _resolve_cumulative_over_axes(registry: Registry) -> None:
-    """Resolve omitted over= for all cumulative metrics in the registry."""
-    for sid, metric in list(registry.metrics.items()):
-        if isinstance(metric.composition, CumulativeComposition):
-            registry.metrics[sid] = _resolve_cumulative_over(metric, registry)
-
-
-def _resolve_tier1_additivity(metric: MetricIR, registry: Registry) -> Additivity | None:
-    from marivo.semantic._metric_resolution import resolve_measure_aggregate_additivity
-
-    if metric.weighted_mean is not None:
-        value = registry.measures.get(metric.weighted_mean.value)
-        weight = registry.measures.get(metric.weighted_mean.weight)
-        if value is None or weight is None:
-            return None
-        if value.entity != weight.entity or weight.additivity != "additive":
-            return None
-        return "non_additive"
-
-    target_kind = metric.aggregation_target_kind or (
-        "measure" if metric.measure is not None else None
-    )
-    target_id = metric.aggregation_target or metric.measure or ""
-    agg = metric.aggregation
-    agg_name = agg[0] if isinstance(agg, tuple) else agg
-    if target_kind == "entity":
-        if target_id not in registry.entities:
-            return None
-        return "additive" if agg_name == "count" else None
-    measure_ir = registry.measures.get(target_id)
-    if measure_ir is None:
-        return None  # validator: UNKNOWN_MEASURE / MISSING_MEASURE_ADDITIVITY
-    return resolve_measure_aggregate_additivity(agg, measure_ir.additivity)
-
-
-def _resolve_derived_additivity(metric: MetricIR, registry: Registry) -> Additivity | None:
-    from marivo.semantic.ir import (
-        CumulativeComposition,
-        LinearComposition,
-        RatioComposition,
-        additivity_bucket,
-        linear_additivity_bucket,
-    )
-
-    comp = metric.composition
-    if isinstance(comp, (RatioComposition, CumulativeComposition)):
-        return "non_additive"
-    assert isinstance(comp, LinearComposition)
-    buckets: list[str] = []
-    for term in comp.terms:
-        dep = registry.metrics.get(term.metric)
-        if dep is None or dep.additivity is None:
-            return None  # dep not resolved yet (retry) or missing (validator reports)
-        buckets.append(additivity_bucket(dep.additivity))
-    return linear_additivity_bucket(buckets)
-
-
-def _resolve_metric_additivity(registry: Registry) -> None:
-    import dataclasses
-
-    from marivo.semantic._dsl_authoring import AdditivityPolicy, additive_all, non_additive
-
-    # Phase A: tier-1 simple metrics resolve from their measure dimension.
-    for sid, m in list(registry.metrics.items()):
-        if (
-            m.metric_type == "simple"
-            and (m.aggregation is not None or m.weighted_mean is not None)
-            and m.additivity is None
-        ):
-            resolved = _resolve_tier1_additivity(m, registry)
-            if resolved is not None:
-                policy: AdditivityPolicy | None = None
-                if m.aggregation == "count":
-                    policy = additive_all()
-                elif m.aggregation == "sum":
-                    target = m.aggregation_target or m.measure
-                    measure = registry.measures.get(target) if target is not None else None
-                    policy = measure.dsl_additivity if measure is not None else None
-                elif m.aggregation is not None:
-                    policy = non_additive()
-                registry.metrics[sid] = dataclasses.replace(
-                    m, additivity=resolved, dsl_additivity=policy
-                )
-
-    # Phase B: derived metrics propagate from components (fixpoint over chains).
-    for _ in range(len(registry.metrics) + 1):
-        changed = False
-        for sid, m in list(registry.metrics.items()):
-            if m.metric_type == "derived" and m.additivity is None:
-                resolved = _resolve_derived_additivity(m, registry)
-                if resolved is not None:
-                    registry.metrics[sid] = dataclasses.replace(m, additivity=resolved)
-                    changed = True
-        if not changed:
-            break
-
-
-def _resolve_tier1_unit(metric: MetricIR, registry: Registry) -> str | None:
-    from marivo.semantic.unit_algebra import tier1_unit
-
-    if metric.weighted_mean is not None:
-        value = registry.measures.get(metric.weighted_mean.value)
-        return value.unit if value is not None else None
-
-    target_kind = metric.aggregation_target_kind or (
-        "measure" if metric.measure is not None else None
-    )
-    if target_kind == "entity":
-        return "1"
-    target_id = metric.aggregation_target or metric.measure or ""
-    measure_ir: MeasureIR | DimensionIR | None = registry.measures.get(target_id)
-    if measure_ir is None:
-        measure_ir = registry.dimensions.get(target_id)
-    if measure_ir is None:
-        return None  # validator: UNKNOWN_MEASURE (existing rule)
-    agg = metric.aggregation
-    agg_name = agg[0] if isinstance(agg, tuple) else agg
-    return tier1_unit(agg_name or "", getattr(measure_ir, "unit", None))
-
-
-def _resolve_derived_unit(metric: MetricIR, registry: Registry) -> str | None:
-    from marivo.semantic.ir import (
-        CumulativeComposition,
-        LinearComposition,
-        RatioComposition,
-    )
-    from marivo.semantic.unit_algebra import (
-        linear_unit,
-        ratio_unit,
-    )
-
-    comp = metric.composition
-    if isinstance(comp, RatioComposition):
-        num = registry.metrics.get(comp.numerator)
-        den = registry.metrics.get(comp.denominator)
-        if num is None or den is None:
-            return None
-        return ratio_unit(num.unit, den.unit)
-    if isinstance(comp, CumulativeComposition):
-        base = registry.metrics.get(comp.base)
-        return base.unit if base is not None else None
-    assert isinstance(comp, LinearComposition)
-    units: list[str | None] = []
-    for term in comp.terms:
-        dep = registry.metrics.get(term.metric)
-        if dep is None:
-            return None
-        units.append(dep.unit)
-    return linear_unit(units)
-
-
-def _resolve_metric_unit(registry: Registry) -> None:
-    import dataclasses
-
-    # Phase A: tier-1 simple metrics resolve from their measure dimension.
-    for sid, m in list(registry.metrics.items()):
-        if (
-            m.metric_type == "simple"
-            and (m.aggregation is not None or m.weighted_mean is not None)
-            and m.unit is None
-        ):
-            resolved = _resolve_tier1_unit(m, registry)
-            if resolved is not None:
-                registry.metrics[sid] = dataclasses.replace(m, unit=resolved)
-
-    # Phase B: derived metrics propagate from components (fixpoint over chains).
-    for _ in range(len(registry.metrics) + 1):
-        changed = False
-        for sid, m in list(registry.metrics.items()):
-            if m.metric_type == "derived" and m.unit is None:
-                resolved = _resolve_derived_unit(m, registry)
-                if resolved is not None:
-                    registry.metrics[sid] = dataclasses.replace(m, unit=resolved)
-                    changed = True
-        if not changed:
-            break
-
-
 def _build_registry(
     all_contexts: list[LoaderContext],
     *,
@@ -1011,9 +795,7 @@ def _build_registry(
     Pass 2: assemble all pending IR objects into the registry.
     """
     from marivo.semantic.ir import (
-        DimensionIR,
         EntityIR,
-        MetricIR,
         PeriodCalendarIR,
         RelationshipIR,
         TemporalSetIR,
@@ -1049,8 +831,6 @@ def _build_registry(
             elif isinstance(ir, MeasureIR):
                 registry.measures[sid] = ir
                 field_owners[cast("Ref[FieldKind]", ref)] = ref_factory.entity(ir.entity)
-            elif isinstance(ir, MetricIR):
-                registry.metrics[sid] = ir
             elif isinstance(ir, PeriodCalendarIR):
                 registry.period_calendars[sid] = ir
             elif isinstance(ir, TemporalSetIR):
@@ -1062,19 +842,10 @@ def _build_registry(
             if expression_body is not None:
                 bodies[ref] = expression_body
 
-    default_cumulative_axes = frozenset(
-        ref_factory.metric(metric.semantic_id)
-        for metric in registry.metrics.values()
-        if isinstance(metric.composition, CumulativeComposition) and metric.composition.over is None
-    )
-    _resolve_cumulative_over_axes(registry)
-    _resolve_metric_additivity(registry)
-    _resolve_metric_unit(registry)
     expression_sidecar = CompiledExpressionSidecar(
         bodies=bodies,
         field_owners=field_owners,
         catalog_refs=frozenset(catalog_refs),
-        default_cumulative_axes=default_cumulative_axes,
     )
     return registry, expression_sidecar, ()
 

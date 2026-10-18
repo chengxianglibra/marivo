@@ -3,28 +3,17 @@ title: 就绪检查
 description: 与快照无关的语义输入技术认证。
 ---
 
-示例需要约定的 `md`/`ms` 导入、已加载 `catalog`及下面所列确切 sales 字段。`revenue`是 catalog Metric 条目。
+示例需要约定的 `md`/`ms` 导入、已加载 `catalog`及下面所列确切 sales 字段。`amount` 是物理目录字段。
 
 ## 就绪检查判断什么
 
-`catalog.readiness(refs=[...])` 是面向当前目录条目、精确引用与封闭运行时指标
-表达式的显式零查询认证。每个请求根的依赖闭包来自编译后的规范语义定义图。
-传递依赖上的 warning 会保留，无关定义的 warning 不会进入限定范围的报告。
-分析 API 不会自动调用它。
+`catalog.readiness(refs=[...])` 对当前物理目录对象、精确引用、编译依赖闭包和
+专用时间认证产物做显式零查询检查。它不连接数据源、不读取 schema 或普通 preview
+历史，也不导入可选后端客户端。限定范围内保留依赖 warning，排除无关 warning。
 
-已知的 direct-only 聚合与后端不兼容属于 blocker。就绪检查使用独立的合成列，检查
-声明数据源的 provider 精度能力和已安装 Ibis 的翻译支持；不连接来源、不需要凭据
-或可选后端客户端驱动，也不读取物理 schema。目录依赖和嵌套 runtime expression
-复用同一检查。加载保留合法声明；就绪检查通过仍不授予物理类型或特定分析操作的
-执行资格。
-
-就绪检查不读取 discovery snapshot，也不读取普通 preview 的历史记录。因此，同一
-定义在没有快照、快照新鲜或过期、以及存在或不存在历史 preview 文件时，除
-`checked_at` 外会得到相同状态、问题和 ready inputs。专用的 period calendar、
-temporal set 与 work schedule artifact 是唯一例外：依赖它们的根必须等到当前认证
-artifact 可用后才能放行。
-
-业务描述与 guardrail 是可选的作者上下文。缺少这些内容不会阻塞 readiness。
+已发布的 Measure/Metric 表达式通过 `catalog.describe()` 查看定义；readiness
+检查它们消费的物理字段与 Entity。Query 准备与执行负责物理类型、聚合/后端支持和
+操作专属资格。分析 API 不会自动调用 readiness。业务描述与 guardrail 缺失不会阻塞它。
 
 ## Preview 与 readiness 相互独立
 
@@ -64,10 +53,11 @@ Marivo 会在 scope 的 `max_rows + 1` 边界内读取全部必需列；只有 s
 ```python
 from datetime import timedelta
 
-health = catalog.source_health([revenue])  # connectivity and metadata only
+amount = catalog.fields.get("sales.orders.amount")
+health = catalog.source_health([amount])  # connectivity and metadata only
 
 health = catalog.source_health(
-    [revenue],
+    [amount],
     checks=[
         ms.source_check.not_null(ms.ref.measure("sales.orders.amount")),
         ms.source_check.freshness(
@@ -97,29 +87,23 @@ repair，以及是否在什么精确 scope 下查询了用户数据。
 | --- | --- |
 | `scope` | 固定为 `"semantic_static"`；操作专属执行检查仍由消费 API 负责。 |
 | `status` | `"ready"`、`"ready_with_warnings"` 或 `"blocked"`。 |
-| `analysis_ready_inputs` | 按请求顺序仅保留完整依赖闭包中没有 blocker 的直接请求引用或运行时表达式；依赖只进入 `input_summary`。 |
+| `analysis_ready_inputs` | 按请求顺序仅保留完整依赖闭包中没有 blocker 的直接请求物理引用；依赖只进入 `input_summary`。 |
 | `blockers` | 阻止受影响请求根进入分析的问题。 |
 | `warnings` | 不阻塞的 warning 与 advisory。 |
 | `input_summary` | 本次检查涉及的数据源、引用和表。 |
 | `checked_at` | ISO-8601 检查时间。 |
 | `catalog_definition_fingerprint` | 精确的当前编译语义项目身份。 |
 
-`analysis_ready_inputs` 是唯一的语义到分析交接字段。不再有仅引用投影、
+`analysis_ready_inputs` 保留直接选中的物理输入。不再有仅引用投影、
 preview-required 列表、认证令牌或隐藏传递对象。
 
 每条 issue 都携带类型化 `repair`，其中包含具体动作和所属 live-help 目标。按 repair
-处理后重新运行 readiness，再把 ready inputs 传给普通分析 API。
+处理后重新运行 readiness，再使用对应的当前 Catalog 值构造分析；报告不授予表达式执行资格。
 
 ## 重要 blocker
 
-结构图问题、未知引用、未联邦的跨数据源依赖、无效时间语义、没有 replay seed 的
-state model，以及不可观测的 snapshot fold 仍然 fail closed。
-
-`aggregate_backend_unsupported` 标明原聚合及 q、目标 ref、数据源和后端。Repair
-提出显式近似定义时保留 q，并说明后端是否支持该替代。例如 Trino 拒绝
-`("percentile", 0.95)`，但允许显式声明 `("approx_percentile", 0.95)`。
-依赖这些聚合的根会被排除在 `analysis_ready_inputs` 之外；无关定义不会阻塞限定范围
-的请求。执行不会替换聚合定义，并继续复核后端支持。
+未知引用、物理声明或依赖问题，以及缺失、过期或无效的时间认证产物会阻塞受影响输入。
+聚合与后端不兼容由 Query 准备与执行报告；不会自动替换原定义。
 
 专用时间 artifact blocker 使用 artifact 术语：
 
@@ -138,8 +122,8 @@ scope 被截断时不会发布替代 artifact。
 import marivo.semantic as ms
 
 catalog = ms.load()
-revenue = catalog.metrics.get("sales.revenue")
-report = catalog.readiness(refs=[revenue])
+amount = catalog.fields.get("sales.orders.amount")
+report = catalog.readiness(refs=[amount])
 
 if report.status == "blocked":
     report.show()

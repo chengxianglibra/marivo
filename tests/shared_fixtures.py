@@ -24,10 +24,8 @@ if TYPE_CHECKING:
     from marivo.analysis.dsl.query import Query
     from marivo.analysis.session.core import Session
     from marivo.datasource.ir import DatasourceIR
-    from marivo.refs import EntityKind, MeasureKind, Ref
-    from marivo.semantic._dsl_authoring import AdditivityPolicy
     from marivo.semantic.catalog import SemanticCatalog
-    from marivo.semantic.ir import DimensionIR, MetricIR, TargetDimensionContract
+    from marivo.semantic.ir import TargetDimensionContract
     from marivo.semantic.loader import LoadResult
     from marivo.semantic.reader import SemanticProject
 
@@ -66,7 +64,7 @@ class _PreviewConnections:
 def patch_semantic_connections(
     project: SemanticProject,
     factory: Callable[[str], object],
-) -> Iterator[None]:
+) -> Iterator[_PreviewConnections]:
     """Use one supplied source factory for resolver and bounded preview owners.
 
     Resolver callers retain their backend; operation-owned previews still close
@@ -74,13 +72,9 @@ def patch_semantic_connections(
     """
     from marivo.datasource.runtime import DatasourceConnectionService
 
-    fake = _PreviewConnections(factory)
     owner = DatasourceConnectionService(backend_factory=factory, use_datasources=False)
-    with (
-        patch.object(project, "_connection_service", return_value=fake),
-        patch.object(project, "_connection_operation", side_effect=owner.operation),
-    ):
-        yield
+    with patch.object(project, "_connection_operation", side_effect=owner.operation):
+        yield _PreviewConnections(factory)
 
 
 def in_memory_datasource_ir(name: str) -> DatasourceIR:
@@ -765,73 +759,6 @@ def bootstrap_sales_project_from_template(tmp_path: Path, *, with_time: bool = T
 # ---------------------------------------------------------------------------
 # Authoring session helper (metric-split foundation tests)
 # ---------------------------------------------------------------------------
-
-
-class _AuthoringSession(Protocol):
-    def measure(
-        self, *, entity: Ref[EntityKind], name: str, additivity: AdditivityPolicy | None = None
-    ) -> Ref[MeasureKind]: ...
-
-    def pending_metric(self, semantic_id: str) -> MetricIR: ...
-
-    def pending_dimension(self, semantic_id: str) -> DimensionIR: ...
-
-
-@contextmanager
-def authoring_session(*, domain: str) -> Iterator[_AuthoringSession]:
-    """Context manager that enters a LoaderContext with a default domain.
-
-    Exposes helpers for declaring measure dimensions and inspecting pending
-    metric IR objects. Used by tests/semantic/test_metric_split_foundation.py.
-    """
-    from marivo.semantic import authoring
-    from marivo.semantic.ir import MetricIR
-    from marivo.semantic.loader import _LOADER_CTX, LoaderContext
-
-    ctx = LoaderContext(default_domain=domain)
-    _LOADER_CTX.set(ctx)
-    try:
-
-        class _Session:
-            @staticmethod
-            def measure(
-                *, entity: Ref[EntityKind], name: str, additivity: AdditivityPolicy | None = None
-            ) -> Ref[MeasureKind]:
-                """Declare a measure and return its exact measure ref."""
-                return authoring.measure_column(
-                    entity=entity,
-                    name=name,
-                    column=name,
-                    additivity=additivity if additivity is not None else authoring.additive_all(),
-                )
-
-            @staticmethod
-            def pending_metric(semantic_id: str) -> MetricIR:
-                """Retrieve a pending MetricIR by semantic_id."""
-                for pending in ctx.pending_definitions:
-                    if (
-                        isinstance(pending.definition, MetricIR)
-                        and pending.definition.semantic_id == semantic_id
-                    ):
-                        return pending.definition
-                raise KeyError(f"no pending MetricIR with semantic_id={semantic_id!r}")
-
-            @staticmethod
-            def pending_dimension(semantic_id: str) -> DimensionIR:
-                """Retrieve a pending DimensionIR by semantic_id."""
-                from marivo.semantic.ir import DimensionIR
-
-                for pending in ctx.pending_definitions:
-                    if (
-                        isinstance(pending.definition, DimensionIR)
-                        and pending.definition.semantic_id == semantic_id
-                    ):
-                        return pending.definition
-                raise KeyError(f"no pending DimensionIR with semantic_id={semantic_id!r}")
-
-        yield _Session()
-    finally:
-        _LOADER_CTX.set(None)
 
 
 # ---------------------------------------------------------------------------

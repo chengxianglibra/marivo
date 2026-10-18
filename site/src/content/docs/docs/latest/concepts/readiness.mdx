@@ -3,34 +3,21 @@ title: Readiness
 description: Snapshot-independent technical certification for semantic inputs.
 ---
 
-Examples assume the conventional `md`/`ms` imports, a loaded `catalog`, and the exact sales fields named below. `revenue` is a catalog Metric entry.
+Examples assume the conventional `md`/`ms` imports, a loaded `catalog`, and the exact sales fields named below. `amount` is a physical catalog field.
 
 ## What readiness checks
 
-`catalog.readiness(refs=[...])` is Marivo's explicit, zero-query certification
-for selected current catalog entries, exact refs, and closed runtime metric
-expressions. It checks each requested root through the compiled semantic
-definition graph. A warning on a transitive dependency stays visible; a warning
-on an unrelated definition does not enter the scoped report. Analysis APIs do
-not invoke readiness automatically.
+`catalog.readiness(refs=[...])` explicitly checks current physical catalog objects,
+exact refs, their compiled dependency closures and certified temporal artifacts.
+It opens no datasource connection, reads no schema or ordinary preview history,
+and imports no optional backend clients. Scoped reports retain dependency warnings
+and exclude unrelated warnings.
 
-Known direct-only aggregate/backend incompatibilities are blockers. Readiness
-checks the declared datasource's provider accuracy and installed Ibis translation
-using an independent synthetic column, without connecting, credentials, optional
-backend client drivers, or physical schema inspection. Catalog dependencies and
-nested runtime expressions use the same check. Loading preserves valid declarations;
-passing readiness still does not qualify physical types or a particular analysis
-operation.
-
-Readiness does not read discovery snapshots or ordinary preview history. The
-same definition therefore produces the same status, issues, and ready inputs
-whether snapshots or historical preview files are missing, fresh, or stale.
-Dedicated period-calendar, temporal-set, and work-schedule artifacts are the
-exception: roots that depend on them remain blocked until their current
-certified artifact is available.
-
-Business descriptions and guardrails are optional authored context. Readiness
-does not block when they are omitted.
+Inspect published Measure/Metric definitions through `catalog.describe()`; select
+the physical fields and Entities they consume for readiness. Query preparation and
+execution own physical types, aggregate/backend support and operation-specific
+qualification. Analysis APIs do not invoke readiness automatically. Missing business
+descriptions and guardrails do not block it.
 
 ## Preview is independent
 
@@ -75,10 +62,11 @@ preview, readiness, or analysis, and it stores no checkpoint or history.
 ```python
 from datetime import timedelta
 
-health = catalog.source_health([revenue])  # connectivity and metadata only
+amount = catalog.fields.get("sales.orders.amount")
+health = catalog.source_health([amount])  # connectivity and metadata only
 
 health = catalog.source_health(
-    [revenue],
+    [amount],
     checks=[
         ms.source_check.not_null(ms.ref.measure("sales.orders.amount")),
         ms.source_check.freshness(
@@ -109,34 +97,26 @@ Running source health cannot change `ReadinessReport.status`, issues, or
 | --- | --- |
 | `scope` | Always `"semantic_static"`; operation-specific execution checks remain with the consuming API. |
 | `status` | `"ready"`, `"ready_with_warnings"`, or `"blocked"`. |
-| `analysis_ready_inputs` | Ordered, directly requested refs or runtime expressions whose full dependency closures contain no blocker; dependencies appear only in `input_summary`. |
+| `analysis_ready_inputs` | Ordered, directly requested physical refs whose full dependency closures contain no blocker; dependencies appear only in `input_summary`. |
 | `blockers` | Issues that prevent the affected requested roots from being handed to analysis. |
 | `warnings` | Non-blocking warnings and advisories. |
 | `input_summary` | Datasources, refs, and tables considered by the check. |
 | `checked_at` | ISO-8601 check timestamp. |
 | `catalog_definition_fingerprint` | Exact compiled semantic project identity. |
 
-`analysis_ready_inputs` is the only semantic-to-analysis handoff field. There
+`analysis_ready_inputs` contains the directly selected physical inputs. There
 is no refs-only projection, preview-required list, validation token, or hidden
 transfer object.
 
 Each issue carries a typed `repair` with the action and owning live-help target.
-Follow that repair, rerun readiness, then pass the ready inputs to the ordinary
-analysis API.
+Follow that repair and rerun readiness. Construct analysis from the corresponding
+current Catalog values; the report does not grant expression execution support.
 
 ## Important blockers
 
-Readiness continues to fail closed for structural graph problems, unknown refs,
-unfederated cross-datasource dependencies, invalid temporal semantics, state
-models without a replay seed, and unobservable snapshot folds.
-
-`aggregate_backend_unsupported` identifies the original aggregate and q, target
-ref, datasource, and backend. Its repair preserves q when proposing an explicit
-approximate definition and states whether the backend supports that alternative.
-For example, Trino rejects `("percentile", 0.95)` but permits the explicit
-`("approx_percentile", 0.95)` declaration. Dependent roots are excluded from
-`analysis_ready_inputs`; unrelated definitions do not block a scoped request.
-Execution never substitutes the definition and continues to recheck support.
+Unknown refs, physical declaration/dependency problems and missing, stale or invalid
+temporal artifacts block affected inputs. Query preparation and execution report
+aggregate/backend incompatibilities without substituting a different definition.
 
 Dedicated temporal artifact blockers use artifact terminology:
 
@@ -156,8 +136,8 @@ artifact.
 import marivo.semantic as ms
 
 catalog = ms.load()
-revenue = catalog.metrics.get("sales.revenue")
-report = catalog.readiness(refs=[revenue])
+amount = catalog.fields.get("sales.orders.amount")
+report = catalog.readiness(refs=[amount])
 
 if report.status == "blocked":
     report.show()

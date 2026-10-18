@@ -28,12 +28,12 @@ from ibis.common.deferred import (
 from marivo._definition.deferred import attribute_name, canonical_recipe
 
 if TYPE_CHECKING:
-    from marivo.semantic.metric_graph_lowering import NumericCheck, NumericValue
+    from marivo.semantic._numeric_lowering import NumericCheck, NumericValue
 
 
 def lower_recipe(recipe: Resolver, inputs: tuple[NumericValue, ...]) -> NumericValue:
     """Bind a checked recipe to actual typed slots, preserving per-use checks."""
-    from marivo.semantic.metric_graph_lowering import numeric_failure
+    from marivo.semantic._numeric_lowering import numeric_failure
 
     names = tuple(f"slot_{i}" for i in range(len(inputs)))
     canonical_recipe(recipe, slots=names)
@@ -90,7 +90,7 @@ def lower_recipe(recipe: Resolver, inputs: tuple[NumericValue, ...]) -> NumericV
 
 
 def _masked(checks: tuple[NumericCheck, ...], demand: ir.Value) -> tuple[NumericCheck, ...]:
-    from marivo.semantic.metric_graph_lowering import NumericCheck
+    from marivo.semantic._numeric_lowering import NumericCheck
 
     return tuple(
         NumericCheck(demand.fill_null(False) & check.violation, check.expected, check.received)
@@ -101,7 +101,7 @@ def _masked(checks: tuple[NumericCheck, ...], demand: ir.Value) -> tuple[Numeric
 def _lower_operation(
     node: ops.Value, slots: Mapping[str, NumericValue], policies: Mapping[int, str]
 ) -> NumericValue:
-    from marivo.semantic.metric_graph_lowering import (
+    from marivo.semantic._numeric_lowering import (
         NumericCheck,
         NumericValue,
         _finite_check,

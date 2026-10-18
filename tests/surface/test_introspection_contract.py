@@ -55,7 +55,7 @@ def test_datasource_constraint_defaults_use_error_kind_only() -> None:
 def test_shared_catalog_hint_lookup_supports_semantic() -> None:
     from marivo.semantic.constraints import default_hint_for_error_kind as semantic_hint
 
-    assert semantic_hint("invalid_composition")
+    assert semantic_hint("missing_entity_ref")
 
 
 def test_datasource_error_requires_typed_repair() -> None:

@@ -20,7 +20,6 @@ from marivo.semantic.ir import (
     EntityIR,
     HourPrefixParse,
     MeasureIR,
-    MetricIR,
     PeriodCalendarIR,
     RelationshipIR,
     SemiAdditive,
@@ -28,7 +27,6 @@ from marivo.semantic.ir import (
     TemporalSetIR,
     ValidityVersioningIR,
     WorkScheduleIR,
-    composition_components,
 )
 from marivo.semantic.validator import Registry
 
@@ -115,10 +113,6 @@ def _definition_rows(registry: Registry) -> dict[Ref[SemanticKindTag], object]:
         for key, value in registry.measures.items()
     )
     rows.update(
-        (cast("Ref[SemanticKindTag]", ref_factory.metric(key)), value)
-        for key, value in registry.metrics.items()
-    )
-    rows.update(
         (cast("Ref[SemanticKindTag]", ref_factory.relationship(key)), value)
         for key, value in registry.relationships.items()
     )
@@ -173,8 +167,6 @@ def _ref_for_path(registry: Registry, path: str) -> Ref[SemanticKindTag] | None:
         return cast("Ref[SemanticKindTag]", ref)
     if path in registry.measures:
         return cast("Ref[SemanticKindTag]", ref_factory.measure(path))
-    if path in registry.metrics:
-        return cast("Ref[SemanticKindTag]", ref_factory.metric(path))
     if path in registry.relationships:
         return cast("Ref[SemanticKindTag]", ref_factory.relationship(path))
     if path in registry.period_calendars:
@@ -221,20 +213,6 @@ def _dependencies_for(
             paths.extend(_additivity_axes(definition.dsl_additivity))
             if definition.status_time_dimension is not None:
                 paths.append(definition.status_time_dimension)
-    elif isinstance(definition, MetricIR):
-        paths.extend(definition.entities)
-        paths.extend(_additivity_axes(definition.dsl_additivity))
-        if definition.measure is not None:
-            paths.append(definition.measure)
-        if definition.aggregation_target is not None:
-            paths.append(definition.aggregation_target)
-        if definition.composition is not None:
-            paths.extend(composition_components(definition.composition).values())
-            composition_over = getattr(definition.composition, "over", None)
-            if isinstance(composition_over, str):
-                paths.append(composition_over)
-        if isinstance(definition.additivity, SemiAdditive):
-            paths.append(definition.additivity.over)
     elif isinstance(definition, RelationshipIR):
         paths.extend((definition.from_entity, definition.to_entity))
         for key in definition.keys:

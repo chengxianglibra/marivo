@@ -33,8 +33,6 @@ class ConstraintId(StrEnum):
     REF_SHAPE = "ref_shape"
     ENTITY_CONSTRUCTOR_ASSIGNMENT = "entity_constructor_assignment"
     FILTER_CONDITION_VALID = "filter_condition_valid"
-    COMPOSITION_SHAPE = "composition_shape"
-    CUMULATIVE_ANCHOR = "cumulative_anchor"
     METRIC_ENTITIES_REQUIRED = "metric_entities_required"
     METRIC_COMPONENT_SCOPE = "metric_component_scope"
     AI_CONTEXT_SCHEMA = "ai_context_schema"
@@ -48,7 +46,6 @@ class ConstraintId(StrEnum):
     ENTITY_REF_EXISTS = "entity_ref_exists"
     DIMENSION_REF_EXISTS = "dimension_ref_exists"
     METRIC_REF_EXISTS = "metric_ref_exists"
-    METRIC_GRAPH_ACYCLIC = "metric_graph_acyclic"
     TIME_DIMENSION_PARTITION_PUSHDOWN = "time_dimension_partition_pushdown"
     TIME_DIMENSION_DTYPE_COMPAT = "time_dimension_dtype_compat"
     TIME_DIMENSION_DEFAULT_UNIQUE = "time_dimension_default_unique"
@@ -243,28 +240,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
             "typed field comparisons combined with &, | and ~, then source_metric.where(predicate)."
         ),
     ),
-    ConstraintId.COMPOSITION_SHAPE: _constraint(
-        ConstraintId.COMPOSITION_SHAPE,
-        "invalid_composition",
-        "decorator",
-        ("metric", "derived_metric", "sum", "ratio", "weighted_mean"),
-        "Metrics need a supported composition builder.",
-        "Composition declares how metric values compose during drilldown and derived calculations.",
-        'Run marivo.help("semantic.composition") to inspect supported builders; SQL aggregation belongs in the metric body.',
-    ),
-    ConstraintId.CUMULATIVE_ANCHOR: _constraint(
-        ConstraintId.CUMULATIVE_ANCHOR,
-        "invalid_ref",
-        "decorator",
-        ("derived_metric", "cumulative"),
-        "Cumulative anchors must be valid reset grains or fixed-size trailing windows. "
-        "A derived metric over cumulative components can compare only when every outer component uses the "
-        "same trailing or grain_to_date anchor; all_history, mixed anchors, attribute, and decompose remain unsupported.",
-        "The anchor selects the accumulation shape: all_history (default), grain_to_date (MTD/QTD/YTD resets), or trailing (rolling N).",
-        "Reauthor the named metric as a zero-argument @ms.metric() returning base.window(rule). "
-        "Choose mv.all_history(), mv.to_date(...), mv.trailing_duration(...), "
-        "mv.trailing_periods(...), or mv.since(...) to preserve the original anchor and evaluation boundary.",
-    ),
     ConstraintId.METRIC_ENTITIES_REQUIRED: _constraint(
         ConstraintId.METRIC_ENTITIES_REQUIRED,
         "missing_entities",
@@ -395,15 +370,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Metric component references must resolve.",
         "Derived metrics compose existing metrics.",
         "Reference a declared Ref[metric] or qualified metric id in decomposition components.",
-    ),
-    ConstraintId.METRIC_GRAPH_ACYCLIC: _constraint(
-        ConstraintId.METRIC_GRAPH_ACYCLIC,
-        "cross_model_cycle",
-        "assembly",
-        ("metric",),
-        "Metric component graphs must be acyclic.",
-        "Cycles cannot be compiled into a finite metric expression.",
-        "Remove the circular component reference chain.",
     ),
     ConstraintId.TIME_DIMENSION_PARTITION_PUSHDOWN: _constraint(
         ConstraintId.TIME_DIMENSION_PARTITION_PUSHDOWN,

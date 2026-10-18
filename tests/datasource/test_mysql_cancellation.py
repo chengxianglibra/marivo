@@ -28,6 +28,7 @@ def test_mysql_certified_calendar_deadline_terminates_slow_native_view(
     import marivo.datasource as md
     from marivo.datasource.capabilities import provider_statement_log
     from marivo.datasource.ir import DatasourceIR, TableSourceIR
+    from marivo.datasource.runtime import DatasourceConnectionService
     from marivo.semantic.errors import SemanticRuntimeError
     from tests.datasource.environment import mysql_analysis as mysql
 
@@ -64,19 +65,20 @@ def test_mysql_certified_calendar_deadline_terminates_slow_native_view(
             calendar = ms.ref.period_calendar("sales.fiscal")
             entry = catalog.period_calendars.get(calendar)
             assert entry.details().snapshot_status == "missing"
-            connections = catalog._project._connection_service()
-            source_session = connections.source_session
+            source_session = DatasourceConnectionService.source_session
             owners: list[SourceSession] = []
             native_ids: list[int] = []
 
-            def capture_owner(name: str, datasource: DatasourceIR) -> SourceSession:
-                owner = source_session(name, datasource)
+            def capture_owner(
+                service: DatasourceConnectionService, name: str, datasource: DatasourceIR
+            ) -> SourceSession:
+                owner = source_session(service, name, datasource)
                 if owner not in owners:
                     owners.append(owner)
                     native_ids.append(owner._backend.con.thread_id())
                 return owner
 
-            monkeypatch.setattr(connections, "source_session", capture_owner)
+            monkeypatch.setattr(DatasourceConnectionService, "source_session", capture_owner)
             cursors = import_module("MySQLdb.cursors")
             driver_execute: _DriverExecute = cursors.BaseCursor.execute
             native_errors: list[int] = []

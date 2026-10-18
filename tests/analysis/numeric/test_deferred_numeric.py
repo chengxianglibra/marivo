@@ -21,9 +21,9 @@ from marivo.analysis.core.data_types import DataColumn, ScalarDataType
 from marivo.analysis.methods._ibis_numeric import evaluate_numeric
 from marivo.analysis.methods.local import query_combine
 from marivo.refs import ref
+from marivo.semantic._numeric_lowering import NumericCheck, NumericValue, lower_source_reduction
 from marivo.semantic._numeric_recipe import lower_recipe
 from marivo.semantic.errors import SemanticExpressionError
-from marivo.semantic.metric_graph_lowering import NumericCheck, NumericValue, lower_source_reduction
 
 
 def test_native_branches_mask_source_checks_and_invalid_function_inputs() -> None:

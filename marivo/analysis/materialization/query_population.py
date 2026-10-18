@@ -24,7 +24,7 @@ from marivo.analysis.materialization.population_preparation import (
 from marivo.analysis.materialization.query_preparation import prepare_fields
 from marivo.datasource.timezone import probe_engine_timezone
 from marivo.semantic._compiled_state import CompiledSemanticState
-from marivo.semantic.metric_graph_lowering import lower_field_predicate
+from marivo.semantic._numeric_lowering import lower_field_predicate
 
 
 def query_population_entities(node: QueryKeys, state: CompiledSemanticState) -> tuple[str, ...]:

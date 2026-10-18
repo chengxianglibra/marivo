@@ -37,7 +37,7 @@ from marivo.analysis.materialization.query_components import ComponentFrame
 from marivo.analysis.methods._sample_numeric import reduce_samples
 from marivo.analysis.methods.local import _combine_program
 from marivo.analysis.methods.numeric_state import nullable_arithmetic
-from marivo.semantic.metric_graph_lowering import numeric_failure
+from marivo.semantic._numeric_lowering import numeric_failure
 
 
 def original_inputs(

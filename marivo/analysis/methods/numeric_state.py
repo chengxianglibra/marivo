@@ -81,7 +81,7 @@ def nullable_arithmetic(
     Object arithmetic preserves int64 precision until the shared output
     normalizer checks overflow. Decimal work uses the existing wide context.
     """
-    from marivo.semantic.metric_graph_lowering import numeric_failure
+    from marivo.semantic._numeric_lowering import numeric_failure
 
     a, b = left.astype(object), right.astype(object)
     if exact_duration:
@@ -132,7 +132,7 @@ def nullable_arithmetic(
 
 def finish_float64(values: pd.Series, operation: str) -> pd.Series:
     """Convert an exact completed expression once to its declared float carrier."""
-    from marivo.semantic.metric_graph_lowering import numeric_failure
+    from marivo.semantic._numeric_lowering import numeric_failure
 
     finished: list[float] = []
     for value in values:
@@ -160,7 +160,7 @@ def duration_arithmetic(
     zero_denominator: str,
 ) -> pd.Series:
     """Execute already typed Duration arithmetic in its exact original ticks."""
-    from marivo.semantic.metric_graph_lowering import numeric_failure
+    from marivo.semantic._numeric_lowering import numeric_failure
 
     def operand(series: pd.Series, dtype: DataType) -> pd.Series:
         if not isinstance(dtype, DurationDataType):

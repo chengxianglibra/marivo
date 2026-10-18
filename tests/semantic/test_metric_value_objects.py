@@ -6,7 +6,6 @@ import marivo.semantic as ms
 from marivo.semantic import authoring, ir
 from marivo.semantic.errors import SemanticRuntimeError
 from marivo.semantic.ir import AiContextIR, SourceLocation
-from tests.shared_fixtures import authoring_session
 
 # ---------------------------------------------------------------------------
 # Additivity/SemiAdditive/AggKind types
@@ -20,83 +19,12 @@ def test_semi_additive_holds_axis_and_fold():
 
 
 # ---------------------------------------------------------------------------
-# Composition union
-# ---------------------------------------------------------------------------
-
-
-def test_composition_variants_carry_roles():
-    r = ir.RatioComposition(numerator="d.lost", denominator="d.total")
-    assert (r.kind, r.numerator, r.denominator) == ("ratio", "d.lost", "d.total")
-
-    w = ir.WeightedMeanAggregation(value="d.e.rate", weight="d.e.sessions")
-    assert (w.kind, w.value, w.weight) == ("weighted_mean", "d.e.rate", "d.e.sessions")
-
-    lin = ir.LinearComposition(terms=(ir.LinearTerm("+", "d.a"), ir.LinearTerm("-", "d.b")))
-    assert lin.kind == "linear"
-    assert [(t.sign, t.metric) for t in lin.terms] == [("+", "d.a"), ("-", "d.b")]
-
-
-# ---------------------------------------------------------------------------
 # Metric IR invariants
 # ---------------------------------------------------------------------------
 
 
 def _loc():
     return SourceLocation(file="t.py", line=1)
-
-
-def _mk(**over):
-    base = {
-        "semantic_id": "d.m",
-        "domain": "d",
-        "name": "m",
-        "metric_type": "simple",
-        "entities": ("d.e",),
-        "aggregation": None,
-        "measure": None,
-        "composition": None,
-        "additivity": "additive",
-        "ai_context": AiContextIR(),
-        "body_ast_hash": "h",
-        "python_symbol": "m",
-        "location": _loc(),
-    }
-    base.update(over)
-    return ir.MetricIR(**base)
-
-
-def test_metricir_tier2_simple_ok():
-    m = _mk()  # body-form simple, declared additivity
-    assert m.metric_type == "simple" and m.composition is None
-
-
-def test_metricir_simple_rejects_composition():
-    with pytest.raises(ValueError):
-        _mk(composition=ir.RatioComposition(numerator="d.a", denominator="d.b"))
-
-
-def test_metricir_tier1_requires_aggregation_and_measure_together():
-    with pytest.raises(ValueError):
-        _mk(aggregation="sum", measure=None, additivity=None)  # measure missing
-
-
-def test_metricir_derived_ok_and_rejects_entities():
-    d = _mk(
-        metric_type="derived",
-        entities=(),
-        aggregation=None,
-        measure=None,
-        additivity=None,
-        composition=ir.RatioComposition(numerator="d.a", denominator="d.b"),
-    )
-    assert d.metric_type == "derived"
-    with pytest.raises(ValueError):
-        _mk(
-            metric_type="derived",
-            entities=("d.e",),
-            composition=ir.RatioComposition(numerator="d.a", denominator="d.b"),
-            additivity=None,
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -165,11 +93,6 @@ def test_status_time_policy_keeps_fixed_axis():
 
 
 # ---------------------------------------------------------------------------
-# ms.aggregate (tier-1)
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
 # @ms.metric (tier-2 body)
 # ---------------------------------------------------------------------------
 
@@ -177,10 +100,7 @@ def test_status_time_policy_keeps_fixed_axis():
 def test_metric_global_additivity_requires_reauthoring():
     from marivo.semantic.errors import SemanticExpressionError
 
-    with (
-        authoring_session(domain="sales"),
-        pytest.raises(SemanticExpressionError) as caught,
-    ):
+    with pytest.raises(SemanticExpressionError) as caught:
         authoring.metric(entities=[ms.ref.entity("sales.orders")], additivity=ms.additive_all())
     assert caught.value.kind == "invalid_component_body"
     assert caught.value.repair is not None
@@ -190,10 +110,7 @@ def test_metric_global_additivity_requires_reauthoring():
 def test_metric_global_status_fold_requires_explicit_sample_reduction():
     from marivo.semantic.errors import SemanticExpressionError
 
-    with (
-        authoring_session(domain="ops"),
-        pytest.raises(SemanticExpressionError) as caught,
-    ):
+    with pytest.raises(SemanticExpressionError) as caught:
         authoring.metric(
             entities=[ms.ref.entity("ops.samples")],
             additivity=authoring.additive_all(except_=(ms.ref.time_dimension("ops.samples.t"),)),
@@ -203,41 +120,3 @@ def test_metric_global_status_fold_requires_explicit_sample_reduction():
     assert caught.value.kind == "invalid_component_body"
     assert caught.value.repair is not None
     assert "per(status_time_field).reducer()" in caught.value.repair.action
-
-
-# ---------------------------------------------------------------------------
-# ms.ratio / ms.weighted_mean / ms.linear
-# ---------------------------------------------------------------------------
-
-
-def _m(sess, entity, col):
-    """Declare a measure dimension and return its ref."""
-    return sess.measure(entity=ms.ref.entity(entity), name=col, additivity=ms.additive_all())
-
-
-# ---------------------------------------------------------------------------
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Cumulative composition
-# ---------------------------------------------------------------------------
-
-
-def test_cumulative_composition_components_and_anchor() -> None:
-    from marivo.semantic.ir import CumulativeComposition, composition_components
-
-    comp = CumulativeComposition(base="sales.active_users", over="sales.events.event_time")
-
-    assert comp.kind == "cumulative"
-    assert comp.anchor == "all_history"
-    assert composition_components(comp) == {"base": "sales.active_users"}
-
-
-def test_cumulative_composition_allows_unresolved_over_for_load_resolution() -> None:
-    from marivo.semantic.ir import CumulativeComposition, composition_components
-
-    comp = CumulativeComposition(base="sales.active_users", over=None)
-
-    assert comp.over is None
-    assert composition_components(comp) == {"base": "sales.active_users"}

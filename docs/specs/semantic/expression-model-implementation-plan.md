@@ -43,7 +43,7 @@ S0–S6 的实现与有界验收见第 8 节；本方案不将其它 Lazy Analys
 | 声明安全 | `validator.py` 检查语法；`_expression_binding.py` 的声明 builder 不调用原函数，按封闭接收者构图 | 保留先检查后构造；允许已核验 Ibis 符号，与匿名配方共用语义消费器 |
 | 收录与发布 | `loader.py::_collect_module_declarations/_publish_declarations` 已处理声明、限定名称、重复名和 Session 依赖；`_compiled_state.py`、Catalog 已有发布表达式支持 | 改为读取根声明 resolver，复用现有闭包和身份检查，不新建注册系统 |
 | 普通观察 | `analysis/dsl/query.py` 按 `isinstance(metric, Metric)` 接收；`binding/observe.py` 保留每次来源规约的 occurrence、过滤和时间 | 改为消费受控配方和语义使用记录，保留完整键及逐根绑定 |
-| 准备与执行 | `analysis/materialization/query_preparation.py`、`analysis/compiler/graph_plan.py::plan_query` 已自动准备物理字段；`analysis/compiler/observation.py`、`semantic/metric_graph_lowering.py` 与 `analysis/methods/local.py::query_combine` 执行封闭节点 | 接入真实 Ibis 图，替换旧节点分派，复用 schema、数值政策、pandas 调度与类型交接 |
+| 准备与执行 | `analysis/materialization/query_preparation.py`、`analysis/compiler/graph_plan.py::plan_query` 已自动准备物理字段；`analysis/compiler/observation.py`、`semantic/_numeric_lowering.py` 与 `analysis/methods/local.py::query_combine` 执行封闭节点 | 接入真实 Ibis 图，替换旧节点分派，复用 schema、数值政策、pandas 调度与类型交接 |
 | 内部样本与域 | 私有 `PerReduce/PerWeightedMean`、`LiteralPopulation/PopulationProgram` 已存在；新 Query 的普通数值路线未完成这些能力，Population 条件仍有明确拒绝 | 复用定义基础，补齐公开域、绑定和实际执行，不能把节点存在当作完成 |
 | 五项扩展 | 新表达式接收者尚无完整 first/last、approx_*、empty=null、membership、window 链路 | 分别接入同一配方、绑定和执行链，按下文阶段交付 |
 | 终端产物 | R2.5/R2.6 已接通发布、重开、预览、导出及 Finding/Evidence 阅读 | 保持无图输出；只做受影响回归，不新增 codec、迁移或 Store 代际 |
@@ -55,7 +55,7 @@ S0–S6 的实现与有界验收见第 8 节；本方案不将其它 Lazy Analys
 [loader](../../../marivo/semantic/loader.py)、
 [观察绑定](../../../marivo/analysis/binding/observe.py)、
 [计划](../../../marivo/analysis/compiler/graph_plan.py)、
-[源端内核](../../../marivo/semantic/metric_graph_lowering.py)、
+[源端内核](../../../marivo/semantic/_numeric_lowering.py)、
 [本地内核](../../../marivo/analysis/methods/local.py)。
 
 ## 3 实现结构与关键取舍
@@ -172,7 +172,7 @@ S0 是有界技术确认；其后按能力提交可审阅的变更。公开切�
 observe 固定逻辑绑定，execute 自动获取所需 schema，生成真实 Ibis 图和绑定执行指纹。
 复用当前 Decimal、Duration、时间字段、单值路径与精确版本锚点准备，不另设用户 preflight。
 
-**S2.2 数值路线。** 改造 `semantic/metric_graph_lowering.py`、`_numeric_preview.py`、
+**S2.2 数值路线。** 改造 `semantic/_numeric_lowering.py`、`_numeric_preview.py`、
 `analysis/compiler/observation.py`、`materialization/graph_source_execution.py` 和 `methods/local.py`。
 先迁移当前普通收入、计数、AOV、共同有效配对与分组对齐，再接入目标首期函数族和动态需求域。
 保留零分母默认 NA、显式 error、严格 NA、溢出和非法值检查；

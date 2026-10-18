@@ -9,6 +9,7 @@ from importlib import util as importlib_util
 from pathlib import Path
 from typing import cast
 
+from marivo._definition.graph import fingerprint
 from marivo.ontology._authoring import _CONTEXT, _OntologyAuthoringContext, _repair
 from marivo.ontology.errors import (
     InvalidOntologyRefError,
@@ -22,7 +23,6 @@ from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, Card, RenderableResult
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticError
 from marivo.semantic.ir import SourceLocation
-from marivo.semantic.metric_graph_canonical import fingerprint
 
 _ONTOLOGY_SOURCE = Path("models") / "ontology.py"
 _EDGE_PREVIEW_LIMIT = 8

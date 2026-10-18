@@ -535,7 +535,7 @@ def test_semantic_input_rejects_published_metric_as_a_physical_input(
 ) -> None:
     catalog = _catalog(semantic_project_factory)
 
-    with pytest.raises(SemanticRuntimeError, match="no physical preview") as exc_info:
+    with pytest.raises(SemanticRuntimeError, match="requires physical inputs") as exc_info:
         _normalize_semantic_input(
             catalog,
             catalog.metrics.get("sales.revenue"),

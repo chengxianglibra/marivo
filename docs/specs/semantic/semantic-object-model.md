@@ -124,8 +124,8 @@ their path and are valid only as a source reduction's `time=` role, including
 when authoring sum-permission coordinates.
 
 Local declarations neither require an active loader/Session nor publish Catalog
-Metrics. R1.4 owns collection, qualified identities and public discovery; R2 owns
-the new execution path. A valid graph is not backend or Runtime evidence.
+Metrics. The loader owns collection, qualified identities and public discovery;
+Query preparation owns execution admission. A valid graph is not backend or Runtime evidence.
 
 ### `ms.ai_context(...)`
 
@@ -506,8 +506,8 @@ The decorator accepts only domain and ai_context. Roots, units, time roles and
 policies come from the expression. domain is a typed namespace assertion, not a
 Session binding. Names are local until model collection; aliases preserve both
 local identity and computation. The original expression is not rewritten.
-R1.4 owns Catalog Metric publication and discovery, which this construction
-contract does not provide. Existing Runtime readers are not the new R2 route.
+The loader publishes named declarations into the Catalog. Query preparation and
+execution consume the same definitions as anonymous expressions.
 
 ### Grain, root entity, and fan-out
 
@@ -557,8 +557,8 @@ zero-denominator policy. Row/Metric mixing is rejected. Repeat uses retain their
 ordered graph edges. Derived expressions remain anonymous; a new declaration
 is explicit. `ms.aggregate/count/weighted_mean/where/ratio/linear/cumulative`
 are retired authoring factories and never translate old IR into new graphs.
-Old Runtime IR/reader code retained for existing consumers is not authoring
-compatibility or new execution qualification.
+The old Metric IR, Runtime descriptors and their v1 graph readers have been removed.
+Physical readers and terminal Artifact readers retain their independent contracts.
 
 ## Metric unit (UCUM)
 
@@ -676,15 +676,12 @@ preserving q, and say whether that backend supports the alternative. No definiti
 is substituted automatically. Backend translation alone never qualifies a new
 Analysis execution route.
 
-`load()` preserves a structurally valid aggregate declaration. Scoped
-`catalog.readiness()` rejects known direct-only aggregate/backend
-incompatibilities with `aggregate_backend_unsupported` before opening a source,
-including dependencies of derived Metrics and closed runtime expressions.
-It reuses the same provider-accuracy and independent Ibis translation check as
-materialization. On Trino, exact median/percentile is unavailable in Marivo's
+`load()` preserves a structurally valid aggregate declaration.
+`catalog.readiness()` checks physical semantic inputs and certified temporal artifacts.
+Published expression declarations are inspected with `catalog.describe()`; physical-type
+and backend operation qualification belong to Query preparation and execution. On Trino, exact median/percentile is unavailable in Marivo's
 source-native route; `approx_median` or `("approx_percentile", q)` must be authored
-explicitly when acceptable. Passing static readiness grants no physical-type or
-operation-specific execution qualification, and consumers still recheck support.
+explicitly when acceptable. Passing physical readiness grants no operation-specific execution qualification.
 
 ## Analysis Semantic handoff
 

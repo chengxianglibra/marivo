@@ -54,7 +54,7 @@ from marivo.datasource.adapters import (
 )
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.semantic._compiled_state import CompiledSemanticState
-from marivo.semantic.metric_graph_lowering import NumericCheck
+from marivo.semantic._numeric_lowering import NumericCheck
 from marivo.semantic.validator import normalize_target_entity
 
 
@@ -907,7 +907,7 @@ def _complete_source_frame(
 
         frame, component = complete_components(stage.component_layout, frame)
         components = (component,)
-    from marivo.semantic.metric_graph_lowering import numeric_failure
+    from marivo.semantic._numeric_lowering import numeric_failure
 
     retained_checks = {column.slot_id for column in stage.columns}
     for name in (

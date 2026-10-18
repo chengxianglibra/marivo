@@ -5,25 +5,23 @@ Agent-facing semantic reading goes through ``ms.load()`` and ``SemanticCatalog``
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Iterable, Sequence
 from contextlib import AbstractContextManager
-from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from marivo.config import AUTHORED_DIR, SEMANTIC_DIR, load_semantic_layer_paths
 from marivo.datasource import credentials as cr
 from marivo.datasource.ir import DatasourceIR
 from marivo.datasource.runtime import DatasourceConnectionConfig, DatasourceConnectionService
 from marivo.project import resolve_project_root
-from marivo.refs import Ref, SemanticKind, SemanticKindTag
+from marivo.refs import Ref, SemanticKindTag
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.errors import (
     ErrorKind,
     SemanticError,
     SemanticLoadError,
-    SemanticRuntimeError,
     StructuredWarning,
     _raise,
 )
@@ -50,35 +48,6 @@ __all__ = [
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _require_registry(
-    self_or_registry: Registry | None, project: SemanticProject | None = None
-) -> Registry:
-    """Return the registry or raise SemanticLoadFailed with the actual errors."""
-    if self_or_registry is not None:
-        return self_or_registry
-    from marivo.semantic.errors import SemanticLoadFailed
-
-    if project is not None and project._errors:
-        raise SemanticLoadFailed(project._errors)
-    raise SemanticLoadFailed(
-        [
-            SemanticRuntimeError(
-                kind=ErrorKind.PROJECT_NOT_LOADED,
-                message="Project is not loaded. Call ms.load() to load the semantic project.",
-            )
-        ]
-    )
-
-
-@dataclass(frozen=True)
-class _DepNode:
-    """Lightweight internal node for dependency traversal."""
-
-    semantic_id: str
-    kind: SemanticKind
-    children: tuple[_DepNode, ...]
 
 
 class SemanticProject:
@@ -120,13 +89,11 @@ class SemanticProject:
         self._status: str = "unloaded"  # unloaded | ready | errored
         self._errors: tuple[SemanticError, ...] = ()
         self._warnings: tuple[StructuredWarning, ...] = ()
-        self._load_result: LoadResult | None = None
         self._registry: Registry | None = None
         self._expression_sidecar: CompiledExpressionSidecar | None = None
         self._compiled_state: CompiledSemanticState | None = None
         self._filtered_domains: tuple[str, ...] = ()
         self._runtime_metadata: dict[str, EntityRuntimeMetadata] = {}
-        self._connection_service_instance: DatasourceConnectionService | None = None
         self._connection_config = DatasourceConnectionConfig(
             project_root=self._workspace_dir,
             resolver=cr.current_resolver(),
@@ -202,7 +169,6 @@ class SemanticProject:
                 models=self._filtered_domains if self._filtered_domains else None,
                 models_roots=models_roots,
             )
-        self._load_result = result
         self._status = result.status
         self._errors = result.errors
         self._warnings = result.warnings
@@ -240,138 +206,7 @@ class SemanticProject:
 
         return SemanticCatalog(self)
 
-    # -- dependency graph (internal) -----------------------------------------
-
-    def _dependents(self, name: str) -> _DepNode:
-        """Internal: return objects that depend on the named object."""
-        reg = _require_registry(self._registry, project=self)
-
-        if name in reg.entities:
-            return self._dependents_dataset(name, reg)
-
-        if name in reg.measures:
-            return self._dependents_measure(name, reg)
-
-        if name in reg.dimensions:
-            f_ir = reg.dimensions[name]
-            kind = SemanticKind.TIME_DIMENSION if f_ir.is_time_dimension else SemanticKind.DIMENSION
-            return _DepNode(semantic_id=name, kind=kind, children=())
-
-        if name in reg.metrics:
-            return self._dependents_metric(name, reg)
-
-        if name in reg.relationships:
-            return _DepNode(semantic_id=name, kind=SemanticKind.RELATIONSHIP, children=())
-
-        _raise(
-            ErrorKind.NOT_FOUND,
-            f"Object {name!r} not found in registry.",
-            cls=SemanticRuntimeError,
-            refs=(name,),
-        )
-
-    def _dependents_dataset(self, name: str, reg: Registry) -> _DepNode:
-        ds_children: list[_DepNode] = []
-        for m_id, m_ir in reg.metrics.items():
-            if name in m_ir.entities:
-                ds_children.append(
-                    _DepNode(semantic_id=m_id, kind=SemanticKind.METRIC, children=())
-                )
-        for f_id, f_ir in reg.dimensions.items():
-            if f_ir.entity == name:
-                kind = (
-                    SemanticKind.TIME_DIMENSION
-                    if f_ir.is_time_dimension
-                    else SemanticKind.DIMENSION
-                )
-                ds_children.append(_DepNode(semantic_id=f_id, kind=kind, children=()))
-        for measure_id, measure_ir in reg.measures.items():
-            if measure_ir.entity == name:
-                ds_children.append(
-                    _DepNode(semantic_id=measure_id, kind=SemanticKind.MEASURE, children=())
-                )
-        return _DepNode(
-            semantic_id=name,
-            kind=SemanticKind.ENTITY,
-            children=tuple(ds_children),
-        )
-
-    def _dependents_measure(self, name: str, reg: Registry) -> _DepNode:
-        metric_children = [
-            _DepNode(semantic_id=m_id, kind=SemanticKind.METRIC, children=())
-            for m_id, m_ir in reg.metrics.items()
-            if m_ir.measure == name
-        ]
-        return _DepNode(
-            semantic_id=name,
-            kind=SemanticKind.MEASURE,
-            children=tuple(metric_children),
-        )
-
-    def _dependents_metric(self, name: str, reg: Registry) -> _DepNode:
-        from marivo.semantic.ir import composition_components
-
-        metric_children: list[_DepNode] = []
-        for m_id, m_ir in reg.metrics.items():
-            if m_id == name:
-                continue
-            if m_ir.composition is not None:
-                for comp_ref in composition_components(m_ir.composition).values():
-                    if comp_ref == name:
-                        metric_children.append(
-                            _DepNode(semantic_id=m_id, kind=SemanticKind.METRIC, children=())
-                        )
-        return _DepNode(
-            semantic_id=name,
-            kind=SemanticKind.METRIC,
-            children=tuple(metric_children),
-        )
-
-    def _flatten_ids(self, node: _DepNode) -> set[str]:
-        ids: set[str] = set()
-        for child in node.children:
-            ids.add(child.semantic_id)
-            ids |= self._flatten_ids(child)
-        return ids
-
-    def blast_radius_of(self, refs: tuple[str, ...]) -> int:
-        """Count distinct transitive dependents of the given refs, excluding the
-        refs themselves. Unknown (not-yet-declared) refs contribute zero.
-
-        Public API for callers who need the real transitive-dependent count
-        when assessing semantic change blast radius."""
-        seen: set[str] = set()
-        for ref in refs:
-            try:
-                node = self._dependents(ref)
-            except SemanticRuntimeError:
-                continue
-            seen |= self._flatten_ids(node)
-        return len(seen - set(refs))
-
     # -- readiness ----------------------------------------------------------
-
-    def _connection_service(self) -> DatasourceConnectionService:
-        """Return the lazily-created DatasourceConnectionService."""
-        if self._connection_service_instance is None:
-            with cr.bind_resolver(self._connection_config.resolver):
-                self._connection_service_instance = DatasourceConnectionService(
-                    project_root=self._workspace_dir,
-                )
-        return self._connection_service_instance
-
-    def _session_backend_factory(self) -> Callable[[str], Any]:
-        """Return a factory callable backed by the internal connection service.
-
-        This is used by Materializer and other callers that expect a
-        ``Callable[[str], Any]`` backend factory.
-        """
-        service = self._connection_service()
-
-        def _factory(name: str) -> Any:
-            return service.session_backend(name)
-
-        return _factory
 
     def _connection_operation(self) -> AbstractContextManager[DatasourceConnectionService]:
         """Create an operation owner using this reader's captured resolver."""
@@ -385,9 +220,8 @@ class SemanticProject:
         """Return a query-free semantic readiness report.
 
         Performs in-memory checks and reads dedicated certified artifact state:
-        load errors, unknown refs, cross-datasource unfederated metrics,
-        recursive metric-graph lowering and budgets, SQL parity unverified
-        warnings, temporal artifact integrity, and load warnings forwarding. Use
+        load errors, unknown physical refs, cross-datasource dependencies,
+        temporal artifact integrity, and scoped load warnings. Use
         ``refs`` to scope which semantic objects to check; by default all loaded
         objects are checked.
 

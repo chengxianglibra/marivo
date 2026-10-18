@@ -15,14 +15,12 @@ from marivo.refs import (
     EntityKind,
     FieldKind,
     MeasureKind,
-    MetricKind,
     Ref,
     SemanticKind,
     SemanticKindTag,
 )
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
-from marivo.semantic.ir import AggKind
 from marivo.semantic.materializer import Materializer
 
 KindT = TypeVar("KindT", bound=SemanticKindTag)
@@ -89,10 +87,6 @@ class SemanticResolver:
         )
         return self._materializer.dimension(ref)
 
-    def metric(self, ref_value: Ref[MetricKind]) -> ir.Value:
-        ref = _require_kind(self.catalog, ref_value, expected=(SemanticKind.METRIC,))
-        return self._materializer.metric(ref)
-
     def measure(self, ref_value: Ref[MeasureKind]) -> ir.Value:
         ref = _require_kind(self.catalog, ref_value, expected=(SemanticKind.MEASURE,))
         return self._materializer.measure(ref)
@@ -105,27 +99,6 @@ class SemanticResolver:
         ref = _require_kind(self.catalog, ref_value, expected=(SemanticKind.MEASURE,))
         return self._materializer.measure_on(ref, table)
 
-    def aggregate_measure_on(
-        self,
-        ref_value: Ref[MeasureKind],
-        table: ibis.Table,
-        agg: AggKind,
-    ) -> ir.Value:
-        """Apply one registered aggregate to a governed measure on ``table``."""
-        ref = _require_kind(self.catalog, ref_value, expected=(SemanticKind.MEASURE,))
-        return self._materializer.aggregate_measure_on(ref, table, agg)
-
-    def weighted_mean_aggregates_on(
-        self,
-        value: Ref[MeasureKind],
-        weight: Ref[MeasureKind],
-        table: ibis.Table,
-    ) -> tuple[ir.Value, ir.Value, ir.Value]:
-        """Build exact weighted-mean aggregate expressions on one governed table."""
-        value_ref = _require_kind(self.catalog, value, expected=(SemanticKind.MEASURE,))
-        weight_ref = _require_kind(self.catalog, weight, expected=(SemanticKind.MEASURE,))
-        return self._materializer.weighted_mean_aggregates_on(value_ref, weight_ref, table)
-
     def dimension_on(
         self,
         ref_value: Ref[FieldKind],
@@ -137,11 +110,3 @@ class SemanticResolver:
             expected=(SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION),
         )
         return self._materializer.dimension_on(ref, table)
-
-    def metric_on(
-        self,
-        ref_value: Ref[MetricKind],
-        *tables: ibis.Table,
-    ) -> ir.Value:
-        ref = _require_kind(self.catalog, ref_value, expected=(SemanticKind.METRIC,))
-        return self._materializer.metric_on(ref, *tables)

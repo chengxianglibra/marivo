@@ -342,7 +342,7 @@ def prepare_population(
         if isinstance(node.predicate, RowExpression):
             from marivo._definition.graph import direct_refs
             from marivo.refs import SemanticKind
-            from marivo.semantic.metric_graph_lowering import lower_field_predicate
+            from marivo.semantic._numeric_lowering import lower_field_predicate
 
             fields: dict[str, ir.Value] = {}
             for reference in direct_refs(node.predicate):

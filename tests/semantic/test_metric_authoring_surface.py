@@ -237,6 +237,6 @@ def test_published_metric_and_declared_measure_have_no_physical_preview(
     preview = catalog.preview(catalog.metrics.get("sales.revenue"), scope=snapshot.scope, limit=1)
     assert preview.kind == "semantic_metric"
     assert preview.returned_row_count == 1
-    with pytest.raises(SemanticRuntimeError, match="no physical preview") as exc_info:
+    with pytest.raises(SemanticRuntimeError, match="requires physical inputs") as exc_info:
         catalog.preview(catalog.fields.get("sales.orders.margin"), scope=snapshot.scope, limit=1)
     assert exc_info.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE

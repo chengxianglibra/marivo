@@ -51,7 +51,7 @@ from marivo.analysis.core.data_types import (
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.semantic.metric_graph_lowering import (
+from marivo.semantic._numeric_lowering import (
     NumericCheck,
     NumericValue,
     lower_field_predicate,

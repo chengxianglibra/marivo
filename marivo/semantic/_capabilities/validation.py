@@ -56,7 +56,6 @@ _RETURN_FAMILY_ALIASES = {
     "TimestampParse": "TimestampSpec",
     "StrptimeParse": "StrptimeSpec",
     "HourPrefixParse": "HourPrefixSpec",
-    "Trailing": "TrailingSpec",
 }
 
 

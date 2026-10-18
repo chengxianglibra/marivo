@@ -82,7 +82,7 @@ Population 表示分析总体，覆盖身份名单、分析坐标和内部样本
 | 历史 `public_dsl.py` 约 5,900 行，公开 Logical/Materialized、多种数值关系及专用方法结果 | 旧模块已退役；Population/Query/Column/Artifact 各有唯一实现 |
 | [core/model.py](../../../marivo/analysis/core/model.py) 的 Signature 只有一个可选 quantity，parts 也围绕该量绑定 | 先改多量合同，再接 observe 的命名映射；不能以多张单量结果临时拼接模拟多量 Artifact |
 | [core/graph.py](../../../marivo/analysis/core/graph.py) 已有 SourceLeaf、FixedLeaf、角色边、定义指纹、capture 和拓扑；图构造直接依赖规则和注册表 | 保留来源、角色边与拓扑能力，退役 FixedLeaf；分离纯定义记录与 analysis 绑定推导，避免 semantic 依赖执行层 |
-| [semantic/metric_graph.py](../../../marivo/semantic/metric_graph.py) 有 CatalogBody、Aggregate、Ratio、Linear；另有 RuntimeMetricExpr | 统一行/Metric 定义，消除模型与临时表达式的双入口；复用算法，不保留两套计算图 |
+| `_definition/expressions.py` 与受控 Deferred 承载 Row/Metric 定义 | 统一命名与匿名表达式；旧 Metric IR、Runtime descriptor 和 v1 图已移除 |
 | 历史 `materialization/graph_relation.py` 同时组织 lazy 构造、观察、恢复和 Runtime 依赖 | 旧接收器已退役；当前构造由 dsl/binding 拥有，终端产物重开由存储/读取层拥有 |
 | 历史 `core/rules.py` 约 4,000 行；[graph_lowering.py](../../../marivo/analysis/compiler/graph_lowering.py) 约 4,660 行 | 旧规则层已退役；当前按定义族拥有绑定和 lowering，不增加第二注册或分派框架 |
 | [graph_plan.py](../../../marivo/analysis/compiler/graph_plan.py) 当前拒绝 mixed 和多个 live datasource | 退役 Artifact 输入路线；为来源/字面量的执行内依赖建立 stage 交接与资格；删除拒绝条件本身不能构成支持 |
@@ -588,7 +588,7 @@ LoweredPlan 保留每个 emitted Ibis 表达式的精确来源 ID，不比较 Ib
 布局从单值扩为完整 key、多个 nullable value slots、presence、状态 parts；稳定物理列 ID 与用户量名分开。
 
 现有 graph_lowering.py 拆成入口加少量 owner 模块：来源/Metric 调度、域/坐标、结果运算、时间窗口、必要检查。
-`semantic/metric_graph_lowering.py` 改造为唯一的行/Metric 纯 Ibis lowering 内核，
+`semantic/_numeric_lowering.py` 改造为唯一的行/Metric 纯 Ibis lowering 内核，
 接收已经绑定的来源关系、字段、完整坐标、样本关系和节点政策；不解析活动 Session、Population 程序或 Artifact。
 其输入/输出类型由该纯内核定义：输入为闭合的物理绑定，输出为 Ibis 值/支持/组件关系和所需检查描述，
 不接收 analysis 的 Signature、RuleDerivation 或 Cell Python 对象。
@@ -1006,7 +1006,7 @@ marivo/
     validator.py                  # Definition facts and business permissions
     loader.py                     # Export collection and persistent admission
     catalog.py                    # Exact resolved objects and discovery
-    metric_graph_lowering.py       # Pure bound Row/Metric Ibis lowering
+    _numeric_lowering.py       # Pure bound Row/Metric Ibis lowering
 
   analysis/
     __init__.py / _public.py       # Canonical public exports
@@ -1059,8 +1059,8 @@ Query 的语义与物理资格由对应 compiler/methods 内核直接拥有；�
 
 | 当前落点 | 目标处理 | 必须一起改的消费者 |
 | --- | --- | --- |
-| semantic/metric_graph.py、metric_graph_canonical.py | 定义记录/规范化归共同定义层；目标节点替代 CatalogBody/Ratio/Linear 入口 | expression objects、loader、lowering、进程内指纹 |
-| semantic/runtime_metric.py、历史 analysis/runtime_metric.py | analysis 转发层已删除；仍被语义 lowering 消费的内部描述按实际依赖保留 | exports、Help、typing、示例及相关调用 |
+| 旧 Metric v1 图及其 canonicalizer | 已删除；数值内核归 semantic/_numeric_lowering.py，物理 Entity 依赖指纹归 semantic/_physical_identity.py | 当前定义图、物理读取、数值编译与执行 |
+| 旧 Runtime descriptor 及 analysis 转发层 | 已删除；readiness 仅检查物理语义输入与认证时间产物 | exports、Help、typing、示例及相关调用 |
 | 历史 analysis/public_dsl.py | 已删除；Population/Query/Artifact/Column 位于 dsl，共享披露值位于 _contract.py | `_public.py`、Session、动态披露、终端读取 |
 | materialization/graph_relation、graph_members、graph_observation | 纯构造/绑定移至 binding/core；运行依赖留在 materialization | Query 构造、Field/域绑定、执行内组合 |
 | core/cell_encoding.py、compiler/cell_lowering.py、materialization/cell_arrow.py | 新格式退役四态编码、压缩/展开和书表；仅将必要的 Arrow schema/编解码帮助函数保留在存储/读取边界 | SQL/pandas、存储、导出和公开状态谓词一起切换，不建立兼容层 |

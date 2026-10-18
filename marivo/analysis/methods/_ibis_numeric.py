@@ -11,7 +11,7 @@ from fractions import Fraction
 import ibis.expr.operations as ops
 import pandas as pd
 
-from marivo.semantic.metric_graph_lowering import numeric_failure
+from marivo.semantic._numeric_lowering import numeric_failure
 
 
 def evaluate_numeric(

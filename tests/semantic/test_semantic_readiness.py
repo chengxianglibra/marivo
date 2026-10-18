@@ -14,7 +14,6 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
-import marivo.semantic.runtime_metric as runtime_descriptors
 from marivo._authoring.model import AuthoringRepair
 from marivo._compat import UTC
 from marivo.introspection.live.model import LiveHelpTarget
@@ -25,7 +24,6 @@ from marivo.semantic.readiness import (
     ReadinessIssue,
     ReadinessReport,
 )
-from tests.support.json import arr, checked, obj
 
 _DOMAIN = "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n"
 
@@ -146,68 +144,6 @@ def test_report_json_and_render_expose_only_analysis_ready_inputs() -> None:
     assert "preview_required_refs" not in rendered
 
 
-def test_runtime_expression_is_the_ready_input(
-    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
-) -> None:
-    project = _ready_project(semantic_project_factory)
-    catalog = ms.SemanticCatalog(project)
-    expression = runtime_descriptors.aggregate(
-        ms.ref.measure("sales.orders.amount"),
-        agg="sum",
-        label="Runtime revenue",
-    )
-
-    report = catalog.readiness(refs=[expression])
-
-    assert report.status == "ready"
-    assert report.analysis_ready_inputs == (expression,)
-    payload = obj(checked(report.to_dict()))
-    assert (
-        obj(arr(payload["analysis_ready_inputs"])[0])["schema"] == "marivo.runtime_metric_expr/v1"
-    )
-
-
-def test_runtime_expression_with_unobservable_inherited_fold_is_blocked(
-    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
-) -> None:
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN,
-            "sales/models.py": textwrap.dedent(
-                """\
-                import marivo.datasource as md
-                import marivo.semantic as ms
-                snapshots = ms.entity(
-                    name="snapshots",
-                    datasource=ms.ref.datasource("warehouse"),
-                    source=md.table("snapshots"),
-                )
-                snapshot_date = ms.time_dimension_column(
-                    name="snapshot_date",
-                    entity=snapshots,
-                    column="snapshot_date",
-                    granularity="day",
-                )
-                value = ms.measure_column(
-                    name="value",
-                    entity=snapshots,
-                    column="value",
-                    additivity=ms.additive_all(except_=(snapshot_date,)),
-                    status_time_dimension=snapshot_date,
-                    status_time_fold=("percentile", 0.95),
-                )
-                """
-            ),
-        }
-    )
-    assert not project.is_ready()
-    (error,) = project.errors()
-    assert error.kind == "invalid_component_body"
-    assert error.received is not None and "status_time_fold" in error.received
-    assert error.repair is not None
-    assert "per(status_time_field).reducer()" in error.repair.action
-
-
 def test_direct_requests_only_are_ready_inputs(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
@@ -278,7 +214,7 @@ def test_readiness_never_uses_discovery_or_preview_history(
     history = tmp_path / ".marivo" / "authoring" / "checks"
     history.mkdir(parents=True)
 
-    baseline = project.readiness(refs=("sales.revenue",))
+    baseline = project.readiness(refs=("sales.orders.amount",))
     from marivo.datasource import authoring_store
 
     now = datetime(2026, 8, 21, tzinfo=UTC)
@@ -291,11 +227,11 @@ def test_readiness_never_uses_discovery_or_preview_history(
         refresh=True,
     )
     history.joinpath("fresh.json").write_text('{"cache_status":"fresh"}', encoding="utf-8")
-    fresh = project.readiness(refs=("sales.revenue",))
+    fresh = project.readiness(refs=("sales.orders.amount",))
     monkeypatch.setattr(authoring_store, "_utc_now", lambda: now + timedelta(hours=25))
     stale_snapshot = inspection.sample(scope=scope, columns=("region", "amount"))
     history.joinpath("stale.json").write_text('{"cache_status":"stale"}', encoding="utf-8")
-    stale = project.readiness(refs=("sales.revenue",))
+    stale = project.readiness(refs=("sales.orders.amount",))
 
     assert fresh_snapshot.cache_status == "fresh"
     assert stale_snapshot.id == fresh_snapshot.id
@@ -308,7 +244,7 @@ def test_readiness_never_uses_discovery_or_preview_history(
         "valid_snapshots",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("history queried")),
     )
-    guarded = project.readiness(refs=("sales.revenue",))
+    guarded = project.readiness(refs=("sales.orders.amount",))
 
     expected = _without_checked_at(baseline)
     assert _without_checked_at(fresh) == expected
@@ -392,3 +328,44 @@ def test_cross_datasource_metric_certification_checks_physical_inputs(
     assert report.status == "ready"
     assert report.analysis_ready_inputs == inputs
     assert set(report.input_summary.datasources) == {"warehouse", "finance"}
+
+
+def test_retired_status_fold_requires_explicit_sample_reduction(
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN,
+            "sales/models.py": textwrap.dedent(
+                """\
+                import marivo.datasource as md
+                import marivo.semantic as ms
+                snapshots = ms.entity(
+                    name="snapshots",
+                    datasource=ms.ref.datasource("warehouse"),
+                    source=md.table("snapshots"),
+                )
+                snapshot_date = ms.time_dimension_column(
+                    name="snapshot_date",
+                    entity=snapshots,
+                    column="snapshot_date",
+                    granularity="day",
+                )
+                value = ms.measure_column(
+                    name="value",
+                    entity=snapshots,
+                    column="value",
+                    additivity=ms.additive_all(except_=(snapshot_date,)),
+                    status_time_dimension=snapshot_date,
+                    status_time_fold=("percentile", 0.95),
+                )
+                """
+            ),
+        }
+    )
+    assert not project.is_ready()
+    (error,) = project.errors()
+    assert error.kind == "invalid_component_body"
+    assert error.received is not None and "status_time_fold" in error.received
+    assert error.repair is not None
+    assert "per(status_time_field).reducer()" in error.repair.action

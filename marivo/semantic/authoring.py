@@ -10,7 +10,7 @@ unchanged.  Implementations live in:
 - ``_authoring_values``       — value-object constructors (ai_context, parse, ...)
 - ``_authoring_declarations`` — top-level domain and tier-1 metric declarations
 - ``_authoring_decorators``   — entity-scoped field decorators
-- ``_authoring_metrics``      — derived-metric compositions and cumulative anchors
+- ``_authoring_metrics``      — retired Metric factory diagnostics
 """
 
 from __future__ import annotations
@@ -43,14 +43,6 @@ from marivo.semantic._authoring_decorators import (
     relationship,
     time_dimension,
     time_dimension_column,
-)
-from marivo.semantic._authoring_metrics import (  # noqa: F401
-    CumulativeComposition,
-    Trailing,
-    _compute_composition_hash,
-)
-from marivo.semantic._authoring_metrics import (
-    GrainToDate as GrainToDate,
 )
 from marivo.semantic._authoring_metrics import (
     cumulative as cumulative,

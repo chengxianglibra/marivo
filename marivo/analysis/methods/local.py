@@ -15,7 +15,7 @@ from marivo.analysis.core.data_types import DataColumn, DecimalDataType, ScalarD
 
 def query_combine(stage: LocalCompute, inputs: tuple[pd.DataFrame, ...]) -> pd.DataFrame:
     """Combine completed Metric samples and check only demanded numeric values."""
-    from marivo.semantic.metric_graph_lowering import numeric_failure
+    from marivo.semantic._numeric_lowering import numeric_failure
 
     program = stage.program
     assert program is not None
@@ -67,7 +67,7 @@ def _combine_program(
     from marivo.analysis.methods._ibis_numeric import evaluate_numeric
     from marivo.analysis.methods._sample_numeric import reduce_samples
     from marivo.analysis.methods.physical import stage_arrow_type
-    from marivo.semantic.metric_graph_lowering import (
+    from marivo.semantic._numeric_lowering import (
         NumericCheck,
         NumericValue,
         lower_metric_formula,

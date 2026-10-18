@@ -29,7 +29,7 @@ from marivo._definition.expressions import (
 from marivo._definition.graph import children, direct_refs, walk
 from marivo.refs import SemanticKind, ref
 from marivo.semantic._deferred_semantics import consume_metric
-from marivo.semantic.metric_graph_lowering import (
+from marivo.semantic._numeric_lowering import (
     NumericCheck,
     NumericValue,
     lower_field_predicate,

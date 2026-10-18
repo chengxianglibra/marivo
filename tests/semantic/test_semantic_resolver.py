@@ -91,17 +91,17 @@ def test_resolver_dimension_on_accepts_semantic_ref(semantic_project_factory):
     assert isinstance(value, ibis.expr.types.Value)
 
 
-def test_resolver_metric_on_rejects_wrong_kind(semantic_project_factory):
+def test_resolver_measure_on_rejects_wrong_kind(semantic_project_factory):
     resolver = _catalog(semantic_project_factory)._semantic_resolver(
         connections=_FakeConnections(None)
     )
     table = ibis.table({"amount": "float64"}, name="supplied_orders")
 
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        resolver.metric_on(make_ref("sales.orders.amount", SemanticKind.DIMENSION), table)
+        resolver.measure_on(make_ref("sales.orders.amount", SemanticKind.DIMENSION), table)
 
     assert exc_info.value.kind == ErrorKind.MATERIALIZE_FAILED
-    assert "expected metric" in str(exc_info.value)
+    assert "expected measure" in str(exc_info.value)
 
 
 def _period_rows() -> list[dict[str, object]]:

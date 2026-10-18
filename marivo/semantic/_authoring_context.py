@@ -31,7 +31,6 @@ from marivo.semantic.ir import (
     DomainIR,
     EntityIR,
     MeasureIR,
-    MetricIR,
     PeriodCalendarIR,
     RelationshipIR,
     SourceLocation,
@@ -78,7 +77,6 @@ DefinitionIR: TypeAlias = (
     | EntityIR
     | DimensionIR
     | MeasureIR
-    | MetricIR
     | RelationshipIR
     | PeriodCalendarIR
     | TemporalSetIR
@@ -153,8 +151,6 @@ def _ir_kind(ir: Any) -> str:
         return "time dimension" if ir.is_time_dimension else "dimension"
     if isinstance(ir, MeasureIR):
         return "measure"
-    if isinstance(ir, MetricIR):
-        return "metric"
     if isinstance(ir, EntityIR):
         return "entity"
     if isinstance(ir, RelationshipIR):
@@ -175,7 +171,6 @@ def _check_duplicate(
         EntityIR
         | DimensionIR
         | MeasureIR
-        | MetricIR
         | RelationshipIR
         | PeriodCalendarIR
         | TemporalSetIR
@@ -196,7 +191,6 @@ def _check_duplicate(
                 EntityIR,
                 DimensionIR,
                 MeasureIR,
-                MetricIR,
                 RelationshipIR,
                 PeriodCalendarIR,
                 TemporalSetIR,

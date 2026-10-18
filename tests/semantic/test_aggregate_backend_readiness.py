@@ -1,4 +1,4 @@
-"""Runtime aggregate certification checks exactness without source access."""
+"""Physical readiness is independent of numerical execution qualification."""
 
 from __future__ import annotations
 
@@ -11,12 +11,9 @@ from typing import Literal, NoReturn
 import pytest
 
 import marivo.semantic as ms
-from marivo.datasource.engines.base import EngineProfile
-from marivo.datasource.runtime import DatasourceConnectionService
-from marivo.semantic import runtime_metric as runtime_descriptors
 from marivo.semantic.check import run_check
+from marivo.semantic.ir import AggKind
 from marivo.semantic.reader import SemanticProject
-from marivo.semantic.runtime_metric import RuntimeMetricExpr
 
 ProjectFactory = Callable[[dict[str, str]], SemanticProject]
 Backend = Literal["trino", "duckdb", "clickhouse"]
@@ -56,76 +53,6 @@ def _no_source_access(*_args: object, **_kwargs: object) -> NoReturn:
     raise AssertionError("Static readiness must not access a datasource")
 
 
-@pytest.mark.parametrize("wrapper", ("direct", "slice", "ratio", "linear"))
-def test_trino_exact_percentile_blocks_before_source_access(
-    semantic_project_factory: ProjectFactory,
-    monkeypatch: pytest.MonkeyPatch,
-    wrapper: str,
-) -> None:
-    monkeypatch.setattr(EngineProfile, "open", _no_source_access)
-    monkeypatch.setattr(DatasourceConnectionService, "use_backend", _no_source_access)
-    monkeypatch.setattr(DatasourceConnectionService, "session_backend", _no_source_access)
-    catalog = _catalog(semantic_project_factory)
-    measure = ms.ref.measure("sales.orders.amount")
-    exact = runtime_descriptors.aggregate(measure, agg=("percentile", 0.95), label="Exact p95")
-    expression: RuntimeMetricExpr = exact
-    if wrapper == "slice":
-        expression = runtime_descriptors.slice(
-            exact,
-            by={ms.ref.dimension("sales.orders.region"): "north"},
-            label="North p95",
-        )
-    elif wrapper == "ratio":
-        total = runtime_descriptors.aggregate(measure, agg="sum", label="Total")
-        expression = runtime_descriptors.ratio(exact, total, label="P95 ratio")
-    elif wrapper == "linear":
-        expression = runtime_descriptors.linear(add=(exact, exact), label="Repeated p95")
-    approximate = runtime_descriptors.aggregate(
-        measure, agg=("approx_percentile", 0.95), label="Approximate p95"
-    )
-    report = catalog.readiness(refs=[expression, approximate])
-    assert report.status == "blocked"
-    assert report.analysis_ready_inputs == (approximate,)
-    (issue,) = report.blockers
-    assert issue.kind == "aggregate_backend_unsupported"
-    assert issue.details["agg"] == ["percentile", 0.95]
-    assert issue.details["backend"] == "trino"
-    assert issue.catalog_definition_fingerprint == catalog.definition_fingerprint
-    assert issue.repair is not None
-    assert issue.repair.help_target.canonical_id == "runtime_metric.aggregate"
-    assert "agg=('approx_percentile', 0.95)" in issue.repair.action
-    assert exact.agg == ("percentile", 0.95)
-
-
-@pytest.mark.parametrize(
-    ("backend", "agg", "blocked"),
-    (
-        ("trino", ("approx_percentile", 0.95), False),
-        ("duckdb", ("percentile", 0.95), False),
-        ("clickhouse", "count_distinct", True),
-    ),
-)
-def test_independent_backend_exactness_boundaries(
-    semantic_project_factory: ProjectFactory,
-    backend: Backend,
-    agg: Literal["count_distinct"] | tuple[Literal["percentile", "approx_percentile"], float],
-    blocked: bool,
-) -> None:
-    catalog = _catalog(semantic_project_factory, backend)
-    expression = runtime_descriptors.aggregate(
-        ms.ref.measure("sales.orders.amount"), agg=agg, label="Checked"
-    )
-    report = catalog.readiness(refs=[expression])
-    assert report.status == ("blocked" if blocked else "ready")
-    assert report.analysis_ready_inputs == (() if blocked else (expression,))
-    if blocked:
-        (issue,) = report.blockers
-        assert issue.kind == "aggregate_backend_unsupported"
-        assert issue.repair is not None and "approx_count_distinct" in issue.repair.action
-    else:
-        assert report.blockers == ()
-
-
 def test_published_metrics_direct_certification_routes_to_physical_inputs(
     semantic_project_factory: ProjectFactory,
 ) -> None:
@@ -159,15 +86,12 @@ class NoClients(importlib.abc.MetaPathFinder):
             raise AssertionError('Optional client imported: ' + fullname)
 sys.meta_path.insert(0, NoClients())
 import marivo.semantic as ms
-from marivo.semantic import runtime_metric as runtime_descriptors
 catalog = ms.load(workspace_dir=sys.argv[1])
 amount = ms.ref.measure('sales.orders.amount')
-exact = runtime_descriptors.aggregate(amount, agg=('percentile',0.95), label='Exact')
-approximate = runtime_descriptors.aggregate(amount, agg=('approx_percentile',0.95), label='Approximate')
-report = catalog.readiness(refs=[exact, approximate])
-assert report.status == 'blocked'
-assert report.analysis_ready_inputs == (approximate,)
-assert len(report.blockers) == 1
+report = catalog.readiness(refs=[amount])
+assert report.status == 'ready'
+assert report.analysis_ready_inputs == (amount,)
+assert not report.blockers
 """
     result = subprocess.run(
         [sys.executable, "-c", script, str(tmp_path)],
@@ -177,3 +101,25 @@ assert len(report.blockers) == 1
         check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    ("backend", "aggregate", "unsupported"),
+    (
+        ("trino", ("percentile", 0.95), True),
+        ("trino", ("approx_percentile", 0.95), False),
+        ("duckdb", ("percentile", 0.95), False),
+        ("clickhouse", "count_distinct", True),
+    ),
+)
+def test_aggregate_accuracy_remains_owned_by_execution(
+    backend: Backend,
+    aggregate: AggKind,
+    unsupported: bool,
+) -> None:
+    from marivo.semantic._aggregate_accuracy import aggregate_repair
+
+    action = aggregate_repair(aggregate, backend)
+    assert (action is not None) == unsupported
+    if action is not None and isinstance(aggregate, tuple):
+        assert str(aggregate[1]) in action

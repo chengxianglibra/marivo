@@ -262,7 +262,7 @@ def expression_value(
                 "Use arithmetic on compatible numeric Columns.",
                 "Query.prepare",
             )
-        from marivo.semantic.metric_graph_lowering import NumericValue, numeric_binary
+        from marivo.semantic._numeric_lowering import NumericValue, numeric_binary
 
         return numeric_binary(
             {"add": "add", "sub": "subtract", "mul": "multiply", "div": "divide"}[

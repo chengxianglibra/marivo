@@ -45,17 +45,13 @@ from marivo.semantic.errors import (
     repair,
 )
 from marivo.semantic.ir import (
-    CumulativeComposition,
     DateParse,
     DatetimeParse,
     DimensionIR,
-    DimensionKind,
     DomainIR,
     EntityIR,
     HourPrefixParse,
-    LinearComposition,
     MeasureIR,
-    MetricIR,
     PeriodCalendarIR,
     RelationshipIR,
     SnapshotVersioningIR,
@@ -72,8 +68,6 @@ from marivo.semantic.ir import (
     TimestampParse,
     ValidityVersioningIR,
     WorkScheduleIR,
-    additivity_bucket,
-    composition_components,
     is_time_bearing_format,
 )
 
@@ -102,7 +96,6 @@ class Registry:
     entities: dict[str, EntityIR] = field(default_factory=dict)
     dimensions: dict[str, DimensionIR] = field(default_factory=dict)
     measures: dict[str, MeasureIR] = field(default_factory=dict)
-    metrics: dict[str, MetricIR] = field(default_factory=dict)
     relationships: dict[str, RelationshipIR] = field(default_factory=dict)
     period_calendars: dict[str, PeriodCalendarIR] = field(default_factory=dict)
     temporal_sets: dict[str, TemporalSetIR] = field(default_factory=dict)
@@ -122,7 +115,6 @@ class Registry:
             "entities",
             "dimensions",
             "measures",
-            "metrics",
             "relationships",
             "period_calendars",
             "temporal_sets",
@@ -383,13 +375,9 @@ def normalize_target_entity(registry: Registry, entity_id: str) -> TargetEntityC
             received="datasource not loaded",
             action="Load the Entity's declared datasource before constructing its contract.",
         )
-    from marivo.semantic.metric_graph_lowering import dependency_fingerprint_for_target
+    from marivo.semantic._physical_identity import entity_dependency_fingerprint
 
-    dependency_fingerprint = dependency_fingerprint_for_target(
-        registry,
-        kind="entity",
-        semantic_id=entity_id,
-    )
+    dependency_fingerprint = entity_dependency_fingerprint(registry, entity_id)
     credential_slots = tuple(sorted(datasource.env_refs))
     return TargetEntityContract(
         ref=RefPayloadV1.from_ref(_create_ref(SemanticKind.ENTITY, entity_id)),
@@ -1073,8 +1061,8 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
             self._add_error(
                 ErrorKind.INVALID_COMPONENT_BODY,
                 f"{self.body_label} of {self.fn_name!r} calls ms.component(), "
-                "which is no longer supported. Use ms.ratio/ms.linear "
-                "for body-free derived metric definitions.",
+                "which is no longer supported. Use completed Metric arithmetic "
+                "over constructed semantic inputs.",
                 constraint_id=ConstraintId.METRIC_COMPONENT_SCOPE,
             )
         self.generic_visit(node)
@@ -1134,7 +1122,7 @@ def validate_metric_body_ast(
 ) -> str:
     """Layer 2: AST whitelist validation for base metric bodies.
 
-    Returns the body AST hash for storage in MetricIR.
+    Returns the normalized body AST hash for the compiled expression sidecar.
 
     Raises SemanticLoadError on validation failures.
     """
@@ -1324,121 +1312,50 @@ def _validate_measure_refs(registry: Registry) -> list[SemanticError]:
 
 
 def _validate_dsl_declarations(registry: Registry) -> list[SemanticError]:
-    """Bind authored DSL coordinates and time roles without opening sources."""
+    """Validate physical Measure additivity coordinates and status-time ownership."""
     from marivo.semantic._dsl_authoring import AdditiveAllV1, AdditiveOverV1
 
     errors: list[SemanticError] = []
-    declarations = (
-        *(
-            (
-                measure.semantic_id,
-                measure.entity,
-                measure.dsl_additivity,
-                None,
-                measure.status_time_dimension,
-                (),
-            )
-            for measure in registry.measures.values()
-        ),
-        *(
-            (
-                metric.semantic_id,
-                metric.root_entity,
-                metric.dsl_additivity,
-                metric.event_time_dimension,
-                metric.status_time_dimension,
-                metric.event_time_path,
-            )
-            for metric in registry.metrics.values()
-        ),
-    )
-    for semantic_id, root, policy, event_time, status_time, event_path in declarations:
-        coordinates: tuple[str, ...] = ()
-        if isinstance(policy, AdditiveAllV1):
-            coordinates = policy.exceptions
-        elif isinstance(policy, AdditiveOverV1):
-            coordinates = policy.coordinates
+    for measure in registry.measures.values():
+        policy = measure.dsl_additivity
+        coordinates = (
+            policy.exceptions
+            if isinstance(policy, AdditiveAllV1)
+            else policy.coordinates
+            if isinstance(policy, AdditiveOverV1)
+            else ()
+        )
         for coordinate in coordinates:
             dimension = registry.dimensions.get(coordinate)
-            if dimension is None or dimension.entity != root:
+            if dimension is None or dimension.entity != measure.entity:
                 errors.append(
                     SemanticLoadError(
                         kind=ErrorKind.INVALID_REF,
-                        message=f"{semantic_id!r} names a non-native additivity coordinate {coordinate!r}.",
-                        refs=(semantic_id, coordinate),
-                        expected=f"Dimension on {root}",
+                        message=f"{measure.semantic_id!r} names a non-native additivity coordinate {coordinate!r}.",
+                        refs=(measure.semantic_id, coordinate),
+                        expected=f"Dimension on {measure.entity}",
                         received=coordinate,
                         hint="Declare a coordinate on the computation root or revise the additivity policy.",
                     )
                 )
-        for role, axis in (("event time", event_time), ("status time", status_time)):
-            if axis is None:
-                continue
+        axis = measure.status_time_dimension
+        if axis is not None:
             dimension = registry.dimensions.get(axis)
-            valid_path = True
-            if role == "event time" and event_path:
-                current = root
-                for relationship_id in event_path:
-                    relationship = registry.relationships.get(relationship_id)
-                    if relationship is None or relationship.from_entity != current:
-                        valid_path = False
-                        break
-                    target = registry.entities.get(relationship.to_entity)
-                    columns = tuple(
-                        registry.dimensions[key.to_key].source_column
-                        if key.to_key in registry.dimensions
-                        else None
-                        for key in relationship.keys
-                    )
-                    if (
-                        target is None
-                        or target.versioning is not None
-                        or columns != target.primary_key
-                    ):
-                        valid_path = False
-                        break
-                    current = relationship.to_entity
-                valid_path = valid_path and dimension is not None and dimension.entity == current
-            elif role == "event time":
-                valid_path = dimension is not None and dimension.entity == root
             if (
                 dimension is None
                 or not dimension.is_time_dimension
-                or (role == "status time" and dimension.entity != root)
-                or not valid_path
+                or dimension.entity != measure.entity
             ):
                 errors.append(
                     SemanticLoadError(
                         kind=ErrorKind.INVALID_REF,
-                        message=f"{semantic_id!r} has an invalid {role} dimension {axis!r}.",
-                        refs=(semantic_id, axis),
-                        expected=f"TimeDimension reached from {root} by a declared functional path",
+                        message=f"{measure.semantic_id!r} has an invalid status time dimension {axis!r}.",
+                        refs=(measure.semantic_id, axis),
+                        expected=f"TimeDimension on {measure.entity}",
                         received=axis,
-                        hint="Bind a native time axis or a continuous to-one time_via path.",
+                        hint="Bind the Measure's native status-time axis.",
                     )
                 )
-        if event_path and event_time is None:
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.INVALID_REF,
-                    message=f"{semantic_id!r} declares time_via without event time.",
-                    refs=(semantic_id,),
-                    expected="time= with time_via=",
-                    received="missing time",
-                    hint="Declare the exact business time axis.",
-                )
-            )
-        if event_time is not None and status_time == event_time:
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.INVALID_REF,
-                    message=f"{semantic_id!r} uses the same axis as event and status time.",
-                    refs=(semantic_id, event_time),
-                    expected="distinct business time roles",
-                    received=event_time,
-                    hint="Declare the actual event-time axis separately from the status-time axis.",
-                )
-            )
     return errors
 
 
@@ -1456,9 +1373,6 @@ def _validate_expression_bindings(
         elif owning_ref.kind is SemanticKind.MEASURE:
             measure = registry.measures.get(owning_ref.path)
             entity_ids = () if measure is None else (measure.entity,)
-        elif owning_ref.kind is SemanticKind.METRIC:
-            metric = registry.metrics.get(owning_ref.path)
-            entity_ids = () if metric is None else metric.entities
         else:
             continue
         for binding in body.bindings:
@@ -1519,75 +1433,6 @@ def _validate_expression_bindings(
     return errors
 
 
-def _aggregate_receiver_param_name(call: ast.Call) -> str | None:
-    func = call.func
-    if not isinstance(func, ast.Attribute):
-        return None
-    if func.attr not in _AGGREGATE_METHODS:
-        return None
-    current: ast.AST = func.value
-    while isinstance(current, (ast.Attribute, ast.Subscript, ast.Call)):
-        if isinstance(current, ast.Attribute):
-            current = current.value
-            continue
-        if isinstance(current, ast.Subscript):
-            current = current.value
-            continue
-        if isinstance(current, ast.Call):
-            current = current.func
-            continue
-    if isinstance(current, ast.Name):
-        return current.id
-    return None
-
-
-def _non_root_aggregate_entity(
-    fn: Callable[..., Any],
-    *,
-    metric_ir: MetricIR,
-    function: ast.FunctionDef | None = None,
-) -> str | None:
-    func = function
-    if func is None:
-        try:
-            source = textwrap.dedent(inspect.getsource(fn))
-        except (OSError, TypeError):
-            return None
-        tree = ast.parse(source)
-        func = next((node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)), None)
-    if func is None:
-        return None
-    param_names = [arg.arg for arg in (*func.args.posonlyargs, *func.args.args)]
-    locals_by_name = {
-        stmt.targets[0].id: stmt.value
-        for stmt in func.body
-        if isinstance(stmt, ast.Assign)
-        and len(stmt.targets) == 1
-        and isinstance(stmt.targets[0], ast.Name)
-    }
-    entity_by_param = dict(zip(param_names, metric_ir.entities, strict=False))
-    for node in ast.walk(func):
-        if not isinstance(node, ast.Call):
-            continue
-        param = _aggregate_receiver_param_name(node)
-        if param is None:
-            continue
-        pending = [param]
-        seen: set[str] = set()
-        while pending:
-            receiver = pending.pop()
-            if receiver in seen:
-                continue
-            seen.add(receiver)
-            entity = entity_by_param.get(receiver)
-            if entity is not None and entity != metric_ir.root_entity:
-                return entity
-            local = locals_by_name.get(receiver)
-            if local is not None:
-                pending.extend(child.id for child in ast.walk(local) if isinstance(child, ast.Name))
-    return None
-
-
 def _is_filtered_domain_ref(ref: str, loaded_models: set[str] | None) -> bool:
     """Return True if ref points to an object in a model that was filtered out."""
     if loaded_models is None or "." not in ref:
@@ -1638,267 +1483,6 @@ def _filtered_domain_ref_warning(
         refs=(obj_id, ref),
         location=None,
     )
-
-
-def _validate_sampled_time_folds(registry: Registry, errors: list[SemanticError]) -> None:
-    from marivo.semantic._metric_resolution import resolve_metric_temporal_contract
-    from marivo.semantic.ir import DimensionKind
-
-    # Physical Measures retain the status axis and sampling contract; temporal
-    # reduction is explicit in the new expression and has no leaf default fold.
-    declarations = tuple(registry.metrics.values())
-    for declaration in declarations:
-        status_axis = declaration.status_time_dimension
-        if status_axis is None or declaration.status_time_fold is not None:
-            continue
-        axis = registry.dimensions.get(status_axis)
-        if (
-            axis is None
-            or not isinstance(
-                axis.parse, (DatetimeParse, TimestampParse, StrptimeParse, HourPrefixParse)
-            )
-            or axis.parse.sample_interval is None
-        ):
-            continue
-        errors.append(
-            SemanticLoadError(
-                kind=ErrorKind.MISSING_TIME_FOLD,
-                message=f"{declaration.semantic_id!r} declares sampled status time without a fold.",
-                refs=(declaration.semantic_id, status_axis),
-                constraint_id=ConstraintId.TIME_FOLD_MISSING,
-                expected="status_time_fold for a sampled status_time_dimension",
-                received=f"status_time_dimension={status_axis!r}, status_time_fold=None",
-                hint=(
-                    f"Keep {status_axis!r} in additive_all(except_=...) and set "
-                    "status_time_fold to the business fold (mean/min/max/first/last or "
-                    "('percentile', q))."
-                ),
-            )
-        )
-
-    for metric_id, metric_ir in registry.metrics.items():
-        temporal_contract = resolve_metric_temporal_contract(metric_ir, registry)
-        if metric_ir.fold_override is not None and temporal_contract is None:
-            target_id = metric_ir.aggregation_target or metric_ir.measure
-            target = registry.measures.get(target_id) if target_id is not None else None
-            if target is not None and target_id is not None:
-                errors.append(
-                    SemanticLoadError(
-                        kind=ErrorKind.TIME_FOLD_REQUIRES_SEMI_ADDITIVE,
-                        message=(
-                            f"Metric {metric_id!r} declares a fold override for measure "
-                            f"{target_id!r}, but that measure is not semi-additive."
-                        ),
-                        refs=(metric_id, target_id),
-                        constraint_id=ConstraintId.TIME_FOLD_SEMI_ADDITIVE,
-                        expected="a semi-additive measure with a governed status-time axis",
-                        received=f"measure additivity {target.additivity!r}",
-                        hint=(
-                            "Remove fold= or model the measure with "
-                            "ms.additive_all(except_=(<time_dimension>,)), "
-                            "status_time_dimension=<time_dimension>, and status_time_fold=<fold>."
-                        ),
-                        details={
-                            "metric": metric_id,
-                            "measure": target_id,
-                            "measure_additivity": additivity_bucket(target.additivity),
-                        },
-                    )
-                )
-            continue
-        if temporal_contract is None:
-            continue
-        field = registry.dimensions.get(temporal_contract.status_time_dimension)
-        if field is None or field.kind is not DimensionKind.TIME:
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.INVALID_STATUS_TIME_DIMENSION,
-                    message=(
-                        f"Metric {metric_id!r} has a temporal fold over "
-                        f"{temporal_contract.status_time_dimension!r}, "
-                        "which is not a declared time dimension."
-                    ),
-                    refs=(metric_id, temporal_contract.status_time_dimension),
-                    constraint_id=ConstraintId.STATUS_TIME_DIMENSION_INVALID,
-                    details={
-                        "metric": metric_id,
-                        "over": temporal_contract.status_time_dimension,
-                    },
-                )
-            )
-
-
-def _time_dimensions_for_entity(entity_id: str, registry: Registry) -> list[DimensionIR]:
-    """Return time dimensions on *entity_id*, sorted by semantic_id."""
-    return sorted(
-        (
-            dim
-            for dim in registry.dimensions.values()
-            if dim.entity == entity_id and dim.kind == DimensionKind.TIME
-        ),
-        key=lambda dim: dim.semantic_id,
-    )
-
-
-def _validate_cumulative_metric(
-    *,
-    metric_id: str,
-    metric_ir: MetricIR,
-    registry: Registry,
-) -> list[SemanticError]:
-    """Validate a cumulative metric's base, aggregation, and over axis."""
-    comp = metric_ir.composition
-    if not isinstance(comp, CumulativeComposition):
-        return []
-    errors: list[SemanticError] = []
-    base = registry.metrics.get(comp.base)
-    if base is None:
-        return errors
-    if base.metric_type == "derived":
-        errors.append(
-            SemanticLoadError(
-                kind=ErrorKind.INVALID_COMPOSITION,
-                message=(
-                    f"Metric {metric_id!r} cumulative base {comp.base!r} is derived; "
-                    "cumulative base must be a tier-1 simple aggregate."
-                ),
-                refs=(metric_id, comp.base),
-                constraint_id=ConstraintId.COMPOSITION_SHAPE,
-                hint=(
-                    "Compose in the other direction, for example a ratio of two cumulative "
-                    "metrics. Compare is supported only when every outer component uses the "
-                    "same trailing or grain_to_date anchor; all_history remains observe-only."
-                ),
-                details={
-                    "metric": metric_id,
-                    "base": comp.base,
-                    "composition": "cumulative",
-                },
-            )
-        )
-        return errors
-    if base.aggregation is None and base.weighted_mean is None:
-        errors.append(
-            SemanticLoadError(
-                kind=ErrorKind.INVALID_COMPOSITION,
-                message=(
-                    f"Metric {metric_id!r} cumulative base {comp.base!r} is a tier-2 "
-                    "body metric; cumulative base must be a tier-1 simple aggregate."
-                ),
-                refs=(metric_id, comp.base),
-                constraint_id=ConstraintId.COMPOSITION_SHAPE,
-                hint=(
-                    "Use ms.aggregate(...) or ms.count(...) for the base metric so "
-                    "Marivo can rewrite baseline and first-seen queries."
-                ),
-                details={
-                    "metric": metric_id,
-                    "base": comp.base,
-                    "composition": "cumulative",
-                },
-            )
-        )
-        return errors
-    agg = "weighted_mean" if base.weighted_mean is not None else base.aggregation
-    agg_name = agg[0] if isinstance(agg, tuple) else agg
-    if agg_name not in {"sum", "count", "count_distinct", "weighted_mean"}:
-        errors.append(
-            SemanticLoadError(
-                kind=ErrorKind.INVALID_COMPOSITION,
-                message=(
-                    f"Metric {metric_id!r} cumulative base {comp.base!r} uses "
-                    f"unsupported aggregation {agg_name!r}; cumulative base must "
-                    "use sum, count, count_distinct, or weighted_mean."
-                ),
-                refs=(metric_id, comp.base),
-                constraint_id=ConstraintId.COMPOSITION_SHAPE,
-                hint=(
-                    "For means, model cumulative sum over cumulative count and "
-                    "compose the rate as ms.ratio(...)."
-                ),
-                details={
-                    "metric": metric_id,
-                    "base": comp.base,
-                    "aggregation": agg_name,
-                    "composition": "cumulative",
-                },
-            )
-        )
-    if comp.over is None:
-        candidates = _time_dimensions_for_entity(base.root_entity or "", registry)
-        candidate_ids = [dim.semantic_id for dim in candidates]
-        default_candidates = [dim.semantic_id for dim in candidates if dim.is_default]
-        default_label = (
-            f" (default: {', '.join(default_candidates)})"
-            if default_candidates
-            else " (no default time dimension declared)"
-        )
-        errors.append(
-            SemanticLoadError(
-                kind=ErrorKind.INVALID_COMPOSITION,
-                message=(
-                    f"Metric {metric_id!r} omits over= but base root entity "
-                    f"{base.root_entity!r} has {len(candidates)} time dimensions: "
-                    f"{', '.join(candidate_ids)}{default_label}; "
-                    "pass over=<Ref[time_dimension]> explicitly."
-                ),
-                refs=(metric_id, comp.base),
-                constraint_id=ConstraintId.COMPOSITION_SHAPE,
-                hint=(
-                    "Entity defaults do not silently choose the business "
-                    "accumulation axis. Pass over=<Ref[time_dimension]> explicitly."
-                ),
-                details={
-                    "metric": metric_id,
-                    "base": comp.base,
-                    "candidates": candidate_ids,
-                    "default_candidates": default_candidates,
-                    "composition": "cumulative",
-                },
-            )
-        )
-    elif (
-        comp.over not in registry.dimensions or not registry.dimensions[comp.over].is_time_dimension
-    ):
-        errors.append(
-            SemanticLoadError(
-                kind=ErrorKind.MISSING_DIMENSION_REF,
-                message=(
-                    f"Metric {metric_id!r} cumulative over={comp.over!r} is not a "
-                    "known time dimension."
-                ),
-                refs=(metric_id, comp.over),
-                constraint_id=ConstraintId.COMPOSITION_SHAPE,
-                details={
-                    "metric": metric_id,
-                    "over": comp.over,
-                    "missing_ref": comp.over,
-                    "did_you_mean": did_you_mean(comp.over, sorted(registry.dimensions.keys())),
-                    "composition": "cumulative",
-                },
-            )
-        )
-    elif base.root_entity is not None and registry.dimensions[comp.over].entity != base.root_entity:
-        errors.append(
-            SemanticLoadError(
-                kind=ErrorKind.INVALID_COMPOSITION,
-                message=(
-                    f"Metric {metric_id!r} cumulative over={comp.over!r} belongs to "
-                    f"{registry.dimensions[comp.over].entity!r}, not base root entity "
-                    f"{base.root_entity!r}."
-                ),
-                refs=(metric_id, comp.over),
-                constraint_id=ConstraintId.COMPOSITION_SHAPE,
-                hint="Choose the time dimension on the base metric root entity.",
-                details={
-                    "metric": metric_id,
-                    "over": comp.over,
-                    "root_entity": base.root_entity,
-                    "composition": "cumulative",
-                },
-            )
-        )
-    return errors
 
 
 _PROJECTED_ALIAS_DISPLAY_LIMIT = 8
@@ -2425,436 +2009,6 @@ def assembly_validate(
 
     if sidecar is not None:
         errors.extend(_validate_expression_bindings(registry, sidecar))
-    # -- Validate entity refs on metrics -------------------------------------
-    for m_id, m_ir in registry.metrics.items():
-        for ds_ref in m_ir.entities:
-            if ds_ref not in registry.entities:
-                if _is_filtered_domain_ref(ds_ref, loaded_models):
-                    warnings.append(_filtered_domain_ref_warning(m_id, ds_ref, "Metric"))
-                else:
-                    errors.append(
-                        SemanticLoadError(
-                            kind=ErrorKind.MISSING_ENTITY_REF,
-                            message=f"Metric {m_id!r} references unknown entity {ds_ref!r}.",
-                            refs=(m_id, ds_ref),
-                            details={
-                                "missing_ref": ds_ref,
-                                "did_you_mean": did_you_mean(
-                                    ds_ref, sorted(registry.entities.keys())
-                                ),
-                            },
-                        )
-                    )
-
-    # -- Validate tier-1 filter dimensions -----------------------------------
-    for metric_id, metric_ir in registry.metrics.items():
-        if not metric_ir.filter:
-            continue
-        root_entity = metric_ir.root_entity
-        if root_entity is None:
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.INVALID_FILTER,
-                    message=(f"Metric {metric_id!r} has a filter but no resolved root entity."),
-                    refs=(metric_id,),
-                    constraint_id=ConstraintId.FILTER_CONDITION_VALID,
-                    expected="a filtered tier-1 metric with one target entity",
-                    received="root_entity=None",
-                )
-            )
-            continue
-        entity_dimensions = {
-            dimension.name: dimension
-            for dimension in registry.dimensions.values()
-            if dimension.entity == root_entity
-        }
-        for dimension_name, _value in metric_ir.filter:
-            dimension = entity_dimensions.get(dimension_name)
-            if dimension is None:
-                filter_candidates = tuple(did_you_mean(dimension_name, sorted(entity_dimensions)))
-                errors.append(
-                    SemanticLoadError(
-                        kind=ErrorKind.INVALID_FILTER,
-                        message=(
-                            f"Metric {metric_id!r} filter dimension {dimension_name!r} "
-                            f"is not declared on target entity {root_entity!r}."
-                        ),
-                        refs=(metric_id, root_entity),
-                        constraint_id=ConstraintId.FILTER_CONDITION_VALID,
-                        expected=(
-                            "a local semantic dimension declared on the metric target entity"
-                        ),
-                        received=dimension_name,
-                        details={
-                            "metric": metric_id,
-                            "target_entity": root_entity,
-                            "filter_dimension": dimension_name,
-                            "did_you_mean": filter_candidates,
-                        },
-                    )
-                )
-                continue
-            if dimension.entity != root_entity:
-                errors.append(
-                    SemanticLoadError(
-                        kind=ErrorKind.INVALID_FILTER,
-                        message=(
-                            f"Metric {metric_id!r} filter dimension {dimension.semantic_id!r} "
-                            f"belongs to entity {dimension.entity!r}, not {root_entity!r}."
-                        ),
-                        refs=(metric_id, dimension.semantic_id),
-                        constraint_id=ConstraintId.FILTER_CONDITION_VALID,
-                        expected=f"dimension on entity {root_entity}",
-                        received=f"dimension on entity {dimension.entity}",
-                    )
-                )
-
-    # -- Validate metric additivity + tier-1 measure resolution --------------
-    from marivo.semantic.ir import additivity_bucket as _bucket
-
-    for m_id, m_ir in registry.metrics.items():
-        if m_ir.metric_type == "derived":
-            continue
-        if m_ir.additivity is None:
-            # Resolution failed: diagnose the tier-1 cause precisely.
-            if m_ir.weighted_mean is not None:
-                value_id = m_ir.weighted_mean.value
-                weight_id = m_ir.weighted_mean.weight
-                value = registry.measures.get(value_id)
-                weight = registry.measures.get(weight_id)
-                missing = value_id if value is None else weight_id if weight is None else None
-                if missing is not None:
-                    errors.append(
-                        SemanticLoadError(
-                            kind=ErrorKind.UNKNOWN_MEASURE,
-                            message=(
-                                f"Metric {m_id!r} references unknown weighted-mean measure "
-                                f"{missing!r}."
-                            ),
-                            refs=(m_id, missing),
-                            details={
-                                "metric": m_id,
-                                "measure": missing,
-                                "did_you_mean": did_you_mean(
-                                    missing, sorted(registry.measures.keys())
-                                ),
-                            },
-                        )
-                    )
-                    continue
-                assert value is not None and weight is not None
-                if value.entity != weight.entity:
-                    errors.append(
-                        SemanticLoadError(
-                            kind=ErrorKind.INVALID_MEASURE_AGGREGATION,
-                            message=(
-                                f"Metric {m_id!r} weighted_mean value {value_id!r} and "
-                                f"weight {weight_id!r} must belong to the same entity; got "
-                                f"{value.entity!r} and {weight.entity!r}."
-                            ),
-                            refs=(m_id, value_id, weight_id),
-                            constraint_id=ConstraintId.MEASURE_AGGREGATION_VALID,
-                            details={
-                                "metric": m_id,
-                                "value": value_id,
-                                "weight": weight_id,
-                                "value_entity": value.entity,
-                                "weight_entity": weight.entity,
-                            },
-                        )
-                    )
-                elif weight.additivity != "additive":
-                    errors.append(
-                        SemanticLoadError(
-                            kind=ErrorKind.INVALID_MEASURE_AGGREGATION,
-                            message=(
-                                f"Metric {m_id!r} weighted_mean weight {weight_id!r} must "
-                                f"be additive; got {weight.additivity!r}."
-                            ),
-                            refs=(m_id, weight_id),
-                            constraint_id=ConstraintId.MEASURE_AGGREGATION_VALID,
-                            details={
-                                "metric": m_id,
-                                "weight": weight_id,
-                                "additivity": weight.additivity,
-                            },
-                        )
-                    )
-                continue
-            if m_ir.aggregation is not None:
-                target_kind = m_ir.aggregation_target_kind or (
-                    "measure" if m_ir.measure is not None else None
-                )
-                target_id = m_ir.aggregation_target or m_ir.measure or ""
-                agg = m_ir.aggregation
-                if target_kind == "entity":
-                    if target_id not in registry.entities:
-                        errors.append(
-                            SemanticLoadError(
-                                kind=ErrorKind.ENTITY_NOT_FOUND,
-                                message=(
-                                    f"Metric {m_id!r} references unknown entity {target_id!r}."
-                                ),
-                                refs=(m_id, target_id),
-                                details={
-                                    "metric": m_id,
-                                    "entity": target_id,
-                                    "did_you_mean": did_you_mean(
-                                        target_id, sorted(registry.entities.keys())
-                                    ),
-                                },
-                            )
-                        )
-                    else:
-                        errors.append(
-                            SemanticLoadError(
-                                kind=ErrorKind.INVALID_MEASURE_AGGREGATION,
-                                message=(
-                                    f"Metric {m_id!r} applies {agg!r} to entity "
-                                    f"{target_id!r}; entity counts must use 'count'."
-                                ),
-                                refs=(m_id, target_id),
-                                details={"metric": m_id, "entity": target_id, "aggregation": agg},
-                            )
-                        )
-                    continue
-                measure: MeasureIR | DimensionIR | None = registry.measures.get(target_id)
-                if measure is None:
-                    measure = registry.dimensions.get(target_id)
-                if measure is None:
-                    errors.append(
-                        SemanticLoadError(
-                            kind=ErrorKind.UNKNOWN_MEASURE,
-                            message=f"Metric {m_id!r} references unknown measure {target_id!r}.",
-                            refs=(m_id, target_id),
-                            details={
-                                "metric": m_id,
-                                "measure": target_id,
-                                "did_you_mean": did_you_mean(
-                                    target_id,
-                                    sorted(
-                                        set(registry.dimensions.keys())
-                                        | set(registry.measures.keys())
-                                    ),
-                                ),
-                            },
-                        )
-                    )
-                elif getattr(measure, "additivity", None) is None:
-                    errors.append(
-                        SemanticLoadError(
-                            kind=ErrorKind.MISSING_MEASURE_ADDITIVITY,
-                            message=f"Measure {target_id!r} used by {m_id!r} must declare additivity.",
-                            refs=(m_id, target_id),
-                            constraint_id=ConstraintId.MEASURE_ADDITIVITY_REQUIRED,
-                            details={"metric": m_id, "measure": target_id},
-                        )
-                    )
-                else:
-                    errors.append(
-                        SemanticLoadError(
-                            kind=ErrorKind.INVALID_MEASURE_AGGREGATION,
-                            message=(
-                                f"Metric {m_id!r} applies {agg!r} to non-additive measure "
-                                f"{target_id!r}; use mean/min/max or a ratio."
-                            ),
-                            refs=(m_id, target_id),
-                            constraint_id=ConstraintId.MEASURE_AGGREGATION_VALID,
-                            details={"metric": m_id, "measure": target_id, "aggregation": agg},
-                        )
-                    )
-            else:
-                errors.append(
-                    SemanticLoadError(
-                        kind=ErrorKind.MISSING_METRIC_ADDITIVITY,
-                        message=f"Simple metric {m_id!r} must declare additivity.",
-                        refs=(m_id,),
-                        constraint_id=ConstraintId.METRIC_ADDITIVITY_REQUIRED,
-                        details={"metric": m_id},
-                    )
-                )
-            continue
-        if len(m_ir.entities) == 0:
-            continue
-        if len(m_ir.entities) == 1 and m_ir.root_entity is None:
-            continue
-        if len(m_ir.entities) > 1 and m_ir.root_entity is None:
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.MISSING_METRIC_ROOT_ENTITY,
-                    message=f"Multi-entity base metric {m_id!r} must declare root_entity.",
-                    refs=(m_id,),
-                    details={"metric": m_id, "entities": sorted(m_ir.entities)},
-                )
-            )
-            continue
-        if m_ir.root_entity is not None and m_ir.root_entity not in m_ir.entities:
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.INVALID_METRIC_ROOT_ENTITY,
-                    message=(
-                        f"Metric {m_id!r} root_entity {m_ir.root_entity!r} "
-                        "must be one of its entities."
-                    ),
-                    refs=(m_id, m_ir.root_entity),
-                    details={
-                        "metric": m_id,
-                        "root_entity": m_ir.root_entity,
-                        "entities": sorted(m_ir.entities),
-                    },
-                )
-            )
-
-    # -- Validate metric fanout_policy --------------------------------------
-    for m_id, m_ir in registry.metrics.items():
-        policy = getattr(m_ir, "fanout_policy", "block")
-        if policy not in {"block", "aggregate_then_join"}:
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.INVALID_METRIC_FANOUT_POLICY,
-                    message=(
-                        f"Metric {m_id!r} fanout_policy {policy!r} must be "
-                        "'block' or 'aggregate_then_join'."
-                    ),
-                    refs=(m_id,),
-                    details={"metric": m_id, "fanout_policy": policy},
-                )
-            )
-            continue
-        if m_ir.metric_type == "derived" and policy != "block":
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.DERIVED_METRIC_FANOUT_POLICY,
-                    message=(
-                        f"Derived metric {m_id!r} must keep fanout_policy='block'; "
-                        "fan-out is authored on the component metrics."
-                    ),
-                    refs=(m_id,),
-                    details={"metric": m_id, "fanout_policy": policy},
-                )
-            )
-            continue
-        if (
-            policy == "aggregate_then_join"
-            and m_ir.metric_type != "derived"
-            and m_ir.additivity is not None
-            and _bucket(m_ir.additivity) not in {"additive", "semi_additive"}
-        ):
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.INVALID_METRIC_FANOUT_POLICY,
-                    message=(
-                        f"Metric {m_id!r} fanout_policy='aggregate_then_join' "
-                        "requires additivity in {'additive', 'semi_additive'}."
-                    ),
-                    refs=(m_id,),
-                    details={
-                        "metric": m_id,
-                        "fanout_policy": policy,
-                        "additivity": m_ir.additivity,
-                    },
-                )
-            )
-
-    # -- Validate root-only aggregates for multi-entity base metrics ----------
-    for m_id, m_ir in registry.metrics.items():
-        if (
-            m_ir.metric_type != "simple"
-            or m_ir.aggregation is not None
-            or m_ir.weighted_mean is not None
-        ):
-            continue
-        if sidecar is not None and len(m_ir.entities) > 1 and m_ir.root_entity is not None:
-            body = sidecar.bodies.get(ref_factory.metric(m_id))
-            fn = None if body is None else body.callable
-            if callable(fn):
-                offending_entity = _non_root_aggregate_entity(
-                    fn, metric_ir=m_ir, function=None if body is None else body._function_ast
-                )
-                if offending_entity is not None:
-                    errors.append(
-                        SemanticLoadError(
-                            kind=ErrorKind.NON_ROOT_METRIC_AGGREGATE,
-                            message=(
-                                f"Metric {m_id!r} aggregates a non-root entity "
-                                f"{offending_entity!r}."
-                            ),
-                            refs=(m_id, offending_entity),
-                            details={
-                                "metric": m_id,
-                                "root_entity": m_ir.root_entity,
-                                "offending_entity": offending_entity,
-                            },
-                        )
-                    )
-
-    # -- Validate sampled semi-additive time folds ---------------------------
-    _validate_sampled_time_folds(registry, errors)
-
-    # -- Validate metric component refs in composition --------------------
-    for m_id, m_ir in registry.metrics.items():
-        if m_ir.composition is None:
-            continue
-        for comp_key, comp_ref in composition_components(m_ir.composition).items():
-            if comp_ref not in registry.metrics:
-                if _is_filtered_domain_ref(comp_ref, loaded_models):
-                    warnings.append(
-                        _filtered_domain_ref_warning(m_id, comp_ref, "Metric component")
-                    )
-                else:
-                    errors.append(
-                        SemanticLoadError(
-                            kind=ErrorKind.MISSING_METRIC_REF,
-                            message=f"Metric {m_id!r} composition component "
-                            f"{comp_key!r} references unknown metric "
-                            f"{comp_ref!r}.",
-                            refs=(m_id, comp_ref),
-                            details={
-                                "missing_ref": comp_ref,
-                                "did_you_mean": did_you_mean(
-                                    comp_ref, sorted(registry.metrics.keys())
-                                ),
-                            },
-                        )
-                    )
-        errors.extend(
-            _validate_cumulative_metric(
-                metric_id=m_id,
-                metric_ir=m_ir,
-                registry=registry,
-            )
-        )
-
-        if isinstance(m_ir.composition, LinearComposition):
-            from marivo.semantic.unit_algebra import linear_units_conflict
-
-            term_units = [
-                registry.metrics[t.metric].unit
-                for t in m_ir.composition.terms
-                if t.metric in registry.metrics
-            ]
-            if linear_units_conflict(term_units):
-                errors.append(
-                    SemanticLoadError(
-                        kind=ErrorKind.INCOMMENSURABLE_LINEAR_UNITS,
-                        message=(
-                            f"Metric {m_id!r} adds incommensurable units "
-                            f"{sorted(u for u in term_units if u is not None)!r}; "
-                            "linear terms must share one unit."
-                        ),
-                        refs=(m_id,),
-                        constraint_id=ConstraintId.LINEAR_UNIT_COMMENSURABLE,
-                        details={
-                            "metric": m_id,
-                            "units": {
-                                t.metric: registry.metrics[t.metric].unit
-                                for t in m_ir.composition.terms
-                                if t.metric in registry.metrics
-                            },
-                        },
-                    )
-                )
-
     # -- Validate dimension refs in relationships -----------------------------
     for r_id, r_ir in registry.relationships.items():
         if r_ir.from_entity not in registry.entities:
@@ -2972,8 +2126,6 @@ def assembly_validate(
     _validate_default_time_dimension_unique(errors, registry)
 
     # -- Cross-model cycle detection (basic) --------------------------------
-    # Check for cycles in metric component references
-    _detect_metric_cycles(registry, errors)
 
     # -- Warnings -----------------------------------------------------------
     # String ref warnings: datasource names are intentionally strings in the
@@ -3051,49 +2203,3 @@ def assembly_validate(
             )
 
     return errors, warnings
-
-
-def _detect_metric_cycles(
-    registry: Registry,
-    errors: list[SemanticError],
-) -> None:
-    """Detect circular references in metric composition components."""
-    # Build adjacency: metric -> set of metrics it references via components
-    adj: dict[str, set[str]] = {}
-    for m_id, m_ir in registry.metrics.items():
-        deps: set[str] = set()
-        if m_ir.composition is not None:
-            for comp_ref in composition_components(m_ir.composition).values():
-                if comp_ref in registry.metrics:
-                    deps.add(comp_ref)
-        adj[m_id] = deps
-
-    # DFS-based cycle detection
-    unvisited, in_progress, done = 0, 1, 2
-    color: dict[str, int] = dict.fromkeys(adj, unvisited)
-
-    def dfs(node: str, path: list[str]) -> bool:
-        color[node] = in_progress
-        path.append(node)
-        for neighbor in adj.get(node, set()):
-            if color.get(neighbor) == in_progress:
-                # Found a cycle
-                cycle_start = path.index(neighbor)
-                cycle = [*path[cycle_start:], neighbor]
-                errors.append(
-                    SemanticLoadError(
-                        kind=ErrorKind.CROSS_MODEL_CYCLE,
-                        message=f"Circular metric reference detected: {' -> '.join(cycle)}",
-                        refs=tuple(cycle),
-                    )
-                )
-                return True
-            if color.get(neighbor) == unvisited and dfs(neighbor, path):
-                return True
-        path.pop()
-        color[node] = done
-        return False
-
-    for m_id in adj:
-        if color[m_id] == unvisited:
-            dfs(m_id, [])

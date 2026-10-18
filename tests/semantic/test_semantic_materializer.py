@@ -56,20 +56,18 @@ def backend_factory(duckdb_backend):
 # ---------------------------------------------------------------------------
 
 
-def _materialize_dataset(project, ref: str, *, source_bindings=None):
+def _materialize_dataset(project, connections, ref: str, *, source_bindings=None):
     return (
         SemanticCatalog(project)
-        ._semantic_resolver(
-            connections=project._connection_service(), source_bindings=source_bindings
-        )
+        ._semantic_resolver(connections=connections, source_bindings=source_bindings)
         .entity(make_ref(ref, SemanticKind.ENTITY))
     )
 
 
-def _materialize_field(project, ref: str):
+def _materialize_field(project, connections, ref: str):
     return (
         SemanticCatalog(project)
-        ._semantic_resolver(connections=project._connection_service())
+        ._semantic_resolver(connections=connections)
         .dimension(make_ref(ref, SemanticKind.DIMENSION))
     )
 
@@ -173,8 +171,8 @@ def test_dataset_materialize(semantic_project_factory, backend_factory) -> None:
     )
     assert project.is_ready()
 
-    with patch_semantic_connections(project, backend_factory):
-        table = _materialize_dataset(project, "sales.orders")
+    with patch_semantic_connections(project, backend_factory) as connections:
+        table = _materialize_dataset(project, connections, "sales.orders")
     assert isinstance(table, ibis.Table)
     # The table should have the expected columns
     assert "amount" in table.columns
@@ -231,8 +229,8 @@ def test_dataset_table_source_passes_database(semantic_project_factory) -> None:
             assert database == "sales_mart"
             return ibis.table({"amount": "float64"}, name=f"{database}.{name}")
 
-    with patch_semantic_connections(project, lambda _: _Backend()):
-        table = _materialize_dataset(project, "sales.orders")
+    with patch_semantic_connections(project, lambda _: _Backend()) as connections:
+        table = _materialize_dataset(project, connections, "sales.orders")
     assert table.get_name() == "sales_mart.orders"
 
 
@@ -247,8 +245,8 @@ def test_dataset_projected_table_materializes_output_aliases(
         }
     )
 
-    with patch_semantic_connections(project, lambda _: duckdb_backend):
-        table = _materialize_dataset(project, "sales.orders")
+    with patch_semantic_connections(project, lambda _: duckdb_backend) as connections:
+        table = _materialize_dataset(project, connections, "sales.orders")
 
     assert table.columns == ("order_key", "value")
     assert table.execute().to_dict(orient="records") == [
@@ -303,8 +301,8 @@ def test_dataset_projected_table_uses_observed_lookup_schema(
         def table(self, name, /, *, database=None):
             return ibis.table({"order_id": "int64", "amount": "float32"}, name=name)
 
-    with patch_semantic_connections(project, lambda _: _LookupOnlyBackend()):
-        _materialize_dataset(project, "sales.orders")
+    with patch_semantic_connections(project, lambda _: _LookupOnlyBackend()) as connections:
+        _materialize_dataset(project, connections, "sales.orders")
 
 
 def test_dataset_file_source_reads_parquet(semantic_project_factory) -> None:
@@ -328,8 +326,8 @@ def test_dataset_file_source_reads_parquet(semantic_project_factory) -> None:
             assert options == {"hive_partitioning": True}
             return ibis.table({"order_id": "string", "amount": "int64"}, name="orders_file")
 
-    with patch_semantic_connections(project, lambda _: _Backend()):
-        table = _materialize_dataset(project, "sales.orders")
+    with patch_semantic_connections(project, lambda _: _Backend()) as connections:
+        table = _materialize_dataset(project, connections, "sales.orders")
     assert table.columns == ("order_id", "amount")
     assert table.schema() == ibis.schema({"order_id": "string", "amount": "int64"})
 
@@ -360,8 +358,8 @@ def test_dataset_csv_source_projects_inferred_columns(semantic_project_factory) 
             assert options == {"header": False, "delimiter": "|"}
             return ibis.table({"order_id": "string", "amount": "int64"}, name="orders_file")
 
-    with patch_semantic_connections(project, lambda _: _Backend()):
-        table = _materialize_dataset(project, "sales.orders")
+    with patch_semantic_connections(project, lambda _: _Backend()) as connections:
+        table = _materialize_dataset(project, connections, "sales.orders")
     assert table.columns == ("amount", "order_id")
     assert table.schema() == ibis.schema({"amount": "int64", "order_id": "string"})
 
@@ -391,8 +389,8 @@ def test_dataset_json_source_projects_inferred_columns(semantic_project_factory)
             assert options == {"format": "newline_delimited"}
             return ibis.table({"order_id": "string", "amount": "int64"}, name="orders_file")
 
-    with patch_semantic_connections(project, lambda _: _Backend()):
-        table = _materialize_dataset(project, "sales.orders")
+    with patch_semantic_connections(project, lambda _: _Backend()) as connections:
+        table = _materialize_dataset(project, connections, "sales.orders")
     assert table.columns == ("amount", "order_id")
     assert table.schema() == ibis.schema({"amount": "int64", "order_id": "string"})
 
@@ -442,9 +440,10 @@ def test_dataset_json_source_lowers_runtime_bindings_to_encoded_url(
 
     monkeypatch.setattr(json_source, "_request_payload", request_payload)
 
-    with patch_semantic_connections(project, lambda _: _Backend()):
+    with patch_semantic_connections(project, lambda _: _Backend()) as connections:
         table = _materialize_dataset(
             project,
+            connections,
             "sales.orders",
             source_bindings={"sales.orders": {"start": "now-3600"}},
         )
@@ -473,10 +472,10 @@ def test_dataset_file_source_requires_backend_reader(semantic_project_factory) -
     )
 
     with (
-        patch_semantic_connections(project, lambda _: object()),
+        patch_semantic_connections(project, lambda _: object()) as connections,
         pytest.raises(SemanticRuntimeError) as exc_info,
     ):
-        _materialize_dataset(project, "sales.orders")
+        _materialize_dataset(project, connections, "sales.orders")
 
     assert exc_info.value.kind == ErrorKind.MATERIALIZE_FAILED
     assert "does not support csv file sources" in exc_info.value.message
@@ -498,10 +497,10 @@ def test_dataset_json_source_requires_backend_reader(semantic_project_factory) -
     )
 
     with (
-        patch_semantic_connections(project, lambda _: object()),
+        patch_semantic_connections(project, lambda _: object()) as connections,
         pytest.raises(SemanticRuntimeError) as exc_info,
     ):
-        _materialize_dataset(project, "sales.orders")
+        _materialize_dataset(project, connections, "sales.orders")
 
     assert exc_info.value.kind == ErrorKind.MATERIALIZE_FAILED
     assert "json file sources" in exc_info.value.message
@@ -520,8 +519,8 @@ def test_field_materialize(semantic_project_factory, backend_factory) -> None:
             "sales/datasets.py": _DATASET_AND_METRIC_PY,
         }
     )
-    with patch_semantic_connections(project, backend_factory):
-        field_expr = _materialize_field(project, "sales.orders.amount")
+    with patch_semantic_connections(project, backend_factory) as connections:
+        field_expr = _materialize_field(project, connections, "sales.orders.amount")
     # ibis Value is the base of column expressions
     assert field_expr is not None
 
@@ -549,7 +548,10 @@ def test_column_helper_catalog_details_and_preview_requires_snapshot(
     assert consume_row(amount).unit == "USD"
     assert catalog.describe(ms.ref.measure("sales.orders.amount")).unit == "USD"
 
-    with patch_semantic_connections(project, backend_factory), pytest.raises(TypeError):
+    with (
+        patch_semantic_connections(project, backend_factory),
+        pytest.raises(TypeError) as connections,
+    ):
         catalog.preview(amount, limit=2)  # type: ignore[call-arg]
 
 
@@ -775,8 +777,8 @@ def test_ibis_table_detection(semantic_project_factory, duckdb_backend) -> None:
             "sales/datasets.py": _DATASET_AND_METRIC_PY,
         }
     )
-    with patch_semantic_connections(project, factory):
-        _materialize_dataset(project, "sales.orders")
+    with patch_semantic_connections(project, factory) as connections:
+        _materialize_dataset(project, connections, "sales.orders")
 
     meta = project._runtime_metadata.get("sales.orders")
     assert meta is not None
@@ -797,11 +799,11 @@ def test_missing_semantic_refs_raise_not_found(semantic_project_factory, backend
             "sales/datasets.py": _DATASET_AND_METRIC_PY,
         }
     )
-    with patch_semantic_connections(project, backend_factory):
+    with patch_semantic_connections(project, backend_factory) as connections:
         for operation in (
             lambda: SemanticCatalog(project).require(ms.ref.metric("sales.nonexistent")),
-            lambda: _materialize_dataset(project, "sales.nonexistent"),
-            lambda: _materialize_field(project, "sales.orders.nonexistent"),
+            lambda: _materialize_dataset(project, connections, "sales.nonexistent"),
+            lambda: _materialize_field(project, connections, "sales.orders.nonexistent"),
         ):
             with pytest.raises(SemanticRuntimeError) as exc_info:
                 operation()
@@ -837,13 +839,13 @@ def test_fresh_materializer_per_resolver_call(semantic_project_factory) -> None:
         return con
 
     # First call creates a Materializer and calls factory
-    with patch_semantic_connections(project, tracking_factory):
-        _materialize_dataset(project, "sales.orders")
+    with patch_semantic_connections(project, tracking_factory) as connections:
+        _materialize_dataset(project, connections, "sales.orders")
     assert len(factory_calls) == 1
 
     # A separate physical-field resolver call creates another Materializer.
-    with patch_semantic_connections(project, tracking_factory):
-        _materialize_field(project, "sales.orders.amount")
+    with patch_semantic_connections(project, tracking_factory) as connections:
+        _materialize_field(project, connections, "sales.orders.amount")
     assert len(factory_calls) == 2
     assert factory_calls == ["warehouse", "warehouse"]
 
@@ -870,8 +872,8 @@ def test_runtime_metadata_lifecycle(semantic_project_factory, duckdb_backend) ->
     assert project._runtime_metadata.get("sales.orders") is None
 
     # After materialization
-    with patch_semantic_connections(project, factory):
-        _materialize_dataset(project, "sales.orders")
+    with patch_semantic_connections(project, factory) as connections:
+        _materialize_dataset(project, connections, "sales.orders")
     meta = project._runtime_metadata.get("sales.orders")
     assert meta is not None
     assert isinstance(meta, EntityRuntimeMetadata)
@@ -903,8 +905,11 @@ def test_materialize_on_unloaded_project_raises(semantic_project_factory) -> Non
         load=False,
     )
     # Not loaded yet
-    with patch_semantic_connections(project, factory), pytest.raises(ms.errors.SemanticLoadFailed):
-        _materialize_dataset(project, "sales.orders")
+    with (
+        patch_semantic_connections(project, factory),
+        pytest.raises(ms.errors.SemanticLoadFailed) as connections,
+    ):
+        _materialize_dataset(project, connections, "sales.orders")
 
 
 def test_materialization_sample_size_bounds_entity_output(semantic_project_factory) -> None:

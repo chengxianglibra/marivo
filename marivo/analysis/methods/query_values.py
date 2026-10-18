@@ -35,7 +35,7 @@ from marivo.analysis.core.data_types import DecimalDataType, DurationDataType, S
 from marivo.analysis.core.model import reject
 from marivo.analysis.methods.numeric_state import checked_sum, finish_division
 from marivo.analysis.methods.physical import DecimalType, DurationType, stage_arrow_type
-from marivo.semantic.metric_graph_lowering import numeric_failure
+from marivo.semantic._numeric_lowering import numeric_failure
 
 
 def _binary(operation: str, left: object, right: object) -> object:

@@ -13,7 +13,6 @@ from typing import Literal, TypeAlias, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from marivo._compat import StrEnum
-from marivo._temporal import Grain as TemporalGrain
 from marivo.datasource.ir import (
     AiContextIR,
     CsvSourceIR,
@@ -33,9 +32,6 @@ from marivo.datasource.ir import (
 from marivo.refs import RefPayloadV1, SemanticKind
 from marivo.semantic._dsl_authoring import (
     AdditivityPolicy,
-    EmptyContributionPolicyV1,
-    NullInputPolicyV1,
-    ZeroDenominatorPolicyV1,
 )
 from marivo.semantic.time_format import normalize_strptime
 
@@ -44,11 +40,8 @@ __all__ = [
     "AggKind",
     "AggregateFoldInput",
     "AggregateFoldValue",
-    "AggregationTargetKind",
     "AiContextIR",
-    "Composition",
     "CsvSourceIR",
-    "CumulativeComposition",
     "DatasourceAiContextIR",
     "DatasourceIR",
     "DatasourceSourceLocation",
@@ -64,14 +57,10 @@ __all__ = [
     "HourPrefixParse",
     "JoinKey",
     "JsonSourceIR",
-    "LinearComposition",
-    "LinearTerm",
     "MeasureIR",
     "MetricAdditivity",
-    "MetricIR",
     "ParquetSourceIR",
     "PeriodCalendarIR",
-    "RatioComposition",
     "RelationshipIR",
     "SampleIntervalIR",
     "SemanticKind",
@@ -85,7 +74,6 @@ __all__ = [
     "TimeFoldIR",
     "TimestampParse",
     "ValidityVersioningIR",
-    "WeightedMeanAggregation",
     "WorkScheduleIR",
     "is_time_bearing_format",
     "source_from_dict",
@@ -664,27 +652,6 @@ AggKind = (
     ]
     | tuple[Literal["percentile", "approx_percentile"], float]
 )
-AggregationTargetKind = Literal["measure", "entity"]
-
-# Predicate values for a filtered tier-1 aggregation.
-WhereScalar = str | int | float | bool
-WhereValue = WhereScalar | tuple[WhereScalar, ...]
-
-
-@dataclass(frozen=True)
-class WhereFilter:
-    """AND-joined equality or membership predicates for a filtered tier-1 metric.
-
-    Built by ``ms.where(dimension=value, ...)`` and consumed by ``ms.count`` /
-    ``ms.aggregate`` to restrict the aggregated rows. Scalar values mean
-    equality; tuple values mean membership.
-    """
-
-    conditions: tuple[tuple[str, WhereValue], ...]
-
-
-# Tuple form of :class:`WhereFilter` stored on MetricIR (JSON-safe, hashable).
-FilterIR = tuple[tuple[str, WhereValue], ...]
 
 
 @dataclass(frozen=True)
@@ -749,112 +716,6 @@ class MeasureIR:
     status_time_fold: TimeFoldIR | None = None
 
 
-@dataclass(frozen=True)
-class RatioComposition:
-    numerator: str
-    denominator: str
-    zero_denominator_policy: ZeroDenominatorPolicyV1 | None = None
-    kind: Literal["ratio"] = "ratio"
-
-
-@dataclass(frozen=True)
-class WeightedMeanAggregation:
-    """Two-measure physical aggregate for an exact weighted mean."""
-
-    value: str
-    weight: str
-    kind: Literal["weighted_mean"] = "weighted_mean"
-
-    def __post_init__(self) -> None:
-        _require_non_empty_str(self.value, "WeightedMeanAggregation.value")
-        _require_non_empty_str(self.weight, "WeightedMeanAggregation.weight")
-        _require_kind(
-            self.kind, field_name="WeightedMeanAggregation.kind", expected="weighted_mean"
-        )
-
-
-# Anchor payloads: the closed-kind growth the v1 anchor-in-hash commitment
-# reserved. ``all_history`` stays a plain string (byte-identical v1 hash);
-# the new kinds carry their parameters as a tuple.
-CumulativeAnchor = (
-    Literal["all_history"]
-    | tuple[Literal["grain_to_date"], str | TemporalGrain]
-    | tuple[Literal["trailing"], int, str]
-)
-
-# Reset grains for grain-to-date anchors (MTD/QTD/YTD/WTD).
-_GRAIN_TO_DATE_RESETS = ("week", "month", "quarter", "year")
-# Fixed-size units accepted by trailing anchors (rolling N).
-_TRAILING_FIXED_UNITS = ("second", "minute", "hour", "day", "week")
-
-
-def _validate_cumulative_anchor(anchor: object) -> None:
-    """Reject unknown anchor shapes at IR construction time."""
-    if anchor == "all_history":
-        return
-    if isinstance(anchor, tuple):
-        if (
-            len(anchor) == 2
-            and anchor[0] == "grain_to_date"
-            and (
-                (isinstance(anchor[1], str) and anchor[1] in _GRAIN_TO_DATE_RESETS)
-                or (
-                    isinstance(anchor[1], TemporalGrain)
-                    and (
-                        anchor[1].kind == "semantic"
-                        or anchor[1].to_token() in _GRAIN_TO_DATE_RESETS
-                    )
-                )
-            )
-        ):
-            return
-        if (
-            len(anchor) == 3
-            and anchor[0] == "trailing"
-            and isinstance(anchor[1], int)
-            and not isinstance(anchor[1], bool)
-            and anchor[1] >= 1
-            and isinstance(anchor[2], str)
-            and anchor[2] in _TRAILING_FIXED_UNITS
-        ):
-            return
-    raise ValueError(f"invalid CumulativeComposition.anchor: {anchor!r}")
-
-
-@dataclass(frozen=True)
-class CumulativeComposition:
-    base: str
-    over: str | None
-    anchor: CumulativeAnchor = "all_history"
-    kind: Literal["cumulative"] = "cumulative"
-
-    def __post_init__(self) -> None:
-        _require_non_empty_str(self.base, "CumulativeComposition.base")
-        if self.over is not None:
-            _require_non_empty_str(self.over, "CumulativeComposition.over")
-        _validate_cumulative_anchor(self.anchor)
-        _require_kind(self.kind, field_name="CumulativeComposition.kind", expected="cumulative")
-
-
-@dataclass(frozen=True)
-class LinearTerm:
-    sign: Literal["+", "-"]
-    metric: str
-
-
-@dataclass(frozen=True)
-class LinearComposition:
-    terms: tuple[LinearTerm, ...]
-    kind: Literal["linear"] = "linear"
-
-    def __post_init__(self) -> None:
-        if len(self.terms) < 2:
-            raise ValueError("LinearComposition requires at least two terms")
-
-
-Composition = RatioComposition | LinearComposition | CumulativeComposition
-
-
 def additivity_bucket(
     additivity: Additivity,
 ) -> Literal["additive", "semi_additive", "non_additive"]:
@@ -862,134 +723,6 @@ def additivity_bucket(
     if isinstance(additivity, SemiAdditive):
         return "semi_additive"
     return additivity
-
-
-def linear_additivity_bucket(
-    additivities: Sequence[str | None],
-) -> Literal["additive", "non_additive"]:
-    """Return the only reaggregation claim closed under bounded linear algebra."""
-
-    return (
-        "additive"
-        if additivities and all(value == "additive" for value in additivities)
-        else "non_additive"
-    )
-
-
-def composition_components(composition: Composition) -> dict[str, str]:
-    """Role-keyed component refs for a derived metric composition."""
-    if isinstance(composition, RatioComposition):
-        return {"numerator": composition.numerator, "denominator": composition.denominator}
-    if isinstance(composition, CumulativeComposition):
-        return {"base": composition.base}
-    return {f"term{i}": term.metric for i, term in enumerate(composition.terms)}
-
-
-@dataclass(frozen=True)
-class MetricIR:
-    """Metric declaration: simple (tier-1 aggregate / tier-2 body) or derived."""
-
-    semantic_id: str
-    domain: str
-    name: str
-    metric_type: Literal["simple", "derived"]
-    entities: tuple[str, ...]
-    aggregation: AggKind | None
-    measure: str | None
-    composition: Composition | None
-    additivity: Additivity | None
-    ai_context: AiContextIR
-    body_ast_hash: str
-    python_symbol: str
-    location: SourceLocation
-    root_entity: str | None = None
-    fanout_policy: Literal["block", "aggregate_then_join"] = "block"
-    unit: str | None = None
-    aggregation_target: str | None = None
-    aggregation_target_kind: AggregationTargetKind | None = None
-    fold_override: TimeFoldIR | None = (
-        None  # tier-1 only: overrides the measure's semi-additive fold at load
-    )
-    filter: FilterIR | None = None  # tier-1 only: AND equality predicates
-    unit_override: str | None = None
-    weighted_mean: WeightedMeanAggregation | None = None
-    dsl_additivity: AdditivityPolicy | None = None
-    event_time_dimension: str | None = None
-    event_time_path: tuple[str, ...] = ()
-    status_time_dimension: str | None = None
-    status_time_fold: TimeFoldIR | None = None
-    null_policy: NullInputPolicyV1 | None = None
-    empty_policy: EmptyContributionPolicyV1 | None = None
-    zero_denominator_policy: ZeroDenominatorPolicyV1 | None = None
-
-    def __post_init__(self) -> None:
-        if self.fold_override is not None and self.aggregation is None:
-            raise ValueError(
-                f"MetricIR {self.semantic_id!r}: fold_override is only valid on tier-1 aggregates"
-            )
-        if self.metric_type == "simple":
-            if not self.entities:
-                raise ValueError(f"MetricIR {self.semantic_id!r}: simple metric requires entities")
-            if self.composition is not None:
-                raise ValueError(
-                    f"MetricIR {self.semantic_id!r}: simple metric must not carry composition"
-                )
-            tier1 = self.aggregation is not None or self.weighted_mean is not None
-            has_target = self.aggregation_target is not None
-            legacy_measure_target = self.measure is not None and not has_target
-            if self.aggregation is not None and not (has_target or legacy_measure_target):
-                raise ValueError(
-                    f"MetricIR {self.semantic_id!r}: tier-1 metric requires an aggregation target"
-                )
-            if self.weighted_mean is not None and (has_target or self.measure is not None):
-                raise ValueError(
-                    f"MetricIR {self.semantic_id!r}: weighted mean must use its value/weight inputs"
-                )
-            if not tier1 and (self.measure is not None or has_target):
-                raise ValueError(
-                    f"MetricIR {self.semantic_id!r}: tier-2 body metric must not carry "
-                    "measure or aggregation target"
-                )
-            if has_target and self.aggregation_target_kind is None:
-                raise ValueError(
-                    f"MetricIR {self.semantic_id!r}: aggregation target requires a target kind"
-                )
-            if (
-                self.aggregation_target_kind == "measure"
-                and self.measure != self.aggregation_target
-            ):
-                raise ValueError(
-                    f"MetricIR {self.semantic_id!r}: measure target must match measure"
-                )
-            if self.aggregation_target_kind == "entity" and self.measure is not None:
-                raise ValueError(
-                    f"MetricIR {self.semantic_id!r}: entity aggregate target must not carry measure"
-                )
-            if not tier1 and self.additivity is None:
-                raise ValueError(
-                    f"MetricIR {self.semantic_id!r}: tier-2 simple metric must declare additivity"
-                )
-        elif self.metric_type == "derived":
-            if self.entities:
-                raise ValueError(
-                    f"MetricIR {self.semantic_id!r}: derived metric must not carry entities"
-                )
-            if self.composition is None:
-                raise ValueError(
-                    f"MetricIR {self.semantic_id!r}: derived metric requires composition"
-                )
-            if (
-                self.aggregation is not None
-                or self.measure is not None
-                or self.weighted_mean is not None
-            ):
-                raise ValueError(
-                    f"MetricIR {self.semantic_id!r}: derived metric must not carry physical aggregation inputs"
-                )
-        else:
-            raise ValueError(
-                f"MetricIR {self.semantic_id!r}: invalid metric_type {self.metric_type!r}"
-            )
 
 
 @dataclass(frozen=True)

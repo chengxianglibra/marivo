@@ -26,6 +26,7 @@ from marivo.datasource.ir import (
     QueryParamScalar,
     QueryParamScalarList,
 )
+from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.datasource.source import AuthoringScope
 from marivo.preview import PreviewResult
 from marivo.semantic import catalog as catalog_module
@@ -60,6 +61,7 @@ class _Driver:
 class _Probe:
     catalog: SemanticCatalog
     backend_kind: _BackendKind
+    connections: DatasourceConnectionService
     created: list[Mock] = field(default_factory=list)
     drivers: list[_Driver] = field(default_factory=list)
     connect_kwargs: list[dict[str, object]] = field(default_factory=list)
@@ -111,7 +113,9 @@ def _probe(
             ),
         }
     )
-    probe = _Probe(SemanticCatalog(project), backend_kind)
+    probe = _Probe(
+        SemanticCatalog(project), backend_kind, DatasourceConnectionService(project.workspace_dir)
+    )
     profile = require_profile_for_backend_type(backend_kind)
     timeout = profile.native_query_timeout
     assert timeout is not None
@@ -151,7 +155,7 @@ def _probe(
     monkeypatch.setattr(
         catalog_module, "require_profile_for_backend_type", lambda _kind: prepared_profile
     )
-    service = probe.catalog._project._connection_service()
+    service = probe.connections
     monkeypatch.setattr(
         probe.catalog._project, "_connection_operation", lambda: nullcontext(service)
     )
@@ -224,7 +228,7 @@ def test_preview_prepares_deadline_before_source_resolution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     with _probe(backend_kind, semantic_project_factory, monkeypatch) as probe:
-        service = probe.catalog._project._connection_service()
+        service = probe.connections
         ordinary = service.session_backend("warehouse")
         results = _preview(probe, path, md.unpruned(max_rows=10, timeout_seconds=30))
         assert all(result.returned_row_count == 1 for result in results)
@@ -259,7 +263,7 @@ def test_preview_releases_remote_connections_and_restores_cache_after_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     with _probe(backend_kind, semantic_project_factory, monkeypatch) as probe:
-        service = probe.catalog._project._connection_service()
+        service = probe.connections
         ordinary = service.session_backend("warehouse")
         probe.failure = failure
         with pytest.raises(

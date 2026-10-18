@@ -169,15 +169,15 @@ separate per-object validation checkpoint between load and catalog navigation.
 ### 6. Scoped readiness and targeted runtime checks
 
 When delivering analysis-ready roots, run `catalog.readiness(refs=[...])` over
-the exact requested roots and their governed dependency closures. Readiness is
+the exact requested physical inputs and their governed dependency closures.
+Inspect published Measure/Metric definitions through `catalog.describe()` and select
+the physical fields and Entities they consume for readiness. Readiness is
 snapshot-independent: it evaluates
 the current semantic project, the requested closure, and dedicated certified
 temporal artifacts, and exposes only `analysis_ready_inputs` as its handoff.
-Known aggregate/backend incompatibilities block affected roots without a
-connection or query. Follow the returned repair to explicitly choose an
-acceptable approximate definition or a compatible datasource, then reload and
-rerun scoped readiness. A passing report still does not certify physical types
-or operation-specific execution.
+Readiness opens no connection or query. Follow its physical-definition or temporal
+artifact repairs, then rerun the scoped check. Query preparation owns aggregate/backend
+compatibility, physical types and operation-specific execution.
 
 Use targeted `catalog.preview(..., scope=...)` only for a concrete runtime risk
 or dedicated artifact repair. Ordinary preview reads the current datasource and

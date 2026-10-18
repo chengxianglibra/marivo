@@ -2,18 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from functools import cache
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Literal
 
 import duckdb
-
-from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, TableSourceIR
-from marivo.semantic._expression_binding import CompiledExpressionSidecar
-from marivo.semantic.validator import Registry
-from tests.analysis.numeric.observation_fixtures import make_semantic_registry
 
 # IDs, amounts, weights and relationships deliberately have unequal multiplicity.
 ORDER_VALUES = (
@@ -25,34 +19,6 @@ ORDER_VALUES = (
     (6, 3, 7.0, None, None),
 )
 LINE_VALUES = ((1, 1, 2.0), (2, 1, 3.0), (3, 2, 10.0), (4, 3, 20.0), (5, 3, 30.0))
-
-
-def make_execution_registry(
-    database: Path, *, api_url: str | None = None
-) -> tuple[Registry, CompiledExpressionSidecar]:
-    """Adapt authored IR to declared tables; production normalizers remain unchanged."""
-    original, sidecar = make_semantic_registry()
-    entities = {}
-    for path, entity in original.entities.items():
-        source = entity.source
-        if isinstance(source, JsonSourceIR):
-            source = replace(source, path=api_url) if api_url is not None else source
-        elif isinstance(source, CsvSourceIR):
-            source = TableSourceIR(
-                entity.name,
-                columns=tuple((name, name) for name, _physical_name in source.columns),
-            )
-        entities[path] = replace(entity, source=source)
-    registry = replace(
-        original,
-        entities=entities,
-        datasources={
-            name: replace(datasource, fields={"path": str(database)})
-            for name, datasource in original.datasources.items()
-        },
-    )
-    registry.freeze()
-    return registry, sidecar
 
 
 def seed_execution_database(database: Path) -> None:

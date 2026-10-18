@@ -8,7 +8,7 @@ from marivo._definition.query import ComponentKeys, DrillValues
 from marivo.analysis.compiler.graph_plan import LocalCompute
 from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.methods.query_original import drill_components, original_inputs
-from marivo.semantic.metric_graph_lowering import numeric_failure
+from marivo.semantic._numeric_lowering import numeric_failure
 
 
 def run_drill(stage: LocalCompute, inputs: tuple[StageOutput, ...]) -> StageOutput:

@@ -38,14 +38,10 @@ from marivo.semantic.ir import (
     EntityIR,
     HourPrefixParse,
     JoinKey,
-    MetricIR,
-    RatioComposition,
     RelationshipIR,
-    SemiAdditive,
     SourceLocation,
     StrptimeParse,
     TableSourceIR,
-    TimeFoldIR,
 )
 from marivo.semantic.reader import SemanticProject
 from marivo.semantic.validator import Registry, assembly_validate
@@ -130,21 +126,6 @@ def _make_registry(**overrides: object) -> Registry:
         location=_LOC,
         source_column="order_date",
     )
-    registry.metrics["sales.revenue"] = MetricIR(
-        semantic_id="sales.revenue",
-        domain="sales",
-        name="revenue",
-        entities=("sales.orders",),
-        metric_type="simple",
-        aggregation=None,
-        measure=None,
-        composition=None,
-        ai_context=AiContextIR(),
-        body_ast_hash="abc123",
-        python_symbol="revenue",
-        location=_LOC,
-        additivity="additive",
-    )
     return registry
 
 
@@ -171,27 +152,6 @@ def test_missing_entity_ref_on_dimension() -> None:
     assert any(e.kind == ErrorKind.MISSING_ENTITY_REF for e in errors)
 
 
-def test_missing_entity_ref_on_metric() -> None:
-    registry = _make_registry()
-    registry.metrics["sales.bad_metric"] = MetricIR(
-        semantic_id="sales.bad_metric",
-        domain="sales",
-        name="bad_metric",
-        entities=("sales.nonexistent",),
-        metric_type="simple",
-        aggregation=None,
-        measure=None,
-        composition=None,
-        ai_context=AiContextIR(),
-        body_ast_hash="abc",
-        python_symbol="bad_metric",
-        location=_LOC,
-        additivity="additive",
-    )
-    errors, _warnings = assembly_validate(registry)
-    assert any(e.kind == ErrorKind.MISSING_ENTITY_REF for e in errors)
-
-
 def test_missing_datasource_ref_on_dataset() -> None:
     registry = _make_registry()
     registry.entities["sales.bad_ds"] = EntityIR(
@@ -207,35 +167,6 @@ def test_missing_datasource_ref_on_dataset() -> None:
     )
     errors, _warnings = assembly_validate(registry)
     assert any(e.kind == ErrorKind.MISSING_ENTITY_REF for e in errors)
-
-
-# ---------------------------------------------------------------------------
-# Missing metric ref
-# ---------------------------------------------------------------------------
-
-
-def test_missing_metric_ref_in_decomposition() -> None:
-    registry = _make_registry()
-    registry.metrics["sales.ratio_metric"] = MetricIR(
-        semantic_id="sales.ratio_metric",
-        domain="sales",
-        name="ratio_metric",
-        entities=(),
-        metric_type="derived",
-        aggregation=None,
-        measure=None,
-        composition=RatioComposition(
-            numerator="sales.nonexistent",
-            denominator="sales.revenue",
-        ),
-        ai_context=AiContextIR(),
-        body_ast_hash="abc",
-        python_symbol="ratio_metric",
-        location=_LOC,
-        additivity="non_additive",
-    )
-    errors, _warnings = assembly_validate(registry)
-    assert any(e.kind == ErrorKind.MISSING_METRIC_REF for e in errors)
 
 
 # ---------------------------------------------------------------------------
@@ -452,79 +383,6 @@ def test_relationship_field_arity_mismatch() -> None:
     # Reusing the target key column makes the directed mapping ambiguous.
     rel_errors = [e for e in errors if "sales.bad_arity" in e.semantic_refs]
     assert any(error.kind == ErrorKind.INVALID_RELATIONSHIP_MAPPING for error in rel_errors)
-
-
-# ---------------------------------------------------------------------------
-# Cross-model cycle detection
-# ---------------------------------------------------------------------------
-
-
-def test_metric_cycle_detected() -> None:
-    registry = _make_registry()
-    # Create a cycle: a -> b -> a
-    registry.metrics["sales.metric_a"] = MetricIR(
-        semantic_id="sales.metric_a",
-        domain="sales",
-        name="metric_a",
-        entities=(),
-        metric_type="derived",
-        aggregation=None,
-        measure=None,
-        composition=RatioComposition(
-            numerator="sales.metric_b",
-            denominator="sales.revenue",
-        ),
-        ai_context=AiContextIR(),
-        body_ast_hash="abc",
-        python_symbol="metric_a",
-        location=_LOC,
-        additivity="non_additive",
-    )
-    registry.metrics["sales.metric_b"] = MetricIR(
-        semantic_id="sales.metric_b",
-        domain="sales",
-        name="metric_b",
-        entities=(),
-        metric_type="derived",
-        aggregation=None,
-        measure=None,
-        composition=RatioComposition(
-            numerator="sales.metric_a",
-            denominator="sales.revenue",
-        ),
-        ai_context=AiContextIR(),
-        body_ast_hash="def",
-        python_symbol="metric_b",
-        location=_LOC,
-        additivity="non_additive",
-    )
-    errors, _warnings = assembly_validate(registry)
-    assert any(e.kind == ErrorKind.CROSS_MODEL_CYCLE for e in errors)
-
-
-def test_no_cycle_when_valid() -> None:
-    registry = _make_registry()
-    # sales.revenue exists; a derived metric referencing it is fine
-    registry.metrics["sales.double_revenue"] = MetricIR(
-        semantic_id="sales.double_revenue",
-        domain="sales",
-        name="double_revenue",
-        entities=(),
-        metric_type="derived",
-        aggregation=None,
-        measure=None,
-        composition=RatioComposition(
-            numerator="sales.revenue",
-            denominator="sales.revenue",
-        ),
-        ai_context=AiContextIR(),
-        body_ast_hash="ghi",
-        python_symbol="double_revenue",
-        location=_LOC,
-        additivity="non_additive",
-    )
-    errors, _warnings = assembly_validate(registry)
-    assert not any(e.kind == ErrorKind.CROSS_MODEL_CYCLE for e in errors)
 
 
 # ---------------------------------------------------------------------------
@@ -770,33 +628,6 @@ def test_missing_entity_ref_on_dimension_includes_did_you_mean() -> None:
     assert "sales.orders" in dym
 
 
-def test_missing_metric_ref_includes_did_you_mean() -> None:
-    registry = _make_registry()
-    registry.metrics["sales.ratio_metric"] = MetricIR(
-        semantic_id="sales.ratio_metric",
-        domain="sales",
-        name="ratio_metric",
-        entities=(),
-        metric_type="derived",
-        aggregation=None,
-        measure=None,
-        composition=RatioComposition(
-            numerator="sales.revenu",
-            denominator="sales.revenue",
-        ),
-        ai_context=AiContextIR(),
-        body_ast_hash="abc",
-        python_symbol="ratio_metric",
-        location=_LOC,
-        additivity="non_additive",
-    )
-    errors, _warnings = assembly_validate(registry)
-    dym_errors = [e for e in errors if e.kind == ErrorKind.MISSING_METRIC_REF]
-    assert len(dym_errors) >= 1
-    dym = dym_errors[0].details.get("did_you_mean", [])
-    assert "sales.revenue" in dym
-
-
 def test_missing_dimension_ref_includes_did_you_mean() -> None:
     registry = _make_registry()
     registry.relationships["rel"] = RelationshipIR(
@@ -854,107 +685,10 @@ def test_semantic_error_str_omits_did_you_mean_when_empty() -> None:
 # declared time dimension (INVALID_STATUS_TIME_DIMENSION).
 
 
-def test_semi_additive_over_time_dimension_passes() -> None:
-    registry = _make_registry()
-    registry.metrics["sales.inventory"] = dataclasses.replace(
-        registry.metrics["sales.revenue"],
-        semantic_id="sales.inventory",
-        name="inventory",
-        additivity=SemiAdditive(over="sales.orders.order_date", fold=TimeFoldIR(kind="last")),
-        fold_override=None,
+def test_physical_entity_dependency_fingerprint_preserves_consumed_identity() -> None:
+    from marivo.semantic._physical_identity import entity_dependency_fingerprint
+
+    # Captured before removing the Metric graph; physical identity is independent.
+    assert entity_dependency_fingerprint(_make_registry(), "sales.orders") == (
+        "286567904d7b1d6f84c8fc8aaad672d0e901d816268de1a831cead1d7690cde1"
     )
-
-    errors, _warnings = assembly_validate(registry)
-    assert errors == []
-
-
-def test_semi_additive_over_non_time_dimension_fails() -> None:
-    registry = _make_registry()
-    registry.metrics["sales.inventory"] = dataclasses.replace(
-        registry.metrics["sales.revenue"],
-        semantic_id="sales.inventory",
-        name="inventory",
-        additivity=SemiAdditive(over="sales.orders.amount", fold=TimeFoldIR(kind="last")),
-        fold_override=None,
-    )
-
-    errors, _warnings = assembly_validate(registry)
-
-    assert [err.kind for err in errors] == [ErrorKind.INVALID_STATUS_TIME_DIMENSION]
-
-
-def test_semi_additive_over_missing_field_fails() -> None:
-    registry = _make_registry()
-    registry.metrics["sales.inventory"] = dataclasses.replace(
-        registry.metrics["sales.revenue"],
-        semantic_id="sales.inventory",
-        name="inventory",
-        additivity=SemiAdditive(over="sales.orders.nonexistent", fold=TimeFoldIR(kind="last")),
-        fold_override=None,
-    )
-
-    errors, _warnings = assembly_validate(registry)
-
-    assert [err.kind for err in errors] == [ErrorKind.INVALID_STATUS_TIME_DIMENSION]
-
-
-def _derived_metric(semantic_id: str, name: str, composition: object) -> MetricIR:
-    return MetricIR(
-        semantic_id=semantic_id,
-        domain="sales",
-        name=name,
-        metric_type="derived",
-        entities=(),
-        aggregation=None,
-        measure=None,
-        composition=composition,  # type: ignore[arg-type]
-        additivity=None,
-        ai_context=AiContextIR(),
-        body_ast_hash=semantic_id,
-        python_symbol=name,
-        location=_LOC,
-    )
-
-
-def test_nested_derived_metric_is_legal_at_assembly() -> None:
-    """Assembly authorizes nested derived metrics for graph-native readiness."""
-    registry = _make_registry()
-    registry.metrics["sales.count"] = dataclasses.replace(
-        registry.metrics["sales.revenue"],
-        semantic_id="sales.count",
-        name="count",
-        body_ast_hash="count",
-    )
-    registry.metrics["sales.inner_ratio"] = _derived_metric(
-        "sales.inner_ratio",
-        "inner_ratio",
-        RatioComposition(numerator="sales.revenue", denominator="sales.count"),
-    )
-    registry.metrics["sales.outer_ratio"] = _derived_metric(
-        "sales.outer_ratio",
-        "outer_ratio",
-        RatioComposition(numerator="sales.inner_ratio", denominator="sales.revenue"),
-    )
-    errors, warnings = assembly_validate(registry)
-    assert not errors
-    assert not warnings
-
-
-def test_non_nested_derived_metric_emits_no_nested_warning() -> None:
-    """A derived metric over simple (tier-1) components is analyzable and
-    emits no nested-derived warning."""
-    registry = _make_registry()
-    registry.metrics["sales.count"] = dataclasses.replace(
-        registry.metrics["sales.revenue"],
-        semantic_id="sales.count",
-        name="count",
-        body_ast_hash="count",
-    )
-    registry.metrics["sales.ratio"] = _derived_metric(
-        "sales.ratio",
-        "ratio",
-        RatioComposition(numerator="sales.revenue", denominator="sales.count"),
-    )
-    errors, warnings = assembly_validate(registry)
-    assert not errors
-    assert not warnings

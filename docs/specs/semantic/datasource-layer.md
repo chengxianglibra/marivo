@@ -120,9 +120,9 @@ Trino deployments that do not require an authentication token or password.
 
 Marivo's Trino source-native route supports explicitly approximate quantiles,
 not exact median/percentile. Author `agg="approx_median"` or
-`agg=("approx_percentile", q)` only when approximation is acceptable. Scoped
-semantic readiness rejects known aggregate/backend incompatibilities without
-connecting; loading alone grants no backend execution support.
+`agg=("approx_percentile", q)` only when approximation is acceptable. Query preparation qualifies the selected aggregate and physical types against its
+backend. Semantic readiness checks physical declarations and temporal certification;
+loading alone grants no backend execution support.
 
 `DatasourceSpec` is the closed union of these five types. Concrete engine
 connection builders live in `marivo/datasource/engines/` and are internal — the

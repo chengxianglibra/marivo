@@ -209,49 +209,6 @@ def test_default_mode_records_datasource_connections_as_pairs(
     ]
 
 
-def test_metric_graph_telemetry_keeps_only_bounded_contract_facts(
-    telemetry_project: Path,
-) -> None:
-    from marivo.telemetry import _add_operation_attributes, track_operation
-
-    with track_operation(
-        surface="analysis",
-        capability_kind="operator",
-        capability_id="observe",
-        project_root=telemetry_project,
-    ):
-        _add_operation_attributes(
-            {
-                "marivo.analysis.metric_graph.root_count": 1,
-                "marivo.analysis.metric_graph.node_count": 3,
-                "marivo.analysis.metric_graph.pre_cse_occurrence_count": 5,
-                "marivo.analysis.metric_graph.max_depth": 2,
-                "marivo.analysis.metric_graph.node_kinds": "aggregate:2,ratio:1",
-                "marivo.analysis.metric_graph.reused_occurrences": 2,
-                "marivo.analysis.metric_graph.zero_policies": "null",
-                "marivo.analysis.metric_graph.root_origins": "catalog,runtime",
-                "marivo.analysis.metric_graph.cache_hit": False,
-                "marivo.analysis.metric_graph.artifact_deduplicated": False,
-                "marivo.analysis.metric_graph.cse_used": True,
-                "marivo.analysis.metric_graph.replay_used": False,
-                "marivo.analysis.metric_graph.physical_execution_count": 2,
-                "marivo.analysis.downstream_blockers": "none",
-                "marivo.analysis.semantic_shape": "time_series",
-            }
-        )
-
-    path = _event_path(telemetry_project)
-    completed = _attrs(_capability_records(path, "observe")[-1])
-    assert completed["marivo.analysis.metric_graph.max_depth"] == "2"
-    assert completed["marivo.analysis.metric_graph.node_kinds"] == "aggregate:2,ratio:1"
-    assert completed["marivo.analysis.metric_graph.root_origins"] == "catalog,runtime"
-    assert completed["marivo.analysis.metric_graph.cse_used"] is True
-    assert completed["marivo.analysis.downstream_blockers"] == "none"
-    serialized = json.dumps(completed, sort_keys=True)
-    for forbidden in ("label", "analysis_purpose", "slice_value", "sql", "payload"):
-        assert forbidden not in serialized
-
-
 def test_track_operation_records_structured_error_without_message(
     telemetry_project: Path,
 ) -> None:

@@ -22,20 +22,6 @@ def test_additivity_bucket_maps_all_three() -> None:
     assert ir.additivity_bucket(sa) == "semi_additive"
 
 
-def test_composition_components_per_kind() -> None:
-    assert ir.composition_components(ir.RatioComposition(numerator="d.a", denominator="d.b")) == {
-        "numerator": "d.a",
-        "denominator": "d.b",
-    }
-    lin = ir.LinearComposition(terms=(ir.LinearTerm("+", "d.a"), ir.LinearTerm("-", "d.b")))
-    assert ir.composition_components(lin) == {"term0": "d.a", "term1": "d.b"}
-
-
-# ---------------------------------------------------------------------------
-# errors + constraints — composition rename + measure kinds
-# ---------------------------------------------------------------------------
-
-
 # ---------------------------------------------------------------------------
 # loader — _resolve_metric_additivity resolution pass
 # ---------------------------------------------------------------------------

@@ -663,7 +663,6 @@ def test_finalized_capture_imports_once_and_matches_catalog(
         actual["version"]
         == _reference(resolve(loaded, ms.ref.dimension("sales.orders.normalized"))).version
     )
-    assert not loaded._state.registry.metrics
 
 
 def test_retired_declaration_syntax_has_specific_reauthoring_errors(

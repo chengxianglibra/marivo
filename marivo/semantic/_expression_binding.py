@@ -23,7 +23,6 @@ from ibis.common.deferred import Deferred
 from marivo.refs import (
     EntityKind,
     FieldKind,
-    MetricKind,
     Ref,
     RefPayloadV1,
     SemanticKind,
@@ -238,7 +237,6 @@ class CompiledExpressionSidecar:
     bodies: Mapping[Ref[SemanticKindTag], ExpressionBody]
     field_owners: Mapping[Ref[FieldKind], Ref[EntityKind]]
     catalog_refs: frozenset[Ref[SemanticKindTag]]
-    default_cumulative_axes: frozenset[Ref[MetricKind]] = frozenset()
 
     def __post_init__(self) -> None:
         bodies = dict(self.bodies)

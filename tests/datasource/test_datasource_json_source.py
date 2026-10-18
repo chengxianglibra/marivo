@@ -440,7 +440,7 @@ def test_load_and_require_json_entity_with_auto_format(tmp_path: Path) -> None:
     assert result.primary_key == ()
 
 
-def test_loaded_json_project_materializes_metric(tmp_path: Path) -> None:
+def test_loaded_json_project_materializes_entity(tmp_path: Path) -> None:
     source_path = _write_ndjson_files(tmp_path)
     _write_project_with_json_entity(tmp_path, source_path)
 
@@ -449,10 +449,10 @@ def test_loaded_json_project_materializes_metric(tmp_path: Path) -> None:
 
     project = SemanticProject(workspace_dir=tmp_path)
     project.load()
-    materializer = Materializer(project, project._session_backend_factory())
-    table = materializer.entity("sales.events")
-
-    assert table.count().execute() == 3
+    with project._connection_operation() as connections:
+        materializer = Materializer(project, connections.session_backend)
+        table = materializer.entity("sales.events")
+        assert table.count().execute() == 3
 
 
 def _write_wrapped_json(root: Path) -> str:
@@ -480,12 +480,12 @@ def test_loaded_wrapped_json_project_materializes_records(tmp_path: Path) -> Non
 
     project = SemanticProject(workspace_dir=tmp_path)
     project.load()
-    materializer = Materializer(project, project._session_backend_factory())
-
-    assert materializer.entity("sales.events").execute().to_dict(orient="records") == [
-        {"event_id": 1, "amount": 10, "status": "paid"},
-        {"event_id": 2, "amount": 20, "status": "void"},
-    ]
+    with project._connection_operation() as connections:
+        materializer = Materializer(project, connections.session_backend)
+        assert materializer.entity("sales.events").execute().to_dict(orient="records") == [
+            {"event_id": 1, "amount": 10, "status": "paid"},
+            {"event_id": 2, "amount": 20, "status": "void"},
+        ]
 
 
 def _write_nested_json(root: Path) -> str:

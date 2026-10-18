@@ -12,7 +12,7 @@ import pyarrow.compute as pc
 
 from marivo._definition.expressions import PerReduce, PerWeightedMean
 from marivo.analysis.core.data_types import DataType, DecimalDataType
-from marivo.semantic.metric_graph_lowering import numeric_failure
+from marivo.semantic._numeric_lowering import numeric_failure
 
 
 def reduce_samples(

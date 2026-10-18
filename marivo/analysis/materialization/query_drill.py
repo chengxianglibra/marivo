@@ -20,7 +20,7 @@ from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.query_preparation import prepare_fields
 from marivo.datasource.timezone import probe_engine_timezone
 from marivo.semantic._compiled_state import CompiledSemanticState
-from marivo.semantic.metric_graph_lowering import numeric_failure
+from marivo.semantic._numeric_lowering import numeric_failure
 from marivo.semantic.validator import normalize_target_entity, normalize_target_relationship
 
 if TYPE_CHECKING:

@@ -78,7 +78,6 @@ from marivo.refs import (
     MetricKind,
     PeriodCalendarKind,
     Ref,
-    RefPayloadV1,
     RelationshipKind,
     SemanticKind,
     SemanticKindTag,
@@ -102,10 +101,6 @@ from marivo.semantic._capabilities.catalog_members import (
     CATALOG_COLLECTION_PROPERTIES,
     CATALOG_MEMBER_CONTRACTS,
 )
-from marivo.semantic._metric_resolution import (
-    fold_input_to_ir,
-    resolve_aggregate_temporal_contract,
-)
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.dtos import PreviewBatchResult
 from marivo.semantic.errors import (
@@ -128,7 +123,6 @@ from marivo.semantic.expressions import (
     TimeField,
 )
 from marivo.semantic.ir import (
-    AggKind,
     DimensionIR,
     DomainIR,
     EntityVersioningIR,
@@ -145,16 +139,6 @@ from marivo.semantic.preview_scope import (
     PreviewSourceBindings,
     normalize_preview_batch_scopes,
     normalize_preview_scope,
-)
-from marivo.semantic.runtime_metric import (
-    RuntimeAggregateExpr,
-    RuntimeLinearExpr,
-    RuntimeMetricExpr,
-    RuntimeRatioExpr,
-    RuntimeSliceExpr,
-    RuntimeWeightedMeanExpr,
-    replay_payload,
-    runtime_metric_leaf_refs,
 )
 
 CalendarDate = date
@@ -2080,8 +2064,8 @@ def _normalize_semantic_input(
     ):
         _raise(
             ErrorKind.INVALID_EXPRESSION_STAGE,
-            f"{location}: {exact_ref.key} is a published expression declaration; it has no "
-            "physical preview, certification, or source check.",
+            f"{location} requires physical inputs; {exact_ref.key} is a published "
+            "expression declaration.",
             cls=SemanticRuntimeError,
             refs=(exact_ref.key,),
             expected="a physical Entity, field, Relationship, or authored temporal object",
@@ -2090,7 +2074,7 @@ def _normalize_semantic_input(
                 kind="inspect",
                 canonical_id="load",
                 action=(
-                    "Inspect its definition with catalog.require(ref).contract(), then "
+                    "Inspect its definition with catalog.describe(ref).show(), then "
                     "check the physical fields and Entities it reads instead."
                 ),
                 candidates=(exact_ref.key,),
@@ -2120,18 +2104,7 @@ def _require_semantic_ref(value: object, *, parameter: str) -> Ref[SemanticKindT
 def _require_readiness_input(
     catalog: SemanticCatalog,
     value: object,
-) -> Ref[SemanticKindTag] | RuntimeMetricExpr:
-    if isinstance(
-        value,
-        (
-            RuntimeAggregateExpr,
-            RuntimeSliceExpr,
-            RuntimeRatioExpr,
-            RuntimeWeightedMeanExpr,
-            RuntimeLinearExpr,
-        ),
-    ):
-        return value
+) -> Ref[SemanticKindTag]:
     if type(value) is Ref or isinstance(value, CatalogEntry) or _value_lookup_ref(value):
         return _normalize_semantic_input(
             catalog,
@@ -2164,7 +2137,7 @@ def _require_readiness_input(
             )
     message = (
         "catalog.readiness(refs=...) requires a current catalog value or entry, "
-        f"Ref[kind], or closed RuntimeMetricExpr; received {type(value).__name__}"
+        f"Ref[kind]; received {type(value).__name__}"
     )
     if isinstance(value, str):
         message += "; bare strings are not accepted."
@@ -2175,11 +2148,8 @@ def _require_readiness_input(
         message,
         cls=SemanticRuntimeError,
         constraint_id=ConstraintId.REF_SHAPE,
-        hint=(
-            "Pass a current catalog value or entry, exact ms.ref.<kind>(path), or a closed "
-            "session-scoped runtime metric expression."
-        ),
-        expected="current catalog value or entry, exact Ref[kind], or closed RuntimeMetricExpr",
+        hint=("Pass a current physical catalog value or entry, or exact ms.ref.<kind>(path)."),
+        expected="current catalog value or entry, exact Ref[kind]",
         received=type(value).__name__,
         repair_value=repair(
             kind="inspect",
@@ -2190,7 +2160,7 @@ def _require_readiness_input(
         ),
         details={
             "operation": "catalog.readiness(refs=...)",
-            "expected": "current catalog value or entry, exact Ref[kind], or RuntimeMetricExpr",
+            "expected": "current catalog value or entry, exact Ref[kind]",
             "received_type": type(value).__name__,
             "candidates": tuple(candidate.key for candidate in candidates),
         },
@@ -3551,40 +3521,27 @@ class SemanticCatalog(RenderableResult):
 
     def readiness(
         self,
-        refs: Sequence[_SemanticInput | RuntimeMetricExpr] | None = None,
+        refs: Sequence[_SemanticInput] | None = None,
     ) -> ReadinessReport:
-        """Return explicit certification and diagnostics for the given semantic refs.
-
-        Reads only current loaded semantic state and dedicated certified
-        artifact state without acquiring, refreshing, or querying ordinary
-        datasource evidence. Declared aggregate/backend incompatibilities are
-        checked with an independent synthetic Ibis expression, without opening
-        a source or requiring optional backend client drivers. Passing this
-        check does not certify physical types or operation-specific execution.
-
-        ``analysis_ready_inputs`` preserves directly selected refs and runtime
-        expressions whose full dependency closures have no blocker.
+        """Check physical semantic inputs and certified temporal artifacts without querying.
 
         Args:
-            refs: Current catalog entries, semantic refs, or closed runtime
-                metric expressions to check. Resolves the full governed
-                dependency closure for each input. None checks all loaded
-                semantic objects.
+            refs: Current physical catalog values or entries, or exact typed refs.
+                None checks all loaded physical objects. Explicit selections must
+                be nonempty and unique; their full dependency closures are checked.
 
         Returns:
-            ReadinessReport indicating whether the selected refs satisfy the
-            current certification contract.
+            A ReadinessReport with the directly selected physical inputs whose
+            dependency closures have no blocker.
 
         Example:
-            >>> report = catalog.readiness(refs=[revenue, runtime_revenue])
-            >>> if report.status == "blocked":
-            ...     report.show()
-            ...     raise SystemExit
+            >>> amount = catalog.fields.get("sales.orders.amount")
+            >>> catalog.readiness(refs=[amount]).show()
 
         Constraints:
-            Use after authoring or changing semantic objects, or when a workflow
-            requests technical certification. Analysis APIs do not invoke
-            readiness automatically.
+            No datasource connection or query is opened. Published Measure/Metric
+            expressions are inspected through catalog.describe(); check their physical
+            inputs here. Query preparation owns physical types and execution support.
         """
         self._require_ready()
         if refs is None:
@@ -3596,262 +3553,18 @@ class SemanticCatalog(RenderableResult):
                 "catalog.readiness(refs=...) requires a non-empty sequence.",
                 cls=SemanticRuntimeError,
             )
-        if all(type(value) is Ref for value in inputs):
-            exact_inputs = cast("tuple[Ref[SemanticKindTag], ...]", inputs)
-            duplicate_refs = tuple(
-                dict.fromkeys(
-                    value
-                    for index, value in enumerate(exact_inputs)
-                    if value in exact_inputs[:index]
-                )
-            )
-            if duplicate_refs:
-                _raise(
-                    ErrorKind.INVALID_REF,
-                    "catalog.readiness(refs=...) requires unique exact refs; received "
-                    f"{[ref.key for ref in duplicate_refs]}.",
-                    cls=SemanticRuntimeError,
-                    refs=tuple(ref.key for ref in duplicate_refs),
-                )
-
-        from marivo.introspection.live.model import LiveHelpTarget
-        from marivo.semantic.metric_graph_canonical import fingerprint
-        from marivo.semantic.readiness import (
-            ReadinessIssue,
-            _aggregate_backend_issue,
-            _temporal_contract_unobservable_issue,
-        )
-        from marivo.semantic.runtime_metric_lowering import lower_metric_inputs
-
-        registry = self._reg
-        sidecar = self._project._expression_sidecar
-        graph_blocked: set[int] = set()
-        graph_issues: list[ReadinessIssue] = []
-
-        def runtime_aggregates(value: RuntimeMetricExpr) -> Iterator[RuntimeAggregateExpr]:
-            if isinstance(value, RuntimeAggregateExpr):
-                yield value
-                return
-            if isinstance(value, RuntimeSliceExpr):
-                if type(value.metric) is not Ref:
-                    yield from runtime_aggregates(value.metric)
-                return
-            if isinstance(value, RuntimeRatioExpr):
-                for component in (value.numerator, value.denominator):
-                    if type(component) is not Ref:
-                        yield from runtime_aggregates(component)
-                return
-            if isinstance(value, RuntimeLinearExpr):
-                for component in (*value.add, *value.subtract):
-                    if type(component) is not Ref:
-                        yield from runtime_aggregates(component)
-
-        def runtime_key(value: RuntimeMetricExpr, *, index: int) -> str:
-            try:
-                digest = fingerprint(replay_payload(value))
-            except (RecursionError, TypeError, ValueError):
-                return f"runtime:root[{index}]"
-            return f"runtime:{digest}"
-
-        def graph_issue(
-            *,
-            root_keys: tuple[str, ...],
-            exc: ValueError | TypeError,
-        ) -> ReadinessIssue:
-            from marivo._authoring.model import AuthoringRepair
-            from marivo.introspection.live.model import LiveHelpTarget
-
-            return ReadinessIssue(
-                kind="metric_graph_invalid",
-                severity="blocker",
-                refs=root_keys,
-                message=f"Runtime metric input cannot lower to the bounded metric graph: {exc}",
-                repair=AuthoringRepair(
-                    kind="reauthor",
-                    help_target=LiveHelpTarget(
-                        surface="semantic",
-                        canonical_id="expressions",
-                    ),
-                    action=(
-                        "Resolve the governed inputs from the completed Catalog and rebuild "
-                        "the expression within the registered graph constraints."
-                    ),
-                ),
-                details={
-                    "max_depth": 10,
-                    "max_occurrences": 256,
-                    "lowering_error_kind": getattr(
-                        exc, "code", getattr(exc, "kind", "graph_contract")
-                    ),
-                    "observed_count": getattr(exc, "observed_count", None),
-                    "limit": getattr(exc, "limit", None),
-                    "occurrence_path": getattr(exc, "path", None),
-                    "candidates": getattr(exc, "candidates", {}),
-                    "repairs": getattr(exc, "repairs", ()),
-                },
-                catalog_definition_fingerprint=self.definition_fingerprint,
-            )
-
-        normalized_inputs: list[Ref[SemanticKindTag] | RuntimeMetricExpr] = []
-        check_refs: list[Ref[SemanticKindTag]] = []
-        root_dependencies: list[tuple[Ref[SemanticKindTag], ...]] = []
-        runtime_indices: list[int] = []
-        for index, value in enumerate(inputs):
-            if type(value) is Ref:
-                exact_ref = _require_semantic_ref(value, parameter="readiness(refs=...)")
-                normalized_inputs.append(exact_ref)
-                root_dependencies.append((exact_ref,))
-                if exact_ref not in check_refs:
-                    check_refs.append(exact_ref)
-                continue
-            normalized_inputs.append(value)
-            runtime_indices.append(index)
-            try:
-                dependencies = runtime_metric_leaf_refs(value)
-            except (TypeError, ValueError) as exc:
-                graph_blocked.add(index)
-                graph_issues.append(
-                    graph_issue(root_keys=(runtime_key(value, index=index),), exc=exc)
-                )
-                root_dependencies.append(())
-                continue
-            root_dependencies.append(dependencies)
-            for dependency in dependencies:
-                if dependency not in check_refs:
-                    check_refs.append(dependency)
-
-        duplicate_candidates = tuple(
-            value for index, value in enumerate(normalized_inputs) if index not in graph_blocked
-        )
         duplicates = tuple(
-            value
-            for index, value in enumerate(duplicate_candidates)
-            if value in duplicate_candidates[:index]
+            dict.fromkeys(value for index, value in enumerate(inputs) if value in inputs[:index])
         )
         if duplicates:
             _raise(
                 ErrorKind.INVALID_REF,
-                "catalog.readiness(refs=...) requires unique direct inputs; duplicate runtime "
-                "metric roots are not allowed.",
+                "catalog.readiness(refs=...) requires unique exact refs; received "
+                f"{[ref.key for ref in duplicates]}.",
                 cls=SemanticRuntimeError,
+                refs=tuple(ref.key for ref in duplicates),
             )
-
-        valid_forest_inputs: list[Ref[MetricKind] | RuntimeMetricExpr] = []
-        valid_forest_indices: list[int] = []
-        for index in runtime_indices:
-            if index in graph_blocked:
-                continue
-            expression = cast("RuntimeMetricExpr", normalized_inputs[index])
-            try:
-                lower_metric_inputs(registry, (expression,), sidecar=sidecar)
-            except (ValueError, TypeError) as exc:
-                graph_blocked.add(index)
-                graph_issues.append(
-                    graph_issue(root_keys=(runtime_key(expression, index=index),), exc=exc)
-                )
-            else:
-                valid_forest_inputs.append(expression)
-                valid_forest_indices.append(index)
-                root_key = runtime_key(expression, index=index)
-                checked_aggregates: set[tuple[str, AggKind]] = set()
-                checked_temporal_contracts: set[tuple[str, str, str]] = set()
-                for aggregate in runtime_aggregates(expression):
-                    measure = registry.measures.get(aggregate.measure.path)
-                    if measure is None:
-                        continue
-                    aggregate_key = (aggregate.measure.path, aggregate.agg)
-                    if aggregate_key not in checked_aggregates:
-                        checked_aggregates.add(aggregate_key)
-                        issue = _aggregate_backend_issue(
-                            path=root_key,
-                            agg=aggregate.agg,
-                            target=RefPayloadV1.from_ref(aggregate.measure),
-                            registry=registry,
-                            help_target=LiveHelpTarget(
-                                surface="analysis", canonical_id="runtime_metric.aggregate"
-                            ),
-                        )
-                        if issue is not None:
-                            graph_blocked.add(index)
-                            graph_issues.append(
-                                replace(
-                                    issue,
-                                    catalog_definition_fingerprint=self.definition_fingerprint,
-                                )
-                            )
-                    temporal_contract = resolve_aggregate_temporal_contract(
-                        measure.additivity,
-                        fold_override=fold_input_to_ir(aggregate.fold),
-                    )
-                    if temporal_contract is None:
-                        continue
-                    contract_key = (
-                        measure.entity,
-                        temporal_contract.status_time_dimension,
-                        temporal_contract.fold.label(),
-                    )
-                    if contract_key in checked_temporal_contracts:
-                        continue
-                    checked_temporal_contracts.add(contract_key)
-                    issue = _temporal_contract_unobservable_issue(
-                        path=root_key,
-                        temporal_contract=temporal_contract,
-                        root_entity=measure.entity,
-                        registry=registry,
-                    )
-                    if issue is not None:
-                        graph_blocked.add(index)
-                        graph_issues.append(
-                            replace(
-                                issue,
-                                catalog_definition_fingerprint=self.definition_fingerprint,
-                            )
-                        )
-
-        for index, value in enumerate(normalized_inputs):
-            if type(value) is Ref and value.kind is SemanticKind.METRIC:
-                valid_forest_inputs.append(cast("Ref[MetricKind]", value))
-                valid_forest_indices.append(index)
-
-        if runtime_indices and valid_forest_inputs:
-            ordered = sorted(
-                zip(valid_forest_indices, valid_forest_inputs, strict=True),
-                key=lambda item: item[0],
-            )
-            try:
-                lower_metric_inputs(
-                    registry,
-                    tuple(item for _index, item in ordered),
-                    sidecar=sidecar,
-                )
-            except (ValueError, TypeError) as exc:
-                affected = tuple(index for index, _item in ordered)
-                graph_blocked.update(affected)
-                root_keys = tuple(
-                    value.key if type(value) is Ref else runtime_key(value, index=index)
-                    for index in affected
-                    for value in (normalized_inputs[index],)
-                )
-                graph_issues.append(graph_issue(root_keys=root_keys, exc=exc))
-
-        base_report = self._project.readiness(refs=check_refs)
-        ready_leaf_refs = {
-            value for value in base_report.analysis_ready_inputs if type(value) is Ref
-        }
-        ready_inputs = tuple(
-            value
-            for index, value in enumerate(normalized_inputs)
-            if index not in graph_blocked
-            and all(dependency in ready_leaf_refs for dependency in root_dependencies[index])
-        )
-        blockers = (*base_report.blockers, *graph_issues)
-        status = "blocked" if blockers else base_report.status
-        return replace(
-            base_report,
-            status=status,
-            blockers=blockers,
-            analysis_ready_inputs=ready_inputs,
-        )
+        return self._project.readiness(refs=inputs)
 
     def source_health(
         self,
@@ -4104,7 +3817,7 @@ class SemanticCatalog(RenderableResult):
             registry=reg,
         )
         if kind is SemanticKind.METRIC and bindings.backend != "duckdb":
-            from marivo.semantic.metric_graph_lowering import numeric_failure
+            from marivo.semantic._numeric_lowering import numeric_failure
 
             numeric_failure(
                 "a qualified DuckDB ordinary Metric preview",
@@ -4242,8 +3955,8 @@ class SemanticCatalog(RenderableResult):
                 source_bindings=bindings.source_bindings,
             )
             if kind is SemanticKind.METRIC:
+                from marivo.semantic._numeric_lowering import numeric_failure
                 from marivo.semantic._numeric_preview import lower_preview_metric
-                from marivo.semantic.metric_graph_lowering import numeric_failure
 
                 metric = self.metrics.get(ref_str)
                 assert isinstance(metric, Deferred)

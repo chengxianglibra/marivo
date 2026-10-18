@@ -10,7 +10,7 @@ import ibis.expr.types as ir
 from marivo._definition.expressions import FieldPredicate
 from marivo.analysis.compiler.errors import compilation_error
 from marivo.analysis.compiler.graph_plan import QueryPlan, SourceRead
-from marivo.semantic.metric_graph_lowering import NumericCheck
+from marivo.semantic._numeric_lowering import NumericCheck
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -61,7 +61,7 @@ def _attach_preparation_checks(
 def _query_predicate(
     node: FieldPredicate, table: ir.Table, columns: dict[str, str]
 ) -> ir.BooleanValue:
-    from marivo.semantic.metric_graph_lowering import lower_field_predicate
+    from marivo.semantic._numeric_lowering import lower_field_predicate
 
     value = lower_field_predicate(
         node, {path: table[column] for path, column in columns.items()}
