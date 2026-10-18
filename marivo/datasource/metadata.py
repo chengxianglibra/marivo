@@ -747,14 +747,6 @@ def _inspect_source_from_ir(
     return result
 
 
-def _quote_literal(value: str) -> str:
-    return "'" + value.replace("'", "''") + "'"
-
-
-def _quote_identifier(value: str) -> str:
-    return '"' + value.replace('"', '""') + '"'
-
-
 def _database_label(database: str | tuple[str, ...] | None) -> str | None:
     if database is None:
         return None

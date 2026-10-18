@@ -357,10 +357,17 @@ def list() -> DatasourceList:
         Includes local and configured external model roots. Conflicting names
         fail instead of overriding another declaration.
     """
+    return _list_in_project(project_root=None)
+
+
+def _list_in_project(*, project_root: Path | None) -> DatasourceList:
     return DatasourceList(
         tuple(
             DatasourceSummary(name=p.name, backend_type=p.backend_type)
-            for p in sorted(_store.load_all().values(), key=lambda item: item.name)
+            for p in sorted(
+                _store.load_all(project_root).values(),
+                key=lambda item: item.name,
+            )
         )
     )
 
@@ -579,7 +586,12 @@ def test(
         meanings. Unsupported query timeouts are skipped; there is no total
         call deadline and cleanup may wait for the driver.
     """
-    return _test_in_project(name, timeout_seconds=timeout_seconds, project_root=None)
+    return _test_in_project(
+        name,
+        timeout_seconds=timeout_seconds,
+        project_root=None,
+        persist_env_secrets=True,
+    )
 
 
 def _test_in_project(
@@ -587,6 +599,7 @@ def _test_in_project(
     *,
     timeout_seconds: int,
     project_root: Path | None,
+    persist_env_secrets: bool,
 ) -> DatasourceTestResult:
     datasource_name = _datasource_name(name)
     if timeout_seconds < 1:
@@ -609,7 +622,8 @@ def _test_in_project(
         timeout = profile.native_query_timeout
         with timeout(selected_backend, timeout_seconds) if timeout is not None else nullcontext():
             profile.probe(selected_backend)
-        _secrets.try_persist_backend_env_sourced(selected_backend)
+        if persist_env_secrets:
+            _secrets.try_persist_backend_env_sourced(selected_backend)
         latency_ms = int((time.perf_counter() - state.started) * 1000)
         return DatasourceTestResult(
             name=datasource_name,
@@ -659,43 +673,12 @@ def test_no_persist(
         Unsupported query timeouts are skipped. No client deadline limits the
         complete call or cleanup.
     """
-    datasource_name = _datasource_name(name)
-    if timeout_seconds < 1:
-        raise ValueError("timeout_seconds must be positive.")
-
-    def roundtrip(state: _ProbeState) -> DatasourceTestResult:
-        connection = open_backend(
-            load_datasource(datasource_name, cr.operation_root(project_root)),
-            project_root=project_root,
-            timeout_seconds=timeout_seconds,
-            read_only=True,
-            terminal_timeout_seconds=timeout_seconds,
-        )
-        state.backend = connection
-        state.phase = "roundtrip"
-        from marivo.datasource.adapters import provider_for
-
-        selected_backend = connection.backend
-        profile = provider_for(selected_backend.name)
-        timeout = profile.native_query_timeout
-        with timeout(selected_backend, timeout_seconds) if timeout is not None else nullcontext():
-            profile.probe(selected_backend)
-        latency_ms = int((time.perf_counter() - state.started) * 1000)
-        return DatasourceTestResult(
-            name=datasource_name,
-            ok=True,
-            latency_ms=latency_ms,
-            failure=None,
-            repair=None,
-        )
-
-    with _execution_log.scope(project_root, datasource=datasource_name):
-        return _run_roundtrip(
-            roundtrip,
-            timeout_seconds=timeout_seconds,
-            datasource_name=datasource_name,
-            project_root=project_root,
-        )
+    return _test_in_project(
+        name,
+        timeout_seconds=timeout_seconds,
+        project_root=project_root,
+        persist_env_secrets=False,
+    )
 
 
 def _require_raw_sql_reason(reason: str) -> str:

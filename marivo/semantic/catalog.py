@@ -31,7 +31,6 @@ from typing import (
 from ibis.common.deferred import Deferred
 
 from marivo._definition.deferred import root_declaration
-from marivo._definition.graph import direct_refs
 from marivo._temporal import (
     Grain,
     PeriodCalendarSnapshotV1,
@@ -323,14 +322,6 @@ class _BatchPreviewItem:
     ref: Ref[SemanticKindTag]
     kind: SemanticKind
     bindings: NormalizedPreviewScope
-
-
-@dataclass(frozen=True)
-class _OntologySemanticIndexes:
-    """Immutable semantic-owned reverse indexes consumed by ontology discovery."""
-
-    anchors_by_metric: Mapping[Ref[MetricKind], tuple[Ref[SemanticKindTag], ...]]
-    metrics_by_endpoint: Mapping[Ref[SemanticKindTag], tuple[Ref[MetricKind], ...]]
 
 
 # ---------------------------------------------------------------------------
@@ -3000,7 +2991,7 @@ class SemanticCatalog(RenderableResult):
         the remaining kinds are navigation entries. No internal IR is exposed.
     """
 
-    __slots__ = ("_index", "_ontology_index", "_project", "_reg", "_state")
+    __slots__ = ("_index", "_project", "_reg", "_state")
 
     _project: SemanticProject
     _state: CompiledSemanticState
@@ -3014,7 +3005,6 @@ class SemanticCatalog(RenderableResult):
         object.__setattr__(self, "_state", project._compiled_state)
         object.__setattr__(self, "_reg", self._state.registry)
         object.__setattr__(self, "_index", _CatalogIndex(self, project, self._reg))
-        object.__setattr__(self, "_ontology_index", self._build_ontology_indexes())
 
     def __setattr__(self, name: str, value: object) -> NoReturn:
         del name, value
@@ -3067,55 +3057,6 @@ class SemanticCatalog(RenderableResult):
     def _require_index(self) -> _CatalogIndex:
         self._require_ready()
         return self._index
-
-    def _build_ontology_indexes(self) -> _OntologySemanticIndexes:
-        anchors_by_metric: dict[Ref[MetricKind], tuple[Ref[SemanticKindTag], ...]] = {}
-        metrics_by_endpoint_mutable: dict[Ref[SemanticKindTag], list[Ref[MetricKind]]] = {}
-        from marivo.semantic._deferred_semantics import consume_metric
-
-        for path, expression in self._reg.declared_metrics.items():
-            declared = consume_metric(expression)
-            metric_ref = ref_factory.metric(path)
-            entity_refs = tuple(root.ref for root in declared.roots)
-            measure_refs = tuple(
-                sorted(
-                    {
-                        exact.ref
-                        for exact in direct_refs(declared.node)
-                        if exact.ref.kind is SemanticKind.MEASURE
-                    },
-                    key=lambda ref: ref.key,
-                )
-            )
-            anchors_by_metric[metric_ref] = (metric_ref, *entity_refs, *measure_refs)
-            for endpoint in (*entity_refs, *measure_refs):
-                metrics_by_endpoint_mutable.setdefault(endpoint, []).append(metric_ref)
-        metrics_by_endpoint = {
-            endpoint: tuple(sorted(set(metric_refs), key=lambda ref: ref.key))
-            for endpoint, metric_refs in metrics_by_endpoint_mutable.items()
-        }
-        return _OntologySemanticIndexes(
-            anchors_by_metric=MappingProxyType(anchors_by_metric),
-            metrics_by_endpoint=MappingProxyType(metrics_by_endpoint),
-        )
-
-    def _ontology_anchors_for_metric(
-        self, metric_ref: Ref[MetricKind]
-    ) -> tuple[Ref[SemanticKindTag], ...]:
-        """Return the closed ontology anchor set for one current metric ref."""
-        self.require(metric_ref)
-        return self._ontology_index.anchors_by_metric[metric_ref]
-
-    def _ontology_metrics_for_endpoint(
-        self, endpoint: Ref[EntityKind | MeasureKind | MetricKind]
-    ) -> tuple[Ref[MetricKind], ...]:
-        """Resolve one ontology endpoint through semantic-owned dependency indexes."""
-        self.require(endpoint)
-        if endpoint.kind is SemanticKind.METRIC:
-            return (cast("Ref[MetricKind]", endpoint),)
-        return self._ontology_index.metrics_by_endpoint.get(
-            cast("Ref[SemanticKindTag]", endpoint), ()
-        )
 
     def _repr_identity(self) -> str:
         fingerprint = self.definition_fingerprint[:12]

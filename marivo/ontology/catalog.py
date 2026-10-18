@@ -161,10 +161,6 @@ class OntologyCatalog(RenderableResult):
         """Print the bounded ontology catalog summary."""
         print(self.render(max_output_bytes=max_output_bytes))
 
-    def _edges_for_discovery(self) -> tuple[SemanticEdgeIR, ...]:
-        """Return the immutable internal edge view for the analysis bridge."""
-        return self._edges
-
 
 def load(*, semantic: SemanticCatalog) -> OntologyCatalog:
     """Load and validate the optional project ontology against a semantic catalog.

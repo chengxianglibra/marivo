@@ -219,33 +219,7 @@ def _check_duplicate(
 
 
 def _caller_location() -> SourceLocation:
-    """Best-effort source location from the caller's frame.
-
-    Walks up past internal authoring module frames to find the first
-    external caller (the user's code).  Reports the file/line of that
-    call site.
-    """
-    frame = inspect.currentframe()
-    try:
-        if frame is not None:
-            caller_frame = frame.f_back
-            while caller_frame is not None:
-                if not _is_internal_caller_frame(caller_frame):
-                    filename = caller_frame.f_code.co_filename
-                    lineno = caller_frame.f_lineno
-                    return SourceLocation(file=filename, line=lineno)
-                caller_frame = caller_frame.f_back
-    except AttributeError:
-        pass
-    return SourceLocation(file="<unknown>", line=0)
-
-
-def _user_caller_location() -> SourceLocation:
-    """Best-effort source location of the user's call site.
-
-    Walks past internal authoring and transparent telemetry wrapper frames and
-    reports the file/line where the user called the public function.
-    """
+    """Return the first user source location above authoring and telemetry frames."""
     frame = inspect.currentframe()
     try:
         if frame is not None:

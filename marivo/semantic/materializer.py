@@ -615,16 +615,6 @@ class Materializer:
             (table,),
         )
 
-    def _backend_type_for_datasource(
-        self, datasource_id: str | None, registry: Registry
-    ) -> str | None:
-        if datasource_id is None:
-            return None
-        datasource_ir = registry.datasources.get(datasource_id)
-        if datasource_ir is None:
-            return None
-        return datasource_ir.backend_type
-
 
 def materialize_entity_output(
     *,

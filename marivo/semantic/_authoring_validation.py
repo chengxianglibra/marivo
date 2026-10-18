@@ -21,16 +21,13 @@ from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
 from marivo.semantic.ir import (
     Additivity,
-    AggregateFoldInput,
     DateParse,
     DatetimeParse,
     HourPrefixParse,
     JoinKey,
     SampleIntervalIR,
     SemanticParse,
-    SemiAdditive,
     StrptimeParse,
-    TimeFoldIR,
     TimestampParse,
 )
 
@@ -175,54 +172,11 @@ def _normalize_sample_interval_value(
     )
 
 
-def _normalize_time_fold(
-    time_fold: AggregateFoldInput,
-    *,
-    semantic_id: str,
-) -> TimeFoldIR | None:
-    if time_fold is None:
-        return None
-    if isinstance(time_fold, str):
-        if time_fold not in {"mean", "min", "max", "first", "last"}:
-            _raise(
-                ErrorKind.INVALID_TIME_FOLD,
-                f"time_fold {time_fold!r} is not supported.",
-                refs=(semantic_id,),
-                cls=SemanticDecoratorError,
-                constraint_id=ConstraintId.TIME_FOLD_VALID,
-            )
-        return TimeFoldIR(kind=time_fold)
-    if not isinstance(time_fold, tuple) or len(time_fold) != 2:
-        _raise(
-            ErrorKind.INVALID_TIME_FOLD,
-            "time_fold must be mean/min/max/first/last or ('percentile', q).",
-            refs=(semantic_id,),
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.TIME_FOLD_VALID,
-        )
-    kind, q = time_fold
-    if (
-        kind != "percentile"
-        or isinstance(q, bool)
-        or not isinstance(q, (float, int))
-        or not 0 < float(q) < 1
-    ):
-        _raise(
-            ErrorKind.INVALID_TIME_FOLD,
-            "percentile time_fold must be ('percentile', q) with 0 < q < 1.",
-            refs=(semantic_id,),
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.TIME_FOLD_VALID,
-        )
-    return TimeFoldIR(kind="percentile", q=float(q))
-
-
 def _normalize_additivity(
     additivity: AdditivityPolicy,
     *,
     semantic_id: str,
     status_time_dimension: str | None = None,
-    status_time_fold: TimeFoldIR | None = None,
 ) -> Additivity:
     """Project a closed declaration to the existing execution summary.
 
@@ -236,13 +190,6 @@ def _normalize_additivity(
             cls=SemanticDecoratorError,
             constraint_id=ConstraintId.REF_SHAPE,
         )
-    if status_time_dimension is None and status_time_fold is not None:
-        _raise(
-            ErrorKind.INVALID_REF,
-            f"{semantic_id!r}: status_time_fold requires status_time_dimension.",
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.REF_SHAPE,
-        )
     if status_time_dimension is not None:
         if type(additivity) is not AdditiveAllV1 or (
             status_time_dimension not in additivity.exceptions
@@ -253,8 +200,6 @@ def _normalize_additivity(
                 cls=SemanticDecoratorError,
                 constraint_id=ConstraintId.REF_SHAPE,
             )
-        if status_time_fold is not None:
-            return SemiAdditive(over=status_time_dimension, fold=status_time_fold)
         return "non_additive"
     if type(additivity) is AdditiveAllV1:
         return "additive" if not additivity.exceptions else "non_additive"

@@ -523,7 +523,6 @@ def measure_column(
             additivity,
             semantic_id=semantic_id,
             status_time_dimension=status_id,
-            status_time_fold=None,
         ),
         unit=unit,
         python_symbol=obj_name,
@@ -531,7 +530,6 @@ def measure_column(
         body_ast_hash=_compute_column_hash(column_name),
         dsl_additivity=additivity,
         status_time_dimension=status_id,
-        status_time_fold=None,
     )
     _push_ir(
         ctx,

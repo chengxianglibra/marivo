@@ -16,19 +16,11 @@ from marivo.datasource.manage import (
     DatasourceSummary,
     DatasourceTestResult,
     _describe_in_project,
+    _list_in_project,
     _test_in_project,
 )
 from marivo.project import resolve_project_root
 from marivo.render import Card, RenderableResult
-
-
-def _summary_list(project_root: Path) -> DatasourceList:
-    return DatasourceList(
-        tuple(
-            DatasourceSummary(name=p.name, backend_type=p.backend_type)
-            for p in sorted(_store.load_all(project_root).values(), key=lambda item: item.name)
-        )
-    )
 
 
 def _format_mapping(mapping: dict[str, object]) -> str:
@@ -106,7 +98,7 @@ class DatasourceCatalog(RenderableResult):
             >>> catalog = md.load()
             >>> catalog.list().show()
         """
-        return _summary_list(self.workspace_dir)
+        return _list_in_project(project_root=self.workspace_dir)
 
     def get(self, name: str) -> DatasourceSummary:
         """Retrieve a single datasource summary by name.
@@ -183,6 +175,7 @@ class DatasourceCatalog(RenderableResult):
             name,
             timeout_seconds=timeout_seconds,
             project_root=self.workspace_dir,
+            persist_env_secrets=True,
         )
 
     def _repr_identity(self) -> str:

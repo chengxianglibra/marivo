@@ -15,9 +15,9 @@ from ibis.common.deferred import Deferred
 
 from marivo.refs import DimensionKind, FieldKind, Ref, SemanticKind, TimeDimensionKind
 from marivo.semantic._authoring_context import (
+    _caller_location,
     _register_authoring_file,
     _require_ref_id,
-    _user_caller_location,
 )
 from marivo.semantic._authoring_validation import (
     _normalize_sample_interval_value,
@@ -117,7 +117,7 @@ def ai_context(
     Raises:
         SemanticDecoratorError: If any value has the wrong type.
     """
-    location = _user_caller_location()
+    location = _caller_location()
 
     if guardrails is not None and (
         not isinstance(guardrails, list | tuple)

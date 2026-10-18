@@ -20,6 +20,7 @@ from marivo.datasource.engines.base import (
     MetadataInspectRequest,
     TableRefRequest,
     identity_read_only_kwargs,
+    quote_identifier,
     require_field,
     structured_exception_chain,
 )
@@ -179,7 +180,6 @@ def _inspect_postgres(
         _int_or_none,
         _merge_columns,
         _partition_columns_from_expression,
-        _quote_identifier,
         _schema_columns,
     )
 
@@ -188,7 +188,7 @@ def _inspect_postgres(
     warnings: list[MetadataWarning] = []
     comment_schema = _database_label(database) or default_schema
     qualified = ".".join(
-        _quote_identifier(part)
+        quote_identifier(part, PROFILE)
         for part in ((comment_schema, table) if comment_schema else (table,))
     )
     table_comment: str | None = None
