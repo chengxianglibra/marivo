@@ -39,7 +39,12 @@ from marivo._definition.types import (
     FieldRead,
     IdentityRead,
 )
-from marivo._temporal import TimeScope, _SessionTimeScope, anchor_from_datetime
+from marivo._temporal import (
+    PeriodCalendarSnapshotV1,
+    TimeScope,
+    _SessionTimeScope,
+    anchor_from_datetime,
+)
 from marivo.analysis.binding.coordinates import (
     CoordinateBinding,
     bind_identity,
@@ -80,6 +85,7 @@ def bind_observation(
     where: FieldPredicate | None,
     timezone: str,
     state: CompiledSemanticState | None,
+    calendar_snapshots: tuple[PeriodCalendarSnapshotV1, ...] = (),
     memberships: tuple[MembershipBinding, ...] = (),
     population: PopulationDependency | None = None,
     members: PopulationDependency | None = None,
@@ -471,7 +477,9 @@ def bind_observation(
     )
     from marivo.analysis.binding.windows import bind_windows
 
-    bound_contributions = bind_windows(tuple(contributions), metrics, declared, period, calendar)
+    bound_contributions = bind_windows(
+        tuple(contributions), metrics, declared, period, calendar, calendar_snapshots
+    )
     if state is not None:
         bound_contributions = tuple(
             replace(item, coverage=sampling_coverage(item, state, calendar=calendar))

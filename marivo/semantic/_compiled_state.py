@@ -9,7 +9,7 @@ from typing import Literal, cast
 
 from marivo._definition.deferred import root_declaration
 from marivo._definition.expressions import MetricNode, RowNode
-from marivo._definition.graph import computation_fingerprint, direct_refs
+from marivo._definition.graph import computation_fingerprint, direct_calendar_refs, direct_refs
 from marivo.refs import Ref, SemanticKindTag
 from marivo.refs import ref as ref_factory
 from marivo.semantic._definition_identity import definition_fingerprint
@@ -284,7 +284,7 @@ def definition_graph(
         # defined here, so no edge is filtered out.
         dependencies[ref] = tuple(
             sorted(
-                {exact.ref for exact in direct_refs(node)} - {ref},
+                ({exact.ref for exact in direct_refs(node)} | direct_calendar_refs(node)) - {ref},
                 key=lambda item: item.key,
             )
         )

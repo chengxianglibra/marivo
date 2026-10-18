@@ -62,6 +62,8 @@ month_to_date.execute().show(n=5)
 
 每个端点按自己的 W(t) 求完整 Metric，显示起点不截断更早输入。`trailing_duration` 使用实际经过时间，`trailing_periods(count=...)` 使用完整日历期；`since(start=...)` 固定精确起点，`all_history()` 无下界。to-date 依据评价端点选择刚结束的重置期间，日历桶另须满足唯一包含。
 
+可复用命名指标可在声明体外捕获 `reset = ms.calendar_grain(calendar=ms.ref.period_calendar("sales.fiscal"), level="quarter")` 和 `rule = mv.to_date(grain=reset)`，再由 `@ms.metric()` 返回 `revenue.window(rule)`。日历进入声明依赖校验；observe 从 Session 已冻结的认证作用域解析它，标量观察无需额外输出日历轴。显式携带认证快照的 Catalog Grain 必须与该作用域一致，冲突即拒绝，不替换其时间权威。应在 Session 加载语义作用域前认证日历；绑定检查层级、时区、覆盖和桶包含关系。已有 Query 保留采用的快照，不随之后重新认证改变。
+
 窗口原量 rollup 必须保留同一时间轴和端点，仅能做合格空间上卷。换窗口或评价日历需构造新 observe。日历认证不证明业务来源完整。
 
 ## 对应已完成的两端

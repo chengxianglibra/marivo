@@ -1083,6 +1083,11 @@ duration 是有限正 timedelta，以固定实际时长计，不接月/年等可
 
 `Revenue.window(mv.to_date(grain=month))` 可直接匿名观察或由 @metric 返回，均配 `during=days`。
 Metric.window 返回同一种受控 Deferred；命名只追加声明记录，不改变规则、需求域或计算指纹。
+命名窗口的 `ms.calendar_grain(calendar=ref, level=...)` 保留日历查找依赖，发布时校验 kind/path，
+并进入编译依赖闭包。observe 使用 Session 已冻结的认证日历作用域解析它，不读取日历后端或重新认证。
+绑定指纹包含实际 snapshot digest；已有 Query 不随当前认证清单变化。缺失认证、未知层级、时区冲突和覆盖不足在业务读取前拒绝。
+无快照的 Grain 按该作用域解析；显式携带认证快照的 Grain 必须与 Session 的认证快照一致，冲突即拒绝，不能按同路径静默覆盖。
+readiness 仍显式检查日历权威，不为命名表达式新增物理检查入口。
 不保留构造器的 axis 参数或 during=window 别名；旧提案示例统一改写为 Metric.window(rule) 加显式观察期间。
 
 期间对应与 §4.7 的 ordinal 一样不带轴，在 align/compare 绑定时从两侧操作数取得唯一日历轴。

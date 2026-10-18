@@ -66,6 +66,7 @@ class ContributionBinding:
     physical_dtype: Literal["unresolved"] = "unresolved"
     logical_occurrence: tuple[int, ...] | None = None
     window_key: int | None = None
+    window_calendar_digest: str | None = None
     sample_axes: tuple[AxisBinding | CalendarCoordinate, ...] = ()
     memberships: tuple[MembershipBinding, ...] = ()
     output_axis_count: int = 0

@@ -44,7 +44,7 @@ from marivo._definition.types import (
     LiteralValue,
     Owner,
 )
-from marivo._temporal import TimeScope
+from marivo._temporal import PeriodCalendarSnapshotV1, TimeScope
 from marivo.analysis._contract import AnalysisAction, AnalysisContract
 from marivo.analysis.binding.observe import bind_observation
 from marivo.analysis.core.graph import BoundGraph, capture_query
@@ -319,6 +319,7 @@ class Query:
         members: Population | None = None,
         timezone: str = "UTC",
         state: CompiledSemanticState | None = None,
+        calendar_snapshots: tuple[PeriodCalendarSnapshotV1, ...] = (),
     ) -> Query:
         if not isinstance(metrics, Mapping) or not metrics:
             reject(
@@ -404,6 +405,7 @@ class Query:
             where=condition,
             timezone=timezone,
             state=state,
+            calendar_snapshots=calendar_snapshots,
             memberships=memberships,
             population=population,
             members=members.definition if members is not None else None,

@@ -219,8 +219,12 @@ def period_calendar(
 def calendar_grain(*, calendar: Ref[PeriodCalendarKind], level: str) -> Grain:
     """Construct one semantic aggregation grain from a period-calendar level.
 
-    The level is finally checked against the calendar's certified snapshot when
-    it is consumed; model code can safely construct this value before loading.
+    Args:
+        calendar: Typed lookup key of the governed period calendar.
+        level: Exact declared level name, or the reserved ``day`` level.
+    Returns: An immutable semantic Grain without certification or source reads.
+    Example: ``ms.calendar_grain(calendar=ms.ref.period_calendar('sales.fiscal'), level='quarter')``.
+    Constraints: A Metric window resolves the calendar by kind/path and checks the level in the consuming Session's frozen certified scope. Model code can construct this value before loading or certification.
     """
     _require_ref_id(calendar, parameter="calendar", expected=(SemanticKind.PERIOD_CALENDAR,))
     if type(level) is not str or not level:

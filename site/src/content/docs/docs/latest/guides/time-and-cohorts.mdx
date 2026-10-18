@@ -62,6 +62,8 @@ month_to_date.execute().show(n=5)
 
 Each endpoint evaluates the complete Metric over its own W(t). The display start does not clip earlier window input. `trailing_duration` uses elapsed time; `trailing_periods(count=...)` uses complete calendar periods. `since(start=...)` freezes an exact start; `all_history()` has no lower bound. To-date selects the reset period ending at the evaluation boundary, and calendar buckets must have unique containment.
 
+Reusable named metrics may capture `reset = ms.calendar_grain(calendar=ms.ref.period_calendar("sales.fiscal"), level="quarter")` and `rule = mv.to_date(grain=reset)` outside the declaration, then return `revenue.window(rule)` from `@ms.metric()`. The calendar is a checked declaration dependency. Observe resolves it against the Session's frozen certified scope, including scalar observations without a calendar output axis. An explicit Catalog Grain already carrying a snapshot must match that scope; a conflict rejects instead of replacing its authority. Certify the calendar before loading the Session's semantic scope; binding validates its level, timezone, coverage and bucket containment. Existing Queries retain the adopted snapshot even if certification changes later.
+
 Windowed original rollup retains the same time axis and endpoints and may perform only qualified spatial rollup. Construct a new observe to change the window or evaluation calendar. Calendar certification does not prove business source completeness.
 
 ## Pair completed endpoints

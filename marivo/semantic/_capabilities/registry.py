@@ -2609,7 +2609,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "calendar_grain",
             "marivo.semantic._authoring_temporal.calendar_grain",
-            "Construct the unified semantic Grain for one governed calendar level.",
+            "Construct a source-free semantic Grain lookup for one governed calendar level. Metric windows bind it against the consuming Session's frozen certified scope; naming does not require a loaded calendar.",
             output="Grain",
             inputs=(
                 _parameter_input("subject", "Ref[period_calendar]", "calendar"),

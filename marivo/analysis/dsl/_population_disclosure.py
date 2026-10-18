@@ -137,7 +137,7 @@ def provider() -> DisclosureProvider:
         "duration": "Pass a positive datetime.timedelta; duration is elapsed time, not a civil period count.",
         "count": "Pass a positive integer; evaluating this rule requires a CalendarAxis.",
         "start": "Pass an aware datetime or an exact session.instant(...).",
-        "grain": "Pass mv.grain(unit) or a certified semantic calendar grain.",
+        "grain": "Pass mv.grain(unit), ms.calendar_grain(calendar=ref, level=...), or a Catalog grain. Unbound semantic reset grains resolve in the Session's frozen certified scope; captured snapshots must match it.",
         "predicate": "Pass in_population(...) or its closed &, | and ~ combinations over existing axes.",
         "other": "Pass a Population with identical ordered bound axes and membership allocation descriptors.",
         "targets": "Pass the path target Entity's single identity-axis Population from the same Session.",

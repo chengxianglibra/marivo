@@ -112,10 +112,10 @@ def since(*, start: datetime) -> ObservationWindow:
 def to_date(*, grain: Grain) -> ObservationWindow:
     """Reset at the start of the period ending at or containing each endpoint.
 
-    Args: grain: A civil or certified semantic Grain.
+    Args: grain: A civil Grain or a semantic calendar lookup Grain.
     Returns: A source-free reset window rule.
     Example: ``revenue.window(mv.to_date(grain=mv.grain('month')))``.
-    Constraints: Each output calendar bucket must lie in one reset period.
+    Constraints: Each output calendar bucket must lie in one reset period. Semantic grains require the consuming Session's certified calendar scope; captured snapshots must match that scope.
     """
     if not isinstance(grain, Grain):
         invalid(f"Expected a Grain; received {grain!r}. Pass grain=mv.grain('month').")

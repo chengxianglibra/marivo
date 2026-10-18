@@ -125,6 +125,33 @@ def rejected():
     assert any("admitted Ibis constructor" in str(error) for error in errors)
 
 
+@pytest.mark.parametrize("calendar", ["sales.missing", "sales.orders"])
+def test_published_window_requires_calendar_in_completed_scope(
+    semantic_project_factory: ProjectFactory, calendar: str
+) -> None:
+    source = (
+        _MODEL
+        + f"""
+import marivo.analysis as mv
+quarter = ms.calendar_grain(calendar=ms.ref.period_calendar({calendar!r}), level="quarter")
+qtd_rule = mv.to_date(grain=quarter)
+@ms.metric()
+def qtd():
+    return revenue.window(qtd_rule)
+"""
+    )
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": 'import marivo.semantic as ms\nms.domain(name="sales", owner="Analytics", default=True)\n',
+            "sales/objects.py": source,
+        }
+    )
+    assert project.errors()
+    assert any(f"period_calendar:{calendar}" in str(error) for error in project.errors()), [
+        str(error) for error in project.errors()
+    ]
+
+
 def test_native_selection_units_and_reciprocal_authorization(
     semantic_project_factory: ProjectFactory,
 ) -> None:

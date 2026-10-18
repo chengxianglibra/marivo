@@ -321,6 +321,17 @@ class Session:
         from marivo._definition.types import Owner
         from marivo.analysis.dsl.query import Query
 
+        state = (
+            self.catalog._state
+            if isinstance(metrics, Mapping)
+            and (
+                any(isinstance(metric, Deferred) for metric in metrics.values())
+                or by
+                or where is not None
+                or members is not None
+            )
+            else None
+        )
         return Query._from_metrics(
             metrics,
             Owner(self.id, self._runtime.store.store_id),
@@ -330,15 +341,10 @@ class Session:
             where=where,
             members=members,
             timezone=self.report_tz_name,
-            state=self.catalog._state
-            if isinstance(metrics, Mapping)
-            and (
-                any(isinstance(metric, Deferred) for metric in metrics.values())
-                or by
-                or where is not None
-                or members is not None
-            )
-            else None,
+            state=state,
+            calendar_snapshots=self._sources().period_calendar_snapshots
+            if state is not None
+            else (),
         )
 
     def query(self, population: Population) -> Query:

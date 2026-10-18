@@ -18,7 +18,13 @@ from marivo._definition.windows import (
     TrailingDuration,
     TrailingPeriods,
 )
-from marivo._temporal import Grain, anchor_from_datetime, builtin_grain
+from marivo._temporal import (
+    Grain,
+    PeriodCalendarSnapshotV1,
+    anchor_from_datetime,
+    builtin_grain,
+    semantic_grain,
+)
 from marivo._temporal_grid import _floor, _next, instant
 from marivo._timezones import parse_timezone
 from marivo.analysis.core.model import reject
@@ -98,6 +104,7 @@ def bind_windows(
     declared: dict[ExactRef, MetricNode],
     period: ObservationPeriod | None,
     calendar: CalendarAxis | None,
+    calendar_snapshots: tuple[PeriodCalendarSnapshotV1, ...] = (),
 ) -> tuple[ContributionBinding, ...]:
     """Expand each window usage into independent source reads per output endpoint."""
     from marivo.analysis.binding.observe import ObservationPeriod
@@ -121,6 +128,50 @@ def bind_windows(
                     "Metric.window",
                 )
             rule = node.rule
+            if isinstance(rule, ToDate) and rule.grain.kind == "semantic":
+                grain = rule.grain
+                snapshot = next(
+                    (item for item in calendar_snapshots if item.calendar_ref == grain.calendar),
+                    None,
+                )
+                if snapshot is None:
+                    reject(
+                        "a current certified calendar in the completed Session scope",
+                        repr(grain),
+                        "Inspect calendar.details() and catalog.readiness(refs=[calendar.ref]); certify the calendar before creating a new Session handle.",
+                        "Metric.window",
+                    )
+                captured = grain._snapshot
+                if captured is not None and captured.snapshot_digest != snapshot.snapshot_digest:
+                    reject(
+                        "the same certified snapshot for the explicit Grain and Session",
+                        f"{grain!r}: captured={captured.snapshot_digest}; Session={snapshot.snapshot_digest}",
+                        "Use ms.calendar_grain(...) for a scope lookup, or rebuild the Grain and observation in a new Session handle after certification.",
+                        "Metric.window",
+                    )
+                if grain.level not in ("day", *snapshot.levels):
+                    reject(
+                        f"a calendar level in {('day', *snapshot.levels)!r}",
+                        repr(grain.level),
+                        "Use a level declared by the consumed calendar.",
+                        "Metric.window",
+                    )
+                if (
+                    calendar is not None
+                    and calendar.grid.calendar_snapshot is not None
+                    and calendar.grid.calendar_snapshot.calendar_ref == snapshot.calendar_ref
+                    and calendar.grid.snapshot_digest != snapshot.snapshot_digest
+                ):
+                    reject(
+                        "one certified snapshot for the output and reset calendar",
+                        repr((calendar.grid.snapshot_digest, snapshot.snapshot_digest)),
+                        "Build the output axis and Metric in the same completed Session scope.",
+                        "Metric.window",
+                    )
+                assert grain.calendar is not None and grain.level is not None
+                rule = ToDate(
+                    semantic_grain(calendar=grain.calendar, level=grain.level, snapshot=snapshot)
+                )
         if rule is not None:
             rules[path] = rule
         for edge in children(node):
@@ -188,7 +239,6 @@ def bind_windows(
                     )
                 grid = calendar.grid
                 if grid.calendar_snapshot is not None:
-                    from marivo._temporal import semantic_grain
                     from marivo.refs import ref
 
                     calendar_path, level = grid.grain_token.split("::", 1)
@@ -242,6 +292,11 @@ def bind_windows(
                     occurrence=(*contribution.occurrence, index),
                     logical_occurrence=contribution.occurrence,
                     window_key=index if calendar is not None else None,
+                    window_calendar_digest=(
+                        rule.grain._snapshot.snapshot_digest
+                        if isinstance(rule, ToDate) and rule.grain._snapshot is not None
+                        else None
+                    ),
                     period=ObservationPeriod(
                         None if start is None else anchor_from_datetime(start),
                         anchor_from_datetime(end),

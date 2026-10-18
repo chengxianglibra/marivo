@@ -582,7 +582,7 @@ def _publish_declarations(
     Collection never executes a domain or reads a source.
     """
     from marivo._definition.expressions import MetricNode
-    from marivo._definition.graph import walk
+    from marivo._definition.graph import direct_calendar_refs, walk
     from marivo._definition.types import DefinitionGraphError
     from marivo.semantic._deferred_semantics import consume_metric, consume_row
     from marivo.semantic.errors import SemanticExpressionError
@@ -684,7 +684,11 @@ def _publish_declarations(
                     )
                 )
                 continue
-            scope_error = _closure_scope_error(full, value, closure.refs, defined)
+            consumed = frozenset(
+                {exact.ref for exact in closure.refs}
+                | {ref for node in closure.order for ref in direct_calendar_refs(node)}
+            )
+            scope_error = _closure_scope_error(full, value, consumed, defined)
             if scope_error is not None:
                 errors.append(scope_error)
                 continue
@@ -731,7 +735,7 @@ _MISSING_REF_KINDS: tuple[tuple[SemanticKind, ErrorKind], ...] = (
 def _closure_scope_error(
     full: str,
     value: Deferred,
-    consumed: frozenset[ExactRef],
+    consumed: frozenset[Ref[SemanticKindTag]],
     defined: Mapping[str, SemanticKind],
 ) -> SemanticError | None:
     """Reject a closure that consumes a definition this model scope does not declare.
@@ -741,11 +745,11 @@ def _closure_scope_error(
     """
     from marivo.semantic.errors import SemanticExpressionError
 
-    missing = sorted(exact.ref.key for exact in consumed if exact.ref.path not in defined)
+    missing = sorted(ref.key for ref in consumed if ref.path not in defined)
     miskinded = sorted(
-        f"{exact.ref.key} (declared here as {defined[exact.ref.path].value})"
-        for exact in consumed
-        if exact.ref.path in defined and defined[exact.ref.path] is not exact.ref.kind
+        f"{ref.key} (declared here as {defined[ref.path].value})"
+        for ref in consumed
+        if ref.path in defined and defined[ref.path] is not ref.kind
     )
     if missing:
         missing_kinds = {key.split(":", 1)[0] for key in missing}
@@ -761,7 +765,7 @@ def _closure_scope_error(
             kind=kind,
             message=f"{full} consumes definitions this model does not declare.",
             refs=(full,),
-            expected="every consumed Entity, field and Metric declared in the loaded models",
+            expected="every consumed Entity, field, Metric and calendar declared in the loaded models",
             received=", ".join(missing[:8]),
             action=(
                 "Build the declaration from values resolved in this model "

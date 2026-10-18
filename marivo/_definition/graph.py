@@ -73,8 +73,9 @@ from marivo._definition.types import (
     invalid,
     literal_token,
 )
+from marivo._definition.windows import ToDate
 from marivo._temporal import Grain as TemporalGrain
-from marivo.refs import Ref
+from marivo.refs import PeriodCalendarKind, Ref
 
 DefinitionNode: TypeAlias = (
     RowNode
@@ -380,6 +381,29 @@ def direct_refs(root: DefinitionNode | FieldPredicate) -> frozenset[ExactRef]:
             continue
         seen.add(id(node))
         _consumed_refs(node, found)
+        pending.extend(edge.child for edge in children(node))
+    return frozenset(found)
+
+
+def direct_calendar_refs(root: DefinitionNode) -> frozenset[Ref[PeriodCalendarKind]]:
+    """Calendar lookup dependencies of window rules, without definition versions.
+
+    Declared Metric references remain edges to their own published dependencies.
+    A Grain's captured snapshot is not an authored dependency graph.
+    """
+    found: set[Ref[PeriodCalendarKind]] = set()
+    pending = [root]
+    seen: set[int] = set()
+    while pending:
+        node = pending.pop()
+        if id(node) in seen:
+            continue
+        seen.add(id(node))
+        if isinstance(node, MetricWindow) and isinstance(node.rule, ToDate):
+            grain = node.rule.grain
+            if grain.kind == "semantic":
+                assert grain.calendar is not None
+                found.add(grain.calendar)
         pending.extend(edge.child for edge in children(node))
     return frozenset(found)
 
