@@ -321,10 +321,15 @@ class Session:
 
         Args:
             metrics: Nonempty ordered mapping of names to resolved Metric expressions.
-            during: TimeScope filters only; CalendarAxis also adds time buckets. None adds no time filter.
+            during: TimeScope filters only; CalendarAxis also adds time buckets and must
+                match an observation calendar in the complete output domain. None adds no time filter.
             by: Output classifications. Empty () evaluates overall Metrics per time bucket,
                 or one scalar without a CalendarAxis. Nonempty fields add grouping axes.
             where: Field condition appended separately to each contribution occurrence.
+                For member_count, conditions must be single-valued on the explicit members
+                without reselecting that identity domain.
+            members: One complete Entity identity Population restricting contributions
+                independently of output grouping; member_count counts this explicit domain.
         Returns: An immutable Query owned by this Session.
         Example: ``query = session.observe({'revenue': revenue, 'aov': aov})``.
         Constraints: Binds ordinary fields, conditions and time without schema/business reads or a Run. execute() prepares, evaluates and atomically publishes ordinary numeric output to Store 11. Artifact reads committed output without current-source or Catalog access. Artifact objects and IDs are not Metric inputs.
@@ -430,7 +435,11 @@ class Session:
             if isinstance(graph.root, ResultQuery)
             or (
                 observation is not None
-                and (observation.contributions or observation.coordinates.population is not None)
+                and (
+                    observation.contributions
+                    or observation.coordinates.population is not None
+                    or observation.member_population is not None
+                )
             )
             else None
         )

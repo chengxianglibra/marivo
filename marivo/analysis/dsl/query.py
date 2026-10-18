@@ -9,7 +9,7 @@ from typing import Literal, TypeAlias
 from ibis.common.deferred import Deferred
 
 from marivo._definition.correspondence import ComparisonAxis, Correspondence, CorrespondenceAxis
-from marivo._definition.expressions import MetricNode
+from marivo._definition.expressions import ContributionFilter, MetricNode
 from marivo._definition.query import (
     CombineValues,
     CoordinateSlot,
@@ -147,7 +147,7 @@ class Query:
                 ResultQuantity(
                     name,
                     field.unit,
-                    "numeric" if field.reference.ref.kind.value == "measure" else "unresolved",
+                    "unresolved",
                 )
             )
         unique = tuple(dict.fromkeys(reads))
@@ -338,14 +338,17 @@ class Query:
                     "Resolve a Metric expression; Artifact objects and IDs are terminal outputs, not computation inputs.",
                     "session.observe",
                 )
-            if isinstance(where, PopulationPredicate):
-                metric = metric.where(where)
             facts = (
                 consume_metric_in_state(metric, state)
                 if state is not None
                 else consume_metric(metric)
             )
-            quantities.append(BoundQuantity(name, facts.node, facts.unit))
+            definition = (
+                ContributionFilter(facts.node, where.condition)
+                if isinstance(where, PopulationPredicate)
+                else facts.node
+            )
+            quantities.append(BoundQuantity(name, definition, facts.unit))
             definitions.update(facts._declared)
         if not isinstance(by, (tuple, Population)):
             reject(
@@ -627,18 +630,37 @@ class Query:
                 )
             quantities_list: list[ResultQuantity] = []
             for quantity in left.quantities:
-                if quantity.unit != lookup[quantity.name].unit:
+                baseline_quantity = lookup[quantity.name]
+                if quantity.unit != baseline_quantity.unit:
                     reject(
                         "matching endpoint units",
-                        repr((quantity.unit, lookup[quantity.name].unit)),
+                        repr((quantity.unit, baseline_quantity.unit)),
                         "Compare quantities with the same declared unit.",
                         "Query.compare",
                     )
+                current_kind = (
+                    quantity.kind if isinstance(quantity, ResultQuantity) else "unresolved"
+                )
+                baseline_kind = (
+                    baseline_quantity.kind
+                    if isinstance(baseline_quantity, ResultQuantity)
+                    else "unresolved"
+                )
                 quantities_list.extend(
                     ResultQuantity(
-                        f"{quantity.name}.{role}", None if role == "relative" else quantity.unit
+                        f"{quantity.name}.{role}",
+                        None if role == "relative" else quantity.unit,
+                        kind,
                     )
-                    for role in ("current", "baseline", "absolute", "relative")
+                    for role, kind in (
+                        ("current", current_kind),
+                        ("baseline", baseline_kind),
+                        (
+                            "absolute",
+                            current_kind if current_kind == baseline_kind else "unresolved",
+                        ),
+                        ("relative", "numeric"),
+                    )
                 )
             quantities = tuple(quantities_list)
         root = ResultQuery(
@@ -689,6 +711,7 @@ class Query:
         Returns: current/baseline/absolute/relative values and independent presence.
         Example: ``current.compare(previous, match=mv.previous_year())``.
         Constraints: Relative difference divides by the absolute baseline.
+        Duration endpoints and absolute differences retain Duration kind; relative is numeric.
         """
         return self._combine(
             baseline,

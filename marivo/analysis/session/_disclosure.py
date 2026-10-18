@@ -373,8 +373,10 @@ def provider() -> DisclosureProvider:
                         if n == "run_id" and name == "abandon_run"
                         else "Empty () computes overall Metrics within each time bucket, or one scalar without a CalendarAxis. Nonempty fields/membership descriptors add output axes. A Population or member() with members=P includes identities without facts; classifications must be single-valued on P."
                         if name == "observe" and n == "by"
-                        else "TimeScope filters the period without grouping; CalendarAxis adds time buckets independently of by; None adds no time filter."
+                        else "TimeScope filters without grouping; CalendarAxis adds time buckets and must match an existing output calendar; None adds no time filter."
                         if name == "observe" and n == "during"
+                        else "Pass a Field predicate or closed PopulationPredicate; member_count requires single-valued conditions on the explicit members without reselecting them."
+                        if name == "observe" and n == "where"
                         else acquisition[n],
                     )
                     for n in signature(value).parameters

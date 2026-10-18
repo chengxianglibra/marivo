@@ -469,7 +469,9 @@ def execute(
                 has_sources = isinstance(graph.root, ResultQuery) or (
                     observation is not None
                     and bool(
-                        observation.contributions or observation.coordinates.population is not None
+                        observation.contributions
+                        or observation.coordinates.population is not None
+                        or observation.member_population is not None
                     )
                 )
                 prepared = None

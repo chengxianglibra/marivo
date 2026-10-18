@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import timedelta
 from functools import partial
 from typing import TYPE_CHECKING
 
@@ -228,6 +229,8 @@ def expression_value(
     if isinstance(expression, PresenceSlot):
         return ibis.null().cast("boolean")
     if isinstance(expression, ValueLiteral):
+        if isinstance(expression.value, timedelta) and expression.value == timedelta(0):
+            return ibis.interval(0, unit="us")
         if type(expression.value) is int and not -(2**63) <= expression.value < 2**63:
             from decimal import Decimal
 
@@ -566,6 +569,14 @@ def plan_result(
                 )
                 output: DurationDataType | ScalarDataType
                 if isinstance(left, DurationDataType) and isinstance(right, DurationDataType):
+                    if isinstance(
+                        expression.left, ValueLiteral
+                    ) and expression.left.value == timedelta(0):
+                        left = right
+                    if isinstance(
+                        expression.right, ValueLiteral
+                    ) and expression.right.value == timedelta(0):
+                        right = left
                     if left != right:
                         reject(
                             "matching exact Duration units",

@@ -248,6 +248,11 @@ requests a complete output domain. The requested domain must cover every consume
 contribution coordinate. `members` is a separate single-identity constraint and
 does not imply that this identity is an output axis.
 
+`member_count()` can be the only observed Metric, including on an empty or
+literal identity domain. Its member domain is an execution dependency even when
+no source reduction contributes values. Common conditions must be single-valued
+on that identity domain; they do not replace the selected members.
+
 Each source reduction occurrence retains its intrinsic conditions and receives
 common conditions independently. Multi-root Metrics reduce each fact root under
 its own identity and time role before combining complete output keys. Relations
@@ -276,6 +281,8 @@ retain factor order and exact bindings. A calendar does not infer a Metric
 window: window endpoints are bound through the observation's `during`.
 `during=None` adds no ordinary time filter, while temporal sampling and window
 closures still require their own explicit period or endpoint.
+When `by=Population` already contains an observation calendar, it must match the
+calendar supplied by `during`; conflicting bindings reject during construction.
 
 Metric.window is the only window attachment. `all_history`, `trailing_duration`,
 `trailing_periods`, `since` and `to_date` are axis-free immutable rules. Each
@@ -294,6 +301,8 @@ alignment or complete reference transport. `select` preserves output names and
 units. `top` breaks ties by complete keys and preserves its selected display
 order. `reduce` provides sum, mean and row_count over current represented cells;
 it does not recompute the original Metric.
+For Duration expressions, a zero `timedelta` literal adopts the other operand's
+exact tick unit; nonzero operands retain the matching-tick requirement.
 
 Source recomputation by rollup/drill may read changed data after the parent read.
 Parent where/Top completes its checks and fixes complete selected keys; the target
@@ -305,13 +314,20 @@ This applies to every datasource, including DuckDB, PostgreSQL and MySQL. Neithe
 a base-table kind nor a transactional storage engine is required to keep the
 parent and recomputation data unchanged. Physical types, key collations and
 numeric-method qualifications remain independent requirements.
+New drill classifications may follow declared scalar paths to related Entities
+after filtering, ranking, original-column selection or original rollup, under
+the same selected-parent and attribute-version rules.
 
 Alignment, comparison, broadcast, original rollup, endpoint drill and share follow
 the [target operator contract](lazy-analysis-dsl-redesign.md#46-查询结果与值表达式)
 and require their qualified physical route. Correspondence checks complete unique keys;
 presence is independent of nullable values. A relative comparison divides the
 absolute difference by the absolute baseline and owns only its new denominator
-policy. General arithmetic never acquires a share contribution proof.
+policy. Decimal comparison arithmetic is independent of the caller's Decimal
+precision context. Matching-tick Duration endpoints retain Duration current,
+baseline and absolute columns; their relative difference is numeric. Unknown
+endpoint kinds remain unresolved until schema preparation.
+General arithmetic never acquires a share contribution proof.
 
 ## Definition graph and compiler
 

@@ -10,6 +10,7 @@ from numbers import Integral, Real
 from typing import Literal
 
 import pandas as pd
+import pyarrow as pa
 
 from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.types import CalendarCoordinate, literal_token
@@ -22,7 +23,12 @@ from marivo.analysis.binding.correspondence import (
     broadcast_mapping,
     fail,
 )
-from marivo.analysis.core.data_types import DataColumn, DecimalDataType, ScalarDataType
+from marivo.analysis.core.data_types import (
+    DataColumn,
+    DecimalDataType,
+    DurationDataType,
+    ScalarDataType,
+)
 from marivo.analysis.methods.numeric_state import nullable_arithmetic
 from marivo.semantic.errors import SemanticExpressionError
 
@@ -260,7 +266,9 @@ def _typed_frame(endpoint: ComparisonEndpoint, rows: list[dict[str, object]]) ->
                     else row[column.slot_id]
                     for row in rows
                 ],
-                dtype="boolean"
+                dtype=pd.ArrowDtype(pa.duration(column.dtype.unit))
+                if isinstance(column.dtype, DurationDataType)
+                else "boolean"
                 if column.dtype == ScalarDataType("boolean")
                 else "float64"
                 if column.dtype == ScalarDataType("float64")
@@ -327,7 +335,9 @@ def compare_frames(
         # Only complete non-NA endpoint pairs demand the new relative denominator.
         denominator = pd.Series(
             [
-                abs(value) if pd.notna(value) and pd.notna(a.iloc[position]) else pd.NA
+                (value.copy_abs() if isinstance(value, Decimal) else abs(value))
+                if pd.notna(value) and pd.notna(a.iloc[position])
+                else pd.NA
                 for position, value in enumerate(b)
             ],
             dtype=object,

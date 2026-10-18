@@ -83,6 +83,16 @@ keys_only.execute().show()
 复合主键仍是一个身份轴，包含按声明顺序排列的全部分量。identities 只接已解析 Entity，
 裸 Ref 须先通过 catalog 解析。
 
+显式身份域也可以单独计数，无须搭配其他 Metric：
+
+```python
+people = session.members(ms.ref.entity("sales.customers"))
+headcount = session.observe({"people": mv.member_count()}, members=people)
+headcount.execute().show()
+```
+
+空身份域的计数为零。共同条件必须能在成员 Entity 上单值解释，并保留已选身份域。
+
 `query.coord(axis)` 定位标量坐标 Column；构造不读取来源，准备期在 Run 准入和业务编译/读取前
 拒绝把复合身份作为单量。完整身份仍保留为输出键，元组筛选用
 `query.population()` 与 `mv.in_population(...)`；需要单量坐标值时使用已有单字段轴。
@@ -195,6 +205,15 @@ CLI `marivo help <target>` 和 Python Help 使用同一注册表，CLI 页面直
 已有分组 Query 可通过 `query.rollup(by=(calendar,))` 保留时间桶并计算小计，
 或通过 `query.rollup()` 计算整体标量。比例和平均值会从原始贡献重新计算。
 导出结果前，分别执行并保存每种需要的输出粒度。
+
+经过 `where`、`top`、原指标列 `select` 或 `rollup` 后，
+`drill(add=(field,))` 可沿合法标量路径增加关联 Entity 的分类，同时保留已选父键。
+完整输出 Population 与 `during` 都提供观察日历时，两者必须使用相同绑定。
+
+`compare` 的 Duration 端点 tick 单位相同时，current、baseline 和 absolute 列保留
+Duration 类型，relative 列为数值。这些 Duration 列可用兼容的 `timedelta` 字面量筛选；
+零时长使用该列的 tick 单位。
+Decimal 相对变化的计算不受调用方 Decimal 精度上下文影响。
 
 已解析的字段通过 `==`、`!=`、`<`、`<=`、`>`、`>=` 构造谓词，
 通过 `&`、`|`、`~` 组合带括号的谓词，通过 `field.isin(values)` 判断字面值集合成员关系。

@@ -270,7 +270,7 @@ def provider() -> DisclosureProvider:
             (
                 P(
                     "baseline",
-                    "Same-Session Query with the same nonempty numeric value names and units.",
+                    "Same-Session Query with matching nonempty value names and units; numeric or matching-tick Duration endpoints.",
                 ),
                 P("match", "Explicit axis-free correspondence or None."),
                 P("how", "exact or outer."),

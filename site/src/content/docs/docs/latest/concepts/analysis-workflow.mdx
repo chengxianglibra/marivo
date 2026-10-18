@@ -91,6 +91,17 @@ requires the resolved Entity; resolve a bare Ref through the catalog first.
 `session.members` requires an Entity Ref and reports a typed repair when passed
 a resolved Entity instead.
 
+An explicit identity domain can also be counted without another Metric:
+
+```python
+people = session.members(ms.ref.entity("sales.customers"))
+headcount = session.observe({"people": mv.member_count()}, members=people)
+headcount.execute().show()
+```
+
+An empty identity domain has count zero. Common conditions must be single-valued
+on the member Entity and preserve the selected identity domain.
+
 `query.coord(axis)` locates a scalar coordinate Column. Construction does not read
 sources; preparation rejects a composite identity as one quantity before admitting
 a Run or compiling/reading business data. Keep complete identity keys in the output
@@ -220,6 +231,17 @@ or one scalar without a calendar axis. `during=TimeScope` only filters time;
 `query.rollup(by=(calendar,))` to retain time buckets, or `query.rollup()` for
 a scalar. Original ratios and averages are recomputed from contributions.
 Execute and save each requested output grain before exporting results.
+
+After `where`, `top`, original-column `select` or `rollup`, `drill(add=(field,))`
+can add a related Entity's classification through a valid scalar path while
+retaining the selected parent keys. A complete output Population's calendar must
+match `during` when both supply the observation calendar.
+
+`compare` retains Duration current, baseline and absolute columns when endpoint
+tick units match; relative changes are numeric. These Duration columns can be
+filtered with compatible `timedelta` literals; zero uses the column's tick unit.
+Decimal relative changes are independent of
+the caller's Decimal precision context.
 
 Resolved fields form predicates with `==`, `!=`, `<`, `<=`, `>`, `>=`.
 Combine parenthesized predicates with `&`, `|`, and `~`; literal membership uses

@@ -14,7 +14,14 @@ from marivo._definition.expressions import (
     SourceWeightedMean,
 )
 from marivo._definition.graph import walk
-from marivo._definition.query import DrillValues, LiteralValues, ResultQuery, operation_dependencies
+from marivo._definition.query import (
+    DrillValues,
+    LiteralValues,
+    ResultQuery,
+    SelectValues,
+    ValueSlot,
+    operation_dependencies,
+)
 from marivo._definition.types import AxisBinding, ExactRef
 from marivo.analysis.compiler.graph_plan import SourceRead, SourceSchema, plan_query
 from marivo.analysis.compiler.original import contribution_root
@@ -30,21 +37,30 @@ if TYPE_CHECKING:
 
 
 def query_roots(graph: BoundGraph) -> tuple[ExactRef, ...]:
+    """Find retained original roots even when captured results carry only value metadata."""
+    source = graph
+    positions = tuple(range(len(graph.signature.quantities)))
+    while isinstance(source.root, ResultQuery):
+        if not source.root.inputs:
+            return ()
+        if isinstance(source.root.operation, SelectValues):
+            expressions = tuple(source.root.operation.values[index][1] for index in positions)
+            positions = tuple(
+                expression.index for expression in expressions if isinstance(expression, ValueSlot)
+            )
+        source = input_graph(source.root.inputs[0])
     nodes = tuple(
         quantity.definition
-        for quantity in graph.signature.quantities
-        if isinstance(quantity, BoundQuantity)
+        for index, quantity in enumerate(source.signature.quantities)
+        if index in positions and isinstance(quantity, BoundQuantity)
     )
-    closure = walk(nodes, resolve=dict(graph.signature.declared_metrics).get).order
+    closure = walk(nodes, resolve=dict(source.signature.declared_metrics).get).order
     roots = tuple(
         contribution_root(node)
         for node in closure
         if isinstance(node, (SourceAggregate, SourceWeightedMean, EntityCount))
     )
     if any(isinstance(node, MemberCount) for node in closure):
-        source = graph
-        while isinstance(source.root, ResultQuery):
-            source = input_graph(source.root.inputs[0])
         observation = source.signature.observation
         if observation is not None and observation.members is not None:
             roots = (

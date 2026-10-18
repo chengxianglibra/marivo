@@ -140,6 +140,19 @@ def bind_observation(
             ),
             grid.calendar_snapshot,
         )
+        if any(isinstance(axis, CalendarCoordinate) and axis != calendar_coordinate for axis in by):
+            reject(
+                "an output Population compatible with the during calendar",
+                repr(
+                    tuple(
+                        (axis.identity, axis.grain, axis.timezone)
+                        for axis in by
+                        if isinstance(axis, CalendarCoordinate)
+                    )
+                ),
+                "Build the complete output domain with the same CalendarAxis passed to during.",
+                "session.observe",
+            )
         if calendar_coordinate not in by:
             axes.append(calendar_coordinate)
     axes.extend(
@@ -234,6 +247,52 @@ def bind_observation(
                     "Pass members=mv.identities(...) or a source identity Population.",
                     "Session.observe",
                 )
+            row_conditions = tuple(
+                predicate for predicate in filters if isinstance(predicate, RowExpression)
+            )
+            population_conditions = tuple(
+                predicate for predicate in filters if not isinstance(predicate, RowExpression)
+            )
+            if row_conditions or population_conditions or condition is not None:
+                assert state is not None and resolver is not None and paths is not None
+                identity_axis = members.axes[0]
+                assert isinstance(identity_axis, AxisBinding)
+                for predicate in (
+                    *row_conditions,
+                    *((condition,) if condition is not None else ()),
+                ):
+                    for condition_read in _predicate_reads(predicate, state, resolver):
+                        bind_read(
+                            condition_read, identity_axis.entity, state.registry, resolver, paths
+                        )
+                from marivo._definition.relations import condition_populations
+
+                for predicate in population_conditions:
+                    for condition_domain in condition_populations(predicate):
+                        for axis in condition_domain.axes:
+                            if not isinstance(axis, AxisBinding):
+                                reject(
+                                    "entity or field coordinates for a member condition",
+                                    type(axis).__name__,
+                                    "Select member identities before applying in_population.",
+                                    "session.observe",
+                                )
+                            if axis.field is not None:
+                                bind_read(
+                                    FieldRead(axis.field, axis.entity, axis.path, axis.at),
+                                    identity_axis.entity,
+                                    state.registry,
+                                    resolver,
+                                    paths,
+                                )
+                            else:
+                                bind_identity(
+                                    IdentityRead(axis.entity, axis.path, axis.at),
+                                    identity_axis.entity,
+                                    state.registry,
+                                    resolver,
+                                    paths,
+                                )
             return
         if isinstance(node, (PerReduce, PerWeightedMean)):
             domain = node.samples
