@@ -3,6 +3,23 @@ title: 分析工作流
 description: 组合语义表达式、显式坐标域和窗口，再发布终端结果。
 ---
 
+## 按下一步决策读取指引
+
+`marivo-analysis` Skill 负责证据缺口、方法选择、语义交接和完成判断。
+未知能力从 `marivo.help("analysis")` 开始，沿相关意图找到精确契约。
+已有 Population 或 Query、但不确定后续操作时，查看 `.contract().show()`。
+已保存的 Artifact 没有 contract，应查看 `.show()` 和保存的 Evidence。
+实际执行才检验来源与方法资格；逻辑 contract 本身不证明这些能力。
+
+卡片通过有界的范围摘要区分成员选择与完整输出坐标域。执行后，此声明范围保存为
+Evidence，供以后读取。读取级 filters 只描述对应来源 stage，不枚举全部群体限制，
+也不证明来源完整。
+
+仅在不知道输入身份时浏览 `session.catalog.metrics.show()`。
+用 `session.catalog.describe(ms.ref.metric("sales.revenue")).show()` 检查定义元数据，
+再用 `session.catalog.metrics.get("sales.revenue")` 取得可执行表达式。
+Metric 和 Field 表达式不提供 Catalog 卡片。
+
 ## 从 Metric 构造 Query
 
 从已声明的模型解析业务表达式。构造 Query 不读取 schema 或业务行，也不创建 Run。

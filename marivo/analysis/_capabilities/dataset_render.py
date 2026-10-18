@@ -150,6 +150,10 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
         if "ms." in descriptor.example.code:
             prelude_lines.append("import marivo.semantic as ms")
         prelude_lines.extend(name + " = mv." + name for name in bindings)
+        # Owner examples may already include the canonical imports or bindings.
+        # Add only the missing prelude lines so copyable snippets stay concise.
+        existing_lines = set(descriptor.example.code.splitlines())
+        prelude_lines = [line for line in prelude_lines if line not in existing_lines]
         prelude = "\n".join(prelude_lines) + ("\n" if prelude_lines else "")
         lines.extend(
             (

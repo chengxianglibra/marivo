@@ -93,6 +93,47 @@ def test_named_metric_population_dependency_owns_its_window_scope(
     assert producer.execute().to_pandas()[("value", "total")].tolist() == [150, 927]
 
 
+def test_members_scalar_predicate_retains_its_relationship_sources(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    session = case.session
+    region = session.catalog.fields.get("sales.customer.region")
+    buyer = session.catalog.relationships.get("sales.order_buyer")
+    orders = session.members(ms.ref.entity("sales.order"), where=region.via((buyer,)) == "east")
+    keys = session.query(orders).execute().to_pandas()
+    assert keys.iloc[:, 0].tolist() == ["j1_a", "j1_b", "j1_july", "j1_september"]
+    revenue = session.catalog.metrics.get("sales.revenue")
+    result = (
+        session.observe(
+            {"revenue": revenue},
+            during=session.time_scope(start="2026-08-01", end="2026-09-01"),
+            members=orders,
+        )
+        .execute()
+        .to_pandas()
+    )
+    assert result[("value", "revenue")].tolist() == [600]
+
+
+def test_members_scalar_predicate_retains_intermediate_relationship_sources(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j3")
+    session = case.session
+    customer_id = session.catalog.fields.get("sales.customer.customer_id")
+    path = (
+        session.catalog.relationships.get("sales.line_order"),
+        session.catalog.relationships.get("sales.order_buyer"),
+    )
+    lines = session.members(ms.ref.entity("sales.order_line"), where=customer_id.via(path) == "A")
+    keys = session.query(lines).execute().to_pandas()
+    assert keys.iloc[:, 0].tolist() == ["j3_l1", "j3_l2"]
+    revenue = session.catalog.metrics.get("sales.line_revenue")
+    result = session.observe({"revenue": revenue}, members=lines).execute().to_pandas()
+    assert result[("value", "revenue")].tolist() == [100]
+
+
 def test_per_completes_ratio_per_sample_and_retains_empty_samples(
     semantic_project_factory: Callable[..., SemanticProject],
     tmp_path: Path,

@@ -14,42 +14,28 @@ answer is sufficient.
 
 Governed semantic objects own reusable business meaning. The Analysis DSL owns
 typed computation and Evidence. `marivo.help("analysis")` provides progressive
-discovery; focused Help owns signatures, constraints, and examples. `.show()`
-exposes committed result state. Population and Query `.contract()` own
-mechanically valid continuations; terminal Artifacts have no computation
-contract. Structured errors own repair. A valid continuation need not
-be useful to the question; successful execution alone does not answer it.
+discovery; focused Help owns signatures, constraints, and examples. Population
+and Query `.contract()` expose captured logical facts and available actions.
+Artifact `.show()` exposes committed result state; terminal
+Artifacts have no computation contract. Structured errors own repair. A logical
+action need not be useful to the question or qualified for the selected source;
+successful execution alone does not answer the question.
 
 Use the host-selected verified environment. Consult live guidance when the next
 decision needs it, without reconstructing API contracts from memory or private
 implementation details.
 
-## Construction and reusable meaning
+## Governed inputs and question-scoped meaning
 
-Physical authoring captures lookup keys before dependency closure. Finalize the
-complete physical scope before consuming immutable values; resolve needed
-fields from that same frozen scope. Keep capture and expression composition in
-order. Missing dependencies are capture repairs, not permission to discard an
-Ibis forward reference or refresh a value already returned.
-Do not require original semantic-definition versions or reject an input solely
-because a same-path definition changed. The agent/user accepts the consequences
-of semantic changes during analysis. Keep kind, root, grain, unit, time-role and
-null checks; fingerprints/cache keys must describe actual consumed definitions,
-and persisted records keep their owning contracts. Resolving consumers use their
-complete scope; this does not refresh immutable values or replay authoring.
+Compose question-scoped quantities over governed inputs when their business
+meaning and required aggregation authority are established. Naming a local
+quantity does not require reusable publication. A new business assertion, such
+as authorizing a row quantity to be summed, belongs to the semantic workflow
+when that authority is unresolved.
 
-Compose question-scoped row reductions and completed Metrics from constructed
-semantic values. A zero-argument Metric declaration can name a local definition
-without model registration; output labels do not require reusable publication.
-A new row quantity that needs additional sum permission is a Measure business
-assertion and must retain its source, units and fixed time constraints. Use the
-semantic workflow when that business authority is unresolved.
-
-Construction, Catalog publication and execution are separate capabilities. A
-constructed expression or successful leaf load is not evidence that a Session
-can execute the new expression path. Use current Help and actual checks to state
-which boundary is available; do not fall back to retired Ref-based factories or
-Ibis Metric callbacks.
+Use live Help for construction and resolution rules. Construction, Catalog
+availability, and execution support are separate facts; establish the boundary
+needed by the question without treating one as proof of another.
 
 ## Analytical judgment
 
@@ -103,12 +89,19 @@ Choose work that can materially change a required answer, recommendation, or
 limitation. Prefer the smallest sufficient typed analysis chain and batch known,
 compatible work into one decision round.
 
-For an unknown capability, start with `marivo.help("analysis")` and follow the
-selected intent and its prerequisites. For a Population or Query, use its
-contract and exact Help target when the next action is uncertain. Read a
-terminal Artifact through its output and evidence interfaces. Stop browsing once the
-available guidance supports the next useful operation. Connectivity and semantic
-readiness alone do not establish method execution support.
+Choose disclosure according to the unresolved decision:
+
+- For an unknown method or missing input, start with `marivo.help("analysis")`
+  and follow the relevant intent or input route.
+- For an existing Population or Query, inspect its contract for captured facts
+  and actions; follow the exact Help target when syntax or
+  constraints are unclear.
+- For a saved Artifact, inspect committed output and Evidence. Use recovery
+  guidance when the saved identity or Session is missing; fresh source values
+  require a new Query execution.
+
+Stop browsing when the guidance supports the next useful operation. Connectivity
+and semantic readiness alone do not establish method execution support.
 
 Compose known Population and Query dependencies before executing. Execute
 when values are needed for interpretation or delivery. If the next choice

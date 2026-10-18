@@ -3,9 +3,18 @@
 from pathlib import Path
 
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo
+import marivo.analysis as mv
+import marivo.semantic as ms
+from marivo._authoring.model import AuthoringCapability
 from marivo._help import help as show_help
+from marivo.datasource.adapters import SourceSession
+from marivo.semantic._capabilities.catalog_members import CATALOG_MEMBER_CONTRACTS
+from marivo.semantic._capabilities.registry import REGISTRY as SEMANTIC_REGISTRY
+from marivo.semantic.expressions import Entity
+from tests.shared_fixtures import DslCaseFactory, rendered_help
 
 
 @pytest.mark.parametrize(
@@ -73,3 +82,62 @@ def test_time_scope_help_routes_to_calendar_capable_producer(
     with pytest.raises(ValueError, match="frozen timezone"):
         civil.by(mv.grain("day"))
     assert session.runs().items == ()
+
+
+def test_catalog_discovery_separates_definitions_from_execution_values(
+    analysis_dsl_case_factory: DslCaseFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    case = analysis_dsl_case_factory("j2")
+    catalog = case.session.catalog
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Catalog discovery opened or read a source")
+
+    monkeypatch.setattr(SourceSession, "__enter__", forbidden)
+    monkeypatch.setattr(SourceSession, "execute", forbidden)
+    show_help("analysis.catalog")
+    guidance = capsys.readouterr().out
+    assert "collection.show()" in guidance and "collection.refs" in guidance
+    assert "catalog.describe(ref).show()" in guidance
+    assert "Deferred" in guidance and "show()/contract()" in guidance
+    show_help("semantic.SemanticCatalog.describe")
+    assert "ExpressionContract" in capsys.readouterr().out
+
+    metric_ref = ms.ref.metric("sales.revenue")
+    field_ref = ms.ref.dimension("sales.customer.region")
+    entity_ref = ms.ref.entity("sales.customer")
+    for collection, ref in (
+        (catalog.metrics, metric_ref),
+        (catalog.fields, field_ref),
+        (catalog.entities, entity_ref),
+    ):
+        collection.show()
+        assert ref.path in capsys.readouterr().out
+        assert ref in collection.refs
+        catalog.describe(ref).show()
+        assert ref.path in capsys.readouterr().out
+
+    metric = catalog.metrics.get(metric_ref)
+    field = catalog.fields.get(field_ref)
+    entity = catalog.entities.get(entity_ref)
+    assert isinstance(metric, Deferred) and isinstance(catalog.require(metric_ref), Deferred)
+    assert isinstance(field, Deferred) and isinstance(catalog.require(field_ref), Deferred)
+    assert isinstance(entity, Entity) and isinstance(catalog.require(entity_ref), Entity)
+    query = case.session.observe({"revenue": metric}, by=(field,))
+    population = case.session.members(entity_ref)
+    assert isinstance(query, mv.Query) and query.contract().kind == "Query"
+    assert population.contract().kind == "Population"
+    assert case.session.runs().items == ()
+
+
+def test_catalog_focused_help_preserves_owning_output_families() -> None:
+    for member in CATALOG_MEMBER_CONTRACTS:
+        page = rendered_help("analysis.catalog." + member.property_name)
+        assert f"Result: CatalogCollection[{member.item_type_name}]\n" in page
+    for name, target in (("require", "SemanticCatalog.require"), ("readiness", "readiness")):
+        contract = SEMANTIC_REGISTRY.by_canonical_id(target)
+        assert isinstance(contract, AuthoringCapability)
+        page = rendered_help("analysis.catalog." + name)
+        assert f"Result: {contract.output_family}\n" in page

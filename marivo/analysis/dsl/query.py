@@ -46,6 +46,7 @@ from marivo._definition.types import (
 )
 from marivo._temporal import PeriodCalendarSnapshotV1, TimeScope
 from marivo.analysis._contract import AnalysisAction, AnalysisContract
+from marivo.analysis._scope import scope_summary
 from marivo.analysis.binding.observe import bind_observation
 from marivo.analysis.core.graph import BoundGraph, capture_query
 from marivo.analysis.core.model import BoundQuantity, BoundSignature, ResultQuantity, reject
@@ -1207,6 +1208,7 @@ class Query:
             quantity=f"{len(quantities)} named Metric outputs",
             _facts=(
                 ("definition", self._graph.fingerprint),
+                ("scope", scope_summary(self._graph.root, observation)),
                 ("physical_dtype", "unresolved; schema-only preparation belongs to execution"),
                 ("execution", "Query.execute() atomically publishes terminal output"),
                 ("output", "terminal Artifact; preview, complete pandas export and saved facts"),
@@ -1226,7 +1228,7 @@ class Query:
                 ),
                 ("axes", str(len(self._graph.signature.axes))),
                 (
-                    "where",
+                    "field_where",
                     repr(observation.condition)[:400]
                     if observation and observation.condition is not None
                     else "None",

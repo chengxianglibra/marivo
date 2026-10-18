@@ -76,9 +76,10 @@ def population_entities(
         node = definition.root
         if isinstance(node, SourceIdentities):
             entities.add(node.entity.ref.path)
-            if node.predicate is not None and not isinstance(node.predicate, RowExpression):
-                for domain in condition_populations(node.predicate):
-                    entities.update(population_entities(domain, state))
+            if node.predicate is not None:
+                if not isinstance(node.predicate, RowExpression):
+                    for domain in condition_populations(node.predicate):
+                        entities.update(population_entities(domain, state))
                 if state is not None:
                     contribution = _identity_condition(node, state)
                     for read in (

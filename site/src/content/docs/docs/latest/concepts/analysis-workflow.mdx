@@ -3,6 +3,25 @@ title: Analysis workflow
 description: Compose semantic expressions, explicit coordinate domains and windows, then publish terminal results.
 ---
 
+## Read guidance for the next decision
+
+The `marivo-analysis` skill guides evidence gaps, method choice, semantic handoffs
+and completion. For an unknown capability, start with `marivo.help("analysis")`
+and follow the relevant intent to its exact contract. For an existing Population
+or Query, inspect `.contract().show()` when its next action is uncertain. A saved
+Artifact has no contract: inspect `.show()` and its saved Evidence instead.
+Execution qualifies sources and methods; a logical contract alone does not.
+
+Contract cards distinguish member selection from complete output coordinates in
+a bounded scope summary. Execution saves this declared scope in Evidence for
+later reading. Read-level filters describe individual source stages; they do not
+enumerate every population restriction or prove source completeness.
+
+Browse `session.catalog.metrics.show()` only when the input identity is unknown.
+Use `session.catalog.describe(ms.ref.metric("sales.revenue")).show()` to inspect
+definition metadata, then `session.catalog.metrics.get("sales.revenue")` for the
+executable expression. Metric and Field expressions do not expose catalog cards.
+
 ## Compose a Metric-first Query
 
 Resolve governed expressions from an authored model. Constructing a Query does

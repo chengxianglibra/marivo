@@ -2,12 +2,22 @@
 
 from dataclasses import replace
 
+from marivo._authoring.model import AuthoringCapability
 from marivo.analysis._capabilities.model import ReadCapability
 from marivo.semantic._capabilities.catalog_members import CATALOG_MEMBER_CONTRACTS
+from marivo.semantic._capabilities.registry import REGISTRY as SEMANTIC_REGISTRY
 
 
 def _catalog_inputs() -> tuple[ReadCapability, ...]:
     descriptors: list[ReadCapability] = []
+    outputs = {
+        member.property_name: f"CatalogCollection[{member.item_type_name}]"
+        for member in CATALOG_MEMBER_CONTRACTS
+    }
+    for name, target in (("require", "SemanticCatalog.require"), ("readiness", "readiness")):
+        contract = SEMANTIC_REGISTRY.by_canonical_id(target)
+        assert isinstance(contract, AuthoringCapability) and contract.output_family is not None
+        outputs[name] = contract.output_family
     catalog_specs: tuple[tuple[str, str, str, str], ...] = (
         *(
             (
@@ -44,6 +54,7 @@ def _catalog_inputs() -> tuple[ReadCapability, ...]:
                 receiver_family="SemanticCatalog",
                 result_kind="immutable_metadata",
                 read_bound="bounded",
+                output_type=outputs[cap_id.split(".", 1)[1]],
             )
         )
 

@@ -6,15 +6,51 @@ import ast
 import inspect
 import re
 from collections import deque
+from itertools import pairwise
 
 import pytest
 
 import marivo.analysis as mv
 from marivo._help.model import NativeHelpRoute
 from marivo._help.route import route_help_target
-from marivo.analysis._capabilities.dataset_model import CallableInput
+from marivo.analysis._capabilities.dataset_model import CallableInput, NavigationInput
 from marivo.analysis._capabilities.dataset_render import render
 from marivo.analysis._capabilities.registry import REGISTRY
+from tests.shared_fixtures import rendered_help
+
+
+def test_metric_intent_reaches_observation_without_restarting_discovery() -> None:
+    def targets(page: str) -> tuple[str, ...]:
+        return tuple(re.findall(r"marivo\.help\(['\"]([^'\"]+)['\"]\)", page))
+
+    path = ("analysis", "analysis.methods", "analysis.methods.metric", "analysis.session.observe")
+    for current, following in pairwise(path):
+        assert following in targets(rendered_help(current))
+    assert "analysis.session.observe" in targets(rendered_help("analysis.entry"))
+    descriptor = REGISTRY.by_canonical_id("session.observe")
+    assert isinstance(descriptor, CallableInput)
+    assert descriptor.discovery_group == "methods.metric"
+    # Discovery cross-links do not create additional capability owners.
+    owners = [
+        d.canonical_id
+        for d in REGISTRY.descriptors
+        if isinstance(d, NavigationInput) and "session.observe" in d.members
+    ]
+    assert owners == ["methods.metric"]
+    assert rendered_help(mv.Session.observe) == rendered_help(path[-1])
+
+
+def test_rendered_callable_examples_have_no_duplicate_imports() -> None:
+    for descriptor in REGISTRY.descriptors:
+        if not isinstance(descriptor, CallableInput):
+            continue
+        page = rendered_help("analysis." + descriptor.canonical_id)
+        code = page.split("Example:\n", 1)[1].split("\nExpected:", 1)[0].split("\nSee:", 1)[0]
+        tree = ast.parse(code)
+        imports = [
+            ast.dump(node) for node in tree.body if isinstance(node, (ast.Import, ast.ImportFrom))
+        ]
+        assert len(imports) == len(set(imports)), descriptor.canonical_id
 
 
 def test_member_axis_is_a_pure_immutable_observation_argument() -> None:

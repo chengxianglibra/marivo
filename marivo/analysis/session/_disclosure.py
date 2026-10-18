@@ -342,8 +342,10 @@ def provider() -> DisclosureProvider:
                 value,
                 bindings=(bind(value, receiver if isinstance(receiver, type) else None),),
                 summary=effect,
-                discovery_group="entry"
-                if name in ("members", "observe", "query", "read", "values")
+                discovery_group="methods.metric"
+                if name == "observe"
+                else "entry"
+                if name in ("members", "query", "read", "values")
                 else "inputs.time"
                 if name in ("instant", "time_scope")
                 else "methods.events"
@@ -542,8 +544,9 @@ def provider() -> DisclosureProvider:
                 "catalog.temporal",
             ),
             guidance=(
-                "Acquire catalog = session.catalog. With exact refs, use require/readiness; browse a typed collection only when identity is unknown.",
-                "Collection.show() reveals bounded choices; collection.get(full_path) selects an entry. Inspect entry.show(), then marivo.help(entry) for its public contract.",
+                "Acquire catalog = session.catalog. With exact refs, use require; check physical dependencies with readiness. Browse a typed collection only when identity is unknown.",
+                "Discover bounded choices with collection.show() and retain an exact collection.refs Ref. Describe Entity, field, Metric or Relationship definitions with catalog.describe(ref).show(); marivo.help('semantic.SemanticCatalog.describe') owns that contract.",
+                "collection.get(full_path) and catalog.require(ref) return expression values or metadata entries. Native Deferred inputs carry no show()/contract(); the consuming Query.contract() owns execution disclosure.",
             ),
             discovery_group="inputs",
         )

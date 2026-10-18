@@ -69,10 +69,10 @@ _HUBS = (
         guidance=(
             "Metric-first Query: session.observe(named_metrics).execute() atomically publishes Store 11 output; Artifact opens metadata, previews bounded rows, exports complete pandas output and reads saved facts.",
             "Finite domains: session.members(Entity Ref), coordinates or identities; session.query(population).execute() publishes complete keys.",
-            "Known inputs: reuse exact refs and scope. Existing object: contract().show() -> its exact Help target.",
+            "Known inputs: reuse exact refs and scope. Population/Query: contract().show() -> exact Help. Saved Artifact: show() -> saved Evidence.",
             "Existing work: resume the Session; recovery does not replay sources.",
         ),
-        related=("session.get_or_create", "session.resume", "catalog"),
+        related=("session.get_or_create", "session.resume", "catalog", "session.observe"),
     ),
     NavigationInput(
         "methods",
@@ -80,7 +80,7 @@ _HUBS = (
         (),
         "decision_hub",
         guidance=(
-            "Existing object: follow the receiver's contract() actions and exact Help targets directly.",
+            "Population/Query: follow contract() actions and exact Help targets. Saved Artifact: read its output; construct a new Query for further computation.",
         ),
     ),
     NavigationInput(
@@ -175,7 +175,7 @@ def navigation(providers: tuple[DisclosureProvider, ...]) -> tuple[NavigationInp
             "root",
             guidance=(
                 "Imports: import marivo; import marivo.analysis as mv; import marivo.semantic as ms",
-                "Unknown capability: choose a route. Existing object: contract().show() -> exact Help.",
+                "Unknown capability: choose a route. Population/Query: contract().show() -> exact Help. Artifact: show().",
                 "Agent: method choice and conclusions. Marivo: typed computation and Evidence.",
                 "Errors own expected/received facts and the exact repair.",
             ),

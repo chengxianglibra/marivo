@@ -11,10 +11,8 @@ from uuid import uuid4
 
 import pandas as pd
 
-from marivo._definition.expressions import (
-    FieldPredicate,
-)
 from marivo._definition.types import CalendarCoordinate
+from marivo.analysis._scope import predicate_summary, scope_summary
 from marivo.analysis.compiler.graph_lowering import LoweredQuery, LoweredRead, lower_query
 from marivo.analysis.compiler.graph_plan import LocalCompute, SourceSchema, plan_query
 from marivo.analysis.compiler.query_program import QueryContext
@@ -148,24 +146,6 @@ def reconcile(
                 store.discharge(resource)
 
 
-def _predicate_summary(predicate: FieldPredicate) -> str:
-    import re
-
-    from marivo._definition.graph import direct_refs
-
-    names = {
-        f"slot_{i}": ", ".join(
-            sorted(
-                item.ref.path
-                for item in direct_refs(operand)
-                if item.ref.kind.value in ("dimension", "time_dimension", "measure")
-            )
-        )
-        for i, operand in enumerate(predicate.inputs)
-    }
-    return re.sub(r"\bslot_\d+\b", lambda match: names[match.group()], repr(predicate.recipe))
-
-
 def _compute(
     prepared: PreparedSources | None, lowered: LoweredQuery, evidence: list[OutputEvidence]
 ) -> StageOutput:
@@ -174,7 +154,7 @@ def _compute(
         if prepared is None:
             raise invalid("source read requires prepared connections")
         period = stage.period
-        filters = "; ".join(_predicate_summary(item) for item in stage.predicates)
+        filters = "; ".join(predicate_summary(item) for item in stage.predicates)
         evidence.append(
             OutputEvidence(
                 "read",
@@ -510,7 +490,16 @@ def execute(
                 )
                 for resource in backends:
                     store.reserve(resource)
-                evidence: list[OutputEvidence] = []
+                evidence: list[OutputEvidence] = [
+                    OutputEvidence(
+                        "declaration",
+                        "Captured logical input scope; bounded summary, not audited source completeness or an executable definition.",
+                        (
+                            ("definition", graph.fingerprint),
+                            ("scope", scope_summary(graph.root, observation)),
+                        ),
+                    )
+                ]
                 output = _compute(prepared, lowered, evidence)
             # Source owners have closed successfully before any output is published.
             for resource in backends:

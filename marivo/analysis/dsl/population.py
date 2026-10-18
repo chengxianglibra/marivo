@@ -49,6 +49,7 @@ from marivo._definition.types import (
 )
 from marivo._temporal import CalendarAxis, InstantAnchor, anchor_from_datetime
 from marivo.analysis._contract import AnalysisAction, AnalysisContract
+from marivo.analysis._scope import scope_summary
 from marivo.analysis.core.model import reject
 from marivo.semantic._deferred_semantics import consume_field
 from marivo.semantic.expressions import Entity
@@ -188,6 +189,7 @@ class Population(PopulationParameter):
         Example: ``population.contract().show()``.
         Constraints: This does not read business rows or infer unknown keys.
         """
+        owner = _owner(self.definition)
         return AnalysisContract(
             kind="Population",
             actions=(
@@ -208,14 +210,25 @@ class Population(PopulationParameter):
             _facts=(
                 ("axes", str(len(self.axes))),
                 ("definition", computation_fingerprint(self.definition)),
-                ("owner", repr(_owner(self.definition))),
+                ("scope", scope_summary(self.definition)),
+                ("owner", owner.session_id if owner is not None else "unbound"),
                 (
                     "keys",
                     f"{len(self.definition.keys)} captured complete literal coordinates"
                     if isinstance(self.definition, LiteralPopulation)
                     else "unevaluated program; contract does not enumerate keys",
                 ),
-                *((f"axis[{index}]", repr(axis)[:400]) for index, axis in enumerate(self.axes[:6])),
+                *(
+                    (
+                        f"axis[{index}]",
+                        f"calendar={axis.grain} timezone={axis.timezone} cells={len(axis.cells)}"
+                        if isinstance(axis, CalendarCoordinate)
+                        else f"correspondence={axis.identity}"
+                        if isinstance(axis, CorrespondenceAxis)
+                        else f"{axis.field.ref.key if axis.field else axis.entity.ref.key}; path={axis.path}; at={axis.at}",
+                    )
+                    for index, axis in enumerate(self.axes[:6])
+                ),
                 (
                     "next",
                     "project, union, intersection, difference, product; session.query(population)",

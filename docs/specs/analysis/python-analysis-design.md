@@ -24,6 +24,37 @@ Semantic and datasource authoring begin at [the semantic overview](../semantic/o
 The [implementation architecture](analysis-implementation-architecture.md) describes
 module ownership; it does not independently qualify every proposed operation.
 
+## Progressive disclosure ownership
+
+The packaged `marivo-analysis` skill owns investigation judgment: the remaining
+evidence gap, meaningful next work, semantic handoffs and completion. It does not
+own signatures or an operator sequence. Public `marivo.help("analysis")` routes
+unknown intents to bounded navigation; a focused target owns exact inputs,
+constraints, effects and a minimal example. Consult only the guidance needed for
+the next decision, reusing already established scope and inputs.
+
+For an existing Population or Query, `.contract().show()` discloses captured
+logical facts and mechanical continuations. These facts do not qualify the
+selected backend or prove business suitability. A committed Artifact instead
+exposes `.show()` and saved Finding/Evidence reads; it has no contract or
+computational continuation. Structured errors own the failed call's concrete
+repair. None of these surfaces chooses the business conclusion.
+
+Logical cards include a bounded captured input scope: member selection,
+complete output coordinates and input operations retain their distinct roles.
+Omitted detail is explicit; this is not a full definition serialization.
+Execution saves the same kind of scope summary as declaration Evidence together
+with the exact definition fingerprint, so it remains readable without sources.
+Read Evidence filters describe only their own physical source stage; an absent
+read-local filter does not imply the Query has no member or population condition.
+Neither a scope declaration nor a successful read proves source completeness.
+
+Catalog discovery keeps definition metadata separate from executable values:
+collection `.show()` lists choices, `catalog.describe(ref).show()` explains a
+definition, and collection `.get(...)` or `catalog.require(ref)` supplies its
+current value or entry. Resolved Metric and Field expressions are native Deferred
+values; calling `.show()` on them does not inspect a catalog definition.
+
 ## Public objects and explicit Session entry points
 
 `Population` is a finite logical coordinate domain. `Query` is a lazy, fully
