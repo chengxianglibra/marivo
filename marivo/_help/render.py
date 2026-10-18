@@ -1,5 +1,6 @@
 """Public print boundary for unified Marivo help."""
 
+import re
 from collections.abc import Callable
 
 from typing_extensions import TypeAliasType
@@ -12,6 +13,7 @@ from marivo._help.model import (
     TopicHelpRoute,
 )
 from marivo._help.route import (
+    _owned_methods,
     native_route_target,
     render_native_route,
     render_surface_root,
@@ -57,30 +59,6 @@ def _header(text: str, target: str, kind: str) -> str:
         f"Target: {target}\nKind: {kind}\nMarivo: {__version__}\n\n{text}",
         root=target in ("root", "authoring", "analysis", "semantic", "datasource", "ontology"),
     )
-
-
-def _owned_methods(
-    owner: HelpSurface,
-    type_obj: type,
-) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Read method membership from the native type contract."""
-    if owner == "semantic":
-        from marivo.semantic._capabilities.registry import TYPE_CONTRACTS
-
-        semantic = TYPE_CONTRACTS[type_obj]
-        return semantic.public_methods, semantic.type_page_methods
-    if owner == "datasource":
-        from marivo.datasource._capabilities.registry import TYPE_CONTRACTS as DATASOURCE_CONTRACTS
-
-        datasource = DATASOURCE_CONTRACTS[type_obj]
-        return datasource.public_methods, datasource.type_page_methods
-    if owner == "ontology":
-        from marivo.ontology._capabilities.registry import TYPE_CONTRACTS as ONTOLOGY_CONTRACTS
-
-        ontology = ONTOLOGY_CONTRACTS[type_obj]
-        return ontology.public_methods, ontology.type_page_methods
-    # Analysis renders methods from its native callable bindings.
-    return (), ()
 
 
 def _method_routes(owner: HelpSurface, type_obj: type, type_name: str) -> str:
@@ -219,6 +197,20 @@ def help(target: PublicHelpTarget = None) -> None:
     >>> marivo.help("analysis")
     >>> marivo.help("analysis.session.members")
     """
+    _print_help(target)
+
+
+def _cli_help_text(text: str) -> str:
+    """Render canonical string links as executable CLI commands."""
+    return re.sub(
+        r"""marivo\.help\((["'])([a-z_][a-z0-9_.]*)\1\)""",
+        lambda match: "marivo help " + match.group(2),
+        text,
+    ).replace("marivo.help()", "marivo help")
+
+
+def _print_help(target: PublicHelpTarget = None, *, cli: bool = False) -> None:
+    """Share resolution, native contracts and telemetry between public entrypoints."""
     attributes = {"marivo.help.target_kind": _target_kind(target)}
     with track_operation(
         surface="help",
@@ -262,4 +254,4 @@ def help(target: PublicHelpTarget = None) -> None:
                     ),
                 }
             )
-        print(text)
+        print(_cli_help_text(text) if cli else text)

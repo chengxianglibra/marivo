@@ -332,6 +332,7 @@ class SemanticExpressionError(SemanticError):
         expected: str,
         received: str,
         action: str,
+        help_target: str = "authoring",
         refs: tuple[str, ...] = (),
         details: dict[str, Any] | None = None,
         location_label: str | None = None,
@@ -344,7 +345,7 @@ class SemanticExpressionError(SemanticError):
             expected=expected,
             received=received,
             location_label=location_label,
-            repair=repair(kind="reauthor", canonical_id="authoring", action=action),
+            repair=repair(kind="reauthor", canonical_id=help_target, action=action),
         )
 
     @classmethod

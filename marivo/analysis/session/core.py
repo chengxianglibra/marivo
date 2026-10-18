@@ -321,8 +321,9 @@ class Session:
 
         Args:
             metrics: Nonempty ordered mapping of names to resolved Metric expressions.
-            during: Exact scope, CalendarAxis, or None for no added time filter.
-            by: Ordered tuple of resolved fields for single-valued classification.
+            during: TimeScope filters only; CalendarAxis also adds time buckets. None adds no time filter.
+            by: Output classifications. Empty () evaluates overall Metrics per time bucket,
+                or one scalar without a CalendarAxis. Nonempty fields add grouping axes.
             where: Field condition appended separately to each contribution occurrence.
         Returns: An immutable Query owned by this Session.
         Example: ``query = session.observe({'revenue': revenue, 'aov': aov})``.

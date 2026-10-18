@@ -19,6 +19,11 @@ execution own physical types, aggregate/backend support and operation-specific
 qualification. Analysis APIs do not invoke readiness automatically. Missing business
 descriptions and guardrails do not block it.
 
+If a published expression is passed to readiness, its structured error lists
+real physical dependencies from the current compiled closure. When the complete
+list fits the repair bound, it supplies a direct retry. It never silently
+substitutes inputs or equates static readiness with execution qualification.
+
 ## Preview is independent
 
 Preview reads the current datasource through an explicit bounded scope:

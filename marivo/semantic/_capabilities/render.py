@@ -13,6 +13,7 @@ from marivo.introspection.live.reflect import import_registered_callable as impo
 from marivo.introspection.live.render import bounded_help as _bounded
 from marivo.introspection.live.render import enforce_budget, render_fingerprint
 from marivo.introspection.live.resolve import ResolvedLiveTarget
+from marivo.introspection.live.targets import canonical_target
 from marivo.semantic._capabilities.model import (
     SemanticBuilderTopic,
     SemanticCheckTopic,
@@ -86,8 +87,6 @@ def _target_text(target: LiveHelpTarget) -> str:
 
 def _python_help_text(text: str) -> str:
     """Add the imports needed by one semantic help page."""
-    from marivo.introspection.live.model import EnvironmentFingerprint
-
     imports = [_MARIVO_IMPORT, _SEMANTIC_IMPORT]
     if "md." in text:
         imports.insert(0, _DATASOURCE_IMPORT)
@@ -97,7 +96,6 @@ def _python_help_text(text: str) -> str:
     return "\n".join(
         (
             lines[0],
-            f"  Marivo: {EnvironmentFingerprint.current().marivo_version}",
             "  Python imports:",
             *(f"    {statement}" for statement in imports),
             "",
@@ -256,50 +254,60 @@ def _render_object_contract(descriptor: SemanticObjectContract) -> str:
     lines = [
         descriptor.canonical_id,
         f"  Meaning: {descriptor.summary}",
+        f"  lookup key: Ref[{descriptor.semantic_kind.value}]; catalog.{descriptor.catalog_collection}; {descriptor.placement_kind}",
+        f"  Forward/cross-file refs: {_help_invocation(descriptor.ref_target)}",
         "",
-        "  Identity:",
-        f"    lookup key: Ref[{descriptor.semantic_kind.value}]",
-        f"    forward/cross-file: {_help_invocation(descriptor.ref_target)}",
-        f"    placement: {descriptor.placement_kind}",
-        f"    catalog: catalog.{descriptor.catalog_collection}",
-        "",
-        "  Decide before authoring:",
+        "  Construction modes:",
     ]
-    for decision in descriptor.decisions:
-        lines.append(f"    - {decision.question}")
-        guidance = f"basis={decision.basis}; determine from: {decision.determine_from}"
-        if decision.does_not_establish is not None:
-            guidance += f" Does not establish: {decision.does_not_establish}"
-        if decision.encoding_status == "supported":
-            guidance += f" Encode with: {_route_list(decision.next_targets)}"
-        else:
-            guidance += f" Unsupported: {decision.unsupported_reason}"
-        lines.append(f"      {guidance}")
+    shown = {descriptor.ref_target}
 
-    lines.extend(("", "  Construction modes:"))
+    def new_routes(targets: tuple[LiveHelpTarget, ...]) -> str:
+        fresh = tuple(target for target in targets if target not in shown)
+        shown.update(fresh)
+        return _route_list(fresh)
+
     for mode in descriptor.construction_modes:
         construction = REGISTRY.by_canonical_id(mode.target.canonical_id or "")
         assert isinstance(construction, AuthoringCapability)
         lines.append(
-            f"    {mode.role}: {mode.intent} -> {_help_invocation(mode.target)}; "
+            f"    {mode.role}: {mode.intent} -> {new_routes((mode.target,))}; "
             f"returns {construction.output_family}"
         )
-    if descriptor.relationships:
-        lines.extend(("", "  Relationships:"))
-        lines.extend(
-            f"    {relationship.relation}: {_help_invocation(relationship.target)}; "
-            f"{relationship.explanation}"
-            for relationship in descriptor.relationships
+    lines.extend(
+        ("", "  Decide before authoring (use established facts; read only unresolved routes):")
+    )
+    authority = tuple(dict.fromkeys(decision.determine_from for decision in descriptor.decisions))
+    limits = tuple(
+        dict.fromkeys(
+            decision.does_not_establish
+            for decision in descriptor.decisions
+            if decision.does_not_establish is not None
         )
-    if descriptor.supporting_targets:
-        lines.extend(
-            (
-                "",
-                f"  Supporting builders: {_route_list(descriptor.supporting_targets)}",
-            )
+    )
+    lines.extend(f"    Authority: {text}" for text in authority)
+    lines.extend(f"    Evidence limit: {text}" for text in limits)
+    for decision in descriptor.decisions:
+        routes = new_routes(decision.next_targets)
+        detail = (
+            (f" -> {routes}" if routes else "")
+            if decision.encoding_status == "supported"
+            else f" Unsupported: {decision.unsupported_reason}"
         )
-    if descriptor.check_targets:
-        lines.extend(("", f"  Applicable checks: {_route_list(descriptor.check_targets)}"))
+        lines.append(f"    - {decision.question}{detail}")
+    for relationship in descriptor.relationships:
+        routes = new_routes((relationship.target,))
+        lines.append(
+            f"  {relationship.relation}: {relationship.explanation}"
+            + (f" {routes}" if routes else "")
+        )
+    supporting = new_routes(descriptor.supporting_targets)
+    if supporting:
+        lines.append(f"  Optional supporting builders: {supporting}")
+    if descriptor.check_guidance:
+        lines.append(f"  Check scope: {descriptor.check_guidance}")
+    checks = new_routes(descriptor.check_targets)
+    if checks:
+        lines.append(f"  Checks: {checks}")
     return _bounded("\n".join(lines))
 
 
@@ -394,17 +402,10 @@ def _render_descriptor(descriptor: AuthoringCapability) -> str:
                 "    entry.show()",
             )
         )
-    consumers = [
-        other.canonical_id
-        for other in REGISTRY.descriptors
-        if descriptor.output_family is not None
-        and any(
-            requirement.family == descriptor.output_family
-            for requirement in other.input_requirements
+    if descriptor.output_family in {contract.name for contract in TYPE_CONTRACTS.values()}:
+        lines.append(
+            f'  Result Help: marivo.help("semantic.{canonical_target(descriptor.output_family)}")'
         )
-    ]
-    if consumers:
-        lines.append("  Consumers: " + ", ".join(consumers))
     if descriptor.see_also:
         lines.append("  See also: " + _route_list(descriptor.see_also))
     return _bounded("\n".join(lines))
@@ -419,9 +420,6 @@ def _render_factory_descriptor(descriptor: AuthoringCapability, type_name: str) 
         if not line.startswith("  Public consumption:")
     )
     lines = [descriptor.canonical_id, *type_lines]
-    if descriptor.see_also:
-        lines.append("  Exact factory help:")
-        lines.extend(f"    {_help_invocation(target)}" for target in descriptor.see_also)
     return _bounded("\n".join(lines))
 
 

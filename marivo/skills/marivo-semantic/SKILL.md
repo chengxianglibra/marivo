@@ -18,6 +18,13 @@ errors own result detail and repair. Project Python evaluated by `ms.load()` is
 the semantic source of truth. The agent interprets evidence and drafts Python;
 current business authority establishes reusable meaning.
 
+Read only to resolve the current missing decision. Known identities use exact
+lookup; unknown identities need bounded catalog browsing. Read an object page
+when its meaning or construction mode is unclear, and a focused callable when
+syntax or constraints are missing. Once the next useful call is supported,
+write or run it. Supporting builders and related targets are options, not a
+reading checklist; reuse business facts already supplied.
+
 ## Task boundary and exit
 
 Use the host-selected interpreter and start from current project state. Select
@@ -94,14 +101,14 @@ Author the whole slice in Python, then run one `ms.load()`. Repair its structura
 failures together, reload, and call `catalog.require(ref)` for every authored
 root. Do not add a separate verification checkpoint.
 
-Run scoped readiness when the delivery requires analysis-ready roots or before
-handing new or changed definitions to analysis. Choose preview only for a
-concrete runtime risk or a current repair, and source health when current source
-or data drift matters. Focused check Help owns what each check proves; the
-returned report owns the actual scope, findings, and repair. Read those facts
-without treating one successful check as another check's evidence or as business
-authority. Do not repeat completed checks while their identity and scope remain
-applicable.
+For analysis handoff, resolve every requested definition, then run scoped
+readiness on its physical inputs. Published Metrics and declared row expressions
+are not readiness inputs: inspect their definitions and check their physical
+dependencies. Query execution qualifies the selected computation and source.
+Choose preview for a concrete runtime risk or repair, and source health for
+current source/data drift. Read each report's scope, findings and repair; no
+check establishes another check's result or business authority. Reuse completed
+checks while their identity and scope remain applicable.
 
 ## Expression authoring boundary
 

@@ -31,7 +31,12 @@ evidence gap, meaningful next work, semantic handoffs and completion. It does no
 own signatures or an operator sequence. Public `marivo.help("analysis")` routes
 unknown intents to bounded navigation; a focused target owns exact inputs,
 constraints, effects and a minimal example. Consult only the guidance needed for
-the next decision, reusing already established scope and inputs.
+the next decision, reusing already established scope and inputs. Related targets
+are optional; stop discovery once the next useful call is supported. Complete
+supported analytical transformations on Queries before exporting: population,
+grain, aggregation, denominator and comparison changes remain analysis.
+Formatting and plotting saved values are presentation. Export Help discloses
+this boundary; external calculations do not inherit typed Evidence.
 
 For an existing Population or Query, `.show()` discloses captured
 logical facts; type Help discloses public operations. These facts do not qualify the
@@ -480,3 +485,10 @@ are different evidence. Source capability follows the exact backend, dtype and
 method route; a successful preview or an API signature does not qualify all routes.
 The current DSL excludes specialized statistical/forecast/attribution result
 families. Export to pandas for those tasks, preserving full keys and NA/presence.
+
+`observe` makes the output grain explicit: `during=TimeScope` filters only; a
+`CalendarAxis` adds time buckets. Empty `by=()` evaluates overall Metrics per
+bucket (or one scalar without time buckets). A grouped Query can produce
+subtotals through `rollup(by=retained_axes)`, which recomputes original ratios
+and averages from contributions rather than reducing displayed values. Different
+requested grains produce separate Queries and committed Artifacts.

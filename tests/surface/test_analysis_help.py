@@ -46,7 +46,7 @@ def test_unqualified_receiver_method_remains_unregistered() -> None:
     with pytest.raises(MarivoHelpTargetError) as captured:
         public_help("analysis.where")
     error = captured.value
-    assert "marivo.help(value.method)" in str(error)
+    assert "analysis.where" in str(error)
     assert sum(target.endswith(".where") for target in error.candidates) >= 2
     assert all("Materialized" not in target for target in error.candidates)
     for candidate in error.candidates:

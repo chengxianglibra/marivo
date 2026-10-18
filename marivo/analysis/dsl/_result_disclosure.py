@@ -295,13 +295,13 @@ def provider() -> DisclosureProvider:
             (
                 P(
                     "by",
-                    "Retained bound axes or a lawful calendar coarsening; window time axes stay unchanged.",
+                    "Keep only the output axes needed for the summary. Empty () produces a scalar; (calendar,) keeps time buckets and removes classifications. Window time axes stay unchanged.",
                 ),
             ),
             "Query",
-            "Recompute original Metrics from selected complete original contributions.",
-            "result = query.rollup()",
-            ("query",),
+            "Compute totals or subtotals by recomputing original Metrics, including ratios and averages, at fewer axes.",
+            "overall = query.rollup()\nresult = query.rollup(by=(calendar,))",
+            ("query", "calendar"),
             "methods.metric.reduce",
         ),
         (
@@ -399,13 +399,16 @@ def provider() -> DisclosureProvider:
                 parameters=parameters,
                 output=output,
                 constraints=(
-                    "Columns retain one exact lazy input; Artifact cannot enter computation.",
+                    "Only original Metric columns are accepted. Selected parent keys restrict contributions; source values may change on recomputation. Use a new observe for an independent full population. Completed ratios and averages are not summed. Query.reduce instead computes statistics of current values."
+                    if name == "rollup"
+                    else "Columns retain one exact lazy input; Artifact cannot enter computation.",
                 ),
                 effects="Capture a lazy result operation; no source or schema read.",
                 failures=(
                     "AnalysisError: follow the concrete expected/received facts and repair.",
                 ),
                 example=ExampleInput(code, requires, "result", output),
+                related=("session.observe", "Query.reduce") if name == "rollup" else (),
                 discovery_group=group,
             )
         )

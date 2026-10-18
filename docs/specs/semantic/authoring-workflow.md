@@ -171,7 +171,10 @@ separate per-object validation checkpoint between load and catalog navigation.
 When delivering analysis-ready roots, run `catalog.readiness(refs=[...])` over
 the exact requested physical inputs and their governed dependency closures.
 Inspect published Measure/Metric definitions through `catalog.describe()` and select
-the physical fields and Entities they consume for readiness. Readiness is
+the physical fields and Entities they consume for readiness. Object Help states
+this input scope; a rejected expression supplies physical dependency candidates
+from the compiled closure and a direct retry when the complete list fits the
+repair bound. It never silently replaces the requested input. Readiness is
 snapshot-independent: it evaluates
 the current semantic project, the requested closure, and dedicated certified
 temporal artifacts, and exposes only `analysis_ready_inputs` as its handoff.
@@ -257,3 +260,9 @@ their outcomes, exact roots, and remaining warnings or runtime risks. Label
 roots analysis-ready only when readiness established that result. If the
 parent task includes analysis, the current refs or `analysis_ready_inputs` are
 handed to `marivo-analysis` and the original question continues.
+
+Scalar predicate syntax is owned by `semantic.field`: comparisons use Python
+operators, boolean composition uses `&`, `|`, and `~`, and literal membership
+uses `semantic.field.isin`. These recipes retain contribution roots and versions.
+`semantic.expressions` distinguishes Entity/Relationship metadata from Catalog
+descriptions of published Deferred expressions; Deferred values have no `.show()`.

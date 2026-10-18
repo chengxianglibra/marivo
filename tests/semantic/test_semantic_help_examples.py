@@ -240,6 +240,7 @@ def test_binding_repair_identifies_the_bad_argument_and_resolves_to_bind_help(
         ("count", "failed", 1),
         ("where", "failed", 1),
         ("aggregate", "us_revenue", 1998),
+        ("membership", "selected", 2),
     ),
 )
 def test_filter_help_examples_declare_their_local_dimensions_and_execute(
@@ -250,7 +251,12 @@ def test_filter_help_examples_declare_their_local_dimensions_and_execute(
     metric: str,
     expected: int,
 ) -> None:
-    canonical = {"count": "entity.count", "where": "metric.where", "aggregate": "row.sum"}[target]
+    canonical = {
+        "count": "entity.count",
+        "where": "metric.where",
+        "aggregate": "row.sum",
+        "membership": "field.isin",
+    }[target]
     source = _ORDERS + "paid_at = None\n"
     source += "amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
     source += "status = ms.dimension_column(name='status', entity=orders, column='state')\n"
@@ -262,6 +268,8 @@ def test_filter_help_examples_declare_their_local_dimensions_and_execute(
         expression += ".where(status == 'FAILED')"
     elif target == "aggregate":
         expression += ".where(region == 'US')"
+    elif target == "membership":
+        expression = f"orders.count().where(({expression}) & ~(status == 'OK'))"
     source += f"@ms.metric()\ndef {metric}():\n    return {expression}\n"
     project = _project(semantic_project_factory, source)
     assert project.is_ready(), project.errors()

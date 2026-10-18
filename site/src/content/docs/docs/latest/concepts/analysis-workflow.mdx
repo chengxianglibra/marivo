@@ -200,3 +200,28 @@ invocation. Preview limits do not truncate execution or complete exports.
 Use `marivo.help("analysis.population")`,
 `marivo.help("analysis.membership")`, `marivo.help("analysis.query.population")`
 and `marivo.help("analysis.windows")` for focused current contracts.
+
+## Complete analysis before export
+
+Related Help targets are optional routes, not a reading checklist; stop discovery
+when the next useful call is supported. CLI `marivo help <target>` uses the same
+registry as Python Help and prints copyable commands.
+
+Complete supported population, grain, aggregation, denominator and comparison
+changes on Queries before export. Plotting and formatting saved values are
+presentation; numerical arithmetic is not automatically presentation. A saved
+Artifact does not establish that every requested transformation is complete.
+External calculations need explicit justification and inputs and do not inherit
+typed Evidence.
+
+Empty `by=()` in `session.observe` computes overall Metrics per time bucket,
+or one scalar without a calendar axis. `during=TimeScope` only filters time;
+`during=CalendarAxis` also groups time. For subtotals from a grouped Query, use
+`query.rollup(by=(calendar,))` to retain time buckets, or `query.rollup()` for
+a scalar. Original ratios and averages are recomputed from contributions.
+Execute and save each requested output grain before exporting results.
+
+Resolved fields form predicates with `==`, `!=`, `<`, `<=`, `>`, `>=`.
+Combine parenthesized predicates with `&`, `|`, and `~`; literal membership uses
+`field.isin(values)`. Follow `marivo help semantic.field` for this grammar.
+Inspect published Deferred definitions with `catalog.describe(ref).show()`.

@@ -238,6 +238,7 @@ def _lower_operation(
         ops.NullIf,
         ops.IsNull,
         ops.NotNull,
+        ops.InValues,
         ops.Not,
         ops.And,
         ops.Or,

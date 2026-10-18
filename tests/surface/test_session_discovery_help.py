@@ -50,8 +50,9 @@ def test_observe_help_distinguishes_field_axes_from_session_identity(
 ) -> None:
     show_help("analysis.session.observe")
     text = capsys.readouterr().out
-    assert "Input by: Pass ordered fields/membership descriptors" in text
-    assert "member() with explicit members=P" in text
+    assert "Input by: Empty () computes overall Metrics within each time bucket" in text
+    assert "Nonempty fields/membership descriptors add output axes" in text
+    assert "member() with members=P" in text
     assert "single-valued on P" in text
     assert "CalendarAxis" in text
     assert "None adds no time filter" in text

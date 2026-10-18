@@ -39,7 +39,7 @@ _GROUPS = (
     (
         "methods.metric.reduce",
         "methods.metric",
-        "Group and merge retained original Metric state.",
+        "Compute totals and subtotals by recomputing original Metrics at fewer axes.",
     ),
     (
         "methods.metric.summary",

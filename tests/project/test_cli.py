@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -437,11 +438,17 @@ def test_doctor_command_fix_snapshot_takes_precedence_over_json(
 @pytest.mark.parametrize(
     "target", [None, "analysis", "analysis.query", "analysis.query.output_names"]
 )
-def test_cli_and_python_help_have_identical_body(
+def test_cli_and_python_help_have_identical_facts_and_targets(
     target: str | None, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    assert callable(marivo.help)
     marivo.help(target)
     expected = capsys.readouterr().out
+    expected = re.sub(
+        r"marivo\.help\(([\"'])([a-z_][a-z0-9_.]*)\1\)",
+        lambda match: "marivo help " + match.group(2),
+        expected,
+    ).replace("marivo.help()", "marivo help")
     main(["help"] if target is None else ["help", target])
     captured = capsys.readouterr()
     assert captured.out == expected

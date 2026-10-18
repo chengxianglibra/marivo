@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+from difflib import SequenceMatcher
 from typing import TYPE_CHECKING, cast
 
 from marivo._help.model import (
@@ -110,10 +111,60 @@ def _qualified_string(target: str) -> tuple[HelpSurface, str] | None:
     return prefix, remainder
 
 
+def _owned_methods(
+    owner: HelpSurface,
+    type_obj: type,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Read method membership from the native type contract."""
+    if owner == "semantic":
+        from marivo.semantic._capabilities.registry import TYPE_CONTRACTS
+
+        semantic = TYPE_CONTRACTS[type_obj]
+        return semantic.public_methods, semantic.type_page_methods
+    if owner == "datasource":
+        from marivo.datasource._capabilities.registry import TYPE_CONTRACTS as DATASOURCE_CONTRACTS
+
+        datasource = DATASOURCE_CONTRACTS[type_obj]
+        return datasource.public_methods, datasource.type_page_methods
+    if owner == "ontology":
+        from marivo.ontology._capabilities.registry import TYPE_CONTRACTS as ONTOLOGY_CONTRACTS
+
+        ontology = ONTOLOGY_CONTRACTS[type_obj]
+        return ontology.public_methods, ontology.type_page_methods
+    # Analysis renders methods from its native callable bindings.
+    return (), ()
+
+
+def _receiver_candidates(target: str, owner: HelpSurface) -> tuple[str, ...]:
+    """Repair a member guess using its registered receiver and callable owner."""
+    parent, separator, member = target.rpartition(".")
+    if not separator:
+        return ()
+    route = _resolve_one(parent, owner)
+    if route is None:
+        return ()
+    parent_target = native_route_target(route)
+    for type_obj, type_name in _native_surface(owner).type_index.items():
+        if canonical_target(type_name) != parent:
+            continue
+        methods, type_page_methods = _owned_methods(owner, type_obj)
+        if member in methods and member not in type_page_methods:
+            method_route = route_help_target(getattr(type_obj, member))
+            if isinstance(method_route, NativeHelpRoute):
+                return (native_route_target(method_route), parent_target)
+    if any(
+        candidate.rpartition(".")[0] == parent
+        and SequenceMatcher(None, member, candidate.rpartition(".")[2]).ratio() >= 0.7
+        for candidate in _native_surface(owner).registry.canonical_ids()
+    ):
+        return ()
+    return (parent_target,)
+
+
 def _exact_cross_surface_candidates(
     target: str,
     *,
-    excluded_owner: HelpSurface,
+    excluded_owner: HelpSurface | None = None,
 ) -> tuple[str, ...]:
     candidates: list[str] = []
     for owner in _SURFACES:
@@ -163,6 +214,7 @@ def route_help_target(target: object | None) -> HelpRoute:
                 candidates = tuple(
                     dict.fromkeys(
                         (
+                            *_receiver_candidates(native_target, owner),
                             *_exact_cross_surface_candidates(
                                 native_target,
                                 excluded_owner=owner,
@@ -182,6 +234,11 @@ def route_help_target(target: object | None) -> HelpRoute:
             return route
         if target in _GLOBAL_TOPICS:
             return TopicHelpRoute(cast("GlobalTopic", target))
+        raise MarivoHelpTargetError(
+            target=target,
+            outcome="unknown",
+            candidates=_exact_cross_surface_candidates(target),
+        )
     if isinstance(target, str) or (not isinstance(target, type) and not callable(target)):
         raise MarivoHelpTargetError(target=target, outcome="unknown")
     routes: list[NativeHelpRoute] = []

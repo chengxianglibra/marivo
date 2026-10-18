@@ -203,6 +203,13 @@ def provider() -> DisclosureProvider:
                 output=output,
                 constraints=(
                     "Query and Artifact have separate protocols; Artifact objects and IDs never enter computation.",
+                    *(
+                        (
+                            "Before export, complete supported population, grain, aggregation, denominator and comparison changes on Queries. Formatting and plotting are presentation; external calculations do not inherit typed Evidence.",
+                        )
+                        if owner is Artifact and name == "to_pandas"
+                        else ()
+                    ),
                 ),
                 effects=summary,
                 failures=(

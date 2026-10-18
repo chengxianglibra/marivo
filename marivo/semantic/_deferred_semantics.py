@@ -146,13 +146,17 @@ def _fail(
     expected: str,
     received: str,
     kind: ErrorKind = ErrorKind.INVALID_EXPRESSION_STAGE,
+    action: str | None = None,
+    help_target: str = "expressions",
 ) -> NoReturn:
     raise SemanticExpressionError(
         kind=kind,
         message=message,
         expected=expected,
         received=received,
-        action=(
+        help_target=help_target,
+        action=action
+        or (
             "Declare a Measure with an explicit additivity grant before summing this expression."
             if kind is ErrorKind.MISSING_SUM_PERMISSION
             else "Use resolved semantic fields at the same stage and reduce rows before combining Metrics."
@@ -1067,6 +1071,11 @@ def _consume(recipe: Resolver) -> _Facts:
                         "where requires a Metric and predicate.",
                         expected="Metric.where(predicate)",
                         received="invalid receiver or arguments",
+                        help_target="Metric.where",
+                        action=(
+                            "Reduce the row quantity with a business-authorized reducer, then "
+                            "apply .where(predicate) to that source Metric. Do not infer sum permission."
+                        ),
                     )
                 assert isinstance(receiver, MetricFacts)
                 source = receiver.node

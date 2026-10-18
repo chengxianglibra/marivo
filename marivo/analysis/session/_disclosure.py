@@ -222,8 +222,10 @@ def provider() -> DisclosureProvider:
             Session,
             "observe",
             "Query",
-            "result = session.observe(metrics)",
-            "Bind named Metrics, fields, conditions and a frozen period without schema reads or a Run; execute evaluates ordinary numeric routes and atomically publishes terminal output in Store 11; committed output reading requires no current source or Catalog.",
+            "overall = session.observe(metrics, during=calendar)\n"
+            "detail = session.observe(metrics, during=calendar, by=(field,))\n"
+            "result = detail.rollup(by=(calendar,))",
+            "Evaluate named Metrics at an explicit output grain: overall, by time, by classification, or their combination.",
         ),
         (
             Session,
@@ -359,6 +361,8 @@ def provider() -> DisclosureProvider:
                 else "runtime",
                 related=("session.resume",)
                 if name in ("runs", "get_run", "artifact")
+                else ("Query.rollup", "Query.execute", "TimeScope.by")
+                if name == "observe"
                 else ("session.observe", "TimeScope.by")
                 if name in ("instant", "time_scope")
                 else (),
@@ -367,9 +371,9 @@ def provider() -> DisclosureProvider:
                         n,
                         "Use an exact incomplete or failed Run id; committed success cannot be abandoned."
                         if n == "run_id" and name == "abandon_run"
-                        else "Pass ordered fields/membership descriptors, a complete Population, or member() with explicit members=P. Identity output includes P without facts; additional identity classifications must be single-valued on P."
+                        else "Empty () computes overall Metrics within each time bucket, or one scalar without a CalendarAxis. Nonempty fields/membership descriptors add output axes. A Population or member() with members=P includes identities without facts; classifications must be single-valued on P."
                         if name == "observe" and n == "by"
-                        else "Pass a TimeScope or CalendarAxis; None adds no time filter."
+                        else "TimeScope filters the period without grouping; CalendarAxis adds time buckets independently of by; None adds no time filter."
                         if name == "observe" and n == "during"
                         else acquisition[n],
                     )
@@ -401,7 +405,7 @@ def provider() -> DisclosureProvider:
                     if name == "artifact"
                     else ("session", "artifact_ref")
                     if name == "graph"
-                    else ("session", "metrics")
+                    else ("session", "metrics", "calendar", "field")
                     if name == "observe"
                     else ("session", "population")
                     if name == "query"

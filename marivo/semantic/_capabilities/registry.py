@@ -526,6 +526,7 @@ def _object_contract(
     relationships: tuple[SemanticObjectRelationship, ...],
     supporting: tuple[str, ...],
     checks: tuple[str, ...],
+    check_guidance: str | None = None,
 ) -> SemanticObjectContract:
     source_contract = _authoring_source_contract(kind)
     return SemanticObjectContract(
@@ -544,6 +545,7 @@ def _object_contract(
         relationships=relationships,
         supporting_targets=tuple(_target(target_id) for target_id in supporting),
         check_targets=tuple(_target(target_id) for target_id in checks),
+        check_guidance=check_guidance,
     )
 
 
@@ -826,6 +828,10 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
             ),
             supporting=("ai_context", "additive", "additive_all", "non_additive", "row.sum"),
             checks=("readiness",),
+            check_guidance=(
+                "Readiness accepts physical column-backed fields. For a declared row "
+                "expression, inspect catalog.describe(ref).show() and check its physical dependencies."
+            ),
         ),
         _object_contract(
             SemanticKind.METRIC,
@@ -897,6 +903,10 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                 "measure",
             ),
             checks=("readiness",),
+            check_guidance=(
+                "Readiness checks physical dependencies, not Metrics. Inspect the definition "
+                "with catalog.describe(ref).show(); Query execution qualifies the selected computation."
+            ),
         ),
         _object_contract(
             SemanticKind.RELATIONSHIP,
@@ -2338,6 +2348,23 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             see_also=(_target("FinalizedDeclarations.resolve"),),
         ),
         _capability(
+            "Field.isin",
+            None,
+            "Test membership in literal values on a resolved scalar field. The predicate retains "
+            "the field's contribution root and version. Combine predicates with & and |; "
+            "use ~ to negate. Pass the predicate to Metric.where or Session.observe(where=...).",
+            kind="method",
+            output="Predicate",
+            inputs=(
+                AuthoringInputRequirement(role="receiver", family="Field"),
+                _parameter_input("dependency", "SourceScalarSequence", "values"),
+            ),
+            effects=_NONE,
+            example="region.isin(('US', 'CA'))",
+            public_entrypoint="region.isin",
+            see_also=(_target("field"), _target("Metric.where")),
+        ),
+        _capability(
             "Dimension.isnull",
             None,
             "Construct a missing-value predicate on a native categorical, time, or numeric field. "
@@ -2482,6 +2509,12 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     "or a complete Population; finish with a sample reducer. Field samples use observed "
                     "keys; Population binds every compatible member, including empty samples."
                 )
+            elif prefix == "Metric" and method == "where":
+                summary += (
+                    "Filter source contributions before reduction using a resolved field predicate, "
+                    "for example status == 'paid'. Row quantities must first become Metrics through "
+                    "an authorized reducer. This is distinct from Query.where on result coordinates."
+                )
             elif method in {"first", "last"}:
                 summary += (
                     "order_by may name an internal TimeField; when omitted, exactly one internal "
@@ -2505,7 +2538,9 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     effects=_NONE,
                     example=example,
                     public_entrypoint=f"{'amount' if prefix == 'row' else 'samples' if prefix == 'MetricSamples' else 'revenue' if prefix == 'Metric' else 'orders' if prefix == 'Entity' else 'payment_time'}.{method}",
-                    see_also=(_target("expressions"),),
+                    see_also=(_target("field"), _target("expressions"))
+                    if prefix == "Metric" and method == "where"
+                    else (_target("expressions"),),
                 )
             )
     for target, _owner, _method, _output, parameter, family, example in (
@@ -3363,7 +3398,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             ),
             SemanticNavigationTopic(
                 canonical_id="field",
-                summary="A constructed scalar Dimension, TimeField or Measure retains its semantic owner. Capture physical fields with their constructors, then finalize and resolve their Refs before composition. Common field recipes select a governed path, choose a version anchor or test missing values; there is no separate public Field constructor.",
+                summary="A constructed scalar Dimension, TimeField or Measure retains its semantic owner. Capture physical fields with their constructors, then finalize and resolve their Refs before composition. TimeField is a resolved TimeDimension. Compare with ==, !=, <, <=, >, >=; for example (region == 'US') & (amount > 0). Combine predicates with &, | and ~ (not Python and/or/not). Deferred values have no .show(); inspect catalog.describe(ref).show().",
                 members=(
                     _navigation_route(
                         "Dimension definition", _target("objects.dimension"), owns_discovery=False
@@ -3378,6 +3413,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                     ),
                     _navigation_route("single-valued relationship path", _target("Field.via")),
                     _navigation_route("attribute version anchor", _target("Field.at")),
+                    _navigation_route("literal membership predicate", _target("Field.isin")),
                     _navigation_route("missing-value predicate", _target("Dimension.isnull")),
                 ),
             ),
@@ -3389,7 +3425,8 @@ def _build_registry() -> SemanticCapabilityRegistry:
                     for label, target in (
                         ("close physical capture", "finalize"),
                         ("resolve captured Refs", "FinalizedDeclarations.resolve"),
-                        ("inspect constructed expressions", "Entity.show"),
+                        ("inspect Entity/Relationship metadata", "Entity.show"),
+                        ("inspect published expression definitions", "SemanticCatalog.describe"),
                         ("inspect finalized declarations", "FinalizedDeclarations.show"),
                         ("numeric source reductions", "expressions.row"),
                         ("complete row counts", "Entity.count"),

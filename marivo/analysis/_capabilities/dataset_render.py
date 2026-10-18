@@ -181,8 +181,6 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
                     group = leaf.discovery_group if isinstance(leaf, CallableInput) else None
                     grouped_routes.append(group or route)
                 routes = tuple(dict.fromkeys(grouped_routes))
-            lines.extend("Producer: " + t for t in descriptor.producers)
-            lines.extend("Consumer: " + t for t in descriptor.consumers)
             lines.extend("See: marivo.help('analysis." + t + "')" for t in routes)
     text = "\n".join(lines) + "\n"
     # Translate only explicitly registered public type bindings. Reflection

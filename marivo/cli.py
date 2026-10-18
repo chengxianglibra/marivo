@@ -263,13 +263,16 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(code)
     elif args.command == "help":
         from marivo._help.model import MarivoHelpSurfaceError, MarivoHelpTargetError
-        from marivo._help.render import help as live_help
+        from marivo._help.render import _print_help
 
         try:
             with track_operation(surface="cli", capability_kind="command", capability_id="help"):
-                live_help(args.target)
+                _print_help(args.target, cli=True)
         except MarivoHelpTargetError as error:
             print(str(error), file=sys.stderr)
+            targets = error.candidates or ("authoring", "analysis")
+            for target in targets:
+                print(f"  marivo help {target}", file=sys.stderr)
             raise SystemExit(2) from error
         except MarivoHelpSurfaceError as error:
             print(str(error), file=sys.stderr)

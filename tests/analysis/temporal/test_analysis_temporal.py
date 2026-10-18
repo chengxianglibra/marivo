@@ -642,3 +642,37 @@ def test_selected_groups_keep_sample_selection_before_execution(
     assert frame[("value", "value")].tolist() == [450]
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     pd.testing.assert_frame_equal(session.artifact(result.id).to_pandas(), frame)
+
+
+def test_observe_help_example_preserves_totals_and_ratio_grain(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    from marivo._help.render import render_help_text
+
+    case = analysis_dsl_case_factory("j1")
+    session = case.session
+    revenue = session.catalog.metrics.get("sales.revenue")
+    count = session.catalog.metrics.get("sales.order_count")
+    calendar = session.time_scope(start="2026-08-01", end="2026-09-01").by(mv.grain("month"))
+    field = session.catalog.fields.get("sales.customer.region")
+    metrics = {"amount": revenue, "count": count, "average": revenue.divide(count)}
+    page = render_help_text("analysis.session.observe")[0]
+    code = page.split("Example:\n", 1)[1].split("\nSee:", 1)[0]
+    namespace: dict[str, object] = {
+        "session": session,
+        "metrics": metrics,
+        "calendar": calendar,
+        "field": field,
+    }
+    exec(code, namespace)
+    overall, detail, result = (namespace[name] for name in ("overall", "detail", "result"))
+    assert isinstance(overall, mv.Query) and isinstance(detail, mv.Query)
+    assert isinstance(result, mv.Query)
+    direct = overall.execute().to_pandas()
+    rolled = result.execute().to_pandas()
+    pd.testing.assert_frame_equal(direct, rolled, check_flags=False)
+    assert direct[("value", "amount")].tolist() == [1000]
+    assert direct[("value", "count")].tolist() == [3]
+    assert direct[("value", "average")].tolist() == pytest.approx([1000 / 3])
+    grouped = detail.execute().to_pandas()
+    assert grouped[("value", "average")].mean() == 350

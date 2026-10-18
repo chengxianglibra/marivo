@@ -453,3 +453,22 @@ def test_common_condition_reaches_each_leaf_before_reduction(
     assert rows.loc[["A", "C"]].tolist() == [450, 400]
     assert rows.loc[["B", "D"]].isna().all()
     assert observed.rollup().execute().to_pandas()[("value", "value")].tolist() == [425]
+
+
+@pytest.mark.parametrize(
+    ("choices", "expected"),
+    [(("web",), 850), (("web", None), 850), ((None,), 0), ((), 0), (("absent",), 0)],
+)
+def test_literal_membership_predicate_executes_in_typed_flow(
+    analysis_dsl_case_factory: DslCaseFactory,
+    choices: tuple[str | None, ...],
+    expected: int,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    session = case.session
+    channel = session.catalog.fields.get("sales.order.channel")
+    revenue = session.catalog.metrics.get("sales.revenue")
+    period = session.time_scope(start="2026-08-01", end="2026-09-01")
+    query = session.observe({"amount": revenue}, during=period, where=channel.isin(choices))
+    saved = query.execute()
+    assert saved.to_pandas()[("value", "amount")].tolist() == [expected]

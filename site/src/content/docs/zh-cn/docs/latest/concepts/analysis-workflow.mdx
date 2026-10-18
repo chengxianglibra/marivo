@@ -180,3 +180,23 @@ Artifact 不能成为语义表达式输入。
 使用 `marivo.help("analysis.population")`、`marivo.help("analysis.membership")`、
 `marivo.help("analysis.query.population")` 和 `marivo.help("analysis.windows")`
 查看聚焦的当前合同。
+
+## 导出前完成分析变换
+
+Help 中的相关目标是可选路线，不是必读清单；已能执行下一步时就停止扩展发现。
+CLI `marivo help <target>` 和 Python Help 使用同一注册表，CLI 页面直接给出可复制命令。
+
+导出前，先在 Query 中完成受支持的总体、粒度、聚合、分母和比较变换。
+绘图与格式化已有值属于展示；数值运算不自动等于展示。已保存 Artifact 不代表
+问题要求的全部分析已完成。外部计算须明确其必要性与输入，不能继承 typed Evidence。
+
+`session.observe` 的空 `by=()` 会计算每个时间桶的整体指标；没有日历轴时得到一个标量。
+`during=TimeScope` 只过滤时间，`during=CalendarAxis` 还会按时间分组。
+已有分组 Query 可通过 `query.rollup(by=(calendar,))` 保留时间桶并计算小计，
+或通过 `query.rollup()` 计算整体标量。比例和平均值会从原始贡献重新计算。
+导出结果前，分别执行并保存每种需要的输出粒度。
+
+已解析的字段通过 `==`、`!=`、`<`、`<=`、`>`、`>=` 构造谓词，
+通过 `&`、`|`、`~` 组合带括号的谓词，通过 `field.isin(values)` 判断字面值集合成员关系。
+语法入口是 `marivo help semantic.field`。已发布的 Deferred 定义通过
+`catalog.describe(ref).show()` 检查。

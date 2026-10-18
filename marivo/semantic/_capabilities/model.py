@@ -196,6 +196,7 @@ class SemanticObjectContract:
     relationships: tuple[SemanticObjectRelationship, ...]
     supporting_targets: tuple[LiveHelpTarget, ...]
     check_targets: tuple[LiveHelpTarget, ...]
+    check_guidance: str | None = None
     public_entrypoint: None = field(default=None, init=False)
     callable_path: None = field(default=None, init=False)
 

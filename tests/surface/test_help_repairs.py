@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,14 @@ from marivo.analysis.materialization.errors import StorageAccessError
 from marivo.cli import main
 
 
+def _cli_facts(text: str) -> str:
+    return re.sub(
+        r"marivo\.help\(([\"'])([a-z_][a-z0-9_.]*)\1\)",
+        lambda match: "marivo help " + match.group(2),
+        text,
+    ).replace("marivo.help()", "marivo help")
+
+
 @pytest.mark.parametrize(
     ("requested", "expected"),
     [
@@ -25,6 +34,9 @@ from marivo.cli import main
         ("analysis.semantic_catalog", "semantic.semantic_catalog"),
         ("semantic.raw_sql_result", "datasource.raw_sql_result"),
         ("semantic.query.output_names", "analysis.query.output_names"),
+        ("readiness_report.to_dict", "semantic.readiness_report.to_dict"),
+        ("datasource_summary", "datasource.datasource_summary"),
+        ("semantic_catalog.fields", "semantic.semantic_catalog.fields"),
     ],
 )
 def test_cross_surface_suggestions_are_complete_resolvable_targets(
@@ -78,7 +90,10 @@ def test_cli_cross_surface_repair_can_be_followed(capsys: pytest.CaptureFixture[
     main(["help", "datasource.discovery_snapshot"])
     repaired = capsys.readouterr()
     assert repaired.err == ""
-    assert repaired.out.rstrip() == render_help_text("datasource.discovery_snapshot")[0].rstrip()
+    assert (
+        repaired.out.rstrip()
+        == _cli_facts(render_help_text("datasource.discovery_snapshot")[0]).rstrip()
+    )
 
 
 def test_cli_can_open_the_error_type_page(capsys: pytest.CaptureFixture[str]) -> None:
@@ -87,4 +102,36 @@ def test_cli_can_open_the_error_type_page(capsys: pytest.CaptureFixture[str]) ->
     main(["help", target])
     result = capsys.readouterr()
     assert result.err == ""
-    assert result.out.rstrip() == text.rstrip()
+    assert result.out.rstrip() == _cli_facts(text).rstrip()
+
+
+def test_cli_routes_can_be_copied_without_python_help(capsys: pytest.CaptureFixture[str]) -> None:
+    main(["help", "analysis.methods.compare"])
+    page = capsys.readouterr().out
+    targets = re.findall(r"marivo help ([a-z_][a-z0-9_.]*)", page)
+    assert "analysis.query.compare" in targets
+    assert "marivo.help(" not in page
+    for target in targets:
+        main(["help", target])
+        assert capsys.readouterr().out.startswith(f"Target: {target}\n")
+
+
+@pytest.mark.parametrize(
+    ("requested", "expected"),
+    [
+        ("semantic.readiness_report.show", "analysis.runtime.values.show"),
+        ("datasource.datasource_list.render", "analysis.runtime.values.render"),
+        ("semantic.semantic_catalog.show", "analysis.runtime.values.show"),
+        ("semantic.metric.show", "semantic.metric"),
+        ("analysis.time_scope.month", "analysis.time_scope"),
+        ("analysis.query.excute", "analysis.query.execute"),
+    ],
+)
+def test_member_repair_preserves_receiver_before_lexical_similarity(
+    requested: str, expected: str
+) -> None:
+    with pytest.raises(MarivoHelpTargetError) as captured:
+        render_help_text(requested)
+    assert captured.value.candidates[0] == expected
+    for candidate in captured.value.candidates:
+        assert render_help_text(candidate)[0].startswith(f"Target: {candidate}\n")

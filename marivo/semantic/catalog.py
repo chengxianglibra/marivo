@@ -13,6 +13,7 @@ from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import nullcontext
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
+from difflib import SequenceMatcher
 from pathlib import Path
 from types import MappingProxyType
 from typing import (
@@ -1817,6 +1818,29 @@ def _semantic_input_expected(allowed_kinds: frozenset[SemanticKind]) -> str:
     return f"exact Ref, current catalog entry, or catalog value with kind in {{{kinds}}}"
 
 
+def _physical_dependencies(
+    catalog: SemanticCatalog, ref: Ref[SemanticKindTag]
+) -> tuple[Ref[SemanticKindTag], ...]:
+    """Find physical check inputs in the already compiled dependency closure."""
+    pending = [ref]
+    seen: set[Ref[SemanticKindTag]] = set()
+    physical: set[Ref[SemanticKindTag]] = set()
+    while pending:
+        current = pending.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        declared = current.kind is SemanticKind.METRIC or (
+            current.kind is SemanticKind.MEASURE
+            and current.path in catalog._state.registry.declared_measures
+        )
+        if declared:
+            pending.extend(catalog._state.dependencies.get(current, ()))
+        elif current.kind not in (SemanticKind.DOMAIN, SemanticKind.DATASOURCE):
+            physical.add(current)
+    return tuple(sorted(physical, key=lambda item: item.key))
+
+
 def _value_lookup_ref(value: object) -> Ref[SemanticKindTag] | None:
     """The catalog ref a resolved expression value names; None for anything else."""
     if isinstance(value, Deferred):
@@ -2053,6 +2077,17 @@ def _normalize_semantic_input(
     if (exact_ref.kind is SemanticKind.METRIC and not metric_preview) or (
         exact_ref.kind is SemanticKind.MEASURE and exact_ref.path in registry.declared_measures
     ):
+        physical = _physical_dependencies(catalog, exact_ref)
+        shown = physical[:_SEMANTIC_INPUT_CANDIDATE_LIMIT]
+        physical_snippet: str | None = None
+        if location == "catalog.readiness(refs=...)":
+            physical_snippet = (
+                "catalog.readiness(refs=["
+                + ", ".join(f"ms.ref.{ref.kind.value}({ref.path!r})" for ref in shown)
+                + "])"
+                if shown and len(shown) == len(physical)
+                else f"catalog.describe(ms.ref.{exact_ref.kind.value}({exact_ref.path!r})).show()"
+            )
         _raise(
             ErrorKind.INVALID_EXPRESSION_STAGE,
             f"{location} requires physical inputs; {exact_ref.key} is a published "
@@ -2069,7 +2104,8 @@ def _normalize_semantic_input(
                     "Inspect its definition with catalog.describe(ref).show(), then "
                     "check the physical fields and Entities it reads instead."
                 ),
-                candidates=(exact_ref.key,),
+                snippet=physical_snippet,
+                candidates=tuple(ref.key for ref in shown),
             ),
         )
     return exact_ref
@@ -3372,7 +3408,16 @@ class SemanticCatalog(RenderableResult):
             from marivo.semantic.expressions import author_value
 
             return found if isinstance(found, CatalogEntry) else author_value(found)
-        candidates = tuple(item for item in index.refs if item.kind is exact_ref.kind)[:12]
+        same_kind = tuple(item for item in index.refs if item.kind is exact_ref.kind)
+        candidates = tuple(
+            sorted(
+                same_kind,
+                key=lambda item: (
+                    -SequenceMatcher(None, exact_ref.path, item.path).ratio(),
+                    item.key,
+                ),
+            )
+        )[:_SEMANTIC_INPUT_CANDIDATE_LIMIT]
         calls = tuple(
             f"ms.ref.{candidate.kind.value}({candidate.path!r})" for candidate in candidates
         )
@@ -3382,6 +3427,16 @@ class SemanticCatalog(RenderableResult):
             f"Loaded {exact_ref.kind.value} candidates: {calls!r}.",
             cls=SemanticRuntimeError,
             refs=(exact_ref.key,),
+            expected=f"an existing Ref[{exact_ref.kind.value}] in this compiled catalog",
+            received=exact_ref.key,
+            hint=f"Browse catalog.{CATALOG_COLLECTION_BY_KIND[exact_ref.kind]}.show() for more choices.",
+            repair_value=repair(
+                kind="retry",
+                canonical_id="SemanticCatalog.require",
+                action="Choose an exact existing same-kind ref; no replacement was applied.",
+                snippet=f"catalog.require({calls[0]})" if calls else None,
+                candidates=tuple(candidate.key for candidate in candidates),
+            ),
             details={
                 "catalog_definition_fingerprint": self.definition_fingerprint,
                 "filtered_domains": self._project._filtered_domains,

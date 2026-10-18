@@ -17,11 +17,17 @@ from marivo._authoring.model import AuthoringCapability, AuthoringRepair
 from marivo._definition.deferred import root_declaration
 from marivo._definition.expressions import DeclaredMetricRef
 from marivo._help.render import help as show_help
+from marivo._help.render import render_help_text
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.semantic._capabilities.registry import REGISTRY
 from marivo.semantic._capabilities.validation import _validate_minimal_example_signature
 from marivo.semantic._deferred_semantics import consume_field, consume_metric, consume_row
-from marivo.semantic.errors import SemanticLoadError, SemanticLoadFailed
+from marivo.semantic.errors import (
+    SemanticExpressionError,
+    SemanticLoadError,
+    SemanticLoadFailed,
+    SemanticRuntimeError,
+)
 from marivo.semantic.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from marivo.semantic.readiness import ReadinessInputSummary, ReadinessIssue, ReadinessReport
@@ -331,14 +337,15 @@ def test_decorator_help_example_loads_the_declared_object(
         # R1.4 publishes module-level declarations under their function name.
         if target == "measure":
             assert isinstance(value, Deferred)
-            assert root_declaration(value).name == "order_amount"
+            declaration = root_declaration(value)
+            assert declaration is not None and declaration.name == "order_amount"
             assert consume_row(value).unit == "CNY"
         else:
-            assert isinstance(value, Deferred) and isinstance(
-                consume_metric(value).node, DeclaredMetricRef
-            )
-            assert consume_metric(value).node.ref.ref == factory(path)
-            assert consume_metric(value).unit == "CNY"
+            assert isinstance(value, Deferred)
+            metric = consume_metric(value)
+            assert isinstance(metric.node, DeclaredMetricRef)
+            assert metric.node.ref.ref == factory(path)
+            assert metric.unit == "CNY"
         for dependency in ("quantity", "unit_price"):
             dependency_value = catalog.require(ms.ref.measure(f"sales.orders.{dependency}"))
             assert isinstance(dependency_value, Deferred)
@@ -359,3 +366,93 @@ def test_decorator_example_validation_rejects_a_factory_call() -> None:
             callable_obj=ms.metric,
             decorator=True,
         )
+
+
+@pytest.fixture
+def expression_catalog(
+    tmp_path: Path,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+) -> ms.SemanticCatalog:
+    extra = "\n".join(
+        f"@ms.metric()\ndef other_{index:02d}():\n    return amount_value.sum(time=paid_at_value)\n"
+        for index in range(16)
+    )
+    semantic_project_factory(
+        {
+            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Analytics', default=True)\n",
+            "sales/models.py": _REVENUE_MODEL.replace("def revenue():", "def zeta_revenue():")
+            + extra,
+        }
+    )
+    return ms.load(workspace_dir=tmp_path)
+
+
+def test_readiness_repair_names_admissible_physical_dependencies(
+    expression_catalog: ms.SemanticCatalog,
+) -> None:
+    with pytest.raises(SemanticRuntimeError) as captured:
+        expression_catalog.readiness(refs=[ms.ref.metric("sales.zeta_revenue")])
+    repair = captured.value.repair
+    assert repair is not None and repair.snippet is not None
+    assert "metric:sales.zeta_revenue" not in repair.candidates
+    assert "measure:sales.orders.amount" in repair.candidates
+    # Run the concrete public repair. It may report readiness blockers but must
+    # not repeat the invalid-expression input rejection.
+    eval(repair.snippet, {"catalog": expression_catalog, "ms": ms})
+
+
+def test_missing_ref_ranks_real_same_kind_names_before_bounding(
+    expression_catalog: ms.SemanticCatalog,
+) -> None:
+    with pytest.raises(SemanticRuntimeError) as captured:
+        expression_catalog.require(ms.ref.metric("sales.zeta_revenu"))
+    repair = captured.value.repair
+    assert repair is not None and repair.snippet is not None
+    assert repair.candidates[0] == "metric:sales.zeta_revenue"
+    assert "catalog.metrics.show()" in str(captured.value)
+    assert "catalog.domains.show()" not in str(captured.value)
+    assert eval(repair.snippet, {"catalog": expression_catalog, "ms": ms}) is not None
+    for key in repair.candidates:
+        assert key in {ref.key for ref in expression_catalog.metrics.refs}
+
+
+def test_row_filter_failure_points_to_its_exact_expression_role(
+    expression_catalog: ms.SemanticCatalog,
+) -> None:
+    amount = expression_catalog.require(ms.ref.measure("sales.orders.amount"))
+    with pytest.raises(SemanticExpressionError) as captured:
+        consume_metric(amount.where(amount > 0).sum())
+    repair = captured.value.repair
+    assert repair is not None
+    assert repair.help_target.display == "semantic.metric.where"
+    assert "business-authorized" in repair.action
+    text, _, _ = render_help_text(repair.help_target.display)
+    assert text.startswith("Target: semantic.metric.where\n")
+
+
+@pytest.mark.parametrize("target", ("semantic.metric", "semantic.measure", "semantic.ref"))
+def test_semantic_object_routes_are_unique_and_resolvable(target: str) -> None:
+    page = render_help_text(target)[0]
+    routes = re.findall(r'marivo\.help\("([a-z_][a-z0-9_.]*)"\)', page)
+    assert len(routes) == len(set(routes))
+    for route in routes:
+        assert render_help_text(route)[0].startswith(f"Target: {route}\n")
+
+
+@pytest.mark.parametrize(
+    ("target", "result_target"),
+    (
+        ("semantic.load", "semantic.semantic_catalog"),
+        ("semantic.readiness", "semantic.readiness_report"),
+        ("datasource.register", "datasource.datasource_summary"),
+        ("datasource.inspect", "datasource.source_inspection"),
+    ),
+)
+def test_callable_result_links_name_the_registered_public_type(
+    target: str,
+    result_target: str,
+) -> None:
+    page = render_help_text(target)[0]
+    assert f'Result Help: marivo.help("{result_target}")' in page
+    assert "Consumers:" not in page
+    assert render_help_text(result_target)[0].startswith(f"Target: {result_target}\n")

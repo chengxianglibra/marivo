@@ -185,17 +185,10 @@ def _render_descriptor(descriptor: AuthoringCapability) -> str:
     if constraints:
         lines.append("  Constraints:")
         lines.extend(f"    {constraint}" for constraint in constraints)
-    consumers = [
-        other.canonical_id
-        for other in (REGISTRY.by_canonical_id(value) for value in REGISTRY.canonical_ids())
-        if descriptor.output_family is not None
-        and any(
-            requirement.family == descriptor.output_family
-            for requirement in other.input_requirements
+    if descriptor.output_family in {contract.name for contract in TYPE_CONTRACTS.values()}:
+        lines.append(
+            f'  Result Help: marivo.help("datasource.{canonical_target(descriptor.output_family)}")'
         )
-    ]
-    if consumers:
-        lines.append("  Consumers: " + ", ".join(consumers))
     if descriptor.see_also:
         lines.append(
             "  See also: " + ", ".join(_target_text(target) for target in descriptor.see_also)

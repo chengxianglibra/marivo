@@ -7,24 +7,18 @@ description: Use when a user wants to answer a business question or continue a M
 
 ## Purpose and ownership
 
-Turn the user's question into a bounded, evidence-backed investigation. This
-skill guides investigation decisions, boundaries, handoffs, and completion. The
-agent chooses methods, plans the work, interprets results, and decides when the
-answer is sufficient.
+Answer the business question with bounded, governed Evidence. The agent owns
+method choice, interpretation and completion; semantic objects own reusable
+meaning, and the Analysis DSL owns typed computation.
 
-Governed semantic objects own reusable business meaning. The Analysis DSL owns
-typed computation and Evidence. `marivo.help("analysis")` provides progressive
-discovery; CLI `marivo help analysis` accesses the same static guidance. Focused
-Help owns signatures, constraints, and examples. Population and Query `.show()`
-expose captured logical facts; type Help owns public operation discovery.
-Artifact `.show()` exposes committed result state; terminal
-Artifacts have no computation contract. Structured errors own repair. A logical
-action need not be useful to the question or qualified for the selected source;
-successful execution alone does not answer the question.
-
-Use the host-selected verified environment. Consult live guidance when the next
-decision needs it, without reconstructing API contracts from memory or private
-implementation details.
+Start unknown capabilities at `marivo.help("analysis")` or CLI
+`marivo help analysis`. Focused Help owns signatures, constraints and examples;
+type Help owns operation discovery. Population/Query `.show()` owns captured
+facts; Artifact `.show()` owns committed output. Artifacts are terminal and have
+no computation contract. Structured errors own the current repair.
+Use the host-selected verified environment, not private source or remembered
+signatures. Construction, execution support and business suitability are
+separate facts.
 
 ## Governed inputs and question-scoped meaning
 
@@ -33,10 +27,6 @@ meaning and required aggregation authority are established. Naming a local
 quantity does not require reusable publication. A new business assertion, such
 as authorizing a row quantity to be summed, belongs to the semantic workflow
 when that authority is unresolved.
-
-Use live Help for construction and resolution rules. Construction, Catalog
-availability, and execution support are separate facts; establish the boundary
-needed by the question without treating one as proof of another.
 
 ## Analytical judgment
 
@@ -82,7 +72,8 @@ framing proportional to the task; it does not require a separate document.
 Distinguish missing reusable meaning, a missing computation, incomplete
 coverage, and an interpretation that the available evidence cannot support.
 Reuse exact semantic refs, a current analysis-ready handoff, and relevant
-committed results. Check readiness only for missing required inputs.
+committed results. Readiness checks physical dependencies, not published
+expressions or method execution support; repeat it only for a missing input.
 
 ### Choose the next useful step
 
@@ -90,19 +81,21 @@ Choose work that can materially change a required answer, recommendation, or
 limitation. Prefer the smallest sufficient typed analysis chain and batch known,
 compatible work into one decision round.
 
-Choose disclosure according to the unresolved decision:
+Choose disclosure for the current gap:
 
-- For an unknown method or missing input, start with `marivo.help("analysis")`
-  and follow the relevant intent or input route.
-- For an existing Population or Query, inspect `.show()` for captured facts;
-  follow the exact type or operation Help target when syntax or constraints are
-  unclear. Use Query.output_names for complete names when display omits outputs.
-- For a saved Artifact, inspect committed output and Evidence. Use recovery
-  guidance when the saved identity or Session is missing; fresh source values
-  require a new Query execution.
+- Unknown method: start at `marivo.help("analysis")` and follow its relevant intent.
+- Unknown identity: browse a bounded catalog collection; with exact refs, resolve directly.
+- Missing syntax or precondition: read the exact callable Help.
+- Missing captured facts: read Population/Query `.show()`; use Query.output_names
+  for complete names. Type Help lists operations when the next method is unknown.
+- Missing saved output: read the exact Artifact and Evidence; use recovery
+  guidance only when its identity or Session is missing.
 
-Stop browsing when the guidance supports the next useful operation. Connectivity
-and semantic readiness alone do not establish method execution support.
+Stop browsing once the next useful operation is supported. Related routes and
+complete method lists are options, not prerequisites. Do not read sibling pages
+or reconstruct signatures before trying a documented call. Logical construction
+can proceed without values; execute when the next decision needs values.
+Connectivity and readiness do not qualify the selected method.
 
 Compose known Population and Query dependencies before executing. Execute
 when values are needed for interpretation or delivery. If the next choice
@@ -155,11 +148,14 @@ unsupported method; follow structured repair and disclose a blocked branch when
 the public contract cannot produce its required evidence. Do not bypass it with
 direct Ibis, DuckDB, pandas readers, backend handles, ad hoc SQL, or uploads.
 
-Before exporting, read `marivo.help("analysis.artifact.to_pandas")`. Presentation
-may arrange, plot, label, or format existing results. Changing population,
-metric meaning, aggregation, or comparison is analytical work. For a method
-outside the installed surface, first complete supported upstream work, then
-preserve exact inputs, assumptions, and rerunnable external calculations.
+Before exporting, read `marivo.help("analysis.artifact.to_pandas")` and identify
+whether any requested analytical transformation remains. Changes to population,
+grain, metric meaning, aggregation, denominator or comparison belong in supported
+Query operations before execution/export. Keep the logical inputs needed for
+those operations. Arranging, plotting, labeling and formatting saved values are
+presentation. Numerical arithmetic is not automatically presentation.
+For a method outside the installed surface, first complete supported upstream
+work, then preserve exact inputs, assumptions and rerunnable external calculations.
 External outputs do not inherit typed Evidence guarantees. An exported table
 cannot restore the computation graph. Chosen complete keys or explicit literal
 references may become ordinary inputs to a new Query, without inheriting the
@@ -197,14 +193,15 @@ and resolve any necessary change to the question before proceeding with it.
 
 ## Completion and communication
 
-Finish when every required answer is supported or explicitly blocked with its
-smallest missing evidence or definition. Answer in the user's business vocabulary:
+Finish when every requested analytical transformation and answer is supported
+or explicitly blocked with its smallest missing evidence or definition. A saved
+Artifact alone does not establish that comparisons, denominators or other
+required transformations were completed in typed flow. Answer in the user's business vocabulary:
 state the supported direction and magnitude or uncertainty; distinguish computed
 facts, interpretation, recommendations, and hypotheses; disclose material
 warnings, omissions, terminal exits, and unresolved semantic persistence needs.
 
 Keep supporting definitions, scope, Session, Run, and Artifact identities
 recoverable without exposing runtime bookkeeping unless an audit is requested.
-Use a format suited to the question. Do not continue exploring after the answers
-and limitations are complete. Delivery or publication uses an independent
-capability when requested.
+Stop exploring once answers and limitations are complete. Delivery or publication
+uses an independent capability when requested.

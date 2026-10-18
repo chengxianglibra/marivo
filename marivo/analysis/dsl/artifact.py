@@ -97,6 +97,9 @@ class Artifact:
         Returns: A complete isolated DataFrame in the saved output layout.
         Example: ``frame = artifact.to_pandas()``.
         Constraints: Never samples rows or recreates a Query; complete export must fit in memory.
+        Complete supported changes to population, grain, aggregation, denominator
+        or comparison on Queries before export. Formatting and plotting saved
+        values are presentation; external calculations do not inherit typed Evidence.
         """
         return self._reader.to_pandas(self._manifest)
 

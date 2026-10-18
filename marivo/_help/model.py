@@ -84,9 +84,7 @@ class MarivoHelpTargetError(ValueError):
         else:
             message = (
                 f"Marivo help target is not registered: received {self.received!r}. "
-                "Use marivo.help() to choose authoring or analysis, then follow "
-                "the registered routes from that secondary root. "
-                "For a receiver method, use marivo.help(value.method)."
+                "Choose authoring or analysis, then follow its registered canonical targets."
             )
         if candidates:
             message += f" Candidates: {', '.join(candidates)}."

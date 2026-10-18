@@ -7,7 +7,9 @@ meaning, typed computation, bounded disclosure, exact ownership and concrete rep
 ## One public coordinator
 
 CLI `python -m marivo help [target]` and Python `marivo.help(target)` share
-one native static Help registry. Root Help routes to authoring or analysis.
+one native static Help registry. CLI pages render canonical string links as
+copyable `marivo help <target>` commands; Python pages retain `marivo.help(...)`.
+The facts and target identities are the same. Root Help routes to authoring or analysis.
 Targets are exact lowercase snake_case semantic addresses, independent of Python
 symbols. Pages disclose Target and Kind: topic, object, callable, attribute,
 expression or error. Qualified strings, public callables and public types are
@@ -38,7 +40,14 @@ independent of render output. No old public target aliases are retained.
 For an existing object, read show() only when its captured facts are needed;
 read the exact operation Help when syntax or constraints are unknown. Do not
 restart root discovery for a known target. Structured errors own the actual
-expected/received facts and repairs derived from real state.
+expected/received facts and repairs derived from real state. Related routes are
+optional, not a reading checklist. Object pages share repeated authority facts
+and list each route once; callable pages retain exact constraints and examples.
+Catalog lookup candidates are ranked within the requested kind before bounding,
+and expression-stage repairs link directly to the owning grammar. Callable pages
+link exact registered result types. They do not infer consumer lists from broad
+type-family equality: Deferred expressions, for example, have distinct semantic
+stages. Explicit related routes and type pages own operation discovery.
 
 Complete public journeys count all Help, object displays, saved previews and
 errors, including repeated reads. Character and page budgets are proxies, not
@@ -169,3 +178,8 @@ and no legacy migration or alias unless its owning contract explicitly requires 
 See [analysis design](analysis/python-analysis-design.md),
 [semantic overview](semantic/overview.md), and the packaged workflow skills for
 their respective contracts.
+
+Unknown member Help targets preserve the registered receiver in repairs. A
+real public method points to its canonical callable owner, including shared
+display methods; other member guesses point to the receiver page. Close member
+typos retain same-receiver suggestions before unrelated same-name methods.

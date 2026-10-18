@@ -840,8 +840,12 @@ class Query:
     ) -> Query:
         """Recompute original Metrics within the selected parent keys.
 
-        Args: by: Retained axes or a lawful coarsened calendar.
-        Returns: A Query at the requested grain. Example: ``q.rollup(by=())``.
+        Args: by: Axes to retain. Empty () produces a scalar; (calendar,) retains
+            time buckets while removing classifications. Lawful calendar coarsening is allowed.
+
+        Returns: A Query recomputing every original Metric at the requested grain,
+            including ratios and averages. Example: ``totals = q.rollup(by=(calendar,))``.
+
         Constraints: Fine-grid checks complete first; completed values are never summed.
         Source data may change before recomputation; selected parent keys remain fixed.
         """
