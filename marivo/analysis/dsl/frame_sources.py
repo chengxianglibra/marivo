@@ -9,12 +9,20 @@ from typing import Literal
 from ibis.common.deferred import Deferred
 
 from marivo._definition.correspondence import ComparisonAxis
+from marivo._definition.graph import DefinitionNode, walk
+from marivo._definition.query import ReadFields, ResultQuery
+from marivo._definition.relations import ObserveQuery, QueryKeys
 from marivo._definition.types import AxisBinding, CalendarCoordinate
 from marivo._temporal import PeriodCalendarSnapshotV1, TimeScope
 from marivo.analysis.core.artifact_data import DataColumn
 from marivo.analysis.core.data_types import ScalarDataType
 from marivo.analysis.core.frame_calendar import FrozenSourceCalendar, freeze_calendar
 from marivo.analysis.core.frame_data import LiteralFrameBinding, SourceFrameBinding
+from marivo.analysis.core.frame_key_inputs import (
+    FrameKeyInput,
+    collect_frame_key_inputs,
+    merge_frame_key_inputs,
+)
 from marivo.analysis.core.frame_structure import (
     PendingDataAxis,
     PendingDataColumn,
@@ -130,10 +138,64 @@ def _capture(
     graph: BoundGraph,
     state: CompiledSemanticState,
     connection: DatasourceConnectionConfig,
+    frame_key_inputs: tuple[FrameKeyInput, ...] = (),
 ) -> AnalysisFrame:
+    root = graph.root
+    observation = graph.signature.observation
+    definitions = dict(graph.signature.declared_metrics)
+    if (
+        isinstance(root, ResultQuery)
+        and isinstance(root.operation, ReadFields)
+        and len(root.inputs) == 1
+        and isinstance(root.inputs[0].query, ObserveQuery)
+        and not root.inputs[0].query.metrics
+    ):
+        # capture_read's own keys-only classification envelope is not a
+        # legacy producer. Inspect its actual input domain and frozen scope.
+        captured = root.inputs[0]
+        root = captured.query
+        observation = captured.observation
+        definitions.update(captured.declared)
+    roots: list[DefinitionNode] = [root]
+    if observation is not None:
+        roots.extend(
+            node
+            for node in (
+                observation.condition,
+                observation.members,
+                observation.member_population,
+                observation.coordinates.population,
+            )
+            if node is not None
+        )
+        for contribution in observation.contributions:
+            roots.extend(
+                (
+                    contribution.definition,
+                    *contribution.intrinsic_conditions,
+                    *contribution.population_conditions,
+                )
+            )
+            if contribution.common_condition is not None:
+                roots.append(contribution.common_condition)
+    if any(isinstance(node, QueryKeys) for node in walk(roots, resolve=definitions.get).order):
+        reject(
+            "Frame source dependencies without retired QueryKeys producers",
+            "a legacy QueryKeys dependency in the captured Frame source definition",
+            "Build the producer with a Frame source factory, select its Frame, and map it explicitly with population_from(frame, on=...).",
+            "frame.source.capture",
+        )
     schema, calendars = pending_schema(graph, state)
     return AnalysisFrame._from_expression(
-        local, schema, SourceFrameBinding(graph, state, connection, calendars)
+        local,
+        schema,
+        SourceFrameBinding(
+            graph,
+            state,
+            connection,
+            calendars,
+            merge_frame_key_inputs(frame_key_inputs, owner=local.owner),
+        ),
     )
 
 
@@ -152,6 +214,13 @@ def observe(
 ) -> AnalysisFrame:
     for name in metrics:
         value_name(name, location="frame.observe")
+    frame_inputs = collect_frame_key_inputs(
+        *metrics.values(),
+        where,
+        members,
+        by if isinstance(by, Population) else None,
+        owner=local.owner,
+    )
     graph = capture_metrics(
         metrics,
         local.owner,
@@ -163,7 +232,7 @@ def observe(
         state=state,
         calendar_snapshots=calendar_snapshots,
     )
-    return _capture(local, graph, state, connection)
+    return _capture(local, graph, state, connection, frame_inputs)
 
 
 def read(
@@ -175,7 +244,13 @@ def read(
 ) -> AnalysisFrame:
     for name in fields:
         value_name(name, location="frame.read")
-    return _capture(local, capture_read(population, fields, local.owner, state), state, connection)
+    return _capture(
+        local,
+        capture_read(population, fields, local.owner, state),
+        state,
+        connection,
+        population._frame_inputs,
+    )
 
 
 def frame(
@@ -184,7 +259,13 @@ def frame(
     connection: DatasourceConnectionConfig,
     population: Population,
 ) -> AnalysisFrame:
-    return _capture(local, capture_population(population, local.owner), state, connection)
+    return _capture(
+        local,
+        capture_population(population, local.owner),
+        state,
+        connection,
+        population._frame_inputs,
+    )
 
 
 def values(

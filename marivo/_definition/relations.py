@@ -171,6 +171,53 @@ class QueryKeys:
 
 
 @dataclass(frozen=True, slots=True)
+class FrameKeyAxis:
+    """One complete Frame coordinate explicitly mapped to a semantic axis."""
+
+    token: str
+    key_names: tuple[str, ...]
+    target: AxisBinding
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.token) is not str
+            or not self.token
+            or type(self.key_names) is not tuple
+            or not self.key_names
+            or any(type(name) is not str or not name for name in self.key_names)
+            or len(set(self.key_names)) != len(self.key_names)
+            or type(self.target) is not AxisBinding
+            or (self.target.role == "field" and len(self.key_names) != 1)
+        ):
+            invalid(
+                "Frame key mapping requires one exact token, complete component names and "
+                "a field or identity target. Select a complete ordinary Frame axis."
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class FrameKeys:
+    """Inert joint-key projection; the analysis owner retains its actual Frame."""
+
+    input_id: str
+    bindings: tuple[FrameKeyAxis, ...]
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.input_id) is not str
+            or not self.input_id
+            or type(self.bindings) is not tuple
+            or any(type(binding) is not FrameKeyAxis for binding in self.bindings)
+            or len({binding.token for binding in self.bindings}) != len(self.bindings)
+            or len({binding.target for binding in self.bindings}) != len(self.bindings)
+        ):
+            invalid(
+                "Frame keys require an exact input identity and distinct complete mappings. "
+                "Select each input and target axis once; an empty mapping is valid."
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class PopulationSet:
     left: PopulationDependency
     right: PopulationDependency
@@ -247,6 +294,7 @@ class CalendarKeys:
 PopulationNode: TypeAlias = (
     SourceIdentities
     | QueryKeys
+    | FrameKeys
     | PopulationSet
     | PopulationProject
     | PopulationProduct

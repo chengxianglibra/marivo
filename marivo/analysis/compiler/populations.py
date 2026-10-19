@@ -8,6 +8,7 @@ from marivo._definition.graph import computation_fingerprint, walk
 from marivo._definition.observations import CoordinateBinding, ObservationBinding
 from marivo._definition.query import PopulationValues, ResultQuery
 from marivo._definition.relations import (
+    FrameKeys,
     LiteralPopulation,
     ObserveQuery,
     PopulationDependency,
@@ -21,10 +22,13 @@ from marivo._definition.relations import (
 )
 from marivo._definition.types import Owner
 from marivo.analysis.compiler.graph_plan import LocalCompute, QueryPlan
-from marivo.analysis.compiler.query_program import ResultProgram
+from marivo.analysis.compiler.query_program import FrameParameter, ResultProgram
+from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import DataColumn
+from marivo.analysis.core.frame_structure import axis_role, column_kind
 from marivo.analysis.core.graph import BoundGraph, capture_query
 from marivo.analysis.core.model import BoundSignature, reject
+from marivo.refs import SemanticKind
 
 
 def population_atoms(definition: PopulationDependency) -> tuple[PopulationDependency, ...]:
@@ -32,8 +36,8 @@ def population_atoms(definition: PopulationDependency) -> tuple[PopulationDepend
     if isinstance(definition, LiteralPopulation):
         return (definition,)
     closure = walk((definition,), resolve=lambda _: None)
-    if not any(isinstance(node, QueryKeys) for node in closure.order) or isinstance(
-        definition.root, QueryKeys
+    if not any(isinstance(node, (QueryKeys, FrameKeys)) for node in closure.order) or isinstance(
+        definition.root, (QueryKeys, FrameKeys)
     ):
         return (definition,)
     node = definition.root
@@ -63,6 +67,13 @@ def population_inputs(definition: PopulationDependency, owner: Owner) -> tuple[Q
         if isinstance(atom, PopulationProgram) and isinstance(atom.root, QueryKeys):
             result.append(atom.root)
         else:
+            if isinstance(atom, PopulationProgram) and isinstance(atom.root, FrameKeys):
+                reject(
+                    "an explicit Frame parameter route",
+                    "FrameKeys",
+                    "Capture Frame-key domains through the private Frame entry.",
+                    "frame.population",
+                )
             binding = ObservationBinding(
                 None, None, CoordinateBinding(atom.axes, "grouped", atom, atom.memberships), ()
             )
@@ -72,6 +83,84 @@ def population_inputs(definition: PopulationDependency, owner: Owner) -> tuple[Q
             )
             result.append(capture_query(graph))
     return tuple(result)
+
+
+def frame_key_groups(keys: FrameKeys) -> tuple[tuple[str, ...], ...]:
+    """Return complete target parameter groups without inspecting data."""
+    return tuple(
+        tuple(f"__population_{axis}_{component}" for component in range(len(binding.key_names)))
+        for axis, binding in enumerate(keys.bindings)
+    )
+
+
+def frame_key_columns(keys: FrameKeys, schema: DataSchema) -> tuple[DataColumn, ...]:
+    """Admit the selected complete current groups with their exact physical types."""
+    columns: list[DataColumn] = []
+    for binding, group in zip(keys.bindings, frame_key_groups(keys), strict=True):
+        axis = next((axis for axis in schema.axes if axis.token == binding.token), None)
+        if axis is None or (
+            axis_role(axis) != binding.target.role
+            or tuple(column.name for column in axis.columns) != binding.key_names
+        ):
+            reject(
+                "the exact complete selected Frame coordinate",
+                binding.token,
+                "Retain the original Frame input and complete axis mapping.",
+                "frame.population",
+            )
+        if (
+            binding.target.field is not None
+            and binding.target.field.ref.kind is SemanticKind.TIME_DIMENSION
+            and column_kind(axis.columns[0]) not in ("date", "timestamp")
+        ):
+            reject(
+                "a concrete date or timestamp Frame key for a TimeField",
+                binding.token,
+                "Select a time-valued ordinary coordinate before source binding.",
+                "frame.population",
+            )
+        columns.extend(
+            replace(column, slot_id=name, name=name)
+            for column, name in zip(axis.columns, group, strict=True)
+        )
+    return tuple(columns)
+
+
+def plan_frame_keys(parameter: FrameParameter, source: str, schema: DataSchema) -> LocalCompute:
+    """Project checked rows jointly through the existing finite Population kernel."""
+    keys = parameter.definition.root
+    assert isinstance(keys, FrameKeys)
+    if frame_key_columns(keys, schema) != parameter.columns:
+        reject(
+            "the prepared complete Frame key schema",
+            keys.input_id,
+            "Preserve the selected complete key types through source preparation.",
+            "frame.population",
+        )
+    selected = tuple(
+        tuple(
+            column.slot_id
+            for column in next(axis for axis in schema.axes if axis.token == binding.token).columns
+        )
+        for binding in keys.bindings
+    )
+    return LocalCompute(
+        "bridge:" + computation_fingerprint(parameter.definition),
+        (source,),
+        "query.result@v1",
+        parameter.columns,
+        tuple(column.slot_id for column in parameter.columns),
+        result=ResultProgram(
+            PopulationValues(parameter.definition),
+            schema.columns,
+            schema.key_fields,
+            parameter.definition.axes,
+            selected,
+            frame_key_groups(keys),
+            population_inputs=(parameter.definition,),
+            population_layouts=(selected,),
+        ),
+    )
 
 
 def plan_population_result(

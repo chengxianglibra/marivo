@@ -15,6 +15,7 @@ from marivo.analysis.core.artifact_data import (
 from marivo.analysis.core.frame_audit import FrameResultMetadata
 from marivo.analysis.core.frame_calendar import FrozenSourceCalendar
 from marivo.analysis.core.frame_expression import FrameOperationKind
+from marivo.analysis.core.frame_key_inputs import FrameKeyInput
 from marivo.analysis.core.frame_structure import coordinate_attachments, require_complete_structure
 from marivo.analysis.core.frozen_calendar import FrozenAttachment, validate_frozen_coordinates
 from marivo.analysis.core.graph import BoundGraph
@@ -131,6 +132,7 @@ class SourceFrameBinding:
     state: CompiledSemanticState
     connection: DatasourceConnectionConfig
     calendars: tuple[FrozenSourceCalendar, ...] = ()
+    frame_key_inputs: tuple[FrameKeyInput, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

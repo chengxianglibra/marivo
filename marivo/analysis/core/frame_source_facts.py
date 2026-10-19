@@ -13,6 +13,8 @@ from marivo._definition.expressions import MeasureAssertion, RowExpression, RowF
 from marivo._definition.query import ReadFields, ResultQuery
 from marivo._definition.relations import (
     CalendarKeys,
+    FrameKeyAxis,
+    FrameKeys,
     LiteralPopulation,
     MembershipBinding,
     ObserveQuery,
@@ -42,11 +44,25 @@ from marivo._definition.types import (
     Owner,
     literal_token,
 )
+from marivo.analysis.core.data_types import (
+    DataColumn,
+    DecimalDataType,
+    DurationDataType,
+    ScalarDataType,
+    TimestampDataType,
+)
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import reject
 from marivo.analysis.materialization.contracts import canonical_json
 
 _SCOPE_RECORDS = (
+    DataColumn,
+    ScalarDataType,
+    DecimalDataType,
+    DurationDataType,
+    TimestampDataType,
+    FrameKeyAxis,
+    FrameKeys,
     LiteralPopulation,
     PopulationProgram,
     PopulationSet,
@@ -141,6 +157,18 @@ def _scope(value: object) -> object:
             "Use the explicit Frame-to-Population bridge to capture complete key facts.",
             "frame.audit.scope",
         )
+    if isinstance(value, PopulationParameter):
+        return {"scope": "PopulationParameter", "definition": _scope(value.definition)}
+    if isinstance(value, PopulationPredicateParameter):
+        return {"scope": "PopulationPredicateParameter", "condition": _scope(value.condition)}
+    if isinstance(value, RelationshipParameter):
+        return {
+            "scope": "RelationshipParameter",
+            "ref": _scope(value.ref),
+            "from_entity": _scope(value.from_entity),
+            "to_entity": _scope(value.to_entity),
+            "cardinality": value.cardinality,
+        }
     if type(value) in _SCOPE_RECORDS and is_dataclass(value) and not isinstance(value, type):
         return {
             "scope": type(value).__name__,

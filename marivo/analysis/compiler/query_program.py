@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeAlias
 
 from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.query import QueryOperation, ValueBinary
-from marivo._definition.relations import PopulationDependency, QueryKeys
+from marivo._definition.relations import PopulationDependency, PopulationProgram, QueryKeys
 from marivo.analysis.binding.correspondence import (
     BoundCorrespondence,
     BroadcastMapping,
@@ -32,6 +32,18 @@ class QueryParameter:
     query: QueryKeys
     placeholder: str
     columns: tuple[DataColumn, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class FrameParameter:
+    """An inert Frame-key parameter whose producer joins the outer Frame plan."""
+
+    definition: PopulationProgram
+    placeholder: str
+    columns: tuple[DataColumn, ...]
+
+
+PopulationParameterPlan: TypeAlias = QueryParameter | FrameParameter
 
 
 @dataclass(frozen=True, slots=True)

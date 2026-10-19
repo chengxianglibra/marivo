@@ -7,8 +7,9 @@ from typing import TYPE_CHECKING
 
 from marivo._definition.graph import DefinitionNode, children, computation_fingerprint
 from marivo._definition.query import KeyImage, PopulationValues
-from marivo._definition.relations import PopulationProgram, QueryKeys
+from marivo._definition.relations import FrameKeys, PopulationProgram, QueryKeys
 from marivo.analysis.compiler.graph_plan import (
+    FrameKeysInput,
     LocalCompute,
     QueryPlan,
     SourceCheckRoute,
@@ -19,6 +20,7 @@ from marivo.analysis.compiler.graph_plan import (
 )
 from marivo.analysis.compiler.query_program import (
     EMPTY_QUERY_CONTEXT,
+    FrameParameter,
     QueryContext,
     ResultProgram,
     SourceParameter,
@@ -38,7 +40,7 @@ def parameter_domains(graph: BoundGraph) -> tuple[PopulationProgram, ...]:
         if id(node) in seen:
             return
         seen.add(id(node))
-        if isinstance(node, PopulationProgram) and isinstance(node.root, QueryKeys):
+        if isinstance(node, PopulationProgram) and isinstance(node.root, (QueryKeys, FrameKeys)):
             result[computation_fingerprint(node)] = node
             return
         for edge in children(node):
@@ -87,10 +89,26 @@ def plan_parameters(
     base = replace(base, output_groups=groups)
     if not parameters:
         return base
-    producers = {
-        name: plan_query(input_graph(parameter.query), schemas, context=context, memo=memo)
-        for name, parameter in parameters.items()
-    }
+    producers: dict[str, QueryPlan] = {}
+    for name, parameter in parameters.items():
+        if isinstance(parameter, FrameParameter):
+            from marivo.analysis.compiler.populations import frame_key_groups
+
+            assert isinstance(parameter.definition.root, FrameKeys)
+            leaf = FrameKeysInput(
+                "framekeys:" + computation_fingerprint(parameter.definition), parameter
+            )
+            producers[name] = QueryPlan(
+                (leaf,),
+                (),
+                ((leaf.stage_id, ()),),
+                leaf.stage_id,
+                frame_key_groups(parameter.definition.root),
+            )
+        else:
+            producers[name] = plan_query(
+                input_graph(parameter.query), schemas, context=context, memo=memo
+            )
     stages = {stage.stage_id: stage for plan in producers.values() for stage in plan.stages}
     for stage in base.stages:
         if not isinstance(stage, SourceRead):
@@ -144,12 +162,17 @@ def plan_parameters(
             output = next(item for item in producer.stages if item.stage_id == producer.publish)
             from marivo.analysis.compiler.queries import key_groups
 
-            input_definition = input_graph(direct.query)
-            groups = (
-                output.result.output_groups
-                if isinstance(output, LocalCompute) and output.result is not None
-                else key_groups(input_definition, output.columns, output.keys)
-            )
+            if isinstance(direct, FrameParameter):
+                groups = producer.output_groups
+                input_axes = direct.definition.axes
+            else:
+                input_definition = input_graph(direct.query)
+                groups = (
+                    output.result.output_groups
+                    if isinstance(output, LocalCompute) and output.result is not None
+                    else key_groups(input_definition, output.columns, output.keys)
+                )
+                input_axes = input_definition.signature.axes
             output_groups = tuple(
                 tuple(
                     stage.keys[tuple(key.column for key in schema.keys).index(column)]
@@ -167,7 +190,7 @@ def plan_parameters(
                     KeyImage(),
                     output.columns,
                     output.keys,
-                    input_definition.signature.axes,
+                    input_axes,
                     groups,
                     output_groups,
                 ),

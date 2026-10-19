@@ -253,7 +253,8 @@ class Session:
             else None,
         )
         return Population(
-            PopulationProgram(node, Owner(self.id, self._runtime.store.store_id), (axis,))
+            PopulationProgram(node, Owner(self.id, self._runtime.store.store_id), (axis,)),
+            where._frame_inputs if isinstance(where, PopulationPredicate) else (),
         )
 
     def source_bindings(self, bindings: SourceBindingMap) -> AbstractContextManager[None]:

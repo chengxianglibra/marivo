@@ -9,8 +9,14 @@ from types import TracebackType
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from marivo._definition.query import FilterValues, SelectValues, TopValues
-from marivo.analysis.compiler.frame_plan import CompiledSourceFrame, plan_frame
+from marivo._definition.graph import computation_fingerprint
+from marivo._definition.query import FilterValues, PopulationValues, SelectValues, TopValues
+from marivo._definition.relations import FrameKeys, PopulationProgram
+from marivo.analysis.compiler.frame_plan import (
+    CompiledSourceFrame,
+    frame_expression_schema,
+    plan_frame,
+)
 from marivo.analysis.compiler.graph_lowering import LoweredRead, lower_query
 from marivo.analysis.compiler.graph_plan import (
     FrameCompute,
@@ -22,6 +28,7 @@ from marivo.analysis.compiler.graph_plan import (
     plan_query,
 )
 from marivo.analysis.compiler.optimization import InvocationMemo, optimize_query
+from marivo.analysis.compiler.parameters import parameter_domains
 from marivo.analysis.compiler.queries import endpoint
 from marivo.analysis.compiler.query_program import QueryContext
 from marivo.analysis.core.artifact_data import (
@@ -60,6 +67,7 @@ from marivo.analysis.core.frame_expression import (
     FrameOperation,
     SourceFrameInput,
 )
+from marivo.analysis.core.frame_key_inputs import FrameKeyInput, merge_frame_key_inputs
 from marivo.analysis.core.frame_source_facts import captured_source_scopes, source_scope
 from marivo.analysis.core.frame_structure import PendingDataColumn, PendingDataSchema, axis_role
 from marivo.analysis.core.model import reject
@@ -74,6 +82,7 @@ from marivo.analysis.materialization.graph_source_execution import (
     run_frame_plan,
 )
 from marivo.analysis.materialization.query_correspondence import prepare_context
+from marivo.semantic.errors import SemanticExpressionError
 
 if TYPE_CHECKING:
     from marivo.analysis.dsl.frame import AnalysisFrame
@@ -173,6 +182,7 @@ def evaluate_frame(frame: AnalysisFrame) -> CompletedFrameResult:
     expressions: dict[str, FrameExpression] = {}
     inherited: list[OutputEvidence] = []
     operations: list[FrameOperationName] = []
+    collected: dict[str, FrameKeyInput] = {}
 
     def collect(current: AnalysisFrame) -> FrameExpression:
         if current._local.owner != frame._local.owner:
@@ -182,6 +192,12 @@ def evaluate_frame(frame: AnalysisFrame) -> CompletedFrameResult:
                 "Use inputs owned by this Frame's Session.",
                 "frame.compute",
             )
+        previous = collected.get(current._input_id)
+        carrier = FrameKeyInput(current._input_id, current)
+        merge_frame_key_inputs(
+            () if previous is None else (previous,), (carrier,), owner=frame._local.owner
+        )
+        collected.setdefault(current._input_id, carrier)
         existing = expressions.get(current._input_id)
         if existing is not None:
             return existing
@@ -206,6 +222,9 @@ def evaluate_frame(frame: AnalysisFrame) -> CompletedFrameResult:
                 )
                 operations.append(operation)
             else:
+                if isinstance(root, SourceFrameBinding):
+                    for dependency in root.frame_key_inputs:
+                        collect(dependency.frame)
                 source_frames[current._input_id] = current
                 expression = SourceFrameInput(current._input_id, root.graph)
         else:
@@ -220,10 +239,12 @@ def evaluate_frame(frame: AnalysisFrame) -> CompletedFrameResult:
     prepared_by_input: dict[str, PreparedSources] = {}
     source_plans: dict[str, CompiledSourceFrame] = {}
     source_schemas: dict[str, DataSchema] = {}
+    key_schema_cache: dict[int, DataSchema] = {}
     inputs: list[EvaluationInput] = []
     source_facts: list[OutputEvidence] = list(inherited)
     checks: list[OutputEvidence] = []
     scopes: dict[str, tuple[str, ...]] = {}
+    evaluated_keys: dict[str, str] = {}
     with _SourceContexts() as stack:
         for input_id, current in source_frames.items():
             backing = current._backing
@@ -235,15 +256,29 @@ def evaluate_frame(frame: AnalysisFrame) -> CompletedFrameResult:
             context = QueryContext()
             schemas: tuple[SourceSchema, ...] = ()
             if isinstance(binding, SourceFrameBinding):
+                key_schemas = {
+                    item.input_id: frame_expression_schema(
+                        expressions[item.input_id], source_schemas, memo=key_schema_cache
+                    )
+                    for item in binding.frame_key_inputs
+                }
                 if _query_entities(binding.graph, binding.state):
                     service = stack.enter_context(binding.connection.operation())
                     prepared = stack.enter_context(
-                        open_query_sources(service, binding.graph, binding.state, memo=memo)
+                        open_query_sources(
+                            service,
+                            binding.graph,
+                            binding.state,
+                            memo=memo,
+                            frame_schemas=key_schemas,
+                        )
                     )
                     prepared_by_input[input_id] = prepared
                     schemas, context = prepared.schemas, prepared.context
                 else:
-                    schemas = prepare_source_free_populations(binding.graph, binding.state)
+                    schemas = prepare_source_free_populations(
+                        binding.graph, binding.state, frame_schemas=key_schemas
+                    )
                     context = prepare_context(binding.graph, binding.state)
                 scopes[input_id] = captured_source_scopes(binding.graph)
             plan = optimize_query(plan_query(binding.graph, schemas, context=context, memo=memo))
@@ -283,7 +318,7 @@ def evaluate_frame(frame: AnalysisFrame) -> CompletedFrameResult:
                         backing.artifact_id,
                     )
                 )
-        compiled = plan_frame(root_expression, source_plans)
+        compiled = plan_frame(root_expression, source_plans, frame_inputs=expressions)
         source_stage_ids = dict(compiled.source_stages)
         applicable: dict[str, tuple[str, ...]] = {}
         for stage in compiled.lowered.plan.stages:
@@ -334,6 +369,17 @@ def evaluate_frame(frame: AnalysisFrame) -> CompletedFrameResult:
 
         def observe_read(request: LoweredRead, output: StageOutput) -> None:
             input_id = source_stage_ids[request.stage.stage_id]
+            binding = source_frames[input_id]._backing
+            assert isinstance(binding, ExpressionFrameBacking)
+            dynamic = (
+                tuple(
+                    evaluated_keys[computation_fingerprint(domain)]
+                    for domain in parameter_domains(binding.root.graph)
+                    if isinstance(domain.root, FrameKeys)
+                )
+                if isinstance(binding.root, SourceFrameBinding)
+                else ()
+            )
             for logical in request.stage.native_reads or (request.stage,):
                 period = logical.period
                 facts = OutputEvidence(
@@ -353,7 +399,7 @@ def evaluate_frame(frame: AnalysisFrame) -> CompletedFrameResult:
                         ("period_end", None if period is None else _plain(period.end)),
                         ("timezone", None if period is None else period.timezone),
                         ("filters", source_scope(logical.predicates)),
-                        ("source_scopes", source_scope(scopes.get(input_id, ()))),
+                        ("source_scopes", source_scope((*scopes.get(input_id, ()), *dynamic))),
                         (
                             "returned_rows",
                             output.source_rows
@@ -380,6 +426,48 @@ def evaluate_frame(frame: AnalysisFrame) -> CompletedFrameResult:
                     checks.append(fact)
 
         def observe_local(stage: LocalCompute | FrameCompute, output: StageOutput) -> None:
+            if (
+                isinstance(stage, LocalCompute)
+                and stage.stage_id.startswith("bridge:")
+                and stage.result is not None
+                and isinstance(stage.result.operation, PopulationValues)
+            ):
+                definition = stage.result.operation.definition
+                assert isinstance(definition, PopulationProgram) and isinstance(
+                    definition.root, FrameKeys
+                )
+                current = collected[definition.root.input_id].frame
+                backing = current._backing
+                kind = (
+                    "expression"
+                    if isinstance(backing, ExpressionFrameBacking)
+                    else "memory"
+                    if isinstance(backing, MemoryFrameBacking)
+                    else "stored"
+                )
+                result_id = (
+                    None
+                    if isinstance(backing, ExpressionFrameBacking)
+                    else backing.metadata.result_id
+                )
+                rows = (
+                    tuple(
+                        tuple(row[column.slot_id] for column in output.columns)
+                        for row in output.table.to_dict(orient="records")
+                    )
+                    if output.columns
+                    else (((),) if len(output.table) else ())
+                )
+                evaluated_keys[computation_fingerprint(definition)] = source_scope(
+                    (
+                        "frame_key_selection",
+                        definition.root,
+                        kind,
+                        result_id,
+                        output.columns,
+                        rows,
+                    )
+                )
             checks.append(
                 OutputEvidence(
                     "check",
@@ -392,14 +480,28 @@ def evaluate_frame(frame: AnalysisFrame) -> CompletedFrameResult:
                 )
             )
 
-        output = run_frame_plan(
-            compiled,
-            source_prepared=prepared_by_input,
-            read_fixed=read_fixed,
-            adapt_source=adapt_source,
-            observe_read=observe_read,
-            observe_local=observe_local,
-        )
+        try:
+            output = run_frame_plan(
+                compiled,
+                source_prepared=prepared_by_input,
+                read_fixed=read_fixed,
+                adapt_source=adapt_source,
+                observe_read=observe_read,
+                observe_local=observe_local,
+            )
+        except SemanticExpressionError as error:
+            assert (
+                error.expected is not None
+                and error.received is not None
+                and error.repair is not None
+            )
+            raise MaterializationError(
+                expected=error.expected,
+                received=error.received,
+                repair=error.repair.action,
+                stage="numeric_value",
+                help_target="analysis_frame.compute",
+            ) from error
         data = CompletedFrameData(compiled.schema, output.table, output.frame_attachments)
     # Every owned source context has closed before result identity/success.
     metadata = FrameResultMetadata(

@@ -13,10 +13,12 @@ from marivo._definition.query import (
     ValueLiteral,
     ValueUnary,
 )
+from marivo._definition.relations import FrameKeys
 from marivo.analysis.compiler.graph_lowering import LoweredQuery, LoweredRead
 from marivo.analysis.compiler.graph_plan import (
     FrameCompute,
     FrameInput,
+    FrameKeysInput,
     LocalCompute,
     PlannedCheck,
     QueryPlan,
@@ -189,7 +191,10 @@ def _durations(schema: DataSchema, expression: ValueExpression) -> tuple[Duratio
 
 
 def plan_frame(
-    root: FrameExpression, source_plans: Mapping[str, CompiledSourceFrame]
+    root: FrameExpression,
+    source_plans: Mapping[str, CompiledSourceFrame],
+    *,
+    frame_inputs: Mapping[str, FrameExpression] | None = None,
 ) -> CompiledFramePlan:
     stages: list[QueryStage] = []
     reads: list[LoweredRead] = []
@@ -198,6 +203,7 @@ def plan_frame(
     boundaries: list[tuple[str, str]] = []
     leaves: dict[str, tuple[str, DataSchema]] = {}
     identities: dict[str, SourceFrameInput | FixedFrameInput] = {}
+    projections: dict[str, str] = {}
     operations: dict[int, tuple[str, DataSchema]] = {}
 
     def visit(node: FrameExpression) -> tuple[str, DataSchema]:
@@ -238,10 +244,39 @@ def plan_frame(
                 )
             child = source_plans[node.input_id]
             require_complete_structure(child.schema)
+            external: dict[str, str] = {}
+            for key_stage in child.lowered.plan.stages:
+                if not isinstance(key_stage, FrameKeysInput):
+                    continue
+                definition = key_stage.parameter.definition.root
+                assert isinstance(definition, FrameKeys)
+                source_expression = (frame_inputs or {}).get(definition.input_id)
+                if source_expression is None:
+                    reject(
+                        "a retained invocation Frame input",
+                        definition.input_id,
+                        "Retain Frame-key sidecars before source capture.",
+                        "frame.population",
+                    )
+                source, schema = visit(source_expression)
+                from marivo.analysis.compiler.populations import plan_frame_keys
+
+                projection = plan_frame_keys(key_stage.parameter, source, schema)
+                if projection.stage_id not in projections:
+                    stages.append(projection)
+                    projections[projection.stage_id] = projection.stage_id
+                external[key_stage.stage_id] = projection.stage_id
             names = {
-                s.stage_id: f"source:{len(leaves)}/{s.stage_id}" for s in child.lowered.plan.stages
+                s.stage_id: f"source:{len(leaves)}/{s.stage_id}"
+                for s in child.lowered.plan.stages
+                if not isinstance(s, FrameKeysInput)
             }
-            prefixed = tuple(_prefix(s, names) for s in child.lowered.plan.stages)
+            names.update(external)
+            prefixed = tuple(
+                _prefix(s, names)
+                for s in child.lowered.plan.stages
+                if not isinstance(s, FrameKeysInput)
+            )
             by_id = {s.stage_id: s for s in prefixed}
             stages.extend(prefixed)
             for item in child.lowered.reads:
@@ -329,3 +364,31 @@ def plan_frame(
     return CompiledFramePlan(
         LoweredQuery(plan, tuple(reads)), schema, tuple(owners), tuple(boundaries)
     )
+
+
+def frame_expression_schema(
+    expression: FrameExpression,
+    source_schemas: Mapping[str, DataSchema],
+    *,
+    memo: dict[int, DataSchema] | None = None,
+) -> DataSchema:
+    """Infer complete intermediate structure without running a partial schedule."""
+    memo = {} if memo is None else memo
+    existing = memo.get(id(expression))
+    if existing is not None:
+        return existing
+    if isinstance(expression, FixedFrameInput):
+        result = expression.schema
+    elif isinstance(expression, SourceFrameInput):
+        result = source_schemas[expression.input_id]
+    else:
+        inputs = tuple(
+            frame_expression_schema(item, source_schemas, memo=memo) for item in expression.inputs
+        )
+        result = (
+            infer_frame_combine_schema(inputs[0], inputs[1], expression.operation)
+            if isinstance(expression.operation, (AlignFrameValues, CompareFrameValues))
+            else infer_frame_schema(inputs[0], expression.operation)
+        )
+    memo[id(expression)] = result
+    return result

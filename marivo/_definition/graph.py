@@ -46,6 +46,7 @@ from marivo._definition.query import (
 )
 from marivo._definition.relations import (
     CalendarKeys,
+    FrameKeys,
     LiteralPopulation,
     ObserveQuery,
     PopulationAnd,
@@ -194,7 +195,12 @@ def children(node: DefinitionNode) -> tuple[Edge, ...]:
         case MetricExpression():
             return _edges(*(("operand", item) for item in node.operands))
         case (
-            RowField() | EntityCount() | DeclaredMetricRef() | LiteralPopulation() | CalendarKeys()
+            RowField()
+            | EntityCount()
+            | DeclaredMetricRef()
+            | LiteralPopulation()
+            | CalendarKeys()
+            | FrameKeys()
         ):
             return ()
         case SourceIdentities():

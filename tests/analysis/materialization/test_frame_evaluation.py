@@ -167,7 +167,7 @@ def test_source_close_failure_and_numeric_failure_publish_nothing(
     source = _observe(session)
     before = _inventory(session)
     invalid = source.select({"invalid": source["ratio"].divide(0, zero_denominator="error")})
-    with pytest.raises(SemanticExpressionError):
+    with pytest.raises(MaterializationError, match="nonzero denominator"):
         invalid.compute()
     assert _inventory(session) == before and session.runs().items == ()
     close = SourceSession.close
@@ -185,7 +185,48 @@ def test_source_close_failure_and_numeric_failure_publish_nothing(
     assert failure.value.stage == "frame_compute"
     cleanup = failure.value.__cause__
     assert isinstance(cleanup, RuntimeError) and str(cleanup) == "injected close failure"
-    assert isinstance(cleanup.__context__, SemanticExpressionError)
+    numeric = cleanup.__context__
+    assert isinstance(numeric, MaterializationError)
+    assert isinstance(numeric.__cause__, SemanticExpressionError)
+    assert _inventory(session) == before and session.runs().items == ()
+
+
+def test_source_numeric_failure_has_analysis_owner_and_closes_without_run(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    numerator = session.catalog.fields.get("sales.facts.numerator")
+    denominator = session.catalog.fields.get("sales.facts.denominator")
+    source = frame_sources.observe(
+        session._runtime.local,
+        session.catalog._state,
+        session._runtime.connection_config,
+        {
+            "invalid": numerator.sum().divide(
+                denominator.sum() - denominator.sum(), zero_denominator="error"
+            )
+        },
+    )
+    before = _inventory(session)
+    closed: list[SourceSession] = []
+    close = SourceSession.close
+
+    def record_close(self: SourceSession) -> None:
+        close(self)
+        closed.append(self)
+
+    monkeypatch.setattr(SourceSession, "close", record_close)
+    with pytest.raises(MaterializationError, match="nonzero denominator") as failure:
+        source.compute()
+    error = failure.value
+    cause = error.__cause__
+    assert isinstance(cause, SemanticExpressionError)
+    assert error.stage == "numeric_value" and error.run_ref is None
+    assert error.expected == cause.expected and error.received == cause.received
+    assert error.repair is not None and cause.repair is not None
+    assert error.repair.action == cause.repair.action
+    assert error.repair.help_target.canonical_id == "analysis_frame.compute"
+    assert "source=sales.facts" in error.received
+    assert closed
     assert _inventory(session) == before and session.runs().items == ()
 
 

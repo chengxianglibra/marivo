@@ -17,7 +17,7 @@ from marivo._definition.relations import (
 )
 from marivo._definition.types import AxisBinding, coordinate_read_keys
 from marivo.analysis.dsl.population import condition_populations
-from marivo.analysis.materialization.population_preparation import prepare_population
+from marivo.analysis.materialization.population_preparation import _domain_table, prepare_population
 from marivo.semantic._compiled_state import CompiledSemanticState
 
 
@@ -43,7 +43,13 @@ def filter_contribution(
                 key: f"__predicate_{index}_{i}" for i, key in enumerate(selected.key_columns)
             }
             allowed = (
-                selected.table.select(**{new: selected.table[old] for old, new in renamed.items()})
+                (
+                    _domain_table(selected).select(
+                        **{new: selected.table[old] for old, new in renamed.items()}
+                    )
+                    if renamed
+                    else _domain_table(selected)
+                )
                 .distinct()
                 .mutate(**{marker: ibis.literal(True)})
             )

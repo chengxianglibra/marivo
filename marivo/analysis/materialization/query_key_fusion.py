@@ -60,7 +60,13 @@ from marivo._definition.relations import (
 from marivo._definition.types import AxisBinding
 from marivo.analysis.binding.correspondence import ComparisonEndpoint
 from marivo.analysis.compiler.graph_lowering import LoweredQuery, LoweredRead
-from marivo.analysis.compiler.graph_plan import LocalCompute, QueryPlan, QueryStage, SourceRead
+from marivo.analysis.compiler.graph_plan import (
+    FrameKeysInput,
+    LocalCompute,
+    QueryPlan,
+    QueryStage,
+    SourceRead,
+)
 from marivo.analysis.compiler.native_query import NativeQueryFinish, NativeQueryInput
 from marivo.analysis.compiler.observation import ReductionInput, ibis_type
 from marivo.analysis.compiler.optimization import RuleDecision, required_slots
@@ -2195,6 +2201,22 @@ def _fold_population_checks(prepared: PreparedSources, lowered: LoweredQuery) ->
 
 def fuse_query_keys(prepared: PreparedSources, lowered: LoweredQuery) -> LoweredQuery:
     """Inline qualified source-key uses while retaining independently consumed producers."""
+    if any(isinstance(stage, FrameKeysInput) for stage in lowered.plan.stages):
+        return replace(
+            lowered,
+            plan=replace(
+                lowered.plan,
+                optimization_decisions=(
+                    *lowered.plan.optimization_decisions,
+                    RuleDecision(
+                        "source_key_fusion",
+                        "refused",
+                        (),
+                        "Explicit Frame selection completes before dependent source reads.",
+                    ),
+                ),
+            ),
+        )
     lowered = _fold_population_checks(prepared, lowered)
     lowered = fuse_query_relations(prepared, lowered)
     lowered = _fuse_parameter_blocks(prepared, lowered)

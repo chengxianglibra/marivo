@@ -12,6 +12,7 @@ import ibis.expr.types as ir
 from marivo._definition.expressions import ContributionFilter, EntityCount, RowExpression
 from marivo._definition.observations import ContributionBinding
 from marivo._definition.relations import (
+    FrameKeys,
     PopulationAnd,
     PopulationClassify,
     PopulationCondition,
@@ -38,6 +39,7 @@ from marivo._definition.types import (
     LiteralValue,
 )
 from marivo.analysis.compiler.member_version import version_predicate
+from marivo.analysis.compiler.observation import data_type
 from marivo.analysis.core.model import reject
 from marivo.refs import ref
 from marivo.semantic._compiled_state import CompiledSemanticState
@@ -71,7 +73,11 @@ def population_entities(
     definition: PopulationDependency, state: CompiledSemanticState | None = None
 ) -> tuple[str, ...]:
     """Return the declared source closure needed for domain schema and reads."""
-    entities = {axis.entity.ref.path for axis in definition.axes if isinstance(axis, AxisBinding)}
+    entities = (
+        {axis.entity.ref.path for axis in definition.axes if isinstance(axis, AxisBinding)}
+        if not isinstance(definition, PopulationProgram)
+        else set()
+    )
     if isinstance(definition, PopulationProgram):
         node = definition.root
         if isinstance(node, SourceIdentities):
@@ -175,6 +181,36 @@ def prepare_population(
     """
     groups: list[tuple[str, ...]] = []
     types: dict[str, dt.DataType] = {}
+    from marivo._definition.graph import computation_fingerprint, walk
+
+    parameter = entities.get("population-parameter:" + computation_fingerprint(definition))
+    frame_types: dict[AxisBinding, tuple[dt.DataType, ...]] = {}
+    for captured_domain in walk((definition,), resolve=lambda _: None).order:
+        if isinstance(captured_domain, PopulationProgram) and isinstance(
+            captured_domain.root, FrameKeys
+        ):
+            relation = entities.get(
+                "population-parameter:" + computation_fingerprint(captured_domain)
+            )
+            if relation is None:
+                continue
+            from marivo.analysis.compiler.populations import frame_key_groups
+
+            for binding, names in zip(
+                captured_domain.root.bindings, frame_key_groups(captured_domain.root), strict=True
+            ):
+                captured_types = tuple(relation[name].type() for name in names)
+                previous = frame_types.get(binding.target)
+                if previous is not None and tuple(data_type(dtype) for dtype in previous) != tuple(
+                    data_type(dtype) for dtype in captured_types
+                ):
+                    reject(
+                        "compatible complete types for a shared Population target axis",
+                        repr((previous, captured_types)),
+                        "Map compatible complete Frame key types before combining their domains.",
+                        "frame.population",
+                    )
+                frame_types[binding.target] = captured_types
     group: tuple[str, ...]
     for index, axis in enumerate(definition.axes):
         if isinstance(axis, CalendarCoordinate):
@@ -189,25 +225,37 @@ def prepare_population(
                 "Select a complete original endpoint projection before reading a source.",
                 "population.prepare",
             )
-        table = entities[axis.entity.ref.path]
+        axis_table = entities.get(axis.entity.ref.path)
+        captured = frame_types.get(axis)
+        if axis_table is None and captured is not None:
+            group = tuple(f"__population_{index}_{component}" for component in range(len(captured)))
+            types.update(zip(group, captured, strict=True))
+            groups.append(group)
+            continue
+        if axis_table is None:
+            reject(
+                "a prepared explicit source or Frame-key schema",
+                axis.entity.ref.key,
+                "Prepare the required source leaf or retain the Frame input.",
+                "frame.population",
+            )
         if axis.field is None:
             keys = state.registry.entities[axis.entity.ref.path].primary_key
             group = tuple(f"__population_{index}_{component}" for component in range(len(keys)))
             for name, key in zip(group, keys, strict=True):
-                types[name] = table[key].type()
+                types[name] = axis_table[key].type()
         else:
             group = (f"__population_{index}_0",)
             types[group[0]] = _field(
-                FieldRead(axis.field, axis.entity, axis.path, axis.at), table, state
+                FieldRead(axis.field, axis.entity, axis.path, axis.at), axis_table, state
             ).type()
         groups.append(group)
     key_groups = tuple(groups)
     columns = tuple(column for group in groups for column in group)
-    from marivo._definition.graph import computation_fingerprint
-
-    parameter = entities.get("population-parameter:" + computation_fingerprint(definition))
     if parameter is not None:
-        return PreparedPopulation(parameter, key_groups)
+        return PreparedPopulation(
+            parameter, key_groups, presence="__population_unit" if not columns else None
+        )
     finite = population_keys(definition)
     if finite is not None:
         data: dict[str, list[LiteralValue]] = {column: [] for column in columns}
@@ -287,8 +335,10 @@ def prepare_population(
                 name: f"__population_test_{index}_{offset}"
                 for offset, name in enumerate(selected.key_columns)
             }
-            allowed = selected.table.select(
-                **{new: selected.table[old] for old, new in rename.items()}
+            allowed = (
+                selected.table.select(**{new: selected.table[old] for old, new in rename.items()})
+                if rename
+                else _domain_table(selected)
             ).mutate(**{marker: ibis.literal(True)})
             pairs = [
                 (left, rename[right])
@@ -312,8 +362,13 @@ def prepare_population(
                 return condition_value(condition.left) & condition_value(condition.right)
             return condition_value(condition.left) | condition_value(condition.right)
 
+        filtered = table.filter(condition_value(node.predicate))
         return PreparedPopulation(
-            table.filter(condition_value(node.predicate)).select(*prepared.key_columns), key_groups
+            filtered.select(*prepared.key_columns)
+            if columns
+            else filtered.select(__population_unit=ibis.literal(True)).distinct(),
+            key_groups,
+            presence="__population_unit" if not columns else None,
         )
     if isinstance(node, (PopulationImage, PopulationPreimage)):
         from marivo.analysis.materialization.population_relations import (

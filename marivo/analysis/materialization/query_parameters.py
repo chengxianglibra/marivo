@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
@@ -12,14 +13,20 @@ import ibis.expr.types as ir
 import pyarrow as pa
 
 from marivo._definition.graph import computation_fingerprint
-from marivo._definition.relations import QueryKeys
+from marivo._definition.relations import FrameKeys, QueryKeys
 from marivo.analysis.compiler.graph_plan import plan_query
 from marivo.analysis.compiler.observation import ibis_type
 from marivo.analysis.compiler.parameters import parameter_domains
 from marivo.analysis.compiler.queries import prefixed_input
-from marivo.analysis.compiler.query_program import QueryParameter
+from marivo.analysis.compiler.query_program import (
+    FrameParameter,
+    PopulationParameterPlan,
+    QueryParameter,
+)
+from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import DataColumn, ScalarDataType
 from marivo.analysis.core.graph import BoundGraph, capture_query
+from marivo.analysis.core.model import reject
 from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.methods.physical import stage_arrow_type
 
@@ -30,6 +37,40 @@ if TYPE_CHECKING:
     from marivo.semantic._compiled_state import CompiledSemanticState
 
 
+def prepare_frame_parameters(
+    graph: BoundGraph,
+    frame_schemas: Mapping[str, DataSchema],
+    entities: dict[str, ir.Table],
+) -> tuple[FrameParameter, ...]:
+    """Declare complete Frame-key relations using prepared input schemas only."""
+    from marivo.analysis.compiler.populations import frame_key_columns
+
+    result = []
+    for domain in parameter_domains(graph):
+        if not isinstance(domain.root, FrameKeys):
+            continue
+        schema = frame_schemas.get(domain.root.input_id)
+        if schema is None:
+            reject(
+                "a prepared schema for every retained Frame key input",
+                domain.root.input_id,
+                "Retain the input sidecar before capturing the source graph.",
+                "frame.population",
+            )
+        columns = frame_key_columns(domain.root, schema)
+        identifier = computation_fingerprint(domain)
+        placeholder = "__marivo_population_" + identifier
+        table = ibis.table(
+            {column.slot_id: ibis_type(column.dtype) for column in columns}
+            if columns
+            else {"__population_unit": dt.boolean},
+            name=placeholder,
+        )
+        entities["population-parameter:" + identifier] = table
+        result.append(FrameParameter(domain, placeholder, columns))
+    return tuple(result)
+
+
 def prepare_parameters(
     graph: BoundGraph,
     state: CompiledSemanticState,
@@ -37,10 +78,13 @@ def prepare_parameters(
     sources: dict[str, SourceSession],
     entities: dict[str, ir.Table],
     memo: InvocationMemo | None = None,
-) -> tuple[tuple[QueryParameter, ...], tuple[PreparedSources, ...]]:
+    frame_schemas: Mapping[str, DataSchema] | None = None,
+) -> tuple[tuple[PopulationParameterPlan, ...], tuple[PreparedSources, ...]]:
     from marivo.analysis.materialization.graph_source_execution import prepare_query_sources
 
-    parameters = []
+    parameters: list[PopulationParameterPlan] = list(
+        prepare_frame_parameters(graph, frame_schemas or {}, entities)
+    )
     prepared_inputs = []
     observation = graph.signature.observation
     namespace: tuple[int, ...] = ()
@@ -49,9 +93,13 @@ def prepare_parameters(
         logical = first.logical_occurrence or first.occurrence
         namespace = first.occurrence[: -len(logical)]
     for index, domain in enumerate(parameter_domains(graph)):
+        if isinstance(domain.root, FrameKeys):
+            continue
         assert isinstance(domain.root, QueryKeys)
         child = prefixed_input(domain.root, (*namespace, len(graph.signature.quantities), index))
-        prepared = prepare_query_sources(child, state, source, sources=sources, memo=memo)
+        prepared = prepare_query_sources(
+            child, state, source, sources=sources, memo=memo, frame_schemas=frame_schemas
+        )
         prepared_inputs.append(prepared)
         plan = plan_query(child, prepared.schemas, context=prepared.context, memo=memo)
         output = next(stage for stage in plan.stages if stage.stage_id == plan.publish)
@@ -107,7 +155,22 @@ def instantiate(
 ) -> ir.Table:
     """Substitute an owned relation, or instantiate admitted inline key tuples."""
     if relation is not None:
+        # Arrow preserves physical nonnullability. The placeholder's nullable
+        # relation schema must stay stable while sibling set operands are
+        # substituted one at a time; the checked Arrow input retains its own
+        # stricter null contract.
+        relation = relation.select(
+            **{
+                column.slot_id: relation[column.slot_id].cast(ibis_type(column.dtype))
+                for column in columns
+            }
+        )
         return _replace_parameter(expression, name, relation)
+    if not columns:
+        unit = ibis.literal(True).name("__population_unit").as_table()
+        return _replace_parameter(
+            expression, name, unit if len(output.table) else unit.filter(ibis.literal(False))
+        )
     import pandas as pd
 
     records = tuple(output.table.loc[:, list(output.keys)].itertuples(index=False, name=None))

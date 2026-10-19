@@ -71,6 +71,18 @@ and one result ID per successful evaluation. Carrier conversion retains result
 identity but creates a fresh binding unless the lifecycle table returns self.
 `row_count()` is the only input-independent unfinished statistic.
 
+## Retired key producers at source capture
+
+New Frame source factories do not adapt legacy QueryKeys operands. Reject them
+at capture, including mixed FrameKeys/QueryKeys Population definitions and
+nested source predicates, before source preparation or business reads. Repair
+uses an explicit Frame plus population_from mapping. The old public Query
+routes remain unchanged only until the S7 retirement; they do not gain a new
+Frame evaluator or durable audit variant. This supersedes the S6 development
+plan's provisional mixed-operand support, which had admitted a route without
+complete inert selected-key audit facts. Current Frame-key capture, source
+Metric kernels and ordinary Population routes retain their contracts.
+
 ## Validation priority
 
 For align/compare construction, validate in this order:

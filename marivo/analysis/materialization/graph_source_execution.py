@@ -34,6 +34,7 @@ from marivo.analysis.compiler.graph_plan import (
     SourceSchema,
 )
 from marivo.analysis.compiler.query_program import QueryContext
+from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import (
     DataType,
     DecimalDataType,
@@ -43,6 +44,7 @@ from marivo.analysis.core.data_types import (
 )
 from marivo.analysis.core.frame_data import CompletedFrameData
 from marivo.analysis.core.graph import BoundGraph
+from marivo.analysis.core.model import reject
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
     StageOutput,
@@ -481,7 +483,7 @@ def _population_field(
 def _query_populations(graph: BoundGraph) -> tuple[PopulationDependency, ...]:
     from marivo._definition.expressions import DeclaredMetricRef
     from marivo._definition.graph import DefinitionNode, children, computation_fingerprint
-    from marivo._definition.relations import QueryKeys
+    from marivo._definition.relations import FrameKeys, QueryKeys
 
     populations: dict[str, PopulationDependency] = {}
     seen: set[int] = set()
@@ -492,7 +494,9 @@ def _query_populations(graph: BoundGraph) -> tuple[PopulationDependency, ...]:
         seen.add(id(node))
         if isinstance(node, (PopulationProgram, LiteralPopulation)):
             populations[computation_fingerprint(node)] = node
-            if isinstance(node, PopulationProgram) and isinstance(node.root, QueryKeys):
+            if isinstance(node, PopulationProgram) and isinstance(
+                node.root, (QueryKeys, FrameKeys)
+            ):
                 return
         if isinstance(node, DeclaredMetricRef):
             visit(dict(graph.signature.declared_metrics)[node.ref])
@@ -578,6 +582,7 @@ def prepare_query_sources(
     *,
     sources: dict[str, SourceSession] | None = None,
     memo: InvocationMemo | None = None,
+    frame_schemas: Mapping[str, DataSchema] | None = None,
 ) -> PreparedSources:
     """Prepare all physical fields and checked relationships without business reads."""
     from marivo._definition.query import ResultQuery
@@ -589,7 +594,9 @@ def prepare_query_sources(
         context = prepare_context(graph, state)
 
         prepared_inputs = tuple(
-            prepare_query_sources(leaf, state, source, sources=sources, memo=memo)
+            prepare_query_sources(
+                leaf, state, source, sources=sources, memo=memo, frame_schemas=frame_schemas
+            )
             for leaf in query_leaves(graph, context=context)
         )
         combined = PreparedSources(
@@ -689,8 +696,51 @@ def prepare_query_sources(
     from marivo.analysis.materialization.query_parameters import prepare_parameters
 
     parameters, dependency_inputs = prepare_parameters(
-        graph, state, source, available, entities, memo
+        graph, state, source, available, entities, memo, frame_schemas
     )
+    from marivo._definition.relations import FrameKeys
+    from marivo._definition.types import FieldRead
+    from marivo.analysis.compiler.populations import frame_key_groups
+    from marivo.analysis.compiler.query_program import FrameParameter
+    from marivo.analysis.materialization.population_preparation import _field
+
+    for parameter in parameters:
+        if not isinstance(parameter, FrameParameter):
+            continue
+        key_definition = parameter.definition.root
+        assert isinstance(key_definition, FrameKeys)
+        columns = {column.slot_id: column for column in parameter.columns}
+        for axis, group in zip(
+            key_definition.bindings, frame_key_groups(key_definition), strict=True
+        ):
+            target = axis.target
+            target_table = entities.get(target.entity.ref.path)
+            if target_table is None:
+                continue  # A keys-only projection has no new source read.
+            values = (
+                tuple(
+                    target_table[name]
+                    for name in state.registry.entities[target.entity.ref.path].primary_key
+                )
+                if target.field is None
+                else (
+                    _field(
+                        FieldRead(target.field, target.entity, target.path, target.at),
+                        target_table,
+                        state,
+                    ),
+                )
+            )
+            typed = target_table.select(**dict(zip(group, values, strict=True)))
+            for name in group:
+                expected = _population_field(typed, name, bounds)
+                if expected.dtype != columns[name].dtype:
+                    reject(
+                        "compatible complete Frame and explicit target physical key types",
+                        repr((columns[name].dtype, expected.dtype)),
+                        "Select an axis with the target's exact physical type, Duration unit and timestamp interpretation.",
+                        "frame.population",
+                    )
     observation = graph.signature.observation
     from marivo.analysis.materialization.query_preparation import SourceInputContract
 
@@ -847,7 +897,7 @@ def prepare_query_sources(
         )
         if not finite:
             relations[source_id] = prepared_population.table
-            owners[source_id] = owners[required[0]]
+            owners[source_id] = owners[required[0]] if required else source
     own_schemas = []
     population_definitions = {
         "population:" + computation_fingerprint(population): population
@@ -919,16 +969,23 @@ def prepare_query_sources(
 
 
 def prepare_source_free_populations(
-    graph: BoundGraph, state: CompiledSemanticState
+    graph: BoundGraph,
+    state: CompiledSemanticState,
+    *,
+    frame_schemas: Mapping[str, DataSchema] | None = None,
 ) -> tuple[SourceSchema, ...]:
     """Admit intrinsic calendar/unit key types without opening a datasource."""
     from marivo._definition.graph import computation_fingerprint
     from marivo.analysis.materialization.population_preparation import prepare_population
+    from marivo.analysis.materialization.query_parameters import prepare_frame_parameters
 
+    entities: dict[str, ir.Table] = {}
+    parameters = prepare_frame_parameters(graph, frame_schemas or {}, entities)
     schemas: list[SourceSchema] = []
     for population in _query_populations(graph):
-        prepared = prepare_population(population, {}, state)
+        prepared = prepare_population(population, entities, state)
         schema = prepared.table.schema().to_pyarrow()
+        names = {node.name for node in prepared.table.op().find(ops.UnboundTable)}
         schemas.append(
             SourceSchema(
                 "population:" + computation_fingerprint(population),
@@ -936,6 +993,10 @@ def prepare_source_free_populations(
                 (),
                 key_groups=prepared.key_groups,
                 presence=prepared.presence,
+                parameters=tuple(
+                    parameter for parameter in parameters if parameter.placeholder in names
+                ),
+                inline_population=population if names else None,
             )
         )
     return tuple(schemas)
@@ -948,6 +1009,7 @@ def open_query_sources(
     state: CompiledSemanticState,
     *,
     memo: InvocationMemo | None = None,
+    frame_schemas: Mapping[str, DataSchema] | None = None,
 ) -> Iterator[PreparedSources]:
     """Open the declared datasource sessions used by this invocation."""
     entities = _query_entities(graph, state)
@@ -1001,7 +1063,12 @@ def open_query_sources(
                 "Execute the local-only plan directly.",
             )
         yield prepare_query_sources(
-            graph, state, next(iter(sources.values())), sources=sources, memo=memo
+            graph,
+            state,
+            next(iter(sources.values())),
+            sources=sources,
+            memo=memo,
+            frame_schemas=frame_schemas,
         )
 
 

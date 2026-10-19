@@ -36,6 +36,7 @@ from marivo._definition.types import RULE_VERSION, Owner
 from marivo.analysis.compiler.graph_plan import (
     FrameCompute,
     FrameInput,
+    FrameKeysInput,
     LocalCompute,
     QueryPlan,
     QueryStage,
@@ -97,7 +98,7 @@ def required_for(plan: QueryPlan, stage_id: str) -> RequiredSlots:
 
 def _support(stage: QueryStage) -> set[str]:
     required = set(stage.keys)
-    if isinstance(stage, (FrameInput, FrameCompute)):
+    if isinstance(stage, (FrameInput, FrameCompute, FrameKeysInput)):
         return {column.slot_id for column in stage.columns}
     if isinstance(stage, SourceRead):
         required.update(
@@ -243,7 +244,7 @@ def required_slots(plan: QueryPlan) -> tuple[RequiredSlots, ...]:
             for source in stage.inputs:
                 wanted[source].update(stages[source].keys)
             continue
-        if isinstance(stage, (FrameInput, FrameCompute)):
+        if isinstance(stage, (FrameInput, FrameCompute, FrameKeysInput)):
             for source in stage.inputs:
                 wanted[source].update(column.slot_id for column in stages[source].columns)
             continue
@@ -638,7 +639,7 @@ def _common_sources(plan: QueryPlan) -> QueryPlan:
 
 def optimize_query(plan: QueryPlan) -> QueryPlan:
     """Apply one bounded demand/law pass; preserve the original plan as a control."""
-    if any(isinstance(stage, (FrameInput, FrameCompute)) for stage in plan.stages):
+    if any(isinstance(stage, (FrameInput, FrameCompute, FrameKeysInput)) for stage in plan.stages):
         # Source children are optimized before composition. Fixed data is a hard
         # boundary; complete validation and strict expressions survive demand.
         return replace(plan, required_slots=required_slots(plan))

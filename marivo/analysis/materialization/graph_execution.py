@@ -8,6 +8,7 @@ from typing import TypeVar
 from marivo.analysis.compiler.graph_plan import (
     FrameCompute,
     FrameInput,
+    FrameKeysInput,
     LocalCompute,
     PlannedCheck,
     QueryPlan,
@@ -54,6 +55,13 @@ def run_query_plan(
                 output = dependent_read(stage, tuple(outputs[item] for item in stage.inputs))
             else:
                 output = read(stage)
+        elif isinstance(stage, FrameKeysInput):
+            reject(
+                "a fully composed Frame schedule",
+                stage.stage_id,
+                "Resolve Frame key inputs in the outer Frame plan before execution.",
+                "frame.population",
+            )
         elif isinstance(stage, FrameInput):
             if fixed is None:
                 reject(

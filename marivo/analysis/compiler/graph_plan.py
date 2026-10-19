@@ -11,9 +11,10 @@ from marivo._definition.relations import PopulationDependency
 from marivo.analysis.compiler.query_program import (
     EMPTY_QUERY_CONTEXT,
     FrameCombineProgram,
+    FrameParameter,
     FrameProgram,
+    PopulationParameterPlan,
     QueryContext,
-    QueryParameter,
     ResultProgram,
     SourceParameter,
 )
@@ -58,7 +59,7 @@ class SourceSchema:
     key_groups: tuple[tuple[str, ...], ...] = ()
     presence: str | None = None
     scope_id: str = ""
-    parameters: tuple[QueryParameter, ...] = ()
+    parameters: tuple[PopulationParameterPlan, ...] = ()
     inline_population: PopulationDependency | None = None
     original_identity: tuple[SourceField, ...] = ()
     binding_id: str = ""
@@ -161,7 +162,24 @@ class FrameCompute:
         return self.program.output_schema.key_fields
 
 
-QueryStage: TypeAlias = SourceRead | LocalCompute | FrameInput | FrameCompute
+@dataclass(frozen=True, slots=True)
+class FrameKeysInput:
+    """Compiler-only key relation, eliminated before the Frame schedule runs."""
+
+    stage_id: str
+    parameter: FrameParameter
+    inputs: tuple[str, ...] = ()
+
+    @property
+    def columns(self) -> tuple[DataColumn, ...]:
+        return self.parameter.columns
+
+    @property
+    def keys(self) -> tuple[str, ...]:
+        return tuple(column.slot_id for column in self.columns)
+
+
+QueryStage: TypeAlias = SourceRead | LocalCompute | FrameInput | FrameCompute | FrameKeysInput
 
 
 @dataclass(frozen=True, slots=True)

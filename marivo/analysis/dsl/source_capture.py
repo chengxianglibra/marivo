@@ -13,6 +13,7 @@ from marivo._definition.query import (
     ResultQuery,
 )
 from marivo._definition.relations import (
+    FrameKeys,
     ObserveQuery,
     PopulationProgram,
     QueryKeys,
@@ -383,7 +384,9 @@ def capture_population(population: Population, owner: Owner) -> BoundGraph:
     from marivo._definition.graph import walk
 
     closure = walk((population.definition,), resolve=lambda _: None)
-    if any(isinstance(node, QueryKeys) for node in closure.order):
+    if any(isinstance(node, QueryKeys) for node in closure.order) and not any(
+        isinstance(node, FrameKeys) for node in closure.order
+    ):
         from marivo._definition.query import PopulationValues
         from marivo.analysis.compiler.populations import population_inputs
 

@@ -29,6 +29,7 @@ from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.frame_sources import values as frame_values
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.admission import DatasetRuntime
+from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.semantic.errors import SemanticExpressionError
@@ -98,8 +99,16 @@ def test_compare_check_cannot_be_hidden_by_select(local: LocalFrameServices) -> 
     left = _memory(local, ["A"], [1])
     right = _memory(local, ["A"], [0])
     combined = left.compare(right, on=((left.axes[0], right.axes[0]),), zero_denominator="error")
-    with pytest.raises(SemanticExpressionError, match="nonzero denominator"):
+    with pytest.raises(MaterializationError, match="nonzero denominator") as failure:
         combined.select({"constant": 1}).compute()
+    error = failure.value
+    cause = error.__cause__
+    assert error.stage == "numeric_value" and error.run_ref is None
+    assert isinstance(cause, SemanticExpressionError)
+    assert error.expected == cause.expected == "a nonzero denominator"
+    assert error.received == cause.received == "metric.divide(zero_denominator='error')"
+    assert error.repair is not None and cause.repair is not None
+    assert error.repair.action == cause.repair.action
 
 
 def _data_frame(

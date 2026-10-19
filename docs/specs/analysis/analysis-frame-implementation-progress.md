@@ -2,7 +2,7 @@
 
 Date: 2026-10-19
 
-Status: S0-S2 and S4 ordinary foundation committed; S5 calendar foundation accepted for commit. This record tracks implementation, not release or
+Status: S0-S2 and S4-S6 private foundations accepted. This record tracks implementation, not release or
 provider qualification. The public API remains unchanged until S7.
 
 ## Authority and baseline
@@ -64,11 +64,11 @@ provider qualification. The public API remains unchanged until S7.
 | S0 | Freeze target; trace producers/consumers; pin signatures, axis fields, retirement and error order | A01-A24 ownership | Complete: no review findings | 1/2 |
 | S1 | Closed structure/carriers, name paths, precise input binding, local service split | A01/A02/A14/A17 | Complete: both packages committed | Structure 2/2; services 1/2 |
 | S2 | Shared evaluation without publication; fixed leaves; ordinary operators and memory result extraction | A03-A05/A13/A14/A16/A17/A19-A21 | Complete: both packages committed | Compiler 2/2 clear; lifecycle 2/2 clear |
-| S3 | Store 12, lossless output/attachments, stored reader, audit and atomic publication | A02/A03/A14-A23 | Plan accepted; canonical-record dependency phase ready; active switch coordinated with S7 | 0/2 |
+| S3 | Store 12, lossless output/attachments, stored reader, audit and atomic publication | A02/A03/A14-A23 | Full implementation active in isolated S3 worktree; active switch coordinated with S7 | 0/2 |
 | S4 | Full-axis alignment/comparison, independent presence and deterministic order | A06-A08/A11/A19 | Ordinary private foundation accepted/committed; full exit needs S3/S5 | Ordinary 2/2 clear |
-| S5 | Frozen calendars, partial nominal matches and single-level paired coordinates | A07-A11/A14/A15/A18/A19 | Private source/memory foundation accepted for commit; full exit still needs S3 stored/cold | 2/2 clear |
-| S6 | Explicit Population bridge, fixed versus lazy selection, complete joint keys | A04/A12/A14/A15 | Construction phase ready; execution phase waits S5 handoff; full exit needs S3 | 0/2 |
-| S7 | One public API; consumer-traced retirement; Help, errors, CLI, docs, skills and cutover notes | A01/A13/A16/A23/A24 | Runtime/disclosure/docs, eight disjoint test partitions and shared-helper plans accepted; no active public switch | 0/2 |
+| S5 | Frozen calendars, partial nominal matches and single-level paired coordinates | A07-A11/A14/A15/A18/A19 | Private source/memory foundation committed; full exit still needs S3 stored/cold | 2/2 clear |
+| S6 | Explicit Population bridge, fixed versus lazy selection, complete joint keys | A04/A12/A14/A15 | Private ordinary foundation accepted; full stored/cold stage exit needs S3 | 2/2 clear |
+| S7 | One public API; consumer-traced retirement; Help, errors, CLI, docs, skills and cutover notes | A01/A13/A16/A23/A24 | Runtime retirement and test migrations active in isolated worktree; docs/skills draft frozen; no accepted public cutover | 0/2 |
 | S8 | Freeze candidate; independent business witnesses; unrestricted broad gate and affected Runtime/slow checks | A01-A24 | Pending S7 | 0/2 |
 
 ## S0 plan
@@ -762,6 +762,355 @@ renewed 4,309-pass unrestricted default gate, accept the private source/memory
 calendar foundation and commit its fifteen source/test paths plus two owning
 records with normal hooks. Store/cold/presentation and public cutover remain
 pending. The protected S3/S6 peer stash will be restored and verified afterward.
+
+S5 accepted local commit: `50663acaf40d3cc3493fe7e4ffc5f376ad761fe1`
+(`feat: match Frame calendars from frozen coordinate directories`). Normal
+hooks, including full-source mypy and import contracts, passed. Exact seventeen
+commit paths and all 762 source/test content hashes were verified. Root applied
+temporary stash `fc50fe24d3d13e7fa6b00ce1821eb175b64c4f03`, restored only the
+two recorded S6 shared-file lines, and verified all ten peer hashes plus every
+S5 nonshared hash and the accepted S5 shared base. Only that temporary stash
+was dropped; both original user stashes remain intact and the index is clean.
+Restoration evidence: `s5-calendar-commit-restoration.json`.
+
+The same S6 developer is now dispatched into its accepted phase B execution
+integration. Its restored phase A adapts only necessary typed consumers to the
+new closed pending-axis family; source capture retains sidecars before semantic
+consumption, and joint-key projection/dependent reads enter the one existing
+QueryPlan/scheduler. S3 remains frozen at its canonical-record dependency phase;
+S7 source and all migrated-test implementations remain undispatched.
+
+Coordinator created and attached the managed worktree
+`/Users/lichengxiang/.codex/worktrees/analysis-frame-storage/marivo` from the
+accepted S5 commit. This isolates S3 storage changes while S6 continues in the
+main checkout. The three canonical-record files were copied byte-for-byte;
+shared dependency runtime resolves imports to the new worktree source. The
+same S3 task is dispatched into its accepted full implementation after a short
+workflow addendum. Main S3 files remain frozen. No temporary Query facade or
+second codec is authorized to make an intermediate revision pass; the S7
+runtime owner supplies concrete public-consumer retirement before acceptance.
+Its bounded stored-read hook will be integrated only after S6 source freeze.
+S3 and S7 still require one coherent final candidate, independent review and
+normal-hook commit; the extra checkout does not certify a stage exit.
+
+S3's first actual preview consumer exposed a bounded validation seam: a
+selected sparse calendar record set cannot satisfy the complete directory's
+0..n-1 sequence. Root authorized a same-S3-task extension in its isolated
+core/frozen_calendar owner after a written addendum: one shared record validator
+for exact schema/type/labels/keys/unique nonnegative original ordinals/bounds;
+the existing complete-directory wrapper still enforces the full sequence.
+Preview records never masquerade as a complete directory. Pair-record checks
+share their existing owner and validate consumed references. This extension
+requires sparse-preview tests and unchanged strict full S5 regressions in S3's
+review; it does not reopen or relabel the accepted S5 snapshot.
+
+Fresh Luna exploration `s7-remaining-consumers-plan.md` found remaining
+outside-analysis test consumers. Fresh developer `develop_s7_integration_tests`
+is planning the exact three semantic/datasource function scopes and twelve
+packaging worker/caller files. Existing shared relation/statistics workers stay
+with their owners. The old installed source probe's unqualified-remote premise
+must be traced against the actually admitted numerical source route; a stale
+refusal is not a new Frame contract. Historical ecommerce runs remain unchanged;
+any later independent reacceptance uses a new evidence directory.
+
+The dedicated `marivo-multisource` Colima VM is now started with its
+repository-documented isolated profile and unchanged volumes. PostgreSQL 17.11
+at 15432 and MySQL 8.4.11 at 23306 are ready; their setup verified reader write/
+CREATE restrictions. Initial available disk was 67.17 GiB (the manager's
+8 GiB threshold concerns disk space). Trino/ClickHouse are not started. Raw
+setup logs and `s6-runtime-ready-profiles.json` retain environment evidence only;
+no Frame transport/provider test or product qualification has yet run.
+
+S3 reports its first real private Store12 memory.persist smoke passing,
+27 new Frame-storage tests and 176 S5/core regressions. These are development
+checks, not accepted source/protocol or full S3 exit. Its concrete old-public
+consumer blockers are preserved in the first typing log. The same accepted S7
+runtime task is now dispatched into an initial owned-source phase in the
+isolated S3 worktree: remove the old admission gateway, narrow Artifact to
+audit-only reading and route Session/public factories. It holds S6-dependent
+bridge/QueryKeys cleanup until the accepted main-checkout source handoff.
+No compatibility adapter is authorized. S3 retains exclusive ownership of
+all terminal_publication tests and their individual fault-oracle migration.
+
+Root approved S3's exact additional protocol-consumer hunks:
+ArtifactDigest.digest_version's literal/default/check in evidence/_dataset_types
+becomes frame-output-v1; reconciliation's module docstring becomes Store12.
+No other evidence or reconciliation behavior is broadened by those approvals.
+
+S6's first executable private bridge group passed 25 cases and 164 source/
+definition typing modules. Its actual PostgreSQL/MySQL Frame-fed tuple/null/
+empty/zero-axis/large-identity Runtime case is written but unrun; root will run
+it after the local source freeze with both opt-ins and one Runtime worker.
+No provider/cold/public acceptance is inferred from the local group.
+
+The remaining fifteen-file integration-test plan is accepted, including the
+bounded installed remote positive produce/offline/cold dispatch. It preserves
+all source facts/native SQL/Fraction oracles and retains the independent raw
+missing-table failure/privilege/cleanup checks. Its implementation awaits
+actual source and helper handoffs. No historical ecommerce output is edited.
+
+Runtime initial source phase is frozen at six files in the isolated worktree.
+Its actual values -> compute(no Run) -> persist -> persisted_frame -> stored
+persist-self -> audit probe passed without Catalog/source initialization.
+CalendarAxis.coarsen alone was removed (twelve lines); both native reflection
+checks now pass, with focused typing/lint/import checks. Source calendar/grid
+kernels are retained. Full Query/QueryKeys cleanup and the public bridge still
+await S6. No full runtime task acceptance is claimed.
+
+Disclosure initial checkpoint is frozen at 21 paths, manifest SHA256
+`f67ef717d20808968a86def8d0c42e7f885fea84a9946c54230c75d39ca10c9a`.
+The eager registry is restored; nine typing modules, two public typing tests,
+46 guidance tests and 134 static/CLI cases passed. Its two remaining physical
+coarsen dependencies were subsequently fixed by runtime's owning change.
+The final bridge/dynamic/docs-dependent tests and final context budget remain
+pending; the budget baseline was not changed. S3 resumed its owning tests,
+card/error repair hunks and Frame method docstring proposals.
+
+The same docs/skills task is authoring in the isolated worktree after a workflow
+addendum. Exact additional ownership docs/testing/runtime-coverage.md updates
+current consumers/qualification claims while preserving historical evidence.
+Final executable examples/docs-api/site gates wait the coherent source; both
+packaged skills are explicitly authorized, and AGENTS/history remain excluded.
+
+S3's real consumer tests found the timestamp[s] Parquet widening overflow at
+valid int64-min ticks; its owned physical schema now uses exact int64 ticks for
+that logical type, retaining logical dtype/timezone and the sole protocol.
+All timestamp/duration units, null/composite keys and cold republish witnesses
+are being exercised. The invalid Card.max_output_bytes continuation is a real
+Frame.show defect and was repaired with existing Card.omission_recovery;
+the original test assertion remains. Shared full/preview validation additionally
+checks inherited true presence implies existing generated outer presence,
+without equating presence and value NA or reading outside a preview prefix.
+
+S6's first freeze had 26 owned paths, 53 focused passes and full 317-source
+mypy. Final default on that snapshot had 4,346 passes and one stale assertion:
+the prior compare/select test expected a raw semantic numeric exception from
+Frame.compute. The new owning MaterializationError still enforces the check
+and retains its semantic cause; root approved only that test's assertion/import
+hunk, with direct kernel expectations unchanged. Pre-repair evidence is kept.
+
+Root's actual two-provider Frame-key Runtime invocation failed both cases
+before their first business result (`s6-root-postgres-mysql-runtime-first.log`,
+1.89 seconds). It exposed raw Ibis String(length=None) versus VARCHAR(8)
+comparison in target preparation, although the admitted Frame string type has
+no length parameter. Same-task pre-R1 repair is dispatched using the existing
+closed read/type normalization, retaining incompatible physical-type refusals
+and original logs. Both services remain ready. No review round or provider
+qualification has been consumed/claimed; a fresh freeze and reruns are required.
+
+S6 pre-R1 normalization repair passed both actual PostgreSQL/MySQL cases
+with no skips (`s6-postgres-mysql-runtime-second.log`, 3.95 seconds); the case
+also feeds a source-produced joint Frame back into the bridge. Focused
+construction/bridge/evaluation/correspondence regression passed 116 cases,
+full source typing passed 317 files, and 27-path lint/import checks passed.
+Fresh 27-path manifest SHA256:
+`b3c6bd157247ccb2d603a0ad82b564cdf24dd8c2808cdd75ca53136af0a06c13`.
+Root verified all owned and three peer hashes. Fresh Astra high reviewer
+`review_s6_bridge` is running R1 while the final normalized default completes.
+
+R1 independently reproduced a real mixed QueryKeys scope gap: new Frame
+capture admits it, then source-fact extraction rejects it at execution. The
+accepted development plan had explicitly mentioned that mixed shape, so this
+is a P2 rather than a waived historical route. Root's documented repair decision
+is early refusal only in new private Frame capture, recursively including
+nested/mixed operands, with explicit Frame/population_from repair. The old
+public Query paths remain unchanged until S7. This supersedes the provisional
+mixed-operand sentence without introducing a transitional legacy evaluator,
+producer-graph serialization or durable legacy audit variant. Source repair
+waits the final R1 report; no new review round is started in the meantime.
+
+Root's additional S3 typed-data probe exercised the actual reducer against
+nine accepted timestamp/duration/date minimum-key cases and found overflow or
+NaT key loss even after the nullable GroupBy length-hint fix. The owned S3
+dependency repair now covers exact typed key grouping/array retention using
+existing key helpers, preserving canonical order and statistic kernels.
+Original raw diagnostics are retained; source/provider admission is unchanged.
+These are actual integrity failures, not speculative defensive cases.
+
+S6 R1 is complete with one P2 and 30 passing independent probes. The same
+S6 development task is now repairing the documented new-Frame-only early
+QueryKeys refusal before source preparation; old public Query remains intact.
+The final review will be R2, with no third round. The original admitted-then-
+failed mixed probe remains historical evidence of the repaired contract gap.
+The pre-repair normalized default log ends at 94% without a completion summary
+and no process remains; it is incomplete evidence, not a successful gate.
+
+S3's isolated source is frozen at 21 source and five test/worker paths in
+`s3-frozen-owned-manifest.json`. Development checks passed typing for 21
+modules, lint/import for 26 paths, 265 relevant tests and 47 coordinate/receipt
+regressions. The earlier complete scope retains its sole pending S6 numeric
+error translation failure. All 18 exact typed minimum/null/composite reducer
+cases passed, including nine fresh-process stored reductions. Canonical
+ordering uses stable typed positional sorts rather than Python scalar boxing;
+original failures remain recorded. No independent S3 review or acceptance is
+claimed before S6 integration and the stored-reader evaluator handoff.
+
+A fresh Luna task is preparing the bounded S8 unified acceptance mapping
+against A01–A24 and the required independent business witnesses. It does not
+run gates or certify the evolving candidate.
+
+S7 docs/skills initial authoring is frozen at 50 paths in the isolated checkout,
+draft manifest SHA256
+`453bf23b5f2ecd31f3ecd81c8a5ef5cf24e84c82351a87973c6e08a5d6a31eb2`.
+Static validation parsed 131 Python fences; one unchanged schematic placeholder
+is explicitly excluded from a parsing-pass claim. Paired EN/ZH Python fences
+match, focused links resolve and the API RST reflects 43 current exports.
+Scenario independent appendices remain unchanged. Executable examples, Help,
+packaging/API/site gates and independent review remain pending source freeze.
+
+The same accepted shared-helper task is now implementing its exact four owned
+files in the isolated checkout. Snapshot/trace/statistics use actual frozen
+Frame services now; bridge-dependent relation execution waits the real public
+population_from handoff. No stub or private substitute is authorized.
+
+S6's R1 repair is frozen for R2 within the same 27 paths. Focused tests passed
+102 cases, full-source mypy passed 317 modules, owned lint/import passed and
+both actual PostgreSQL/MySQL cases passed without skips. The new default is
+still active and has no final result yet. The guard distinguishes the exact
+temporary ReadFields-owned QueryKeys envelope from real legacy producers;
+S7 removes that internal envelope with its producer/consumer retirement.
+
+Root independently reproduced the same typed canonical ordering issue in
+TopValues after the reducer repair: valid date32-min/string composite keys
+with a tied score fail in pandas multi-column categorical conversion. Raw
+failure: `s3-root-top-extreme-key-probe.log` in the isolated checkout. The
+same S3 task will repair that owned tie-order seam before independent review,
+using the established stable typed ordering and retaining score NA-last and
+complete-key tie semantics. The prior S3 freeze is a development checkpoint,
+not the final accepted candidate.
+
+S8 planning is complete in `s8-unified-acceptance-plan.md`. Root verified the
+listed existing Runtime/slow/installed test names against current definitions.
+The five final independent business witnesses have explicit evidence-only
+destinations. T3b additionally receives the exact name for its already-planned
+full cold outer/Top continuation; the differing-value-name align/ratio witness
+is assigned to the final independent oracle. These names are plans, not passes.
+Affected Trino/ClickHouse routes still require actual service-phase execution
+if retained as affected by the final candidate; initial unavailability does
+not waive that evidence.
+
+Shared helpers phase A is frozen at exactly three isolated paths. Support and
+unchanged forecast tests passed five cases; independent helper probes passed
+18 typed minimum/null/composite cases and two forbidden-source cold readers.
+Lint/import passed; the sole typing diagnostic is the runtime-owned retired
+Session._execute_query fixture call. The fourth helper, relation_journeys,
+remains unchanged until the real bridge handoff. No helper task acceptance or
+commit is claimed at this partial checkpoint.
+
+S3's Top correction is frozen: only frame_values.py and its owned storage test
+changed from the prior 26-path checkpoint. All nine temporal/date types cover
+composite/null minimum keys, score directions, full/cutoff ties and score NA-last;
+memory/persist/readback and nine cold readers retain exact physical keys.
+Focused checks passed 42 cases, full storage/kernel checks 112, typing 21
+modules and lint/import 26 paths. The original root failure remains preserved.
+
+The same accepted T2a numeric-test task is now implementing its exact 29 paths
+in the isolated checkout against the actual frozen helper interfaces. Independent
+current-row/numeric/source-Metric migrations proceed now; bridge/stored-root
+dependencies wait their real integration. Runtime exclusively owns the shared
+numeric-program fixture fix. No source change or private substitute is delegated
+to this test owner, and no task acceptance is claimed from partial checks.
+
+S6 final R2 reports **No findings**: 11 new independent bypass/control probes,
+30 unchanged unaffected R1 probes and 19 capture-matrix/declared-closure checks
+passed. The original superseded mixed-admission probe was explicitly deselected
+and remains unchanged. All 27 owned, three peer and full Python snapshot hashes
+match; eight historical evidence files remain byte-identical. R2 manifest SHA256
+`99a7706b19ddcc4bf48b8fd1e90493f61564ac01f0f860694152285f0889c260`.
+No third review is planned. Main default/standalone acceptance and commit are
+still pending, so this is not full S6 storage/public qualification.
+
+Root transferred this reviewed development snapshot into the isolated checkout
+to unblock dependent development: 26 whole files match the manifest; Session
+received only the exact members sidecar hunk, preserving its runtime changes.
+`s6-reviewed-isolated-handoff.json` records the transfer. The same S3 task now
+applies its previously written stored-read hook and verifies the original
+numeric-error red case, source-free stored-root continuation and owned gates.
+No main source changes or premature main acceptance occurred during transfer.
+
+S6's repaired default completed with an observed exit code 0: **4,370 passed**,
+2,927 warnings, 511.41 seconds. Developer and root both verified the unchanged
+reviewed hashes. Root now runs an unrestricted standalone `make check-agent`
+after isolating exactly the three S3 canonical peer files in temporary stash
+`d26ad80727c73d41741de80e3c0cb409b0d1bb7e`. Both original user stashes are
+preserved. The isolation/restoration ledger is
+`s6-standalone-commit-isolation.json`; restore and verify those exact peer hashes
+after the normal-hook S6 commit, then drop only that temporary stash.
+
+The same S7 runtime task is now implementing phase B in the isolated checkout.
+Its real public bridge and shared numeric-program fixture are the first handoff;
+then it closes the actual Query/QueryKeys consumers without deleting retained
+source Metric kernels. S3 exclusively holds the stored evaluator hook until
+release. Old QueryKeys capture tests receive explicit retirement ownership
+before edits, while supported Frame bridge assertions remain preserved.
+
+Runtime's actual first phase-B handoff is available in the isolated checkout:
+Session.population_from checks exact AnalysisFrame type and foreign local owner
+before touching Catalog, then calls the real S6 factory. The shared fixture is
+now numeric_program_frame, with no old-name alias. Callers have this concrete
+handoff. S3's actual stored read hook passed five integration controls, including
+the original numeric-error/no-Run case and source-free stored-root derive,
+compare/calendar match, reduce and republish. Final owned checks remain active.
+
+Root approved runtime's exact retirement of the three tests that only certify
+the temporary old Query producer boundary (18-route guard, declared legacy
+closure and old-public-Query execution control), plus newly unused imports.
+All actual Frame controls, including nested Metric.where, remain required;
+historical R1/R2 failures and probes remain unchanged. This is a producer
+retirement decision, not permission to remove retained source-kernel oracles.
+
+T2a reproduced a route distinction rather than silently changing its oracle:
+direct source Decimal AVG(1.01, 1.02) returns 1.01 under native Ibis/provider
+precision, while the retired host original-rollup asserted half-even 1.02.
+Root verified the pre-existing current source-precision contract. The direct
+source assertion will use its existing independent literal SQL AVG/CAST rows;
+the exact 1.02 host arithmetic witness remains on a fixed per-member Frame's
+current-row mean reduction. Raw failures and the two route meanings stay in
+the test ledger. No backend cast, native precision change or claimed bitwise
+equivalence is authorized.
+
+Runtime's intrinsic read replacement is an approved closed ReadQuery with an
+explicit Population dependency and projection facts. It replaces the actual
+QueryKeys producer/consumer seam, compiles through the same keys-only source
+stage and ReadFields projection, and must retain functional identity, complete
+keys, null/empty behavior, ownership, source checks and inert source audit.
+It is internal, with no new public type or compatibility executor.
+
+S3's integrated checkpoint is frozen at 27 owned paths (22 source and five
+tests/workers), including only the stored read_fixed assert/return hunk in the
+evaluator. Its completed owned run passed 341 cases; additional public cold
+ordinary/builtin/named controls passed three cases and direct stored Top passed
+nine. The original numeric cause/no-Run red is green. Runtime now owns further
+evaluator closure changes while preserving the stored hook. Final S3 typing
+honestly records 30 external diagnostics in 17 peer modules during live IR
+cleanup; no hook error remains. This is not final acceptance or a clean final
+typing claim. Review waits a coherent source checkpoint.
+
+The same accepted T1a task has begun its 15-file original-source test migration
+in the isolated checkout. T1a and T2a hold new execution/typechecks during the
+known QueryKeys/ReadQuery import transition, preserving raw failures and doing
+only their owned static edits. Retained source Metric kernels, independent
+SQL/math oracles and actual Frame semantics remain required; no compatibility
+alias, blanket oracle replacement or pending-test xfail is authorized.
+
+Runtime reached a coherent production-import checkpoint after the explicit
+ReadQuery replacement and actual old Query/QueryKeys producer deletion.
+This is not numerical acceptance. Its first real construction/bridge/read run
+passed 39 cases with one test-setup failure: the metadata-only factory spy
+used the retired LocalFrameServices.read name. Root authorized only that spy's
+read_complete rename, retaining the forbidden callback and no-read assertions.
+T1a/T2a may now rerun their migrated focused cases; transient import failures
+remain historical until their actual controls pass. Source typing and complete
+consumer cleanup remain in flight.
+
+S6 standalone acceptance is complete on the final reviewed 27-path candidate,
+with the three S3 peer changes absent: unrestricted `make check-agent` exited
+0. Format/lint/import contracts passed, full typing passed 316 modules,
+**4,370 default tests passed** with 2,927 warnings in 679.65 seconds, and API
+docs built successfully. The standalone source/test manifest records 746
+Python files and differs from R2 only by the isolated peer context. The local
+normal-hook commit follows immediately; full S6 stored/cold stage qualification
+continues with S3/S7 rather than being inferred from this private foundation.
 
 ## Post-S2 sequencing decision
 

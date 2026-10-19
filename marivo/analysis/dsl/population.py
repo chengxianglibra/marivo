@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import pairwise
 from typing import Literal
 
@@ -49,6 +49,7 @@ from marivo._definition.types import (
 )
 from marivo._temporal import CalendarAxis, InstantAnchor, anchor_from_datetime
 from marivo.analysis._scope import scope_summary
+from marivo.analysis.core.frame_key_inputs import FrameKeyInput, merge_frame_key_inputs
 from marivo.analysis.core.model import reject
 from marivo.semantic._deferred_semantics import consume_field
 from marivo.semantic.expressions import Entity
@@ -152,6 +153,8 @@ def _combined_owner(definitions: tuple[PopulationDependency, ...]) -> Owner | No
 @dataclass(frozen=True, slots=True, repr=False)
 class Population(PopulationParameter):
     """A lazy finite set of complete coordinates; use a Session to execute it."""
+
+    _frame_inputs: tuple[FrameKeyInput, ...] = field(default=(), compare=False, repr=False)
 
     @property
     def axes(self) -> tuple[ComparisonAxis, ...]:
@@ -265,7 +268,8 @@ class Population(PopulationParameter):
                     self.definition.owner,
                 )
                 return Population(
-                    PopulationProgram(QueryKeys(root, axes), self.definition.owner, axes)
+                    PopulationProgram(QueryKeys(root, axes), self.definition.owner, axes),
+                    self._frame_inputs,
                 )
             reject(
                 "a captured Query endpoint domain",
@@ -289,7 +293,8 @@ class Population(PopulationParameter):
                 _owner(self.definition),
                 axes,
                 memberships,
-            )
+            ),
+            self._frame_inputs,
         )
 
     def _set(self, other: Population, operation: str) -> Population:
@@ -307,7 +312,10 @@ class Population(PopulationParameter):
             node = PopulationSet(self.definition, other.definition, "intersection")
         else:
             node = PopulationSet(self.definition, other.definition, "difference")
-        return Population(PopulationProgram(node, owner, self.axes, self.memberships))
+        return Population(
+            PopulationProgram(node, owner, self.axes, self.memberships),
+            merge_frame_key_inputs(self._frame_inputs, other._frame_inputs, owner=owner),
+        )
 
     def union(self, other: Population) -> Population:
         """Union matching complete domains; keys remain lazy and deduplicated."""
@@ -377,7 +385,8 @@ class Population(PopulationParameter):
                 _owner(self.definition),
                 axes,
                 memberships,
-            )
+            ),
+            self._frame_inputs,
         )
 
     def where(self, predicate: PopulationPredicate) -> Population:
@@ -404,7 +413,8 @@ class Population(PopulationParameter):
                 owner,
                 self.axes,
                 self.memberships,
-            )
+            ),
+            merge_frame_key_inputs(self._frame_inputs, predicate._frame_inputs, owner=owner),
         )
 
     def image(
@@ -429,7 +439,8 @@ class Population(PopulationParameter):
         return Population(
             PopulationProgram(
                 PopulationImage(self.definition, via, at), _owner(self.definition), (axis,)
-            )
+            ),
+            self._frame_inputs,
         )
 
     def preimage(
@@ -461,7 +472,12 @@ class Population(PopulationParameter):
                 _combined_owner((self.definition, targets.definition)),
                 self.axes,
                 self.memberships,
-            )
+            ),
+            merge_frame_key_inputs(
+                self._frame_inputs,
+                targets._frame_inputs,
+                owner=_combined_owner((self.definition, targets.definition)),
+            ),
         )
 
 
@@ -487,14 +503,22 @@ def _identity_path(population: Population, path: tuple[RelationshipParameter, ..
 class PopulationPredicate(PopulationPredicateParameter):
     """Closed coordinate membership logic; construct with ``in_population``."""
 
+    _frame_inputs: tuple[FrameKeyInput, ...] = field(default=(), compare=False, repr=False)
+
     def __and__(self, other: PopulationPredicate) -> PopulationPredicate:
-        return PopulationPredicate(PopulationAnd(self.condition, other.condition))
+        return PopulationPredicate(
+            PopulationAnd(self.condition, other.condition),
+            merge_frame_key_inputs(self._frame_inputs, other._frame_inputs),
+        )
 
     def __or__(self, other: PopulationPredicate) -> PopulationPredicate:
-        return PopulationPredicate(PopulationOr(self.condition, other.condition))
+        return PopulationPredicate(
+            PopulationOr(self.condition, other.condition),
+            merge_frame_key_inputs(self._frame_inputs, other._frame_inputs),
+        )
 
     def __invert__(self) -> PopulationPredicate:
-        return PopulationPredicate(PopulationNot(self.condition))
+        return PopulationPredicate(PopulationNot(self.condition), self._frame_inputs)
 
     def __bool__(self) -> bool:
         reject(
@@ -520,7 +544,7 @@ def in_population(population: Population) -> PopulationPredicate:
     Example: ``domain.where(mv.in_population(allowed))``.
     Constraints: This captures a domain definition and performs no source access.
     """
-    return PopulationPredicate(PopulationContains(population.definition))
+    return PopulationPredicate(PopulationContains(population.definition), population._frame_inputs)
 
 
 def _calendar_population(calendar: CalendarAxis) -> Population:
@@ -698,5 +722,6 @@ def product(*factors: Population | CalendarAxis) -> Population:
             _combined_owner(definitions),
             axes,
             tuple(binding for factor in populations for binding in factor.memberships),
-        )
+        ),
+        merge_frame_key_inputs(*(factor._frame_inputs for factor in populations)),
     )
