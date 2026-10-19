@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+
 import marivo.analysis as mv
 
 
-def _session(tmp_path, monkeypatch):
+def _session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.Session:
     monkeypatch.chdir(tmp_path)
     return mv.session.get_or_create(name="surface_probe")
 
 
-def test_dir_advertises_intents_and_hides_plumbing(tmp_path, monkeypatch):
+def test_dir_advertises_intents_and_hides_plumbing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     session = _session(tmp_path, monkeypatch)
     names = set(dir(session))
     for advertised in (
@@ -19,12 +25,14 @@ def test_dir_advertises_intents_and_hides_plumbing(tmp_path, monkeypatch):
         "source_bindings",
         "runs",
         "get_run",
-        "artifact",
+        "frame",
+        "persisted_frame",
         "graph",
         "catalog",
     ):
         assert advertised in names, f"missing advertised member: {advertised}"
     for hidden in (
+        "artifact",
         "population",
         "layout",
         "semantic_project",

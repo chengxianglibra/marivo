@@ -27,6 +27,7 @@ from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, Frame
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
+    ExpressionFrameBacking,
     LiteralFrameBinding,
     MemoryFrameBacking,
     required_attachments,
@@ -184,7 +185,11 @@ def test_new_roots_require_current_directories_and_concrete_schema(
     )
     assert pending.values[0].nullable is None
     with pytest.raises(CoreRuleError, match="concrete DataSchema"):
-        require_complete_structure(pending)
+        # Exercise the runtime rejection of an intentionally invalid schema type.
+        call_attribute = "__call__"
+        validate: object = getattr(require_complete_structure, call_attribute)
+        assert callable(validate)
+        validate(pending)
     assert not hasattr(pending.values[0], "dtype")
     with pytest.raises(CoreRuleError, match="explicit display name"):
         data(replace(schema(), axes=(replace(schema().axes[0], name=""),)))
@@ -239,9 +244,11 @@ def test_equal_structures_are_independent_inputs_and_old_handles_fail(
     local: LocalFrameServices,
 ) -> None:
     first = memory(local)
+    assert isinstance(first._backing, MemoryFrameBacking)
     second = AnalysisFrame._from_memory(
         local, CompletedFrameResult(first._backing.data, metadata("result_1"))
     )
+    assert isinstance(second._backing, MemoryFrameBacking)
     assert first._schema == second._schema
     assert first._input_id != second._input_id
     for column in (first["revenue"], first["revenue"] + 1, ~first["right_present"]):
@@ -290,7 +297,8 @@ def test_axis_lookup_is_exact_ambiguous_and_complete(local: LocalFrameServices) 
     with pytest.raises(CoreRuleError, match="single physical component"):
         composite.coord(composite.axes[0])
     with pytest.raises(FrozenInstanceError):
-        axis.name = "changed"
+        frozen_attribute = "name"
+        setattr(axis, frozen_attribute, "changed")
     with pytest.raises(TypeError, match=r"frame\.axes"):
         FrameAxis()
     with pytest.raises(TypeError, match="Session"):
@@ -446,7 +454,7 @@ def test_equal_source_fingerprints_do_not_authorize_exchanged_handles(
     local: LocalFrameServices,
 ) -> None:
     graph = BoundGraph(
-        ResultQuery((), LiteralValues(("revenue",), (((), (3,)),)), (), local.owner),
+        ResultQuery(LiteralValues(("revenue",), (((), (3,)),)), (), local.owner),
         BoundSignature(local.owner, (ResultQuantity("revenue", "USD"),)),
     )
     pending = PendingDataSchema(
@@ -454,6 +462,10 @@ def test_equal_source_fingerprints_do_not_authorize_exchanged_handles(
     )
     first = AnalysisFrame._from_expression(local, pending, LiteralFrameBinding(graph))
     second = AnalysisFrame._from_expression(local, pending, LiteralFrameBinding(graph))
+    assert isinstance(first._backing, ExpressionFrameBacking)
+    assert isinstance(second._backing, ExpressionFrameBacking)
+    assert isinstance(first._backing.root, LiteralFrameBinding)
+    assert isinstance(second._backing.root, LiteralFrameBinding)
     assert first._backing.root.graph.fingerprint == second._backing.root.graph.fingerprint
     assert first._input_id != second._input_id
     assert first.output_names == ("revenue",) and first.axes == ()

@@ -39,26 +39,29 @@ def test_current_continuation_registry_resolves_to_actual_bound_methods(
 
     case = analysis_dsl_case_factory("j2")
     logical = _values(case)
-    fixed = logical.execute()
+    fixed = logical.compute()
+    assert case.session.runs().items == ()
     assert len(fixed.to_pandas()) == 4
     for value in (
         logical,
         logical.where(logical["value"] > 0),
         logical.reduce({"total": logical["value"].sum()}),
     ):
-        for method in ("select", "where", "execute", "show"):
-            route = REGISTRY.resolve(f"query.{method}")
+        for method in ("select", "where", "compute", "persist", "show"):
+            route = REGISTRY.resolve(f"analysis_frame.{method}")
             assert route.descriptor is not None
             assert REGISTRY.by_callable(getattr(value, method)) is route.descriptor
 
 
 def test_artifact_metadata_rejects_graph_and_continuation_fields_without_writes(
     analysis_dsl_case_factory: DslCaseFactory,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from marivo.analysis.materialization.terminal_protocol import encode
 
     case = analysis_dsl_case_factory("j1")
-    value = _values(case).execute()
+    saved = _values(case).persist()
+    value = saved.artifact
     original = encode(value._manifest)
     for field in ("definition_graph", "continuation"):
         payload = json.loads(original)
@@ -75,7 +78,7 @@ def test_artifact_metadata_rejects_graph_and_continuation_fields_without_writes(
             if p.is_file() and not p.name.endswith(("-wal", "-shm"))
         }
         with pytest.raises(IntegrityError) as caught:
-            case.session.artifact(value.id)
+            case.session.persisted_frame(value.id)
         assert caught.value.stage == "terminal_output"
         assert caught.value.repair is not None
         assert "cannot be migrated or replayed" in caught.value.repair.action
@@ -89,7 +92,18 @@ def test_artifact_metadata_rejects_graph_and_continuation_fields_without_writes(
             "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
             (original, value.id),
         )
-    assert case.session.artifact(value.id).to_pandas()[("value", "value")].tolist() == [
+    import pyarrow.parquet as pq
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Artifact audit opened result payloads")
+
+    with monkeypatch.context() as audit_only:
+        audit_only.setattr(pq, "ParquetFile", forbidden)
+        value.show()
+        assert case.session.persisted_frame(value.id).artifact.id == value.id
+    assert len(case.session.runs().items) == 1
+    assert not hasattr(value, "to_pandas")
+    assert case.session.persisted_frame(value.id).to_pandas()[("value", "value")].tolist() == [
         450,
         150,
         400,

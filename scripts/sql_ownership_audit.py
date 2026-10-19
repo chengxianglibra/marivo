@@ -226,16 +226,6 @@ def _manifest() -> Manifest:
         ),
     )
 
-    typed = Owner(
-        "non_sql_typed_execution",
-        "This exact call executes a typed graph or local result, not a SQL statement constructor or driver.",
-    )
-    add(
-        "analysis/materialization/admission",
-        ("DatasetRuntime._execute_query",),
-        ("marivo.analysis.materialization.terminal_publication.execute",),
-        typed,
-    )
     add(
         "datasource/engines/trino",
         ("_trino_table_comment_from_show_create",),

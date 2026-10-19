@@ -11,12 +11,23 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._definition.expressions import DeclaredMetricRef, PerReduce, SourceAggregate
 from marivo._definition.graph import computation_fingerprint, walk
+from marivo._definition.relations import ObserveQuery
+from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
+from marivo.analysis.core.graph import BoundGraph
+from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic._definition_identity import scoped_definition_fingerprint
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.reader import SemanticProject
 
 ProjectFactory = Callable[[dict[str, str]], SemanticProject]
+
+
+def _captured_graph(frame: AnalysisFrame) -> BoundGraph:
+    assert isinstance(frame._backing, ExpressionFrameBacking)
+    assert isinstance(frame._backing.root, SourceFrameBinding)
+    return frame._backing.root.graph
+
 
 _MODEL = """\
 import marivo.datasource as md
@@ -77,10 +88,10 @@ def test_equivalent_named_metrics_share_computation_and_keep_distinct_authority(
     ) == computation_fingerprint(consume_metric(declarations["sales.revenue_alias"]).node)
     first = catalog.metrics.get("sales.revenue")
     second = catalog.metrics.get("sales.revenue_alias")
-    assert isinstance(consume_metric(first).node, DeclaredMetricRef) and isinstance(
-        consume_metric(second).node, DeclaredMetricRef
-    )
-    assert consume_metric(first).node.ref.ref != consume_metric(second).node.ref.ref
+    first_node, second_node = consume_metric(first).node, consume_metric(second).node
+    assert isinstance(first_node, DeclaredMetricRef)
+    assert isinstance(second_node, DeclaredMetricRef)
+    assert first_node.ref.ref != second_node.ref.ref
 
 
 def test_nested_metric_closure_captures_its_dependencies_without_source_io(
@@ -97,9 +108,11 @@ def test_nested_metric_closure_captures_its_dependencies_without_source_io(
 
     monkeypatch.setattr("marivo.datasource.backends._build_backend_from_effective", forbidden)
     query = session.observe({"nested": catalog.metrics.get("sales.outer")})
+    graph = _captured_graph(query)
+    assert isinstance(graph.root, ObserveQuery)
     closure = walk(
-        tuple(node for _, node in query._graph.root.metrics),
-        resolve=dict(query._graph.signature.declared_metrics).get,
+        tuple(node for _, node in graph.root.metrics),
+        resolve=dict(graph.signature.declared_metrics).get,
     )
     assert any(isinstance(node, SourceAggregate) for node in closure.order)
     assert session.runs().items == ()
@@ -110,11 +123,12 @@ def test_temporal_sample_fold_remains_explicit_in_definition_order(
 ) -> None:
     catalog = _catalog(semantic_project_factory)
     folded = catalog._state.registry.declared_metrics["sales.folded"]
-    assert isinstance(consume_metric(folded).node, PerReduce)
-    assert consume_metric(folded).node.reducer == "quantile"
-    assert consume_metric(folded).node.q == 0.95
-    assert isinstance(consume_metric(folded).node.operand, SourceAggregate)
-    assert consume_metric(folded).node.operand.reducer == "mean"
+    node = consume_metric(folded).node
+    assert isinstance(node, PerReduce)
+    assert node.reducer == "quantile"
+    assert node.q == 0.95
+    assert isinstance(node.operand, SourceAggregate)
+    assert node.operand.reducer == "mean"
 
 
 def test_projected_source_mapping_is_canonical_and_changes_consumed_identity(

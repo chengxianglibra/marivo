@@ -23,13 +23,18 @@ from marivo.analysis.compiler.graph_plan import (
     SourceRead,
     plan_query,
 )
-from marivo.analysis.compiler.native_formula import NativeOriginalFinish
+from marivo.analysis.compiler.native_query import NativeQueryFinish
 from marivo.analysis.compiler.observation import FormulaInput, FormulaProgram
 from marivo.analysis.compiler.optimization import optimize_query
 from marivo.analysis.compiler.query_program import FrameProgram, SourceParameter
 from marivo.analysis.core.artifact_data import DataAxis, DataColumn, DataSchema
 from marivo.analysis.core.data_types import ScalarDataType
-from marivo.analysis.core.frame_data import CompletedFrameData
+from marivo.analysis.core.frame_data import (
+    CompletedFrameData,
+    ExpressionFrameBacking,
+    LiteralFrameBinding,
+    SourceFrameBinding,
+)
 from marivo.analysis.core.frame_expression import (
     FixedFrameInput,
     FrameOperation,
@@ -41,7 +46,9 @@ from marivo.analysis.core.frame_structure import (
     PendingDataColumn,
     PendingDataSchema,
 )
+from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import Binding, Fact, Obligation
+from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_execution import run_query_plan
@@ -52,8 +59,13 @@ from marivo.analysis.materialization.graph_source_execution import (
     run_frame_plan,
 )
 from marivo.analysis.materialization.query_key_fusion import fuse_query_keys, fuse_query_terminal
-from marivo.analysis.materialization.source_original import fuse_source_original
 from tests.shared_fixtures import DslCaseFactory
+
+
+def _captured_graph(frame: AnalysisFrame) -> BoundGraph:
+    assert isinstance(frame._backing, ExpressionFrameBacking)
+    assert isinstance(frame._backing.root, (SourceFrameBinding, LiteralFrameBinding))
+    return frame._backing.root.graph
 
 
 def _schema() -> DataSchema:
@@ -109,6 +121,8 @@ def test_calendar_binary_pending_and_concrete_share_one_closed_program() -> None
     operation = CompareFrameValues(((0, 0),), match=CalendarCorrespondence("ordinal"))
     captured = infer_frame_combine_schema(pending, concrete, operation)
     result = infer_frame_combine_schema(concrete, concrete, operation)
+    assert isinstance(captured, PendingDataSchema)
+    assert isinstance(result, DataSchema)
     assert captured.complete(result) == result
     assert isinstance(result.axes[0], PairedDataAxis)
     pair = result.axes[0]
@@ -224,11 +238,12 @@ def test_literal_graph_is_prefixed_and_uses_same_schedule_without_source_prepare
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("literal-compiler", report_timezone="UTC")
     query = session.values(by=(), columns={"amount": "CNY"}, rows=(((), {"amount": 9}),))
-    child = plan_query(query._graph, ())
+    child = plan_query(_captured_graph(query), ())
     final = child.stages[-1]
     schema = DataSchema((), final.columns, value_paths=(("amount",),))
     root = FrameOperation(
-        (SourceFrameInput("literal", query._graph),), SelectValues((("copied", ValueSlot(0)),))
+        (SourceFrameInput("literal", _captured_graph(query)),),
+        SelectValues((("copied", ValueSlot(0)),)),
     )
     compiled = plan_frame(root, {"literal": CompiledSourceFrame(lower_query(child, {}), schema)})
     assert all(
@@ -256,10 +271,11 @@ def test_source_adapter_complete_boundary_rejects_unused_infinity(
     query = session.values(
         by=(), columns={"a": None, "b": None}, rows=(((), {"a": 1.0, "b": 0.0}),)
     )
-    child = plan_query(query._graph, ())
+    child = plan_query(_captured_graph(query), ())
     schema = DataSchema((), child.stages[-1].columns, value_paths=(("a",), ("b",)))
     root = FrameOperation(
-        (SourceFrameInput("literal", query._graph),), SelectValues((("only_a", ValueSlot(0)),))
+        (SourceFrameInput("literal", _captured_graph(query)),),
+        SelectValues((("only_a", ValueSlot(0)),)),
     )
     compiled = plan_frame(root, {"literal": CompiledSourceFrame(lower_query(child, {}), schema)})
 
@@ -296,7 +312,7 @@ def test_source_prefix_covers_native_fused_parameter_and_check_references(
         parameters=(SourceParameter("producer", "parameter", schema.columns),),
         native_reads=(hidden,),
         common_reads=(hidden,),
-        native_original_finish=NativeOriginalFinish(formula, schema.key_fields, schema.values, ()),
+        native_query_finish=NativeQueryFinish(schema.columns, schema.key_fields, None),
     )
     removed = LocalCompute(
         "removed-local",
@@ -319,7 +335,7 @@ def test_source_prefix_covers_native_fused_parameter_and_check_references(
         "final",
     )
     compiled = plan_frame(
-        SourceFrameInput("exact", query._graph),
+        SourceFrameInput("exact", _captured_graph(query)),
         {"exact": CompiledSourceFrame(LoweredQuery(child, ()), schema)},
     )
     stages = compiled.lowered.plan.stages
@@ -327,8 +343,9 @@ def test_source_prefix_covers_native_fused_parameter_and_check_references(
     assert isinstance(read, SourceRead)
     assert read.parameters[0].stage_id == "source:0/producer"
     assert read.native_reads[0].stage_id == read.common_reads[0].stage_id == "source:0/removed-read"
-    assert isinstance(read.native_original_finish, NativeOriginalFinish)
-    assert read.native_original_finish.program.values[0].stage_id == "source:0/removed-read"
+    assert isinstance(read.native_query_finish, NativeQueryFinish)
+    assert read.native_query_finish.columns == schema.columns
+    assert read.native_query_finish.order == schema.key_fields
     local = stages[2]
     assert isinstance(local, LocalCompute) and local.program is not None
     assert local.fused_steps[0].stage_id == "source:0/removed-local"
@@ -345,15 +362,17 @@ def test_native_source_child_keeps_one_prefixed_schedule(
     amount = case.session.catalog.fields.get("sales.order.amount")
     query = case.session.observe({"amount": amount.sum()})
     with open_query_sources(
-        case.session._runtime.connection_service(), query._graph, case.session.catalog._state
+        case.session._runtime.connection_service(),
+        _captured_graph(query),
+        case.session.catalog._state,
     ) as prepared:
-        child = optimize_query(plan_query(query._graph, prepared.schemas, context=prepared.context))
+        child = optimize_query(plan_query(_captured_graph(query), prepared.schemas))
         lowered = lower_query(child, prepared.relations)
         qualify_query_sources(prepared, lowered)
         final = next(stage for stage in child.stages if stage.stage_id == child.publish)
         schema = DataSchema((), final.columns, value_paths=(("amount",),))
         root = FrameOperation(
-            (SourceFrameInput("source", query._graph),),
+            (SourceFrameInput("source", _captured_graph(query)),),
             ReduceValues((("rows", Statistic("row_count")),), ()),
         )
         compiled = plan_frame(root, {"source": CompiledSourceFrame(lowered, schema)})
@@ -379,7 +398,7 @@ def test_native_source_child_keeps_one_prefixed_schedule(
             ),
             {},
         )
-        for fuse in (fuse_query_keys, fuse_query_terminal, fuse_source_original):
+        for fuse in (fuse_query_keys, fuse_query_terminal):
             refused = fuse(prepared, fixed.lowered)
             assert tuple(type(stage) for stage in refused.plan.stages) == (FrameInput, FrameCompute)
             assert refused.reads == ()
@@ -419,8 +438,11 @@ def test_binary_self_input_has_one_read_and_two_consumer_occurrences(compare: bo
         assert inputs[0] is inputs[1]
         return run_local(stage, inputs)
 
+    def forbidden(*args: object) -> StageOutput:
+        raise AssertionError("fixed schedule reached a source or local reader")
+
     output = run_query_plan(
-        plan, lambda s: None, lambda s, i: None, lambda c, o: None, fixed=fixed, frame=binary
+        plan, forbidden, forbidden, lambda c, o: None, fixed=fixed, frame=binary
     )
     assert output is not None and len(output.table) == 2 and reads == 1
     gc.collect()

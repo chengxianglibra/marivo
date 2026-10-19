@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import FrozenInstanceError, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Protocol
 
 import pytest
 from ibis.common.deferred import Deferred
@@ -12,14 +13,47 @@ from ibis.common.deferred import Deferred
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._definition.deferred import semantic_input
+from marivo._definition.observations import ObservationBinding
 from marivo._definition.types import AxisBinding, CalendarCoordinate
 from marivo._temporal import InstantAnchor
+from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
+from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import CoreRuleError
+from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.semantic._deferred_semantics import consume_field, consume_metric, consume_predicate
 from marivo.semantic.errors import SemanticError
 from marivo.semantic.expressions import Entity
+from marivo.semantic.reader import SemanticProject
+
+
+class ProjectFactory(Protocol):
+    def __call__(self, files: dict[str, str], load: bool = True) -> SemanticProject: ...
+
+
+class BoundCatalogFactory(Protocol):
+    def __call__(
+        self,
+        *,
+        alternate: bool = False,
+        missing: bool = False,
+        versioned: bool = False,
+        fanout: bool = False,
+        sampled: bool = False,
+    ) -> Session: ...
+
+
+def _captured_graph(frame: AnalysisFrame) -> BoundGraph:
+    assert isinstance(frame._backing, ExpressionFrameBacking)
+    assert isinstance(frame._backing.root, SourceFrameBinding)
+    return frame._backing.root.graph
+
+
+def _captured_observation(frame: AnalysisFrame) -> ObservationBinding:
+    observation = _captured_graph(frame).signature.observation
+    assert observation is not None
+    return observation
 
 
 def _model(
@@ -86,7 +120,9 @@ def net():
 
 
 @pytest.fixture
-def bound_catalog(semantic_project_factory, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def bound_catalog(
+    semantic_project_factory: ProjectFactory, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> BoundCatalogFactory:
     def build(
         *,
         alternate: bool = False,
@@ -121,7 +157,9 @@ def bound_catalog(semantic_project_factory, tmp_path: Path, monkeypatch: pytest.
 
 
 @pytest.mark.parametrize("anchored_first", (False, True))
-def test_execute_checks_every_repeated_field_anchor(bound_catalog, anchored_first: bool) -> None:
+def test_execute_checks_every_repeated_field_anchor(
+    bound_catalog: BoundCatalogFactory, anchored_first: bool
+) -> None:
     session = bound_catalog(versioned=True)
     entity = session.catalog.entities.get("sales.customers")
     region = session.catalog.fields.get("sales.customers.region")
@@ -130,7 +168,7 @@ def test_execute_checks_every_repeated_field_anchor(bound_catalog, anchored_firs
     anchored = region.at(session.instant("2026-01-01")) == "APAC"
     condition = anchored & direct if anchored_first else direct & anchored
     query = session.observe({"count": entity.count()}, where=condition)
-    observation = query._graph.signature.observation
+    observation = _captured_observation(query)
     assert observation is not None
     reads = observation.contributions[0].reads
     assert {read.at for read in reads} == {None, session.instant("2026-01-01")}
@@ -138,8 +176,8 @@ def test_execute_checks_every_repeated_field_anchor(bound_catalog, anchored_firs
 
 
 def test_each_fact_occurrence_keeps_its_condition_and_complete_classification(
-    bound_catalog, capsys
-):
+    bound_catalog: BoundCatalogFactory, capsys: pytest.CaptureFixture[str]
+) -> None:
     session = bound_catalog()
     catalog = session.catalog
     region = catalog.fields.get("sales.customers.region")
@@ -155,7 +193,7 @@ def test_each_fact_occurrence_keeps_its_condition_and_complete_classification(
         by=(region,),
         where=region == "APAC",
     )
-    binding = query._graph.signature.observation
+    binding = _captured_observation(query)
     assert binding is not None
     assert len(binding.contributions) == 4
     assert len({c.occurrence for c in binding.contributions}) == 4
@@ -177,14 +215,20 @@ def test_each_fact_occurrence_keeps_its_condition_and_complete_classification(
     assert len(binding.coordinates.axes[0].cells) == 31
     assert session.runs().items == ()
     query.show()
-    assert "sales.refunds" in capsys.readouterr().out
+    shown = capsys.readouterr().out
+    assert "net" in shown and "branches" in shown
+    assert "rows: pending; no input rows read" in shown
+    assert session.runs().items == ()
     with pytest.raises(FrozenInstanceError):
-        binding.period = None
+        frozen_attribute = "period"
+        setattr(binding, frozen_attribute, None)
 
 
 @pytest.mark.parametrize("problem", ("missing", "alternate"))
-def test_each_root_must_have_an_unambiguous_directed_path(bound_catalog, problem):
-    session = bound_catalog(**{problem: True})
+def test_each_root_must_have_an_unambiguous_directed_path(
+    bound_catalog: BoundCatalogFactory, problem: str
+) -> None:
+    session = bound_catalog(missing=problem == "missing", alternate=problem == "alternate")
     region = session.catalog.fields.get("sales.customers.region")
     net = session.catalog.metrics.get("sales.net")
     with pytest.raises(AnalysisError) as caught:
@@ -195,7 +239,9 @@ def test_each_root_must_have_an_unambiguous_directed_path(bound_catalog, problem
     assert session.runs().items == ()
 
 
-def test_explicit_field_routes_and_during_none_are_frozen(bound_catalog):
+def test_explicit_field_routes_and_during_none_are_frozen(
+    bound_catalog: BoundCatalogFactory,
+) -> None:
     session = bound_catalog(alternate=True)
     catalog = session.catalog
     region = catalog.fields.get("sales.customers.region")
@@ -214,15 +260,15 @@ def test_explicit_field_routes_and_during_none_are_frozen(bound_catalog):
         by=(routed,),
         where=routed == "APAC",
     )
-    binding = query._graph.signature.observation
+    binding = _captured_observation(query)
     assert binding is not None and binding.period is None
     assert binding.contributions[0].period is None
-    assert query._graph.fingerprint == explicit_none._graph.fingerprint
+    assert _captured_graph(query).fingerprint == _captured_graph(explicit_none).fingerprint
     assert binding.contributions[0].reads[-1].path == (buyer.ref,)
     changed = session.observe(
         {"revenue": catalog.metrics.get("sales.revenue")}, by=(routed,), where=routed == "EMEA"
     )
-    assert query._graph.fingerprint != changed._graph.fingerprint
+    assert _captured_graph(query).fingerprint != _captured_graph(changed).fingerprint
     for bad in ((), [buyer], buyer):
         with pytest.raises(SemanticError):
             consume_field(region.via(bad))
@@ -230,7 +276,9 @@ def test_explicit_field_routes_and_during_none_are_frozen(bound_catalog):
         consume_field(region.at(session.instant("2026-01-01")))
 
 
-def test_time_sample_requirement_is_checked_inside_formula_and_declared_closure(bound_catalog):
+def test_time_sample_requirement_is_checked_inside_formula_and_declared_closure(
+    bound_catalog: BoundCatalogFactory,
+) -> None:
     session = bound_catalog()
     revenue = session.catalog.metrics.get("sales.revenue")
     field = session.catalog.fields.get("sales.orders.ordered_at")
@@ -242,16 +290,19 @@ def test_time_sample_requirement_is_checked_inside_formula_and_declared_closure(
     with pytest.raises(CoreRuleError, match="explicit observation period"):
         session.observe({"zero": nested}, where=field.within(scope))
     assert (
-        session.observe({"sample": nested}, during=scope)._graph.signature.observation is not None
+        _captured_graph(session.observe({"sample": nested}, during=scope)).signature.observation
+        is not None
     )
 
 
-def test_time_role_is_optional_but_explicit_cross_entity_time_keeps_its_path(bound_catalog):
+def test_time_role_is_optional_but_explicit_cross_entity_time_keeps_its_path(
+    bound_catalog: BoundCatalogFactory,
+) -> None:
     session = bound_catalog()
     catalog = session.catalog
     customers = catalog.entities.get("sales.customers")
     query = session.observe({"count": customers.count()})
-    assert query._graph.signature.observation.contributions[0].time is None
+    assert _captured_observation(query).contributions[0].time is None
     scope = session.time_scope(start="2026-01-01", end="2026-02-01")
     with pytest.raises(CoreRuleError, match="business time role"):
         session.observe({"count": customers.count()}, during=scope)
@@ -259,14 +310,17 @@ def test_time_role_is_optional_but_explicit_cross_entity_time_keeps_its_path(bou
     buyer = catalog.relationships.get("sales.buyer")
     amount = catalog.fields.get("sales.orders.amount")
     query = session.observe({"revenue": amount.sum(time=time.via((buyer,)))}, during=scope)
-    contribution = query._graph.signature.observation.contributions[0]
+    contribution = _captured_observation(query).contributions[0]
+    assert contribution.time is not None
     assert contribution.time.field == consume_field(time).reference
     assert contribution.time.path == (buyer.ref,)
     assert contribution.root == consume_field(amount).root
     assert session.runs().items == ()
 
 
-def test_same_path_definition_versions_are_not_an_admission_gate(bound_catalog):
+def test_same_path_definition_versions_are_not_an_admission_gate(
+    bound_catalog: BoundCatalogFactory,
+) -> None:
 
     from marivo._definition.types import ExactRef
 
@@ -280,13 +334,15 @@ def test_same_path_definition_versions_are_not_an_admission_gate(bound_catalog):
     )
     metric = (semantic_input(previous) + amount).sum()
     query = session.observe({"value": metric})
-    contribution = query._graph.signature.observation.contributions[0]
+    contribution = _captured_observation(query).contributions[0]
     assert contribution.root == current.root
     assert {read.field.ref for read in contribution.reads} >= {current.reference.ref}
     assert session.runs().items == ()
 
 
-def test_exact_boundaries_calendar_and_host_independence(tmp_path, monkeypatch):
+def test_exact_boundaries_calendar_and_host_independence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from marivo._temporal import _time_scope_from_contract_data, _validate_time_scope_data
 
     monkeypatch.chdir(tmp_path)
@@ -312,13 +368,18 @@ def test_exact_boundaries_calendar_and_host_independence(tmp_path, monkeypatch):
         with pytest.raises(AnalysisError):
             session.instant(value)
     with pytest.raises(ValueError):
-        scope.by("day")
+        # Intentionally pass a retired string shape to the runtime validator.
+        by: object = scope.by
+        assert callable(by)
+        by("day")
     with pytest.raises(AnalysisError):
         session.time_scope(start="2026-01-01", end="2026-01-01")
     assert session.runs().items == ()
 
 
-def test_attribute_anchor_preserves_exact_exclusive_endpoint(bound_catalog):
+def test_attribute_anchor_preserves_exact_exclusive_endpoint(
+    bound_catalog: BoundCatalogFactory,
+) -> None:
     session = bound_catalog(versioned=True)
     catalog = session.catalog
     region = catalog.fields.get("sales.customers.region")
@@ -328,20 +389,22 @@ def test_attribute_anchor_preserves_exact_exclusive_endpoint(bound_catalog):
         session.observe({"revenue": revenue}, by=(region,))
     field = region.via((catalog.relationships.get("sales.buyer"),)).at(scope.end)
     query = session.observe({"revenue": revenue}, by=(field,), where=field == "APAC")
-    binding = query._graph.signature.observation
+    binding = _captured_observation(query)
     assert binding is not None
     coordinate = binding.contributions[0].coordinates[0]
     assert coordinate.at == scope.end
     assert coordinate.at != scope.start
     assert binding.contributions[0].reads[-1] == coordinate
-    assert (
-        consume_field(field).reference == consume_field(region).reference
-        and consume_field(region).field_read.at is None
-    )
+    original = consume_field(region)
+    assert original.field_read is not None
+    assert consume_field(field).reference == original.reference
+    assert original.field_read.at is None
     assert session.runs().items == ()
 
 
-def test_to_many_scalar_path_is_rejected_without_source_reads(bound_catalog):
+def test_to_many_scalar_path_is_rejected_without_source_reads(
+    bound_catalog: BoundCatalogFactory,
+) -> None:
     session = bound_catalog(fanout=True)
     region = session.catalog.fields.get("sales.customers.region")
     buyer = session.catalog.relationships.get("sales.buyer")
@@ -352,7 +415,9 @@ def test_to_many_scalar_path_is_rejected_without_source_reads(bound_catalog):
     assert session.runs().items == ()
 
 
-def test_sampled_time_requirement_survives_nested_declarations_and_zero(bound_catalog):
+def test_sampled_time_requirement_survives_nested_declarations_and_zero(
+    bound_catalog: BoundCatalogFactory,
+) -> None:
     session = bound_catalog(sampled=True)
     net = session.catalog.metrics.get("sales.net")
     with pytest.raises(CoreRuleError, match="sampled time"):
@@ -360,7 +425,9 @@ def test_sampled_time_requirement_survives_nested_declarations_and_zero(bound_ca
     assert session.runs().items == ()
 
 
-def test_certified_calendar_uses_frozen_snapshot_and_checks_coverage(tmp_path, monkeypatch):
+def test_certified_calendar_uses_frozen_snapshot_and_checks_coverage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from datetime import date
 
     from marivo._temporal import certify_period_calendar, semantic_grain
@@ -405,8 +472,11 @@ def test_certified_calendar_uses_frozen_snapshot_and_checks_coverage(tmp_path, m
 
 @pytest.mark.parametrize("field_kind", ("dimension", "measure"))
 def test_declared_metric_binds_inline_scalar_via(
-    semantic_project_factory, tmp_path, monkeypatch, field_kind
-):
+    semantic_project_factory: ProjectFactory,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field_kind: str,
+) -> None:
     source = _model().replace(
         "finalized = ms.finalize()",
         'credit = ms.measure_column(name="credit", entity=customers, column="credit", additivity=ms.additive_all(), unit="CNY")\nfinalized = ms.finalize()',
@@ -429,7 +499,7 @@ def filtered():
     monkeypatch.chdir(tmp_path)
     import marivo.datasource.backends as backends
 
-    def forbidden(*args, **kwargs):
+    def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("binding opened a datasource")
 
     monkeypatch.setattr(backends, "_build_backend_from_effective", forbidden)
@@ -437,7 +507,7 @@ def filtered():
     catalog = session.catalog
     metric = catalog.metrics.get("sales.filtered")
     query = session.observe({"filtered": metric})
-    contribution = query._graph.signature.observation.contributions[0]
+    contribution = _captured_observation(query).contributions[0]
     assert len(contribution.intrinsic_conditions) == 1
     assert contribution.reads[-1].path == (catalog.relationships.get("sales.buyer").ref,)
     assert contribution.reads[-1].field.ref.path == f"sales.customers.{field_name}"

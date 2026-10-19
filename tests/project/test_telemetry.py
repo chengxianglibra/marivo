@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import os
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -34,7 +35,9 @@ def _log_record(entry: dict[str, object]) -> dict[str, object]:
     assert isinstance(scope_logs, list)
     records = scope_logs[0]["logRecords"]
     assert isinstance(records, list)
-    return records[0]
+    record: object = records[0]
+    assert isinstance(record, dict) and all(isinstance(key, str) for key in record)
+    return {key: value for key, value in record.items() if isinstance(key, str)}
 
 
 def _attrs(record: dict[str, object]) -> dict[str, object]:
@@ -327,12 +330,14 @@ def test_restored_session_suppresses_successful_internal_load_declarations(
         capability_id="trino",
         capability_kind="callable",
     )
-    def datasource_declaration(*, project_root: Path) -> str:
+    def datasource_declaration(*, project_root: Path, fail: bool = False) -> str:
+        if fail:
+            raise ValueError("private internal load detail")
         return "datasource declared"
 
-    def load_project(*, project_root: Path) -> str:
+    def load_project(*, project_root: Path, fail: bool = False) -> str:
         declaration(project_root=project_root)
-        datasource_declaration(project_root=project_root)
+        datasource_declaration(project_root=project_root, fail=fail)
         return "declared"
 
     @tracked_capability(
@@ -349,8 +354,8 @@ def test_restored_session_suppresses_successful_internal_load_declarations(
         capability_id="session.get_or_create",
         capability_kind="lifecycle",
     )
-    def resume(*, name: str, question: str, project_root: Path) -> str:
-        return load_project(project_root=project_root)
+    def resume(*, name: str, question: str, project_root: Path, fail: bool = False) -> str:
+        return load_project(project_root=project_root, fail=fail)
 
     @tracked_capability(
         surface="analysis",
@@ -400,6 +405,65 @@ def test_restored_session_suppresses_successful_internal_load_declarations(
     assert len(load_attrs) == 2
     assert load_attrs[0]["marivo.operation.origin"] == "explicit"
     assert declaration_attrs[-2]["marivo.operation.origin"] == "internal_load"
+
+    with pytest.raises(ValueError, match="private internal load detail"):
+        resume(
+            name="demo", question="ignored replacement", project_root=telemetry_project, fail=True
+        )
+    failed_load = _attrs(_capability_records(path, "trino")[-1])
+    assert failed_load["marivo.operation.status"] == "error"
+    assert failed_load["marivo.operation.origin"] == "internal_load"
+    assert failed_load["marivo.error.class"] == "ValueError"
+    assert "private internal load detail" not in path.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("generation", ("current", "old_only", "missing"))
+def test_session_creation_attributes_reads_only_current_generation(
+    tmp_path: Path, generation: str
+) -> None:
+    import sqlite3
+
+    from marivo.analysis.materialization.layout import MaterializationLayout
+    from marivo.analysis.materialization.store import SessionStore
+    from marivo.telemetry import _session_creation_attributes
+
+    if generation == "current":
+        SessionStore(tmp_path).create_session(
+            "existing",
+            session_ref="session_existing",
+            question="persisted question",
+            report_timezone_name="UTC",
+            report_timezone_resolution="iana",
+        )
+    elif generation == "old_only":
+        old = tmp_path / ".marivo/analysis/generations/v11/session_store.db"
+        old.parent.mkdir(parents=True)
+        with sqlite3.connect(old) as connection:
+            connection.execute("CREATE TABLE sessions (name TEXT, question TEXT)")
+            connection.execute("INSERT INTO sessions VALUES (?, ?)", ("existing", "old question"))
+    before = {
+        p: p.read_bytes()
+        for p in tmp_path.rglob("*")
+        if p.is_file() and not p.name.endswith(("-wal", "-shm"))
+    }
+    attrs = _session_creation_attributes(
+        tmp_path, "session.get_or_create", {"name": "existing", "question": "requested question"}
+    )
+    assert attrs["marivo.session.created"] is (generation != "current")
+    assert attrs["marivo.session.requested_question"] == "requested question"
+    if generation == "current":
+        assert attrs["marivo.session.question"] == "persisted question"
+    else:
+        assert "marivo.session.question" not in attrs
+        assert not MaterializationLayout(tmp_path).store_db.exists()
+    fresh = _session_creation_attributes(tmp_path, "session.get_or_create", {"name": "fresh"})
+    assert fresh == {"marivo.session.created": True}
+    assert _session_creation_attributes(tmp_path, "session.resume", {"name": "existing"}) == {}
+    assert {
+        p: p.read_bytes()
+        for p in tmp_path.rglob("*")
+        if p.is_file() and not p.name.endswith(("-wal", "-shm"))
+    } == before
 
 
 def test_sensitive_inputs_are_excluded_but_goal_and_identifiers_are_kept(
@@ -581,7 +645,10 @@ def test_invalid_session_resume_selector_is_shape_only_in_telemetry(
     resume_call = {"by": selector}
 
     with pytest.raises(mv.errors.SessionStateError):
-        mv.session.resume("known-session", **resume_call)
+        # The invalid selector is deliberately outside the static Literal contract.
+        resume: object = mv.session.resume
+        assert callable(resume)
+        resume("known-session", **resume_call)
 
     calls = [
         _attrs(record)
@@ -650,7 +717,9 @@ def test_unified_help_failure_is_tracked_as_one_global_operation(
     from marivo._help.model import MarivoHelpTargetError
 
     with pytest.raises(MarivoHelpTargetError):
-        marivo.help("not-a-semantic-capability")
+        help_call = marivo.help
+        assert callable(help_call)
+        help_call("not-a-semantic-capability")
 
     path = _event_path(telemetry_project)
     completed = _attrs(_capability_records(path, "help")[-1])
@@ -675,7 +744,9 @@ def test_unified_help_surface_failure_is_tracked_separately(
     monkeypatch.setattr(help_render, "render_help_text", fail)
 
     with pytest.raises(MarivoHelpSurfaceError):
-        marivo.help("datasource.duckdb")
+        help_call = marivo.help
+        assert callable(help_call)
+        help_call("datasource.duckdb")
 
     path = _event_path(telemetry_project)
     completed = _attrs(_capability_records(path, "help")[-1])
@@ -691,7 +762,9 @@ def test_surface_root_help_tracks_exact_owner_and_canonical_id(
 ) -> None:
     import marivo
 
-    marivo.help("analysis")
+    help_call = marivo.help
+    assert callable(help_call)
+    help_call("analysis")
 
     path = _event_path(telemetry_project)
     completed = _attrs(_capability_records(path, "help")[-1])
@@ -1054,22 +1127,21 @@ def test_cleanup_failure_does_not_mark_written_event_as_dropped(
 def test_writer_failure_is_isolated_and_reported_on_next_success(
     telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.telemetry as telemetry
 
-    real_open = telemetry.os.open
+    real_open = os.open
 
     def fail_open(*args: object, **kwargs: object) -> int:
         del args, kwargs
         raise OSError("telemetry disk unavailable")
 
-    monkeypatch.setattr(telemetry.os, "open", fail_open)
+    monkeypatch.setattr(os, "open", fail_open)
     _emit_writer_event(
         "marivo.analysis.failed_write",
         family="read",
         intent="failed_write",
         project_root=telemetry_project,
     )
-    monkeypatch.setattr(telemetry.os, "open", real_open)
+    monkeypatch.setattr(os, "open", real_open)
     _emit_writer_event(
         "marivo.analysis.recovered_write",
         family="read",
@@ -1129,9 +1201,20 @@ def _expected_instrumented(descriptors: tuple[object, ...]) -> set[str]:
         target = import_registered_callable(path)
         if isinstance(target, (property, type)):
             continue
-        capability_id = descriptor.id if hasattr(descriptor, "id") else descriptor.canonical_id
+        capability_id: object = getattr(descriptor, "id", None)
+        if capability_id is None:
+            capability_id = getattr(descriptor, "canonical_id", None)
+        assert isinstance(capability_id, str)
         expected.add(capability_id)
     return expected
+
+
+def _instrumented_capabilities(module: object) -> tuple[str, ...]:
+    attribute = "__marivo_telemetry_capabilities__"
+    identifiers: object = getattr(module, attribute)
+    assert isinstance(identifiers, frozenset)
+    assert all(isinstance(value, str) for value in identifiers)
+    return tuple(value for value in identifiers if isinstance(value, str))
 
 
 def test_registry_callables_are_telemetry_covered() -> None:
@@ -1141,13 +1224,13 @@ def test_registry_callables_are_telemetry_covered() -> None:
     from marivo.datasource._capabilities.registry import REGISTRY as DATASOURCE_REGISTRY
     from marivo.semantic._capabilities.registry import REGISTRY as SEMANTIC_REGISTRY
 
-    assert set(mv.__marivo_telemetry_capabilities__) == _expected_instrumented(
+    assert set(_instrumented_capabilities(mv)) == _expected_instrumented(
         tuple(d for d in ANALYSIS_REGISTRY.descriptors if hasattr(d, "telemetry"))
     )
-    assert set(md.__marivo_telemetry_capabilities__) == _expected_instrumented(
+    assert set(_instrumented_capabilities(md)) == _expected_instrumented(
         DATASOURCE_REGISTRY._descriptors
     )
-    assert set(ms.__marivo_telemetry_capabilities__) == _expected_instrumented(
+    assert set(_instrumented_capabilities(ms)) == _expected_instrumented(
         SEMANTIC_REGISTRY._descriptors
     )
     assert "analysis_purpose" not in inspect.signature(mv.Session.members).parameters

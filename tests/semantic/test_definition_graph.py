@@ -25,9 +25,8 @@ from marivo._definition.expressions import (
 from marivo._definition.graph import children, computation_fingerprint, walk
 from marivo._definition.relations import (
     LiteralPopulation,
-    ObserveQuery,
+    PopulationContains,
     PopulationProgram,
-    QueryKeys,
     SourceIdentities,
 )
 from marivo._definition.types import (
@@ -149,37 +148,23 @@ def test_zero_denominator_policy_is_part_of_the_computation() -> None:
     assert computation_fingerprint(default) != computation_fingerprint(strict)
 
 
-def test_metric_population_query_cycle_is_located() -> None:
+def test_declared_metric_cycle_is_located() -> None:
     self_ref = ExactRef(ref.metric("sales.cohort_revenue"), "v1")
-    query = ObserveQuery(
-        metrics=(("revenue", DeclaredMetricRef(self_ref)),), by=(CUSTOMER,), owner=None
-    )
-    cohort = PopulationProgram(root=QueryKeys(query=query, axes=(CUSTOMER,)), owner=None)
-    definition = ContributionFilter(SourceAggregate(_field("amount"), "sum", time=PAID), cohort)
+    definition = _combine(_constant(1), DeclaredMetricRef(self_ref))
 
     def resolve(target: ExactRef) -> MetricNode | None:
         return definition if target == self_ref else None
 
     with pytest.raises(DefinitionGraphError) as raised:
         walk([DeclaredMetricRef(self_ref)], resolve=resolve)
-
     assert raised.value.kind == "cycle"
     assert raised.value.path == (
         "DeclaredMetricRef.metric[0]",
-        "ContributionFilter.predicate[1]",
-        "PopulationProgram.population[0]",
-        "QueryKeys.query[0]",
-        "ObserveQuery.metric[0]",
-        # QueryKeys enters its captured declaration scope before revisiting itself.
-        "DeclaredMetricRef.metric[0]",
-        "ContributionFilter.predicate[1]",
-        "PopulationProgram.population[0]",
+        "MetricExpression.operand[1]",
     )
 
     def resolve_fresh(target: ExactRef) -> MetricNode | None:
-        if target != self_ref:
-            return None
-        return ContributionFilter(SourceAggregate(_field("amount"), "sum", time=PAID), cohort)
+        return _combine(_constant(1), DeclaredMetricRef(self_ref)) if target == self_ref else None
 
     with pytest.raises(DefinitionGraphError) as fresh:
         walk([DeclaredMetricRef(self_ref)], resolve=resolve_fresh)
@@ -219,12 +204,19 @@ def test_ownership_conflict_and_unknown_rule_version_fail() -> None:
     revenue = SourceAggregate(_field("amount"), "sum", time=PAID)
     first = PopulationProgram(SourceIdentities(CUSTOMER.entity), Owner("session-a", "owner-a"))
     second = PopulationProgram(SourceIdentities(CUSTOMER.entity), Owner("session-b", "owner-b"))
-    combined = _combine(ContributionFilter(revenue, first), ContributionFilter(revenue, second))
+    combined = _combine(
+        ContributionFilter(revenue, PopulationContains(first)),
+        ContributionFilter(revenue, PopulationContains(second)),
+    )
 
     with pytest.raises(DefinitionGraphError) as conflict:
         walk([combined], resolve=_no_declarations)
     assert conflict.value.kind == "ownership_conflict"
-    assert conflict.value.path == ("MetricExpression.operand[1]", "ContributionFilter.predicate[1]")
+    assert conflict.value.path == (
+        "MetricExpression.operand[1]",
+        "ContributionFilter.predicate[1]",
+        "PopulationContains.population[0]",
+    )
 
     stale = SourceAggregate(_field("amount"), "sum", time=PAID, rule_version=99)
     with pytest.raises(DefinitionGraphError) as version:

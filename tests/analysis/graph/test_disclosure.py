@@ -20,22 +20,22 @@ from tests.surface.exports import ANALYSIS_PUBLIC
 
 REQUIRED_TARGETS = {
     "session.members",
-    "session.query",
+    "session.frame",
+    "session.persisted_frame",
+    "session.population_from",
     "session.observe",
     "session.read",
     "session.values",
-    "query",
-    "query.population",
-    "query.select",
-    "query.where",
-    "query.top",
-    "query.reduce",
-    "query.align",
-    "query.compare",
-    "query.rollup",
-    "query.drill",
-    "query.share",
-    "query.execute",
+    "analysis_frame",
+    "analysis_frame.select",
+    "analysis_frame.where",
+    "analysis_frame.top",
+    "analysis_frame.reduce",
+    "analysis_frame.align",
+    "analysis_frame.compare",
+    "analysis_frame.compute",
+    "analysis_frame.persist",
+    "analysis_frame.to_pandas",
     "population",
     "column",
     "membership_axis",
@@ -54,7 +54,6 @@ REQUIRED_TARGETS = {
     "session",
     "artifact",
     "artifact.show",
-    "artifact.to_pandas",
     "artifact.findings",
     "artifact.evidence_digest",
 }
@@ -65,6 +64,8 @@ def test_exact_export_bindings_and_required_native_targets() -> None:
     actual = {e.name: e for p in disclosure.providers for e in p.exports}
     assert set(actual) == set(ANALYSIS_PUBLIC)
     assert set(disclosure.canonical_ids()) >= REQUIRED_TARGETS
+    attribute = disclosure.resolve("analysis_frame.artifact")
+    assert attribute.kind == "attribute" and attribute.type_name == "analysis_frame"
     assert tuple(mv.__all__) == ANALYSIS_PUBLIC
     for name, entry in actual.items():
         resolved = disclosure.resolve(
