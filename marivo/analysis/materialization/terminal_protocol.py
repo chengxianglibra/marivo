@@ -94,6 +94,35 @@ _TYPES = {record.__name__: record for record in _RECORDS}
 T = TypeVar("T", ArtifactManifest, OutputFinding, OutputEvidence, InvocationInput)
 FORMAT = "marivo.terminal_output/v1"
 
+# Store 11 retains one exact wire shape until the coordinated Store 12 cutover.
+# New private Frame metadata is not part of terminal output v1.
+_V1_FIELDS = {
+    "DataAxis": ("token", "columns", "kind"),
+    "CalendarDataAxis": ("token", "columns", "kind", "timezone"),
+    "DataSchema": ("axes", "values", "presence", "projection_columns"),
+}
+
+
+def _wire_fields(record: type[object]) -> tuple[str, ...]:
+    frozen = _V1_FIELDS.get(record.__name__)
+    if frozen is not None:
+        return frozen
+    if is_dataclass(record):
+        return tuple(field.name for field in fields(record))
+    raise invalid("unsupported terminal output record")
+
+
+def _require_v1_metadata(value: object) -> None:
+    if (
+        (isinstance(value, DataAxis) and (value.name != "" or value.at is not None))
+        or (isinstance(value, CalendarDataAxis) and value.frozen is not None)
+        or (
+            isinstance(value, DataSchema)
+            and (value.value_paths != () or value.presence_paths != ())
+        )
+    ):
+        raise invalid("new Frame metadata is not supported by terminal output v1")
+
 
 def _encode(value: object) -> object:
     if value is None or type(value) in (str, int, float, bool):
@@ -105,9 +134,10 @@ def _encode(value: object) -> object:
     if type(value) is tuple:
         return [_encode(item) for item in value]
     if is_dataclass(value) and not isinstance(value, type) and type(value) in _RECORDS:
+        _require_v1_metadata(value)
         return {
             "record": type(value).__name__,
-            "fields": {field.name: _encode(getattr(value, field.name)) for field in fields(value)},
+            "fields": {name: _encode(getattr(value, name)) for name in _wire_fields(type(value))},
         }
     raise invalid("unsupported terminal output value")
 
@@ -167,7 +197,7 @@ def _decode(value: object) -> object:
     record = _TYPES.get(_text(obj["record"]))
     if record is None:
         raise invalid("unknown terminal record; graph formats are not supported")
-    body = _obj(obj["fields"], " ".join(field.name for field in fields(record)))
+    body = _obj(obj["fields"], " ".join(_wire_fields(record)))
     hints = get_type_hints(record)
     decoded = {name: _decode(item) for name, item in body.items()}
     if any(not _matches(item, hints[name]) for name, item in decoded.items()):

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from typing import Literal, TypeAlias
+from typing import TYPE_CHECKING, Literal
 
 from marivo._definition.query import (
     CoordinateSlot,
@@ -18,11 +18,11 @@ from marivo._definition.query import (
 )
 from marivo._definition.relations import QueryKeys
 from marivo._definition.types import DefinitionGraphError, LiteralValue, check_literal
+from marivo.analysis.core.frame_structure import ValueKind as ValueKind
 from marivo.analysis.core.model import reject
 
-ValueKind: TypeAlias = Literal[
-    "numeric", "boolean", "string", "date", "timestamp", "duration", "unresolved"
-]
+if TYPE_CHECKING:
+    from marivo.analysis.dsl.frame import AnalysisFrame
 
 
 def literal_kind(value: LiteralValue) -> ValueKind:
@@ -55,6 +55,8 @@ class Column:
     _unit: str | None
     _kind: ValueKind
     _query: QueryKeys | None = None
+    _frame: AnalysisFrame | None = None
+    _name: str | None = None
 
     def __repr__(self) -> str:
         return f"<Column input={self._input_id[:16]} kind={self._kind}; use .show()>"
@@ -75,7 +77,9 @@ class Column:
             ("kind", self._kind),
             ("unit", self._unit or "undeclared"),
         ]
-        if self._query is not None and isinstance(expression, ValueSlot):
+        if self._name is not None:
+            facts.append(("name", self._name))
+        elif self._query is not None and isinstance(expression, ValueSlot):
             facts.append(("name", self._query.names[expression.index]))
         elif isinstance(expression, CoordinateSlot):
             facts.append(("coordinate_index", str(expression.index)))
@@ -103,6 +107,13 @@ class Column:
     ) -> Column:
         if isinstance(other, Column):
             if self._input_id != other._input_id:
+                if self._frame is not None or other._frame is not None:
+                    reject(
+                        "Columns bound to this exact Frame input",
+                        "different Frame inputs",
+                        "Align the Frames before combining their Columns.",
+                        "Column",
+                    )
                 reject(
                     "Columns bound to this exact Query input",
                     "different Query domains",
@@ -214,6 +225,7 @@ class Column:
             None if result_kind == "boolean" else result_unit,
             result_kind,
             self._query,
+            self._frame,
         )
 
     def __add__(self, other: Column | LiteralValue) -> Column:
@@ -295,7 +307,12 @@ class Column:
         Example: ``-column``. Constraints: Numeric kinds and units are preserved. No I/O occurs.
         """
         return Column(
-            self._input_id, ValueUnary("neg", self._expression), self._unit, self._kind, self._query
+            self._input_id,
+            ValueUnary("neg", self._expression),
+            self._unit,
+            self._kind,
+            self._query,
+            self._frame,
         )
 
     # DSL comparisons deliberately build predicates instead of Python booleans.
@@ -395,7 +412,12 @@ class Column:
         if self._kind != "boolean":
             reject("a boolean Column", self._kind, "Negate a predicate with ~.", "Column")
         return ColumnPredicate(
-            self._input_id, ValueUnary("not", self._expression), None, "boolean", self._query
+            self._input_id,
+            ValueUnary("not", self._expression),
+            None,
+            "boolean",
+            self._query,
+            self._frame,
         )
 
     def divide(
@@ -424,7 +446,12 @@ class Column:
         Constraints: No rows are read; every value kind supports this test.
         """
         return ColumnPredicate(
-            self._input_id, ValueUnary("is_null", self._expression), None, "boolean", self._query
+            self._input_id,
+            ValueUnary("is_null", self._expression),
+            None,
+            "boolean",
+            self._query,
+            self._frame,
         )
 
     def sum(self) -> _Statistic:
@@ -448,7 +475,9 @@ class Column:
     def _statistic(self, method: Literal["sum", "mean"]) -> _Statistic:
         if self._kind not in ("numeric", "duration", "unresolved"):
             reject("a numeric Column", self._kind, "Reduce a numeric value.", "Column")
-        return _Statistic(self._input_id, Statistic(method, self._expression), self._unit)
+        return _Statistic(
+            self._input_id, Statistic(method, self._expression), self._unit, self._frame
+        )
 
     def __bool__(self) -> bool:
         reject(
@@ -468,6 +497,7 @@ class _Statistic:
     input_id: str | None
     definition: Statistic
     unit: str | None
+    _frame: AnalysisFrame | None = None
 
 
 def row_count() -> _Statistic:
