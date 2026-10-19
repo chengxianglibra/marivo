@@ -1,89 +1,73 @@
 ---
 title: Evidence and recovery
-description: Read committed output and saved Evidence without current sources.
+description: Read exact fixed data and audit without current sources.
 ---
 
-Store 11 saves final output under `.marivo/analysis/generations/v11/`.
-A single SQLite transaction publishes the output manifest, receipts, Findings,
-Evidence and Run success after the Parquet files are durable. Failed invocations
-publish no partial Artifact. Recovery reconciles the original Run and its exact
-resource journal without replaying computation.
+Store 12 saves Frame data under `.marivo/analysis/generations/v12/`. One
+SQLite publication transaction commits manifest, receipts, Findings, Evidence
+and Run success after durable data. Compute creates no Run; persist evaluates
+before admission, then publishes an existing result ID. Memory persist never
+reevaluates; stored persist validates commit metadata and returns itself.
 
-## Execute and inspect the Run
+## Read data and audit
 
-Given a resolved `revenue` Metric and a Session:
+Given a resolved revenue Metric and Session:
 
 ```python
-query = session.observe({"revenue": revenue})
-artifact = query.execute()
-print(artifact.id)
-print(artifact)
+saved = session.observe({"revenue": revenue}).persist()
+print(session.id, saved.artifact.id)
+saved.show(n=20)
+saved.artifact.show()
+reopened = session.persisted_frame(saved.artifact.id)
+complete = reopened.compute()
+page = reopened.artifact.findings(limit=20)
+digest = reopened.artifact.evidence_digest()
+print(digest.items)
 for run in session.runs(limit=5).items:
     run.show()
 ```
 
-Each execute reevaluates the Query and creates a new Run and Artifact. The
-Artifact contains only committed identity and metadata; it has no `contract()`
-or DSL continuation. Source-independent constants also use this publication path.
+Ordinary observe produces no Findings. One audit retains actual inherited
+source facts and the current evaluation, not accumulated intermediate history.
+Only exactly equal facts deduplicate; different scope/read times stay distinct.
+Source-read, evaluation and commit times differ. Committing old data does not
+refresh it. A saved input identity is not an executable lineage dependency.
 
-## Read committed output and facts
+## Preview and complete data
 
-Ordinary observations produce no Findings. Evidence records only actual source
-reads and checks, including the read scope; an omitted period explicitly means
-no additional time constraint. These records do not certify source completeness,
-cross-source snapshots, freshness or causal conclusions.
+Opening/repr, show(n=0), Artifact.show/findings/evidence_digest consume metadata
+or audit, not data payload. Positive show decodes the ordered prefix and selected
+frozen coordinate records; receipt hashing/decompression may read more bytes.
+Preview success does not certify unread data. Full compute/to_pandas validates
+required values/keys/presence and calendar/map attachments, without Catalog,
+source schema, connection, model or timezone-rule reconstruction.
 
-The saved schema describes complete keys, named nullable values, explicit presence,
-types and units. Necessary output attachments retain calendar bounds in UTC, with
-the selected calendar timezone saved in both schemas. Read-scope summaries retain
-nested Boolean grouping. The Store
-saves no semantic definitions, graph, formulas, hidden aggregation components,
-calculation fingerprints or continuation.
+Export returns isolated RangeIndex data with raw-key `(kind, name)` MultiIndex
+columns and isolated typed attrs: axes, units and frozen_coordinates tables.
+Calendar labels/bounds and paired endpoints remain self-contained; show is the
+simplest interpretation path. No new visible projection columns/endpoint API or
+attrs importer exists. Supported data operations continue on the recovered Frame;
+new source facts require explicit construction.
 
-New and reopened Artifacts share the same committed-output reader. Opening and
-repr use metadata only. Preview decodes at most the requested rows; receipt hashing
-can still read an entire consumed part. Export returns every row as an isolated
-DataFrame with RangeIndex, kind/name columns and data-only `attrs["marivo"]`.
-Calendar coordinates use saved real bucket starts, timezone and actual bounds.
+## Keep publication and data history distinct
 
-```python
-import marivo
+SessionGraph has same-Session Run-to-Artifact publishing edges. Roots/heads do not
+choose a latest answer or promise complete data lineage. Current evaluation
+records direct stored inputs actually consumed; carrier copying adds no fake
+read or lineage edge. Reconciliation resolves the original transaction rather
+than evaluating again. A full memory result stays independent after old files
+are removed; reading the old stored handle still fails if its data is gone.
 
-saved = session.artifact(artifact.id)
-saved.show(n=20)
-frame = saved.to_pandas()
-page = saved.findings(limit=20)
-digest = saved.evidence_digest()
-print(digest.items)  # all actual saved Evidence; no limit or cursor
-if digest.items:
-    marivo.help(type(digest.items[0]))  # static saved-fact type
-```
+## Older data and evidence limits
 
-Finding pages and the complete Evidence digest need no Parquet or current model.
-`digest.show()` stays bounded; `.items` contains every saved fact. Deleting or
-changing current models does not change historical values. Session graphs show
-Run/output topology and saved summaries without definition fingerprints.
+Store 12 refuses older-generation Session/result/Findings/Evidence access without
+changing bytes or migrating/dual-reading. Absent-current discovery may return
+None/empty without exposing old data; create/get_or_create cannot initialize a
+bypass around an old-only project. Export with the original version before
+switching, or retain a compatible reading environment. See
+[troubleshooting](/docs/latest/reference/troubleshooting/).
 
-`session.graph()` contains only same-Session Run-to-Artifact `produces` edges;
-failed and incomplete Runs are isolated nodes. Run records retain `dataset_input`
-as an invocation marker and have no consumed Artifact references. Every selected
-Run is a root and every selected Artifact a head; heads do not select a latest
-answer. The Session recap counts all Artifacts as heads and shows at most three refs.
-
-```python
-graph = session.graph(artifact_ref=artifact.id, direction="ancestors", max_nodes=100)
-graph.show()  # Artifact and its producer
-session.graph(artifact_ref=artifact.id, direction="descendants").show()  # Artifact alone
-```
-
-`max_nodes` stays within 1–500. Boundary fields identify selected nodes with
-omitted requested neighbors; `truncated` reports an incomplete selection.
-Without an Artifact focus, use `direction="ancestors"`.
-
-Store 10 and earlier Stores and graph/continuation formats are rejected without rewriting or
-migration. Changing a Session name cannot bypass the generation restriction;
-create a new-format Store in a fresh project and rerun the analysis script.
-Same-generation Session resume preserves identity and Run history.
-The terminal output v1 codec and Parquet profiles are unchanged in Store 11.
-
-Start discovery with `marivo.help("analysis")`.
+Saved facts do not certify source completeness, current semantic authority,
+cross-source snapshots, freshness or causal conclusions. RawSqlResult remains
+an independent datasource reader and never enters Frame Store. Start discovery
+with `marivo.help("analysis")`; type Help owns calls and show owns captured facts.

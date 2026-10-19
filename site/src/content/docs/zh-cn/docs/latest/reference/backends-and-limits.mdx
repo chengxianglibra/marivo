@@ -24,7 +24,7 @@ Analysis 使用项目本地 SQLite 保存元数据，与数据源支持无关。
 
 ## 准入具体数值路线
 
-数值 Query 路线按所选 backend、来源形式、真实 schema 和具体方法准入。模板在 Run 准入前由实际后端编译；依赖实例化后仍在消费前校验。datasource 访问成功本身不构成数值 Runtime 资格。
+数值来源路线按所选 backend、来源形式、真实 schema 和具体方法准入。模板在 Run 准入前由实际后端编译；依赖实例化后仍在消费前校验。datasource 访问成功本身不构成数值 Runtime 资格。
 
 {/* example: csv-semantic-model */}
 
@@ -54,7 +54,7 @@ def total():
 
 ## 来源和本地执行
 
-来源 Ibis 在所选声明 datasource 执行并返回 pandas；字面量/参照和本地域/值阶段使用 pandas，PyArrow 负责编码与读取终端输出。Artifact 是只读产物，不能进入 DSL；没有固定 Artifact 执行路线或隐藏本地 SQL 引擎。
+来源 Ibis 在所选声明 datasource 执行并返回 pandas；字面量/参照和本地域/值阶段使用 pandas，PyArrow 负责编码与读取终端输出。完整固定 Frame 与本地数据操作使用同一调度器。Artifact 只读审计；没有 Artifact 操作数、固定数据远端上传或隐藏本地 SQL 引擎。
 
 来源计算接受 Ibis/provider 原生数值精度损失。Ibis lowering 不为统一后端返回类型或传输保真添加 cast，业务语义必需的转换仍保留。pandas 交接为直接字段、规约值和内部组件确定有效数值类型，供后续本地计算和发布使用，保留完整键、空值政策、单位和时间语义。cast 不能恢复来源精度；产物往返保真针对实际已提交值。
 
@@ -72,4 +72,4 @@ ClickHouse Distributed 准入合格的普通分组聚合。需要 Distributed IN
 
 datasource 原生 timeout 保留后端含义，没有默认图 deadline 或替代执行器。取消与 close 由驱动拥有，远端终止未知时保持未知。原子发布和 journal reconciliation 保留已提交成功及精确资源归属。
 
-Store 11 保存项目本地输出。新产物与重开产物读取相同已提交数据，无需当前 Catalog/来源；旧图格式原样拒绝。完整导出保留 int64/Decimal、NA、presence、完整键、时区及投影。聚焦本地检查、远端 Runtime 与发布验收是不同证据。具体修复见[故障排查](/zh-cn/docs/latest/reference/troubleshooting/)。
+Store 12 保存完整项目本地 Frame 数据与审计。新 Frame 与重开 Frame 读取相同已提交数据，无需当前 Catalog/来源。旧 generation 数据原样拒绝，不迁移或双读；完整导出保留 int64/Decimal、NA、presence、完整键、行序与冻结日历/配对解释。聚焦本地检查、远端 Runtime 与发布验收是不同证据。具体修复见[故障排查](/zh-cn/docs/latest/reference/troubleshooting/)。

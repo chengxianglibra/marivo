@@ -7,11 +7,13 @@ service; Runtime tests require an already-running service. Release tests own
 package installation and installed-origin boundaries.
 
 At `405bd006f8`, the Lazy DSL's agreed local implementation gate and independent
-business acceptance are complete. The numerical Query path now qualifies the actual
+business acceptance are complete. The current numerical source path qualifies the actual
 backend, expression, types and method, and propagates native pandas numerical
-types into local computation and output schemas. Remote coverage owners and evidence
+types into local computation and output schemas. AnalysisFrame adds complete
+fixed data and separates evaluation from publication; its final acceptance is
+tracked independently of that historical source implementation gate. Remote coverage owners and evidence
 criteria are listed [below](#remote-numerical-query-extension); code admission and datasource
-access tests do not themselves qualify a public Query route. The complete slow
+access tests do not themselves qualify a public Frame source route. The complete slow
 suite and release gates remain separate; focused local cold reads and helper
 typing checks do not replace them.
 
@@ -25,11 +27,11 @@ not the current delivery status, and it does not alter test selection.
 | --- | --- | --- |
 | Datasource declarations, source IR, metadata, credentials, SQL submission, native timeout settings and cleanup | [datasource](../../tests/datasource/) | Daily contracts; explicitly extended local resume cases in slow-test; Runtime native reads |
 | Semantic declarations, identity, metric equations, authoring, validation and analysis handoff | [semantic](../../tests/semantic/) | Daily authoring and local handoff; Runtime native metadata and sample reads |
-| Query capture, lowering, physical admission and planning | [analysis/graph](../../tests/analysis/graph/) | Daily local contracts and execution; explicitly extended recovery in slow-test; Runtime native SQL differences |
+| Frame source/fixed capture, lowering, physical admission and planning | [analysis/graph](../../tests/analysis/graph/) | Daily local contracts and execution; explicitly extended recovery in slow-test; Runtime native SQL differences |
 | Observation, aggregation, comparison, attribution and selection | [analysis/numeric](../../tests/analysis/numeric/) | Daily numerical and behavioral oracles; explicitly extended cases in slow-test; Runtime native carriers |
 | Time grids, timezones, windows and temporal folds | [analysis/temporal](../../tests/analysis/temporal/) | Daily temporal semantics; explicitly extended recovery in slow-test; Runtime native time semantics |
 | Terminal exports and explicit pandas deviation, association and forecast recipes | [analysis/statistics](../../tests/analysis/statistics/) | Daily numerical behavior; explicitly extended cold output reading in slow-test |
-| Artifact reads, native failures, atomic publication, crash recovery and cold ownership | [analysis/materialization](../../tests/analysis/materialization/) | Daily local publication and recovery; explicitly extended process recovery in slow-test; Runtime native timeout configuration |
+| Frame data/Artifact audit reads, native failures, atomic publication, crash recovery and cold ownership | [analysis/materialization](../../tests/analysis/materialization/) | Daily local publication and recovery; explicitly extended process recovery in slow-test; Runtime native timeout configuration |
 | Session ownership and persistence | [analysis/session](../../tests/analysis/session/) | Daily session behavior; explicitly extended local session checks in slow-test; Runtime native source integration |
 | Public exports, Help budgets, result/error guidance and documentation examples | [surface](../../tests/surface/) | Daily public contracts and short examples; explicitly extended typing, process and execution examples in slow-test |
 | Config, refs, CLI, doctor, preview and telemetry | [project](../../tests/project/) | Fast daily |
@@ -45,8 +47,9 @@ import helpers from test modules.
 The retired Logical/Materialized DSL, graph/Cell publisher, saved executable
 receivers and method registry no longer have compatibility test owners. Their
 isolated helper and format tests are removed with those implementations. Current
-Query key, null, precision, check timing, ownership and fusion assertions remain
-at their active owners; terminal and pandas recipe tests remain independent of
+Frame key, null, precision, check timing and ownership assertions remain
+at their active owners; source-only optimization retains its qualified owner,
+without granting fixed-data fusion; terminal and pandas recipe tests remain independent of
 current semantic loading and source availability.
 
 ## Coverage selection
@@ -60,8 +63,9 @@ current semantic loading and source availability.
   `slow`; an analysis directory or filename does not make a case slow. A fresh
   Python process does not require a fresh datasource service.
 - Keep source execution and terminal cold-reading assertions at their owning
-  boundaries. Committed results cannot re-enter the DSL; the terminal boundary
-  tests reject both new and reopened results as computation inputs. Source
+  boundaries. Complete new/reopened Frames are valid fixed data operands; Artifact audit
+  objects and RawSqlResult remain invalid computation inputs. Frame continuation
+  must not regain producer/source/semantic history. Source
   scheduling, keys and numeric kernels retain independent local tests.
 - Mark only actual external-service parameter cases as `runtime`; static native
   compilation, decoding and rejected-call checks remain daily. Shared matrices
@@ -95,7 +99,38 @@ Local trust and publication behavior follow the
 Test producer validation, malformed/unreadable inputs, missing payloads,
 ownership, atomicity and recovery at their owning boundary.
 
+## Current Frame/source coverage responsibilities
+
+The final public route is explicit observe/read/values/frame to AnalysisFrame,
+compute to complete memory, persist to publish that existing result, and exact
+persisted_frame recovery. Fixed ordinary/calendar/paired data operations are
+local and source-free. A population_from bridge transports joint complete keys
+into explicit new source facts; it does not rerun a fixed selection. Existing
+source-only optimization qualification does not grant fixed-data uploads/fusion,
+original rollup/drill/share, arbitrary relationship correspondence or broadcast.
+
+| Current boundary | Owning verification scope |
+| --- | --- |
+| Frame structures, exact handles, current-row statistics and complete-domain combination | `tests/analysis/graph/`, `tests/analysis/session/test_analysis_frame.py`, Frame materialization tests; independent key/order/NA/presence and original-quantity counterexamples |
+| Source observation and native type/method handoff | `tests/analysis/numeric/test_remote_numeric_query.py`, source profiles and graph Runtime owners; actual admitted provider/method/type routes after public-call migration |
+| Frame-key source bridge and transport | Frame Population graph/materialization owners and existing key-parameter tests; fixed versus pending selectors, required-on zero axes, joint null-safe tuples and qualified request capacity |
+| Frozen calendars and paired interpretation | Frame calendar tests and `tests/analysis/materialization/test_frame_storage.py`; finite directory/map validity, original ordinals, actual full joint row coverage and source/TZ/model-free cold operations |
+| Complete reads, preview, audit and publication | `test_frame_storage.py`, `test_terminal_publication.py`, receipt/state/guard/process owners; metadata-only n=0/audit versus full integrity, exact order, publish-existing failure/unknown outcome and unchanged old bytes |
+| Public disclosure and docs | surface/typing/CLI, packaging skills and API/site checks; final actual examples and paired EN/ZH semantics |
+
+The S7/S8 ledger records which migrated cases actually ran against the frozen
+source. A filename, prior source run, compile-only check, skipped service case
+or this ownership table does not qualify the new Frame pipeline. Native
+sum/mean/weighted/ratio has admitted PostgreSQL/MySQL/Trino/ClickHouse source
+routes; exact quantiles and specialized connector/topology shapes keep their
+specific method qualifications. There is no blanket DuckDB-only restriction.
+
 ## Remote numerical Query extension
+
+This section preserves pre-AnalysisFrame source delivery and provider evidence.
+Query-to-Artifact describes the public API used by those recorded candidates;
+it is historical qualification of their bounded source routes, not a current
+Query receiver or a fresh Frame Runtime acceptance claim.
 
 The [implementation plan §8.1](../superpowers/plans/2026-10-13-lazy-analysis-dsl-redesign-implementation.md#81-远端数值-query-最小实施顺序)
 defines the delivery sequence: PostgreSQL ordinary Query, other backends and numeric
@@ -114,7 +149,9 @@ cases across the frozen candidates, including Trino non-Iceberg and ClickHouse
 Distributed; the final temporal delta was independently rerun on all five
 providers. The implementation plan's §10 separates reruns, content-based
 rebinding, skipped profiles and remaining qualification boundaries. The table
-below maps the coverage owners; it does not imply unrestricted backend support.
+below preserves that pre-cutover coverage inventory and its recorded scope;
+current migration/verification owners are above. It does not imply unrestricted
+backend support or restore retired receivers.
 
 | Step / boundary | Existing owners to extend | Required evidence |
 | --- | --- | --- |
@@ -209,12 +246,12 @@ A local pass or a skipped service case is not native backend qualification.
 
 ## Terminal-result cleanup
 
-Saved-result DSL continuation, FixedLeaf/FixedShape qualifications, artifact_python,
-and the A2/A3 saved-input executor are removed. Their dedicated execution/fusion
-fixtures and tests are retired. Source planning, source key identity, retained
-numeric equations, exchange integrity and current terminal reading remain owned
-by their existing tests. `analysis/session/test_terminal_composition_boundary.py`
-checks read-only legacy receiver types and rejects new/reopened outputs as inputs;
-`analysis/materialization/test_terminal_publication.py` retains real committed
-output and fresh-process reading coverage. Older fixtures using retired semantic
-declaration factories are not current acceptance evidence until migrated.
+The former saved executable graph/FixedLeaf/FixedShape/artifact_python and A2/A3
+executor protocols remain retired. They are not an alternate path beneath the
+new Frame data contract. Complete memory/stored Frames support the same data
+operations without producer graphs; Artifact is audit-only and RawSqlResult
+retains its independent datasource reader. Public boundary tests distinguish
+these operands and exact ownership; storage/process tests retain real publisher,
+full read, preview, audit and cold continuation assertions. Historical semantic
+factory fixtures must be migrated to the current source contracts before they
+count as new acceptance evidence. No historical replay count is relabeled.

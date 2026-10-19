@@ -7,7 +7,7 @@ description: Configure a Marivo project and share a semantic layer across reposi
 
 `marivo.toml` is optional. Without it, the project name is the project-root directory
 name, `semantic.layer_paths` is empty, local telemetry is enabled, and
-`execute()` results use project-local Parquet. Missing tables or
+`compute()` returns complete memory data; `persist()` publishes project-local Frame Parquet under Store 12. Missing tables or
 fields use those defaults; an existing invalid TOML document or explicitly invalid field
 fails closed. There is no project `version` setting.
 

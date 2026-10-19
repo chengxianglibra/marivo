@@ -8,7 +8,7 @@ source reads. Named declarations attach immutable metadata to the same Deferred 
 model loading collects only exported root declarations. Derived aliases do not publish a
 new declaration. Declaration bodies are inspected and captured without invoking author functions.
 
-Use `catalog.describe(ref).show()` for definition facts and `Query.show()` for execution
+Use `catalog.describe(ref).show()` for definition facts and `AnalysisFrame.show()` for execution
 facts. Native Deferred values have no Marivo `.show()` or `.contract()` methods. Real physical
 dtypes are checked during automatic execution preparation; no manual schema or conversion API
 is required. Implementation and execution acceptance for the additional capabilities below
@@ -179,7 +179,7 @@ snapshot-independent: it evaluates
 the current semantic project, the requested closure, and dedicated certified
 temporal artifacts, and exposes only `analysis_ready_inputs` as its handoff.
 Readiness opens no connection or query. Follow its physical-definition or temporal
-artifact repairs, then rerun the scoped check. Query preparation owns aggregate/backend
+artifact repairs, then rerun the scoped check. Source Frame preparation owns aggregate/backend
 compatibility, physical types and operation-specific execution.
 
 Use targeted `catalog.preview(..., scope=...)` only for a concrete runtime risk

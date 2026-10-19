@@ -1,31 +1,33 @@
 ---
 title: 时间、身份与窗口
-description: 绑定精确期间、显式总体及完整 Metric 窗口。
+description: 显式绑定来源人群并解释冻结日历数据。
 ---
 
-本页接续[本地教程](/zh-cn/docs/latest/guides/python-quick-start/)。
+本指南继续[本地教程](/zh-cn/docs/latest/guides/python-quick-start/)。
 
-## 明确选择完整身份
+## 显式选择完整身份
 
 {/* example: explicit-identity-read */}
 
 ```python
 Orders = session.catalog.entities.get("sales.orders")
 fixed_orders = mv.identities(Orders, keys=((4,), (5,), (6,)))
-attributes = session.read(fixed_orders, {"region": region})
-east = attributes.where(attributes["region"] == "east").population()
+attributes = session.read(fixed_orders, {"region": region}).compute()
+chosen_orders = attributes.where(attributes["region"] == "east").compute()
+east = session.population_from(chosen_orders, on=((chosen_orders.axes[0], Orders),))
 selected = session.observe(
     {"revenue": revenue}, during=august,
     members=east, by=(mv.member(),),
-)
-selected.execute().show()
+).compute()
+selected.show()
+session.frame(east).compute().show()
 ```
 
-`session.members(entity_ref, where=...)` 选择来源中实际存在的身份；`identities` 捕获明确引用，可以包含尚未确认的键。传给 identities 的 Entity 必须已解析，裸 Ref 只是 catalog 查找键。复合键按声明次序保留所有分量。Population 始终 lazy，保存完整键用 `session.query(population).execute()`。`session.read(population, fields)` 是唯一属性入口，始终显式指定 Session。
-
-`query.coord(axis)` 定位标量值，复合身份不能成为单量；execute 准备期在 Run 准入和业务编译/读取前拒绝。完整输出/导出键保留，身份选择使用 Population 元组谓词，需要标量 Column 时选择已有单字段轴。
-
-版本属性在字段映射中用解析字段的 `.at(session.instant(...))`；精确版本独立于观察期间。缺少必需档案或重复映射会失败，合法来源 Null 为 NA。计算 Measure 表达式应交 observe。Population 没有 read 别名或执行方法。
+identities 捕获完整显式引用，不证明来源存在。复合键保留全部主键分量。
+read 要求一个 Entity 身份域与非空命名字段；桥接把精确结果的完整身份轴绑定到显式已解析
+Entity，不能把 Field 升级为身份。on 必填，零轴可用 on=()；空投影域仍是空约束。
+Population 保持惰性，frame 绑定一般键域。属性 `.at(anchor)` 独立于观察期间。
+coord 只接受单物理分量 FrameAxis，复合身份仍保持完整键。
 
 ## 保留精确日历边界
 
@@ -33,16 +35,22 @@ selected.execute().show()
 
 ```python
 days = august.by(mv.grain("day"))
-daily = session.observe({"revenue": revenue}, during=days)
-monthly = daily.reduce({"sum_of_days": daily["revenue"].sum()}, by=(days.coarsen(mv.grain("month")),))
-monthly.execute().show()
+daily = session.observe({"revenue": revenue}, during=days).compute()
+sum_of_days = daily.reduce({"sum_of_days": daily["revenue"].sum()}).compute()
+sum_of_days.show()
+monthly_source = session.observe(
+    {"revenue": revenue}, during=august.by(mv.grain("month")),
+).compute()
+monthly_source.show()
 ```
 
-时间范围与精确瞬间只通过 `session.time_scope(...)`、`session.instant(...)` 获取，没有模块级别名。日期和无偏移字符串按 Session 或显式边界时区解释，带偏移输入保留瞬间。naive Python datetime、歧义或不存在的墙钟时刻拒绝。期间半开，每个 CalendarAxis 保留原名义桶、截断实际区间、次序和时区。DST 自然日可能为 23 或 25 小时。
+sum_of_days 是当前行标量统计，monthly_source 请求新的来源计算。
+即使可加 demo 的总数相同，两者仍是不同问题；没有 Frame 日历粗化或 CalendarAxis.coarsen。
+Session instant/time_scope 冻结精确边界；日期与无偏移字符串使用指定时区，aware 输入保持其瞬时。
+naive Python datetime、歧义或不存在的民用时刻拒绝。CalendarAxis 保留原名义桶与截断实际桶，
+民用日可能有 23 或 25 小时。
 
-`coarsen(grain)` 构造候选日历；reduce/share/rollup 消费时仍要求每个细粒度名义及实际桶唯一合法映到粗桶。截断范围不能把跨月周变成单月。reduce 统计现有日值；原量 rollup 按自身充分信息与可加性合同重新完成 Metric。
-
-## 在 Metric 上附加窗口
+## 将窗口附着到 Metric
 
 {/* example: metric-window-query */}
 
@@ -51,36 +59,40 @@ from datetime import timedelta
 rolling = session.observe(
     {"revenue": revenue.window(mv.trailing_duration(duration=timedelta(days=7)))},
     during=days,
-)
+).compute()
 month_to_date = session.observe(
     {"revenue": revenue.window(mv.to_date(grain=mv.grain("month")))},
     during=days,
-)
-rolling.execute().show(n=5)
-month_to_date.execute().show(n=5)
+).compute()
+rolling.show(n=5)
+month_to_date.show(n=5)
 ```
 
-每个端点按自己的 W(t) 求完整 Metric，显示起点不截断更早输入。`trailing_duration` 使用实际经过时间，`trailing_periods(count=...)` 使用完整日历期；`since(start=...)` 固定精确起点，`all_history()` 无下界。to-date 依据评价端点选择刚结束的重置期间，日历桶另须满足唯一包含。
+每个端点都在自己的 W(t) 上完成完整子 Metric，显示起点不截断回看输入。
+trailing_duration 使用经过时间，trailing_periods 使用完整民用或认证期间；since 固定起点，
+all_history 无下界，to_date 选择在评估边界结束的重置期间。
+命名日历规则是受检查的语义依赖；已绑定快照的 Grain 必须匹配 Session 冻结的认证作用域。
+更换窗口或日历需要显式 observe，日历认证不证明来源完备。
 
-可复用命名指标可在声明体外捕获 `reset = ms.calendar_grain(calendar=ms.ref.period_calendar("sales.fiscal"), level="quarter")` 和 `rule = mv.to_date(grain=reset)`，再由 `@ms.metric()` 返回 `revenue.window(rule)`。日历进入声明依赖校验；observe 从 Session 已冻结的认证作用域解析它，标量观察无需额外输出日历轴。显式携带认证快照的 Catalog Grain 必须与该作用域一致，冲突即拒绝，不替换其时间权威。应在 Session 加载语义作用域前认证日历；绑定检查层级、时区、覆盖和桶包含关系。已有 Query 保留采用的快照，不随之后重新认证改变。
-
-窗口原量 rollup 必须保留同一时间轴和端点，仅能做合格空间上卷。换窗口或评价日历需构造新 observe。日历认证不证明业务来源完整。
-
-## 对应已完成的两端
+## 配对已经完成的端点
 
 {/* example: period-comparison-query */}
 
 ```python
 current_days = session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
 prior_days = session.time_scope(start="2026-07-01", end="2026-07-04").by(mv.grain("day"))
-current_daily = session.observe({"revenue": revenue}, during=current_days)
-prior_daily = session.observe({"revenue": revenue}, during=prior_days)
-paired = current_daily.compare(prior_daily, match=mv.ordinal())
-paired.execute().show()
+current_daily = session.observe({"revenue": revenue}, during=current_days).compute()
+prior_daily = session.observe({"revenue": revenue}, during=prior_days).compute()
+paired = current_daily.compare(prior_daily, match=mv.ordinal()).compute()
+paired.show()
 ```
 
-ordinal 要求相容 Grain、时区及完整名义桶，过滤不会压缩原桶序。exact 要求桶数相等且完整键全部对应；outer 可保留较长尾部及独立 presence。
+双方各自仅有一个日历轴，因此 on 可推导，match 仍显式选择。
+对应需要相容完整名义分区且实际边界等于名义边界。过滤不重排原 ordinal。
+目录中未使用的桶不产生行；exact 检查实际联合行完整配对，outer 保留缺侧及独立 presence。
+两种政策均拒绝部分桶。
 
-`period_offset(-1)` 沿真实日历桶序移动一位，在日轴上是昨日。`previous_year()` 支持内建 day/month/quarter/year 同名期间。日粒度 2 月 29 日无对应：exact 拒绝，outer 保留缺侧；完整二月仍能与上年完整二月对应。week/subday 和 53 周零售日历不自动提供同比。
-
-两端先各自完成窗口再对应。默认 paired 保留双方日历；`time_axis="current"` 要求每个实际输出行都有当前日期，不能丢弃仅基期行或伪造当前日。
+builtin period_offset 支持 day/week/month/quarter/year；previous_year 支持
+ day/month/quarter/year，闰日没有对应。命名日历只支持 ordinal，命名 offset、子日/DST offset
+与任意映射延期。规则只消费保存的标签与目录，不重建模型或时区规则。
+配对输出保留原始键、两端冻结描述和映射；show 解析标签与边界，不新增 endpoint 方法或 current-only 投影。

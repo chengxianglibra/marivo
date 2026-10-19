@@ -3,16 +3,16 @@ title: 创作可复用语义
 description: 用明确的阶段、单位与业务授权创作表达式。
 ---
 
-数值和条件 Field、Measure 与 Metric 统一使用原生 Ibis Deferred。命名声明仅向同一配方附加不可变元数据；加载时只收录导出的根声明，匿名派生表达式仍是本地输入。物理类型在 execute 准备阶段自动绑定。
+数值和条件 Field、Measure 与 Metric 统一使用原生 Ibis Deferred。命名声明仅向同一配方附加不可变元数据；加载时只收录导出的根声明，匿名派生表达式仍是本地输入。物理类型在 来源求值准备阶段自动绑定。
 
-用 `finalized.show()` 查看物理捕获结果；加载后用 `catalog.describe(ms.ref.measure("sales.orders.amount")).show()` 查看定义事实。Deferred 没有 Marivo 的 `.show()` 或 `.contract()` 方法，执行事实由 `Query.show()` 披露。
+用 `finalized.show()` 查看物理捕获结果；加载后用 `catalog.describe(ms.ref.measure("sales.orders.amount")).show()` 查看定义事实。Deferred 没有 Marivo 的 `.show()` 或 `.contract()` 方法，执行事实由 `AnalysisFrame.show()` 披露。
 
 
 物理 Entity/Field 构造器先捕获声明并返回类型化 Ref 查找键。依赖完整后调用 `ms.finalize()`，再从冻结结果解析所需值用于组合。命名声明与本地表达式共用同一张图；finalize 不重跑模块或 import effects。
 
 语义对象不必始终绑定构造时的原定义版本，不因同路径定义已改变而单独拒绝输入；分析期间语义定义更新的后果由 agent 或用户承担。进行引用解析的消费者使用其完整作用域。不可变表达式保留存储的定义与事实，不做 live refresh。kind、贡献根、粒度、单位、时间角色、空值和权限检查仍然有效。指纹与缓存键描述实际消费的定义，持久化来源记录及其它记录仍遵循各自合同。
 
-装饰器本身不发布 Catalog 条目。模型加载才限定声明身份并收录；分析执行由 Query 消费这些同一协议的表达式。
+装饰器本身不发布 Catalog 条目。模型加载才限定声明身份并收录；分析求值由显式来源 Frame 消费这些同一协议的表达式。
 
 ## 声明一个完整依赖切片
 

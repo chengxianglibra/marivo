@@ -1,40 +1,68 @@
 ---
 title: Troubleshooting
-description: Use concrete expected/received facts and the owning repair.
+description: Repair exact ownership, source, data and storage boundaries.
 ---
 
-Start with the structured error's expected input, received facts and repair. Preserve the question's business meaning while correcting the stated boundary.
+Start with the error's expected input, received facts and concrete repair.
+Keep the business question unchanged while repairing that boundary.
 
 ## Environment and semantic scope
 
-Use the selected environment's `marivo doctor --project-root <project>` and install the requested datasource extra there. Invalid configuration and missing roots need their explicit repair. Credentials stay in environment references. Unknown names require Catalog discovery; connectivity, readiness, bounded preview and execution are different evidence.
+Use the selected environment's `marivo doctor --project-root <project>` and
+requested datasource extra. Unknown identities require Catalog discovery;
+credentials remain environment references. Readiness, preview, source health
+and actual method evaluation are distinct evidence. Same-path definition changes
+alone do not reject existing inputs; keep kind/root/grain/unit/time/null checks.
+Business versioned identity anchors remain a separate contract.
 
-## Complete keys and Query ownership
+## Complete keys and exact Frame handles
 
-Columns belong to their exact Query input. Compose with that input's columns or explicitly align/broadcast before combining independent inputs. Continuing the [local tutorial](/docs/latest/guides/python-quick-start/):
+Column/FrameAxis belong to an exact input; reacquire them from the receiver or
+explicitly align complete axes. Matching names/fingerprints or exported attrs
+cannot rebind them. Continuing the [tutorial](/docs/latest/guides/python-quick-start/):
 
 {/* example: repair-query-domain */}
 
 ```python
-aligned = current.align(baseline, how="outer")
+aligned = current.align(
+    baseline, on=((current.axes[0], baseline.axes[0]),), how="outer",
+)
 difference = aligned.select({"difference": aligned["left.revenue"] - aligned["right.revenue"]})
 difference.show()
 ```
 
-Exact alignment requires unique complete matching keys; outer preserves missing sides with independent presence. Missing values do not supply keys or a zero-fill policy. Field Null is a valid category. Complete tuple membership predicates preserve every component and use null-safe AND/OR semantics; they do not independently test each column's membership.
-
-Attributes use `session.read(population, {"name": field})`. The domain must have one complete Entity identity axis and a compatible Session owner. Supply a single-valued directed field.via((relationship,)) path and exact field.at(anchor) where required. Missing required mappings fail before consumption; a later filter cannot hide that failure. There is no Population.read or implicit Session lookup. Use observe for a computed Measure expression.
+Exact requires unique complete joint matching keys. Outer keeps missing sides
+with independent presence, without zero fill. Field Null is a valid category.
+read requires a complete Entity identity domain, nonempty fields and valid
+single-valued routes/version anchors. A later filter cannot hide required errors.
+For new source facts, explicitly supply the governed input and ordinary-axis
+population_from mapping; on is required, including legal on=().
 
 ## Time and numerical policies
 
-Use session.instant/time_scope for exact boundaries. Naive Python datetimes, ambiguous/nonexistent wall clocks and conflicting calendar authority require explicit repair. Ordinal needs equal Grain, compatible timezone/authority and complete nominal buckets; outer cannot repair a partial bucket. Daily leap-day previous_year has no counterpart: choose outer or adjust the requested period/grain, without clamping the date.
+Use Session instant/time_scope. Partial calendar buckets fail match under exact
+and outer; outer cannot repair missing frozen data. Original ordinals do not
+compress after selection. Leap-day previous_year has no counterpart; select a
+permitted policy/period without clamping. Unsupported offsets require a supported
+explicit source question, not fallback to another rule.
 
-Division defaults zero_denominator to null. Use error only when the new demanded division should fail; that choice does not override input subexpressions. Nonfinite values, overflow and required coverage errors block publication. An unavailable physical route is a capability error, not permission to switch algorithm, source or engine.
+Division policies apply to that new operation, not strict children. Nonfinite,
+overflow and required coverage failures block completion. An unavailable route
+is not permission to change algorithm, source or requested precision.
 
-## Terminal output and failed Runs
+## Exact data recovery and publishing Runs
 
-Keep the exact Session and Artifact IDs and project-local state. `session.artifact(id)` opens committed metadata; its output cannot be passed to compare/observe or converted back to Query. Analyze those rows with to_pandas, or construct a fresh source Query.
+Keep Session ID and frame.artifact.id. Resume that Session and call
+`session.persisted_frame(id)` with the string ID. Frame owns data operations;
+`.artifact` owns audit. Artifact/ID objects and RawSqlResult are not operands.
+Compute failure creates no Run. A publishing failure's run_ref identifies the
+exact Run; reconciliation resolves that original commit without recomputation.
+Missing/corrupt consumed data is not a cache miss and must not trigger replay.
 
-An admitted error's run_ref identifies the exact Run for `session.get_run(run_ref).show()`. A corrected execute creates a new invocation. Reconciliation resolves the original journal without replay; incomplete or failed Runs may be abandoned through the owning Session lifecycle API, preserving history.
-
-Old Stores reject unchanged. Missing/corrupt consumed output cannot be repaired by replaying a source recipe during recovery. Preserve original state and use a fresh current-format project where required. Preview limits affect display, not complete execution or export.
+Store 12 refuses every older generation's data unchanged, without migration or
+dual reads. Absent-current discovery may return None/empty without exposing old
+state; create/get_or_create cannot initialize around an old-only project.
+Before switching, export required results with the original version or retain a
+compatible environment. Preview limits affect display, not complete execution.
+The [AnalysisFrame cutover note](https://github.com/chengxianglibra/marivo/blob/main/docs/specs/analysis/analysis-frame-cutover.md)
+explains breaking APIs, value names, postponed capabilities and recovery choices.

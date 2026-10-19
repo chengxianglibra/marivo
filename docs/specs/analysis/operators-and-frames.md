@@ -1,25 +1,26 @@
 # Operators and Frames
 
-Status: current nullable-value and terminal-output contracts, 2026-10-17.
+Status: AnalysisFrame cutover value contract, 2026-10-19.
 The complete target surface is defined by [Lazy DSL](lazy-analysis-dsl-redesign.md).
 Native expressions and existing source/local numerical kernels are implemented;
-R3–R8 integrates the corresponding public Query routes. Focused local checks do
+AnalysisFrame supplies one data contract across expression, memory and stored carriers. Focused local checks do
 not by themselves establish full independent acceptance or remote Runtime qualification.
 [Analysis Design](python-analysis-design.md) owns objects and compilation;
 [Runtime](session-state-and-runtime.md) owns invocation and publication.
 
 ## Immutable coordinates and values
 
-Population describes finite complete coordinate tuples. Query binds named values
+Population describes finite complete coordinate tuples. AnalysisFrame binds named values
 to those coordinates; Column locates an expression on that exact input. Output
 axes remain ordered. An Entity identity includes every primary-key component in
 declared order; roles, paths and version anchors remain part of its binding.
 A Field Null is a valid category and must not be lost by default grouping behavior.
 
-Artifact contains final typed nullable values and actual output coordinates.
-It is terminal and offers bounded display, complete isolated pandas export and
-saved fact reads. It contains no executable graph, sufficient-state continuation
-or authority to recompute a Metric. Only Query owns DSL transformations.
+Complete Frame data owns final typed values, actual coordinates and presence.
+Frame has data operations, bounded preview and complete isolated pandas export.
+Its persisted `.artifact` exposes submission/Findings/Evidence audit only. Neither
+carrier retains a producer graph, hidden aggregate components or source authority.
+Use returned compute/persist roots to fix inputs; exact handles are not fingerprints.
 
 ## Null, empty and arithmetic policies
 
@@ -33,8 +34,8 @@ by independent nonnullable boolean presence, never inferred from value NA.
 | count / count_distinct | Method's declared complete occurrences or non-NA values | 0 |
 | min/max/mean/median/quantile | Effective non-NA samples | NA |
 | weighted_mean | One common non-NA value/weight pair mask for both sums | The operator's denominator policy |
-| Query Column sum | Current non-NA represented cells | NA |
-| Query Column mean | Current non-NA represented cells | NA |
+| Frame Column sum | Current non-NA represented cells | NA |
+| Frame Column mean | Current non-NA represented cells | NA |
 | row_count | All current coordinate rows, including NA values | 0 |
 
 Strict `nulls="error"` belongs to the source/internal reduction that captures it.
@@ -54,7 +55,7 @@ Admitted physical columns use signed int64, finite float64, Decimal(p,s) with
 and fixed-duration s/ms/us/ns ticks. Boolean is not a numeric quantity. Every
 physical route fixes its actual input and output types before business execution.
 Keys are never passed through float, including integers above 2**53.
-`Query.coord(axis)` can supply a scalar Column only for a single-component axis.
+`frame.coord(axis)` can supply a scalar Column only for a single-component axis.
 Construction remains source-free; preparation rejects a composite identity as a
 single quantity before Run admission and business compilation/reads. The complete
 identity remains available in output keys, Population tuple predicates and export;
@@ -107,95 +108,72 @@ samples under the child's empty policy; it may deliberately select a subset.
 
 ## Current cells, original Metrics and windows
 
-`Query.reduce` computes new statistics from current represented cells. `rollup`
-recomputes the original Metric at a coarser coordinate domain only where its
-business additivity and sufficient information permit. Finished means, ratios,
-quantiles and approximate estimates cannot be summed to manufacture an original
-coarser value. A source route may reevaluate qualified original contributions;
-execution-only components never become Artifact continuation state.
+Frame.reduce computes statistics over represented rows using independent valid
+masks. Empty/all-NA sum is NA; row_count counts all current rows. It neither
+reconstructs original contributions nor changes a calendar's grain. Row mean 55
+can differ from original overall 1000/91; distinct counts 2+2=4 do not prove a
+union distinct count of 4 when the actual union has 3 members. Request original
+overall formulas with an explicit new observe and their governed source inputs.
 
-Filtering and Top-N select existing coordinates. Moving a selection across
-rollup, reduce, share or a window requires proof that demanded input, policies,
-complete keys and checks remain equivalent. A parent selection cannot infer fine
-members that were never requested; drill constructs explicit new endpoint work.
-Comparison results do not gain direct drill or relative-value rollup authority.
-
-The qualified L8 rollup fusion is limited to adjacent single-consumer original
-rollups over identical ordinary exact int64/Decimal direct sum/count components
-and direct retained-axis maps. It preserves the original ordered intermediate
-finishes and checks: an overflowing middle group still fails even if a later
-scalar total would cancel it. Same-input source fusion keeps independent logical
-occurrences and complete component/check slots; typed preparation authority owns
-that sameness. Float sums, per/window inputs, differing policies, pending checks,
-selection/share boundaries and shared intermediates receive no general fusion
-grant. These optimizations do not replace the operator's original semantics.
-
-Metric.window attaches one axis-free rule. Each endpoint evaluates its own full
-W(t) before a comparison. Display boundaries, nominal buckets, actual clipped
-intervals and contribution windows remain distinct. Windowed original rollup may
-change spatial grain only while preserving the original calendar and endpoints.
-Changing or removing that time binding requires a new observe.
+Source Metric/per/window execution may retain internal sufficient state during
+one evaluation. Completed Frame data never persists it for later original
+rollup/drill/share. Changing source grain, attributes, window or source scope
+requires explicit construction; a fixed ordinary-axis Population bridge can
+constrain selected keys but cannot restore old unobserved facts or history.
+A new source read may see changes after a selection was fixed.
 
 ## Complete correspondence and comparison
 
-`align(other, how="exact", match=None)` retains left/right roles. Same-binding
-identity correspondence preserves shared axes. exact checks unique complete keys
-and equal images; outer retains their union and records real missing sides as NA
-plus False presence. It never substitutes zero or claims empty business activity.
+Align/compare pair every complete axis. Ordinary axes require a full explicit
+bijection in on; zero-axis pairs and a sole calendar axis per side have only the
+specified inference. Explicit on never mixes with automatic supplementation.
+FrameAxis/Column belong to the exact receiver, regardless of matching names.
+Exact validates complete joint key domains; outer preserves left order followed
+by right-only rows. Presence is nonnullable boolean and independent of value NA.
 
-Axis-free ordinal uses each endpoint's original full calendar order. Both sides
-need equal resolved Grain, boundary timezone and compatible calendar authority,
-and every actual bucket must equal its nominal bucket. Filtering does not compress
-positions. exact requires equal bucket counts and complete key pairing; outer
-retains the longer tail without relaxing completeness or resampling.
+Align preserves left and right value groups. Compare requires equal names and
+compatible numeric types/units, and emits left/right/absolute/relative groups.
+Absolute is left-right; relative is `(left-right)/abs(right)`. Missing endpoints
+or NA yield NA differences; only a valid pair applies zero-denominator policy.
+Duration endpoints/absolute retain duration, relative is dimensionless. Child
+strict policies stay in force. New generated names use dot-separated immutable
+segments; user value names cannot contain dots or reserved presence names.
 
-Declared corresponding uses exactly one identity axis per side and an explicit
-left-to-right one-to-one path. The path must explain all identity components and
-required version anchors. Equal field names do not prove identity. Direct full-PK
-equalities require no extra data; other mappings are explicit plan dependencies.
-One-to-one structure does not prove this invocation's domain coverage.
-
-`compare` requires equal nonempty quantity-name sets and compatible numeric types
-and units. It emits each name's current, baseline, absolute and relative values.
-Absolute is current-baseline; relative is that difference divided by abs(baseline).
-A zero baseline defaults only the new relative to NA, preserving a valid absolute;
-explicit error fails the invocation. Input subexpression policies remain in force.
-General comparison does not require the same Metric definition at both endpoints;
-business comparability remains the caller's responsibility.
-
-Nonidentity correspondence retains its own coordinate and actual endpoint
-projections, including missing endpoints. Presence paths preserve nested left/right
-or current/baseline roles. A projected current time axis requires an actual current
-coordinate on every represented row; a baseline-only row cannot be dropped or given
-a fabricated date. Period mappings and leap-day behavior belong to
-[Timezones and Calendars](timezone-and-calendar-design.md#period-correspondence).
+Calendar match consumes frozen finite directories and versioned pure rules,
+without model or timezone database reconstruction. Original ordinals do not
+compress after where/top. Structural match admission requires full compatible
+nominal partitions and actual boundaries equal to nominal ones. It differs from
+actual output-row coverage: unmatched actual rows fail exact or remain in outer;
+unused directory buckets do not create rows. Named calendars support ordinal
+only; builtin offsets/year follow their stated grain limits. Paired coordinates
+retain both frozen endpoints/map. Re-aligning a paired axis, arbitrary identity
+correspondence, scalar broadcast, calendar coarsening and partitioned top are
+outside the first Frame surface.
 
 ## Reference transport and share
 
-Broadcast transports any compatible value kind over a complete unique target-key
-to reference-key projection. A zero-axis reference must have exactly one row;
-a one-row grouped reference remains grouped. Every reference axis must match a
-bound target axis, retained projection or legal coarsening; names and row positions
-cannot supply a mapping. Reference keys must be unique and cover every target key.
-Transport repeats value use, not original facts or contribution authority.
-
-Share is numerical and requires a valid contribution quantity and compatible
-unit. Its numerator and denominator consume one actual input under the requested
-partition. Share followed by filtering retains the original denominator; filtering
-before share changes that denominator. General broadcast division is not a proof
-of contribution inclusion. No common-input route means an explicit capability
-error, not independent reevaluation disguised as the same input.
+A complete-domain reference can be an explicit values Frame aligned on its
+entire target domain, followed by Column arithmetic. This is not automatic
+broadcast or proof of contribution inclusion. Frame has no share receiver or
+implicit original denominator. When a source ratio is required, construct the
+explicit governed source formula; when external arithmetic is needed, disclose
+its exact fixed input and denominator. Neither is an invented equivalent for
+retired contribution-share behavior.
 
 ## Export and interpretation
 
-Pandas export has RangeIndex and `(kind, name)` columns: coordinate, named value
-and presence. Axis metadata preserves kind, stable column token, complete key
-components, dtype, timezone/bounds and actual projections. It contains no semantic
-Ref, formula, graph or hidden state. Empty and keys-only results keep their schema.
-Follow complete business keys when pairing exported tables; preserve Field Null
-with `dropna=False` where appropriate. A valid zero and NA remain different.
+Frame.to_pandas returns an isolated complete table with RangeIndex and
+`(kind, name)` MultiIndex columns: physical coordinate keys by axis token, named
+values and presence. Axis descriptions and units are isolated attrs;
+`attrs["frozen_coordinates"]` contains typed isolated attachment tables for
+calendar labels/bounds/ordinals and paired endpoint maps. It contains no semantic
+Ref, formula, reader or hidden state and cannot be imported as a typed contract.
+The simpler interpretation path is Frame.show, which resolves saved labels and
+bounds without new visible projection columns or endpoint methods.
 
-Ordinary classification, descriptive/paired statistics, cell-level rolling and
-forecasting belong in pandas after export. A computed difference is arithmetic
-evidence, not a causal explanation. Neither output values nor restored metadata
-prove source completeness, freshness or suitability for a new question.
+Exact output order survives complete reads and persistence. Empty/keys-only
+results retain schema. Pair exports by complete business keys, preserve Field
+Null with dropna=False where appropriate, and distinguish zero, NA and absent
+endpoint. Unsupported descriptive/paired statistics, forecasting and external
+presentation need explicit sample, NA, tie and uncertainty choices. Arithmetic
+is not causal evidence or proof of source freshness/completeness.

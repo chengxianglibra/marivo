@@ -1,65 +1,61 @@
 ---
-title: 比较与变化追问
-description: 使用完整对应、端点追问及显式参照。
+title: 比较并检查变化
+description: 使用完整坐标映射与显式新来源输入。
 ---
 
-本页接续[本地教程](/zh-cn/docs/latest/guides/python-quick-start/)，按地区比较同名 revenue 量。
+本指南继续[本地教程](/zh-cn/docs/latest/guides/python-quick-start/)。
 
-## 执行前构造比较
+## 比较固定数据
 
 {/* example: compare-query */}
 
 ```python
-change = current.compare(baseline, how="exact")
-comparison = change.execute().to_pandas()
-assert comparison[("value", "revenue.absolute")].tolist() == [-100, -100]
-assert comparison[("value", "revenue.relative")].tolist() == [-1 / 3, -1 / 7]
-outer = current.compare(baseline, how="outer")
+on = ((current.axes[0], baseline.axes[0]),)
+change = current.compare(baseline, on=on, how="exact").compute()
+comparison = change.to_pandas()
+assert comparison[("value", "absolute.revenue")].tolist() == [-100, -100]
+assert comparison[("value", "relative.revenue")].tolist() == [-1 / 3, -1 / 7]
+outer = current.compare(baseline, on=on, how="outer")
 ```
 
-compare 输出 `<name>.current`、`.baseline`、`.absolute`、`.relative`。相对变化为 `(current-baseline)/abs(baseline)`。两端共同非 NA 且基期为零时，默认仅新 relative 为 NA；`zero_denominator="error"` 拒绝该被需求的除法。输入子式政策继续有效，业务可比性仍由调用方判断。
-
-exact 要求完整键唯一并完全对应。outer 保留键像之并及独立 current/baseline presence；值为 NA 不代表端点不存在，缺侧不会补零。仅需差额时用 align/select：
+compare 按 left/right/absolute/relative 分组输出值，相对变化为 (left-right)/abs(right)。
+有效右值为零时默认仅新增 relative 为 NA；zero_denominator="error" 使该次有效除法失败。
+缺端点或 NA 的差值为 NA，子表达式严格政策继续有效。presence 独立于 NA。
+exact 检查完整联合键，outer 先保留左行，再追加右侧独有行。
+普通轴需要完整显式 on，同名显示标签不能绑定输入。
 
 {/* example: aligned-absolute-only */}
 
 ```python
-aligned = current.align(baseline)
+aligned = current.align(baseline, on=((current.axes[0], baseline.axes[0]),))
 difference = aligned.select({
     "difference": aligned["left.revenue"] - aligned["right.revenue"],
-})
-difference.execute().show()
+}).compute()
+difference.show()
 ```
 
-## 回到端点追问
-
-比较 Query 没有直接 drill 或专用归因方法。先选择原端点的相关坐标，通过 `drill(add=(field,))` 或新 observe 请求合法细分，再比较两端。教程中的普通地区选择为：
+## 显式请求新来源事实
 
 {/* example: comparison-endpoint-followup */}
 
 ```python
-selected_current = current.where(current["revenue"] < 300)
-selected_baseline = baseline.where(baseline["revenue"] < 400)
-followup = selected_current.compare(selected_baseline)
-followup.execute().show()
+chosen = current.top(1, by=current["revenue"]).compute()
+parents = session.population_from(chosen, on=((chosen.axes[0], region),))
+prior_selected = session.observe(
+    {"revenue": revenue}, during=july, by=(region,),
+    where=mv.in_population(parents),
+).compute()
+followup = chosen.compare(
+    prior_selected, on=((chosen.axes[0], prior_selected.axes[0]),),
+).compute()
+followup.show()
 ```
 
-在身份轴上新增的声明字段必须单值。普通 customer_id 与 channel 只按贡献坐标像分组，不声明客户身份域。保存的比较可在 pandas 中检查、分组，不能回传为 Query。
+固定 Top 选中 west；新的来源观察调查该地区 7 月的数据，不重新排名，也不从结果恢复历史。
+新增细分时，显式取得受治理字段并放入新 observe。来源贡献可能在选择后变化，不承诺共同快照。
+Frame 当前行 reduce 不能替代原 Metric 整体计算；没有 Frame drill/rollup/share 接收者。
 
-来源 `rollup` 和 `drill` 可以读取父结果求值后发生变化的数据。
-例如 `current.top(1, by=current["revenue"])` 选中一个地区后，即使另一个地区随后收入更高，
-后续 drill 仍保留已选地区。该地区内新增或删除的贡献可以改变重算值。
-不承诺快照或跨读取一致性。来源计算和原生结果转换也可能产生与本地计算不同的舍入。
-重算接受这种精度损失；后续筛选和排名使用返回值，此前已完成的父选择保持固定。
-合格的来源端 Query 筛选和 Top 同样使用原生数值，将 NaN 作为缺失处理，并保留完整键打破平局。
-
-同一来源会话中跨多个根的合格公式，先分别规约各根，再对齐完成值。行算术保留声明的 NULL、溢出和除法检查，包括空 Top 结果之前必须完成的检查。
-样本指标的合格上卷会合并选中父组的贡献重新计算，不会对已经完成的父均值再次平均。
-窗口指标保留各端点的回看期间；选择父结果行不会改变窗口的定义。
-普通 Calendar 总量可以按原贡献从日重新分组到月。跨来源的合格公式分别规约各来源，
-完成父级公式后再读取目标总量，不要求共享快照。
-
-## 运输完整参照
+## 对齐明确覆盖完整域的参照
 
 {/* example: broadcast-reference */}
 
@@ -67,19 +63,20 @@ followup.execute().show()
 budget = session.values(
     by=(region,), columns={"budget": "CNY"},
     rows=((("east",), {"budget": 250}), (("west",), {"budget": 750})),
-)
-reference = mv.broadcast(budget["budget"], to=current)
-vs_budget = current.select({
-    "revenue": current["revenue"],
-    "budget_variance": current["revenue"] - reference,
-})
-vs_budget.execute().show()
+).compute()
+aligned_budget = current.align(budget, on=((current.axes[0], budget.axes[0]),))
+vs_budget = aligned_budget.select({
+    "revenue": aligned_budget["left.revenue"],
+    "budget_variance": aligned_budget["left.revenue"] - aligned_budget["right.budget"],
+}).compute()
+vs_budget.show()
 ```
 
-参照键须唯一且覆盖全部目标键；参照每个轴须有无歧义的完整目标投影，不能按同名或行位置猜映射。零轴参照必须恰有一行。broadcast 复制取值出现，不复制事实或可加性权威。
+预算显式覆盖同一地区域。这是普通全轴对齐与算术，不会广播标量、推断关系或证明贡献包含。
+自动广播与原贡献份额不在本版范围内，不能声称有等价替代。
 
-真正的贡献份额用 `current.share("revenue")`，分母来自同一份实际输入。share 后筛选保留原分母，先筛选再 share 改变总体。普通参照除法不证明贡献包含。
+## 主动选择日历对应
 
-## 明确选择对应
-
-不同日历使用 `match=mv.ordinal()` 或 `mv.previous_year()` 等无轴规则。ordinal 使用原完整桶序；previous_year 的日粒度闰日没有对应。`match=mv.corresponding(via=(relationship,))` 使用声明的一对一身份路径，普通同值字段不能代替。非恒等输出保存两端投影。见[时间与身份](/zh-cn/docs/latest/guides/time-and-cohorts/)。
+零轴配对或双方各自仅含一个日历轴时，允许规定的 on 推导；日历 match 仍需显式选择
+ordinal/offset/year 规则。冻结配对结果保留两端，没有 time_axis="current" 投影或任意身份关系
+corresponding 路线。参见[时间与身份](/zh-cn/docs/latest/guides/time-and-cohorts/)。

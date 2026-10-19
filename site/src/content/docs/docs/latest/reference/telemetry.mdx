@@ -36,8 +36,8 @@ the execution owner has confirmed it.
 Analysis logs include execution and phase start/completion, result counts, and
 cache reuse. Python/pandas phases have no invented SQL. Available operation,
 session, run, datasource, backend and stage identifiers link the records.
-`execution.reused` identifies a retained artifact hit and does not imply a new
-source query. Errors contain their type, available backend codes and a bounded,
+Fixed Frame data use is distinct from a new source read; there is no automatic
+historical-result selection. Run records describe publication after evaluation. Errors contain their type, available backend codes and a bounded,
 redacted summary. Parameterized credential statements log the template only,
 without parameter values or credential-bearing failure messages. Result rows and
 exception local variables are not logged. Full SQL can contain business literals;
@@ -113,7 +113,7 @@ reloads its semantic catalog; the enclosing semantic `load` operation and any
 failed declaration remain recorded.
 
 The native analysis surface instruments explicit Session creation/resume,
-abandonment and Query execution. Pure Query/Population construction, predicates,
+abandonment, Frame evaluation and result publication. Pure AnalysisFrame/Population construction, predicates,
 `.show()` and read-only methods do not write analysis operation events.
 Session-bound events can include the persisted `session.question`;
 `md.raw_sql(...)` includes its required `reason`. Session acquisition records
@@ -122,7 +122,7 @@ omitting `question` preserves the persisted value.
 
 Input and result summaries include only admitted identifiers, types, counts,
 options, limits and fingerprints available on that operation. The Runtime's
-exact Run and Artifact records own execution lineage and recovery state.
+Run and Artifact records own publication and recovery; result audit owns source facts and current evaluation, without complete data-lineage guarantees.
 Marivo never writes credentials, resolved secrets, datasource hosts, DSNs,
 SQL text, filesystem paths, slice values, Dataset rows, free-text collection
 items, arbitrary object representations or exception messages to telemetry.

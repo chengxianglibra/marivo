@@ -1,11 +1,12 @@
 ---
-title: Query 值与 pandas 统计
-description: 区分当前格子规约与执行后的描述分析。
+title: Frame 数据统计
+description: 区分当前行统计与原来源问题。
 ---
 
-本页复用[本地教程](/zh-cn/docs/latest/guides/python-quick-start/)，区分原 Metric 求值与结果统计。
+本指南复用[本地教程](/zh-cn/docs/latest/guides/python-quick-start/)。
+其中 `current` 与 `baseline` 已是固定的完整内存 Frame。
 
-## 规约或选择当前格子
+## 规约或选择当前行
 
 {/* example: query-result-statistics */}
 
@@ -14,22 +15,26 @@ summary = current.reduce({
     "sum": current["revenue"].sum(),
     "mean": current["revenue"].mean(),
     "rows": mv.row_count(),
-})
-summary.execute().show()
-ranked = current.top(1, by=current["revenue"], descending=True)
-ranked.execute().show()
+}).compute()
+summary.show()
+ranked = current.top(1, by=current["revenue"], descending=True).compute()
+ranked.show()
 ```
 
-Query.reduce 提供 sum、mean 和 row_count。sum 忽略普通 NA，空/全 NA 返回 NA；mean 无有效样本时为 NA。row_count 计所有坐标行，包括量值为 NA 的行。by 接已有完整轴或合法粗化日历。Top-N 使用当前精确输入的 Column、可选 partition_by 及确定性的完整键打破平局；展示次序在重开后保留。
+每项统计使用自己的有效非 NA 样本。空或全 NA 的 sum 是 NA，没有有效样本的 mean 是 NA，
+row_count 计算所有当前行。reduce 只能保留现有完整 Frame 轴，不能粗化日历。
+Top 是全局操作，使用精确输入的 Column，其确定行序在持久保存后保留；没有 partition_by。
 
-地区收入格子的平均值是当前格子统计，不能替代总体原 Metric；后者的公式与贡献权限由 rollup 或新 observe 拥有。
+当前行均值不是原 Metric 的整体均值。10 与 100 的行均值为 55；来源 91 次贡献合计
+1000 时整体均值为 1000/91。去重计数 2+2=4 也可能只含 3 个不同身份。
+原整体问题需要显式来源构造，不能以看似相近的 reduce 或已退役 rollup 替代。
 
-## 导出后做描述分析
+## 导出后完成未支持的描述统计
 
 {/* example: pandas-descriptive-statistics */}
 
 ```python
-values = current.execute().to_pandas()["value"].copy()
+values = current.to_pandas()["value"].copy()
 revenue_values = values["revenue"]
 statistics = revenue_values.agg(["count", "sum", "mean", "median", "min", "max"])
 print(statistics)
@@ -39,18 +44,23 @@ if standard_deviation > 0:
     standardized = (revenue_values - revenue_values.mean()) / standard_deviation
 ```
 
-pandas 负责普通排序、标准化、分类、相关、预测和格子滚动统计。说明所选样本、NA 处理、平局方法、拟合范围与不确定性。这些操作返回普通数据，不生成 Marivo Query 或 Artifact。标准化高值不会自动成为业务异常。
+外部排名、标准化、相关或预测需要说明样本、NA、并列、拟合范围与不确定性。
+输出是普通数据，不继承类型化 Evidence；导出数据与 attrs 不能回灌为语义权威。
+原 Frame 仍可继续受支持的类型化数据操作。
 
-## 使用一份共同端点样本
+## 使用同一组有效端点行
 
 {/* example: pandas-paired-statistics */}
 
 ```python
-comparison = current.compare(baseline).execute().to_pandas()
-present = comparison[("presence", ("current",))] & comparison[("presence", ("baseline",))]
-pairs = comparison.loc[present, "value"][["revenue.current", "revenue.baseline"]].dropna()
-paired_difference = pairs["revenue.current"] - pairs["revenue.baseline"]
+comparison = current.compare(
+    baseline, on=((current.axes[0], baseline.axes[0]),),
+).compute().to_pandas()
+present = comparison[("presence", "left_present")] & comparison[("presence", "right_present")]
+pairs = comparison.loc[present, "value"][["left.revenue", "right.revenue"]].dropna()
+paired_difference = pairs["left.revenue"] - pairs["right.revenue"]
 print(paired_difference.mean())
 ```
 
-presence 与值有效性是不同事实。配对共同存在且非 NA 的行，并保留完整业务键；不要按独立导出的 RangeIndex 连接。字段 Null 类别需要保留时，groupby 显式使用 dropna=False。样本和筛选决定描述结果含义，算术一致不证明因果。
+presence 与值有效性独立。保留完整键与共同存在、共同非 NA 的掩码，不按 RangeIndex
+配对无关导出。需要时用 dropna=False 保留 Field Null 类别。算术变化不证明因果。

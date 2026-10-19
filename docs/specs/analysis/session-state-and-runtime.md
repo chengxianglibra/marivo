@@ -1,217 +1,137 @@
 # Session State and Runtime
 
-Status: current Store 11 terminal execution, publication and reading contract,
-2026-10-18. [Analysis Design](python-analysis-design.md) owns construction and
-compilation; [Operators and Frames](operators-and-frames.md) owns computation.
-This document does not qualify every target DSL route or remote backend.
+Status: AnalysisFrame cutover lifecycle contract, 2026-10-19. The
+[final data contract](query-result-reuse.md) owns semantics; the implementation
+progress record owns acceptance. This page is not a provider/release certificate.
 
 ## Session and invocation ownership
 
-A Session owns an investigation and Run/Artifact history beneath the project's
-`.marivo/` directory. Bootstrap, current selection and resume use
-`mv.session.get_or_create(...)`, `mv.session.current()` and
-`mv.session.resume(session_id)`. Report timezone is persisted authority; conflicting
-explicit reopen settings and cross-Session operands fail.
+Session binds project Store identity, report timezone, Catalog/source construction
+and invocation-local services. Frames retain exact local ownership without
+capturing the producer Session/Catalog, source connection or bound callback.
+Frame/Column/FrameAxis dependencies stay alive while consumers need them; no
+Session result cache, automatic eviction/spill or public close/unpersist is added.
+Pure memory reading/computation does not require the persistent destination writable.
 
-The optional domains selection is immutable Session scope: exact names are
-sorted and deduplicated, omission reuses the saved choice, and conflicting
-explicit choices reject. Source construction loads only that semantic scope.
-Committed output reads do not load current models. Same-generation discovery
-uses the current Store only; an absent current Store yields no current Session
-and an empty recent page without creating state. Invalid history arguments are
-still rejected before returning an absent-Store result.
-
-Query/Population construction, repr, Help and `.show()` inspection create no Run
-and read no business rows or source schemas. `session.read(population, fields)`
-captures one explicit Session and complete identity domain; no ambient Session
-resolution occurs. Execution preparation may connect for actual schemas and
-physical admission. Source templates are prevalidated before Run admission,
-and instantiated inputs are checked again before consumption. Required schema,
-route and binding failures precede the affected business read.
-
-Every admitted execute has a fresh Run/evaluation identity and reevaluates its
-source and literal dependencies. Reusing a Query does not reuse its previous
-Artifact or selected rows. Definition identity is not a source snapshot; independent
-reads have no cross-source or cross-query transaction guarantee. Execution-only
-sharing is scoped to the actual invocation and explicit producer dependencies.
+Construction, repr, Help and show do not evaluate or create a Run. Compute
+completes immutable memory data without Run/Artifact/temporary saved output.
+Expression persist is compute followed by publish-existing. Evaluation fails
+before Run admission, returns no partial result, and cleans its own resources.
+A publishing Run identifies the completed result ID, not a source graph. Result
+evaluation may precede admission; commit time belongs to the publishing Run.
+Memory persist never rereads sources. Stored persist checks commit metadata and
+returns itself without another Run. Reusing a pending source expression can
+read changed data; use the returned fixed root when exact prior values matter.
 
 ## One prepared stage schedule
 
-Preparation fixes source identities, projected fields, complete keys, physical
-types, occurrence-specific paths/anchors, numerical routes and check deadlines.
-The pure compiler then fixes a topological schedule. The Runtime executes that
-schedule without loading an Artifact, opening another executor, changing algorithm
-or retrying a missing route.
+Preparation resolves only explicit source inputs. The pure compiler fixes one
+topological schedule for source, literal, fixed and local operations. Source
+Ibis executes through its declared datasource and returns pandas. Fixed reads
+consume complete memory/stored data; local operations reuse existing kernels.
+No recursive compute, second executor or hidden local SQL engine is added.
 
-Source reads lower admitted Ibis expressions and return pandas through
-SourceSession.execute. Local value, domain and comparison work consumes pandas
-stage outputs. Literal and source-dependent domain inputs are explicit stages;
-any complete-key transport to a later source consumer has a qualified planned
-route. No hidden source write or local SQL engine supplies a fallback.
+Every logical binding keeps full keys, types, presence and checks. Consumer counts
+control sharing/release; self-combination reads one shared input while retaining
+both consumers. Strict obligations finish before projection/Top-0 can prune values.
+Compatible stored handles share exact Store/Session/Artifact input identity;
+equal fingerprints or names cannot substitute an input. Completed data contains
+no source graph, internal aggregation state or semantic object.
 
-Stage normalization validates the ordered schema, complete-key uniqueness, actual
-dtypes, nullability, timezone and units. Under the revised
-[source handoff contract](lazy-analysis-dsl-execution.md#151-ibis-原生返回与-pandas-类型交接),
-native source numerical precision loss is accepted and backend type differences
-are normalized in pandas; this adjustment still requires implementation. Saved-output
-fidelity applies to the final accepted values, not the original database values. An input producer may
-serve multiple consumers; consumers do not mutate shared frames. A stage remains
-available until its last scheduled consumer, then its execution-only data can be
-released. RequiredSlots retains coordinate, mapping, presence and check support
-that the final business value projection does not expose.
-
-Checks bind their actual source occurrence or local producer output and a consume
-or publish deadline. The scheduler runs a ready check before its dependent
-consumer/release, or before publication as required. A missing route rejects during
-planning. A failed mapping, duplicate key, coverage, strict-NA or arithmetic check
-prevents successful publication. Projection, filtering and Top-N cannot erase a
-still-required check. Evidence records only checks that actually completed over
-that invocation's input.
-
-A source check and later calculation are independent reads unless an admitted
-route explicitly shares the actual input. Equal names, definitions or hashes do
-not supply that guarantee. Operators such as share that require one actual input
-must retain it in their selected route.
+An ordinary-axis population_from bridge projects complete joint keys, then feeds
+an explicit new source dependency through qualified parameter transport. Fixed
+selections do not rerank against changed sources. Their new source values can
+change, with no cross-read snapshot promise. Source-only relation qualification
+is separate from fixed Frame inputs and local combination.
 
 ## Store generation and data layout
 
-The current Store is generation 11 under `.marivo/analysis/generations/v11/`.
-Its SQLite database owns Sessions, Runs, Artifact manifests, resources and output
-records. Final values live in committed project-local Parquet. There is no
-configurable result database, saved execution graph or historical input mode.
+Store 12 is under `<project_root>/.marivo/analysis/generations/v12/`. One closed
+Frame output protocol stores values, complete axes, independent presence, typed
+frozen calendar/map attachments, receipts and one audit. It stores no executable
+Python class path, source/Metric graph or hidden components. All analysis
+Artifacts are Frame commits; Artifact and stored Frame share one commit authority.
 
-`ArtifactPublication` accepts final pandas output plus explicit output records.
-Its frozen schema retains complete ordered keys, named nullable values and
-independent boolean presence. Necessary output attachments retain calendar
-nominal/actual bounds, coordinate projections and display order. Saved metadata
-contains data names/tokens, key component types, units, timezone and bounds.
-It contains no semantic Ref, formula, definition fingerprint, internal aggregation
-components or executable continuation. Run input records retain an invocation
-marker and lifecycle rather than a replayable graph.
+Actual row order is data: writers/readers do not reconstruct it by key sorting or
+a second display-order field. Top order and left-first/right-only combination
+order survive batching, persistence and reopen. Parquet row groups, compression
+and batch profiles retain their owning storage implementation; no public
+row-group setting or codec extension registry is added.
 
-Output uses Parquet version 2.6 with zstd level 3 and at most 128 Ki rows per row
-group. The shared reader batch profile is at most 64 Ki rows. These file profiles
-do not bound upstream eager pandas memory or claim streaming execution.
-Each output part has an explicit schema and committed local receipt.
-
-Store 11 removes the obsolete Artifact-input relation and index. Run records expose
-no consumed Artifact references; `dataset_input` remains the invocation marker.
-The terminal output v1 codec and Parquet profiles are unchanged.
-
-Store 11 is an incompatible format switch. Store 10 and earlier Stores and graph/continuation
-formats reject without mutation, migration, dual reads or rebuilding. Changing
-a Session name inside an incompatible project does not grant a new format.
-Preserve the old project state, use a fresh current-format project and rerun the
-script. A current-generation resume restores Session identity/history, not a
-computation receiver.
-
-Only terminal publication admits new Runs. The retired graph/Cell executor,
-publisher and historical graph decoder are removed rather than retained as a
-compatibility route. Shared receipt, path, ownership and resource checks remain
-part of terminal execution and reading.
+Older generations' Session/result/Findings/Evidence data refuse unchanged. There
+is no migration, dual read or new Store initialization around an old-only project.
+Documented current/recent discovery can return None/empty for an absent current
+generation without exposing old state. Export required old results with their
+original version or retain a compatible environment. See [cutover](analysis-frame-cutover.md).
 
 ## Concurrent writers and atomic publication
 
-An admitted write uses the existing per-Session writer guard and resource journal.
-Reconciliation runs under that guard before new work. SQLite uses WAL durability;
-write transactions use the Store's established transaction boundary. Readers see
-committed records. An invocation never deletes another Run's owned files or
-previously committed output during cleanup.
+Evaluation produces complete data and audit before the existing writer guard
+admits a publishing Run. Publication allocates Artifact identity, writes owned
+files/receipts, and atomically commits manifest, audit records and Run success.
+No partial successful Frame/Artifact/Finding/Evidence combination is visible.
+Memory results and prior commits remain usable after publication failure.
 
-The writer reserves resources, creates staging files, closes/fsyncs data, checks
-receipts and places final files before the SQLite success transaction. That
-transaction commits manifest, Findings/Evidence, Run success and resource ownership
-as one visible unit. Only durable success returns an Artifact. A failure before
-that commit publishes no partial Artifact or independent success records.
-
-Lost acknowledgement after durable commit is resolved against the original Run
-and transaction without replaying the calculation. An unknown commit outcome
-preserves its journal and owned resources until reconciliation determines it.
-Reconciliation cleans exactly owned uncommitted resources, preserves committed
-success, and leaves unresolved resource/commit obligations as blockers. New
-execution does not silently discharge such obligations.
+Retain the existing Store writer guard, resource journal and success transaction.
+Failures clean only their Run's resources. Unknown commit acknowledgement is
+reconciled against that same transaction and identity; never reevaluate to settle
+it. Stored persist is idempotent only for that stored commit; publishing a memory
+root again may create a new commit without new evaluation. SessionGraph retains
+Run-to-Artifact publishing edges and does not claim complete data lineage or
+choose a latest answer.
 
 ## Resource lifetime and native cancellation
 
-There is no default graph wall-clock deadline or row/byte/memory execution quota.
-Datasource connection/request/query settings retain their native meanings;
-authoring read scopes use the owning datasource's supported limits. Elapsed time
-is diagnostic, not a reason to publish partial output or retry another route.
-Memory/resource failure does not truncate, sample or replace the valid input.
+Each source invocation owns its connection/read resources and releases them after
+its actual consumers. Fixed data does not retain those resources. Existing native
+query-timeout/cleanup contracts apply to source reads; a caller row limit is not
+a scan bound or an end-to-end deadline. A cleanup failure is reported through the
+owning structured error. No new timer, automatic route retry or cancellation
+control channel is introduced by Frame carriers.
 
-SourceSession releases every owned provider-scoped resource and connection,
-including when another cleanup operation fails. Borrowed backend disconnection
-belongs to its external owner. Ibis/provider execution is eager at this boundary;
-Marivo maintains no separate row-stream or cursor-close state. Cleanup can block
-without suitable native settings; there is no additional deadline worker.
-
-Driver APIs own cancellation and close. Python interruption and native query errors
-abort uncommitted publication. Unknown remote termination remains unknown rather
-than being reported as confirmed cancellation. No custom KILL QUERY connection or
-SIGINT listener is created. Previously unresolved remote resources remain owned
-reconciliation obligations. KeyboardInterrupt and SystemExit retain their normal
-interruption semantics; durable success remains committed after acknowledgement
-failure.
+Complete memory data is independent of old files after stored.compute. Deleting
+old payload later does not invalidate that memory root or its new persistence;
+a fresh full read from the old stored root still fails. Strong lifetime ownership
+does not guarantee the external Store remains available.
 
 ## Errors and recovery
 
-Structured failures state expected input, received facts and concrete repair.
-After admission, an error's optional `run_ref` identifies the exact Run; inspect
-it through that same Session's `get_run`. Before admission there is no new Run.
-Ordinary execution exceptions are wrapped by the owning materialization error
-with their cause; the Runtime never guesses the failed Run from recent history.
+Errors state expected input, received input and a repair from real state.
+Cross-Session ownership, foreign exact handles, incomplete maps, incompatible
+types/units/time, invalid value names and actual data integrity fail at their
+earliest information-complete boundary. Construction never reads rows to guess
+an answer. A strict source failure cannot become a missing cell or be hidden by
+an output projection. Missing stored IDs use ArtifactNotFoundError; malformed
+protocol/coordinates are format failures, not a non-Frame-kind guess.
 
-```python
-run = session.get_run(error.run_ref)
-run.show()
-```
-
-`session.runs(limit=..., cursor=...)` and `session.get_run(id)` expose incomplete,
-failed and succeeded variants. Access success-only fields only on success.
-`mv.session.abandon_run(session_id=..., run_id=...)` reconciles incomplete/failed
-Runs under the writer guard, preserves history and cannot abandon committed
-success. Retrying a corrected Query is a new invocation rather than resume of
-failed computation.
-
-Session graph reads show same-Session Run-to-Artifact production edges and saved
-output summaries. Failed and incomplete Runs remain isolated nodes. Every selected
-Run is a root and every selected Artifact a head; heads do not select a latest
-answer. The recap counts all Artifacts as heads and displays at most three refs.
-An Artifact-focused `ancestors` read includes its unique producer; `descendants`
-returns only the terminal Artifact. Without a focus, only `ancestors` is admitted.
-Selection preserves attention priority, deterministic producer-before-output order
-and the existing node/scan bounds. Boundary fields identify selected nodes with
-omitted requested neighbors; `truncated` reports an incomplete selection. Reads use
-one SQLite snapshot without Parquet, current models or source access. They do not
-reconstruct computation lineage or replay an origin.
-Invalid Session/cursor ownership, missing records, incomplete publication and
-unreadable/incompatible current Store state remain structured errors.
+Save Session ID and `saved.artifact.id`. Resume the same Session and call
+`session.persisted_frame(artifact_id)` with the exact string. This opens commit
+metadata without Catalog/model/source access or a payload scan. It does not
+recover original source objects or history. Missing/corrupt saved data fails;
+it is not a cache miss that authorizes recomputation.
 
 ## Metadata opening, preview and complete export
 
-`session.artifact(artifact_id)` accepts an exact string ID belonging to that Session
-and opens its saved manifest/receipt metadata. Opening and repr read no Parquet,
-current Catalog or datasource. New and reopened Artifacts use the same committed
-output reader. Holding the original Query gives the Artifact no additional methods.
+Pending Frame.show discloses captured structure and pending operations without
+parent row reads/schema preparation. All show calls validate nonnegative integer
+n (excluding bool) before reads. Memory/stored show(n=0) gives metadata only;
+Artifact.show() has no n and reads submission/audit only. Findings and Evidence
+reads do not read Parquet or coordinate attachments.
 
-`show(n=20)` decodes bounded rows. Only consumed parts are verified, although their
-first digest verification may read the whole file. `to_pandas()` exports every
-row as an isolated DataFrame; it never silently truncates. Types, precision, NA,
-complete composite identities, Field Null categories, presence, coordinate
-projections and display order survive the saved-data boundary. Empty and keys-only
-outputs retain their schema. A corrupt or missing consumed part fails rather than
-falling back to a source read or cached in-memory output.
+Positive show renders the actual prefix in result order and resolves only needed
+frozen labels, nominal/actual bounds and paired endpoints. It cannot use full
+export/head, sample, silently fall back on metadata, or cache a prefix as complete
+data. Receipt hashing or Parquet decompression may consume more bytes than n;
+preview success says nothing about unread payload integrity.
 
-Export uses RangeIndex and `(kind, name)` columns. Data-only attrs describe actual
-axes and quantities; calendar starts and UTC nominal/actual boundaries retain the
-saved boundary timezone. Artifact has no contract, Column, population or DSL
-continuation. Custom computation continues in ordinary pandas.
-
-Findings use bounded pages. `evidence_digest()` accepts no arguments and returns
-all saved Evidence in `.items` plus collection summaries; its show remains bounded.
-Record reads do not need result Parquet or current semantic definitions. Their
-independence does not certify freshness, source completeness or business meaning.
-Detailed record shapes belong to [Evidence Access](evidence-access-surface.md).
+Stored compute/to_pandas validates complete required values/keys/presence and
+attachments: receipts, types, nullability, finite values, uniqueness, directory
+references and paired maps. Missing/corrupt records never become legitimate
+unmatched endpoints. Full export is isolated and retains raw coordinate keys in
+`(kind, name)` MultiIndex columns, with kinds coordinate/value/presence. Typed
+attrs contain axis descriptions, units and isolated frozen coordinate tables;
+no reader, Frame, Store, semantic object or executable calendar is retained.
+Attrs cannot be reimported as computation authority.
 
 ## Execution diagnostics and usage telemetry
 

@@ -42,7 +42,7 @@ closures. Finalization closes capture; it never mutates returned values, refresh
 them from live state, or replays module/import effects. Pure Measure/Metric
 constructs closed graphs from finalized values without executing the authored
 function or requiring loader/Session. The loader publishes named declarations;
-Query preparation and execution consume their current definition graphs.
+Explicit source Frame preparation and evaluation consume their current definition graphs.
 Old Metric IR and Runtime descriptor readers have been removed.
 
 Definition-update policy (approved 2026-10-15): a constructed semantic input is
@@ -224,7 +224,7 @@ Read entry state with `entry.show()` / `details()` and definition facts with
 `catalog.describe(ref).show()`. A Ref is a typed lookup identity, not evidence of
 current Catalog membership or readiness. Native Deferred values have no generic
 Marivo show/contract method; use Catalog definition metadata and role-specific
-expression Help. Query.show() owns captured execution definitions.
+expression Help. AnalysisFrame.show() owns captured execution definitions.
 
 ### Analysis-agent discovery and handoff
 
@@ -321,8 +321,8 @@ the version coordinate. Metric facts retain computation roots per component,
 spatial-before-temporal order, fixed null/empty rules, unit algebra, and exact
 state requirements. They are shared internal contracts, not new authoring
 fields, a second public capability index, or a promise that every materialized
-Query can perform every transformation. Bounded details and Help disclose
-facts through their existing native owners; `Query.show()` displays captured
+Frame can perform every requested transformation. Bounded details and Help disclose
+facts through their existing native owners; `AnalysisFrame.show()` displays captured
 coordinates, selection and unresolved inputs. Static type Help owns operation
 discovery, and execution validates admission against the actual inputs.
 
@@ -404,10 +404,10 @@ cross-module agent result protocol described in
 ## Materialization
 
 Physical materialization evaluates captured, restricted Entity and field expressions
-against their bound source. Current Metric preview and Query execution share the
+against their bound source. Current Metric preview and source Frame evaluation share the
 nullable numeric kernel in `marivo/semantic/_numeric_lowering.py`. Physical Entity
 dependency identity lives in `_physical_identity.py`; it retains its own consumed
-source contract. Terminal Artifact reading remains owned by Analysis and Store 10.
+source contract. Stored Frame data reading and Artifact audit remain owned by Analysis and Store 12.
 Physical materialization is an implementation detail of semantic internals and the analysis runtime; it is
 **not** a public `SemanticProject` method. Agent-facing reads and previews go
 through the catalog:
@@ -434,7 +434,7 @@ Backend resolution follows the consuming route:
   The live backend must match the declared provider contract.
 - Ordinary Metric previews use the qualified DuckDB route and the shared nullable
   numeric kernel; sample, window and routed-field preview restrictions remain explicit.
-- Query preparation qualifies the actual selected backend, expression, physical types
+- Source Frame preparation qualifies the actual selected backend, expression, physical types
   and method before execution. A valid semantic declaration grants no physical route.
 
 Target-design temporal materialization receives the exact temporal boundary and
@@ -663,7 +663,7 @@ Use scoped physical checks at the end of the write loop:
   inspected through `catalog.describe()` and their physical inputs are checked here.
   It never opens a datasource connection or executes a query. Analysis APIs do not
   invoke it automatically. `scope="semantic_static"` identifies this boundary.
-  Query preparation owns physical types, aggregate/backend qualification, temporal
+  Source Frame preparation owns physical types, aggregate/backend qualification, temporal
   selection, fold, grain and operation-specific execution support.
   Readiness is independent of discovery snapshots and ordinary preview history.
   It evaluates only the current semantic project, the requested dependency
@@ -756,7 +756,7 @@ not hide inside one-off analysis scripts.
 
 Semantic readiness is the explicit certification boundary:
 `analysis_ready_inputs` carries the requested canonical physical refs whose dependency
-closures passed. Expression execution support remains with Query preparation.
+closures passed. Expression execution support remains with Source Frame preparation.
 A missing required semantic object activates
 `marivo-semantic` through the structured `semantic_authoring` repair and returns
 to the same semantic entry, requiring matching scoped readiness before
@@ -773,7 +773,7 @@ The current Analysis boundary preserves these independently owned contracts:
 - Original-state reduction consumes sufficient components, coverage and legal
   fold order; a displayed mean/ratio is not a mergeable state.
 - Native Help owns callable facts, result contracts own current continuations,
-  and Store 10 owns self-contained committed terminal outputs.
+  and Store 12 owns self-contained committed terminal outputs.
 
 ## Analysis resolution handoff
 
@@ -821,8 +821,8 @@ numerically equal values.
 Construction rejects wrong Ref kind, cross-Session identity, conflicting temporal
 arguments and unavailable required declarations
 before a Run or business-data read. Schema-only source preflight retains its existing
-boundary. Terminal Artifact reads use committed output receipts and parts; they
-do not resolve a Metric, reload Semantic state, or reconstruct a Query. Errors name expected
+boundary. Stored Frame reads use committed output receipts and parts; Artifact audit reads metadata/records; they
+do not resolve a Metric, reload Semantic state, or reconstruct a source graph. Errors name expected
 and received facts, bound occurrence/Ref/field, and a concrete repair based on the
 actual catalog or retained parts. Exact callable signatures and errors belong
 to the native public contract; resolution alone never grants a physical route.

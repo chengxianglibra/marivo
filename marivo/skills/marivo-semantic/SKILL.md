@@ -104,7 +104,8 @@ root. Do not add a separate verification checkpoint.
 For analysis handoff, resolve every requested definition, then run scoped
 readiness on its physical inputs. Published Metrics and declared row expressions
 are not readiness inputs: inspect their definitions and check their physical
-dependencies. Query execution qualifies the selected computation and source.
+dependencies. AnalysisFrame evaluation qualifies the selected computation and source;
+compute fixes complete memory data and persist commits the completed result.
 Choose preview for a concrete runtime risk or repair, and source health for
 current source/data drift. Read each report's scope, findings and repair; no
 check establishes another check's result or business authority. Reuse completed
@@ -143,9 +144,12 @@ parts of the task that construction and existing leaf checks can establish.
 Leave authoring when its selected exit is satisfied. For analysis handoff, pass
 the exact ready refs or `analysis_ready_inputs` to `marivo-analysis` and continue
 the original question. Kind-level Help routes identify candidate consumers;
-their focused contracts own companion inputs. Population and Query show captured
-facts; static type Help owns operation discovery. Returned Artifacts are terminal saved
-output and do not resume typed computation.
+their focused contracts own companion inputs. Population and AnalysisFrame show captured
+facts; static type Help owns operation discovery. Continue analysis from the
+returned computed or persisted Frame. A persisted Frame can resume supported
+data operations; its Artifact provides committed audit. New source facts need
+explicit governed inputs, including an explicit ordinary-axis Population bridge
+when selected result keys constrain the new source question.
 
 For authoring-only work, report the slice, evidence and scope, material business
 authority, checks performed, their outcomes, exact roots, and remaining risks.

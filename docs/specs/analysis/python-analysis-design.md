@@ -1,510 +1,196 @@
 # Python Analysis Design
 
-Status: current expression and terminal execution architecture, 2026-10-18.
-Native Deferred expressions and the S0–S6 source, sampling, membership and window
-routes and the R3–R8 Population/Query operations are implemented. Focused local
-checks cover the principal routes; full independent acceptance and any remote
-Runtime qualification remain separate gates.
-[Lazy DSL](lazy-analysis-dsl-redesign.md) owns the complete target signatures;
-this document owns the current objects, boundaries and implementation path.
+Status: AnalysisFrame cutover contract, 2026-10-19. The final data contract is
+[AnalysisFrame](query-result-reuse.md). Implementation progress, local acceptance,
+provider Runtime qualification and release gates are recorded independently.
 
 ## Layer ownership
 
-| Owner | Responsibility |
-| --- | --- |
-| Datasource | Physical schema, credentials, declared source forms, Ibis execution returning pandas |
-| Semantic | Entity identity, fields, units, additivity, restricted declarations and native Deferred recipes |
-| Private definition graph | Immutable captured expressions, domains, policies and explicit dependencies |
-| Analysis binding | This Session's contribution occurrences, complete coordinates, periods, paths and versions |
-| Compiler and physical kernels | Schema-qualified routes, demanded slots, dependencies and check deadlines |
-| Runtime | Execute the fixed stage schedule, release resources and publish atomically |
-| Store 11 and reader | Committed output data and self-contained records; metadata opening and requested reads |
+Datasource owns declared connections and qualified physical reads. Semantic owns
+business meaning, immutable row/Metric expressions, identities, roots, units,
+contribution roles, time and operator-local null/empty policies. Analysis binds
+those governed inputs to a question, evaluates explicit dependencies and retains
+complete immutable data. It does not infer business meaning from physical names.
 
-Semantic and datasource authoring begin at [the semantic overview](../semantic/overview.md).
-The [implementation architecture](analysis-implementation-architecture.md) describes
-module ownership; it does not independently qualify every proposed operation.
+Population describes finite complete coordinate tuples. AnalysisFrame binds
+named values, ordered axes and independent presence to a complete domain. Column
+and FrameAxis bind to an exact Frame input. Artifact is the persisted result's
+submission/audit view. It cannot supply values or a computation operand.
 
 ## Progressive disclosure ownership
 
-The packaged `marivo-analysis` skill owns investigation judgment: the remaining
-evidence gap, meaningful next work, semantic handoffs and completion. It does not
-own signatures or an operator sequence. Public `marivo.help("analysis")` routes
-unknown intents to bounded navigation; a focused target owns exact inputs,
-constraints, effects and a minimal example. Consult only the guidance needed for
-the next decision, reusing already established scope and inputs. Related targets
-are optional; stop discovery once the next useful call is supported. Complete
-supported analytical transformations on Queries before exporting: population,
-grain, aggregation, denominator and comparison changes remain analysis.
-Formatting and plotting saved values are presentation. Export Help discloses
-this boundary; external calculations do not inherit typed Evidence.
+`marivo.help("analysis")` starts discovery; focused native Help owns signatures,
+constraints, effects, examples and navigation. The canonical types are
+`analysis.analysis_frame` and `analysis.frame_axis`. Attribute Help resolves by
+string without executing a getter. `.show()` and typed fields own captured facts;
+structured errors state expected/received input and a repair from real state.
+Skills own investigation judgment, not a duplicate API or syntax inventory.
 
-For an existing Population or Query, `.show()` discloses captured
-logical facts; type Help discloses public operations. These facts do not qualify the
-selected backend or prove business suitability. A committed Artifact instead
-exposes `.show()` and saved Finding/Evidence reads; it has no contract or
-computational continuation. Structured errors own the failed call's concrete
-repair. None of these surfaces chooses the business conclusion.
-
-Logical cards include a bounded captured input scope: member selection,
-complete output coordinates and input operations retain their distinct roles.
-Omitted detail is explicit; this is not a full definition serialization.
-Execution saves the same kind of scope summary as declaration Evidence together
-with the exact definition fingerprint, so it remains readable without sources.
-Read Evidence filters describe only their own physical source stage; an absent
-read-local filter does not imply the Query has no member or population condition.
-Neither a scope declaration nor a successful read proves source completeness.
-
-Catalog discovery keeps definition metadata separate from executable values:
-collection `.show()` lists choices, `catalog.describe(ref).show()` explains a
-definition, and collection `.get(...)` or `catalog.require(ref)` supplies its
-current value or entry. Resolved Metric and Field expressions are native Deferred
-values; calling `.show()` on them does not inspect a catalog definition.
+A Frame/Axis repr is bounded and points to `.show()`. Pending show discloses
+structure, captured scope, input kinds and pending operations without evaluating,
+loading a Catalog for display, preparing schema or reading parent rows. There is
+no generic analysis action contract or capability matrix inferred from history.
 
 ## Public objects and explicit Session entry points
 
-`Population` is a finite logical coordinate domain. `Query` is a lazy, fully
-bound calculation with named quantities. `Column` locates a value or coordinate
-on one exact Query input. `Artifact` is committed terminal output.
+| Entry | Meaning |
+| --- | --- |
+| `session.observe(metrics, ...)` | Bind named resolved Deferred Metrics and explicit observation inputs |
+| `session.read(population, fields)` | Bind nonempty named scalar Fields to one complete Entity identity domain |
+| `session.values(by=..., columns=..., rows=...)` | Declare literal rows on explicit complete coordinates; empty by is scalar |
+| `session.frame(population)` | Bind a general Population key domain, including multi-axis/zero-axis domains and no named values |
+| `session.persisted_frame(artifact_id)` | Open exact committed metadata by same-Session string ID, without source/model access |
+| `session.population_from(frame, on=...)` | Project complete ordinary result axes onto explicitly supplied Field/Entity bindings |
 
-These objects are the sole analysis DSL. Query, Population and Column expose
-metadata-only `.show()` cards; Artifact reads committed output. Generic
-`AnalysisContract` and `AnalysisAction` values are removed. Query.output_names
-returns all output names in definition order. Operation discovery belongs to
-static type Help; attribute Help uses an exact string target and never reads
-an instance or executes a getter.
+All data constructors return AnalysisFrame. There is no public Query, execute,
+session.query/session.artifact alias, raw carrier constructor or exported subtype.
+RawSqlResult retains its independent datasource reader and never enters Frame Store.
+The exact retained public export tuple is pinned by the surface contract, rather
+than duplicated in runtime rendering.
 
-```python
-import marivo
-import marivo.analysis as mv
-import marivo.semantic as ms
+One type has three carriers:
 
-session = mv.session.get_or_create("revenue-review", report_timezone="UTC")
-revenue = session.catalog.metrics.get("sales.revenue")
-region = session.catalog.fields.get("sales.orders.region")
-period = session.time_scope(start="2026-08-01", end="2026-09-01")
-query = session.observe({"revenue": revenue}, during=period, by=(region,))
-query.show()
-marivo.help("analysis.query")
-names = query.output_names
-artifact = query.execute()
-artifact.show(n=20)
-exported = artifact.to_pandas()
-```
+| Receiver | compute | persist | data/audit reading |
+| --- | --- | --- | --- |
+| Expression | Evaluate to complete memory Frame | Evaluate, then publish existing result | show describes pending facts; to_pandas/artifact require completion/persistence |
+| Complete memory | Return self | Publish existing output without evaluation | show/to_pandas use isolated complete data; artifact requires persistence |
+| Exact stored root | Validate/load complete data into memory Frame | Validate commit metadata and return self | show/export read stored data; artifact opens this result's audit |
 
-The example requires an authored project and a qualified source. A bare Metric
-Ref is a lookup key, not an executable expression. Named and anonymous inputs
-use the same controlled native Ibis Deferred carrier. Model loading owns naming
-and persistent dependency closure; `@ms.metric()` does not create an executor.
-No top-level `marivo.session`, fixed-result input or manual type-preparation API
-substitutes for these entry points.
-
-`session.members(entity, at=..., where=...)` selects existing complete identities;
-`mv.identities(entity, keys=...)` requires a resolved Entity from the completed
-finalization scope or `session.catalog.entities.get(entity_ref)`. A bare EntityRef
-is a lookup key and is rejected here. Explicit identity references do not prove
-source presence. `session.query(population)` creates a keys-only Query.
-`session.values(by=..., columns=..., rows=...)` captures typed literal references
-on Field or complete identity coordinates; Calendar and Correspondence axes are
-not writable scalar keys. A zero-axis singleton and a zero-row empty domain
-remain different inputs.
-
-`session.read(population, fields)` is the sole attribute-read entry. It accepts
-one complete Entity identity axis and a nonempty named field mapping, retains
-every requested identity, and returns a Query. It binds a pure literal domain to
-the explicit Session and rejects an incompatible existing owner. It never looks
-up an ambient Session. There is no `Population.read` alias. Direct declared Fields
-are admitted here; computed Measure expressions belong in observe.
-
-```python
-customers = session.members(ms.ref.entity("sales.customers"))
-tier = session.catalog.fields.get("sales.customers.tier")
-attributes = session.read(customers, {"tier": tier})
-gold = attributes.where(attributes["tier"] == "Gold").population()
-```
-
-For a versioned field, bind `tier.at(session.instant(...))` explicitly. Scalar
-paths use `field.via((relationship, ...))`; ambiguous, missing or fanout paths
-reject. Version selection and observation periods are independent. A required
-attribute mapping that is missing or nonunique fails when consumed, rather than
-silently dropping identities or replacing the lookup with ordinary NA.
+Use returned Frames: `fixed = pending.compute()` or `saved = pending.persist()`.
+The original expression stays unchanged and can evaluate changing sources again.
+Derived operations are lazy; their artifact cannot return an ancestor's commit.
+Pure carrier conversion preserves result identity, evaluation time and audit.
+A new memory binding is distinct from a fingerprint; compatible reopened stored
+handles use the same exact stored input identity. Cross-Session operands reject.
 
 ## Population and observation binding
 
-A Population preserves ordered, complete axis tuples, Session ownership and its
-own selection context. Projection, set operations and membership predicates
-operate on those coordinates. `Query.coord(axis)` constructs a Column without
-source access; preparation rejects an axis with multiple key components as a
-scalar quantity before Run admission or business compilation/reads. Complete
-composite identities remain valid output coordinates, Population tuple predicates
-and export keys. Use an existing single-field axis for a scalar value Column.
-`classify` explicitly reads single-valued member fields; `image` and `preimage`
-use declared directed identity paths. Ordinary fields never become Entity
-identities merely because their values resemble keys.
+Population preserves ordered complete tuples, ownership and its own selection
+context. Projection/sets operate on its existing axes; classify and directed
+image/preimage use explicit governed source dependencies. A Field Null is a valid
+category. An Entity identity includes every nonnull primary-key component and
+required business-version anchor. Ordinary fields never become identities merely
+because their values look like keys. Same-path definition changes alone do not
+reject a resolved input; kind/root/grain/unit/time/null checks still apply.
+Business versioned identities remain a separate data contract.
 
-`Query.population()` captures the Query's current keys and selection as a lazy
-dependency. Reusing it does not fix a previous execution's rows. Its period,
-conditions and attribute anchors are not overwritten by the consuming observe.
-Population has no `execute`; publish through `session.query(population)`.
+`population_from` requires `on`, including legal `on=()`. Each pair uses an axis
+from that exact Frame and a caller-supplied resolved Field Deferred or Entity.
+Only ordinary field/complete identity axes qualify; calendar, paired and arbitrary
+value columns do not. Projection takes the joint selected tuple and deduplicates,
+not a Cartesian product of per-axis keys. Empty input remains an empty filter;
+zero axes distinguish empty from singleton `{()}`. Construction reads no rows.
+A fixed root fixes selected keys; a pending selector evaluates on each use.
+The bridge does not recover original semantic objects, attributes or history.
 
-For qualified DuckDB, PostgreSQL, MySQL, Trino and ClickHouse consumers, a
-single-consumer Query-key producer made of source field reads, filtering and
-direct projections can become a source-local key subquery. Source ownership comes
-from the prepared connection and its bound
-physical inputs. The consumer retains complete-tuple, null-safe membership;
-producer keys do not cross the host boundary. Source-wide identity and attribute
-cardinality checks retain their original scope before selection, including empty
-selections. Trino and ClickHouse numeric field values normalize NaN to missing
-before source filtering and ranking; complete numeric identity coordinates retain
-their separately qualified boundary. DuckDB also admits
-ordinary single-reduction key producers, direct-slot Top-N, and shared key
-producers whose scalar consumers execute in one qualified source statement.
-PostgreSQL, MySQL, Trino Iceberg and ClickHouse MergeTree additionally admit
-qualified count producers and string-only terminal field selections, filters,
-Top and row counts. MySQL grouped string keys require binary NO PAD collation;
-ClickHouse FixedString retains its existing encoded carrier boundary. Nullable
-numeric attributes on PostgreSQL/MySQL retain their separately qualified boundary.
-Trino/ClickHouse admit direct integer, float and Decimal attribute filtering and
-Top, plus supported sum/min/max/mean/weighted-mean aggregate producers. These
-operations use native source values before pandas conversion, accepting its
-rounding differences while preserving missing values, complete-key tie breaks
-and required parent failures, including Top-0. Qualified DuckDB, Trino and
-ClickHouse also admit checked multi-input Metric formulas and Column arithmetic,
-including computed Top expressions. Every logical binding retains its own complete
-grid, presence and checks. Floating NaN is normalized to missing; nullable division
-applies its zero-denominator policy to valid pairs, and Top-0 cannot erase required
-formula or overflow failures. Qualified DuckDB, Trino and
-ClickHouse shared consumers may transport independent grouped leaves in one source block,
-with separate complete grids, presence and host formula finishes. Unsupported
-operations and cross-source dependencies retain their materialization boundary.
-Qualified cell sums use native integer, float or Decimal accumulation, accepting
-source rounding while retaining null results for empty/all-missing input and
-required finite-value and range checks. Duration retains its unit-aware finish.
-Mixed host/source consumers keep the producer where a real host domain needs it,
-while eligible source edges use its relation without uploading keys. Compatible
-per grids may share a grouped block; different per or window grids finish
-independently while keeping the shared population source-local. Each window
-retains its own W(t); this does not promise one physical scan.
-When a real host sample/output domain has already completed a where/Top selection,
-other consumers retain its fixed complete keys, including necessary parameter
-transport. They cannot rerun that selector against changed data to replace the
-completed domain; source contributions themselves may still change.
-Qualified DuckDB Population set operations, products, projections and filters can
-stay in the same source relation; terminal union retains the left-first display
-order. Multiple parameter producers for one read are replaced atomically, so a
-shared ancestor is not pruned while another producer still needs it.
-For same-source image/preimage chains, ancestor domains used only for checks
-are reduced to check summaries in the consuming relation. Terminal domains,
-MemberCount inputs and keyed member data remain real inputs. A Query-produced
-preimage can consequently stay source-local without downloading the ancestor
-identity domain or sending the selected keys back to the same source.
+For contribution filtering, use `where=mv.in_population(population)`. A qualified
+single Entity identity Population may constrain `members`. `by=Population`
+requests a complete output domain and coverage, not merely a filter. New source
+facts remain a new explicit observation, with their own read time and no promise
+of a shared snapshot with selection. Fixed Frame keys use the existing scheduler
+and qualified typed transport; no fixed-data upload/fusion or recursive executor
+is promised. Source-only Population relations retain separately qualified routes.
 
-Source-local filters preserve the local nullable True-only predicate contract.
-PostgreSQL string comparisons use UTF-8 bytes after a JSON string round-trip that
-preserves fixed-width character padding. MySQL comparisons use a JSON string
-round-trip and binary bytes, preserving decoded characters across source character
-sets independently of collation and trailing-space comparison rules. Trino uses
-UTF-8 bytes and ClickHouse uses native String byte comparison. These
-conversions affect comparison operands only; published values and complete
-membership keys retain their existing contracts. String literals containing
-U+0000, timestamp literals with submicrosecond pandas precision, and Duration
-literals retain the host boundary. Native compilation and the selected source's
-existing physical qualification still apply, including ClickHouse join topology.
+Each source reduction occurrence keeps intrinsic conditions and receives common
+conditions independently. Multi-root Metrics reduce each fact root under its
+own identity/time role before complete-grid combination; joining roots cannot
+multiply contributions. Membership retains correlated tuples and independent
+allocation factors. Duplicate links for one contribution/bucket count once;
+equal-valued distinct facts remain distinct. `member_count()` can be the sole
+Metric and its explicit member domain remains a real dependency.
 
-When Query keys must cross the DuckDB source boundary, they use an invocation-local
-Arrow relation with the planned key types. Consumers reuse that relation within
-its owning source connection without expanding each key into SQL predicates or
-literal unions. The source owner admits only its own key relations alongside
-qualified business sources and removes them when it closes, including failed
-invocations. These are physical arrangements; neither changes the captured Query
-dependency nor persists a previous execution's population. PostgreSQL int64,
-string, boolean and date key tuples can use typed arrays with one ordinal
-expansion. This bounds expression structure; the key payload still grows with
-the domain. PostgreSQL membership string comparisons preserve returned CHAR
-padding through the same JSON/UTF-8 byte route. Existing native Metric membership
-keeps its source collation semantics; byte comparison applies to newly moved
-host Query relations. MySQL complete int64/string/boolean/date tuples can use
-one invocation-local JSON membership object instead of per-key predicates;
-string components require verified binary NO PAD source collations. Other
-collations keep their native membership semantics. NULL, empty strings and
-complete tuple association remain distinct, including integers beyond 2**53.
-The object uses the active session's packet capacity and connection encoding;
-encoded JSON member lengths, document storage and final SQL request size are
-checked before the target read. Oversized domains fail with a repair to reduce
-the selected keys or adjust the datasource limit, rather than splitting and
-merging completed aggregates. Other key types and relation shapes retain their
-admitted inline route outside the qualified fusion subset.
-ClickHouse source compilation checks the active client's `max_query_size`
-override, or its cached server setting, against UTF-8 SQL including the driver's
-`FORMAT Native` suffix. Missing connection facts retain native enforcement;
-zero disables this parser-size limit only. Array transport bounds the expression
-tree, not request bytes. Trino's coordinator query-length configuration is not
-exposed by its current connection, so its typed-array route does not promise an
-arbitrarily large key domain. Parser depth, memory and HTTP/proxy limits remain
-native restrictions; no guessed universal key-count threshold is introduced.
-
-`session.observe(metrics, during=..., by=..., where=..., members=...)` binds the
-observation once. A tuple `by` classifies observed coordinates; a Population
-requests a complete output domain. The requested domain must cover every consumed
-contribution coordinate. `members` is a separate single-identity constraint and
-does not imply that this identity is an output axis.
-
-`member_count()` can be the only observed Metric, including on an empty or
-literal identity domain. Its member domain is an execution dependency even when
-no source reduction contributes values. Common conditions must be single-valued
-on that identity domain; they do not replace the selected members.
-
-Each source reduction occurrence retains its intrinsic conditions and receives
-common conditions independently. Multi-root Metrics reduce each fact root under
-its own identity and time role before combining complete output keys. Relations
-must not multiply a fact root's contribution merely because another root has more
-rows. Membership descriptors retain correlated tuples within one descriptor and
-independent allocation factors between descriptors. Repeated mappings of one
-contribution identity to one bucket count once; equal-valued distinct facts do not.
-
-`Metric.per(samples)` evaluates its entire child Metric at each internal sample
-before reducing. An explicit sample Population selects complete internal samples,
-including empty samples under the child policy. Internal subset selection does
-not imply external output-domain coverage. Boolean predicates retain ordinary NA
-logic; source Null Field coordinates remain valid complete keys.
+`Metric.per(samples)` evaluates the whole child Metric at each internal sample
+before reduction. Explicit samples include empty samples under the child's
+policy. Internal subset selection is not external output-domain coverage.
+`members` selects contributing identities; it does not add an output axis.
 
 ## Time and window authority
 
-`session.instant` and `session.time_scope` are the only analysis time constructors;
-there are no module-level aliases. They freeze the Session or explicit timezone.
-Scope boundaries are exact UTC `InstantAnchor` values. Dates and offset-free
-strings use that zone; aware inputs preserve their instant. Naive Python
-datetimes and ambiguous or nonexistent wall clocks reject.
+Session instant/time_scope freeze exact boundaries. Dates and offset-free strings
+use the Session or explicit zone; aware values preserve their instant. Naive
+Python datetimes and ambiguous/nonexistent clocks reject. `during=None` adds no
+ordinary time filter; temporal sampling/windows keep their own explicit needs.
+A CalendarAxis captures nominal buckets, clipped actual intervals, order, Grain,
+timezone and certified snapshot. Any calendar in by=Population must agree with
+during. A snapshot-bound named Grain must match the Session's frozen authority.
 
-`scope.by(mv.grain("day"))` captures nominal buckets, clipped actual intervals,
-order, timezone, Grain and any certified calendar snapshot. Calendar products
-retain factor order and exact bindings. A calendar does not infer a Metric
-window: window endpoints are bound through the observation's `during`.
-`during=None` adds no ordinary time filter, while temporal sampling and window
-closures still require their own explicit period or endpoint.
-When `by=Population` already contains an observation calendar, it must match the
-calendar supplied by `during`; conflicting bindings reject during construction.
-
-Metric.window is the only window attachment. `all_history`, `trailing_duration`,
-`trailing_periods`, `since` and `to_date` are axis-free immutable rules. Each
-endpoint evaluates the full child formula over its own half-open W(t); the display
-start does not clip an earlier contribution window. Fixed durations use elapsed
-time; periods use the complete civil or certified calendar. Scalar to-date selects
-the reset period with `left < endpoint <= right`. Nominal calendar buckets also
-require unique containment. Windowed original rollup must preserve the same
-calendar axis and endpoints; changing the window requires a new observation.
+Metric.window is the source window attachment. all_history, trailing_duration,
+trailing_periods, since and to_date are immutable rules. Every endpoint evaluates
+the full child formula over half-open W(t); display start does not clip lookback.
+Elapsed durations and civil periods differ across DST. Changing the source
+window/calendar requires a new observe; Frame reduce cannot coarsen a calendar.
+Frozen Frame interpretation and matching never reload a model or timezone rules.
+See [Timezones and Calendars](timezone-and-calendar-design.md).
 
 ## Query values and composition
 
-Query owns value selection, filtering, Top-N and result reduction. A Column can
-be used only on its exact input; cross-input arithmetic requires explicit
-alignment or complete reference transport. `select` preserves output names and
-units. `top` breaks ties by complete keys and preserves its selected display
-order. `reduce` provides sum, mean and row_count over current represented cells;
-it does not recompute the original Metric.
-For Duration expressions, a zero `timedelta` literal adopts the other operand's
-exact tick unit; nonzero operands retain the matching-tick requirement.
+This retained section anchor now describes Frame values; Query is retired.
+Supported data operations are select/arithmetic, same-input boolean where, global
+top, reduce over existing complete axes, full-axis align/compare and bounded
+frozen-calendar match. User value names are one nonempty segment: no dot,
+backslash/control characters or reserved left_present/right_present names.
+Generated paths use dots. output_names lists only values, in definition order;
+presence_names lists independent boolean presence paths. `__getitem__` performs
+exact full-name value/presence lookup; coord uses a FrameAxis, never a value name.
+Composite axes remain complete handles; coord requires one physical component.
 
-Source recomputation by rollup/drill may read changed data after the parent read.
-Parent where/Top completes its checks and fixes complete selected keys; the target
-recomputes the original formula over current contributions under those keys and
-the captured period and predicates. It does not rerank the parent. Inserts,
-updates and deletes may change the answer; empty contributions retain their
-existing policy. No shared snapshot, cross-read equality check or retry is required.
-This applies to every datasource, including DuckDB, PostgreSQL and MySQL. Neither
-a base-table kind nor a transactional storage engine is required to keep the
-parent and recomputation data unchanged. Physical types, key collations and
-numeric-method qualifications remain independent requirements.
-New drill classifications may follow declared scalar paths to related Entities
-after filtering, ranking, original-column selection or original rollup, under
-the same selected-parent and attribute-version rules.
+Where/top/select retain axes and presence. Reduce keeps selected axes and drops
+all presence. Statistics use independent effective masks. Row mean, distinct or
+sum does not regain original contributions: row mean 55 differs from original
+1000/91, and summed distinct 4 differs from union distinct 3. New source overall
+questions require explicit Metric observation; there is no equivalent reduce
+replacement for original rollup/drill/share.
 
-Alignment, comparison, broadcast, original rollup, endpoint drill and share follow
-the [target operator contract](lazy-analysis-dsl-redesign.md#46-查询结果与值表达式)
-and require their qualified physical route. Correspondence checks complete unique keys;
-presence is independent of nullable values. A relative comparison divides the
-absolute difference by the absolute baseline and owns only its new denominator
-policy. Decimal comparison arithmetic is independent of the caller's Decimal
-precision context. Matching-tick Duration endpoints retain Duration current,
-baseline and absolute columns; their relative difference is numeric. Unknown
-endpoint kinds remain unresolved until schema preparation.
-General arithmetic never acquires a share contribution proof.
+Align preserves left/right value groups and adds left_present/right_present,
+then prefixed inherited presence. Compare requires equal value-name sets and
+compatible numeric types/units, emitting left/right/absolute/relative groups in
+left output order. Relative is `(left-right)/abs(right)`; missing endpoint or NA
+makes differences NA, with zero policy applied only to valid pairs. Duration
+endpoints/absolute stay Duration; relative is dimensionless. Exact checks full
+joint keys; outer preserves left rows then right-only rows. Matching names never
+rebind handles. Complete explicit on is required except zero axes or one sole
+calendar axis per side. Match is an explicit rule, never inferred from periods.
+Paired inputs cannot be aligned again in this first surface.
 
 ## Definition graph and compiler
 
-Construction, repr, Help and logical object inspection read no business rows or schemas
-and create no Run. Captured definitions remain immutable. At a reference-resolving
-consumer, same-path definition changes alone do not reject the input; kind, root,
-complete grain, unit, time and null constraints still apply. No live refresh,
-module replay or source snapshot is inferred. Fingerprints describe the definitions
-and policies actually consumed and are not saved in the Artifact.
+Expression construction captures immutable explicit dependencies. Finalization
+closes authoring capture; consumers use their completed scope, without live
+refresh or import replay. Fingerprints describe consumed definitions; they are
+not exact input binding or automatic historical result selection.
 
-Execution preparation resolves real source schemas, supported physical type families,
-connections and per-use paths before passing source-free facts to the compiler.
-Each field occurrence is validated before sharing its physical column, so a native
-read cannot hide a later invalid anchor or route. Datasource Timestamp and Duration
-metadata remains authoritative across Entity projections. The 2026-10-17 revised
-source contract accepts native Ibis/provider numerical precision loss. Ibis lowering
-adds no casts solely to standardize backend result dtypes or preserve transport
-precision; conversions required by business semantics remain. Backend return-type
-differences are handled at the existing pandas-to-StageOutput boundary, retaining
-keys, null policies, units and time semantics. Downstream stages and publication
-use the resulting effective types; casting cannot recover lost source precision.
-This applies to direct fields, reduction values and internal components. Preparation
-qualifies the actual backend's expression and method before Run admission; source
-execution uses its native Ibis-to-pandas path. Unsupported exact methods reject
-without using an approximate substitute. See the
-[source handoff contract](lazy-analysis-dsl-execution.md#151-ibis-原生返回与-pandas-类型交接)
-and [remote implementation sequence](../../superpowers/plans/2026-10-13-lazy-analysis-dsl-redesign-implementation.md#81-远端数值-query-最小实施顺序).
+Preparation obtains required schemas/connections and validates each use before
+sharing physical work. The compiler fixes demands, full keys, stage dependencies,
+checks and lifetimes. Source Ibis returns pandas; local stages reuse pandas and
+qualified numerical kernels. PyArrow handles storage and qualified key transport.
+There is one schedule, with fixed input read sharing and consumer-count release;
+no alternate executor, hidden SQL engine or fallback/retry of unsupported methods.
+Strict checks occur before pruning and cannot disappear under Top-0/projection.
 
-The compiler fixes source IDs, demand slots, complete keys, stage dependencies,
-method routes and consume/publish checks. Source Ibis executes through the selected
-datasource and returns pandas. Local stages use pandas and the existing numerical
-kernels. PyArrow encodes terminal data and invocation-local transferred key
-relations. No hidden local SQL
-engine, Artifact scan, alternate executor or runtime route retry is introduced.
-Current optimization qualification includes finite filter fusion, RequiredSlots,
-invocation-scoped reuse, same-input exact direct-source sum/count blocks and L8
-adjacent single-consumer original rollups over identical ordinary components.
-The latter routes admit exact int64/Decimal components and direct retained-axis
-maps; they preserve every ordered intermediate finish and overflow check. Typed
-prepared input authority, not Ibis AST equality or Entity names, establishes a
-common source. Independent occurrence/value/check slots and consumer counts
-survive one physical read. Float sums, internal samples, windows, differing
-policies, pending checks and selection/share or multi-consumer barriers retain
-their separately qualified routes. This is finite positive qualification, not
-general permission to fuse source computations or original reductions.
-Remote source blocks retain the unfused route until their own numerical and
-behavioral equivalence is established. Backend-specific time preparation and
-temporal rewrites use the actual selected engine for observe, read and drill.
-A required check consumes its actual producer output before the declared deadline;
-selection or projection cannot erase that obligation.
-
-Qualified DuckDB terminal field chains keep direct projections, nullable filters,
-Top-N and exact int64 cell sum/row_count at the source. Top display order is
-restored locally over the bounded returned rows. Qualified ordinary original
-rollup, drill and additive share can also keep contribution identities and raw
-values at the source. Multiple roots on one DuckDB source session reduce
-independently and align completed grids, preserving each root's identities and
-empty policies. Parent selection and every required fine-grid check remain
-part of the plan, including empty selection. Qualified integer mean/weighted
-mean and integer quantiles transport compact exact states to the existing host finisher instead
-of changing the original arithmetic. A plain observation followed by spatial
-rollup can transport grouped internal samples and bound calendar/window leaves
-in one statement. The existing local kernel checks the fine formula before
-finishing the target formula, preserving explicit finite empty samples, complete
-internal identities, endpoint occurrences and lookback periods. Source-backed
-sample domains retain their independently captured period and travel in the same
-statement. Sample/window parents with Top-0/Top-1, or a coordinate predicate
-fixing every removed coordinate, can finish selection locally over grouped
-leaves before finishing the selected target. Complex drill retains the full
-selected parent key and checks added attributes after selection. Nested plain
-spatial rollups retain every intermediate finish and overflow check. DuckDB
-originals qualify typed table and CSV/Parquet/JSON inputs with their actual owner
-and collation facts. Explicit/default collation or unverifiable inherited view
-collation retains the existing boundary. Selected file recomputation passes fixed
-parent keys to a later read; it does not rerun the parent selector against changed
-file data. Direct Query
-string comparisons, ordering and membership use UTF-8 bytes, preserving pandas
-case-sensitive behavior even on collated DuckDB fields. Float and Decimal
-source reductions use qualified native completed values; fractional values do
-not pass through integer-state truncation. DuckDB/PostgreSQL Decimal median and
-quantile recomputation uses the existing exact native method, accepting its
-rounding without requiring the local rational interpolation result. This does not
-substitute approximate quantiles on other providers. Other sample selections
-and unqualified temporal rewrites retain their separately
-qualified routes. Plain Calendar sums and their Metric formulas can return grouped
-leaves independently from each source owner. The existing host formula checks the
-complete fine parent before target reads begin. Each root retains its own time
-field, period, filters and identity. Legal plain Calendar coarsening, such as day
-to month, regroups original contributions using the target Calendar; it does not
-sum completed parent values or relax the fixed time-axis contract for windows.
-
-PostgreSQL and MySQL original recomputation have their own finite qualification: direct,
-signed integer, float or Decimal values, including nullable operands, and complete
-nonnull identities from table relations,
-supported source methods, and deterministic string
-coordinate collations (MySQL requires binary NO PAD). Sum/count/distinct/min/max
-and PostgreSQL integer quantile bounds
-retain their owning methods; share uses the original local integer division.
-Integer mean/weighted-mean use compact states; fractional native values retain
-their source numeric finish. Qualified row arithmetic and Metric formulas follow
-their existing numeric lowerers, retaining NULL, overflow and division checks.
-Multiple roots on the same source session reduce independently, then align
-completed grids through a distinct complete-key domain and left joins; their raw
-facts are never multiplied across roots. Qualified parent where/Top can finish on the
-host and parameterize a later source read with complete selected keys, without
-transporting the parent's raw contributions. No fidelity-only
-numeric cast or alternate cursor transport is added.
-
-Qualified DuckDB, Trino and ClickHouse align, compare and broadcast join source endpoint relations and
-return only the joined carriers and independent check summaries. The existing
-host relation kernel owns exact-key correspondence, missing-cell policies,
-arithmetic and final layout/order. Presence is distinct from a present null
-value; downstream Top-0 cannot erase endpoint failures. The Trino/ClickHouse
-route currently admits complete string axes. ClickHouse explicitly makes outer
-join input carriers nullable, including presence, preserving absent sides under
-both `join_use_nulls=0` and `1`. Other remote relation joins,
-transformed/calendar correspondences and Top-ordered broadcast
-targets retain their original route.
-Trino and ClickHouse original recomputation is qualified by the actual physical
-input, supported expressions and native pandas handoff. Parent and target reads
-need no shared snapshot. For selected recomputation, the checked parent finishes
-where/Top on the host and passes only its complete selected keys to a later source
-read. The target retains those keys even if another group later ranks higher.
-Typed arrays transport the key tuples without a per-row UNION expression tree;
-the request still grows with the selected key data.
-The finite ordinary route admits same-session table roots with signed integer,
-float or Decimal operands, including nullable values, qualified row arithmetic
-and Metric formulas, and string coordinates:
-sum/count/min/max/exact distinct and qualified native mean/weighted-mean.
-Trino and ClickHouse also admit integer mean/weighted-mean states finished by the
-existing host owner. Native source calculation and pandas conversion may lose
-precision relative to the original host route, including Trino compact Decimal
-totals. This accepted rounding difference does not trigger fallback. Subsequent
-filters and rankings use the recomputed values. The parent retains its existing
-numeric method before value selection, and completed parent selections stay fixed.
-Trino does not require Iceberg; ClickHouse currently requires MergeTree.
-Same-owner Trino/ClickHouse spatial rollups of per/window formulas transport
-grouped sample leaves for both fine and target phases. The existing host formula
-kernel retains sample identity, captured sample domains, lookback rows and fine
-errors, including empty policies and zero denominators. It never averages already
-completed parent means to obtain the rolled-up sample mean.
-Selected per/window spatial rollups first complete the parent formula and
-where/Top on the host, then pass complete parent keys to the source. Multiple
-selected parents sharing a sample are recomputed from their combined contribution
-identities, not from their finished parent means. Window selection retains the
-complete endpoint/sample tuple. A source change may alter target contributions
-but cannot rerank the completed parent selection.
-Other cross-owner complex formulas, remote sample-domain reads, complex sampled drill, numeric
-coordinates and Distributed topology retain their existing routes.
+Native source sum/mean/weighted/ratio routes include PostgreSQL, MySQL, Trino and
+ClickHouse with their actual expression/type/topology qualifications. Native
+Ibis/provider numerical precision loss is accepted; pandas handoff determines
+effective value types. Keys, units, time and null correctness remain strict.
+Exact and approximate methods never substitute. Historical source optimization
+qualification does not qualify fixed Frame fusion or a new public Frame pipeline.
+See [Runtime coverage](../../testing/runtime-coverage.md).
 
 ## Terminal publication, reading and acceptance
 
-Every admitted execute is a new Run evaluating its inputs. Shared definitions do
-not promise common reads, stable source versions or a cross-source snapshot.
-A successful invocation atomically publishes typed output, necessary attachments,
-Findings and actual Evidence. Mean components, internal sample relations and other
-execution-only state are released, not made into a saved continuation.
+Evaluate before Run admission. A Run publishes an existing result ID through the
+single Store 12 transaction. Memory persist does not evaluate; stored persist
+is metadata-idempotent. One result audit retains inherited source facts and its
+current evaluation, not producer history. SessionGraph is a publishing graph,
+not complete data lineage. Unknown outcome uses original transaction reconciliation.
 
-Artifact exposes `id`, `session_id`, `show(n=20)`, `to_pandas()`, `findings()` and
-`evidence_digest()`. It has no contract, Column, Population conversion or DSL
-method. `session.artifact(id)` opens exact committed metadata without current
-Catalog/source access or Parquet scans. New and reopened handles share the same
-reader; preview is bounded, complete export is isolated, and consumed receipt
-verification can still read a whole part. Store 11 retains only same-Session
-Run-to-Artifact production topology, with no consumed Artifact references. Store 10
-and earlier formats reject without rewriting or migration. Detailed transaction,
-concurrency and resource contracts belong to [Runtime](session-state-and-runtime.md).
+Complete data has no model, producer graph, connection or aggregate components.
+Reopen and fixed operations need no source. Full export/compute validates required
+data and attachments. show(n=0) and Artifact audit read no payload; positive show
+resolves a saved prefix without claiming unread integrity. Raw-key MultiIndex
+export and isolated typed attrs preserve labels/bounds/paired interpretation.
+Exact order and presence/NA remain independent.
 
-Static/type checks, local DuckDB tests, remote Runtime tests and release acceptance
-are different evidence. Source capability follows the exact backend, dtype and
-method route; a successful preview or an API signature does not qualify all routes.
-The current DSL excludes specialized statistical/forecast/attribution result
-families. Export to pandas for those tasks, preserving full keys and NA/presence.
-
-`observe` makes the output grain explicit: `during=TimeScope` filters only; a
-`CalendarAxis` adds time buckets. Empty `by=()` evaluates overall Metrics per
-bucket (or one scalar without time buckets). A grouped Query can produce
-subtotals through `rollup(by=retained_axes)`, which recomputes original ratios
-and averages from contributions rather than reducing displayed values. Different
-requested grains produce separate Queries and committed Artifacts.
+Store 12 refuses older data unchanged without migration/dual read. Absent-current
+discovery may return None/empty without exposing old data; old-only projects
+cannot initialize a bypass. See [cutover](analysis-frame-cutover.md). Static,
+local, process/slow, provider Runtime and release evidence remain distinct.

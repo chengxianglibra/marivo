@@ -1,6 +1,6 @@
 # Timezones and Calendars
 
-Status: current source, observation and terminal time contracts, 2026-10-17.
+Status: AnalysisFrame cutover source and frozen-data time contract, 2026-10-19.
 Exact physical/backend routes require their own qualification. The complete
 window and correspondence targets are owned by
 [Lazy DSL time](lazy-analysis-dsl-redesign.md#49-滚动窗口累计与期间比较).
@@ -70,7 +70,7 @@ from the captured certification, not a scan of event minima or equal-looking lab
 
 Metric.window accepts only axis-free all_history, trailing_duration,
 trailing_periods, since and to_date rules. observe fixes output coordinates,
-endpoints and the window binding once. Query transports that binding; changing
+endpoints and the window binding once. The explicit source expression transports that binding; changing
 window, endpoint or evaluation grain requires a new observe.
 
 | Rule | Contribution range for endpoint e=actual_end(t) |
@@ -93,37 +93,47 @@ Each endpoint evaluates the whole Metric formula over its full W(t). Independent
 windows are completed before corresponding the endpoints. Overlap retains the
 (output key, component, contribution occurrence); it is not a global deduplication.
 A window never expands explicit member selection or a child intrinsic filter.
-Time sampling checks apply to the actual demanded child samples. Windowed original
-rollup must keep the same calendar and W(t); only qualified spatial rollup is
-allowed. Calendar coarsening/removal/replacement cannot sum completed window values
-into a new original window.
+Time sampling checks apply to the actual demanded child samples. Completed Frame
+operations do not change that source window or retain its internal samples. A
+new window/calendar or original target observation requires explicit source
+construction; summing represented window values is a different current-row question.
 
 ## Period correspondence
 
-Axis-free ordinal requires one calendar per side, equal resolved Grain and boundary
-zone, compatible builtin authority or the same certified snapshot/level, and complete
-nominal buckets. Pairing uses original bucket position even after selection.
-exact requires equal bucket counts and complete key images; outer keeps the longer
-tail and False side presence without resampling or fabricating a bucket.
+Frame align/compare uses full explicit on, except zero axes and exactly one sole
+calendar axis on each input. Match is always an explicit choice. It requires
+exactly one compatible calendar pair and rejects already paired inputs. All
+matching consumes finite frozen directories and versioned pure rules, without
+current CalendarAxis, model, certification or timezone-rule reconstruction.
 
-period_offset(by=-1) moves one position in the true complete calendar order: on a
-day axis it is yesterday, on an hour axis it crosses DST folds in chronological
-bucket order. Certified offsets require the same exact snapshot and sufficient
-coverage. An out-of-coverage predecessor fails rather than becoming an ordinary
-missing business endpoint.
+Each directory has exact physical keys, original nominal label/ordinal and
+nominal/actual boundaries. Match requires compatible continuous nonoverlapping
+complete nominal partitions, with actual bounds equal to nominal bounds. This
+structural admission applies even after where/top; removing rows cannot hide
+partial buckets. Ordinary reading/equality without match does not gain that
+complete-bucket requirement. Corrupt/missing records are integrity errors.
 
-previous_year supports builtin day/month/quarter/year same-name periods. Week,
-subday and 53-week retail calendars have no implicit year mapping. A daily leap
-day has no counterpart and must not be clamped to February 28 or shifted by 365
-days. exact rejects the incomplete correspondence; outer preserves the missing
-side and its presence. A full February/month/quarter/year containing a leap day
-can still correspond to the full same-name period in the prior year.
+Ordinal uses original full-domain positions and never compresses after selection.
+Builtin period_offset supports day/week/month/quarter/year by nominal label
+arithmetic followed by lookup in the other saved directory. previous_year supports
+builtin day/month/quarter/year and leaves leap days unmatched; it does not clamp
+February 29 or subtract 365 days. Named calendars support only ordinal with the
+same frozen identity/digest/level/timezone. Named offsets, subday/DST offsets,
+multiple calendar matches and arbitrary relation maps are postponed.
 
-Nonidentity paired output retains both original calendars as projections.
-compare(time_axis="current") requires a current date on every actual output row;
-outer cannot discard baseline-only rows or invent their current coordinate.
-Endpoint windows complete before this mapping, so mapping daily children across
-years is not an alternative implementation of the baseline's own rolling window.
+First build a stable partial one-to-one directory map, including one-sided buckets;
+then apply exact/outer to actual complete row keys. Unused directory buckets do
+not create output rows or cause exact failure. Unmatched actual rows fail exact;
+outer retains them with independent side presence. A full directory can contain
+a leap day that was filtered from actual rows, allowing exact on the remaining
+fully paired domain. Missing values and absent endpoints remain different.
+
+A matched result retains a single paired axis with an opaque key, both frozen
+endpoint descriptions and a complete map. Frozen interpretation is self-contained;
+show resolves labels/bounds/paired endpoints, and full export retains isolated
+typed attachments. There is no time_axis="current" projection, endpoint method
+or new public visible projection column. Endpoint windows complete before
+pairing; mapping daily rows cannot replace the baseline's own window computation.
 
 ## Physical precision and saved output
 
@@ -137,8 +147,8 @@ Parquet may encode timestamp[s] as timestamp[ms]; qualification uses the actual
 written schema, not the requested fixture type. Duration keeps exact s/ms/us/ns
 integer ticks. Calendar months/years never become fixed-duration seconds.
 
-Artifact saves actual coordinate values, UTC nominal/actual bounds, timezone and
-endpoint projections as data. Reopening uses those saved facts without current
+Complete Frame data saves actual raw keys, UTC nominal/actual bounds, timezone,
+original labels/ordinals and paired endpoint maps as typed data. Reopening uses those saved facts without current
 Catalog, calendar certification, host timezone or datasource access. It restores
 neither a window nor a calendar execution object. Source parser/backend conversion
 qualification remains distinct from the lossless saved-output read boundary.

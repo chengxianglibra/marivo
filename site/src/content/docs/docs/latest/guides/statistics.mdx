@@ -1,11 +1,12 @@
 ---
-title: Statistics on Query values and pandas output
-description: Separate current-cell reductions from post-execution descriptive analysis.
+title: Statistics on Frame data
+description: Separate current-row statistics from original source questions.
 ---
 
-This guide reuses the [local tutorial](/docs/latest/guides/python-quick-start/) and keeps original Metric evaluation distinct from result statistics.
+This guide reuses the [local tutorial](/docs/latest/guides/python-quick-start/).
+Its `current` and `baseline` are complete fixed memory Frames.
 
-## Reduce or select current cells
+## Reduce or select current rows
 
 {/* example: query-result-statistics */}
 
@@ -14,22 +15,30 @@ summary = current.reduce({
     "sum": current["revenue"].sum(),
     "mean": current["revenue"].mean(),
     "rows": mv.row_count(),
-})
-summary.execute().show()
-ranked = current.top(1, by=current["revenue"], descending=True)
-ranked.execute().show()
+}).compute()
+summary.show()
+ranked = current.top(1, by=current["revenue"], descending=True).compute()
+ranked.show()
 ```
 
-Query.reduce provides sum, mean and row_count. Sum ignores ordinary NA and returns NA for empty/all-NA input; mean is NA with no effective sample. row_count counts coordinate rows even when their value is NA. `by` uses existing complete axes or a lawful coarsened calendar. Top-N uses a Column from this exact input, optional partition_by, and deterministic complete-key tie breaking. Its display order survives reopening.
+Each statistic has its own effective non-NA sample. Sum is NA for empty/all-NA
+input, mean is NA without a sample, and row_count counts all represented rows.
+Reduce can retain existing complete Frame axes; it cannot coarsen a calendar.
+Top is global, uses this exact input's Column and preserves its deterministic
+order through persistence. There is no partition_by receiver.
 
-An average of regional revenue cells is a current-cell statistic. It does not replace an original overall Metric, whose formula and contribution permissions belong to rollup or a new observe.
+A row mean is not an original overall Metric. For example, values 10 and 100
+have row mean 55; source totals 1000 over 91 contributions have mean 1000/91.
+Distinct counts 2+2=4 can describe a union with only 3 identities. Use explicit
+source construction for an original overall question, not an equivalent-looking
+reduce or a retired rollup method.
 
-## Export for descriptive analysis
+## Export for unsupported descriptive work
 
 {/* example: pandas-descriptive-statistics */}
 
 ```python
-values = current.execute().to_pandas()["value"].copy()
+values = current.to_pandas()["value"].copy()
 revenue_values = values["revenue"]
 statistics = revenue_values.agg(["count", "sum", "mean", "median", "min", "max"])
 print(statistics)
@@ -39,18 +48,25 @@ if standard_deviation > 0:
     standardized = (revenue_values - revenue_values.mean()) / standard_deviation
 ```
 
-Pandas owns ordinary ranking, standardization, classification, correlation, forecasting and cell-level rolling statistics. State the chosen sample, NA handling, tie method, fit scope and uncertainty. These operations return ordinary data and do not produce a Marivo Query or Artifact. A high standardized value is not automatically a business anomaly.
+State sample, NA handling, tie method, fit scope and uncertainty for external
+ranking, standardization, correlation or forecasting. Such outputs are ordinary
+data and do not inherit typed Evidence. Exported data/attrs cannot be imported
+as semantic authority. The original Frame still supports its typed data methods.
 
 ## Pair one shared set of endpoint rows
 
 {/* example: pandas-paired-statistics */}
 
 ```python
-comparison = current.compare(baseline).execute().to_pandas()
-present = comparison[("presence", ("current",))] & comparison[("presence", ("baseline",))]
-pairs = comparison.loc[present, "value"][["revenue.current", "revenue.baseline"]].dropna()
-paired_difference = pairs["revenue.current"] - pairs["revenue.baseline"]
+comparison = current.compare(
+    baseline, on=((current.axes[0], baseline.axes[0]),),
+).compute().to_pandas()
+present = comparison[("presence", "left_present")] & comparison[("presence", "right_present")]
+pairs = comparison.loc[present, "value"][["left.revenue", "right.revenue"]].dropna()
+paired_difference = pairs["left.revenue"] - pairs["right.revenue"]
 print(paired_difference.mean())
 ```
 
-Presence and value validity are separate. Pair the common present, non-NA rows and retain their complete business keys; do not join independent outputs by RangeIndex. With Field Null categories, use dropna=False for a grouping that must preserve them. The sample and selection determine the meaning of a descriptive result; arithmetic agreement does not establish causality.
+Presence and value validity are independent. Keep complete keys and the common
+present/non-NA mask; do not pair unrelated exports by RangeIndex. Preserve Field
+Null categories with dropna=False where appropriate. Arithmetic is not causality.

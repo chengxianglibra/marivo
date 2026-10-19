@@ -16,9 +16,10 @@ description: 向 Agent 提供决策与范围，再审阅其有证据支持的回
 ## 理解 Agent 的工作
 
 Agent 验证所选环境、读取已有 catalog 对象，在一个 Session 中构造明确分析，
-并在下一决策需要结果时执行。执行前通过 Query/Population 的 `.show()` 查看已捕获输入，执行后通过 Artifact
-`.show()` 读取已提交行，对不熟悉的调用使用 focused Help。Artifact 是终端产物，
-基于保存数据的自定义追问使用 `.to_pandas()`。
+并在下一决策需要值时 compute。Population/Frame.show 披露捕获事实；继续使用返回的固定
+Frame，并 persist 需要跨进程保留的结果。Frame.show/to_pandas 读取数据，持久结果的
+`.artifact` 拥有审计。用 persisted_frame(id) 恢复精确数据；新来源问题需要显式输入。
+聚焦 Help 拥有调用，RawSqlResult 不进入类型化 Frame Store。
 
 可复用定义缺失时交给 `marivo-semantic`，认证修改的根，再回到原问题。
 终端 raw SQL 可回答已披露临时口径的问题，但其行不能进入 typed analysis。

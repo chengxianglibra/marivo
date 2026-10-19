@@ -6,124 +6,107 @@ marivo.analysis
 .. automodule:: marivo.analysis
    :no-members:
 
-Lazy inputs and terminal output
--------------------------------
+Immutable analysis data and explicit source inputs
+---------------------------------------------------
 
-``Population`` is a finite logical coordinate domain. ``Query`` binds named
-quantities; ``Column`` locates values on its exact input. Compose all DSL work
-before ``Query.execute()``. The returned ``Artifact`` has identity, bounded
-``show(n=20)``, complete ``to_pandas()``, paged ``findings()`` and
-``evidence_digest()``. It has no contract or DSL continuation.
+``Population`` is a finite complete coordinate domain. ``AnalysisFrame`` is one
+immutable data type with expression, complete memory and exact stored carriers.
+``Column`` and ``FrameAxis`` bind to the exact input. ``observe`` binds Metrics,
+``read`` binds nonempty fields to one Entity identity domain, ``values`` declares
+literal rows, and ``frame`` binds general Population keys, including zero axes.
+Construction and inspection perform no business read or publication.
 
-``session.observe(metrics, during=..., by=..., where=..., members=...)`` consumes
-resolved native Deferred Metrics. ``session.query(population)`` creates a
-keys-only Query. ``session.values`` captures named literal references on complete
-Field/identity coordinates. ``session.read(population, fields)`` is the unique
-attribute-read entry: one explicit Session, one Entity identity axis and a named
-Field mapping. There is no Population.read or ambient Session lookup. Computed
-Measure expressions belong in observe.
+Use the returned ``compute()`` Frame for complete fixed memory data and the
+returned ``persist()`` Frame for committed data. Derived operations remain lazy.
+Reopen with ``session.persisted_frame(artifact_id)`` in the exact Session; the ID
+must be a string. ``frame.artifact`` is available only for a persisted root and
+provides audit-only ``show()``, ``findings()`` and ``evidence_digest()``.
+Frame owns ``show(n=20)`` and ``to_pandas()``. Artifact is not a computation input.
 
-Populations support complete-key projection, sets, classification and declared
-identity image/preimage. Explicit identities require a resolved Entity and every
-primary-key component; a literal key does not prove source presence. Members
-selection and attribute versions retain their explicit binding. Query-owned
-columns are combined only after compatible input binding, align or broadcast.
-``Query.coord(axis)`` constructs without source access; preparation rejects a
-composite identity coordinate as a scalar quantity. Complete compound keys remain
-valid output coordinates, Population tuple predicates and export keys.
+Current data operations
+-----------------------
 
-Time scopes and instant anchors are acquired through the explicit Session.
-There is no module-level time constructor alias.
+``select`` derives named values; ``where`` accepts a same-Frame boolean Column;
+``top`` is global and deterministic. ``reduce`` uses current represented cells,
+with independent valid masks per statistic. It does not recompute original
+Metrics. New facts or original overall questions require explicit source inputs.
+``session.population_from(frame, on=...)`` projects jointly selected ordinary
+complete axes onto explicitly supplied Field/Entity bindings. ``on`` is required
+and may be empty. Calendar/paired axes and arbitrary value columns cannot bridge.
 
-Query operations
------------------
+``align`` preserves each side's values; ``compare`` emits left, right, absolute
+and relative value groups. Relative change is ``(left-right)/abs(right)``.
+Presence is separate from NA; missing endpoints never become zero. Ordinary
+axes require complete explicit ``on``. Only zero axes or one sole calendar axis
+permit the specified inference. Handles cannot be rebound by matching names or
+fingerprints. ``coord`` accepts a single-component complete axis; composite
+identities remain complete keys, not one scalar quantity.
 
-``select`` derives values; ``where`` and ``top`` select represented coordinates.
-``reduce`` computes sum, mean and row_count over current cells. ``rollup``
-recomputes qualified original Metrics and ``drill`` constructs new endpoint
-observations. ``share`` retains its actual input and partition denominator.
-``member()`` locates exactly one existing identity axis; extra classifications
-must remain single-valued for that identity.
+``ordinal``, supported builtin ``period_offset`` and ``previous_year`` consume
+frozen finite calendar directories. Matching validates complete compatible
+nominal partitions and actual boundaries. Paired output retains both endpoint
+descriptions and a self-contained map. It does not reconstruct a CalendarAxis,
+current model or timezone database. Relationship correspondence, broadcasting,
+calendar coarsening, partitioned top and original rollup/drill/share receivers
+are outside this Frame surface; current-row reduce is not their equivalent.
 
-``align(..., how="exact"|"outer", match=...)`` uses left/right roles.
-``compare`` uses current/baseline and emits each quantity's endpoints, absolute
-change and relative change. Relative is ``(current-baseline)/abs(baseline)``;
-zero_denominator controls this new relative only. Presence is independent of NA.
-No missing endpoint is silently replaced with zero. Correspondences are axis-free
-rules; binding chooses each endpoint's unique compatible calendar or identity.
+Time, values and reading
+------------------------
 
-``ordinal`` pairs complete original calendar positions without compressing filters.
-``period_offset`` moves in true calendar order; ``previous_year`` maps builtin
-same-name day/month/quarter/year periods and leaves leap days unmatched.
-Nonidentity output retains its original endpoint projections. ``broadcast``
-requires a complete unique covering target-to-reference projection, including
-all reference axes. A one-row grouped reference is not a zero-axis scalar.
+Session time constructors freeze exact timezone-aware boundaries. Source time,
+report time and calendar time remain distinct. Metric.window captures explicit
+source windows before observe. Full original source formulas, per samples,
+units, null/empty policies and backend method qualification retain their owners.
+Source or internal sum defaults to NA for empty/all-NA input; explicit
+``empty="zero"`` selects zero. Mean/extrema/quantiles have no effective value
+without a sample. Boolean is not numeric. Strict child errors cannot be hidden
+by projection, Top-0 or a parent policy.
 
-Time and numerical boundaries
------------------------------
+Numerical source routes qualify the actual backend, expression, physical type
+and method. Native Ibis/provider precision loss is accepted at source handoff;
+keys, units, time and null correctness remain strict. Native sum/mean/weighted
+and ratio routes include PostgreSQL, MySQL, Trino and ClickHouse; this code scope
+does not establish a new provider Runtime qualification. Exact source quantiles
+remain specifically qualified; exact and approximate algorithms never substitute.
 
-``session.instant`` and ``session.time_scope`` freeze exact boundaries and timezone.
-Naive Python datetimes and ambiguous/nonexistent clocks reject. ``scope.by(grain)``
-creates nominal/actual calendar buckets; ``CalendarAxis.coarsen`` constructs a
-candidate consumed only when every fine nominal/actual bucket maps uniquely.
-Windowed original rollup must preserve its existing time axis and endpoints.
+``show(n=0)`` and Artifact audit read metadata only. Positive show decodes the
+saved prefix plus needed frozen coordinate records, without full export/head.
+Receipt verification or Parquet decompression can read more than that prefix.
+Full stored compute/export validates complete required payload and attachments.
+Export preserves exact row order, raw-key MultiIndex, nullable types and isolated
+typed frozen-interpretation attrs. Exported attrs cannot reenter computation.
 
-Window rules attach through Metric.window before observe: all_history,
-trailing_duration, trailing_periods, since and to_date. Complete child formulas
-are evaluated separately at each endpoint before comparison. Fixed elapsed time
-and civil periods retain different meanings across DST.
+Evaluation, publication and recovery
+------------------------------------
 
-After source handoff, nullable int64, float64, Decimal, date, aware timestamp and
-Duration preserve their qualified physical contracts. Default empty/all-NA sum is
-zero; explicit source/internal sum empty="null" yields NA. Mean/extrema/quantiles
-yield NA without an effective sample. Strict policies, nonfinite values, overflow, missing mappings
-and required coverage fail the invocation. Exact quantiles never silently become
-approximate reductions. Exact source median/quantile currently admit only DuckDB
-and PostgreSQL; MySQL, Trino and ClickHouse reject those methods before Run admission.
-DuckDB native INTERVAL requires a source-native rejection
-of year/month/day components and is then admitted in microseconds.
+Compute creates no Run, Artifact or temporary saved result. Expression persist
+completes evaluation first, then publishes that existing result ID through the
+single Store 12 writer transaction. Run means publication; evaluation can precede
+admission. Memory persist never reevaluates. Stored persist validates commit
+metadata and returns itself without another Run. A derived Frame never exposes
+an ancestor Artifact. Unknown publication outcome is reconciled, not recomputed.
 
-Execution, recovery and qualification
--------------------------------------
+Completed data owns source-free values, coordinates, presence and one audit:
+inherited source facts plus the current evaluation. It retains no producer,
+semantic graph, connection or hidden aggregate components. Read, evaluation and
+commit times remain separate. Session graphs retain Run-to-Artifact publishing
+edges and do not promise complete data lineage.
 
-Construction and contracts read no business rows or schemas and allocate no Run.
-Execute prepares actual schemas and a pure fixed schedule before admission;
-source templates are prevalidated and actual instances checked again. Source
-Ibis returns pandas; local kernels use pandas, while PyArrow owns terminal data
-encoding/reading. Numerical source routes use the selected backend and qualify
-the actual expression, physical types and method before Run admission. Unsupported
-native methods reject specifically; exact and approximate algorithms never
-substitute for each other. Backend access alone does not qualify a numerical route.
-
-Source computation accepts native Ibis/provider numerical precision loss. The
-pandas handoff resolves effective numerical types for local consumers and the
-published schema; it does not cast values back merely to match source declarations.
-Complete keys, null policies, units and time semantics still apply. Saved-output
-fidelity concerns the values actually committed.
-
-Every admitted execute is a fresh evaluation. Atomic Store 11 publication commits
-output, Findings/Evidence and success together. Metadata opening by exact Artifact
-ID needs no current Catalog, source or Parquet scan. New and reopened Artifacts
-use the same saved-output reader; receipt verification may read a full consumed
-part even for bounded preview. Older graph/continuation formats reject unchanged.
-Pandas export keeps complete keys, NA, presence, projections, timezone and order;
-its data-only metadata carries no executable semantic authority.
-
-Session graphs contain same-Session Run-to-Artifact production edges only.
-Run variants retain an invocation marker and lifecycle, without consumed Artifact
-references. Every selected Run is a root and every selected Artifact a head.
-Focused ancestors includes the producer; descendants returns the terminal Artifact
-alone. Boundary fields disclose omitted requested neighbors. Store 10 and earlier
-Stores reject without migration; the terminal output v1 codec is unchanged.
-
-The principal routes have focused local evidence. Full independent acceptance,
-remote Runtime checks and release gates are separate. Native Help and structured
-errors state exact signatures, admissible next operations and concrete repairs.
+Store 12 refuses older-generation Session/result/audit data unchanged, without
+migration or dual reads. Documented absent-current discovery may return None or
+empty; create/get_or_create cannot bypass an old-only project. Preserve required
+old results by exporting with their original version or retaining a compatible
+environment. RawSqlResult keeps its independent datasource reader and does not
+enter Frame Store. Static Help, actual local evidence, provider Runtime and
+release acceptance are separate contracts.
 
 Canonical public exports
 -------------------------
 
-.. autoclass:: Query
+.. autoclass:: AnalysisFrame
+   :members:
+
+.. autoclass:: FrameAxis
    :members:
 
 .. autoclass:: Column
@@ -141,13 +124,7 @@ Canonical public exports
 .. autoclass:: MemberAxis
    :members:
 
-.. autoclass:: CorrespondenceAxis
-   :members:
-
 .. autoclass:: CalendarCorrespondence
-   :members:
-
-.. autoclass:: DeclaredCorrespondence
    :members:
 
 .. autofunction:: identities
@@ -165,10 +142,6 @@ Canonical public exports
 .. autofunction:: member_count
 
 .. autofunction:: row_count
-
-.. autofunction:: broadcast
-
-.. autofunction:: corresponding
 
 .. autofunction:: ordinal
 

@@ -1,221 +1,90 @@
 ---
 title: 分析工作流
-description: 组合语义表达式、显式坐标域和窗口，再发布终端结果。
+description: 显式构造来源、固定数据，并使用完整 Frame 续算。
 ---
 
-## 按下一步决策读取指引
+## 为下一项决策读取指导
 
-`marivo-analysis` Skill 负责证据缺口、方法选择、语义交接和完成判断。
-未知能力从 `marivo.help("analysis")` 开始，沿相关意图找到精确契约。
-已有 Population 或 Query 时，查看 `.show()` 获取实例事实，通过类型 Help 发现操作。
-已保存的 Artifact 没有 contract，应查看 `.show()` 和保存的 Evidence。
-实际执行才检验来源与方法资格；捕获的逻辑事实本身不证明这些能力。
+marivo-analysis 技能负责问题范围、语义交接与完成判断。未知能力从
+`marivo.help("analysis")` 开始，只沿下一步需要的路线发现，不要求读完目录。
+Population/Frame.show 拥有已捕获结构，聚焦类型 Help 拥有调用，错误拥有修复。
+Catalog 定义卡、readiness、真实来源求值与保存数据证明不同事实。
 
-卡片通过有界的范围摘要区分成员选择与完整输出坐标域。执行后，此声明范围保存为
-Evidence，供以后读取。读取级 filters 只描述对应来源 stage，不枚举全部群体限制，
-也不证明来源完整。
+## 显式构造来源输入
 
-仅在不知道输入身份时浏览 `session.catalog.metrics.show()`。
-用 `session.catalog.describe(ms.ref.metric("sales.revenue")).show()` 检查定义元数据，
-再用 `session.catalog.metrics.get("sales.revenue")` 取得可执行表达式。
-Metric 和 Field 表达式不提供 Catalog 卡片。
+所有数据入口返回不可变 AnalysisFrame。observe 绑定已解析 Metric 和 during/by/where/members；
+read 将非空字段绑定到一个完整 Entity 身份域；values 声明字面量坐标与值；frame 绑定一般
+Population 键域，包括零轴与无命名值。构造与检查不读业务行或 schema，不创建 Run。
+未知身份按需浏览 Catalog，已知名称精确查找；没有顶层执行 Session 别名。
 
-## 从 Metric 构造 Query
+tuple by 按观察到的坐标分组，by=Population 要求完整输出覆盖；members 是独立身份约束，
+不会自动增加输出轴。Field Null 是合法类别，Entity 身份保留全部非空主键分量。
+classify/image/preimage 使用显式受治理依赖，字段保留 via/at 绑定。
+同路径定义变化本身不拒绝旧输入；kind/root/grain/unit/time/null 正确性仍要检查。
 
-从已声明的模型解析业务表达式。构造 Query 不读取 schema 或业务行，也不创建 Run。
-
-分析对象为 Population、Query、Column 和终端 Artifact。旧 Logical/Materialized
-接收器与 `mv.runtime_metric` 工厂已退役；应先组合解析后的语义表达式，再进行观察。
+## 下一项决策前固定值
 
 ```python
 import marivo
 import marivo.analysis as mv
-import marivo.semantic as ms
 
-session = mv.session.get_or_create("metric-review", report_timezone="UTC")
-revenue = session.catalog.metrics.get("sales.revenue")
-aov = session.catalog.metrics.get("sales.aov")
-region = session.catalog.fields.get("sales.customers.region")
-scope = session.time_scope(start="2026-01-01", end="2026-02-01")
-query = session.observe(
-    {"revenue": revenue, "aov": aov},
-    during=scope.by(mv.grain("day")),
-    by=(region,),
-    where=region == "APAC",
-)
-query.show()
-marivo.help("analysis.query.select")
-names = query.output_names
-result = query.execute()
-result.show(n=20)
+# Reuse the local tutorial's resolved inputs and Session.
+pending = session.observe({"revenue": revenue}, during=august, by=(region,))
+pending.show()  # Captured facts only.
+fixed = pending.compute()
+fixed.show(n=10)
+saved = fixed.persist()
+reopened = session.persisted_frame(saved.artifact.id)
+selected = reopened.where(reopened["revenue"] > 300).compute()
+selected.show()
+marivo.help("analysis.analysis_frame")
 ```
 
-`query.show()` 与 `population.show()` 展示捕获的元数据，不读取 schema 或来源。
-`query.output_names` 按定义顺序返回全部输出名。公开操作通过类型 Help 发现，例如
-`marivo.help("analysis.query")`；属性使用独立 target，例如 `analysis.query.output_names`，
-查询属性 Help 不执行 getter。终端 Artifact 提供已提交结果读取，不能进入 typed computation。
+compute 返回完整内存数据，persist 发布已经完成的结果。继续使用返回的固定 Frame 才保留
+精确值与键；派生操作仍惰性。原来源表达式再次求值可能读取变化后的数据，不代表历史复用。
+完整数据没有生产图、语义对象、连接或聚合组件。恢复需要精确 Session 身份和
+`frame.artifact.id`，不能由“最新答案”代替。
 
-每个贡献根到普通分组字段都需要合法的标量路径。用
-`field.via((relationship,))` 捕获显式标量角色；版本属性通过
-`field.at(session.instant(...))` 绑定精确时刻。绑定保持不可变。
-共同条件分别绑定到每个贡献使用位置。普通规约省略 `during` 不追加时间过滤；
-时间采样和窗口依赖仍要求显式期间或端点。
+Frame 在所有载体上支持当前行 where/select、全局 top、按已有完整轴 reduce、全轴
+align/compare 与受支持冻结日历 match。Column/FrameAxis 绑定精确输入。
+普通轴需要完整显式 on，零轴与各自唯一日历轴只有规定的推导。生成值路径按全名精确查询，
+不按后缀猜角色；presence 独立于 NA。
 
-## 选择实际坐标或完整坐标域
-
-普通 `by=(region,)` 按实际出现的坐标分组。Population 指定完整有限输出域，
-包含明确要求保留的空坐标：
+## 显式请求新来源事实
 
 ```python
-regions = mv.coordinates(by=(region,), keys=(("APAC",), ("EMEA",)))
-regions.show()
-query = session.observe({"revenue": revenue}, during=scope, by=regions)
-keys_only = session.query(regions)
-keys_only.execute().show()
+parents = session.population_from(selected, on=((selected.axes[0], region),))
+new_source = session.observe(
+    {"revenue": revenue}, during=july, by=(region,),
+    where=mv.in_population(parents),
+).compute()
+new_source.show()
 ```
 
-完整输出域必须覆盖所有实际贡献坐标。空总量按规约的声明策略解释，例如 sum 默认为 NA，显式 empty="zero" 时为零。
-来源 Null 类别与缺少坐标保持区别。
+桥接投影普通轴完整联合键，并显式提供 Field/Entity 绑定。on 必填，也可为空。
+它不重建语义历史、不把字段升级为身份；固定父键不重新排名，新读事实仍可能变化。
+日历轴、配对轴与任意值列不能桥接。by=Population 仍表示完整覆盖，不能当过滤条件。
+原整体均值/去重、新属性、窗口或粒度需要显式来源构造，当前行 reduce 不等于原量 rollup。
 
-`session.members(ms.ref.entity("sales.customers"))` 从来源选择实际存在的完整 Entity 身份。
-`session.members` 要求 Entity Ref；传入已解析 Entity 时，会返回具体的类型化修复指引。
-`mv.identities(session.catalog.entities.get("sales.customers"), keys=(("C1",),))` 则捕获明确的身份引用，不证明来源档案存在。
-复合主键仍是一个身份轴，包含按声明顺序排列的全部分量。identities 只接已解析 Entity，
-裸 Ref 须先通过 catalog 解析。
+## 保持来源贡献与时间含义
 
-显式身份域也可以单独计数，无须搭配其他 Metric：
+Metric.per 先在每个样本完成完整子公式再规约。显式样本 Population 按子政策保留空样本；
+内部子集不等于外部输出覆盖。membership 保留关联元组与分配因子，重复链接不重复同次贡献，
+等值但不同身份的贡献仍分别计算。多根公式先各自规约，再对齐完整域。
 
-```python
-people = session.members(ms.ref.entity("sales.customers"))
-headcount = session.observe({"people": mv.member_count()}, members=people)
-headcount.execute().show()
-```
+Metric.window 绑定显式来源窗口，每个端点完成自己的 W(t)，显示起点不截断回看。
+经过时间与民用期间不同，Session/parser/calendar 时区权威分离；输出日历必须匹配 during，
+已绑定快照的 Grain 必须匹配 Session 冻结权威。完整 Frame 解释不重载模型或时区规则。
 
-空身份域的计数为零。共同条件必须能在成员 Entity 上单值解释，并保留已选身份域。
+## 按边界读取数据与审计
 
-`query.coord(axis)` 定位标量坐标 Column；构造不读取来源，准备期在 Run 准入和业务编译/读取前
-拒绝把复合身份作为单量。完整身份仍保留为输出键，元组筛选用
-`query.population()` 与 `mv.in_population(...)`；需要单量坐标值时使用已有单字段轴。
+Frame.show(n=0) 仅元数据，正 n 读取有序前缀与所需冻结标签、边界、配对端点。
+完整 compute/export 验证全部必要消费数据。Artifact.show/findings/evidence_digest 只读审计，
+Artifact 没有 n 或 to_pandas。来源读取、求值与提交时间不同；Run 是求值完成后对已有
+result ID 的发布，compute 失败不创建 Run。未知提交通过 reconciliation 解决，不重新计算。
 
-Population 支持 `project(by=...)`、`union`、`intersection`、`difference`，以及
-`where(mv.in_population(other))`；谓词使用 `&`、`|`、`~` 组合。
-`classify(by=(field,))` 明确读取身份 Entity 的属性。
-`image(via=(relationship,))` 沿声明方向取得目标身份；
-`preimage(targets, via=(relationship,))` 仅保留接收者中匹配的身份。
-缺少必需属性或关系映射会失败；能由完整外键确定的目标引用不会因目标档案缺失而被删除。
-
-`mv.product(regions, calendar)` 按因子顺序形成完整笛卡尔坐标域。
-日历坐标绑定与观察期间必须相容，窗口端点仍需显式观察时间绑定。
-
-`query.population()` 捕获该 Query 自己的坐标选择、期间、条件、声明闭包和 Session。
-它仍保持惰性，另一次观察不会覆盖已捕获的选择上下文。
-通过 `session.query(population)` 发布完整键；Population 没有 `execute()` 方法。
-
-## 通过 Session 读取属性
-
-`session.read(population, {"region": region})` 返回保留完整输入身份键及命名属性量的 lazy Query。读取由显式 Session 拥有，没有 Population.read 别名或 ambient Session 查找。版本字段用 field.at(anchor)，标量路径用 field.via((relationship,))。缺少或重复必需映射在消费时失败，计算 Measure 应交 observe。
-
-## 显式分配重叠成员桶
-
-membership 描述绑定成员分桶字段与贡献分配路径。同一个描述内的多个字段保持相关。
-放入 `via` 前，使用 `session.catalog.relationships.get(...)` 解析每个 Relationship；
-裸 Relationship Ref 是查找键：
-
-```python
-tag = session.catalog.fields.get("sales.tags.label")
-order_links = session.catalog.relationships.get("sales.order_links")
-link_tags = session.catalog.relationships.get("sales.link_tags")
-tags = mv.membership(
-    tag, via=((order_links, link_tags),), unmatched="exclude"
-)
-query = session.observe({"revenue": revenue}, during=scope, by=(tags,))
-```
-
-同一完整贡献身份到同一桶的重复映射只计一次；值相同的不同贡献仍分别保留。
-多个独立 membership 描述形成独立分配因子。
-选择 `unmatched="null"` 可将未分配贡献保留在 Null 桶中。
-成员身份域使用相同描述进行 classify 时，直接读取成员字段，
-并为后续观察保留分配定义，不在分类时执行分配路径。
-
-## 规约完整的内部 Metric 样本
-
-`per` 先在每个样本坐标求完整 Metric 公式，再规约这些值。
-因此每客户比率的均值与总体比率保持不同含义：
-
-```python
-customer = session.catalog.fields.get("sales.orders.customer")
-customers = mv.coordinates(by=(customer,), keys=((1,), (2,), (3,)))
-query = session.observe({"mean_customer_revenue": revenue.per(customers).mean()})
-```
-
-字段或 membership 描述使用实际样本。显式 Population 选择完整内部样本，
-空样本按各自规约策略处理。内部样本可以选择子域；外部输出域必须覆盖实际输出坐标。
-整个组合过程保留精确坐标类型与 Session 归属。
-
-## 在 Metric 上声明端点窗口
-
-窗口规则属于 Metric；观察提供评价端点：
-
-```python
-from datetime import timedelta
-
-rolling = revenue.window(mv.trailing_duration(duration=timedelta(days=7)))
-query = session.observe(
-    {"rolling_revenue": rolling},
-    during=scope.by(mv.grain("day")),
-    by=(region,),
-)
-```
-
-`all_history()` 没有下界，`trailing_duration` 使用实际经过时长，
-`trailing_periods(count=...)` 要求日历期间，`since(start=...)` 保留精确固定起点，
-`to_date(grain=...)` 在民用或语义期间边界重置。
-所有窗口都在端点之前按左闭右开范围取贡献；实际裁剪后的输出端点与名义日历边界保持区别。
-
-## 执行并读取已提交输出
-
-执行先准备真实来源 schema 并固定计划，再准入 Run。每次调用重新求值输入，
-原子发布 Artifact。纯有限键程序在完成必需的类型准备后本地执行；
-来源驱动的域和 Metric 使用已获准的 datasource 读取。
-
-Artifact 是终端结果，可调用 `show(n=20)`、`to_pandas()`、`findings()` 和
-`evidence_digest()`。完整 pandas 导出是独立副本。
-用 `session.artifact(result.id)` 打开精确保存的 ID，不恢复计算也不读取当前来源。
-Artifact 不能成为语义表达式输入。
-
-准备失败不创建 Run。准入之后的失败可通过错误中的 `run_ref` 调用
-`session.get_run(run_ref).show()` 检查；重试是新的执行调用。
-预览上限不截断执行或完整导出。
-
-使用 `marivo.help("analysis.population")`、`marivo.help("analysis.membership")`、
-`marivo.help("analysis.query.population")` 和 `marivo.help("analysis.windows")`
-查看聚焦的当前合同。
-
-## 导出前完成分析变换
-
-Help 中的相关目标是可选路线，不是必读清单；已能执行下一步时就停止扩展发现。
-CLI `marivo help <target>` 和 Python Help 使用同一注册表，CLI 页面直接给出可复制命令。
-
-导出前，先在 Query 中完成受支持的总体、粒度、聚合、分母和比较变换。
-绘图与格式化已有值属于展示；数值运算不自动等于展示。已保存 Artifact 不代表
-问题要求的全部分析已完成。外部计算须明确其必要性与输入，不能继承 typed Evidence。
-
-`session.observe` 的空 `by=()` 会计算每个时间桶的整体指标；没有日历轴时得到一个标量。
-`during=TimeScope` 只过滤时间，`during=CalendarAxis` 还会按时间分组。
-已有分组 Query 可通过 `query.rollup(by=(calendar,))` 保留时间桶并计算小计，
-或通过 `query.rollup()` 计算整体标量。比例和平均值会从原始贡献重新计算。
-导出结果前，分别执行并保存每种需要的输出粒度。
-
-经过 `where`、`top`、原指标列 `select` 或 `rollup` 后，
-`drill(add=(field,))` 可沿合法标量路径增加关联 Entity 的分类，同时保留已选父键。
-完整输出 Population 与 `during` 都提供观察日历时，两者必须使用相同绑定。
-
-`compare` 的 Duration 端点 tick 单位相同时，current、baseline 和 absolute 列保留
-Duration 类型，relative 列为数值。这些 Duration 列可用兼容的 `timedelta` 字面量筛选；
-零时长使用该列的 tick 单位。
-Decimal 相对变化的计算不受调用方 Decimal 精度上下文影响。
-
-已解析的字段通过 `==`、`!=`、`<`、`<=`、`>`、`>=` 构造谓词，
-通过 `&`、`|`、`~` 组合带括号的谓词，通过 `field.isin(values)` 判断字面值集合成员关系。
-语法入口是 `marivo help semantic.field`。已发布的 Deferred 定义通过
-`catalog.describe(ref).show()` 检查。
+恢复后仍可继续类型化数据操作；未支持的外部方法需要固定输入、假设与可复算算术。
+导出 attrs 不能回灌为计算合同；新的原来源问题保持显式。
+参见[统计](/zh-cn/docs/latest/guides/statistics/)、
+[时间与人群](/zh-cn/docs/latest/guides/time-and-cohorts/)及
+[证据](/zh-cn/docs/latest/concepts/evidence/)。

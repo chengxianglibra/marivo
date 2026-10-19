@@ -13,9 +13,8 @@ meaning, and the Analysis DSL owns typed computation.
 
 Start unknown capabilities at `marivo.help("analysis")` or CLI
 `marivo help analysis`. Focused Help owns signatures, constraints and examples;
-type Help owns operation discovery. Population/Query `.show()` owns captured
-facts; Artifact `.show()` owns committed output. Artifacts are terminal and have
-no computation contract. Structured errors own the current repair.
+type Help owns operation discovery. Population/AnalysisFrame `.show()` owns captured
+facts; Artifact `.show()` owns committed audit. Artifact is not a computation operand. Structured errors own the current repair.
 Use the host-selected verified environment, not private source or remembered
 signatures. Construction, execution support and business suitability are
 separate facts.
@@ -50,7 +49,7 @@ Before choosing an operation, establish the distinctions that affect the answer:
   difference. Algebraic attribution and association do not establish cause;
   forecasts describe model outputs under assumptions, not observed outcomes.
 - Distinguish reopening committed output, postprocessing exported values, and
-  executing a new Query against current sources. Choose according to the
+  constructing explicit new source inputs against current data. Choose according to the
   question's freshness need; an Artifact is not an input to typed computation.
 
 Use these distinctions where they matter. Exact methods and admitted inputs
@@ -86,27 +85,30 @@ Choose disclosure for the current gap:
 - Unknown method: start at `marivo.help("analysis")` and follow its relevant intent.
 - Unknown identity: browse a bounded catalog collection; with exact refs, resolve directly.
 - Missing syntax or precondition: read the exact callable Help.
-- Missing captured facts: read Population/Query `.show()`; use Query.output_names
+- Missing captured facts: read Population/AnalysisFrame `.show()`; use `frame.output_names`
   for complete names. Type Help lists operations when the next method is unknown.
-- Missing saved output: read the exact Artifact and Evidence; use recovery
+- Missing saved output: reopen the exact persisted Frame and read its audit; use recovery
   guidance only when its identity or Session is missing.
 
 Stop browsing once the next useful operation is supported. Related routes and
 complete method lists are options, not prerequisites. Do not read sibling pages
 or reconstruct signatures before trying a documented call. Logical construction
-can proceed without values; execute when the next decision needs values.
+can proceed without values; evaluate when the next decision needs values.
 Connectivity and readiness do not qualify the selected method.
 
-Compose known Population and Query dependencies before executing. Execute
-when values are needed for interpretation or delivery. If the next choice
-depends on those values, read the terminal output, then construct a new Query
-from semantic inputs and explicit chosen keys. Reusing a Query executes its
-sources again; reopening an Artifact only reads saved output. Logical
-construction is not evidence that business rows were read or a result exists.
+Compose known Population and AnalysisFrame dependencies before evaluation. Use
+`compute()` when the next decision needs complete fixed memory data; use
+`persist()` when the result must remain recoverable across processes. Continue
+from the returned Frame to retain those exact values and selected keys. Reusing
+a source expression may read changed sources; it does not reuse a previous answer.
+For a follow-up requiring new facts, provide explicit source inputs and map
+ordinary complete axes with `session.population_from(..., on=...)` when needed.
+A restored Frame does not recover old semantic objects or the producer's selection program.
+Logical construction does not prove business rows were read or a result exists.
 
 ### Read the result and update the answer
 
-Inspect the terminal Artifact with `.show()`. Follow
+Inspect the returned Frame with `.show()`; read its `.artifact` audit when committed. Follow
 `marivo.help("analysis.evidence")` when additional evidence detail is needed.
 Assess the facts that could change the conclusion: exact identity and scope,
 comparison alignment, completeness, missingness, reconciliation,
@@ -148,19 +150,19 @@ unsupported method; follow structured repair and disclose a blocked branch when
 the public contract cannot produce its required evidence. Do not bypass it with
 direct Ibis, DuckDB, pandas readers, backend handles, ad hoc SQL, or uploads.
 
-Before exporting, read `marivo.help("analysis.artifact.to_pandas")` and identify
-whether any requested analytical transformation remains. Changes to population,
-grain, metric meaning, aggregation, denominator or comparison belong in supported
-Query operations before execution/export. Keep the logical inputs needed for
-those operations. Arranging, plotting, labeling and formatting saved values are
-presentation. Numerical arithmetic is not automatically presentation.
+Before exporting, read `marivo.help("analysis.analysis_frame.to_pandas")` and
+identify whether requested typed work remains. Supported transformations of
+complete Frame data can continue after compute, persist or exact recovery.
+Changes requiring original Metric contributions, new attributes or fresh facts
+need explicit source construction; current-row statistics do not reconstruct
+them. Arranging, plotting, labeling and formatting saved values are presentation.
+Numerical arithmetic is not automatically presentation.
 For a method outside the installed surface, first complete supported upstream
 work, then preserve exact inputs, assumptions and rerunnable external calculations.
-External outputs do not inherit typed Evidence guarantees. An exported table
-cannot restore the computation graph. Chosen complete keys or explicit literal
-references may become ordinary inputs to a new Query, without inheriting the
-exported result's semantic or Evidence authority. The saved Artifact remains
-readable and cannot supply a computation graph.
+External outputs do not inherit typed Evidence guarantees. Exported tables and
+attrs cannot restore semantic objects, source history or typed authority. The
+saved Frame remains available for supported data operations; its Artifact is an
+audit view, not a computation operand.
 
 Use `md.raw_sql(...)` only for a concrete source-specific question public
 inspection cannot answer, or provisional terminal analysis when typed inputs
@@ -171,10 +173,11 @@ provisional results separate from canonical Evidence.
 
 ### Evidence continuity
 
-Use one question-scoped Session and exact committed Artifact identities across
-rounds. Process memory, an implicit latest result, scripts, and chat summaries
-are not substitutes for persisted identity. Logical objects stay in their
-originating Session; follow public recovery when crossing Session boundaries.
+Use one question-scoped Session and retain its exact ID and `frame.artifact.id`
+across rounds. Process memory, an implicit latest result, scripts, and chat summaries
+are not substitutes for persisted identity. Frame handles stay in their
+originating Session; reopen with `session.persisted_frame(id)` in that Session
+when restoring committed data.
 
 Use `marivo.help("analysis.runtime")` for recovery mechanics. Never replay source
 queries or reconstruct displayed rows to conceal missing retained state. Local
@@ -195,7 +198,7 @@ and resolve any necessary change to the question before proceeding with it.
 
 Finish when every requested analytical transformation and answer is supported
 or explicitly blocked with its smallest missing evidence or definition. A saved
-Artifact alone does not establish that comparisons, denominators or other
+result alone does not establish that comparisons, denominators or other
 required transformations were completed in typed flow. Answer in the user's business vocabulary:
 state the supported direction and magnitude or uncertainty; distinguish computed
 facts, interpretation, recommendations, and hypotheses; disclose material

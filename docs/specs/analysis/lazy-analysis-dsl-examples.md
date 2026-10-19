@@ -1,45 +1,20 @@
 # Lazy Analysis DSL：多轮分析示例
 
-Date: 2026-10-17
-
-Status: v0.37 组合示例。基于 `405bd006f8`，R3–R8 已完成约定的本地实施、常规门禁和独立业务验收；
-不表示本文每个片段、近似方法或输入形状均已执行。新数值 Query 仅准入 DuckDB，远端路线仍需代码
-扩展；完整 slow、远端 Runtime 和 release 验收未完成。本文示例不代替实际路线验收。
-本文演示 [DSL 定义](lazy-analysis-dsl-redesign.md) 的组合方式，不另行定义算子合同。
-执行与导出布局见 [执行、保存与结果交接](lazy-analysis-dsl-execution.md)，
-独立数值 oracle 与验收判据见 [场景验证](lazy-analysis-dsl-scenario-validation.md)。
+Status: AnalysisFrame cutover examples, 2026-10-19.
+[最终合同](query-result-reuse.md) 拥有结构/载体规则；本页给出显式来源与固定数据的工作流。
+示例的模型/数据前提必须成立，静态代码与独立数值表不表示 Runtime 或发布验收。
+完整可创建本地数据的 EN/ZH 教程位于 latest Python quick start。
 
 ## 1. 按问题选择入口
 
-| 问题变化 | 表达 |
-| --- | --- |
-| 整周合计 / 每日收入 | observe 的 during=week / week.by(mv.grain("day")) |
-| 固定名单计数或普通来源规约，包括已有时间角色的收入合计 | 可省略 during，表示不追加时间过滤；时间采样/时间样本规约或日历输出仍须显式绑定 |
-| 按地区拆分 / 全部来源只看亚太 | by=(region,) / where=region=="APAC" |
-| 促销分子 / 全量分母 | 在单一来源分子上形成新固有过滤定义，再用 / 或 divide 组合 |
-| 本期与基期采用不同窗口 | 分别 observe，随后 compare |
-| 对旧答案选重点后追问明细 | pandas 选键 → 脚本显式构造新域 → 端点 where/drill → compare → execute |
-| 原指标合回总体 / 统计当前格子 | rollup / reduce |
-| 保存名单 / 参照作为产物 | query(population) 或 values Query 明确 execute，之后只能阅读/导出 |
-| 预定义 / 临时 Metric | 同一计算表达式；@ms.metric 只声明稳定名称，模型收录另查持久依赖 |
-| 运行时名单限定某个组件 / 完整内部样本 | Metric.where(in_population(P)) / Metric.per(P) 后规约，保留域归属与读取 |
-
-execute 返回终端 Artifact，保存输出、必要描述与实际 Finding/Evidence；不携带 logic 或内部组件；
-需要细域、更早历史或其它窗口时，从来源 Query 重新构造并 execute。
-各示例共用[单一执行路线](lazy-analysis-dsl-execution.md#15-单一执行路线与终端读写)：Ibis 完成源端计算并返回 pandas，
-本次不能下推的阶段使用 pandas 本地内核，PyArrow 只负责产物存储和读取。来源本身可以是 DuckDB，
-但示例不选择本地引擎，也不把 Artifact 或导出表自动注册回 DSL；后续 pandas 配方属于调用方处理。
-v0.35 已同步完整期间配对与恢复边界；v0.36 增补 §6.4 的原生 Ibis 与自动绑定示例；v0.37 增补 §6.5 五项能力对照；原有零分母数值政策保持，默认 AOV 与零基期比较产生普通 NA。
-普通 observe 的 Finding 为空，读取与实际检查摘要仍按执行合同保存为 Evidence；
-示例中的多来源组合只承诺已准入路线，导出精度也不替代来源转换资格。
-fanout 的语义表达对照见 §7.7；示例不固定物理 join/aggregate 顺序，也不构成新增执行策略的验收。
+observe 绑定原 Metric，read 绑定单 Entity 非空属性，values 声明字面量，frame 绑定完整键域。
+compute 返回完整内存 Frame，persist 发布已有完成结果。继续用返回对象才固定值与键。
+持久 frame.artifact 仅审计；persisted_frame(str ID) 恢复完整数据且无需旧来源或模型。
+原整体、新属性、新窗口需要显式来源，不是 reduce 或已退役 rollup/drill/share 的机械替换。
 
 ## 2. 完整多轮分析示例
 
-代码使用 v0.37 API；完整链条须具备相应已准入的来源、绑定与 Query 实现。§2 各块按顺序构成会话；
-命名可在模型或分析代码中构造，loader 才收录模型。§6 单独对照两种使用位置。
-不变模拟输入用于手算，不要求真实来源跨读取不变。
-首先粗比较再选异常；第二轮分别细化端点，不提前预知客户细键。
+保留下面同一份 ledger 与明确业务定义；用户原始定义不因执行成功变为完整性证明。
 
 ### 2.1 只声明 Orders Entity，客户 ID 是普通维度
 
@@ -137,494 +112,165 @@ def orders_in(period: mv.TimeScope) -> mv.Population:
 active_customer_ids = customer_axis.count_distinct(time=paid_at).where(status == "paid")
 ```
 
-### 2.2 第一轮：先比较地区收入，选出异常地区
+### 2.2 第一轮：固定两个地区观察，再比较
 
 ```python
-region_keys = mv.coordinates(by=(region_axis,), keys=(("East",), ("West",)))
-current_region_query = s.observe(
-    {"revenue": revenue},
-    during=september,
-    by=region_keys,
-)
-baseline_region_query = s.observe(
-    {"revenue": revenue},
-    during=august,
-    by=region_keys,
-)
-regional_pair = current_region_query.align(baseline_region_query)
-current_region_query.show()
-regional_comparison_artifact = regional_pair.select({
-    "revenue.absolute": regional_pair["left.revenue"] - regional_pair["right.revenue"],
-}).execute()
-regional_frame = regional_comparison_artifact.to_pandas()
-(region_column,) = [
-    axis["column"] for axis in regional_frame.attrs["marivo"]["axes"]
-    if axis["kind"] == "field"
-]
-selected = regional_frame.loc[regional_frame[("value", "revenue.absolute")] >= 80]
-selected_regions = tuple((value,) for value in selected[("coordinate", region_column)].tolist())
-anomalous_regions = mv.coordinates(by=(region_axis,), keys=selected_regions)
-```
-
-East 为 100/50、增量 50；West 为 90/0、增量 90。这里明确只求差额；
-默认 compare 会同时得到 West 的 absolute=90、relative=NA；显式 zero_denominator="error" 才因零基期使整次执行失败。
-West 基期零来自显式目标格的 sum 完成规则；outer 缺侧仍为 NA，不自动补零。
-pandas 从精确已见输出选中 West，脚本将其作为当前 region 的显式字面量域；此时未预知客户细键。
-本例输出只有一个字段轴，因此按 field kind 单元素解构，再用稳定 column 标识读取；不依赖描述 label。
-这不授予 Artifact DSL 能力。若使用 Query.where/top/population 在执行前组合，重新 execute 可能重选地区。
-
-### 2.3 第二轮：分别细化端点，再明确细域对应
-
-```python
-current_detail_query = current_region_query.where(mv.in_population(anomalous_regions)).drill(
-    add=(customer_axis,)
-)
-baseline_detail_query = baseline_region_query.where(mv.in_population(anomalous_regions)).drill(
-    add=(customer_axis,)
-)
-anomaly_details = current_detail_query.compare(
-    baseline_detail_query,
+current = s.observe({"revenue": revenue, "orders": orders, "aov": aov},
+                    during=september, by=(region_axis,)).compute()
+baseline = s.observe({"revenue": revenue, "orders": orders, "aov": aov},
+                     during=august, by=(region_axis,)).compute()
+current_revenue = current.select({"revenue": current["revenue"]}).compute()
+baseline_revenue = baseline.select({"revenue": baseline["revenue"]}).compute()
+change = current_revenue.compare(
+    baseline_revenue, on=((current_revenue.axes[0], baseline_revenue.axes[0]),),
     how="outer",
-).execute()
-anomaly_details.show()
+).persist()
+change.show(n=10)
+change.artifact.show()
 ```
 
-在本例实际细域中，本期有West/B，基期没有该坐标：
-current=90、baseline 为 NA，presence 为 True/False；absolute/relative 为 NA。
-缺侧信息由 presence 保存，不由 NA 的原因码表达。
-若选择exact会因细域缺侧失败，即使父级exact通过。
-这条发现路径不需要硬编码B，新增维度在各端点检查，比较不运输来源图。
+生成值名为 left.revenue/right.revenue/absolute.revenue/relative.revenue，
+presence 独立于 NA。outer 不把缺失端点当零贡献；业务需要空地区贡献时要明确完整源域与 empty 政策。
+每次 source compute 固定自己的读数，不承诺跨读事务快照；比较消费这两份精确数据。
 
-需要完整共同网格的另一个问题可以明确请求已知业务坐标：
+### 2.3 第二轮：固定父键，显式声明新的细域观察
 
 ```python
-known_detail_keys = mv.coordinates(
-    by=(region_axis, customer_axis),
-    keys=(("West", "B"),),
-)
-grid_current = s.observe(
-    {"revenue": revenue},
-    during=september,
-    where=mv.in_population(anomalous_regions),
-    by=known_detail_keys,
-)
-grid_baseline = s.observe(
-    {"revenue": revenue},
-    during=august,
-    where=mv.in_population(anomalous_regions),
-    by=known_detail_keys,
-)
-complete_grid_pair = grid_current.align(grid_baseline)
-complete_grid_details = complete_grid_pair.select({
-    "revenue.absolute": complete_grid_pair["left.revenue"] - complete_grid_pair["right.revenue"],
-}).execute()
+chosen = current.top(1, by=current["revenue"]).compute()
+parents = s.population_from(chosen, on=((chosen.axes[0], region_axis),))
+parents.show()
+current_detail = s.observe(
+    {"revenue": revenue}, during=september, by=(region_axis, customer_axis),
+    where=mv.in_population(parents),
+).compute()
+baseline_detail = s.observe(
+    {"revenue": revenue}, during=august, by=(region_axis, customer_axis),
+    where=mv.in_population(parents),
+).compute()
+detail = current_detail.compare(
+    baseline_detail,
+    on=tuple(zip(current_detail.axes, baseline_detail.axes)), how="outer",
+).compute()
+detail.show()
 ```
 
-完整细域由原 observe 的 by=Population 请求，drill 只列新增轴，不接受目标 Population。
-此明确网格两侧 presence 均 True，收入为 90/0、差额为 90；默认相对变化为 NA。
-这与缺侧导致端点及差额均为 NA 不同；显式 error 的 compare 仍因零基期失败。
-它不替代前面的未知客户发现路径。目标域遗漏新增实际客户时按缺覆盖失败，不静默删除。
-两条路径都以旧答案的West域限定新读取，不重判旧阈值。
-West后来收入变70仍追问West，旧结果仍90；不回写、不对账，也不把新East加入。
-直接对比较Query调用drill始终拒绝；Artifact 不提供任何 DSL 方法。
+region/customer 字段由调用方明确提供。桥接投影完整联合普通键，固定父地区不重新排名；
+新 customer 分类与金额是新的来源事实，不恢复选择时的历史城市/客户名单。
+新贡献或删除贡献可改变新读数。on 必填，轴必须属于精确 Frame；不能从点号值名推断来源。
 
-### 2.4 第三轮：固定客户 ID 值与订单身份分别保存
+### 2.4 第三轮：普通 ID 字段与订单身份分别固定
 
 ```python
-cohort_population = orders_in(september).classify(by=(customer_axis,))
-cohort_population.show()
-cohort_artifact = s.query(cohort_population).execute()
-cohort_frame = cohort_artifact.to_pandas()
+customer_source = s.observe({"revenue": revenue}, during=september, by=(customer_axis,)).compute()
+customer_keys = s.population_from(customer_source, on=((customer_source.axes[0], customer_axis),))
+selected_orders = orders_in(september)
+order_keys = s.frame(selected_orders).compute()
+order_population = s.population_from(order_keys, on=((order_keys.axes[0], OrdersEntity),))
+order_attributes = s.read(order_population, {"region": region_axis}).compute()
+order_attributes.show()
 ```
 
-<!-- pandas-example:cohort-keys -->
-```python
-(customer_column,) = [
-    axis["column"] for axis in cohort_frame.attrs["marivo"]["axes"]
-    if axis["kind"] == "field"
-]
-customer_keys = tuple((value,) for value in cohort_frame[("coordinate", customer_column)].tolist())
-```
+客户 ID 仍是普通字段，不升级为客户身份。完整订单身份包含全部主键；显式键存在不证明新来源有事实。
+frame 支持一般 Population 和零轴空/单例域，read 需要一个身份域及非空属性。
+
+### 2.5 第四轮：区分当前行统计与原整体
 
 ```python
-cohort_keys = mv.coordinates(
-    by=(customer_axis,),
-    keys=customer_keys,
-)
-cohort_orders = s.members(OrdersRef, where=mv.in_population(cohort_keys))
-fixed_september_orders = s.query(orders_in(september)).execute()
-saved_order_classification = s.query(
-    cohort_orders.classify(by=(mv.member(), customer_axis))
-).execute()
-
-requested_order_keys = mv.identities(
-    OrdersEntity,
-    keys=(("A09",), ("B11",), ("O404",)),
-)
-requested_order_result = s.query(requested_order_keys).execute()
-selected_order_result = s.query(
-    s.members(OrdersRef, where=mv.in_population(requested_order_keys))
-).execute()
-```
-
-cohort_keys 固定普通 customer_id 字段值 A/B；cohort_orders 是订单身份域，可从新来源选到 11 个身份，
-含 A08，不继承九月期间。fixed_september_orders 保存 10 个九月订单，只能阅读/导出其中的 10 个键，不提供 population。
-saved_order_classification 明确读取并保存订单身份与客户字段的对应坐标；独立读取不保证与收入同快照。
-requested_order_result 保留 A09/B11/O404 三个类型化引用；来源选择 selected_order_result 只命中 A09/B11。
-O404 不证明当前档案存在，后续必需属性缺失会失败；名单大小不证明真实客户/订单数。
-复合键必须完整，customer_id 字段值不是 order_id 身份。固定域筛选只消费键，按新属性条件须明确读取。
-
-### 2.5 第四轮：区分三个“平均”，终端统计交 pandas
-
-```python
-customer_query = s.observe(
+customer_values = s.observe(
     {"revenue": revenue, "orders": orders, "aov": aov},
-    members=cohort_orders,
-    during=september,
-    by=cohort_keys,
+    during=september, by=(customer_axis,),
+).compute()
+row_summary = customer_values.reduce({
+    "mean_customer_revenue": customer_values["revenue"].mean(),
+    "mean_customer_aov": customer_values["aov"].mean(),
+    "rows": mv.row_count(),
+}).compute()
+source_overall = s.observe({"revenue": revenue, "orders": orders, "aov": aov},
+                           during=september).compute()
+row_summary.show()
+source_overall.show()
+```
+
+本 ledger 客户收入为 100/90，订单数为 1/9：客户收入均值 95，客户 AOV 均值 55，
+原整体收入 190、订单数 10、AOV 19。另一个充分性反例的来源整体是 1000/91，
+它同样不能由完成行的 55 推回。distinct 分组和 4 也可能对应并集 3。
+每项 reduce 统计独立忽略 NA，row_count 数全部行。来源整体必须从明确 Metric/期间请求，
+没有把 reduce 当作原量 rollup 的等价路线。
+
+### 2.6 第五轮：固定选择与重新选择是不同问题
+
+```python
+chosen_customers = customer_values.top(1, by=customer_values["revenue"]).compute()
+fixed_cohort = s.population_from(
+    chosen_customers, on=((chosen_customers.axes[0], customer_axis),),
 )
-customer_artifact = customer_query.execute()
-customer_export = customer_artifact.to_pandas()
+prior_for_fixed = s.observe(
+    {"revenue": revenue}, during=august, by=fixed_cohort,
+    where=mv.in_population(fixed_cohort),
+).compute()
+new_selection = s.observe({"revenue": revenue}, during=august, by=(customer_axis,)).compute()
+prior_for_fixed.show()
+new_selection.show()
 ```
 
-下段只处理已经明确得到的同一张客户表，不需要创建新的 DSL 统计图。
-量列位于 value 名字空间；本段均值比较要求全非空，先检查再计算。
+by=fixed_cohort 声明完整输出域，where 明确过滤贡献；不能用漏键 by 代替过滤。
+重新求当期选择可能选中另一位客户，固定 cohort 不重跑旧 Top。空结果桥接仍是空筛选，
+required on=() 对零轴也是合法绑定，空零轴域与单例 {()} 不混同。
 
-<!-- pandas-example:customer-means -->
-```python
-names = ["revenue", "orders", "aov"]
-if customer_export["value"][names].isna().any().any():
-    raise ValueError("The customer summary requires non-missing inputs.")
-values = customer_export["value"][names]
-overview = {
-    "order_mean": values["revenue"].sum() / values["orders"].sum(),
-    "mean_customer_aov": values["aov"].mean(),
-    "spend_per_customer": values["revenue"].sum() / len(values),
-    "weighted_customer_aov": (values["aov"] * values["orders"]).sum()
-    / values["orders"].sum(),
-}
-```
-
-依次为19、55、95、19；这四个终端数字本身不证明需要四个 DSL 算子。
-输入单位分别是订单、客户 ID 格子或按订单数加权的格子，pandas 使用同一份已检查输入。
-若输入含 NA，配对统计使用共同非 NA 样本，不能分别删值后拼接；必要计算错误已在 execute 阻止提交。
-Metric 内部统计可用 aov.per(customer_axis).mean()；
-它的贡献推导内域不自动含未出现类别。上面的固定答案路径由 observe 请求 A/B 完整输出，不能让 pandas 猜名单。
-需要在新来源计算中使用完整内部域时，可显式 revenue.per(cohort_keys).mean()，规则与差异见 §7.3。
-member_count若绑定cohort_orders则计11个订单身份，不变成两个客户。
-
-### 2.6 第五轮：原指标上卷与普通描述统计
+### 2.7 第六轮：跨进程恢复后继续当前数据操作
 
 ```python
-original_total = customer_query.rollup().execute()
+saved = customer_values.persist()
+saved_session_id = s.id
+saved_artifact_id = saved.artifact.id
+resumed = mv.session.resume(saved_session_id, by="id")
+restored = resumed.persisted_frame(saved_artifact_id)
+restored.show(n=0)
+positive = restored.where(restored["revenue"] > 0).compute()
+positive.show(n=10)
+positive.persist().artifact.show()
 ```
 
-上卷在 Query 上构造，本次计划计算必要组件并按原公式完成；本例得到190元/10单/AOV19。
-这是新的 execute，不消费 customer_artifact；可变来源下不承诺重复上次答案。要使用那份精确输出，沿用 §2.5 的 pandas 组件计算。
-普通当前格子分位数和有效值计数则直接用导出表：
+恢复、固定数据运算与再次保存不读取原模型/来源 schema 或旧生产记录。
+完整读取验证必要 payload/附件；元数据成功不保证数据完整。source-read、evaluation 与 commit
+时间分开，最近保存不证明来源新鲜；缺失文件不授权回源修复。
 
-<!-- pandas-example:customer-statistics -->
-```python
-aov_values = customer_export[("value", "aov")]
-cell_statistics = {
-    "mean_aov": aov_values.mean(),
-    "p90_aov": aov_values.quantile(0.9),
-    "valid": int(aov_values.notna().sum()),
-    "rows": len(customer_export),
-}
-```
-
-得到mean55、P90=91、有效值数2、行数2。这些是外部描述统计，不是原AOV的上卷。
-只保存完成均值/比率或distinct数字仍不构成一般原指标上卷依据；
-该信息下界对Marivo与pandas都成立。
-
-### 2.7 第六轮：选中高消费 ID，再明确观察上期
+### 2.8 第七轮：显式完整域参照与延期能力
 
 ```python
-(high_customer_column,) = [
-    axis["column"] for axis in customer_export.attrs["marivo"]["axes"]
-    if axis["kind"] == "field"
-]
-high_rows = customer_export.loc[customer_export[("value", "revenue")] >= 100]
-high_keys = tuple((value,) for value in high_rows[("coordinate", high_customer_column)].tolist())
-high_ids = mv.coordinates(by=(customer_axis,), keys=high_keys)
-previous_high = s.observe(
-    {"revenue": revenue},
-    where=mv.in_population(high_ids),
-    during=august,
-    by=high_ids,
-).execute()
-classification_export = saved_order_classification.to_pandas()
-(order_column,) = [
-    axis["column"] for axis in classification_export.attrs["marivo"]["axes"]
-    if axis["kind"] == "member"
-]
-(class_customer_column,) = [
-    axis["column"] for axis in classification_export.attrs["marivo"]["axes"]
-    if axis["kind"] == "field"
-]
-selected_orders = classification_export.loc[
-    classification_export[("coordinate", class_customer_column)].isin([key[0] for key in high_keys])
-]
-saved_high_order_keys = tuple(selected_orders[("coordinate", order_column)].tolist())
+budget = s.values(by=(region_axis,), columns={"budget": "CNY"}, rows=(
+    (("East",), {"budget": 120}), (("West",), {"budget": 80}),
+)).compute()
+joined = current.align(budget, on=((current.axes[0], budget.axes[0]),))
+variance = joined.select({"variance": joined["left.revenue"] - joined["right.budget"]}).compute()
+variance.show()
 ```
 
-high_ids 是脚本从已见值明确选择的 A，上期收入50；后续来源仍可包含 A 的新订单。
-pandas 从已输出订单身份/客户分类中选得 A08/A09 完整键，不从收入汇总恢复隐藏名单。
-若要观察这些订单，脚本可明确构造 mv.identities(OrdersEntity, keys=saved_high_order_keys)；
-这是新字面量定义，不是 Artifact 的自动转换或历史语义恢复。
+这是完整同域对齐，不是 scalar broadcast，也不证明贡献包含。原贡献份额、任意关系对应、
+partitioned top 和日历粗化本版无等价接收者。外部固定数据比例要明确分母与证据限度。
 
-### 2.8 第七轮：固定 ID 域与重新选择 ID 域
-
-```python
-august_fixed_cells = s.observe(
-    {"revenue": revenue},
-    during=august,
-    where=mv.in_population(cohort_keys),
-    by=cohort_keys,
-)
-august_fixed_stats = august_fixed_cells.reduce(
-    {"revenue": august_fixed_cells["revenue"].sum(), "ids": mv.row_count()}
-)
-august_fixed = august_fixed_stats.select(
-    {"spend_per_customer": august_fixed_stats["revenue"] / august_fixed_stats["ids"]}
-).execute()
-
-august_keys = orders_in(august).classify(by=(customer_axis,))
-august_reselected_cells = s.observe(
-    {"revenue": revenue},
-    during=august,
-    where=mv.in_population(august_keys),
-    by=august_keys,
-)
-august_reselected_stats = august_reselected_cells.reduce(
-    {"revenue": august_reselected_cells["revenue"].sum(), "ids": mv.row_count()}
-)
-august_reselected = august_reselected_stats.select(
-    {"spend_per_customer": august_reselected_stats["revenue"] / august_reselected_stats["ids"]}
-).execute()
-
-both = s.query(cohort_keys.intersection(august_keys)).execute()
-either = s.query(cohort_keys.union(august_keys)).execute()
-september_only = s.query(cohort_keys.difference(august_keys)).execute()
-```
-
-固定A/B得50/2=25，重新选择A得50/1=50，集合分别A、A/B、B。
-固定域中的B空收入仍为0且计入分母，不能先过滤无贡献格。
-cohort_keys 是脚本明确的 A/B 字面量，august_keys 是重新选择程序；后者每次 execute 可能变化。
-三个集合查询分别执行，不承诺跨调用共同快照；需要比较同一份已见键集时导出后用 pandas/集合计算。
-
-### 2.9 第八轮：贡献份额与换分母
-
-```python
-regional = s.observe(
-    {"revenue": revenue},
-    during=september,
-    by=(region_axis,),
-)
-shares = regional.share("revenue")
-east = shares.where(shares.coord(region_axis) == "East").execute()
-east_only = regional.where(regional.coord(region_axis) == "East")
-east_renormalized = east_only.share("revenue").execute()
-```
-
-share 保留 revenue 并新增 revenue.share。默认总体是调用处的当前输入：
-先算份额再选 East 保留原分母190，得10/19；先选 East 再算份额使用分母100，得1。
-需要筛选前总体时先 share 再 where/top。分组总体通过 partition_by 声明，见
-[电商组内份额示例](lazy-analysis-dsl-scenario-validation.md#24-默认总体分组占比与筛选顺序)。
-固定参照不因后续筛选自动重算。独立新明细除旧总额只作普通比值，不获得贡献包含证明。
-
-### 2.10 第九轮：终端产物不恢复细状态
-
-Artifact 不提供 DSL 方法、保留请求或离线细比较。
-需要细值时，从来源 Query 重新构造：按 §2.3 在各端点 Query 上 where/drill 后 compare，
-或在原 observe 的 by 中直接请求细轴。§2.6 的 original_total 只保存 190/10/AOV19，
-不能从这三个数字区分不同细分配，也不能凭 lineage 回源恢复细值。
-
-### 2.11 第十轮：完整客户 ID 日网格与坐标复用
-
-```python
-days = september.by(mv.grain("day"))
-daily_grid = mv.product(cohort_keys, days)
-daily_query = s.observe(
-    {"revenue": revenue, "orders": orders, "active_ids": active_customer_ids},
-    during=days,
-    where=mv.in_population(cohort_keys),
-    by=daily_grid,
-)
-daily = daily_query.execute()
-daily_total = daily_query.select({"active_ids": daily_query["active_ids"]}).rollup().execute()
-saved_days = s.query(daily_query.population().project(by=(days,))).execute()
-```
-
-A/B×30日共60格，10个有贡献、50个已完整观察的空贡献格；
-输出存在与来源覆盖不同。日去重计数和为10，月精确去重为2。
-Artifact 不保存精确 distinct 集合；Query.rollup 在本次计划中取得充分输入，日计数本身不充分。
-这里 daily、daily_total 和 saved_days 各自 execute，不能据共享变量推断共用同一次来源读取。
-project日期得到30个完整日，不按量是否缺失删桶。
-显式Null字段组、空域/标量空规约及成员复合键仍按 [DSL §4.5](lazy-analysis-dsl-redesign.md#45-坐标和目标域) 处理。
-
-### 2.12 第十一轮：重开 Artifact，继续 pandas
-
-读取旧答案不需要当前语义模型。刚 execute 的产物和重开产物都引用已提交 Parquet 与输出记录，使用同一 reader。
-Artifact ID 只定位输出，不恢复此前 Metric、轴对象或观察图，也不依赖上一进程仍持有数据。
-以下 resume 只适用于同一新格式代际的 Session；重构前的旧 Store/Session 明确拒绝，保留旧文件，不自动迁移。
-
-```python
-resumed = mv.session.resume(s.id)
-restored_customers = resumed.artifact(customer_artifact.id)
-restored_total = resumed.artifact(original_total.id)
-frame = restored_customers.to_pandas()
-total_frame = restored_total.to_pandas()
-if len(total_frame) != 1:
-    raise ValueError("Expected a single saved total.")
-old_total = total_frame[("value", "revenue")].iloc[0]
-if old_total == 0:
-    raise ValueError("The saved reference total must be nonzero.")
-ordinary_ratios = frame[("value", "revenue")] / old_total
-restored_comparison = resumed.artifact(regional_comparison_artifact.id)
-comparison_frame = restored_comparison.to_pandas()
-restored_focus = comparison_frame.loc[comparison_frame[("value", "revenue.absolute")] >= 80]
-restored_customers.show()
-restored_findings = restored_customers.findings(limit=20, cursor=None)
-restored_findings.show()
-assert restored_findings.items == () and restored_findings.next_cursor is None
-restored_customers.evidence_digest().show()
-```
-
-这里的比例只使用脚本选定的输出，不声称是经过 DSL 贡献包含检查的业务 share。
-如果另要查询当前来源，应重新加载模型并构造 Query；需要旧名单时按 §2.4 显式提供完整键和当前绑定。
-新收入为 A120/B90 时，新查询总额为210，旧产物仍为100/90与190；两份数据可在 pandas 按完整键比较。
-业务口径相容性由脚本判断，不用标签或 attrs 自动重建语义。
-模型变化不影响历史值读取；Artifact 不判断它是否仍符合当前模型或来源，也不提供新鲜度标记。
-
-本例普通观察的 Finding 为空，findings 返回有界空页；evidence_digest 读取实际读取与检查记录的摘要。
-它们只描述这份已提交产物，不使 restored_customers 获得 rollup/share 或任何其它 DSL 方法。
-构造披露到新产物、重开阅读的完整链见[场景 §8.7](lazy-analysis-dsl-scenario-validation.md#87-构造披露执行后阅读与重开)。
-
-### 2.13 时间分析：七日收入、累计与期间比较
-
-沿用[场景验证 §7](lazy-analysis-dsl-scenario-validation.md#7-时间分析滚动累计与期间比较)的模拟ledger：
-10-01…08为100/1、900/99、0/0、40/1、50/1、60/1、70/1、80/1，
-9月26…30每日10/1；截至本年1月1日后的其它模拟历史另有650元。
-完整数值输入以场景验证为准，所有示例只作独立数值见证。
+### 2.9 时间分析：新来源窗口与冻结对应
 
 ```python
 from datetime import timedelta
 
-temporal_s = mv.session.get_or_create("temporal-sales", report_timezone="Asia/Shanghai")
-income = catalog.metrics.get(ms.ref.metric("sales.revenue"))
-order_count = catalog.metrics.get(ms.ref.metric("sales.order_count"))
-temporal_aov = catalog.metrics.get(ms.ref.metric("sales.average_order_value"))
-display = temporal_s.time_scope(start="2026-10-07", end="2026-10-09")
-output_days = display.by(mv.grain("day"))
-seven = mv.trailing_periods(count=7)
-
-rolling = temporal_s.observe(
-    {"income": income.window(seven), "orders": order_count.window(seven), "aov": temporal_aov.window(seven)},
-    during=output_days,
-).execute()
-elapsed = temporal_s.observe(
-    {"income": income.window(mv.trailing_duration(duration=timedelta(hours=168)))},
-    during=output_days,
-).execute()
-mtd = temporal_s.observe(
-    {"income": income.window(mv.to_date(grain=mv.grain("month")))},
-    during=output_days,
-)
-ytd = temporal_s.observe(
-    {"income": income.window(mv.to_date(grain=mv.grain("year")))},
-    during=output_days,
-)
-since_january = temporal_s.observe(
-    {"income": income.window(mv.since(start=temporal_s.instant("2026-01-01")))},
-    during=output_days,
-)
-cumulative_joined = mtd.align(ytd)
-cumulative = cumulative_joined.select(
-    {"mtd": cumulative_joined["left.income"], "ytd": cumulative_joined["right.income"]}
-).execute()
+days = september.by(mv.grain("day"))
+rolling = s.observe(
+    {"revenue": revenue.window(mv.trailing_duration(duration=timedelta(days=7)))},
+    during=days,
+).compute()
+prior_days = august.by(mv.grain("day"))
+prior = s.observe(
+    {"revenue": revenue.window(mv.trailing_duration(duration=timedelta(days=7)))},
+    during=prior_days,
+).compute()
+paired = rolling.compare(prior, match=mv.ordinal(), how="outer").compute()
+paired.show(n=5)
 ```
 
-各窗口分别 observe，默认信任声明的数据源，不需要额外完整性声明；成功执行不证明上游数据完整。
-temporal_aov 直接使用 §2.1/§6.1 的同一 sales.average_order_value 声明：revenue / order_count 默认在空日返回 NA。
-场景不为同一全名重定义政策；需要拒绝空日时使用 §7.2 的独立 aov_strict 声明。
-MTD/YTD用相同真实输出日历，所以exact可组合；since_january独立定义起点。
-10-07/08七日收入1220/1200、订单104/104、AOV305/26与150/13，
-MTD1220/1300、YTD1920/2000。显示仅两天但读取更早窗口。
-elapsed 在相同日输出端点评价固定168小时窗口；输出粒度与贡献窗口长度分别声明。
-v0.25 不提供父期间内日序配对；上月同进度改为分别对 10-07…08 与 09-07…08 求月累计，
-再 compare(match=mv.ordinal()) 按位置配对，上月610/650，环比100%；
-这里两侧都是同一时区的完整 day 桶，桶数相同；改为不同粒度或截断桶会拒绝，outer 也不放宽此条件。
-上年七日用 compare(match=mv.previous_year())，305/300，同比300%。
-若日粒度配对包含无上年对应的 2 月 29 日，须明确使用 outer 保留缺侧或重建期间/粒度，不能夹日。
-期间对应的数值见证见 [场景验证 §7.3](lazy-analysis-dsl-scenario-validation.md#73-同比环比先计算两个端点再按期间对应)。
-同比不逐日搬贡献，七自然日不等于168小时；固有过滤/P仍限制窗口。
-
-### 2.14 终端 Artifact 与 pandas 日格子统计
-
-```python
-history = temporal_s.time_scope(start="2026-09-25", end="2026-10-09")
-history_query = temporal_s.observe(
-    {"income": income, "orders": order_count, "aov": temporal_aov},
-    during=history.by(mv.grain("day")),
-)
-history_result = history_query.execute()
-history_export = history_result.to_pandas()
-```
-
-Query 不提供重设窗口；Artifact 不提供 DSL 操作；原七日指标由 §2.13 的 rolling 以 during=seven 重新 observe，
-按原指标重求组件。以下改问日AOV的等权平均，交pandas；
-示例明确采用浮点统计，导出本身不将Decimal或大整数强制转float。
-本例只有一个日历轴、上海完整日序列，Null仅表示按已声明政策完成的空贡献日。
-日期完整检查只验证已保存的日历坐标；默认来源信任不因此升级为完整性审计。
-原观察的来源读取、日历/映射/请求域覆盖或必要计算检查失败时，不会形成可导出的部分 Artifact；这不包括外部业务漏数通知。
-
-<!-- pandas-example:daily-aov -->
-```python
-import pandas as pd
-
-(time_column,) = [
-    axis["column"] for axis in history_export.attrs["marivo"]["axes"]
-    if axis["kind"] == "calendar"
-]
-dates = pd.DatetimeIndex(history_export[("coordinate", time_column)])
-expected = pd.date_range("2026-09-25", "2026-10-08", freq="D", tz="Asia/Shanghai")
-if not dates.equals(expected):
-    raise ValueError("Expected every saved daily coordinate in chronological order.")
-values = history_export[("value", "aov")].astype("Float64")
-daily_values = pd.Series(values.array, index=dates)
-mean_daily_aov = daily_values.rolling(7, min_periods=1).mean().loc["2026-10-07":"2026-10-08"]
-```
-
-日AOV等权均值为1810/33、1700/33，不是原七日AOV的305/26、150/13。
-完整网格保证本例七行对应七个自然日；min_periods只控制已明确允许的Null样本，
-不证明七日来源完整；外部统计仍须检查所需日期是否齐全，不能把日期齐全当作来源完整性证明。
-其它时区/桶宽须按其真实日历重新选择pandas窗口，不能把此段推广为168小时窗口。
-固定的日结果不能换成七日原指标：日最终AOV、日P95或切穿桶的日收入不能制造缺失信息，
-也不能回源补历史。普通pandas统计不因保存Artifact ID而取得原指标窗口权限。
-
-### 2.15 日历粗化与原上卷、分组份额
-
-沿用 §2.13 的时间场景来源，四天范围跨越月界；同一日 Query 分别构造上卷和份额后执行：
-
-```python
-coarsen_scope = temporal_s.time_scope(start="2026-09-29", end="2026-10-03")
-coarsen_days = coarsen_scope.by(mv.grain("day"))
-coarsen_months = coarsen_days.coarsen(mv.grain("month"))
-coarsen_query = temporal_s.observe(
-    {"income": income, "orders": order_count, "aov": temporal_aov},
-    during=coarsen_days,
-)
-monthly_query = coarsen_query.rollup(by=(coarsen_months,))
-shares_query = coarsen_query.share("income", partition_by=(coarsen_months,))
-monthly_query.execute().show()
-shares_query.execute().show()
-```
-
-两个月的实际范围保持截断，收入20/1000、订单2/100、AOV均10；四日份额为1/2、1/2、1/10、9/10。
-完整数据、反例及独立数值见证见[场景 §7.12](lazy-analysis-dsl-scenario-validation.md#712-截断月桶的原指标上卷与月内份额)。
-coarsen 不能扩大观察范围，份额分组不折叠日坐标；Artifact 不承担任何后续 DSL 计算。
+双方唯一日历轴可推导 on，match 仍显式。完整名义目录不等于实际输出行；过滤不压缩序号。
+保存 paired map/两端冻结描述而不重建 TZ/model。部分桶拒绝 match；named offset、子日/DST
+对应和再次对齐配对轴延期。新月粒度需显式新的 TimeScope.by(month)，不是 days.coarsen。
 
 ## 3. 时间锚点与版本选择
 
@@ -649,15 +295,13 @@ C1 在 11 月 1 日零点从 Silver 换成 Gold，C2 保持 Bronze，新增 C3 �
 version_catalog = ms.load()
 tier = version_catalog.fields.get(ms.ref.dimension("crm.customers.tier"))
 VersionCustomers = version_catalog.entities.get(ms.ref.entity("crm.customers"))
-fixed_customers = anchor_s.query(
-    mv.identities(VersionCustomers, keys=(("C1",), ("C2",)))
-).population()
-attributes = anchor_s.read(fixed_customers, {"tier": tier.at(october.end)})
-gold_customers = attributes.where(attributes["tier"] == "Gold").population()
-gold_query = anchor_s.query(gold_customers)
+fixed_customers = mv.identities(VersionCustomers, keys=(("C1",), ("C2",)))
+attributes = anchor_s.read(fixed_customers, {"tier": tier.at(october.end)}).compute()
+gold_values = attributes.where(attributes["tier"] == "Gold").compute()
+gold_customers = anchor_s.population_from(gold_values, on=((gold_values.axes[0], VersionCustomers),))
+gold_frame = anchor_s.frame(gold_customers).compute()
 attributes.show()
-attributes.execute().show()
-gold_query.execute().show()
+gold_frame.show()
 ```
 
 tier.at(october.end) 即 11 月 1 日零点，按 valid_from ≤ t < valid_to 选择 Gold；固定名单筛选后只有 C1，不加入 C3。
@@ -690,13 +334,20 @@ first_order = relation_s.members(
     where=mv.in_population(mv.identities(order_entity, keys=(("O1",),))),
 )
 expanded_orders = orders.preimage(first_order.image(via=(buyer,)), via=(buyer,))
-relation_s.query(matched_orders).execute().show()
+fixed_orders = relation_s.frame(matched_orders).compute()
+fixed_orders.show()
+retained_orders = relation_s.population_from(
+    fixed_orders, on=((fixed_orders.axes[0], order_entity),),
+)
 ```
 
 buyers 为客户身份 {A,B}，matched_orders 为订单身份 {O1,O2}；customer_values 只是字段值 {A,B}，
 不能作为 preimage 的客户身份 targets。first_order 的客户像为 {A}，expanded_orders 却为 {O1,O2}。
 若接收者换成九月订单域，preimage 只返回其中的匹配订单；若换成全量订单域，可包含这些客户的新订单。
-模拟键值仅说明集合含义，不承诺共享来源表达式的多次读取相同；若要沿用已见键，由脚本读取产物后明确构造字面量域；execute 不返回可续算域。
+模拟键值仅说明集合含义，不承诺共享来源表达式的多次读取相同。需要沿用已见键时，保留返回的
+compute/persist Frame，再用 population_from 显式绑定其完整身份轴；上面的 retained_orders
+固定 O1/O2，不需要导出或抄写字面量。后续显式关系或属性读取仍是新的来源事实，不恢复旧历史；
+持久 Frame 的 Artifact 只提供审计。
 
 所有关系输入都使用同一种元组形状。下面另假设 Customers 上声明 customer_region 字段，
 Orders 除 buyer 外还有另一条通向 Customers 的付款客户关系，语义层已声明 buyer 为贡献归属的唯一默认路径。
@@ -733,12 +384,12 @@ buyer_region 的路径定位单值字段读取，贡献对客户身份域的归�
 customer_count = relation_s.observe(
     {"customers": mv.member_count()},
     members=customers_a,
-).execute()
+).compute()
 customer_count_explicit = relation_s.observe(
     {"customers": mv.member_count()},
     members=customers_a,
     during=None,
-).execute()
+).compute()
 ```
 
 这两个请求均计名单中的一个身份，不读取客户档案确认存在性，不代表当期活跃客户数。
@@ -750,23 +401,23 @@ customer_count_explicit = relation_s.observe(
 selected_revenue = relation_s.observe(
     {"revenue": order_revenue},
     members=matched_orders,
-).execute()
+).compute()
 selected_revenue_explicit = relation_s.observe(
     {"revenue": order_revenue},
     members=matched_orders,
     during=None,
-).execute()
+).compute()
 
 relation_paid_at = catalog.fields.get(ms.ref.time_dimension("sales.orders.paid_at"))
 october_revenue = relation_s.observe(
     {"revenue": order_revenue},
     where=relation_paid_at.within(relation_october),
-).execute()
+).compute()
 october_definition = order_revenue.where(relation_paid_at.within(relation_october))
-intrinsic_october_revenue = relation_s.observe({"revenue": october_definition}).execute()
+intrinsic_october_revenue = relation_s.observe({"revenue": october_definition}).compute()
 ```
 
-前两个请求的期间绑定等价；每次 execute 仍读取本次来源，不承诺独立读取的值相同。
+前两个请求的期间绑定等价；每次来源求值 仍读取本次来源，不承诺独立读取的值相同。
 后两个请求分别通过观察条件和固有条件限定十月，不需要重复传入 during；省略期间不证明来源包含完整历史。
 把 member_count 与普通 order_revenue 放进同一次 observe 也可省略期间，显式身份域等要求保持。
 任何依赖要求按期间采样或时间样本规约时，仍须显式提供 during，日期条件和属性时点不能代替它。
@@ -811,7 +462,7 @@ revenue = amount.sum(time=paid_at).where(status == "paid")
 order_count = orders.count(time=paid_at).where(status == "paid")
 aov = revenue / order_count
 september = s.time_scope(start="2026-09-01", end="2026-10-01")
-answer = s.observe({"trial_revenue": revenue, "trial_aov": aov}, during=september).execute()
+answer = s.observe({"trial_revenue": revenue, "trial_aov": aov}, during=september).compute()
 ```
 
 | 关注点 | 模型预定义 | runtime 临时定义 |
@@ -894,7 +545,8 @@ runtime_margin = (trial_amount - trial_cost).sum(time=paid_at)
 ```python
 literal_cohort = mv.coordinates(by=(customer_id,), keys=(("A",), ("B",)))
 literal_revenue = revenue.where(mv.in_population(literal_cohort))
-source_cohort = s.observe({"revenue": revenue}, during=september, by=(customer_id,)).population()
+cohort_frame = s.observe({"revenue": revenue}, during=september, by=(customer_id,))
+source_cohort = s.population_from(cohort_frame, on=((cohort_frame.axes[0], customer_id),))
 selected_cohort_revenue = revenue.where(mv.in_population(source_cohort))
 
 
@@ -903,10 +555,10 @@ def selected_revenue():
     return selected_cohort_revenue
 
 
-selected = s.observe({"revenue": selected_revenue}, during=september).execute()
+selected = s.observe({"revenue": selected_revenue}, during=september).compute()
 ```
 
-字面量域和来源/Query 程序是显式依赖，不包含 Artifact 键引用。selected_revenue 仍依赖原选择程序，
+字面量域和来源/Frame 选择程序是显式依赖，不包含 Artifact 键引用。selected_revenue 仍依赖原选择程序，
 不会把它变成已求值名单；可以在同 Session 观察，模型收录拒绝带执行 Session 的闭包。
 字面量域若轴可独立解析则可收录；Artifact 在表达式构造时就拒绝，不等待模型收录。
 
@@ -930,7 +582,7 @@ def revenue_index():
 
 anonymous_index = (revenue / reference_revenue).sqrt()
 query = s.observe({"named": revenue_index, "anonymous": anonymous_index})
-artifact = query.execute()
+artifact = query.compute()
 ```
 
 positive 是原生条件表达式，但不自动取得业务求和许可；positive_margin 明确声明该授权。
@@ -949,7 +601,7 @@ mean 不授予求和权限；直接 positive.sum() 仍缺业务授权。这里 m
 具体机制由[语义提案 §2.6](../semantic/expression-model-redesign.md#26-原生-ibis-与自动延迟绑定)拥有。
 
 即使已有可信 schema，amount/revenue 等数值作者值和这些中间结果也始终是原生 Deferred；命名信息存在内部声明 Resolver。
-不接收裸后端 Ibis Value 来替换作者值，不调用作者表达式自身的 `.resolve()`/`.show()`；通过 Catalog 条目或 Query.show 披露。
+不接收裸后端 Ibis Value 来替换作者值，不调用作者表达式自身的 `.resolve()`/`.show()`；通过 Catalog 条目或 AnalysisFrame.show 披露。
 命名不是提前执行。下例 numerator/denominator 为已解析的相容 Metric，分母为无量纲数值：
 
 ```python
@@ -1035,7 +687,7 @@ calendar_week = Revenue.window(mv.trailing_periods(count=7))
 每对 named/inline 的配方、政策、检查域与声明计算指纹相同，声明身份不同；schema 已知/未知均保持 Deferred。
 q_named 与 q_inline 使用同一规则和观察轴；没有 during=window 的第二入口。
 这里展示配方等价，不承诺独立 execute 读取相同快照或近似计算产生逐位相同结果。
-无轴规则及 tag_buckets 不依赖 s，命名声明可独立收录；具体 Query/days 不进入模型闭包。
+无轴规则及 tag_buckets 不依赖 s，命名声明可独立收录；具体 Frame/days 不进入模型闭包。
 全部窗口表达式消费时须提供评价端点，calendar_week 还须 CalendarAxis；窗口不能补造基础指标的时间角色。
 
 closing_inventory 的 last 保留末次 NA；改成 include_null=False 是选择末次非 NA，不是格式选项。
@@ -1047,7 +699,7 @@ elapsed_week 的七天恒为168小时；calendar_week 是七个输出日历期�
 
 完整域例：仅 A 有100收入时，子指标为 sum(empty="zero") 时，full_tag_query 为 A=100/B=0，full_tag_mean 为50；
 采用默认 sum() 时，B 为 NA、忽略 NA 的 mean 为100。按实际成员桶 per(tag_buckets) 则只有 A，mean 为100。
-full_tags 的绑定明确且不依赖事实 Query；来源域可写 `s.members(TagEntity).classify(by=(tag_buckets,))`，
+full_tags 的绑定明确且不依赖事实观察；来源域可写 `s.members(TagEntity).classify(by=(tag_buckets,))`，
 此处直接读目标 TagEntity 的身份分类，不走 OrderTags，也不执行描述可能携带的 TagEntity 自关系。来源域会保留其 Session/时点，不能伪装成 source-free 模型参数。
 
 若同时存在 OrderChannels，独立集合组合可写：
@@ -1087,18 +739,19 @@ by_manager 沿 ReportsTo 分配贡献；by_self 才读取根自身分类。all_m
 
 ```python
 week_rule = mv.trailing_duration(duration=timedelta(days=7))
-regional_week = s.observe({"value": Revenue.window(week_rule)}, during=days, by=(Region,))
-all_regions_week = regional_week.rollup(by=(days,))
-cell_sum = regional_week.reduce({"sum_of_cells": regional_week["value"].sum()})
+regional_week = s.observe({"value": Revenue.window(week_rule)}, during=days, by=(Region,)).compute()
+all_regions_week = s.observe({"value": Revenue.window(week_rule)}, during=days).compute()
+cell_sum = regional_week.reduce({"sum_of_cells": regional_week["value"].sum()}).compute()
+monthly_scope = s.time_scope(start="2026-09-01", end="2026-10-01")
 coarse_week = s.observe(
     {"value": Revenue.window(week_rule)},
-    during=days.coarsen(mv.grain("month")),
-)
+    during=monthly_scope.by(mv.grain("month")),
+).compute()
 ```
 
-all_regions_week 保留每个原端点/W，仍须通过原指标的空间合并检查。`regional_week.rollup(by=(days.coarsen(mv.grain("month")),))` 与 `regional_week.rollup()` 均拒绝，
-不能借保留了原始输入就改变或删除时间绑定。coarse_week 是显式的新观察，按粗轴实际端点重新绑定七日窗口；
-cell_sum 只是当前格子的统计。相邻两个端点的七日值均为7时，格子和14、贡献并集8、末端点值7不是同一问题。
+all_regions_week 是明确新来源请求，保留相同端点/W；coarse_week 使用新月端点评价七日窗口。
+cell_sum 仅统计当前格子。两个七日完成值都为 7 时，格子和 14、贡献并集 8、末端点值 7
+是不同问题。没有 Frame rollup 或 CalendarAxis.coarsen 等价迁移。
 
 ## 7. 五个核心 Metric 场景
 
@@ -1137,7 +790,7 @@ A 有 1 单金额 100，B 有 9 单共 90：总体 AOV=190/10=19，客户 AOV �
 aov_strict 是另一声明，显式 error 才拒绝共同非 NA 的零分母；同一全名不对应两种政策。
 装饰器不能用一个政策覆盖 revenue 内部的其它运算。总体重算需组件，不能平均已完成 AOV。
 
-Query Column 使用同一写法，不要求回到 Metric 阶段修改公式：
+Frame Column 使用同一写法，不要求回到 Metric 阶段修改公式：
 
 ```python
 measured = s.observe({"revenue": revenue, "orders": order_count}, during=september)
@@ -1178,13 +831,13 @@ region = catalog.fields.get(ms.ref.dimension("sales.orders.region"))
 regional_means = s.observe(
     {"cohort_mean": cohort_mean, "active_mean": observed_mean},
     during=september, by=(region,),
-).execute()
+).compute()
 ```
 
 完整 A/B 名单的均额为 East50/West200，实际客户均额为 East100/West200；总体客户均额为250。
 样本是 (地区, 客户)，不要求客户只属于一个地区；共享客户轴的内外坐标则必须一致。
 若仅保存地区客户均额及客户数，不能保证总体重算：East:A100/West:A300 与
-East:A100/West:B300 的地区摘要相同，总体却为400/200。Query 上卷路线须计算这些信息；Artifact 不提供 rollup。
+East:A100/West:B300 的地区摘要相同，总体却为400/200。原来源上卷路线须计算这些信息；Artifact 不提供 rollup。
 
 ### 7.4 带宽 P95：先空间求和，再对时间样本规约
 
@@ -1199,20 +852,20 @@ def total_bandwidth_p95():
 
 bandwidth_answer = s.observe(
     {"bandwidth_p95": runtime_bandwidth_p95}, during=september,
-).execute()
+).compute()
 ```
 
 SampleAt 已被声明为五分钟状态采样轴，Bandwidth 仅在固定时点内可空间相加。
 A=[10,0]、B=[0,10]，总体先得 [10,10]，P95=10；设备 P95 各为 9.5，相加 19 是错误计算。
 必须提供观察期间并保持应有样本/缺测事实；普通时间字段不能凭 per 获得采样状态意义。
-只有设备 P95 的固定答案不能完成总体上卷，新 Query 必须计算按时点信息。
+只有设备 P95 的固定答案不能完成总体上卷，新来源观察必须明确计算按时点信息。
 DeviceId 是同一来源上的设备维度；各设备共享相同采样时点也可以分别求 P95：
 
 ```python
 device_p95 = s.observe(
     {"bandwidth_p95": runtime_bandwidth_p95},
     during=september, by=(DeviceId,),
-).execute()
+).compute()
 ```
 
 内部样本为 (设备, 时点)，输出 A/B 各9.5；裸时点无需唯一映射到设备。
@@ -1259,7 +912,7 @@ def scored_mean():
 ### 7.6 跨场景边界：行常数与指标常数
 
 地区收入100/300时，`revenue + 10` 的地区值为110/310，而总体原式为410；
-Query 内组件充分时 rollup 应重算410，不能把地区完成值相加成420，也不能据此 share。
+显式新来源观察的原式为 410；当前行相加是 420，不能据此声称原量上卷或贡献份额。
 `(Amount + 10).sum()` 则每条贡献加10；若各地区各一条，合计420，和前一表达式有不同含义。
 给它们加装饰器或换函数名不会改变这一区别。复审数值反例见
 [场景验证附录 I](lazy-analysis-dsl-scenario-validation.md#附录-i第一性原理复审反例)。

@@ -1,18 +1,21 @@
 # Analysis Evidence Access
 
-Status: current Store 11 output-record contract, 2026-10-18.
-Evidence and Findings describe an exact committed Artifact. Runtime commits them
-with its output manifest and successful Run. They are output facts, not an
+Status: AnalysisFrame cutover audit contract, 2026-10-19.
+Evidence and Findings describe an exact committed result. A publishing Run
+commits them with the Frame manifest and success. They are audit facts, not an
 executable derivation graph or a business narrative.
 
 ## Read saved records
 
-Query has no Evidence reads before execution. Artifact exposes
+Only a persisted Frame exposes `.artifact`. Data preview/export and data
+operations belong to the Frame; Artifact exposes audit-only `show()`,
 `findings(limit=20, cursor=None)` and `evidence_digest()`:
 
 ```python
-artifact = query.execute()
-artifact.show(n=20)
+saved = pending.persist()
+saved.show(n=20)
+artifact = saved.artifact
+artifact.show()
 digest = artifact.evidence_digest()
 print(digest.items)
 print(digest.finding_count)
@@ -21,54 +24,57 @@ for finding in page.items:
     finding.show()
 ```
 
-The Evidence digest takes no limit or cursor. `.items` contains every saved
-Evidence fact, while `.show()` is bounded and deterministic. Collection digests
-and Finding counts describe committed records. They do not encode a formula,
-semantic Ref, node fingerprint, proof dependency graph or hidden value state.
-
+The digest takes no limit or cursor. `.items` contains every saved Evidence
+fact; `.show()` is bounded and deterministic. Collection digests and counts
+refer to committed records. They encode no formula, semantic Ref, producer graph
+or hidden aggregate state. Artifact has no row preview/export or DSL continuation.
 A FindingPage retains immutable items, limit, has_more and next_cursor. Its cursor
-belongs to that Artifact/read; invalid ownership fails. An empty committed set
-is distinct from unavailable or unreadable records. The Artifact has no separate
-finding(id) method; consume its typed paged items.
+belongs to that Artifact/read. An empty set differs from unavailable/unreadable
+records. Consume typed paged items; there is no separate finding(id) lookup.
 
 ## Actual observation facts
 
-Ordinary observe produces an empty Finding set. It still records actual source
-read summaries and actual completed checks. A read summary preserves its source,
-contribution role, requested scope and fact origin. Omitted during explicitly
-means no added time condition. Nested Boolean grouping is preserved as readable
-scope text, without storing an executable predicate or SQL program.
+Ordinary observe produces an empty Finding set. The result still owns one audit:
+inherited non-secret source facts plus this result's current evaluation record.
+Source facts retain the actual read identity, contribution role, requested scope,
+read time, checks and applicability. Only exactly equal facts deduplicate;
+different times or scopes remain distinct. Omitted during adds no time condition.
+Source scope is not relabeled as the current filtered output domain.
 
-A completed check states its kind/version, consumed scope and outcome. A failed
-required check prevents success publication; an unexecuted audit cannot appear
-as completed Evidence. Output coordinates and required numeric facts are
-self-contained. Internal sum/count components are not saved merely because they
-would be useful to an unspecified later question.
+Each new evaluation writes its own completion time, input kinds/identities,
+directly consumed stored references, operation and checks. It does not accumulate
+intermediate operation history. Pure carrier conversion, persistence and reopen
+preserve that audit. Read-integrity validation does not rewrite original facts.
+A check records its real input and outcome; failed required checks prevent
+publication. Unexecuted checks cannot appear as completed Evidence. Internal
+sum/count components, Python objects and executable source definitions are not saved.
 
 ## Recovery and integrity
 
-`session.artifact(artifact_id)` opens exact Session-owned committed metadata.
-It does not query current sources, load the Catalog, restore a Query or replay
-an origin. Saved record reads need no Parquet data; preview/export verify the
-parts they consume. New and reopened handles expose the same records and values.
+`session.persisted_frame(artifact_id)` accepts an exact string ID in the original
+Session. `reopened.artifact` opens that same result's audit. Neither loads a
+Catalog, source schema, connection or model. Audit reads and Frame.show(n=0)
+consume no result payload. Positive preview reads the result prefix and required
+coordinate records; complete compute/export validates all consumed data and
+attachments. Metadata or preview success does not certify unread payload.
 
-Typed decoding and saved collection checks preserve record identity and format.
-Missing/unreadable records, incompatible Store generations and invalid Session
-or cursor ownership remain structured errors. Earlier formats are rejected
-without changing their bytes. Reconciliation resolves the original transaction,
-not an automatic replacement calculation.
+Typed decoding preserves record identity, ownership and format. Missing data,
+corrupt required records, incompatible generations and foreign cursors fail.
+Store 12 refuses every older generation's data without changing old bytes;
+absent-current discovery may still return None/empty without exposing old state.
+An old-only project cannot initialize a new Store as a bypass. See the
+[cutover note](analysis-frame-cutover.md). Reconciliation resolves the original
+publication transaction; it never reevaluates values to resolve uncertainty.
 
 ## Interpretation and disclosure
 
-Observation values describe their requested scope and method. Arithmetic change,
-classification or descriptive statistics do not establish a cause. Source trust
-is not an executed completeness audit; calendar certification does not certify
-business capture, and a saved result does not certify freshness or suitability
-for the current question.
+Source-read, evaluation and commit times are distinct. A recent commit is not a
+fresh source observation. Saved values, arithmetic change and classification do
+not establish cause, completeness or current semantic authority. Calendar
+certification does not certify business capture. A stored input reference is
+audit identity, not a demand that old input files remain available forever.
 
-Use `marivo.help("analysis.evidence")`, `marivo.help(type(fact))` or
-`marivo.help(type(coordinate))` for the owning static contract. Query/Population
-`.show()` describes captured inputs before execution; static type Help lists
-operations, and execution validates their actual inputs. Artifact cards disclose actual
-saved output and read actions. The packaged analysis workflow owns investigation
-judgment and does not introduce another evidence store.
+Use `marivo.help("analysis.evidence")` and focused type Help for static contracts.
+Population/Frame.show describe their captured structure. Artifact.show owns
+submission/audit facts; errors own concrete repairs. The analysis skill owns
+investigation judgment and introduces no additional evidence store.

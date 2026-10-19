@@ -26,7 +26,7 @@ typed repair naming the required extra.
 
 ## Qualify a numerical source route
 
-Numerical Query routes qualify the selected backend, source form, actual schema and method. Templates compile with that backend before Run admission; instantiated dependencies are checked again before consumption. Datasource access alone does not establish numerical Runtime qualification.
+Numerical source routes qualify the selected backend, source form, actual schema and method. Templates compile with that backend before Run admission; instantiated dependencies are checked again before consumption. Datasource access alone does not establish numerical Runtime qualification.
 
 {/* example: csv-semantic-model */}
 
@@ -56,7 +56,7 @@ This declares fields and a named Metric. A declaration or successful preview doe
 
 ## Source and local execution
 
-Source Ibis executes through the selected declared datasource and returns pandas. Literal/reference and local domain/value stages use pandas. PyArrow encodes and reads terminal output. An Artifact is read-only output and cannot enter the DSL; there is no fixed-Artifact execution route or hidden local SQL engine.
+Source Ibis executes through the selected declared datasource and returns pandas. Literal/reference and local domain/value stages use pandas. PyArrow encodes and reads terminal output. Fixed complete Frame inputs and local data operations use the same scheduler. Artifact is audit only; no Artifact operand, fixed-data remote upload or hidden local SQL engine exists.
 
 Source computation accepts native Ibis/provider numerical precision loss. Ibis lowering adds no casts solely to standardize backend result types or preserve transport precision; business-required conversions remain. The pandas handoff resolves the effective numerical types of direct fields, reductions and internal components for subsequent local operations and publication, retaining complete keys, null policies, units and time semantics. Casting cannot recover lost source precision; saved-output fidelity concerns the values actually committed.
 
@@ -74,4 +74,4 @@ ClickHouse Distributed admits qualified ordinary grouped aggregation. Source rou
 
 Datasource native timeouts retain their backend meanings. There is no default graph deadline or automatic alternative executor. Cancellation and close remain driver-owned; unknown remote termination stays unknown. Atomic publication and journal reconciliation preserve committed success and exactly owned resources.
 
-Store 11 records project-local output. New and reopened Artifacts read the same committed data without current Catalog/source access; old graph formats are rejected unchanged. Complete export preserves int64/Decimal, NA, presence, keys, timezone and projections. Focused local checks, remote Runtime tests and release acceptance remain different evidence. Follow [troubleshooting](/docs/latest/reference/troubleshooting/) for the concrete repair.
+Store 12 records complete project-local Frame data and audit. New and reopened Frames read the same committed data without current Catalog/source access. Older-generation data refuses unchanged, with no migration or dual read. Complete export preserves int64/Decimal, NA, presence, keys, order and frozen calendar/paired interpretation. Focused local checks, remote Runtime tests and release acceptance remain different evidence. Follow [troubleshooting](/docs/latest/reference/troubleshooting/) for the concrete repair.

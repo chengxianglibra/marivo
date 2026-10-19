@@ -1,9 +1,9 @@
 ---
 title: 完整本地 Python 分析
-description: 创建六笔订单、比较命名 Metric 并重开终端输出。
+description: 创建六笔订单、比较命名 Metric 并重开固定 Frame 数据。
 ---
 
-使用已安装开发版本和 DuckDB extra 的环境，在全新项目目录运行。本例完整创建数据、声明 Metric、执行 Query 并重开已提交 Artifact；本地示例不代表所有后端或发布验收。
+使用已安装开发版本和 DuckDB extra 的环境，在全新项目目录运行。本例完整创建数据、声明 Metric、求值 AnalysisFrame 并重开已提交 Frame；本地示例不代表所有后端或发布验收。
 
 ## 创建来源
 
@@ -102,20 +102,32 @@ amount = session.catalog.fields.get("sales.orders.amount")
 region = session.catalog.fields.get("sales.orders.region")
 july = session.time_scope(start="2026-07-01", end="2026-08-01")
 august = session.time_scope(start="2026-08-01", end="2026-09-01")
-baseline = session.observe({"revenue": revenue}, during=july, by=(region,))
-current = session.observe({"revenue": revenue}, during=august, by=(region,))
-change = current.compare(baseline)
-change.show()
-artifact = change.execute()
-frame = artifact.to_pandas()
-assert frame[("value", "revenue.absolute")].tolist() == [-100, -100]
-assert frame[("presence", ("current",))].all()
-assert frame[("presence", ("baseline",))].all()
-artifact.show(n=20)
-reopened = session.artifact(artifact.id)
-assert reopened.to_pandas().equals(frame)
+baseline = session.observe({"revenue": revenue}, during=july, by=(region,)).compute()
+current = session.observe({"revenue": revenue}, during=august, by=(region,)).compute()
+change = current.compare(baseline, on=((current.axes[0], baseline.axes[0]),))
+change.show()  # Pending comparison; no evaluation.
+saved = change.persist()
+table = saved.to_pandas()
+assert table[("value", "absolute.revenue")].tolist() == [-100, -100]
+assert table[("presence", "left_present")].all()
+assert table[("presence", "right_present")].all()
+saved.show(n=20)
+saved.artifact.show()  # Submission and audit only.
+reopened = session.persisted_frame(saved.artifact.id)
+assert reopened.to_pandas().equals(table)
+saved_session_id = session.id
+saved_artifact_id = saved.artifact.id
 ```
 
-`execute()` 每次重新求值。Artifact 是终端产物：Query 组合先于执行，导出后使用 pandas 做自定义分析。重开依赖保存的输出，不依赖当前来源或模型。后续指南复用本脚本的 `session`、`revenue`、`amount`、`region`、`current` 和 `baseline`。
 
-导入 `marivo` 后可检查精确 API 契约：`marivo.help(catalog.readiness)` 和 `marivo.help(mv.ordinal().show)` 直接接受公开方法。通过 `marivo.help("semantic.metric.per")` 和 `marivo.help("semantic.metric_samples.first")` 查看支持的样本输入与排序默认值。
+使用返回的内存 Frame 才能固定这次观察的值；原来源表达式再次求值会重新读取来源。
+persist 在比较完成后发布已有结果。保留精确的 Session ID 和 `frame.artifact.id`；
+通过 `mv.session.resume(saved_session_id, by="id")` 与
+`session.persisted_frame(saved_artifact_id)` 恢复完整数据，无需模型或来源。
+恢复后的 Frame 可以继续受支持的数据操作；新来源事实需要显式构造。Artifact 只提供审计。
+后续指南复用本脚本的 `session`、`revenue`、`amount`、`region`、`july`、`august`、
+`current` 与 `baseline`。
+
+导入 `marivo`，从 `marivo.help("analysis")` 开始；精确调用由
+`analysis.analysis_frame` 与 `analysis.frame_axis` 的聚焦 Help 拥有。
+readiness/preview、实际来源求值、本地完成和 provider Runtime 资格是不同证据。

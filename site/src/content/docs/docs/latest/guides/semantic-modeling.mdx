@@ -15,7 +15,7 @@ The warehouse datasource and listed columns must exist. Save as models/semantic/
 
 {/* example: semantic-model-basics */}
 
-Inspect frozen capture with `finalized.show()`. After loading, use `catalog.describe(ms.ref.measure("sales.orders.amount")).show()` for definition facts. Native Deferred values have no Marivo `.show()` or `.contract()` methods; `Query.show()` describes captured execution facts. Display does not execute a query.
+Inspect frozen capture with `finalized.show()`. After loading, use `catalog.describe(ms.ref.measure("sales.orders.amount")).show()` for definition facts. Native Deferred values have no Marivo `.show()` or `.contract()` methods; `AnalysisFrame.show()` describes captured execution facts. Display does not execute a query.
 
 ```python
 import marivo.datasource as md

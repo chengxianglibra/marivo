@@ -1,40 +1,56 @@
 ---
 title: 故障排查
-description: 根据具体 expected/received 事实与所属修复指引处理。
+description: 修复精确所有权、来源、数据与存储边界。
 ---
 
-先读结构化错误的 expected、received 与 repair，在修复边界时保持原业务含义。
+先读错误的预期输入、实际事实和具体修复；修复边界时保持问题的业务含义。
 
-## 环境和语义范围
+## 环境与语义范围
 
-使用所选环境的 `marivo doctor --project-root <project>`，并在同一环境安装所需 datasource extra。无效配置或缺失根目录按具体修复指引处理，凭据保留为环境引用。未知名称通过 Catalog 发现；连通性、readiness、有界 preview 与执行是不同证据。
+在选定环境运行 `marivo doctor --project-root <project>` 并安装所需 datasource extra。
+未知身份按需发现 Catalog，凭据使用环境引用。readiness、preview、source health 与实际方法
+求值是不同证据。同路径定义变化本身不拒绝旧输入，仍保留 kind/root/grain/unit/time/null 检查；
+业务版本身份锚点是独立合同。
 
-## 完整键与 Query 归属
+## 完整键与精确 Frame 句柄
 
-Column 属于当前精确 Query 输入。使用该输入的列，或先明确 align/broadcast 再组合独立输入。接续[本地教程](/zh-cn/docs/latest/guides/python-quick-start/)：
+Column/FrameAxis 属于精确输入；从接收者重新取得，或显式对齐完整轴。
+同名、指纹或导出 attrs 不能重新绑定。继续[教程](/zh-cn/docs/latest/guides/python-quick-start/)：
 
 {/* example: repair-query-domain */}
 
 ```python
-aligned = current.align(baseline, how="outer")
+aligned = current.align(
+    baseline, on=((current.axes[0], baseline.axes[0]),), how="outer",
+)
 difference = aligned.select({"difference": aligned["left.revenue"] - aligned["right.revenue"]})
 difference.show()
 ```
 
-exact 要求完整键唯一且完全对应，outer 通过独立 presence 保留缺侧。缺失值不能替代键或授权补零；字段 Null 是合法类别。完整元组成员谓词保留每个分量，使用 null-safe AND/OR，不能拆成各列独立成员测试。
+exact 要求唯一完整联合键对应；outer 保留缺侧与独立 presence，不自动补零。
+Field Null 是合法类别。read 要求完整 Entity 身份域、非空字段、合法单值路径与版本锚点，
+后置过滤不能隐藏必要错误。新来源事实要显式提供受治理输入与普通轴 population_from 映射；
+on 必填，零轴允许 on=()。
 
-属性读取使用 `session.read(population, {"name": field})`，域须为单个完整 Entity 身份轴且归属同一 Session。按需提供单值声明 field.via((relationship,)) 路径和精确 field.at(anchor)。缺少必需映射在消费前失败，后置筛选不能隐藏错误。没有 Population.read 或隐式 Session 查找；计算 Measure 应交 observe。
+## 时间与数值政策
 
-## 时间和数值政策
+使用 Session instant/time_scope。部分日历桶在 exact/outer 下都不能 match；outer 不能修复
+缺失冻结数据。选择后不压缩原 ordinal。闰日 previous_year 无对应，选择合法政策或期间，
+不夹日期。不支持的 offset 需要支持范围内的显式来源问题，不能静默切换规则。
 
-用 session.instant/time_scope 构造精确边界。naive Python datetime、歧义/不存在墙钟时刻、冲突日历权威须明确修复。ordinal 需要相同 Grain、相容时区/日历及完整名义桶；outer 不能修复半桶。日粒度闰日 previous_year 无对应，应明确 outer 或调整期间/粒度，不夹日。
+除零政策只作用新算子，不覆盖严格子式。非有限值、溢出与必要覆盖失败阻止完成。
+缺少执行路线不授权改算法、来源或精度。
 
-除法默认 zero_denominator 为 null，仅当新被需求除法须失败时选 error；它不会覆盖输入子式政策。非有限、溢出和必要覆盖错误阻止发布。无合格物理路线是能力错误，不能改算法、来源或引擎来绕过。
+## 精确数据恢复与发布 Run
 
-## 终端输出与失败 Run
+保留 Session ID 与 frame.artifact.id，恢复该 Session 后用字符串调用
+`session.persisted_frame(id)`。Frame 拥有数据操作，`.artifact` 拥有审计；
+Artifact/ID 对象及 RawSqlResult 不是计算操作数。compute 失败不创建 Run；发布失败的
+run_ref 指向精确 Run，reconciliation 解决原提交而不重算。
+缺失或损坏的消费数据不是 cache miss，不能回放来源修复。
 
-保留精确 Session/Artifact ID 和项目本地状态。`session.artifact(id)` 打开已提交元数据，产物不能传入 compare/observe 或转回 Query。对保存行使用 to_pandas；新来源计算构造新 Query。
-
-已准入错误的 run_ref 定位精确 Run，通过 `session.get_run(run_ref).show()` 检查。修复后 execute 是新 invocation。reconciliation 解析原 journal，不重放计算；生命周期入口可清理未完成/失败 Run 的资源并保留历史。
-
-旧 Store 原样拒绝。缺失/损坏输出不能在恢复时重跑来源补救；保留原状态，按要求使用全新当前格式项目。preview 限制只影响展示，不截断执行或完整导出。
+Store 12 拒绝所有旧 generation 数据且保持字节不变，不迁移或双读。缺少当前 generation 的
+发现可返回 None/空而不暴露旧状态；create/get_or_create 不能绕过仅有旧 Store 的项目。
+切换前用原版本导出必要结果，或保留兼容读取环境。预览限制只影响显示，不截断完整执行。
+[AnalysisFrame 切换说明](https://github.com/chengxianglibra/marivo/blob/main/docs/specs/analysis/analysis-frame-cutover.md)
+列明破坏性 API、量名、延期能力与恢复选择。

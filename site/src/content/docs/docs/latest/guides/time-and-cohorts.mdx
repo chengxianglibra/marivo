@@ -1,6 +1,6 @@
 ---
 title: Time, identities and windows
-description: Bind exact periods, explicit populations and complete Metric windows.
+description: Bind explicit source populations and interpret frozen calendar data.
 ---
 
 This guide continues the [local tutorial](/docs/latest/guides/python-quick-start/).
@@ -12,20 +12,25 @@ This guide continues the [local tutorial](/docs/latest/guides/python-quick-start
 ```python
 Orders = session.catalog.entities.get("sales.orders")
 fixed_orders = mv.identities(Orders, keys=((4,), (5,), (6,)))
-attributes = session.read(fixed_orders, {"region": region})
-east = attributes.where(attributes["region"] == "east").population()
+attributes = session.read(fixed_orders, {"region": region}).compute()
+chosen_orders = attributes.where(attributes["region"] == "east").compute()
+east = session.population_from(chosen_orders, on=((chosen_orders.axes[0], Orders),))
 selected = session.observe(
     {"revenue": revenue}, during=august,
     members=east, by=(mv.member(),),
-)
-selected.execute().show()
+).compute()
+selected.show()
+session.frame(east).compute().show()
 ```
 
-`session.members(entity_ref, where=...)` selects existing source identities; `identities` captures explicit references, including unconfirmed keys. The Entity passed to `identities` must already be resolved; a bare Ref is a catalog lookup key. Composite keys keep all components in declared order. Population stays lazy: use `session.query(population).execute()` to save keys. `session.read(population, fields)` is the only attribute-read entry and always uses an explicit Session.
-
-`query.coord(axis)` is a scalar value locator. A composite identity cannot become one quantity: execute preparation rejects it before Run admission or business compilation/reads. Keep its complete output/export keys and use Population tuple predicates for identity selection, or choose an existing single-field axis for a scalar Column.
-
-For a versioned attribute, pass a resolved field with `.at(session.instant(...))` in that mapping. Its exact version is independent of the observation period. Missing required profiles or duplicate mappings fail, while a valid source Null remains NA. Computed Measure expressions belong in observe. Population has no read alias or execution method.
+Identities captures explicit complete references, not proof of source presence.
+Composite keys retain every primary-key component. read requires one Entity
+identity domain and nonempty named fields. The bridge maps that exact result's
+complete identity axis to an explicit resolved Entity; a Field cannot be promoted
+to identity. `on` is required, with legal on=() for zero axes. Empty projected
+domains remain empty constraints. Population stays lazy; frame binds general keys.
+Attribute `.at(anchor)` is independent of the observation period. coord accepts
+only a single-component FrameAxis; composite identity stays a complete key.
 
 ## Keep exact calendar boundaries
 
@@ -33,14 +38,22 @@ For a versioned attribute, pass a resolved field with `.at(session.instant(...))
 
 ```python
 days = august.by(mv.grain("day"))
-daily = session.observe({"revenue": revenue}, during=days)
-monthly = daily.reduce({"sum_of_days": daily["revenue"].sum()}, by=(days.coarsen(mv.grain("month")),))
-monthly.execute().show()
+daily = session.observe({"revenue": revenue}, during=days).compute()
+sum_of_days = daily.reduce({"sum_of_days": daily["revenue"].sum()}).compute()
+sum_of_days.show()
+monthly_source = session.observe(
+    {"revenue": revenue}, during=august.by(mv.grain("month")),
+).compute()
+monthly_source.show()
 ```
 
-Acquire time scopes and exact instants through `session.time_scope(...)` and `session.instant(...)`; there are no module-level aliases. Dates and offset-free strings use the Session or explicit boundary zone; aware inputs preserve their instant. Naive Python datetimes and ambiguous/nonexistent wall clocks reject. Scope bounds are half-open. Each CalendarAxis keeps original nominal buckets, actual clipped intervals, order and timezone. DST civil days can contain 23 or 25 hours.
-
-`coarsen(grain)` constructs a candidate calendar. reduce/share/rollup consume it only when every fine nominal and actual bucket has one lawful coarse image. A clipped cross-month week cannot become a month. Reduce uses represented day values; original rollup recomputes the original Metric under its own sufficient-information and additivity constraints.
+The scalar sum_of_days consumes represented rows; monthly_source requests new
+source computation. They are different questions even when this additive demo
+has equal totals. There is no Frame calendar coarsening or CalendarAxis.coarsen.
+Session instant/time_scope freeze exact boundaries; dates/offset-free strings use
+the chosen zone, aware inputs retain their instant, and naive Python datetimes or
+ambiguous/nonexistent clocks reject. A CalendarAxis keeps original nominal and
+clipped actual buckets; civil days can last 23 or 25 hours.
 
 ## Attach the window to the Metric
 
@@ -51,20 +64,22 @@ from datetime import timedelta
 rolling = session.observe(
     {"revenue": revenue.window(mv.trailing_duration(duration=timedelta(days=7)))},
     during=days,
-)
+).compute()
 month_to_date = session.observe(
     {"revenue": revenue.window(mv.to_date(grain=mv.grain("month")))},
     during=days,
-)
-rolling.execute().show(n=5)
-month_to_date.execute().show(n=5)
+).compute()
+rolling.show(n=5)
+month_to_date.show(n=5)
 ```
 
-Each endpoint evaluates the complete Metric over its own W(t). The display start does not clip earlier window input. `trailing_duration` uses elapsed time; `trailing_periods(count=...)` uses complete calendar periods. `since(start=...)` freezes an exact start; `all_history()` has no lower bound. To-date selects the reset period ending at the evaluation boundary, and calendar buckets must have unique containment.
-
-Reusable named metrics may capture `reset = ms.calendar_grain(calendar=ms.ref.period_calendar("sales.fiscal"), level="quarter")` and `rule = mv.to_date(grain=reset)` outside the declaration, then return `revenue.window(rule)` from `@ms.metric()`. The calendar is a checked declaration dependency. Observe resolves it against the Session's frozen certified scope, including scalar observations without a calendar output axis. An explicit Catalog Grain already carrying a snapshot must match that scope; a conflict rejects instead of replacing its authority. Certify the calendar before loading the Session's semantic scope; binding validates its level, timezone, coverage and bucket containment. Existing Queries retain the adopted snapshot even if certification changes later.
-
-Windowed original rollup retains the same time axis and endpoints and may perform only qualified spatial rollup. Construct a new observe to change the window or evaluation calendar. Calendar certification does not prove business source completeness.
+Each endpoint evaluates the complete child Metric over W(t), including lookback
+before the display start. trailing_duration is elapsed time; trailing_periods
+uses complete civil/certified periods. since freezes a start; all_history has no
+lower bound; to_date selects the reset period ending at the evaluation boundary.
+A named-calendar rule is a checked semantic dependency; a snapshot-bound Grain
+must match the Session's frozen certified scope. New windows/calendars require
+explicit observe; certification does not prove source completeness.
 
 ## Pair completed endpoints
 
@@ -73,14 +88,21 @@ Windowed original rollup retains the same time axis and endpoints and may perfor
 ```python
 current_days = session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
 prior_days = session.time_scope(start="2026-07-01", end="2026-07-04").by(mv.grain("day"))
-current_daily = session.observe({"revenue": revenue}, during=current_days)
-prior_daily = session.observe({"revenue": revenue}, during=prior_days)
-paired = current_daily.compare(prior_daily, match=mv.ordinal())
-paired.execute().show()
+current_daily = session.observe({"revenue": revenue}, during=current_days).compute()
+prior_daily = session.observe({"revenue": revenue}, during=prior_days).compute()
+paired = current_daily.compare(prior_daily, match=mv.ordinal()).compute()
+paired.show()
 ```
 
-Ordinal requires compatible Grain, timezone and complete nominal buckets. Filters preserve original bucket ordinals. exact requires equal bucket counts and complete key pairing; outer can retain a longer tail with independent presence.
+Both inputs have one sole calendar axis, so on is inferred while match is explicit.
+Matching requires compatible complete nominal partitions with actual boundaries
+equal to nominal ones. Filtering preserves original ordinals. A directory's unused
+buckets create no rows; exact checks actual joint row pairing, outer keeps missing
+sides with independent presence. Partial buckets reject under both policies.
 
-`period_offset(-1)` moves one true calendar position; on a day axis it means yesterday. `previous_year()` supports builtin day/month/quarter/year same-name periods. Daily February 29 has no counterpart: exact rejects, outer keeps the missing side. Complete February can still pair with last year's complete February. Week/subday and retail 53-week calendars have no automatic year mapping.
-
-Both endpoints complete their own windows before pairing. Default paired output preserves both calendars; `time_axis="current"` requires a real current date on every represented row. A baseline-only row cannot be discarded or assigned a fabricated current date.
+Builtin period_offset supports day/week/month/quarter/year; previous_year supports
+day/month/quarter/year and leaves leap days unmatched. Named calendars support
+ordinal only; named offsets, subday/DST offsets and arbitrary mappings are postponed.
+Rules consume saved labels/directories; no model or timezone rules are reconstructed.
+Paired output retains raw keys, both frozen endpoint descriptions and a map;
+show resolves labels/bounds. No endpoint method or current-only projection is added.

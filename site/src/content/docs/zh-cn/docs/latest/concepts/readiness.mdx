@@ -12,7 +12,7 @@ description: 与快照无关的语义输入技术认证。
 历史，也不导入可选后端客户端。限定范围内保留依赖 warning，排除无关 warning。
 
 已发布的 Measure/Metric 表达式通过 `catalog.describe()` 查看定义；readiness
-检查它们消费的物理字段与 Entity。Query 准备与执行负责物理类型、聚合/后端支持和
+检查它们消费的物理字段与 Entity。来源 Frame 准备与求值负责物理类型、聚合/后端支持和
 操作专属资格。分析 API 不会自动调用 readiness。业务描述与 guardrail 缺失不会阻塞它。
 
 若把已发布表达式传给 readiness，结构化错误会从当前编译闭包中给出真实物理依赖；
@@ -107,7 +107,7 @@ preview-required 列表、认证令牌或隐藏传递对象。
 ## 重要 blocker
 
 未知引用、物理声明或依赖问题，以及缺失、过期或无效的时间认证产物会阻塞受影响输入。
-聚合与后端不兼容由 Query 准备与执行报告；不会自动替换原定义。
+聚合与后端不兼容由 来源 Frame 准备与求值报告；不会自动替换原定义。
 
 专用时间 artifact blocker 使用 artifact 术语：
 

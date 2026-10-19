@@ -17,7 +17,7 @@ window and routed-field Metric previews are not supported. Physical row previews
 backend-specific contracts. This document does not certify every physical execution route or
 release acceptance; native Help and the owning analysis contract describe current callable scope.
 At `405bd006f8`, the agreed R3–R8 local implementation gate and independent business
-acceptance are complete. Numerical Query routes now qualify the actual selected
+acceptance are complete. Numerical source routes now qualify the actual selected
 backend, expression, physical types and method. Native Ibis/provider numerical
 precision loss is accepted; the pandas handoff supplies effective numerical types
 to local consumers and publication without relaxing keys, units, time or null
@@ -50,7 +50,7 @@ time-scope, and alignment contract, see
 [`../temporal-semantics.md`](../temporal-semantics.md).
 For the analysis layer, see [`../analysis/python-analysis-design.md`](../analysis/python-analysis-design.md).
 Start at [Analysis Architecture](../analysis/README.md) for the current graph,
-algebra, method-registry, Runtime and Store 10 terminal-output ownership chain.
+algebra, method-registry, Runtime and Store 12 Frame data/audit ownership chain.
 
 ## Audience and intent
 
@@ -135,9 +135,9 @@ marivo.datasource   connection + physical source + evidence
         ↓ Ref[datasource] + TableSource + DiscoverySnapshot
 marivo.semantic     domain / entity / dimension / metric / relationship
         ↓ normalized business contracts + typed refs + Ibis construction
-marivo.analysis     Population / Query / Column + bound algebraic methods
+marivo.analysis     Population / AnalysisFrame / Column + bound algebraic methods
         ↓ qualified graph plan + explicit Runtime execution
-Store 10            terminal Artifacts + self-contained output records
+Store 12            complete Frame data + self-contained audit records
 ```
 
 - The **datasource** layer owns *how to reach the data and what it physically
@@ -151,8 +151,8 @@ Store 10            terminal Artifacts + self-contained output records
   refs and never re-defines a caliber, guesses an entity/time dimension, or reads
   a table behind the registry. It selects member-domain membership, observational
   units, windows, coordinates, and exact contribution subsets; logical operators
-  compose before explicit execution, while a materialized Artifact authorizes
-  its committed rows and retained parts without semantic-origin replay.
+  compose before explicit execution, while a completed Frame owns
+  source-free committed data without semantic-origin replay; its Artifact owns audit.
 
 A Metric's computation root is distinct from the analysis Entity and reporting
 grain. A multi-root graph can be semantically coherent while requiring an

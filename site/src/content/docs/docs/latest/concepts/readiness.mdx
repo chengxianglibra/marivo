@@ -14,7 +14,7 @@ and imports no optional backend clients. Scoped reports retain dependency warnin
 and exclude unrelated warnings.
 
 Inspect published Measure/Metric definitions through `catalog.describe()`; select
-the physical fields and Entities they consume for readiness. Query preparation and
+the physical fields and Entities they consume for readiness. Source Frame preparation and
 execution own physical types, aggregate/backend support and operation-specific
 qualification. Analysis APIs do not invoke readiness automatically. Missing business
 descriptions and guardrails do not block it.
@@ -120,7 +120,7 @@ current Catalog values; the report does not grant expression execution support.
 ## Important blockers
 
 Unknown refs, physical declaration/dependency problems and missing, stale or invalid
-temporal artifacts block affected inputs. Query preparation and execution report
+temporal artifacts block affected inputs. Source Frame preparation and evaluation report
 aggregate/backend incompatibilities without substituting a different definition.
 
 Dedicated temporal artifact blockers use artifact terminology:

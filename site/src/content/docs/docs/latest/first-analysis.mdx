@@ -18,10 +18,12 @@ to be resolved rather than a silently substituted Metric.
 ## Understand the agent’s work
 
 The agent verifies its selected environment, reads existing catalog objects,
-constructs explicit analysis in one Session and executes when the next decision
-needs results. It reads Query/Population `.show()` for captured inputs before execution, reads
-Artifact `.show()` for committed rows and uses focused type Help to discover calls.
-The Artifact is terminal; custom follow-up on saved data uses `.to_pandas()`.
+constructs explicit source analysis in one Session and computes when the next
+decision needs values. It inspects Population/Frame.show for captured facts,
+continues from the returned fixed Frame and persists results needed across
+processes. Frame.show/to_pandas own data; its persisted `.artifact` owns audit.
+Reopen exact data with persisted_frame(id); new source questions require explicit
+inputs. Focused Help owns calls, and RawSqlResult stays outside typed Frame Store.
 
 For a missing reusable definition, it hands off to `marivo-semantic`, certifies
 the changed roots and returns to the original question. Terminal raw SQL may

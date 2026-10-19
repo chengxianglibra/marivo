@@ -1,75 +1,61 @@
 ---
 title: 证据与恢复
-description: 不依赖当前来源的产物阅读与已保存 Evidence。
+description: 无需当前来源读取精确固定数据与审计。
 ---
 
-Store 11 将最终输出保存在 `.marivo/analysis/generations/v11/`。
-Parquet 文件持久化后，通过一个 SQLite 事务共同发布 manifest、receipt、Finding、
-Evidence 和 Run 成功状态。失败调用不会发布部分 Artifact；恢复只协调原 Run 及其确切
-资源 journal，不重放计算。
+Store 12 在 `.marivo/analysis/generations/v12/` 保存 Frame 数据。数据持久后，一个
+SQLite 发布事务同时提交 manifest、收据、Findings、Evidence 与 Run 成功。
+compute 不创建 Run；persist 在准入前完成求值，再发布已有 result ID。
+内存 persist 不重新求值，存储根 persist 验证提交元数据并返回自身。
 
-## 执行并检查 Run
+## 读取数据与审计
 
-已有解析完成的 `revenue` Metric 和 Session：
+已有已解析 revenue Metric 和 Session 时：
 
 ```python
-query = session.observe({"revenue": revenue})
-artifact = query.execute()
-print(artifact.id)
-print(artifact)
+saved = session.observe({"revenue": revenue}).persist()
+print(session.id, saved.artifact.id)
+saved.show(n=20)
+saved.artifact.show()
+reopened = session.persisted_frame(saved.artifact.id)
+complete = reopened.compute()
+page = reopened.artifact.findings(limit=20)
+digest = reopened.artifact.evidence_digest()
+print(digest.items)
 for run in session.runs(limit=5).items:
     run.show()
 ```
 
-每次 execute 重新求值，创建新的 Run 和 Artifact。Artifact 只持已提交身份与元数据，
-没有 `contract()` 或 DSL 续算能力。无来源常量也使用同一发布路径。
+普通 observe 没有 Findings。一份审计保留继承的实际来源事实与本次求值，不累计中间操作历史。
+仅完全相同的事实去重，不同范围与读取时间保留。来源读取、求值与提交时间不同；保存旧数据
+不会刷新它。保存输入身份不构成可执行血缘依赖。
 
-## 保存事实与阅读边界
+## 预览与完整数据
 
-普通观察不产生 Finding。Evidence 只记录实际来源读取与实际检查，包括读取范围；
-省略期间明确表示未追加时间约束。这些记录不认证来源完整性、跨来源快照、新鲜度或因果结论。
+打开/repr、show(n=0)、Artifact.show/findings/evidence_digest 只读元数据或审计，不消费载荷。
+正 n show 解码有序前缀和所选冻结坐标记录；收据散列或解压可能读取更多字节，预览成功不证明
+未读部分完整。完整 compute/to_pandas 验证必要值、键、presence 与日历/映射附件，不加载
+Catalog、来源 schema、连接、模型或时区规则。
 
-保存的 schema 描述完整键、命名 nullable 值、独立 presence、类型和单位；
-必要输出附件保存 UTC 日历边界，主表及附件的 schema 同时保留所选日历时区；读取范围摘要保留布尔条件的嵌套分组。不保存语义定义、图、公式、隐藏规约组件、计算指纹或 continuation。
+导出返回隔离 RangeIndex 数据，列为原始键 `(kind, name)` MultiIndex；隔离的类型化 attrs
+包含 axes、units 与 frozen_coordinates 表。日历标签/边界和配对端点自包含，最简单的解释入口
+是 show。没有新增可见投影列、endpoint API 或 attrs 导入器。
+恢复后的 Frame 可继续数据操作，新来源事实需要显式构造。
 
-新产物和重开产物使用同一已提交输出 reader。打开与 repr 只读元数据；
-预览最多解码请求行数，但 receipt 摘要仍可能读取整个已消费 part。
-导出返回完整隔离 DataFrame，采用 RangeIndex、kind/name 两层列及纯数据 `attrs["marivo"]`。
-日历坐标来自已保存的真实桶起点，同时保留时区与实际边界。
+## 区分发布图与数据历史
 
-```python
-import marivo
+SessionGraph 只有同 Session Run-to-Artifact 发布边；roots/heads 不选择最新答案，
+也不承诺完整数据血缘。本次求值记录实际直接消费的存储输入；载体复制不伪造读取或血缘边。
+reconciliation 解决原事务，不重新求值。完整内存结果在旧文件删除后仍独立可用；旧存储句柄
+若再次读取已删除数据仍会失败。
 
-saved = session.artifact(artifact.id)
-saved.show(n=20)
-frame = saved.to_pandas()
-page = saved.findings(limit=20)
-digest = saved.evidence_digest()
-print(digest.items)  # all actual saved Evidence; no limit or cursor
-if digest.items:
-    marivo.help(type(digest.items[0]))  # static saved-fact type
-```
+## 旧数据与证据限度
 
-Finding 分页与完整 Evidence 摘要不依赖 Parquet 或当前模型。
-`digest.show()` 保持有界，`.items` 包含全部已保存事实。
-当前模型的改名、删除或变化不影响历史值。Session 图只展示 Run/输出关系和已保存摘要，不包含定义指纹。
+Store 12 拒绝旧 generation 的 Session/result/Findings/Evidence 访问，不改写旧字节，
+不迁移或双读。缺少当前 generation 的发现可返回 None/空而不暴露旧数据；create/get_or_create
+不能在仅有旧 Store 的项目初始化旁路。切换前用原版本导出，或保留兼容读取环境。
+参见[故障排查](/zh-cn/docs/latest/reference/troubleshooting/)。
 
-`session.graph()` 只包含同一 Session 的 Run→Artifact `produces` 边；失败与未完成
-Run 是独立节点。Run 的 `dataset_input` 保留为执行标记，不再提供消费 Artifact 引用。
-所有选中 Run 都是 root，所有选中 Artifact 都是 head；head 不代表“最新答案”。
-Session 摘要将所有 Artifact 计为 head，最多展示三个引用。
-
-```python
-graph = session.graph(artifact_ref=artifact.id, direction="ancestors", max_nodes=100)
-graph.show()  # Artifact and its producer
-session.graph(artifact_ref=artifact.id, direction="descendants").show()  # Artifact alone
-```
-
-`max_nodes` 范围仍为 1–500。boundary 字段标识存在未选中请求邻居的已选节点，
-`truncated` 表示选择不完整。未指定 Artifact 时使用 `direction="ancestors"`。
-
-Store 10 及更早 Store 和图/continuation 格式明确拒绝，不改写或迁移。更换 Session 名称不能绕过代际限制；
-请在新项目创建新格式 Store 并重新运行分析脚本。同代际 Session resume 保留身份和 Run 历史。
-Store 11 的终端输出 v1 编码与 Parquet 规格保持不变。
-
-从 `marivo.help("analysis")` 开始发现。
+保存事实不认证来源完整、当前语义权威、跨源快照、新鲜度或因果。
+RawSqlResult 保持独立 datasource reader，不进入 Frame Store。
+从 `marivo.help("analysis")` 发现；类型 Help 拥有调用，show 拥有已捕获事实。

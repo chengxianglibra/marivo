@@ -6,7 +6,7 @@ description: 配置 Marivo 项目，并在多个仓库之间复用语义层。
 ## 用版本控制管理项目契约
 
 `marivo.toml` 是可选文件。缺少时，项目名使用项目根目录名，`semantic.layer_paths` 为空，并启用
-本地遥测；`execute()` 结果使用项目本地 Parquet。缺少表或字段时也使用这些默认值；已有但 TOML 非法或显式字段非法的配置会严格失败。
+本地遥测；`compute()` 返回完整内存数据；`persist()` 在 Store 12 下发布项目本地 Frame Parquet。缺少表或字段时也使用这些默认值；已有但 TOML 非法或显式字段非法的配置会严格失败。
 项目配置中没有 `version` 字段。
 
 如需加载由其他仓库维护的语义层包，请在 `marivo.toml` 的
