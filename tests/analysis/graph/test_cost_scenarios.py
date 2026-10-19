@@ -1,4 +1,4 @@
-"""Source and local original sums retain exact full-fact answers."""
+"""Source totals and local row sums retain exact full-fact answers."""
 
 from pathlib import Path
 
@@ -14,20 +14,25 @@ def test_duckdb_cost_routes_keep_the_original_exact_sum(
     with workload("duckdb", "ordinary-table", 64, "baseline", tmp_path, monkeypatch) as work:
         assert [row["amount"] for row in work.rows[:6]] == [None, 2, 3, 4, 5, 6]
         assert [row["id"] for row in work.rows[:2]] == [9007199254740992, 9007199254740993]
-        queries = (work.total(), work.values().rollup())
+        values = work.values()
+        queries = (work.total(), values.reduce({"value": values["value"].sum()}))
         references = []
         for query in queries:
-            first = query.execute()
+            first = query.persist()
             assert work.validate(first)["passed"] is True
-            references.append(first.id)
+            references.append(first.artifact.id)
             before = len(work.session.runs().items)
-            second = query.execute()
+            second = query.persist()
             assert work.validate(second)["passed"] is True
-            assert second.id != first.id
+            assert second.artifact.id != first.artifact.id
             assert len(work.session.runs().items) == before + 1
             source_trace.record(first)
             submitted = len(source_trace.native_sql)
-            assert work.session.artifact(first.id).to_pandas().equals(first.to_pandas())
+            assert (
+                work.session.persisted_frame(first.artifact.id)
+                .to_pandas()
+                .equals(first.to_pandas())
+            )
             assert len(source_trace.native_sql) == submitted
             assert work.session._runtime.store.resources(work.session.id) == ()
         assert references[0] != references[1]
@@ -53,7 +58,7 @@ def test_duckdb_local_original_sum_consumes_group_input(
             during=session.time_scope(start="2026-08-01", end="2026-08-02"),
             by=(axis,),
         )
-        frame = grouped.execute().to_pandas()
+        frame = grouped.persist().to_pandas()
         assert (
             dict(zip(frame.iloc[:, 0], frame[("value", "value")], strict=True))
             == independent_totals
@@ -65,8 +70,8 @@ def test_duckdb_local_original_sum_consumes_group_input(
             "started": -1.0,
             "finished": 1.0,
         }
-        # Original rollup consumes the same selected group input before publication.
-        result = grouped.rollup().execute()
+        # Current-row reduction sums the explicitly observed group values.
+        result = grouped.reduce({"value": grouped["value"].sum()}).persist()
         assert work.validate(result)["passed"] is True
         source_trace.record(result)
         assert source_trace.qualifications

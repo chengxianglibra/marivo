@@ -281,7 +281,7 @@ def test_independent_roots_and_temporal_fold(
         if mode == "linear_fanout":
             before = set(root.rglob("*.parquet"))
             with pytest.raises(AnalysisError) as refused_route:
-                session.observe({"value": expression}, by=members).execute()
+                session.observe({"value": expression}, by=members).persist()
             assert (
                 refused_route.value.expected
                 and refused_route.value.received
@@ -302,7 +302,7 @@ def test_independent_roots_and_temporal_fold(
         if mode in {"linear_nonfinite", "ratio_decimal_overflow", "ratio_decimal_output_overflow"}:
             before = set(root.rglob("*.parquet"))
             with pytest.raises(AnalysisError) as refused:
-                values.execute()
+                values.persist()
             assert refused.value.expected and refused.value.received and refused.value.repair
             if mode.startswith("ratio_decimal"):
                 diagnostic = str(refused.value) + str(refused.value.__cause__)
@@ -312,7 +312,7 @@ def test_independent_roots_and_temporal_fold(
             assert set(root.rglob("*.parquet")) == before
             assert session._runtime.store.resources(session.id) == ()
             return
-        result = values.execute()
+        result = values.persist()
         exported = result.to_pandas()
         frame = exported.set_index(exported.columns[0])
         actual = frame[("value", "value")]
@@ -335,7 +335,7 @@ def test_independent_roots_and_temporal_fold(
                 {"value": left_total, "count": amount.count(time=clock)},
                 by=members,
                 during=session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day")),
-            ).execute()
+            ).persist()
             sample_rows = samples.to_pandas()
             groups = sample_rows.groupby(sample_rows.columns[1])
             assert groups.get_group("a")[("value", "value")].tolist() == [15, 21]
@@ -353,7 +353,7 @@ def test_independent_roots_and_temporal_fold(
             assert pd.isna(actual.loc["c"])
             components = session.observe(
                 {"left": left_total, "right": right_total}, by=members
-            ).execute()
+            ).persist()
             component_rows = components.to_pandas()
             component_rows = component_rows.set_index(component_rows.columns[0])
             numerators = component_rows[("value", "left")]
@@ -361,7 +361,7 @@ def test_independent_roots_and_temporal_fold(
             assert Fraction(numerators.loc["a"]) == Fraction(amounts[0]) + Fraction(amounts[1])
             assert Fraction(denominators.loc["a"]) == Fraction(amounts[2]) + Fraction(amounts[3])
             assert denominators.loc["b"] == amounts[4]
-            rolled = values.rollup().execute()
+            rolled = session.observe({"value": expression}, by=()).persist()
             assert rolled.to_pandas()[("value", "value")].tolist() == pytest.approx(
                 [float(ratio_total)], rel=1e-14
             )
@@ -381,7 +381,7 @@ def test_independent_roots_and_temporal_fold(
                 assert float(
                     saved[("value", "left")].sum() / saved[("value", "right")].sum()
                 ) == pytest.approx(float(ratio_total), rel=1e-14)
-                assert session.artifact(result.id).to_pandas().equals(exported)
+                assert session.persisted_frame(result.artifact.id).to_pandas().equals(exported)
             assert len(source_trace.native_sql) == before_reads
             source_trace.record(components)
             source_trace.record(rolled)

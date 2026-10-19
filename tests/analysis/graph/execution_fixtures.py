@@ -9,6 +9,10 @@ from typing import Literal
 
 import duckdb
 
+import marivo.analysis as mv
+from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
+from marivo.analysis.core.graph import BoundGraph
+
 # IDs, amounts, weights and relationships deliberately have unequal multiplicity.
 ORDER_VALUES = (
     (1, 1, 10.0, 1.0, "2026-02-02"),
@@ -71,3 +75,10 @@ def _build_execution_database(database: Path) -> None:
         )
     finally:
         connection.close()
+
+
+def source_graph(frame: mv.AnalysisFrame) -> BoundGraph:
+    """Inspect only an explicit pending source leaf for source-binding assertions."""
+    assert isinstance(frame._backing, ExpressionFrameBacking)
+    assert isinstance(frame._backing.root, SourceFrameBinding)
+    return frame._backing.root.graph

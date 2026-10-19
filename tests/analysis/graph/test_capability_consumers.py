@@ -22,7 +22,7 @@ from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.support.source_trace import SourceTrace
 
 
-def _value(result: mv.Artifact) -> pd.Series:
+def _value(result: mv.AnalysisFrame) -> pd.Series:
     return result.to_pandas()["value", "value"]
 
 
@@ -31,7 +31,7 @@ def _full(
     metric: str = "sales.total",
     *,
     during: mv.TimeScope | mv.CalendarAxis | None = None,
-) -> mv.Query:
+) -> mv.AnalysisFrame:
     return session.observe(
         {"value": session.catalog.metrics.get(metric)},
         during=during,
@@ -117,8 +117,8 @@ def test_declared_string_time_uses_owned_execution_functions(
             during=session.time_scope(start=start, end=end),
             by=session.members(ms.ref.entity("sales.facts")),
         )
-        assert isinstance(values, mv.Query)
-        result = values.execute()
+        assert isinstance(values, mv.AnalysisFrame)
+        result = values.persist()
         frame = result.to_pandas()
         frame = frame.set_index(frame.columns[0])
         expected_values = {
@@ -214,29 +214,42 @@ def test_source_coordinates_statistics_and_original_state(
         bucket = session.catalog.fields.get("sales.facts.bucket")
         revision = session.catalog.fields.get("sales.facts.revision")
         read = session.read(members, {"value": bucket})
-        selected = read.where(read["value"] == "a").population()
+        chosen = read.where(read["value"] == "a")
+        selected = session.population_from(
+            chosen, on=((chosen.axes[0], session.catalog.entities.get("sales.facts")),)
+        )
         values = session.observe(
             {"value": session.catalog.metrics.get("sales.total")},
             by=(mv.member(), bucket, revision),
             members=selected,
         )
-        counted = values.reduce({"value": mv.row_count()}, by=(bucket,)).execute()
+        counted = values.reduce({"value": mv.row_count()}, by=(values.axes[1],)).persist()
         assert _value(counted).tolist() == [2]
-        tuples = values.reduce({"value": mv.row_count()}, by=(bucket, revision)).execute()
+        tuples = values.reduce(
+            {"value": mv.row_count()}, by=(values.axes[1], values.axes[2])
+        ).persist()
         frame = tuples.to_pandas()
         assert list(frame.iloc[:, 0]) == ["a", "a"]
         assert list(frame.iloc[:, 1]) == [1, 2]
-        assert _value(tuples).tolist() == [1, 1]
-        summed = values.reduce({"value": values["value"].sum()}, by=(bucket,)).execute()
+        assert frame[("value", "value")].tolist() == [1, 1]
+        summed = values.reduce({"value": values["value"].sum()}, by=(values.axes[1],)).persist()
         assert _value(summed).tolist() == [2]
         defined_values = values.where(~values["value"].is_null())
-        defined = defined_values.reduce({"value": mv.row_count()}, by=(bucket,)).execute()
+        defined = defined_values.reduce(
+            {"value": mv.row_count()}, by=(defined_values.axes[1],)
+        ).persist()
         assert _value(defined).tolist() == [2]
-        mean = values.reduce({"value": values["value"].mean()}, by=(bucket,)).execute()
+        mean = values.reduce({"value": values["value"].mean()}, by=(values.axes[1],)).persist()
         assert _value(mean).tolist() == [1.0]
-        original = values.rollup(by=(bucket,)).execute()
+        original = session.observe(
+            {"value": session.catalog.metrics.get("sales.total")}, by=(bucket,), members=selected
+        ).persist()
         assert _value(original).tolist() == [2]
-        assert _value(values.rollup(by=(bucket,)).rollup().execute()).tolist() == [2]
+        assert _value(
+            session.observe(
+                {"value": session.catalog.metrics.get("sales.total")}, members=selected
+            ).persist()
+        ).tolist() == [2]
         full = _full(session)
         if numeric_type == "int64":
             current = _full(
@@ -245,47 +258,53 @@ def test_source_coordinates_statistics_and_original_state(
             baseline = _full(
                 session, during=session.time_scope(start="2026-08-02", end="2026-08-03")
             )
-            difference = current.compare(baseline).execute().to_pandas()
+            difference = (
+                current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))
+                .persist()
+                .to_pandas()
+            )
             assert dict(
-                zip(difference.iloc[:, 0], difference["value", "value.absolute"], strict=True)
+                zip(difference.iloc[:, 0], difference["value", "absolute.value"], strict=True)
             ) == {
                 ("a", 9007199254740992, 1): 2,
                 ("a", 9007199254740993, 2): 0,
                 ("b", 9007199254740993, 1): 4,
             }
         full_sum = 6 if numeric_type == "int64" else 6.5
-        full_grouped = session.observe(
-            {"value": session.catalog.metrics.get("sales.total")}, by=(bucket,)
-        )
-        assert _value(full_grouped.rollup().execute()).tolist() == [full_sum]
         assert _value(
-            full.reduce({"value": full["value"].mean()}).execute()
+            session.observe({"value": session.catalog.metrics.get("sales.total")}).persist()
+        ).tolist() == [full_sum]
+        assert _value(
+            full.reduce({"value": full["value"].mean()}).persist()
         ).tolist() == pytest.approx([full_sum / 3], abs=1e-12, rel=0)
         average = _full(session, "sales.average")
-        assert _value(average.reduce({"value": mv.row_count()}).execute()).tolist() == [3]
+        assert _value(average.reduce({"value": mv.row_count()}).persist()).tolist() == [3]
         supported = average.where(~average["value"].is_null())
-        assert _value(supported.reduce({"value": mv.row_count()}).execute()).tolist() == [2]
-        assert _value(average.reduce({"value": average["value"].sum()}).execute()).tolist() == [
+        assert _value(supported.reduce({"value": mv.row_count()}).persist()).tolist() == [2]
+        assert _value(average.reduce({"value": average["value"].sum()}).persist()).tolist() == [
             full_sum
         ]
-        assert _value(average.reduce({"value": average["value"].mean()}).execute()).tolist() == [
+        assert _value(average.reduce({"value": average["value"].mean()}).persist()).tolist() == [
             full_sum / 2
         ]
         before = set(tmp_path.rglob("*.parquet"))
         with pytest.raises(AnalysisError):
             full.select(
                 {"value": full["value"].divide(full["value"], zero_denominator="error")}
-            ).execute()
+            ).persist()
         assert set(tmp_path.rglob("*.parquet")) == before
         assert _value(original).tolist() == [2]
-        empty_members = read.where(read["value"] == "missing").population()
+        absent = read.where(read["value"] == "missing")
+        empty_members = session.population_from(
+            absent, on=((absent.axes[0], session.catalog.entities.get("sales.facts")),)
+        )
         empty = session.observe(
             {"value": session.catalog.metrics.get("sales.total")},
             by=empty_members,
             members=empty_members,
         )
-        assert _value(empty.reduce({"value": mv.row_count()}).execute()).tolist() == [0]
-        assert _value(empty.reduce({"value": empty["value"].mean()}).execute()).isna().all()
+        assert _value(empty.reduce({"value": mv.row_count()}).persist()).tolist() == [0]
+        assert _value(empty.reduce({"value": empty["value"].mean()}).persist()).isna().all()
         for result in (counted, tuples, summed, defined, mean, original):
             source_trace.record(result)
         assert session._runtime.store.resources(session.id) == ()
@@ -361,12 +380,15 @@ def test_original_mean_preserves_component_weights(
             },
             by=(bucket,),
         )
-        current = grouped.reduce({"value": grouped["value"].mean()}).execute()
-        original = grouped.rollup().execute()
+        current = grouped.reduce({"value": grouped["value"].mean()}).persist()
+        original = session.observe(
+            {"value": session.catalog.metrics.get("sales.average")}
+        ).persist()
         assert _value(current).tolist() == [50.5]
         assert _value(original).tolist() == [34.0]
-        fixed = grouped.execute()
-        frame = fixed.to_pandas().set_index(fixed.to_pandas().columns[0])
+        fixed = grouped.persist()
+        exported = fixed.to_pandas()
+        frame = exported.set_index(exported.columns[0])
         assert frame["value", "value"].to_dict() == {"a": 1.0, "b": 100.0}
         assert dict(zip(frame["value", "sum"], frame["value", "count"], strict=True)) == {
             2: 2,
@@ -460,12 +482,13 @@ def test_cumulative_keeps_anchor_and_overlap(
             during=grid,
             by=session.members(ms.ref.entity("sales.facts")),
         )
-        fixed = logical.execute()
+        fixed = logical.persist()
         source_trace.record(fixed)
-        grouped = logical.rollup(by=(grid,)).execute()
+        grouped = session.observe(
+            {"value": session.catalog.metrics.get("sales.running")}, during=grid
+        ).persist()
         assert _value(grouped).tolist() == expected
-        with pytest.raises(AnalysisError, match="window time axis"):
-            logical.rollup()
+        assert not hasattr(fixed, "rollup")
         if not overlap:
             assert _value(grouped).sum() == 23
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
@@ -565,12 +588,14 @@ def test_dst_grid_keeps_instant_edges_and_fixed_coordinate(
             during=grid,
             by=session.members(ms.ref.entity("sales.facts")),
         )
-        fixed = logical.execute()
+        fixed = logical.persist()
         frame = fixed.to_pandas()
         assert len(frame) == 8
         assert not frame["value", "value"].isna().any()
         source_trace.record(fixed)
-        grouped = logical.rollup(by=(grid,)).execute()
+        grouped = session.observe(
+            {"value": session.catalog.metrics.get("sales.total")}, during=grid
+        ).persist()
         assert _value(grouped).tolist() == [7, 11]
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
         source_trace.save(
@@ -720,10 +745,12 @@ def test_certified_unequal_calendar_owns_native_boundaries(
         logical = session.observe(
             {"value": session.catalog.metrics.get("sales.total")}, during=grid, by=members
         )
-        fixed = logical.execute()
+        fixed = logical.persist()
         assert len(fixed.to_pandas()) == 10
         source_trace.record(fixed)
-        grouped = logical.rollup(by=(grid,)).execute()
+        grouped = session.observe(
+            {"value": session.catalog.metrics.get("sales.total")}, during=grid
+        ).persist()
         assert _value(grouped).tolist() == [7, 41]
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
         source_trace.save(
@@ -799,11 +826,13 @@ def test_civil_date_grid_keeps_date_keys_on_foreign_zone(
             during=grid,
             by=session.members(ms.ref.entity("sales.facts")),
         )
-        fixed = logical.execute()
+        fixed = logical.persist()
         frame = fixed.to_pandas()
         assert len(frame) == 8 and (not frame["value", "value"].isna().any())
         source_trace.record(fixed)
-        grouped = logical.rollup(by=(grid,)).execute()
+        grouped = session.observe(
+            {"value": session.catalog.metrics.get("sales.total")}, during=grid
+        ).persist()
         assert _value(grouped).tolist() == [2, 5]
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
         source_trace.save(
@@ -904,11 +933,13 @@ def test_native_timestamp_retains_reader_and_grid_authority(
         logical = session.observe(
             {"value": session.catalog.metrics.get("sales.total")}, during=grid, by=members
         )
-        fixed = logical.execute()
+        fixed = logical.persist()
         frame = fixed.to_pandas()
         assert len(frame) == 10 and (not frame["value", "value"].isna().any())
         source_trace.record(fixed)
-        grouped = logical.rollup(by=(grid,)).execute()
+        grouped = session.observe(
+            {"value": session.catalog.metrics.get("sales.total")}, during=grid
+        ).persist()
         assert _value(grouped).tolist() == [7, 11]
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
         source_trace.save(
@@ -979,12 +1010,14 @@ def test_aware_native_repeated_hour_keeps_distinct_instants(
             during=grid,
             by=session.members(ms.ref.entity("sales.facts")),
         )
-        fixed = logical.execute()
+        fixed = logical.persist()
         frame = fixed.to_pandas()
         assert len(frame) == 4 and (not frame["value", "value"].isna().any())
         assert sorted(frame["value", "value"].tolist()) == [0, 2, 5, 11]
         source_trace.record(fixed)
-        grouped = logical.rollup(by=(grid,)).execute()
+        grouped = session.observe(
+            {"value": session.catalog.metrics.get("sales.total")}, during=grid
+        ).persist()
         assert _value(grouped).tolist() == [18]
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
         source_trace.save(
@@ -1054,7 +1087,7 @@ def test_native_observation_does_not_audit_wall_times_outside_its_scope(
             during=grid,
             by=session.members(ms.ref.entity("sales.facts")),
         )
-        result = logical.execute()
+        result = logical.persist()
         assert sorted(_value(result).tolist()) == [0, 2]
         run = session.runs().items[-1]
         assert run.lifecycle == "succeeded"

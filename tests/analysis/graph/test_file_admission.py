@@ -65,7 +65,7 @@ def test_file_construction_and_refusals_never_submit_business_rows(
             assert calls == [] and source_trace.native_sql == []
             assert session.runs().items == ()
             assert session._runtime.store.resources(session.id) == ()
-        result = query.execute().to_pandas()[("value", "value")].iloc[0]
+        result = query.persist().to_pandas()[("value", "value")].iloc[0]
         assert result == {"metadata": 6, "float-sum": 6.5, "integer-mean": 3.0}[case_kind]
         assert session._runtime.store.resources(session.id) == ()
         received = None
@@ -125,15 +125,15 @@ def test_json_request_sources_are_refused_before_source_open(
             monkeypatch.setattr(SourceSession, name, forbidden)
         query = session.observe({"value": session.catalog.metrics.get("sales.total")})
         with pytest.raises(AnalysisError) as caught:
-            query.execute()
+            query.persist()
         error = caught.value
         assert calls == []
         assert error.expected == "an existing local CSV or unparameterized GET JSON file on DuckDB"
         assert error.received and "JsonSourceIR" in error.received
         assert error.repair is not None and error.repair.action
         target = error.repair.help_target.display
-        assert target == "analysis.query.execute"
+        assert target == "analysis.analysis_frame.compute"
         assert f"marivo.help('{target}')" in str(error)
-        assert "Target: analysis.query.execute" in render_help_text(target)[0]
+        assert "Target: analysis.analysis_frame.compute" in render_help_text(target)[0]
         assert calls == [] and session.runs().items == ()
         assert session._runtime.store.resources(session.id) == ()

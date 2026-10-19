@@ -53,7 +53,7 @@ def test_authored_relationship_keys_execute_metric(relationship_project: Path) -
             during=session.time_scope(start="2026-01-01", end="2026-02-01"),
             by=(region,),
         )
-        .execute()
+        .persist()
         .to_pandas()
     )
     assert dict(zip(metric.iloc[:, 0], metric[("value", "value")], strict=True)) == {

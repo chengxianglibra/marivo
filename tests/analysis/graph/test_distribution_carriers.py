@@ -11,7 +11,7 @@ import duckdb
 import pytest
 
 import marivo.semantic as ms
-from marivo.analysis.errors import AnalysisError
+from marivo.semantic.errors import SemanticExpressionError
 from tests.analysis.graph.distribution_carrier_worker import check_original
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.shared_fixtures import DslCaseFactory
@@ -66,11 +66,11 @@ def test_named_distribution_carriers_recover_independently(
             approx_median=amount_field.approx_median(time=time),
         )
         before = len(session.runs().items)
-        with pytest.raises(AnalysisError):
+        with pytest.raises(SemanticExpressionError, match="qualified approximate quantile route"):
             session.observe(
                 {"value": amount_field.approx_quantile(0.25, time=time)},
                 by=session.members(ms.ref.entity("sales.customer")),
-            ).execute()
+            ).persist()
         assert len(session.runs().items) == before
     originals: dict[str, Json] = {}
     for name, metric in methods.items():
@@ -78,9 +78,13 @@ def test_named_distribution_carriers_recover_independently(
             {"value": metric},
             during=session.time_scope(start="2026-08-01", end="2026-09-01"),
             by=session.members(ms.ref.entity("sales.customer")),
-        ).execute()
-        check_original(value, physical, name)
-        originals[name] = {"artifact": value.id, "snapshot": snapshot(value)}
+        ).persist()
+        exported = value.to_pandas()
+        check_original(value, physical, name, exported=exported)
+        originals[name] = {
+            "artifact": value.artifact.id,
+            "snapshot": snapshot(value, frame=exported),
+        }
     state: dict[str, Json] = {
         "phase": "produce",
         "pid": os.getpid(),

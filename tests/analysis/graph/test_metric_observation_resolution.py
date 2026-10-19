@@ -9,9 +9,10 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.dsl import source_capture
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.datasource.adapters import SourceSession
+from marivo.semantic._deferred_semantics import consume_metric_in_state
 from marivo.semantic.errors import SemanticExpressionError, SemanticRuntimeError
+from tests.analysis.graph.execution_fixtures import source_graph
 from tests.shared_fixtures import DslCaseFactory
 
 
@@ -32,19 +33,19 @@ def test_public_observation_resolves_once_and_retains_components(
         with patch.object(
             source_capture,
             "consume_metric_in_state",
-            wraps=source_capture.consume_metric_in_state,
+            wraps=consume_metric_in_state,
         ) as resolve:
             observed = case.session.observe({"value": metric}, during=window)
             assert resolve.call_count == 1
             again = case.session.observe({"value": metric}, during=window)
             assert resolve.call_count == 2
         assert len(case.session.runs().items) == runs_before
-        assert again._graph.fingerprint == observed._graph.fingerprint
-        binding = observed._graph.signature.observation
+        assert source_graph(again).fingerprint == source_graph(observed).fingerprint
+        binding = source_graph(observed).signature.observation
         assert binding is not None
         assert len(binding.contributions) == components
         assert len({item.occurrence for item in binding.contributions}) == components
-        result = observed.execute().to_pandas()
+        result = observed.persist().to_pandas()
         assert result[("value", "value")].iloc[0] == pytest.approx(expected), shape
 
 
@@ -57,7 +58,7 @@ def test_business_completeness_uses_the_complete_calendar_domain(
     grid = scope.by(mv.grain("day"))
     observed = case.session.observe({"revenue": revenue}, during=grid)
     assert case.session.runs().items == ()
-    frame = observed.execute().to_pandas()
+    frame = observed.persist().to_pandas()
     assert len(frame) == 31
     values = frame[("value", "revenue")]
     assert values.sum() == 1000
@@ -85,9 +86,9 @@ def test_next_observation_rechecks_physical_numeric_type(
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute(f'ALTER TABLE "{names.order}" ALTER "{names.amount}" TYPE VARCHAR')
     query = case.session.observe({"value": metric})
-    with pytest.raises(MaterializationError) as error:
-        query.execute()
-    cause = error.value.__cause__
+    with pytest.raises(SemanticExpressionError) as error:
+        query.persist()
+    cause = error.value
     assert isinstance(cause, SemanticExpressionError)
     assert (
         cause.expected == f"a numeric physical type for {names.domain}.{names.order}.{names.amount}"

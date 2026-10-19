@@ -18,8 +18,10 @@ from tests.analysis.materialization.domain_recovery_worker import forbidden, sna
 from tests.support.json import encode, obj, read
 
 
-def check_original(value: mv.Artifact, physical: str, kind: str) -> None:
-    exported = value.to_pandas()
+def check_original(
+    value: mv.AnalysisFrame, physical: str, kind: str, *, exported: pd.DataFrame | None = None
+) -> None:
+    exported = value.to_pandas() if exported is None else exported
     frame = exported.set_index(exported.columns[0])
     assert frame.index.tolist() == ["A", "B", "C", "D"]
     values = frame[("value", "value")]
@@ -54,9 +56,10 @@ def run(root: Path, phase: str, output: Path) -> None:
             saved = obj(item)
             artifact = saved["artifact"]
             assert isinstance(artifact, str)
-            result = session.artifact(artifact)
-            assert snapshot(result) == saved["snapshot"]
-            check_original(result, physical, name)
+            result = session.persisted_frame(artifact)
+            exported = result.to_pandas()
+            assert snapshot(result, frame=exported) == saved["snapshot"]
+            check_original(result, physical, name, exported=exported)
         assert len(session.runs().items) == before
     output.write_bytes(encode({"pid": os.getpid(), "phase": phase}))
 

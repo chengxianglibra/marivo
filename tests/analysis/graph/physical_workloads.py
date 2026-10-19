@@ -18,6 +18,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
 from marivo.datasource.adapters import provider_for
 from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case
@@ -439,28 +440,32 @@ class Workload:
     rows: list[dict[str, object]]
     environment: dict[str, object]
 
-    def values(self) -> mv.Query:
+    def values(self) -> mv.AnalysisFrame:
         return self.session.observe(
             {"value": self.session.catalog.metrics.get("cost.facts_total")},
             during=self.session.time_scope(start="2026-08-01", end="2026-08-02"),
             by=self.session.members(ms.ref.entity("cost.facts")),
         )
 
-    def total(self) -> mv.Query:
+    def total(self) -> mv.AnalysisFrame:
         return self.session.observe(
             {"value": self.session.catalog.metrics.get("cost.facts_total")},
             during=self.session.time_scope(start="2026-08-01", end="2026-08-02"),
         )
 
-    def validate(self, result: mv.Artifact) -> dict[str, bool]:
+    def validate(self, result: mv.AnalysisFrame) -> dict[str, bool]:
         expected = sum(_integer(row["amount"]) for row in self.rows if row["amount"] is not None)
+        assert isinstance(result._backing, (MemoryFrameBacking, StoredFrameBacking))
         frame = result.to_pandas()
         assert frame[("value", "value")].tolist() == [expected]
         assert len(frame) == 1
-        assert result._manifest.data.schema.axes == ()
-        assert all(
-            attachment.name != "original_state" for attachment in result._manifest.data.attachments
+        assert result._schema.axes == ()
+        attachments = (
+            result._backing.data.copy_attachments()
+            if isinstance(result._backing, MemoryFrameBacking)
+            else result._backing.data.attachments
         )
+        assert all(attachment.name != "original_state" for attachment in attachments)
         return {"passed": True}
 
 

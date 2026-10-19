@@ -35,7 +35,7 @@ def test_public_identity_observation_executes_and_retains_outside_window_members
         during=session.time_scope(start="2026-08-01", end="2026-09-01"),
         by=members,
     )
-    result = observed.execute()
+    result = observed.persist()
     frame = result.to_pandas()
     actual = frame.set_index(frame.columns[0])[("value", "value")]
     assert {key: None if pd.isna(value) else value for key, value in actual.items()} == {
@@ -47,9 +47,9 @@ def test_public_identity_observation_executes_and_retains_outside_window_members
     }
     assert reads
     assert not {"subject", "original_state", "coverage"}.intersection(
-        part.name for part in result._manifest.data.attachments
+        part.name for part in result.artifact._manifest.data.attachments
     )
-    total = observed.reduce({"value": observed["value"].sum()}).execute()
+    total = observed.reduce({"value": observed["value"].sum()}).persist()
     assert total.to_pandas()[("value", "value")].tolist() == [1000]
-    assert session.artifact(result.id).to_pandas().equals(frame)
+    assert session.persisted_frame(result.artifact.id).to_pandas().equals(frame)
     assert session._runtime.store.resources(session.id) == ()

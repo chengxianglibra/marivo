@@ -20,14 +20,14 @@ from tests.analysis.graph.physical_workloads import _rows, workload
     (
         ("csv", "source"),
         ("local-json", "source"),
-        ("csv", "rollup"),
-        ("local-json", "rollup"),
-        ("parquet", "rollup"),
+        ("csv", "rows"),
+        ("local-json", "rows"),
+        ("parquet", "rows"),
     ),
 )
 def test_file_cost_original_sum_executes_exact_real_file_route(
     profile: str,
-    composition: Literal["source", "rollup"],
+    composition: Literal["source", "rows"],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -46,12 +46,16 @@ def test_file_cost_original_sum_executes_exact_real_file_route(
     monkeypatch.setattr(SourceSession, "execute", captured)
     with workload("duckdb", profile, len(facts), "baseline", tmp_path, monkeypatch) as work:
         values = work.values()
-        query = work.total() if composition == "source" else values.rollup()
-        result = query.execute()
+        query = (
+            work.total()
+            if composition == "source"
+            else values.reduce({"value": values["value"].sum()})
+        )
+        result = query.persist()
         assert work.validate(result)["passed"] is True
         assert result.to_pandas()[("value", "value")].tolist() == [total]
         assert captures and any("SUM(" in read.sql.upper() for read, _ in captures)
-        observed = values.execute()
+        observed = values.persist()
         frame = observed.to_pandas()
         assert set(frame.iloc[:, 0]) == {("a", 2**53 + index, 1) for index in range(len(facts))}
         assert frame[("value", "value")].tolist() == [0, 2, 3, 4]
@@ -60,8 +64,10 @@ def test_file_cost_original_sum_executes_exact_real_file_route(
             {"amount": work.session.catalog.fields.get("cost.facts.amount")},
         )
         support = raw.where(~raw["amount"].is_null()).reduce({"support": mv.row_count()})
-        assert support.execute().to_pandas()[("value", "support")].tolist() == [3]
-        assert [column.dtype for column in observed._manifest.data.schema.axes[0].columns] == [
+        assert support.persist().to_pandas()[("value", "support")].tolist() == [3]
+        assert [
+            column.dtype for column in observed.artifact._manifest.data.schema.axes[0].columns
+        ] == [
             ScalarDataType("string"),
             ScalarDataType("int64"),
             ScalarDataType("int64"),

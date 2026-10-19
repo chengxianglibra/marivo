@@ -66,17 +66,19 @@ def test_local_file_profiles_retain_full_original_facts_and_fixed_total(
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     with workload("duckdb", profile, 16, "baseline", tmp_path, monkeypatch) as work:
         logical = work.values()
-        captured = logical.execute()
+        captured = logical.persist()
         frame = captured.to_pandas()
         assert len(frame) == 16
         expected_keys = {("a", 2**53 + index, 1) for index in range(16)}
         assert set(frame.iloc[:, 0]) == expected_keys
         assert not frame[("value", "value")].isna().any()
-        total = logical.rollup().execute()
+        total = logical.reduce({"value": logical["value"].sum()}).persist()
         expected = sum(index % 17 + 1 for index in range(16) if index % 23)
         assert total.to_pandas()[("value", "value")].tolist() == [expected]
-        assert work.session.artifact(captured.id).to_pandas().equals(frame)
-        assert [column.dtype for column in captured._manifest.data.schema.axes[0].columns] == [
+        assert work.session.persisted_frame(captured.artifact.id).to_pandas().equals(frame)
+        assert [
+            column.dtype for column in captured.artifact._manifest.data.schema.axes[0].columns
+        ] == [
             ScalarDataType("string"),
             ScalarDataType("int64"),
             ScalarDataType("int64"),

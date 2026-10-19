@@ -17,6 +17,7 @@ import marivo.semantic as ms
 from marivo.datasource.adapters import provider_for
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
+from tests.analysis.graph.execution_fixtures import source_graph
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case
 from tests.support.source_trace import capture_source
@@ -107,7 +108,7 @@ def test_long_path_sum_and_count(
                 for row, segment in zip(facts.rows, ("a", "a", "b", "a"), strict=True)
             ],
         )
-    outputs: dict[str, mv.Artifact] = {}
+    outputs: dict[str, mv.AnalysisFrame] = {}
     with ExitStack() as stack:
         names = ("facts", *(f"bridge{i}" for i in range(depth - 1)), "subjects")
         datasets = (facts, *(members for _ in range(depth)))
@@ -156,7 +157,7 @@ def test_long_path_sum_and_count(
         models += (
             "closed=ms.finalize()\namount_value=closed.resolve(amount)\n"
             "time_value=closed.resolve(instant)\nfacts_value=closed.resolve(facts)\n"
-            "@ms.metric()\ndef total():\n    return amount_value.sum(time=time_value)\n"
+            "@ms.metric()\ndef total():\n    return amount_value.sum(time=time_value, empty='zero')\n"
             "@ms.metric()\ndef number():\n    return facts_value.count(time=time_value)\n"
         )
         semantic_project_factory(
@@ -180,13 +181,13 @@ def test_long_path_sum_and_count(
                 during=session.time_scope(start="2026-08-01", end="2026-08-02"),
                 by=population,
             )
-            binding = logical._graph.signature.observation
+            binding = source_graph(logical).signature.observation
             assert binding is not None and len(binding.contributions) == 1
             assert {
                 tuple(step.ref.path for step in read.path)
                 for read in binding.contributions[0].coordinates
             } == {tuple(f"sales.hop{index}" for index in range(depth))}
-            result = logical.execute()
+            result = logical.persist()
             frame = result.to_pandas()
             assert dict(zip(frame.iloc[:, 0], frame[("value", "value")], strict=True)) == dict(
                 zip(expected_keys, expected, strict=True)
@@ -201,7 +202,7 @@ def test_long_path_sum_and_count(
                     {"value": sliced},
                     during=session.time_scope(start="2026-08-01", end="2026-08-02"),
                     by=population,
-                ).execute()
+                ).persist()
                 selected_frame = selected.to_pandas()
                 assert dict(
                     zip(selected_frame.iloc[:, 0], selected_frame[("value", "value")], strict=True)
@@ -215,6 +216,6 @@ def test_long_path_sum_and_count(
             offline.setattr(ms, "load", forbidden)
             offline.setattr("marivo.datasource.adapters.SourceSession.execute", forbidden)
             for name, value in outputs.items():
-                assert snapshot(session.artifact(value.id)) == snapshots[name]
+                assert snapshot(session.persisted_frame(value.artifact.id)) == snapshots[name]
         assert session.runs().items == before
         assert session._runtime.store.resources(session.id) == ()

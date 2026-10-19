@@ -15,6 +15,7 @@ import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import CompiledRead, SourceSession, provider_for
 from marivo.datasource.ir import TableSourceIR
+from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.distribution_fixtures import Carrier, distribution_data
 from tests.datasource.source_cases import Case, datasource, source_case, source_params
@@ -202,9 +203,15 @@ def test_native_distribution(
             # Exact quantile on the identical int64 rows is independently
             # exercised by the quantile parameter; no algorithm fallback.
             before = set((tmp_path / ".marivo").rglob("*.parquet"))
-            with pytest.raises(AnalysisError) as caught:
-                observed.execute()
-            assert caught.value.expected and caught.value.received and caught.value.repair
+            expected_error = SemanticExpressionError if kind == "approx_quantile" else AnalysisError
+            with pytest.raises(expected_error) as caught:
+                observed.persist()
+            failure = caught.value
+            if kind == "approx_quantile":
+                assert isinstance(failure, SemanticExpressionError)
+            else:
+                assert isinstance(failure, AnalysisError)
+            assert failure.expected and failure.received and failure.repair
             assert not submissions
             assert len(source_trace.native_sql) == native_before
             assert set((tmp_path / ".marivo").rglob("*.parquet")) == before
@@ -213,12 +220,12 @@ def test_native_distribution(
         if kind == "distinct_nonfinite":
             before = set((tmp_path / ".marivo").rglob("*.parquet"))
             with pytest.raises(AnalysisError):
-                observed.execute()
+                observed.persist()
             assert submissions
             assert set((tmp_path / ".marivo").rglob("*.parquet")) == before
             assert session._runtime.store.resources(session.id) == ()
             return
-        fixed = observed.execute()
+        fixed = observed.persist()
         source_trace.record(fixed)
         exported = fixed.to_pandas()
         frame = exported.set_index(exported.columns[0])

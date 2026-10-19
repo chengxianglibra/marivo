@@ -1,8 +1,8 @@
 """Real-execution contracts for computed measures and Linear coefficient typing.
 
 Computed Measure bodies execute inside the single entity scan at aggregation
-time, and decimal result types follow the semantic rule-table derivation rather
-than the engine's ibis inference. Linear terms multiply by integral ``int``
+time, and source decimal result types follow the qualified provider/Ibis route.
+Fixed row calculations retain their host arithmetic contract. Linear terms multiply by integral ``int``
 literals so int64 stays int64 and decimal stays Decimal. The per-backend
 sections execute the plan §4 matrix on the opt-in services; every expectation
 is a hand-computed ``decimal.Decimal`` constant.
@@ -19,6 +19,7 @@ from uuid import uuid4
 import duckdb
 import pandas as pd
 import pytest
+from trino.dbapi import Connection, Cursor
 
 import marivo.analysis as mv
 import marivo.datasource as md
@@ -123,8 +124,8 @@ def computation_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.S
     return mv.session.get_or_create("computation", report_timezone="UTC")
 
 
-def _aggregate(session: mv.Session, metric: str) -> mv.Artifact:
-    return session.observe({"value": session.catalog.metrics.get(f"sales.{metric}")}).execute()
+def _aggregate(session: mv.Session, metric: str) -> mv.AnalysisFrame:
+    return session.observe({"value": session.catalog.metrics.get(f"sales.{metric}")}).persist()
 
 
 def _semantic_value(session: mv.Session, metric: str) -> object:
@@ -167,7 +168,7 @@ def test_runtime_linear_over_int64_measures_stays_int64(
 ) -> None:
     quantity = computation_session.catalog.metrics.get("sales.quantity_total")
     count = computation_session.catalog.metrics.get("sales.gmv_quantity")
-    result = computation_session.observe({"value": quantity + count - quantity}).execute()
+    result = computation_session.observe({"value": quantity + count - quantity}).persist()
     rows = result.to_pandas()
     assert pd.api.types.is_integer_dtype(rows[("value", "value")])
     assert rows[("value", "value")].iloc[0] == 2
@@ -260,15 +261,15 @@ def _create_remote_table(backend: str, table: str) -> None:
     elif backend == "mysql":
         from tests.datasource.environment import mysql_analysis as mysql
 
-        with mysql.connection(admin=True) as admin, admin.cursor() as cur:
+        with mysql.connection(admin=True) as mysql_admin, mysql_admin.cursor() as cur:
             cur.execute(create.format(table=table))
             cur.execute(insert.format(table=table))
     else:
         from tests.datasource.environment import clickhouse_analysis as ch
 
-        with ch.connection(admin=True) as admin:
-            admin.command(create.format(table=table))
-            admin.command(insert.format(table=table))
+        with ch.connection(admin=True) as ch_admin:
+            ch_admin.command(create.format(table=table))
+            ch_admin.command(insert.format(table=table))
 
 
 def _drop_remote_table(backend: str, table: str) -> None:
@@ -280,13 +281,13 @@ def _drop_remote_table(backend: str, table: str) -> None:
     elif backend == "mysql":
         from tests.datasource.environment import mysql_analysis as mysql
 
-        with mysql.connection(admin=True) as admin, admin.cursor() as cur:
+        with mysql.connection(admin=True) as mysql_admin, mysql_admin.cursor() as cur:
             cur.execute(f"DROP TABLE IF EXISTS {table}")
     else:
         from tests.datasource.environment import clickhouse_analysis as ch
 
-        with ch.connection(admin=True) as admin:
-            admin.command(f"DROP TABLE IF EXISTS {table}")
+        with ch.connection(admin=True) as ch_admin:
+            ch_admin.command(f"DROP TABLE IF EXISTS {table}")
 
 
 def _remote_project_session(
@@ -400,7 +401,7 @@ def test_mysql_decimal_mean_stays_rejected_until_the_mean_equation_lands(
         session = _remote_project_session(tmp_path, monkeypatch, backend, table)
         logical = session.observe({"value": session.catalog.metrics.get("sales.amount_mean")})
         with pytest.raises(AnalysisError):
-            logical.execute()
+            logical.persist()
     finally:
         _drop_remote_table(backend, table)
 
@@ -418,7 +419,7 @@ _TRINO_PHYSICAL = (
 )
 
 
-def _trino_admin_cursor():
+def _trino_admin_cursor() -> tuple[Connection, Cursor]:
     from tests.datasource.environment import trino_analysis as trino
 
     connection = trino.connection(admin=True).__enter__()
@@ -507,7 +508,7 @@ def test_trino_decimal_mean_keeps_rejection(trino_session: mv.Session) -> None:
         {"value": trino_session.catalog.metrics.get("sales.amount_mean")}
     )
     with pytest.raises(AnalysisError):
-        logical.execute()
+        logical.persist()
 
 
 @pytest.mark.parametrize("metric", ("net_total", "net_weighted"))
@@ -527,4 +528,4 @@ def test_computed_measure_graph_reads_only_at_execute(
         query.show()
         assert computation_session.runs().items == ()
     expected = Decimal("51.50") if metric == "net_total" else 36.5
-    assert query.execute().to_pandas()[("value", "value")].iloc[0] == expected
+    assert query.persist().to_pandas()[("value", "value")].iloc[0] == expected

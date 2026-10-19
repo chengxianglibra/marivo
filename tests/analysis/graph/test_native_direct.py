@@ -21,14 +21,14 @@ from tests.analysis.materialization.publication_fixtures import publication_coun
 from tests.datasource.source_cases import source_case
 
 
-def _scalar_output(result: mv.Artifact, total: int) -> None:
+def _scalar_output(result: mv.AnalysisFrame, total: int) -> None:
     assert result.to_pandas()[("value", "value")].tolist() == [total]
-    assert result._manifest.data.schema.axes == ()
-    assert result._manifest.data.schema.values[0].dtype == ScalarDataType("int64")
-    assert all(item.name != "original_state" for item in result._manifest.data.attachments)
+    assert result.artifact._manifest.data.schema.axes == ()
+    assert result.artifact._manifest.data.schema.values[0].dtype == ScalarDataType("int64")
+    assert all(item.name != "original_state" for item in result.artifact._manifest.data.attachments)
 
 
-def _support(work: Workload) -> mv.Query:
+def _support(work: Workload) -> mv.AnalysisFrame:
     raw = work.session.read(
         work.session.members(ms.ref.entity("cost.facts")),
         {"value": work.session.catalog.fields.get("cost.facts.amount")},
@@ -52,7 +52,7 @@ def test_native_sum_reads_only_terminal_exchange_with_all_checks_and_fresh_runs(
         results = []
         for _ in range(2):
             before = len(reads)
-            result = logical.execute()
+            result = logical.persist()
             _scalar_output(result, 529)
             submitted = reads[before:]
             aggregates = [item for item in submitted if "SUM(" in item.sql.upper()]
@@ -61,13 +61,15 @@ def test_native_sum_reads_only_terminal_exchange_with_all_checks_and_fresh_runs(
             assert all(item.purpose != "analysis.domain.prepare" for item in submitted)
             results.append(result)
         first, second = results
-        assert first.id != second.id
-        assert first._manifest.run_id != second._manifest.run_id
+        assert first.artifact.id != second.artifact.id
+        assert first.artifact._manifest.run_id != second.artifact._manifest.run_id
         assert len(work.session.runs().items) == 2
-        assert _support(work).execute().to_pandas()[("value", "count")].tolist() == [61]
-        captured = work.values().execute()
+        assert _support(work).persist().to_pandas()[("value", "count")].tolist() == [61]
+        captured = work.values().persist()
         frame = captured.to_pandas()
-        assert [column.dtype for column in captured._manifest.data.schema.axes[0].columns] == [
+        assert [
+            column.dtype for column in captured.artifact._manifest.data.schema.axes[0].columns
+        ] == [
             ScalarDataType("string"),
             ScalarDataType("int64"),
             ScalarDataType("int64"),
@@ -90,8 +92,8 @@ def test_native_sum_preserves_known_zero_for_null_and_empty_inputs(
         with workload(
             "duckdb", "ordinary-table", 64, scenario, tmp_path / scenario, monkeypatch
         ) as work:
-            _scalar_output(work.total().execute(), 0)
-            assert _support(work).execute().to_pandas()[("value", "count")].tolist() == [0]
+            _scalar_output(work.total().persist(), 0)
+            assert _support(work).persist().to_pandas()[("value", "count")].tolist() == [0]
             assert work.session._runtime.store.resources(work.session.id) == ()
 
 
@@ -113,11 +115,11 @@ def test_native_late_invalid_source_frame_never_publishes(
 
         monkeypatch.setattr(SourceSession, "execute", read)
         with pytest.raises(MaterializationError):
-            logical.execute()
+            logical.persist()
         assert corrupted == ["schema"]
         assert publication_counts(work.session) == before
         runs = work.session.runs().items
-        assert len(runs) == 1 and isinstance(runs[0], mv.FailedRun)
+        assert runs == ()
         assert work.session._runtime.store.resources(work.session.id) == ()
 
 
@@ -135,7 +137,7 @@ def test_source_local_comparison_keeps_its_existing_staged_prefix(
             {"value": session.catalog.metrics.get("sales.total")},
             by=session.members(ms.ref.entity("sales.facts")),
         )
-        result = values.select({"ratio": values["value"] / values["value"]}).execute()
+        result = values.select({"ratio": values["value"] / values["value"]}).persist()
         frame = result.to_pandas()
         ratios = dict(zip(frame.iloc[:, 0], frame[("value", "ratio")], strict=True))
         assert ratios[("a", 9007199254740992, 1)] == 1

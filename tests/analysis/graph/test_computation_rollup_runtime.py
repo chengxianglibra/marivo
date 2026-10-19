@@ -1,4 +1,4 @@
-"""Original Query rollups retain exact values across terminal cold reads."""
+"""Explicit source observations retain exact values across terminal cold reads."""
 
 from __future__ import annotations
 
@@ -51,13 +51,12 @@ def test_decimal_and_int64_linear_cold_rollup_equal_warm(tmp_path: Path) -> None
 def test_duckdb_decimal_mean_retains_captured_scale(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Original mean rollup and terminal reads retain captured Decimal scale."""
+    """Source mean and saved Frame reads retain captured Decimal scale."""
     from decimal import Decimal
 
     import duckdb
 
     import marivo.analysis as mv
-    import marivo.semantic as ms
     from tests.analysis.numeric.rollup_worker import DAY_ROWS, author_decimal_mean_project
 
     project = author_decimal_mean_project(tmp_path)
@@ -68,11 +67,11 @@ def test_duckdb_decimal_mean_retains_captured_scale(
     query = session.observe(
         {"value": session.catalog.metrics.get("sales.amount_mean")},
         during=session.time_scope(start="2026-07-01", end="2026-08-01"),
-        by=session.members(ms.ref.entity("sales.orders")),
+        by=(),
     )
-    result = query.rollup().execute()
+    result = query.persist()
     # Merge the original 54.14 sum and count 3, then finish at Decimal(12,2).
-    for materialized in (result, session.artifact(result.id)):
+    for materialized in (result, session.persisted_frame(result.artifact.id)):
         values = materialized.to_pandas()[("value", "value")].tolist()
         assert values == [Decimal("18.05")]
         value = values[0]

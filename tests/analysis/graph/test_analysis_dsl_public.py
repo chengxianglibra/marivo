@@ -12,6 +12,7 @@ import marivo.semantic as ms
 from marivo._help.model import NativeHelpRoute
 from marivo._help.route import route_help_target
 from marivo.analysis.errors import AnalysisError
+from marivo.datasource.errors import DatasourceConnectionError
 from marivo.semantic.errors import SemanticExpressionError
 from tests.shared_fixtures import DSL_NAMES, DslCase, DslCaseFactory
 
@@ -24,7 +25,8 @@ def _observe(
     session: mv.Session | None = None,
     metric: str | None = None,
     members: mv.Population | None = None,
-) -> mv.Query:
+    scalar: bool = False,
+) -> mv.AnalysisFrame:
     session = case.session if session is None else session
     names = case.names
     population = (
@@ -38,7 +40,7 @@ def _observe(
     return session.observe(
         {"value": value},
         during=session.time_scope(start=start, end=end),
-        by=population,
+        by=() if scalar else population,
         members=population,
     )
 
@@ -48,13 +50,11 @@ def test_public_j1_scope_uses_persisted_report_timezone(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     session = mv.session.get_or_create("j1-report-zone", report_timezone="Asia/Shanghai")
-    local = _observe(case, "2026-08-01", "2026-09-01", session=session).rollup().execute()
+    local = _observe(case, "2026-08-01", "2026-09-01", session=session, scalar=True).persist()
     assert local.to_pandas()[("value", "value")].tolist() == [677]
-    absolute = (
-        _observe(case, "2026-08-01T00:00:00+00:00", "2026-09-01T00:00:00+00:00", session=session)
-        .rollup()
-        .execute()
-    )
+    absolute = _observe(
+        case, "2026-08-01T00:00:00+00:00", "2026-09-01T00:00:00+00:00", session=session, scalar=True
+    ).persist()
     assert absolute.to_pandas()[("value", "value")].tolist() == [1000]
 
 
@@ -73,13 +73,13 @@ def test_public_contract_actions_and_result_card(
         )
     observed = _observe(case, "2026-08-01", "2026-09-01")
     assert observed.output_names == ("value",)
-    assert isinstance(route_help_target("analysis.query"), NativeHelpRoute)
-    saved = observed.execute()
+    assert isinstance(route_help_target("analysis.analysis_frame"), NativeHelpRoute)
+    saved = observed.persist()
     assert subject_key not in repr(saved) and ".show()" in repr(saved)
-    assert saved._manifest.data.schema.values[0].unit == "CNY"
+    assert saved.artifact._manifest.data.schema.values[0].unit == "CNY"
     saved.show(n=2)
     card = capsys.readouterr().out
-    assert "Artifact" in card and "rows: 4" in card
+    assert "AnalysisFrame" in card and "rows: 4" in card
     assert "cell_state_fields" not in card
     assert len(card.encode()) <= 8192
     with pytest.raises(AnalysisError):
@@ -88,7 +88,7 @@ def test_public_contract_actions_and_result_card(
     offline = case.database_path.with_suffix(".offline")
     case.database_path.rename(offline)
     try:
-        reopened = case.session.artifact(saved.id)
+        reopened = case.session.persisted_frame(saved.artifact.id)
         reopened.show(n=2)
         assert capsys.readouterr().out == card
         assert reopened.to_pandas().equals(saved.to_pandas())
@@ -101,12 +101,12 @@ def test_public_empty_and_undefined_cards(
 ) -> None:
     empty = analysis_dsl_case_factory("empty_domain")
     members = empty.session.members(ms.ref.entity("sales.customer"))
-    saved = empty.session.query(members).execute()
+    saved = empty.session.frame(members).persist()
     assert saved.to_pandas().empty
     saved.show()
     assert "rows: 0" in capsys.readouterr().out
     case = analysis_dsl_case_factory("zero_denominator")
-    ratio = _observe(case, "2026-08-01", "2026-09-01", metric=case.names.aov).rollup().execute()
+    ratio = _observe(case, "2026-08-01", "2026-09-01", metric=case.names.aov, scalar=True).persist()
     assert ratio.to_pandas()[("value", "value")].isna().all()
     ratio.show()
     assert "rows: 1" in capsys.readouterr().out
@@ -121,12 +121,12 @@ def test_public_singleton_same_entity_observation_allows_omitted_route(
     channel = session.catalog.fields.get("sales.order.channel")
     window = session.time_scope(start="2026-08-01", end="2026-09-01")
     grouped = session.observe({"value": metric}, during=window, by=(channel,))
-    frame = grouped.execute().to_pandas()
+    frame = grouped.persist().to_pandas()
     assert dict(zip(frame.iloc[:, 0], frame[("value", "value")], strict=True)) == {
         "web": 850,
         "mobile": 150,
     }
-    assert session.observe({"value": metric}, during=window).rollup().execute().to_pandas()[
+    assert session.observe({"value": metric}, during=window).persist().to_pandas()[
         ("value", "value")
     ].tolist() == [1000]
 
@@ -145,7 +145,7 @@ def test_public_grouped_foreign_entity_observation_infers_unique_route(
         by=population,
     )
     assert session.runs().items == before
-    frame = query.execute().to_pandas()
+    frame = query.persist().to_pandas()
     assert dict(zip(frame.iloc[:, 0], frame[("value", "value")], strict=True)) == {
         "east": 600,
         "south": 400,
@@ -165,25 +165,28 @@ def test_public_coordinate_rollup_is_composed_before_terminal_publication(
         during=session.time_scope(start="2026-08-01", end="2026-09-01"),
         by=(customer, channel),
     )
-    grouped = query.rollup(by=(channel,)).execute()
+    grouped = query.reduce({"value": query["value"].sum()}, by=(query.axes[1],)).persist()
     direct = session.observe(
         {"value": session.catalog.metrics.get("sales.revenue")},
         during=session.time_scope(start="2026-08-01", end="2026-09-01"),
         by=(channel,),
-    ).execute()
-    assert grouped.to_pandas().equals(direct.to_pandas())
-    assert session.artifact(grouped.id).to_pandas().equals(grouped.to_pandas())
+    ).persist()
+    grouped_rows, direct_rows = grouped.to_pandas(), direct.to_pandas()
+    assert grouped.axes[0].name == direct.axes[0].name
+    assert grouped_rows.to_numpy().tolist() == direct_rows.to_numpy().tolist()
+    assert grouped_rows.dtypes.tolist() == direct_rows.dtypes.tolist()
+    assert session.persisted_frame(grouped.artifact.id).to_pandas().equals(grouped.to_pandas())
 
 
 def test_public_mixed_fixed_and_live_rejects_before_run(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    fixed = _observe(case, "2026-07-01", "2026-08-01").execute()
+    fixed = _observe(case, "2026-07-01", "2026-08-01").persist()
     live = _observe(case, "2026-08-01", "2026-09-01")
     before = case.session.runs().items
     with pytest.raises(AnalysisError):
-        live.compare(fixed)  # type: ignore[arg-type]  # Exercise the terminal Artifact boundary.
+        live.compare(fixed.artifact, on=tuple(zip(live.axes, fixed.axes, strict=True)))  # type: ignore[arg-type]  # Exercise the terminal Artifact boundary.
     assert case.session.runs().items == before
 
 
@@ -193,13 +196,17 @@ def test_public_comparison_uses_semantic_member_binding_and_checks_units(
     case = analysis_dsl_case_factory("j4")
     current = _observe(case, "2026-08-01", "2026-09-01")
     separate = _observe(case, "2026-07-01", "2026-08-01")
-    compared = current.compare(separate).execute().to_pandas()
+    compared = (
+        current.compare(separate, on=tuple(zip(current.axes, separate.axes, strict=True)))
+        .persist()
+        .to_pandas()
+    )
     assert len(compared) == 4
-    assert not compared[("value", "value.absolute")].isna().any()
+    assert not compared[("value", "absolute.value")].isna().any()
     count = _observe(case, "2026-07-01", "2026-08-01", metric=case.names.order_count)
     before = case.session.runs().items
     with pytest.raises(AnalysisError):
-        current.compare(count)
+        current.compare(count, on=tuple(zip(current.axes, count.axes, strict=True)))
     assert case.session.runs().items == before
 
 
@@ -208,14 +215,16 @@ def test_public_failed_run_preserves_prior_artifact(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     logical = _observe(case, "2026-08-01", "2026-09-01")
-    first = logical.execute()
+    first = logical.persist()
     expected = first.to_pandas()
     offline = case.database_path.with_suffix(".offline")
     case.database_path.rename(offline)
     try:
-        with pytest.raises(AnalysisError):
-            logical.execute()
-        assert case.session.artifact(first.id).to_pandas().equals(expected)
+        before = case.session.runs().items
+        with pytest.raises(DatasourceConnectionError):
+            logical.persist()
+        assert case.session.runs().items == before
+        assert case.session.persisted_frame(first.artifact.id).to_pandas().equals(expected)
     finally:
         offline.rename(case.database_path)
 
@@ -226,22 +235,27 @@ def test_public_j2_selected_members_and_next_month_mean(
     case = analysis_dsl_case_factory("j2")
     current = _observe(case, "2026-08-01", "2026-09-01")
     baseline = _observe(case, "2026-07-01", "2026-08-01")
-    change = current.compare(baseline)
-    selected = change.where(change["value.absolute"] < 0).population()
+    change = current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))
+    chosen = change.where(change["absolute.value"] < 0)
+    selected = case.session.population_from(
+        chosen, on=((chosen.axes[0], case.session.catalog.entities.get("sales.customer")),)
+    )
     observed = _observe(case, "2026-09-01", "2026-10-01", members=selected)
-    assert observed.reduce({"mean": observed["value"].mean()}).execute().to_pandas()[
+    assert observed.reduce({"mean": observed["value"].mean()}).persist().to_pandas()[
         ("value", "mean")
     ].tolist() == [15]
-    assert observed.rollup().execute().to_pandas()[("value", "value")].tolist() == [30]
+    assert observed.reduce({"value": observed["value"].sum()}).persist().to_pandas()[
+        ("value", "value")
+    ].tolist() == [30]
 
 
 def test_public_j3_ratio_rollup_uses_original_components(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j3")
-    query = _observe(case, "2026-08-01", "2026-09-01", metric=case.names.aov)
-    assert query.rollup().execute().to_pandas()[("value", "value")].tolist() == [40]
-    assert query.rollup().rollup().execute().to_pandas()[("value", "value")].tolist() == [40]
+    query = _observe(case, "2026-08-01", "2026-09-01", metric=case.names.aov, scalar=True)
+    assert query.compute().to_pandas()[("value", "value")].tolist() == [40]
+    assert not hasattr(query, "rollup")
 
 
 def test_public_j4_renamed_entity_and_fields_keep_the_public_route(
@@ -280,13 +294,14 @@ def test_public_j4_renamed_entity_and_fields_keep_the_public_route(
         during=session.time_scope(start="2026-08-01", end="2026-09-01"),
         by=devices,
     )
-    frame = query.execute().to_pandas()
+    saved = query.persist()
+    frame = saved.to_pandas()
     assert len(frame) == 4
     assert frame[("value", "signal")].corr(
         frame[("value", "readings")], method="spearman"
     ) == pytest.approx(-0.4)
     assert frame[("value", "signal")].count() == 4
-    assert query.execute()._manifest.data.schema.values[0].unit == "kWh"
+    assert query.persist()._schema.values[0].unit == "kWh"
 
 
 def test_public_wrong_relationship_rejects_before_execution(

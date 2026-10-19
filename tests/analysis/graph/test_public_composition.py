@@ -25,7 +25,7 @@ from tests.shared_fixtures import (
 from tests.support.paths import PROJECT_ROOT
 
 
-def _ratio(case: DslCase, *, coordinates: tuple[str, ...] = ()) -> mv.Query:
+def _ratio(case: DslCase, *, coordinates: tuple[str, ...] = ()) -> mv.AnalysisFrame:
     session = case.session
     members = session.members(ms.ref.entity("sales.customer"))
     domain = (
@@ -45,7 +45,7 @@ def _ratio(case: DslCase, *, coordinates: tuple[str, ...] = ()) -> mv.Query:
     )
 
 
-def _observations(case: DslCase) -> tuple[mv.Query, mv.Query]:
+def _observations(case: DslCase) -> tuple[mv.AnalysisFrame, mv.AnalysisFrame]:
     session = case.session
     members = session.members(ms.ref.entity("sales.customer"))
     current, baseline = tuple(
@@ -64,18 +64,26 @@ def test_ratio_complete_coordinate_tuple_and_original_components(
 ) -> None:
     case = analysis_dsl_case_factory("tuple_union")
     observed = _ratio(case, coordinates=(case.names.channel, case.names.status))
-    frame = observed.execute().to_pandas()
+    frame = observed.persist().to_pandas()
     assert frame.set_index(list(frame.columns[:3]))[("value", "value")].to_dict() == {
         ("A", "mobile", "cancelled"): 0.0,
         ("A", "web", "paid"): 40.0,
     }
     channel = case.session.catalog.fields.get("sales.order.channel")
-    rolled = observed.rollup(by=(channel,)).execute().to_pandas()
+    rolled = (
+        case.session.observe(
+            {"value": case.session.catalog.metrics.get("sales.aov_from_lines")},
+            during=case.session.time_scope(start="2026-08-01", end="2026-09-01"),
+            by=(channel,),
+        )
+        .persist()
+        .to_pandas()
+    )
     assert rolled.set_index(rolled.columns[0])[("value", "value")].to_dict() == {
         "web": 40.0,
         "mobile": 0.0,
     }
-    mean = observed.reduce({"mean": observed["value"].mean()}).execute().to_pandas()
+    mean = observed.reduce({"mean": observed["value"].mean()}).persist().to_pandas()
     assert mean[("value", "mean")].tolist() == [20.0]
 
 
@@ -84,7 +92,7 @@ def test_ratio_original_inputs_and_empty_contribution(
     analysis_dsl_case_factory: DslCaseFactory,
     scenario: Literal["empty_group", "zero_denominator"],
 ) -> None:
-    values = _ratio(analysis_dsl_case_factory(scenario)).execute().to_pandas()[("value", "value")]
+    values = _ratio(analysis_dsl_case_factory(scenario)).persist().to_pandas()[("value", "value")]
     if scenario == "empty_group":
         assert values.iloc[0] == 0
         assert pd.isna(values.iloc[1])
@@ -96,18 +104,18 @@ def test_empty_numeric_selection_has_distinct_row_policies(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     current, baseline = _observations(analysis_dsl_case_factory("j2"))
-    comparison = current.compare(baseline)
-    empty = comparison.where(comparison["value.absolute"] < -1000)
-    assert empty.execute().to_pandas().empty
+    comparison = current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))
+    empty = comparison.where(comparison["absolute.value"] < -1000)
+    assert empty.persist().to_pandas().empty
     result = (
         empty.reduce(
             {
-                "sum": empty["value.absolute"].sum(),
+                "sum": empty["absolute.value"].sum(),
                 "count": mv.row_count(),
-                "mean": empty["value.absolute"].mean(),
+                "mean": empty["absolute.value"].mean(),
             }
         )
-        .execute()
+        .persist()
         .to_pandas()
     )
     assert result[("value", "sum")].isna().all()
@@ -122,23 +130,24 @@ def test_exact_artifact_corruption_blocks_consumed_output_without_new_runs(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     current, _ = _observations(case)
-    saved = current.execute()
+    saved = current.persist()
     store = case.session._runtime.store
     before = case.session.runs().items
     if corruption == "rows":
-        receipt = saved._manifest.data.rows.receipt
+        receipt = saved.artifact._manifest.data.rows.receipt
         (
             case.root / receipt.project_relative_path / receipt.file_manifest[0].relative_path
         ).unlink()
         # Metadata opening is lazy; consuming the saved output detects the missing file.
-        reopened = case.session.artifact(saved.id)
+        reopened = case.session.persisted_frame(saved.artifact.id)
         for value in (saved, reopened):
             with pytest.raises(AnalysisError):
                 value.to_pandas()
     else:
         with store._write() as connection:
             row = connection.execute(
-                "SELECT descriptor_payload FROM dataset_artifacts WHERE artifact_ref=?", (saved.id,)
+                "SELECT descriptor_payload FROM dataset_artifacts WHERE artifact_ref=?",
+                (saved.artifact.id,),
             ).fetchone()
             assert row is not None
             value = json.loads(row[0])
@@ -148,10 +157,10 @@ def test_exact_artifact_corruption_blocks_consumed_output_without_new_runs(
                 value["format"] = "marivo.terminal_output/v999"
             connection.execute(
                 "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
-                (json.dumps(value), saved.id),
+                (json.dumps(value), saved.artifact.id),
             )
         with pytest.raises(AnalysisError) as caught:
-            case.session.artifact(saved.id)
+            case.session.persisted_frame(saved.artifact.id)
         assert caught.value.expected and caught.value.received and caught.value.repair
     assert case.session.runs().items == before
 
@@ -162,24 +171,24 @@ def test_public_history_and_guarded_abandonment_use_query_runs(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     current, _ = _observations(case)
-    saved = current.execute()
+    saved = current.persist()
     session, store = case.session, case.session._runtime.store
-    run = session.get_run(saved._manifest.run_id)
+    run = session.get_run(saved.artifact._manifest.run_id)
     assert run.lifecycle == "succeeded"
     assert isinstance(run.dataset_input, InvocationInput)
     active = mv.session.current()
     assert active is not None and active.id == session.id
     assert mv.session.resume(session.id, by="id").id == session.id
     assert mv.session.inspect(session.name).runs.items[0].run_id == run.run_id
-    assert session.graph().artifacts[0].artifact_ref.ref == saved.id
+    assert session.graph().artifacts[0].artifact_ref.ref == saved.artifact.id
     session.show()
     run.show()
     with pytest.raises(AnalysisError):
         mv.session.abandon_run(session_id=session.id, run_id=run.run_id)
-    terminal_store.admit(store, session.id, "pending")
+    terminal_store.admit(store, session.id, "pending", run.dataset_input.result_id)
     mv.session.abandon_run(session_id=session.id, run_id="pending")
     assert session.get_run("pending").lifecycle == "failed"
-    terminal_store.admit(store, session.id, "other")
+    terminal_store.admit(store, session.id, "other", run.dataset_input.result_id)
     mv.session.abandon_run(session_id=session.id, run_id="pending")
 
     def unavailable(*args: object, **kwargs: object) -> None:
@@ -193,7 +202,7 @@ def test_public_history_and_guarded_abandonment_use_query_runs(
     assert session.get_run("other").lifecycle == "incomplete"
 
 
-def _correlation_input(case: DslCase) -> mv.Query:
+def _correlation_input(case: DslCase) -> mv.AnalysisFrame:
     session = case.session
     return session.observe(
         {
@@ -212,7 +221,7 @@ def test_public_exact_cold_output_after_source_and_models_are_deleted(
     import shutil
 
     case = analysis_dsl_case_factory("j4")
-    saved = _correlation_input(case).execute()
+    saved = _correlation_input(case).persist()
     values = saved.to_pandas()["value"]
     assert values["revenue"].corr(values["count"], method="spearman") == pytest.approx(-0.4)
     case.database_path.unlink()
@@ -232,7 +241,7 @@ ms.load = forbidden
 DatasourceConnectionService.use_backend = forbidden
 session = mv.session.resume(sys.argv[1], by='id')
 before = run_ids(session)
-saved = session.artifact(sys.argv[2])
+saved = session.persisted_frame(sys.argv[2])
 values = saved.to_pandas()['value']
 coefficient = values['revenue'].corr(values['count'], method='spearman')
 assert abs(coefficient + .4) < 1e-12
@@ -240,7 +249,7 @@ assert coefficient < .1
 assert run_ids(session) == before
 """
     process = subprocess.run(
-        [sys.executable, "-c", script, case.session.id, saved.id],
+        [sys.executable, "-c", script, case.session.id, saved.artifact.id],
         cwd=case.root,
         env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
         capture_output=True,
@@ -259,7 +268,7 @@ def test_incompatible_inputs_reject_before_business_or_artifact_reads(
 
     case = analysis_dsl_case_factory("j2")
     current, baseline = _observations(case)
-    fixed = current.execute()
+    fixed = current.persist()
     other_session = mv.session.get_or_create("foreign", report_timezone="UTC")
     foreign = other_session.observe({"value": other_session.catalog.metrics.get("sales.revenue")})
     before = case.session.runs().items
@@ -270,11 +279,11 @@ def test_incompatible_inputs_reject_before_business_or_artifact_reads(
     monkeypatch.setattr(SourceSession, "execute", forbidden)
     monkeypatch.setattr(terminal_storage, "read_output", forbidden)
     with pytest.raises(AnalysisError):
-        current.compare(fixed)  # type: ignore[arg-type]  # Exercise the terminal Artifact boundary.
+        current.compare(fixed.artifact, on=tuple(zip(current.axes, fixed.axes, strict=True)))  # type: ignore[arg-type]  # Exercise the terminal Artifact boundary.
     with pytest.raises(AnalysisError):
-        current.compare(foreign)
+        current.compare(foreign, on=tuple(zip(current.axes, foreign.axes, strict=False)))
     with pytest.raises(AnalysisError):
-        baseline.align(foreign)
+        baseline.align(foreign, on=tuple(zip(baseline.axes, foreign.axes, strict=False)))
     assert case.session.runs().items == before
 
 
@@ -301,11 +310,11 @@ def test_invalid_threshold_rejects_without_another_run(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     current, baseline = _observations(case)
-    difference = current.compare(baseline)
+    difference = current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))
     with pytest.raises(AnalysisError):
-        predicate = difference["value.absolute"] < threshold
-        difference.where(predicate).execute()
-    assert current._graph.signature.owner == baseline._graph.signature.owner
+        predicate = difference["absolute.value"] < threshold
+        difference.where(predicate).persist()
+    assert current._local.owner == baseline._local.owner
     assert case.session.runs().items == ()
 
 
@@ -314,10 +323,10 @@ def test_large_integer_threshold_retains_exact_comparison(
 ) -> None:
     current, _ = _observations(analysis_dsl_case_factory("j2"))
     values = current.select({"large": 2**63})
-    same = values.where(values["large"] == 2**63).execute().to_pandas()
+    same = values.where(values["large"] == 2**63).persist().to_pandas()
     assert len(same) == 4
     assert same[("value", "large")].tolist() == [2**63] * 4
-    assert values.where(values["large"] == 2**63 + 1).execute().to_pandas().empty
+    assert values.where(values["large"] == 2**63 + 1).persist().to_pandas().empty
 
 
 def test_public_parquet_spearman_has_separate_source_evidence(
@@ -332,7 +341,7 @@ def test_public_parquet_spearman_has_separate_source_evidence(
         catalog=ms.load(workspace_dir=case.root),
         session=mv.session.get_or_create("parquet", report_timezone="UTC"),
     )
-    saved = _correlation_input(case).execute()
+    saved = _correlation_input(case).persist()
     values = saved.to_pandas()["value"]
     facts = analysis_dsl_rows("j4_ties")
     amounts = {
@@ -341,5 +350,5 @@ def test_public_parquet_spearman_has_separate_source_evidence(
     counts = {key: sum(row[1] == key for row in facts.orders) for key, _ in facts.customers}
     oracle = pd.Series(amounts).rank().corr(pd.Series(counts).rank())
     assert values["revenue"].corr(values["count"], method="spearman") == pytest.approx(oracle)
-    assert saved.evidence_digest().evidence_count > 0
-    assert case.session._runtime.store.layout.generation == 11
+    assert saved.artifact.evidence_digest().evidence_count > 0
+    assert case.session._runtime.store.layout.generation == 12

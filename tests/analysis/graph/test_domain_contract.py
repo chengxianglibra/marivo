@@ -1,4 +1,4 @@
-"""Independent value statistics have their own Query quantities and units."""
+"""Independent value statistics have their own Frame quantities and units."""
 
 import pytest
 
@@ -18,17 +18,23 @@ def test_reduced_count_compares_as_an_independent_quantity(
         during=session.time_scope(start="2026-08-01", end="2026-09-01"),
         by=members,
     )
-    selected = values.where(values.coord(members.axes[0]) != "D")
+    selected = values.where(values.coord(values.axes[0]) != "D")
     current = values.reduce({"rows": mv.row_count()})
     baseline = selected.reduce({"rows": mv.row_count()})
-    assert current.execute().to_pandas()[("value", "rows")].tolist() == [4]
-    assert baseline.execute().to_pandas()[("value", "rows")].tolist() == [3]
-    result = current.compare(baseline).execute()
+    assert current.persist().to_pandas()[("value", "rows")].tolist() == [4]
+    assert baseline.persist().to_pandas()[("value", "rows")].tolist() == [3]
+    result = current.compare(
+        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True))
+    ).persist()
     frame = result.to_pandas()
-    assert frame[("value", "rows.absolute")].tolist() == [1]
-    assert frame[("value", "rows.relative")].tolist() == pytest.approx([1 / 3])
-    schema = result._manifest.data.schema
+    assert frame[("value", "absolute.rows")].tolist() == [1]
+    assert frame[("value", "relative.rows")].tolist() == pytest.approx([1 / 3])
+    schema = result.artifact._manifest.data.schema
     assert all(column.unit is None for column in schema.values)
-    same = current.compare(current).execute().to_pandas()
-    assert same[("value", "rows.absolute")].tolist() == [0]
-    assert same[("value", "rows.relative")].tolist() == [0.0]
+    same = (
+        current.compare(current, on=tuple(zip(current.axes, current.axes, strict=True)))
+        .persist()
+        .to_pandas()
+    )
+    assert same[("value", "absolute.rows")].tolist() == [0]
+    assert same[("value", "relative.rows")].tolist() == [0.0]

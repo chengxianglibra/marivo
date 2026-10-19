@@ -28,7 +28,7 @@ from tests.support.paths import PROJECT_ROOT
 START = datetime(2026, 8, 1, tzinfo=timezone.utc)
 
 
-def _query(session: mv.Session) -> mv.Query:
+def _query(session: mv.Session) -> mv.AnalysisFrame:
     period = session.time_scope(start=START, end=START + timedelta(days=3))
     return session.observe(
         {"value": session.catalog.metrics.get("sales.total_0")},
@@ -40,10 +40,17 @@ def _query(session: mv.Session) -> mv.Query:
 def _mask(frame: pd.DataFrame) -> pd.DataFrame:
     """Keep the original three dates and apply a separate business policy."""
     result = frame.copy(deep=True)
-    calendar = next(axis for axis in frame.attrs["marivo"]["axes"] if axis["kind"] == "calendar")
-    name = calendar["column"]
-    assert isinstance(name, str)
-    uncovered = result[("coordinate", name)] == START + timedelta(days=1)
+    calendar = next(axis for axis in frame.attrs["axes"] if axis["role"] == "calendar")
+    name = calendar["token"]
+    descriptor = calendar["descriptor"]
+    directory = next(
+        part["rows"]
+        for part in frame.attrs["frozen_coordinates"]
+        if part["name"] == descriptor["frozen"]["directory_name"]
+    )
+    key = descriptor["columns"][0]["slot_id"]
+    uncovered_keys = directory.loc[directory["actual_start"] == START + timedelta(days=1), key]
+    uncovered = result[("coordinate", name)].isin(uncovered_keys)
     assert uncovered.sum() == 3
     result.loc[uncovered, ("value", "value")] = pd.NA
     return result
@@ -59,7 +66,7 @@ def test_public_full_grid_unknown(
     prepare_profiles(case, "KS", "parquet", "us", "UTC", False, followup=True, profile_indices=(0,))
     ms.load(workspace_dir=case.root)
     session = mv.session.get_or_create("business-coverage", report_timezone="UTC")
-    artifact = _query(session).execute()
+    artifact = _query(session).persist()
     raw = artifact.to_pandas()
     assert len(raw) == 9 and not raw[("value", "value")].isna().any()
     assert sorted(raw[("value", "value")].tolist()) == [0] * 6 + [1, 2, 7]
@@ -100,7 +107,13 @@ def test_public_full_grid_unknown(
         finally:
             path.write_bytes(contents)
     (case.root / "business-mask.json").write_bytes(
-        encode({"session": session.id, "artifact": artifact.id, "snapshot": snapshot(artifact)})
+        encode(
+            {
+                "session": session.id,
+                "artifact": artifact.artifact.id,
+                "snapshot": snapshot(artifact),
+            }
+        )
     )
     for path in (case.root / "source_files").glob("*.parquet"):
         path.rename(path.with_suffix(".offline"))
@@ -125,7 +138,7 @@ SourceSession.execute = forbidden
 state = json.loads(Path('business-mask.json').read_text())
 session = mv.session.resume(state['session'], by='id')
 before = len(session.runs().items)
-output = session.artifact(state['artifact'])
+output = session.persisted_frame(state['artifact'])
 assert snapshot(output) == state['snapshot']
 masked = _mask(output.to_pandas())
 assert masked[('value','value')].isna().sum() == 3
@@ -157,8 +170,8 @@ def test_public_duration_business_coverage(
     ms.load(workspace_dir=case.root)
     session = mv.session.get_or_create("duration-business-coverage", report_timezone="UTC")
     query = _query(session)
-    original = query.execute()
-    ratio = query.select({"value": query["value"] / query["value"]}).execute()
+    original = query.persist()
+    ratio = query.select({"value": query["value"] / query["value"]}).persist()
     original_values = original.to_pandas()[("value", "value")]
     dtype = original_values.dtype
     assert isinstance(dtype, pd.ArrowDtype) and dtype.pyarrow_dtype == pa.duration("us")
@@ -182,7 +195,7 @@ def test_business_coverage_source_selection_keeps_original_support(
     prepare_profiles(case, "KS", "parquet", "us", "UTC", False, followup=True, profile_indices=(0,))
     ms.load(workspace_dir=case.root)
     session = mv.session.get_or_create("business-coverage-selection", report_timezone="UTC")
-    original = _query(session).execute()
+    original = _query(session).persist()
     raw = original.to_pandas()
     masked = _mask(raw)
     selected = masked.loc[masked[("value", "value")].notna()].copy()

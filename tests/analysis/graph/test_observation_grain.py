@@ -35,7 +35,7 @@ def _query(
     by: tuple[Deferred | mv.MemberAxis, ...] | mv.Population = (),
     members: mv.Population | None = None,
     during: mv.TimeScope | mv.CalendarAxis | None = None,
-) -> mv.Query:
+) -> mv.AnalysisFrame:
     return case.session.observe(
         {"value": case.session.catalog.metrics.get("sales.revenue") if metric is None else metric},
         during=during,
@@ -45,9 +45,31 @@ def _query(
 
 
 def _keyed(frame: pd.DataFrame, name: str = "value") -> dict[tuple[object, ...], object]:
-    coordinates = [column for column in frame.columns if column[0] == "coordinate"]
+    coordinates: list[tuple[str, str]] = []
+    for column in frame.columns:
+        assert isinstance(column, tuple) and len(column) == 2
+        kind, column_name = column
+        assert isinstance(kind, str) and isinstance(column_name, str)
+        if kind == "coordinate":
+            coordinates.append((kind, column_name))
+    calendars: dict[tuple[str, str], dict[object, object]] = {}
+    for axis in frame.attrs["axes"]:
+        if axis["role"] == "calendar":
+            descriptor = axis["descriptor"]
+            directory = next(
+                part["rows"]
+                for part in frame.attrs["frozen_coordinates"]
+                if part["name"] == descriptor["frozen"]["directory_name"]
+            )
+            key = descriptor["columns"][0]["slot_id"]
+            calendars[("coordinate", axis["token"])] = dict(
+                zip(directory[key], directory["actual_start"], strict=True)
+            )
     return {
-        tuple(row[column] for column in coordinates): row[("value", name)]
+        tuple(
+            calendars[column][row[column]] if column in calendars else row[column]
+            for column in coordinates
+        ): row[("value", name)]
         for _, row in frame.iterrows()
     }
 
@@ -56,14 +78,25 @@ def test_overall_and_member_observations(analysis_dsl_case_factory: DslCaseFacto
     case = analysis_dsl_case_factory("j1")
     members = _members(case)
     total = _query(case, members=members, during=_august(case))
-    assert total.execute().to_pandas()[("value", "value")].tolist() == [1000]
-    assert case.session.query(total.population()).execute().to_pandas().shape == (1, 0)
+    assert total.persist().to_pandas()[("value", "value")].tolist() == [1000]
+    assert case.session.frame(
+        case.session.population_from(total, on=())
+    ).persist().to_pandas().shape == (1, 0)
     with pytest.raises(AnalysisError):
-        total.population().project(by=(mv.member(),))
+        case.session.population_from(total, on=()).project(by=(mv.member(),))
     individual = _query(case, by=members, members=members, during=_august(case))
-    fixed = individual.execute()
+    fixed = individual.persist()
     assert _keyed(fixed.to_pandas()) == {("A",): 450, ("B",): 150, ("C",): 400, ("D",): 0}
-    keys = case.session.query(individual.population()).execute().to_pandas()
+    keys = (
+        case.session.frame(
+            case.session.population_from(
+                individual,
+                on=((individual.axes[0], case.session.catalog.entities.get("sales.customer")),),
+            )
+        )
+        .persist()
+        .to_pandas()
+    )
     assert keys.iloc[:, 0].tolist() == ["A", "B", "C", "D"]
 
 
@@ -74,23 +107,28 @@ def test_member_and_contribution_grouping(analysis_dsl_case_factory: DslCaseFact
     region = session.catalog.fields.get("sales.customer.region")
     channel = session.catalog.fields.get("sales.order.channel")
     grouped = _query(case, by=members.classify(by=(region,)), members=members, during=_august(case))
-    assert _keyed(grouped.execute().to_pandas()) == {("east",): 600, ("south",): 400, ("west",): 0}
+    assert _keyed(grouped.persist().to_pandas()) == {("east",): 600, ("south",): 400, ("west",): 0}
     channels = _query(case, by=(channel,), members=members, during=_august(case))
-    assert _keyed(channels.execute().to_pandas()) == {("mobile",): 150, ("web",): 850}
-    assert channels.rollup().execute().to_pandas()[("value", "value")].tolist() == [1000]
+    assert _keyed(channels.persist().to_pandas()) == {("mobile",): 150, ("web",): 850}
+    assert channels.reduce({"value": channels["value"].sum()}).persist().to_pandas()[
+        ("value", "value")
+    ].tolist() == [1000]
     tuples = (
         _query(case, by=(region, channel), members=members, during=_august(case))
-        .execute()
+        .persist()
         .to_pandas()
     )
     assert _keyed(tuples) == {("east", "web"): 450, ("east", "mobile"): 150, ("south", "web"): 400}
     classifications = session.read(members, {"region": region})
-    selected = classifications.where(classifications["region"] == "east").population()
+    chosen = classifications.where(classifications["region"] == "east")
+    selected = session.population_from(
+        chosen, on=((chosen.axes[0], session.catalog.entities.get("sales.customer")),)
+    )
     saved = _query(
         case, by=selected.classify(by=(region,)), members=selected, during=_august(case)
-    ).execute()
+    ).persist()
     assert _keyed(saved.to_pandas()) == {("east",): 600}
-    assert session.artifact(saved.id).to_pandas().equals(saved.to_pandas())
+    assert session.persisted_frame(saved.artifact.id).to_pandas().equals(saved.to_pandas())
 
 
 @pytest.mark.parametrize("member_first", [True, False])
@@ -113,12 +151,17 @@ def test_member_channel_axes_keep_identity_and_selected_scope(
     expected = {("A", "web"): 450, ("A", "mobile"): 99, ("B", "mobile"): 150, ("C", "web"): 400}
     if not member_first:
         expected = {(channel, customer): value for (customer, channel), value in expected.items()}
-    assert _keyed(observed.execute().to_pandas()) == expected
-    assert observed.rollup().execute().to_pandas()[("value", "value")].tolist() == [1099]
+    assert _keyed(observed.persist().to_pandas()) == expected
+    assert observed.reduce({"value": observed["value"].sum()}).persist().to_pandas()[
+        ("value", "value")
+    ].tolist() == [1099]
     region = session.catalog.fields.get("sales.customer.region")
     classifications = session.read(_members(case), {"region": region})
-    selected = classifications.where(classifications["region"] == "east").population()
-    result = _query(case, by=selected, members=selected).execute().to_pandas()
+    chosen = classifications.where(classifications["region"] == "east")
+    selected = session.population_from(
+        chosen, on=((chosen.axes[0], session.catalog.entities.get("sales.customer")),)
+    )
+    result = _query(case, by=selected, members=selected).persist().to_pandas()
     assert _keyed(result) == {("A",): 626, ("B",): 150}
 
 
@@ -132,12 +175,14 @@ def test_component_domains_union_complete_tuples(analysis_dsl_case_factory: DslC
     grouped = _query(
         case, metric=difference, by=(region, channel), members=_members(case), during=_august(case)
     )
-    assert _keyed(grouped.execute().to_pandas()) == {
+    assert _keyed(grouped.persist().to_pandas()) == {
         ("east", "web"): 450,
         ("east", "mobile"): -150,
         ("south", "web"): 400,
     }
-    assert grouped.rollup().execute().to_pandas()[("value", "value")].tolist() == [700]
+    assert grouped.reduce({"value": grouped["value"].sum()}).persist().to_pandas()[
+        ("value", "value")
+    ].tolist() == [700]
 
 
 @pytest.mark.parametrize("keep_member", [False, True])
@@ -149,21 +194,22 @@ def test_member_classification_survives_rollup_for_additive_comparison(
     region = session.catalog.fields.get("sales.customer.region")
     members = _members(case)
 
-    def endpoint(month: int) -> mv.Query:
+    def endpoint(month: int) -> mv.AnalysisFrame:
         query = _query(
             case,
             by=(mv.member(), region) if keep_member else members.classify(by=(region,)),
             members=members,
             during=session.time_scope(start=f"2026-{month:02}-01", end=f"2026-{month + 1:02}-01"),
         )
-        return query.rollup(by=(region,))
+        return query.reduce({"value": query["value"].sum()}, by=(query.axes[-1],))
 
-    comparison = endpoint(8).compare(endpoint(7))
-    selected = comparison.where(comparison["value.absolute"] != 0)
-    selected = selected.select({"value": selected["value.absolute"]})
-    saved = selected.execute()
+    current, baseline = endpoint(8), endpoint(7)
+    comparison = current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))
+    selected = comparison.where(comparison["absolute.value"] != 0)
+    selected = selected.select({"value": selected["absolute.value"]})
+    saved = selected.persist()
     case.database_path.rename(case.database_path.with_suffix(".offline"))
-    frame = session.artifact(saved.id).to_pandas()
+    frame = session.persisted_frame(saved.artifact.id).to_pandas()
     assert _keyed(frame) == {("east",): 523, ("south",): 400}
     assert frame[("value", "value")].sum() == 923
 
@@ -175,14 +221,14 @@ def test_grid_observation_keeps_time_without_member_axis(
     session = case.session
     calendar = session.time_scope(start="2026-08-01", end="2026-10-01").by(mv.grain("month"))
     observed = _query(case, during=calendar, members=_members(case))
-    assert observed.execute().to_pandas()[("value", "value")].tolist() == [1000, 99]
+    assert observed.persist().to_pandas()[("value", "value")].tolist() == [1000, 99]
     region = session.catalog.fields.get("sales.customer.region")
     region_domain = mv.product(_members(case).classify(by=(region,)), calendar)
-    region_rows = _query(case, by=region_domain, members=_members(case)).execute().to_pandas()
+    region_rows = _query(case, by=region_domain, members=_members(case)).persist().to_pandas()
     assert len(region_rows) == 6
     channel = session.catalog.fields.get("sales.order.channel")
     rows = (
-        _query(case, by=(channel,), during=calendar, members=_members(case)).execute().to_pandas()
+        _query(case, by=(channel,), during=calendar, members=_members(case)).persist().to_pandas()
     )
     assert len(rows) == 4
     assert sorted(rows[("value", "value")]) == [0, 99, 150, 850]
@@ -191,10 +237,10 @@ def test_grid_observation_keeps_time_without_member_axis(
 def test_empty_members_keep_overall_buckets(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("empty_domain")
     calendar = case.session.time_scope(start="2026-08-01", end="2026-10-01").by(mv.grain("month"))
-    assert _query(case, during=calendar, members=_members(case)).execute().to_pandas()[
+    assert _query(case, during=calendar, members=_members(case)).persist().to_pandas()[
         ("value", "value")
     ].tolist() == [0, 0]
-    assert _query(case, members=_members(case)).execute().to_pandas()[
+    assert _query(case, members=_members(case)).persist().to_pandas()[
         ("value", "value")
     ].tolist() == [0]
 
@@ -204,12 +250,20 @@ def test_explicit_business_coverage_masks_exported_values(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     calendar = case.session.time_scope(start="2026-08-01", end="2026-10-01").by(mv.grain("month"))
-    saved = _query(case, during=calendar, members=_members(case)).execute()
+    saved = _query(case, during=calendar, members=_members(case)).persist()
     frame = saved.to_pandas()
     assert frame[("value", "value")].tolist() == [1000, 99]
     complete_until = datetime(2026, 9, 1, tzinfo=timezone.utc)
     # Caller business coverage is an explicit pandas policy; Query has no four-state override.
-    covered = frame[("value", "value")].where(frame.iloc[:, 0] < complete_until)
+    calendar = frame.attrs["axes"][0]
+    directory = next(
+        part["rows"]
+        for part in frame.attrs["frozen_coordinates"]
+        if part["name"] == calendar["descriptor"]["frozen"]["directory_name"]
+    )
+    key = calendar["descriptor"]["columns"][0]["slot_id"]
+    complete_keys = directory.loc[directory["actual_start"] < complete_until, key]
+    covered = frame[("value", "value")].where(frame.iloc[:, 0].isin(complete_keys))
     assert covered.iloc[0] == 1000 and pd.isna(covered.iloc[1])
     assert not hasattr(saved, "rollup")
 
@@ -227,7 +281,7 @@ def test_invalid_axes_and_removed_entries(analysis_dsl_case_factory: DslCaseFact
         with pytest.raises((AnalysisError, SemanticError)):
             session.observe({"value": metric}, by=(invalid,))  # type: ignore[arg-type]  # Exercise an Entity where a Field is required.
     observed = session.observe({"value": metric}, members=members, by=(mv.member(),))
-    assert len(observed.execute().to_pandas()) == 5
+    assert len(observed.persist().to_pandas()) == 5
     assert not hasattr(members, "group_by")
 
 
@@ -265,7 +319,7 @@ def test_direct_aggregate_uses_selected_contributions(
         if method == "percentile"
         else amount.count_distinct(time=time)
     )
-    result = _query(case, metric=metric, members=_members(case)).execute()
+    result = _query(case, metric=metric, members=_members(case)).persist()
     expected = {
         "sum": 200,
         "count": 101,
@@ -279,7 +333,7 @@ def test_direct_aggregate_uses_selected_contributions(
     if method == "count_distinct":
         assert (
             _query(case, metric=metric, by=_members(case), members=_members(case))
-            .execute()
+            .persist()
             .to_pandas()[("value", "value")]
             .sum()
             == 2
@@ -287,12 +341,17 @@ def test_direct_aggregate_uses_selected_contributions(
     if method in ("median", "count_distinct"):
         region = session.catalog.fields.get("sales.customer.region")
         regions = session.read(_members(case), {"region": region})
-        selected = regions.where(regions["region"] == "east").population()
+        chosen = regions.where(regions["region"] == "east")
+        selected = session.population_from(
+            chosen, on=((chosen.axes[0], session.catalog.entities.get("sales.customer")),)
+        )
         completed = _query(
             case, metric=metric, by=selected.classify(by=(region,)), members=selected
-        ).execute()
+        ).persist()
         assert _keyed(completed.to_pandas()) == {("east",): 1}
-        assert session.artifact(completed.id).to_pandas().equals(completed.to_pandas())
+        assert (
+            session.persisted_frame(completed.artifact.id).to_pandas().equals(completed.to_pandas())
+        )
 
 
 def test_overall_ratio_differs_from_member_mean(analysis_dsl_case_factory: DslCaseFactory) -> None:
@@ -300,8 +359,8 @@ def test_overall_ratio_differs_from_member_mean(analysis_dsl_case_factory: DslCa
     metric = case.session.catalog.metrics.get("sales.aov_from_lines")
     overall = _query(case, metric=metric, members=_members(case))
     individual = _query(case, metric=metric, by=_members(case), members=_members(case))
-    assert overall.execute().to_pandas()[("value", "value")].tolist() == pytest.approx([200 / 101])
-    assert individual.reduce({"mean": individual["value"].mean()}).execute().to_pandas()[
+    assert overall.persist().to_pandas()[("value", "value")].tolist() == pytest.approx([200 / 101])
+    assert individual.reduce({"mean": individual["value"].mean()}).persist().to_pandas()[
         ("value", "mean")
     ].tolist() == [50.5]
 
@@ -313,12 +372,14 @@ def test_overall_linear_and_fixed_group_recovery(analysis_dsl_case_factory: DslC
     revenue = session.catalog.metrics.get("sales.revenue")
     assert _query(
         case, metric=revenue + revenue, members=_members(case), during=_august(case)
-    ).execute().to_pandas()[("value", "value")].tolist() == [2000]
+    ).persist().to_pandas()[("value", "value")].tolist() == [2000]
     channel = session.catalog.fields.get("sales.order.channel")
     query = _query(case, by=(channel,), members=_members(case), during=_august(case))
-    grouped, total = query.execute(), query.rollup().execute()
+    grouped, total = query.persist(), query.reduce({"value": query["value"].sum()}).persist()
     case.database_path.rename(case.database_path.with_suffix(".offline"))
-    assert session.artifact(grouped.id).to_pandas()[("value", "value")].sum() == 1000
+    assert (
+        session.persisted_frame(grouped.artifact.id).to_pandas()[("value", "value")].sum() == 1000
+    )
     script = """
 import sys
 import marivo.analysis as mv
@@ -331,12 +392,12 @@ SourceSession.__enter__ = forbidden
 SourceSession.execute = forbidden
 session = mv.session.resume(sys.argv[1],by='id')
 before = len(session.runs().items)
-assert session.artifact(sys.argv[2]).to_pandas()[('value','value')].sum() == 1000
-assert session.artifact(sys.argv[3]).to_pandas()[('value','value')].tolist() == [1000]
+assert session.persisted_frame(sys.argv[2]).to_pandas()[('value','value')].sum() == 1000
+assert session.persisted_frame(sys.argv[3]).to_pandas()[('value','value')].tolist() == [1000]
 assert len(session.runs().items) == before
 """
     completed = subprocess.run(
-        [sys.executable, "-c", script, session.id, grouped.id, total.id],
+        [sys.executable, "-c", script, session.id, grouped.artifact.id, total.artifact.id],
         cwd=case.root,
         env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
         capture_output=True,
@@ -376,8 +437,8 @@ def test_complete_member_entity_keeps_compound_key(
     session = mv.session.get_or_create("compound-grain", report_timezone="UTC")
     members = session.members(ms.ref.entity("sales.customer"))
     observed = session.observe({"value": session.catalog.metrics.get("sales.revenue")}, by=members)
-    result = observed.execute()
-    assert len(result._manifest.data.schema.axes[0].columns) == 2
+    result = observed.persist()
+    assert len(result.artifact._manifest.data.schema.axes[0].columns) == 2
     with duckdb.connect(str(case.database_path)) as connection:
         expected = set(connection.execute("SELECT customer_id,region FROM customer").fetchall())
     assert set(result.to_pandas().iloc[:, 0]) == expected
@@ -394,11 +455,14 @@ def test_multiple_member_classifications_keep_complete_time_keys(
     members = _members(case)
     identities = session.read(members, {"identity": identity})
     if logical_axes:
-        members = identities.where(~identities["identity"].is_null()).population()
+        chosen = identities.where(~identities["identity"].is_null())
+        members = session.population_from(
+            chosen, on=((chosen.axes[0], session.catalog.entities.get("sales.customer")),)
+        )
     calendar = session.time_scope(start="2026-08-01", end="2026-10-01").by(mv.grain("month"))
     domain = mv.product(members.classify(by=(region, identity)), calendar)
     observed = _query(case, by=domain, members=members)
-    saved = observed.execute()
+    saved = observed.persist()
     frame = saved.to_pandas()
     assert len(frame) == 8
     actual = {key: value for key, value in _keyed(frame).items() if value != 0}
@@ -414,10 +478,12 @@ def test_multiple_member_classifications_keep_complete_time_keys(
     }
     incomplete = identities.where(identities["identity"] == "A")
     with pytest.raises(AnalysisError):
-        identities.align(incomplete).execute()
+        identities.align(
+            incomplete, on=tuple(zip(identities.axes, incomplete.axes, strict=True))
+        ).persist()
     if logical_axes:
         case.database_path.rename(case.database_path.with_suffix(".offline"))
-        assert session.artifact(saved.id).to_pandas().equals(frame)
+        assert session.persisted_frame(saved.artifact.id).to_pandas().equals(frame)
 
 
 def test_member_groups_preserve_live_and_fixed_comparisons(
@@ -428,7 +494,7 @@ def test_member_groups_preserve_live_and_fixed_comparisons(
     region = session.catalog.fields.get("sales.customer.region")
     domain = _members(case).classify(by=(region,))
 
-    def endpoint(month: int) -> mv.Query:
+    def endpoint(month: int) -> mv.AnalysisFrame:
         return _query(
             case,
             by=domain,
@@ -437,19 +503,21 @@ def test_member_groups_preserve_live_and_fixed_comparisons(
         )
 
     current, baseline = endpoint(8), endpoint(7)
-    comparison = current.compare(baseline)
-    saved = comparison.execute()
+    comparison = current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))
+    saved = comparison.persist()
     expected = {("east",): -20, ("south",): -50, ("west",): 0}
-    assert _keyed(saved.to_pandas(), "value.absolute") == expected
-    self_comparison = current.compare(current).execute()
-    assert self_comparison.to_pandas()[("value", "value.absolute")].tolist() == [0, 0, 0]
-    fixed_current, fixed_baseline = current.execute(), baseline.execute()
+    assert _keyed(saved.to_pandas(), "absolute.value") == expected
+    self_comparison = current.compare(
+        current, on=tuple(zip(current.axes, current.axes, strict=True))
+    ).persist()
+    assert self_comparison.to_pandas()[("value", "absolute.value")].tolist() == [0, 0, 0]
+    fixed_current, fixed_baseline = current.persist(), baseline.persist()
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     left, right = (
-        session.artifact(fixed_current.id).to_pandas(),
-        session.artifact(fixed_baseline.id).to_pandas(),
+        session.persisted_frame(fixed_current.artifact.id).to_pandas(),
+        session.persisted_frame(fixed_baseline.artifact.id).to_pandas(),
     )
     assert dict(
         zip(left.iloc[:, 0], left[("value", "value")] - right[("value", "value")], strict=True)
     ) == {key[0]: value for key, value in expected.items()}
-    assert session.artifact(saved.id).to_pandas().equals(saved.to_pandas())
+    assert session.persisted_frame(saved.artifact.id).to_pandas().equals(saved.to_pandas())

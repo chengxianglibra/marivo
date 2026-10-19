@@ -14,6 +14,7 @@ import marivo.semantic as ms
 from marivo._definition.types import AxisBinding
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.errors import MaterializationError
+from tests.analysis.graph.execution_fixtures import source_graph
 from tests.shared_fixtures import DslCase, DslCaseFactory
 from tests.support.paths import PROJECT_ROOT
 
@@ -92,7 +93,7 @@ def test_inference_and_root_identity(analysis_dsl_case_factory: DslCaseFactory) 
     automatic = session.observe(
         {"value": session.catalog.metrics.get(LINE_REVENUE)}, during=_window(session), by=customers
     )
-    binding = automatic._graph.signature.observation
+    binding = source_graph(automatic).signature.observation
     assert binding is not None
     assert tuple(hop.ref.path for hop in binding.contributions[0].coordinates[0].path) == (
         LINE_ORDER.path,
@@ -102,14 +103,14 @@ def test_inference_and_root_identity(analysis_dsl_case_factory: DslCaseFactory) 
     buyer = session.catalog.relationships.get(BUYER)
     inferred = session.read(orders, {"region": region})
     explicit = session.read(orders, {"region": region.via((buyer,))})
-    assert inferred._graph.fingerprint == explicit._graph.fingerprint
+    assert source_graph(inferred).fingerprint == source_graph(explicit).fingerprint
     assert (
-        session.read(customers, {"region": region})._graph.signature.owner
-        == automatic._graph.signature.owner
+        source_graph(session.read(customers, {"region": region})).signature.owner
+        == source_graph(automatic).signature.owner
     )
     ratio = session.catalog.metrics.get("sales.aov_from_lines")
     observed = session.observe({"value": ratio}, during=_window(session), by=customers)
-    binding = observed._graph.signature.observation
+    binding = source_graph(observed).signature.observation
     assert binding is not None
     assert len(binding.contributions) == 2
     assert {
@@ -119,7 +120,7 @@ def test_inference_and_root_identity(analysis_dsl_case_factory: DslCaseFactory) 
     with pytest.raises((AnalysisError, ms.errors.SemanticExpressionError)):
         session.read(orders, {"region": region.via((line_order, buyer))})
     identity = session.observe({"value": ratio}, during=_window(session), by=orders)
-    binding = identity._graph.signature.observation
+    binding = source_graph(identity).signature.observation
     assert binding is not None
     assert {
         tuple(hop.ref.path for hop in item.coordinates[0].path) for item in binding.contributions
@@ -137,7 +138,7 @@ def test_frozen_coordinate_roles_survive_later_model_changes(
     original = session.observe(
         {"value": session.catalog.metrics.get(REVENUE)}, during=_window(session), by=customers
     )
-    observation = original._graph.signature.observation
+    observation = source_graph(original).signature.observation
     assert observation is not None
     coordinate = observation.contributions[0].coordinates[0]
     with pytest.raises(FrozenInstanceError):
@@ -157,7 +158,7 @@ def test_frozen_coordinate_roles_survive_later_model_changes(
             by=other.members(CUSTOMER),
         )
     assert tuple(hop.ref.path for hop in coordinate.path) == (BUYER.path,)
-    frame = original.execute().to_pandas()
+    frame = original.persist().to_pandas()
     assert frame[("value", "value")].tolist() == [450, 150, 400, 0]
 
 
@@ -181,7 +182,7 @@ def test_roles_and_independent_read_paths(analysis_dsl_case_factory: DslCaseFact
         complete = mv.coordinates(by=(axis,), keys=(("A",), ("B",), ("C",), ("D",)))
         frame = (
             session.observe({"value": revenue}, during=_window(session), by=complete)
-            .execute()
+            .persist()
             .to_pandas()
         )
         assert frame.set_index(frame.columns[0])[("value", "value")].to_dict() == expected
@@ -192,7 +193,7 @@ def test_roles_and_independent_read_paths(analysis_dsl_case_factory: DslCaseFact
         session.observe(
             {"value": revenue}, during=_window(session), by=(buyer_region, recipient_region)
         )
-        .execute()
+        .persist()
         .to_pandas()
     )
     baseline = (
@@ -201,7 +202,7 @@ def test_roles_and_independent_read_paths(analysis_dsl_case_factory: DslCaseFact
             during=session.time_scope(start="2026-07-01", end="2026-08-01"),
             by=(buyer_region, recipient_region),
         )
-        .execute()
+        .persist()
         .to_pandas()
     )
     current_values = current.set_index(list(current.columns[:2]))[("value", "value")]
@@ -237,7 +238,7 @@ def test_classification_scope_and_complete_components(
         )
     other = mv.session.get_or_create("another-session", report_timezone="UTC")
     with pytest.raises(AnalysisError):
-        session.query(other.members(LINE))
+        session.frame(other.members(LINE))
     ratio = session.catalog.metrics.get(LINE_REVENUE) / session.catalog.metrics.get(REVENUE)
     with pytest.raises((AnalysisError, ms.errors.SemanticExpressionError)):
         session.observe({"value": ratio}, during=_window(session), by=(category,))
@@ -263,10 +264,10 @@ def test_classification_read_requires_owner_for_its_complete_input_scope(
     if explicit:
         category = category.via((route,))
     with pytest.raises(MaterializationError) as missing:
-        session.read(session.members(LINE), {"category": category}).execute()
+        session.read(session.members(LINE), {"category": category}).persist()
     assert missing.value.expected and missing.value.received and missing.value.repair
-    assert missing.value.run_ref is not None
-    assert session.get_run(missing.value.run_ref).lifecycle == "failed"
+    assert missing.value.run_ref is None
+    assert session.runs().items == ()
     # The separate observation consumes only August contributions, so a bad July
     # relationship is outside this read scope.
     frame = (
@@ -275,7 +276,7 @@ def test_classification_read_requires_owner_for_its_complete_input_scope(
             during=_window(session),
             by=(category,),
         )
-        .execute()
+        .persist()
         .to_pandas()
     )
     assert frame.set_index(frame.columns[0])[("value", "value")].to_dict() == {
@@ -296,29 +297,30 @@ def test_branch_and_consumed_coverage(analysis_dsl_case_factory: DslCaseFactory)
     explicit = session.observe(
         {"value": metric}, during=_window(session), by=(category.via((route,)),)
     )
-    (automatic_axis,) = automatic._graph.signature.axes
-    (explicit_axis,) = explicit._graph.signature.axes
+    (automatic_axis,) = source_graph(automatic).signature.axes
+    (explicit_axis,) = source_graph(explicit).signature.axes
     assert isinstance(automatic_axis, AxisBinding) and isinstance(explicit_axis, AxisBinding)
     assert automatic_axis.entity == explicit_axis.entity
     assert automatic_axis.field == explicit_axis.field
     assert automatic_axis.role == explicit_axis.role == "field"
-    automatic_binding = automatic._graph.signature.observation
-    explicit_binding = explicit._graph.signature.observation
+    automatic_binding = source_graph(automatic).signature.observation
+    explicit_binding = source_graph(explicit).signature.observation
     assert automatic_binding is not None and explicit_binding is not None
     assert automatic_binding.contributions == explicit_binding.contributions
-    fixed = automatic.execute()
+    fixed = automatic.persist()
     frame = fixed.to_pandas()
     assert frame.set_index(frame.columns[0])[("value", "value")].to_dict() == {
         "book": 700,
         "game": 300,
     }
-    assert explicit.execute().to_pandas().equals(frame)
-    total = automatic.reduce({"value": automatic["value"].sum()}).execute()
+    assert explicit.persist().to_pandas().equals(frame)
+    total = automatic.reduce({"value": automatic["value"].sum()}).persist()
     assert total.to_pandas()[("value", "value")].tolist() == [1000]
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     script = """
 import sys
 import marivo.analysis as mv
+from tests.analysis.graph.execution_fixtures import source_graph
 import marivo.semantic as ms
 from marivo.datasource.runtime import DatasourceConnectionService
 def forbidden(*args, **kwargs):
@@ -326,13 +328,13 @@ def forbidden(*args, **kwargs):
 ms.load = forbidden
 DatasourceConnectionService.use_backend = forbidden
 session = mv.session.resume(sys.argv[1], by='id')
-frame = session.artifact(sys.argv[2]).to_pandas()
+frame = session.persisted_frame(sys.argv[2]).to_pandas()
 assert frame.set_index(frame.columns[0])[('value','value')].to_dict() == {'book':700,'game':300}
 assert frame[('value','value')].sum() == 1000
-assert session.artifact(sys.argv[3]).to_pandas()[('value','value')].tolist() == [1000]
+assert session.persisted_frame(sys.argv[3]).to_pandas()[('value','value')].tolist() == [1000]
 """
     completed = subprocess.run(
-        [sys.executable, "-c", script, session.id, fixed.id, total.id],
+        [sys.executable, "-c", script, session.id, fixed.artifact.id, total.artifact.id],
         cwd=case.root,
         env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
         capture_output=True,
@@ -366,14 +368,14 @@ def test_multiroot_branch_arithmetic(analysis_dsl_case_factory: DslCaseFactory) 
         (linear, {"book": -150, "game": 150}),
     ):
         logical = session.observe({"value": metric}, during=_window(session), by=(buckets,))
-        result = logical.execute()
+        result = logical.persist()
         exported = result.to_pandas()
         frame = exported.set_index(exported.columns[0])
         assert frame[("value", "value")].to_dict() == pytest.approx(expected)
         assert set(frame.index) == {"book", "game"}
-        assert logical.rollup().execute().to_pandas()[("value", "value")].tolist() == [
-            1.0 if metric is ratio else 0
-        ]
+        assert session.observe({"value": metric}, during=_window(session)).persist().to_pandas()[
+            ("value", "value")
+        ].tolist() == [1.0 if metric is ratio else 0]
 
 
 def test_timed_classification_cannot_remove_consumed_contributions(
@@ -415,18 +417,18 @@ def test_timed_classification_cannot_remove_consumed_contributions(
         category = field.at(session.instant(instant))
         scope = session.time_scope(start=start, end=end)
         complete = session.observe({"value": metric}, during=scope, by=(category,))
-        frame = complete.execute().to_pandas()
+        frame = complete.persist().to_pandas()
         assert frame.iloc[:, 0].tolist() == [key]
         assert frame[("value", "value")].tolist() == [expected]
         observed.append(expected)
         book_domain = mv.coordinates(by=(category,), keys=(("book",),))
         selected = session.observe({"value": metric}, during=scope, by=book_domain)
         if key == "book":
-            assert selected.execute().to_pandas()[("value", "value")].tolist() == [1000]
+            assert selected.persist().to_pandas()[("value", "value")].tolist() == [1000]
         else:
             # A classification domain cannot silently discard consumed September rows.
             before = session.graph().artifacts
             with pytest.raises(AnalysisError):
-                selected.execute()
+                selected.persist()
             assert session.graph().artifacts == before
     assert sum(observed) == 1099

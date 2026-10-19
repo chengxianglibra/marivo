@@ -11,34 +11,35 @@ import marivo.semantic as ms
 from marivo.analysis.core.data_types import ScalarDataType
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
+from tests.analysis.graph.execution_fixtures import source_graph
 from tests.analysis.graph.reference_fixtures import reference_data
 from tests.analysis.graph.source_fixtures import author_source_project
 from tests.datasource.source_cases import source_case, source_params
 from tests.support.source_trace import SourceTrace
 
 
-def _values(session: mv.Session) -> mv.Query:
+def _values(session: mv.Session) -> mv.AnalysisFrame:
     return session.observe(
         {"value": session.catalog.metrics.get("sales.total")},
         by=session.members(ms.ref.entity("sales.facts")),
     )
 
 
-def _assert_values(result: mv.Artifact) -> None:
+def _assert_values(result: mv.AnalysisFrame) -> None:
     frame = result.to_pandas()
     assert dict(zip(frame.iloc[:, 0], frame[("value", "value")], strict=True)) == {
         ("a", 9007199254740992, 1): 2,
         ("a", 9007199254740993, 2): 0,
         ("b", 9007199254740993, 1): 4,
     }
-    assert [column.dtype for column in result._manifest.data.schema.axes[0].columns] == [
+    assert [column.dtype for column in result.artifact._manifest.data.schema.axes[0].columns] == [
         ScalarDataType("string"),
         ScalarDataType("int64"),
         ScalarDataType("int64"),
     ]
 
 
-def _assert_ratio(result: mv.Artifact) -> None:
+def _assert_ratio(result: mv.AnalysisFrame) -> None:
     frame = result.to_pandas()
     assert frame[("value", "value")].dropna().tolist() == [1.0, 1.0]
     assert frame[("value", "value")].isna().tolist() == [False, True, False]
@@ -64,17 +65,23 @@ def test_public_source_reexecution_and_terminal_read(
         counts = []
         for _ in range(2):
             before = len(source_trace.native_sql)
-            saved = query.execute()
+            saved = query.persist()
             _assert_values(saved)
             counts.append(len(source_trace.native_sql) - before)
             assert counts[-1] > 0
             source_trace.record(saved)
             captures.append(saved)
         first, second = captures
-        assert first.id != second.id
-        assert first._manifest.run_id != second._manifest.run_id
-        shared_result = shared.execute()
+        assert first.artifact.id != second.artifact.id
+        assert first.artifact._manifest.run_id != second.artifact._manifest.run_id
+        shared_result = shared.persist()
         _assert_ratio(shared_result)
+        memory = first.compute()
+        mixed = memory.align(query, on=tuple(zip(memory.axes, query.axes, strict=True)))
+        before_mixed = len(source_trace.native_sql)
+        mixed_result = mixed.select({"value": mixed["left.value"] / mixed["right.value"]}).compute()
+        _assert_ratio(mixed_result)
+        assert sum("SUM(" in sql.upper() for sql in source_trace.native_sql[before_mixed:]) == 1
         before_native = len(source_trace.native_sql)
         before_runs = session.runs().items
 
@@ -82,9 +89,9 @@ def test_public_source_reexecution_and_terminal_read(
             raise AssertionError("Terminal read opened a business source")
 
         monkeypatch.setattr(SourceSession, "execute", forbidden)
-        reopened = session.artifact(first.id)
+        reopened = session.persisted_frame(first.artifact.id)
         _assert_values(reopened)
-        _assert_ratio(session.artifact(shared_result.id))
+        _assert_ratio(session.persisted_frame(shared_result.artifact.id))
         exported = reopened.to_pandas()
         values = exported[("value", "value")]
         assert values[values > 0].tolist() == [2, 4]
@@ -120,16 +127,19 @@ def test_independent_equal_queries_execute_distinct_source_stages(
         author_source_project("duckdb", case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("independent-work", report_timezone="UTC")
         first, second = _values(session), _values(session)
-        assert first is not second and first._graph.fingerprint == second._graph.fingerprint
+        assert (
+            first is not second
+            and source_graph(first).fingerprint == source_graph(second).fingerprint
+        )
         shared = first.select({"value": first["value"] / first["value"]})
-        aligned = first.align(second)
+        aligned = first.align(second, on=tuple(zip(first.axes, second.axes, strict=True)))
         independent = aligned.select({"value": aligned["left.value"] / aligned["right.value"]})
         metric_reads = []
         native_counts = []
         for query in (shared, independent):
             before = len(source_trace.native_sql)
             before_owners = len(source_trace.owners)
-            result = query.execute()
+            result = query.persist()
             _assert_ratio(result)
             submitted = source_trace.native_sql[before:]
             metric_reads.append(sum("SUM(" in sql.upper() for sql in submitted))

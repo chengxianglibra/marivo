@@ -67,7 +67,7 @@ with patch.object(ms,'load',forbidden), patch.object(SourceSession,'__enter__',f
     session = mv.session.resume(sys.argv[1],by='id')
     before = len(session.runs().items)
     for artifact in sys.argv[3:]:
-        frame = session.artifact(artifact).to_pandas()
+        frame = session.persisted_frame(artifact).to_pandas()
         assert frame[('value','value')].sum() == int(sys.argv[2])
     assert len(session.runs().items) == before
 """
@@ -138,7 +138,7 @@ def test_native_count_rollup_and_group_state(
             return frame
 
         monkeypatch.setattr(SourceSession, "execute", captured)
-        result = scalar.execute()
+        result = scalar.persist()
         assert result.to_pandas()[("value", "value")].tolist() == [first_day_count]
         aggregates = [
             frame
@@ -147,7 +147,7 @@ def test_native_count_rollup_and_group_state(
         ]
         assert [len(frame) for frame in aggregates] == [1]
         offset = len(reads)
-        saved_groups = grouped.execute()
+        saved_groups = grouped.persist()
         frame = saved_groups.to_pandas()
         assert dict(zip(frame.iloc[:, 0], frame[("value", "value")], strict=True)) == {
             "even": 4,
@@ -159,20 +159,19 @@ def test_native_count_rollup_and_group_state(
             if read.purpose.startswith("query.") and "COUNT(" in read.sql.upper()
         ]
         assert [len(frame) for frame in aggregates] == [2]
-        assert grouped.rollup().execute().to_pandas()[("value", "value")].tolist() == [
-            first_day_count
-        ]
-        assert individual.rollup().execute().to_pandas()[("value", "value")].tolist() == [
-            first_day_count
-        ]
+        assert grouped.reduce({"value": grouped["value"].sum()}).persist().to_pandas()[
+            ("value", "value")
+        ].tolist() == [first_day_count]
+        assert individual.reduce({"value": individual["value"].sum()}).persist().to_pandas()[
+            ("value", "value")
+        ].tolist() == [first_day_count]
         if key_type == "int64":
-            data = saved_groups._manifest.data
-            forged = mv.Artifact._from_manifest(
-                replace(
-                    saved_groups._manifest,
-                    data=replace(data, rows=replace(data.rows, payload_digest="0" * 64)),
-                ),
-                saved_groups._reader,
+            data = saved_groups.artifact._manifest.data
+            forged = mv.AnalysisFrame._from_stored(
+                saved_groups._local,
+                replace(data, rows=replace(data.rows, payload_digest="0" * 64)),
+                artifact_id=saved_groups.artifact.id,
+                metadata=saved_groups.artifact._manifest.metadata,
             )
             with pytest.raises(AnalysisError):
                 forged.to_pandas()
@@ -193,29 +192,34 @@ def test_native_count_rollup_and_group_state(
                 pq.write_table(table, path)
                 corrupted = path.read_bytes()
                 with pytest.raises(AnalysisError):
-                    session.artifact(saved_groups.id).to_pandas()
+                    session.persisted_frame(saved_groups.artifact.id).to_pandas()
                 assert path.read_bytes() == corrupted
             finally:
                 path.write_bytes(original)
         classifications = session.read(members, {"category": category})
-        empty = classifications.where(classifications["category"] == "absent").population()
+        chosen = classifications.where(classifications["category"] == "absent")
+        empty = session.population_from(
+            chosen, on=((chosen.axes[0], session.catalog.entities.get("counts.events")),)
+        )
         for query in (
             session.observe({"value": metric}, during=window, members=empty),
-            session.observe({"value": metric}, during=window, members=empty, by=empty).rollup(),
+            session.observe({"value": metric}, during=window, members=empty),
         ):
-            assert query.execute().to_pandas()[("value", "value")].tolist() == [0]
+            assert query.persist().to_pandas()[("value", "value")].tolist() == [0]
         calendar = session.time_scope(start="2026-09-01", end="2026-09-03").by(mv.grain("day"))
         timed = session.observe({"value": metric}, during=calendar)
-        assert timed.execute().to_pandas()[("value", "value")].tolist() == [9, 1]
-        assert timed.rollup().execute().to_pandas()[("value", "value")].tolist() == [row_count]
+        assert timed.persist().to_pandas()[("value", "value")].tolist() == [9, 1]
+        assert timed.reduce({"value": timed["value"].sum()}).persist().to_pandas()[
+            ("value", "value")
+        ].tolist() == [row_count]
         if key_type == "int64" and profile == "table":
-            saved_members = individual.execute()
+            saved_members = individual.persist()
             assert len(saved_members.to_pandas()) == row_count
             assert saved_members.to_pandas()[("value", "value")].tolist() == [1] * 9 + [0]
             _cold_outputs(
                 tmp_path,
                 session.id,
                 first_day_count,
-                (saved_members.id, saved_groups.id, result.id),
+                (saved_members.artifact.id, saved_groups.artifact.id, result.artifact.id),
             )
         assert session._runtime.store.resources(session.id) == ()
