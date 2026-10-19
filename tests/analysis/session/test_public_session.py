@@ -1,6 +1,7 @@
 """Public source wiring, local publication and exact generation admission."""
 
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -10,9 +11,10 @@ import marivo.semantic as ms
 from marivo.analysis.errors import ArtifactNotFoundError, SessionNotFoundError
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.layout import MaterializationLayout
+from marivo.semantic.reader import SemanticProject
 
 
-def test_new_public_session_starts_with_empty_v8_store(
+def test_new_public_session_starts_with_empty_v12_store(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
@@ -20,10 +22,24 @@ def test_new_public_session_starts_with_empty_v8_store(
     assert session.runs().items == ()
     assert session._runtime.store.db_path == MaterializationLayout(tmp_path).store_db
     with pytest.raises(ArtifactNotFoundError):
-        session.artifact("old-artifact")
+        session.persisted_frame("old-artifact")
     with pytest.raises(SessionNotFoundError):
         mv.session.resume("old-session", by="id")
     assert session.runs().items == ()
+    pending = session.values(by=(), columns={"answer": None}, rows=(((), {"answer": 7}),))
+    memory = pending.compute()
+    assert isinstance(memory, mv.AnalysisFrame)
+    assert memory.compute() is memory
+    assert memory.to_pandas()[("value", "answer")].tolist() == [7]
+    assert session.runs().items == ()
+    saved = memory.persist()
+    assert isinstance(saved, mv.AnalysisFrame)
+    artifact_id = saved.artifact.id
+    restored = session.persisted_frame(artifact_id)
+    assert isinstance(restored, mv.AnalysisFrame)
+    assert restored.artifact.id == artifact_id
+    assert restored.persist() is restored
+    assert len(session.runs().items) == 1
 
 
 def test_public_session_rejects_existing_store_without_modifying_it(
@@ -36,20 +52,21 @@ def test_public_session_rejects_existing_store_without_modifying_it(
         connection.execute("PRAGMA user_version=8")
     before = path.read_bytes()
     files = tuple(path.parent.iterdir())
-    for acquire in (
+    acquisitions: tuple[Callable[[], mv.Session], ...] = (
         lambda: mv.session.get_or_create("new"),
         lambda: mv.session.resume("old"),
-    ):
+    )
+    for acquire in acquisitions:
         with pytest.raises(IntegrityError) as caught:
             acquire()
         assert caught.value.stage == "store_generation"
-        assert "new named Session" in str(caught.value)
+        assert "cannot be resumed or migrated" in str(caught.value)
         assert path.read_bytes() == before
         assert tuple(path.parent.iterdir()) == files
 
 
 def test_public_calendar_snapshot_is_captured_before_pure_construction(
-    semantic_project_factory,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from marivo.semantic.catalog import SemanticCatalog
@@ -59,9 +76,13 @@ def test_public_calendar_snapshot_is_captured_before_pure_construction(
     )
 
     files = fiscal_analysis_project_files()
-    files["sales/metrics.py"] = files["sales/metrics.py"].replace(
-        "source=md.table('events')",
-        "source=md.table('events', columns={'user_id': 'user_id', 'amount': 'amount', 'event_date': 'event_date'}), primary_key=['user_id']",
+    files["sales/metrics.py"] = (
+        files["sales/metrics.py"]
+        .replace(
+            "source=md.table('events')",
+            "source=md.table('events', columns={'user_id': 'user_id', 'amount': 'amount', 'event_date': 'event_date'}), primary_key=['user_id']",
+        )
+        .replace("granularity='day')", "granularity='day', is_default=True)")
     )
     files["sales/calendar.py"] = files["sales/calendar.py"].replace(
         "source=md.table('calendar')",
@@ -74,8 +95,7 @@ def test_public_calendar_snapshot_is_captured_before_pure_construction(
     calendar = session.catalog.require(ms.ref.period_calendar("sales.fiscal"))
     grain = calendar.grain("fiscal_week")
     scope = calendar.period("fiscal_week", "M1-W1")
-    metric = ms.ref.metric("sales.gmv")
-    axis = ms.ref.time_dimension("sales.events.event_date")
+    metric = session.catalog.metrics.get("sales.gmv")
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("construction reread the certified calendar")
@@ -86,4 +106,6 @@ def test_public_calendar_snapshot_is_captured_before_pure_construction(
     snapshots = session._sources().period_calendar_snapshots
     assert len(snapshots) == 1
     assert snapshots[0].period_scope("fiscal_week", "M1-W1") == scope
+    frame = session.observe({"gmv": metric}, during=scope.by(grain))
+    assert isinstance(frame, mv.AnalysisFrame)
     assert session.runs().items == ()

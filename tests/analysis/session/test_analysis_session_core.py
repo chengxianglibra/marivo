@@ -1,6 +1,7 @@
 """Public Session ownership and external semantic layer wiring."""
 
 import textwrap
+from pathlib import Path
 
 import duckdb
 import pytest
@@ -11,7 +12,9 @@ from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.catalog import SemanticCatalog
 
 
-def test_session_public_fields_are_read_only(tmp_path, monkeypatch):
+def test_session_public_fields_are_read_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("immutable")
     for name in ("id", "name", "created_at"):
@@ -19,14 +22,16 @@ def test_session_public_fields_are_read_only(tmp_path, monkeypatch):
             setattr(session, name, "other")
 
 
-def test_session_exposes_catalog_property(tmp_path, monkeypatch):
+def test_session_exposes_catalog_property(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("catalog")
     assert isinstance(session.catalog, SemanticCatalog)
     assert session.catalog.workspace_dir == tmp_path
 
 
-def test_session_catalog_loads_external_semantic_layer(tmp_path, monkeypatch):
+def test_session_catalog_loads_external_semantic_layer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import textwrap
 
     import marivo.analysis as mv
@@ -91,7 +96,9 @@ def test_session_catalog_loads_external_semantic_layer(tmp_path, monkeypatch):
     assert refunds.node.ref.ref.path == "finance.refunds_total"
 
 
-def test_session_observe_uses_external_layer_datasource(tmp_path, monkeypatch):
+def test_session_observe_uses_external_layer_datasource(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import marivo.analysis as mv
 
     project_root = tmp_path / "project"
@@ -152,6 +159,7 @@ def test_session_observe_uses_external_layer_datasource(tmp_path, monkeypatch):
 
     session = mv.session.get_or_create(name="external_layer_observe", report_timezone="UTC")
     metric = session.catalog.metrics.get("finance.refunds_total")
-    frame = session.observe({"refunds": metric}).execute()
+    frame = session.observe({"refunds": metric}).compute()
 
     assert frame.to_pandas()[("value", "refunds")].tolist() == [150.0]
+    assert session.runs().items == ()

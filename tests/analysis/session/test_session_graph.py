@@ -1,8 +1,9 @@
-"""Store 11 exposes bounded same-Session production history without Artifact inputs."""
+"""Store 12 exposes bounded same-Session production history without Artifact inputs."""
 
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Callable
 from contextlib import closing
 from dataclasses import fields, replace
 from pathlib import Path
@@ -33,18 +34,22 @@ def session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.Session:
 
 
 def _publish(session: mv.Session) -> mv.Artifact:
-    return session.values(by=(), columns={"answer": None}, rows=(((), {"answer": 7}),)).execute()
+    return (
+        session.values(by=(), columns={"answer": None}, rows=(((), {"answer": 7}),))
+        .persist()
+        .artifact
+    )
 
 
 def test_production_history_preserves_run_variants_and_bounded_recap(session: mv.Session) -> None:
     artifacts = tuple(_publish(session) for _ in range(4))
     store = session._runtime.store
-    terminal_store.admit(store, session.id, "failed")
+    terminal_store.admit(store, session.id, "failed", "result_failed")
     store.fail(
         "failed",
         RunFailure("stage_execution", "execution_failed", "stopped", None, "success", "stop", None),
     )
-    terminal_store.admit(store, session.id, "pending")
+    terminal_store.admit(store, session.id, "pending", "result_pending")
 
     graph = session.graph()
     assert graph == session.graph()
@@ -52,13 +57,16 @@ def test_production_history_preserves_run_variants_and_bounded_recap(session: mv
     assert graph.root_run_ids == tuple(run.run_id for run in graph.runs)
     assert graph.head_artifact_refs == tuple(item.artifact_ref for item in graph.artifacts)
     assert graph.failed_run_ids == ("failed",) and graph.incomplete_run_ids == ("pending",)
-    assert graph.boundary_artifact_refs == graph.boundary_run_ids == ()
+    assert graph.boundary_artifact_refs == () and graph.boundary_run_ids == ()
     assert {(edge.kind, edge.run_id, edge.artifact_ref.ref) for edge in graph.edges} == {
         ("produces", artifact._manifest.run_id, artifact.id) for artifact in artifacts
     }
+    expected_inputs = {
+        artifact._manifest.run_id: artifact._manifest.result_id for artifact in artifacts
+    } | {"failed": "result_failed", "pending": "result_pending"}
     for run in session.runs().items:
         assert session.get_run(run.run_id) == run
-        assert run.dataset_input.kind == "query"
+        assert run.dataset_input.result_id == expected_inputs[run.run_id]
         assert not hasattr(run, "input_artifact_refs")
         assert "inputs:" not in run.render()
 
@@ -70,7 +78,7 @@ def test_production_history_preserves_run_variants_and_bounded_recap(session: mv
     assert recap.overall_graph_available
     limited = session.graph(max_nodes=1)
     assert limited.truncated and limited.incomplete_run_ids == ("pending",)
-    assert limited.artifacts == limited.edges == ()
+    assert limited.artifacts == () and limited.edges == ()
 
 
 def test_focused_production_and_truncation(session: mv.Session) -> None:
@@ -82,16 +90,16 @@ def test_focused_production_and_truncation(session: mv.Session) -> None:
 
     limited = session.graph(artifact_ref=artifact.id, max_nodes=1)
     assert limited.truncated
-    assert limited.runs == limited.edges == ()
+    assert limited.runs == () and limited.edges == ()
     assert limited.boundary_artifact_refs == limited.head_artifact_refs
     assert limited.boundary_run_ids == ()
     assert session.graph(max_nodes=1) == limited
 
     terminal = session.graph(artifact_ref=artifact.id, direction="descendants", max_nodes=1)
     assert terminal.artifacts == graph.artifacts
-    assert terminal.runs == terminal.edges == ()
+    assert terminal.runs == () and terminal.edges == ()
     assert not terminal.truncated
-    assert terminal.boundary_artifact_refs == terminal.boundary_run_ids == ()
+    assert terminal.boundary_artifact_refs == () and terminal.boundary_run_ids == ()
     with pytest.raises(SessionGraphArgumentError):
         session.graph(direction="descendants")
     with pytest.raises(SessionGraphLimitError):
@@ -160,8 +168,9 @@ def test_run_and_edge_help_pin_production_only_fields(session: mv.Session) -> No
     assert text == rendered_help(SessionGraphEdge) == rendered_help(type(edge))
     assert "  kind: Literal['produces']\n" in text
     assert get_args(get_type_hints(SessionGraphEdge)["kind"]) == ("produces",)
+    invalid_edge: Callable[..., SessionGraphEdge] = replace
     with pytest.raises(IntegrityError, match="unregistered graph edge kind"):
-        replace(edge, kind="consumes")
+        invalid_edge(edge, kind="consumes")
     graph_help = rendered_help("analysis.session_graph")
     assert "every selected Run" in graph_help and "every selected Artifact" in graph_help
     assert "omitted requested neighbors" in graph_help
@@ -170,23 +179,23 @@ def test_run_and_edge_help_pin_production_only_fields(session: mv.Session) -> No
     assert "ancestors includes its producer" in text and "descendants returns only" in text
 
 
-def test_store_11_schema_rejects_legacy_relation_and_preserves_output_codec(
+def test_store_12_schema_rejects_legacy_relation_and_preserves_output_codec(
     session: mv.Session,
 ) -> None:
     from marivo.analysis.materialization.store import SessionStore
     from marivo.analysis.materialization.terminal_protocol import FORMAT
 
     store = session._runtime.store
-    assert MaterializationLayout(store.project_root).generation == 11
+    assert MaterializationLayout(store.project_root).generation == 12
     with store._read() as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 11
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 12
         names = {row[0] for row in conn.execute("SELECT name FROM sqlite_master")}
     assert "analysis_action_run_inputs" not in names and "run_inputs_artifact" not in names
     assert "analysis_action_run_terminals" in names
-    assert FORMAT == "marivo.terminal_output/v1"
+    assert FORMAT == "marivo.frame_output/v1"
     with store._write() as conn:
         conn.execute("CREATE TABLE analysis_action_run_inputs (legacy TEXT) STRICT")
-    with pytest.raises(IntegrityError, match="incomplete v11 schema"):
+    with pytest.raises(IntegrityError, match="incomplete v12 schema"):
         SessionStore.open_existing(store.project_root)
 
 
@@ -203,15 +212,15 @@ def test_graph_and_run_reject_inconsistent_production_identity(session: mv.Sessi
         session.graph(artifact_ref=artifact.id, direction="descendants")
 
 
-def test_store_10_rejection_preserves_complete_legacy_schema(
+def test_store_10_rejection_preserves_legacy_schema(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.materialization.store import SessionStore
-
     monkeypatch.chdir(tmp_path)
-    store = SessionStore(tmp_path)
-    # Store 10 has the same retained relations plus this retired input relation/index.
-    with closing(sqlite3.connect(store.db_path)) as conn:
+    layout = MaterializationLayout(tmp_path)
+    legacy = layout.generation_dir.with_name("v10")
+    legacy.mkdir(parents=True)
+    # Generation refusal must precede interpreting any retained legacy relations.
+    with closing(sqlite3.connect(legacy / "session_store.db")) as conn:
         conn.executescript("""
             CREATE TABLE analysis_action_run_inputs (
                 run_ref TEXT NOT NULL CHECK(length(run_ref)>0),
@@ -224,14 +233,16 @@ def test_store_10_rejection_preserves_complete_legacy_schema(
             CREATE INDEX run_inputs_artifact ON analysis_action_run_inputs(artifact_ref,run_ref);
             PRAGMA user_version=10;
         """)
-    legacy = store.layout.generation_dir.with_name("v10")
-    store.layout.generation_dir.rename(legacy)
     before = {path.name: path.read_bytes() for path in legacy.iterdir() if path.is_file()}
     assert mv.session.current() is None and mv.session.recent().items == ()
-    for create in (lambda: mv.session.get_or_create("new-name"), lambda: mv.session.resume("old")):
+    attempts: tuple[Callable[[], mv.Session], ...] = (
+        lambda: mv.session.get_or_create("new-name"),
+        lambda: mv.session.resume("old"),
+    )
+    for create in attempts:
         with pytest.raises(IntegrityError) as captured:
             create()
         assert captured.value.stage == "store_generation"
         assert captured.value.received == "Session Store user_version=10"
-    assert not store.layout.generation_dir.exists()
+    assert not layout.generation_dir.exists()
     assert {path.name: path.read_bytes() for path in legacy.iterdir() if path.is_file()} == before

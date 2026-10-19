@@ -7,16 +7,18 @@ from ``attach``, ``active``, or ``persistence``.
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from importlib import import_module
 from inspect import signature
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, get_type_hints
+from typing import Any, Literal, get_type_hints
 
 import pytest
 
 import marivo.analysis as mv
+from marivo.analysis.materialization.contracts import SessionRecord
 
 # ---------------------------------------------------------------------------
 # __all__ and surface checks
@@ -83,8 +85,9 @@ def test_get_or_create_resumes_same_id_and_marks_current(
     s1 = mv.session.get_or_create(name="s")
     s2 = mv.session.get_or_create(name="s")
     assert s1.id == s2.id
-    assert mv.session.current() is not None
-    assert mv.session.current().id == s1.id
+    current = mv.session.current()
+    assert current is not None
+    assert current.id == s1.id
 
 
 def test_explicit_question_updates_existing_session(
@@ -178,11 +181,13 @@ def test_get_or_create_explicit_empty_question_clears_current_value(
     assert updated.id == original.id
     assert updated.question == ""
     assert mv.session.inspect("s").summary.question == ""
-    assert store.session(original.id).question == ""
+    record = store.session(original.id)
+    assert record is not None
+    assert record.question == ""
 
 
 def test_question_and_current_activation_roll_back_together_on_store_failure(
-    tmp_path, monkeypatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import sqlite3
 
@@ -198,12 +203,14 @@ def test_question_and_current_activation_roll_back_together_on_store_failure(
     with pytest.raises(sqlite3.IntegrityError, match="activation failed"):
         mv.session.get_or_create("historical", question="replacement")
     assert store.session(original.id) == before
-    assert mv.session.current().id == active.id
+    current = mv.session.current()
+    assert current is not None
+    assert current.id == active.id
     assert mv.session.inspect("historical").summary.question == "original"
 
 
 def test_concurrent_question_update_rejects_busy_writer_without_partial_activation(
-    tmp_path, monkeypatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from marivo.analysis.materialization.errors import SessionBusyError
     from marivo.analysis.materialization.store import SessionStore
@@ -214,7 +221,9 @@ def test_concurrent_question_update_rejects_busy_writer_without_partial_activati
     release = threading.Event()
     activate = SessionStore.activate
 
-    def paused(store, session_ref, *, question=None):
+    def paused(
+        store: SessionStore, session_ref: str, *, question: str | None = None
+    ) -> SessionRecord:
         if question == "question-a":
             entered.set()
             assert release.wait(10)
@@ -232,7 +241,9 @@ def test_concurrent_question_update_rejects_busy_writer_without_partial_activati
             release.set()
         assert winner.result().id == original.id
     assert mv.session.inspect("s").summary.question == "question-a"
-    assert mv.session.current().question == "question-a"
+    current = mv.session.current()
+    assert current is not None
+    assert current.question == "question-a"
     assert mv.session.get_or_create("s", question="question-b").question == "question-b"
 
 
@@ -369,17 +380,16 @@ def test_resume_accepts_identity_matching_same_row_by_id_and_name(
 def test_resume_explicit_selector_missing_identity_uses_matching_candidates(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    by: str,
+    by: Literal["name", "id"],
     expected: str,
     candidate_attribute: str,
 ) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     known = mv.session.get_or_create(name="known")
-    resume_call = {"by": by}
 
     with pytest.raises(mv.errors.SessionNotFoundError) as exc_info:
-        mv.session.resume("missing", **resume_call)
+        mv.session.resume("missing", by=by)
 
     error = exc_info.value
     assert error.expected == f"{expected} from mv.session.recent().items"
@@ -392,10 +402,10 @@ def test_resume_rejects_unknown_identity_selector(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    invalid_selector_call = {"by": "prefix"}
+    resume: Callable[..., mv.Session] = mv.session.resume
 
     with pytest.raises(mv.errors.SessionStateError) as exc_info:
-        mv.session.resume("s", **invalid_selector_call)
+        resume("s", by="prefix")
 
     error = exc_info.value
     assert error.expected == 'by="name", by="id", or omitted by'
@@ -412,8 +422,9 @@ def test_resume_rejects_backends_and_backend_factory_together(
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     session = mv.session.get_or_create(name="s")
 
+    resume: Callable[..., mv.Session] = mv.session.resume
     with pytest.raises(TypeError):
-        mv.session.resume(
+        resume(
             session.id,
             backends={"w": lambda: None},
             backend_factory=lambda _name: None,
@@ -427,8 +438,9 @@ def test_session_has_no_default_calendar_surface(
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     session = mv.session.get_or_create(name="s")
     assert not hasattr(session, "default_calendar")
+    get_or_create: Callable[..., mv.Session] = mv.session.get_or_create
     with pytest.raises(TypeError):
-        mv.session.get_or_create(name="s", default_calendar="fiscal")
+        get_or_create(name="s", default_calendar="fiscal")
 
 
 def test_backends_and_backend_factory_both_raises_session_state_error(
@@ -436,8 +448,9 @@ def test_backends_and_backend_factory_both_raises_session_state_error(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
+    get_or_create: Callable[..., mv.Session] = mv.session.get_or_create
     with pytest.raises(TypeError):
-        mv.session.get_or_create(
+        get_or_create(
             name="s",
             backends={"w": lambda: None},
             backend_factory=lambda name: None,
@@ -464,7 +477,9 @@ def test_recent_is_bounded_newest_first(tmp_path: Path, monkeypatch: pytest.Monk
     assert {item.id for item in (*page.items, *next_page.items)} == {first.id, second.id}
 
 
-def test_inspect_returns_bounded_snapshot_without_touching_session(tmp_path, monkeypatch) -> None:
+def test_inspect_returns_bounded_snapshot_without_touching_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import marivo.semantic.catalog as catalog_module
     from marivo.analysis.materialization.terminal_store import admit
 
@@ -475,6 +490,7 @@ def test_inspect_returns_bounded_snapshot_without_touching_session(tmp_path, mon
         store,
         historical.id,
         "run_1",
+        "result_inspection",
     )
     active = mv.session.get_or_create("active")
     before = store.session(historical.id)
@@ -483,7 +499,9 @@ def test_inspect_returns_bounded_snapshot_without_touching_session(tmp_path, mon
     )
     snapshot = mv.session.inspect("historical", run_limit=1)
     assert store.session(historical.id) == before
-    assert mv.session.current().id == active.id
+    current = mv.session.current()
+    assert current is not None
+    assert current.id == active.id
     assert snapshot.summary.question == "Why did revenue drop?"
     assert snapshot.runs.items[0].run_id == "run_1"
 
@@ -516,7 +534,7 @@ def test_inspect_missing_session_raises_typed_error_with_real_candidates(
 def test_history_limits_fail_before_lookup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    call,
+    call: Callable[[], object],
     message: str,
 ) -> None:
     monkeypatch.chdir(tmp_path)

@@ -8,12 +8,13 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.datasource as md
-import marivo.semantic as ms
 from marivo.datasource.errors import DatasourceFieldInvalidError
 from marivo.semantic.errors import SemanticLoadFailed
 
 
-def test_model_qualified_datasource_name_is_rejected(tmp_path, monkeypatch):
+def test_model_qualified_datasource_name_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_HOME", str(tmp_path / "home"))
     with pytest.raises(DatasourceFieldInvalidError) as caught:
@@ -22,24 +23,22 @@ def test_model_qualified_datasource_name_is_rejected(tmp_path, monkeypatch):
 
 
 def test_missing_datasource_is_named_when_sources_are_requested(
-    authoring_evidence_project: Path, monkeypatch
-):
+    authoring_evidence_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.chdir(authoring_evidence_project)
     (authoring_evidence_project / "models" / "datasources" / "warehouse.py").unlink()
     session = mv.session.get_or_create("missing-source")
     assert session.runs().items == ()
     with pytest.raises(SemanticLoadFailed) as caught:
-        session.members(ms.ref.entity("sales.orders")).observe(
-            ms.ref.metric("sales.revenue"), by=(mv.member(),)
-        )
+        session.observe({"revenue": session.catalog.metrics.get("sales.revenue")})
     assert "warehouse" in str(caught.value)
     assert "unknown datasource" in str(caught.value)
     assert session.runs().items == ()
 
 
 def test_observe_uses_registered_global_datasource(
-    authoring_evidence_project: Path, tmp_path: Path, monkeypatch
-):
+    authoring_evidence_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.chdir(authoring_evidence_project)
     monkeypatch.setenv("MARIVO_HOME", str(tmp_path / "home"))
     alternate = tmp_path / "alternate.duckdb"
@@ -51,7 +50,9 @@ def test_observe_uses_registered_global_datasource(
         connection.execute(
             "ALTER TABLE orders ALTER COLUMN log_date TYPE DATE USING strptime(log_date, '%Y%m%d')::DATE"
         )
-        expected = connection.execute("SELECT SUM(amount) FROM orders").fetchone()[0]
+        row = connection.execute("SELECT SUM(amount) FROM orders").fetchone()
+        assert row is not None
+        expected = row[0]
     finally:
         connection.close()
     md.register(md.DuckDBSpec(name="warehouse", path=str(alternate)))
@@ -62,6 +63,9 @@ def test_observe_uses_registered_global_datasource(
         .replace("parse=ms.strptime('%Y%m%d')", "parse=None")
     )
     session = mv.session.get_or_create("registered", report_timezone="UTC")
-    output = session.observe({"revenue": session.catalog.metrics.get("sales.revenue")}).execute()
+    output = session.observe({"revenue": session.catalog.metrics.get("sales.revenue")}).compute()
     assert output.to_pandas()[("value", "revenue")].tolist() == [expected]
-    assert session.artifact(output.id).id == output.id
+    assert session.runs().items == ()
+    saved = output.persist()
+    artifact_id = saved.artifact.id
+    assert session.persisted_frame(artifact_id).artifact.id == artifact_id
