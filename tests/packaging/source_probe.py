@@ -302,10 +302,14 @@ def _native_weighted(session: mv.Session, project: Path) -> dict[str, Json]:
         table = binding.relation
         numerator = (table.amount * table.weight).sum()
         denominator = table.weight.sum()
+        # Match declared Trino true division; retain native product/sum accumulation.
+        division_numerator = (
+            numerator.cast("float64") if owner.provider.name == "trino" else numerator
+        )
         expression = table.aggregate(
             numerator=numerator,
             denominator=denominator,
-            weighted=numerator / denominator,
+            weighted=division_numerator / denominator,
         )
         qualified = owner.qualify(
             binding,
