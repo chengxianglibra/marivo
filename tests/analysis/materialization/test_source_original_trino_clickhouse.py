@@ -10,9 +10,12 @@ from typing import Literal
 
 import pandas as pd
 import pytest
+from trino.exceptions import TrinoUserError
 
 import marivo.analysis as mv
+from marivo.analysis.materialization.errors import MaterializationError
 from marivo.semantic.reader import SemanticProject
+from tests.analysis.materialization.publication_fixtures import publication_counts
 from tests.analysis.materialization.test_source_original_postgres import _native_scalar
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import SourceData, source_case, source_params
@@ -319,7 +322,7 @@ def test_trino_basic_integer_recompute_does_not_require_iceberg_snapshot(
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
-def test_remote_weighted_original_uses_wide_accumulator_after_fine_checks(
+def test_remote_weighted_native_boundary_and_fixed_wide_mean(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -342,9 +345,52 @@ def test_remote_weighted_original_uses_wide_accumulator_after_fine_checks(
         category = session.catalog.fields.get("sales.facts.category")
         weight = session.catalog.fields.get("sales.facts.weight")
         query = session.observe({"value": amount.weighted_mean(weight=weight)})
-        native = _native_scalar(case, "weighted_mean")
+        table = case.session.bind(case.source, source_identity="native-unwidened").relation
+        expression = (table.amount * table.weight).sum() / table.weight.sum()
+        # This overall observation uses native Int64 accumulation: Trino errors,
+        # while ClickHouse wraps. The fixed Frame below owns the exact wide mean.
+        if backend == "trino":
+            with pytest.raises(TrinoUserError) as native_failure:
+                case.session._backend.execute(expression)
+            assert native_failure.value.error_name == "NUMERIC_VALUE_OUT_OF_RANGE"
+            assert native_failure.value.error_code == 19
+        else:
+            assert backend == "clickhouse"
+            native: object = case.session._backend.execute(expression)
+            assert native == -float(2**62)
+        before_runs = session.runs().items
+        before_publication = publication_counts(session)
         trace = capture_source(monkeypatch)
-        frame = query.compute().to_pandas()
-        assert frame["value", "value"].tolist() == [float(2**62)]
-        assert trace.returned_rows == [1]
-        assert frame["value", "value"].tolist() == [native]
+        if backend == "trino":
+            with pytest.raises(MaterializationError) as failure:
+                query.compute()
+            cause = failure.value.__cause__
+            assert isinstance(cause, TrinoUserError)
+            assert cause.error_name == "NUMERIC_VALUE_OUT_OF_RANGE"
+            assert cause.error_code == 19
+            assert trace.returned_rows == []
+        else:
+            frame = query.compute().to_pandas()
+            assert frame["value", "value"].tolist() == [native]
+            assert trace.returned_rows == [1]
+        assert len(trace.native_sql) == 1
+        assert trace.uploaded_key_rows == []
+        assert trace.owners and all(owner._closed for owner in trace.owners)
+        submissions = [item for owner in trace.owners for item in owner.submissions]
+        assert len(submissions) == 1
+        assert submissions[0].state == ("failed" if backend == "trino" else "succeeded")
+        assert submissions[0].connection_disconnected
+        assert session.runs().items == before_runs
+        assert publication_counts(session) == before_publication
+        assert session._runtime.store.resources(session.id) == ()
+
+        exact = Fraction(2**63, 2)
+        assert exact == 2**62
+        fixed = session.values(
+            by=(category,),
+            columns={"amount": None},
+            rows=tuple(((key,), {"amount": 2**62}) for key in ("A", "B")),
+        ).compute()
+        # All source weights are one; this exact row mean is a separate witness.
+        finished = fixed.reduce({"mean": fixed["amount"].mean()}).compute()
+        assert finished.to_pandas()[("value", "mean")].tolist() == [float(exact)]
