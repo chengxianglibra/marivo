@@ -40,6 +40,18 @@ Complete target documents state desired contracts. Their signatures and numerica
 witnesses alone do not prove every public integration or physical route is ready.
 Historical acceptance records remain evidence for their own exact scope.
 
+## Proposed extensions
+
+| Document | Owns |
+| --- | --- |
+| [AnalysisFrame data model and execution](query-result-reuse.md) | Proposed single AnalysisFrame, align/compare, compute then publish, one persisted_frame recovery entry and audit-only Artifact; covers source boundaries and ordered storage, retained filename, not implemented |
+| [AnalysisFrame implementation plan](analysis-frame-implementation-plan.md) | Planned S0–S8 cutover, current code mapping, carrier/coordinate/runtime changes, retirement scope and acceptance gates; not implementation evidence |
+| [Attribute design](attribute-design.md) | Mathematical contract for joint drilldown and optional exact contribution; depends on AnalysisFrame and a future explicit source request, previous Query.attribute API withdrawn; not implemented |
+
+The AnalysisFrame proposal owns the target object and lifecycle contract. The
+attribute proposal follows it; it cannot restore source definitions through a
+Frame's producer graph. Neither proposal changes the current contracts below.
+
 ## Execution and output boundary
 
 ```text
