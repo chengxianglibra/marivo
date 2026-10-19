@@ -8,7 +8,7 @@ import duckdb
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.dsl import query as query_module
+from marivo.analysis.dsl import source_capture
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.errors import SemanticExpressionError, SemanticRuntimeError
@@ -30,9 +30,9 @@ def test_public_observation_resolves_once_and_retains_components(
     ):
         runs_before = len(case.session.runs().items)
         with patch.object(
-            query_module,
+            source_capture,
             "consume_metric_in_state",
-            wraps=query_module.consume_metric_in_state,
+            wraps=source_capture.consume_metric_in_state,
         ) as resolve:
             observed = case.session.observe({"value": metric}, during=window)
             assert resolve.call_count == 1

@@ -105,7 +105,7 @@ class BoundTimeGrid:
     """Complete, serializable temporal authority adopted by a consuming graph."""
 
     identity: str
-    grain_token: str
+    grain_spec: Grain
     report_timezone: str
     boundary_timezone: str
     snapshot_digest: str | None
@@ -114,6 +114,10 @@ class BoundTimeGrid:
     precision: Literal["us"] = "us"
     scope_identity: str | None = None
     calendar_snapshot: PeriodCalendarSnapshotV1 | None = None
+
+    @property
+    def grain_token(self) -> str:
+        return self.grain_spec.to_token()
 
     def __post_init__(self) -> None:
         if not self.identity or not self.grain_token or not self.cells or self.precision != "us":
@@ -286,7 +290,7 @@ def bind_grid(
         _identity(
             token, report_timezone, boundary, snapshot_digest, scope_digest, cells, scope_identity
         ),
-        token,
+        grain,
         report_timezone,
         boundary,
         snapshot_digest,

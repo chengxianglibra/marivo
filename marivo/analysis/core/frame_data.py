@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from typing import TYPE_CHECKING, TypeAlias
 
 import pandas as pd
 
@@ -12,10 +12,18 @@ from marivo.analysis.core.artifact_data import (
     DataSchema,
     OutputAttachment,
 )
+from marivo.analysis.core.frame_audit import FrameResultMetadata
+from marivo.analysis.core.frame_calendar import FrozenSourceCalendar
+from marivo.analysis.core.frame_expression import FrameOperationKind
 from marivo.analysis.core.frame_structure import coordinate_attachments, require_complete_structure
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import reject
-from marivo.analysis.materialization.graph_exchange import normalize_stage_frame
+from marivo.analysis.materialization.graph_exchange import normalize_complete_frame
+
+if TYPE_CHECKING:
+    from marivo.analysis.dsl.frame import AnalysisFrame
+    from marivo.datasource.runtime import DatasourceConnectionConfig
+    from marivo.semantic._compiled_state import CompiledSemanticState
 
 
 def _table(schema: DataSchema, rows: pd.DataFrame) -> pd.DataFrame:
@@ -34,7 +42,7 @@ def _table(schema: DataSchema, rows: pd.DataFrame) -> pd.DataFrame:
         {column.slot_id: rows[column.slot_id].array.copy() for column in schema.columns},
         index=pd.RangeIndex(len(rows)),
     )
-    result = normalize_stage_frame(independent, schema.columns, schema.key_fields)
+    result = normalize_complete_frame(independent, schema.columns, schema.key_fields)
     if not schema.axes and len(result) > 1:
         reject(
             "at most one row in a zero-axis domain",
@@ -101,6 +109,9 @@ class CompletedFrameData:
     def copy_rows(self) -> pd.DataFrame:
         return self._rows.copy(deep=True)
 
+    def preview_rows(self, n: int) -> pd.DataFrame:
+        return self._rows.iloc[:n].copy(deep=True)
+
     def copy_attachments(self) -> tuple[OutputAttachment, ...]:
         return tuple(
             OutputAttachment(attachment.name, attachment.schema, attachment.rows.copy(deep=True))
@@ -109,50 +120,61 @@ class CompletedFrameData:
 
 
 @dataclass(frozen=True, slots=True)
-class ExpressionFrameBacking:
-    """Explicit source graph; fixed-data expression nodes join this at S2."""
+class SourceFrameBinding:
+    graph: BoundGraph
+    state: CompiledSemanticState
+    connection: DatasourceConnectionConfig
+    calendars: tuple[FrozenSourceCalendar, ...] = ()
 
+
+@dataclass(frozen=True, slots=True)
+class LiteralFrameBinding:
     graph: BoundGraph
 
+
+@dataclass(frozen=True, slots=True)
+class OperationFrameBinding:
+    operation: FrameOperationKind
+    inputs: tuple[AnalysisFrame, ...]
+
+
+FrameExpressionRoot: TypeAlias = SourceFrameBinding | LiteralFrameBinding | OperationFrameBinding
+
+
+@dataclass(frozen=True, slots=True)
+class ExpressionFrameBacking:
+    root: FrameExpressionRoot
+
+
+@dataclass(frozen=True, slots=True)
+class CompletedFrameResult:
+    data: CompletedFrameData
+    metadata: FrameResultMetadata
+
     def __post_init__(self) -> None:
-        if type(self.graph) is not BoundGraph:
+        if (
+            type(self.data) is not CompletedFrameData
+            or type(self.metadata) is not FrameResultMetadata
+        ):
             reject(
-                "a completed source graph",
-                type(self.graph).__name__,
-                "Capture explicit inputs.",
-                "frame.expression",
+                "complete independent data and result metadata",
+                type(self).__name__,
+                "Finish evaluation before binding memory.",
+                "frame.result",
             )
-
-
-def _result(result_id: str, evaluated_at: datetime) -> None:
-    if (
-        type(result_id) is not str
-        or not result_id
-        or (type(evaluated_at) is not datetime or evaluated_at.tzinfo is not timezone.utc)
-    ):
-        reject(
-            "a completed result identity and plain UTC evaluation time",
-            repr((result_id, evaluated_at)),
-            "Preserve the successful evaluation identity during carrier conversion.",
-            "frame.result",
-        )
 
 
 @dataclass(frozen=True, slots=True)
 class MemoryFrameBacking:
-    data: CompletedFrameData
-    result_id: str
-    evaluated_at: datetime
+    result: CompletedFrameResult
 
-    def __post_init__(self) -> None:
-        if type(self.data) is not CompletedFrameData:
-            reject(
-                "complete independent Frame data",
-                type(self.data).__name__,
-                "Finish evaluation.",
-                "frame.memory",
-            )
-        _result(self.result_id, self.evaluated_at)
+    @property
+    def data(self) -> CompletedFrameData:
+        return self.result.data
+
+    @property
+    def metadata(self) -> FrameResultMetadata:
+        return self.result.metadata
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,17 +183,17 @@ class StoredFrameBacking:
 
     artifact_id: str
     data: ArtifactData
-    result_id: str
-    evaluated_at: datetime
+    metadata: FrameResultMetadata
 
     def __post_init__(self) -> None:
         if (
             type(self.artifact_id) is not str
             or not self.artifact_id
             or type(self.data) is not ArtifactData
+            or type(self.metadata) is not FrameResultMetadata
         ):
             reject(
-                "an exact committed Artifact and descriptor",
+                "an exact committed Artifact and result descriptor",
                 repr(self.artifact_id),
                 "Open committed metadata.",
                 "frame.stored",
@@ -180,4 +202,3 @@ class StoredFrameBacking:
         _attachments(
             self.data.schema, tuple(attachment.name for attachment in self.data.attachments)
         )
-        _result(self.result_id, self.evaluated_at)

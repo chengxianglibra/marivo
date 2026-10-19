@@ -22,7 +22,6 @@ from marivo._temporal import (
     Grain,
     PeriodCalendarSnapshotV1,
     anchor_from_datetime,
-    builtin_grain,
     semantic_grain,
 )
 from marivo._temporal_grid import _floor, _next, instant
@@ -239,12 +238,11 @@ def bind_windows(
                     )
                 grid = calendar.grid
                 if grid.calendar_snapshot is not None:
-                    from marivo.refs import ref
-
-                    calendar_path, level = grid.grain_token.split("::", 1)
+                    captured = grid.grain_spec
+                    assert captured.calendar is not None and captured.level is not None
                     grain = semantic_grain(
-                        calendar=ref.period_calendar(calendar_path),
-                        level=level,
+                        calendar=captured.calendar,
+                        level=captured.level,
                         snapshot=grid.calendar_snapshot,
                     )
                     periods = _periods(grain, period.timezone)
@@ -265,7 +263,7 @@ def bind_windows(
                         )
                     start = periods[position - rule.count + 1][0]
                 else:
-                    grain = builtin_grain(grid.grain_token)
+                    grain = grid.grain_spec
                     if grain.unit not in ("day", "week", "month", "quarter", "year"):
                         reject(
                             "day/week/month/quarter/year periods",

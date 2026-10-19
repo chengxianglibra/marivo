@@ -16,7 +16,12 @@ import marivo.analysis as mv
 from marivo._definition.correspondence import ComparisonAxis, CorrespondenceAxis
 from marivo._definition.deferred import RelationshipParameter
 from marivo._definition.types import AxisBinding, CalendarCoordinate, ExactRef
-from marivo._temporal import anchor_from_datetime, builtin_grain, certify_period_calendar
+from marivo._temporal import (
+    anchor_from_datetime,
+    builtin_grain,
+    certify_period_calendar,
+    semantic_grain,
+)
 from marivo.analysis.binding.correspondence import (
     ComparisonEndpoint,
     CorrespondenceRelation,
@@ -46,7 +51,7 @@ def _calendar(start: str, end: str, grain: str = "day", zone: str = "UTC") -> Ca
     grid = exact_scope(start, end, zone).by(builtin_grain(grain)).grid
     return CalendarCoordinate(
         grid.identity,
-        grid.grain_token,
+        grid.grain_spec,
         grid.boundary_timezone,
         grid.snapshot_digest,
         tuple(
@@ -315,7 +320,7 @@ def test_semantic_period_offset_requires_exact_certification_and_coverage() -> N
         cell = _calendar(f"2026-01-0{index}", f"2026-01-0{index + 2}").cells
         return CalendarCoordinate(
             str(index),
-            "sales.fiscal::period",
+            semantic_grain(calendar=ref.period_calendar("sales.fiscal"), level="period"),
             "UTC",
             snapshot.snapshot_digest,
             ((cell[0][0], cell[-1][1], cell[0][0], cell[-1][1]),),

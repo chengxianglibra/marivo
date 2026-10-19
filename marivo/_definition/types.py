@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Final, Literal, NoReturn, TypeAlias
 
-from marivo._temporal import InstantAnchor, PeriodCalendarSnapshotV1
+from marivo._temporal import Grain, InstantAnchor, PeriodCalendarSnapshotV1
 from marivo.refs import Ref, SemanticKind, SemanticKindTag
 
 DefinitionErrorKind: TypeAlias = Literal[
@@ -238,11 +238,15 @@ class CalendarCoordinate:
     """Frozen output calendar, including nominal and actual half-open buckets."""
 
     identity: str
-    grain: str
+    grain_spec: Grain
     timezone: str
     snapshot_digest: str | None
     cells: tuple[tuple[InstantAnchor, InstantAnchor, InstantAnchor, InstantAnchor], ...]
     snapshot: PeriodCalendarSnapshotV1 | None = None
+
+    @property
+    def grain(self) -> str:
+        return self.grain_spec.to_token()
 
 
 @dataclass(frozen=True, slots=True)

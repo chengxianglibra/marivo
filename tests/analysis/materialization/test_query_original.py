@@ -35,6 +35,7 @@ from marivo._definition.types import (
     SumAxes,
 )
 from marivo._definition.windows import AllHistory
+from marivo._temporal import builtin_grain
 from marivo.analysis.compiler.graph_plan import SourceRead
 from marivo.analysis.compiler.observation import (
     FormulaInput,
@@ -422,7 +423,7 @@ def test_window_space_rollup_preserves_both_original_endpoints(original_table: i
     boundaries = tuple(datetime(2026, 1, day, tzinfo=timezone.utc) for day in (1, 2, 3))
     calendar = CalendarCoordinate(
         "original-calendar",
-        "day",
+        builtin_grain("day"),
         "UTC",
         None,
         tuple((start, end, start, end) for start, end in pairwise(boundaries)),

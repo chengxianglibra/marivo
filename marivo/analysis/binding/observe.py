@@ -126,7 +126,7 @@ def bind_observation(
         grid = calendar.grid
         calendar_coordinate = CalendarCoordinate(
             grid.identity,
-            grid.grain_token,
+            grid.grain_spec,
             grid.boundary_timezone,
             grid.snapshot_digest,
             tuple(

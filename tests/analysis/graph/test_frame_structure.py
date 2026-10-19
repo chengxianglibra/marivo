@@ -18,12 +18,16 @@ from marivo.analysis.core.artifact_data import (
     DataColumn,
     DataSchema,
     FrozenCalendarData,
+    OutputAttachment,
     PairedDataAxis,
     ParquetHandle,
 )
 from marivo.analysis.core.data_types import ScalarDataType
+from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, FrameResultMetadata
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
+    CompletedFrameResult,
+    LiteralFrameBinding,
     MemoryFrameBacking,
     required_attachments,
 )
@@ -45,6 +49,10 @@ from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 
 NOW = datetime(2026, 10, 19, tzinfo=timezone.utc)
+
+
+def metadata(result_id: str) -> FrameResultMetadata:
+    return FrameResultMetadata(result_id, FrameAudit((), EvaluationRecord(NOW, (), ())))
 
 
 @pytest.fixture
@@ -82,9 +90,68 @@ def data(structure: DataSchema | None = None) -> CompletedFrameData:
     return CompletedFrameData(structure, pd.DataFrame(rows))
 
 
+@pytest.mark.parametrize("value", [float("inf"), -float("inf")])
+@pytest.mark.parametrize("role", ["value", "coordinate", "attachment"])
+def test_complete_data_rejects_nonfinite_cells_before_any_operation(
+    value: float, role: str
+) -> None:
+    column = DataColumn("value.0", "value", ScalarDataType("float64"), True)
+    if role == "value":
+        structure = DataSchema((), (column,), value_paths=(("value",),))
+        rows = pd.DataFrame({column.slot_id: [value]})
+        attachments: tuple[OutputAttachment, ...] = ()
+    elif role == "coordinate":
+        structure = DataSchema((DataAxis("axis.0", (column,), name="value"),), ())
+        rows = pd.DataFrame({column.slot_id: [value]})
+        attachments = ()
+    else:
+        key = DataColumn("key.0", "bucket", ScalarDataType("int64"), False)
+        axis = CalendarDataAxis(
+            "axis.0",
+            (key,),
+            "UTC",
+            name="day",
+            frozen=FrozenCalendarData(BuiltinCalendarData("day", 1), "calendar.axis.0"),
+        )
+        structure = DataSchema((axis,), ())
+        rows = pd.DataFrame({key.slot_id: [0]})
+        attachment_schema = DataSchema(
+            (DataAxis("axis.0", (key,), name="day"),),
+            (column,),
+            value_paths=(("value",),),
+        )
+        attachments = (
+            OutputAttachment(
+                "calendar.axis.0",
+                attachment_schema,
+                pd.DataFrame({key.slot_id: [0], column.slot_id: [value]}),
+            ),
+        )
+    with pytest.raises(MaterializationError, match="finite float64"):
+        CompletedFrameData(structure, rows, attachments)
+
+
+def test_complete_data_keeps_nullable_float_na_and_finite_values() -> None:
+    key = DataColumn("key.0", "key", ScalarDataType("int64"), False)
+    value = DataColumn("value.0", "value", ScalarDataType("float64"), True)
+    structure = DataSchema(
+        (DataAxis("axis.0", (key,), name="key"),),
+        (value,),
+        value_paths=(("value",),),
+    )
+    complete = CompletedFrameData(
+        structure,
+        pd.DataFrame(
+            {"key.0": [0, 1], "value.0": pd.Series([None, 1.5], dtype="float64[pyarrow]")}
+        ),
+    ).copy_rows()
+    assert complete["value.0"].isna().tolist() == [True, False]
+    assert complete["value.0"].iloc[1] == 1.5
+
+
 def memory(local: LocalFrameServices, structure: DataSchema | None = None) -> AnalysisFrame:
     return AnalysisFrame._from_memory(
-        local, data(structure), result_id="result_1", evaluated_at=NOW
+        local, CompletedFrameResult(data(structure), metadata("result_1"))
     )
 
 
@@ -149,7 +216,7 @@ def test_paths_own_lookup_and_order_without_graph_scans(local: LocalFrameService
             }
         ),
     )
-    frame = AnalysisFrame._from_memory(local, owned, result_id="r", evaluated_at=NOW)
+    frame = AnalysisFrame._from_memory(local, CompletedFrameResult(owned, metadata("r")))
     assert frame.output_names == ("left.revenue", "right.revenue")
     assert frame.presence_names == ("left_present", "left.right_present")
     assert frame["left.right_present"]._kind == "boolean"
@@ -173,7 +240,7 @@ def test_equal_structures_are_independent_inputs_and_old_handles_fail(
 ) -> None:
     first = memory(local)
     second = AnalysisFrame._from_memory(
-        local, first._backing.data, result_id="result_1", evaluated_at=NOW
+        local, CompletedFrameResult(first._backing.data, metadata("result_1"))
     )
     assert first._schema == second._schema
     assert first._input_id != second._input_id
@@ -188,8 +255,8 @@ def test_equal_structures_are_independent_inputs_and_old_handles_fail(
         second._bind_statistic(first["revenue"].mean())
     assert second._bind_statistic(row_count()).input_id == second._input_id
     assert first._bind_statistic(row_count()).input_id == first._input_id
-    assert second._backing.result_id == first._backing.result_id
-    assert second._backing.evaluated_at == NOW
+    assert second._backing.metadata.result_id == first._backing.metadata.result_id
+    assert second._backing.metadata.evaluated_at == NOW
 
 
 def test_cross_session_handles_are_rejected(local: LocalFrameServices, tmp_path: Path) -> None:
@@ -319,7 +386,7 @@ def test_stored_bindings_are_stable_only_for_exact_store_session_artifact(
 
     def reopen(service: LocalFrameServices, artifact_id: str) -> AnalysisFrame:
         return AnalysisFrame._from_stored(
-            service, saved, artifact_id=artifact_id, result_id="r", evaluated_at=NOW
+            service, saved, artifact_id=artifact_id, metadata=metadata("r")
         )
 
     first, second = reopen(local, "artifact_1"), reopen(local, "artifact_1")
@@ -385,9 +452,9 @@ def test_equal_source_fingerprints_do_not_authorize_exchanged_handles(
     pending = PendingDataSchema(
         (), (PendingDataColumn("value.0", "revenue", "numeric", None, "USD"),), (("revenue",),)
     )
-    first = AnalysisFrame._from_expression(local, pending, graph)
-    second = AnalysisFrame._from_expression(local, pending, graph)
-    assert first._backing.graph.fingerprint == second._backing.graph.fingerprint
+    first = AnalysisFrame._from_expression(local, pending, LiteralFrameBinding(graph))
+    second = AnalysisFrame._from_expression(local, pending, LiteralFrameBinding(graph))
+    assert first._backing.root.graph.fingerprint == second._backing.root.graph.fingerprint
     assert first._input_id != second._input_id
     assert first.output_names == ("revenue",) and first.axes == ()
     assert not hasattr(first._schema.values[0], "dtype")

@@ -481,6 +481,16 @@ accepted 19-file compiler package first, then the 21-file lifecycle package;
 there are no unowned worktree changes. Preserve the peer package during
 normal hooks and verify all 757 content hashes after restoration.
 
+S2 compiler accepted commit:
+`48867bfb3b2498fe5e965eae95bdee56c4f4ccea` (`feat: compile Frame data
+plans through the existing scheduler`). All normal formatting/lint/import and
+full-source mypy hooks passed on the independently importable compiler-only
+tree. Its exact 19 source/test files plus the two owning records were
+committed. The temporary lifecycle-only stash was applied, all 757 accepted
+source/test hashes matched, and only that verified temporary stash was dropped.
+Both preexisting user stashes remain unchanged. The lifecycle package is
+accepted and restored, ready for its separate commit.
+
 ## Post-S2 sequencing decision
 
 The read-only `s3-gateway-handoff.md` confirms that legacy identity-relation

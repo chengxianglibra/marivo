@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import re
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Literal, NoReturn
@@ -22,7 +21,6 @@ from marivo._temporal import (
     InstantAnchor,
     PeriodCalendarSnapshotV1,
     anchor_from_datetime,
-    builtin_grain,
     session_time_scope,
 )
 from marivo._temporal_grid import bind_grid, instant
@@ -337,10 +335,11 @@ def _builtin_shift(value: datetime, grain: str, by: int) -> datetime:
 
 def _subday_periods(axis: CalendarCoordinate, offset: int) -> tuple[tuple[datetime, datetime], ...]:
     """Extend the same finite calendar authority, including both DST folds."""
-    parsed = re.fullmatch(r"([0-9]+)?(second|minute|hour)", axis.grain)
-    if parsed is None:
+    grain = axis.grain_spec
+    if grain.kind != "builtin" or grain.unit not in ("second", "minute", "hour"):
         return ()
-    count, unit = int(parsed.group(1) or 1), parsed.group(2)
+    count, unit = grain.count, grain.unit
+    assert count is not None
     seconds = {"second": 1, "minute": 60, "hour": 3600}[unit] * count
     margin = timedelta(days=abs(offset) * seconds // 86400 + 2)
     zone = parse_timezone(axis.timezone)[1]
@@ -351,7 +350,7 @@ def _subday_periods(axis: CalendarCoordinate, offset: int) -> tuple[tuple[dateti
         anchor_from_datetime(instant(last, axis.timezone)),
         axis.timezone,
     )
-    grid = bind_grid(scope, builtin_grain(unit, count=count), report_timezone=axis.timezone)
+    grid = bind_grid(scope, grain, report_timezone=axis.timezone)
     return tuple((cell.original_start, cell.original_end) for cell in grid.cells)
 
 
@@ -386,7 +385,7 @@ def _calendar_pairs(
             or snapshot.boundary_timezone != left.timezone
         ):
             fail("the complete frozen certified calendar for period_offset", left.grain)
-        level = left.grain.rsplit("::", 1)[-1]
+        level = left.grain_spec.level
         if level == "day":
             start, end = snapshot.coverage
             periods = tuple(

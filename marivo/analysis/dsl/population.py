@@ -527,7 +527,7 @@ def _calendar_population(calendar: CalendarAxis) -> Population:
     grid = calendar.grid
     coordinate = CalendarCoordinate(
         grid.identity,
-        grid.grain_token,
+        grid.grain_spec,
         grid.boundary_timezone,
         grid.snapshot_digest,
         tuple(
