@@ -13,21 +13,33 @@ from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic._deferred_semantics import consume_field
 from marivo.semantic.errors import SemanticError, SemanticLoadFailed
+from tests.analysis.statistics.pandas_workflows import receipt_paths
 from tests.shared_fixtures import DslCase, DslCaseFactory
 from tests.support.paths import PROJECT_ROOT
 
 
-def _observe(case: DslCase, expression: Deferred, *, windowed: bool = True) -> mv.Query:
+def _observe(
+    case: DslCase, expression: Deferred, *, windowed: bool = True, overall: bool = False
+) -> mv.AnalysisFrame:
     session = case.session
     return session.observe(
         {"value": expression},
         during=session.time_scope(start="2026-08-01", end="2026-09-01") if windowed else None,
-        by=session.members(ms.ref.entity("sales.customer")),
+        by=() if overall else session.members(ms.ref.entity("sales.customer")),
+        members=session.members(ms.ref.entity("sales.customer")) if overall else None,
     )
+
+
+def _source_binding(frame: mv.AnalysisFrame) -> SourceFrameBinding:
+    backing = frame._backing
+    assert isinstance(backing, ExpressionFrameBacking)
+    assert isinstance(backing.root, SourceFrameBinding)
+    return backing.root
 
 
 def _by_member(frame: pd.DataFrame) -> pd.Series:
@@ -44,7 +56,7 @@ def _extend(case: DslCase, *, physical: str = "", definitions: str = "") -> None
 
 
 def _assert_cold_value(case: DslCase, artifact: str, expected: float | int) -> None:
-    """Read an already computed original rollup in an independent process."""
+    """Read an explicitly persisted source aggregate in an independent process."""
     offline = case.database_path.with_suffix(".offline")
     models = case.root / "models"
     models_offline = case.root / "models.offline"
@@ -64,8 +76,8 @@ ms.load = forbidden
 DatasourceConnectionService.use_backend = forbidden
 session = mv.session.resume(sys.argv[1], by='id')
 before = run_ids(session)
-fixed = session.artifact(sys.argv[2])
-assert isinstance(fixed, mv.Artifact)
+fixed = session.persisted_frame(sys.argv[2])
+assert isinstance(fixed, mv.AnalysisFrame)
 actual = fixed.to_pandas()[('value','value')].iloc[0]
 assert math.isclose(actual, float(sys.argv[3]), rel_tol=1e-14), actual
 assert run_ids(session) == before
@@ -115,13 +127,13 @@ def test_observe_ratio_over_two_contribution_roots(
     line_revenue = session.catalog.metrics.get("sales.line_revenue")
     order_count = session.catalog.metrics.get("sales.order_count")
     query = _observe(case, line_revenue / order_count)
-    binding = query._graph.signature.observation
+    binding = _source_binding(query).graph.signature.observation
     assert binding is not None
     assert {item.root.ref.path for item in binding.contributions} == {
         "sales.order",
         "sales.order_line",
     }
-    rows = _by_member(query.execute().to_pandas())
+    rows = _by_member(query.compute().to_pandas())
     # A: (40+60)/2; B: (20+40)/2. Roots reduce before their values combine.
     assert rows.to_dict() == {"A": 50.0, "B": 30.0}
 
@@ -136,13 +148,13 @@ def test_sliced_weighted_mean_filters_pairs_before_reduction(
     channel = session.catalog.fields.get("sales.order.channel")
     expression = amount.weighted_mean(weight=amount, time=time).where(channel == "web")
     observed = _observe(case, expression)
-    rows = _by_member(observed.execute().to_pandas())
+    rows = _by_member(observed.compute().to_pandas())
     assert rows.loc[["A", "C"]].tolist() == [450, 400]
     assert rows.loc[["B", "D"]].isna().all()
     expected = (450**2 + 400**2) / (450 + 400)
-    assert observed.rollup().execute().to_pandas()[("value", "value")].tolist() == pytest.approx(
-        [expected]
-    )
+    assert _observe(case, expression, overall=True).compute().to_pandas()[
+        ("value", "value")
+    ].tolist() == pytest.approx([expected])
 
 
 def test_observe_two_branches_of_one_root_over_a_single_route(
@@ -156,10 +168,10 @@ def test_observe_two_branches_of_one_root_over_a_single_route(
     web = amount.sum(time=time, empty="null").where(channel == "web")
     count = session.catalog.metrics.get("sales.order_count")
     observed = _observe(case, web / count)
-    binding = observed._graph.signature.observation
+    binding = _source_binding(observed).graph.signature.observation
     assert binding is not None and len(binding.contributions) == 2
     assert {item.root.ref.path for item in binding.contributions} == {"sales.order"}
-    rows = _by_member(observed.execute().to_pandas())
+    rows = _by_member(observed.compute().to_pandas())
     assert rows.loc[["A", "C"]].tolist() == [450.0, 400.0]
     assert pd.isna(rows.loc["B"]) and pd.isna(rows.loc["D"])
 
@@ -169,7 +181,7 @@ def test_observe_without_a_window_keeps_every_admitted_contribution(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     revenue = case.session.catalog.metrics.get("sales.revenue")
-    rows = _by_member(_observe(case, revenue, windowed=False).execute().to_pandas())
+    rows = _by_member(_observe(case, revenue, windowed=False).compute().to_pandas())
     assert rows.loc[["A", "B", "C"]].tolist() == [450 + 99 + 77, 150, 400]
 
 
@@ -179,7 +191,7 @@ def test_windowed_metric_requires_an_endpoint(analysis_dsl_case_factory: DslCase
     with pytest.raises(AnalysisError):
         _observe(case, revenue, windowed=False)
     # The explicit scope supplies the all-history endpoint, with September excluded.
-    rows = _by_member(_observe(case, revenue).execute().to_pandas())
+    rows = _by_member(_observe(case, revenue).compute().to_pandas())
     assert rows.loc[["A", "B", "C"]].tolist() == [527, 150, 400]
 
 
@@ -195,7 +207,7 @@ def test_opaque_python_body_cannot_invent_metric_components(
     )
     with pytest.raises(SemanticLoadFailed, match="invalid_component_body"):
         ms.load(workspace_dir=case.root)
-    assert _by_member(query.execute().to_pandas()).loc["A"] == 450
+    assert _by_member(query.compute().to_pandas()).loc["A"] == 450
 
 
 def test_linear_executes_more_than_two_occurrences(
@@ -203,7 +215,7 @@ def test_linear_executes_more_than_two_occurrences(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     count = case.session.catalog.metrics.get("sales.order_count")
-    assert _by_member(_observe(case, count + count + count).execute().to_pandas()).tolist() == [
+    assert _by_member(_observe(case, count + count + count).compute().to_pandas()).tolist() == [
         3,
         3,
         3,
@@ -226,7 +238,7 @@ def test_linear_preserves_each_empty_branch_policy(
         (amount.sum(time=time), False, True),
     ):
         rows = _by_member(
-            _observe(case, expression.where(channel == "web") + count).execute().to_pandas()
+            _observe(case, expression.where(channel == "web") + count).compute().to_pandas()
         )
         assert rows.loc[["A", "C"]].tolist() == ([2, 2] if counted else [451, 401])
         if nullable:
@@ -247,7 +259,7 @@ def test_anonymous_aggregate_resolves_the_declared_default_axis(
     amount = case.session.catalog.fields.get("sales.order.amount")
     for windowed in (False, True):
         rows = _by_member(
-            _observe(case, amount.sum(empty="null"), windowed=windowed).execute().to_pandas()
+            _observe(case, amount.sum(empty="null"), windowed=windowed).compute().to_pandas()
         )
         assert rows.loc[["A", "B", "C"]].tolist() == [450 if windowed else 626, 150, 400]
         assert pd.isna(rows.loc["D"])
@@ -280,14 +292,14 @@ def shipment_count():
         + session.catalog.metrics.get("sales.shipment_count")
     )
     query = _observe(case, expression)
-    binding = query._graph.signature.observation
+    binding = _source_binding(query).graph.signature.observation
     assert binding is not None
     assert {item.root.ref.path for item in binding.contributions} == {
         "sales.order_line",
         "sales.order",
         "sales.shipment",
     }
-    assert _by_member(query.execute().to_pandas()).tolist() == [104, 64]
+    assert _by_member(query.compute().to_pandas()).tolist() == [104, 64]
 
 
 def test_ratio_accepts_a_negative_sum_denominator(
@@ -303,10 +315,12 @@ def test_ratio_accepts_a_negative_sum_denominator(
         time=time, empty="null"
     )
     observed = _observe(case, expression)
-    rows = _by_member(observed.execute().to_pandas())
+    rows = _by_member(observed.compute().to_pandas())
     assert rows.loc[["A", "B", "C"]].tolist() == pytest.approx([-1 / 450, -1 / 150, -1 / 400])
     assert pd.isna(rows.loc["D"])
-    assert observed.rollup().execute().to_pandas()[("value", "value")].tolist() == [-3 / 1000]
+    assert _observe(case, expression, overall=True).compute().to_pandas()[
+        ("value", "value")
+    ].tolist() == [-3 / 1000]
 
 
 def test_weighted_mean_preserves_pairs_and_original_rollup(
@@ -329,23 +343,24 @@ def test_weighted_mean_preserves_pairs_and_original_rollup(
     amount = session.catalog.fields.get("sales.order.amount")
     weight = session.catalog.fields.get("sales.order.weight")
     time = session.catalog.fields.get("sales.order.ordered_at")
-    observed = _observe(case, amount.weighted_mean(weight=weight, time=time))
-    saved = observed.execute()
+    expression = amount.weighted_mean(weight=weight, time=time)
+    observed = _observe(case, expression)
+    saved = observed.persist()
     rows = _by_member(saved.to_pandas())
     assert rows.loc["A"] == pytest.approx(1000 / 3)
     assert pd.isna(rows.loc["B"]) and pd.isna(rows.loc["D"])
     assert rows.loc["C"] == 400
-    rolled = observed.rollup().execute()
+    rolled = _observe(case, expression, overall=True).persist()
     assert rolled.to_pandas()[("value", "value")].tolist() == pytest.approx([2600 / 7])
-    _assert_cold_value(case, rolled.id, 2600 / 7)
-    path = case.root / saved._manifest.data.rows.receipt.project_relative_path
+    _assert_cold_value(case, rolled.artifact.id, 2600 / 7)
+    path = receipt_paths(case.root, saved)[0]
     missing = path.with_name(path.name + ".missing")
     path.rename(missing)
     try:
         with pytest.raises(AnalysisError):
             saved.to_pandas()
         with pytest.raises(AnalysisError):
-            session.artifact(saved.id).to_pandas()
+            session.persisted_frame(saved.artifact.id).to_pandas()
     finally:
         missing.rename(path)
 
@@ -376,14 +391,15 @@ def test_observation_preserves_full_member_identity(
     model.write_text(text)
     ms.load(workspace_dir=case.root)
     session = case.session
-    observed = _observe(
-        case,
-        session.catalog.metrics.get("sales.revenue")
-        / session.catalog.metrics.get("sales.order_count"),
+    expression = session.catalog.metrics.get("sales.revenue") / session.catalog.metrics.get(
+        "sales.order_count"
     )
-    rows = _by_member(observed.execute().to_pandas()).to_dict()
+    observed = _observe(case, expression)
+    rows = _by_member(observed.compute().to_pandas()).to_dict()
     assert rows[("A", "x")] == 450 and rows[("A", "y")] == 700
-    assert observed.rollup().execute().to_pandas()[("value", "value")].tolist() == [425]
+    assert _observe(case, expression, overall=True).compute().to_pandas()[
+        ("value", "value")
+    ].tolist() == [425]
 
 
 def test_nested_linear_keeps_each_original_component(
@@ -394,11 +410,14 @@ def test_nested_linear_keeps_each_original_component(
     time = session.catalog.fields.get("sales.order.ordered_at")
     revenue = session.catalog.fields.get("sales.order.amount").sum(time=time, empty="null")
     count = session.catalog.metrics.get("sales.order_count")
-    observed = _observe(case, revenue - (revenue - count))
-    rows = _by_member(observed.execute().to_pandas())
+    expression = revenue - (revenue - count)
+    observed = _observe(case, expression)
+    rows = _by_member(observed.compute().to_pandas())
     assert rows.loc[["A", "B", "C"]].tolist() == [1, 1, 1]
     assert pd.isna(rows.loc["D"])
-    assert observed.rollup().execute().to_pandas()[("value", "value")].tolist() == [3]
+    assert _observe(case, expression, overall=True).compute().to_pandas()[
+        ("value", "value")
+    ].tolist() == [3]
 
 
 def test_observation_rejects_wrong_or_extra_root_routes(
@@ -446,13 +465,18 @@ def test_common_condition_reaches_each_leaf_before_reduction(
         by=session.members(ms.ref.entity("sales.customer")),
         where=channel == "web",
     )
-    binding = observed._graph.signature.observation
+    binding = _source_binding(observed).graph.signature.observation
     assert binding is not None and len(binding.contributions) == 2
     assert all(item.common_condition is not None for item in binding.contributions)
-    rows = _by_member(observed.execute().to_pandas())
+    rows = _by_member(observed.compute().to_pandas())
     assert rows.loc[["A", "C"]].tolist() == [450, 400]
     assert rows.loc[["B", "D"]].isna().all()
-    assert observed.rollup().execute().to_pandas()[("value", "value")].tolist() == [425]
+    assert session.observe(
+        {"value": composite},
+        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
+        members=session.members(ms.ref.entity("sales.customer")),
+        where=channel == "web",
+    ).compute().to_pandas()[("value", "value")].tolist() == [425]
 
 
 @pytest.mark.parametrize(
@@ -470,5 +494,5 @@ def test_literal_membership_predicate_executes_in_typed_flow(
     revenue = session.catalog.metrics.get("sales.revenue")
     period = session.time_scope(start="2026-08-01", end="2026-09-01")
     query = session.observe({"amount": revenue}, during=period, where=channel.isin(choices))
-    saved = query.execute()
+    saved = query.compute()
     assert saved.to_pandas()[("value", "amount")].tolist() == [expected]

@@ -1,4 +1,4 @@
-"""Bounded terminal display and explicit pandas ranking workflows."""
+"""Bounded fixed Frame display and explicit pandas ranking workflows."""
 
 from __future__ import annotations
 
@@ -24,16 +24,23 @@ Order = Literal["ascending", "descending"]
 Ties = Literal["ordinal", "dense", "min", "max"]
 
 
-def _values(case: DslCase, metric: str = "order_count", *, region: bool = False) -> mv.Query:
+def _values(
+    case: DslCase,
+    metric: str = "order_count",
+    *,
+    region: bool = False,
+    grouped: bool = False,
+    overall: bool = False,
+    members: mv.Population | None = None,
+) -> mv.AnalysisFrame:
     session = case.session
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(ms.ref.entity("sales.customer")) if members is None else members
+    field = session.catalog.fields.get("sales.customer.region")
     return session.observe(
         {"value": session.catalog.metrics.get("sales." + metric)},
         during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=(mv.member(), session.catalog.fields.get("sales.customer.region"))
-        if region
-        else members,
-        members=members if region else None,
+        by=() if overall else (field,) if grouped else (mv.member(), field) if region else members,
+        members=members if region or grouped or overall else None,
     )
 
 
@@ -82,12 +89,12 @@ def test_business_display_reads_saved_rows_and_preserves_state_summary(
     session = case.session
     members = session.members(ms.ref.entity("sales.order"))
     logical = session.read(members, {"value": session.catalog.fields.get("sales.order.amount")})
-    values = logical.execute()
-    ratio = logical.select({"value": logical["value"] / logical["value"]}).execute()
-    table = logical.select({"amount": logical["value"]}).execute()
+    values = logical.persist()
+    ratio = logical.select({"value": logical["value"] / logical["value"]}).persist()
+    table = logical.select({"amount": logical["value"]}).persist()
     category = session.read(
         members, {"value": session.catalog.fields.get("sales.order.channel")}
-    ).execute()
+    ).persist()
     assert plain(ratio)["value"].isna().sum() == 4
     assert plain(category)["value"].tolist() == ["retained" * 200] * 11
     runs = len(session.runs().items)
@@ -109,10 +116,11 @@ def test_business_display_reads_saved_rows_and_preserves_state_summary(
     monkeypatch.setattr(type(values), "to_pandas", forbidden)
     for result in (values, table):
         for n in (20, 2, 0):
+            before_reads = len(decoded)
             result.show(n=n)
             text = capsys.readouterr().out
             assert "rows: 11" in text and ".to_pandas()" in text
-            assert decoded[-1] == min(n, 11)
+            assert len(decoded) == before_reads if n == 0 else decoded[-1] == min(n, 11)
             assert "required_parts" not in text and "cell_tag" not in text
             assert len(text.encode()) <= 8192
     category.show()
@@ -141,17 +149,17 @@ def test_business_display_identifies_current_and_baseline_windows(
         query.show()
         period = capsys.readouterr().out
         assert start in period and end in period and "UTC" in period
-    output = current.compare(baseline).execute()
-    assert {column.name for column in output._manifest.data.schema.values} == {
-        "value.current",
-        "value.baseline",
-        "value.absolute",
-        "value.relative",
+    output = current.compare(
+        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True))
+    ).compute()
+    assert {column.name for column in output._schema.values} == {
+        "left.value",
+        "right.value",
+        "absolute.value",
+        "relative.value",
     }
     assert {
-        column.unit
-        for column in output._manifest.data.schema.values
-        if not column.name.endswith("relative")
+        column.unit for column in output._schema.values if not column.name.startswith("relative.")
     } == {"CNY"}
     output.show(n=0)
     assert "rows: 4" in capsys.readouterr().out
@@ -163,7 +171,7 @@ def test_public_rank_table_source_and_fixed(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     query = _values(case, region=True)
-    artifact = query.execute()
+    artifact = query.persist()
     facts = analysis_dsl_rows("j2")
     counts = {
         member: sum(
@@ -180,7 +188,7 @@ def test_public_rank_table_source_and_fixed(
         key: index + 1 if ties == "ordinal" else distinct.index(counts[key]) + 1
         for index, key in enumerate(ordered)
     }
-    for receiver in (artifact, case.session.artifact(artifact.id)):
+    for receiver in (artifact, case.session.persisted_frame(artifact.artifact.id)):
         frame = _rank(plain(receiver), order, ties)
         assert frame["key_0"].tolist() == ordered
         assert dict(zip(frame["key_0"], frame["rank"], strict=True)) == expected
@@ -232,7 +240,7 @@ def test_display_precision_matrix(
             )
     ms.load(workspace_dir=case.root)
     query = _values(case, "revenue")
-    artifact = query.execute()
+    artifact = query.persist()
     raw_expected = {"A": 9007199254740993 if physical == "BIGINT" else 60, "B": 120, "C": 0, "D": 0}
     expected: dict[str, int | Decimal | pd.Timedelta] = dict(raw_expected)
     if physical.startswith("DECIMAL"):
@@ -243,14 +251,19 @@ def test_display_precision_matrix(
         expected = {key: pd.Timedelta(value, unit="ns") for key, value in raw_expected.items()}
     exported = plain(artifact)
     assert dict(zip(exported["key_0"], exported["value"], strict=True)) == expected
-    assert artifact.to_pandas().equals(case.session.artifact(artifact.id).to_pandas())
+    assert artifact.to_pandas().equals(
+        case.session.persisted_frame(artifact.artifact.id).to_pandas()
+    )
     ranked_values = _rank(exported, ties="min")
     assert dict(zip(ranked_values["key_0"], ranked_values["value"], strict=True)) == expected
     artifact.show()
     display = capsys.readouterr().out
     assert "rows: 4" in display
     for value in expected.values():
-        assert str(value) in display
+        expected_text = (
+            f"{value.value} duration[ns] ticks" if isinstance(value, pd.Timedelta) else str(value)
+        )
+        assert expected_text in display
     exported.iloc[0, 1] = None
     assert plain(artifact)["value"].isna().sum() == 0
 
@@ -258,18 +271,19 @@ def test_display_precision_matrix(
 def test_top_k_original_rank_share_and_empty(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j2")
     values = _values(case, region=True)
-    shared = values.share("value")
-    shares = shared.select({"value": shared["value.share"]})
-    frame = _rank(plain(shares.execute()), ties="min", partition_by=("key_1",))
+    # Explicit proportions over represented values carry no contribution claim.
+    shares = plain(values.compute())
+    shares["value"] = shares["value"] / shares["value"].sum()
+    frame = _rank(shares, ties="min", partition_by=("key_1",))
     assert frame.head(1)["value"].tolist() == [0.25]
     assert frame.loc[frame["rank"] <= 1, "key_0"].tolist() == ["A", "B", "C", "D"]
     assert frame["rank"].tolist() == [1, 1, 1, 1]
-    continued = _rank(plain(values.execute()))
+    continued = _rank(plain(values.compute()))
     assert continued.loc[continued["rank"] > 2, "rank"].tolist() == [3, 4]
-    region = case.session.catalog.fields.get("sales.customer.region")
-    top = shares.top(1, by=shares["value"], partition_by=(region,)).execute()
-    assert plain(top)["key_0"].tolist() == ["A", "C", "D"]
-    assert plain(top)["value"].tolist() == [0.25] * 3
+    ranked = _rank(shares, partition_by=("key_1",))
+    top = ranked.loc[ranked["rank"] <= 1]
+    assert top["key_0"].tolist() == ["A", "C", "D"]
+    assert top["value"].tolist() == [0.25] * 3
 
 
 def test_static_display_errors_are_zero_read(
@@ -279,7 +293,7 @@ def test_static_display_errors_are_zero_read(
 
     case = analysis_dsl_case_factory("j2")
     values = _values(case)
-    fixed = values.execute()
+    fixed = values.compute()
     other = analysis_dsl_case_factory("j2")
     foreign = _values(other)
     before = len(case.session.runs().items)
@@ -304,12 +318,8 @@ def test_static_display_errors_are_zero_read(
             values.select(columns)  # type: ignore[arg-type]  # Deliberately invalid projection/mixed owner.
     with pytest.raises(AnalysisError):
         values.top(1, by=foreign["value"])
-    with pytest.raises(AnalysisError):
-        values.top(
-            1,
-            by=values["value"],
-            partition_by=(case.session.catalog.fields.get("sales.customer.region"),),
-        )
+    # The retired partitioned receiver is owned by the public signature snapshot;
+    # explicit pandas partition ranking remains covered below.
     assert len(case.session.runs().items) == before
 
 
@@ -331,16 +341,16 @@ def test_cold_display_continuations_and_corruption(
         export_dsl_parquet_models(case, case.root)
         ms.load(workspace_dir=case.root)
     values = _values(case)
-    selected = values.top(2, by=values["value"]).execute()
-    terminal = values.execute()
+    selected = values.top(2, by=values["value"]).persist()
+    terminal = values.persist()
     assert plain(selected)["key_0"].tolist() == ["C", "D"]
     assert plain(terminal)["value"].tolist() == [1, 1, 3, 2]
     (case.root / "display.json").write_bytes(
         encode(
             {
                 "session": case.session.id,
-                "selected": {"artifact": selected.id, "snapshot": snapshot(selected)},
-                "terminal": {"artifact": terminal.id, "snapshot": snapshot(terminal)},
+                "selected": {"artifact": selected.artifact.id, "snapshot": snapshot(selected)},
+                "terminal": {"artifact": terminal.artifact.id, "snapshot": snapshot(terminal)},
             }
         )
     )
@@ -365,10 +375,10 @@ session = mv.session.resume(state['session'], by='id')
 before = len(session.runs().items)
 for name in ('selected', 'terminal'):
     saved = state[name]
-    result = session.artifact(saved['artifact'])
+    result = session.persisted_frame(saved['artifact'])
     assert snapshot(result) == saved['snapshot']
     result.show()
-selected = plain(session.artifact(state['selected']['artifact']))
+selected = plain(session.persisted_frame(state['selected']['artifact']))
 assert selected['key_0'].tolist() == ['C','D']
 assert selected['value'].tolist() == [3,2]
 selected['rank'] = selected['value'].rank(method='dense', ascending=False)
@@ -416,7 +426,7 @@ def test_shared_rank_fresh_source_fixed_and_no_fallback(
         return execute(owner, read)
 
     monkeypatch.setattr(SourceSession, "execute", counted)
-    captured = values.execute()
+    captured = values.compute()
     before = len(reads)
     frame = _rank(plain(captured), ties="dense")
     table = frame[["key_0", "value", "rank"]]
@@ -426,11 +436,13 @@ def test_shared_rank_fresh_source_fixed_and_no_fallback(
             'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?)',
             ["extra", "B", "web", "paid", "2026-08-15", 1],
         )
-    assert _rank(plain(values.execute()), ties="dense")["key_0"].tolist()[0] == "B"
+    assert _rank(plain(values.compute()), ties="dense")["key_0"].tolist()[0] == "B"
     assert _rank(plain(captured), ties="dense").head(1)["key_0"].tolist() == ["A"]
     case.database_path.rename(case.database_path.with_suffix(".offline"))
-    with pytest.raises(AnalysisError):
-        values.execute()
+    from marivo.datasource.errors import DatasourceConnectionError
+
+    with pytest.raises(DatasourceConnectionError):
+        values.compute()
     assert _rank(plain(captured), ties="dense").head(1)["key_0"].tolist() == ["A"]
 
 
@@ -475,7 +487,7 @@ def test_complete_composite_keys_scalar_columns_and_nulls(
             for name in ("moment", "day", "region", "amount", "enabled")
         },
     )
-    terminal = query.execute()
+    terminal = query.persist()
     exported = plain(terminal)
     assert exported.columns.tolist() == ["key_0", "moment", "day", "region", "amount", "enabled"]
     assert exported["key_0"].tolist() == [(1, "A"), (1, "B"), (2, "A"), (2, "B")]
@@ -488,9 +500,9 @@ def test_complete_composite_keys_scalar_columns_and_nulls(
     ]
     assert str(exported["amount"].dtype) == "int64[pyarrow]"
     assert exported["amount"].isna().tolist() == [False, False, True, False]
-    assert terminal.to_pandas().equals(session.artifact(terminal.id).to_pandas())
+    assert terminal.to_pandas().equals(session.persisted_frame(terminal.artifact.id).to_pandas())
     terminal.show()
-    assert "<NA>" in capsys.readouterr().out
+    assert "NA" in capsys.readouterr().out
     numeric = exported.rename(columns={"amount": "value"})
     ranking = _rank(numeric, partition_by=("region",))
     assert ranking["key_0"].tolist() == [(1, "A"), (1, "B"), (2, "A"), (2, "B")]
@@ -501,11 +513,11 @@ def test_complete_composite_keys_scalar_columns_and_nulls(
     assert len(defined.loc[defined["rank"] <= 1]) == 2
     shorter = query.where(~query["region"].is_null())
     with pytest.raises(AnalysisError):
-        query.align(shorter).execute()
+        query.align(shorter, on=tuple(zip(query.axes, shorter.axes, strict=True))).compute()
     with duckdb.connect(str(case.database_path)) as db:
         db.execute("INSERT INTO r65 SELECT * FROM r65 WHERE tenant=1 AND id='A'")
     with pytest.raises(AnalysisError) as caught:
-        query.execute()
+        query.compute()
     assert caught.value.expected == "exactly one attribute row for every requested identity"
 
 
@@ -515,26 +527,35 @@ def test_empty_original_domain_and_numeric_view_continuations(
     for scenario in ("empty_domain", "j4_ties"):
         case = analysis_dsl_case_factory(scenario)
         values = _values(case)
-        artifact = values.execute()
+        artifact = values.compute()
         ranking = _rank(plain(artifact))
         selected = ranking.loc[ranking["rank"] > 1]
         if scenario == "empty_domain":
             assert ranking.empty and selected.empty and ranking.head(1).empty
-            assert values.top(1, by=values["value"]).execute().to_pandas().empty
+            assert values.top(1, by=values["value"]).compute().to_pandas().empty
         else:
             assert ranking["value"].sum() == 7
             assert ranking.loc[ranking["value"] > 1, "value"].sum() == 5
-            assert values.rollup().execute().to_pandas()[("value", "value")].tolist() == [7]
+            assert _values(case, overall=True).compute().to_pandas()[
+                ("value", "value")
+            ].tolist() == [7]
             chosen = values.where(values["value"] > 1)
-            assert chosen.rollup().execute().to_pandas()[("value", "value")].tolist() == [5]
+            chosen_values = chosen.compute()
+            selected_members = case.session.population_from(
+                chosen_values,
+                on=((chosen_values.axes[0], case.session.catalog.entities.get("sales.customer")),),
+            )
+            assert _values(case, overall=True, members=selected_members).compute().to_pandas()[
+                ("value", "value")
+            ].tolist() == [5]
 
 
 def test_empty_singleton_display_views(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j2")
-    total = _values(case).rollup()
+    total = _values(case, overall=True)
     empty = total.where(total["value"] > 99)
-    assert empty.top(1, by=empty["value"]).execute().to_pandas().empty
-    frame = plain(empty.execute())
+    assert empty.top(1, by=empty["value"]).compute().to_pandas().empty
+    frame = plain(empty.compute())
     assert frame.empty and _rank(frame).empty
 
 
@@ -542,8 +563,8 @@ def test_group_and_entity_time_display_domains(analysis_dsl_case_factory: DslCas
     case = analysis_dsl_case_factory("j2")
     session = case.session
     region = session.catalog.fields.get("sales.customer.region")
-    groups = _values(case, region=True).rollup(by=(region,))
-    group_values = plain(groups.execute())
+    groups = _values(case, grouped=True)
+    group_values = plain(groups.compute())
     ranking = _rank(group_values, ties="dense")
     assert ranking["rank"].tolist() == [1, 2, 2]
     assert group_values["value"].tolist() == [2, 1, 1]
@@ -555,15 +576,8 @@ def test_group_and_entity_time_display_domains(analysis_dsl_case_factory: DslCas
         by=(mv.member(), region),
         members=members,
     )
-    frame = plain(values.execute())
-    axes = values._graph.signature.axes
-    member_position = next(
-        i
-        for i, axis in enumerate(axes)
-        if getattr(axis, "field", None) is None
-        and getattr(axis, "kind", None) != "calendar"
-        and hasattr(axis, "entity")
-    )
+    frame = plain(values.compute())
+    member_position = next(i for i, axis in enumerate(values.axes) if axis.role == "identity")
     frame = frame.rename(columns={f"key_{member_position}": "member"})
     frame = _rank(frame)
     facts = analysis_dsl_rows("j2")
@@ -591,26 +605,28 @@ def test_public_undefined_ranks_and_strict_two_step_filter(
     case = analysis_dsl_case_factory("j2")
     values = _values(case, "revenue")
     ratio = values.select({"value": values["value"] / values["value"]})
-    terminal = ratio.execute()
+    terminal = ratio.persist()
     frame = _rank(plain(terminal), ties="dense")
     assert frame["rank"].isna().tolist() == [False, False, True, True]
     defined = frame.loc[frame["rank"].notna()]
     assert defined.loc[defined["rank"] <= 1, "rank"].tolist() == [1, 1]
     # Nullable predicates follow the current null=false policy; composing the
     # same two filters in one predicate is now legal.
-    filtered = ratio.where((~ratio["value"].is_null()) & (ratio["value"] <= 1)).execute()
+    filtered = ratio.where((~ratio["value"].is_null()) & (ratio["value"] <= 1)).compute()
     assert plain(filtered)["key_0"].tolist() == ["A", "B"]
     terminal.show()
     text = capsys.readouterr().out
-    assert "<NA>" in text and "1.0" in text
-    assert _rank(plain(case.session.artifact(terminal.id)), ties="dense").equals(frame)
+    assert "NA" in text and "1.0" in text
+    assert _rank(plain(case.session.persisted_frame(terminal.artifact.id)), ties="dense").equals(
+        frame
+    )
 
 
 def test_ranking_views_can_be_ranked_again(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j2")
     export_dsl_parquet_models(case, case.root)
     ms.load(workspace_dir=case.root)
-    terminal = _values(case).execute()
+    terminal = _values(case).compute()
     frame = _rank(plain(terminal))
     facts = analysis_dsl_rows("j2")
     counts = {

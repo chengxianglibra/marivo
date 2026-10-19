@@ -23,15 +23,15 @@ def test_full_entity_time_cohort(
         {"value": session.catalog.metrics.get("sales.order_count")}, by=mv.product(targets, grid)
     )
     active = values.where(values["value"] > 0)
-    counts = active.reduce({"months": row_count()}, by=targets.axes)
-    result = counts.where(counts["months"] >= 2).execute()
+    counts = active.reduce({"months": row_count()}, by=(active.axes[0],))
+    result = counts.where(counts["months"] >= 2).compute()
     months: dict[str, set[str]] = {}
     for _, member, _, _, occurred, _ in analysis_dsl_rows("j2").orders:
         if member is not None and "2026-07" <= str(occurred)[:7] < "2026-10":
             months.setdefault(member, set()).add(str(occurred)[:7])
     expected = {member for member, active in months.items() if len(active) >= 2}
     assert set(result.to_pandas().iloc[:, 0]) == expected
-    fixed_values = values.execute()
+    fixed_values = values.compute()
 
     def forbid_source_read(*args: object, **kwargs: object) -> None:
         pytest.fail("Pandas full-opportunity cohort must use exported values only")
@@ -104,7 +104,10 @@ def spending_amount():
         during=session.time_scope(start="2026-08-03", end="2026-08-10"),
         by=users,
     )
-    eligible = usage.where(usage["value"] > 10).population()
+    chosen = usage.where(usage["value"] > 10).compute()
+    eligible = session.population_from(
+        chosen, on=((chosen.axes[0], session.catalog.entities.get("sales.customer")),)
+    )
     spending = session.observe(
         {"value": session.catalog.metrics.get("sales.spending_amount")},
         during=session.time_scope(start="2026-08-10", end="2026-08-17"),
@@ -112,7 +115,7 @@ def spending_amount():
         members=eligible,
     )
     assert session.runs().items == ()
-    frame = spending.execute().to_pandas()
+    frame = spending.compute().to_pandas()
     assert frame.set_index(frame.columns[0])[("value", "value")].to_dict() == {"A": 100, "C": 300}
 
 
@@ -130,12 +133,12 @@ def test_cold_full_opportunity_exports(analysis_dsl_case_factory: DslCaseFactory
         {"value": session.catalog.metrics.get("sales.order_count")}, by=mv.product(targets, grid)
     )
     active = values.where(values["value"] > 0)
-    counts = active.reduce({"count": row_count()}, by=targets.axes)
+    counts = active.reduce({"count": row_count()}, by=(active.axes[0],))
     accepted = counts.where(counts["count"] >= 1)
     saved_targets, saved_values, result = (
-        session.query(targets).execute(),
-        values.execute(),
-        accepted.execute(),
+        session.frame(targets).persist(),
+        values.persist(),
+        accepted.persist(),
     )
     offline = case.database_path.with_suffix(".offline")
     case.database_path.rename(offline)
@@ -149,7 +152,7 @@ def unavailable(*args, **kwargs):
 duckdb.connect = unavailable
 ms.load = unavailable
 session = mv.session.resume(sys.argv[1], by="id")
-targets, values, saved = [session.artifact(ref) for ref in sys.argv[2:]]
+targets, values, saved = [session.persisted_frame(ref) for ref in sys.argv[2:]]
 frame = values.to_pandas()
 assert len(frame) == len(targets.to_pandas()) * 3
 member = frame.columns[0]
@@ -164,9 +167,9 @@ assert len(session.runs().items) == 3
                 "-c",
                 script,
                 session.id,
-                saved_targets.id,
-                saved_values.id,
-                result.id,
+                saved_targets.artifact.id,
+                saved_values.artifact.id,
+                result.artifact.id,
             ],
             cwd=case.root,
             env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
@@ -190,9 +193,9 @@ def test_no_time_selection_preserves_complete_target_decisions(
         targets, {"region": session.catalog.fields.get("sales.customer.region")}
     )
     expected = {member for member, region in analysis_dsl_rows("j2").customers if region == "east"}
-    selected = category.where(~~(category["region"] == "east")).execute()
+    selected = category.where(~~(category["region"] == "east")).compute()
     assert set(selected.to_pandas().iloc[:, 0]) == expected
-    frame = category.execute().to_pandas()
+    frame = category.compute().to_pandas()
     assert len(frame) == len(analysis_dsl_rows("j2").customers)
     accepted = frame[("value", "region")] == "east"
     assert set(frame.loc[accepted].iloc[:, 0]) == expected

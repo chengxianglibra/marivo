@@ -10,11 +10,12 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.core.frame_data import StoredFrameBacking
 from marivo.analysis.errors import AnalysisError
 from tests.shared_fixtures import DslCase, DslCaseFactory
 
 
-def _monthly(case: DslCase, start: str, end: str, metric: str = "revenue") -> mv.Query:
+def _monthly(case: DslCase, start: str, end: str, metric: str = "revenue") -> mv.AnalysisFrame:
     session = case.session
     members = session.members(ms.ref.entity("sales.customer"))
     return session.observe(
@@ -42,44 +43,53 @@ def test_comparison_owns_independent_nullable_columns(
     case = analysis_dsl_case_factory("j2")
     current = _monthly(case, "2026-09-01", "2026-10-01")
     baseline = _monthly(case, "2026-08-01", "2026-09-01")
-    comparison = current.compare(baseline)
-    assert isinstance(comparison, mv.Query)
+    comparison = current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))
+    assert isinstance(comparison, mv.AnalysisFrame)
     before = run_ids(case.session)
     comparison.show()
-    assert "execute" in capsys.readouterr().out
+    assert "compute" in capsys.readouterr().out
     assert run_ids(case.session) == before
     assert "\n" not in repr(comparison)
-    relative = comparison.select({"value": comparison["value.relative"]})
+    relative = comparison.select({"value": comparison["relative.value"]})
     defined = relative.where(~relative["value"].is_null())
     total = defined.reduce({"value": defined["value"].sum()})
-    result = comparison.execute()
-    assert isinstance(result, mv.Artifact)
+    result = comparison.persist()
+    assert isinstance(result, mv.AnalysisFrame)
     exported = result.to_pandas()
     frame = exported.set_index(exported.columns[0])
-    assert frame[("value", "value.current")].tolist() == [30, 200, 0, 0]
-    assert frame[("value", "value.baseline")].tolist() == [60, 120, 0, 0]
-    assert frame[("value", "value.absolute")].tolist() == [-30, 80, 0, 0]
-    assert frame[("value", "value.relative")].iloc[:2].tolist() == pytest.approx([-0.5, 2 / 3])
-    assert frame[("value", "value.relative")].iloc[2:].isna().all()
+    assert frame[("value", "left.value")].tolist() == [30, 200, 0, 0]
+    assert frame[("value", "right.value")].tolist() == [60, 120, 0, 0]
+    assert frame[("value", "absolute.value")].tolist() == [-30, 80, 0, 0]
+    assert frame[("value", "relative.value")].iloc[:2].tolist() == pytest.approx([-0.5, 2 / 3])
+    assert frame[("value", "relative.value")].iloc[2:].isna().all()
     assert frame["presence"].all().all()
-    filtered = defined.execute().to_pandas()
+    filtered = defined.compute().to_pandas()
     assert filtered.iloc[:, 0].tolist() == ["A", "B"]
-    assert total.execute().to_pandas()[("value", "value")].tolist() == pytest.approx([1 / 6])
+    assert total.compute().to_pandas()[("value", "value")].tolist() == pytest.approx([1 / 6])
     result.show()
     card = capsys.readouterr().out
-    assert "value.absolute" in card and "value.relative" in card
-    assert result.evidence_digest() == case.session.artifact(result.id).evidence_digest()
-    pd.testing.assert_frame_equal(case.session.artifact(result.id).to_pandas(), exported)
+    assert "absolute.value" in card and "relative.value" in card
+    assert (
+        result.artifact.evidence_digest()
+        == case.session.persisted_frame(result.artifact.id).artifact.evidence_digest()
+    )
+    pd.testing.assert_frame_equal(
+        case.session.persisted_frame(result.artifact.id).to_pandas(), exported
+    )
     # Exported values can be analyzed without constructing another execution.
-    assert frame[("value", "value.relative")].dropna().sum() == pytest.approx(1 / 6)
+    assert frame[("value", "relative.value")].dropna().sum() == pytest.approx(1 / 6)
     before = run_ids(case.session)
     with pytest.raises(AnalysisError):
-        current.compare(result)  # type: ignore[arg-type]  # Exercise the runtime Artifact boundary.
+        current.compare(result.artifact)  # type: ignore[arg-type]  # Audit views are not Frame operands.
     assert run_ids(case.session) == before
-    same = current.compare(current).execute().to_pandas()
-    assert same[("value", "value.absolute")].tolist() == [0, 0, 0, 0]
-    assert same[("value", "value.relative")].iloc[:2].tolist() == [0.0, 0.0]
-    assert same[("value", "value.relative")].iloc[2:].isna().all()
+    same = (
+        current.compare(current, on=tuple(zip(current.axes, current.axes, strict=True)))
+        .compute()
+        .to_pandas()
+    )
+    assert same[("value", "absolute.value")].tolist() == [0, 0, 0, 0]
+    assert same[("value", "relative.value")].iloc[:2].tolist() == [0.0, 0.0]
+    assert same[("value", "relative.value")].iloc[2:].isna().all()
 
 
 @pytest.mark.slow
@@ -98,17 +108,19 @@ def test_comparison_columns_recover_without_sources(
     baseline = _monthly(case, "2026-08-01", "2026-09-01", "order_count")
     current_total = current.reduce({"value": current["value"].sum()})
     baseline_total = baseline.reduce({"value": baseline["value"].sum()})
-    result = current_total.compare(baseline_total).execute()
+    result = current_total.compare(
+        baseline_total, on=tuple(zip(current_total.axes, baseline_total.axes, strict=True))
+    ).persist()
     before = run_ids(case.session)
     frame = result.to_pandas()
-    assert frame[("value", "value.current")].tolist() == [3]
-    assert frame[("value", "value.baseline")].tolist() == [4]
-    assert frame[("value", "value.absolute")].tolist() == [-1]
-    assert frame[("value", "value.relative")].tolist() == [-0.25]
-    position = frame.columns.get_loc(("value", "value.absolute"))
+    assert frame[("value", "left.value")].tolist() == [3]
+    assert frame[("value", "right.value")].tolist() == [4]
+    assert frame[("value", "absolute.value")].tolist() == [-1]
+    assert frame[("value", "relative.value")].tolist() == [-0.25]
+    position = frame.columns.get_loc(("value", "absolute.value"))
     assert isinstance(position, int)
     frame.iloc[0, position] = 999
-    assert result.to_pandas()[("value", "value.absolute")].tolist() == [-1]
+    assert result.to_pandas()[("value", "absolute.value")].tolist() == [-1]
     assert run_ids(case.session) == before
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     (case.root / "models").rename(case.root / "models.offline")
@@ -126,17 +138,17 @@ def forbidden(*args, **kwargs):
 with patch.object(ms, 'load', forbidden), patch.object(SourceSession, '__init__', forbidden), patch.object(duckdb, 'connect', forbidden):
     session = mv.session.resume(sys.argv[1], by='id')
     before = run_ids(session)
-    result = session.artifact(sys.argv[2])
-    assert isinstance(result, mv.Artifact)
+    result = session.persisted_frame(sys.argv[2])
+    assert isinstance(result, mv.AnalysisFrame)
     frame = result.to_pandas()
-    assert frame[('value', 'value.current')].tolist() == [3]
-    assert frame[('value', 'value.baseline')].tolist() == [4]
-    assert frame[('value', 'value.absolute')].tolist() == [-1]
-    assert frame[('value', 'value.relative')].dropna().tolist() == [-0.25]
+    assert frame[('value', 'left.value')].tolist() == [3]
+    assert frame[('value', 'right.value')].tolist() == [4]
+    assert frame[('value', 'absolute.value')].tolist() == [-1]
+    assert frame[('value', 'relative.value')].dropna().tolist() == [-0.25]
     assert run_ids(session) == before
 """
     completed = subprocess.run(
-        [sys.executable, "-c", script, case.session.id, result.id],
+        [sys.executable, "-c", script, case.session.id, result.artifact.id],
         cwd=case.root,
         env=dict(os.environ, PYTHONPATH=str(PROJECT_ROOT), MARIVO_TELEMETRY="off"),
         capture_output=True,
@@ -160,14 +172,22 @@ def test_decimal_absolute_keeps_precision_and_relative_uses_float(
         )
     current = _monthly(case, "2026-08-01", "2026-09-01")
     baseline = _monthly(case, "2026-07-01", "2026-08-01")
-    frame = current.compare(baseline).execute().to_pandas()
+    frame = (
+        current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))
+        .compute()
+        .to_pandas()
+    )
     frame = frame.set_index(frame.columns[0])
-    assert frame.loc["C", ("value", "value.absolute")] == Decimal("-0.05")
-    assert frame.loc["C", ("value", "value.relative")] == -1.0
+    assert frame.loc["C", ("value", "absolute.value")] == Decimal("-0.05")
+    assert frame.loc["C", ("value", "relative.value")] == -1.0
     # A zero denominator rejects the whole comparison before any partial output.
     before = case.session.graph().artifacts
     with pytest.raises(AnalysisError):
-        current.compare(baseline, zero_denominator="error").execute()
+        current.compare(
+            baseline,
+            zero_denominator="error",
+            on=tuple(zip(current.axes, baseline.axes, strict=True)),
+        ).compute()
     assert case.session.graph().artifacts == before
 
 
@@ -179,8 +199,12 @@ def test_comparison_output_rejects_incomplete_and_forged_columns(
     case = analysis_dsl_case_factory("j2")
     current = _monthly(case, "2026-09-01", "2026-10-01", "order_count")
     baseline = _monthly(case, "2026-08-01", "2026-09-01", "order_count")
-    saved = current.compare(baseline).execute()
-    data = saved._manifest.data
+    saved = current.compare(
+        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True))
+    ).persist()
+    backing = saved._backing
+    assert isinstance(backing, StoredFrameBacking)
+    data = backing.data
     assert len(data.schema.values) == 4 and len(data.schema.presence) == 2
     with pytest.raises(AnalysisError):
         read_output(case.root, replace(data.schema, values=data.schema.values[:-1]), data.rows)
@@ -188,7 +212,7 @@ def test_comparison_output_rejects_incomplete_and_forged_columns(
         replace(data.schema, presence=(replace(data.schema.presence[0], nullable=True),))
     with pytest.raises(AnalysisError):
         replace(
-            data,
-            coordinate_projections=(replace(data.coordinate_projections[0], columns=("forged",)),),
+            data.schema,
+            values=(replace(data.schema.values[0], name="forged"), *data.schema.values[1:]),
         )
-    assert saved.to_pandas()[("value", "value.absolute")].tolist() == [0, 0, 0, -1]
+    assert saved.to_pandas()[("value", "absolute.value")].tolist() == [0, 0, 0, -1]

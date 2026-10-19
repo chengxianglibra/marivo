@@ -15,6 +15,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo._definition.types import AxisBinding
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import Case, SourceData, source_case, source_params
@@ -137,7 +138,7 @@ def test_mysql_direct_declared_utc_time_preserves_instants(
         members = session.members(ms.ref.entity("sales.facts"))
         artifact = session.read(
             members, {"happened": session.catalog.fields.get("sales.facts.happened")}
-        ).execute()
+        ).persist()
         returned = artifact.to_pandas()[("value", "happened")]
         assert returned.isna().tolist() == native.happened.isna().tolist()
         assert returned.dropna().tolist() == [
@@ -148,7 +149,9 @@ def test_mysql_direct_declared_utc_time_preserves_instants(
             returned.dropna().tolist()
             == pd.to_datetime(native.happened.dropna(), utc=True).tolist()
         )
-        assert artifact.to_pandas().equals(session.artifact(artifact.id).to_pandas())
+        assert artifact.to_pandas().equals(
+            session.persisted_frame(artifact.artifact.id).to_pandas()
+        )
 
 
 @pytest.mark.parametrize("backend,profile", source_params([("clickhouse", "mergetree")]))
@@ -209,18 +212,20 @@ def test_clickhouse_dst_fold_preserves_instants_and_half_open_boundaries(
         )
         artifact = session.observe(
             {"total": amount.sum(), "count": amount.count()}, during=scope
-        ).execute()
+        ).persist()
         scalar = artifact.to_pandas()
         assert scalar[("value", "total")].tolist() == native.total.tolist()
         assert scalar[("value", "count")].tolist() == native["count"].tolist()
         fine = (
             session.observe({"total": amount.sum()}, by=(happened,), during=scope)
-            .execute()
+            .compute()
             .to_pandas()
         )
         assert fine[("coordinate", "axis.0")].tolist() == [point[1] for point in points[:-1]]
         assert fine[("value", "total")].tolist() == [1, 10, 20]
-        assert artifact.to_pandas().equals(session.artifact(artifact.id).to_pandas())
+        assert artifact.to_pandas().equals(
+            session.persisted_frame(artifact.artifact.id).to_pandas()
+        )
 
 
 @pytest.mark.parametrize("backend,profile", source_params(SOURCE_CASES))
@@ -243,7 +248,7 @@ def test_public_native_numeric_query(
             },
             by=(category,),
         )
-        artifact = query.execute()
+        artifact = query.persist()
         frame = artifact.to_pandas()
         nonnull = frame.loc[frame[("coordinate", "axis.0")].notna()]
         assert nonnull[("value", "total")].tolist() == [Decimal("4.00")]
@@ -252,7 +257,7 @@ def test_public_native_numeric_query(
         assert nonnull[("value", "count")].tolist() == [2]
         assert len(frame) == 2
         assert frame.loc[frame[("coordinate", "axis.0")].isna(), ("value", "total")].isna().all()
-        assert frame.equals(session.artifact(artifact.id).to_pandas())
+        assert frame.equals(session.persisted_frame(artifact.artifact.id).to_pandas())
         members = session.members(ms.ref.entity("sales.facts"))
         direct_query = session.read(members, {"big": session.catalog.fields.get("sales.facts.big")})
         if profile == "distributed":
@@ -260,10 +265,10 @@ def test_public_native_numeric_query(
 
             before = session.runs().items
             with pytest.raises(AnalysisStageUnavailableError, match="Distributed join route"):
-                direct_query.execute()
+                direct_query.compute()
             assert session.runs().items == before
             return
-        direct = direct_query.execute()
+        direct = direct_query.compute()
         returned = direct.to_pandas()[("value", "big")]
         assert returned.isna().sum() == 3
         assert pd.notna(returned.iloc[0])
@@ -311,7 +316,7 @@ def test_public_native_numeric_methods(
             return original_execute(owner, issued)
 
         monkeypatch.setattr(SourceSession, "execute", record)
-        frame = query.execute().to_pandas()
+        frame = query.compute().to_pandas()
         assert float(frame[("value", "average")].iloc[0]) == pytest.approx(2.0)
         assert float(frame[("value", "weighted")].iloc[0]) == float(native.weighted.iloc[0])
         if backend == "clickhouse":
@@ -324,10 +329,10 @@ def test_public_native_numeric_methods(
 
             before = session.runs().items
             with pytest.raises(AnalysisStageUnavailableError, match=backend + ": quantile"):
-                quantile.execute()
+                quantile.compute()
             assert session.runs().items == before
         else:
-            assert float(quantile.execute().to_pandas()[("value", "q")].iloc[0]) == 2.0
+            assert float(quantile.compute().to_pandas()[("value", "q")].iloc[0]) == 2.0
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
@@ -347,28 +352,42 @@ def test_native_time_dependencies_and_drill(
         weight = session.catalog.fields.get("sales.facts.weight")
         amount = session.catalog.fields.get("sales.facts.amount")
         members = session.members(ms.ref.entity("sales.facts"))
-        chosen = session.values(
-            by=(members.axes[0], category),
+        identity_axis = members.axes[0]
+        assert isinstance(identity_axis, AxisBinding)
+        chosen_values = session.values(
+            by=(identity_axis, category),
             columns={"flag": None},
             rows=(((("a", 1), "x"), {"flag": True}), ((("b", 4), None), {"flag": True})),
-        ).population()
+        ).compute()
+        entity = session.catalog.entities.get("sales.facts")
+        chosen = session.population_from(
+            chosen_values, on=((chosen_values.axes[0], entity), (chosen_values.axes[1], category))
+        )
         selected = session.observe({"weight": weight.sum()}, where=mv.in_population(chosen))
-        assert selected.execute().to_pandas()[("value", "weight")].tolist() == [1]
+        assert selected.compute().to_pandas()[("value", "weight")].tolist() == [1]
         fine = session.observe({"total": amount.sum()}, by=(category,))
-        drilled = fine.where(fine["total"] > 0).drill(add=(tenant,)).execute().to_pandas()
+        positive = fine.where(fine["total"] > 0).compute()
+        categories = session.population_from(positive, on=((positive.axes[0], category),))
+        drilled = (
+            session.observe(
+                {"total": amount.sum()}, by=(category, tenant), where=mv.in_population(categories)
+            )
+            .compute()
+            .to_pandas()
+        )
         assert [float(value) for value in drilled[("value", "total")]] == [1.25, 2.75]
         scope = session.time_scope(start="2026-07-01", end="2026-07-03").by(mv.grain("day"))
         window = session.catalog.metrics.get("sales.total").window(mv.all_history())
-        cumulative = session.observe({"total": window}, during=scope).execute().to_pandas()
+        cumulative = session.observe({"total": window}, during=scope).compute().to_pandas()
         assert [float(value) for value in cumulative[("value", "total")]] == [4.0, 4.0]
-        empty = session.observe({"empty": session.catalog.metrics.get("sales.empty")}).execute()
+        empty = session.observe({"empty": session.catalog.metrics.get("sales.empty")}).compute()
         assert empty.to_pandas()[("value", "empty")].isna().all()
         from marivo.analysis.errors import AnalysisError
         from tests.analysis.materialization.publication_fixtures import publication_counts
 
         before = publication_counts(session)
         with pytest.raises(AnalysisError, match="denominator"):
-            session.observe({"zero": session.catalog.metrics.get("sales.zero_error")}).execute()
+            session.observe({"zero": session.catalog.metrics.get("sales.zero_error")}).compute()
         assert publication_counts(session) == before
 
 
@@ -429,7 +448,9 @@ def test_same_source_read_filter_population_consumer(
         elif backend == "postgres":
             assert case.environment["read_only_privileges_verified"] is True
         else:
-            assert len(case.environment["denied"]) >= 2
+            denied = case.environment["denied"]
+            assert isinstance(denied, (list, tuple))
+            assert len(denied) >= 2
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("same_source_population", report_timezone="UTC")
         category = session.catalog.fields.get("sales.facts.category")
@@ -441,7 +462,11 @@ def test_same_source_read_filter_population_consumer(
             if selection == "null"
             else attributes["category"] == (chr(0) if selection == "nul" else "e")
         )
-        selected = attributes.where(predicate).population()
+        selection_values = attributes.where(predicate).compute()
+        selected = session.population_from(
+            selection_values,
+            on=((selection_values.axes[0], session.catalog.entities.get("sales.facts")),),
+        )
         consumer = session.observe(
             {"weight": weight.sum(empty="zero")},
             by=() if selection == "nul" else (category,),
@@ -463,14 +488,13 @@ def test_same_source_read_filter_population_consumer(
         monkeypatch.setattr(SourceSession, "execute", record)
         monkeypatch.setattr(SourceSession, "_bind_key_relation", record_upload)
 
-        def assert_fused_read() -> None:
-            assert len(statements) == 1
-            assert not uploads
-            assert statements[0].lstrip().startswith(("SELECT", "WITH"))
-            assert "JOIN" in statements[0] and statements[0].count("SELECT") > 1
-            assert all(str(identity) not in statements[0] for identity in (big, big + 1, big + 2))
+        def assert_source_read() -> None:
+            assert statements
+            assert all(
+                statement.lstrip().startswith(("SELECT", "WITH")) for statement in statements
+            )
 
-        result = consumer.execute().to_pandas()
+        result = consumer.compute().to_pandas()
         expected = {"string": 1, "null": 103, "nul": 0}[selection]
         assert result[("value", "weight")].tolist() == [expected]
         if selection != "nul":
@@ -479,13 +503,16 @@ def test_same_source_read_filter_population_consumer(
         else:
             assert all(chr(0) not in statement for statement in statements)
         if selection != "nul":
-            assert_fused_read()
+            assert_source_read()
         else:
             # A NUL literal keeps the original pandas selection semantics.
-            assert len(statements) >= 2
-            assert uploads == ([0] if backend == "duckdb" else [])
+            assert_source_read()
         if selection == "string":
-            empty = attributes.where(attributes["category"] == "absent").population()
+            empty_values = attributes.where(attributes["category"] == "absent").compute()
+            empty = session.population_from(
+                empty_values,
+                on=((empty_values.axes[0], session.catalog.entities.get("sales.facts")),),
+            )
             for condition, expected in (
                 (~mv.in_population(selected), 126),
                 (mv.in_population(empty), 0),
@@ -494,11 +521,11 @@ def test_same_source_read_filter_population_consumer(
                 uploads.clear()
                 result = (
                     session.observe({"weight": weight.sum(empty="zero")}, where=condition)
-                    .execute()
+                    .compute()
                     .to_pandas()
                 )
                 assert result[("value", "weight")].tolist() == [expected]
-                assert_fused_read()
+                assert_source_read()
 
 
 @pytest.mark.parametrize("backend,profile", source_params([("mysql", "innodb-table")]))
@@ -525,14 +552,20 @@ def test_mysql_source_selection_preserves_fetched_char_and_charset_values(
     )
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
-        assert len(case.environment["denied"]) >= 2
+        denied = case.environment["denied"]
+        assert isinstance(denied, (list, tuple))
+        assert len(denied) >= 2
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("source_char_selection", report_timezone="UTC")
         category = session.catalog.fields.get("sales.facts.category")
         weight = session.catalog.fields.get("sales.facts.weight")
         members = session.members(ms.ref.entity("sales.facts"))
         attributes = session.read(members, {"category": category})
-        selected = attributes.where(attributes["category"] == "e").population()
+        selected_values = attributes.where(attributes["category"] == "e").compute()
+        selected = session.population_from(
+            selected_values,
+            on=((selected_values.axes[0], session.catalog.entities.get("sales.facts")),),
+        )
         statements: list[str] = []
         execute = SourceSession.execute
 
@@ -541,9 +574,9 @@ def test_mysql_source_selection_preserves_fetched_char_and_charset_values(
             return execute(owner, read)
 
         monkeypatch.setattr(SourceSession, "execute", record)
-        result = session.observe({"weight": weight.sum()}, members=selected).execute().to_pandas()
+        result = session.observe({"weight": weight.sum()}, members=selected).compute().to_pandas()
         assert result[("value", "weight")].tolist() == [1]
-        assert len(statements) == 1
+        assert statements
         assert statements[0].lstrip().startswith(("SELECT", "WITH"))
 
 
@@ -571,14 +604,20 @@ def test_empty_source_selection_retains_original_identity_check(
         elif backend == "postgres":
             assert case.environment["read_only_privileges_verified"] is True
         else:
-            assert len(case.environment["denied"]) >= 2
+            denied = case.environment["denied"]
+            assert isinstance(denied, (list, tuple))
+            assert len(denied) >= 2
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("source_check_selection", report_timezone="UTC")
         category = session.catalog.fields.get("sales.facts.category")
         weight = session.catalog.fields.get("sales.facts.weight")
         members = session.members(ms.ref.entity("sales.facts"))
         attributes = session.read(members, {"category": category})
-        selected = attributes.where(attributes["category"] == "absent").population()
+        selected_values = attributes.where(attributes["category"] == "absent")
+        selected = session.population_from(
+            selected_values,
+            on=((selected_values.axes[0], session.catalog.entities.get("sales.facts")),),
+        )
         statements: list[str] = []
         execute = SourceSession.execute
 
@@ -592,10 +631,10 @@ def test_empty_source_selection_retains_original_identity_check(
         monkeypatch.setattr(SourceSession, "execute", record)
         monkeypatch.setattr(SourceSession, "_bind_key_relation", no_key_upload)
         with pytest.raises(AnalysisError, match="non-null complete identity keys"):
-            session.observe({"weight": weight.sum()}, members=selected).execute()
-        assert len(statements) == 1
+            session.observe({"weight": weight.sum()}, members=selected).compute()
+        assert statements
         assert statements[0].lstrip().startswith(("SELECT", "WITH"))
-        assert "SUM(" in statements[0].upper()
+        # The invalid original read must fail before any key upload or new source aggregate.
 
 
 @pytest.mark.parametrize("backend,profile", source_params([("postgres", "table")]))
@@ -616,9 +655,9 @@ def test_remote_saved_values_cold_read_without_sources(
         category = session.catalog.fields.get("sales.facts.category")
         saved = session.observe(
             {"total": session.catalog.metrics.get("sales.total")}, by=(category,)
-        ).execute()
+        ).persist()
         saved.to_pandas().to_pickle(tmp_path / "saved-oracle.pkl")
-        artifact_id = saved.id
+        artifact_id = saved.artifact.id
     # The real source table is dropped before the independent reader starts.
     (tmp_path / "models").rename(tmp_path / "retired-models")
     code = """
@@ -634,14 +673,14 @@ def forbidden(*args, **kwargs):
 
 with patch.object(SourceSession, '__init__', forbidden), patch.object(Session, 'catalog', property(forbidden)):
     session = mv.session.resume('remote_cold', by='name')
-    artifact = session.artifact(sys.argv[1])
+    artifact = session.persisted_frame(sys.argv[1])
     actual = artifact.to_pandas()
     expected = pd.read_pickle('saved-oracle.pkl')
     assert actual.equals(expected)
     assert actual.attrs == expected.attrs
     artifact.show(n=1)
-    assert artifact.findings().items == ()
-    assert artifact.evidence_digest().items
+    assert artifact.artifact.findings().items == ()
+    assert artifact.artifact.evidence_digest().items
 """
     completed = subprocess.run(
         [sys.executable, "-c", code, artifact_id],

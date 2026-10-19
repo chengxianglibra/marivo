@@ -15,11 +15,14 @@ from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo._definition.types import AxisBinding
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.errors import SemanticExpressionError
+from marivo.semantic.expressions import Entity
+from tests.analysis.statistics.pandas_workflows import receipt_paths
 from tests.shared_fixtures import DslCaseFactory
 from tests.support.paths import PROJECT_ROOT
 
@@ -106,7 +109,7 @@ def _read(
     *,
     at: datetime | None = None,
     via: str | None = None,
-) -> mv.Query:
+) -> mv.AnalysisFrame:
     value = session.catalog.fields.get(field)
     if via is not None:
         value = value.via((session.catalog.relationships.get(via),))
@@ -115,8 +118,16 @@ def _read(
     return session.read(population, {"value": value})
 
 
-def _values(result: mv.Artifact) -> list[object]:
+def _values(result: mv.AnalysisFrame) -> list[object]:
     return result.to_pandas()[("value", "value")].tolist()
+
+
+def _identity_population(
+    session: Session, frame: mv.AnalysisFrame, entity: Entity
+) -> mv.Population:
+    axes = tuple(axis for axis in frame.axes if axis.role == "identity")
+    assert len(axes) == 1
+    return session.population_from(frame, on=((axes[0], entity),))
 
 
 def test_member_axis_retains_ordered_composite_identity(members_session: Session) -> None:
@@ -130,22 +141,31 @@ def test_member_axis_retains_ordered_composite_identity(members_session: Session
         ((category, members.axes[0]), {("west", (1, "A")): 10, ("east", (1, "B")): 20}),
     ):
         observed = session.observe({"value": metric}, by=axes)
-        rows = observed.execute().to_pandas()
+        fixed = observed.compute()
+        rows = fixed.to_pandas()
         assert rows.set_index(list(rows.columns[:2]))[("value", "value")].to_dict() == expected
-        selected = observed.population().project(by=members.axes)
-        assert session.query(selected).execute().to_pandas().iloc[:, 0].tolist() == [
-            (1, "A"),
-            (1, "B"),
-        ]
+        selected = _identity_population(
+            session, fixed, session.catalog.entities.get(f"{prefix}.plain")
+        )
+        identity_position = next(i for i, axis in enumerate(fixed.axes) if axis.role == "identity")
+        expected_sequence = list(dict.fromkeys(rows.iloc[:, identity_position]))
+        actual_sequence = session.frame(selected).compute().to_pandas().iloc[:, 0].tolist()
+        assert actual_sequence == expected_sequence
+        assert set(actual_sequence) == {(1, "A"), (1, "B")}
     # Separate scalar primary-key fields retain their Field roles.
     fields = (
         session.catalog.fields.get(f"{prefix}.plain.tenant"),
         session.catalog.fields.get(f"{prefix}.plain.id"),
     )
     grouped = session.observe({"value": metric}, by=fields)
-    assert all(axis.field is not None for axis in grouped.population().axes)
+    assert all(
+        isinstance(axis, AxisBinding) and axis.field is not None
+        for axis in session.population_from(
+            grouped, on=tuple(zip(grouped.axes, fields, strict=True))
+        ).axes
+    )
     grid = session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
-    rows = session.observe({"value": metric}, by=mv.product(members, grid)).execute().to_pandas()
+    rows = session.observe({"value": metric}, by=mv.product(members, grid)).compute().to_pandas()
     assert len(rows) == 6
     assert rows[("value", "value")].to_dict() == {0: 10, 1: None, 2: None, 3: None, 4: 20, 5: None}
 
@@ -158,17 +178,20 @@ def test_observation_classification_reads_explicit_version(members_session: Sess
     route = session.catalog.relationships.get(f"{prefix}.to_snapshot")
     field = session.catalog.fields.get(f"{prefix}.snapshot.category")
     category = field.via((route,)).at(session.instant("2026-08-01"))
-    observed = session.observe({"value": metric}, by=(category,)).execute().to_pandas()
+    observed = session.observe({"value": metric}, by=(category,)).compute().to_pandas()
     assert observed.set_index(observed.columns[0])[("value", "value")].to_dict() == {
         "west": 10,
         "east": 20,
     }
     own = _read(session, members, f"{prefix}.plain.category")
-    selected = own.where(own["value"] == "west").population()
+    selected_values = own.where(own["value"] == "west")
+    selected = _identity_population(
+        session, selected_values, session.catalog.entities.get(f"{prefix}.plain")
+    )
     later = field.via((route,)).at(session.instant("2026-09-01"))
     read = session.read(selected, {"value": later})
-    assert _values(read.execute()) == ["east"]
-    frame = session.observe({"value": metric}, members=selected, by=(later,)).execute().to_pandas()
+    assert _values(read.compute()) == ["east"]
+    frame = session.observe({"value": metric}, members=selected, by=(later,)).compute().to_pandas()
     assert frame.set_index(frame.columns[0])[("value", "value")].to_dict() == {"east": 10}
 
 
@@ -182,14 +205,17 @@ def test_computed_measure_and_bound_dependency(members_session: Session) -> None
     uplifted = session.observe(
         {"value": session.catalog.fields.get(f"{prefix}.plain.uplifted").sum()}, by=members
     )
-    assert _values(discounted.execute()) == [9.0, 18.0]
-    assert _values(uplifted.execute()) == [14.0, 23.0]
-    chosen = uplifted.where(uplifted["value"] > 20).population()
-    assert session.query(chosen).execute().to_pandas().iloc[:, 0].tolist() == [(1, "B")]
+    assert _values(discounted.compute()) == [9.0, 18.0]
+    assert _values(uplifted.compute()) == [14.0, 23.0]
+    chosen_values = uplifted.where(uplifted["value"] > 20)
+    chosen = _identity_population(
+        session, chosen_values, session.catalog.entities.get(f"{prefix}.plain")
+    )
+    assert session.frame(chosen).compute().to_pandas().iloc[:, 0].tolist() == [(1, "B")]
     day = _read(session, members, f"{prefix}.plain.day")
-    assert _values(day.where(day["value"] == date(2026, 8, 1)).execute()) == [date(2026, 8, 1)] * 2
+    assert _values(day.where(day["value"] == date(2026, 8, 1)).compute()) == [date(2026, 8, 1)] * 2
     with pytest.raises(AnalysisError):
-        day.where(day["value"] == datetime(2026, 8, 1, tzinfo=timezone.utc)).execute()
+        day.where(day["value"] == datetime(2026, 8, 1, tzinfo=timezone.utc)).compute()
 
 
 def test_computed_boolean_dimension(
@@ -198,19 +224,19 @@ def test_computed_boolean_dimension(
     session = members_session
     members = session.members(ms.ref.entity(f"{_domain(session)}.plain"))
     relation = _read(session, members, f"{_domain(session)}.plain.positive")
-    saved = relation.execute()
+    saved = relation.persist()
     assert _values(saved) == [False, True]
     enabled = True
-    selected = relation.where(relation["value"] == enabled).execute()
+    selected = relation.where(relation["value"] == enabled).persist()
     assert _values(selected) == [True]
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("Boolean Artifact read its source")
 
     monkeypatch.setattr(SourceSession, "execute", forbidden)
-    frame = session.artifact(saved.id).to_pandas()
+    frame = session.persisted_frame(saved.artifact.id).to_pandas()
     selected_frame = frame.loc[frame[("value", "value")]].reset_index(drop=True)
-    assert selected_frame.equals(session.artifact(selected.id).to_pandas())
+    assert selected_frame.equals(session.persisted_frame(selected.artifact.id).to_pandas())
     assert selected_frame.iloc[:, 0].tolist() == [(1, "B")]
     assert session._runtime.store.resources(session.id) == ()
 
@@ -225,17 +251,20 @@ def test_read_path_coverage_null_and_consumed_scope(members_session: Session) ->
     prefix = _domain(session)
     members = session.members(ms.ref.entity(f"{prefix}.plain"))
     category = _read(session, members, f"{prefix}.plain.category")
-    chosen = category.where(category["value"] == "west").population()
+    chosen_values = category.where(category["value"] == "west")
+    chosen = _identity_population(
+        session, chosen_values, session.catalog.entities.get(f"{prefix}.plain")
+    )
     september = datetime(2026, 9, 1, tzinfo=timezone.utc)
     route = f"{prefix}.to_snapshot"
     assert _values(
-        _read(session, chosen, f"{prefix}.snapshot.amount", at=september, via=route).execute()
+        _read(session, chosen, f"{prefix}.snapshot.amount", at=september, via=route).compute()
     ) == [30]
     with pytest.raises(MaterializationError) as missing:
-        _read(session, members, f"{prefix}.snapshot.amount", at=september, via=route).execute()
+        _read(session, members, f"{prefix}.snapshot.amount", at=september, via=route).compute()
     assert missing.value.expected and missing.value.received and missing.value.repair
-    assert missing.value.run_ref is not None
-    assert session.get_run(missing.value.run_ref).lifecycle == "failed"
+    assert missing.value.run_ref is None
+    assert session.runs().items == ()
 
 
 def test_temporal_literals_fixed_recovery_and_foreign_predicates(
@@ -247,12 +276,12 @@ def test_temporal_literals_fixed_recovery_and_foreign_predicates(
     logical = _read(session, members, f"{prefix}.plain.moment")
     with pytest.raises((AnalysisError, SemanticExpressionError)):
         logical.where(logical["value"] == datetime(2026, 8, 1))
-    instant = logical.execute()
-    dates = _read(session, members, f"{prefix}.plain.day").execute()
+    instant = logical.compute()
+    dates = _read(session, members, f"{prefix}.plain.day").compute()
     assert _values(dates) == [date(2026, 8, 1)] * 2
     boundary = datetime(2026, 8, 2, tzinfo=timezone.utc)
-    selected = logical.where(logical["value"] < boundary).execute()
-    restored = session.artifact(selected.id)
+    selected = logical.where(logical["value"] < boundary).persist()
+    restored = session.persisted_frame(selected.artifact.id)
     assert restored.to_pandas().iloc[:, 0].tolist() == [(1, "A")]
     other = mv.session.get_or_create("other-r52", report_timezone="UTC")
     foreign = _read(
@@ -276,7 +305,7 @@ def test_cold_typed_read_continuation_without_source(members_session: Session) -
     prefix = _domain(session)
     fixed = _read(
         session, session.members(ms.ref.entity(f"{prefix}.plain")), f"{prefix}.plain.moment"
-    ).execute()
+    ).persist()
     shutil.rmtree(session.project_root / "models")
     (session.project_root / "warehouse.duckdb").unlink()
     script = """
@@ -292,12 +321,12 @@ ms.load = forbidden
 duckdb.connect = forbidden
 SourceSession.bind = forbidden
 session = mv.session.resume(sys.argv[1], by='id')
-frame = session.artifact(sys.argv[2]).to_pandas()
+frame = session.persisted_frame(sys.argv[2]).to_pandas()
 selected = frame.loc[frame[('value','value')] < datetime(2026,8,2,tzinfo=timezone.utc)]
 assert selected.iloc[:,0].tolist() == [(1,'A')]
 """
     completed = subprocess.run(
-        [sys.executable, "-c", script, session.id, fixed.id],
+        [sys.executable, "-c", script, session.id, fixed.artifact.id],
         cwd=session.project_root,
         env={
             **os.environ,
@@ -344,10 +373,13 @@ to_subject = ms.relationship(name="to_subject", from_entity=instances, to_entity
     session = mv.session.get_or_create("subject-image", report_timezone="UTC")
     domain = session.members(ms.ref.entity("test.instances"))
     image = domain.image(via=(session.catalog.relationships.get("test.to_subject"),))
-    result = session.query(image).execute()
+    result = session.frame(image).persist()
     assert result.to_pandas().iloc[:, 0].tolist() == [(7, "A"), (7, "B")]
     (tmp_path / "subjects.duckdb").rename(tmp_path / "subjects.offline")
-    assert session.artifact(result.id).to_pandas().iloc[:, 0].tolist() == [(7, "A"), (7, "B")]
+    assert session.persisted_frame(result.artifact.id).to_pandas().iloc[:, 0].tolist() == [
+        (7, "A"),
+        (7, "B"),
+    ]
 
 
 def test_exact_boundary_null_and_corrupt_subject(members_session: Session) -> None:
@@ -356,13 +388,13 @@ def test_exact_boundary_null_and_corrupt_subject(members_session: Session) -> No
     entity = ms.ref.entity(f"{prefix}.valid")
     boundary = session.instant("2026-09-01")
     members = session.members(entity, at=boundary)
-    assert _values(_read(session, members, f"{prefix}.valid.amount", at=boundary).execute()) == [
+    assert _values(_read(session, members, f"{prefix}.valid.amount", at=boundary).compute()) == [
         30,
         20,
     ]
     before = boundary - timedelta(microseconds=1)
     left_members = session.members(entity, at=session.instant(before))
-    assert _values(_read(session, left_members, f"{prefix}.valid.amount", at=before).execute()) == [
+    assert _values(_read(session, left_members, f"{prefix}.valid.amount", at=before).compute()) == [
         10,
         20,
     ]
@@ -370,39 +402,34 @@ def test_exact_boundary_null_and_corrupt_subject(members_session: Session) -> No
     assert _values(
         _read(
             session, session.members(entity, at=noon), f"{prefix}.valid.amount", at=noon
-        ).execute()
+        ).compute()
     ) == [30, 20]
     snapshot = ms.ref.entity(f"{prefix}.snapshot")
     first = session.members(snapshot, at=session.instant("2026-08-01T23:59:59.999999+00:00"))
-    assert session.query(first).execute().to_pandas().iloc[:, 0].tolist() == [(1, "A"), (1, "B")]
+    assert session.frame(first).compute().to_pandas().iloc[:, 0].tolist() == [(1, "A"), (1, "B")]
     assert (
-        session.query(session.members(snapshot, at=session.instant("2026-08-02")))
-        .execute()
+        session.frame(session.members(snapshot, at=session.instant("2026-08-02")))
+        .compute()
         .to_pandas()
         .empty
     )
     with pytest.raises(AnalysisError, match="an exact InstantAnchor"):
-        session.members(entity, at=datetime(2026, 9, 1))
+        session.members(entity, at=datetime(2026, 9, 1))  # type: ignore[arg-type]  # Runtime probe: membership requires an InstantAnchor, not datetime.
     plain = session.members(ms.ref.entity(f"{prefix}.plain"))
     integer = _read(session, plain, f"{prefix}.plain.tenant")
-    saved = integer.execute()
+    saved = integer.persist()
     assert saved.to_pandas().iloc[:, 0].tolist() == [(1, "A"), (1, "B")]
     assert _values(saved) == [1, 1]
-    receipt = saved._manifest.data.rows.receipt
-    payload = (
-        session.project_root
-        / receipt.project_relative_path
-        / receipt.file_manifest[0].relative_path
-    )
+    payload = receipt_paths(session.project_root, saved)[0]
     payload.write_bytes(b"corrupt complete identity")
     with pytest.raises(AnalysisError):
-        session.artifact(saved.id).to_pandas()
+        session.persisted_frame(saved.artifact.id).to_pandas()
     _replace_source(
         session,
         "UPDATE r52 SET finish = DATE '2026-09-02' WHERE id = 'A' AND day = DATE '2026-08-01'",
     )
     with pytest.raises(AnalysisError):
-        _read(session, members, f"{prefix}.valid.amount", at=boundary).execute()
+        _read(session, members, f"{prefix}.valid.amount", at=boundary).compute()
 
 
 def test_wrong_role_and_many_mapping_reject_before_io(
@@ -426,8 +453,8 @@ def test_wrong_role_and_many_mapping_reject_before_io(
         versioned = session.members(ms.ref.entity(f"{prefix}.snapshot"), at=at)
         with pytest.raises((AnalysisError, SemanticExpressionError)):
             session.read(versioned, {"value": field.via((route,)).at(at)})
-    assert _values(session.read(members, {"value": field.at(at)}).execute()) == [10, 20]
-    assert _values(session.read(members, {"value": field.via((route,)).at(at)}).execute()) == [
+    assert _values(session.read(members, {"value": field.at(at)}).compute()) == [10, 20]
+    assert _values(session.read(members, {"value": field.via((route,)).at(at)}).compute()) == [
         10,
         20,
     ]
@@ -447,7 +474,7 @@ def test_grid_attribute_point_is_independent_of_member_version(members_session: 
     ):
         frames = [
             _read(session, members, f"{prefix}.valid.amount", at=session.instant(point))
-            .execute()
+            .compute()
             .to_pandas()
             for point in points
         ]
@@ -459,9 +486,9 @@ def test_grid_attribute_point_is_independent_of_member_version(members_session: 
             name: session.catalog.fields.get(f"{prefix}.valid.{name}").at(session.instant(point))
             for name in ("category", "enabled", "moment")
         }
-        result = session.read(members, fields).execute()
+        result = session.read(members, fields).persist()
         frame = result.to_pandas()
-        assert session.artifact(result.id).to_pandas().equals(frame)
+        assert session.persisted_frame(result.artifact.id).to_pandas().equals(frame)
         outputs.append(frame)
     assert [frame[("value", "category")].iloc[i] for i in range(2) for frame in outputs] == [
         "west",
@@ -504,7 +531,7 @@ def test_grid_classification_uses_grid_point(members_session: Session) -> None:
             {"value": session.catalog.metrics.get(f"{prefix}.observed_total")},
             by=mv.product(categories, grid),
         )
-        .execute()
+        .compute()
         .to_pandas()
     )
     assert len(frame) == 4
@@ -528,9 +555,9 @@ def test_composite_subject_predicates(members_session: Session) -> None:
         & (values["moment"] <= values["moment"])
         & (values["amount"] > 0)
     )
-    result = values.where(predicate).execute().to_pandas()
+    result = values.where(predicate).compute().to_pandas()
     assert result.iloc[:, 0].tolist() == [(1, "A")]
-    frame = values.execute().to_pandas()
+    frame = values.compute().to_pandas()
     mask = (
         frame[("value", "enabled")]
         & (frame[("value", "moment")] <= frame[("value", "moment")])

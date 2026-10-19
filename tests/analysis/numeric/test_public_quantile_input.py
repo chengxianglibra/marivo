@@ -11,7 +11,6 @@ import duckdb
 import pytest
 
 import marivo.semantic as ms
-from marivo.analysis.errors import AnalysisError
 from tests.shared_fixtures import DslCaseFactory
 from tests.support.execution_logs import execution_records
 from tests.support.paths import PROJECT_ROOT
@@ -47,7 +46,7 @@ def test_defined_quantile_survives_source_offline_recovery(
         {"value": session.catalog.metrics.get("sales.median_amount")},
         by=session.members(ms.ref.entity("sales.customer")),
     )
-    output = query.execute()
+    output = query.persist()
     exported = output.to_pandas()
     frame = exported.set_index(exported.columns[0])
     assert frame.loc["A", ("value", "value")] == 187.875
@@ -60,17 +59,13 @@ def test_defined_quantile_survives_source_offline_recovery(
     ]
     expected = "APPROX_QUANTILE" if agg == "approx_median" else "QUANTILE_CONT"
     assert any(expected in sql for sql in submitted)
-    if agg == "median":
-        total = query.rollup().execute().to_pandas()
-        assert total[("value", "value")].tolist() == [187.875]
-    else:
-        with pytest.raises(AnalysisError) as caught:
-            query.rollup().execute()
-        assert isinstance(caught.value.__cause__, ms.errors.SemanticExpressionError)
-        assert (
-            caught.value.__cause__.expected
-            == "a qualified original-input approximate reduction route"
-        )
+    # Original quantities are requested from the explicit source at the new grain.
+    total = (
+        session.observe({"value": session.catalog.metrics.get("sales.median_amount")})
+        .compute()
+        .to_pandas()
+    )
+    assert total[("value", "value")].tolist() == [187.875]
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     (case.root / "models").rename(case.root / "models.offline")
     script = """
@@ -86,8 +81,8 @@ ms.load = forbidden
 DatasourceConnectionService.use_backend = forbidden
 session = mv.session.resume(sys.argv[1], by='id')
 before = run_ids(session)
-fixed = session.artifact(sys.argv[2])
-assert isinstance(fixed, mv.Artifact)
+fixed = session.persisted_frame(sys.argv[2])
+assert isinstance(fixed, mv.AnalysisFrame)
 frame = fixed.to_pandas()
 frame = frame.set_index(frame.columns[0])
 assert frame.loc['A', ('value', 'value')] == 187.875
@@ -96,7 +91,7 @@ assert len(frame) == 4
 assert run_ids(session) == before
 """
     result = subprocess.run(
-        [sys.executable, "-c", script, session.id, output.id],
+        [sys.executable, "-c", script, session.id, output.artifact.id],
         cwd=case.root,
         env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
         capture_output=True,

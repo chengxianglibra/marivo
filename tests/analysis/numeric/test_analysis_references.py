@@ -1,4 +1,4 @@
-"""Independent reference kernels and Query exports for explicit pandas recipes."""
+"""Independent reference kernels and Frame exports for explicit pandas recipes."""
 
 from decimal import Decimal
 from fractions import Fraction
@@ -8,6 +8,9 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.datasource.errors import DatasourceConnectionError
+from tests.analysis.numeric.attribution_workflows import _number
+from tests.analysis.statistics.pandas_workflows import plain
 from tests.shared_fixtures import (
     DslCase,
     DslCaseFactory,
@@ -17,24 +20,29 @@ from tests.shared_fixtures import (
 from tests.support.paths import PROJECT_ROOT
 
 
-def _plain(result: mv.Artifact) -> pd.DataFrame:
-    frame = result.to_pandas()
-    names: list[str] = []
-    key = 0
-    for label in frame.columns:
-        assert isinstance(label, tuple) and len(label) == 2
-        kind, name = label
-        if kind == "value":
-            assert isinstance(name, str)
-            names.append(name)
-        else:
-            names.append(f"key_{key}")
-            key += 1
-    frame.columns = names
-    return frame
+def _plain(result: mv.AnalysisFrame) -> pd.DataFrame:
+    return plain(result)
 
 
-def _monthly(case: DslCase, metric: str) -> mv.Query:
+def _proportions(frame: pd.DataFrame, *, zero_denominator: str = "null") -> pd.DataFrame:
+    """Compute explicit represented-value proportions, with no contribution claim."""
+    result = frame.copy(deep=True)
+    numbers = [_number(value) for value in frame["value"]]
+    denominator = sum((value for value in numbers if value is not None), Fraction())
+    if not denominator and zero_denominator == "error":
+        raise ValueError("nonzero represented denominator is required")
+    result["value.share"] = pd.Series(
+        [
+            pd.NA if value is None or not denominator else float(value / denominator)
+            for value in numbers
+        ],
+        index=frame.index,
+        dtype="Float64",
+    )
+    return result
+
+
+def _monthly(case: DslCase, metric: str) -> mv.AnalysisFrame:
     session = case.session
     return session.observe(
         {"value": session.catalog.metrics.get("sales." + metric)},
@@ -43,7 +51,7 @@ def _monthly(case: DslCase, metric: str) -> mv.Query:
     )
 
 
-def _grouped(case: DslCase, metric: str) -> mv.Query:
+def _grouped(case: DslCase, metric: str) -> mv.AnalysisFrame:
     session = case.session
     members = session.members(ms.ref.entity("sales.customer"))
     return session.observe(
@@ -53,7 +61,7 @@ def _grouped(case: DslCase, metric: str) -> mv.Query:
     )
 
 
-def _cold(case: DslCase, results: tuple[mv.Artifact, ...], assertions: str) -> None:
+def _cold(case: DslCase, results: tuple[mv.AnalysisFrame, ...], assertions: str) -> None:
     import os
     import subprocess
     import sys
@@ -72,7 +80,7 @@ import duckdb
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
-from tests.analysis.numeric.test_analysis_references import _plain
+from tests.analysis.numeric.test_analysis_references import _plain, _proportions
 from tests.shared_fixtures import run_ids
 
 def unavailable(*args, **kwargs):
@@ -80,16 +88,22 @@ def unavailable(*args, **kwargs):
 with patch.object(duckdb, 'connect', unavailable), patch.object(ms, 'load', unavailable), patch.object(SourceSession, '__init__', unavailable):
     session = mv.session.resume(sys.argv[1], by='id')
     before = run_ids(session)
-    saved = tuple(session.artifact(ref) for ref in sys.argv[2:])
-    assert all(isinstance(item, mv.Artifact) for item in saved)
-    assert all(not hasattr(item, name) for item in saved for name in ('standardize', 'where', 'rollup', 'contract', '_node', '_dataset'))
+    saved = tuple(session.persisted_frame(ref) for ref in sys.argv[2:])
+    assert all(isinstance(item, mv.AnalysisFrame) for item in saved)
+    assert all(not hasattr(item, name) for item in saved for name in ('standardize', 'rollup', 'contract', '_node', '_dataset'))
 """
         + "".join("    " + line + "\n" for line in assertions.splitlines())
         + "    assert run_ids(session) == before\n"
     )
     try:
         process = subprocess.run(
-            [sys.executable, "-c", script, case.session.id, *(result.id for result in results)],
+            [
+                sys.executable,
+                "-c",
+                script,
+                case.session.id,
+                *(result.artifact.id for result in results),
+            ],
             cwd=case.root,
             env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT), "MARIVO_TELEMETRY": "off"},
             capture_output=True,
@@ -118,23 +132,22 @@ def test_public_references_source_and_fixed(
     expected_shares = {
         key: float(Fraction(value, sum(counts.values()))) for key, value in counts.items()
     }
-    share_query = values.share("value")
-    saved = share_query.execute()
-    frame = _plain(saved).set_index("key_0")
+    saved = values.persist()
+    frame = _proportions(_plain(saved)).set_index("key_0")
     assert frame["value.share"].to_dict() == expected_shares
-    selected = share_query.where(share_query["value.share"] > 1).execute()
-    assert selected.to_pandas().empty
-    assert not hasattr(saved, "contract") and not hasattr(saved, "where")
+    selected = frame.loc[frame["value.share"] > 1]
+    assert selected.empty
+    assert not hasattr(saved, "contract") and not hasattr(saved, "share")
     saved.show()
-    assert "value.share" in capsys.readouterr().out
+    assert "value" in capsys.readouterr().out
     # Penetration and standardization consume exported complete identities in pandas.
     selected_members = frame.index[frame.value > 0]
     assert len(selected_members.unique()) / len(frame.index.unique()) == float(
         Fraction(sum(value > 0 for value in counts.values()), len(counts))
     )
     groups = _grouped(case, "order_count")
-    weighted = groups.share("value").execute()
-    table = _plain(weighted).set_index("key_0")
+    weighted = groups.compute()
+    table = _proportions(_plain(weighted)).set_index("key_0")
     represented = sum(
         (
             Fraction(value) * Fraction(weight)
@@ -149,8 +162,10 @@ def test_public_references_source_and_fixed(
         (Fraction(value**2, sum(counts.values())) for value in grouped_counts.values()), Fraction()
     )
     assert float(represented) == float(expected)
-    pd.testing.assert_frame_equal(saved.to_pandas(), case.session.artifact(saved.id).to_pandas())
-    fixed_values = _plain(values.execute()).set_index("key_0")
+    pd.testing.assert_frame_equal(
+        saved.to_pandas(), case.session.persisted_frame(saved.artifact.id).to_pandas()
+    )
+    fixed_values = _plain(values.compute()).set_index("key_0")
     pandas_shares = fixed_values.value / fixed_values.value.sum()
     assert pandas_shares.to_dict() == expected_shares
 
@@ -181,7 +196,7 @@ def test_public_share_numeric_matrix(
         )
     ms.load(workspace_dir=case.root)
     values = _monthly(case, "revenue")
-    shares = _plain(values.share("value").execute()).set_index("key_0")
+    shares = _proportions(_plain(values.compute())).set_index("key_0")
     raw = analysis_dsl_rows("j2")
     totals = {
         member: sum(
@@ -199,12 +214,14 @@ def test_public_share_numeric_matrix(
     if physical.startswith("DECIMAL"):
         assert all(isinstance(value, Decimal) for value in shares.value)
         assert shares.value.to_dict() == {key: Decimal(total) for key, total in totals.items()}
-    saved = values.share("value").execute()
-    pd.testing.assert_frame_equal(saved.to_pandas(), case.session.artifact(saved.id).to_pandas())
+    saved = values.persist()
+    pd.testing.assert_frame_equal(
+        saved.to_pandas(), case.session.persisted_frame(saved.artifact.id).to_pandas()
+    )
     if physical.startswith("duration"):
         assert pa.array(shares.value).type == pa.duration("ns")
         # Duration remains duration data; pandas uses numeric count weights explicitly.
-        weights = _plain(_grouped(case, "order_count").share("value").execute())
+        weights = _proportions(_plain(_grouped(case, "order_count").compute()))
         assert sum(map(Fraction, weights["value.share"])) == 1
         assert all(value >= 0 for value in weights["value.share"])
 
@@ -231,10 +248,10 @@ def test_original_metric_standardization_matrix(
         during=session.time_scope(start="2026-08-01", end="2026-09-01"),
         by=members.classify(by=(region,)),
     )
-    weights = _grouped(case, "revenue").share("value")
-    saved_groups, saved_weights = groups.execute(), weights.execute()
+    weights = _grouped(case, "revenue")
+    saved_groups, saved_weights = groups.persist(), weights.persist()
     table = _plain(saved_groups).set_index("key_0")
-    reference = _plain(saved_weights).set_index("key_0")
+    reference = _proportions(_plain(saved_weights)).set_index("key_0")
     assert table.index.is_unique and reference.index.is_unique
     assert set(table.index) == set(reference.index)
     raw = analysis_dsl_rows("j2")
@@ -277,7 +294,7 @@ def test_original_metric_standardization_matrix(
         case,
         (saved_groups, saved_weights),
         """groups = _plain(saved[0]).set_index('key_0')
-weights = _plain(saved[1]).set_index('key_0')['value.share']
+weights = _proportions(_plain(saved[1])).set_index('key_0')['value.share']
 positive = weights > 0
 assert set(groups.index) == set(weights.index)
 assert float(sum(Fraction(v) * Fraction(w) for v, w in zip(groups.loc[positive, 'sum'], weights[positive], strict=True))) == 180.0
@@ -304,7 +321,7 @@ def test_public_exact_integer_reference_weights(analysis_dsl_case_factory: DslCa
         during=session.time_scope(start="2026-08-01", end="2026-09-01"),
         by=members.classify(by=(region,)),
     )
-    saved = groups.execute()
+    saved = groups.persist()
     table = _plain(saved).set_index("key_0")
     assert pa.array(table["count"]).type == pa.int64()
     assert table["mean"].isna().sum() == 2
@@ -323,7 +340,9 @@ def test_public_exact_integer_reference_weights(analysis_dsl_case_factory: DslCa
         Fraction(value) * Fraction(weight)
         for value, weight in zip(table.loc[weights > 0, "mean"], weights[weights > 0], strict=True)
     ) == Fraction(kept[5])
-    pd.testing.assert_frame_equal(saved.to_pandas(), session.artifact(saved.id).to_pandas())
+    pd.testing.assert_frame_equal(
+        saved.to_pandas(), session.persisted_frame(saved.artifact.id).to_pandas()
+    )
 
 
 @pytest.mark.slow
@@ -333,14 +352,15 @@ def test_standardized_cold_selection_preserves_reference(
     case = analysis_dsl_case_factory("j2")
     export_dsl_parquet_models(case, case.root)
     ms.load(workspace_dir=case.root)
-    groups = _grouped(case, "order_count").share("value")
+    groups = _grouped(case, "order_count")
     selected = groups.where(groups["value"] > 1)
-    saved, subset = groups.execute(), selected.execute()
+    saved, subset = groups.persist(), selected.persist()
     _cold(
         case,
         (saved, subset),
-        """full = _plain(saved[0]).set_index('key_0')
-selected = _plain(saved[1]).set_index('key_0')
+        """full = _proportions(_plain(saved[0])).set_index('key_0')
+selected_keys = _plain(saved[1]).set_index('key_0').index
+selected = full.loc[full.index.isin(selected_keys)]
 assert full['value.share'].to_dict() == {'east': 0.5, 'south': 0.25, 'west': 0.25}
 assert selected['value.share'].to_dict() == {'east': 0.5}
 assert sum(Fraction(value) * Fraction(weight) for value, weight in zip(full.value, full['value.share'], strict=True)) == Fraction(3, 2)
@@ -357,27 +377,20 @@ def test_static_reference_rejections_are_zero_read(
 
     case = analysis_dsl_case_factory("j2")
     values = _monthly(case, "order_count")
-    total = values.rollup()
-    fixed = values.execute()
+    fixed = values.compute()
     other = analysis_dsl_case_factory("j2")
-    foreign = _monthly(other, "order_count").rollup()
+    foreign = _monthly(other, "order_count")
     before = run_ids(case.session)
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("reference construction cannot read business rows")
 
     monkeypatch.setattr(SourceSession, "execute", forbidden)
-    values.share("value")
-    values.select({"ratio": values["value"] / mv.broadcast(total["value"], to=values)})
     with pytest.raises(AnalysisError):
-        mv.broadcast(foreign["value"], to=values)
+        values.select({"ratio": values["value"] / foreign["value"]})
     with pytest.raises(AnalysisError):
-        mv.broadcast(fixed, to=values)  # type: ignore[arg-type]  # Probe the terminal boundary.
-    ordinary = values.select({"value": values["value"] / values["value"]})
-    with pytest.raises(AnalysisError):
-        ordinary.share("value")
-    with pytest.raises(AnalysisError):
-        values.share("absent")
+        values.select({"ratio": values["value"] / fixed["value"]})
+    assert not hasattr(values, "share") and not hasattr(mv, "broadcast")
     assert run_ids(case.session) == before
 
 
@@ -398,7 +411,7 @@ def test_composite_penetration_overlap_and_empty(analysis_dsl_case_factory: DslC
     session = case.session
     members = session.members(ms.ref.entity("sales.customer"))
     read = session.read(members, {"region": session.catalog.fields.get("sales.customer.region")})
-    saved = read.execute()
+    saved = read.persist()
     table = _plain(saved).set_index("key_0")
     assert set(table.index) == {(7, "A"), (7, "B"), (7, "C"), (7, "D"), (8, "A")}
     first = table.index[table.region != "west"]
@@ -409,33 +422,32 @@ def test_composite_penetration_overlap_and_empty(analysis_dsl_case_factory: DslC
     empty = table.loc[table.region == "absent"]
     penetration = pd.NA if empty.empty else len(empty) / len(empty)
     assert pd.isna(penetration)
-    pd.testing.assert_frame_equal(saved.to_pandas(), session.artifact(saved.id).to_pandas())
+    pd.testing.assert_frame_equal(
+        saved.to_pandas(), session.persisted_frame(saved.artifact.id).to_pandas()
+    )
 
 
 def test_zero_and_signed_share_support(analysis_dsl_case_factory: DslCaseFactory) -> None:
     import duckdb
 
-    from marivo.analysis.errors import AnalysisError
-
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as db:
         db.execute('UPDATE "order" SET amount=0')
     values = _monthly(case, "revenue")
-    shares = values.share("value")
-    assert _plain(shares.execute())["value.share"].isna().all()
-    with pytest.raises(AnalysisError):
-        values.share("value", zero_denominator="error").execute()
+    assert _proportions(_plain(values.compute()))["value.share"].isna().all()
+    with pytest.raises(ValueError, match="nonzero represented denominator"):
+        _proportions(_plain(values.compute()), zero_denominator="error")
     with duckdb.connect(str(case.database_path)) as db:
         db.execute(
             "UPDATE \"order\" SET amount=CASE customer_id WHEN 'A' THEN 60 WHEN 'B' THEN 120 WHEN 'C' THEN -30 ELSE 0 END"
         )
-    frame = _plain(shares.execute()).set_index("key_0")
+    frame = _proportions(_plain(values.compute())).set_index("key_0")
     assert frame["value.share"].to_dict() == {"A": 0.4, "B": 0.8, "C": -0.2, "D": 0.0}
-    limited = shares.where(shares["value"] > 0)
-    assert _plain(limited.execute())["value.share"].sum() == pytest.approx(1.2)
+    limited = frame.loc[frame["value"] > 0]
+    assert limited["value.share"].sum() == pytest.approx(1.2)
     # Selecting the input first creates a different, explicitly smaller denominator.
     positive = values.where(values["value"] > 0)
-    assert _plain(positive.share("value").execute())["value.share"].sum() == 1.0
+    assert _proportions(_plain(positive.compute()))["value.share"].sum() == 1.0
 
 
 def test_shared_reference_source_reexecution_and_fixed_inputs(
@@ -443,34 +455,32 @@ def test_shared_reference_source_reexecution_and_fixed_inputs(
 ) -> None:
     import duckdb
 
-    from marivo.analysis.errors import AnalysisError
     from tests.support.source_trace import capture_source
 
     case = analysis_dsl_case_factory("j2")
     values = _monthly(case, "order_count")
-    share = values.share("value")
     trace = capture_source(monkeypatch)
-    ratio = share.select({"value": share["value.share"] / share["value.share"]})
-    assert _plain(ratio.execute()).value.tolist() == [1.0] * 4
+    ratio = values.select({"value": values["value"] / values["value"]})
+    assert _plain(ratio.compute()).value.tolist() == [1.0] * 4
     assert trace.native_sql and all(owner._closed for owner in trace.owners)
     assert sum('"order_id"' in sql for sql in trace.native_sql) == 1
-    saved = share.execute()
-    fixed = _plain(saved).set_index("key_0")
+    saved = values.compute()
+    fixed = _proportions(_plain(saved)).set_index("key_0")
     assert fixed["value.share"].tolist() == [0.25] * 4
     with duckdb.connect(str(case.database_path)) as db:
         db.execute(
             'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?)',
             ["extra", "A", "web", "paid", "2026-08-15", 1],
         )
-    current = _plain(share.execute()).set_index("key_0")
+    current = _proportions(_plain(values.compute())).set_index("key_0")
     assert current["value.share"].to_dict() == {"A": 0.4, "B": 0.2, "C": 0.2, "D": 0.2}
-    assert _plain(saved)["value.share"].tolist() == [0.25] * 4
+    assert _proportions(_plain(saved))["value.share"].tolist() == [0.25] * 4
     offline = case.database_path.with_suffix(".offline")
     case.database_path.rename(offline)
     try:
-        with pytest.raises(AnalysisError):
-            share.execute()
-        assert _plain(saved)["value.share"].tolist() == [0.25] * 4
+        with pytest.raises(DatasourceConnectionError):
+            values.compute()
+        assert _proportions(_plain(saved))["value.share"].tolist() == [0.25] * 4
     finally:
         offline.rename(case.database_path)
 
@@ -485,7 +495,7 @@ def test_invalid_public_standardization_rejects_without_normalization(
         if not missing:
             with duckdb.connect(str(case.database_path)) as db:
                 db.execute('UPDATE "order" SET amount=-30 WHERE customer_id=?', ["C"])
-        exported = _plain(_grouped(case, "revenue").share("value").execute()).set_index("key_0")
+        exported = _proportions(_plain(_grouped(case, "revenue").compute())).set_index("key_0")
         weights = exported["value.share"]
         if missing:
             weights = weights[weights > 0]
@@ -504,18 +514,21 @@ def test_fixed_selected_original_can_use_retained_full_reference(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     values = _monthly(case, "revenue")
-    shares = values.share("value")
-    selected = shares.where(shares["value"] > 0)
-    saved, full = selected.execute(), values.execute()
-    assert _plain(saved).set_index("key_0")["value.share"].to_dict() == {
+    full = values.persist()
+    external = _plain(full).set_index("key_0")
+    proportions = _proportions(external)
+    selected = proportions.loc[proportions["value"] > 0]
+    assert selected["value.share"].to_dict() == {
         "A": float(Fraction(1, 3)),
         "B": float(Fraction(2, 3)),
     }
-    assert _plain(full).value.sum() == 180
-    external = _plain(full).set_index("key_0")
-    assert (external.value[external.value > 0] / external.value.sum()).to_dict() == _plain(
-        saved
-    ).set_index("key_0")["value.share"].to_dict()
+    assert external.value.sum() == 180
+    assert (external.value[external.value > 0] / external.value.sum()).to_dict() == selected[
+        "value.share"
+    ].to_dict()
+    pd.testing.assert_frame_equal(
+        full.to_pandas(), case.session.persisted_frame(full.artifact.id).to_pandas()
+    )
 
 
 def test_reference_preparation_captures_independent_source_origins(
@@ -536,7 +549,7 @@ def test_reference_preparation_captures_independent_source_origins(
         by=members.classify(by=(region,)),
     )
     trace = capture_source(monkeypatch)
-    saved = q.execute()
+    saved = q.persist()
     table = _plain(saved).set_index("key_0")
     assert table.index.tolist() == ["east"]
     raw = analysis_dsl_rows("j3")
@@ -556,4 +569,6 @@ def test_reference_preparation_captures_independent_source_origins(
         Fraction(value) * Fraction(weight)
         for value, weight in zip(table["count"], weights, strict=True)
     ) == len(raw.orders)
-    pd.testing.assert_frame_equal(saved.to_pandas(), session.artifact(saved.id).to_pandas())
+    pd.testing.assert_frame_equal(
+        saved.to_pandas(), session.persisted_frame(saved.artifact.id).to_pandas()
+    )

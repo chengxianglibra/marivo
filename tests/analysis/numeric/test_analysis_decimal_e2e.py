@@ -8,6 +8,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.core.artifact_data import DataSchema
 from marivo.analysis.core.data_types import DecimalDataType, ScalarDataType
 
 
@@ -61,23 +62,24 @@ def decimal_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.Sessi
     return mv.session.get_or_create("decimal", report_timezone="UTC")
 
 
-def _observed(session: mv.Session) -> mv.Query:
+def _observed(session: mv.Session, *, overall: bool = False) -> mv.AnalysisFrame:
     return session.observe(
         {
             "gmv": session.catalog.metrics.get("sales.gmv"),
             "fee": session.catalog.metrics.get("sales.fee"),
         },
         during=session.time_scope(start="2026-07-01", end="2026-07-02"),
-        by=session.members(ms.ref.entity("sales.orders")),
+        by=() if overall else session.members(ms.ref.entity("sales.orders")),
     )
 
 
 def test_decimal_measure_and_retained_schema_agree(decimal_session: mv.Session) -> None:
-    result = _observed(decimal_session).rollup().execute()
+    result = _observed(decimal_session, overall=True).compute()
     rows = result.to_pandas()
     assert isinstance(rows[("value", "gmv")].iloc[0], Decimal)
     assert rows[("value", "gmv")].iloc[0] == Decimal("20.00")
-    assert result._manifest.data.schema.values[0].dtype == DecimalDataType(38, 2)
+    assert isinstance(result._schema, DataSchema)
+    assert result._schema.values[0].dtype == DecimalDataType(38, 2)
     assert Decimal("100.00") - rows[("value", "gmv")].iloc[0] == Decimal("80.00")
 
 
@@ -90,12 +92,13 @@ def test_ratio_accepts_independent_numeric_components(decimal_session: mv.Sessio
         observed = session.observe(
             {"rate": numerator / gmv},
             during=session.time_scope(start="2026-07-01", end="2026-07-02"),
-            by=session.members(ms.ref.entity("sales.orders")),
         )
-        result = observed.rollup().execute()
+        result = observed.compute()
+        assert isinstance(result._schema, DataSchema)
         assert result.to_pandas()[("value", "rate")].tolist() == [0.25]
-        assert result._manifest.data.schema.values[0].dtype == ScalarDataType("float64")
-    components = _observed(session).execute().to_pandas()
+        assert isinstance(result._schema, DataSchema)
+        assert result._schema.values[0].dtype == ScalarDataType("float64")
+    components = _observed(session).compute().to_pandas()
     assert components[("value", "fee")].sum() / float(components[("value", "gmv")].sum()) == 0.25
 
 
@@ -103,10 +106,10 @@ def test_ratio_accepts_independent_numeric_components(decimal_session: mv.Sessio
 def test_mixed_linear_retains_each_component(decimal_session: mv.Session, exported: bool) -> None:
     observed = _observed(decimal_session)
     if exported:
-        frame = observed.execute().to_pandas()
+        frame = observed.compute().to_pandas()
         net = frame[("value", "gmv")].map(float) - frame[("value", "fee")]
         assert net.sum() == 15.0
     else:
-        totals = observed.rollup()
-        result = totals.select({"net": totals["gmv"] - totals["fee"]}).execute()
+        totals = _observed(decimal_session, overall=True)
+        result = totals.select({"net": totals["gmv"] - totals["fee"]}).compute()
         assert result.to_pandas()[("value", "net")].tolist() == [15.0]

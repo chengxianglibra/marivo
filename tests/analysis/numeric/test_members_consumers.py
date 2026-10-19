@@ -9,6 +9,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.ir import TableSourceIR
@@ -118,7 +119,7 @@ def test_complete_versioned_members(
         with monkeypatch.context() as preparation:
             preparation.setattr(SourceSession, "execute", no_construction_read)
             with pytest.raises(AnalysisError) as missing_version:
-                unanchored_read.execute()
+                unanchored_read.compute()
         assert calls == [] and len(session.runs().items) == before_runs
         assert (
             missing_version.value.expected
@@ -128,9 +129,9 @@ def test_complete_versioned_members(
         expected = {(9007199254740992, "a"), (9007199254740993, "a"), (9007199254740993, "b")}
         if kind == "null_tenant":
             with pytest.raises(AnalysisError):
-                session.query(current).execute()
+                session.frame(current).compute()
             return
-        projected = session.query(current).execute()
+        projected = session.frame(current).compute()
         frame = projected.to_pandas()
         assert set(frame.iloc[:, 0]) == expected
         assert len(frame) == 3
@@ -141,10 +142,10 @@ def test_complete_versioned_members(
         values = session.read(current, fields)
         if kind == "duplicate":
             with pytest.raises(AnalysisError):
-                values.execute()
+                values.compute()
             assert session._runtime.store.resources(session.id) == ()
             return
-        result = values.execute()
+        result = values.persist()
         read = result.to_pandas()
         keyed = read.set_index(read.columns[0])
         assert keyed[("value", "amount")].to_dict() == {
@@ -164,17 +165,29 @@ def test_complete_versioned_members(
         }
         assert set(read[("value", "beginning")]) == {date(2026, 8, 1)}
         enabled = True
-        selected = values.where(values["enabled"] == enabled).population()
-        assert set(session.query(selected).execute().to_pandas().iloc[:, 0]) == {
+        selected_values = values.where(values["enabled"] == enabled)
+        selected = session.population_from(
+            selected_values,
+            on=((selected_values.axes[0], session.catalog.entities.get("sales.subjects")),),
+        )
+        assert set(session.frame(selected).compute().to_pandas().iloc[:, 0]) == {
             (9007199254740993, "a"),
             (9007199254740993, "b"),
         }
-        selected = values.where(values["tenant"] == "b").population()
-        assert session.query(selected).execute().to_pandas().iloc[:, 0].tolist() == [
+        selected_values = values.where(values["tenant"] == "b")
+        selected = session.population_from(
+            selected_values,
+            on=((selected_values.axes[0], session.catalog.entities.get("sales.subjects")),),
+        )
+        assert session.frame(selected).compute().to_pandas().iloc[:, 0].tolist() == [
             (9007199254740993, "b")
         ]
-        selected = values.where(values["beginning"] == date(2026, 8, 1)).population()
-        assert set(session.query(selected).execute().to_pandas().iloc[:, 0]) == expected
+        selected_values = values.where(values["beginning"] == date(2026, 8, 1))
+        selected = session.population_from(
+            selected_values,
+            on=((selected_values.axes[0], session.catalog.entities.get("sales.subjects")),),
+        )
+        assert set(session.frame(selected).compute().to_pandas().iloc[:, 0]) == expected
         for point, expected_count in (
             ("2026-08-31T23:59:59.999999+00:00", 0),
             ("2026-08-01T23:59:59.999999+00:00", 3),
@@ -183,15 +196,15 @@ def test_complete_versioned_members(
         ):
             assert (
                 len(
-                    session.query(session.members(entity, at=session.instant(point)))
-                    .execute()
+                    session.frame(session.members(entity, at=session.instant(point)))
+                    .compute()
                     .to_pandas()
                 )
                 == expected_count
             )
         assert session._runtime.store.resources(session.id) == ()
         assert trace.native_sql
-        assert session.artifact(result.id).to_pandas().equals(read)
+        assert session.persisted_frame(result.artifact.id).to_pandas().equals(read)
 
 
 def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(
@@ -282,12 +295,21 @@ def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(
         via = session.catalog.relationships.get("sales.attributes_path")
         inferred = session.read(members, {"value": field})
         explicit = session.read(members, {"value": field.via((via,))})
-        assert inferred._graph.fingerprint == explicit._graph.fingerprint
+        inferred_backing, explicit_backing = inferred._backing, explicit._backing
+        assert isinstance(inferred_backing, ExpressionFrameBacking)
+        assert isinstance(explicit_backing, ExpressionFrameBacking)
+        assert isinstance(inferred_backing.root, SourceFrameBinding)
+        assert isinstance(explicit_backing.root, SourceFrameBinding)
+        assert inferred_backing.root.graph.fingerprint == explicit_backing.root.graph.fingerprint
         category = session.read(
             members, {"tenant": session.catalog.fields.get("sales.subjects.tenant")}
         )
-        selected = category.where(category["tenant"] == "a").population()
-        scoped_result = session.read(selected, {"value": field.via((via,))}).execute()
+        selected_values = category.where(category["tenant"] == "a")
+        selected = session.population_from(
+            selected_values,
+            on=((selected_values.axes[0], session.catalog.entities.get("sales.subjects")),),
+        )
+        scoped_result = session.read(selected, {"value": field.via((via,))}).compute()
         scoped = scoped_result.to_pandas()
         assert len(scoped) == 2
         assert scoped[("value", "value")].dropna().tolist() == [10]
@@ -295,6 +317,6 @@ def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(
             (9007199254740993, "a")
         ]
         with pytest.raises(AnalysisError):
-            explicit.execute()
+            explicit.compute()
         assert session._runtime.store.resources(session.id) == ()
         assert trace.native_sql

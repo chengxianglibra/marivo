@@ -20,7 +20,7 @@ from tests.analysis.materialization.publication_fixtures import publication_coun
 from tests.datasource.source_cases import SourceData, source_case
 
 
-def _value(result: mv.Artifact) -> pd.Series:
+def _value(result: mv.AnalysisFrame) -> pd.Series:
     return result.to_pandas()[("value", "value")]
 
 
@@ -67,9 +67,11 @@ def test_native_weighted_and_mean(
     observed = session.observe(
         {"value": session.catalog.metrics.get("sales.weighted")}, during=scope, by=members
     )
-    total = observed.rollup().execute()
+    total = session.observe(
+        {"value": session.catalog.metrics.get("sales.weighted")}, during=scope, members=members
+    ).compute()
     assert _value(total).tolist() == pytest.approx([expected])
-    saved = observed.execute()
+    saved = observed.persist()
     raw = (
         session.read(
             members,
@@ -78,7 +80,7 @@ def test_native_weighted_and_mean(
                 "weight": session.catalog.fields.get("sales.facts.weight"),
             },
         )
-        .execute()
+        .compute()
         .to_pandas()
     )
     pair = raw[("value", "value")].notna() & raw[("value", "weight")].notna()
@@ -86,7 +88,7 @@ def test_native_weighted_and_mean(
         (raw[("value", "value")].loc[pair] * raw[("value", "weight")].loc[pair]).sum()
         / raw[("value", "weight")].loc[pair].sum()
     ) == pytest.approx(expected)
-    assert saved.to_pandas().equals(session.artifact(saved.id).to_pandas())
+    assert saved.to_pandas().equals(session.persisted_frame(saved.artifact.id).to_pandas())
     coordinate = session.catalog.fields.get("sales.facts.category")
     with_coordinates = session.observe(
         {"value": session.catalog.metrics.get("sales.weighted")},
@@ -94,27 +96,49 @@ def test_native_weighted_and_mean(
         by=(mv.member(), coordinate),
         members=members,
     )
-    result = with_coordinates.rollup(by=(coordinate,)).execute()
+    result = session.observe(
+        {"value": session.catalog.metrics.get("sales.weighted")},
+        during=scope,
+        by=(coordinate,),
+        members=members,
+    ).compute()
     assert _value(result).dropna().tolist() == pytest.approx([expected])
     grouped = session.observe(
         {"value": session.catalog.metrics.get("sales.mean")},
         during=scope,
-        by=(mv.member(), coordinate),
+        by=(coordinate,),
         members=members,
-    ).rollup(by=(coordinate,))
-    grouped_mean = grouped.execute()
+    )
+    grouped_mean = grouped.compute()
+    # Direct source means follow the independently executed native SQL carrier.
+    assert _value(grouped_mean).tolist() == [row[0] for row in expected_mean]
     if value_type.startswith("DECIMAL"):
         assert all(isinstance(value, Decimal) for value in raw[("value", "value")].dropna())
         expected_a = ((Decimal("1.01") + Decimal("1.02")) / 2).quantize(
             Decimal("0.01"), rounding=ROUND_HALF_EVEN
         )
-        assert _value(grouped_mean).tolist() == [expected_a, Decimal("5.00")]
-    else:
-        assert _value(grouped_mean).tolist() == [row[0] for row in expected_mean]
+        # Current rows have their own HalfEven arithmetic. This is not source
+        # mean reconstruction: each admitted fact is one represented row here.
+        represented = session.observe(
+            {"value": session.catalog.metrics.get("sales.mean")},
+            during=scope,
+            by=(mv.member(), coordinate),
+            members=members,
+        ).compute()
+        row_means = represented.reduce(
+            {"value": represented["value"].mean()}, by=(represented.axes[1],)
+        ).compute()
+        assert _value(row_means).tolist() == [expected_a, Decimal("5.00")]
     mean = session.observe(
         {"value": session.catalog.metrics.get("sales.mean")}, during=scope, by=members
     )
-    assert float(_value(mean.rollup().execute()).iloc[0]) == pytest.approx(2.34, abs=0.01)
+    assert float(
+        _value(
+            session.observe(
+                {"value": session.catalog.metrics.get("sales.mean")}, during=scope, members=members
+            ).compute()
+        ).iloc[0]
+    ) == pytest.approx(2.34, abs=0.01)
 
 
 def _model(tmp_path: Path) -> None:
@@ -209,16 +233,20 @@ def _clickhouse_weight_state_overflow(
         )
         from marivo.analysis.materialization.errors import MaterializationError
 
-        saved = observed.execute() if fixed else None
+        saved = observed.persist() if fixed else None
         previous = saved.to_pandas() if saved is not None else None
         if saved is not None:
             weights = session.read(
                 members, {"weight": session.catalog.fields.get("sales.facts.weight")}
-            ).execute()
+            ).compute()
             assert weights.to_pandas()[("value", "weight")].tolist() == [2**63 - 1] * 2
         before = publication_counts(session)
         with pytest.raises(MaterializationError) as raised:
-            observed.rollup().execute()
+            session.observe(
+                {"value": session.catalog.metrics.get("sales.weighted")},
+                during=scope,
+                members=members,
+            ).compute()
         cause = str(raised.value.__cause__)
         assert (
             "retained numeric sum within declared carrier" in str(raised.value)
@@ -277,9 +305,9 @@ def test_mixed_linear_coordinates(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         during=session.time_scope(start="2026-07-01", end="2026-07-02"),
         by=(coordinate,),
     )
-    result = observed.rollup(by=(coordinate,)).execute()
+    result = observed.persist()
     assert _value(result).tolist() == [2.0]
-    assert session.artifact(result.id).to_pandas().equals(result.to_pandas())
+    assert session.persisted_frame(result.artifact.id).to_pandas().equals(result.to_pandas())
 
 
 def _component_model(tmp_path: Path, *, parquet: bool = True) -> None:
@@ -370,10 +398,12 @@ def test_mixed_component_attribution_source_and_fixed(
         by=(axis,),
         members=members,
     )
-    changed = current.compare(baseline).execute()
+    changed = current.compare(
+        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True))
+    ).persist()
     expected = 1.0 if method == "weighted" else 1.0 / weight
-    assert changed.to_pandas()[("value", "value.absolute")].tolist() == pytest.approx([expected])
-    assert session.artifact(changed.id).to_pandas().equals(changed.to_pandas())
+    assert changed.to_pandas()[("value", "absolute.value")].tolist() == pytest.approx([expected])
+    assert session.persisted_frame(changed.artifact.id).to_pandas().equals(changed.to_pandas())
 
 
 @pytest.mark.parametrize(
@@ -417,11 +447,15 @@ def test_linear_promotes_before_signed_intermediate_arithmetic(
     logical = session.observe({"value": metric}, during=scope, by=members)
     if family in {"duration", "float_prefix"}:
         with pytest.raises(AnalysisError):
-            logical.execute()
+            logical.compute()
         metric = (total - cancel) + weights if family == "duration" else total + (weights - cancel)
         logical = session.observe({"value": metric}, during=scope, by=members)
-    fixed = logical.execute()
-    for result in (fixed, logical.rollup().execute(), session.artifact(fixed.id)):
+    fixed = logical.persist()
+    for result in (
+        fixed,
+        session.observe({"value": metric}, during=scope, members=members).compute(),
+        session.persisted_frame(fixed.artifact.id),
+    ):
         result_values = _value(result)
         if family == "duration":
             assert pa.array(result_values).cast(pa.duration("ns")).cast(pa.int64()).to_pylist() == [
@@ -462,9 +496,11 @@ def test_narrow_decimal_mean_difference_preserves_fixed_attribution_carrier(
         by=(axis,),
         members=members,
     )
-    fixed = current.compare(baseline).execute()
-    for result in (fixed, session.artifact(fixed.id)):
-        values = result.to_pandas()[("value", "value.absolute")]
+    fixed = current.compare(
+        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True))
+    ).persist()
+    for result in (fixed, session.persisted_frame(fixed.artifact.id)):
+        values = result.to_pandas()[("value", "absolute.value")]
         assert values.tolist() == [Decimal("1.01")]
         dtype = values.dtype
         precision = int(value_type.split("(")[1].split(",")[0])
@@ -503,12 +539,16 @@ def test_linear_still_rejects_final_carrier_overflow(
         during=session.time_scope(start="2026-08-01", end="2026-09-01"),
         by=session.members(ms.ref.entity("sales.facts")),
     )
-    fixed = logical.execute()
+    fixed = logical.persist()
     previous = fixed.to_pandas()
     with pytest.raises(AnalysisError):
-        logical.rollup().execute()
+        session.observe(
+            {"value": metric},
+            during=session.time_scope(start="2026-08-01", end="2026-09-01"),
+            members=session.members(ms.ref.entity("sales.facts")),
+        ).compute()
     assert fixed.to_pandas().equals(previous)
-    assert session.artifact(fixed.id).to_pandas().equals(previous)
+    assert session.persisted_frame(fixed.artifact.id).to_pandas().equals(previous)
 
 
 def test_native_linear_comparison_uses_represented_cells_in_both_routes(
@@ -538,8 +578,10 @@ def test_native_linear_comparison_uses_represented_cells_in_both_routes(
         during=session.time_scope(start="2026-07-01", end="2026-08-01"),
         by=members,
     )
-    result = current.compare(baseline).execute()
-    assert result.to_pandas()[("value", "value.relative")].tolist() == [1.0]
-    current_values, baseline_values = _value(current.execute()), _value(baseline.execute())
+    result = current.compare(
+        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True))
+    ).persist()
+    assert result.to_pandas()[("value", "relative.value")].tolist() == [1.0]
+    current_values, baseline_values = _value(current.compute()), _value(baseline.compute())
     assert ((current_values - baseline_values) / baseline_values.abs()).tolist() == [1.0]
-    assert session.artifact(result.id).to_pandas().equals(result.to_pandas())
+    assert session.persisted_frame(result.artifact.id).to_pandas().equals(result.to_pandas())

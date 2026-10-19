@@ -20,6 +20,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
 from marivo.analysis.errors import AnalysisError
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.analysis.numeric.attribution_workflows import (
@@ -40,23 +41,23 @@ from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import capture_source
 
 
-def _inputs(case: DslCase, *, weight: bool = False) -> tuple[mv.Artifact, mv.Artifact]:
-    return basis_query(case, 8, weight=weight).execute(), basis_query(
+def _inputs(case: DslCase, *, weight: bool = False) -> tuple[mv.AnalysisFrame, mv.AnalysisFrame]:
+    return basis_query(case, 8, weight=weight).persist(), basis_query(
         case, 7, weight=weight
-    ).execute()
+    ).persist()
 
 
-def _count(case: DslCase, month: int, *, drill: bool = False) -> mv.Query:
+def _count(case: DslCase, month: int) -> mv.AnalysisFrame:
     session = case.session
     customer = session.catalog.fields.get("sales.order.customer_id")
     channel = session.catalog.fields.get("sales.order.channel")
     values = session.observe(
         {"value": session.catalog.metrics.get("sales.order_count")},
         during=session.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
-        by=(customer,) if drill else (customer, channel),
+        by=(customer, channel),
         members=session.members(ms.ref.entity("sales.customer")),
     )
-    return values.drill(add=(channel,)) if drill else values
+    return values
 
 
 def _expected_counts() -> dict[tuple[str | None, str | None], int]:
@@ -91,7 +92,7 @@ def _run_worker(root: Path, phase: str) -> Json:
 
 def _save_inputs(
     case: DslCase,
-    inputs: tuple[mv.Artifact, mv.Artifact],
+    inputs: tuple[mv.AnalysisFrame, mv.AnalysisFrame],
     *,
     methods: tuple[Method, ...],
     top_k: int | None = None,
@@ -106,7 +107,9 @@ def _save_inputs(
         )
     state: dict[str, Json] = {
         "session": case.session.id,
-        "inputs": [{"artifact": value.id, "snapshot": snapshot(value)} for value in inputs],
+        "inputs": [
+            {"artifact": value.artifact.id, "snapshot": snapshot(value)} for value in inputs
+        ],
         "methods": list(methods),
         "top_k": top_k,
         "recipe_outputs": recipes,
@@ -126,17 +129,15 @@ def test_additive_source_and_fixed(analysis_dsl_case_factory: DslCaseFactory) ->
     inputs = _inputs(case)
     frame = allocation(*(basis(value) for value in inputs), method="count")
     assert {(r.member, r.channel): r.contribution for r in frame.itertuples()} == _expected_counts()
-    # The source drill remains a real positive capability, before publication.
+    # Request the complete classification explicitly and check independent facts.
     for month, artifact in zip((8, 7), inputs, strict=True):
-        direct = plain(_count(case, month).execute())
-        drilled = plain(_count(case, month, drill=True).execute())
-        assert direct.equals(drilled)
+        direct = plain(_count(case, month).compute())
         expected = basis(artifact).groupby(["member", "channel"]).size().to_dict()
-        assert {(r.key_0, r.key_1): r.value for r in drilled.itertuples()} == expected
+        assert {(r.key_0, r.key_1): r.value for r in direct.itertuples()} == expected
     selected = frame.loc[frame.contribution > 0]
     assert selected[["current"]].shape == selected[["baseline"]].shape
     before = len(case.session.runs().items)
-    restored = tuple(case.session.artifact(value.id) for value in inputs)
+    restored = tuple(case.session.persisted_frame(value.artifact.id) for value in inputs)
     pd.testing.assert_frame_equal(
         allocation(*(basis(value) for value in restored), method="count"), frame
     )
@@ -267,7 +268,7 @@ def test_common_other_mapping_each_parent_and_resolution(
         )
     inputs = _inputs(case)
     sources = (
-        (inputs, tuple(case.session.artifact(value.id) for value in inputs))
+        (inputs, tuple(case.session.persisted_frame(value.artifact.id) for value in inputs))
         if fixed_followup
         else (inputs,)
     )
@@ -336,61 +337,59 @@ def test_static_refusals_and_shared_compiled_submissions(
     assert views.shape == (4, 3)
     assert issued and before == (len(issued), len(case.session.runs().items))
     assert all("reconciled AS" not in sql and "attributed AS" not in sql for sql in issued)
-    query = _count(case, 8)
-    for add in ((), (case.session.catalog.fields.get("sales.order.channel"),)):
-        with pytest.raises(AnalysisError):
-            query.drill(add=add)
+    assert not hasattr(inputs[0], "drill")
     assert before == (len(issued), len(case.session.runs().items))
 
 
-@pytest.mark.parametrize(
-    "coarsen", [False, pytest.param(True, marks=pytest.mark.slow, id="coarsened")]
-)
 def test_period_buckets_and_retained_coarsened_partition(
-    analysis_dsl_case_factory: DslCaseFactory, coarsen: bool
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
     customer = session.catalog.fields.get("sales.order.customer_id")
     channel = session.catalog.fields.get("sales.order.channel")
 
-    def endpoint(month: int) -> mv.Query:
+    def endpoint(month: int) -> mv.AnalysisFrame:
         scope = session.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01")
-        calendar = scope.by(mv.grain("day" if coarsen else "month"))
+        calendar = scope.by(mv.grain("month"))
         values = session.observe(
             {"value": session.catalog.metrics.get("sales.order_count")},
             during=calendar,
             by=(customer, channel),
             members=session.members(ms.ref.entity("sales.customer")),
         )
-        return (
-            values.rollup(by=(customer, scope.by(mv.grain("month")), channel))
-            if coarsen
-            else values
-        )
+        return values
 
     current, baseline = endpoint(8), endpoint(7)
-    result = current.compare(baseline, match=mv.ordinal()).execute()
+    result = current.compare(
+        baseline, match=mv.ordinal(), on=tuple(zip(current.axes, baseline.axes, strict=True))
+    ).compute()
     compared = plain(result)
     assert len(compared) == 4
-    assert compared["value.absolute"].tolist() == [0, 0, 0, 0]
-    assert compared["value.current"].tolist() == compared["value.baseline"].tolist() == [1, 1, 1, 1]
-    if coarsen:
-        assert compared.key_0.tolist() == ["A", "B", "C", "D"]
-        assert compared.key_1.tolist() == ["(0, 0)"] * 4
-    else:
-        assert compared.key_0.tolist() == ["(0, 0)"] * 4
-        assert compared.key_1.tolist() == ["A", "B", "C", "D"]
+    assert compared["absolute.value"].tolist() == [0, 0, 0, 0]
+    assert compared["left.value"].tolist() == compared["right.value"].tolist() == [1, 1, 1, 1]
+    assert compared.key_1.tolist() == ["A", "B", "C", "D"]
     assert compared.key_2.tolist() == ["web"] * 4
+    directories = [
+        part["rows"]
+        for part in result.to_pandas().attrs["frozen_coordinates"]
+        if "nominal_start" in part["rows"].columns
+    ]
+    assert len(directories) == 2
     bounds = {
-        tuple(value.isoformat() for value in bound)
-        for projection in result._manifest.data.coordinate_projections
-        for bound in projection.bounds
+        (row.nominal_start.isoformat(), row.nominal_end.isoformat())
+        for directory in directories
+        for row in directory.itertuples()
     }
     assert bounds == {
-        ("2026-07-01T00:00:00+00:00", "2026-08-01T00:00:00+00:00") * 2,
-        ("2026-08-01T00:00:00+00:00", "2026-09-01T00:00:00+00:00") * 2,
+        ("2026-07-01T00:00:00+00:00", "2026-08-01T00:00:00+00:00"),
+        ("2026-08-01T00:00:00+00:00", "2026-09-01T00:00:00+00:00"),
     }
+    assert {
+        (row.actual_start.isoformat(), row.actual_end.isoformat())
+        for directory in directories
+        for row in directory.itertuples()
+    } == bounds
     allocated = allocation(*(basis(value) for value in _inputs(case)), method="count")
     assert {
         (r.member, r.channel): r.contribution for r in allocated.itertuples()
@@ -434,21 +433,27 @@ def test_new_source_evaluation_preserves_fixed_basis(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     queries = basis_query(case, 8), basis_query(case, 7)
-    fixed = queries[0].execute(), queries[1].execute()
+    fixed = queries[0].persist(), queries[1].persist()
     before = allocation(*(basis(value) for value in fixed), method="count")
     with duckdb.connect(str(case.database_path)) as db:
         db.execute(
             'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?)',
             ["new-attribution", "A", "web", "paid", "2026-08-15", 1],
         )
-    fresh = queries[0].execute(), queries[1].execute()
-    assert fresh[0].id != fixed[0].id
+    fresh = queries[0].compute(), queries[1].compute()
+    fresh_backing, fixed_backing = fresh[0]._backing, fixed[0]._backing
+    assert isinstance(fresh_backing, MemoryFrameBacking)
+    assert isinstance(fixed_backing, StoredFrameBacking)
+    assert fresh_backing.metadata.result_id != fixed_backing.metadata.result_id
     assert (
         allocation(*(basis(value) for value in fresh), method="count").contribution.sum()
         == before.contribution.sum() + 1
     )
     pd.testing.assert_frame_equal(
-        allocation(*(basis(case.session.artifact(value.id)) for value in fixed), method="count"),
+        allocation(
+            *(basis(case.session.persisted_frame(value.artifact.id)) for value in fixed),
+            method="count",
+        ),
         before,
     )
 
@@ -541,10 +546,11 @@ def test_numeric_view_rank_uses_typed_other_order(
 @pytest.mark.slow
 def test_attribution_publication_cleans_only_failed_run(
     analysis_dsl_case_factory: DslCaseFactory,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     query = basis_query(case, 8)
-    fixed = query.execute()
+    fixed = query.persist()
     expected = fixed.to_pandas()
     for point in ("terminal_primary_written", "terminal_files_published"):
         before = set((case.root / ".marivo").rglob("*.parquet"))
@@ -554,17 +560,17 @@ def test_attribution_publication_cleans_only_failed_run(
             if event == stage:
                 raise RuntimeError("injected basis publication failure")
 
-        case.session._runtime._hook = fail
-        try:
+        from marivo.analysis.materialization import terminal_publication
+
+        with monkeypatch.context() as patch:
+            patch.setattr(terminal_publication, "_event", fail)
             with pytest.raises((AnalysisError, RuntimeError)):
-                query.execute()
-        finally:
-            case.session._runtime._hook = None
+                query.persist()
         assert set((case.root / ".marivo").rglob("*.parquet")) == before
         assert case.session.runs(status="succeeded").items == succeeded
         pd.testing.assert_frame_equal(fixed.to_pandas(), expected)
         with case.session._runtime.store._read() as conn:
             assert conn.execute("SELECT count(*) FROM action_resource_journal").fetchone()[0] == 0
-    fresh = query.execute()
-    baseline = basis_query(case, 7).execute()
+    fresh = query.compute()
+    baseline = basis_query(case, 7).compute()
     assert allocation(basis(fresh), basis(baseline), method="count").contribution.sum() == 0

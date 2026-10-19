@@ -22,7 +22,7 @@ def _case(factory: DslCaseFactory, *, double: bool = False) -> DslCase:
     return case
 
 
-def _observe(case: DslCase, start: str, end: str, *, daily: bool = False) -> mv.Query:
+def _observe(case: DslCase, start: str, end: str, *, daily: bool = False) -> mv.AnalysisFrame:
     session = case.session
     amount = session.catalog.fields.get("sales.order.amount")
     time = session.catalog.fields.get("sales.order.ordered_at")
@@ -52,21 +52,27 @@ def test_null_operand_propagates_in_time_comparison(
     current = _observe(case, "2026-09-01", "2026-10-01")
     baseline = _observe(case, "2026-08-01", "2026-09-01")
     for first, second, sign in ((current, baseline, 1), (baseline, current, -1)):
-        result = first.compare(second).execute()
+        result = first.compare(
+            second, on=tuple(zip(first.axes, second.axes, strict=True))
+        ).compute()
         frame = result.to_pandas()
         frame = frame.set_index(frame.columns[0])
-        assert frame.loc["A", ("value", "value.absolute")] == -30 * sign
-        assert frame.loc["B", ("value", "value.absolute")] == 80 * sign
-        assert frame.loc["C", ("value", "value.absolute")] == 0
-        assert pd.isna(frame.loc["D", ("value", "value.absolute")])
-        assert pd.isna(frame.loc["D", ("value", "value.relative")])
+        assert frame.loc["A", ("value", "absolute.value")] == -30 * sign
+        assert frame.loc["B", ("value", "absolute.value")] == 80 * sign
+        assert frame.loc["C", ("value", "absolute.value")] == 0
+        assert pd.isna(frame.loc["D", ("value", "absolute.value")])
+        assert pd.isna(frame.loc["D", ("value", "relative.value")])
         assert frame.loc["D", "presence"].all()
-        empty_endpoint = "value.current" if sign == 1 else "value.baseline"
-        populated_endpoint = "value.baseline" if sign == 1 else "value.current"
+        empty_endpoint = "left.value" if sign == 1 else "right.value"
+        populated_endpoint = "right.value" if sign == 1 else "left.value"
         assert pd.isna(frame.loc["D", ("value", empty_endpoint)])
         assert frame.loc["D", ("value", populated_endpoint)] == 0
-    frame = current.compare(baseline).execute().to_pandas()
-    assert frame[("value", "value.relative")].dropna().tolist() == pytest.approx([-0.5, 2 / 3])
+    frame = (
+        current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))
+        .compute()
+        .to_pandas()
+    )
+    assert frame[("value", "relative.value")].dropna().tolist() == pytest.approx([-0.5, 2 / 3])
 
 
 def test_null_operands_propagate_in_period_comparison(
@@ -75,14 +81,16 @@ def test_null_operands_propagate_in_period_comparison(
     case = _case(analysis_dsl_case_factory)
     current = _observe(case, "2026-08-14", "2026-08-17", daily=True)
     baseline = _observe(case, "2026-07-09", "2026-07-12", daily=True)
-    result = current.compare(baseline, match=mv.ordinal()).execute()
+    result = current.compare(
+        baseline, match=mv.ordinal(), on=tuple(zip(current.axes, baseline.axes, strict=True))
+    ).persist()
     frame = result.to_pandas()
     assert len(frame) == 12
-    absolute = frame[("value", "value.absolute")]
+    absolute = frame[("value", "absolute.value")]
     assert sorted(absolute.dropna().tolist()) == [-50, 0, 20]
     assert absolute.isna().sum() == 9
     assert frame["presence"].all().all()
-    assert case.session.artifact(result.id).to_pandas().equals(frame)
+    assert case.session.persisted_frame(result.artifact.id).to_pandas().equals(frame)
 
 
 def test_null_and_zero_denominator_both_remain_nullable_in_both_directions(
@@ -101,7 +109,7 @@ def test_null_and_zero_denominator_both_remain_nullable_in_both_directions(
         by=session.members(ms.ref.entity("sales.customer")),
     )
     endpoints = q.select({"revenue": q["revenue"], "count_ratio": q["count"] / q["count"]})
-    values = endpoints.execute().to_pandas()
+    values = endpoints.compute().to_pandas()
     values = values.set_index(values.columns[0])
     assert pd.isna(values.loc["D", ("value", "revenue")])
     assert pd.isna(values.loc["D", ("value", "count_ratio")])
@@ -112,7 +120,7 @@ def test_null_and_zero_denominator_both_remain_nullable_in_both_directions(
         ("count_ratio", "revenue", 1 / 30),
     ):
         frame = (
-            endpoints.select({"value": endpoints[first] / endpoints[second]}).execute().to_pandas()
+            endpoints.select({"value": endpoints[first] / endpoints[second]}).compute().to_pandas()
         )
         frame = frame.set_index(frame.columns[0])
         assert frame.loc["A", ("value", "value")] == pytest.approx(expected)
@@ -132,6 +140,6 @@ def test_nonfinite_operand_still_fails_the_whole_run(
     current = _observe(case, "2026-09-01", "2026-10-01")
     baseline = _observe(case, "2026-08-01", "2026-09-01")
     with pytest.raises(AnalysisError) as caught:
-        current.compare(baseline).execute()
+        current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True))).compute()
     assert caught.value.expected and caught.value.received
     assert case.session.graph().artifacts == ()

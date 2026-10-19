@@ -1,4 +1,4 @@
-"""Explicit pandas allocation recipes over complete terminal fact exports."""
+"""Explicit pandas allocation recipes over complete fixed Frame fact exports."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ Mode = Literal["joint", "hierarchy"]
 Scalar = int | float | Decimal | pd.Timedelta
 
 
-def basis_query(case: DslCase, month: int, *, weight: bool = False) -> mv.Query:
+def basis_query(case: DslCase, month: int, *, weight: bool = False) -> mv.AnalysisFrame:
     session = case.session
     names = {
         "member": "customer_id",
@@ -45,7 +45,7 @@ def basis_query(case: DslCase, month: int, *, weight: bool = False) -> mv.Query:
     )
 
 
-def basis(artifact: mv.Artifact) -> pd.DataFrame:
+def basis(artifact: mv.AnalysisFrame) -> pd.DataFrame:
     return plain(artifact).drop(columns="key_0")
 
 

@@ -1,4 +1,4 @@
-"""Reopen complete terminal facts and run explicit pandas allocation offline."""
+"""Reopen complete persisted Frame facts and run explicit pandas allocation offline."""
 
 from __future__ import annotations
 
@@ -34,12 +34,12 @@ def run(root: Path, phase: str, output: Path) -> None:
     ):
         session = mv.session.resume(session_id, by="id")
         before = len(session.runs().items)
-        inputs: list[mv.Artifact] = []
+        inputs: list[mv.AnalysisFrame] = []
         for saved in arr(state["inputs"]):
             item = obj(saved)
             artifact = item["artifact"]
             assert isinstance(artifact, str)
-            value = session.artifact(artifact)
+            value = session.persisted_frame(artifact)
             assert snapshot(value) == item["snapshot"]
             inputs.append(value)
         assert len(inputs) == 2

@@ -4,10 +4,12 @@ from decimal import Decimal
 from pathlib import Path
 
 import ibis
+import pandas as pd
 import pytest
 from ibis.backends.duckdb import Backend
 
 import marivo.analysis as mv
+from marivo.analysis.core.artifact_data import DataSchema
 from marivo.analysis.core.data_types import DecimalDataType, ScalarDataType
 
 
@@ -104,23 +106,33 @@ def _session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.Session:
     return mv.session.get_or_create("cum_decimal", report_timezone="UTC")
 
 
-def _by_day(frame: mv.Artifact) -> dict[str, Decimal | float | int]:
+def _schema(frame: mv.AnalysisFrame) -> DataSchema:
+    assert isinstance(frame._schema, DataSchema)
+    return frame._schema
+
+
+def _by_day(frame: mv.AnalysisFrame) -> dict[str, Decimal | float | int]:
     rows = frame.to_pandas()
-    if isinstance(frame._manifest.data.schema.values[0].dtype, DecimalDataType):
+    if isinstance(_schema(frame).values[0].dtype, DecimalDataType):
         assert all(isinstance(value, Decimal) for value in rows[("value", "value")])
+    parts = rows.attrs["frozen_coordinates"]
+    assert len(parts) == 1
+    directory = parts[0]["rows"]
+    assert isinstance(directory, pd.DataFrame)
+    labels = dict(zip(directory.iloc[:, 0], directory["nominal_label"], strict=True))
     return {
-        str(day)[:10]: value
+        str(labels[day])[:10]: value
         for day, value in zip(rows.iloc[:, 0], rows[("value", "value")], strict=True)
     }
 
 
 def _observe(
     session: mv.Session, metric: str, start: str = "2026-07-01", end: str = "2026-07-04"
-) -> mv.Artifact:
+) -> mv.AnalysisFrame:
     return session.observe(
         {"value": session.catalog.metrics.get(metric)},
         during=session.time_scope(start=start, end=end).by(mv.grain("day")),
-    ).execute()
+    ).compute()
 
 
 def test_decimal_all_history_cumulative_succeeds(
@@ -135,7 +147,7 @@ def test_decimal_all_history_cumulative_succeeds(
         "2026-07-02": pytest.approx(37.0),
         "2026-07-03": pytest.approx(62.0),
     }
-    assert frame._manifest.data.schema.values[0].dtype == DecimalDataType(38, 2)
+    assert _schema(frame).values[0].dtype == DecimalDataType(38, 2)
 
 
 def test_decimal_grain_to_date_cumulative_boundaries(
@@ -150,7 +162,7 @@ def test_decimal_grain_to_date_cumulative_boundaries(
         "2026-07-02": pytest.approx(27.0),
         "2026-07-03": pytest.approx(52.0),
     }
-    assert frame._manifest.data.schema.values[0].dtype == DecimalDataType(38, 2)
+    assert _schema(frame).values[0].dtype == DecimalDataType(38, 2)
 
     partial_frame = _observe(session, "sales.mtd_gmv", "2026-07-02", "2026-07-04")
     partial_by_day = _by_day(partial_frame)
@@ -174,7 +186,7 @@ def test_decimal_trailing_cumulative_succeeds(
         "2026-07-02": pytest.approx(27.0),
         "2026-07-03": pytest.approx(42.0),
     }
-    assert frame._manifest.data.schema.values[0].dtype == DecimalDataType(38, 2)
+    assert _schema(frame).values[0].dtype == DecimalDataType(38, 2)
 
 
 def test_decimal_weighted_mean_cumulative_succeeds(
@@ -187,4 +199,4 @@ def test_decimal_weighted_mean_cumulative_succeeds(
     # is 4 + 6 = 10 and June numerator is 100*4 + 100*6 = 1000.
     assert by_day["2026-07-01"] == Decimal("100.500000")
     assert by_day["2026-07-02"] == pytest.approx(3739 / 37)
-    assert frame._manifest.data.schema.values[0].dtype == ScalarDataType("float64")
+    assert _schema(frame).values[0].dtype == ScalarDataType("float64")

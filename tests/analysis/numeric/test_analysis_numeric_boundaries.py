@@ -73,7 +73,7 @@ def test_native_float_nonzero_denominator_survives_cancellation(
     )
     # Native sums retain a nonzero denominator of 16 despite cancellation.
     expected_total = 3.0 / 16.0 if kind == "ratio" else 1.0
-    fixed = logical.execute()
+    fixed = logical.persist()
     rows = fixed.to_pandas()
     defined = dict(zip(rows.iloc[:, 0], rows[("value", "value")], strict=True))
     defined = {key: value for key, value in defined.items() if not pd.isna(value)}
@@ -86,10 +86,8 @@ def test_native_float_nonzero_denominator_survives_cancellation(
     )
     assert defined == expected
     assert all(isinstance(value, float) for value in defined.values())
-    assert session.artifact(fixed.id).to_pandas().equals(rows)
-    results = [logical.rollup().execute(), logical.rollup().rollup().execute()]
-    if coordinates:
-        results.append(logical.rollup(by=(channel,)).rollup().execute())
+    assert session.persisted_frame(fixed.artifact.id).to_pandas().equals(rows)
+    results = [session.observe({"value": metric}, members=members).compute()]
     for result in results:
         assert result.to_pandas()[("value", "value")].tolist() == [expected_total]
 
@@ -126,10 +124,17 @@ def test_decimal_fold_retains_widened_sample_type(
         during=session.time_scope(start="2026-08-01", end="2026-08-03"),
         by=session.members(ms.ref.entity("sales.customer")),
     )
-    fixed = logical.execute()
-    for result in (fixed, logical.rollup().execute(), logical.rollup().rollup().execute()):
+    fixed = logical.persist()
+    for result in (
+        fixed,
+        session.observe(
+            {"value": folded},
+            during=session.time_scope(start="2026-08-01", end="2026-08-03"),
+            members=session.members(ms.ref.entity("sales.customer")),
+        ).compute(),
+    ):
         assert result.to_pandas()[("value", "value")].tolist() == [Decimal(1800)]
-    assert session.artifact(fixed.id).to_pandas().equals(fixed.to_pandas())
+    assert session.persisted_frame(fixed.artifact.id).to_pandas().equals(fixed.to_pandas())
 
 
 @pytest.mark.parametrize(
@@ -177,19 +182,23 @@ def test_decimal_boundary_fixed_rollup_does_not_round_range_check(
 
         before = publication_counts(session)
         with pytest.raises(MaterializationError, match="native Ibis pandas"):
-            logical.execute()
+            logical.compute()
         assert publication_counts(session) == before
         # Ibis infers SUM(decimal(38,0)) as decimal(38,2); its native pandas
         # conversion cannot represent this value. The independent local
         # Decimal contract still admits the actual 38-digit value.
         literal = session.values(by=(), columns={"value": None}, rows=(((), {"value": value}),))
-        local = literal.reduce({"value": literal["value"].sum()}).execute()
+        local = literal.reduce({"value": literal["value"].sum()}).compute()
         assert local.to_pandas()[("value", "value")].tolist() == [value]
         return
-    fixed = logical.execute()
-    for result in (logical.rollup().execute(), logical.rollup().rollup().execute()):
+    fixed = logical.persist()
+    for result in (
+        session.observe(
+            {"value": metric}, members=session.members(ms.ref.entity("sales.customer"))
+        ).compute(),
+    ):
         assert result.to_pandas()[("value", "value")].tolist() == [value]
-    assert session.artifact(fixed.id).to_pandas().equals(fixed.to_pandas())
+    assert session.persisted_frame(fixed.artifact.id).to_pandas().equals(fixed.to_pandas())
 
 
 @pytest.mark.parametrize("reverse", [False, True])
@@ -223,9 +232,14 @@ def test_numeric_raw_order_and_exchange_batches(
     logical = session.observe(
         {"value": amount_field.sum(time=time)}, by=session.members(ms.ref.entity("sales.customer"))
     )
-    fixed = logical.execute()
-    assert session.artifact(fixed.id).to_pandas().equals(fixed.to_pandas())
+    fixed = logical.persist()
+    assert session.persisted_frame(fixed.artifact.id).to_pandas().equals(fixed.to_pandas())
     exact = sum(Fraction(value) for _, value in facts)
     bound = sum(abs(value) for _, value in facts) * 1e-12 + 1e-12
-    for result in (logical.rollup().execute(), logical.rollup().rollup().execute()):
+    for result in (
+        session.observe(
+            {"value": amount_field.sum(time=time)},
+            members=session.members(ms.ref.entity("sales.customer")),
+        ).compute(),
+    ):
         assert abs(result.to_pandas()[("value", "value")].iloc[0] - float(exact)) <= bound

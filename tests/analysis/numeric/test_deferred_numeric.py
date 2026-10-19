@@ -391,7 +391,9 @@ def test_local_sample_accumulation_uses_fsum_and_one_decimal_finish() -> None:
 
 
 @pytest.mark.parametrize("calendar_slot,customer_slot", (("key.0", "key.1"), ("key.1", "key.0")))
-def test_sample_coverage_respects_calendar_axis_position(calendar_slot, customer_slot):
+def test_sample_coverage_respects_calendar_axis_position(
+    calendar_slot: str, customer_slot: str
+) -> None:
     from datetime import datetime, timezone
 
     from marivo._definition.observations import SampleCoverage

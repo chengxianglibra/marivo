@@ -1,6 +1,4 @@
-"""Current Query calendar correspondence and endpoint recovery."""
-
-from datetime import datetime, timezone
+"""Current Frame calendar correspondence and endpoint recovery."""
 
 import duckdb
 import pandas as pd
@@ -9,7 +7,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
-from tests.analysis.numeric.test_period_alignment import period
+from tests.analysis.numeric.test_period_alignment import paired_tables, period
 from tests.shared_fixtures import DslCaseFactory
 
 
@@ -22,17 +20,24 @@ def test_public_ordinal_retains_original_positions_after_selection(
     _, current = period(case.session, 8, lengths[0])
     _, baseline = period(case.session, 7, lengths[1])
     selected = current.where(current["value"] > 0)
-    comparison = selected.compare(baseline, match=mv.ordinal(), how="outer")
-    result = comparison.execute()
-    frame = result.to_pandas()
-    assert frame[("presence", ("current",))].sum() == 1
-    assert frame[("presence", ("baseline",))].sum() == lengths[1] * 4
-    assert frame[("value", "value.absolute")].dropna().tolist() == [1]
-    projection = next(
-        p for p in frame.attrs["marivo"]["axes"][0]["projections"] if p["path"] == ("current",)
+    comparison = selected.compare(
+        baseline,
+        match=mv.ordinal(),
+        how="outer",
+        on=tuple(zip(selected.axes, baseline.axes, strict=True)),
     )
-    assert [row[0] for row in projection["values"] if row[0] is not None] == [0]
-    pd.testing.assert_frame_equal(case.session.artifact(result.id).to_pandas(), frame)
+    result = comparison.persist()
+    frame = result.to_pandas()
+    assert frame[("presence", "left_present")].sum() == 1
+    assert frame[("presence", "right_present")].sum() == lengths[1] * 4
+    assert frame[("value", "absolute.value")].dropna().tolist() == [1]
+    mapping, left_directory, _ = paired_tables(frame)
+    retained = set(frame.loc[frame[("presence", "left_present")]].iloc[:, 0])
+    keys = set(mapping.loc[mapping.iloc[:, 0].isin(retained), "left.0"].dropna())
+    assert left_directory.loc[left_directory.iloc[:, 0].isin(keys), "ordinal"].tolist() == [0]
+    pd.testing.assert_frame_equal(
+        case.session.persisted_frame(result.artifact.id).to_pandas(), frame
+    )
 
 
 @pytest.mark.parametrize("kind", ["ordinal", "period_offset", "previous_year"])
@@ -69,15 +74,15 @@ def test_public_period_correspondence_preserves_independent_source_oracle(
         expected = [20, 0, 0, 0, 0, 15, 0, 0]
     current = session.observe({"value": metric}, during=current_axis, by=members)
     baseline = session.observe({"value": metric}, during=baseline_axis, by=members)
-    result = current.compare(baseline, match=match).execute()
+    result = current.compare(
+        baseline, match=match, on=tuple(zip(current.axes, baseline.axes, strict=True))
+    ).compute()
     frame = result.to_pandas()
     assert len(frame) == 8 and frame["presence"].all().all()
-    assert frame[("value", "value.absolute")].tolist() == expected
-    assert frame.attrs["marivo"]["axes"][0]["kind"] == "correspondence"
-    assert {p["path"] for p in frame.attrs["marivo"]["axes"][0]["projections"]} == {
-        ("current",),
-        ("baseline",),
-    }
+    assert frame[("value", "absolute.value")].tolist() == expected
+    assert frame.attrs["axes"][0]["role"] == "paired"
+    mapping, left_directory, right_directory = paired_tables(frame)
+    assert len(mapping) == len(left_directory) == len(right_directory) == 2
 
 
 def test_previous_year_leap_day_is_missing_and_current_projection_is_exact(
@@ -91,16 +96,26 @@ def test_previous_year_leap_day_is_missing_and_current_projection_is_exact(
     current = session.observe({"value": metric}, during=current_axis)
     baseline = session.observe({"value": metric}, during=baseline_axis)
     with pytest.raises(AnalysisError, match="complete"):
-        current.compare(baseline, match=mv.previous_year()).execute()
+        current.compare(
+            baseline,
+            match=mv.previous_year(),
+            on=tuple(zip(current.axes, baseline.axes, strict=True)),
+        ).compute()
     result = current.compare(
-        baseline, match=mv.previous_year(), how="outer", time_axis="current"
-    ).execute()
+        baseline,
+        match=mv.previous_year(),
+        how="outer",
+        on=tuple(zip(current.axes, baseline.axes, strict=True)),
+    ).compute()
     frame = result.to_pandas()
-    assert frame.iloc[:, 0].tolist() == [
-        datetime(2024, 2, 28, tzinfo=timezone.utc),
-        datetime(2024, 2, 29, tzinfo=timezone.utc),
+    mapping, left_directory, _ = paired_tables(frame)
+    labels = dict(zip(left_directory.iloc[:, 0], left_directory["nominal_label"], strict=True))
+    pairs = mapping.set_index(mapping.columns[0])
+    assert [labels[pairs.loc[key, "left.0"]] for key in frame.iloc[:, 0]] == [
+        "2024-02-28",
+        "2024-02-29",
     ]
-    assert frame[("presence", ("current",))].tolist() == [True, True]
-    assert frame[("presence", ("baseline",))].tolist() == [True, False]
-    assert frame[("value", "value.absolute")].iloc[0] == 0
-    assert pd.isna(frame[("value", "value.absolute")].iloc[1])
+    assert frame[("presence", "left_present")].tolist() == [True, True]
+    assert frame[("presence", "right_present")].tolist() == [True, False]
+    assert frame[("value", "absolute.value")].iloc[0] == 0
+    assert pd.isna(frame[("value", "absolute.value")].iloc[1])

@@ -1,4 +1,4 @@
-"""Original Query rollup publication and independent terminal cold reads."""
+"""Explicit source aggregation publication and independent terminal cold reads."""
 
 from __future__ import annotations
 
@@ -85,7 +85,7 @@ def author_decimal_mean_project(project: Path) -> Path:
     return project
 
 
-def _values(result: mv.Artifact) -> dict[str, Json]:
+def _values(result: mv.AnalysisFrame) -> dict[str, Json]:
     frame = result.to_pandas()
     assert isinstance(frame[("value", "net_amount")].iloc[0], Decimal)
     assert isinstance(frame[("value", "net_qty")].iloc[0], int)
@@ -93,7 +93,7 @@ def _values(result: mv.Artifact) -> dict[str, Json]:
     return {name: str(frame[("value", name)].iloc[0]) for name in METRIC_NAMES}
 
 
-def _dtypes(result: mv.Artifact) -> dict[str, Json]:
+def _dtypes(result: mv.AnalysisFrame) -> dict[str, Json]:
     frame = result.to_pandas()
     return {name: str(frame[("value", name)].dtype) for name in METRIC_NAMES}
 
@@ -116,19 +116,18 @@ def run(mode: str, project: Path) -> dict[str, Json]:
         metrics = session.catalog.metrics
         gmv = metrics.get("sales.gmv")
         qty_total = metrics.get("sales.qty_total")
-        query = session.observe(
-            {
-                "net_amount": gmv + metrics.get("sales.cost_total") - gmv,
-                "net_qty": qty_total + metrics.get("sales.qty_count") - qty_total,
-                "amount_mean": metrics.get("sales.amount_mean"),
-            },
-            during=session.time_scope(start="2026-07-01", end="2026-08-01"),
-            by=session.members(ms.ref.entity("sales.orders")),
-        )
-        original = query.execute()
-        monthly = query.rollup().execute()
+        metrics_by_name = {
+            "net_amount": gmv + metrics.get("sales.cost_total") - gmv,
+            "net_qty": qty_total + metrics.get("sales.qty_count") - qty_total,
+            "amount_mean": metrics.get("sales.amount_mean"),
+        }
+        scope = session.time_scope(start="2026-07-01", end="2026-08-01")
+        original = session.observe(
+            metrics_by_name, during=scope, by=session.members(ms.ref.entity("sales.orders"))
+        ).persist()
+        monthly = session.observe(metrics_by_name, during=scope).persist()
         artifacts: dict[str, Json] = {
-            name: {"artifact": result.id, "snapshot": snapshot(result)}
+            name: {"artifact": result.artifact.id, "snapshot": snapshot(result)}
             for name, result in (("original", original), ("monthly", monthly))
         }
         state: dict[str, Json] = {"session": session.id, "artifacts": artifacts}
@@ -151,10 +150,10 @@ def run(mode: str, project: Path) -> dict[str, Json]:
             saved = obj(item)
             artifact_id = saved["artifact"]
             assert isinstance(artifact_id, str)
-            assert snapshot(session.artifact(artifact_id)) == saved["snapshot"]
+            assert snapshot(session.persisted_frame(artifact_id)) == saved["snapshot"]
         monthly_id = obj(artifacts["monthly"])["artifact"]
         assert isinstance(monthly_id, str)
-        monthly = session.artifact(monthly_id)
+        monthly = session.persisted_frame(monthly_id)
         values, dtypes = _values(monthly), _dtypes(monthly)
         assert len(session.runs().items) == before
     return {"pid": os.getpid(), "values": values, "dtypes": dtypes}

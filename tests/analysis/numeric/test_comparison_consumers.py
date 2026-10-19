@@ -7,7 +7,6 @@ from typing import NoReturn
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.reference_fixtures import reference_data
@@ -37,16 +36,19 @@ def test_complete_keys_source_and_fixed(
         author_source_project("duckdb", case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("comparison-consumer", report_timezone="UTC")
         query = comparison_queries(session)[operation]
-        source = query.execute()
+        source = query.persist()
         assert_comparison(source, operation)
         source_trace.record(source)
         if operation == "nested":
-            selected = query.where(query["value"] > 0).population()
-            keys = session.query(selected).execute().to_pandas().iloc[:, 0]
+            selected_values = query.where(query["value"] > 0).compute()
+            selected = session.population_from(
+                selected_values,
+                on=((selected_values.axes[0], session.catalog.entities.get("sales.facts")),),
+            )
+            keys = session.frame(selected).compute().to_pandas().iloc[:, 0]
             assert set(keys) == {key for key, value in DEFINED.items() if value > 0}
         if operation == "ratio":
-            with pytest.raises(AnalysisError):
-                query.rollup()
+            assert not hasattr(query, "rollup")
         native = len(source_trace.native_sql)
         before = session.runs().items
 
@@ -54,7 +56,7 @@ def test_complete_keys_source_and_fixed(
             pytest.fail("Terminal comparison read touched a source")
 
         monkeypatch.setattr(SourceSession, "execute", forbid_source)
-        reopened = session.artifact(source.id)
+        reopened = session.persisted_frame(source.artifact.id)
         assert_comparison(reopened, operation)
         frame = reopened.to_pandas()
         assert frame[("value", "value")].dropna().sum() == (

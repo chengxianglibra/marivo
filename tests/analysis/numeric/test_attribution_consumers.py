@@ -91,11 +91,11 @@ def test_source_and_retained(
         current = facts.where(
             (facts["time"] >= datetime(2026, 8, 1, tzinfo=timezone.utc))
             & (facts["time"] < datetime(2026, 8, 2, tzinfo=timezone.utc))
-        ).execute()
+        ).persist()
         baseline = facts.where(
             (facts["time"] >= datetime(2026, 7, 31, tzinfo=timezone.utc))
             & (facts["time"] < datetime(2026, 8, 1, tzinfo=timezone.utc))
-        ).execute()
+        ).persist()
         source_trace.record(current)
         source_trace.record(baseline)
         current_frame, baseline_frame = plain(current), plain(baseline)
@@ -159,8 +159,8 @@ def test_source_and_retained(
 
                     offline.setattr(SourceSession, "execute", forbid)
                     restored = allocation(
-                        plain(session.artifact(current.id)),
-                        plain(session.artifact(baseline.id)),
+                        plain(session.persisted_frame(current.artifact.id)),
+                        plain(session.persisted_frame(baseline.artifact.id)),
                         method="sum",
                         axes=axes,
                         parents=(),
