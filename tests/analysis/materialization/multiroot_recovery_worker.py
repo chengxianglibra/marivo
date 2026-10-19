@@ -19,7 +19,7 @@ from tests.analysis.materialization.domain_recovery_worker import forbidden, sna
 from tests.support.json import Json, encode, obj, read
 
 
-def verify(outputs: Mapping[str, mv.Artifact]) -> dict[str, Json]:
+def verify(outputs: Mapping[str, mv.AnalysisFrame]) -> dict[str, Json]:
     components = outputs["components"].to_pandas()
     assert components.iloc[:, 0].tolist() == [
         ("a", 9007199254740992),
@@ -58,12 +58,12 @@ def run(root: Path, phase: str, output: Path) -> None:
     ):
         session = mv.session.resume(identity, by="id")
         before = len(session.runs().items)
-        outputs: dict[str, mv.Artifact] = {}
+        outputs: dict[str, mv.AnalysisFrame] = {}
         for name, saved in obj(state["outputs"]).items():
             item = obj(saved)
             artifact = item["artifact"]
             assert isinstance(artifact, str)
-            value = session.artifact(artifact)
+            value = session.persisted_frame(artifact)
             assert snapshot(value) == item["snapshot"]
             outputs[name] = value
         derived = verify(outputs)

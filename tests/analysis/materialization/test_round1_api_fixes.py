@@ -20,7 +20,6 @@ from marivo.analysis.core.artifact_data import CalendarDataAxis, TimestampDataTy
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.contracts import canonical_json
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.graph_reading import ExportRead, OutputRead, PreviewRead
 from marivo.analysis.materialization.pandas_export import export_frame
 from marivo.analysis.materialization.terminal_protocol import decode, encode
 from marivo.analysis.materialization.terminal_storage import read_output
@@ -44,11 +43,11 @@ def test_calendar_products_keep_each_axis_descriptor_receipt_and_cold_metadata(
         mv.grain("day")
     )
     outputs = {
-        "field_calendar": session.query(mv.product(regions, march)).execute(),
-        "two_calendars": session.query(mv.product(march, february)).execute(),
+        "field_calendar": session.frame(mv.product(regions, march)).persist(),
+        "two_calendars": session.frame(mv.product(march, february)).persist(),
         "source_calendar": session.observe(
             {"value": session.catalog.metrics.get("sales.revenue")}, during=march
-        ).execute(),
+        ).persist(),
     }
     march_starts = [
         pd.Timestamp("2026-03-27 23:00Z"),
@@ -56,52 +55,57 @@ def test_calendar_products_keep_each_axis_descriptor_receipt_and_cold_metadata(
         pd.Timestamp("2026-03-29 22:00Z"),
     ]
     february_starts = [pd.Timestamp("2026-01-31 15:00Z"), pd.Timestamp("2026-02-01 15:00Z")]
-    frames = {name: artifact.to_pandas() for name, artifact in outputs.items()}
+    frames = {name: value.to_pandas() for name, value in outputs.items()}
     field = frames["field_calendar"]
     assert field.iloc[:, 0].tolist() == ["A"] * 3 + ["B"] * 3
-    assert field.iloc[:, 1].tolist() == march_starts * 2
-    assert field.attrs["marivo"]["axes"][0]["kind"] == "field"
-    assert field.attrs["marivo"]["axes"][1]["kind"] == "calendar"
+    assert field.iloc[:, 1].tolist() == [0, 1, 2] * 2
+    assert [axis["role"] for axis in field.attrs["axes"]] == ["field", "calendar"]
     paired = frames["two_calendars"]
-    assert paired.iloc[:, 0].tolist() == [point for point in march_starts for _ in range(2)]
-    assert paired.iloc[:, 1].tolist() == february_starts * 3
-    assert [axis["timezone"] for axis in paired.attrs["marivo"]["axes"]] == [
+    assert paired.iloc[:, 0].tolist() == [0, 0, 1, 1, 2, 2]
+    assert paired.iloc[:, 1].tolist() == [0, 1] * 3
+    assert [axis["descriptor"]["timezone"] for axis in paired.attrs["axes"]] == [
         "Europe/Paris",
         "Asia/Tokyo",
     ]
-    assert [len(axis["bounds"]) for axis in paired.attrs["marivo"]["axes"]] == [3, 2]
-    march_bounds = paired.attrs["marivo"]["axes"][0]["bounds"]
-    assert march_bounds[1]["actual_end"] - march_bounds[1]["actual_start"] == timedelta(hours=23)
-    assert frames["source_calendar"].iloc[:, 0].tolist() == march_starts
+    assert frames["source_calendar"].iloc[:, 0].tolist() == [0, 1, 2]
     assert frames["source_calendar"][("value", "value")].tolist() == [0, 0, 0]
-
     saved: dict[str, object] = {}
-    for name, artifact in outputs.items():
-        manifest = artifact._manifest
+    for name, value in outputs.items():
+        manifest = value.artifact._manifest
         data = manifest.data
         calendars = tuple(axis for axis in data.schema.axes if isinstance(axis, CalendarDataAxis))
+        assert all(axis.frozen is not None for axis in calendars)
         assert {part.name for part in data.attachments} == {
-            f"calendar_bounds.{axis.token}" for axis in calendars
+            axis.frozen.directory_name for axis in calendars if axis.frozen is not None
         }
         for axis in calendars:
+            assert axis.frozen is not None
             part = next(
-                part for part in data.attachments if part.name == f"calendar_bounds.{axis.token}"
+                part for part in data.attachments if part.name == axis.frozen.directory_name
             )
-            assert part.schema.axes == (axis,)
             assert part.schema.key_fields == tuple(column.slot_id for column in axis.columns)
             bounds = read_output(case.root, part.schema, part.rows)
             assert bounds[part.schema.key_fields[0]].tolist() == list(range(len(bounds)))
+            assert bounds.ordinal.tolist() == list(range(len(bounds)))
             assert tuple(bounds.columns[1:]) == (
+                "nominal_label",
+                "ordinal",
                 "nominal_start",
                 "nominal_end",
                 "actual_start",
                 "actual_end",
             )
+            assert bounds.actual_start.tolist() == (
+                march_starts if axis.timezone == "Europe/Paris" else february_starts
+            )
+            if axis.timezone == "Europe/Paris":
+                assert bounds.actual_end.iloc[1] - bounds.actual_start.iloc[1] == timedelta(
+                    hours=23
+                )
         assert decode(encode(manifest), type(manifest)) == manifest
         saved[name] = {
-            "artifact": artifact.id,
-            "snapshot": snapshot(artifact, frame=frames[name]),
-            "metadata": json.dumps(frames[name].attrs["marivo"], sort_keys=True, default=str),
+            "artifact": value.artifact.id,
+            "snapshot": snapshot(value, frame=frames[name]),
         }
     state = case.root / "calendar-round1.json"
     state.write_text(json.dumps({"session": session.id, "outputs": saved}))
@@ -126,9 +130,8 @@ with pytest.MonkeyPatch.context() as patch:
     patch.setattr(mv.Session,'catalog',property(forbidden))
     session=mv.session.resume(state['session'],by='id'); before=run_ids(session)
     for receipt in state['outputs'].values():
-        artifact=session.artifact(receipt['artifact']); frame=artifact.to_pandas()
+        artifact=session.persisted_frame(receipt['artifact']); frame=artifact.to_pandas()
         assert snapshot(artifact,frame=frame)==receipt['snapshot']
-        assert json.dumps(frame.attrs['marivo'],sort_keys=True,default=str)==receipt['metadata']
         artifact.show(n=2)
     assert run_ids(session)==before and not session._runtime.store.resources(session.id)
 """
@@ -150,8 +153,8 @@ def test_calendar_descriptor_and_boundary_receipt_are_validated(
     session = case.session
     first = session.time_scope(start="2026-01-01", end="2026-01-03").by(mv.grain("day"))
     second = session.time_scope(start="2026-02-01", end="2026-02-03").by(mv.grain("day"))
-    artifact = session.query(mv.product(first, second)).execute()
-    manifest = artifact._manifest
+    artifact = session.frame(mv.product(first, second)).persist()
+    manifest = artifact.artifact._manifest
     part0, part1 = manifest.data.attachments
     for broken in (
         replace(part0, name="calendar_bounds"),
@@ -167,12 +170,18 @@ def test_calendar_descriptor_and_boundary_receipt_are_validated(
             ),
         ),
     ):
-        changed = replace(manifest, data=replace(manifest.data, attachments=(broken, part1)))
-        with pytest.raises(MaterializationError, match="boundary attachment"):
-            export_frame(changed, OutputRead(case.root), ExportRead())
+        with pytest.raises(AnalysisError):
+            changed = replace(manifest, data=replace(manifest.data, attachments=(broken, part1)))
+            value = mv.AnalysisFrame._from_stored(
+                artifact._local,
+                changed.data,
+                artifact_id=changed.artifact_id,
+                metadata=changed.metadata,
+            )
+            value.compute()
     envelope = json.loads(encode(manifest))
     envelope["format"] = "marivo.terminal_output/v0"
-    with pytest.raises(MaterializationError, match="obsolete"):
+    with pytest.raises(MaterializationError, match="format"):
         decode(canonical_json(envelope), type(manifest))
     boundary_file = case.root / part1.rows.receipt.project_relative_path / "data.parquet"
     boundary_file.write_bytes(boundary_file.read_bytes() + b"corrupt")
@@ -205,18 +214,18 @@ def test_select_literals_reject_naive_before_run_and_preserve_dates_and_instants
         patch.setattr(SourceSession, "execute", forbidden)
         with pytest.raises(AnalysisError) as caught:
             query.select({"stamp": datetime(2026, 1, 1)})
-    assert caught.value.location == "Query.select" and caught.value.expected
+    assert caught.value.location == "frame.select" and caught.value.expected
     assert caught.value.received and caught.value.repair
     assert run_ids(session) == before
-    frame = query.select({"day": date(2026, 1, 1), "stamp": aware}).execute().to_pandas()
+    frame = query.select({"day": date(2026, 1, 1), "stamp": aware}).persist().to_pandas()
     assert frame[("value", "day")].tolist() == [date(2026, 1, 1)]
     assert frame[("value", "stamp")].iloc[0] == pd.Timestamp("2026-01-01T00:00Z")
     literal = session.values(by=(), columns={"stamp": None}, rows=(((), {"stamp": aware}),))
     assert (
-        literal.execute().to_pandas()[("value", "stamp")].iloc[0]
+        literal.persist().to_pandas()[("value", "stamp")].iloc[0]
         == frame[("value", "stamp")].iloc[0]
     )
-    compared = literal.select({"same": literal["stamp"] == aware}).execute().to_pandas()
+    compared = literal.select({"same": literal["stamp"] == aware}).persist().to_pandas()
     assert compared[("value", "same")].tolist() == [True]
 
 
@@ -237,7 +246,7 @@ def test_top_uses_null_first_complete_keys_but_keeps_score_na_last(
             ((None, None), {"v": 1}),
         ),
     )
-    frame = equal.top(2, by=equal["v"]).execute().to_pandas()
+    frame = equal.top(2, by=equal["v"]).persist().to_pandas()
     assert frame.iloc[:, 0].isna().all()
     assert pd.isna(frame.iloc[0, 1]) and frame.iloc[1, 1] == "B"
     different = session.values(
@@ -250,25 +259,26 @@ def test_top_uses_null_first_complete_keys_but_keeps_score_na_last(
         ),
     )
     scores = different.select({"score": different["v"].divide(different["v"]) * different["v"]})
-    saved = scores.top(3, by=scores["score"]).execute()
+    saved = scores.top(3, by=scores["score"]).persist()
     exported = saved.to_pandas()
     assert exported.iloc[:2, 0].tolist() == ["A", "<null>"] and pd.isna(exported.iloc[2, 0])
     assert exported[("value", "score")].iloc[:2].tolist() == [2.0, 1.0]
     assert pd.isna(exported[("value", "score")].iloc[2])
-    preview = export_frame(saved._manifest, OutputRead(case.root), PreviewRead(2))
+    prefix = saved._local.preview(saved._backing, 2)
+    preview = export_frame(prefix.schema, prefix.rows, prefix.attachments)
     assert preview.iloc[:, 0].tolist() == ["A", "<null>"]
     assert preview[("value", "score")].tolist() == [2.0, 1.0]
-    assert scores.top(2, by=scores["score"]).execute().to_pandas().iloc[:, 0].tolist() == [
+    assert scores.top(2, by=scores["score"]).persist().to_pandas().iloc[:, 0].tolist() == [
         "A",
         "<null>",
     ]
-    ascending = scores.top(3, by=scores["score"], descending=False).execute().to_pandas()
+    ascending = scores.top(3, by=scores["score"], descending=False).persist().to_pandas()
     assert ascending.iloc[:2, 0].tolist() == ["<null>", "A"] and pd.isna(ascending.iloc[2, 0])
     scalar = session.values(by=(), columns={"v": None}, rows=(((), {"v": 1}),))
-    assert scalar.top(1, by=scalar["v"]).execute().to_pandas()[("value", "v")].tolist() == [1]
+    assert scalar.top(1, by=scalar["v"]).persist().to_pandas()[("value", "v")].tolist() == [1]
 
 
-def test_partitioned_top_keeps_complete_key_ties_after_score_projection(
+def test_global_top_keeps_complete_key_ties_after_score_projection(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
@@ -285,13 +295,13 @@ def test_partitioned_top_keeps_complete_key_ties_after_score_projection(
             (("A", "A"), {"score": 10}),
         ),
     )
-    ranked = values.top(2, by=values["score"], partition_by=(region,))
-    artifact = ranked.select({"selected": 1}).execute()
-    expected = [("A", "C"), ("A", "A"), ("B", "C"), ("B", "A")]
-    for selected in (artifact, session.artifact(artifact.id)):
+    ranked = values.top(2, by=values["score"], descending=True)
+    artifact = ranked.select({"selected": 1}).persist()
+    expected = [("B", "C"), ("A", "C")]
+    for selected in (artifact, session.persisted_frame(artifact.artifact.id)):
         frame = selected.to_pandas()
         assert list(frame.iloc[:, :2].itertuples(index=False, name=None)) == expected
-        assert frame[("value", "selected")].tolist() == [1] * 4
+        assert frame[("value", "selected")].tolist() == [1] * 2
 
 
 def test_literal_population_failures_use_structured_public_errors_without_reads(

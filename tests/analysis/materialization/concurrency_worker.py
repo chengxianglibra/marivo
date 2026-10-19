@@ -34,7 +34,7 @@ def snapshot(runtime: DatasetRuntime) -> dict[str, int]:
         }
 
 
-def observation(session: Session, metric: str) -> mv.Query:
+def observation(session: Session, metric: str) -> mv.AnalysisFrame:
     return session.observe(
         {"value": session.catalog.metrics.get(metric)},
         during=session.time_scope(start="2026-08-01", end="2026-09-01"),
@@ -46,19 +46,18 @@ def contend(project: Path, session: str, metric: str, artifact: str) -> dict[str
     os.environ["MARIVO_PROJECT_ROOT"] = str(project)
     handle = Session._from_runtime(DatasetRuntime.open(project, session))
     runtime = handle._runtime
-    logical = observation(handle, metric)
+    logical = observation(handle, metric).compute()
     before = snapshot(runtime)
-    retained = handle.artifact(artifact)
+    retained = handle.persisted_frame(artifact)
     try:
-        logical.execute()
+        logical.persist()
     except SessionBusyError as error:
         return {
             "pid": os.getpid(),
             "session": error.session_ref,
             "before": before,
             "after": snapshot(runtime),
-            "last_run_ref": runtime.last_run_ref,
-            "artifact": retained.id,
+            "artifact": retained.artifact.id,
         }
     raise AssertionError("contender was admitted")
 

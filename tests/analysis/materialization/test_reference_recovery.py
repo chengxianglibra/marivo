@@ -40,18 +40,21 @@ def test_native_reference_independent_fixed_and_cold(
 
         bucket = session.catalog.fields.get("sales.facts.bucket")
         values = session.observe({"value": session.catalog.metrics.get("sales.total")}, by=members)
-        classified = session.observe(
-            {"value": session.catalog.metrics.get("sales.total")},
-            by=(mv.member(), bucket),
-            members=members,
+        groups = session.observe(
+            {"value": session.catalog.metrics.get("sales.total")}, by=(bucket,)
         )
-        groups = classified.rollup(by=(bucket,))
         calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
         opportunities = session.observe(
             {"value": session.catalog.metrics.get("sales.total")}, during=calendar, by=members
         )
         category = session.read(members, {"bucket": bucket})
-        selected = values.where(values["value"] > 0).population()
+        chosen = values.where(values["value"] > 0)
+        selected = session.population_from(
+            chosen, on=((chosen.axes[0], session.catalog.entities.get("sales.facts")),)
+        )
+        total = session.observe({"value": session.catalog.metrics.get("sales.total")}).compute()
+        denominator = total.to_pandas()[("value", "value")].iloc[0]
+        assert denominator == 6
         queries = {
             "current": values,
             "bucket": category,
@@ -60,20 +63,20 @@ def test_native_reference_independent_fixed_and_cold(
                 {"amount": session.catalog.fields.get("sales.facts.amount"), "bucket": bucket},
             ),
             "groups": groups,
-            "weights": groups.share("value"),
+            "weights": groups.select({"share": groups["value"] / denominator}),
             "opportunities": opportunities,
-            "share": values.share("value"),
+            "share": values.select({"share": values["value"] / denominator}),
             "selected": session.read(selected, {"bucket": bucket}),
             "empty": category.where(category["bucket"] == "absent"),
         }
-        outputs = {name: query.execute() for name, query in queries.items()}
+        outputs = {name: query.persist() for name, query in queries.items()}
         derived = recipes(outputs)
         assert derived["ranks"] == [2, 3, 1]
         assert derived["opportunity_count"] == 6
         state: dict[str, Json] = {
             "session": session.id,
             "outputs": {
-                name: {"artifact": value.id, "snapshot": snapshot(value)}
+                name: {"artifact": value.artifact.id, "snapshot": snapshot(value)}
                 for name, value in outputs.items()
             },
             "derived": derived,

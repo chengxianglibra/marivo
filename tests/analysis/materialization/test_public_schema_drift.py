@@ -10,7 +10,6 @@ import duckdb
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.errors import SemanticExpressionError
 from tests.shared_fixtures import DslCaseFactory
@@ -36,15 +35,15 @@ def test_public_schema_drift_rejects_before_business_read_and_retries(
         {"value": session.catalog.metrics.get(f"{n.domain}.{n.revenue}")},
         during=session.time_scope(start="2026-08-01", end="2026-09-01"),
     )
-    previous = logical.execute()
+    previous = logical.persist()
     frame = previous.to_pandas()
     assert frame[("value", "value")].tolist() == [1000]
-    manifest = previous._manifest
-    evidence = previous.evidence_digest()
+    manifest = previous.artifact._manifest
+    evidence = previous.artifact.evidence_digest()
     # A compatible physical carrier is requalified for this invocation.
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute(f'ALTER TABLE "{n.order}" ALTER "{n.amount}" TYPE DOUBLE')
-    changed = logical.execute()
+    changed = logical.persist()
     assert changed.to_pandas()[("value", "value")].tolist() == [1000.0]
     before = session.runs().items
     published_before = _publications(session)
@@ -60,25 +59,24 @@ def test_public_schema_drift_rejects_before_business_read_and_retries(
         with monkeypatch.context() as patch:
             patch.setattr(SourceSession, "compile", forbidden)
             patch.setattr(SourceSession, "execute", forbidden)
-            with pytest.raises(MaterializationError) as caught:
-                logical.execute()
-        cause = caught.value.__cause__
+            with pytest.raises(SemanticExpressionError) as caught:
+                logical.persist()
+        cause = caught.value
         assert isinstance(cause, SemanticExpressionError)
         assert cause.expected == f"a numeric physical type for {n.domain}.{n.order}.{n.amount}"
         assert cause.received == "string"
         assert cause.repair
-        assert caught.value.run_ref is None
         assert session.runs().items == before
         assert _publications(session) == published_before
         assert calls == []
-        assert previous._manifest == manifest
-        assert previous.evidence_digest() == evidence
-        assert session.artifact(previous.id).to_pandas().equals(frame)
+        assert previous.artifact._manifest == manifest
+        assert previous.artifact.evidence_digest() == evidence
+        assert session.persisted_frame(previous.artifact.id).to_pandas().equals(frame)
         assert session._runtime.store.resources(session.id) == ()
     finally:
         with duckdb.connect(str(case.database_path)) as connection:
             connection.execute(f'ALTER TABLE "{n.order}" ALTER "{n.amount}" TYPE BIGINT')
-    retried = logical.execute()
+    retried = logical.persist()
     assert retried.to_pandas()[("value", "value")].tolist() == [1000]
     assert len(session.runs().items) == len(before) + 1
     assert session._runtime.store.resources(session.id) == ()

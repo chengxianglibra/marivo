@@ -18,7 +18,6 @@ import marivo.analysis as mv
 from marivo._temporal import TimeScope
 from marivo.analysis.compiler.graph_lowering import lower_query
 from marivo.analysis.compiler.graph_plan import (
-    QUERY_COMBINE_KERNEL,
     LocalCompute,
     PlannedCheck,
     SourceCheckRoute,
@@ -26,6 +25,11 @@ from marivo.analysis.compiler.graph_plan import (
     plan_query,
 )
 from marivo.analysis.core.data_types import DataColumn, ScalarDataType
+from marivo.analysis.core.frame_data import (
+    ExpressionFrameBacking,
+    LiteralFrameBinding,
+    SourceFrameBinding,
+)
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import Binding, CoreRuleError, Fact, Obligation
 from marivo.analysis.dsl.temporal import CalendarAxis
@@ -40,11 +44,13 @@ from marivo.analysis.materialization.graph_source_execution import (
     open_query_sources,
     read_stage,
 )
+from marivo.analysis.methods.physical import QUERY_COMBINE_KERNEL
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
+from marivo.refs import ref
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.errors import SemanticExpressionError
-from tests.shared_fixtures import numeric_literal_node, numeric_program_query
+from tests.shared_fixtures import numeric_literal_node, numeric_program_frame
 
 BIG = 9007199254740993
 
@@ -90,6 +96,13 @@ def net():
 def sampled():
     return revenue.per(region_value).mean()
 """
+
+
+def _source_graph(frame: mv.AnalysisFrame) -> BoundGraph:
+    backing = frame._backing
+    assert isinstance(backing, ExpressionFrameBacking)
+    assert isinstance(backing.root, (SourceFrameBinding, LiteralFrameBinding))
+    return backing.root.graph
 
 
 def _seed(path: Path) -> None:
@@ -151,7 +164,7 @@ def _query(
 ) -> BoundGraph:
     metric = session.catalog.metrics.get(f"sales.{name}")
     assert isinstance(metric, Deferred)
-    return session.observe({name: metric}, during=during, by=by, where=where)._graph
+    return _source_graph(session.observe({name: metric}, during=during, by=by, where=where))
 
 
 def _dimension(session: Session, path: str) -> Deferred:
@@ -263,14 +276,14 @@ def test_lossy_source_type_rejects_before_any_business_read(
     assert "sales.orders.code: uint64" in str(caught.value)
 
 
-def test_execute_publishes_prepared_numeric_and_path_routes(warehouse_session: Session) -> None:
+def test_persist_publishes_prepared_numeric_and_path_routes(warehouse_session: Session) -> None:
     session = warehouse_session
     segment = _dimension(session, "sales.customers.segment")
     revenue = session.catalog.metrics.get("sales.revenue")
     assert isinstance(revenue, Deferred)
-    first = session.observe({"revenue": revenue}).execute()
-    second = session.observe({"revenue": revenue}, by=(segment,)).execute()
-    assert first.id != second.id
+    first = session.observe({"revenue": revenue}).persist()
+    second = session.observe({"revenue": revenue}, by=(segment,)).persist()
+    assert first.artifact.id != second.artifact.id
     assert len(session.runs().items) == 2
     assert all(run.lifecycle == "succeeded" for run in session.runs().items)
 
@@ -305,7 +318,7 @@ def test_source_check_runs_on_its_exact_output_before_consumption(
     if same_root:
         revenue = session.catalog.metrics.get("sales.revenue")
         assert isinstance(revenue, Deferred)
-        graph = session.observe({"first": revenue, "second": revenue})._graph
+        graph = _source_graph(session.observe({"first": revenue, "second": revenue}))
     owner = graph.signature.owner
     obligation = Obligation(
         Fact(
@@ -462,8 +475,15 @@ def _numeric_inputs(session: Session) -> tuple[Deferred, Deferred]:
     return amount, weight
 
 
-def _compute(session: Session, metrics: dict[str, Deferred], **context: object) -> StageOutput:
-    graph = session.observe(metrics, **context)._graph
+def _compute(
+    session: Session,
+    metrics: dict[str, Deferred],
+    *,
+    during: TimeScope | mv.CalendarAxis | None = None,
+    by: tuple[Deferred, ...] = (),
+    where: Deferred | None = None,
+) -> StageOutput:
+    graph = _source_graph(session.observe(metrics, during=during, by=by, where=where))
     with open_query_sources(
         session._runtime.connection_service(), graph, session.catalog._state
     ) as prepared:
@@ -605,7 +625,7 @@ def test_semantic_preview_reuses_numeric_kernel(warehouse_session: Session) -> N
     metric = session.catalog.metrics.get("sales.net")
     assert isinstance(metric, Deferred)
     scope = {
-        root.ref: md.unpruned(max_rows=100, timeout_seconds=10)
+        ref.entity(root.ref.path): md.unpruned(max_rows=100, timeout_seconds=10)
         for root in consume_metric(metric).roots
     }
     preview = session.catalog.preview(metric, scope=scope)
@@ -700,7 +720,7 @@ def test_preview_rejects_sample_preparation_before_opening_source(
 def test_source_free_numeric_plan_never_reads(warehouse_session: Session) -> None:
 
     session = warehouse_session
-    graph = numeric_program_query(session, {"constant": numeric_literal_node(7)})._graph
+    graph = _source_graph(numeric_program_frame(session, {"constant": numeric_literal_node(7)}))
     plan = plan_query(graph, ())
     assert len(plan.stages) == 1 and isinstance(plan.stages[0], LocalCompute)
 
@@ -761,7 +781,7 @@ def test_metric_preview_batch_reuses_scoped_reductions(warehouse_session: Sessio
     refund = session.catalog.metrics.get("sales.refund_total")
     assert isinstance(revenue, Deferred) and isinstance(refund, Deferred)
     scope = {
-        root.ref: md.unpruned(max_rows=100, timeout_seconds=10)
+        ref.entity(root.ref.path): md.unpruned(max_rows=100, timeout_seconds=10)
         for metric in (revenue, refund)
         for root in consume_metric(metric).roots
     }
@@ -792,9 +812,9 @@ def test_source_free_constant_keeps_calendar(warehouse_session: Session) -> None
 
     session = warehouse_session
     calendar = session.time_scope(start="2026-01-05", end="2026-01-09").by(mv.grain("day"))
-    graph = numeric_program_query(
-        session, {"constant": numeric_literal_node(7)}, during=calendar
-    )._graph
+    graph = _source_graph(
+        numeric_program_frame(session, {"constant": numeric_literal_node(7)}, during=calendar)
+    )
     output = run_query_plan(
         plan_query(graph, ()),
         lambda _: pytest.fail("unexpected read"),

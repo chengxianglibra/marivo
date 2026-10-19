@@ -8,7 +8,7 @@ from marivo.analysis.materialization.store import SessionStore
 from tests.shared_fixtures import DslCase
 
 
-def _values(case: DslCase) -> mv.Query:
+def _values(case: DslCase) -> mv.AnalysisFrame:
     return case.session.observe(
         {"value": case.session.catalog.metrics.get("sales.revenue")},
         during=case.session.time_scope(start="2026-08-01", end="2026-09-01"),

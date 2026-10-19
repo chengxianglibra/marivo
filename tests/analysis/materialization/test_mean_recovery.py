@@ -66,14 +66,16 @@ def test_native_original_mean_independent_fixed_and_cold(
             },
             by=(bucket,),
         )
-        source = grouped.execute()
-        original = grouped.rollup().execute()
-        current = grouped.reduce({"value": grouped["value"].mean()}).execute()
+        source = grouped.persist()
+        original = session.observe(
+            {"value": session.catalog.metrics.get("sales.average")}
+        ).persist()
+        current = grouped.reduce({"value": grouped["value"].mean()}).persist()
         assert source.to_pandas()[("value", "value")].tolist() == [1.0, 100.0]
         assert original.to_pandas()[("value", "value")].tolist() == [34.0]
         assert current.to_pandas()[("value", "value")].tolist() == [50.5]
         outputs: dict[str, Json] = {
-            name: {"artifact": result.id, "snapshot": snapshot(result)}
+            name: {"artifact": result.artifact.id, "snapshot": snapshot(result)}
             for name, result in (("groups", source), ("original", original), ("current", current))
         }
         state: dict[str, Json] = {"session": session.id, "outputs": outputs}

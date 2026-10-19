@@ -32,9 +32,9 @@ def run(root: Path, phase: str, output: Path) -> None:
             arr(state["inputs"]), arr(state["input_snapshots"]), strict=True
         ):
             assert isinstance(artifact, str)
-            result = session.artifact(artifact)
-            assert snapshot(result) == obj(saved)
+            result = session.persisted_frame(artifact)
             frame = result.to_pandas()
+            assert snapshot(result, frame=frame) == obj(saved)
             assert frame[("value", "value")].tolist() == [2, 0, 4]
             assert frame[("value", "value")].sum() == 6
             assert frame.loc[frame[("value", "value")] > 0].shape[0] == 2

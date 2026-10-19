@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import replace
 from datetime import timedelta
 from decimal import Decimal, localcontext
 from fractions import Fraction
@@ -17,15 +16,8 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo._definition.types import CalendarCoordinate
-from marivo.analysis.binding.correspondence import ComparisonEndpoint, broadcast_mapping
-from marivo.analysis.compiler.graph_plan import LocalCompute, plan_query
-from marivo.analysis.core.data_types import DataColumn, ScalarDataType
-from marivo.analysis.dsl.query import Query
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import terminal_store
-from marivo.analysis.materialization.graph_source_execution import open_query_sources
-from marivo.analysis.methods import query_comparison
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.semantic.errors import SemanticExpressionError
@@ -73,7 +65,7 @@ def core_session(
 
 
 @pytest.mark.parametrize("small_first", (None, True, False))
-def test_nullable_integer_axis_preserves_direct_drill_and_original_rollup(
+def test_nullable_integer_axis_preserves_explicit_source_and_reduction(
     core_session: Session, tmp_path: Path, small_first: bool | None
 ) -> None:
     with duckdb.connect(str(tmp_path / "core.duckdb")) as connection:
@@ -92,28 +84,29 @@ def test_nullable_integer_axis_preserves_direct_drill_and_original_rollup(
     if small_first is not None:
         small = {"small": amount.sum(empty="zero").where(amount < 20)}
         metrics = {**small, **metrics} if small_first else {**metrics, **small}
-    coarse = core_session.observe(metrics, by=(region,))
-    direct = core_session.observe(metrics, by=(region, code)).execute().to_pandas()
-    drilled = coarse.drill(add=(code,))
-    artifact = drilled.execute()
+
+    direct = core_session.observe(metrics, by=(region, code)).compute().to_pandas()
+    drilled = core_session.observe(metrics, by=(region, code))
+    artifact = drilled.persist()
     actual = artifact.to_pandas()
     assert actual.equals(direct)
     assert actual[("coordinate", "axis.0")].tolist() == ["A", "A", "B"]
     assert actual[("coordinate", "axis.1")].dropna().tolist() == [9007199254740993, 2]
-    assert actual[("coordinate", "axis.1")].isna().tolist() == [True, False, False]
-    assert actual[("value", "total")].tolist() == [30, 70, 60]
+    assert actual[("coordinate", "axis.1")].isna().tolist() == [False, True, False]
+    assert actual[("value", "total")].tolist() == [70, 30, 60]
     if small_first is not None:
-        assert actual[("value", "small")].tolist() == [0, 10, 0]
+        assert actual[("value", "small")].tolist() == [10, 0, 0]
     assert str(actual[("coordinate", "axis.1")].dtype) == "int64[pyarrow]"
-    rolled = drilled.rollup(by=(region,)).execute().to_pandas()
+    rolled = core_session.observe(metrics, by=(region,)).compute().to_pandas()
     assert rolled[("value", "total")].tolist() == [100, 60]
-    assert artifact.to_pandas().equals(core_session.artifact(artifact.id).to_pandas())
+    assert artifact.to_pandas().equals(
+        core_session.persisted_frame(artifact.artifact.id).to_pandas()
+    )
 
 
-def test_drill_refuses_unsafe_shared_integer_key_promotion_before_recomputation(
+def test_source_refuses_unsafe_integer_key_promotion_before_finish(
     core_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.materialization import drill_execution, source_original
     from marivo.analysis.materialization.errors import MaterializationError
     from tests.analysis.materialization.publication_fixtures import publication_counts
 
@@ -130,11 +123,8 @@ def test_drill_refuses_unsafe_shared_integer_key_promotion_before_recomputation(
     code = core_session.catalog.fields.get("sales.orders.code")
     query = core_session.observe(
         {"small": amount.sum().where(amount < 20), "large": amount.sum().where(amount >= 20)},
-        by=(region,),
-    ).drill(add=(code,))
-
-    def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("unsafe shared keys must fail before original recomputation")
+        by=(region, code),
+    )
 
     original_execute = SourceSession.execute
 
@@ -147,11 +137,9 @@ def test_drill_refuses_unsafe_shared_integer_key_promotion_before_recomputation(
         return frame
 
     monkeypatch.setattr(SourceSession, "execute", floating_nullable_columns)
-    monkeypatch.setattr(drill_execution, "drill_components", forbidden)
-    monkeypatch.setattr(source_original, "finish_native_original", forbidden)
     before = publication_counts(core_session)
     with pytest.raises(MaterializationError, match=r"complete integer keys.*carrier"):
-        query.execute()
+        query.compute()
     assert publication_counts(core_session) == before
 
 
@@ -165,7 +153,7 @@ def test_decimal38_negation_preserves_every_digit_under_caller_context(
         context.prec = precision
         query = core_session.values(by=(), columns={"x": None}, rows=(((), {"x": source}),))
         result = (
-            query.select({"negative": -query["x"], "original": query["x"]}).execute().to_pandas()
+            query.select({"negative": -query["x"], "original": query["x"]}).compute().to_pandas()
         )
     assert result[("value", "negative")].tolist() == [source.copy_negate()]
     assert result[("value", "original")].tolist() == [source]
@@ -179,14 +167,14 @@ def test_column_na_over_zero_propagates_but_nonmissing_zero_divisions_fail(
     nullable = base.select({"x": base["zero"] / base["zero"], "zero": base["zero"]})
     result = (
         nullable.select({"v": nullable["x"].divide(nullable["zero"], zero_denominator="error")})
-        .execute()
+        .compute()
         .to_pandas()
     )
     assert len(result) == 1 and result[("value", "v")].isna().all()
     for numerator in (0, 1):
         query = core_session.values(by=(), columns={"x": None}, rows=(((), {"x": numerator}),))
         with pytest.raises(AnalysisError) as error:
-            query.select({"v": query["x"].divide(0, zero_denominator="error")}).execute()
+            query.select({"v": query["x"].divide(0, zero_denominator="error")}).compute()
         assert isinstance(error.value.__cause__, SemanticExpressionError)
         assert error.value.__cause__.expected == "a nonzero denominator"
 
@@ -196,7 +184,7 @@ def test_literal_duration_sum_and_mean_keep_declared_microseconds(core_session: 
         by=(), columns={"x": None}, rows=(((), {"x": timedelta(microseconds=3)}),)
     )
     result = (
-        query.reduce({"sum": query["x"].sum(), "mean": query["x"].mean()}).execute().to_pandas()
+        query.reduce({"sum": query["x"].sum(), "mean": query["x"].mean()}).compute().to_pandas()
     )
     for name in ("sum", "mean"):
         assert result[("value", name)].tolist() == [timedelta(microseconds=3)]
@@ -220,7 +208,7 @@ def test_duration_statistics_accumulate_exact_nanoseconds_and_finish_half_even(
     query = core_session.read(population, {"elapsed": elapsed})
     result = (
         query.reduce({"sum": query["elapsed"].sum(), "mean": query["elapsed"].mean()})
-        .execute()
+        .compute()
         .to_pandas()
     )
     expected = {"sum": sum(ticks), "mean": round(Fraction(sum(ticks), len(ticks)))}
@@ -236,7 +224,7 @@ def test_duration_empty_and_na_statistics_and_checked_middle_sum(core_session: S
     for selected in (query.where(query["elapsed"].is_null()), query.top(0, by=query["elapsed"])):
         result = (
             selected.reduce({"sum": selected["elapsed"].sum(), "mean": selected["elapsed"].mean()})
-            .execute()
+            .compute()
             .to_pandas()
         )
         assert pa.array(result[("value", "sum")]).cast(pa.int64()).to_pylist() == [None]
@@ -245,11 +233,11 @@ def test_duration_empty_and_na_statistics_and_checked_middle_sum(core_session: S
     pq.write_table(
         pa.table({"id": [1, 2], "elapsed": pa.array([2**63 - 1, 1], type=pa.duration("ns"))}), path
     )
-    mean = query.reduce({"mean": query["elapsed"].mean()}).execute().to_pandas()
+    mean = query.reduce({"mean": query["elapsed"].mean()}).compute().to_pandas()
     assert pa.array(mean[("value", "mean")]).cast(pa.int64()).to_pylist() == [2**62]
     middle = query.reduce({"sum": query["elapsed"].sum()})
     with pytest.raises(AnalysisError) as error:
-        middle.select({"cancelled": middle["sum"] - middle["sum"]}).execute()
+        middle.select({"cancelled": middle["sum"] - middle["sum"]}).compute()
     assert isinstance(error.value.__cause__, SemanticExpressionError)
     assert error.value.__cause__.received is not None
     assert "Duration finish tick overflow" in error.value.__cause__.received
@@ -268,104 +256,28 @@ def test_grouped_duration_mean_keeps_large_ticks_beside_na(core_session: Session
     result = (
         query.reduce(
             {"sum": query["elapsed"].sum(), "mean": query["elapsed"].mean()},
-            by=(population.axes[0],),
+            by=(query.axes[0],),
         )
-        .execute()
+        .compute()
         .to_pandas()
     )
     assert pa.array(result[("value", "sum")]).cast(pa.int64()).to_pylist() == [ticks, None]
     assert pa.array(result[("value", "mean")]).cast(pa.int64()).to_pylist() == [ticks, None]
 
 
-def _daily(session: Session, start: str = "2026-01-30") -> tuple[Query, mv.CalendarAxis]:
-    amount = session.catalog.fields.get("sales.orders.amount")
-    day = session.catalog.fields.get("sales.orders.day")
-    region = session.catalog.fields.get("sales.orders.region")
-    calendar = session.time_scope(start=start, end="2026-02-03").by(mv.grain("day"))
-    return session.observe({"sales": amount.sum(time=day)}, during=calendar, by=(region,)), calendar
-
-
-def test_broadcast_executes_prepared_day_to_month_image_with_complete_coverage(
-    core_session: Session,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    daily, calendar = _daily(core_session)
-    reference = daily.rollup(by=(calendar.coarsen(mv.grain("month")),))
-    query = daily.select({"reference": mv.broadcast(reference["sales"], to=daily)})
-    with open_query_sources(
-        core_session._runtime.connection_service(), query._graph, core_session.catalog._state
-    ) as prepared:
-        plan = plan_query(query._graph, prepared.schemas, context=prepared.context)
-    program = next(
-        stage.result
-        for stage in plan.stages
-        if isinstance(stage, LocalCompute) and stage.result is not None and stage.result.references
-    )
-    assert program.references[0].mapping.calendars[0].buckets == (0, 0, 1, 1)
-
-    def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("Runtime must execute the prepared calendar mapping")
-
-    monkeypatch.setattr(query_comparison, "broadcast_mapping", forbidden)
-    result = query.execute().to_pandas()
-    assert len(result) == 8
-    axes = result.attrs["marivo"]["axes"]
-    calendar_column = next(axis["column"] for axis in axes if axis["kind"] == "calendar")
-    for day, value in zip(
-        result[("coordinate", calendar_column)], result[("value", "reference")], strict=True
-    ):
-        assert value == (60 if day.month == 1 else 100)
-    missing = reference.where(reference["sales"] < 100)
-    with pytest.raises(AnalysisError, match="reference coverage"):
-        daily.select({"reference": mv.broadcast(missing["sales"], to=daily)}).execute()
-
-
-def test_broadcast_refuses_changed_scope_before_read_or_run(
-    core_session: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    daily, _ = _daily(core_session)
-    shifted, calendar = _daily(core_session, "2026-01-31")
-    reference = shifted.rollup(by=(calendar.coarsen(mv.grain("month")),))
-    query = daily.select({"reference": mv.broadcast(reference["sales"], to=daily)})
-    before = core_session.runs().items
-
-    def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("An inadmissible calendar map crossed preparation")
-
-    monkeypatch.setattr(SourceSession, "compile", forbidden)
-    monkeypatch.setattr(SourceSession, "execute", forbidden)
-    monkeypatch.setattr(terminal_store, "admit", forbidden)
-    with pytest.raises(AnalysisError, match="complete target-to-reference"):
-        query.execute()
-    assert core_session.runs().items == before
-
-
-def test_calendar_mapping_refuses_finer_timezone_and_snapshot_mismatches(
-    core_session: Session,
-) -> None:
-    _, days = _daily(core_session)
-    from marivo.analysis.dsl.population import _calendar_population
-
-    fine = _calendar_population(days).axes[0]
-    coarse = _calendar_population(days.coarsen(mv.grain("month"))).axes[0]
-    assert isinstance(fine, CalendarCoordinate) and isinstance(coarse, CalendarCoordinate)
-
-    def endpoint(axis: CalendarCoordinate) -> ComparisonEndpoint:
-        return ComparisonEndpoint(
-            (DataColumn("key.0", "day", ScalarDataType("int64"), False),),
-            ("key.0",),
-            (axis,),
-            (("key.0",),),
+def test_explicit_source_monthly_values(core_session: Session) -> None:
+    amount = core_session.catalog.fields.get("sales.orders.amount")
+    day = core_session.catalog.fields.get("sales.orders.day")
+    months = core_session.time_scope(start="2026-01-01", end="2026-03-01").by(mv.grain("month"))
+    current = core_session.observe({"sales": amount.sum(time=day)}, during=months).compute()
+    assert current.to_pandas()[("value", "sales")].tolist() == [60, 100]
+    with duckdb.connect(str(core_session.project_root / "core.duckdb")) as connection:
+        connection.execute(
+            "INSERT INTO orders SELECT id+10, region, day-INTERVAL '1 year', amount*2 FROM orders"
         )
-
-    with pytest.raises(AnalysisError, match="complete target-to-reference"):
-        broadcast_mapping(endpoint(fine), endpoint(coarse))
-    for invalid in (
-        replace(coarse, timezone="Asia/Shanghai"),
-        replace(coarse, snapshot_digest="different"),
-    ):
-        with pytest.raises(AnalysisError, match="complete target-to-reference"):
-            broadcast_mapping(endpoint(invalid), endpoint(fine))
+    previous = core_session.time_scope(start="2025-01-01", end="2025-03-01").by(mv.grain("month"))
+    baseline = core_session.observe({"sales": amount.sum(time=day)}, during=previous).compute()
+    assert baseline.to_pandas()[("value", "sales")].tolist() == [120, 200]
 
 
 @pytest.mark.parametrize("operation", ("add", "sub", "mul", "div"))
@@ -385,14 +297,14 @@ def test_duration_binary_expression_keeps_type_before_sum_and_mean(
     else:
         expression, expected = query["d"] / 3, 1
     result = (
-        query.reduce({"sum": expression.sum(), "mean": expression.mean()}).execute().to_pandas()
+        query.reduce({"sum": expression.sum(), "mean": expression.mean()}).compute().to_pandas()
     )
     for name in ("sum", "mean"):
         assert pa.array(result[("value", name)]).type == pa.duration("us")
         assert pa.array(result[("value", name)]).cast(pa.int64()).to_pylist() == [expected]
 
 
-def test_duration_nested_unary_and_broadcast_arithmetic_retains_ticks(
+def test_duration_nested_unary_and_current_frame_arithmetic_retains_ticks(
     core_session: Session,
 ) -> None:
     region = core_session.catalog.fields.get("sales.orders.region")
@@ -404,28 +316,25 @@ def test_duration_nested_unary_and_broadcast_arithmetic_retains_ticks(
             for key, ticks in (("A", 3), ("B", 6), ("C", 0))
         ),
     )
-    reference = core_session.values(
-        by=(), columns={"d": "s"}, rows=(((), {"d": timedelta(microseconds=3)}),)
-    )
-    expression = -(query["d"] + mv.broadcast(reference["d"], to=query)) / 3
+    expression = -(query["d"] + timedelta(microseconds=3)) / 3
     selected = query.select({"d": expression})
-    frame = selected.execute().to_pandas()
+    frame = selected.compute().to_pandas()
     assert pa.array(frame[("value", "d")]).cast(pa.int64()).to_pylist() == [-2, -3, -1]
     reduced = (
         selected.reduce({"sum": selected["d"].sum(), "mean": selected["d"].mean()})
-        .execute()
+        .compute()
         .to_pandas()
     )
     assert pa.array(reduced[("value", "sum")]).cast(pa.int64()).to_pylist() == [-6]
     assert pa.array(reduced[("value", "mean")]).cast(pa.int64()).to_pylist() == [-2]
     ratio = (
-        query.reduce({"ratio": (query["d"] / mv.broadcast(reference["d"], to=query)).mean()})
-        .execute()
+        query.reduce({"ratio": (query["d"] / timedelta(microseconds=3)).mean()})
+        .compute()
         .to_pandas()
     )
     assert ratio[("value", "ratio")].tolist() == [1.0]
     assert pa.array(ratio[("value", "ratio")]).type == pa.float64()
-    reverse = query.select({"d": 2 * query["d"]}).execute().to_pandas()
+    reverse = query.select({"d": 2 * query["d"]}).compute().to_pandas()
     assert pa.array(reverse[("value", "d")]).cast(pa.int64()).to_pylist() == [6, 12, 0]
 
 
@@ -449,7 +358,7 @@ def test_zero_duration_literal_retains_nonzero_unit_and_refuses_missing_values(
         columns={"d": "s"},
         rows=tuple(((key,), {"d": value}) for key, value in zip("ABC", values, strict=True)),
     )
-    result = query.execute().to_pandas()
+    result = query.compute().to_pandas()
     physical = pa.array(result[("value", "d")])
     assert str(physical.type) == f"duration[{unit}]"
     assert physical.cast(pa.int64()).to_pylist() == ticks
@@ -472,7 +381,7 @@ def test_duration_binary_exact_ns_finish_na_and_overflow_barriers(core_session: 
     selected = query.select(
         {"half": expression, "twice": query["d"] * 2, "decimal_half": query["d"] * Decimal("0.5")}
     )
-    result = selected.execute().to_pandas()
+    result = selected.compute().to_pandas()
     halves = [round(Fraction(represented_tick, 2)), None, round(Fraction(3, 2))]
     assert pa.array(result[("value", "half")]).cast(pa.int64()).to_pylist() == halves
     assert pa.array(result[("value", "decimal_half")]).cast(pa.int64()).to_pylist() == halves
@@ -482,7 +391,7 @@ def test_duration_binary_exact_ns_finish_na_and_overflow_barriers(core_session: 
         6,
     ]
     # A Duration-valued binary node finishes in its existing unit before its parent.
-    nested = query.select({"d": (query["d"] / 2) * 2}).execute().to_pandas()
+    nested = query.select({"d": (query["d"] / 2) * 2}).compute().to_pandas()
     assert pa.array(nested[("value", "d")]).cast(pa.int64()).to_pylist() == [
         2 * round(Fraction(represented_tick, 2)),
         None,
@@ -491,19 +400,19 @@ def test_duration_binary_exact_ns_finish_na_and_overflow_barriers(core_session: 
     missing = query.select({"d": query["d"] / 0})
     finished = (
         missing.reduce({"sum": missing["d"].divide(0, zero_denominator="error").sum()})
-        .execute()
+        .compute()
         .to_pandas()
     )
     assert pa.array(finished[("value", "sum")]).cast(pa.int64()).to_pylist() == [None]
     with pytest.raises(AnalysisError) as zero:
-        query.reduce({"d": query["d"].divide(0, zero_denominator="error").sum()}).execute()
+        query.reduce({"d": query["d"].divide(0, zero_denominator="error").sum()}).compute()
     assert isinstance(zero.value.__cause__, SemanticExpressionError)
     assert zero.value.__cause__.expected == "a nonzero denominator"
     pq.write_table(
         pa.table({"id": [1], "elapsed": pa.array([2**62], type=pa.duration("ns"))}), path
     )
     with pytest.raises(AnalysisError) as overflow:
-        query.reduce({"d": ((query["d"] * 2) / 2).sum()}).execute()
+        query.reduce({"d": ((query["d"] * 2) / 2).sum()}).compute()
     assert isinstance(overflow.value.__cause__, SemanticExpressionError)
     assert overflow.value.__cause__.expected == "exact signed int64 Duration arithmetic"
 
@@ -516,134 +425,18 @@ def test_duration_binary_rejects_mixed_tick_units_before_source_or_run(
     source = core_session.read(
         population, {"d": core_session.catalog.fields.get("sales.durations.elapsed")}
     )
-    reference = core_session.values(
-        by=(), columns={"d": "s"}, rows=(((), {"d": timedelta(microseconds=3)}),)
-    )
-    invalid = source.reduce({"d": (source["d"] + mv.broadcast(reference["d"], to=source)).sum()})
+    invalid = source.reduce({"d": (source["d"] + timedelta(microseconds=3)).sum()})
     before = core_session.runs().items
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("Incompatible Duration units crossed preparation")
 
-    monkeypatch.setattr(SourceSession, "compile", forbidden)
     monkeypatch.setattr(SourceSession, "execute", forbidden)
     monkeypatch.setattr(terminal_store, "admit", forbidden)
-    with pytest.raises(AnalysisError, match="matching exact Duration units"):
-        invalid.execute()
+    with pytest.raises(AnalysisError, match="compatible exact Duration units") as caught:
+        invalid.compute()
+    assert (
+        caught.value.received == "(DurationDataType(unit='ns'), DurationDataType(unit='us'), 'add')"
+    )
+    assert caught.value.repair is not None
     assert core_session.runs().items == before
-
-
-def _paired_daily(session: Session) -> tuple[Query, Query, Query, mv.CalendarAxis, mv.CalendarAxis]:
-    with duckdb.connect(str(session.catalog.workspace_dir / "core.duckdb")) as connection:
-        connection.execute(
-            "INSERT INTO orders SELECT id+10, region, day-INTERVAL '1 year', amount*2 FROM orders"
-        )
-    current, days = _daily(session)
-    old_days = session.time_scope(start="2025-01-30", end="2025-02-03").by(mv.grain("day"))
-    amount = session.catalog.fields.get("sales.orders.amount")
-    day = session.catalog.fields.get("sales.orders.day")
-    region = session.catalog.fields.get("sales.orders.region")
-    baseline = session.observe({"sales": amount.sum(time=day)}, during=old_days, by=(region,))
-    return current.compare(baseline, match=mv.previous_year()), current, baseline, days, old_days
-
-
-def test_coarsened_broadcast_uses_unique_retained_current_and_baseline_projections(
-    core_session: Session,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    paired, current, baseline, days, old_days = _paired_daily(core_session)
-    reference = current.rollup(by=(days.coarsen(mv.grain("month")),))
-    old_reference = baseline.rollup(by=(old_days.coarsen(mv.grain("month")),))
-    query = paired.select(
-        {
-            "current": mv.broadcast(reference["sales"], to=paired),
-            "baseline": mv.broadcast(old_reference["sales"], to=paired),
-        }
-    )
-    with open_query_sources(
-        core_session._runtime.connection_service(), query._graph, core_session.catalog._state
-    ) as prepared:
-        plan = plan_query(query._graph, prepared.schemas, context=prepared.context)
-    program = next(
-        stage.result
-        for stage in plan.stages
-        if isinstance(stage, LocalCompute)
-        and stage.result is not None
-        and len(stage.result.references) == 2
-    )
-    for role, binding in zip(("current", "baseline"), program.references, strict=True):
-        assert binding.mapping.presence == (f"presence.{role}",)
-        assert all(source.startswith(f"projection.{role}.") for source, _ in binding.mapping.keys)
-        assert binding.mapping.calendars[0].buckets == (0, 0, 1, 1)
-
-    def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("Runtime must consume the prepared retained projection")
-
-    monkeypatch.setattr(query_comparison, "broadcast_mapping", forbidden)
-    frame = query.execute().to_pandas()
-    assert len(frame) == 8
-    projection = next(
-        item
-        for axis in frame.attrs["marivo"]["axes"]
-        for item in axis["projections"]
-        if item["kind"] == "calendar" and item["path"] == ("current",)
-    )
-    for key, actual, previous in zip(
-        projection["values"], frame[("value", "current")], frame[("value", "baseline")], strict=True
-    ):
-        expected = 60 if projection["bounds"][key[0]][2].month == 1 else 100
-        assert actual == expected and previous == expected * 2
-    missing = reference.where(reference["sales"] < 100)
-    with pytest.raises(AnalysisError, match="reference coverage"):
-        paired.select({"current": mv.broadcast(missing["sales"], to=paired)}).execute()
-
-
-def test_retained_calendar_broadcast_rejects_missing_current_instead_of_using_baseline(
-    core_session: Session,
-) -> None:
-    _, current, baseline, days, _ = _paired_daily(core_session)
-    positive = current.where(current["sales"] > 0)
-    paired = positive.compare(baseline, match=mv.previous_year(), how="outer")
-    reference = current.rollup(by=(days.coarsen(mv.grain("month")),))
-    with pytest.raises(
-        AnalysisError, match="a present endpoint for every demanded broadcast projection"
-    ):
-        paired.select({"current": mv.broadcast(reference["sales"], to=paired)}).execute()
-    selected = paired.where(paired["current_present"])
-    frame = (
-        selected.select({"current": mv.broadcast(reference["sales"], to=selected)})
-        .execute()
-        .to_pandas()
-    )
-    assert len(frame) == 5
-
-
-def test_retained_calendar_coarsening_rejects_ambiguous_endpoint_authority(
-    core_session: Session,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    current, days = _daily(core_session)
-    paired = current.compare(current, match=mv.ordinal())
-    reference = current.rollup(by=(days.coarsen(mv.grain("month")),))
-    invalid = paired.select({"reference": mv.broadcast(reference["sales"], to=paired)})
-    before = core_session.runs().items
-
-    def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("Ambiguous retained authority crossed preparation")
-
-    with monkeypatch.context() as guarded:
-        guarded.setattr(SourceSession, "compile", forbidden)
-        guarded.setattr(SourceSession, "execute", forbidden)
-        guarded.setattr(terminal_store, "admit", forbidden)
-        with pytest.raises(AnalysisError, match="complete target-to-reference"):
-            invalid.execute()
-        assert core_session.runs().items == before
-    explicit_current = current.compare(current, match=mv.ordinal(), time_axis="current")
-    frame = (
-        explicit_current.select(
-            {"reference": mv.broadcast(reference["sales"], to=explicit_current)}
-        )
-        .execute()
-        .to_pandas()
-    )
-    assert len(frame) == 8

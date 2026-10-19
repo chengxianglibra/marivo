@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
+from typing import Literal
 
 import pandas as pd
 import pytest
@@ -91,7 +92,7 @@ def _run(
         assert stage.input_id == root.input_id
         return data
 
-    def forbidden(input_id: str, output: object) -> object:
+    def forbidden(input_id: str, output: StageOutput) -> StageOutput:
         raise AssertionError("fixed inputs reached source adapter")
 
     result = run_frame_plan(compiled, source_prepared={}, read_fixed=read, adapt_source=forbidden)
@@ -121,11 +122,11 @@ def test_select_where_keep_input_sequence_and_null_masks() -> None:
 def test_global_top_uses_complete_key_ties_and_na_last(
     descending: bool, expected: list[str | None]
 ) -> None:
-    _, result = _run(_data(), TopValues(4, ValueSlot(0), descending, ()))
+    _, result = _run(_data(), TopValues(4, ValueSlot(0), descending))
     assert _keys(result) == expected
     _, chained = _run(
         _data(),
-        TopValues(3, ValueSlot(0), descending, ()),
+        TopValues(3, ValueSlot(0), descending),
         SelectValues((("kept", ValueSlot(0)),)),
         FilterValues(ValueBinary("ge", ValueSlot(0), ValueLiteral(0))),
     )
@@ -173,7 +174,7 @@ def test_reduce_keeps_whole_composite_axis_and_canonical_group_order() -> None:
     output, result = _run(data, ReduceValues((("total", Statistic("sum", ValueSlot(0))),), (0,)))
     assert tuple(c.slot_id for c in output.axes[0].columns) == ("ka", "kb")
     assert list(result.itertuples(index=False, name=None)) == [("CN", "Y", 30), ("US", "X", 30)]
-    _, ranked = _run(data, TopValues(3, ValueLiteral(1), True, ()))
+    _, ranked = _run(data, TopValues(3, ValueLiteral(1), True))
     assert list(ranked.loc[:, ["ka", "kb", "part"]].itertuples(index=False, name=None)) == [
         ("CN", "Y", 1),
         ("US", "X", 1),
@@ -182,7 +183,9 @@ def test_reduce_keeps_whole_composite_axis_and_canonical_group_order() -> None:
 
 
 @pytest.mark.parametrize("unit", ["s", "ms", "us", "ns"])
-def test_duration_arithmetic_and_statistics_preserve_exact_ticks(unit: str) -> None:
+def test_duration_arithmetic_and_statistics_preserve_exact_ticks(
+    unit: Literal["s", "ms", "us", "ns"],
+) -> None:
     dtype = DurationDataType(unit)
     key = DataColumn("k", "k", ScalarDataType("int64"), False)
     duration = DataColumn("d", "duration", dtype, True, "elapsed")
@@ -263,7 +266,7 @@ def test_duration_mixed_units_and_overflow_are_checked() -> None:
 
 
 @pytest.mark.parametrize(
-    "operation", [TopValues(0, ValueSlot(0), True, ()), SelectValues((("only_b", ValueSlot(1)),))]
+    "operation", [TopValues(0, ValueSlot(0), True), SelectValues((("only_b", ValueSlot(1)),))]
 )
 def test_full_fixed_validation_cannot_be_pruned(operation: FrameOperationKind) -> None:
     data = _data()
@@ -294,7 +297,7 @@ def test_full_key_and_nonnullable_presence_checks_precede_top_zero(corruption: s
     else:
         data._rows["present"] = pd.Series([pd.NA, True, False], dtype="boolean[pyarrow]")
     with pytest.raises(AnalysisError):
-        _run(data, TopValues(0, ValueSlot(0), True, ()))
+        _run(data, TopValues(0, ValueSlot(0), True))
 
 
 def test_strict_arithmetic_is_not_erased_by_later_select_or_top_zero() -> None:
@@ -307,7 +310,7 @@ def test_strict_arithmetic_is_not_erased_by_later_select_or_top_zero() -> None:
     with pytest.raises(SemanticExpressionError, match="nonzero denominator"):
         _run(_data(), strict, SelectValues((("only", ValueSlot(1)),)))
     with pytest.raises(SemanticExpressionError, match="nonzero denominator"):
-        _run(_data(), strict, TopValues(0, ValueSlot(1), True, ()))
+        _run(_data(), strict, TopValues(0, ValueSlot(1), True))
 
 
 def test_presence_paths_are_directories_and_reduce_removes_presence() -> None:
@@ -326,7 +329,8 @@ def test_presence_paths_are_directories_and_reduce_removes_presence() -> None:
     assert output.presence_paths == (("outer", "left_present"),)
     assert selected["present"].tolist() == [True, True]
     output, _ = _run(data, ReduceValues((("rows", Statistic("row_count")),), ()))
-    assert output.presence == output.presence_paths == ()
+    assert output.presence == ()
+    assert output.presence_paths == ()
 
 
 def _calendar_directory(axis: CalendarDataAxis) -> OutputAttachment:
@@ -391,7 +395,7 @@ def test_coordinate_attachment_tables_are_fully_validated_before_top_zero() -> N
     assert tuple(a.name for a in result.frame_attachments) == ("directory",)
     data._attachments[0].rows["nominal_label"] = [99]
     with pytest.raises(AnalysisError):
-        _run(data, TopValues(0, ValueSlot(0), True, ()))
+        _run(data, TopValues(0, ValueSlot(0), True))
 
 
 def _float_rows() -> tuple[DataSchema, pd.DataFrame]:
@@ -409,7 +413,7 @@ def _float_rows() -> tuple[DataSchema, pd.DataFrame]:
     "operation",
     [
         SelectValues((("only_a", ValueSlot(0)),)),
-        TopValues(0, ValueSlot(0), True, ()),
+        TopValues(0, ValueSlot(0), True),
         FilterValues(ValueLiteral(False)),
     ],
 )
@@ -452,15 +456,15 @@ def test_fixed_typed_attachment_rejects_nonfinite_float_values(invalid: float) -
     data = CompletedFrameData(schema, pd.DataFrame({"k": [0.0], "v": [7]}), (attachment,))
     data._attachments[0].rows["k"] = [invalid]
     with pytest.raises(AnalysisError, match="finite"):
-        _run(data, TopValues(0, ValueSlot(0), True, ()))
+        _run(data, TopValues(0, ValueSlot(0), True))
 
 
 def test_complete_float_validation_preserves_na() -> None:
     schema, _ = _float_rows()
     rows = pd.DataFrame({"key": [1.0, 2.0], "a": [1.0, None], "b": [0.0, float("nan")]})
     data = CompletedFrameData(schema, rows)
-    assert data.copy_rows().loc[1, ["a", "b"]].isna().all()
+    assert data.copy_rows().iloc[[1]][["a", "b"]].isna().all().all()
     for constructor in (StageOutput.from_frame, StageOutput.from_source_frame):
         output = constructor(rows, schema.columns, schema.key_fields)
         checked = normalize_complete_frame(output.table, output.columns, output.keys)
-        assert checked.loc[1, ["a", "b"]].isna().all()
+        assert checked.iloc[[1]][["a", "b"]].isna().all().all()

@@ -28,12 +28,12 @@ def run(root: Path, phase: str, output: Path) -> None:
     ):
         session = mv.session.resume(session_id, by="id")
         before = len(session.runs().items)
-        results: dict[str, mv.Artifact] = {}
+        results: dict[str, mv.AnalysisFrame] = {}
         for name, item in obj(state["outputs"]).items():
             saved = obj(item)
             artifact = saved["artifact"]
             assert isinstance(artifact, str)
-            result = session.artifact(artifact)
+            result = session.persisted_frame(artifact)
             assert snapshot(result) == saved["snapshot"]
             results[name] = result
         groups = results["groups"].to_pandas()

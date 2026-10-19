@@ -18,6 +18,7 @@ import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import provider_for
 from marivo.datasource.ir import TableSourceIR
+from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.distribution_fixtures import distribution_data
 from tests.analysis.materialization.domain_recovery_worker import snapshot
@@ -113,7 +114,7 @@ def test_native_distributions_independent_fixed_and_cold(
             monkeypatch.setattr(type(subject.session._backend), "create_table", forbid_staging)
             monkeypatch.setattr(type(subject.session._backend), "drop_table", forbid_staging)
         session = mv.session.get_or_create("r94-distribution", report_timezone="UTC")
-        outputs: dict[str, mv.Artifact] = {}
+        outputs: dict[str, mv.AnalysisFrame] = {}
         for kind in ("approx_distinct", "distinct", "identity", "quantile", "approx_quantile"):
             field = session.catalog.fields.get(
                 "sales.facts.identity" if kind == "identity" else "sales.facts.amount"
@@ -135,12 +136,14 @@ def test_native_distributions_independent_fixed_and_cold(
             )
             if kind == "approx_quantile":
                 before = session.runs().items
-                with pytest.raises(AnalysisError) as refused:
-                    query.execute()
-                assert refused.value.expected and refused.value.received and refused.value.repair
+                with pytest.raises((AnalysisError, SemanticExpressionError)) as refused:
+                    query.persist()
+                error = refused.value
+                assert isinstance(error, (AnalysisError, SemanticExpressionError))
+                assert error.expected and error.received and error.repair
                 assert session.runs().items == before
                 continue
-            value = query.execute()
+            value = query.persist()
             frame = value.to_pandas()
             mapped = dict(zip(frame.iloc[:, 0], frame[("value", "value")], strict=True))
             if kind in ("distinct", "identity", "approx_distinct"):
@@ -167,7 +170,7 @@ def test_native_distributions_independent_fixed_and_cold(
         state: dict[str, Json] = {
             "session": session.id,
             "outputs": {
-                name: {"artifact": value.id, "snapshot": snapshot(value)}
+                name: {"artifact": value.artifact.id, "snapshot": snapshot(value)}
                 for name, value in outputs.items()
             },
         }
@@ -185,6 +188,7 @@ import pandas as pd
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
+from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
 from tests.support.json import encode, obj, read
@@ -194,7 +198,7 @@ with patch.object(ms, 'load', forbidden), patch.object(SemanticProject, 'load', 
     session = mv.session.resume(state['session'], by='id')
     before = len(session.runs().items)
     for name, item in obj(state['outputs']).items():
-        value = session.artifact(item['artifact'])
+        value = session.persisted_frame(item['artifact'])
         assert snapshot(value) == item['snapshot']
         frame = value.to_pandas()
         values = dict(zip(frame.iloc[:,0], frame[('value','value')], strict=True))

@@ -1,16 +1,24 @@
 """Graph failure atomicity and source errors without an execution clock."""
 
+import json
+import os
+import subprocess
+import sys
+
 import pandas as pd
 import pytest
 
 import marivo.semantic as ms
+from marivo.analysis.materialization import terminal_publication
 from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from tests.shared_fixtures import DslCaseFactory
+from tests.support.paths import PROJECT_ROOT
 
 
 @pytest.mark.parametrize(
-    "phase", ("source_execute", "query_admitted", "before_commit", "after_commit")
+    "phase", ("source_execute", "publication_admitted", "before_commit", "after_commit")
 )
 @pytest.mark.parametrize("interruption", (False, True))
 def test_source_and_python_failures_preserve_atomic_publication(
@@ -25,9 +33,10 @@ def test_source_and_python_failures_preserve_atomic_publication(
         session.members(ms.ref.entity("sales.order")),
         {"value": session.catalog.fields.get("sales.order.amount")},
     )
-    prior = logical.execute()
+    prior = logical.persist()
     prior_frame = prior.to_pandas()
     runtime = session._runtime
+    before_runs = session.runs().items
     with runtime.store._connection() as connection:
         before = connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0]
 
@@ -45,21 +54,30 @@ def test_source_and_python_failures_preserve_atomic_publication(
 
         monkeypatch.setattr(SourceSession, "execute", failed_execute)
     else:
+        logical = logical.compute()
 
         def event(point: str) -> None:
             if point == phase:
                 fail()
 
-        runtime._hook = event
+        monkeypatch.setattr(terminal_publication, "_event", event)
     try:
         if phase == "after_commit":
-            committed = logical.execute()
+            committed = logical.persist()
             assert committed.to_pandas().equals(prior_frame)
         else:
             with pytest.raises(KeyboardInterrupt if interruption else MaterializationError):
-                logical.execute()
+                logical.persist()
     finally:
-        runtime._hook = None
+        monkeypatch.undo()
+    runs = session.runs().items
+    if phase == "source_execute":
+        assert runs == before_runs
+    else:
+        assert len(runs) == len(before_runs) + 1
+        added = [run for run in runs if run.run_id not in {old.run_id for old in before_runs}]
+        assert len(added) == 1
+        assert added[0].lifecycle == ("succeeded" if phase == "after_commit" else "failed")
     assert prior.to_pandas().equals(prior_frame)
     assert runtime.store.resources(session.id) == ()
     with runtime.store._connection() as connection:
@@ -95,7 +113,51 @@ def test_graph_has_no_hidden_600_second_expiry(
 
     monkeypatch.setattr(time, "monotonic", clock)
     monkeypatch.setattr(SourceSession, "execute", delayed)
-    result = logical.execute()
+    result = logical.compute()
+    assert case.session.runs().items == ()
     assert ticks[0] > 600
     assert len(result.to_pandas()) > 0
     assert case.session._runtime.store.resources(case.session.id) == ()
+
+
+def test_fresh_worker_contender_only_rejects_publication(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    saved = case.session.observe(
+        {"value": case.session.catalog.metrics.get("sales.revenue")},
+        during=case.session.time_scope(start="2026-08-01", end="2026-09-01"),
+    ).persist()
+    store = case.session._runtime.store
+    with session_writer_guard(store.layout.lock_path(case.session.id), session_ref=case.session.id):
+        process = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                "-m",
+                "tests.analysis.materialization.concurrency_worker",
+                "contend",
+                str(case.root),
+                "--session",
+                case.session.id,
+                "--metric",
+                "sales.revenue",
+                "--artifact",
+                saved.artifact.id,
+            ],
+            cwd=PROJECT_ROOT,
+            env={**os.environ, "MARIVO_TELEMETRY": "off"},
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    assert process.returncode == 0, process.stdout + process.stderr
+    report = json.loads(process.stdout.splitlines()[-1])
+    assert report["session"] == case.session.id
+    assert report["pid"] != os.getpid()
+    assert report["artifact"] == saved.artifact.id
+    assert report["before"] == report["after"]
+    assert len(case.session.runs().items) == 1
+    assert store.resources(case.session.id) == ()
+    assert saved.to_pandas()[("value", "value")].tolist() == [1000]

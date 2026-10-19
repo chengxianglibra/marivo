@@ -11,6 +11,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import SourceSession
+from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
 from tests.support.json import Json, obj, read
@@ -33,41 +34,45 @@ def run_process(project: str, session_id: str, phase: str) -> None:
             members=members,
         )
         results = {
-            "sum": observed.reduce({"value": observed["value"].sum()}, by=(region,)).execute(),
-            "mean": observed.reduce({"value": observed["value"].mean()}, by=(region,)).execute(),
-            "count": observed.reduce({"value": mv.row_count()}, by=(region,)).execute(),
+            "sum": observed.reduce(
+                {"value": observed["value"].sum()}, by=(observed.axes[1],)
+            ).persist(),
+            "mean": observed.reduce(
+                {"value": observed["value"].mean()}, by=(observed.axes[1],)
+            ).persist(),
+            "count": observed.reduce({"value": mv.row_count()}, by=(observed.axes[1],)).persist(),
             "count_defined": observed.where(~observed["value"].is_null())
             .reduce({"value": mv.row_count()})
-            .execute(),
+            .persist(),
         }
         assert results["sum"].to_pandas()[("value", "value")].tolist() == [140, 7]
         assert results["mean"].to_pandas()[("value", "value")].tolist() == [70, 7]
         assert results["count"].to_pandas()[("value", "value")].tolist() == [2, 1]
-        raw = observed.execute().to_pandas()[("value", "value")]
+        raw = observed.persist().to_pandas()[("value", "value")]
         assert raw.min() == 7 and raw.max() == 120
         for name in ("distinct", "approx_distinct", "quantile"):
             results[name] = session.observe(
                 {"value": session.catalog.metrics.get("sales." + name)}, during=scope, by=members
-            ).execute()
+            ).persist()
         assert results["distinct"].to_pandas()[("value", "value")].tolist() == [2, 1, 1]
         assert results["quantile"].to_pandas()[("value", "value")].tolist() == [60, 20, 7]
         results["read"] = session.read(
             session.members(ms.ref.entity("sales.order")),
             {"value": session.catalog.fields.get("sales.order.amount")},
-        ).execute()
-        results["category"] = session.read(members, {"value": region}).execute()
+        ).persist()
+        results["category"] = session.read(members, {"value": region}).persist()
         before = len(session.runs().items)
         try:
             session.observe(
                 {"value": session.catalog.metrics.get("sales.approx_quantile")}, during=scope
-            ).execute()
-        except AnalysisError as error:
+            ).persist()
+        except (AnalysisError, SemanticExpressionError) as error:
             assert error.expected and error.received and error.repair
         else:
             raise AssertionError("An unqualified approximate quantile route executed")
         assert len(session.runs().items) == before
         output: dict[str, Json] = {
-            name: {"artifact": result.id, "snapshot": snapshot(result)}
+            name: {"artifact": result.artifact.id, "snapshot": snapshot(result)}
             for name, result in results.items()
         }
         manifest.write_text(json.dumps(output, sort_keys=True))
@@ -84,7 +89,7 @@ def run_process(project: str, session_id: str, phase: str) -> None:
                 saved = obj(value)
                 artifact = saved["artifact"]
                 assert isinstance(artifact, str)
-                result = session.artifact(artifact)
+                result = session.persisted_frame(artifact)
                 assert snapshot(result) == saved["snapshot"]
             assert len(session.runs().items) == before
     assert session._runtime.store.resources(session.id) == ()

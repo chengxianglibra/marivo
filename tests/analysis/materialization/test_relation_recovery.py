@@ -85,11 +85,13 @@ def test_required_terminal_receipts_reject_corruption_without_source(
         during=session.time_scope(start="2026-07-01", end="2026-08-01"),
         by=members,
     )
-    difference = current.compare(baseline).execute()
-    previous = current.execute()
+    difference = current.compare(
+        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True))
+    ).persist()
+    previous = current.persist()
     expected = difference.to_pandas()
     previous_rows = previous.to_pandas()
-    assert expected[("value", "value.absolute")].tolist() == [0, 0, 0, 0]
+    assert expected[("value", "absolute.value")].tolist() == [0, 0, 0, 0]
     assert previous_rows[("value", "value")].tolist() == [1, 1, 1, 1]
     runs_before = session.runs().items
 
@@ -109,7 +111,7 @@ def test_required_terminal_receipts_reject_corruption_without_source(
             else:
                 primary.write_bytes(b"damaged required terminal output")
             # Opening metadata is deliberately lazy; the actual consumed file fails.
-            reopened = session.artifact(difference.id)
+            reopened = session.persisted_frame(difference.artifact.id)
             with pytest.raises(AnalysisError):
                 reopened.to_pandas()
             with pytest.raises(AnalysisError):
@@ -118,5 +120,7 @@ def test_required_terminal_receipts_reject_corruption_without_source(
             assert session.runs().items == runs_before
         finally:
             primary.write_bytes(contents)
-        pd.testing.assert_frame_equal(session.artifact(difference.id).to_pandas(), expected)
+        pd.testing.assert_frame_equal(
+            session.persisted_frame(difference.artifact.id).to_pandas(), expected
+        )
     assert session.runs().items == runs_before

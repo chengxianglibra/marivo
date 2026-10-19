@@ -131,7 +131,7 @@ def test_native_independent_multiroot_fixed_and_cold(
                 models += f"{name}_subject=ms.relationship(name={name + '_subject'!r},from_entity={name},to_entity=subjects,keys=[ms.join_on({name}_owner,subjects_owner),ms.join_on({name}_tenant,subjects_tenant)])\n"
         models += "frozen=ms.finalize()\n"
         for name in ("left", "right"):
-            models += f"{name}_value=frozen.resolve({name}_amount)\n{name}_clock=frozen.resolve({name}_time)\n@ms.metric()\ndef {name}_total():\n    return {name}_value.sum(time={name}_clock)\n"
+            models += f"{name}_value=frozen.resolve({name}_amount)\n{name}_clock=frozen.resolve({name}_time)\n@ms.metric()\ndef {name}_total():\n    return {name}_value.sum(time={name}_clock, empty='zero')\n"
         semantic_project_factory(
             {
                 "datasources/warehouse.py": "import marivo.datasource as md\n"
@@ -154,8 +154,8 @@ def test_native_independent_multiroot_fixed_and_cold(
                 "ratio": session.observe({"value": left / right}, by=members),
                 "components": session.observe({"left": left, "right": right}, by=members),
             }
-            relations["linear_total"] = relations["linear"].rollup()
-            relations["ratio_total"] = relations["ratio"].rollup()
+            relations["linear_total"] = session.observe({"value": left + right})
+            relations["ratio_total"] = session.observe({"value": left / right})
             owner_field = session.catalog.fields.get("sales.subjects.owner")
             left_members = session.members(ms.ref.entity("sales.left"))
             auto_read = session.read(left_members, {"value": owner_field})
@@ -168,14 +168,14 @@ def test_native_independent_multiroot_fixed_and_cold(
                 },
             )
         relations["auto_read"], relations["explicit_read"] = auto_read, explicit_read
-        outputs = {name: relation.execute() for name, relation in relations.items()}
+        outputs = {name: relation.persist() for name, relation in relations.items()}
         derived = verify(outputs)
         for result in outputs.values():
             source_trace.record(result)
         state: dict[str, Json] = {
             "session": session.id,
             "outputs": {
-                name: {"artifact": value.id, "snapshot": snapshot(value)}
+                name: {"artifact": value.artifact.id, "snapshot": snapshot(value)}
                 for name, value in outputs.items()
             },
             "derived": derived,

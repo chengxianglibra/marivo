@@ -1,5 +1,6 @@
 """R2.4 physical preparation over declared fields, time and versioned paths."""
 
+from collections.abc import Callable
 from pathlib import Path
 
 import duckdb
@@ -8,15 +9,24 @@ from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 import marivo.datasource as md
+from marivo._temporal import TimeScope
 from marivo.analysis.compiler.graph_lowering import lower_query
 from marivo.analysis.compiler.graph_plan import plan_query
+from marivo.analysis.core.frame_data import (
+    ExpressionFrameBacking,
+    LiteralFrameBinding,
+    SourceFrameBinding,
+)
+from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_source_execution import (
     execute_numeric_query,
     open_query_sources,
 )
 from marivo.analysis.session.core import Session
 from marivo.semantic.errors import SemanticExpressionError
+from marivo.semantic.reader import SemanticProject
 
 MODEL = """import marivo.datasource as md
 import marivo.semantic as ms
@@ -56,7 +66,7 @@ def anchored():
 
 @pytest.fixture
 def prepared_session(
-    semantic_project_factory,
+    semantic_project_factory: Callable[..., SemanticProject],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     request: pytest.FixtureRequest,
@@ -133,8 +143,22 @@ def prepared_session(
     return mv.session.get_or_create("preparation", report_timezone="Asia/Shanghai")
 
 
-def compute(session: Session, metrics: dict[str, Deferred], **context: object):
-    graph = session.observe(metrics, **context)._graph
+def _source_graph(frame: mv.AnalysisFrame) -> BoundGraph:
+    backing = frame._backing
+    assert isinstance(backing, ExpressionFrameBacking)
+    assert isinstance(backing.root, (SourceFrameBinding, LiteralFrameBinding))
+    return backing.root.graph
+
+
+def compute(
+    session: Session,
+    metrics: dict[str, Deferred],
+    *,
+    during: TimeScope | mv.CalendarAxis | None = None,
+    by: tuple[Deferred, ...] = (),
+    where: Deferred | None = None,
+) -> StageOutput:
+    graph = _source_graph(session.observe(metrics, during=during, by=by, where=where))
     with open_query_sources(
         session._runtime.connection_service(), graph, session.catalog._state
     ) as prepared:
@@ -236,7 +260,9 @@ def test_window_excludes_unrelated_bad_mapping(prepared_session: Session) -> Non
 
 
 def test_duration_reducers_keep_exact_ticks(
-    semantic_project_factory, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import pyarrow as pa
     import pyarrow.parquet as pq
@@ -287,7 +313,9 @@ elapsed=ms.measure_column(name="elapsed",entity=facts,column="elapsed",additivit
 
 
 def test_independent_roots_across_datasources(
-    semantic_project_factory, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     files = {
         "sales/_domain.py": 'import marivo.semantic as ms\nms.domain(name="sales",owner="Analytics",default=True)\n'

@@ -27,7 +27,7 @@ def test_member_count_without_source_metric_prepares_members(
     )
     frame = (
         session.observe({"n": mv.member_count()}, members=members, by=(region,) if grouped else ())
-        .execute()
+        .compute()
         .to_pandas()
     )
     if grouped:
@@ -51,7 +51,7 @@ def test_member_count_literal_absent_identity_needs_no_profile_confirmation(
     members = mv.identities(
         session.catalog.entities.get("sales.customer"), keys=(("A",), ("missing",))
     )
-    frame = session.observe({"n": mv.member_count()}, members=members).execute().to_pandas()
+    frame = session.observe({"n": mv.member_count()}, members=members).compute().to_pandas()
     assert frame[("value", "n")].tolist() == [2]
 
 
@@ -95,7 +95,7 @@ def test_member_count_condition_checks_do_not_reselect_explicit_members(
             members=members,
             where=condition,
         )
-        .execute()
+        .compute()
         .to_pandas()
     )
     assert frame[("value", "n")].tolist() == [4]
@@ -110,14 +110,15 @@ def test_common_population_condition_preserves_formula_and_query_dependency(
     count = session.catalog.metrics.get("sales.order_count")
     channel = session.catalog.fields.get("sales.order.channel")
     producer = session.observe({"revenue": revenue}, by=(channel,))
-    selected = producer.where(producer["revenue"] > 500).population()
+    chosen = producer.where(producer["revenue"] > 500)
+    selected = session.population_from(chosen, on=((chosen.axes[0], channel),))
     frame = (
         session.observe(
             {"n": mv.member_count(), "average": revenue / count},
             members=session.members(ms.ref.entity("sales.order")),
             where=mv.in_population(selected),
         )
-        .execute()
+        .compute()
         .to_pandas()
     )
     assert frame[("value", "n")].tolist() == [5]
@@ -165,7 +166,7 @@ def test_observe_complete_domain_requires_compatible_during_calendar(
             during=august,
             by=requested,
         )
-        frame = result.execute().to_pandas()
+        frame = result.compute().to_pandas()
         assert dict(zip(frame.iloc[:, 1], frame[("value", "revenue")], strict=True)) == {
             "mobile": 150,
             "web": 850,
@@ -186,7 +187,7 @@ def test_observe_rejects_conflicting_extra_calendar_even_when_one_matches(
     )
     requested = mv.product(august, other)
     # Pure coordinate products remain independent of observation time binding.
-    assert len(session.query(requested).output_names) == 0
+    assert len(session.frame(requested).output_names) == 0
     with pytest.raises(AnalysisError) as captured:
         session.observe(
             {"revenue": session.catalog.metrics.get("sales.revenue")},
@@ -210,7 +211,7 @@ def test_observe_accepts_exact_complete_calendar_binding(
             during=calendar,
             by=mv.product(calendar, mv.coordinates(by=(channel,), keys=(("web",), ("mobile",)))),
         )
-        .execute()
+        .compute()
         .to_pandas()
     )
     assert len(frame) == (62 if grain == "day" else 2)

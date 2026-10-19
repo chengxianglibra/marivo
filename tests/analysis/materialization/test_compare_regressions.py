@@ -13,10 +13,7 @@ import pyarrow.parquet as pq
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.binding.correspondence import ComparisonEndpoint, bind_correspondence
-from marivo.analysis.core.data_types import DataColumn, DecimalDataType
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.methods.query_comparison import compare_frames
 from marivo.semantic.reader import SemanticProject
 
 
@@ -36,25 +33,45 @@ def test_decimal_compare_ignores_caller_precision_and_keeps_zero_policy(
     baseline: str | None,
     absolute: str | None,
     relative: float | None,
+    comparison_session: mv.Session,
 ) -> None:
-    endpoint = ComparisonEndpoint(
-        (DataColumn("value.0", "v", DecimalDataType(12, 2), True),), (), (), ()
-    )
-    binding = bind_correspondence(endpoint, endpoint, operation="compare")
-    left = pd.DataFrame({"value.0": [None if current is None else Decimal(current)]})
-    right = pd.DataFrame({"value.0": [None if baseline is None else Decimal(baseline)]})
+    session = comparison_session
+
+    def endpoint(value: str | None) -> mv.AnalysisFrame:
+        source = session.values(
+            by=(), columns={"v": None}, rows=(((), {"v": Decimal(value or "38")}),)
+        )
+        if value is not None:
+            return source
+        empty = source.where(source["v"] > Decimal("100"))
+        return empty.reduce({"v": empty["v"].sum()})
+
+    left, right = endpoint(current), endpoint(baseline)
     with localcontext() as context:
         context.prec = 1
         context.traps[Inexact] = True
-        frame = compare_frames(binding, left, right).frame
-        delta, change = frame["value.0.absolute"].iloc[0], frame["value.0.relative"].iloc[0]
+        frame = (
+            left.compare(right, on=tuple(zip(left.axes, right.axes, strict=True)))
+            .compute()
+            .to_pandas()
+        )
+        delta, change = (
+            frame[("value", "absolute.v")].iloc[0],
+            frame[("value", "relative.v")].iloc[0],
+        )
         assert pd.isna(delta) if absolute is None else delta == Decimal(absolute)
         assert pd.isna(change) if relative is None else change == relative
         if current is not None and baseline is not None and Decimal(baseline).is_zero():
             with pytest.raises(AnalysisError, match="nonzero denominator"):
-                compare_frames(binding, left, right, zero_denominator="error")
+                left.compare(
+                    right,
+                    zero_denominator="error",
+                    on=tuple(zip(left.axes, right.axes, strict=True)),
+                ).compute()
         else:
-            compare_frames(binding, left, right, zero_denominator="error")
+            left.compare(
+                right, zero_denominator="error", on=tuple(zip(left.axes, right.axes, strict=True))
+            ).compute()
 
 
 @pytest.fixture
@@ -113,25 +130,25 @@ def test_duration_comparison_kinds_allow_filter_projection_and_reduction(
         current = session.read(mv.identities(entity, keys=((1,),)), {"v": elapsed})
         baseline = current.select({"v": current["v"] / 2})
 
-    comparison = current.compare(baseline)
-    for name, expected in (("current", 38), ("baseline", 19), ("absolute", 19)):
-        selected = comparison.where(comparison[f"v.{name}"] > timedelta(0))
-        projected = selected.select({"duration": selected[f"v.{name}"] + timedelta(0)})
-        frame = projected.reduce({"duration": projected["duration"].sum()}).execute().to_pandas()
+    comparison = current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))
+    for name, expected in (("left", 38), ("right", 19), ("absolute", 19)):
+        selected = comparison.where(comparison[f"{name}.v"] > timedelta(0))
+        projected = selected.select({"duration": selected[f"{name}.v"] + timedelta(0)})
+        frame = projected.reduce({"duration": projected["duration"].sum()}).compute().to_pandas()
         assert frame[("value", "duration")].tolist() == [
             pd.Timedelta(expected, unit="us" if endpoint == "literal" else "ns")
         ]
-    positive = comparison.where(comparison["v.relative"] > 0)
-    assert positive.execute().to_pandas()[("value", "v.relative")].tolist() == [1.0]
+    positive = comparison.where(comparison["relative.v"] > 0)
+    assert positive.compute().to_pandas()[("value", "relative.v")].tolist() == [1.0]
 
 
 def test_numeric_literal_comparison_keeps_known_kind(comparison_session: mv.Session) -> None:
     query = comparison_session.values(by=(), columns={"v": None}, rows=(((), {"v": 2}),))
-    comparison = query.compare(query)
+    comparison = query.compare(query, on=tuple(zip(query.axes, query.axes, strict=True)))
     with pytest.raises(AnalysisError, match="matching value kinds"):
-        comparison.where(comparison["v.absolute"] > timedelta(0))
-    assert comparison.where(comparison["v.current"] > 0).execute().to_pandas()[
-        ("value", "v.absolute")
+        comparison.where(comparison["absolute.v"] > timedelta(0))
+    assert comparison.where(comparison["left.v"] > 0).compute().to_pandas()[
+        ("value", "absolute.v")
     ].tolist() == [0]
 
 
@@ -144,9 +161,13 @@ def test_public_decimal_compare_ignores_caller_precision(comparison_session: mv.
     )
     with localcontext() as context:
         context.prec = 1
-        frame = current.compare(baseline).execute().to_pandas()
-    assert frame[("value", "v.absolute")].tolist() == [Decimal("19")]
-    assert frame[("value", "v.relative")].tolist() == [1.0]
+        frame = (
+            current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))
+            .compute()
+            .to_pandas()
+        )
+    assert frame[("value", "absolute.v")].tolist() == [Decimal("19")]
+    assert frame[("value", "relative.v")].tolist() == [1.0]
 
 
 def test_duration_comparison_still_rejects_nonzero_mixed_tick_literals(
@@ -154,7 +175,7 @@ def test_duration_comparison_still_rejects_nonzero_mixed_tick_literals(
 ) -> None:
     elapsed = comparison_session.catalog.fields.get("sales.observations.elapsed")
     query = comparison_session.observe({"v": elapsed.sum()})
-    comparison = query.compare(query)
-    invalid = comparison.where(comparison["v.absolute"] > timedelta(microseconds=1))
-    with pytest.raises(AnalysisError, match="matching exact Duration units"):
-        invalid.execute()
+    comparison = query.compare(query, on=tuple(zip(query.axes, query.axes, strict=True)))
+    invalid = comparison.where(comparison["absolute.v"] > timedelta(microseconds=1))
+    with pytest.raises(AnalysisError, match=r"matching.*Duration"):
+        invalid.compute()

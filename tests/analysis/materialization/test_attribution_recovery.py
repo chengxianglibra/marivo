@@ -72,17 +72,16 @@ def test_native_duckdb_attribution_independent_fixed_and_cold(
         bucket = session.catalog.fields.get("sales.facts.bucket")
         happened = session.catalog.fields.get("sales.facts.happened")
 
-        def endpoint(month: int) -> mv.Query:
+        def endpoint(month: int) -> mv.AnalysisFrame:
             return session.observe(
                 {"value": session.catalog.metrics.get("sales.total")},
                 during=session.time_scope(
                     start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"
                 ),
-                by=(mv.member(), bucket),
-                members=members,
-            ).rollup(by=(bucket,))
+                by=mv.coordinates(by=(bucket,), keys=(("a",), ("b",), ("c",))),
+            )
 
-        def facts(month: int) -> mv.Query:
+        def facts(month: int) -> mv.AnalysisFrame:
             values = session.read(
                 members,
                 {
@@ -98,18 +97,22 @@ def test_native_duckdb_attribution_independent_fixed_and_cold(
 
         current, baseline = endpoint(8), endpoint(7)
         outputs = {
-            "groups": current.compare(baseline).execute(),
-            "difference": current.rollup().compare(baseline.rollup()).execute(),
-            "current": facts(8).execute(),
-            "baseline": facts(7).execute(),
+            "groups": current.compare(
+                baseline, on=tuple(zip(current.axes, baseline.axes, strict=True))
+            ).persist(),
+            "difference": current.reduce({"value": current["value"].sum()})
+            .compare(baseline.reduce({"value": baseline["value"].sum()}))
+            .persist(),
+            "current": facts(8).persist(),
+            "baseline": facts(7).persist(),
         }
         grouped = plain(outputs["groups"])
-        assert dict(zip(grouped.key_0, grouped["value.absolute"], strict=True)) == {
+        assert dict(zip(grouped.key_0, grouped["absolute.value"], strict=True)) == {
             "a": 2,
             "b": 1,
             "c": -5,
         }
-        assert plain(outputs["difference"])["value.absolute"].tolist() == [-2]
+        assert plain(outputs["difference"])["absolute.value"].tolist() == [-2]
         allocated = allocation(basis(outputs["current"]), basis(outputs["baseline"]), parents=())
         assert dict(zip(allocated.channel, allocated.contribution, strict=True)) == {
             "a": 2,
@@ -131,7 +134,7 @@ def test_native_duckdb_attribution_independent_fixed_and_cold(
         state: dict[str, Json] = {
             "session": session.id,
             "outputs": {
-                name: {"artifact": value.id, "snapshot": snapshot(value)}
+                name: {"artifact": value.artifact.id, "snapshot": snapshot(value)}
                 for name, value in outputs.items()
             },
         }

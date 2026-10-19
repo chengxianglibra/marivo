@@ -36,7 +36,7 @@ def test_public_composition_refuses_before_source_or_run(
         entity = ms.ref.entity("sales.facts")
         measure = ms.ref.measure("sales.facts.amount")
         live = session.read(session.members(entity), {"value": session.catalog.fields.get(measure)})
-        previous = live.execute()
+        previous = live.persist()
         saved = snapshot(previous)
         foreign = mv.session.get_or_create("r94-foreign", report_timezone="UTC")
         other = foreign.read(
@@ -55,8 +55,10 @@ def test_public_composition_refuses_before_source_or_run(
         for name in ("__enter__", "bind", "compile", "execute"):
             monkeypatch.setattr(SourceSession, name, tripwire("source." + name))
         monkeypatch.setattr(terminal_store, "admit", tripwire("terminal_store.admit"))
-        refusals: dict[str, tuple[mv.Query, mv.Query | mv.Artifact, list[Session]]] = {
-            "mixed-live-fixed": (live, previous, [session]),
+        refusals: dict[
+            str, tuple[mv.AnalysisFrame, mv.AnalysisFrame | mv.Artifact, list[Session]]
+        ] = {
+            "artifact-input": (live, previous.artifact, [session]),
             "cross-session": (live, other, [session, foreign]),
         }
         reports: dict[str, list[Json]] = {}
@@ -77,9 +79,9 @@ def test_public_composition_refuses_before_source_or_run(
                         "repair": error.repair.action,
                     }
                 )
-            if isinstance(right, mv.Query):
+            if isinstance(right, mv.AnalysisFrame):
                 with pytest.raises(AnalysisError):
-                    right.compare(left)
+                    right.compare(left, on=tuple(zip(right.axes, left.axes, strict=True)))
             assert calls == []
             assert [run_ids(item) for item in sessions] == before
             assert snapshot(previous) == saved
@@ -128,14 +130,18 @@ def test_public_required_output_receipts_block_consumption_without_new_work(
             during=session.time_scope(start="2026-07-01", end="2026-07-03").by(mv.grain("day")),
             by=members,
         )
-        previous = current.compare(baseline, match=mv.ordinal(), time_axis="current").execute()
+        previous = current.compare(
+            baseline,
+            match=mv.ordinal(),
+            on=tuple(zip(current.axes, baseline.axes, strict=True)),
+        ).persist()
         frame = previous.to_pandas()
         assert len(frame) == 6
-        assert frame[("value", "value.current")].sum() == 6
-        assert frame[("value", "value.baseline")].sum() == 0
+        assert frame[("value", "left.value")].sum() == 6
+        assert frame[("value", "right.value")].sum() == 0
         assert frame["presence"].all().all()
-        data = previous._manifest.data
-        assert any(item.name == "calendar_bounds.axis.0" for item in data.attachments)
+        data = previous.artifact._manifest.data
+        assert any(item.name.startswith("calendar.") for item in data.attachments)
         saved = snapshot(previous, frame=frame)
         before = run_ids(session)
         published_before = publication_counts(session)
@@ -153,7 +159,7 @@ def test_public_required_output_receipts_block_consumption_without_new_work(
             offline = path.with_name(path.name + ".offline")
             path.rename(offline)
             try:
-                reopened = session.artifact(previous.id)
+                reopened = session.persisted_frame(previous.artifact.id)
                 for value in (previous, reopened):
                     with pytest.raises(AnalysisError) as caught:
                         value.to_pandas()
@@ -212,7 +218,7 @@ def test_public_cross_datasource_observation_refuses_before_business_read(
         members = session.members(ms.ref.entity("sales.subjects"))
         previous = session.read(
             members, {"value": session.catalog.fields.get("sales.subjects.subjects_amount")}
-        ).execute()
+        ).persist()
         saved = snapshot(previous)
         before = run_ids(session)
         published_before = publication_counts(session)
@@ -229,7 +235,7 @@ def test_public_cross_datasource_observation_refuses_before_business_read(
         with pytest.raises(AnalysisError) as caught:
             session.observe(
                 {"value": session.catalog.metrics.get("sales.total")}, by=members
-            ).execute()
+            ).persist()
         error = caught.value
         assert error.expected == "scalar relationship endpoints on one datasource"
         assert error.received == "sales.subjects"

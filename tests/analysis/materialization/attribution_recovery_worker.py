@@ -30,12 +30,12 @@ def run(root: Path, phase: str, output: Path) -> None:
     ):
         session = mv.session.resume(session_id, by="id")
         before = len(session.runs().items)
-        outputs: dict[str, mv.Artifact] = {}
+        outputs: dict[str, mv.AnalysisFrame] = {}
         for name, saved in obj(state["outputs"]).items():
             item = obj(saved)
             identity = item["artifact"]
             assert isinstance(identity, str)
-            value = session.artifact(identity)
+            value = session.persisted_frame(identity)
             assert snapshot(value) == item["snapshot"]
             outputs[name] = value
         current, baseline = basis(outputs["current"]), basis(outputs["baseline"])
@@ -47,12 +47,12 @@ def run(root: Path, phase: str, output: Path) -> None:
         }
         assert allocated.contribution.sum() == -2
         grouped = plain(outputs["groups"])
-        assert dict(zip(grouped.key_0, grouped["value.absolute"], strict=True)) == {
+        assert dict(zip(grouped.key_0, grouped["absolute.value"], strict=True)) == {
             "a": 2,
             "b": 1,
             "c": -5,
         }
-        assert plain(outputs["difference"])["value.absolute"].tolist() == [-2]
+        assert plain(outputs["difference"])["absolute.value"].tolist() == [-2]
         assert len(session.runs().items) == before
         assert all(not hasattr(value, "attribute") for value in outputs.values())
     output.write_bytes(encode({"phase": phase, "pid": os.getpid()}))

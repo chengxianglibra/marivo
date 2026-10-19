@@ -37,9 +37,9 @@ def test_native_comparison_independent_fixed_and_cold(
         session = mv.session.get_or_create("comparison-recovery", report_timezone="UTC")
         originals: dict[str, Json] = {}
         for name, query in comparison_queries(session).items():
-            result = query.execute()
+            result = query.persist()
             assert_comparison(result, name)
-            originals[name] = {"artifact": result.id, "snapshot": snapshot(result)}
+            originals[name] = {"artifact": result.artifact.id, "snapshot": snapshot(result)}
             source_trace.record(result)
         state: dict[str, Json] = {"session": session.id, "originals": originals}
         (tmp_path / "comparison-recovery.json").write_bytes(encode(state))
@@ -74,7 +74,7 @@ state = json.loads(Path('comparison-recovery.json').read_text())
 session = mv.session.resume(state['session'], by='id')
 before = len(session.runs().items)
 for name, item in state['originals'].items():
-    result = session.artifact(item['artifact'])
+    result = session.persisted_frame(item['artifact'])
     assert snapshot(result) == item['snapshot']
     assert_comparison(result, name)
 assert len(session.runs().items) == before

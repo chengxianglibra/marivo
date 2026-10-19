@@ -22,7 +22,7 @@ from tests.support.json import Json, encode, obj, read
 KEYS = (("a", 9007199254740992, 1), ("a", 9007199254740993, 2), ("b", 9007199254740993, 1))
 
 
-def recipes(outputs: Mapping[str, mv.Artifact]) -> dict[str, Json]:
+def recipes(outputs: Mapping[str, mv.AnalysisFrame]) -> dict[str, Json]:
     """Compute explicit pandas reference, ranking and cohort recipes from saved facts."""
     current = plain(outputs["current"])
     assert current.key_0.tolist() == list(KEYS)
@@ -40,12 +40,12 @@ def recipes(outputs: Mapping[str, mv.Artifact]) -> dict[str, Json]:
     assert dict(zip(groups.key_0, groups.value, strict=True)) == {"a": 2, "b": 4}
     assert raw.groupby("bucket")["amount"].sum().to_dict() == {"a": 2, "b": 4}
     weights = plain(outputs["weights"])
-    fractions = dict(zip(weights.key_0, weights["value.share"], strict=True))
+    fractions = dict(zip(weights.key_0, weights["share"], strict=True))
     assert math.isclose(fractions["a"], 1 / 3) and math.isclose(fractions["b"], 2 / 3)
     assert math.isclose(sum(fractions.values()), 1)
     shares = plain(outputs["share"])
     assert shares.key_0.tolist() == list(KEYS)
-    assert shares["value.share"].tolist() == [1 / 3, 0, 2 / 3]
+    assert shares["share"].tolist() == [1 / 3, 0, 2 / 3]
     ranks = current.value.rank(method="dense", ascending=False).astype("int64")
     assert ranks.tolist() == [2, 3, 1]
     standardized = sum(row.value * fractions[row.key_0] for row in groups.itertuples())
@@ -54,10 +54,13 @@ def recipes(outputs: Mapping[str, mv.Artifact]) -> dict[str, Json]:
     assert len(opportunities) == 6
     assert opportunities.groupby("key_1").size().to_dict() == dict.fromkeys(KEYS, 2)
     by_day = opportunities.groupby("key_0")["value"].sum().to_dict()
-    assert by_day == {
-        pd.Timestamp("2026-08-01T00:00:00Z"): 6,
-        pd.Timestamp("2026-08-02T00:00:00Z"): 0,
-    }
+    assert by_day == {0: 6, 1: 0}
+    directory = opportunities.attrs["frozen_coordinates"][0]["rows"]
+    assert directory["ordinal"].tolist() == [0, 1]
+    assert directory["actual_start"].tolist() == [
+        pd.Timestamp("2026-08-01T00:00:00Z"),
+        pd.Timestamp("2026-08-02T00:00:00Z"),
+    ]
     positive = (
         opportunities.assign(positive=opportunities.value > 0).groupby("key_1")["positive"].sum()
     )
@@ -98,12 +101,12 @@ def run(root: Path, phase: str, output: Path) -> None:
     ):
         session = mv.session.resume(identity, by="id")
         before = len(session.runs().items)
-        outputs: dict[str, mv.Artifact] = {}
+        outputs: dict[str, mv.AnalysisFrame] = {}
         for name, saved in obj(state["outputs"]).items():
             item = obj(saved)
             artifact = item["artifact"]
             assert isinstance(artifact, str)
-            value = session.artifact(artifact)
+            value = session.persisted_frame(artifact)
             assert snapshot(value) == item["snapshot"]
             outputs[name] = value
         derived = recipes(outputs)

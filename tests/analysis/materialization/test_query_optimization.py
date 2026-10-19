@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from decimal import Decimal, localcontext
 from fractions import Fraction
 from pathlib import Path
+from unittest.mock import patch
 
 import duckdb
 import ibis
@@ -16,8 +17,11 @@ import pytest
 import marivo.analysis as mv
 from marivo._definition.query import LiteralValues
 from marivo._definition.types import AxisBinding
+from marivo.analysis.compiler.frame_plan import CompiledFramePlan
 from marivo.analysis.compiler.graph_lowering import LoweredRead, lower_query
 from marivo.analysis.compiler.graph_plan import (
+    FrameCompute,
+    FrameInput,
     LocalCompute,
     PlannedCheck,
     QueryPlan,
@@ -29,16 +33,22 @@ from marivo.analysis.compiler.optimization import (
     InvocationMemo,
     compilation_key,
     optimize_query,
-    required_for,
+)
+from marivo.analysis.core.frame_data import (
+    CompletedFrameData,
+    ExpressionFrameBacking,
+    LiteralFrameBinding,
+    SourceFrameBinding,
 )
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import Binding, Fact, Obligation
-from marivo.analysis.dsl.query import Query
+from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_execution import run_query_plan
 from marivo.analysis.materialization.graph_local_execution import run_local
 from marivo.analysis.materialization.graph_source_execution import (
+    PreparedSources,
     execute_numeric_query,
     open_query_sources,
 )
@@ -92,37 +102,101 @@ other_amount = ms.measure_column(name='amount', entity=other, column='amount', a
     return mv.session.get_or_create("optimization", report_timezone="UTC")
 
 
+def _source_graph(frame: AnalysisFrame) -> BoundGraph:
+    assert isinstance(frame._backing, ExpressionFrameBacking)
+    assert isinstance(frame._backing.root, (SourceFrameBinding, LiteralFrameBinding))
+    return frame._backing.root.graph
+
+
 def _execute(
-    session: Session, query: Query, *, optimized: bool
+    session: Session, query: AnalysisFrame, *, optimized: bool
 ) -> tuple[StageOutput, QueryPlan, tuple[str, ...], dict[str, tuple[str, ...]]]:
-    graph = query._graph
-    events: list[str] = []
-    actual: dict[str, tuple[str, ...]] = {}
-    with open_query_sources(
-        session._runtime.connection_service(), graph, session.catalog._state
-    ) as prepared:
-        plan = plan_query(graph, prepared.schemas, context=prepared.context)
-        if optimized:
-            plan = optimize_query(plan)
+    from marivo.analysis.materialization import frame_evaluation
 
-        def observe(stage: LocalCompute, output: StageOutput) -> None:
-            events.append(stage.stage_id)
-            actual[stage.stage_id] = tuple(output.table.columns)
-
-        def observe_read(request: LoweredRead, output: StageOutput) -> None:
-            actual[request.stage.stage_id] = tuple(output.table.columns)
-
-        result = execute_numeric_query(
-            prepared,
-            lower_query(plan, prepared.relations),
-            observe_local=observe,
-            observe_read=observe_read,
+    if (
+        isinstance(query._backing, ExpressionFrameBacking)
+        and isinstance(query._backing.root, (SourceFrameBinding, LiteralFrameBinding))
+        and not (
+            isinstance(query._backing.root, SourceFrameBinding)
+            and query._backing.root.frame_key_inputs
         )
-    return result, plan, tuple(events), actual
+    ):
+        graph = _source_graph(query)
+        events: list[str] = []
+        actual: dict[str, tuple[str, ...]] = {}
+        with open_query_sources(
+            session._runtime.connection_service(), graph, session.catalog._state
+        ) as prepared:
+            plan = plan_query(graph, prepared.schemas)
+            if optimized:
+                plan = optimize_query(plan)
+
+            def local(stage: LocalCompute, output: StageOutput) -> None:
+                events.append(stage.stage_id)
+                actual[stage.stage_id] = tuple(output.table.columns)
+
+            def source(request: LoweredRead, output: StageOutput) -> None:
+                actual[request.stage.stage_id] = tuple(output.table.columns)
+
+            result = execute_numeric_query(
+                prepared,
+                lower_query(plan, prepared.relations),
+                observe_local=local,
+                observe_read=source,
+            )
+        return result, plan, tuple(events), actual
+    frame_events: list[str] = []
+    frame_actual: dict[str, tuple[str, ...]] = {}
+    captured: list[tuple[StageOutput, QueryPlan]] = []
+    from marivo.analysis.materialization.graph_source_execution import run_frame_plan
+
+    run = run_frame_plan
+
+    def observe(
+        compiled: CompiledFramePlan,
+        *,
+        source_prepared: Mapping[str, PreparedSources],
+        read_fixed: Callable[[FrameInput], CompletedFrameData],
+        adapt_source: Callable[[str, StageOutput], StageOutput],
+        observe_read: Callable[[LoweredRead, StageOutput], None] | None = None,
+        observe_local: Callable[[LocalCompute | FrameCompute, StageOutput], None] | None = None,
+    ) -> StageOutput:
+        def local(stage: LocalCompute | FrameCompute, output: StageOutput) -> None:
+            frame_events.append(stage.stage_id)
+            frame_actual[stage.stage_id] = tuple(output.table.columns)
+            if observe_local is not None:
+                observe_local(stage, output)
+
+        def source(request: LoweredRead, output: StageOutput) -> None:
+            frame_actual[request.stage.stage_id] = tuple(output.table.columns)
+            if observe_read is not None:
+                observe_read(request, output)
+
+        output = run(
+            compiled,
+            source_prepared=source_prepared,
+            read_fixed=read_fixed,
+            adapt_source=adapt_source,
+            observe_read=source,
+            observe_local=local,
+        )
+        captured.append((output, compiled.lowered.plan))
+        return output
+
+    with patch.object(frame_evaluation, "run_frame_plan", observe):
+        if optimized:
+            query.compute()
+        else:
+            with patch.object(frame_evaluation, "optimize_query", lambda plan: plan):
+                query.compute()
+    assert len(captured) == 1
+    output, plan = captured[0]
+    assert query._local.owner == session._runtime.local.owner
+    return output, plan, tuple(frame_events), frame_actual
 
 
 def _same(
-    session: Session, query: Query
+    session: Session, query: AnalysisFrame
 ) -> tuple[QueryPlan, tuple[str, ...], dict[str, tuple[str, ...]]]:
     baseline, original, _, _ = _execute(session, query, optimized=False)
     result, planned, events, actual = _execute(session, query, optimized=True)
@@ -134,7 +208,7 @@ def _same(
     return planned, events, actual
 
 
-def _wide(session: Session) -> Query:
+def _wide(session: Session) -> AnalysisFrame:
     region = session.catalog.fields.get("sales.orders.region")
     return session.values(
         by=(region,),
@@ -147,7 +221,9 @@ def _wide(session: Session) -> Query:
     )
 
 
-def test_backward_demand_really_prunes_wide_literal_input(optimization_session: Session) -> None:
+def test_complete_literal_input_remains_checked_before_projection(
+    optimization_session: Session,
+) -> None:
     source = _wide(optimization_session)
     query = source.select({"kept": source["a"]})
     plan, _, actual = _same(optimization_session, query)
@@ -158,33 +234,34 @@ def test_backward_demand_really_prunes_wide_literal_input(optimization_session: 
         and stage.result is not None
         and isinstance(stage.result.operation, LiteralValues)
     )
-    assert tuple(column.slot_id for column in literal.columns) == ("key.0", "value.0")
-    assert actual[literal.stage_id] == ("key.0", "value.0")
-    assert required_for(plan, literal.stage_id).columns == ("key.0", "value.0")
+    assert actual[literal.stage_id] == ("key.0", "value.0", "value.1", "value.2")
+    result = query.compute().to_pandas()
+    assert result.columns.equals(
+        pd.MultiIndex.from_tuples([("coordinate", "axis.0"), ("value", "kept")])
+    )
+    assert result[("value", "kept")].tolist() == [10, 20, 30]
 
 
-def test_repeated_consumers_union_their_real_column_requirements(
+def test_repeated_consumers_share_complete_input_without_mutation(
     optimization_session: Session,
 ) -> None:
     source = _wide(optimization_session)
-    left = source.select({"kept": source["a"]})
-    right = source.select({"kept": source["b"]})
-    query = left.align(right)
+    left = source.select({"left": source["a"]})
+    right = source.select({"right": source["b"]})
+    query = left.align(right, on=tuple(zip(left.axes, right.axes, strict=True)))
     plan, _, actual = _same(optimization_session, query)
-    literal = next(
+    literals = [
         stage
         for stage in plan.stages
         if isinstance(stage, LocalCompute)
         and stage.result is not None
         and isinstance(stage.result.operation, LiteralValues)
-    )
-    assert len(plan.consumers_of(literal.stage_id)) == 2
-    assert actual[literal.stage_id] == ("key.0", "value.0", "value.1")
-    assert "value.2" not in actual[literal.stage_id]
-    endpoint = plan.stages[-1]
-    assert isinstance(endpoint, LocalCompute) and endpoint.result is not None
-    assert endpoint.result.output_layout is not None
-    assert endpoint.result.output_layout.presence
+    ]
+    assert len(literals) == 1
+    assert actual[literals[0].stage_id] == ("key.0", "value.0", "value.1", "value.2")
+    rows = query.compute().to_pandas()
+    assert rows[("value", "left.left")].tolist() == [10, 20, 30]
+    assert rows[("value", "right.right")].tolist() == [100, 200, 300]
 
 
 def test_source_attributes_keep_complete_keys_and_lookup_checks(
@@ -198,8 +275,8 @@ def test_source_attributes_keep_complete_keys_and_lookup_checks(
         mv.identities(entity, keys=((1,), (2,))), {"amount": amount, "region": region}
     )
     query = source.select({"kept": source["amount"]})
-    baseline, before, _, before_actual = _execute(session, query, optimized=False)
-    result, after, _, after_actual = _execute(session, query, optimized=True)
+    baseline, before, _, before_actual = _execute(session, source, optimized=False)
+    result, after, _, after_actual = _execute(session, source, optimized=True)
     pd.testing.assert_frame_equal(result.table, baseline.table)
     reads = tuple(
         stage for stage in after.stages if isinstance(stage, SourceRead) and stage.projections
@@ -216,99 +293,83 @@ def test_source_attributes_keep_complete_keys_and_lookup_checks(
         assert stage.preparation_checks == original.preparation_checks
         assert stage.preparation_checks
 
+    assert query.compute().to_pandas()[("value", "kept")].tolist() == [10, 30]
 
-def test_registered_selection_fusion_is_executed_on_native_source(
-    optimization_session: Session,
-) -> None:
-    session = optimization_session
-    amount = session.catalog.fields.get("sales.orders.amount")
-    region = session.catalog.fields.get("sales.orders.region")
-    source = session.observe({"sales": amount.sum()}, by=(region,))
+
+def test_current_frame_filters_preserve_real_source_domain(optimization_session: Session) -> None:
+    amount = optimization_session.catalog.fields.get("sales.orders.amount")
+    region = optimization_session.catalog.fields.get("sales.orders.region")
+    source = optimization_session.observe({"sales": amount.sum()}, by=(region,))
     first = source.where(source["sales"] >= 0)
     second = first.where(first["sales"] < 35)
-    plan, events, _ = _same(session, second)
-    assert len(plan.fusion_groups) == 1
-    group = plan.fusion_groups[0]
-    assert group.law == "L1" and group.output in events
-    assert group.members[0] not in events
-    assert any(
-        decision.status == "adopted" and decision.rule == "L1"
-        for decision in plan.optimization_decisions
-    )
+    plan, events, _ = _same(optimization_session, second)
+    filters = [stage for stage in plan.stages if isinstance(stage, FrameCompute)]
+    assert len(filters) == 2 and all(stage.stage_id in events for stage in filters)
+    assert second.compute().to_pandas()[("value", "sales")].tolist() == [20]
 
 
-def test_multiple_consumers_prevent_selection_fusion(optimization_session: Session) -> None:
+def test_multiple_consumers_keep_independent_filter_domains(optimization_session: Session) -> None:
     source = _wide(optimization_session)
     first = source.where(source["a"] > 0)
-    left = first.where(first["a"] < 25)
+    # Select binds to the exact filtered input, rather than its ancestor.
     right = first.where(first["a"] > 15)
-    plan, _, _ = _same(optimization_session, left.align(right, how="outer"))
-    assert any(
-        decision.rule == "L1"
-        and decision.status == "refused"
-        and "multiple consumers" in decision.reason
-        for decision in plan.optimization_decisions
+    left_input = first.where(first["a"] < 25)
+    left = left_input.select({"left": left_input["a"]})
+    right = right.select({"right": right["a"]})
+    query = left.align(right, how="outer", on=tuple(zip(left.axes, right.axes, strict=True)))
+    _same(optimization_session, query)
+    result = query.compute().to_pandas()
+    assert result[("value", "left.left")].iloc[:2].tolist() == [10, 20]
+    assert result[("value", "right.right")].iloc[1:].tolist() == [20, 30]
+    assert pd.isna(result[("value", "left.left")].iloc[2]) and pd.isna(
+        result[("value", "right.right")].iloc[0]
     )
 
 
-def test_top_and_share_boundaries_preserve_order_and_denominator(
-    optimization_session: Session,
-) -> None:
-    session = optimization_session
-    source = _wide(session)
+def test_top_and_explicit_source_denominator_preserve_values(optimization_session: Session) -> None:
+    source = _wide(optimization_session)
     top = source.top(2, by=source["a"])
     selected = top.where(top["a"] > 0)
     query = selected.select({"kept": selected["a"]})
-    plan, _, _ = _same(session, query)
-    assert any("TopValues" in decision.reason for decision in plan.optimization_decisions)
-    amount = session.catalog.fields.get("sales.orders.amount")
-    region = session.catalog.fields.get("sales.orders.region")
-    observed = session.observe({"sales": amount.sum(), "aov": amount.mean()}, by=(region,))
-    shared = observed.share("sales")
-    query = shared.where(shared["sales"] > 20)
-    plan, _, _ = _same(session, query)
-    assert any("ShareValues" in decision.reason for decision in plan.optimization_decisions)
-    result, _, _, _ = _execute(session, query, optimized=True)
-    assert result.layout is not None
-    share = result.layout.values[-1].slot_id
-    assert result.table[share].tolist() == pytest.approx([2 / 3])
+    _same(optimization_session, query)
+    assert query.compute().to_pandas()[("value", "kept")].tolist() == [30, 20]
+    amount = optimization_session.catalog.fields.get("sales.orders.amount")
+    region = optimization_session.catalog.fields.get("sales.orders.region")
+    denominator = (
+        optimization_session.observe({"total": amount.sum()})
+        .compute()
+        .to_pandas()[("value", "total")]
+        .iloc[0]
+    )
+    observed = optimization_session.observe({"sales": amount.sum()}, by=(region,))
+    shares = observed.select({"sales": observed["sales"], "share": observed["sales"] / denominator})
+    selected = shares.where(shares["sales"] > 20)
+    assert selected.compute().to_pandas()[("value", "share")].tolist() == pytest.approx([2 / 3])
 
 
-def test_nullable_integer_fusion_preserves_the_true_only_mask(
-    optimization_session: Session,
-) -> None:
-    session = optimization_session
-    amount = session.catalog.fields.get("sales.orders.amount")
-    region = session.catalog.fields.get("sales.orders.region")
-    source = session.observe({"smallest": amount.min()}, by=(region,))
+def test_nullable_integer_filters_preserve_true_only_mask(optimization_session: Session) -> None:
+    amount = optimization_session.catalog.fields.get("sales.orders.amount")
+    region = optimization_session.catalog.fields.get("sales.orders.region")
+    source = optimization_session.observe({"smallest": amount.min()}, by=(region,))
     first = source.where(source["smallest"] >= 0)
     query = first.where(first["smallest"] < 25)
-    plan, _, _ = _same(session, query)
-    assert len(plan.fusion_groups) == 1
-    result, _, _, _ = _execute(session, query, optimized=True)
-    assert result.table["key.0"].tolist() == ["A", "B"]
+    _same(optimization_session, query)
+    assert query.compute().to_pandas().iloc[:, 0].tolist() == ["A", "B"]
 
 
-def test_dynamic_predicate_has_no_fusion_proof(optimization_session: Session) -> None:
+def test_dynamic_predicate_checks_before_empty_filter(optimization_session: Session) -> None:
     source = _wide(optimization_session)
     first = source.where(source["a"] > 0)
     query = first.where(first["b"].divide(first["a"], zero_denominator="error") > 1)
-    plan, _, _ = _same(optimization_session, query)
-    assert not plan.fusion_groups
-    assert any(
-        decision.rule == "L1" and decision.status == "refused"
-        for decision in plan.optimization_decisions
-    )
+    _same(optimization_session, query)
+    assert query.compute().to_pandas()[("value", "a")].tolist() == [10, 20, 30]
 
 
 @pytest.mark.parametrize("fail_check", (False, True))
 def test_pending_check_is_kept_on_its_exact_fine_stage(
     optimization_session: Session, fail_check: bool
 ) -> None:
-    source = _wide(optimization_session)
-    first = source.where(source["a"] > 0)
-    query = first.where(first["a"] < 0)
-    graph = query._graph
+    graph = _source_graph(_wide(optimization_session))
     owner = graph.signature.owner
     obligation = Obligation(
         Fact(
@@ -320,29 +381,25 @@ def test_pending_check_is_kept_on_its_exact_fine_stage(
         "source.finite_numeric@v1",
         "consume",
     )
-    plans: list[QueryPlan] = []
+    with open_query_sources(
+        optimization_session._runtime.connection_service(),
+        graph,
+        optimization_session.catalog._state,
+    ) as prepared:
+        base = plan_query(graph, prepared.schemas)
     for optimized in (False, True):
-        with open_query_sources(
-            optimization_session._runtime.connection_service(),
-            graph,
-            optimization_session.catalog._state,
-        ) as prepared:
-            plan = plan_query(graph, prepared.schemas, context=prepared.context)
-        fine = plan.stages[-2]
+        fine = base.stages[-1]
         assert isinstance(fine, LocalCompute)
-        plan = replace(plan, checks=(PlannedCheck(obligation, fine.stage_id),))
+        plan = replace(base, checks=(PlannedCheck(obligation, fine.stage_id),))
         if optimized:
             plan = optimize_query(plan)
-        plans.append(plan)
         events: list[str] = []
 
-        def forbidden_read(stage: SourceRead) -> StageOutput:
+        def read(stage: SourceRead) -> StageOutput:
             raise AssertionError(stage.stage_id)
 
         def local(
-            stage: LocalCompute,
-            inputs: tuple[StageOutput, ...],
-            events: list[str] = events,
+            stage: LocalCompute, inputs: tuple[StageOutput, ...], events: list[str] = events
         ) -> StageOutput:
             events.append(stage.stage_id)
             return run_local(stage, inputs)
@@ -350,10 +407,10 @@ def test_pending_check_is_kept_on_its_exact_fine_stage(
         def check(
             requirement: PlannedCheck,
             output: StageOutput,
-            fine_id: str = fine.stage_id,
+            fine: LocalCompute = fine,
             events: list[str] = events,
         ) -> None:
-            assert requirement.stage_id == fine_id
+            assert requirement.stage_id == fine.stage_id
             assert len(output.table) == 3
             events.append("check")
             if fail_check:
@@ -361,14 +418,10 @@ def test_pending_check_is_kept_on_its_exact_fine_stage(
 
         if fail_check:
             with pytest.raises(ValueError, match="fine cell rejected"):
-                run_query_plan(plan, forbidden_read, local, check)
-            assert events[-1] == "check" and plan.publish not in events
+                run_query_plan(plan, read, local, check)
         else:
-            result = run_query_plan(plan, forbidden_read, local, check)
-            assert result.table.empty
-            assert events.index("check") < events.index(plan.publish)
-    assert not plans[1].fusion_groups
-    assert any("check" in decision.reason for decision in plans[1].optimization_decisions)
+            assert len(run_query_plan(plan, read, local, check).table) == 3
+        assert events[-1] == "check"
 
 
 def test_completed_strict_projection_cannot_be_pruned(optimization_session: Session) -> None:
@@ -385,7 +438,11 @@ def test_completed_strict_projection_cannot_be_pruned(optimization_session: Sess
             _execute(optimization_session, query, optimized=optimized)
         errors.append((type(caught.value), str(caught.value)))
     assert errors[0] == errors[1]
-    query = optimization_session.query(completed.population())
+    selection = optimization_session.population_from(
+        completed,
+        on=((completed.axes[0], optimization_session.catalog.fields.get("sales.orders.region")),),
+    )
+    query = optimization_session.frame(selection)
     errors.clear()
     for optimized in (False, True):
         with pytest.raises(
@@ -408,63 +465,53 @@ def test_unselected_native_branch_keeps_its_dynamic_checks_masked(
     _same(session, query)
 
 
-def test_source_occurrences_and_original_finish_are_never_collapsed(
+def test_explicit_source_occurrences_and_formula_finish_are_never_collapsed(
     optimization_session: Session,
 ) -> None:
-    session = optimization_session
-    amount = session.catalog.fields.get("sales.orders.amount")
-    region = session.catalog.fields.get("sales.orders.region")
+    amount = optimization_session.catalog.fields.get("sales.orders.amount")
     total = amount.sum()
-    query = (
-        session.observe({"twice": total + total, "shifted": total + 10}, by=(region,))
-        .rollup()
-        .rollup()
-    )
-    plan, _, _ = _same(session, query)
-    sources = tuple(
-        stage
+    query = optimization_session.observe({"twice": total + total, "shifted": total + 10})
+    plan, _, _ = _same(optimization_session, query)
+    reads = [
+        item
         for stage in plan.stages
-        if isinstance(stage, SourceRead) and stage.reduction is not None
-    )
-    logical = tuple(read for stage in sources for read in (stage.common_reads or (stage,)))
-    assert len(logical) == 3 and len({stage.occurrence for stage in logical}) == 3
-    assert any(
-        decision.rule == "source_merge" and decision.status == "adopted"
-        for decision in plan.optimization_decisions
-    )
-    assert any(
-        decision.rule == "L8" and decision.status == "refused"
-        for decision in plan.optimization_decisions
-    )
-    result, _, _, _ = _execute(session, query, optimized=True)
-    assert result.table["value.0"].tolist() == [120]
-    assert result.table["value.1"].tolist() == [70]
+        if isinstance(stage, SourceRead)
+        for item in (stage.common_reads or (stage,))
+    ]
+    assert len(reads) == 3 and len({stage.occurrence for stage in reads}) == 3
+    frame = query.compute().to_pandas()
+    assert frame[("value", "twice")].tolist() == [120]
+    assert frame[("value", "shifted")].tolist() == [70]
 
 
 def test_actual_plan_memo_hits_and_binding_changes_invalidate(
     optimization_session: Session,
 ) -> None:
     session = optimization_session
-    source = _wide(session)
-    query = source.select({"kept": source["a"]})
-    graph = query._graph
+    source = session.observe({"kept": session.catalog.fields.get("sales.orders.amount").sum()})
+    graph = _source_graph(source)
     with open_query_sources(
         session._runtime.connection_service(), graph, session.catalog._state
     ) as prepared:
         memo = InvocationMemo()
-        first = plan_query(graph, prepared.schemas, context=prepared.context, memo=memo)
+        first = plan_query(graph, prepared.schemas, memo=memo)
         before = memo.hits
-        assert plan_query(graph, prepared.schemas, context=prepared.context, memo=memo) is first
+        assert plan_query(graph, prepared.schemas, memo=memo) is first
         assert memo.hits > before
         changed = tuple(
-            replace(schema, scope_id=schema.scope_id + "-changed") for schema in prepared.schemas
+            replace(
+                schema,
+                fields=tuple(
+                    replace(column, nullable=not column.nullable) for column in schema.fields
+                ),
+            )
+            for schema in prepared.schemas
         )
-        fresh = plan_query(graph, changed, context=prepared.context, memo=memo)
+        fresh = plan_query(graph, changed, memo=memo)
         assert fresh is not first
         key = compilation_key(
             graph,
             prepared.schemas,
-            prepared.context,
             required=("value.0",),
             relations=prepared.relations,
         )
@@ -489,20 +536,20 @@ def test_memo_node_identity_does_not_serialize_the_definition_subgraph(
     optimization_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = _wide(optimization_session)
-    graph = source._graph
+    graph = _source_graph(source)
     with open_query_sources(
         optimization_session._runtime.connection_service(),
         graph,
         optimization_session.catalog._state,
     ) as prepared:
-        context, schemas = prepared.context, prepared.schemas
+        schemas = prepared.schemas
 
     def forbidden_fingerprint(graph: BoundGraph) -> str:
         raise AssertionError("memo serialized a captured definition")
 
     monkeypatch.setattr(BoundGraph, "fingerprint", property(forbidden_fingerprint))
-    first = compilation_key(graph, schemas, context)
-    assert compilation_key(graph, schemas, context) == first
+    first = compilation_key(graph, schemas)
+    assert compilation_key(graph, schemas) == first
     changed = replace(
         graph,
         signature=replace(
@@ -513,7 +560,7 @@ def test_memo_node_identity_does_not_serialize_the_definition_subgraph(
             ),
         ),
     )
-    assert compilation_key(changed, schemas, context).node_id != first.node_id
+    assert compilation_key(changed, schemas).node_id != first.node_id
 
 
 def test_actual_plan_memo_keeps_full_check_scope(
@@ -523,7 +570,7 @@ def test_actual_plan_memo_keeps_full_check_scope(
     amount = session.catalog.fields.get("sales.orders.amount")
     total = amount.sum()
     query = session.observe({"sales": total + total})
-    graph = query._graph
+    graph = _source_graph(query)
     owner = graph.signature.owner
     obligation = Obligation(
         Fact(
@@ -551,17 +598,11 @@ def test_actual_plan_memo_keeps_full_check_scope(
     ) as prepared:
         memo = InvocationMemo()
         checks = (route, other_scope)
-        first = plan_query(
-            graph, prepared.schemas, context=prepared.context, checks=checks, memo=memo
-        )
-        assert (
-            plan_query(graph, prepared.schemas, context=prepared.context, checks=checks, memo=memo)
-            is first
-        )
+        first = plan_query(graph, prepared.schemas, checks=checks, memo=memo)
+        assert plan_query(graph, prepared.schemas, checks=checks, memo=memo) is first
         second = plan_query(
             graph,
             prepared.schemas,
-            context=prepared.context,
             checks=(
                 replace(route, occurrence=other_scope.occurrence),
                 replace(other_scope, occurrence=route.occurrence),
@@ -574,10 +615,9 @@ def test_actual_plan_memo_keeps_full_check_scope(
         assert second.checks[1].obligation.fact.version == "v2"
 
 
-def test_each_public_execute_owns_a_fresh_compilation_memo(
+def test_each_public_compute_owns_a_fresh_compilation_memo(
     optimization_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.compiler import optimization
 
     memos: list[InvocationMemo] = []
 
@@ -586,51 +626,42 @@ def test_each_public_execute_owns_a_fresh_compilation_memo(
             super().__init__()
             memos.append(self)
 
-    monkeypatch.setattr(optimization, "InvocationMemo", CapturingMemo)
+    monkeypatch.setattr(
+        "marivo.analysis.materialization.frame_evaluation.InvocationMemo", CapturingMemo
+    )
     session = optimization_session
     amount = session.catalog.fields.get("sales.orders.amount")
     query = session.observe({"sales": amount.sum()})
-    assert query.execute().to_pandas()[("value", "sales")].tolist() == [60]
+    assert query.compute().to_pandas()[("value", "sales")].tolist() == [60]
     with duckdb.connect(str(session.catalog.workspace_dir / "optimization.duckdb")) as connection:
         connection.execute("UPDATE orders SET amount=amount*2")
-    assert query.execute().to_pandas()[("value", "sales")].tolist() == [120]
+    assert query.compute().to_pandas()[("value", "sales")].tolist() == [120]
     assert len(memos) == 2 and memos[0] is not memos[1]
 
 
 @pytest.mark.parametrize("zero", (False, True))
-def test_zero_axis_original_empty_sum_and_ratio_keep_one_nullable_cell(
-    optimization_session: Session,
-    zero: bool,
+def test_explicit_empty_source_sum_and_ratio_keep_one_nullable_cell(
+    optimization_session: Session, zero: bool
 ) -> None:
-    session = optimization_session
-    amount = session.catalog.fields.get("sales.orders.amount")
-    region = session.catalog.fields.get("sales.orders.region")
+    amount = optimization_session.catalog.fields.get("sales.orders.amount")
     total = amount.sum(empty="zero") if zero else amount.sum()
-    source = session.observe({"sum": total, "ratio": total / amount.count()}, by=(region,))
-    selected = source.top(0, by=source["sum"])
-    query = selected.rollup()
-    result, _, _, _ = _execute(session, query, optimized=False)
-    assert len(result.table) == 1
-    if zero:
-        assert result.table["value.0"].tolist() == [0]
-    else:
-        assert result.table["value.0"].isna().all()
-    assert result.table["value.1"].isna().all()
-    _same(session, query)
+    query = optimization_session.observe(
+        {"sum": total, "ratio": total / amount.count()}, where=amount > 1000
+    )
+    _same(optimization_session, query)
+    frame = query.compute().to_pandas()
+    assert len(frame) == 1
+    assert frame[("value", "sum")].tolist() == [0] if zero else frame[("value", "sum")].isna().all()
+    assert frame[("value", "ratio")].isna().all()
 
 
 @pytest.mark.parametrize("field", ("amount", "exact"))
-def test_exact_original_group_and_common_source_block_execute_fewer_stages(
+def test_exact_source_common_block_preserves_values_and_occurrences(
     optimization_session: Session, field: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = optimization_session
     value = session.catalog.fields.get("sales.orders." + field)
-    region = session.catalog.fields.get("sales.orders.region")
-    detail = session.catalog.fields.get("sales.orders.detail")
-    source = session.observe(
-        {"sum": value.sum(empty="zero"), "count": value.count()}, by=(region, detail)
-    )
-    query = source.rollup(by=(region,)).rollup()
+    query = session.observe({"sum": value.sum(empty="zero"), "count": value.count()})
     calls: list[CompiledRead] = []
     execute = SourceSession.execute
 
@@ -641,35 +672,24 @@ def test_exact_original_group_and_common_source_block_execute_fewer_stages(
     monkeypatch.setattr(SourceSession, "execute", record)
     with localcontext() as context:
         context.prec = 7
-        baseline, before, before_events, _ = _execute(session, query, optimized=False)
-        first_count = len(calls)
-        result, after, after_events, _ = _execute(session, query, optimized=True)
+        baseline, _, _, _ = _execute(session, query, optimized=False)
+        count = len(calls)
+        result, plan, _, _ = _execute(session, query, optimized=True)
     pd.testing.assert_frame_equal(result.table, baseline.table)
-    assert result.keys == baseline.keys and result.columns == baseline.columns
-    assert result.layout == baseline.layout
     assert result.table["value.0"].tolist() == ([60] if field == "amount" else [Decimal("60.06")])
     assert result.table["value.1"].tolist() == [3]
-    assert first_count == 2 and len(calls) - first_count == 1
-    assert calls[-1].sql.upper().count("GROUP BY") == 1
-    assert len(after.stages) == len(before.stages) - 2
-    assert len(after_events) == len(before_events) - 1
-    rollup = next(group for group in after.fusion_groups if group.law == "L8")
-    assert rollup.members[0] not in after_events and rollup.output in after_events
-    block = next(
-        stage for stage in after.stages if isinstance(stage, SourceRead) and stage.common_reads
+    assert count == 2 and len(calls) - count == 1
+    assert any(
+        isinstance(stage, SourceRead) and len(stage.common_reads) == 2 for stage in plan.stages
     )
-    assert len(block.common_reads) == 2
-    assert len({read.occurrence for read in block.common_reads}) == 2
-    assert len(result.components) == 0
 
 
 @pytest.mark.parametrize("field", ("amount", "exact"))
-def test_ordered_original_group_keeps_middle_overflow_before_cancellation(
-    optimization_session: Session,
-    field: str,
+def test_source_per_group_keeps_middle_overflow_before_cancellation(
+    optimization_session: Session, field: str
 ) -> None:
     session = optimization_session
-    with duckdb.connect(str(session.catalog.workspace_dir / "optimization.duckdb")) as connection:
+    with duckdb.connect(str(session.project_root / "optimization.duckdb")) as connection:
         connection.execute(
             "UPDATE orders SET region=CASE WHEN id<=2 THEN 'A' ELSE 'B' END, detail=CAST(id AS VARCHAR)"
         )
@@ -681,84 +701,37 @@ def test_ordered_original_group_keeps_middle_overflow_before_cancellation(
             connection.execute(
                 "UPDATE orders SET exact=CASE WHEN id<=2 THEN 500000000000000000000000000000000000.00 ELSE -500000000000000000000000000000000000.00 END"
             )
-    amount = session.catalog.fields.get("sales.orders." + field)
+    value = session.catalog.fields.get("sales.orders." + field)
     region = session.catalog.fields.get("sales.orders.region")
-    detail = session.catalog.fields.get("sales.orders.detail")
-    source = session.observe({"sum": amount.sum()}, by=(region, detail))
-    query = source.rollup(by=(region,)).rollup()
-    failures: list[tuple[type[BaseException], str]] = []
+    query = session.observe({"sum": value.sum().per(region).sum()})
+    errors: list[tuple[type[BaseException], str]] = []
     for optimized in (False, True):
         with pytest.raises(
-            (AnalysisError, SemanticExpressionError), match="reduction overflow"
+            (AnalysisError, SemanticExpressionError),
+            match=("overflow" if field == "amount" else "Decimal precision"),
         ) as error:
             _execute(session, query, optimized=optimized)
-        failures.append((type(error.value), str(error.value)))
-    assert failures[0] == failures[1]
-    with open_query_sources(
-        session._runtime.connection_service(), query._graph, session.catalog._state
-    ) as prepared:
-        plan = optimize_query(plan_query(query._graph, prepared.schemas, context=prepared.context))
-    assert any(group.law == "L8" for group in plan.fusion_groups)
+        errors.append((type(error.value), str(error.value)))
+    assert errors[0] == errors[1]
+    assert session.runs().items == ()
 
 
-def test_original_multi_consumer_and_filter_boundaries_prevent_fusion(
-    optimization_session: Session,
-) -> None:
-    session = optimization_session
-    amount = session.catalog.fields.get("sales.orders.amount")
-    region = session.catalog.fields.get("sales.orders.region")
-    detail = session.catalog.fields.get("sales.orders.detail")
-    source = session.observe({"sum": amount.sum()}, by=(region, detail))
-    middle = source.rollup(by=(region,))
-    selected = middle.where(middle["sum"] > 0)
-    query = selected.rollup()
-    plan, _, _ = _same(session, query)
-    assert not any(group.law == "L8" for group in plan.fusion_groups)
-    query = middle.rollup()
-    with open_query_sources(
-        session._runtime.connection_service(), query._graph, session.catalog._state
-    ) as prepared:
-        baseline = plan_query(query._graph, prepared.schemas, context=prepared.context)
-        final = baseline.stages[-1]
-        assert isinstance(final, LocalCompute)
-        shared = final.inputs[0]
-        branch = replace(final, stage_id=final.stage_id + ":other-consumer")
-        baseline = replace(
-            baseline,
-            stages=(*baseline.stages[:-1], branch, final),
-            consumers=(
-                *(
-                    (stage, (*consumers, branch.stage_id) if stage == shared else consumers)
-                    for stage, consumers in baseline.consumers
-                ),
-                (branch.stage_id, ()),
-            ),
-        )
-        plan = optimize_query(baseline)
-        result = execute_numeric_query(prepared, lower_query(plan, prepared.relations))
-        control = execute_numeric_query(prepared, lower_query(baseline, prepared.relations))
-    pd.testing.assert_frame_equal(result.table, control.table)
-    assert not any(group.law == "L8" for group in plan.fusion_groups)
-    assert any(
-        decision.rule == "L8" and "multiple consumers" in decision.reason
-        for decision in plan.optimization_decisions
-    )
+def test_multiple_current_consumers_preserve_filter_barriers(optimization_session: Session) -> None:
+    source = _wide(optimization_session)
+    left = source.where(source["a"] > 10)
+    right = source.where(source["a"] < 30)
+    query = left.compare(right, how="outer", on=tuple(zip(left.axes, right.axes, strict=True)))
+    _same(optimization_session, query)
+    frame = query.compute().to_pandas()
+    assert frame[("presence", "left_present")].tolist() == [True, True, False]
+    assert frame[("presence", "right_present")].tolist() == [True, False, True]
 
 
-def test_float_source_reductions_have_no_exact_fusion_grant(
-    optimization_session: Session,
-) -> None:
-    session = optimization_session
-    value = session.catalog.fields.get("sales.orders.approximate")
-    region = session.catalog.fields.get("sales.orders.region")
-    detail = session.catalog.fields.get("sales.orders.detail")
-    query = (
-        session.observe({"a": value.sum(), "b": value.sum()}, by=(region, detail))
-        .rollup(by=(region,))
-        .rollup()
-    )
-    plan, _, _ = _same(session, query)
-    assert not any(group.law in ("L8", "source_block") for group in plan.fusion_groups)
+def test_float_source_reductions_have_no_exact_fusion_grant(optimization_session: Session) -> None:
+    value = optimization_session.catalog.fields.get("sales.orders.approximate")
+    query = optimization_session.observe({"a": value.sum(), "b": value.sum()})
+    plan, _, _ = _same(optimization_session, query)
+    assert not any(group.law == "source_block" for group in plan.fusion_groups)
 
 
 def test_null_empty_policy_and_different_source_fibers_remain_independent(
@@ -768,23 +741,18 @@ def test_null_empty_policy_and_different_source_fibers_remain_independent(
     amount = session.catalog.fields.get("sales.orders.amount")
     region = session.catalog.fields.get("sales.orders.region")
     detail = session.catalog.fields.get("sales.orders.detail")
-    query = (
-        session.observe({"sum": amount.sum(empty="null")}, by=(region, detail))
-        .rollup(by=(region,))
-        .rollup()
-    )
+    query = session.observe({"sum": amount.sum(empty="null")})
     plan, _, _ = _same(session, query)
-    assert any(group.law == "L8" for group in plan.fusion_groups)
+    assert not any(group.law == "L8" for group in plan.fusion_groups)
     entity = session.catalog.entities.get("sales.orders")
     one = session.observe({"sum": amount.sum()}, members=mv.identities(entity, keys=((1,),)))
-    two = session.observe({"sum": amount.sum()}, members=mv.identities(entity, keys=((2,),)))
-    query = one.align(two)
+    two = session.observe({"other": amount.sum()}, members=mv.identities(entity, keys=((2,),)))
+    query = one.align(two, on=tuple(zip(one.axes, two.axes, strict=True)))
     plan, _, _ = _same(session, query)
     assert not any(group.law == "source_block" for group in plan.fusion_groups)
     result, _, _, _ = _execute(session, query, optimized=True)
-    assert result.layout is not None
-    assert result.table[result.layout.values[0].slot_id].tolist() == [10]
-    assert result.table[result.layout.values[1].slot_id].tolist() == [30]
+    assert result.table["value.0"].tolist() == [10]
+    assert result.table["value.1"].tolist() == [30]
 
 
 @pytest.mark.parametrize("kind", ("per", "window"))
@@ -798,13 +766,13 @@ def test_internal_samples_and_windows_keep_their_physical_boundaries(
     if kind == "per":
         metric = amount.sum().per(detail).sum()
         source = session.observe({"a": metric, "b": metric}, by=(region,))
-        query = source.rollup().rollup()
+        query = source
     else:
         time = session.catalog.fields.get("sales.orders.ordered_at")
         calendar = session.time_scope(start="2026-01-01", end="2026-01-03").by(mv.grain("day"))
         metric = amount.sum(time=time).window(mv.all_history())
         source = session.observe({"a": metric, "b": metric}, during=calendar, by=(region, detail))
-        query = source.rollup(by=(calendar, region)).rollup(by=(calendar,))
+        query = source
     plan, _, _ = _same(session, query)
     assert not any(group.law in ("L8", "source_block") for group in plan.fusion_groups)
 
@@ -874,24 +842,22 @@ def test_physical_binding_ids_do_not_change_logical_fingerprints_or_artifacts(
     session = optimization_session
     amount = session.catalog.fields.get("sales.orders.amount")
     query = session.observe({"a": amount.sum(), "b": amount.count()})
-    fingerprint = query._graph.fingerprint
+    fingerprint = _source_graph(query).fingerprint
     bindings: list[str] = []
     for _ in range(2):
         with open_query_sources(
-            session._runtime.connection_service(), query._graph, session.catalog._state
+            session._runtime.connection_service(), _source_graph(query), session.catalog._state
         ) as prepared:
-            plan = optimize_query(
-                plan_query(query._graph, prepared.schemas, context=prepared.context)
-            )
+            plan = optimize_query(plan_query(_source_graph(query), prepared.schemas))
             bindings.append(
                 next(stage.binding_id for stage in plan.stages if isinstance(stage, SourceRead))
             )
-        assert query._graph.fingerprint == fingerprint
+        assert _source_graph(query).fingerprint == fingerprint
     assert bindings[0] != bindings[1]
-    first, second = query.execute(), query.execute()
-    assert first.id != second.id
+    first, second = query.persist(), query.persist()
+    assert first.artifact.id != second.artifact.id
     pd.testing.assert_frame_equal(first.to_pandas(), second.to_pandas())
-    assert query._graph.fingerprint == fingerprint
+    assert _source_graph(query).fingerprint == fingerprint
     assert not hasattr(first, "components") and not hasattr(first, "fusion_groups")
 
 
@@ -915,8 +881,7 @@ def test_shared_session_scope_keeps_frozen_fields_and_neutral_roundtrip(
     assert isinstance(scope, TimeScope)
     assert type(scope) is _SessionTimeScope
     axis = scope.by(mv.grain("day"))
-    coarser = axis.coarsen(mv.grain("month"))
-    assert coarser.scope is scope
+    assert scope.by(mv.grain("month")).scope is scope
     restored = _time_scope_from_contract_data(scope.contract().model_dump(mode="json"))
     assert isinstance(restored, TimeScope)
     assert restored.start == scope.start and restored.end == scope.end
@@ -929,19 +894,16 @@ def test_shared_session_scope_keeps_frozen_fields_and_neutral_roundtrip(
     amount = optimization_session.catalog.fields.get("sales.orders.amount")
     time = optimization_session.catalog.fields.get("sales.orders.ordered_at")
     observed = optimization_session.observe({"sum": amount.sum()}, where=time.within(scope))
-    assert observed.execute().to_pandas()[("value", "sum")].tolist() == [
+    assert observed.compute().to_pandas()[("value", "sum")].tolist() == [
         60 if clock == "00:00:00" else 30
     ]
 
 
-def test_broadcast_after_original_share_uses_only_target_coordinate_schema(
+def test_explicit_source_weights_preserve_standardized_and_fixed_results(
     optimization_session: Session,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.analysis.materialization import graph_local_execution
-
     session = optimization_session
-    with duckdb.connect(str(session.catalog.workspace_dir / "optimization.duckdb")) as connection:
+    with duckdb.connect(str(session.project_root / "optimization.duckdb")) as connection:
         connection.execute("DELETE FROM orders")
         connection.executemany(
             "INSERT INTO orders VALUES (?, ?, ?, ?, ?, NULL, '2026-01-01')",
@@ -960,57 +922,43 @@ def test_broadcast_after_original_share_uses_only_target_coordinate_schema(
         {"inspected": inspected, "failed": failed, "rate": failed.divide(inspected)},
         by=(region, detail),
     )
-    sizes = cells.select({"inspected": cells["inspected"]}).rollup(by=(detail,))
-    reference = sizes.share("inspected")
-    fixed = session.values(
-        by=(detail,),
-        columns={"weight": "1"},
-        rows=((("Easy",), {"weight": Decimal("0.2")}), (("Hard",), {"weight": Decimal("0.8")})),
+    _same(session, cells)
+    rows = cells.compute().to_pandas()
+    sizes = session.observe({"inspected": inspected}, by=(detail,)).compute().to_pandas()
+    denominator = (
+        session.observe({"inspected": inspected})
+        .compute()
+        .to_pandas()[("value", "inspected")]
+        .iloc[0]
     )
-    weighted = cells.select(
-        {
-            "reference": cells["rate"] * mv.broadcast(reference["inspected.share"], to=cells),
-            "fixed": cells["rate"] * mv.broadcast(fixed["weight"], to=cells),
-        }
+    assert denominator == 2000
+    weights = dict(zip(sizes.iloc[:, 0], sizes[("value", "inspected")] / denominator, strict=True))
+    fixed = (
+        session.values(
+            by=(detail,),
+            columns={"weight": "1"},
+            rows=((("Easy",), {"weight": Decimal("0.2")}), (("Hard",), {"weight": Decimal("0.8")})),
+        )
+        .compute()
+        .to_pandas()
     )
-    query = weighted.reduce(
-        {"standardized": weighted["reference"].sum(), "fixed": weighted["fixed"].sum()},
-        by=(region,),
-    )
-    transported: list[tuple[str, ...]] = []
-    original_run = graph_local_execution.run_local
-
-    def inspect(stage: LocalCompute, inputs: tuple[StageOutput, ...]) -> StageOutput:
-        if stage.result is not None and len(stage.result.references) == 2:
-            transported.append(tuple(inputs[0].table.columns))
-        return original_run(stage, inputs)
-
-    monkeypatch.setattr(graph_local_execution, "run_local", inspect)
-    plan, _, _ = _same(session, query)
-    selected = next(
-        stage
-        for stage in plan.stages
-        if isinstance(stage, LocalCompute)
-        and stage.result is not None
-        and len(stage.result.references) == 2
-    )
-    assert required_for(plan, selected.inputs[0]).columns == ("key.0", "key.1", "value.2")
-    assert transported == [
-        ("key.0", "key.1", "value.0", "value.1", "value.2"),
-        ("key.0", "key.1", "value.2"),
-    ]
-    result = query.execute().to_pandas()
-    assert result[("value", "standardized")].tolist() == [
-        float(Fraction(1, 5)),
-        float(Fraction(1, 8)),
-    ]
-    assert result[("value", "fixed")].tolist() == pytest.approx(
+    fixed_weights = dict(zip(fixed.iloc[:, 0], fixed[("value", "weight")], strict=True))
+    standardized: dict[str, float] = {}
+    fixed_totals: dict[str, float] = {}
+    for key, category, rate in zip(
+        rows.iloc[:, 0], rows.iloc[:, 1], rows[("value", "rate")], strict=True
+    ):
+        standardized[key] = standardized.get(key, 0) + rate * weights[category]
+        fixed_totals[key] = fixed_totals.get(key, 0) + rate * float(fixed_weights[category])
+    assert list(standardized) == ["A", "B"]
+    assert list(standardized.values()) == [float(Fraction(1, 5)), float(Fraction(1, 8))]
+    assert list(fixed_totals.values()) == pytest.approx(
         [float(Fraction(13, 50)), float(Fraction(17, 100))]
     )
 
 
 @pytest.mark.parametrize("precision", (12, 38))
-def test_decimal_quantile_keeps_local_endpoints_and_native_rollup(
+def test_decimal_source_quantile_keeps_exact_endpoints_and_windows(
     optimization_session: Session,
     precision: int,
 ) -> None:
@@ -1035,13 +983,12 @@ def test_decimal_quantile_keeps_local_endpoints_and_native_rollup(
     time = session.catalog.fields.get("sales.orders.ordered_at")
     quantile = value.quantile(0.95, time=time)
     direct = session.observe({"p95": quantile}, by=(region,))
-    fine = session.observe({"p95": quantile}, by=(region, detail)).rollup(by=(region,))
     # Original recomputation accepts the native Decimal quantile and handoff;
     # ordinary local endpoint interpolation keeps its exact rational finish.
     native = Decimal("85.14" if precision == 12 else "123456789012345675254913246067970539.52")
-    for query, target in ((direct, expected), (fine, native)):
+    for query, target in ((direct, expected),):
         _same(session, query)
-        result = query.execute().to_pandas()
+        result = query.compute().to_pandas()
         assert result[("value", "p95")].tolist() == [target]
         assert str(result[("value", "p95")].dtype) == f"decimal128({precision}, 2)[pyarrow]"
     days = session.time_scope(start="2026-01-01", end="2026-01-03").by(mv.grain("day"))
@@ -1050,7 +997,7 @@ def test_decimal_quantile_keeps_local_endpoints_and_native_rollup(
         during=days,
         by=(region,),
     )
-    assert windowed.execute().to_pandas()[("value", "p95")].tolist() == [expected, expected]
+    assert windowed.compute().to_pandas()[("value", "p95")].tolist() == [expected, expected]
 
 
 @pytest.mark.parametrize(("first", "expected"), (("1.00", "1.00"), ("1.01", "1.02")))
@@ -1068,7 +1015,7 @@ def test_decimal_median_and_result_mean_finish_declared_scale_half_even(
         )
     exact = session.catalog.fields.get("sales.orders.exact")
     source = session.observe({"value": exact.median()})
-    assert source.execute().to_pandas()[("value", "value")].tolist() == [Decimal(expected)]
+    assert source.compute().to_pandas()[("value", "value")].tolist() == [Decimal(expected)]
     region = session.catalog.fields.get("sales.orders.region")
     values = session.values(
         by=(region,),
@@ -1079,7 +1026,7 @@ def test_decimal_median_and_result_mean_finish_declared_scale_half_even(
         ),
     )
     mean = values.reduce({"mean": values["value"].mean()})
-    assert mean.execute().to_pandas()[("value", "mean")].tolist() == [Decimal(expected)]
+    assert mean.compute().to_pandas()[("value", "mean")].tolist() == [Decimal(expected)]
 
 
 def test_nanosecond_quantile_preserves_exact_half_even_finish(
@@ -1110,7 +1057,7 @@ def test_nanosecond_quantile_preserves_exact_half_even_finish(
     value = case.session.catalog.fields.get("sales.order.amount")
     time = case.session.catalog.fields.get("sales.order.ordered_at")
     query = case.session.observe({"p95": value.quantile(0.95, time=time)})
-    assert query.execute().to_pandas()[("value", "p95")].tolist() == [pd.Timedelta(26, unit="ns")]
+    assert query.compute().to_pandas()[("value", "p95")].tolist() == [pd.Timedelta(26, unit="ns")]
 
 
 def test_decimal_quantile_probability_boundaries_samples_and_strict_nulls(
@@ -1125,9 +1072,11 @@ def test_decimal_quantile_probability_boundaries_samples_and_strict_nulls(
     value = session.catalog.fields.get("sales.orders.exact")
     time = session.catalog.fields.get("sales.orders.ordered_at")
     probabilities = (0.0, 1.0, 1e-30, 5e-324, 0.95)
-    direct = session.observe({str(q): value.quantile(q, time=time) for q in probabilities})
-    frame = direct.execute().to_pandas()
-    assert [frame[("value", str(q))].iloc[0] for q in probabilities] == [
+    direct = session.observe(
+        {f"q{index}": value.quantile(q, time=time) for index, q in enumerate(probabilities)}
+    )
+    frame = direct.compute().to_pandas()
+    assert [frame[("value", f"q{index}")].iloc[0] for index, _ in enumerate(probabilities)] == [
         Decimal("1.00"),
         Decimal("100.00"),
         Decimal("1.00"),
@@ -1138,12 +1087,12 @@ def test_decimal_quantile_probability_boundaries_samples_and_strict_nulls(
         {"p95": value.sum(time=time).per(time).quantile(0.95)},
         during=session.time_scope(start="2026-01-01", end="2026-01-05"),
     )
-    assert sampled.execute().to_pandas()[("value", "p95")].tolist() == [Decimal("85.15")]
+    assert sampled.compute().to_pandas()[("value", "p95")].tolist() == [Decimal("85.15")]
     with duckdb.connect(str(session.catalog.workspace_dir / "optimization.duckdb")) as connection:
         connection.execute("UPDATE orders SET exact=NULL WHERE id=4")
     strict = session.observe({"p95": value.quantile(0.95, time=time, nulls="error")})
     with pytest.raises(AnalysisError) as error:
-        strict.execute()
+        strict.compute()
     assert isinstance(error.value.__cause__, SemanticExpressionError)
     assert error.value.__cause__.expected == "non-NA source values"
 
@@ -1163,12 +1112,14 @@ def test_decimal_repeating_result_mean_finishes_before_comparison(
     )
     mean = values.reduce({"mean": values["value"].mean()})
     _same(session, mean)
-    frame = mean.execute().to_pandas()
+    frame = mean.compute().to_pandas()
     assert frame[("value", "mean")].tolist() == [Decimal("33.33")]
     assert str(frame[("value", "mean")].dtype) == "decimal128(5, 2)[pyarrow]"
-    comparison = mean.compare(mean).execute().to_pandas()
-    assert comparison[("value", "mean.absolute")].tolist() == [Decimal("0.00")]
-    assert comparison[("value", "mean.relative")].tolist() == [0.0]
+    comparison = (
+        mean.compare(mean, on=tuple(zip(mean.axes, mean.axes, strict=True))).compute().to_pandas()
+    )
+    assert comparison[("value", "absolute.mean")].tolist() == [Decimal("0.00")]
+    assert comparison[("value", "relative.mean")].tolist() == [0.0]
 
 
 def test_composite_coord_column_refuses_during_preparation_before_read_or_run(
@@ -1181,12 +1132,7 @@ def test_composite_coord_column_refuses_during_preparation_before_read_or_run(
     session = optimization_session
     composite = session.catalog.entities.get("sales.composite_orders")
     members = session.members(ms.ref.entity("sales.composite_orders"))
-    query = session.query(members)
-    coordinate = query.coord(members.axes[0])
-    invalid = (
-        query.select({"identity": coordinate}),
-        query.where(coordinate.is_null()),
-    )
+    query = session.frame(members)
     runs_before = session.runs().items
     calls: list[str] = []
 
@@ -1198,24 +1144,23 @@ def test_composite_coord_column_refuses_during_preparation_before_read_or_run(
         guarded.setattr(SourceSession, "compile", forbidden)
         guarded.setattr(SourceSession, "execute", forbidden)
         guarded.setattr(terminal_store, "admit", forbidden)
-        for selected in invalid:
-            with pytest.raises(AnalysisError) as error:
-                selected.execute()
-            assert error.value.location == "Query.coord"
-            assert error.value.expected == "a single-component scalar coordinate Column"
-            assert error.value.received == "axis 0 has 2 components: ('key.0', 'key.1')"
-            assert error.value.repair is not None
-            assert "mv.in_population" in error.value.repair.action
+        with pytest.raises(AnalysisError) as error:
+            query.coord(query.axes[0])
+        assert error.value.location == "frame.coord"
+        assert error.value.expected == "a single physical component coordinate"
+        assert error.value.received == repr(query.axes[0].key_names)
+        assert error.value.repair is not None
+        assert "complete axis" in error.value.repair.action
         assert session.runs().items == runs_before
     assert calls == []
-    exported = query.execute().to_pandas()
+    exported = query.compute().to_pandas()
     assert exported.iloc[:, 0].tolist() == [(1, "x"), (2, "y"), (3, "x"), (4, "z")]
     requested = mv.identities(composite, keys=((1, "x"), (2, "x")))
-    selected_frame = session.query(members.where(mv.in_population(requested))).execute().to_pandas()
+    selected_frame = session.frame(members.where(mv.in_population(requested))).compute().to_pandas()
     assert selected_frame.iloc[:, 0].tolist() == [(1, "x")]
     scalar_members = session.members(ms.ref.entity("sales.orders"))
-    scalar = session.query(scalar_members)
-    assert scalar.select({"identity": scalar.coord(scalar_members.axes[0])}).execute().to_pandas()[
+    scalar = session.frame(scalar_members)
+    assert scalar.select({"identity": scalar.coord(scalar.axes[0])}).compute().to_pandas()[
         ("value", "identity")
     ].tolist() == [1, 2, 3, 4]
 
@@ -1246,7 +1191,7 @@ def test_identities_requires_resolved_entity_without_source_lookup(
         assert error.value.repair is not None
         assert "session.catalog.entities.get" in error.value.repair.action
         assert session.runs().items == before
-    assert session.query(domain).execute().to_pandas().iloc[:, 0].tolist() == [
+    assert session.frame(domain).compute().to_pandas().iloc[:, 0].tolist() == [
         (1, "x"),
         (999, "unconfirmed"),
     ]

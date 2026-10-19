@@ -13,6 +13,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo._temporal import BeforeEndBoundary
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import SourceSession
 from marivo.datasource.ir import TableSourceIR
@@ -102,7 +103,7 @@ def test_native_versioned_members_independent_fixed_and_cold(
         session = mv.session.get_or_create("r94-versions", report_timezone="UTC")
         august = session.instant(datetime(2026, 8, 1, tzinfo=timezone.utc))
         september = session.instant(datetime(2026, 9, 1, tzinfo=timezone.utc))
-        outputs: dict[str, mv.Artifact] = {}
+        outputs: dict[str, mv.AnalysisFrame] = {}
         for kind in ("snapshot", "validity"):
             entity = ms.ref.entity("sales.subjects_" + kind)
             before = session.runs().items
@@ -120,13 +121,13 @@ def test_native_versioned_members_independent_fixed_and_cold(
                     # The retired left-limit token is not an exact InstantAnchor.
                     session.members(
                         entity,
-                        at=boundary.before_end,  # type: ignore[arg-type]
+                        at=BeforeEndBoundary(datetime(2026, 9, 1, tzinfo=timezone.utc)),  # type: ignore[arg-type]
                     )
             assert session.runs().items == before
             with monkeypatch.context() as preparation:
                 preparation.setattr(SourceSession, "execute", forbidden)
                 with pytest.raises(AnalysisError) as refused:
-                    missing.execute()
+                    missing.persist()
             assert refused.value.expected and refused.value.received and refused.value.repair
             assert session.runs().items == before
             for label, point in (
@@ -135,7 +136,7 @@ def test_native_versioned_members_independent_fixed_and_cold(
                 ("august_last_day", session.instant("2026-08-31")),
                 ("august_midday", session.instant("2026-08-01T12:00:00+00:00")),
             ):
-                result = session.query(session.members(entity, at=point)).execute()
+                result = session.frame(session.members(entity, at=point)).persist()
                 frame = result.to_pandas()
                 expected = (
                     []
@@ -164,7 +165,7 @@ def test_native_versioned_members_independent_fixed_and_cold(
                 )
             }
             for label, relation in relations.items():
-                attribute = relation.execute()
+                attribute = relation.persist()
                 assert (
                     attribute.to_pandas()[("value", "value")].tolist()
                     == {
@@ -190,7 +191,7 @@ def test_native_versioned_members_independent_fixed_and_cold(
                                 "sales.subjects_snapshot.amount"
                             ).at(point)
                         },
-                    ).execute()
+                    ).persist()
                     frame = product.to_pandas()
                     assert frame.iloc[:, 0].tolist() == [
                         (9007199254740992, "a"),
@@ -214,7 +215,7 @@ def test_native_versioned_members_independent_fixed_and_cold(
         state: dict[str, Json] = {
             "session": session.id,
             "outputs": {
-                name: {"artifact": value.id, "snapshot": snapshot(value)}
+                name: {"artifact": value.artifact.id, "snapshot": snapshot(value)}
                 for name, value in outputs.items()
             },
         }
@@ -256,7 +257,7 @@ with patch.object(ms, 'load', forbidden), patch.object(SemanticProject, 'load', 
     session = mv.session.resume(state['session'], by='id')
     before = len(session.runs().items)
     for name, item in obj(state['outputs']).items():
-        value = session.artifact(item['artifact'])
+        value = session.persisted_frame(item['artifact'])
         assert snapshot(value) == item['snapshot']
         if name.endswith(':numeric'):
             assert value.to_pandas()[('value','value')].tolist() == [10,20,30]
