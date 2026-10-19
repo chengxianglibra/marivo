@@ -81,6 +81,55 @@ def test_concrete_and_pending_inference_share_directories_and_units() -> None:
     assert captured.complete(concrete) == concrete
 
 
+def test_calendar_binary_pending_and_concrete_share_one_closed_program() -> None:
+    from marivo._definition.correspondence import CalendarCorrespondence
+    from marivo.analysis.compiler.query_program import FrameCombineProgram
+    from marivo.analysis.core.data_schema import (
+        BuiltinCalendarData,
+        CalendarDataAxis,
+        FrozenCalendarData,
+        PairedDataAxis,
+    )
+    from marivo.analysis.core.frame_expression import CompareFrameValues, infer_frame_combine_schema
+
+    ordinary = _schema()
+    axis = CalendarDataAxis(
+        "key",
+        ordinary.axes[0].columns,
+        "UTC",
+        name="key",
+        frozen=FrozenCalendarData(BuiltinCalendarData("day", 1), "calendar.key"),
+    )
+    concrete = replace(ordinary, axes=(axis,))
+    pending = PendingDataSchema(
+        (axis,),
+        (PendingDataColumn("amount", "amount", "numeric", True, "CNY"),),
+        (("amount",),),
+    )
+    operation = CompareFrameValues(((0, 0),), match=CalendarCorrespondence("ordinal"))
+    captured = infer_frame_combine_schema(pending, concrete, operation)
+    result = infer_frame_combine_schema(concrete, concrete, operation)
+    assert captured.complete(result) == result
+    assert isinstance(result.axes[0], PairedDataAxis)
+    pair = result.axes[0]
+    assert len({pair.token, pair.left.token, pair.right.token}) == 3
+    compiled = plan_frame(
+        FrameOperation(
+            (FixedFrameInput("left", concrete), FixedFrameInput("right", concrete)), operation
+        ),
+        {},
+    )
+    assert tuple(type(stage) for stage in compiled.lowered.plan.stages) == (
+        FrameInput,
+        FrameInput,
+        FrameCompute,
+    )
+    binary = compiled.lowered.plan.stages[-1]
+    assert isinstance(binary, FrameCompute) and isinstance(binary.program, FrameCombineProgram)
+    assert binary.program.output_schema == result
+    assert binary.program.operation.match == CalendarCorrespondence("ordinal")
+
+
 def test_optimizer_keeps_fixed_and_frame_stages_as_hard_boundaries() -> None:
     schema = _schema()
     expression = FrameOperation(

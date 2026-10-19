@@ -16,6 +16,7 @@ from marivo.analysis.core.frame_audit import FrameResultMetadata
 from marivo.analysis.core.frame_calendar import FrozenSourceCalendar
 from marivo.analysis.core.frame_expression import FrameOperationKind
 from marivo.analysis.core.frame_structure import coordinate_attachments, require_complete_structure
+from marivo.analysis.core.frozen_calendar import FrozenAttachment, validate_frozen_coordinates
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import reject
 from marivo.analysis.materialization.graph_exchange import normalize_complete_frame
@@ -100,6 +101,11 @@ class CompletedFrameData:
                 )
                 for attachment in attachments
             ),
+        )
+        validate_frozen_coordinates(
+            self.schema,
+            self._rows,
+            tuple(FrozenAttachment(a.name, a.schema, a.rows) for a in self._attachments),
         )
 
     @property

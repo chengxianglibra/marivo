@@ -2,7 +2,7 @@
 
 Date: 2026-10-19
 
-Status: S0-S2 accepted and committed; S4 ordinary foundation accepted for commit. This record tracks implementation, not release or
+Status: S0-S2 and S4 ordinary foundation committed; S5 calendar foundation accepted for commit. This record tracks implementation, not release or
 provider qualification. The public API remains unchanged until S7.
 
 ## Authority and baseline
@@ -64,11 +64,11 @@ provider qualification. The public API remains unchanged until S7.
 | S0 | Freeze target; trace producers/consumers; pin signatures, axis fields, retirement and error order | A01-A24 ownership | Complete: no review findings | 1/2 |
 | S1 | Closed structure/carriers, name paths, precise input binding, local service split | A01/A02/A14/A17 | Complete: both packages committed | Structure 2/2; services 1/2 |
 | S2 | Shared evaluation without publication; fixed leaves; ordinary operators and memory result extraction | A03-A05/A13/A14/A16/A17/A19-A21 | Complete: both packages committed | Compiler 2/2 clear; lifecycle 2/2 clear |
-| S3 | Store 12, lossless output/attachments, stored reader, audit and atomic publication | A02/A03/A14-A23 | Planned; active switch coordinated with S7 after private foundations | 0/2 |
-| S4 | Full-axis alignment/comparison, independent presence and deterministic order | A06-A08/A11/A19 | Developing ordinary private subtask; full exit needs S3/S5 | 0/2 |
-| S5 | Frozen calendars, partial nominal matches and single-level paired coordinates | A07-A11/A14/A15/A18/A19 | Pending S3/S4 | 0/2 |
-| S6 | Explicit Population bridge, fixed versus lazy selection, complete joint keys | A04/A12/A14/A15 | Pending S2; exit needs S3/S5 | 0/2 |
-| S7 | One public API; consumer-traced retirement; Help, errors, CLI, docs, skills and cutover notes | A01/A13/A16/A23/A24 | Pending S1-S6 | 0/2 |
+| S3 | Store 12, lossless output/attachments, stored reader, audit and atomic publication | A02/A03/A14-A23 | Plan accepted; canonical-record dependency phase ready; active switch coordinated with S7 | 0/2 |
+| S4 | Full-axis alignment/comparison, independent presence and deterministic order | A06-A08/A11/A19 | Ordinary private foundation accepted/committed; full exit needs S3/S5 | Ordinary 2/2 clear |
+| S5 | Frozen calendars, partial nominal matches and single-level paired coordinates | A07-A11/A14/A15/A18/A19 | Private source/memory foundation accepted for commit; full exit still needs S3 stored/cold | 2/2 clear |
+| S6 | Explicit Population bridge, fixed versus lazy selection, complete joint keys | A04/A12/A14/A15 | Construction phase ready; execution phase waits S5 handoff; full exit needs S3 | 0/2 |
+| S7 | One public API; consumer-traced retirement; Help, errors, CLI, docs, skills and cutover notes | A01/A13/A16/A23/A24 | Runtime/disclosure/docs, eight disjoint test partitions and shared-helper plans accepted; no active public switch | 0/2 |
 | S8 | Freeze candidate; independent business witnesses; unrestricted broad gate and affected Runtime/slow checks | A01-A24 | Pending S7 | 0/2 |
 
 ## S0 plan
@@ -617,6 +617,151 @@ content is frozen in `s4-ordinary-accepted-source-manifest.json`. Accept this
 bounded ordinary field/identity/zero-axis foundation and commit its twelve
 paths plus owning contract/progress records with normal hooks. Stored/cold
 S4 witnesses, S5 matching, S6 bridging and public cutover remain pending.
+
+S4 accepted local commit: `e677814887d4eda0434931855bcd8face8bdb8dd`
+(`feat: align and compare complete Frame data domains`). All normal hooks,
+including full-source mypy and import contracts, passed. Its exact fourteen
+paths were verified; all 759 accepted source/test hashes matched before peer
+restore. All nine peer hashes and twelve reviewed S4 hashes matched afterward.
+Only the verified temporary stash was dropped; both original user stashes are
+unchanged and the index is clean. S6 resumed its same-task phase A. S5 resumed
+phase A and is authorized to enter its accepted phase B after pure checks pass;
+its shared-file ownership excludes S6's sidecar hunk and S3 lifecycle/exporter.
+
+S5 pure phase A passed 43 hand-built/adversarial tests, typing, lint/format and
+import contracts. Its approved schema builders and validators are the concrete
+S3 handoff; phase B is now integrating them with the same binary schedule.
+S6 phase A is frozen in `s6-phase-a-manifest.json`: nineteen new construction
+tests and focused authoring/definition regressions passed (43 final tests),
+seven-module typing and eight-path lint/import checks passed. Inert definition,
+strong sidecars, exact stored-ID compatibility and full wrapper/Deferred
+propagation exist; actual bridge execution and independent acceptance await B.
+
+Coordinator accepted `s7-runtime-implementation-plan.md`: exact runtime/public
+paths, consumer-traced retirement, seven owned public/boundary test modules and
+a narrowly owned shared fixture hunk. Eight disjoint proposed test-migration
+partitions preserve actual source and numeric assertions; a grep hit alone does
+not authorize deletion. The inseparable Store 12/runtime switch may use one
+coherent accepted commit instead of an incompatible intermediate revision.
+Runtime source dispatch still waits S5 then S6 shared handoff.
+
+S3 received only its bounded canonical-record dependency phase: one actual
+OutputFinding relocation/reexport and frame_audit import change in three
+paths, preserving exact current v1 wire bytes. No generation/manifest/publisher
+switch is dispatched. New developer `develop_s7_disclosure` is preparing a
+plan only for native Help, result/error guidance and independent surface tests.
+
+S3 canonical-record phase is frozen in `s3-record-dependency-result.md` and
+its three-path hash record. One actual OutputFinding class and exact Evidence/
+Coordinate aliases retain identity; v1 receipt/protocol/record/audit tests passed
+(66 tests), with typing/lint/import checks clear. No Store 12 activation yet.
+Coordinator accepted the S7 disclosure plan and docs/skills plan: exact native
+registry/guidance/surface ownership; twelve current analysis docs, five bounded
+semantic/API consumers, 28 paired latest EN/ZH pages and both explicitly
+authorized packaged skills. Their source/content implementation remains idle
+until actual public activation. Historical docs and AGENTS remain untouched.
+
+Fresh T1a developer `develop_s7_original_source_tests` completed an accepted
+plan covering all 115 existing test functions in its exact fifteen-file scope.
+Original source quantities/checks have explicit supported destinations; old
+historical calendar-window/customer-fiber receiver output has no ordinary-axis
+bridge equivalent and is separately retired. No test edits are dispatched.
+Fresh T1b source/transport and T2a numeric developers are planning their own
+exact disjoint subsets only; source fixes remain with their owning developers.
+
+S5 source/memory candidate is frozen after 341 selected regressions and a
+two-case test-only delta (one overlap), seven-module typing and eleven-path
+lint/import checks. Only seven production modules and four focused test paths
+changed; no compiler or frame_evaluation production edit was needed. One binary
+adapter owns attachments and the unary evaluator now takes only FrameProgram.
+Original manifest `s5-calendar-frozen-manifest.json` includes two nonowned S6
+lines in shared frame_data. Coordinator isolated ten paused S3/S6 paths in
+temporary stash `fc50fe24d3d13e7fa6b00ce1821eb175b64c4f03` and removed only
+those two recorded S6 lines. Exact isolated review manifest:
+`8a82ec7c494dd65553ef4bab6972b8a17e4fa5e6dce037213f0ef95905fe21f5`.
+Fresh `review_s5_calendar` Astra high is running round one; coordinator is
+running unrestricted default tests on this isolated candidate. Restore saved
+peer hashes/hunks after acceptance; do not claim stored/cold/full S5 exit yet.
+
+S5 isolated round-one default gate passed **4,303 tests**, 2,927 warnings,
+359.95 seconds (`s5-calendar-default-tests.log`); all eleven candidate hashes
+remain exact. Independent review nevertheless reproduced a construction-time
+P2 on actual source Frames: PendingDataAxis drops captured inert calendar
+interpretation, so incompatible grains/unsupported match rules can survive
+construction and value-name errors can incorrectly win. Three original probes
+are retained in `s5-review-pending-first.log`; review round one is still
+completing. Repair must preserve calendar facts in the current pending
+structure, without scanning a producer DAG or accessing Catalog/source rows.
+The green round-one gate is not final acceptance of the repaired candidate.
+
+S5 first independent report is complete: exactly one P2, plus 148 passing
+focused tests, 120 randomized joint-domain oracles and a qualified UTC SQL
+source-plus-fixed witness. Same developer received repair dispatch after a
+written repair plan. Actual additional ownership is pending structure in
+core/frame_structure, captured calendars in dsl/frame_sources, and only the
+source-schema concretization helper in frame_evaluation. Retain closed inert
+calendar facts, propagate through unary structure, validate before values for
+pending/concrete/mixed carriers, and freeze before the final second review.
+
+T1b's seventeen-file/95-function and T2a's twenty-nine-file/204-test plus
+99-helper plans are accepted, without test-edit dispatch. A fresh
+`develop_s7_shared_test_helpers` task now solely owns the planned adaptations
+of domain_recovery_worker, support/source_trace, statistics/pandas_workflows
+and packaging/relation_journeys. This supersedes stale T1b/T3 ownership labels
+in earlier dependency plans. All caller files stay with their original
+migration owners. Runtime still owns only its named shared_fixtures numeric
+program helper hunk. Avoid duplicate snapshot/receipt codecs or implicit
+publication just to obtain helper metadata. T1c materialization/recovery
+planning is in progress; no test migration is implemented yet.
+
+S5 same-task R1 repair is frozen in the expanded fifteen-path manifest
+`s5-calendar-r1-repair-frozen-manifest.json`, SHA256
+`88db66266d1f4189a01f4d744ed59733df97a20aabcb656e924e057cc9803817`.
+The original three independent failing probes are unchanged and now pass.
+Final focused regression passed 348 tests; ten source modules pass typing,
+fifteen source/test paths pass lint/format/import checks. The pending axis
+family now retains known CalendarDataAxis/PairedDataAxis descriptors, source
+capture freezes once, and current structure propagates them without ancestor
+or Catalog lookup. The sole additionally migrated S4 case is its paired-axis
+priority fixture. Root started renewed unrestricted default tests and the same
+reviewer's final second round; the earlier 4,303-pass result is historical.
+
+All eight disjoint S7 test migration plans are now accepted for later dispatch:
+T1a original-source (15 paths/115 test functions), T1b source/transport
+(17/95), T1c materialization/recovery (30/165), T2a numeric (29/204), T2b
+graph/source execution (32/121), T3a Session (7/57), T3b temporal (7/51),
+and T3c statistics/export (15/51). Counts describe AST inventory, not passing
+execution. Each has a complete retained/migrated/retired-producer ledger.
+S5/S6 shared test paths remain reserved until explicit handoff. No migration
+implementation is dispatched before real S3/S7 APIs and helper interfaces.
+
+The separate accepted four-file helper plan owns domain recovery snapshots,
+source tracing, external pandas utilities and packaged relation journeys.
+Snapshots accept completed/persisted Frame and optionally an already collected
+DataFrame without re-reading; pending input refuses. SourceTrace takes Frame
+(or None) and inert audit facts while preserving actual SQL submission hooks.
+No helper becomes a second codec, publisher, implicit evaluator or Artifact
+data route. Callers stay with their partition owners. T1c/T2b/T3a/T3b/T3c
+handoffs explicitly use these interfaces; source fixes remain with source owners.
+
+S5 repaired-snapshot unrestricted default gate passed **4,309 tests**,
+2,927 warnings, 186.11 seconds, exit 0
+(`s5-calendar-r1-final-default-tests.log`). Coordinator verified all fifteen
+candidate hashes and the unchanged original probe file, and froze the full
+source/test hash record in `s5-calendar-accepted-source-manifest.json`.
+Final independent R2 remains in progress; no acceptance precedes its result.
+
+S5 final independent round two is **No findings**
+(`s5-calendar-review-2.md`). The unchanged original probes and UTC SQL witness
+passed four cases; ten new independent neighboring probes passed, including
+mixed calendar/ordinary axes, reversed explicit mapping, same-day channel gaps,
+full nominal-map retention, exact metadata drift refusals and closed attachment
+references. A further 140 focused regressions passed. All fifteen candidate
+hashes remain exact. No P2+ remains; no third round is used. Combined with the
+renewed 4,309-pass unrestricted default gate, accept the private source/memory
+calendar foundation and commit its fifteen source/test paths plus two owning
+records with normal hooks. Store/cold/presentation and public cutover remain
+pending. The protected S3/S6 peer stash will be restored and verified afterward.
 
 ## Post-S2 sequencing decision
 

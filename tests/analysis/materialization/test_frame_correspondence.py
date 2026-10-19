@@ -426,15 +426,31 @@ def test_actual_source_plus_fixed_uses_one_binary_plan(
 
 
 def test_paired_axis_rejection_precedes_count_and_mapping(local: LocalFrameServices) -> None:
-    from marivo.analysis.core.frame_structure import PendingDataAxis, PendingDataColumn
+    from marivo.analysis.core.data_schema import (
+        BuiltinCalendarData,
+        CalendarDataAxis,
+        FrozenCalendarData,
+        PairedDataAxis,
+    )
+    from marivo.analysis.core.frame_structure import PendingDataColumn
 
     frame = _memory(local, ["A"], [1])
+    key = DataColumn("key", "key", ScalarDataType("int64"), False)
+    left = CalendarDataAxis(
+        "left",
+        (key,),
+        "UTC",
+        name="day",
+        frozen=FrozenCalendarData(BuiltinCalendarData("day", 1), "left.directory"),
+    )
+    right = replace(
+        left,
+        token="right",
+        frozen=FrozenCalendarData(BuiltinCalendarData("day", 1), "right.directory"),
+    )
+    axis = PairedDataAxis("paired", (key,), left, right, "mapping", name="paired")
     schema = PendingDataSchema(
-        (
-            PendingDataAxis(
-                "paired", "paired", "paired", (PendingDataColumn("key", "key", "numeric", False),)
-            ),
-        ),
+        (axis,),
         (PendingDataColumn("v", "amount", "numeric", True, "USD"),),
         (("amount",),),
     )

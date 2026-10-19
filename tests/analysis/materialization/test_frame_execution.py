@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime, timezone
 from decimal import Decimal
 
 import pandas as pd
@@ -38,6 +39,7 @@ from marivo.analysis.core.frame_expression import (
     FrameOperation,
     FrameOperationKind,
 )
+from marivo.analysis.core.frozen_calendar import calendar_directory_schema
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.graph_exchange import StageOutput, normalize_complete_frame
 from marivo.analysis.materialization.graph_source_execution import run_frame_plan
@@ -327,6 +329,39 @@ def test_presence_paths_are_directories_and_reduce_removes_presence() -> None:
     assert output.presence == output.presence_paths == ()
 
 
+def _calendar_directory(axis: CalendarDataAxis) -> OutputAttachment:
+    assert axis.frozen is not None
+    schema = calendar_directory_schema(axis)
+    return OutputAttachment(
+        axis.frozen.directory_name,
+        schema,
+        pd.DataFrame(
+            {
+                axis.columns[0].slot_id: pd.Series(
+                    [0],
+                    dtype="float64[pyarrow]"
+                    if axis.columns[0].dtype == ScalarDataType("float64")
+                    else "int64[pyarrow]",
+                ),
+                "nominal_label": pd.Series(["2026-01-01"], dtype="string[pyarrow]"),
+                "ordinal": pd.Series([0], dtype="int64[pyarrow]"),
+                **{
+                    name: pd.Series(
+                        [datetime(2026, month, 1, tzinfo=timezone.utc)],
+                        dtype="timestamp[us, tz=UTC][pyarrow]",
+                    )
+                    for name, month in (
+                        ("nominal_start", 1),
+                        ("nominal_end", 2),
+                        ("actual_start", 1),
+                        ("actual_end", 2),
+                    )
+                },
+            }
+        ),
+    )
+
+
 def test_coordinate_attachment_tables_are_fully_validated_before_top_zero() -> None:
     key = DataColumn("k", "bucket", ScalarDataType("int64"), False)
     axis = CalendarDataAxis(
@@ -338,13 +373,7 @@ def test_coordinate_attachment_tables_are_fully_validated_before_top_zero() -> N
     )
     value = DataColumn("v", "value", ScalarDataType("int64"), True)
     schema = DataSchema((axis,), (value,), value_paths=(("value",),))
-    label = DataColumn("label", "label", ScalarDataType("string"), False)
-    directory_schema = DataSchema(
-        (DataAxis("bucket", (key,), name="bucket"),), (label,), value_paths=(("label",),)
-    )
-    attachment = OutputAttachment(
-        "directory", directory_schema, pd.DataFrame({"k": [0], "label": ["2026-01"]})
-    )
+    attachment = _calendar_directory(axis)
     data = CompletedFrameData(schema, pd.DataFrame({"k": [0], "v": [7]}), (attachment,))
     compiled = plan_frame(
         FrameOperation(
@@ -360,7 +389,7 @@ def test_coordinate_attachment_tables_are_fully_validated_before_top_zero() -> N
         compiled, source_prepared={}, read_fixed=lambda stage: data, adapt_source=no_source
     )
     assert tuple(a.name for a in result.frame_attachments) == ("directory",)
-    data._attachments[0].rows["label"] = [99]
+    data._attachments[0].rows["nominal_label"] = [99]
     with pytest.raises(AnalysisError):
         _run(data, TopValues(0, ValueSlot(0), True, ()))
 
@@ -409,7 +438,7 @@ def test_complete_validation_rejects_nonfinite_stage_cells(invalid: float, colum
 
 @pytest.mark.parametrize("invalid", [float("inf"), -float("inf")])
 def test_fixed_typed_attachment_rejects_nonfinite_float_values(invalid: float) -> None:
-    key = DataColumn("k", "bucket", ScalarDataType("int64"), False)
+    key = DataColumn("k", "bucket", ScalarDataType("float64"), False)
     axis = CalendarDataAxis(
         "calendar",
         (key,),
@@ -419,15 +448,9 @@ def test_fixed_typed_attachment_rejects_nonfinite_float_values(invalid: float) -
     )
     value = DataColumn("v", "value", ScalarDataType("int64"), True)
     schema = DataSchema((axis,), (value,), value_paths=(("value",),))
-    number = DataColumn("number", "number", ScalarDataType("float64"), True)
-    attachment_schema = DataSchema(
-        (DataAxis("bucket", (key,), name="bucket"),), (number,), value_paths=(("number",),)
-    )
-    attachment = OutputAttachment(
-        "directory", attachment_schema, pd.DataFrame({"k": [0], "number": [0.0]})
-    )
-    data = CompletedFrameData(schema, pd.DataFrame({"k": [0], "v": [7]}), (attachment,))
-    data._attachments[0].rows["number"] = [invalid]
+    attachment = _calendar_directory(axis)
+    data = CompletedFrameData(schema, pd.DataFrame({"k": [0.0], "v": [7]}), (attachment,))
+    data._attachments[0].rows["k"] = [invalid]
     with pytest.raises(AnalysisError, match="finite"):
         _run(data, TopValues(0, ValueSlot(0), True, ()))
 

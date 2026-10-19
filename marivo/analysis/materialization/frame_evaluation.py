@@ -25,7 +25,9 @@ from marivo.analysis.compiler.optimization import InvocationMemo, optimize_query
 from marivo.analysis.compiler.queries import endpoint
 from marivo.analysis.compiler.query_program import QueryContext
 from marivo.analysis.core.artifact_data import (
+    CalendarDataAxis,
     DataAxis,
+    DataColumn,
     DataSchema,
     OutputEvidence,
 )
@@ -59,7 +61,7 @@ from marivo.analysis.core.frame_expression import (
     SourceFrameInput,
 )
 from marivo.analysis.core.frame_source_facts import captured_source_scopes, source_scope
-from marivo.analysis.core.frame_structure import PendingDataSchema
+from marivo.analysis.core.frame_structure import PendingDataColumn, PendingDataSchema, axis_role
 from marivo.analysis.core.model import reject
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import StageOutput
@@ -98,14 +100,6 @@ def _schema(frame: AnalysisFrame, plan: QueryPlan) -> DataSchema:
     layout = endpoint(graph, plan)
     columns = {column.slot_id: column for column in layout.columns}
     axes: list[DataAxis] = []
-    backing = frame._backing
-    assert isinstance(backing, ExpressionFrameBacking)
-    root = backing.root
-    calendars = (
-        {calendar.axis.token: calendar.axis for calendar in root.calendars}
-        if isinstance(root, SourceFrameBinding)
-        else {}
-    )
     if len(layout.key_groups) != len(frame._schema.axes):
         reject(
             "one complete prepared key group per captured axis",
@@ -114,6 +108,8 @@ def _schema(frame: AnalysisFrame, plan: QueryPlan) -> DataSchema:
             "frame.prepare",
         )
     for captured, keys in zip(frame._schema.axes, layout.key_groups, strict=True):
+        role = axis_role(captured)
+        constraints: tuple[DataColumn | PendingDataColumn, ...] = captured.columns
         if len(keys) != len(captured.columns):
             reject(
                 "every captured complete key component",
@@ -125,28 +121,18 @@ def _schema(frame: AnalysisFrame, plan: QueryPlan) -> DataSchema:
             replace(
                 columns[key],
                 name=constraint.name,
-                nullable=False
-                if captured.role in ("identity", "calendar")
-                else columns[key].nullable,
+                nullable=False if role in ("identity", "calendar") else columns[key].nullable,
             )
-            for key, constraint in zip(keys, captured.columns, strict=True)
+            for key, constraint in zip(keys, constraints, strict=True)
         )
-        if captured.role == "calendar":
-            calendar = calendars.get(captured.token)
-            if calendar is None:
-                reject(
-                    "an already frozen source calendar directory",
-                    captured.token,
-                    "Freeze labels and bounds at source binding.",
-                    "frame.prepare",
-                )
-            axes.append(replace(calendar, columns=physical))
+        if isinstance(captured, CalendarDataAxis):
+            axes.append(replace(captured, columns=physical))
         else:
             axes.append(
                 DataAxis(
                     captured.token,
                     physical,
-                    kind="member" if captured.role == "identity" else "field",
+                    kind="member" if role == "identity" else "field",
                     name=captured.name,
                     at=captured.at,
                 )

@@ -8,6 +8,7 @@ from typing import Literal, TypeAlias, overload
 
 import ibis
 
+from marivo._definition.correspondence import CalendarCorrespondence
 from marivo._definition.query import (
     CoordinateSlot,
     FilterValues,
@@ -23,7 +24,13 @@ from marivo._definition.query import (
     ValueSlot,
     ValueUnary,
 )
-from marivo.analysis.core.data_schema import DataAxis, DataColumn, DataSchema
+from marivo.analysis.core.data_schema import (
+    CalendarDataAxis,
+    DataAxis,
+    DataColumn,
+    DataSchema,
+    PairedDataAxis,
+)
 from marivo.analysis.core.data_types import (
     DataType,
     DecimalDataType,
@@ -35,10 +42,15 @@ from marivo.analysis.core.frame_structure import (
     PendingDataAxis,
     PendingDataColumn,
     PendingDataSchema,
+    PendingFrameAxis,
     ValueKind,
     axis_role,
     column_kind,
     value_name,
+)
+from marivo.analysis.core.frozen_calendar import (
+    require_calendar_match_rule,
+    require_compatible_calendar_axes,
 )
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import reject
@@ -50,6 +62,7 @@ FrameUnaryOperationKind: TypeAlias = SelectValues | FilterValues | TopValues | R
 class AlignFrameValues:
     pairs: tuple[tuple[int, int], ...]
     how: Literal["exact", "outer"] = "exact"
+    match: CalendarCorrespondence | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +70,7 @@ class CompareFrameValues:
     pairs: tuple[tuple[int, int], ...]
     how: Literal["exact", "outer"] = "exact"
     zero_denominator: Literal["null", "error"] = "null"
+    match: CalendarCorrespondence | None = None
 
 
 FrameBinaryOperationKind: TypeAlias = AlignFrameValues | CompareFrameValues
@@ -479,6 +493,63 @@ def _pending_column(column: DataColumn | PendingDataColumn) -> PendingDataColumn
     )
 
 
+def _paired_layout(
+    left: DataSchema | PendingDataSchema, right: DataSchema | PendingDataSchema, index: int
+) -> tuple[str, DataColumn]:
+    tokens = {axis.token for schema in (left, right) for axis in schema.axes}
+    slots = {column.slot_id for schema in (left, right) for column in schema.columns}
+    suffix = 0
+    while True:
+        token = f"frame.paired.{index}" + (f".{suffix}" if suffix else "")
+        slot = f"{token}.key"
+        if not {token, f"{token}.left", f"{token}.right"} & tokens and slot not in slots:
+            return token, DataColumn(slot, "pair", ScalarDataType("int64"), False)
+        suffix += 1
+
+
+def _paired_axis(
+    left: DataSchema | PendingDataSchema,
+    right: DataSchema | PendingDataSchema,
+    index: int,
+    partner: int,
+) -> PairedDataAxis:
+    a, b = left.axes[index], right.axes[partner]
+    assert isinstance(a, CalendarDataAxis) and isinstance(b, CalendarDataAxis)
+    assert a.frozen is not None and b.frozen is not None
+    token, key = _paired_layout(left, right, index)
+    used = {
+        axis.frozen.directory_name
+        for schema in (left, right)
+        for axis in schema.axes
+        if isinstance(axis, CalendarDataAxis) and axis.frozen is not None
+    }
+
+    def name(base: str) -> str:
+        candidate, n = base, 0
+        while candidate in used:
+            n += 1
+            candidate = f"{base}.{n}"
+        used.add(candidate)
+        return candidate
+
+    return PairedDataAxis(
+        token,
+        (key,),
+        replace(
+            a,
+            token=f"{token}.left",
+            frozen=replace(a.frozen, directory_name=name(f"calendar.{token}.left")),
+        ),
+        replace(
+            b,
+            token=f"{token}.right",
+            frozen=replace(b.frozen, directory_name=name(f"calendar.{token}.right")),
+        ),
+        name(f"mapping.{token}"),
+        name=a.name,
+    )
+
+
 @overload
 def infer_frame_combine_schema(
     left: DataSchema, right: DataSchema, operation: FrameBinaryOperationKind
@@ -507,9 +578,13 @@ def infer_frame_combine_schema(
             "Resolve complete axis handles before planning.",
             "frame.combine",
         )
-    if operation.how not in ("exact", "outer") or (
-        isinstance(operation, CompareFrameValues)
-        and operation.zero_denominator not in ("null", "error")
+    if (
+        (operation.match is not None and type(operation.match) is not CalendarCorrespondence)
+        or operation.how not in ("exact", "outer")
+        or (
+            isinstance(operation, CompareFrameValues)
+            and operation.zero_denominator not in ("null", "error")
+        )
     ):
         reject(
             "closed binary policies",
@@ -550,13 +625,6 @@ def infer_frame_combine_schema(
             "a complete axis bijection",
             repr(operation.pairs),
             "Bind every complete axis exactly once.",
-            "frame.combine",
-        )
-    if "calendar" in (*left_roles, *right_roles):
-        reject(
-            "ordinary field/identity axes in this private slice",
-            repr((left_roles, right_roles)),
-            "Calendar correspondence joins the S5 implementation before public cutover.",
             "frame.combine",
         )
     partners = dict(operation.pairs)
@@ -604,7 +672,22 @@ def infer_frame_combine_schema(
                 if nullable is None
                 else replace(a, nullable=nullable)
             )
+        if isinstance(axis, CalendarDataAxis) and isinstance(other, CalendarDataAxis):
+            require_compatible_calendar_axes(axis, other)
+            if operation.match is not None:
+                require_calendar_match_rule(axis, operation.match)
         axis_columns.append(tuple(columns))
+    calendars = tuple(i for i, role in enumerate(left_roles) if role == "calendar")
+    matched = calendars[0] if operation.match is not None and len(calendars) == 1 else None
+    if operation.match is not None and matched is None:
+        reject(
+            "exactly one compatible calendar axis pair for match",
+            repr((left_roles, right_roles)),
+            "Use equality without match, or explicitly construct one compatible calendar axis pair.",
+            "frame.combine",
+        )
+    if matched is not None:
+        axis_columns[matched] = (_paired_layout(left, right, matched)[1],)
     compare = isinstance(operation, CompareFrameValues)
     if compare and (not left.value_paths or set(left.value_paths) != set(right.value_paths)):
         reject(
@@ -680,18 +763,36 @@ def infer_frame_combine_schema(
             assert dtype is not None
             values.append(DataColumn(f"value.{index}", ".".join(path), dtype, bool(nullable), unit))
     if pending:
-        axes = tuple(
-            PendingDataAxis(
-                a.token,
-                a.name,
-                left_roles[i],
-                tuple(_pending_column(c) for c in axis_columns[i]),
-                a.at,
-            )
-            for i, a in enumerate(left_axes)
-        )
+        pending_axes: list[PendingFrameAxis] = []
+        for i, axis in enumerate(left_axes):
+            if i == matched:
+                pending_axes.append(_paired_axis(left, right, i, partners[i]))
+            elif isinstance(axis, CalendarDataAxis):
+                pending_axes.append(
+                    replace(
+                        axis, columns=tuple(c for c in axis_columns[i] if isinstance(c, DataColumn))
+                    )
+                )
+            else:
+                role = axis_role(axis)
+                if role not in ("field", "identity"):
+                    reject(
+                        "ordinary unresolved axes or closed calendar descriptors",
+                        repr(axis),
+                        "Retain captured calendar facts in the current structure.",
+                        "frame.combine",
+                    )
+                pending_axes.append(
+                    PendingDataAxis(
+                        axis.token,
+                        axis.name,
+                        role,
+                        tuple(_pending_column(c) for c in axis_columns[i]),
+                        axis.at,
+                    )
+                )
         return PendingDataSchema(
-            axes,
+            tuple(pending_axes),
             tuple(_pending_column(c) for c in values),
             paths,
             tuple(
@@ -704,7 +805,10 @@ def infer_frame_combine_schema(
     for i, axis in enumerate(left_axes):
         assert isinstance(axis, DataAxis)
         concrete_columns = tuple(c for c in axis_columns[i] if isinstance(c, DataColumn))
-        concrete_axes.append(replace(axis, columns=concrete_columns))
+        if i == matched:
+            concrete_axes.append(_paired_axis(left, right, i, partners[i]))
+        else:
+            concrete_axes.append(replace(axis, columns=concrete_columns))
     return DataSchema(
         tuple(concrete_axes),
         tuple(c for c in values if isinstance(c, DataColumn)),

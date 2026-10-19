@@ -159,13 +159,6 @@ class AnalysisFrame:
     @property
     def axes(self) -> tuple[FrameAxis, ...]:
         schema = self._schema
-        if isinstance(schema, PendingDataSchema):
-            return tuple(
-                FrameAxis._from_frame(
-                    self, axis.token, axis.name, axis.role, tuple(c.name for c in axis.columns)
-                )
-                for axis in schema.axes
-            )
         return tuple(
             FrameAxis._from_frame(
                 self, axis.token, axis.name, axis_role(axis), tuple(c.name for c in axis.columns)
@@ -455,14 +448,17 @@ class AnalysisFrame:
                 "frame.combine",
             )
         if on is None:
-            if left_axes:
+            if len(left_axes) == 1 and left_axes[0].role == right_axes[0].role == "calendar":
+                on = ((left_axes[0], right_axes[0]),)
+            elif left_axes:
                 reject(
                     "a complete explicit axis bijection",
                     repr((left_axes, right_axes)),
-                    "Pass on with every complete axis exactly once; ordinary axes cannot be inferred. Calendar inference joins S5 before public cutover.",
+                    "Pass on with every complete axis exactly once; only zero axes or a sole calendar axis on each side can be inferred.",
                     "frame.combine",
                 )
-            on = ()
+            else:
+                on = ()
         if (
             len(on) != len(left_axes)
             or {a.token for a, _ in on} != {a.token for a in left_axes}
@@ -475,17 +471,10 @@ class AnalysisFrame:
                 "frame.combine",
             )
         pairs = tuple((self._axis_index(a), other._axis_index(b)) for a, b in on)
-        if match is not None:
-            reject(
-                "no calendar match on ordinary or zero-axis inputs",
-                repr(match),
-                "Use equality for ordinary inputs; calendar matching joins S5 before public cutover.",
-                "frame.combine",
-            )
         operation = (
-            AlignFrameValues(pairs, how)
+            AlignFrameValues(pairs, how, match)
             if zero_denominator is None
-            else CompareFrameValues(pairs, how, zero_denominator)
+            else CompareFrameValues(pairs, how, zero_denominator, match)
         )
         schema = infer_frame_combine_schema(self._schema, other._schema, operation)
         return self._from_expression(
@@ -727,7 +716,8 @@ def _operation_summary(binding: OperationFrameBinding) -> str:
             if isinstance(operation, CompareFrameValues)
             else ""
         )
-        return f"{name}(on={operation.pairs!r}, how={operation.how!r}{policy})"
+        match = f", match={operation.match!r}" if operation.match is not None else ""
+        return f"{name}(on={operation.pairs!r}, how={operation.how!r}{match}{policy})"
     statistics = tuple(
         (
             name,

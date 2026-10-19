@@ -50,6 +50,15 @@ resolve without constructing or executing a handle. Complete physical types
 remain owned by the current structure; pending types are explicitly unresolved.
 Neither a token nor a name proves equality between independent inputs.
 
+Pending value types do not make already captured coordinate interpretation
+unknown. The closed pending-axis family contains unresolved ordinary field or
+identity axes plus exact frozen calendar or paired descriptors. Source capture
+freezes a calendar once into the current schema and its attachment; unary and
+binary construction retain those inert facts. Calendar compatibility and rule
+applicability therefore run before value validation for pending, memory and
+mixed inputs alike. Completion must preserve each known descriptor exactly;
+construction never recovers it from a producer graph or live Catalog.
+
 All user value names use one validator: a nonempty single segment, excluding
 dot, backslash, control characters, `left_present`, and `right_present`.
 Generated paths are immutable segment tuples; values and presence have distinct

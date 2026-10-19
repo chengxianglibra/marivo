@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import datetime, timezone
+from typing import Literal
 
 from ibis.common.deferred import Deferred
 
@@ -12,13 +13,13 @@ from marivo._definition.types import AxisBinding, CalendarCoordinate
 from marivo._temporal import PeriodCalendarSnapshotV1, TimeScope
 from marivo.analysis.core.artifact_data import DataColumn
 from marivo.analysis.core.data_types import ScalarDataType
-from marivo.analysis.core.frame_calendar import freeze_calendar
+from marivo.analysis.core.frame_calendar import FrozenSourceCalendar, freeze_calendar
 from marivo.analysis.core.frame_data import LiteralFrameBinding, SourceFrameBinding
 from marivo.analysis.core.frame_structure import (
-    AxisRole,
     PendingDataAxis,
     PendingDataColumn,
     PendingDataSchema,
+    PendingFrameAxis,
     value_name,
 )
 from marivo.analysis.core.graph import BoundGraph
@@ -51,17 +52,28 @@ def _utc(value: datetime | None) -> datetime | None:
     )
 
 
-def pending_schema(graph: BoundGraph, state: CompiledSemanticState | None) -> PendingDataSchema:
-    axes: list[PendingDataAxis] = []
+def pending_schema(
+    graph: BoundGraph, state: CompiledSemanticState | None
+) -> tuple[PendingDataSchema, tuple[FrozenSourceCalendar, ...]]:
+    """Capture current axis facts and freeze each source calendar exactly once."""
+    axes: list[PendingFrameAxis] = []
+    calendars: list[FrozenSourceCalendar] = []
     offset = 0
-    role: AxisRole
+    role: Literal["field", "identity"]
     components: tuple[str, ...]
     for index, axis in enumerate(graph.signature.axes):
         if isinstance(axis, CalendarCoordinate):
             name = f"calendar:{axis.grain}"
-            components = (name,)
-            role = "calendar"
-            at = None
+            frozen = freeze_calendar(
+                axis,
+                token=f"axis.{index}",
+                name=name,
+                key=DataColumn(f"key.{offset}", name, ScalarDataType("int64"), False),
+            )
+            calendars.append(frozen)
+            axes.append(frozen.axis)
+            offset += len(frozen.axis.columns)
+            continue
         elif isinstance(axis, AxisBinding):
             name = axis.field.ref.path if axis.field is not None else axis.entity.ref.path
             if axis.field is None:
@@ -90,7 +102,7 @@ def pending_schema(graph: BoundGraph, state: CompiledSemanticState | None) -> Pe
                 f"key.{offset + component}",
                 name,
                 "unresolved",
-                False if role in ("identity", "calendar") else None,
+                False if role == "identity" else None,
             )
             for component, name in enumerate(components)
         )
@@ -110,7 +122,7 @@ def pending_schema(graph: BoundGraph, state: CompiledSemanticState | None) -> Pe
         tuple(axes),
         values,
         tuple(value_name(value.name, location="frame.source") for value in values),
-    )
+    ), tuple(calendars)
 
 
 def _capture(
@@ -119,22 +131,7 @@ def _capture(
     state: CompiledSemanticState,
     connection: DatasourceConnectionConfig,
 ) -> AnalysisFrame:
-    schema = pending_schema(graph, state)
-    calendars = tuple(
-        freeze_calendar(
-            axis,
-            token=captured.token,
-            name=captured.name,
-            key=DataColumn(
-                captured.columns[0].slot_id,
-                captured.columns[0].name,
-                ScalarDataType("int64"),
-                False,
-            ),
-        )
-        for axis, captured in zip(graph.signature.axes, schema.axes, strict=True)
-        if isinstance(axis, CalendarCoordinate)
-    )
+    schema, calendars = pending_schema(graph, state)
     return AnalysisFrame._from_expression(
         local, schema, SourceFrameBinding(graph, state, connection, calendars)
     )
@@ -197,9 +194,8 @@ def values(
     for name in columns:
         value_name(name, location="frame.values")
     graph = capture_values(by=(), columns=columns, rows=rows, owner=local.owner)
-    return AnalysisFrame._from_expression(
-        local, pending_schema(graph, None), LiteralFrameBinding(graph)
-    )
+    schema, _ = pending_schema(graph, None)
+    return AnalysisFrame._from_expression(local, schema, LiteralFrameBinding(graph))
 
 
 def coordinate_values(

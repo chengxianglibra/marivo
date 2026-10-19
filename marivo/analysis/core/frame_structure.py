@@ -65,7 +65,9 @@ def validate_paths(paths: tuple[ValuePath, ...], *, location: str) -> None:
         reject("distinct name paths", repr(paths), "Remove the repeated name path.", location)
 
 
-def axis_role(axis: DataAxis | CalendarDataAxis | PairedDataAxis) -> AxisRole:
+def axis_role(axis: DataAxis | PendingDataAxis) -> AxisRole:
+    if isinstance(axis, PendingDataAxis):
+        return axis.role
     if isinstance(axis, PairedDataAxis):
         return "paired"
     if isinstance(axis, CalendarDataAxis):
@@ -112,7 +114,7 @@ class PendingDataAxis:
 
     token: str
     name: str
-    role: AxisRole
+    role: Literal["field", "identity"]
     columns: tuple[PendingDataColumn, ...]
     at: datetime | None = None
 
@@ -122,7 +124,7 @@ class PendingDataAxis:
             or not self.token
             or type(self.name) is not str
             or not self.name
-            or self.role not in ("field", "identity", "calendar", "paired")
+            or self.role not in ("field", "identity")
             or type(self.columns) is not tuple
             or not self.columns
             or any(type(column) is not PendingDataColumn for column in self.columns)
@@ -132,7 +134,7 @@ class PendingDataAxis:
             )
         ):
             reject(
-                "a complete named pending axis",
+                "a complete named pending field or identity axis",
                 repr(self),
                 "Capture every component of the current axis key.",
                 "frame.pending.axis",
@@ -146,11 +148,14 @@ class PendingDataAxis:
             )
 
 
+PendingFrameAxis: TypeAlias = PendingDataAxis | CalendarDataAxis | PairedDataAxis
+
+
 @dataclass(frozen=True, slots=True)
 class PendingDataSchema:
     """A source-independent structure that cannot stand for completed data."""
 
-    axes: tuple[PendingDataAxis, ...]
+    axes: tuple[PendingFrameAxis, ...]
     values: tuple[PendingDataColumn, ...]
     value_paths: tuple[ValuePath, ...]
     presence: tuple[PendingDataColumn, ...] = ()
@@ -159,7 +164,10 @@ class PendingDataSchema:
     def __post_init__(self) -> None:
         if (
             type(self.axes) is not tuple
-            or any(type(axis) is not PendingDataAxis for axis in self.axes)
+            or any(
+                type(axis) not in (PendingDataAxis, CalendarDataAxis, PairedDataAxis)
+                for axis in self.axes
+            )
             or any(
                 type(columns) is not tuple
                 or any(type(column) is not PendingDataColumn for column in columns)
@@ -183,9 +191,25 @@ class PendingDataSchema:
                 "frame.pending.presence",
             )
         _identities(tuple(axis.token for axis in self.axes), tuple(c.slot_id for c in self.columns))
+        for axis in self.axes:
+            calendars = (
+                (axis.left, axis.right)
+                if isinstance(axis, PairedDataAxis)
+                else (axis,)
+                if isinstance(axis, CalendarDataAxis)
+                else ()
+            )
+            if any(calendar.frozen is None for calendar in calendars):
+                reject(
+                    "captured frozen calendar descriptors in pending structure",
+                    axis.token,
+                    "Freeze the complete source calendar once at capture.",
+                    "frame.pending.axis",
+                )
+        coordinate_attachments(self)
 
     @property
-    def columns(self) -> tuple[PendingDataColumn, ...]:
+    def columns(self) -> tuple[DataColumn | PendingDataColumn, ...]:
         return (*tuple(c for axis in self.axes for c in axis.columns), *self.values, *self.presence)
 
     def complete(self, schema: DataSchema) -> DataSchema:
@@ -195,7 +219,7 @@ class PendingDataSchema:
             schema.value_paths != self.value_paths
             or schema.presence_paths != self.presence_paths
             or tuple(
-                (a.token, a.name, a.role, a.at, tuple(c.slot_id for c in a.columns))
+                (a.token, a.name, axis_role(a), a.at, tuple(c.slot_id for c in a.columns))
                 for a in self.axes
             )
             != tuple(
@@ -210,12 +234,24 @@ class PendingDataSchema:
                 "Preserve the captured current structure during physical preparation.",
                 "frame.pending.complete",
             )
+        for captured_axis, complete_axis in zip(self.axes, schema.axes, strict=True):
+            if not isinstance(captured_axis, PendingDataAxis) and captured_axis != complete_axis:
+                reject(
+                    "the exact captured frozen coordinate descriptor",
+                    repr(complete_axis),
+                    "Preserve the captured calendar interpretation and complete key types.",
+                    "frame.pending.complete",
+                )
         for pending, complete in zip(self.columns, schema.columns, strict=True):
             if (
                 (pending.slot_id, pending.name, pending.unit)
                 != (complete.slot_id, complete.name, complete.unit)
-                or (pending.kind != "unresolved" and pending.kind != column_kind(complete))
+                or (
+                    column_kind(pending) != "unresolved"
+                    and column_kind(pending) != column_kind(complete)
+                )
                 or (pending.nullable is not None and pending.nullable != complete.nullable)
+                or (isinstance(pending, DataColumn) and pending.dtype != complete.dtype)
             ):
                 reject(
                     "a concrete column satisfying its captured type, unit and nullability",
@@ -335,14 +371,14 @@ def require_complete_structure(schema: DataSchema) -> None:
     coordinate_attachments(schema)
 
 
-def coordinate_attachments(schema: DataSchema) -> tuple[str, ...]:
+def coordinate_attachments(schema: DataSchema | PendingDataSchema) -> tuple[str, ...]:
     """Validate the reachable local directory and return its owned attachments.
 
     Exact calendar descriptors can be shared. Conflicting local tokens or
     attachment owners cannot be resolved by traversal order or name deduplication.
     This validates metadata only; finite attachment rows belong to consumption.
     """
-    descriptors: dict[str, DataAxis] = {}
+    descriptors: dict[str, DataAxis | PendingDataAxis] = {}
     attachments: dict[str, tuple[Literal["calendar", "paired"], DataAxis]] = {}
 
     def attachment(name: str, role: Literal["calendar", "paired"], axis: DataAxis) -> None:
@@ -356,7 +392,7 @@ def coordinate_attachments(schema: DataSchema) -> tuple[str, ...]:
             )
         attachments[name] = (role, axis)
 
-    def visit(axis: DataAxis) -> None:
+    def visit(axis: DataAxis | PendingDataAxis) -> None:
         previous = descriptors.get(axis.token)
         if previous is not None:
             if (

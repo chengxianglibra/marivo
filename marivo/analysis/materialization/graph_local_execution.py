@@ -25,15 +25,30 @@ def run_local(
     """Run one checked Query kernel without mutating its shared inputs."""
     if isinstance(stage, FrameCompute):
         from marivo.analysis.core.frame_data import required_attachments
+        from marivo.analysis.core.frozen_calendar import (
+            FrozenAttachment,
+            validate_frozen_coordinates,
+        )
+        from marivo.analysis.methods.frame_comparison import combine_frame_data
         from marivo.analysis.methods.frame_values import evaluate_frame
 
-        frame = evaluate_frame(stage, tuple(item.table for item in inputs))
         required = required_attachments(stage.program.output_schema)
-        attachments = (
-            ()
-            if isinstance(stage.program, FrameCombineProgram)
-            else tuple(a for a in inputs[0].frame_attachments if a.name in required)
-        )
+        if isinstance(stage.program, FrameCombineProgram):
+            frame, attachments = combine_frame_data(
+                stage.program,
+                tuple(item.table for item in inputs),
+                tuple(item.frame_attachments for item in inputs),
+            )
+        else:
+            validate_frozen_coordinates(
+                stage.program.input_schema,
+                inputs[0].table,
+                tuple(
+                    FrozenAttachment(a.name, a.schema, a.rows) for a in inputs[0].frame_attachments
+                ),
+            )
+            frame = evaluate_frame(stage.program, tuple(item.table for item in inputs))
+            attachments = tuple(a for a in inputs[0].frame_attachments if a.name in required)
         if {a.name for a in attachments} != set(required):
             raise MaterializationError(
                 expected="all required frozen coordinate attachments",
@@ -41,7 +56,7 @@ def run_local(
                 repair="Retain required complete coordinate data.",
                 stage="frame_compute",
             )
-        return StageOutput.from_frame(
+        output = StageOutput.from_frame(
             frame,
             stage.columns,
             stage.keys,
@@ -50,6 +65,12 @@ def run_local(
             ),
             frame_attachments=attachments,
         )
+        validate_frozen_coordinates(
+            stage.program.output_schema,
+            output.table,
+            tuple(FrozenAttachment(a.name, a.schema, a.rows) for a in attachments),
+        )
+        return output
     if stage.fused_steps:
         from marivo.analysis.materialization.query_runtime_types import effective_local
 

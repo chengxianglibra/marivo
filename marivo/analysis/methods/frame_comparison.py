@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from decimal import Decimal
 from typing import TypeAlias
 
@@ -10,6 +11,8 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from marivo.analysis.compiler.query_program import FrameCombineProgram
+from marivo.analysis.core.artifact_data import OutputAttachment
+from marivo.analysis.core.data_schema import CalendarDataAxis, DataAxis, PairedDataAxis
 from marivo.analysis.core.data_types import (
     DataColumn,
     DataType,
@@ -19,6 +22,18 @@ from marivo.analysis.core.data_types import (
     TimestampDataType,
 )
 from marivo.analysis.core.frame_expression import CompareFrameValues
+from marivo.analysis.core.frozen_calendar import (
+    FrozenAttachment,
+    build_partial_calendar_map,
+    calendar_directory_rows,
+    calendar_directory_schema,
+    frozen_key_rows,
+    frozen_key_table,
+    merge_equal_calendar_directories,
+    paired_mapping_schema,
+    read_calendar_directory,
+    validate_frozen_coordinates,
+)
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.methods.numeric_state import (
     duration_arithmetic,
@@ -61,6 +76,94 @@ def _index(
 def _take(frame: pd.DataFrame, slot: str, indices: list[int | None]) -> pd.Series:
     values = pa.array(frame[slot], from_pandas=True)
     return pd.Series(pd.arrays.ArrowExtensionArray(values.take(pa.array(indices, type=pa.int64()))))
+
+
+def combine_frame_data(
+    program: FrameCombineProgram,
+    inputs: tuple[pd.DataFrame, ...],
+    attachments: tuple[tuple[OutputAttachment, ...], ...],
+) -> tuple[pd.DataFrame, tuple[OutputAttachment, ...]]:
+    """Resolve frozen coordinates, then reuse the complete joint-key/value kernel."""
+    if len(inputs) != 2 or len(attachments) != 2:
+        _fail("two complete Frame inputs with their attachments", str(len(inputs)))
+    for schema, rows, tables in zip(
+        (program.left_schema, program.right_schema), inputs, attachments, strict=True
+    ):
+        validate_frozen_coordinates(
+            schema, rows, tuple(FrozenAttachment(a.name, a.schema, a.rows) for a in tables)
+        )
+    sources = tuple({table.name: table for table in group} for group in attachments)
+    output_attachments: list[OutputAttachment] = []
+    left_axes, right_axes = list(program.left_schema.axes), list(program.right_schema.axes)
+    frames = [frame.copy(deep=False) for frame in inputs]
+    for i, j in program.operation.pairs:
+        left, right, output = left_axes[i], right_axes[j], program.output_schema.axes[i]
+        if not isinstance(left, CalendarDataAxis):
+            continue
+        assert isinstance(right, CalendarDataAxis)
+        assert left.frozen is not None and right.frozen is not None
+        a, b = sources[0][left.frozen.directory_name], sources[1][right.frozen.directory_name]
+        ldir, rdir = (
+            read_calendar_directory(left, a.schema, a.rows),
+            read_calendar_directory(right, b.schema, b.rows),
+        )
+        if isinstance(output, CalendarDataAxis):
+            directory = merge_equal_calendar_directories(ldir, rdir, output)
+            assert output.frozen is not None
+            output_attachments.append(
+                OutputAttachment(
+                    output.frozen.directory_name,
+                    calendar_directory_schema(output),
+                    calendar_directory_rows(directory),
+                )
+            )
+            continue
+        assert isinstance(output, PairedDataAxis) and program.operation.match is not None
+        mapping = build_partial_calendar_map(ldir, rdir, program.operation.match)
+        for endpoint, directory in ((output.left, ldir), (output.right, rdir)):
+            assert endpoint.frozen is not None
+            copied = replace(directory, axis=endpoint)
+            output_attachments.append(
+                OutputAttachment(
+                    endpoint.frozen.directory_name,
+                    calendar_directory_schema(endpoint),
+                    calendar_directory_rows(copied),
+                )
+            )
+        map_schema = paired_mapping_schema(output)
+        rows = pd.DataFrame(
+            {output.columns[0].slot_id: pd.Series(range(len(mapping)), dtype="int64[pyarrow]")}
+        )
+        width = len(output.left.columns)
+        for columns, keys in (
+            (map_schema.values[:width], tuple(pair.left_key for pair in mapping)),
+            (map_schema.values[width:], tuple(pair.right_key for pair in mapping)),
+        ):
+            encoded = frozen_key_table(columns, keys)
+            for column in columns:
+                rows[column.slot_id] = encoded[column.slot_id]
+        output_attachments.append(OutputAttachment(output.mapping_name, map_schema, rows))
+        for side, endpoint in enumerate((left, right)):
+            lookup = {
+                key: index
+                for index, pair in enumerate(mapping)
+                if (key := pair.left_key if side == 0 else pair.right_key) is not None
+            }
+            frames[side][output.columns[0].slot_id] = pd.Series(
+                [lookup[key] for key in frozen_key_rows(frames[side], endpoint.columns)],
+                dtype="int64[pyarrow]",
+            )
+        # The existing numeric kernel receives an ordinary view of the mapped
+        # calendar component. Every remaining complete ordinary component stays
+        # in the same joint key; output metadata remains the real paired axis.
+        virtual = DataAxis(output.token, output.columns, name=output.name)
+        left_axes[i], right_axes[j] = virtual, virtual
+    mapped = replace(
+        program,
+        left_schema=replace(program.left_schema, axes=tuple(left_axes)),
+        right_schema=replace(program.right_schema, axes=tuple(right_axes)),
+    )
+    return combine_frames(mapped, tuple(frames)), tuple(output_attachments)
 
 
 def combine_frames(program: FrameCombineProgram, inputs: tuple[pd.DataFrame, ...]) -> pd.DataFrame:
