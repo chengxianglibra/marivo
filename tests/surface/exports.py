@@ -69,15 +69,14 @@ SEMANTIC_PUBLIC = {
 }
 
 ANALYSIS_PUBLIC = (
-    "Query",
+    "AnalysisFrame",
+    "FrameAxis",
     "Column",
     "Population",
     "PopulationPredicate",
     "MembershipAxis",
     "MemberAxis",
-    "CorrespondenceAxis",
     "CalendarCorrespondence",
-    "DeclaredCorrespondence",
     "identities",
     "coordinates",
     "membership",
@@ -86,8 +85,6 @@ ANALYSIS_PUBLIC = (
     "member",
     "member_count",
     "row_count",
-    "broadcast",
-    "corresponding",
     "ordinal",
     "period_offset",
     "previous_year",

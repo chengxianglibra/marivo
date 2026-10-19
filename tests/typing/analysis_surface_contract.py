@@ -1,4 +1,4 @@
-"""Concrete typing for current member and artifact recovery entrypoints."""
+"""Concrete typing for current data and exact persisted Frame recovery."""
 
 from typing import TYPE_CHECKING
 
@@ -11,11 +11,14 @@ if TYPE_CHECKING:
     session = mv.session.get_or_create("recovery-typing")
     members = session.members(ms.ref.entity("sales.orders"))
     assert_type(members, mv.Population)
-    assert_type(session.query(members), mv.Query)
-    assert_type(session.query(members).population(), mv.Population)
-    recovered = session.artifact("artifact_current")
-    assert_type(recovered, mv.Artifact)
+    assert_type(session.frame(members), mv.AnalysisFrame)
+    recovered = session.persisted_frame("artifact_current")
+    assert_type(recovered, mv.AnalysisFrame)
+    assert_type(session.population_from(recovered, on=()), mv.Population)
+    assert_type(recovered.artifact, mv.Artifact)
+    assert_type(recovered.artifact.show(), None)
     metric = session.catalog.metrics.get("sales.revenue")
-    query = session.observe({"revenue": metric})
-    assert_type(query, mv.Query)
-    assert_type(query.execute(), mv.Artifact)
+    frame = session.observe({"revenue": metric})
+    assert_type(frame, mv.AnalysisFrame)
+    assert_type(frame.compute(), mv.AnalysisFrame)
+    assert_type(frame.persist(), mv.AnalysisFrame)

@@ -116,7 +116,7 @@ def test_logical_metric_repr_is_bounded_and_has_identity(analysis_dsl_case_facto
     rendered = repr(result)
     assert "\n" not in rendered
     assert len(rendered) <= 200
-    assert "Query id=" in rendered
+    assert "AnalysisFrame input=" in rendered
     assert ".show()" in rendered
 
 

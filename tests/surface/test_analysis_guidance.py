@@ -123,7 +123,7 @@ def test_first_round_help_targets_are_reachable_and_bounded() -> None:
     first_round = {
         target
         for target in REGISTRY.canonical_ids()
-        if target.startswith(("Query.", "Population.", "Column."))
+        if target.startswith(("analysis_frame.", "frame_axis.", "population.", "column."))
     }
     assert first_round <= seen
     assert "session.members" in seen
@@ -138,12 +138,11 @@ def test_first_round_help_targets_are_reachable_and_bounded() -> None:
 
 def test_grouping_surface_stays_with_finite_query_operations() -> None:
     assert not hasattr(mv, "GroupedAnalysisDomain")
-    for owner in (mv.Population, mv.Query, mv.Artifact):
+    for owner in (mv.Population, mv.AnalysisFrame, mv.Artifact):
         assert not hasattr(owner, "group_by")
         assert not hasattr(owner, "aggregate")
     for query_owner, method in (
-        (mv.Query, "rollup"),
-        (mv.Query, "reduce"),
+        (mv.AnalysisFrame, "reduce"),
         (mv.Session, "observe"),
     ):
         assert "groups" not in inspect.signature(getattr(query_owner, method)).parameters
@@ -152,7 +151,7 @@ def test_grouping_surface_stays_with_finite_query_operations() -> None:
 
 def test_current_row_aggregation_has_one_public_entry() -> None:
     for function, target in (
-        (mv.Query.reduce, "query.reduce"),
+        (mv.AnalysisFrame.reduce, "analysis_frame.reduce"),
         (mv.Column.sum, "column.sum"),
         (mv.Column.mean, "column.mean"),
         (mv.row_count, "row_count"),
@@ -161,5 +160,22 @@ def test_current_row_aggregation_has_one_public_entry() -> None:
         assert isinstance(route, NativeHelpRoute) and route.owner == "analysis"
         assert route.resolved.canonical_id == target
     for alias in ("aggregate", "summarize", "agg"):
-        assert not hasattr(mv.Query, alias) and not hasattr(mv.Artifact, alias)
+        assert not hasattr(mv.AnalysisFrame, alias) and not hasattr(mv.Artifact, alias)
     assert not any(target.endswith(".aggregate") for target in REGISTRY.canonical_ids())
+
+
+def test_population_bridge_help_uses_actual_static_method_without_catalog_reads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def forbidden(_session: object) -> object:
+        raise AssertionError("Static Help read a Catalog")
+
+    monkeypatch.setattr(mv.Session, "catalog", property(forbidden))
+    page = rendered_help("analysis.session.population_from")
+    assert page == rendered_help(mv.Session.population_from)
+    assert "Target: analysis.session.population_from\nKind: callable" in page
+    assert "on:" in page and "FrameAxis" in page and "Entity" in page
+    assert "Required immutable tuple" in page
+    assert "construction reads no rows" in page
+    assert "analysis.session.population_from" in rendered_help("analysis.population_tasks")
+    assert "analysis.session.population_from" in rendered_help("analysis.population")

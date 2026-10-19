@@ -436,7 +436,18 @@ def test_doctor_command_fix_snapshot_takes_precedence_over_json(
 
 
 @pytest.mark.parametrize(
-    "target", [None, "analysis", "analysis.query", "analysis.query.output_names"]
+    "target",
+    [
+        None,
+        "analysis",
+        "analysis.analysis_frame",
+        "analysis.analysis_frame.output_names",
+        "analysis.frame_axis",
+        "analysis.frame_axis.role",
+        "analysis.session.frame",
+        "analysis.session.persisted_frame",
+        "analysis.session.population_from",
+    ],
 )
 def test_cli_and_python_help_have_identical_facts_and_targets(
     target: str | None, capsys: pytest.CaptureFixture[str]

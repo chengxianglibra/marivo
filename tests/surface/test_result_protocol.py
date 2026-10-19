@@ -228,18 +228,18 @@ def test_committed_runtime_projections_satisfy_terminal_protocol(
     from marivo.analysis.materialization.contracts import RunFailure
 
     case = analysis_dsl_case_factory("j2")
-    output = case.session.observe({"revenue": case.catalog.metrics.get("sales.revenue")}).execute()
+    output = case.session.observe({"revenue": case.catalog.metrics.get("sales.revenue")}).persist()
     runtime = case.session._runtime
     store = runtime.store
-    assert case.session.artifact(output.id).id == output.id
-    terminal_store.admit(store, case.session.id, "failed")
+    assert case.session.persisted_frame(output.artifact.id).artifact.id == output.artifact.id
+    terminal_store.admit(store, case.session.id, "failed", "result_failed")
     store.fail(
         "failed",
         RunFailure(
             "stage_execution", "execution_failed", "fixture stopped", None, "success", "stop", None
         ),
     )
-    terminal_store.admit(store, case.session.id, "pending")
+    terminal_store.admit(store, case.session.id, "pending", "result_pending")
     page = runtime.runs()
     assert {item.lifecycle for item in page.items} == {"succeeded", "failed", "incomplete"}
     candidates = (*page.items, page, runtime.graph(), _artifact_digest())

@@ -13,7 +13,7 @@ import marivo.analysis as mv
 import sys
 assert 'scipy.stats' not in sys.modules
 from marivo.analysis._capabilities.registry import REGISTRY
-names = ('Population', 'Query', 'Column', 'Artifact', 'ArtifactSummary')
+names = ('Population', 'AnalysisFrame', 'FrameAxis', 'Column', 'Artifact', 'ArtifactSummary')
 bindings = tuple(getattr(mv, name) for name in names)
 assert 'marivo.analysis.public_dsl' not in sys.modules
 assert 'marivo.analysis.forecast_models' not in sys.modules
@@ -25,7 +25,7 @@ assert bindings == tuple(getattr(mv, name) for name in names)
 assert all(name in mv.__all__ for name in names)
 assert tuple(mv.__all__) == exports
 assert REGISTRY.canonical_ids() == help_targets
-assert {'query', 'artifact', 'query.execute'} <= set(help_targets)
+assert {'analysis_frame', 'frame_axis', 'artifact', 'analysis_frame.compute'} <= set(help_targets)
 from marivo.analysis.session.core import Session
 
 exports = tuple(mv.__all__)
@@ -126,10 +126,18 @@ def test_analysis_keeps_typed_correspondence_and_member_values() -> None:
     assert callable(mv.row_count)
 
 
-def test_session_class_exposes_sources_and_query_owned_operators() -> None:
+def test_session_class_exposes_sources_and_frame_owned_operators() -> None:
     import marivo.analysis as mv
 
-    for name in ("members", "read", "observe", "query", "values"):
+    for name in (
+        "members",
+        "read",
+        "observe",
+        "frame",
+        "values",
+        "persisted_frame",
+        "population_from",
+    ):
         assert callable(getattr(mv.Session, name))
     for name in (
         "select",
@@ -138,16 +146,17 @@ def test_session_class_exposes_sources_and_query_owned_operators() -> None:
         "reduce",
         "align",
         "compare",
-        "rollup",
-        "drill",
-        "share",
-        "execute",
+        "compute",
+        "persist",
+        "to_pandas",
+        "axis",
+        "coord",
     ):
-        assert callable(getattr(mv.Query, name))
+        assert callable(getattr(mv.AnalysisFrame, name))
     for name in ("correlate", "forecast", "deviation", "runs", "attribute"):
         if name != "runs":
             assert not hasattr(mv.Session, name)
-        assert not hasattr(mv.Query, name)
+        assert not hasattr(mv.AnalysisFrame, name)
 
 
 def test_analysis_keeps_subdomain_dtos_out_of_top_level() -> None:
@@ -199,3 +208,24 @@ def test_analysis_time_construction_is_session_owned() -> None:
         assert name not in mv.__all__ and name not in dir(mv)
         assert not hasattr(mv, name) and not hasattr(_public, name)
         assert callable(getattr(mv.Session, name))
+
+
+def test_retired_result_entries_have_no_public_aliases() -> None:
+    import marivo.analysis as mv
+
+    for name in (
+        "Query",
+        "CorrespondenceAxis",
+        "DeclaredCorrespondence",
+        "corresponding",
+        "broadcast",
+        "Statistic",
+        "ComparisonFrame",
+        "Analysis",
+    ):
+        assert not hasattr(mv, name) and name not in mv.__all__
+    for name in ("query", "artifact", "execute"):
+        assert not hasattr(mv.Session, name)
+    for name in ("execute", "population", "rollup", "drill", "share"):
+        assert not hasattr(mv.AnalysisFrame, name)
+    assert not hasattr(mv.Artifact, "to_pandas")

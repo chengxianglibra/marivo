@@ -28,12 +28,12 @@ population = session.members(ms.ref.entity('sales.customer'))
 session.members(ms.ref.metric('sales.revenue'))  # invalid: entity kind
 mv.identities(ms.ref.entity('sales.customer'), keys=(('C1',),))  # invalid: unresolved EntityRef
 
-def rejected(query: mv.Query, artifact: mv.Artifact, field: Deferred, metric: Deferred, relationship: Relationship) -> None:
+def rejected(query: mv.AnalysisFrame, artifact: mv.Artifact, field: Deferred, metric: Deferred, relationship: Relationship) -> None:
     session.observe({'value': artifact})  # invalid: terminal metric input
     session.observe({'value': metric}, by=(artifact,))  # invalid: grouping stage
     session.observe({'value': metric}, via=(relationship,))  # invalid: observer route injection
     session.observe({'value': metric}, where=query['value'] > 0)  # invalid: result predicate at source
-    session.query(artifact)  # invalid: terminal domain input
+    session.frame(artifact)  # invalid: terminal domain input
     session.read(artifact, {'category': field})  # invalid: terminal attribute input
     session.read(population, {'category': ms.ref.dimension('sales.customer.region')})  # invalid: bare field ref
     session.values(by=(), columns={'budget': {'unit': 'CNY'}}, rows=(((), {'budget': 1}),))  # invalid: nested column declaration
@@ -47,7 +47,30 @@ def rejected(query: mv.Query, artifact: mv.Artifact, field: Deferred, metric: De
     query['value'].divide(1, zero_denominator='zero')  # invalid: denominator policy
     mv.broadcast(artifact, to=query)  # invalid: reference stage
     mv.broadcast(query['value'], to=artifact)  # invalid: target stage
-    mv.corresponding(via=relationship)  # invalid: non-tuple path
+    mv.corresponding  # invalid: retired identity correspondence
+    mv.Query  # invalid: retired result type
+    mv.broadcast  # invalid: retired broadcast
+    mv.CorrespondenceAxis  # invalid: retired axis
+    session.population_from(query)  # invalid: required source map
+    session.population_from(query, on=((query.axes[0], 'field'),))  # invalid: string semantic target
+    session.population_from(query, on=(('axis', field),))  # invalid: string axis
+    session.population_from(artifact, on=())  # invalid: audit is not data
+    session.query(population)  # invalid: retired constructor
+    session.artifact('id')  # invalid: retired data reopening
+    session.persisted_frame(artifact)  # invalid: audit object is not ID
+    session.persisted_frame(mv.ArtifactRef('id'))  # invalid: ref object is not ID
+    query.execute()  # invalid: retired execution
+    query.population()  # invalid: retired implicit source bridge
+    query.rollup()  # invalid: retired original Metric receiver
+    query.drill(add=(field,))  # invalid: retired new-attribute receiver
+    query.share('value')  # invalid: retired contribution receiver
+    query.coord(field)  # invalid: source field is not FrameAxis
+    query.reduce({'rows': mv.row_count()}, by=(field,))  # invalid: source grouping axis
+    query.align(query, on=(('left', 'right'),))  # invalid: string axes
+    query.top(1, by=query['value'], partition_by=())  # invalid: retired partition policy
+    query.compare(query, time_axis='current')  # invalid: retired paired projection
+    artifact.to_pandas()  # invalid: data belongs to Frame
+    artifact.show(n=0)  # invalid: audit has no preview count
     artifact.execute()  # invalid: terminal execution
     artifact.contract()  # invalid: terminal continuation contract
     artifact.population()  # invalid: terminal domain continuation
@@ -101,25 +124,23 @@ assert_type(mv.identities(resolved_entity, keys=(('C1',),)), mv.Population)
 amount: Deferred
 region: Deferred
 query = session.observe({'revenue': amount.sum()}, by=(region,))
-assert_type(query, mv.Query)
-assert_type(query.population(), mv.Population)
-assert_type(session.query(query.population()), mv.Query)
-assert_type(query.execute(), mv.Artifact)
+assert_type(query, mv.AnalysisFrame)
+assert_type(session.frame(population), mv.AnalysisFrame)
+assert_type(query.compute(), mv.AnalysisFrame)
+assert_type(query.persist(), mv.AnalysisFrame)
 assert_type(population.project(by=()), mv.Population)
 assert_type(population.where(mv.in_population(population)), mv.Population)
-assert_type(session.observe({'revenue': amount.sum()}, during=None), mv.Query)
+assert_type(session.observe({'revenue': amount.sum()}, during=None), mv.AnalysisFrame)
 
-def current_receivers(query: mv.Query, other: mv.Query, field: Deferred) -> None:
+def current_receivers(query: mv.AnalysisFrame, other: mv.AnalysisFrame, field: Deferred) -> None:
+    assert_type(session.population_from(query, on=((query.axes[0], field),)), mv.Population)
     assert_type(query['revenue'], mv.Column)
-    assert_type(query.select({'net': query['revenue'] - 1}), mv.Query)
-    assert_type(query.where(query['revenue'] > 0), mv.Query)
-    assert_type(query.top(3, by=query['revenue']), mv.Query)
-    assert_type(query.reduce({'rows': mv.row_count(), 'mean': query['revenue'].mean()}), mv.Query)
-    assert_type(query.rollup(), mv.Query)
-    assert_type(query.drill(add=(field,)), mv.Query)
-    assert_type(query.compare(other, match=mv.ordinal(), how='outer'), mv.Query)
-    assert_type(mv.broadcast(other['revenue'], to=query), mv.Column)
-    assert_type(session.read(population, {'category': field}), mv.Query)
+    assert_type(query.select({'net': query['revenue'] - 1}), mv.AnalysisFrame)
+    assert_type(query.where(query['revenue'] > 0), mv.AnalysisFrame)
+    assert_type(query.top(3, by=query['revenue']), mv.AnalysisFrame)
+    assert_type(query.reduce({'rows': mv.row_count(), 'mean': query['revenue'].mean()}), mv.AnalysisFrame)
+    assert_type(query.compare(other, match=mv.ordinal(), how='outer'), mv.AnalysisFrame)
+    assert_type(session.read(population, {'category': field}), mv.AnalysisFrame)
 """
     )
     root = PROJECT_ROOT

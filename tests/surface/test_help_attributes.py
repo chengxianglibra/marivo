@@ -76,3 +76,41 @@ def test_window_attribute_identifies_its_public_constructor() -> None:
     assert "Applies when: observation_window was returned by mv.trailing_duration(...)" in text
     assert "_Window" not in text
     assert "TrailingDuration" not in text
+
+
+@pytest.mark.parametrize(
+    "owner,target,members",
+    (
+        (
+            mv.AnalysisFrame,
+            "analysis_frame",
+            ("artifact", "output_names", "axes", "presence_names"),
+        ),
+        (mv.FrameAxis, "frame_axis", ("token", "name", "role", "key_names")),
+    ),
+)
+def test_frame_metadata_help_is_static_without_getter_execution(
+    monkeypatch: pytest.MonkeyPatch,
+    owner: type[object],
+    target: str,
+    members: tuple[str, ...],
+) -> None:
+    def forbidden(_value: object) -> str:
+        raise AssertionError("Help executed a Frame getter")
+
+    for member in members:
+        monkeypatch.setattr(owner, member, property(forbidden))
+    for member in members:
+        canonical = f"analysis.{target}.{member}"
+        text, _, resolved = render_help_text(canonical)
+        assert resolved == f"{target}.{member}"
+        assert text.startswith(f"Target: {canonical}\nKind: attribute")
+        assert "read-only" in text
+    assert render_help_text(owner)[0] == render_help_text(f"analysis.{target}")[0]
+
+
+def test_frame_axis_role_help_discloses_its_closed_public_values() -> None:
+    text, _, _ = render_help_text("analysis.frame_axis.role")
+    for role in ("field", "identity", "calendar", "paired"):
+        assert role in text
+    assert "Value type: AxisRole\n" not in text

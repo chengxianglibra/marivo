@@ -128,7 +128,7 @@ def test_catalog_discovery_separates_definitions_from_execution_values(
     assert isinstance(entity, Entity) and isinstance(catalog.require(entity_ref), Entity)
     query = case.session.observe({"revenue": metric}, by=(field,))
     population = case.session.members(entity_ref)
-    assert isinstance(query, mv.Query) and query.output_names
+    assert isinstance(query, mv.AnalysisFrame) and query.output_names
     assert population.axes
     assert case.session.runs().items == ()
 

@@ -19,14 +19,21 @@ from marivo._help.render import render_help_text
         (
             "docs/specs/analysis/lazy-analysis-dsl-examples.md",
             {
-                "current_region_query": mv.Query,
-                "cohort_population": mv.Population,
-                "attributes": mv.Query,
+                "parents": mv.Population,
+                "attributes": mv.AnalysisFrame,
+                "row_summary": mv.AnalysisFrame,
+                "variance": mv.AnalysisFrame,
+                "change.artifact": mv.Artifact,
             },
         ),
         (
             "docs/specs/analysis/lazy-analysis-dsl-scenario-validation.md",
-            {"population": mv.Population, "query": mv.Query, "attributes": mv.Query},
+            {
+                "focus": mv.Population,
+                "detail": mv.AnalysisFrame,
+                "rolling": mv.AnalysisFrame,
+                "saved.artifact": mv.Artifact,
+            },
         ),
         ("docs/specs/semantic/datasource-layer.md", {"snapshot": md.DiscoverySnapshot}),
         ("docs/api/datasource.rst", {"snapshot": md.DiscoverySnapshot}),
@@ -39,7 +46,7 @@ def test_documented_disclosure_calls_resolve_to_live_members(
     for receiver, owner in receivers.items():
         # These named receivers belong to the examples above. Check their display
         # calls, including a possible chained helper, without executing a source.
-        calls = re.findall(rf"\b{receiver}((?:\.\w+\(\))*\.show\(\))", source)
+        calls = re.findall(rf"\b{re.escape(receiver)}((?:\.\w+\(\))*\.show\([^)]*\))", source)
         assert calls, (filename, receiver)
         for suffix in calls:
             expression = ast.parse(receiver + suffix, mode="eval").body

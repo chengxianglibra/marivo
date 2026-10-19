@@ -320,7 +320,7 @@ def test_attribute_discovery_does_not_execute_getters(monkeypatch: pytest.Monkey
 
 
 def test_attribute_target_is_independent_and_typed() -> None:
-    text, _, _ = help_render.render_help_text("analysis.query.output_names")
+    text, _, _ = help_render.render_help_text("analysis.analysis_frame.output_names")
     assert "Kind: attribute" in text
     assert "tuple[str, ...]" in text
     assert "read-only" in text

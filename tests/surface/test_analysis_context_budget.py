@@ -98,19 +98,16 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     values = session.observe({"value": metric}, during=august, by=members)
     traces: dict[str, Trace] = {}
 
-    trace = traces["observation_rollup"] = Trace(case.root)
+    trace = traces["source_overall"] = Trace(case.root)
     trace.help("analysis")
     trace.help("analysis.entry")
     trace.help(session.members)
     trace.read("members metadata", members.show)
     trace.help(session.observe)
     trace.read("observation metadata", values.show)
-    trace.help(values.rollup)
-    logical_total = values.rollup()
-    trace.help(logical_total.execute)
-    total = logical_total.execute()
-    trace.identities[total.id] = "<artifact>"
-    trace.identities[total._manifest.run_id] = "<run>"
+    overall = session.observe({"value": metric}, during=august)
+    trace.help(overall.compute)
+    total = overall.compute()
     trace.read("total result", total.show)
     assert total.to_pandas()[("value", "value")].tolist() == [4]
 
@@ -118,9 +115,8 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     trace.help("analysis.methods.metric.summary")
     trace.help(values.reduce)
     trace.help(mv.Column.mean)
-    mean = values.reduce({"value": values["value"].mean()}).execute()
-    trace.identities[mean.id] = "<artifact>"
-    trace.identities[mean._manifest.run_id] = "<run>"
+    trace.help(mv.AnalysisFrame.compute)
+    mean = values.reduce({"value": values["value"].mean()}).compute()
     trace.read("mean result", mean.show)
     assert mean.to_pandas()[("value", "value")].tolist() == [1.0]
 
@@ -132,8 +128,9 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
         during=session.time_scope(start="2026-07-01", end="2026-08-01"),
         by=members,
     )
-    change = values.compare(earlier)
-    assert isinstance(change, mv.Query)
+    change = values.compare(earlier, on=tuple(zip(values.axes, earlier.axes, strict=True)))
+    assert isinstance(change, mv.AnalysisFrame)
+    assert change.output_names == ("left.value", "right.value", "absolute.value", "relative.value")
     amounts = session.observe(
         {"count": metric, "revenue": session.catalog.metrics.get("sales.revenue")},
         during=august,
@@ -147,15 +144,17 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     trace.help(values.where)
     selected = values.where(values["value"] > 0)
     trace.read("selection metadata", selected.show)
-    trace.help(selected.population)
-    selected_members = selected.population()
+    trace.help(session.population_from)
+    entity = session.catalog.entities.get("sales.customer")
+    selected_members = session.population_from(selected, on=((selected.axes[0], entity),))
     trace.read("selected members metadata", selected_members.show)
     assert isinstance(selected_members, mv.Population)
 
     trace = traces["spearman"] = Trace(case.root)
-    trace.help("analysis.artifact.to_pandas")
-    trace.help("analysis.query.select")
-    exported = amounts.execute().to_pandas()
+    trace.help("analysis.analysis_frame.to_pandas")
+    trace.help("analysis.analysis_frame.select")
+    trace.help(mv.AnalysisFrame.compute)
+    exported = amounts.compute().to_pandas()
     association = exported[("value", "count")].corr(
         exported[("value", "revenue")], method="spearman"
     )
@@ -166,9 +165,9 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     trace = traces["missing_subject"] = Trace(case.root)
     scalar = values.reduce({"value": values["value"].sum()})
     trace.read("scalar metadata", scalar.show)
-    trace.help(scalar.population)
+    trace.help(session.population_from)
     with pytest.raises(AnalysisError) as captured:
-        scalar.population().project(by=(mv.member(),))
+        session.population_from(scalar, on=((values.axes[0], entity),))
     trace.read("error", lambda: print(captured.value))
     trace.help(type(captured.value))
     assert captured.value.repair is not None
@@ -186,10 +185,11 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     )
     trace = traces["drift"] = Trace(case.root)
     trace.help("analysis.session.observe")
-    trace.help("analysis.artifact.to_pandas")
+    trace.help("analysis.analysis_frame.to_pandas")
     from tests.analysis.statistics.pandas_workflows import forecast
 
-    future = forecast(daily.execute().to_pandas()[("value", "value")], model="drift")
+    trace.help(mv.AnalysisFrame.compute)
+    future = forecast(daily.compute().to_pandas()[("value", "value")], model="drift")
     trace.read("pandas forecast", lambda: print(future.to_string(index=False)))
     assert future["prediction"].tolist() == [10.0, 13.0]
 
@@ -210,13 +210,18 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
             + "\n"
         )
         return  # Explicit baseline collection, not optimization acceptance.
-    baseline = json.loads(BASELINE.read_text())["budget_reference"]
-    assert set(measured) == set(baseline)
+    reference = json.loads(BASELINE.read_text())["budget_reference"]
+    # Compare the explicit overall source construction to the historical overall
+    # journey; this test mapping is not a retired public API alias.
+    assert set(measured) == (set(reference) - {"observation_rollup"}) | {"source_overall"}
     for name, metrics in measured.items():
-        assert metrics["characters"] <= baseline[name]["characters"] * 1.10, (name, metrics)
-        assert metrics["pages"] <= baseline[name]["pages"], (name, metrics)
-    assert measured["current_mean"]["pages"] < baseline["current_mean"]["pages"]
+        previous = "observation_rollup" if name == "source_overall" else name
+        limits = reference[previous]
+        assert metrics["characters"] <= limits["characters"] * 1.10, (name, metrics)
+        assert metrics["pages"] <= limits["pages"], (name, metrics)
+        assert metrics["repeated_pages"] <= limits["repeated_pages"], (name, metrics)
+    assert measured["current_mean"]["pages"] < reference["current_mean"]["pages"]
     assert (
         sum(m["characters"] for m in measured.values())
-        <= sum(m["characters"] for m in baseline.values()) * 0.85
+        <= sum(m["characters"] for m in reference.values()) * 0.85
     ), measured

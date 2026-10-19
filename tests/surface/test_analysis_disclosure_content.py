@@ -39,13 +39,12 @@ def test_parameter_semantics_and_real_producers() -> None:
             if descriptor.canonical_id != "population":
                 assert "session.members" not in descriptor.producers, descriptor.canonical_id
     for target, producer in (
-        ("query", "session.observe"),
-        ("query", "session.read"),
-        ("query", "session.values"),
+        ("analysis_frame", "session.observe"),
+        ("analysis_frame", "session.read"),
+        ("analysis_frame", "session.values"),
         ("population", "session.members"),
-        ("population", "query.population"),
-        ("artifact", "query.execute"),
-        ("column", "query.__getitem__"),
+        ("population", "session.population_from"),
+        ("column", "analysis_frame.__getitem__"),
     ):
         descriptor = registry.by_canonical_id(target)
         assert isinstance(descriptor, TypeInput) and producer in descriptor.producers
@@ -62,14 +61,14 @@ def test_family_projection_preserves_every_canonical_member() -> None:
     for descriptor in registry.descriptors:
         if isinstance(descriptor, CallableInput) and descriptor.discovery_family:
             families.setdefault(descriptor.discovery_family, []).append(descriptor.canonical_id)
-    # Query owns each result operation once, without legacy receiver-family projections.
+    # AnalysisFrame owns each result operation once, without legacy receiver-family projections.
     assert families == {}
     for owner, methods in (
-        (mv.Query, ("select", "where", "reduce", "align", "compare", "rollup", "drill", "share")),
+        (mv.AnalysisFrame, ("select", "where", "reduce", "align", "compare")),
         (mv.Column, ("sum", "mean", "divide", "is_null")),
     ):
         for method in methods:
-            target = owner.__name__.lower() + "." + method
+            target = ("analysis_frame" if owner is mv.AnalysisFrame else "column") + "." + method
             descriptor = registry.by_callable(getattr(owner, method))
             assert isinstance(descriptor, CallableInput)
             assert descriptor.canonical_id == target and descriptor.discovery_group
@@ -86,14 +85,15 @@ def test_registration_rejects_incomplete_example_or_foreign_family(fault: str) -
         (i, p)
         for i, p in enumerate(providers)
         if any(
-            isinstance(d, CallableInput) and d.canonical_id == "query.reduce" for d in p.descriptors
+            isinstance(d, CallableInput) and d.canonical_id == "analysis_frame.reduce"
+            for d in p.descriptors
         )
     )
     descriptors = list(provider.descriptors)
     position, descriptor = next(
         (i, d)
         for i, d in enumerate(descriptors)
-        if isinstance(d, CallableInput) and d.canonical_id == "query.reduce"
+        if isinstance(d, CallableInput) and d.canonical_id == "analysis_frame.reduce"
     )
     if fault == "input":
         broken = replace(descriptor, example=replace(descriptor.example, requires=()))
@@ -102,7 +102,7 @@ def test_registration_rejects_incomplete_example_or_foreign_family(fault: str) -
             descriptor, parameters=(replace(descriptor.parameters[0], acquisition=""),)
         )
     elif fault == "family":
-        broken = replace(descriptor, discovery_family="query.compare")
+        broken = replace(descriptor, discovery_family="analysis_frame.compare")
     elif fault == "missing_family":
         broken = replace(descriptor, discovery_family="Missing.reduce")
     else:
@@ -111,3 +111,49 @@ def test_registration_rejects_incomplete_example_or_foreign_family(fault: str) -
     providers[index] = replace(provider, descriptors=tuple(descriptors))
     with pytest.raises(DatasetRegistrationError):
         assemble(tuple(providers))
+
+
+def test_frame_targets_have_one_semantic_owner_and_no_retired_edges() -> None:
+    registry = prepare()
+    frame_methods = (
+        "compute",
+        "persist",
+        "show",
+        "to_pandas",
+        "__getitem__",
+        "axis",
+        "coord",
+        "where",
+        "select",
+        "top",
+        "reduce",
+        "align",
+        "compare",
+    )
+    for name in frame_methods:
+        target = "analysis_frame." + name
+        descriptor = registry.by_callable(getattr(mv.AnalysisFrame, name))
+        assert descriptor.canonical_id == target
+        assert render_help_text("analysis." + target)[0].startswith(
+            f"Target: analysis.{target}\nKind: callable"
+        )
+    for target in registry.canonical_ids():
+        assert not target.startswith(("query", "analysisframe", "frameaxis"))
+        assert target not in (
+            "broadcast",
+            "corresponding",
+            "declared_correspondence",
+            "correspondence_axis",
+            "session.query",
+            "session.artifact",
+            "artifact.to_pandas",
+            "calendar_axis.coarsen",
+        )
+    compare = render_help_text("analysis.analysis_frame.compare")[0]
+    assert "absolute.<name>" in compare and "absolute baseline" in compare
+    assert "on/outer cannot repair ownership" in compare
+    assert "partition_by" not in render_help_text("analysis.analysis_frame.top")[0]
+    assert (
+        "PopulationPredicate belongs to source"
+        in render_help_text("analysis.analysis_frame.where")[0]
+    )

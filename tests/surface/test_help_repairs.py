@@ -33,7 +33,7 @@ def _cli_facts(text: str) -> str:
         ("analysis.discovery_snapshot", "datasource.discovery_snapshot"),
         ("analysis.semantic_catalog", "semantic.semantic_catalog"),
         ("semantic.raw_sql_result", "datasource.raw_sql_result"),
-        ("semantic.query.output_names", "analysis.query.output_names"),
+        ("semantic.analysis_frame.output_names", "analysis.analysis_frame.output_names"),
         ("readiness_report.to_dict", "semantic.readiness_report.to_dict"),
         ("datasource_summary", "datasource.datasource_summary"),
         ("semantic_catalog.fields", "semantic.semantic_catalog.fields"),
@@ -71,7 +71,7 @@ def test_actual_failure_type_advertises_a_queryable_static_page(
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create(name="help-error-roundtrip")
     with pytest.raises(ArtifactNotFoundError) as captured:
-        session.artifact("missing")
+        session.persisted_frame("missing")
     text, _, _ = render_help_text(type(captured.value))
     target = text.splitlines()[0].removeprefix("Target: ")
     assert render_help_text(target)[0] == text
@@ -109,7 +109,7 @@ def test_cli_routes_can_be_copied_without_python_help(capsys: pytest.CaptureFixt
     main(["help", "analysis.methods.compare"])
     page = capsys.readouterr().out
     targets = re.findall(r"marivo help ([a-z_][a-z0-9_.]*)", page)
-    assert "analysis.query.compare" in targets
+    assert "analysis.analysis_frame.compare" in targets
     assert "marivo.help(" not in page
     for target in targets:
         main(["help", target])
@@ -124,7 +124,7 @@ def test_cli_routes_can_be_copied_without_python_help(capsys: pytest.CaptureFixt
         ("semantic.semantic_catalog.show", "analysis.runtime.values.show"),
         ("semantic.metric.show", "semantic.metric"),
         ("analysis.time_scope.month", "analysis.time_scope"),
-        ("analysis.query.excute", "analysis.query.execute"),
+        ("analysis.analysis_frame.comput", "analysis.analysis_frame.compute"),
     ],
 )
 def test_member_repair_preserves_receiver_before_lexical_similarity(

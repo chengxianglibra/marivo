@@ -11,13 +11,13 @@ from tests.shared_fixtures import DslCaseFactory
 @pytest.mark.parametrize(
     "target, expected",
     (
-        ("analysis.query.compare", "absolute baseline"),
-        ("analysis.query.align", "complete"),
+        ("analysis.analysis_frame.compare", "absolute baseline"),
+        ("analysis.analysis_frame.align", "complete"),
         ("analysis.ordinal", "complete"),
         ("analysis.period_offset", "calendar"),
         ("analysis.previous_year", "year"),
-        ("analysis.query.rollup", "original"),
-        ("analysis.artifact.to_pandas", "complete"),
+        ("analysis.analysis_frame.reduce", "current-value"),
+        ("analysis.analysis_frame.to_pandas", "complete"),
     ),
 )
 def test_native_help_discloses_alignment_constraints(
@@ -30,7 +30,7 @@ def test_native_help_discloses_alignment_constraints(
     assert expected in capsys.readouterr().out.lower()
 
 
-def test_paired_query_contract_and_terminal_rows_disclose_current_protocol(
+def test_paired_frame_contract_and_terminal_rows_disclose_current_protocol(
     analysis_dsl_case_factory: DslCaseFactory,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -39,21 +39,26 @@ def test_paired_query_contract_and_terminal_rows_disclose_current_protocol(
     case = analysis_dsl_case_factory("j2")
     _, current = period(case.session, 8, 3)
     _, baseline = period(case.session, 7, 3)
-    comparison = current.compare(baseline, match=mv.ordinal())
+    comparison = current.compare(
+        baseline, match=mv.ordinal(), on=tuple(zip(current.axes, baseline.axes, strict=True))
+    )
     comparison.show()
-    assert "execute" in capsys.readouterr().out
-    selected = comparison.select({"value": comparison["value.absolute"]})
+    assert "pending" in capsys.readouterr().out
+    selected = comparison.select({"value": comparison["absolute.value"]})
     defined = selected.where(~selected["value"].is_null())
-    assert defined.reduce({"count": mv.row_count()}).execute().to_pandas()[
+    assert defined.reduce({"count": mv.row_count()}).compute().to_pandas()[
         ("value", "count")
     ].tolist() == [12]
-    artifact = comparison.execute()
-    artifact.show(n=1)
+    saved = comparison.persist()
+    artifact = saved.artifact
+    saved.show(n=1)
     card = capsys.readouterr().out
     assert "to_pandas" in card and "compare(" not in card
-    axes = artifact.to_pandas().attrs["marivo"]["axes"]
-    assert {projection["path"] for projection in axes[0]["projections"]} == {
-        ("current",),
-        ("baseline",),
-    }
+    data = saved.to_pandas()
+    axes = data.attrs["axes"]
+    assert axes[0]["role"] == "paired"
+    assert {"left", "right", "mapping_name"} <= axes[0]["descriptor"].keys()
+    assert len(data.attrs["frozen_coordinates"]) == 3
+    artifact.show()
+    assert "session.persisted_frame(" in capsys.readouterr().out
     assert not hasattr(artifact, "contract") and not hasattr(artifact, "execute")
