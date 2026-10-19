@@ -29,6 +29,8 @@ def public_snapshot() -> dict[str, object]:
     import marivo.semantic as ms
     from marivo._help.render import render_help_text
     from marivo.datasource._capabilities.registry import REGISTRY as DATASOURCE_REGISTRY
+    from marivo.introspection.live.model import EnvironmentFingerprint
+    from marivo.introspection.live.render import render_fingerprint
     from marivo.semantic._capabilities.registry import REGISTRY as SEMANTIC_REGISTRY
     from tests.surface.exports import DATASOURCE_PUBLIC, SEMANTIC_PUBLIC
 
@@ -37,10 +39,15 @@ def public_snapshot() -> dict[str, object]:
     def help_text(target: str | None) -> str:
         import marivo
 
+        fingerprint = EnvironmentFingerprint.current()
         return (
             render_help_text(target)[0]
             .replace("Python: " + sys.executable, "Python: <interpreter>")
             .replace("Package: " + marivo.__file__, "Package: <product module>")
+            .replace(
+                "\n" + render_fingerprint(fingerprint, reveal=False) + "\n",
+                f"\nMarivo {fingerprint.marivo_version} (fingerprint <environment>)\n",
+            )
         )
 
     for owner, module, expected, targets in (
