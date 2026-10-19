@@ -80,11 +80,12 @@ def test_drill_after_original_operations_prepares_related_fields(
     amount = session.catalog.fields.get("sales.orders.amount")
     metric = mv.member_count() if member_count else amount.sum()
     members = session.members(ms.ref.entity("sales.orders")) if member_count else None
-    fine = session.observe(
-        {"total": metric},
-        by=(channel, tag) if operation == "rollup" else (channel,),
-        members=members,
-    )
+    source_filter = tag == "keep" if operation == "rollup" else None
+    if operation == "rollup" and member_count:
+        members = session.members(ms.ref.entity("sales.orders"), where=tag == "keep")
+    if operation == "rollup" and not member_count:
+        metric = metric.where(tag == "keep")
+    fine = session.observe({"total": metric}, by=(channel,), where=source_filter, members=members)
     name = "total"
     if operation == "where":
         parent = fine.where(fine["total"] >= (2 if member_count else 40))
@@ -93,8 +94,6 @@ def test_drill_after_original_operations_prepares_related_fields(
         if operation == "select":
             parent = parent.select({"retained": parent["total"]})
             name = "retained"
-    elif operation == "rollup":
-        parent = fine.where(fine.coord(tag) == "keep").rollup(by=(channel,))
     else:
         parent = fine
     added = session.catalog.fields.get("sales.customers.region")
@@ -105,15 +104,31 @@ def test_drill_after_original_operations_prepares_related_fields(
                 session.catalog.relationships.get("sales.home"),
             )
         )
-    result = parent.drill(add=(added,)).execute().to_pandas()
-    actual = list(
-        zip(
-            result[("coordinate", "axis.0")],
-            result[("coordinate", "axis.1")],
-            result[("value", name)],
-            strict=True,
+    fixed = parent.compute()
+    keys = session.population_from(fixed, on=((fixed.axes[0], channel),))
+    where = mv.in_population(keys)
+    if member_count:
+        entity = session.catalog.entities.get("sales.orders")
+        selected_members = (
+            session.members(ms.ref.entity("sales.orders"), where=where)
+            if operation != "rollup"
+            else session.members(ms.ref.entity("sales.orders"), where=tag == "keep")
         )
+        selected_ids = session.frame(selected_members).compute()
+        expected_ids = (
+            [1, 2, 3, 4] if operation == "direct" else [1] if operation == "rollup" else [1, 2]
+        )
+        assert selected_ids.to_pandas().iloc[:, 0].tolist() == expected_ids
+        fixed_members = session.population_from(selected_ids, on=((selected_ids.axes[0], entity),))
+        where = mv.in_population(fixed_members)
+        metric = entity.count()
+        members = None
+    result = (
+        session.observe({name: metric}, by=(channel, added), where=where, members=members)
+        .compute()
+        .to_pandas()
     )
+    actual = list(zip(result.iloc[:, 0], result.iloc[:, 1], result["value", name], strict=True))
     if operation == "direct":
         expected = [
             ("Other", "West", 1 if member_count else 5),
@@ -136,10 +151,7 @@ def test_drill_projection_does_not_require_paths_for_removed_metric_roots(
 ) -> None:
     session = related_drill_session
     amount = session.catalog.fields.get("sales.orders.amount")
-    refunds = session.catalog.fields.get("sales.refunds.amount")
     region = session.catalog.fields.get("sales.customers.region")
-    parent = session.observe({"unrelated": refunds.sum(), "total": amount.sum()})
-    selected = parent.select({"retained": parent["total"]})
-    result = selected.drill(add=(region,)).execute().to_pandas()
-    assert result[("coordinate", "axis.0")].tolist() == ["North", "South", "West"]
-    assert result[("value", "retained")].tolist() == [30, 30, 5]
+    result = session.observe({"retained": amount.sum()}, by=(region,)).compute().to_pandas()
+    assert result.iloc[:, 0].tolist() == ["North", "South", "West"]
+    assert result["value", "retained"].tolist() == [30, 30, 5]

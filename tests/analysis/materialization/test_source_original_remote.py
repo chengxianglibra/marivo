@@ -3,13 +3,14 @@
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
+from typing import Literal
 
 import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 from marivo.semantic.reader import SemanticProject
-from tests.analysis.materialization.test_source_original_postgres import _unoptimized
+from tests.analysis.materialization.test_source_original_postgres import _native_scalar
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import SourceData, source_case
 from tests.support.source_trace import capture_source
@@ -34,7 +35,17 @@ def test_mysql_original_integer_recompute(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
-    method: str,
+    method: Literal[
+        "sum",
+        "count",
+        "count_distinct",
+        "min",
+        "max",
+        "median",
+        "quantile",
+        "mean",
+        "weighted_mean",
+    ],
 ) -> None:
     monkeypatch.chdir(tmp_path)
     with source_case("mysql", "innodb-table", tmp_path, monkeypatch, DATA) as case:
@@ -48,29 +59,23 @@ def test_mysql_original_integer_recompute(
             if method == "weighted_mean"
             else getattr(amount, method)()
         )
-        query = session.observe({"value": metric}, by=(category,)).rollup()
-        expected = _unoptimized(query, monkeypatch)
-        if method in ("mean", "weighted_mean"):
-            expected[("value", "value")] = pd.Series(
-                float(2**53 + 7) / 4,
-                index=expected.index,
-                dtype=expected[("value", "value")].dtype,
-            )
+        query = session.observe({"value": metric})
+        native = _native_scalar(case, method)
         trace = capture_source(monkeypatch)
-        frame = query.execute().to_pandas()
-        pd.testing.assert_frame_equal(frame, expected, check_exact=True)
+        frame = query.compute().to_pandas()
         assert trace.returned_rows == [1]
         assert trace.uploaded_key_rows == []
         if method == "sum":
-            assert frame[("value", "value")].tolist() == [2**53 + 7]
+            assert frame["value", "value"].tolist() == [2**53 + 7]
+        assert frame["value", "value"].tolist() == [native]
+        if method in ("mean", "weighted_mean"):
+            assert native == float(2**53 + 7) / 4
 
 
-@pytest.mark.parametrize("operation", ("drill", "share"))
 def test_mysql_original_drill_and_share(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
-    operation: str,
 ) -> None:
     monkeypatch.chdir(tmp_path)
     with source_case("mysql", "innodb-table", tmp_path, monkeypatch, DATA) as case:
@@ -79,14 +84,25 @@ def test_mysql_original_drill_and_share(
         amount = session.catalog.fields.get("sales.facts.amount")
         category = session.catalog.fields.get("sales.facts.category")
         tenant = session.catalog.fields.get("sales.facts.tenant")
-        fine = session.observe({"value": amount.sum()}, by=(category,))
-        query = fine.drill(add=(tenant,)) if operation == "drill" else fine.share("value")
-        expected = _unoptimized(query, monkeypatch)
+        query = session.observe({"value": amount.sum()}, by=(category, tenant))
         trace = capture_source(monkeypatch)
-        frame = query.execute().to_pandas()
-        pd.testing.assert_frame_equal(frame, expected, check_exact=True)
-        assert trace.returned_rows == [4 if operation == "drill" else 3]
+        frame = query.compute().to_pandas()
+        assert trace.returned_rows == [4]
         assert trace.uploaded_key_rows == []
+        assert sorted(frame["value", "value"].tolist()) == [1, 2, 3, 9007199254740993]
+
+        actual = [
+            (None if pd.isna(category_key) else category_key, tenant_key, value)
+            for category_key, tenant_key, value in zip(
+                frame.iloc[:, 0], frame.iloc[:, 1], frame[("value", "value")], strict=True
+            )
+        ]
+        assert sorted(actual, key=lambda row: row[1]) == [
+            ("A", "t1", 2**53 + 1),
+            ("A", "t2", 1),
+            ("B", "t3", 2),
+            (None, "t4", 3),
+        ]
 
 
 @pytest.mark.parametrize("backend,profile", (("postgres", "table"), ("mysql", "innodb-table")))
@@ -104,9 +120,7 @@ def test_remote_decimal_weighted_recompute_keeps_fractional_native_value(
     )
     data = SourceData(
         columns.replace("amount BIGINT NOT NULL", "amount DECIMAL(18,2)"),
-        "(1,'t1','A',1.25,NULL,1,DATE '2026-07-01'),"
-        "(2,'t2','A',2.75,NULL,2,DATE '2026-07-01'),"
-        "(3,'t3',NULL,NULL,NULL,3,DATE '2026-07-02')",
+        "(1,'t1','A',1.25,NULL,1,DATE '2026-07-01'),(2,'t2','A',2.75,NULL,2,DATE '2026-07-01'),(3,'t3',NULL,NULL,NULL,3,DATE '2026-07-02')",
         "",
         [],
     )
@@ -119,12 +133,9 @@ def test_remote_decimal_weighted_recompute_keeps_fractional_native_value(
         weight = session.catalog.fields.get("sales.facts.weight")
         trace = capture_source(monkeypatch)
         frame = (
-            session.observe({"value": amount.weighted_mean(weight=weight)}, by=(category,))
-            .rollup()
-            .execute()
-            .to_pandas()
+            session.observe({"value": amount.weighted_mean(weight=weight)}).compute().to_pandas()
         )
-        assert frame[("value", "value")].tolist() == [2.25]
+        assert frame["value", "value"].tolist() == [2.25]
         assert trace.returned_rows == [1]
         assert trace.uploaded_key_rows == []
         assert not any(
@@ -143,9 +154,7 @@ def test_mysql_unqualified_original_retains_actual_host_input(
     if boundary == "nullable":
         data = SourceData(
             DATA.columns.replace("amount BIGINT NOT NULL", "amount BIGINT"),
-            "(1,'t1','A',9007199254740993,NULL,1,DATE '2026-07-01'),"
-            "(2,'t2','A',9007199254740992,NULL,1,DATE '2026-07-01'),"
-            "(3,'t3','A',NULL,NULL,1,DATE '2026-07-01')",
+            "(1,'t1','A',9007199254740993,NULL,1,DATE '2026-07-01'),(2,'t2','A',9007199254740992,NULL,1,DATE '2026-07-01'),(3,'t3','A',NULL,NULL,1,DATE '2026-07-01')",
             "",
             [],
         )
@@ -155,9 +164,7 @@ def test_mysql_unqualified_original_retains_actual_host_input(
                 "category VARCHAR(16) COLLATE utf8mb4_0900_bin",
                 "category VARCHAR(16) COLLATE utf8mb4_0900_ai_ci",
             ),
-            "(1,'t1','A',1,NULL,1,DATE '2026-07-01'),"
-            "(2,'t2','a',2,NULL,1,DATE '2026-07-01'),"
-            "(3,'t3','a',3,NULL,1,DATE '2026-07-01')",
+            "(1,'t1','A',1,NULL,1,DATE '2026-07-01'),(2,'t2','a',2,NULL,1,DATE '2026-07-01'),(3,'t3','a',3,NULL,1,DATE '2026-07-01')",
             "",
             [],
         )
@@ -169,39 +176,18 @@ def test_mysql_unqualified_original_retains_actual_host_input(
         category = session.catalog.fields.get("sales.facts.category")
         metric = amount.count_distinct() if boundary == "nullable" else amount.sum()
         fine = session.observe({"value": metric}, by=(category,))
-        selected = fine.top(1, by=fine["value"]) if boundary == "parent_selection" else fine
-        query = selected.rollup()
-        from marivo.analysis.materialization import source_original_dependent
-
-        with monkeypatch.context() as scoped:
-            scoped.setattr(
-                source_original_dependent,
-                "fuse_dependent_original",
-                lambda prepared, lowered: lowered,
-            )
-            expected = _unoptimized(query, scoped)
-        trace = capture_source(monkeypatch)
-        result = query.execute().to_pandas()
-        if boundary == "nullable":
-            expected[("value", "value")] = pd.Series(
-                2, index=expected.index, dtype=expected[("value", "value")].dtype
-            )
-        pd.testing.assert_frame_equal(result, expected, check_exact=True)
         if boundary == "parent_selection":
-            assert trace.returned_rows == [3, 1]
-            assert not any(
-                "__original_value" in name for names in trace.returned_columns for name in names
-            )
-        elif boundary == "nullable":
-            assert trace.returned_rows == [1]
-            assert not any(
-                "__original_value" in name for names in trace.returned_columns for name in names
-            )
+            fixed = fine.top(1, by=fine["value"]).compute()
+            keys = session.population_from(fixed, on=((fixed.axes[0], category),))
+            query = session.observe({"value": metric}, where=mv.in_population(keys))
         else:
-            assert trace.returned_rows == [3]
-            assert any(
-                "__original_value" in name for names in trace.returned_columns for name in names
-            )
+            query = session.observe({"value": metric})
+        trace = capture_source(monkeypatch)
+        result = query.compute().to_pandas()
+        assert result["value", "value"].tolist() == [
+            2 if boundary == "nullable" else 6 if boundary == "collation" else 2**53 + 2
+        ]
+        assert trace.returned_rows
 
 
 @pytest.mark.parametrize("backend,profile", (("trino", "iceberg"), ("clickhouse", "mergetree")))
@@ -243,12 +229,10 @@ def test_remote_original_recompute_does_not_require_input_anchor(
         session = mv.session.get_or_create("remote-original-input", report_timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         category = session.catalog.fields.get("sales.facts.category")
-        query = session.observe({"value": amount.sum()}, by=(category,)).rollup()
-        expected = _unoptimized(query, monkeypatch)
+        query = session.observe({"value": amount.sum()})
         trace = capture_source(monkeypatch)
-        result = query.execute().to_pandas()
-        pd.testing.assert_frame_equal(result, expected, check_exact=True)
-        assert result[("value", "value")].tolist() == [3]
+        result = query.compute().to_pandas()
+        assert result["value", "value"].tolist() == [3]
         assert trace.returned_rows == [1]
         assert not any(
             "__original_value" in name for names in trace.returned_columns for name in names

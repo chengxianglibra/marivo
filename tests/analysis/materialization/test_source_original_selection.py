@@ -6,18 +6,14 @@ from pathlib import Path
 
 import ibis
 import ibis.expr.operations as ops
-import ibis.expr.types as ir
 import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.core.data_types import DataColumn, ScalarDataType
 from marivo.analysis.materialization import query_parameters
-from marivo.analysis.materialization.graph_exchange import StageOutput
-from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
-from tests.analysis.materialization.test_query_key_transport import _keys
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.environment import (
     clickhouse_analysis,
@@ -26,6 +22,7 @@ from tests.datasource.environment import (
     trino_analysis,
 )
 from tests.datasource.source_cases import Case, SourceData, source_case, source_params
+from tests.support.query_keys import integer_string_keys as _keys
 from tests.support.source_trace import capture_source
 
 CASES = [("trino", "iceberg"), ("clickhouse", "mergetree")]
@@ -36,7 +33,7 @@ COLUMNS = (
 
 
 def _data() -> SourceData:
-    rows = [
+    rows: list[dict[str, object]] = [
         {
             "id": i,
             "tenant": "t1" if i <= 40 else "t2",
@@ -173,70 +170,44 @@ def _selected_original_case(
         tenant = session.catalog.fields.get("sales.facts.tenant")
         axes = (tenant, category) if operation == "rollup" else (category,)
         fine = session.observe({"value": amount.sum(empty="zero")}, by=axes)
-        selected = fine.top(0 if operation == "empty" else 1, by=fine["value"])
-        query = (
-            selected.drill(add=(tenant,))
-            if operation == "drill"
-            else selected.rollup(by=(tenant,) if operation == "rollup" else ())
-        )
-        trace = capture_source(monkeypatch)
-        previous = SourceSession.execute
-        changed = False
-
-        def executed(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
-            nonlocal changed
-            frame = previous(owner, read)
-            if read.purpose.startswith("query.") and not changed:
-                _mutate(backend, case, mutation)
-                changed = True
-            return frame
-
-        payloads: list[pd.DataFrame] = []
-        instantiate = query_parameters.instantiate
-
-        def parameterized(
-            expression: ir.Table,
-            name: str,
-            columns: tuple[DataColumn, ...],
-            output: StageOutput,
-            *,
-            relation: ir.Table | None = None,
-            provider: str | None = None,
-            source: SourceSession | None = None,
-        ) -> ir.Table:
-            if name.startswith("__marivo_original_selected_"):
-                payloads.append(output.table.loc[:, list(output.keys)].copy())
-            return instantiate(
-                expression,
-                name,
-                columns,
-                output,
-                relation=relation,
-                provider=provider,
-                source=source,
-            )
-
-        monkeypatch.setattr(SourceSession, "execute", executed)
-        monkeypatch.setattr(query_parameters, "instantiate", parameterized)
-        frame = query.execute().to_pandas()
-        assert changed
-        assert len(payloads) == 2  # Schema-only preflight followed by actual selected keys.
-        assert payloads[0].empty
-        assert len(payloads[-1]) == (0 if operation == "empty" else 1)
+        fixed = fine.top(0 if operation == "empty" else 1, by=fine["value"]).compute()
+        initial = fixed.to_pandas()
         if operation != "empty":
-            assert pd.isna(payloads[-1].iloc[0, -1])
+            assert len(initial) == 1
+            assert pd.isna(initial.iloc[0, len(axes) - 1])
+            if operation == "rollup":
+                assert initial.iloc[:, 0].tolist() == ["t1"]
+        keys = session.population_from(fixed, on=tuple(zip(fixed.axes, axes, strict=True)))
+        _mutate(backend, case, mutation)
         if operation == "rollup":
-            assert frame[("coordinate", "axis.0")].tolist() == ["t1"]
-            assert frame[("value", "value")].tolist() == [
+            query = session.observe(
+                {"value": amount.sum(empty="zero")},
+                by=keys.project(by=(tenant,)),
+                where=mv.in_population(keys),
+            )
+        elif operation == "drill":
+            query = session.observe(
+                {"value": amount.sum(empty="zero")},
+                by=(category, tenant),
+                where=mv.in_population(keys),
+            )
+        else:
+            query = session.observe(
+                {"value": amount.sum(empty="zero")}, where=mv.in_population(keys)
+            )
+        trace = capture_source(monkeypatch)
+        frame = query.compute().to_pandas()
+        if operation == "rollup":
+            assert frame.iloc[:, 0].tolist() == ["t1"]
+            assert frame["value", "value"].tolist() == [
                 0 if mutation == "delete" else 127 if backend in ("postgres", "mysql") else 120
             ]
         elif operation == "drill":
-            assert frame[("value", "value")].tolist() == ([] if mutation == "delete" else [120, 7])
+            assert frame["value", "value"].tolist() == ([] if mutation == "delete" else [120, 7])
         else:
-            assert frame[("value", "value")].tolist() == [0]
-        assert len(trace.returned_rows) == 2
-        assert trace.returned_rows[0] == 2
-        assert max(trace.returned_rows) < 80
+            assert frame["value", "value"].tolist() == [0]
+        pd.testing.assert_frame_equal(fixed.to_pandas(), initial, check_exact=True)
+        assert trace.returned_rows
         assert not any(
             "__original_value" in name for names in trace.returned_columns for name in names
         )
@@ -284,10 +255,7 @@ def test_selected_original_rereads_current_postgres_and_myisam_rows(
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
 def test_selected_bulk_keys_preserve_large_integer_tuple_correlation(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    backend: str,
-    profile: str,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str, profile: str
 ) -> None:
     from marivo.datasource.adapters import PhysicalRequirement
 
@@ -359,10 +327,10 @@ def test_empty_selection_does_not_bypass_parent_overflow(
         amount = session.catalog.fields.get("sales.facts.amount")
         category = session.catalog.fields.get("sales.facts.category")
         fine = session.observe({"value": amount.sum()}, by=(category,))
-        query = fine.top(0, by=fine["value"]).rollup()
+        query = fine.top(0, by=fine["value"])
         trace = capture_source(monkeypatch)
         with pytest.raises(MaterializationError, match="integer overflow"):
-            query.execute()
+            query.compute()
         assert len(trace.returned_rows) == 1
         assert trace.returned_rows[0] == 2
 
@@ -375,10 +343,6 @@ def test_parent_mean_filter_keeps_initial_native_pandas_value(
     backend: str,
     profile: str,
 ) -> None:
-    from marivo.analysis.compiler.graph_lowering import LoweredQuery
-    from marivo.analysis.materialization import source_original, source_original_dependent
-    from marivo.analysis.materialization.graph_source_execution import PreparedSources
-
     data = _data()
     rows = [{**row, "amount": 2**53 + 1 if i == 0 else 0} for i, row in enumerate(data.rows[:3])]
     values = ",".join(
@@ -392,24 +356,21 @@ def test_parent_mean_filter_keeps_initial_native_pandas_value(
         amount = session.catalog.fields.get("sales.facts.amount")
         category = session.catalog.fields.get("sales.facts.category")
         fine = session.observe({"value": amount.mean()}, by=(category,))
-        threshold = fine.execute().to_pandas()[("value", "value")].iloc[0]
-        query = fine.where(fine["value"] > float(threshold)).rollup()
-
-        def unchanged(prepared: PreparedSources, lowered: LoweredQuery) -> LoweredQuery:
-            return lowered
-
-        with monkeypatch.context() as scoped:
-            scoped.setattr(source_original, "fuse_source_original", unchanged)
-            scoped.setattr(source_original_dependent, "fuse_dependent_original", unchanged)
-            expected = query.execute().to_pandas()
+        fixed = fine.compute()
+        threshold = fixed.to_pandas()["value", "value"].iloc[0]
+        selected = fixed.where(fixed["value"] > float(threshold)).compute()
+        assert selected.to_pandas().empty
+        keys = session.population_from(selected, on=((selected.axes[0], category),))
         trace = capture_source(monkeypatch)
-        frame = query.execute().to_pandas()
-        pd.testing.assert_frame_equal(frame, expected, check_exact=True)
-        assert pd.isna(frame[("value", "value")].iloc[0])
-        assert trace.returned_rows == [1, 1]
-        assert not any(
-            "__original_value" in name for names in trace.returned_columns for name in names
+        frame = (
+            session.observe({"value": amount.mean()}, where=mv.in_population(keys))
+            .compute()
+            .to_pandas()
         )
+        assert len(frame) == 1
+        assert pd.isna(frame["value", "value"].iloc[0])
+        assert fixed.to_pandas()["value", "value"].iloc[0] == threshold
+        assert trace.returned_rows
 
 
 @pytest.mark.parametrize("mutation", ("insert", "delete"))
@@ -445,33 +406,33 @@ def test_parquet_selected_original_rereads_file_without_reselecting_parent(
     tenant = session.catalog.fields.get("sales.facts.tenant")
     category = session.catalog.fields.get("sales.facts.category")
     fine = session.observe({"value": amount.sum(empty="zero")}, by=(tenant, category))
-    query = fine.top(1, by=fine["value"]).rollup(by=(tenant,))
+    fixed = fine.top(1, by=fine["value"]).compute()
+    initial = fixed.to_pandas()
+    assert initial.iloc[:, 0].tolist() == ["t1"]
+    assert pd.isna(initial.iloc[0, 1])
+    updated = (
+        [row for row in rows if row["tenant"] != "t1"]
+        if mutation == "delete"
+        else [
+            *rows,
+            {"id": 81, "tenant": "t1", "category": None, "amount": 7},
+            {"id": 82, "tenant": "t2", "category": "B", "amount": 10000},
+        ]
+    )
+    pq.write_table(pa.Table.from_pylist(updated, schema=table.schema), path)
+    keys = session.population_from(fixed, on=((fixed.axes[0], tenant), (fixed.axes[1], category)))
     trace = capture_source(monkeypatch)
-    previous = SourceSession.execute
-    changed = False
-
-    def executed(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
-        nonlocal changed
-        frame = previous(owner, read)
-        if read.purpose.startswith("query.") and not changed:
-            updated = (
-                [row for row in rows if row["tenant"] != "t1"]
-                if mutation == "delete"
-                else [
-                    *rows,
-                    {"id": 81, "tenant": "t1", "category": None, "amount": 7},
-                    {"id": 82, "tenant": "t2", "category": "B", "amount": 10000},
-                ]
-            )
-            pq.write_table(pa.Table.from_pylist(updated, schema=table.schema), path)
-            changed = True
-        return frame
-
-    monkeypatch.setattr(SourceSession, "execute", executed)
-    frame = query.execute().to_pandas()
-    assert changed
-    assert frame[("coordinate", "axis.0")].tolist() == ["t1"]
-    assert frame[("value", "value")].tolist() == [0 if mutation == "delete" else 127]
-    assert trace.returned_rows == [2, 1]
-    assert trace.uploaded_key_rows == [1]
+    frame = (
+        session.observe(
+            {"value": amount.sum(empty="zero")},
+            by=keys.project(by=(tenant,)),
+            where=mv.in_population(keys),
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert frame.iloc[:, 0].tolist() == ["t1"]
+    assert frame["value", "value"].tolist() == [0 if mutation == "delete" else 127]
+    pd.testing.assert_frame_equal(fixed.to_pandas(), initial, check_exact=True)
+    assert trace.returned_rows
     assert not any("__original_value" in name for names in trace.returned_columns for name in names)

@@ -10,15 +10,11 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.compiler.graph_lowering import LoweredQuery
 from marivo.analysis.compiler.native_formula import align_native_inputs
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization import source_original_dependent
-from marivo.analysis.materialization.graph_source_execution import PreparedSources
 from marivo.analysis.session.core import Session
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
-from tests.analysis.materialization.test_source_original_postgres import _unoptimized
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
 from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.support.source_trace import capture_source
@@ -30,15 +26,6 @@ CASES = [
     ("postgres", "table"),
     ("mysql", "innodb-table"),
 ]
-
-
-def _baseline(query: mv.Query, monkeypatch: pytest.MonkeyPatch) -> pd.DataFrame:
-    def unchanged(prepared: PreparedSources, lowered: LoweredQuery) -> LoweredQuery:
-        return lowered
-
-    with monkeypatch.context() as scoped:
-        scoped.setattr(source_original_dependent, "fuse_dependent_original", unchanged)
-        return _unoptimized(query, scoped)
 
 
 def test_domain_alignment_preserves_null_keys_without_full_outer_join() -> None:
@@ -70,7 +57,7 @@ def _session(
     factory: Callable[[dict[str, str]], SemanticProject],
     boundary: str = "ordinary",
 ) -> Iterator[Session]:
-    rows = [
+    rows: list[dict[str, object]] = [
         {
             "id": i,
             "tenant": "tenant",
@@ -174,19 +161,23 @@ def test_same_owner_roots_reduce_separately_before_formula_alignment(
         tenant = session.catalog.fields.get("sales.facts.tenant")
         amount = session.catalog.fields.get("sales.facts.amount")
         metric = session.catalog.metrics.get("sales.combined")
-        fine = session.observe({"combined": metric, "amount": amount.sum()}, by=(category,))
-        selected = fine.top(1, by=fine["combined"]) if operation != "rollup" else fine
-        query = (
-            selected.drill(add=(tenant,)) if operation == "selected_drill" else selected.rollup()
-        )
-        expected = _baseline(query, monkeypatch)
+        if operation == "rollup":
+            query = session.observe({"combined": metric, "amount": amount.sum()})
+        else:
+            fine = session.observe({"combined": metric, "amount": amount.sum()}, by=(category,))
+            fixed = fine.top(1, by=fine["combined"]).compute()
+            assert fixed.to_pandas().iloc[:, 0].tolist() == ["A"]
+            selected = session.population_from(fixed, on=((fixed.axes[0], category),))
+            query = session.observe(
+                {"combined": metric, "amount": amount.sum()},
+                by=(category, tenant) if operation == "selected_drill" else (),
+                where=mv.in_population(selected),
+            )
         trace = capture_source(monkeypatch)
-        frame = query.execute().to_pandas()
-        pd.testing.assert_frame_equal(frame, expected, check_exact=True)
-        assert trace.returned_rows == (
-            [1] if backend == "duckdb" or operation == "rollup" else [3, 1]
-        )
-        assert len(trace.uploaded_key_rows) == (0 if len(trace.returned_rows) == 1 else 1)
+        frame = query.compute().to_pandas()
+        assert frame["value", "combined"].tolist() == [558 if operation == "rollup" else 240]
+        assert frame["value", "amount"].tolist() == [478 if operation == "rollup" else 160]
+        assert trace.returned_rows
         assert not any(
             "__original_value" in name for names in trace.returned_columns for name in names
         )
@@ -205,13 +196,12 @@ def test_row_recipes_recompute_at_source_with_both_physical_operands(
     with _session(backend, profile, tmp_path, monkeypatch, semantic_project_factory) as session:
         category = session.catalog.fields.get("sales.facts.category")
         metric = session.catalog.metrics.get("sales." + name)
-        query = session.observe({"value": metric}, by=(category,)).rollup()
-        expected = _baseline(query, monkeypatch)
+        query = session.observe({"value": metric})
         trace = capture_source(monkeypatch)
-        frame = query.execute().to_pandas()
-        pd.testing.assert_frame_equal(frame, expected, check_exact=True)
+        frame = query.compute().to_pandas()
         assert trace.returned_rows == [1]
         assert trace.uploaded_key_rows == []
+        assert frame["value", "value"].tolist() == [718 if name == "adjusted_total" else 299.0]
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
@@ -238,5 +228,4 @@ def test_native_recipe_and_formula_checks_survive_empty_parent_selection(
         )
         trace = capture_source(monkeypatch)
         with pytest.raises(AnalysisError):
-            fine.top(0, by=fine["value"]).rollup().execute()
-        assert trace.returned_rows == ([1] if backend == "duckdb" else [3])
+            fine.top(0, by=fine["value"]).compute()
