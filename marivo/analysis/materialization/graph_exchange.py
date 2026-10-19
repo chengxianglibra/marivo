@@ -180,19 +180,30 @@ def normalize_stage_frame(
         raise _stage_error(
             f"stage column order {expected!r}", repr(tuple(str(c) for c in frame.columns))
         )
-    nonnullable_keys = [
-        column.slot_id for column in columns if column.slot_id in keys and not column.nullable
-    ]
-    if keys and (
-        frame.duplicated(list(keys)).any() or frame.loc[:, nonnullable_keys].isna().to_numpy().any()
-    ):
-        raise _stage_error(f"a complete unique stage key {keys!r}", "null or duplicate key values")
     if not columns:
         return pd.DataFrame(index=pd.RangeIndex(len(frame)))
-    return pd.DataFrame(
+    result = pd.DataFrame(
         {column.slot_id: _stage_column(frame[column.slot_id], column) for column in columns},
         columns=list(expected),
     )
+    if keys:
+        arrays = tuple(pa.array(result[key], from_pandas=True) for key in keys)
+        seen: set[tuple[pa.Scalar | None, ...]] = set()
+        for cells in zip(*arrays, strict=True):
+            # Arrow preserves valid minimum temporal ticks separately from null.
+            # Keep pandas' repeated-NaN identity without conflating Arrow nulls.
+            key = tuple(
+                None
+                if pa.types.is_floating(cell.type) and cell.is_valid and pc.is_nan(cell).as_py()
+                else cell
+                for cell in cells
+            )
+            if key in seen:
+                raise _stage_error(
+                    f"a complete unique stage key {keys!r}", "null or duplicate key values"
+                )
+            seen.add(key)
+    return result
 
 
 def normalize_complete_frame(
