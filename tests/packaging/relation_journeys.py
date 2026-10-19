@@ -1,4 +1,4 @@
-"""Real Query journeys, terminal receipts and explicit source-free pandas recipes."""
+"""Real Frame journeys, committed receipts and source-free pandas recipes."""
 
 from __future__ import annotations
 
@@ -20,10 +20,11 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.errors import AnalysisError
+from marivo import _temporal
+from marivo.analysis.core.data_schema import CalendarDataAxis, DataSchema, PairedDataAxis
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
-from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
+from tests.analysis.materialization.domain_recovery_worker import _scalar, forbidden, snapshot
 from tests.analysis.numeric.attribution_workflows import allocation
 from tests.packaging.graph_journeys import NAMES
 from tests.shared_fixtures import (
@@ -157,8 +158,9 @@ def _oracle() -> dict[str, object]:
     }
 
 
-def _frame(artifact: mv.Artifact) -> pd.DataFrame:
-    frame = artifact.to_pandas()
+def _frame(exported: pd.DataFrame) -> pd.DataFrame:
+    """Flatten one already-collected export without reading a result again."""
+    frame = exported.copy(deep=True)
     names: list[str] = []
     key = 0
     for label in frame.columns:
@@ -168,27 +170,39 @@ def _frame(artifact: mv.Artifact) -> pd.DataFrame:
             assert isinstance(name, str)
             names.append(name)
         elif kind == "presence":
-            assert isinstance(name, tuple)
-            names.append("presence." + ".".join(name))
-        else:
+            assert isinstance(name, str)
+            names.append("presence." + name)
+        elif kind == "coordinate":
             names.append(f"key_{key}")
             key += 1
+        else:
+            raise AssertionError(f"Unexpected Frame export kind: {kind}")
     frame.columns = names
     return frame
 
 
+def _frozen_tables(exported: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    parts: dict[str, pd.DataFrame] = {}
+    for item in exported.attrs["frozen_coordinates"]:
+        name, rows = item["name"], item["rows"]
+        assert isinstance(name, str) and isinstance(rows, pd.DataFrame)
+        assert name not in parts
+        parts[name] = rows
+    return parts
+
+
 def _records(frame: pd.DataFrame) -> Json:
-    return checked(json.loads(frame.to_json(orient="records", date_format="iso")))
+    return [_scalar(row) for row in frame.to_dict(orient="records")]
 
 
 def _produce(
     session: mv.Session, scenario: Scenario, patch: pytest.MonkeyPatch
-) -> tuple[dict[str, mv.Artifact], dict[str, Json]]:
+) -> tuple[dict[str, mv.AnalysisFrame], dict[str, Json]]:
     targets = session.members(ms.ref.entity("operations.device"))
     metric = session.catalog.metrics.get("operations.energy_total")
     count = session.catalog.metrics.get("operations.reading_count")
 
-    def monthly(month: int) -> mv.Query:
+    def monthly(month: int) -> mv.AnalysisFrame:
         return session.observe(
             {"value": metric},
             during=session.time_scope(start=f"2026-{month:02}-01", end=f"2026-{month + 1:02}-01"),
@@ -196,15 +210,21 @@ def _produce(
         )
 
     current, baseline = monthly(8), monthly(7)
-    queries: dict[str, mv.Query] = {}
+    frames: dict[str, mv.AnalysisFrame] = {}
     shared: dict[str, Json] = {}
     if scenario == "a02":
-        comparison = current.compare(baseline)
-        change = comparison.select({"value": comparison["value.absolute"]})
-        selected = change.where(change["value"] < 0).population()
-        queries = {
+        current, baseline = current.compute(), baseline.compute()
+        comparison = current.compare(baseline, on=((current.axes[0], baseline.axes[0]),))
+        change = comparison.select({"value": comparison["absolute.value"]}).compute()
+        chosen = change.where(change["value"] < 0).compute()
+        keys = session.population_from(
+            chosen,
+            on=((chosen.axes[0], session.catalog.entities.get("operations.device")),),
+        )
+        selected = session.members(ms.ref.entity("operations.device"), where=mv.in_population(keys))
+        frames = {
             "difference": change,
-            "members": session.query(selected),
+            "members": session.frame(selected),
             "next": session.observe(
                 {"value": metric},
                 during=session.time_scope(start="2026-09-01", end="2026-10-01"),
@@ -215,12 +235,23 @@ def _produce(
             "baseline": baseline,
         }
     elif scenario == "a06":
-        comparison = current.compare(baseline)
-        reverse = baseline.compare(current)
-        absolute = comparison.select({"value": comparison["value.absolute"]})
-        reversed_absolute = reverse.select({"value": reverse["value.absolute"]})
-        negative = absolute.compare(reversed_absolute)
-        union = current.compare(baseline.where(baseline["value"] > 80), how="outer")
+        trace = capture_source(patch)
+        reused = current.select({"value": current["value"] / current["value"]}).compute()
+        numeric_reads = sum('"energy"' in sql for sql in trace.native_sql)
+        assert numeric_reads == 1 and all(owner._closed for owner in trace.owners)
+        reused = reused.persist()
+        assert sum('"energy"' in sql for sql in trace.native_sql) == numeric_reads
+        shared["reused_observation"] = numeric_reads
+        current, baseline = current.compute(), baseline.compute()
+        comparison = current.compare(baseline, on=((current.axes[0], baseline.axes[0]),))
+        reverse = baseline.compare(current, on=((baseline.axes[0], current.axes[0]),))
+        absolute = comparison.select({"value": comparison["absolute.value"]})
+        reversed_absolute = reverse.select({"value": reverse["absolute.value"]})
+        negative = absolute.compare(
+            reversed_absolute, on=((absolute.axes[0], reversed_absolute.axes[0]),)
+        )
+        filtered = baseline.where(baseline["value"] > 80)
+        union = current.compare(filtered, on=((current.axes[0], filtered.axes[0]),), how="outer")
         counts_by_month = [
             session.observe(
                 {"value": count},
@@ -232,11 +263,17 @@ def _produce(
             for month in (8, 7, 6)
         ]
         first, second = (
-            counts_by_month[0].compare(counts_by_month[1]),
-            counts_by_month[1].compare(counts_by_month[2]),
+            counts_by_month[0].compare(
+                counts_by_month[1], on=((counts_by_month[0].axes[0], counts_by_month[1].axes[0]),)
+            ),
+            counts_by_month[1].compare(
+                counts_by_month[2], on=((counts_by_month[1].axes[0], counts_by_month[2].axes[0]),)
+            ),
         )
-        nested = first.select({"value": first["value.absolute"]}).compare(
-            second.select({"value": second["value.absolute"]})
+        first_delta = first.select({"value": first["absolute.value"]})
+        second_delta = second.select({"value": second["absolute.value"]})
+        nested = first_delta.compare(
+            second_delta, on=((first_delta.axes[0], second_delta.axes[0]),)
         )
         quantities = session.observe(
             {"energy": metric, "count": count},
@@ -250,7 +287,11 @@ def _produce(
             for start, end in (("2026-09-01", "2026-11-01"), ("2026-07-01", "2026-09-01"))
         ]
         endpoints = [session.observe({"value": count}, during=grid, by=targets) for grid in grids]
-        period = endpoints[0].compare(endpoints[1], match=mv.ordinal())
+        period = endpoints[0].compare(
+            endpoints[1],
+            on=tuple(zip(endpoints[0].axes, endpoints[1].axes, strict=True)),
+            match=mv.ordinal(),
+        )
         temporal = session.time_scope(start="2026-07-01", end="2026-10-01").by(mv.grain("month"))
         running = session.observe(
             {"value": session.catalog.metrics.get("operations.running_energy")},
@@ -262,15 +303,13 @@ def _produce(
             during=temporal,
             by=targets,
         )
-        with pytest.raises(AnalysisError):
-            running.rollup(by=(mv.member(),))
-        queries = {
+        frames = {
             "current": current,
             "baseline": baseline,
-            "relative": comparison.select({"value": comparison["value.relative"]}),
-            "negative_relative": negative.select({"value": negative["value.relative"]}),
+            "relative": comparison.select({"value": comparison["relative.value"]}),
+            "negative_relative": negative.select({"value": negative["relative.value"]}),
             "union": union,
-            "nested": nested.select({"value": nested["value.absolute"]}),
+            "nested": nested.select({"value": nested["absolute.value"]}),
             "ratio": quantities.select({"value": quantities["energy"] / quantities["count"]}),
             "branch_ratio": session.observe(
                 {"value": branch},
@@ -282,7 +321,9 @@ def _produce(
             ),
             "period": period,
             "running": running,
-            "running_total": running.rollup(by=(temporal,)),
+            "running_total": session.observe(
+                {"value": session.catalog.metrics.get("operations.running_energy")}, during=temporal
+            ),
             "folded": folded,
             "folded_total": session.observe(
                 {"value": session.catalog.metrics.get("operations.folded_energy")},
@@ -290,12 +331,7 @@ def _produce(
                 by=targets,
             ),
         }
-        trace = capture_source(patch)
-        reused = current.select({"value": current["value"] / current["value"]}).execute()
-        numeric_reads = sum('"energy"' in sql for sql in trace.native_sql)
-        assert numeric_reads == 1 and all(owner._closed for owner in trace.owners)
-        shared["reused_observation"] = numeric_reads
-        saved = {name: query.execute() for name, query in queries.items()}
+        saved = {name: frame.persist() for name, frame in frames.items()}
         saved["shared_ratio"] = reused
         return saved, shared
     elif scenario == "a07":
@@ -310,15 +346,19 @@ def _produce(
             during=session.time_scope(start="2026-08-01", end="2026-09-01"),
             by=targets.classify(by=(region,)),
         )
-        shares = current.share("value")
-        difference = current.rollup().compare(baseline.rollup())
-        queries = {
+        totals = [
+            session.observe(
+                {"value": metric},
+                during=session.time_scope(start=start, end=end),
+            )
+            for start, end in (("2026-08-01", "2026-09-01"), ("2026-07-01", "2026-08-01"))
+        ]
+        difference = totals[0].compare(totals[1])
+        frames = {
             "counts": counts,
             "region": session.read(targets, {"value": region}),
-            "share": shares,
-            "top": shares.top(1, by=shares["value.share"]),
+            "current": current,
             "groups": groups,
-            "weights": groups.share("value"),
             "difference": difference,
         }
         readings = session.members(ms.ref.entity("operations.reading"))
@@ -332,7 +372,7 @@ def _produce(
             },
         )
         for month, name in ((8, "current"), (7, "baseline")):
-            queries["basis_" + name] = basis.where(
+            frames["basis_" + name] = basis.where(
                 (basis["time"] >= datetime(2026, month, 1, tzinfo=timezone.utc))
                 & (basis["time"] < datetime(2026, month + 1, 1, tzinfo=timezone.utc))
             )
@@ -340,21 +380,21 @@ def _produce(
     else:
         temporal = session.time_scope(start="2026-07-01", end="2026-10-01").by(mv.grain("month"))
         controlled = session.time_scope(start="2026-06-01", end="2026-10-01").by(mv.grain("month"))
-        queries = {
-            "targets": session.query(targets),
+        frames = {
+            "targets": session.frame(targets),
             "values": session.observe({"value": count}, during=temporal, by=targets),
             "controlled_values": session.observe({"value": count}, during=controlled, by=targets),
         }
-    return {name: query.execute() for name, query in queries.items()}, shared
+    return {name: frame.persist() for name, frame in frames.items()}, shared
 
 
-def _derived(saved: dict[str, mv.Artifact], scenario: Scenario) -> dict[str, Json]:
-    """Pandas owns the recipes after terminal data is exported."""
+def _derived(exports: dict[str, pd.DataFrame], scenario: Scenario) -> dict[str, Json]:
+    """Pandas owns the recipes over the already-collected fixed data."""
     result: dict[str, Json] = {}
     if scenario == "a02":
-        change = _frame(saved["difference"])
+        change = _frame(exports["difference"])
         selected = change[change.value < 0]
-        current, baseline = _frame(saved["current"]), _frame(saved["baseline"])
+        current, baseline = _frame(exports["current"]), _frame(exports["baseline"])
         assert current.key_0.tolist() == baseline.key_0.tolist()
         result = {
             "where": _records(selected),
@@ -375,43 +415,43 @@ def _derived(saved: dict[str, mv.Artifact], scenario: Scenario) -> dict[str, Jso
         }
     elif scenario == "a06":
         for name in ("relative", "nested", "ratio", "shared_ratio", "negative_relative"):
-            frame = _frame(saved[name])
+            frame = _frame(exports[name])
             result[name] = _records(frame[frame.value.notna() & (frame.value >= -1000)])
-        result["union"] = _records(_frame(saved["union"]))
-        result["period"] = _records(_frame(saved["period"]))
-        result["branch_ratio"] = _records(_frame(saved["branch_total"]))
-        result["running"] = _records(_frame(saved["running_total"]))
-        result["folded"] = _records(_frame(saved["folded_total"]))
+        result["union"] = _records(_frame(exports["union"]))
+        result["period"] = _records(_frame(exports["period"]))
+        result["branch_ratio"] = _records(_frame(exports["branch_total"]))
+        result["running"] = _records(_frame(exports["running_total"]))
+        result["folded"] = _records(_frame(exports["folded_total"]))
     elif scenario == "a07":
-        shares = _frame(saved["share"])
-        ranking = shares.sort_values(["value.share", "key_0"], ascending=[False, True]).reset_index(
+        shares = _frame(exports["current"])
+        total = sum((Fraction(value) for value in shares.value), Fraction())
+        shares["ratio"] = shares.value.map(lambda value: float(Fraction(value) / total))
+        ranking = shares.sort_values(["ratio", "key_0"], ascending=[False, True]).reset_index(
             drop=True
         )
-        ranking["rank"] = ranking["value.share"].rank(method="min", ascending=False).astype(int)
-        groups, weights = (
-            _frame(saved["groups"]).set_index("key_0"),
-            _frame(saved["weights"]).set_index("key_0"),
-        )
-        assert (
-            groups.index.is_unique
-            and weights.index.is_unique
-            and set(groups.index) == set(weights.index)
-        )
+        ranking["rank"] = ranking["ratio"].rank(method="min", ascending=False).astype(int)
+        groups = _frame(exports["groups"]).set_index("key_0")
+        assert groups.index.is_unique
+        denominator = sum((Fraction(value) for value in groups.value), Fraction())
+        weights = groups.value.map(lambda value: Fraction(value) / denominator)
         standardized = sum(
             (
                 Fraction(value) * Fraction(weight)
-                for value, weight in zip(groups.value, weights["value.share"], strict=True)
+                for value, weight in zip(groups.value, weights, strict=True)
             ),
             Fraction(),
         )
-        counts = _frame(saved["counts"])
+        counts = _frame(exports["counts"])
         current, baseline = (
-            _frame(saved["basis_" + side]).drop(columns="key_0") for side in ("current", "baseline")
+            _frame(exports["basis_" + side]).drop(columns="key_0")
+            for side in ("current", "baseline")
         )
         # One external allocation supplies current/baseline/contribution table views.
         allocated = allocation(current, baseline, parents=(), top_k=1)
         mix = allocation(current, baseline, method="mean", parents=(), top_k=1)
         result = {
+            "ratios": _records(shares),
+            "weights": checked({str(key): float(weight) for key, weight in weights.items()}),
             "ranking": _records(ranking),
             "limited": _records(ranking.iloc[:1]),
             "standardized": float(standardized),
@@ -429,8 +469,8 @@ def _derived(saved: dict[str, mv.Artifact], scenario: Scenario) -> dict[str, Jso
             ),
         }
     else:
-        values = _frame(saved["values"])
-        targets = _frame(saved["targets"])
+        values = _frame(exports["values"])
+        targets = _frame(exports["targets"])
         hits = {
             str(member): int(value)
             for member, value in values.value.gt(0).groupby(values.key_1).sum().items()
@@ -457,7 +497,7 @@ def _derived(saved: dict[str, mv.Artifact], scenario: Scenario) -> dict[str, Jso
         }
         filtered = values.loc[values.value > 0]
         result["coverage_incomplete"] = len(filtered) != len(values)
-        controlled = _frame(saved["controlled_values"])
+        controlled = _frame(exports["controlled_values"])
         assert controlled.groupby("key_1").size().eq(4).all()
         result["controlled_all"] = checked(
             sorted(
@@ -468,7 +508,10 @@ def _derived(saved: dict[str, mv.Artifact], scenario: Scenario) -> dict[str, Jso
 
 
 def _assert_oracles(
-    saved: dict[str, mv.Artifact], scenario: Scenario, derived: dict[str, Json]
+    saved: dict[str, mv.AnalysisFrame],
+    exports: dict[str, pd.DataFrame],
+    scenario: Scenario,
+    derived: dict[str, Json],
 ) -> None:
     facts = _facts()
     members = tuple(str(member) for member, _ in facts.customers)
@@ -488,11 +531,26 @@ def _assert_oracles(
         )
 
     def cells(name: str, expected: dict[tuple[str, ...], object], value: str = "value") -> None:
-        frame = _frame(saved[name])
-        keys = [f"key_{index}" for index, _ in enumerate(saved[name]._manifest.data.schema.axes)]
+        frame = _frame(exports[name])
+        schema = saved[name]._schema
+        assert isinstance(schema, DataSchema)
+        keys = [f"key_{index}" for index, _ in enumerate(saved[name].axes)]
+        labels: dict[str, dict[object, str]] = {}
+        for index, axis in enumerate(schema.axes):
+            if isinstance(axis, CalendarDataAxis):
+                assert axis.frozen is not None and len(axis.columns) == 1
+                directory = _frozen_tables(exports[name])[axis.frozen.directory_name]
+                labels[keys[index]] = {
+                    key: str(start)[:7]
+                    for key, start in zip(
+                        directory[axis.columns[0].slot_id], directory.nominal_start, strict=True
+                    )
+                }
         actual = {
             tuple(
-                str(row[key])[:7]
+                labels[key][row[key]]
+                if key in labels
+                else str(row[key])[:7]
                 if isinstance(row[key], (pd.Timestamp, datetime))
                 else str(row[key])
                 for key in keys
@@ -512,7 +570,7 @@ def _assert_oracles(
     if scenario == "a02":
         cells("difference", {(m,): amount(m, months[1]) - amount(m, months[0]) for m in members})
         selected = {m for m in members if amount(m, months[1]) < amount(m, months[0])}
-        assert set(_frame(saved["members"]).key_0) == selected
+        assert set(_frame(exports["members"]).key_0) == selected
         cells("next", {(m,): amount(m, months[2]) for m in selected})
         assert derived["members"] == sorted(selected)
         assert derived["compare"] == _oracle()["difference"]
@@ -537,13 +595,14 @@ def _assert_oracles(
                 else None
                 for m in members
             },
-            "value.absolute",
+            "absolute.value",
         )
-        union = _frame(saved["union"]).set_index("key_0")
+        union = _frame(exports["union"]).set_index("key_0")
         # Presence is independent of all value masks and complete identity keys.
-        exported = saved["union"].to_pandas()
-        assert exported[("presence", ("current",))].all()
-        assert exported[("presence", ("baseline",))].tolist() == [True, True, False, False]
+        exported = exports["union"]
+        assert exported[("presence", "left_present")].all()
+        assert exported[("presence", "right_present")].tolist() == [True, True, False, False]
+        assert union.index.tolist() == _frame(exports["current"]).key_0.tolist()
         assert len(union) == 4
         cells(
             "nested",
@@ -581,14 +640,33 @@ def _assert_oracles(
         cells(
             "period",
             {
-                (str((index, index)), m): count(m, left) - count(m, right)
+                (str(index), m): count(m, left) - count(m, right)
                 for m in members
                 for index, (left, right) in enumerate(
                     (("2026-09", "2026-07"), ("2026-10", "2026-08"))
                 )
             },
-            "value.absolute",
+            "absolute.value",
         )
+        period = saved["period"]._schema
+        assert isinstance(period, DataSchema)
+        paired = period.axes[0]
+        assert isinstance(paired, PairedDataAxis)
+        assert paired.left.frozen is not None and paired.right.frozen is not None
+        tables = _frozen_tables(exports["period"])
+        mapping = tables[paired.mapping_name]
+        endpoint_months = []
+        for side, endpoint in (("left", paired.left), ("right", paired.right)):
+            assert endpoint.frozen is not None and len(endpoint.columns) == 1
+            directory = tables[endpoint.frozen.directory_name]
+            lookup = dict(
+                zip(directory[endpoint.columns[0].slot_id], directory.nominal_start, strict=True)
+            )
+            endpoint_months.append([str(lookup[key])[:7] for key in mapping[f"{side}.0"]])
+        assert list(zip(*endpoint_months, strict=True)) == [
+            ("2026-09", "2026-07"),
+            ("2026-10", "2026-08"),
+        ]
         cells(
             "running",
             {
@@ -635,13 +713,13 @@ def _assert_oracles(
         cells(
             "difference",
             {(): sum(amount(m, months[1]) - amount(m, months[0]) for m in members)},
-            "value.absolute",
+            "absolute.value",
         )
-        cells(
-            "share",
-            {(m,): float(Fraction(amount(m, months[1]), total)) for m in members},
-            "value.share",
-        )
+        cells("current", {(m,): amount(m, months[1]) for m in members})
+        ratios = arr(derived["ratios"])
+        assert {obj(row)["key_0"]: obj(row)["ratio"] for row in ratios} == {
+            m: float(Fraction(amount(m, months[1]), total)) for m in members
+        }
         ordered = sorted(members, key=lambda m: (-amount(m, months[1]), m))
         ranking = arr(derived["ranking"])
         assert [obj(row)["key_0"] for row in ranking] == ordered
@@ -650,7 +728,6 @@ def _assert_oracles(
             for m in ordered
         ]
         assert [obj(row)["key_0"] for row in arr(derived["limited"])] == ordered[:1]
-        assert _frame(saved["top"]).key_0.tolist() == ordered[:1]
         grouped = {
             str(region): sum(
                 count(str(m), months[1]) for m, label in facts.customers if label == region
@@ -659,11 +736,9 @@ def _assert_oracles(
         }
         denominator = sum(grouped.values())
         cells("groups", {(group,): value for group, value in grouped.items()})
-        cells(
-            "weights",
-            {(group,): float(Fraction(value, denominator)) for group, value in grouped.items()},
-            "value.share",
-        )
+        assert derived["weights"] == {
+            group: float(Fraction(value, denominator)) for group, value in grouped.items()
+        }
         assert derived["standardized"] == float(
             sum((Fraction(value * value, denominator) for value in grouped.values()), Fraction())
         )
@@ -768,7 +843,7 @@ def _assert_oracles(
 
 
 def journey(phase: str, project: Path, scenario_name: str, source: str) -> dict[str, object]:
-    """Run one actual producer or source-blocked terminal-read process phase."""
+    """Run one real producer or source-blocked stored Frame process phase."""
     scenarios: tuple[Scenario, ...] = ("a02", "a06", "a07", "a08")
     assert phase in ("produce", "fixed", "cold") and scenario_name in scenarios
     assert source in ("table", "parquet")
@@ -784,7 +859,8 @@ def journey(phase: str, project: Path, scenario_name: str, source: str) -> dict[
                 checked(
                     {
                         "session": session.id,
-                        "artifacts": {name: artifact.id for name, artifact in saved.items()},
+                        "store": session._runtime.store.store_id,
+                        "artifacts": {name: frame.artifact.id for name, frame in saved.items()},
                         "shared_nodes": shared_nodes,
                     }
                 )
@@ -797,37 +873,48 @@ def journey(phase: str, project: Path, scenario_name: str, source: str) -> dict[
         else:
             assert not (project / "warehouse.duckdb").exists()
             assert not (project / "models").exists() and not (project / "source_files").exists()
-            for owner, name in (
-                (duckdb, "connect"),
-                (ibis.duckdb, "connect"),
-                (ms, "load"),
-                (SemanticProject, "load"),
-                (SourceSession, "__init__"),
-                (SourceSession, "execute"),
-            ):
-                patch.setattr(owner, name, forbidden)
             state = read(state_path)
             identity = state["session"]
             assert isinstance(identity, str)
             session = mv.session.resume(identity, by="id")
+            assert session._runtime.store.store_id == state["store"]
             saved = {}
             for name, reference in obj(state["artifacts"]).items():
                 assert isinstance(reference, str)
-                saved[name] = session.artifact(reference)
+                saved[name] = session.persisted_frame(reference)
             shared_nodes = obj(state["shared_nodes"])
+        for owner, name in (
+            (duckdb, "connect"),
+            (ibis.duckdb, "connect"),
+            (ms, "load"),
+            (SemanticProject, "load"),
+            (SourceSession, "__init__"),
+            (SourceSession, "execute"),
+            (_temporal, "ZoneInfo"),
+        ):
+            patch.setattr(owner, name, forbidden)
+        patch.setattr(mv.Session, "catalog", property(forbidden))
         before = len(session.runs().items)
-        snapshots = {name: snapshot(artifact) for name, artifact in saved.items()}
-        derived = _derived(saved, scenario)
-        _assert_oracles(saved, scenario, derived)
+        exports = {name: frame.to_pandas() for name, frame in saved.items()}
+        snapshots = {name: snapshot(frame, frame=exports[name]) for name, frame in saved.items()}
+        derived = _derived(exports, scenario)
+        _assert_oracles(saved, exports, scenario, derived)
         assert len(session.runs().items) == before
-        assert all(isinstance(artifact, mv.Artifact) for artifact in saved.values())
+        assert session._runtime.store.resources(session.id) == ()
+        assert all(isinstance(frame, mv.AnalysisFrame) for frame in saved.values())
+        assert all(isinstance(frame.artifact, mv.Artifact) for frame in saved.values())
         assert all(
-            not hasattr(artifact, name)
-            for artifact in saved.values()
-            for name in ("contract", "execute", "where", "compare", "rollup", "_node", "_dataset")
+            not hasattr(frame, name)
+            for frame in saved.values()
+            for name in ("execute", "rollup", "drill", "share", "population", "_node", "_dataset")
+        )
+        assert all(
+            not hasattr(frame.artifact, name)
+            for frame in saved.values()
+            for name in ("to_pandas", "where", "compare", "rollup", "_node", "_dataset")
         )
         edge_checks = {
-            "terminal_only": True,
+            "fixed_frame_and_audit_only_artifact": True,
             "no_read_runs": True,
             "independent_presence": scenario == "a06",
             "complete_identity_keys": True,
@@ -837,6 +924,7 @@ def journey(phase: str, project: Path, scenario_name: str, source: str) -> dict[
             "phase": phase,
             "pid": os.getpid(),
             "session": session.id,
+            "store": session._runtime.store.store_id,
             "snapshots": snapshots,
             "oracle": _oracle(),
             "facts_sha256": hashlib.sha256(
@@ -856,6 +944,7 @@ def journey(phase: str, project: Path, scenario_name: str, source: str) -> dict[
             original = read(project / "relation-report.json")
             for field in (
                 "session",
+                "store",
                 "snapshots",
                 "oracle",
                 "facts_sha256",

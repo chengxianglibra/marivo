@@ -1,4 +1,4 @@
-"""Explicit pandas recipes consuming terminal Query exports in statistics tests."""
+"""Explicit pandas recipes consuming fixed Frame exports in statistics tests."""
 
 from __future__ import annotations
 
@@ -13,32 +13,40 @@ import pandas as pd
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.core.frame_data import StoredFrameBacking
 from tests.shared_fixtures import DslCase
 
 DeviationMethod = Literal["zscore", "mad"]
 ForecastModel = Literal["naive", "drift", "seasonal_naive"]
 
 
-def plain(artifact: mv.Artifact) -> pd.DataFrame:
+def plain(result: mv.AnalysisFrame) -> pd.DataFrame:
     """Keep every exported key/value while giving pandas recipes simple labels."""
-    frame = artifact.to_pandas()
+    frame = result.to_pandas()
     names: list[str] = []
     key = 0
     for label in frame.columns:
         if not isinstance(label, tuple) or len(label) != 2:
-            raise AssertionError("terminal exports require kind/name column pairs")
+            raise AssertionError("Frame exports require kind/name column pairs")
         kind, name = label
         if kind == "value":
             assert isinstance(name, str)
             names.append(name)
-        else:
+        elif kind == "coordinate":
             names.append(f"key_{key}")
             key += 1
+        elif kind == "presence":
+            assert isinstance(name, str)
+            names.append("presence." + name)
+        else:
+            raise AssertionError(f"Unexpected Frame export kind: {kind}")
+    if len(set(names)) != len(names):
+        raise AssertionError("Flattened Frame labels must remain unique")
     frame.columns = names
     return frame
 
 
-def orders(case: DslCase) -> mv.Query:
+def orders(case: DslCase) -> mv.AnalysisFrame:
     session = case.session
     members = session.members(ms.ref.entity("sales.order"))
     return session.read(
@@ -50,7 +58,7 @@ def orders(case: DslCase) -> mv.Query:
     )
 
 
-def monthly(case: DslCase, start: str, end: str) -> mv.Query:
+def monthly(case: DslCase, start: str, end: str) -> mv.AnalysisFrame:
     session = case.session
     return session.observe(
         {
@@ -62,7 +70,7 @@ def monthly(case: DslCase, start: str, end: str) -> mv.Query:
     )
 
 
-def daily(case: DslCase, *, end: str = "2026-08-04") -> mv.Query:
+def daily(case: DslCase, *, end: str = "2026-08-04") -> mv.AnalysisFrame:
     session = case.session
     period = session.time_scope(start="2026-08-01", end=end)
     return session.observe(
@@ -152,12 +160,16 @@ def forecast(
     return pd.DataFrame(rows, columns=["prediction", "lower", "upper"])
 
 
-def receipt_paths(root: Path, artifact: mv.Artifact) -> tuple[Path, ...]:
-    data = artifact._manifest.data
+def receipt_paths(root: Path, result: mv.AnalysisFrame) -> tuple[Path, ...]:
+    backing = result._backing
+    if not isinstance(backing, StoredFrameBacking):
+        raise AssertionError("Receipt paths require an exact stored Frame")
+    data = backing.data
     handles = (data.rows, *(part.rows for part in data.attachments))
     return tuple(
-        root / handle.receipt.project_relative_path / handle.receipt.file_manifest[0].relative_path
+        root / handle.receipt.project_relative_path / entry.relative_path
         for handle in handles
+        for entry in handle.receipt.file_manifest
     )
 
 

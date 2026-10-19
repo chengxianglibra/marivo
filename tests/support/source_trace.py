@@ -1,4 +1,4 @@
-"""Actual source calls and terminal output metadata for native regressions."""
+"""Actual source calls and fixed Frame metadata for native regressions."""
 
 import json
 import os
@@ -14,6 +14,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.core.data_types import DataColumn
+from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
 from marivo.analysis.materialization import query_parameters
 from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.datasource.adapters import (
@@ -24,6 +25,8 @@ from marivo.datasource.adapters import (
     QualifiedSource,
     SourceSession,
 )
+from tests.analysis.materialization.domain_recovery_worker import _result_facts, _scalar
+from tests.support.json import Json
 
 
 @dataclass
@@ -38,39 +41,25 @@ class SourceTrace:
     returned_arrow_bytes: list[int] = field(default_factory=list)
     owners: list[SourceSession] = field(default_factory=list)
     qualifications: list[dict[str, object]] = field(default_factory=list)
-    artifacts: list[dict[str, object]] = field(default_factory=list)
+    frames: list[dict[str, Json]] = field(default_factory=list)
 
-    def record(self, result: mv.Artifact) -> None:
-        """Record committed output metadata without restoring or reading a plan."""
-        manifest = result._manifest
-        data = manifest.data
-        self.artifacts.append(
-            {
-                "kind": "Artifact",
-                "artifact": result.id,
-                "session": result.session_id,
-                "run": manifest.run_id,
-                "schema": asdict(data.schema),
-                "payload_digest": data.rows.payload_digest,
-                "attachments": [
-                    {
-                        "name": item.name,
-                        "schema": asdict(item.schema),
-                        "payload_digest": item.rows.payload_digest,
-                    }
-                    for item in data.attachments
-                ],
-                "projections": [
-                    {
-                        "axis": item.axis_token,
-                        "path": item.path,
-                        "kind": item.kind,
-                        "label": item.label,
-                    }
-                    for item in data.coordinate_projections
-                ],
-            }
-        )
+    def record(self, result: mv.AnalysisFrame) -> None:
+        """Record actual fixed data facts without reading payloads or publishing."""
+        backing = result._backing
+        if not isinstance(backing, (MemoryFrameBacking, StoredFrameBacking)):
+            raise AssertionError("Source trace metadata requires a computed or stored Frame")
+        record: dict[str, Json] = {
+            "kind": "AnalysisFrame",
+            "carrier": "stored" if isinstance(backing, StoredFrameBacking) else "memory",
+            "session": result._local.session_ref,
+            "input_id": result._input_id,
+            "schema": _scalar(asdict(backing.data.schema)),
+            "metadata": _result_facts(backing.metadata),
+        }
+        if isinstance(backing, StoredFrameBacking):
+            record["artifact"] = backing.artifact_id
+            record["data"] = _scalar(asdict(backing.data))
+        self.frames.append(record)
 
     def save(
         self,
@@ -78,7 +67,7 @@ class SourceTrace:
         environment: dict[str, object],
         inputs: dict[str, object],
         oracle: dict[str, object],
-        result: mv.Artifact | None,
+        result: mv.AnalysisFrame | None,
         excluded: tuple[SourceSession, ...],
     ) -> None:
         executions = [owner for owner in self.owners if owner not in excluded]
@@ -99,7 +88,7 @@ class SourceTrace:
                         "input": inputs,
                         "oracle": oracle,
                         "qualified_requirements": self.qualifications,
-                        "artifacts": self.artifacts,
+                        "frames": self.frames,
                         "submissions": submissions,
                         "actual_native_submissions": self.native_sql,
                         "source_returned_rows": self.returned_rows,
@@ -107,7 +96,7 @@ class SourceTrace:
                         "uploaded_key_rows": self.uploaded_key_rows,
                         "uploaded_key_bytes": self.uploaded_key_bytes,
                         "connection_disconnected": True,
-                        "boundary": "Actual source qualification/submission and committed output metadata; no persisted graph or general backend qualification is inferred",
+                        "boundary": "Actual source qualification/submission and fixed Frame facts; stored records alone include committed receipts. No producer graph or general backend qualification is inferred",
                     },
                     sort_keys=True,
                 )
