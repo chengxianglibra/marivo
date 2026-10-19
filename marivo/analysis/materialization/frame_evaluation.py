@@ -81,6 +81,7 @@ from marivo.analysis.materialization.graph_source_execution import (
     qualify_query_sources,
     run_frame_plan,
 )
+from marivo.analysis.materialization.query_runtime_types import effective_frame_schema
 from marivo.semantic.errors import SemanticExpressionError
 
 if TYPE_CHECKING:
@@ -341,7 +342,7 @@ def evaluate_frame(frame: AnalysisFrame) -> CompletedFrameResult:
                 if isinstance(binding, SourceFrameBinding)
                 else ()
             )
-            schema = source_schemas[input_id]
+            schema = effective_frame_schema(source_schemas[input_id], output.columns)
             completed = CompletedFrameData(
                 schema, output.table.loc[:, [c.slot_id for c in schema.columns]], attachments
             )
@@ -499,7 +500,11 @@ def evaluate_frame(frame: AnalysisFrame) -> CompletedFrameResult:
                 stage="frame_compute",
                 help_target="analysis_frame.compute",
             ) from error
-        data = CompletedFrameData(compiled.schema, output.table, output.frame_attachments)
+        data = CompletedFrameData(
+            effective_frame_schema(compiled.schema, output.columns),
+            output.table,
+            output.frame_attachments,
+        )
     # Every owned source context has closed before result identity/success.
     metadata = FrameResultMetadata(
         "result_" + uuid4().hex,

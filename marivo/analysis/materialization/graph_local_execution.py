@@ -29,9 +29,11 @@ def run_local(
             FrozenAttachment,
             validate_frozen_coordinates,
         )
+        from marivo.analysis.materialization.query_runtime_types import effective_frame
         from marivo.analysis.methods.frame_comparison import combine_frame_data
         from marivo.analysis.methods.frame_values import evaluate_frame
 
+        stage = effective_frame(stage, inputs)
         required = required_attachments(stage.program.output_schema)
         if isinstance(stage.program, FrameCombineProgram):
             frame, attachments = combine_frame_data(

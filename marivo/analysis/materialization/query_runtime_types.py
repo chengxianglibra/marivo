@@ -21,7 +21,8 @@ from marivo._definition.query import (
     ValueUnary,
 )
 from marivo.analysis.binding.correspondence import ComparisonEndpoint
-from marivo.analysis.compiler.graph_plan import LocalCompute, QueryPlan, SourceRead
+from marivo.analysis.compiler.frame_plan import frame_program
+from marivo.analysis.compiler.graph_plan import FrameCompute, LocalCompute, QueryPlan, SourceRead
 from marivo.analysis.compiler.observation import (
     FormulaProgram,
     data_type,
@@ -29,6 +30,8 @@ from marivo.analysis.compiler.observation import (
     ibis_type,
 )
 from marivo.analysis.compiler.queries import expression_value
+from marivo.analysis.compiler.query_program import FrameCombineProgram
+from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import (
     DataColumn,
     DataType,
@@ -36,8 +39,49 @@ from marivo.analysis.core.data_types import (
     DurationDataType,
     ScalarDataType,
 )
+from marivo.analysis.core.frame_expression import infer_frame_combine_schema
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import StageOutput
+
+
+def effective_frame_schema(schema: DataSchema, columns: tuple[DataColumn, ...]) -> DataSchema:
+    """Carry exact-slot native numeric value types without changing coordinates."""
+    actual = {column.slot_id: column for column in columns}
+
+    def numeric(dtype: DataType) -> bool:
+        return isinstance(dtype, DecimalDataType) or dtype in (
+            ScalarDataType("int64"),
+            ScalarDataType("float64"),
+        )
+
+    def value(column: DataColumn) -> DataColumn:
+        effective = actual.get(column.slot_id)
+        return (
+            replace(column, dtype=effective.dtype)
+            if effective is not None and numeric(column.dtype) and numeric(effective.dtype)
+            else column
+        )
+
+    return replace(schema, values=tuple(value(column) for column in schema.values))
+
+
+def effective_frame(stage: FrameCompute, inputs: tuple[StageOutput, ...]) -> FrameCompute:
+    """Infer this invocation's local Frame program from consumed value types."""
+    program = stage.program
+    if isinstance(program, FrameCombineProgram):
+        left = effective_frame_schema(program.left_schema, inputs[0].columns)
+        right = effective_frame_schema(program.right_schema, inputs[1].columns)
+        return replace(
+            stage,
+            program=FrameCombineProgram(
+                program.operation,
+                left,
+                right,
+                infer_frame_combine_schema(left, right, program.operation),
+            ),
+        )
+    schema = effective_frame_schema(program.input_schema, inputs[0].columns)
+    return replace(stage, program=frame_program(schema, program.operation))
 
 
 def source_value_keys(plan: QueryPlan) -> dict[str, tuple[str, ...]]:

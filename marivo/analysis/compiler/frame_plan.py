@@ -35,6 +35,7 @@ from marivo.analysis.core.frame_expression import (
     FixedFrameInput,
     FrameExpression,
     FrameOperation,
+    FrameUnaryOperationKind,
     SourceFrameInput,
     expression_type,
     expressions,
@@ -146,6 +147,22 @@ def _durations(schema: DataSchema, expression: ValueExpression) -> tuple[Duratio
             assert isinstance(output, (DurationDataType, ScalarDataType))
             result = (*result, DurationBinary(expression, left, right, output))
     return result
+
+
+def frame_program(schema: DataSchema, operation: FrameUnaryOperationKind) -> FrameProgram:
+    """Infer one unary program from the concrete types consumed by its kernel."""
+    return FrameProgram(
+        operation,
+        schema,
+        infer_frame_schema(schema, operation),
+        tuple(
+            ScalarDataType("int64") if stat.value is None else expression_type(schema, stat.value)
+            for _, stat in operation.values
+        )
+        if isinstance(operation, ReduceValues)
+        else (),
+        tuple(item for expr in expressions(operation) for item in _durations(schema, expr)),
+    )
 
 
 def plan_frame(
@@ -277,26 +294,8 @@ def plan_frame(
                 "frame.plan",
             )
         source, schema = visit(node.inputs[0])
-        output_schema = infer_frame_schema(schema, node.operation)
-        statistic_types = (
-            tuple(
-                ScalarDataType("int64")
-                if stat.value is None
-                else expression_type(schema, stat.value)
-                for _, stat in node.operation.values
-            )
-            if isinstance(node.operation, ReduceValues)
-            else ()
-        )
-        program = FrameProgram(
-            node.operation,
-            schema,
-            output_schema,
-            statistic_types,
-            tuple(
-                item for expr in expressions(node.operation) for item in _durations(schema, expr)
-            ),
-        )
+        program = frame_program(schema, node.operation)
+        output_schema = program.output_schema
         compute = FrameCompute(f"frame:{len(stages)}", (source,), program)
         stages.append(compute)
         operations[id(node)] = (compute.stage_id, output_schema)
