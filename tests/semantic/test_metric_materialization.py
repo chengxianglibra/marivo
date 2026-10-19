@@ -123,7 +123,7 @@ def test_named_and_anonymous_metrics_execute_and_reopen_without_semantic_reads(
     current = session.catalog
     named = current.metrics.get("sales.revenue")
     anonymous = current.fields.get("sales.orders.amount").sum()
-    artifact = session.observe({"named": named, "anonymous": anonymous}).execute()
+    artifact = session.observe({"named": named, "anonymous": anonymous}).persist()
     expected = artifact.to_pandas()
     assert expected[("value", "named")].tolist() == [100]
     assert expected[("value", "anonymous")].tolist() == [100]
@@ -132,6 +132,6 @@ def test_named_and_anonymous_metrics_execute_and_reopen_without_semantic_reads(
         raise AssertionError("Terminal reads must not materialize semantic sources")
 
     monkeypatch.setattr(Materializer, "entity", no_source_reads)
-    reopened = session.artifact(artifact.id)
+    reopened = session.persisted_frame(artifact.artifact.id)
     assert reopened.to_pandas().equals(expected)
-    assert reopened.findings().items == ()
+    assert reopened.artifact.findings().items == ()

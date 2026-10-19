@@ -113,13 +113,9 @@ def test_public_sql_owner_audit(
             monkeypatch.setattr(SourceSession, "execute", observe)
             session = mv.session.get_or_create("sql_ownership-sql-owner", report_timezone="UTC")
             if backend == "duckdb":
-                from marivo.analysis.materialization.terminal_storage import read_output
-
                 facts = session.catalog.entities.get("sales.facts")
-                result = session.observe({"rows": facts.count()}).execute()
-                manifest = result._manifest
-                frame = read_output(tmp_path.resolve(), manifest.data.schema, manifest.data.rows)
-                assert frame["value.0"].tolist() == [len(ROWS)]
+                result = session.observe({"rows": facts.count()}).compute()
+                assert result.to_pandas()[("value", "rows")].tolist() == [len(ROWS)]
             else:
                 # Remote Query qualification belongs to later acceptance; retain
                 # the SQL-owner witness through its governed datasource owner.

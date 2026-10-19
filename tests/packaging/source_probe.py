@@ -9,17 +9,26 @@ import sys
 import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import asdict
 from decimal import Decimal
+from fractions import Fraction
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.analysis.errors import AnalysisStageUnavailableError
-from marivo.datasource.adapters import SourceSession
-from tests.support.json import Json, checked, encode
+from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
+from marivo.datasource.adapters import PhysicalRequirement, SourceSession, provider_for
+from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.semantic.reader import SemanticProject
+from tests.analysis.materialization.domain_recovery_worker import _scalar, forbidden, snapshot
+from tests.analysis.materialization.publication_fixtures import publication_counts
+from tests.packaging.graph_journeys import _frame
+from tests.support.json import Json, checked, encode, obj, read
+from tests.support.source_trace import capture_source
 
 
 @contextmanager
@@ -183,22 +192,21 @@ def remove(engine: str, project: Path, prefix: str) -> None:
             execute(f"DROP TABLE IF EXISTS {prefix}{table}")
 
 
-# These are retained business oracles, not claimed remote Query execution evidence.
-UNQUALIFIED_NUMERIC: dict[str, Json] = {
-    "member_values": {
-        "revenue": [30, 70],
-        "mean_amount": [15, 35],
-        "weighted_amount": [17.5, 30],
-        "ratio_amount": [15, 35],
-    },
-    "original_rollups": {"mean_amount": 25, "weighted_amount": "130/6", "ratio_amount": 25},
-    "pandas_naive_forecast": [40, 40],
-    "classification_failure": "mapping_total",
-    "qualification": "remote numerical Query and Artifact cold production are not admitted",
+# Literal facts are independently checked against original source rows in _raw.
+MEMBER_VALUES = {
+    "revenue": (Fraction(30), Fraction(70)),
+    "mean_amount": (Fraction(15), Fraction(35)),
+    "weighted_amount": (Fraction(35, 2), Fraction(30)),
+    "ratio_amount": (Fraction(15), Fraction(35)),
+}
+ORIGINAL_VALUES = {
+    "mean_amount": Fraction(100, 4),
+    "weighted_amount": Fraction(10 * 1 + 20 * 3 + 30 * 2 + 40 * 0, 1 + 3 + 2 + 0),
+    "ratio_amount": Fraction(100, 4),
 }
 
 
-def observed_rows(session: mv.Session, name: str) -> mv.Query:
+def observed_rows(session: mv.Session, name: str) -> mv.AnalysisFrame:
     members = session.members(ms.ref.entity("sales.customers"))
     return session.observe(
         {"value": session.catalog.metrics.get("sales." + name)}, by=members, members=members
@@ -263,45 +271,237 @@ def _raw(project: Path) -> tuple[tuple[dict[str, object], ...], tuple[dict[str, 
     return rows.rows, totals.rows
 
 
+def _native_weighted(session: mv.Session, project: Path) -> dict[str, Json]:
+    """Compare original facts with independent SQL and native Ibis true division."""
+    prefix = (project / "prefix").read_text()
+    sql = (
+        "SELECT SUM(amount*weight) AS numerator, SUM(weight) AS denominator, "
+        f"SUM(amount*weight)/SUM(weight) AS weighted FROM {prefix}orders"
+    )
+    raw = md.raw_sql(
+        ms.ref.datasource("warehouse"),
+        sql,
+        reason="independent installed weighted source precision oracle",
+    )
+    assert len(raw.rows) == 1
+    assert _integer(raw.rows[0]["numerator"]) == 130
+    assert _integer(raw.rows[0]["denominator"]) == 6
+    datasource = session.catalog._state.registry.datasources["warehouse"]
+    with (
+        session._runtime.connection_config.operation() as service,
+        service.use_backend("warehouse", read_only=True) as backend,
+        SourceSession(
+            provider_for(datasource.backend_type),
+            datasource,
+            backend,
+            owns_backend=False,
+            project_root=project,
+        ) as owner,
+    ):
+        binding = owner.bind(md.table(prefix + "orders"), source_identity="independent.weighted")
+        table = binding.relation
+        numerator = (table.amount * table.weight).sum()
+        denominator = table.weight.sum()
+        expression = table.aggregate(
+            numerator=numerator,
+            denominator=denominator,
+            weighted=numerator / denominator,
+        )
+        qualified = owner.qualify(
+            binding,
+            PhysicalRequirement(
+                "installed.native_weighted_oracle",
+                1,
+                frozenset({"scan", "project", "group"}),
+            ),
+        )
+        issued = owner.compile(
+            qualified,
+            expression,
+            purpose="installed.native_weighted_oracle",
+            expected_schema=expression.schema().to_pyarrow(),
+        )
+        native = owner.execute(issued)
+        assert len(native) == 1
+        assert _integer(native.numerator.tolist()[0]) == 130
+        assert _integer(native.denominator.tolist()[0]) == 6
+        returned: object = native.weighted.tolist()[0]
+        assert isinstance(returned, (int, float, Decimal))
+        value = str(returned)
+        oracle: dict[str, Json] = {
+            "sql": issued.sql,
+            "dtype": str(native.weighted.dtype),
+            "scalar": _scalar(returned),
+            "value": value,
+            "components": {"numerator": 130, "denominator": 6},
+            "mathematical_fraction": str(Fraction(130, 6)),
+            "native_fraction": str(Fraction(value)),
+            "native_deviation": str(Fraction(value) - Fraction(130, 6)),
+            "raw_sql": sql,
+            "raw_rows": _scalar(raw.rows),
+            "physical_operations": checked(sorted(qualified.requirement.operations)),
+            "backend": owner.provider.name,
+        }
+    assert owner._closed
+    return oracle
+
+
+def _numeric_receipts(
+    results: dict[str, mv.AnalysisFrame],
+    exports: dict[str, pd.DataFrame],
+    *,
+    native_weighted: Fraction,
+) -> dict[str, Json]:
+    receipts: dict[str, Json] = {}
+    for name, result in results.items():
+        frame = _frame(result, frame=exports[name])
+        scalar = name.startswith("original_")
+        metric = name.removeprefix("original_")
+        expected: tuple[Fraction, ...]
+        if scalar:
+            assert result.axes == () and frame.columns.tolist() == ["value"]
+            expected = (
+                native_weighted if metric == "weighted_amount" else ORIGINAL_VALUES[metric],
+            )
+        else:
+            assert len(result.axes) == 1 and result.axes[0].role == "identity"
+            assert frame.columns.tolist() == ["key_0", "value"]
+            assert frame.key_0.tolist() == ["1", "2"]
+            expected = MEMBER_VALUES[metric]
+        assert frame.value.isna().tolist() == [False] * len(expected)
+        actual = frame.value.tolist()
+        assert len(actual) == len(expected)
+        for returned, wanted in zip(actual, expected, strict=True):
+            assert isinstance(returned, (int, float, Decimal))
+            assert float(returned) == pytest.approx(float(wanted), rel=1e-14, abs=1e-14), (
+                name,
+                returned,
+                str(wanted),
+            )
+        assert isinstance(result._backing, (MemoryFrameBacking, StoredFrameBacking))
+        assert [column.unit for column in result._backing.data.schema.values] == [None]
+        assert result.presence_names == ()
+        receipts[name] = snapshot(result, frame=exports[name])
+    return receipts
+
+
 def produce(project: Path) -> dict[str, object]:
-    """Preserve datasource positives and prove unsupported Query refusal before business I/O."""
+    """Evaluate admitted native numerics without publication, then save complete data once."""
     ms.load()
     rows, totals = _raw(project)
     session = mv.session.get_or_create("installed", report_timezone="UTC")
-    assert session.runs().items == () and _artifact_count(session) == 0
-    receipts: list[dict[str, object]] = []
+    before_runs = len(session.runs().items)
+    before = publication_counts(session)
+    assert before_runs == 0 and _artifact_count(session) == 0
+    native_oracle = _native_weighted(session, project)
+    value = native_oracle["value"]
+    assert isinstance(value, str)
+    native_weighted = Fraction(value)
     with pytest.MonkeyPatch.context() as patch:
-
-        def forbidden(*args: object, **kwargs: object) -> None:
-            raise AssertionError("unqualified remote Query submitted a business source read")
-
-        patch.setattr(SourceSession, "execute", forbidden)
-        for name in ("revenue", "mean_amount", "weighted_amount", "ratio_amount"):
-            query = observed_rows(session, name)
-            with pytest.raises(AnalysisStageUnavailableError) as caught:
-                query.execute()
-            assert "duckdb" in str(caught.value).lower()
-            receipts.append(
-                {
-                    "method": name,
-                    "error_type": type(caught.value).__name__,
-                    "error": str(caught.value),
-                    "new_runs": 0,
-                    "new_artifacts": 0,
-                }
-            )
-    assert session.runs().items == () and _artifact_count(session) == 0
+        trace = capture_source(patch)
+        completed = {name: observed_rows(session, name).compute() for name in MEMBER_VALUES}
+        for name in ORIGINAL_VALUES:
+            completed["original_" + name] = session.observe(
+                {"value": session.catalog.metrics.get("sales." + name)}
+            ).compute()
+        exports = {name: result.to_pandas() for name, result in completed.items()}
+        receipts = _numeric_receipts(completed, exports, native_weighted=native_weighted)
+        assert len(session.runs().items) == before_runs and publication_counts(session) == before
+        assert trace.native_sql and all(owner._closed for owner in trace.owners)
+        submitted = tuple(trace.native_sql)
+        saved = {name: result.persist() for name, result in completed.items()}
+        assert tuple(trace.native_sql) == submitted
+        saved_exports = {name: result.to_pandas() for name, result in saved.items()}
+        assert _numeric_receipts(saved, saved_exports, native_weighted=native_weighted) == receipts
+        descriptors: dict[str, Json] = {}
+        for name, result in saved.items():
+            assert isinstance(result._backing, StoredFrameBacking)
+            descriptors[name] = _scalar(asdict(result._backing.data))
+        state: dict[str, Json] = {
+            "session": session.id,
+            "artifacts": {name: result.artifact.id for name, result in saved.items()},
+            "snapshots": receipts,
+            "descriptors": descriptors,
+            "native_oracle": native_oracle,
+            "run_count": len(session.runs().items),
+            "publication_counts": checked(publication_counts(session)),
+        }
+        (project / "source-results.json").write_bytes(encode(state))
+    assert session._runtime.store.resources(session.id) == ()
     return {
-        "session": session.id,
+        **state,
         "datasource_facts": [{**row, "day": str(row["day"])[:10]} for row in rows],
         "datasource_totals": [
             {"customer_id": str(row["customer_id"]), "amount": _integer(row["amount"])}
             for row in totals
         ],
-        "query_status": "unqualified",
-        "remote_artifact_cold_status": "unqualified",
-        "receipts": receipts,
-        "retained_unqualified_oracles": UNQUALIFIED_NUMERIC,
+        "compute_new_runs": 0,
+        "compute_new_artifacts": 0,
+        "native_statements": list(submitted),
+        "qualification": trace.qualifications,
+        "persist_replayed_source": False,
+        "original_oracles": {name: str(value) for name, value in ORIGINAL_VALUES.items()},
+    }
+
+
+def cold(project: Path) -> dict[str, object]:
+    """Read the precise saved outputs in a new process without models or sources."""
+    assert not (project / "models").exists()
+    state = read(project / "source-results.json")
+    identity = state["session"]
+    assert isinstance(identity, str)
+    native_oracle = obj(state["native_oracle"])
+    native_value = native_oracle["value"]
+    assert isinstance(native_value, str)
+    native_weighted = Fraction(native_value)
+    mathematical = Fraction(10 * 1 + 20 * 3 + 30 * 2 + 40 * 0, 1 + 3 + 2 + 0)
+    assert native_oracle["mathematical_fraction"] == str(mathematical) == "65/3"
+    assert native_oracle["native_deviation"] == str(native_weighted - mathematical)
+    assert native_oracle["components"] == {"numerator": 130, "denominator": 6}
+    with pytest.MonkeyPatch.context() as patch:
+        for owner, name in (
+            (ms, "load"),
+            (SemanticProject, "load"),
+            (SourceSession, "__init__"),
+            (SourceSession, "__enter__"),
+            (SourceSession, "execute"),
+            (DatasourceConnectionService, "use_backend"),
+        ):
+            patch.setattr(owner, name, forbidden)
+        patch.setattr(mv.Session, "catalog", property(forbidden))
+        session = mv.session.resume(identity, by="id")
+        before_runs = len(session.runs().items)
+        before = publication_counts(session)
+        assert before_runs == state["run_count"] and before == state["publication_counts"]
+        saved: dict[str, mv.AnalysisFrame] = {}
+        for name, reference in obj(state["artifacts"]).items():
+            assert isinstance(reference, str)
+            result = session.persisted_frame(reference)
+            assert isinstance(result._backing, StoredFrameBacking)
+            assert _scalar(asdict(result._backing.data)) == obj(state["descriptors"])[name]
+            saved[name] = result
+        exports = {name: result.to_pandas() for name, result in saved.items()}
+        receipts = _numeric_receipts(saved, exports, native_weighted=native_weighted)
+        assert receipts == state["snapshots"]
+        for name, result in saved.items():
+            result.show(n=1)
+            result.artifact.show()
+            result.artifact.findings()
+            result.artifact.evidence_digest()
+            continued = result.select({"value": result["value"]}).compute()
+            pd.testing.assert_frame_equal(continued.to_pandas(), exports[name])
+        assert len(session.runs().items) == before_runs and publication_counts(session) == before
+        assert session._runtime.store.resources(session.id) == ()
+    return {
+        "session": session.id,
+        "native_oracle": native_oracle,
+        "snapshots": receipts,
+        "descriptors": state["descriptors"],
+        "new_runs": 0,
+        "new_artifacts": 0,
+        "resources": 0,
+        "models_absent": True,
+        "source_access_forbidden": True,
     }
 
 
@@ -445,14 +645,14 @@ def privileges(engine: str, project: Path) -> dict[str, object]:
 
 
 def run(phase: str, engine: str, project: Path) -> dict[str, object]:
-    """Run only currently owned source and qualification phases; never synthesize cold Artifacts."""
+    """Run native production, retained source failure and independent cold Frame reading."""
     assert engine in ("postgres", "mysql", "trino", "clickhouse")
-    assert phase in ("prepare", "privileges", "produce", "native", "remove", "offline")
+    assert phase in ("prepare", "privileges", "produce", "native", "remove", "offline", "cold")
     project = project.resolve()
     project.mkdir(parents=True, exist_ok=True)
     os.environ["MARIVO_PROJECT_ROOT"] = str(project)
     os.environ["MARIVO_WHEEL_READER"] = "analysis_reader"
-    if engine != "trino" and "MARIVO_WHEEL_PASSWORD" not in os.environ:
+    if phase != "cold" and engine != "trino" and "MARIVO_WHEEL_PASSWORD" not in os.environ:
         from tests.datasource.environment.credentials import password
 
         os.environ["MARIVO_WHEEL_PASSWORD"] = password()
@@ -473,6 +673,8 @@ def run(phase: str, engine: str, project: Path) -> dict[str, object]:
     elif phase == "remove":
         remove(engine, project, prefix_path.read_text())
         result = {"source_tables_removed": True}
+    elif phase == "cold":
+        result = cold(project)
     else:
         result = failure(project)
     return {"pid": os.getpid(), "phase": phase, "engine": engine, "result": result}

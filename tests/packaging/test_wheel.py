@@ -227,9 +227,28 @@ def test_installed_relations_offline_and_cold(
     ]
     assert len({item["pid"] for item in phases}) == 3
     fields = (
-        ("session", "snapshots", "oracle", "facts_sha256", "edge_checks", "shared_nodes")
+        (
+            "session",
+            "store",
+            "snapshots",
+            "oracle",
+            "facts_sha256",
+            "edge_checks",
+            "shared_nodes",
+            "source_offline",
+        )
         if scenario.startswith("a")
-        else ("session", "artifact", "run", "snapshots", "derived", "oracle", "facts_sha256")
+        else (
+            "session",
+            "store",
+            "artifact",
+            "run",
+            "snapshots",
+            "derived",
+            "oracle",
+            "facts_sha256",
+            "source_offline",
+        )
     )
     for key in fields:
         assert all(item[key] == phases[0][key] for item in phases)

@@ -1,4 +1,4 @@
-"""Independent fact oracles and three-process terminal Query journey verification."""
+"""Independent fact oracles and three-process fixed Frame journey verification."""
 
 from __future__ import annotations
 
@@ -24,6 +24,8 @@ from marivo.datasource.adapters import SourceSession
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
+from tests.analysis.materialization.publication_fixtures import publication_counts
+from tests.analysis.statistics.pandas_workflows import plain
 from tests.shared_fixtures import (
     DslCase,
     DslNames,
@@ -34,6 +36,7 @@ from tests.shared_fixtures import (
     seed_analysis_dsl_database,
 )
 from tests.support.json import Json, checked, obj, read
+from tests.support.source_trace import capture_source
 
 # Deliberately not the ecommerce names used by the ordinary journey tests.
 NAMES = DslNames(
@@ -88,24 +91,27 @@ def _create(project: Path, scenario: DslScenario, source: str) -> mv.Session:
     return session
 
 
-def _frame(artifact: mv.Artifact, *, frame: pd.DataFrame | None = None) -> pd.DataFrame:
-    result = (artifact.to_pandas() if frame is None else frame).copy()
+def _frame(result: mv.AnalysisFrame, *, frame: pd.DataFrame | None = None) -> pd.DataFrame:
+    if frame is None:
+        return plain(result)
+    exported = frame.copy()
     labels: list[str] = []
     key = 0
-    for label in result.columns:
+    for label in exported.columns:
         assert isinstance(label, tuple) and len(label) == 2
         kind, name = label
         if kind == "value":
             assert isinstance(name, str)
             labels.append(name)
         elif kind == "presence":
-            assert isinstance(name, tuple)
-            labels.append("presence." + ".".join(name))
+            assert isinstance(name, str)
+            labels.append("presence." + name)
         else:
+            assert kind == "coordinate"
             labels.append(f"key_{key}")
             key += 1
-    result.columns = labels
-    return result
+    exported.columns = labels
+    return exported
 
 
 def _remove_sources(project: Path) -> None:
@@ -133,10 +139,13 @@ def _offline(project: Path) -> Iterator[None]:
             (DatasourceConnectionService, "use_backend"),
         ):
             patch.setattr(owner, name, forbidden)
+        patch.setattr(mv.Session, "catalog", property(forbidden))
         yield
 
 
-def _observations(session: mv.Session) -> tuple[mv.Population, mv.Query, mv.Query, mv.Query]:
+def _observations(
+    session: mv.Session,
+) -> tuple[mv.Population, mv.AnalysisFrame, mv.AnalysisFrame, mv.AnalysisFrame]:
     members = session.members(ms.ref.entity("operations.device"))
     metric = session.catalog.metrics.get("operations.energy_total")
     current = session.observe(
@@ -178,64 +187,78 @@ def _association(left: pd.DataFrame, right: pd.DataFrame) -> dict[str, Json]:
     }
 
 
-def _produce(session: mv.Session, scenario: DslScenario) -> dict[str, mv.Artifact]:
+def _produce(session: mv.Session, scenario: DslScenario) -> dict[str, mv.AnalysisFrame]:
     members, current, baseline, count = _observations(session)
-    if scenario == "j1":
-        amount = session.catalog.fields.get("operations.reading.energy")
-        time = session.catalog.fields.get("operations.reading.recorded_at")
-        current = session.observe(
-            {"value": amount.sum(time=time, empty="null")},
-            during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-            by=members,
-            members=members,
-        )
-        queries = {
-            "value": current,
-            "rollup": current.rollup(),
-            "count": current.reduce({"value": mv.row_count()}),
-        }
-    elif scenario == "j2":
-        comparison = current.compare(baseline)
-        difference = comparison.select({"value": comparison["value.absolute"]})
-        selected = difference.where(difference["value"] < 0)
-        queries = {
-            "value": difference,
-            "current": current,
-            "baseline": baseline,
-            "sum": difference.reduce({"value": difference["value"].sum()}),
-            "where": selected,
-            "members": session.query(selected.population()),
-            "selected_sum": selected.reduce({"value": selected["value"].sum()}),
-        }
-    elif scenario == "j3":
-        sensor = session.catalog.fields.get("operations.reading.sensor")
-        device = session.catalog.fields.get("operations.reading.device_id")
-        ratio = session.observe(
-            {"value": session.catalog.metrics.get("operations.energy_per_reading")},
-            during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-            by=(device, sensor),
-            members=members,
-        )
-        queries = {
-            "value": ratio,
-            "rollup": ratio.rollup(),
-            "group_by": ratio.rollup(by=(sensor,)),
-            "mean": ratio.reduce({"value": ratio["value"].mean()}),
-        }
-    else:
-        queries = {"left": current, "right": count}
-    artifacts = {name: query.execute() for name, query in queries.items()}
-    if scenario in ("j4", "j4_ties"):
-        association = _association(_frame(artifacts["left"]), _frame(artifacts["right"]))
-        coefficient = association["coefficient"]
-        pairs = association["pairs"]
-        assert isinstance(coefficient, float) and isinstance(pairs, int)
-        artifacts["value"] = session.values(
-            by=(),
-            columns={"coefficient": None, "pairs": None},
-            rows=(((), {"coefficient": coefficient, "pairs": pairs}),),
-        ).execute()
-    return artifacts
+    before_runs = len(session.runs().items)
+    before = publication_counts(session)
+    with pytest.MonkeyPatch.context() as patch:
+        trace = capture_source(patch)
+        if scenario == "j1":
+            amount = session.catalog.fields.get("operations.reading.energy")
+            time = session.catalog.fields.get("operations.reading.recorded_at")
+            current = session.observe(
+                {"value": amount.sum(time=time, empty="null")},
+                during=session.time_scope(start="2026-08-01", end="2026-09-01"),
+                by=members,
+                members=members,
+            ).compute()
+            queries = {
+                "value": current,
+                "rollup": current.reduce({"value": current["value"].sum()}),
+                "count": current.reduce({"value": mv.row_count()}),
+            }
+        elif scenario == "j2":
+            current, baseline = current.compute(), baseline.compute()
+            comparison = current.compare(baseline, on=((current.axes[0], baseline.axes[0]),))
+            difference = comparison.select({"value": comparison["absolute.value"]}).compute()
+            selected = difference.where(difference["value"] < 0).compute()
+            chosen = session.population_from(
+                selected,
+                on=((selected.axes[0], session.catalog.entities.get("operations.device")),),
+            )
+            queries = {
+                "value": difference,
+                "current": current,
+                "baseline": baseline,
+                "sum": difference.reduce({"value": difference["value"].sum()}),
+                "where": selected,
+                "members": session.frame(chosen),
+                "selected_sum": selected.reduce({"value": selected["value"].sum()}),
+            }
+        elif scenario == "j3":
+            sensor = session.catalog.fields.get("operations.reading.sensor")
+            device = session.catalog.fields.get("operations.reading.device_id")
+            metric = session.catalog.metrics.get("operations.energy_per_reading")
+            scope = session.time_scope(start="2026-08-01", end="2026-09-01")
+            ratio = session.observe(
+                {"value": metric}, during=scope, by=(device, sensor), members=members
+            ).compute()
+            queries = {
+                "value": ratio,
+                "rollup": session.observe({"value": metric}, during=scope, members=members),
+                "group_by": session.observe(
+                    {"value": metric}, during=scope, by=(sensor,), members=members
+                ),
+                "mean": ratio.reduce({"value": ratio["value"].mean()}),
+            }
+        else:
+            queries = {"left": current, "right": count}
+        completed = {name: query.compute() for name, query in queries.items()}
+        if scenario in ("j4", "j4_ties"):
+            association = _association(_frame(completed["left"]), _frame(completed["right"]))
+            coefficient, pairs = association["coefficient"], association["pairs"]
+            assert isinstance(coefficient, float) and isinstance(pairs, int)
+            completed["value"] = session.values(
+                by=(),
+                columns={"coefficient": None, "pairs": None},
+                rows=(((), {"coefficient": coefficient, "pairs": pairs}),),
+            ).compute()
+        assert len(session.runs().items) == before_runs and publication_counts(session) == before
+        assert trace.native_sql and all(owner._closed for owner in trace.owners)
+        source_reads = tuple(trace.native_sql)
+        saved = {name: frame.persist() for name, frame in completed.items()}
+        assert tuple(trace.native_sql) == source_reads
+        return saved
 
 
 def _oracle(scenario: DslScenario) -> dict[str, float]:
@@ -297,8 +320,13 @@ def _oracle(scenario: DslScenario) -> dict[str, float]:
     return {"coefficient": expected, "pairs": len(left)}
 
 
-def _verify(artifacts: dict[str, mv.Artifact], scenario: DslScenario) -> dict[str, Json]:
-    frames = {name: _frame(value) for name, value in artifacts.items()}
+def _verify(
+    artifacts: dict[str, mv.AnalysisFrame],
+    scenario: DslScenario,
+    *,
+    exports: dict[str, pd.DataFrame],
+) -> dict[str, Json]:
+    frames = {name: _frame(value, frame=exports[name]) for name, value in artifacts.items()}
     frame = frames["value"]
     facts = analysis_dsl_rows(scenario)
     oracle = _oracle(scenario)
@@ -408,11 +436,14 @@ def journey(phase: str, project: Path, scenario_name: str, source: str) -> dict[
         if phase == "produce":
             session = _create(project, scenario, source)
             artifacts = _produce(session, scenario)
-            derived = _verify(artifacts, scenario)
+            exports = {name: value.to_pandas() for name, value in artifacts.items()}
+            derived = _verify(artifacts, scenario, exports=exports)
             state: dict[str, Json] = {
                 "session": session.id,
-                "artifacts": {name: value.id for name, value in artifacts.items()},
-                "snapshots": {name: snapshot(value) for name, value in artifacts.items()},
+                "artifacts": {name: value.artifact.id for name, value in artifacts.items()},
+                "snapshots": {
+                    name: snapshot(value, frame=exports[name]) for name, value in artifacts.items()
+                },
                 "derived": derived,
             }
             state_path.write_text(json.dumps(state, sort_keys=True))
@@ -427,22 +458,33 @@ def journey(phase: str, project: Path, scenario_name: str, source: str) -> dict[
                 artifacts = {}
                 for name, reference in obj(state["artifacts"]).items():
                     assert isinstance(reference, str)
-                    artifact = session.artifact(reference)
-                    assert snapshot(artifact) == obj(state["snapshots"])[name]
+                    artifact = session.persisted_frame(reference)
                     artifacts[name] = artifact
-                derived = _verify(artifacts, scenario)
+                exports = {name: value.to_pandas() for name, value in artifacts.items()}
+                for name, value in artifacts.items():
+                    assert snapshot(value, frame=exports[name]) == obj(state["snapshots"])[name]
+                derived = _verify(artifacts, scenario, exports=exports)
                 assert derived == state["derived"]
                 assert len(session.runs().items) == before
         saved = artifacts["value"]
         saved.show(n=2)
-        assert all(not hasattr(saved, name) for name in ("rollup", "where", "compare", "contract"))
+        assert all(callable(getattr(saved, name)) for name in ("where", "compare", "reduce"))
+        assert not hasattr(saved.artifact, "to_pandas")
+        before = len(session.runs().items)
+        if "value" in saved.output_names:
+            continued = saved.select({"value": saved["value"]}).compute()
+            pd.testing.assert_frame_equal(continued.to_pandas(), exports["value"])
+        assert len(session.runs().items) == before
         assert session._runtime.store.resources(session.id) == ()
         return {
             "phase": phase,
             "pid": os.getpid(),
             "session": session.id,
-            "artifact": saved.id,
-            "run": saved._manifest.run_id,
+            "store": session._runtime.store.store_id,
+            "source_offline": not (project / "models").exists()
+            and not (project / "source_files").exists(),
+            "artifact": saved.artifact.id,
+            "run": saved.artifact._manifest.run_id,
             "rows": obj(obj(state["snapshots"])["value"])["rows"],
             "snapshots": state["snapshots"],
             "derived": derived,

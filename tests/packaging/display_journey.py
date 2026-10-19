@@ -15,8 +15,10 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.core.artifact_data import CalendarDataAxis
-from marivo.analysis.dsl.query import ValueRow
+from marivo.analysis.core.data_schema import CalendarDataAxis
+from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
+from marivo.analysis.core.frozen_calendar import read_calendar_directory
+from marivo.analysis.dsl.source_capture import ValueRow
 from marivo.analysis.materialization.graph_reading import (
     ExportRead,
     OutputRead,
@@ -29,23 +31,30 @@ from tests.shared_fixtures import analysis_dsl_rows, run_ids
 from tests.support.json import Json, checked, encode, obj, read
 
 
-def _table(values: mv.Artifact, categories: mv.Artifact) -> pd.DataFrame:
-    calendar = next(
-        i
-        for i, axis in enumerate(values._manifest.data.schema.axes)
-        if isinstance(axis, CalendarDataAxis)
+def _table(values: mv.AnalysisFrame, categories: mv.AnalysisFrame) -> pd.DataFrame:
+    completed = values.compute()
+    assert isinstance(completed._backing, MemoryFrameBacking)
+    schema = completed._backing.data.schema
+    calendar = next(i for i, axis in enumerate(completed.axes) if axis.role == "calendar")
+    assert len(schema.axes) == 2
+    axis = schema.axes[calendar]
+    assert isinstance(axis, CalendarDataAxis) and axis.frozen is not None
+    attachment = next(
+        part
+        for part in completed._backing.data.copy_attachments()
+        if part.name == axis.frozen.directory_name
     )
-    assert len(values._manifest.data.schema.axes) == 2
-    frame = (
-        _frame(values)
-        .rename(
-            columns={f"key_{1 - calendar}": "key_0", f"key_{calendar}": "key_1", "value": "amount"}
-        )
-        .merge(
-            _frame(categories).rename(columns={"value": "zone"}),
-            on="key_0",
-            validate="many_to_one",
-        )
+    directory = read_calendar_directory(axis, attachment.schema, attachment.rows)
+    bounds = {bucket.key[0][1]: bucket.nominal_start for bucket in directory.buckets}
+    exported = completed.to_pandas()
+    observed = _frame(completed, frame=exported)
+    observed[f"key_{calendar}"] = observed[f"key_{calendar}"].map(bounds)
+    frame = observed.rename(
+        columns={f"key_{1 - calendar}": "key_0", f"key_{calendar}": "key_1", "value": "amount"}
+    ).merge(
+        _frame(categories).rename(columns={"value": "zone"}),
+        on="key_0",
+        validate="many_to_one",
     )
     frame["rank"] = (
         frame.groupby("zone", dropna=False)
@@ -101,10 +110,10 @@ def journey(phase: str, project: Path) -> dict[str, object]:
             during=grid,
             by=members,
             members=members,
-        ).execute()
+        ).persist()
         categories = session.read(
             members, {"value": session.catalog.fields.get("operations.device.zone")}
-        ).execute()
+        ).persist()
         frame = _table(values, categories)
         _verify(frame)
         rows: list[ValueRow] = []
@@ -127,11 +136,11 @@ def journey(phase: str, project: Path) -> dict[str, object]:
             ),
             columns={"amount": None, "zone": None, "rank": None},
             rows=tuple(rows),
-        ).execute()
+        ).persist()
         artifacts = {"values": values, "categories": categories, "table": table}
         state: dict[str, Json] = {
             "session": session.id,
-            "artifacts": {name: value.id for name, value in artifacts.items()},
+            "artifacts": {name: value.artifact.id for name, value in artifacts.items()},
             "snapshots": {name: snapshot(value) for name, value in artifacts.items()},
         }
         state_path.write_bytes(encode(state))
@@ -146,7 +155,7 @@ def journey(phase: str, project: Path) -> dict[str, object]:
             artifacts = {}
             for name, reference in obj(state["artifacts"]).items():
                 assert isinstance(reference, str)
-                value = session.artifact(reference)
+                value = session.persisted_frame(reference)
                 assert snapshot(value) == obj(state["snapshots"])[name]
                 artifacts[name] = value
             assert run_ids(session) == before
@@ -174,7 +183,8 @@ def journey(phase: str, project: Path) -> dict[str, object]:
         text = output.getvalue()
         assert len(text.encode()) <= 8192 and "rows: 12" in text and ".to_pandas()" in text
         assert "required_parts" not in text and "cell_tag" not in text and "call=" not in text
-        assert decoded == [2] and table._manifest.data.rows.receipt.realized_row_count == 12
+        assert isinstance(table._backing, StoredFrameBacking)
+        assert decoded == [2] and table._backing.data.rows.receipt.realized_row_count == 12
         assert run_ids(session) == before and session._runtime.store.resources(session.id) == ()
     return {
         "pid": os.getpid(),

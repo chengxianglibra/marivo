@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -78,16 +79,30 @@ def test_installed_public_multisource_journey(
         if (project / "prefix").exists():
             phase("remove")
     phase("offline")
-    produced = obj(read(candidate.reports / f"{engine}-produce.json")["result"])
-    assert produced["query_status"] == "unqualified"
-    assert produced["remote_artifact_cold_status"] == "unqualified"
-    receipts = arr(produced["receipts"])
-    assert len(receipts) == 4
-    assert all(obj(item)["new_runs"] == 0 and obj(item)["new_artifacts"] == 0 for item in receipts)
+    assert (
+        obj(read(candidate.reports / f"{engine}-remove.json")["result"])["source_tables_removed"]
+        is True
+    )
+    shutil.rmtree(project / "models")
+    phase("cold")
+    produced_report = read(candidate.reports / f"{engine}-produce.json")
+    offline_report = read(candidate.reports / f"{engine}-offline.json")
+    recovered_report = read(candidate.reports / f"{engine}-cold.json")
+    assert len({produced_report["pid"], offline_report["pid"], recovered_report["pid"]}) == 3
+    assert all("origin" in report for report in (produced_report, offline_report, recovered_report))
+    produced, recovered = obj(produced_report["result"]), obj(recovered_report["result"])
+    assert produced["compute_new_runs"] == produced["compute_new_artifacts"] == 0
+    assert produced["persist_replayed_source"] is False and arr(produced["native_statements"])
+    assert recovered["session"] == produced["session"]
+    assert recovered["snapshots"] == produced["snapshots"]
+    assert recovered["descriptors"] == produced["descriptors"]
+    assert recovered["native_oracle"] == produced["native_oracle"]
+    assert obj(produced["native_oracle"])["mathematical_fraction"] == "65/3"
+    assert recovered["new_runs"] == recovered["new_artifacts"] == recovered["resources"] == 0
+    assert recovered["models_absent"] is True and recovered["source_access_forbidden"] is True
     assert len(arr(produced["datasource_facts"])) == 4
     assert len(arr(produced["datasource_totals"])) == 2
-    # Remote numerical/cold production has no qualified route. Local terminal
-    # recovery is exercised independently by the installed DuckDB journeys.
+    assert obj(offline_report["result"])["failure"] == "missing physical table"
 
 
 @pytest.mark.parametrize(

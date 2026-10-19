@@ -206,14 +206,15 @@ def saved_read(project: Path) -> dict[str, object]:
     session_id, artifact_ref = state["session"], obj(state["artifacts"])["value"]
     assert isinstance(session_id, str) and isinstance(artifact_ref, str)
     session = mv.session.resume(session_id, by="id")
-    artifact = session.artifact(artifact_ref)
-    assert isinstance(artifact, mv.Artifact)
+    artifact = session.persisted_frame(artifact_ref)
+    assert isinstance(artifact, mv.AnalysisFrame)
     before = len(session.runs().items)
     receipt = snapshot(artifact)
     assert receipt == obj(state["snapshots"])["value"]
     assert len(session.runs().items) == before
     assert session._runtime.store.resources(session.id) == ()
     artifact.show(n=0)
+    artifact.artifact.show()
     assert not any(
         name == root or name.startswith(root + ".")
         for root in DRIVERS.values()

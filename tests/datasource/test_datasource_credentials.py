@@ -291,7 +291,7 @@ def test_observe_source_materialization_failure_redacts_credentials(
     from ibis.backends.duckdb import Backend
 
     import marivo.analysis as mv
-    from marivo.analysis.materialization.errors import MaterializationError
+    from tests.analysis.materialization.publication_fixtures import publication_counts
 
     project = authoring_evidence_project
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(project))
@@ -314,14 +314,17 @@ def test_observe_source_materialization_failure_redacts_credentials(
         return original_table(self, name, **kwargs)
 
     monkeypatch.setattr(Backend, "table", fail_table)
+    before_runs = session.runs().items
+    before = publication_counts(session)
     try:
-        with pytest.raises(MaterializationError) as captured:
+        with pytest.raises(DatasourceConnectionError) as captured:
             session.observe(
                 {"revenue": session.catalog.metrics.get("sales.revenue")},
                 during=session.time_scope(start="2026-07-01", end="2026-08-01"),
-            ).execute()
-        assert isinstance(captured.value.__cause__, DatasourceConnectionError)
-        assert "<redacted>" in str(captured.value.__cause__)
+            ).compute()
+        assert "<redacted>" in str(captured.value)
+        assert session.runs().items == before_runs and publication_counts(session) == before
+        assert session._runtime.store.resources(session.id) == ()
         assert resolver.value not in "".join(traceback.format_exception(captured.value))
         assert resolver.value not in caplog.text
     finally:
@@ -467,7 +470,7 @@ def test_public_semantic_analysis_and_resume(
 ) -> None:
     import marivo.analysis as mv
     import marivo.semantic as ms
-    from marivo.analysis.errors import AnalysisError
+    from tests.analysis.materialization.publication_fixtures import publication_counts
 
     project = authoring_evidence_project
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(project))
@@ -497,18 +500,29 @@ def test_public_semantic_analysis_and_resume(
             members=session.members(ms.ref.entity("sales.orders")),
             during=None,
         )
-        frame = query.execute()
+        frame = query.compute()
         assert not frame.to_pandas().empty
+        before_runs = session.runs().items
+        before = publication_counts(session)
         with (
             md.credential_scope(resolver=HostResolver()),
-            pytest.raises(AnalysisError) as scope_failure,
+            pytest.raises(md.DatasourceCredentialScopeError) as scope_failure,
         ):
             session.observe(
                 {"revenue": catalog.metrics.get("sales.revenue")},
                 members=session.members(ms.ref.entity("sales.orders")),
                 during=None,
-            ).execute()
-        assert isinstance(scope_failure.value.__cause__, md.DatasourceCredentialScopeError)
+            ).compute()
+        assert (
+            scope_failure.value.expected == "the runtime's captured resolver or no explicit scope"
+        )
+        assert scope_failure.value.received == "a different explicit credential resolver"
+        assert scope_failure.value.location == "datasource connection acquisition"
+        assert scope_failure.value.repair is not None
+        assert scope_failure.value.repair.help_target.canonical_id == "credential_scope"
+        assert "original resolver context" in scope_failure.value.repair.action
+        assert session.runs().items == before_runs and publication_counts(session) == before
+        assert session._runtime.store.resources(session.id) == ()
         session_id = session.id
         from ibis.backends.duckdb import Backend
 
@@ -517,12 +531,12 @@ def test_public_semantic_analysis_and_resume(
 
         with monkeypatch.context() as patched:
             patched.setattr(Backend, "raw_sql", fail_query)
-            with pytest.raises((AnalysisError, DatasourceConnectionError)) as failed:
+            with pytest.raises(DatasourceConnectionError) as failed:
                 session.observe(
                     {"revenue": catalog.metrics.get("sales.revenue")},
                     members=session.members(ms.ref.entity("sales.orders")),
                     during=None,
-                ).execute()
+                ).compute()
             assert resolver.value not in "".join(traceback.format_exception(failed.value))
     finally:
         pass
@@ -536,7 +550,7 @@ def test_public_semantic_analysis_and_resume(
                 members=resumed.members(ms.ref.entity("sales.orders")),
                 during=None,
             )
-            .execute()
+            .compute()
             .to_pandas()
             .empty
         )
@@ -555,7 +569,7 @@ class Resolver:
 with md.credential_scope(resolver=Resolver()):
     session = mv.session.resume(sys.argv[1])
 try:
-    frame = session.observe({'revenue': session.catalog.metrics.get('sales.revenue')}, members=session.members(ms.ref.entity('sales.orders')), during=None).execute()
+    frame = session.observe({'revenue': session.catalog.metrics.get('sales.revenue')}, members=session.members(ms.ref.entity('sales.orders')), during=None).compute()
     assert not frame.to_pandas().empty
 finally:
     pass

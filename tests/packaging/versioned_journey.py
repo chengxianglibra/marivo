@@ -127,7 +127,7 @@ def settled_energy():
     (semantic / "models.py").write_text(code)
 
 
-def _verify(values: dict[str, mv.Artifact]) -> dict[str, Json]:
+def _verify(values: dict[str, mv.AnalysisFrame]) -> dict[str, Json]:
     first, second = 9007199254740992, 9007199254740993
     keys = [(first, "a"), (second, "a"), (second, "b")]
     for name in ("snapshot_aug", "validity_aug", "validity_sep", "attributes_aug"):
@@ -180,7 +180,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
         session = mv.session.get_or_create("versioned", report_timezone="UTC")
         august = session.instant("2026-08-01")
         september = session.instant("2026-09-01")
-        queries: dict[str, mv.Query] = {}
+        queries: dict[str, mv.AnalysisFrame] = {}
         for kind in ("snapshot", "validity"):
             entity = f"sales.subjects_{kind}"
             members = session.members(ms.ref.entity(entity), at=august)
@@ -193,16 +193,21 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             )
             classification = session.read(members, {"enabled": enabled.at(august)})
             enabled_value = True
-            chosen = classification.where(classification["enabled"] == enabled_value).population()
-            queries[kind + "_chosen"] = session.query(chosen)
+            fixed = classification.where(classification["enabled"] == enabled_value).compute()
+            chosen = session.population_from(
+                fixed, on=((fixed.axes[0], session.catalog.entities.get(entity)),)
+            )
+            queries[kind + "_chosen"] = session.frame(chosen)
             for clock, start, end in (
                 ("recorded", "2026-09-01", "2026-10-01"),
                 ("settled_early", "2026-09-01", "2026-10-01"),
                 ("settled", "2026-10-01", "2026-11-01"),
             ):
-                metric = session.catalog.metrics.get(
-                    "sales." + ("recorded_energy" if clock == "recorded" else "settled_energy")
+                energy = session.catalog.fields.get("sales.readings.energy")
+                time = session.catalog.fields.get(
+                    "sales.readings." + ("recorded_at" if clock == "recorded" else "settled_at")
                 )
+                metric = energy.sum(time=time, empty="zero")
                 queries[kind + "_" + clock] = session.observe(
                     {"value": metric},
                     during=session.time_scope(start=start, end=end),
@@ -218,11 +223,11 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             session.catalog.entities.get("sales.subjects"), keys=((9007199254740992, "a"),)
         )
         queries["attribute_sep"] = session.read(first, {"value": profile.at(september)})
-        values = {name: query.execute() for name, query in queries.items()}
+        values = {name: query.persist() for name, query in queries.items()}
         oracle = _verify(values)
         state: dict[str, Json] = {
             "session": session.id,
-            "artifacts": {name: value.id for name, value in values.items()},
+            "artifacts": {name: value.artifact.id for name, value in values.items()},
             "snapshots": {name: snapshot(value) for name, value in values.items()},
             "oracle": oracle,
         }
@@ -238,7 +243,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             values = {}
             for name, reference in obj(state["artifacts"]).items():
                 assert isinstance(reference, str)
-                value = session.artifact(reference)
+                value = session.persisted_frame(reference)
                 assert snapshot(value) == obj(state["snapshots"])[name]
                 values[name] = value
             oracle = _verify(values)

@@ -15,7 +15,7 @@ from tests.shared_fixtures import analysis_dsl_rows, run_ids
 from tests.support.json import Json, checked, encode, obj, read
 
 
-def _verify(values: dict[str, mv.Artifact]) -> dict[str, Json]:
+def _verify(values: dict[str, mv.AnalysisFrame]) -> dict[str, Json]:
     facts = analysis_dsl_rows("j1")
     zone: dict[str, str] = {}
     for member, region in facts.customers:
@@ -90,17 +90,21 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             "category": category_query,
             "coordinates": coordinates,
             "direct": direct,
-            "regions": classified.rollup(by=(category,)),
-            "channels": coordinates.rollup(by=(sensor,)),
-            "total": base.rollup(),
+            "regions": classified.reduce(
+                {"value": classified["value"].sum()}, by=(classified.axes[1],)
+            ),
+            "channels": coordinates.reduce(
+                {"value": coordinates["value"].sum()}, by=(coordinates.axes[1],)
+            ),
+            "total": base.reduce({"value": base["value"].sum()}),
             "coordinate_count": coordinates.reduce({"value": mv.row_count()}),
             "selected_count": selected.reduce({"value": mv.row_count()}),
         }
-        values = {name: query.execute() for name, query in queries.items()}
+        values = {name: query.persist() for name, query in queries.items()}
         oracle = _verify(values)
         state: dict[str, Json] = {
             "session": session.id,
-            "artifacts": {name: value.id for name, value in values.items()},
+            "artifacts": {name: value.artifact.id for name, value in values.items()},
             "snapshots": {name: snapshot(value) for name, value in values.items()},
             "oracle": oracle,
         }
@@ -116,7 +120,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             values = {}
             for name, reference in obj(state["artifacts"]).items():
                 assert isinstance(reference, str)
-                value = session.artifact(reference)
+                value = session.persisted_frame(reference)
                 assert snapshot(value) == obj(state["snapshots"])[name]
                 values[name] = value
             oracle = _verify(values)

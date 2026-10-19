@@ -109,12 +109,21 @@ def surface_snapshot() -> list[dict[str, object]]:
     from tests.surface.exports import ANALYSIS_PUBLIC
 
     assert set(names) == set(exports) == set(ANALYSIS_PUBLIC)
-    assert callable(mv.Query.execute)
-    assert callable(mv.Query.contract) and callable(mv.Population.contract)
-    assert not hasattr(mv.Population, "execute")
-    assert not hasattr(mv.Query, "to_pandas")
-    assert not hasattr(mv.Artifact, "execute") and not hasattr(mv.Artifact, "contract")
-    assert all(callable(getattr(mv.Artifact, member)) for member in ("show", "to_pandas"))
+    assert not hasattr(mv, "Query")
+    assert callable(mv.Population.show) and not hasattr(mv.Population, "execute")
+    for method_name in ("compute", "persist", "show", "to_pandas", "where", "compare", "reduce"):
+        assert callable(getattr(mv.AnalysisFrame, method_name))
+    assert all(
+        not hasattr(mv.AnalysisFrame, member)
+        for member in ("execute", "rollup", "drill", "share", "population")
+    )
+    assert all(not hasattr(mv.Session, member) for member in ("query", "artifact"))
+    assert not hasattr(mv.Artifact, "to_pandas") and not hasattr(mv.Artifact, "execute")
+    assert tuple(inspect.signature(mv.Artifact.show).parameters) == ("self",)
+    assert (
+        inspect.signature(mv.AnalysisFrame.show).parameters["n"].kind
+        is inspect.Parameter.KEYWORD_ONLY
+    )
     for name in names:
         value = getattr(mv, name)
         entry = exports[name]

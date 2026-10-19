@@ -24,7 +24,7 @@ from tests.shared_fixtures import DslCase, analysis_dsl_rows, export_dsl_parquet
 from tests.support.json import Json, checked, encode, read
 
 
-def _verify(left: mv.Artifact, right: mv.Artifact) -> dict[str, Json]:
+def _verify(left: mv.AnalysisFrame, right: mv.AnalysisFrame) -> dict[str, Json]:
     lhs, rhs = _frame(left), _frame(right)
     assert lhs.value.notna().tolist() == [True] * 3 + [False]
     result = _association(lhs, rhs)
@@ -58,20 +58,20 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             during=window,
             by=population,
             members=population,
-        ).execute()
+        ).persist()
         right = session.observe(
             {"value": session.catalog.metrics.get("operations.reading_count")},
             during=window,
             by=population,
             members=population,
-        ).execute()
+        ).persist()
         before = publication_counts(session)
         result = _verify(left, right)
         assert publication_counts(session) == before
         state: dict[str, Json] = {
             "session": session.id,
-            "left": left.id,
-            "right": right.id,
+            "left": left.artifact.id,
+            "right": right.artifact.id,
             "left_snapshot": snapshot(left),
             "right_snapshot": snapshot(right),
             "result": result,
@@ -95,7 +95,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             before = publication_counts(session)
             left_ref, right_ref = state["left"], state["right"]
             assert isinstance(left_ref, str) and isinstance(right_ref, str)
-            left, right = session.artifact(left_ref), session.artifact(right_ref)
+            left, right = session.persisted_frame(left_ref), session.persisted_frame(right_ref)
             assert (
                 snapshot(left) == state["left_snapshot"]
                 and snapshot(right) == state["right_snapshot"]
