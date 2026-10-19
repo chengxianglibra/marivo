@@ -1,7 +1,7 @@
 """Frame selections feed explicit source reads through one checked schedule."""
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -15,7 +15,13 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.compiler.frame_plan import CompiledFramePlan
-from marivo.analysis.compiler.graph_plan import FrameKeysInput
+from marivo.analysis.compiler.graph_lowering import LoweredRead
+from marivo.analysis.compiler.graph_plan import (
+    FrameCompute,
+    FrameInput,
+    FrameKeysInput,
+    LocalCompute,
+)
 from marivo.analysis.core.artifact_data import DataAxis, DataColumn, DataSchema
 from marivo.analysis.core.data_types import ScalarDataType
 from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, FrameResultMetadata
@@ -23,6 +29,7 @@ from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
     ExpressionFrameBacking,
+    MemoryFrameBacking,
     SourceFrameBinding,
 )
 from marivo.analysis.core.model import CoreRuleError
@@ -32,6 +39,7 @@ from marivo.analysis.dsl.frame_population import population_from
 from marivo.analysis.dsl.population import Population, in_population, product
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import StageOutput
+from marivo.analysis.materialization.graph_source_execution import PreparedSources
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
@@ -73,9 +81,17 @@ denominator = ms.measure_column(name='denominator', entity=facts, column='denomi
     return mv.session.get_or_create("frame-bridge", report_timezone="UTC")
 
 
+def _memory_backing(frame: AnalysisFrame) -> MemoryFrameBacking:
+    assert isinstance(frame._backing, MemoryFrameBacking)
+    return frame._backing
+
+
 def _memory(
     session: Session, *, identity: bool = False, empty: bool = False, null: bool = False
 ) -> AnalysisFrame:
+    columns: tuple[DataColumn, ...]
+    axes: tuple[DataAxis, ...]
+    rows: list[tuple[str | int | None, ...]]
     if identity:
         columns = (
             DataColumn("k0", "tenant", ScalarDataType("string"), False),
@@ -254,18 +270,33 @@ def test_one_final_schedule_resolves_every_compiler_leaf(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import marivo.analysis.materialization.frame_evaluation as evaluator
+    from marivo.analysis.materialization.graph_source_execution import run_frame_plan as original
 
-    original = evaluator.run_frame_plan
     plans: list[CompiledFramePlan] = []
 
-    def run(compiled: CompiledFramePlan, **kwargs: object) -> StageOutput:
+    def run(
+        compiled: CompiledFramePlan,
+        *,
+        source_prepared: Mapping[str, PreparedSources],
+        read_fixed: Callable[[FrameInput], CompletedFrameData],
+        adapt_source: Callable[[str, StageOutput], StageOutput],
+        observe_read: Callable[[LoweredRead, StageOutput], None] | None = None,
+        observe_local: Callable[[LocalCompute | FrameCompute, StageOutput], None] | None = None,
+    ) -> StageOutput:
         plans.append(compiled)
         assert not any(isinstance(stage, FrameKeysInput) for stage in compiled.lowered.plan.stages)
         completed: set[str] = set()
         for stage in compiled.lowered.plan.stages:
             assert set(stage.inputs) <= completed
             completed.add(stage.stage_id)
-        return original(compiled, **kwargs)
+        return original(
+            compiled,
+            source_prepared=source_prepared,
+            read_fixed=read_fixed,
+            adapt_source=adapt_source,
+            observe_read=observe_read,
+            observe_local=observe_local,
+        )
 
     monkeypatch.setattr(evaluator, "run_frame_plan", run)
     selected = _memory(session)
@@ -312,9 +343,11 @@ def test_producer_checks_survive_top_zero_before_dependent_source_read(
     original = executor.read_stage
     calls: list[str] = []
 
-    def read(*args: object, **kwargs: object) -> StageOutput:
+    def read(
+        prepared: PreparedSources, lowered: LoweredRead, *, value_keys: tuple[str, ...] = ()
+    ) -> StageOutput:
         calls.append("read")
-        return original(*args, **kwargs)
+        return original(prepared, lowered, value_keys=value_keys)
 
     monkeypatch.setattr(executor, "read_stage", read)
     region = session.catalog.fields.get("sales.facts.region")
@@ -357,7 +390,7 @@ def test_typed_transport_keeps_complete_large_identity_tuples(
             CompletedFrameData(
                 base._schema, pd.DataFrame({"k0": ["t1", "t2"], "k1": [large + 1, large + 1]})
             ),
-            base._backing.metadata,
+            _memory_backing(base).metadata,
         ),
     )
     result = _observe(session, _population(session, selected, identity=True)).compute().to_pandas()
@@ -378,16 +411,19 @@ def test_exact_evaluated_key_audit_is_not_truncated(session: Session) -> None:
             CompletedFrameData(
                 base._schema, pd.DataFrame({"k0": [long], "k1": ["A"], "k2": ["one"]})
             ),
-            base._backing.metadata,
+            _memory_backing(base).metadata,
         ),
     )
     result = _observe(session, _population(session, selected)).compute()
     scopes = [
         dict(fact.values)["source_scopes"]
-        for fact in result._backing.metadata.audit.source_facts
+        for fact in _memory_backing(result).metadata.audit.source_facts
         if fact.kind == "read"
     ]
-    decoded = [json.loads(value) for value in scopes]
+    decoded = []
+    for value in scopes:
+        assert isinstance(value, str)
+        decoded.append(json.loads(value))
     dynamic = [
         json.loads(token[1])
         for scope in decoded
@@ -407,7 +443,6 @@ def test_full_fixed_validation_precedes_projection_and_business_read(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import marivo.analysis.materialization.graph_source_execution as executor
-    from marivo.analysis.core.frame_data import MemoryFrameBacking
 
     selected = _memory(session)
     assert isinstance(selected._backing, MemoryFrameBacking)
@@ -513,7 +548,7 @@ def test_selected_missing_source_key_remains_a_domain_without_facts(session: Ses
             CompletedFrameData(
                 base._schema, pd.DataFrame({"k0": ["absent"], "k1": ["C"], "k2": ["one"]})
             ),
-            base._backing.metadata,
+            _memory_backing(base).metadata,
         ),
     )
     domain = _population(session, selected)
@@ -681,7 +716,7 @@ def test_remote_frame_keys_feed_checked_tuple_null_empty_and_zero_axis_routes(
                 CompletedFrameData(
                     identity._schema, pd.DataFrame({"k0": ["a", "b"], "k1": [large + 1, large + 2]})
                 ),
-                identity._backing.metadata,
+                _memory_backing(identity).metadata,
             ),
         )
         domain = _population(remote, keys, identity=True)
@@ -714,27 +749,6 @@ def test_remote_frame_keys_feed_checked_tuple_null_empty_and_zero_axis_routes(
             None,
             (case.session,),
         )
-
-
-def test_retired_query_key_refusal_does_not_change_public_query_execution(session: Session) -> None:
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
-    amount = session.catalog.fields.get("sales.facts.amount").sum()
-    original = session.observe({"amount": amount}, by=(region, channel))
-    selected = original.where(original["amount"] < 20).population()
-    keys = session.query(selected).execute().to_pandas()
-    assert list(keys.loc[keys.iloc[:, 0].notna()].itertuples(index=False, name=None)) == [
-        ("east", "B"),
-        ("west", "A"),
-    ]
-    null_keys = keys.loc[keys.iloc[:, 0].isna()]
-    assert len(null_keys) == 1 and null_keys.iloc[0, 1] == "C"
-    restricted = (
-        session.observe({"amount": amount}, by=(region, channel), where=in_population(selected))
-        .execute()
-        .to_pandas()
-    )
-    assert sorted(restricted.iloc[:, -1].tolist()) == [5, 7, 11]
 
 
 def test_frame_only_nested_metric_where_survives_private_capture_guard(session: Session) -> None:

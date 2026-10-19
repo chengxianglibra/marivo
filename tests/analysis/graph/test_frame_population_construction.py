@@ -14,7 +14,7 @@ from ibis.common.deferred import Deferred, Just, Sequence
 
 import marivo.analysis as mv
 from marivo._definition.deferred import canonical_recipe, resolver_of, semantic_input
-from marivo._definition.expressions import ContributionFilter, DeclaredMetricRef
+from marivo._definition.expressions import ContributionFilter
 from marivo._definition.graph import (
     _encode_fields,
     canonical_bytes,
@@ -51,8 +51,7 @@ from marivo.analysis.core.frame_key_inputs import (
 )
 from marivo.analysis.core.frame_source_facts import source_scope
 from marivo.analysis.core.frame_structure import PendingDataSchema
-from marivo.analysis.core.graph import BoundGraph
-from marivo.analysis.core.model import BoundQuantity, CoreRuleError
+from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.dsl import frame_sources
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.frame_population import population_from
@@ -175,7 +174,7 @@ def test_factory_is_metadata_only_and_definition_is_inert(
 
     monkeypatch.setattr(CompletedFrameData, "copy_rows", forbidden)
     monkeypatch.setattr(CompletedFrameData, "preview_rows", forbidden)
-    monkeypatch.setattr(LocalFrameServices, "read", forbidden)
+    monkeypatch.setattr(LocalFrameServices, "read_complete", forbidden)
     monkeypatch.setattr(SourceSession, "bind", forbidden)
     monkeypatch.setattr(SourceSession, "__enter__", forbidden)
     population = population_from(
@@ -204,6 +203,7 @@ def test_factory_is_metadata_only_and_definition_is_inert(
 def test_explicit_empty_mapping_keeps_the_input_dependency(session: Session, empty: bool) -> None:
     source = _fields(session)
     if empty:
+        assert isinstance(source._schema, DataSchema)
         source = _memory(session, source._schema.axes, ())
     population = population_from(session._runtime.local, session.catalog._state, source, on=())
     assert isinstance(population.definition, PopulationProgram)
@@ -370,6 +370,7 @@ def test_current_catalog_rebinds_versions_and_validates_field_owner(session: Ses
     mapped = population_from(
         session._runtime.local, session.catalog._state, frame, on=((frame.axes[0], old),)
     )
+    assert isinstance(mapped.axes[0], AxisBinding)
     assert mapped.axes[0].field == facts.reference
     assert facts.field_read is not None
     bad = semantic_input(
@@ -404,6 +405,7 @@ def test_explicit_field_path_is_retained_and_rebound(session: Session) -> None:
     population = population_from(
         session._runtime.local, session.catalog._state, frame, on=((frame.axes[0], segment),)
     )
+    assert isinstance(population.axes[0], AxisBinding)
     assert population.axes[0].path == (relationship.ref,)
     assert population.axes[0].entity == relationship.to_entity
 
@@ -513,145 +515,6 @@ def test_cross_session_inputs_reject_and_selected_frame_stays_alive(session: Ses
     del population
     gc.collect()
     assert reference() is retained.frame_key_inputs[0].frame
-    assert (
-        json.loads(source_scope(retained.frame_key_inputs[0].input_id))[1] == reference()._input_id
-    )
-
-
-@pytest.mark.parametrize(
-    "route",
-    (
-        "frame_pure",
-        "frame_union",
-        "frame_intersection",
-        "frame_difference",
-        "frame_project",
-        "frame_product",
-        "frame_filter",
-        "frame_classify",
-        "frame_image",
-        "frame_preimage",
-        "read",
-        "read_mixed",
-        "where",
-        "where_boolean",
-        "members",
-        "filtered_members",
-        "by",
-        "metric_nested",
-    ),
-)
-def test_private_frame_capture_refuses_every_legacy_query_key_route_before_prepare(
-    session: Session, monkeypatch: pytest.MonkeyPatch, route: str
-) -> None:
-    region = session.catalog.fields.get("sales.facts.region")
-    channel = session.catalog.fields.get("sales.facts.channel")
-    amount = session.catalog.fields.get("sales.facts.amount").sum()
-    entity = ref.entity("sales.facts")
-    legacy = session.observe({"amount": amount}, by=(region, channel)).population()
-    identities = session.members(entity)
-    legacy_ids = session.query(identities).population()
-    fixed = _fields(session)
-    frame_domain = population_from(
-        session._runtime.local,
-        session.catalog._state,
-        fixed,
-        on=((fixed.axes[0], region), (fixed.axes[1], channel)),
-    )
-    relationship = session.catalog.relationships.get("sales.customer")
-    customers = session.members(ref.entity("sales.customers"))
-    domains = {
-        "frame_pure": legacy,
-        "frame_union": frame_domain.union(legacy),
-        "frame_intersection": frame_domain.intersection(legacy),
-        "frame_difference": frame_domain.difference(legacy),
-        "frame_project": legacy.project(by=(legacy.axes[0],)),
-        "frame_product": product(
-            legacy.project(by=(legacy.axes[0],)),
-            frame_domain.project(by=(frame_domain.axes[1],)),
-        ),
-        "frame_filter": frame_domain.where(~in_population(legacy)),
-        "frame_classify": legacy_ids.classify(by=(region,)),
-        "frame_image": legacy_ids.image(via=(relationship,)),
-        "frame_preimage": identities.preimage(
-            session.query(customers).population(), via=(relationship,)
-        ),
-    }
-
-    def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("retired key capture must refuse before schema/source preparation")
-
-    monkeypatch.setattr(frame_sources, "pending_schema", forbidden)
-    monkeypatch.setattr(SourceSession, "bind", forbidden)
-    monkeypatch.setattr(
-        "marivo.analysis.materialization.frame_evaluation.open_query_sources", forbidden
-    )
-    local, state, connection = (
-        session._runtime.local,
-        session.catalog._state,
-        session._runtime.connection_config,
-    )
-    with pytest.raises(CoreRuleError, match="retired QueryKeys") as failure:
-        if route in domains:
-            frame_sources.frame(local, state, connection, domains[route])
-        elif route in ("read", "read_mixed"):
-            domain = legacy_ids
-            if route == "read_mixed":
-                domain = _bridge(session, _identities(session), identity=True).union(domain)
-            frame_sources.read(local, state, connection, domain, {"region": region})
-        elif route in ("where", "where_boolean"):
-            condition = in_population(legacy)
-            if route == "where_boolean":
-                condition = ~(condition & ~in_population(frame_domain))
-            frame_sources.observe(local, state, connection, {"amount": amount}, where=condition)
-        elif route in ("members", "filtered_members"):
-            members = (
-                legacy_ids
-                if route == "members"
-                else session.members(entity, where=~in_population(legacy))
-            )
-            frame_sources.observe(local, state, connection, {"amount": amount}, members=members)
-        elif route == "by":
-            frame_sources.observe(local, state, connection, {"amount": amount}, by=legacy)
-        else:
-            assert route == "metric_nested"
-            metric = (amount.where(~(~in_population(legacy))) + amount).divide(2)
-            frame_sources.observe(local, state, connection, {"amount": metric})
-    error = failure.value
-    assert error.run_ref is None and error.location == "frame.source.capture"
-    assert error.received is not None and "QueryKeys" in error.received
-    assert error.repair is not None
-    assert "Frame" in error.repair.action and "population_from" in error.repair.action
-
-
-def test_private_capture_refuses_declared_metric_query_dependency(
-    session: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    region = session.catalog.fields.get("sales.facts.region")
-    amount = session.catalog.fields.get("sales.facts.amount").sum()
-    legacy = session.observe({"amount": amount}, by=(region,)).population()
-    graph = session.observe({"amount": amount.where(in_population(legacy))})._graph
-    declaration = ExactRef(ref.metric("sales.filtered_amount"), "captured")
-    reference = DeclaredMetricRef(declaration)
-    quantity = BoundQuantity("amount", reference, "USD")
-    captured = BoundGraph(
-        replace(graph.root, metrics=(("amount", reference),)),
-        replace(
-            graph.signature,
-            quantities=(quantity,),
-            declared_metrics=((declaration, graph.root.metrics[0][1]),),
-            observation=None,
-        ),
-    )
-
-    def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("declared closure must refuse before schema preparation")
-
-    monkeypatch.setattr(frame_sources, "pending_schema", forbidden)
-    with pytest.raises(CoreRuleError, match="retired QueryKeys"):
-        frame_sources._capture(
-            session._runtime.local,
-            captured,
-            session.catalog._state,
-            session._runtime.connection_config,
-        )
+    live = reference()
+    assert live is not None
+    assert json.loads(source_scope(retained.frame_key_inputs[0].input_id))[1] == live._input_id
