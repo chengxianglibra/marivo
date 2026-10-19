@@ -19,6 +19,8 @@ from marivo.analysis.core.data_types import DataColumn, DataType, DurationDataTy
 if TYPE_CHECKING:
     from marivo.analysis.compiler.observation import FormulaProgram
     from marivo.analysis.compiler.original import DrillSchema
+    from marivo.analysis.core.data_schema import DataSchema
+    from marivo.analysis.core.frame_expression import FrameOperationKind
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,3 +91,22 @@ class ResultProgram:
     references: tuple[BroadcastInput, ...] = ()
     drills: tuple[DrillSchema, ...] = ()
     duration_operations: tuple[DurationBinary, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class FrameProgram:
+    """One data-only operation over current concrete directories."""
+
+    operation: FrameOperationKind
+    input_schema: DataSchema
+    output_schema: DataSchema
+    statistic_types: tuple[DataType, ...] = ()
+    duration_operations: tuple[DurationBinary, ...] = ()
+
+    @property
+    def keys(self) -> tuple[str, ...]:
+        return self.input_schema.key_fields
+
+    @property
+    def key_groups(self) -> tuple[tuple[str, ...], ...]:
+        return tuple(tuple(c.slot_id for c in axis.columns) for axis in self.input_schema.axes)

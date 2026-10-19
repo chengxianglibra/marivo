@@ -7,7 +7,7 @@ from typing import TypeAlias
 
 import pandas as pd
 
-from marivo.analysis.compiler.graph_plan import LocalCompute
+from marivo.analysis.compiler.graph_plan import FrameCompute, LocalCompute
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
     StageOutput,
@@ -17,9 +17,34 @@ LocalKernel: TypeAlias = Callable[[LocalCompute, tuple[pd.DataFrame, ...]], pd.D
 
 
 def run_local(
-    stage: LocalCompute, inputs: tuple[StageOutput, ...], kernel: LocalKernel | None = None
+    stage: LocalCompute | FrameCompute,
+    inputs: tuple[StageOutput, ...],
+    kernel: LocalKernel | None = None,
 ) -> StageOutput:
     """Run one checked Query kernel without mutating its shared inputs."""
+    if isinstance(stage, FrameCompute):
+        from marivo.analysis.core.frame_data import required_attachments
+        from marivo.analysis.methods.frame_values import evaluate_frame
+
+        frame = evaluate_frame(stage, tuple(item.table for item in inputs))
+        required = required_attachments(stage.program.output_schema)
+        attachments = tuple(a for a in inputs[0].frame_attachments if a.name in required)
+        if {a.name for a in attachments} != set(required):
+            raise MaterializationError(
+                expected="all required frozen coordinate attachments",
+                received=repr(tuple(a.name for a in attachments)),
+                repair="Retain required complete coordinate data.",
+                stage="frame_compute",
+            )
+        return StageOutput.from_frame(
+            frame,
+            stage.columns,
+            stage.keys,
+            key_groups=tuple(
+                tuple(c.slot_id for c in a.columns) for a in stage.program.output_schema.axes
+            ),
+            frame_attachments=attachments,
+        )
     if stage.fused_steps:
         from marivo.analysis.materialization.query_runtime_types import effective_local
 

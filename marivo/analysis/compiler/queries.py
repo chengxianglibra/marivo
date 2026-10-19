@@ -45,6 +45,7 @@ from marivo.analysis.binding.correspondence import (
 from marivo.analysis.compiler.graph_plan import (
     LocalCompute,
     QueryPlan,
+    QueryStage,
     SourceField,
     SourceRead,
     SourceSchema,
@@ -105,12 +106,10 @@ def original_program(plan: QueryPlan) -> FormulaProgram | None:
     return None
 
 
-def _ordered_stages(
-    plans: tuple[QueryPlan, ...], final: LocalCompute
-) -> tuple[SourceRead | LocalCompute, ...]:
+def _ordered_stages(plans: tuple[QueryPlan, ...], final: LocalCompute) -> tuple[QueryStage, ...]:
     pending = {stage.stage_id: stage for plan in plans for stage in plan.stages}
     pending[final.stage_id] = final
-    result: list[SourceRead | LocalCompute] = []
+    result: list[QueryStage] = []
     complete: set[str] = set()
     while pending:
         ready = tuple(
@@ -131,7 +130,7 @@ def _ordered_stages(
 
 
 def _consumers(
-    stages: tuple[SourceRead | LocalCompute, ...],
+    stages: tuple[QueryStage, ...],
 ) -> tuple[tuple[str, tuple[str, ...]], ...]:
     return tuple(
         (

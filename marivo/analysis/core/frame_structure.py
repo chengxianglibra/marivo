@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Literal, TypeAlias
 from unicodedata import category
 
-from marivo.analysis.core.artifact_data import (
+from marivo.analysis.core.data_schema import (
     CalendarDataAxis,
     DataAxis,
     DataColumn,

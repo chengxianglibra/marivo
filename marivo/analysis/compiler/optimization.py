@@ -34,6 +34,8 @@ from marivo._definition.query import (
 )
 from marivo._definition.types import RULE_VERSION, Owner
 from marivo.analysis.compiler.graph_plan import (
+    FrameCompute,
+    FrameInput,
     LocalCompute,
     QueryPlan,
     QueryStage,
@@ -95,6 +97,8 @@ def required_for(plan: QueryPlan, stage_id: str) -> RequiredSlots:
 
 def _support(stage: QueryStage) -> set[str]:
     required = set(stage.keys)
+    if isinstance(stage, (FrameInput, FrameCompute)):
+        return {column.slot_id for column in stage.columns}
     if isinstance(stage, SourceRead):
         required.update(
             column.slot_id
@@ -239,6 +243,10 @@ def required_slots(plan: QueryPlan) -> tuple[RequiredSlots, ...]:
             for source in stage.inputs:
                 wanted[source].update(stages[source].keys)
             continue
+        if isinstance(stage, (FrameInput, FrameCompute)):
+            for source in stage.inputs:
+                wanted[source].update(column.slot_id for column in stages[source].columns)
+            continue
         original = (
             stage.program
             if stage.program is not None
@@ -312,7 +320,7 @@ def _fuse(plan: QueryPlan) -> QueryPlan:
                 )
             source_roots[stage.source_id] = stage
             continue
-        if stage.result is None or len(stage.inputs) != 1:
+        if not isinstance(stage, LocalCompute) or stage.result is None or len(stage.inputs) != 1:
             continue
         inner = stages[stage.inputs[0]]
         if not isinstance(inner, LocalCompute) or inner.result is None:
@@ -572,7 +580,7 @@ def _common_sources(plan: QueryPlan) -> QueryPlan:
                     if column.slot_id not in read.keys
                 )
                 stage = replace(stage, columns=columns, common_reads=block, component_layout=None)
-        else:
+        elif isinstance(stage, LocalCompute):
             stage = replace(
                 stage,
                 inputs=tuple(aliases.get(item, item) for item in stage.inputs),
@@ -630,6 +638,10 @@ def _common_sources(plan: QueryPlan) -> QueryPlan:
 
 def optimize_query(plan: QueryPlan) -> QueryPlan:
     """Apply one bounded demand/law pass; preserve the original plan as a control."""
+    if any(isinstance(stage, (FrameInput, FrameCompute)) for stage in plan.stages):
+        # Source children are optimized before composition. Fixed data is a hard
+        # boundary; complete validation and strict expressions survive demand.
+        return replace(plan, required_slots=required_slots(plan))
     planned = _fuse(replace(plan, required_slots=required_slots(plan)))
     required = required_slots(planned)
     by_stage = {item.stage_id: item for item in required}
@@ -651,7 +663,7 @@ def optimize_query(plan: QueryPlan) -> QueryPlan:
                         if slot in demand.columns
                     ),
                 )
-        elif stage.result is not None:
+        elif isinstance(stage, LocalCompute) and stage.result is not None:
             operation = stage.result.operation
             if isinstance(operation, LiteralValues):
                 values = tuple(

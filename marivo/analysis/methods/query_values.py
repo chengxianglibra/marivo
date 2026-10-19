@@ -30,7 +30,7 @@ from marivo._definition.query import (
     ValueUnary,
 )
 from marivo.analysis.compiler.graph_plan import LocalCompute
-from marivo.analysis.compiler.query_program import ResultProgram
+from marivo.analysis.compiler.query_program import FrameProgram, ResultProgram
 from marivo.analysis.core.data_types import DecimalDataType, DurationDataType, ScalarDataType
 from marivo.analysis.core.model import reject
 from marivo.analysis.methods.numeric_state import checked_sum, finish_division
@@ -65,9 +65,10 @@ def _binary(operation: str, left: object, right: object) -> object:
 
 
 def expression_series(
-    expression: ValueExpression, frame: pd.DataFrame, program: ResultProgram
+    expression: ValueExpression, frame: pd.DataFrame, program: ResultProgram | FrameProgram
 ) -> pd.Series:
     if isinstance(expression, ValueBroadcast):
+        assert isinstance(program, ResultProgram)
         index = next(
             index
             for index, reference in enumerate(program.references)
@@ -76,7 +77,9 @@ def expression_series(
         return frame[f"__broadcast.{index}"].reset_index(drop=True)
     if isinstance(expression, ValueSlot):
         columns = (
-            program.input_layout.values
+            program.input_schema.values
+            if isinstance(program, FrameProgram)
+            else program.input_layout.values
             if program.input_layout is not None
             else tuple(column for column in program.columns if column.slot_id not in program.keys)
         )
@@ -89,6 +92,12 @@ def expression_series(
             list(frame.loc[:, list(group)].itertuples(index=False, name=None)), dtype=object
         )
     if isinstance(expression, PresenceSlot):
+        if isinstance(program, FrameProgram):
+            return frame[
+                program.input_schema.presence[
+                    program.input_schema.presence_paths.index(expression.path)
+                ].slot_id
+            ].reset_index(drop=True)
         assert program.input_layout is not None
         return frame[
             next(

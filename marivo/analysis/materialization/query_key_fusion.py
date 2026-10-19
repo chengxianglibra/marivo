@@ -727,6 +727,8 @@ def native_query_relation(
                 }
             )
             return NativeQueryRelation(expression, frozenset({identifier}), (read,))
+        if not isinstance(stage, LocalCompute):
+            return "fixed Frame data is outside source fusion"
         if stage.fused_steps:
             return "producer retains a registered local fusion boundary"
         if stage.result is not None and isinstance(stage.result.operation, LiteralValues):
@@ -2093,7 +2095,11 @@ def _fold_population_checks(prepared: PreparedSources, lowered: LoweredQuery) ->
                     compatible = False
                     break
                 sources.append(request)
-            elif stage.result is None or not isinstance(stage.result.operation, PopulationValues):
+            elif (
+                not isinstance(stage, LocalCompute)
+                or stage.result is None
+                or not isinstance(stage.result.operation, PopulationValues)
+            ):
                 compatible = False
                 break
         if not compatible:

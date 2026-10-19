@@ -10,6 +10,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from marivo.analysis.binding.correspondence import ComparisonEndpoint
+from marivo.analysis.core.artifact_data import OutputAttachment
 from marivo.analysis.core.data_types import (
     DataColumn,
     DataType,
@@ -194,6 +195,26 @@ def normalize_stage_frame(
     )
 
 
+def normalize_complete_frame(
+    frame: pd.DataFrame, columns: tuple[DataColumn, ...], keys: tuple[str, ...]
+) -> pd.DataFrame:
+    """Validate complete data before any consumer can hide invalid cells.
+
+    Execution stages may carry unchecked values until their owning checks run;
+    complete data cannot retain nonfinite floating values. Arrow nulls remain NA.
+    """
+    result = normalize_stage_frame(frame, columns, keys)
+    for column in columns:
+        if column.dtype == ScalarDataType("float64"):
+            values = pa.array(result[column.slot_id], from_pandas=True)
+            if pc.any(pc.invert(pc.is_finite(values))).as_py():
+                raise _stage_error(
+                    f"{column.slot_id}: finite float64 values or NA",
+                    "nonfinite floating values",
+                )
+    return result
+
+
 @dataclass(frozen=True, slots=True)
 class CheckReceipt:
     """One completed check tied to its exact Query stage."""
@@ -216,6 +237,7 @@ class StageOutput:
     components: tuple[ComponentFrame, ...] = ()
     population_frames: tuple[pd.DataFrame, ...] = ()
     source_rows: int | None = None
+    frame_attachments: tuple[OutputAttachment, ...] = ()
 
     def __post_init__(self) -> None:
         if self._token is not _NORMALIZED:
@@ -236,6 +258,7 @@ class StageOutput:
         components: tuple[ComponentFrame, ...] = (),
         population_frames: tuple[pd.DataFrame, ...] = (),
         source_rows: int | None = None,
+        frame_attachments: tuple[OutputAttachment, ...] = (),
     ) -> StageOutput:
         return cls(
             columns,
@@ -248,6 +271,7 @@ class StageOutput:
             components,
             population_frames,
             source_rows,
+            frame_attachments,
         )
 
     @classmethod

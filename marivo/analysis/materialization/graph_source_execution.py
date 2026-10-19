@@ -15,6 +15,7 @@ import pyarrow as pa
 from ibis.common.exceptions import IbisError
 
 if TYPE_CHECKING:
+    from marivo.analysis.compiler.frame_plan import CompiledFramePlan
     from marivo.analysis.compiler.optimization import InvocationMemo
 
 from marivo._definition.relations import LiteralPopulation, PopulationDependency, PopulationProgram
@@ -23,8 +24,11 @@ from marivo.analysis.compiler.graph_lowering import (
     LoweredRead,
 )
 from marivo.analysis.compiler.graph_plan import (
+    FrameCompute,
+    FrameInput,
     LocalCompute,
     PlannedCheck,
+    QueryStage,
     SourceField,
     SourceRead,
     SourceSchema,
@@ -37,10 +41,12 @@ from marivo.analysis.core.data_types import (
     ScalarDataType,
     TimestampDataType,
 )
+from marivo.analysis.core.frame_data import CompletedFrameData
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
     StageOutput,
+    normalize_complete_frame,
 )
 from marivo.analysis.materialization.graph_preflight import bind_entity_output, relation_operations
 from marivo.datasource.adapters import (
@@ -1498,6 +1504,11 @@ def execute_numeric_query(
     *,
     observe_read: Callable[[LoweredRead, StageOutput], None] | None = None,
     observe_local: Callable[[LocalCompute, StageOutput], None] | None = None,
+    prepared_by_stage: Mapping[str, PreparedSources] | None = None,
+    read_fixed: Callable[[FrameInput], CompletedFrameData] | None = None,
+    adapt_source: Callable[[str, StageOutput], StageOutput] | None = None,
+    source_outputs: Mapping[str, str] | None = None,
+    observe_frame: Callable[[FrameCompute, StageOutput], None] | None = None,
 ) -> StageOutput:
     """Execute the fixed numeric schedule and return invocation-local pandas data."""
     from marivo.analysis.core.model import reject
@@ -1545,7 +1556,10 @@ def execute_numeric_query(
         )
 
     def read(stage: SourceRead) -> StageOutput:
-        if prepared is None:
+        selected = (
+            prepared_by_stage.get(stage.stage_id) if prepared_by_stage is not None else prepared
+        )
+        if selected is None:
             reject(
                 "prepared source connections",
                 stage.stage_id,
@@ -1553,10 +1567,10 @@ def execute_numeric_query(
                 "analysis.query_source",
             )
         request = lowered.read(stage.stage_id)
-        output = read_stage(prepared, request, value_keys=value_keys.get(stage.stage_id, ()))
+        output = read_stage(selected, request, value_keys=value_keys.get(stage.stage_id, ()))
         if observe_read is not None:
             observe_read(request, output)
-        return transport(stage.stage_id, output)
+        return output
 
     def local(stage: LocalCompute, inputs: tuple[StageOutput, ...]) -> StageOutput:
         from marivo.analysis.materialization.query_runtime_types import effective_local
@@ -1565,16 +1579,19 @@ def execute_numeric_query(
         output = run_local(stage, inputs)
         if observe_local is not None:
             observe_local(stage, output)
-        return transport(stage.stage_id, output)
+        return output
 
     def dependent(stage: SourceRead, inputs: tuple[StageOutput, ...]) -> StageOutput:
         from marivo.analysis.core.domain_captures import DomainPreparationError
         from marivo.analysis.materialization.query_parameters import instantiate, parameter_data
 
-        assert prepared is not None
+        selected = (
+            prepared_by_stage.get(stage.stage_id) if prepared_by_stage is not None else prepared
+        )
+        assert selected is not None
         request = lowered.read(stage.stage_id)
         expression = request.expression
-        owner = prepared.sources.get(stage.source_id, prepared.source)
+        owner = selected.sources.get(stage.source_id, selected.source)
         for parameter in stage.parameters:
             source = inputs[stage.inputs.index(parameter.stage_id)]
             try:
@@ -1611,12 +1628,74 @@ def execute_numeric_query(
                     "Reduce the explicit domain or use a datasource/type with an admitted native expression route.",
                 ) from error
         request = replace(request, expression=expression)
-        output = read_stage(prepared, request, value_keys=value_keys.get(stage.stage_id, ()))
+        output = read_stage(selected, request, value_keys=value_keys.get(stage.stage_id, ()))
         if observe_read is not None:
             observe_read(request, output)
+        return output
+
+    def fixed(stage: FrameInput) -> StageOutput:
+        if read_fixed is None:
+            reject(
+                "an available complete fixed-input reader",
+                stage.input_id,
+                "Bind memory data or the qualified stored reader.",
+                "frame.input",
+            )
+        data = read_fixed(stage)
+        if data.schema != stage.schema:
+            reject(
+                "the exact fixed input schema",
+                repr(data.schema),
+                "Use this input's complete descriptor.",
+                "frame.input",
+            )
+        checked = CompletedFrameData(data.schema, data.copy_rows(), data.copy_attachments())
+        return complete(
+            StageOutput.from_frame(
+                checked.copy_rows(),
+                stage.columns,
+                stage.keys,
+                key_groups=tuple(tuple(c.slot_id for c in a.columns) for a in stage.schema.axes),
+                frame_attachments=checked.copy_attachments(),
+            )
+        )
+
+    def complete(output: StageOutput) -> StageOutput:
+        return replace(
+            output,
+            table=normalize_complete_frame(output.table, output.columns, output.keys),
+            frame_attachments=tuple(
+                replace(
+                    attachment,
+                    rows=normalize_complete_frame(
+                        attachment.rows, attachment.schema.columns, attachment.schema.key_fields
+                    ),
+                )
+                for attachment in output.frame_attachments
+            ),
+        )
+
+    def frame(stage: FrameCompute, inputs: tuple[StageOutput, ...]) -> StageOutput:
+        output = run_local(stage, inputs)
+        if observe_frame is not None:
+            observe_frame(stage, output)
+        return output
+
+    def finish(stage: QueryStage, output: StageOutput) -> StageOutput:
+        if source_outputs is not None and stage.stage_id in source_outputs:
+            if adapt_source is None:
+                reject(
+                    "a complete source-to-data boundary adapter",
+                    stage.stage_id,
+                    "Freeze the explicit source output.",
+                    "frame.source",
+                )
+            output = complete(adapt_source(source_outputs[stage.stage_id], output))
         return transport(stage.stage_id, output)
 
-    result = run_query_plan(lowered.plan, read, local, check, dependent)
+    result = run_query_plan(
+        lowered.plan, read, local, check, dependent, fixed=fixed, frame=frame, finish=finish
+    )
     from marivo.analysis.materialization.graph_exchange import source_columns
 
     planned_output = next(
@@ -1624,3 +1703,31 @@ def execute_numeric_query(
     )
     source_columns(result.table, planned_output.columns, result.keys)
     return replace(result, key_groups=lowered.plan.output_groups)
+
+
+def run_frame_plan(
+    compiled: CompiledFramePlan,
+    *,
+    source_prepared: Mapping[str, PreparedSources],
+    read_fixed: Callable[[FrameInput], CompletedFrameData],
+    adapt_source: Callable[[str, StageOutput], StageOutput],
+    observe_read: Callable[[LoweredRead, StageOutput], None] | None = None,
+    observe_local: Callable[[LocalCompute | FrameCompute, StageOutput], None] | None = None,
+) -> StageOutput:
+    """Bind explicit inputs to the existing one-invocation numeric scheduler."""
+    prepared = {
+        stage_id: source_prepared[input_id]
+        for stage_id, input_id in compiled.source_stages
+        if input_id in source_prepared
+    }
+    return execute_numeric_query(
+        None,
+        compiled.lowered,
+        observe_read=observe_read,
+        observe_local=observe_local,
+        prepared_by_stage=prepared,
+        read_fixed=read_fixed,
+        adapt_source=adapt_source,
+        source_outputs=dict(compiled.source_outputs),
+        observe_frame=observe_local,
+    )

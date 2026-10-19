@@ -166,3 +166,42 @@ memory return; S3 must separately preserve unknown publication coordination.
 The maintainer skill's `tests/test_packaged_skill_shape.py` path is stale in
 this checkout. Use the actual owning `tests/packaging/test_skills.py` and
 affected live Help; no packaged maintainer instructions are edited for this.
+
+## Frozen calendar encoding for S2-S5
+
+`calendar.v1` uses one finite directory, captured before row filtering. Its key
+is the complete typed bucket key. Its nonnull fields are `nominal_label`
+(string), `ordinal` (int64), and `nominal_start`, `nominal_end`, `actual_start`,
+`actual_end` (timestamp[us, UTC]). Bounds are copied from the declared cells.
+The ordinal is the original zero-based position in CalendarCoordinate.cells,
+not the filtered row rank or a named snapshot's global period ordinal.
+
+- Builtin day/week/month/quarter/year labels are the captured nominal start's
+  civil date, `YYYY-MM-DD`; unit/step belong to the descriptor.
+- Builtin second/minute/hour labels use the captured local nominal start's ISO
+  timestamp with microseconds and numeric UTC offset, distinguishing DST folds.
+- Named labels use canonical JSON scalar period keys from the exact captured
+  snapshot and level, including the implicit civil-date day level. The inert
+  named descriptor must include calendar identity, snapshot digest and level.
+
+Freeze labels at source binding. Readers and matchers cannot recreate bounds
+or labels from a model, CalendarAxis, current timezone rules or a display token.
+Source capture must preserve structured grain facts at the owning producer;
+S2 makes BoundTimeGrid.grain_spec and CalendarCoordinate.grain_spec authoritative
+and derives their existing display-token properties. Their source producers
+must propagate the actual Grain; no token parser, side cache or model reload
+supplies a missing definition. Completed Frame descriptors retain only inert
+builtin unit/step or named identity/digest/level, not the Grain object.
+
+A paired mapping has the complete typed paired key plus nullable left/right
+bucket-key columns with exact endpoint key types. Each endpoint is completely
+present or absent; both cannot be absent. Each present key resolves uniquely
+in its frozen directory. Mapping is independent of row-level presence.
+
+S3 validates closed descriptors, receipts, exact types, unique keys/labels/
+ordinals, complete original ordinal sequence, and valid per-bucket bounds.
+S5 additionally requires continuous nonoverlapping nominal partitions and full
+actual bucket coverage for every match, even after filtering removes rows.
+S5 first builds a partial nominal correspondence without `how`, then applies
+exact/outer to actual complete row keys. Extra directory buckets add no rows.
+A partial actual bucket remains readable/persistable but cannot enter match.

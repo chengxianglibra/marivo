@@ -780,6 +780,8 @@ class _NativeOriginal:
         self.members.add(identifier)
         if isinstance(stage, SourceRead):
             return self.root(stage)
+        if not isinstance(stage, LocalCompute):
+            return "fixed Frame data is outside source fusion"
         if stage.fused_steps:
             return "original route retains a source or fused intermediate boundary"
         if stage.program is not None:

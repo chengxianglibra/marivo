@@ -10,11 +10,13 @@ from marivo._definition.expressions import FieldPredicate
 from marivo._definition.relations import PopulationDependency
 from marivo.analysis.compiler.query_program import (
     EMPTY_QUERY_CONTEXT,
+    FrameProgram,
     QueryContext,
     QueryParameter,
     ResultProgram,
     SourceParameter,
 )
+from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import DataColumn, DataType, DurationDataType, ScalarDataType
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import Obligation, reject
@@ -123,7 +125,42 @@ class LocalCompute:
     fused_steps: tuple[LocalCompute, ...] = ()
 
 
-QueryStage: TypeAlias = SourceRead | LocalCompute
+@dataclass(frozen=True, slots=True)
+class FrameInput:
+    """Exact fixed-data identity; its full validation contract cannot be pruned."""
+
+    stage_id: str
+    input_id: str
+    schema: DataSchema
+    inputs: tuple[str, ...] = ()
+
+    @property
+    def columns(self) -> tuple[DataColumn, ...]:
+        return self.schema.columns
+
+    @property
+    def keys(self) -> tuple[str, ...]:
+        return self.schema.key_fields
+
+
+@dataclass(frozen=True, slots=True)
+class FrameCompute:
+    """A closed Frame program, independent from semantic Query kernels."""
+
+    stage_id: str
+    inputs: tuple[str, ...]
+    program: FrameProgram
+
+    @property
+    def columns(self) -> tuple[DataColumn, ...]:
+        return self.program.output_schema.columns
+
+    @property
+    def keys(self) -> tuple[str, ...]:
+        return self.program.output_schema.key_fields
+
+
+QueryStage: TypeAlias = SourceRead | LocalCompute | FrameInput | FrameCompute
 
 
 @dataclass(frozen=True, slots=True)

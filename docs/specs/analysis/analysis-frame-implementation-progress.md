@@ -2,7 +2,7 @@
 
 Date: 2026-10-19
 
-Status: S0 and S1 accepted; S2 planning complete. This record tracks implementation, not release or
+Status: S0-S2 accepted; S2 local commits in progress. This record tracks implementation, not release or
 provider qualification. The public API remains unchanged until S7.
 
 ## Authority and baseline
@@ -39,6 +39,12 @@ provider qualification. The public API remains unchanged until S7.
 - Every task records a concrete plan, owned files, contract/acceptance IDs, and
   checks before development. Workers share the checkout, preserve others'
   changes, and coordinate overlaps before editing.
+- Subsequent user steering requires a fresh subagent for each new subtask;
+  never reuse an agent across tasks. Agents already executing S2 finish only
+  their current task. The just-dispatched reused S6 explorer was interrupted
+  and replaced by the fresh `explore_s6_bridge` (gpt-6-luna max); future
+  development/review scopes also receive distinct agents. Repair/review rounds
+  within the same task retain its identity and two-round limit.
 - Each task has at most two review rounds. Fix every P0/P1/P2 finding; preserve
   original findings and failures. After round two, unresolved findings block
   completion rather than starting a third review. Coordinator verifies fixes
@@ -56,8 +62,8 @@ provider qualification. The public API remains unchanged until S7.
 | Stage | Plan and exit | Acceptance | Status | Reviews |
 | --- | --- | --- | --- | --- |
 | S0 | Freeze target; trace producers/consumers; pin signatures, axis fields, retirement and error order | A01-A24 ownership | Complete: no review findings | 1/2 |
-| S1 | Closed structure/carriers, name paths, precise input binding, local service split | A01/A02/A14/A17 | Accepted; structure commit next | Structure 2/2; services 1/2 |
-| S2 | Shared evaluation without publication; fixed leaves; ordinary operators and memory result extraction | A03-A05/A13/A14/A16/A17/A19-A21 | Plans prepared; awaiting S1 structure commit | 0/2 |
+| S1 | Closed structure/carriers, name paths, precise input binding, local service split | A01/A02/A14/A17 | Complete: both packages committed | Structure 2/2; services 1/2 |
+| S2 | Shared evaluation without publication; fixed leaves; ordinary operators and memory result extraction | A03-A05/A13/A14/A16/A17/A19-A21 | Accepted; compiler/lifecycle commits next | Compiler 2/2 clear; lifecycle 2/2 clear |
 | S3 | Store 12, lossless output/attachments, stored reader, audit and atomic publication | A02/A03/A14-A23 | Pending S2 | 0/2 |
 | S4 | Full-axis alignment/comparison, independent presence and deterministic order | A06-A08/A11/A19 | Pending S2; exit needs S3 | 0/2 |
 | S5 | Frozen calendars, partial nominal matches and single-level paired coordinates | A07-A11/A14/A15/A18/A19 | Pending S3/S4 | 0/2 |
@@ -226,6 +232,278 @@ source owns the final S1 default evidence; typing/lint and both reviews are
 recorded above. S1 is accepted for its private structure/service scope;
 evaluation, complete persisted coordinate codecs and public cutover remain
 S2-S8 work. Commit the ten accepted structure source/test/fixture files next.
+
+S1 structure accepted commit:
+`d6b4707c65aabaf3418aecd926f35ae4255fc5d6` (`feat: establish private
+AnalysisFrame structure and exact bindings`). Normal formatting, lint,
+import-contract and full-source mypy hooks passed. The exact ten accepted
+source/test/fixture files and progress ledger were committed; worktree clean
+after verification. No push. Both S1 packages are now complete.
+
+## S2 plan and ownership
+
+Accepted plans precede development: `evidence/analysis-frame/s2-execution-plan.md`
+and `s2-lifecycle-plan.md`, informed by `s2-compiler-plan.md` and the S3 storage
+plan. Baseline: S1 structure commit `d6b4707c65`.
+
+- Compiler/numeric owner (`develop_frame_services`, gpt-6.1-sol high): pure
+  expression algebra and schema inference; one FrameInput and one closed
+  FrameCompute stage in the existing QueryPlan; source child plan composition;
+  exhaustive demand/lowering/fusion rules; existing scheduler dispatch;
+  data-only ordinary kernels and a typed attachment sidecar. Owns compiler,
+  scheduling/execution handoff files and new focused plan/execution tests.
+- DSL/evaluation owner (`develop_frame_structure`, gpt-6.1-sol high): Frame
+  ordinary methods and compute/show/export, pure shared source capture and
+  current structure adaptation, explicit source bindings, runless evaluation,
+  one source-free completed-result/audit aggregate, and focused lifecycle tests.
+  Uses module-private source builders instead of temporary public Session APIs.
+- The pure compile tree has source graph leaves, fixed input-ID/schema leaves
+  and admitted ordinary operations. Invocation-only source/fixed bindings and
+  callbacks never enter completed backing. Source children are composed into
+  the same schedule, not executed through a second scheduler.
+- Validate full fixed data before projection, Top-0 or consumer checks;
+  preserve source checks before stripping execution layout/components. Close
+  every source owner before returning independent complete data. Compute never
+  acquires writer admission or creates Run, journal or output files.
+- FrameCompute is a concrete closed QueryStage variant; do not add another
+  optional program arm to LocalCompute. Inference has one owner shared by DSL
+  construction and concrete planning. S3 supplies actual stored reads/publish.
+- Source facts must be exact and source-free: current OutputEvidence supports
+  pure scalar facts without a text-length limit; canonical filter tokens can
+  represent scalar source constraints. Membership/Population token fingerprints
+  cannot replace actual complete-key scope. Preserve full parameter facts and
+  test long filters/keys; do not store Metric formulas or producer graphs.
+- Calendar encoding handoff is in `calendar-codec-contract.md`: freeze civil
+  day+ labels, offset-bearing subday labels, canonical named keys and original
+  finite-axis ordinals. Named descriptors need explicit level before S3.
+  Structured grain capture requires a producer fix because the current grid
+  and CalendarCoordinate keep display tokens only; decide that exact narrow
+  producer change before implementing calendar extraction, not by parsing
+  display text. Ordinary work can proceed independently.
+
+Calendar producer choice is now fixed for S2: retain authoritative `grain_spec:
+Grain` in BoundTimeGrid and CalendarCoordinate, derive existing grain_token/
+grain display properties, update the one grid constructor, two coordinate
+producers and direct test fixtures, and replace the existing source consumers'
+token parsing with structured fields. The existing definition graph already
+encodes TemporalGrain. The lifecycle owner owns this narrow upstream change;
+no new registry, side cache or current-model lookup is added. This is not a
+change to the frozen accepted S1 candidate. Add named `level` before S3 fixes
+the new wire format.
+
+After joint S2 acceptance, commit compiler/execution first, then DSL/evaluation.
+Compiler production/tests use the S1 data API plus their own new stage algebra;
+they do not depend on the peer's new result/audit aggregate or public DSL.
+End-to-end Frame tests belong to the second package. This keeps each accepted
+commit independently importable while preserving the two-package ownership.
+
+Success: source/literal/memory compute and ordinary operations satisfy the
+assigned A03-A05/A13/A14/A16/A17/A19-A21 witnesses; all required checks and
+cleanup precede a result, memory operations do not reread source, and the
+completed result has no execution/source objects. Each package plans, develops,
+validates and receives at most two independent review rounds; commit each only
+after acceptance. Full stored and public cutover success remains S3-S8.
+
+S2 development is in progress. The closed stage union also requires explicit
+source-only dispatch in `compiler/queries.py`, `materialization/source_original.py`
+and `query_key_fusion.py`; these narrow consumers belong to the compiler owner.
+Fixed Frame stages must not enter source fusion. The lifecycle owner reports
+91 source-capture/structured-grain regression tests and nine-module typing
+passed; this is intermediate evidence, not S2 acceptance. Its current result
+aggregate is `CompletedFrameResult(data, metadata)`, with one `FrameAudit` in
+metadata and evaluation time derived only from its current record. The source
+builders are shared through `dsl/source_capture.py`. Interfaces remain under
+development until the joint candidate is frozen.
+
+The store explorer is checking the S3 temporary Query gateway against the
+single new Frame protocol before S3 dispatch. This is read-only planning;
+no S3 production changes or additional codec are authorized by that task.
+
+S2 source-fact encoding is constrained to gated source-scope nodes: full scalar
+filter tokens and complete LiteralPopulation joint-key tuples, with inert
+set/project/product/filter and source identity/path facts where actually used.
+It has no decoder, replay, Metric formula or output production graph. An
+unsupported QueryKeys constraint fails explicitly rather than being replaced
+by a fingerprint or traversed into the old graph; S6 owns the actual fixed/lazy
+Frame-key bridge and its complete-key facts. Long strings, long membership
+lists and composite keys require exact-scope witnesses before S2 acceptance.
+
+Two development boundaries were clarified before final validation. First,
+compiler-to-materialization imports are forbidden by the existing import
+contract: the compiler owner extracts the existing pure schema classes into
+`core/data_schema.py`, with `artifact_data.py` explicitly reexporting those
+same class objects. This includes the already-authorized named calendar level;
+there is one type authority and no wire-name/behavior change. Second, source
+compute retains the existing datasource execution diagnostic logs. Target
+section 8.1 forbids persistent Run/Artifact/journal/intermediate-result saves,
+not existing source diagnostics. Pure memory/literal paths must create no files;
+source tests distinguish diagnostics from forbidden analysis/result state.
+No new logging mode or change to `_execution_log.py` is needed.
+
+Intermediate validation after schema extraction: compiler owner reports 152
+focused tests, 17-module typing and 19-file lint/import checks passed, with
+additional narrow Top-0/check-order cases afterward. Lifecycle owner reports
+seven end-to-end source cases passed, including source recompute, offline
+fixed derivation, row mean 55 versus original 1000/91, numeric/source-close
+failure without publication, complete long-scope facts, general composite
+Population and isolated Session GC. An actual nullable source identity is
+rejected rather than accepted through relabelled metadata. These reports
+remain developer evidence; the joint default gate and independent S2 review
+were pending when those reports were produced.
+
+Compiler package is now frozen and its first independent review is running.
+Candidate: the exact 19 paths in `s2-compiler-review-1-manifest.json`, manifest
+SHA256 `ad2b9a82edfa8406186a8df01617331b5c2724dcd203f034ad4d31bd88e96bf8`,
+against S1 commit `d6b4707c65`. Final developer checks are 152 selected
+regressions, followed by 27 focused tests after three test-only corruption
+witnesses; 17-source typing and 19-file lint/import checks pass. Full report:
+`s2-execution-result.md`. Lifecycle development is outside this frozen review
+scope; joint default acceptance still waits for both packages.
+
+Compiler first review has a reproduced fixed-input validation issue: a corrupt
+unused float column containing positive infinity survives Top-0, projection or
+a constant-false filter, despite the finite-float contract. Raw independent
+probe: `s2-compiler-review-1-nonfinite.log`. The frozen files remain unchanged
+until the first report is complete; this issue blocks acceptance. Lifecycle
+final developer checks passed 42 focused tests, 15-source typing and 20-file
+lint/import checks, then a pre-freeze self-check found the known ReadFields
+wrapper needed a gated source-scope extraction to preserve its Population
+constraint. That narrow fix and an actual read-scope witness are in progress.
+The joint default gate will follow required fixes on the final source.
+
+Lifecycle source is now frozen: `s2-lifecycle-frozen.sha256` records the exact
+20 owned files; report `s2-lifecycle-result.md`. Final developer evidence is
+43 tests (5.73 seconds), 15-source typing and 20-file lint/import checks. It
+adds the second original-quantity witness (bucket distinct counts sum to 4,
+original distinct is 3), zero-axis Population empty/singleton, complete actual
+read scope and frozen-calendar cases. Fresh independent agent
+`review_s2_lifecycle` (gpt-6-astra high) is running its first review. No source
+or test writes are permitted until review feedback is assigned to its owner.
+
+Compiler review round 1 is complete: one P2, with a direct construction probe
+for both infinity signs (no private mutation). Isolated baseline-plus-19
+validation passed 27 new tests and 11 frozen-v1 tests; all hashes matched.
+Report: `s2-compiler-review-1.md`. The compiler developer is repairing the
+shared complete-data boundary within the same S2 task, preserving NA and
+covering primary/attachment data before downstream pruning.
+
+Lifecycle review round 1 independently reproduced a pending-card P2: source
+filters and local top/where expressions with the same structure cannot be
+distinguished except by input ID because captured scope, backing kinds and
+pending operation are omitted. Report is still in progress; no lifecycle
+source changes begin before it closes. The reviewer passed 76 focused
+lifecycle and existing source-original/correspondence regression tests.
+
+Lifecycle first review is complete with two P2 findings: the pending-card gap
+and a numeric-failure-plus-source-close-failure path that leaks the raw close
+exception through the evaluator's `ran` guard. Both remain no-publication
+failures, but require consistent structured errors. All 20 hashes matched;
+report `s2-lifecycle-review-1.md`. Its developer is planning/repairing both
+within the same task before the second and final independent round.
+
+Finite validation repair uncovered an existing intentional distinction:
+legacy transient Query selection permits infinite scores, so globally changing
+`normalize_stage_frame` would break that current contract. Keep transient
+normalization and add one shared `normalize_complete_frame` owner in
+graph_exchange for complete data. Compiler task enforces it for fixed inputs
+and after source adaptation, before pruning/transport; lifecycle task wires
+CompletedFrameData's primary/attachment construction to that same helper.
+This preserves independent compiler-first commits and avoids duplicate finite
+logic or unrelated legacy behavior changes. The initial global repair failure
+is retained as `s2-execution-repair-tests-after.log`.
+
+Compiler repair candidate is frozen for round 2 (the final independent round):
+`s2-execution-repair-manifest.json`, SHA256
+`1cf3791a1cbe51ed896b081e1c8eb332eed40d322591ec764768195eebdaa265`.
+Only two compiler-owned source files and two focused tests changed from
+round 1; the other 15 hashes are unchanged. Developer verification passed
+141 focused regressions (21.34 seconds), changed-source typing and
+lint/import checks, including the existing intentional transient-inf cases.
+
+Fresh explorer `explore_s6_bridge` completed the S6 same-scheduler/carrier plan
+in `s6-bridge-plan.md`, including the exact pre-consumption Deferred carrier
+seam. Coordinator clarified that two distinct stored handles with the same
+stable input identity must be compatible/share a read, not fail Python object
+identity. S6 development has not started. Fresh explorer
+`explore_s7_cutover_surface` is preparing the separate public-cutover plan
+from the existing S0 consumer inventory; it is read-only.
+
+Compiler final independent review: **No findings**. The original six direct
+infinity/pruning counterexamples all reject as MaterializationError; empty,
+NA and finite-data positive probes pass. Independent isolated regression ran
+109 tests, including legacy transient infinity selection and frozen-v1 golden
+shape checks; every one of the 19 candidate hashes matched. Report:
+`s2-compiler-review-2.md`. No third round is permitted or needed. Compiler
+acceptance/commit still awaits the joint default gate and lifecycle's actual
+constructor handoff review. Lifecycle repairs now pass the three originally
+failing card/cleanup cases and seven constructor finite/NA cases, with final
+focused/type verification underway before its second review.
+
+Both repaired packages are frozen. Joint final source manifest covers 757
+source/test files: `s2-joint-final-source-manifest.json`, SHA256
+`474192f4c7342a96d7ca3ad16ccc083e9cfab79288fb80c91bcaec2a46af8f60`.
+Full-source typing passed all 312 modules (`s2-joint-typecheck.log`).
+Unrestricted default `make test` is running on that source; lifecycle's second
+and final independent review runs concurrently against its new 20-file
+manifest. Its final repair developer evidence is 119 actual related tests
+(not the initial estimated 143), followed by two narrow delta checks,
+15-source typing and 20-file lint/import checks. Fresh developer
+`develop_s4_ordinary` may only prepare its S4 plan while this candidate is
+frozen; no S4 source changes are dispatched yet.
+
+Lifecycle final independent review: **No findings**; both original P2 findings
+are resolved. Independent actual DuckDB source infinity probes reject full,
+Top-0, projection and false-filter variants; nullable data and isolation pass.
+All 20 hashes match, with 52 focused tests passed (8.79 seconds). Report:
+`s2-lifecycle-review-2.md`. Both S2 tasks have used their two review rounds.
+
+The first joint unrestricted default run finished **4,163 passed / 1 failed**
+(2,927 warnings, 149.68 seconds). The sole failure is an outdated test spy in
+`test_metric_observation_resolution.py`: it patches the old query-module
+location of `consume_metric_in_state`, now correctly owned by shared
+`source_capture.py`. The lifecycle owner is authorized to retarget only that
+spy while preserving resolution-count, contribution and numerical assertions.
+No production change or compatibility export is needed. Coordinator will
+inspect the test-only diff and rerun default tests; this is integration
+verification, not a third independent review round. The original failure log
+remains intact as `s2-joint-default-tests.log`.
+
+S2 final acceptance: coordinator inspected the exact three spy-owner changes;
+all original assertions remain. The 20 reviewed lifecycle paths and all
+runtime sources are unchanged. The final 757-file manifest is
+`s2-accepted-source-manifest.json`, SHA256
+`d2c549587d6b195da4d8c26803cd9214ee03f50203531c20f3793cdaa110c506`.
+Final unrestricted default tests passed **4,164 tests** (2,927 warnings,
+137.80 seconds), raw `s2-final-default-tests.log`. Full 312-module typing
+remains valid for this exact source. Both final independent reviews are clear.
+No external Runtime/release or public-cutover claim is made. Commit the
+accepted 19-file compiler package first, then the 21-file lifecycle package;
+there are no unowned worktree changes. Preserve the peer package during
+normal hooks and verify all 757 content hashes after restoration.
+
+## Post-S2 sequencing decision
+
+The read-only `s3-gateway-handoff.md` confirms that legacy identity-relation
+correspondence has no lossless representation in the target calendar-only
+paired axis. Keeping every legacy Query route across a Store 12 switch would
+also require temporary durable audit variants and substantial adapter code
+whose sole consumer is retired at S7. Do not implement that transitional
+legacy evaluator, second protocol, or permanent legacy audit vocabulary.
+
+Use the implementation plan's permitted early S4/S6 data foundations after
+S2, and develop the source-free calendar producer/matcher against the frozen
+coordinate contract when its ordinary pairing prerequisite is ready. Accept
+and commit these explicitly scoped private subtasks; their stage exits still
+await Store/cold witnesses. Coordinate the Store 12 active writer switch with
+the S7 runtime entry-point and unsupported-receiver retirement in one reviewed
+candidate. The final publisher consumes only the completed S2 result. Surface
+documentation and the remaining persistent/cold acceptance follow the same
+final contract. No claim of full S3-S6 acceptance precedes those witnesses.
+
+This sequencing preserves one final protocol and avoids a publicly published
+intermediate API. It changes implementation order, not the target or A01-A24
+requirements. S3 remains planned, not accepted. The ordinary S4 plan is being
+prepared before its development dispatch.
 
 ## Evidence and limitations
 
