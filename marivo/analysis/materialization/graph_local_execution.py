@@ -8,6 +8,7 @@ from typing import TypeAlias
 import pandas as pd
 
 from marivo.analysis.compiler.graph_plan import FrameCompute, LocalCompute
+from marivo.analysis.compiler.query_program import FrameCombineProgram
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
     StageOutput,
@@ -28,7 +29,11 @@ def run_local(
 
         frame = evaluate_frame(stage, tuple(item.table for item in inputs))
         required = required_attachments(stage.program.output_schema)
-        attachments = tuple(a for a in inputs[0].frame_attachments if a.name in required)
+        attachments = (
+            ()
+            if isinstance(stage.program, FrameCombineProgram)
+            else tuple(a for a in inputs[0].frame_attachments if a.name in required)
+        )
         if {a.name for a in attachments} != set(required):
             raise MaterializationError(
                 expected="all required frozen coordinate attachments",

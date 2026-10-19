@@ -2,7 +2,7 @@
 
 Date: 2026-10-19
 
-Status: S0-S2 accepted; S2 local commits in progress. This record tracks implementation, not release or
+Status: S0-S2 accepted and committed; S4 ordinary foundation accepted for commit. This record tracks implementation, not release or
 provider qualification. The public API remains unchanged until S7.
 
 ## Authority and baseline
@@ -63,9 +63,9 @@ provider qualification. The public API remains unchanged until S7.
 | --- | --- | --- | --- | --- |
 | S0 | Freeze target; trace producers/consumers; pin signatures, axis fields, retirement and error order | A01-A24 ownership | Complete: no review findings | 1/2 |
 | S1 | Closed structure/carriers, name paths, precise input binding, local service split | A01/A02/A14/A17 | Complete: both packages committed | Structure 2/2; services 1/2 |
-| S2 | Shared evaluation without publication; fixed leaves; ordinary operators and memory result extraction | A03-A05/A13/A14/A16/A17/A19-A21 | Accepted; compiler/lifecycle commits next | Compiler 2/2 clear; lifecycle 2/2 clear |
-| S3 | Store 12, lossless output/attachments, stored reader, audit and atomic publication | A02/A03/A14-A23 | Pending S2 | 0/2 |
-| S4 | Full-axis alignment/comparison, independent presence and deterministic order | A06-A08/A11/A19 | Pending S2; exit needs S3 | 0/2 |
+| S2 | Shared evaluation without publication; fixed leaves; ordinary operators and memory result extraction | A03-A05/A13/A14/A16/A17/A19-A21 | Complete: both packages committed | Compiler 2/2 clear; lifecycle 2/2 clear |
+| S3 | Store 12, lossless output/attachments, stored reader, audit and atomic publication | A02/A03/A14-A23 | Planned; active switch coordinated with S7 after private foundations | 0/2 |
+| S4 | Full-axis alignment/comparison, independent presence and deterministic order | A06-A08/A11/A19 | Developing ordinary private subtask; full exit needs S3/S5 | 0/2 |
 | S5 | Frozen calendars, partial nominal matches and single-level paired coordinates | A07-A11/A14/A15/A18/A19 | Pending S3/S4 | 0/2 |
 | S6 | Explicit Population bridge, fixed versus lazy selection, complete joint keys | A04/A12/A14/A15 | Pending S2; exit needs S3/S5 | 0/2 |
 | S7 | One public API; consumer-traced retirement; Help, errors, CLI, docs, skills and cutover notes | A01/A13/A16/A23/A24 | Pending S1-S6 | 0/2 |
@@ -491,6 +491,133 @@ source/test hashes matched, and only that verified temporary stash was dropped.
 Both preexisting user stashes remain unchanged. The lifecycle package is
 accepted and restored, ready for its separate commit.
 
+S2 lifecycle accepted commit:
+`1870657b0a9cffc4d446bff0441b68bd4bc54978` (`feat: compute AnalysisFrames
+without publication`). Exact 21 source/test paths plus progress record were
+committed. Normal hooks, including full-source mypy and import contracts,
+passed. All 757 accepted content hashes still match; worktree was clean and
+both original user stashes unchanged after verification. S2 is complete for
+its private source/literal/memory scope, not stored/public-cutover scope.
+
+## S4 ordinary foundation plan and dispatch
+
+Fresh developer `develop_s4_ordinary` (gpt-6.1-sol high) completed and received
+coordinator acceptance of `s4-ordinary-implementation-plan.md` before source
+edits. Starting point is S2 commit `1870657b0a`. It owns the closed binary
+operation/inference and audit additions; Frame compiler/program/local dispatch;
+new pure `methods/frame_comparison.py`; private DSL methods and their bounded
+metadata/audit wiring; focused ordinary correspondence/plan tests. Exact paths
+and proposed interfaces are in the accepted plan. Additional ownership needs
+the concrete consumer reason first. This agent will not receive S5/S6 tasks.
+
+Deliver ordinary field/identity complete explicit maps and zero-axis inference
+through the same scheduler. Validate full-key exact/outer domains, left-first
+row order, four compare value groups, independently inherited presence, NA/
+zero/Duration/Decimal/overflow rules and strict obligations before pruning.
+Self-combination reads a shared input once while counting both consumer
+references. Use hand-built numerical/key/order oracles and actual source-plus-
+fixed integration, with no semantic ComparisonEndpoint or second executor.
+S5 still owns all calendar matching/shared-directory cases; S3 still owns
+stored/cold witnesses. This subtask's acceptance must not claim those stage
+exits. Independent fresh review is limited to two rounds before its local
+accepted commit. Source development is now dispatched within that scope.
+
+Fresh developer `develop_s6_bridge` is preparing its own concrete implementation
+plan only. It confirmed the target does not require nonempty `on`: the existing
+zero-axis Population contract distinguishes singleton `{()}` from the empty
+domain, using an internal unit marker for physical transport. The bridge will
+preserve this for explicit `on=()` without reading rows during construction.
+Its proposed independent carrier/definition/DSL phase waits for coordinator
+acceptance; shared compiler/evaluator changes wait for S4 handoff. Fresh
+explorer `explore_s5_calendar_match` is planning pure frozen-calendar matching
+and the S3 codec/interpretation handoff. Neither task has source-edit dispatch.
+
+Coordinator accepted `s6-bridge-implementation-plan.md` after its focused
+producer/consumer trace. Phase A has eight exclusive definition/carrier/DSL
+paths and a construction test; phase B attaches original Deferred sidecars
+before capture, then eliminates a compiler-only Frame-key leaf into one
+existing schedule and qualified parameter transport. Both are internal phases
+of this single assigned S6 foundation task, with one final independent review
+and accepted commit. Compatible independently opened stored handles share an
+exact input ID; `on=()` retains empty-versus-singleton semantics. S6 remains
+idle before source dispatch while S4 freezes its acceptance candidate.
+
+S4 ordinary candidate is frozen at its exact 12-path manifest
+`d4b768529cac5610c9fdeeb0b69ced72b0fc013d2866b1b77fb3d54a0714eada`.
+Focused regression: 245 passed; the subsequent two-case delta overlaps one
+test and is not added as 247 distinct tests. All ten modified source modules
+passed typing; all twelve paths passed lint/format/import checks. Coordinator
+unrestricted `make test` passed **4,217 tests**, 2,927 warnings, 132.75 seconds
+(`s4-ordinary-default-tests.log`). A fresh `review_s4_ordinary` Astra high agent
+is independently reviewing round one. No S4 acceptance precedes that result.
+
+Fresh S5 explorer delivered `s5-calendar-match-plan.md`. Coordinator accepted
+the shared pure directory/map validator seam and the strict match-only partition
+checks, with ordinary calendar equality preserving original labels/ordinals.
+Presentation choice: retain raw-key MultiIndex exports and use isolated typed
+frozen interpretation attrs plus positive preview resolution; S3 owns the
+exporter/formatter integration. New developer `develop_s5_calendar_matching`
+is preparing its own plan before any source dispatch. New developer
+`develop_s3_storage_cutover` is refreshing the Store 12 plan against actual S2
+carriers and the coordinated S7 switch; its stale temporary Query gateway is
+explicitly excluded. Neither new developer has source-edit dispatch.
+
+S4 round-one independent probing found a concrete P2 despite the green default
+suite: valid Arrow nanosecond Timestamp/Duration keys at the minimum int64
+value become pandas `NaT` on scalar extraction and were collapsed to the null
+category by `_index`. Exact could accept unequal domains; outer could collapse
+two rows. Original probes/logs are retained as `s4-review-key-extrema.py` and
+`.log`. Round one is still completing; the frozen candidate remains unchanged
+until its complete repair request.
+
+S6 source phase A is now dispatched to its same assigned developer after the
+S4 default snapshot completed. Its eight exclusive paths are bounded by the
+accepted plan; `core/frame_data.py` ownership is only the SourceFrameBinding
+sidecar/import hunk. S5 may later receive the separate CompletedFrameData
+coordinate-validation hunk after explicit coordination. No S6 shared compiler,
+evaluator or public Session edit is dispatched yet.
+
+S4 first review completed with that single P2 and eight independently failing
+temporal-key regressions, plus 62 passing focused tests and randomized ordinary
+domain/arithmetic probes. Its same developer is repairing exact Arrow validity
+and temporal ticks before the second and final independent review. The original
+frozen default result remains historical evidence until the repair is retested.
+
+Coordinator accepted `s5-calendar-implementation-plan.md` and dispatched only
+its two new pure-core/test paths for internal phase A. The shared paired-map
+slot layout and presentation choice are now frozen in the implementation
+contract. Existing binary/compiler/evaluator files remain unavailable until S4
+acceptance. S5 phase B precedes S6 phase B on those shared files; S6 phase A
+continues independently. The refreshed S3 plan is accepted but remains idle
+before implementation dispatch and the coordinated S7 runtime plan.
+
+S4 repaired candidate is frozen in `s4-ordinary-repair-manifest.json`, SHA256
+`09e72875e1bf74fe8dd5c2dc338202f0d0778ac4918a46ba0f6981782804bdcd`.
+Only the authorized kernel/test paths differ from round one. Arrow validity
+and physical integer ticks/days preserve real temporal extrema separately from
+null. Original eight independent failures now pass; 137 focused regressions
+and changed typing/lint/import checks passed. Final independent round two:
+**No findings** (`s4-ordinary-review-2.md`), including the unchanged original
+eight, nine neighboring joint temporal-key probes and 75 focused tests. No
+P2+ remains in this bounded ordinary task; no third review is planned.
+
+Both active S5/S6 developers explicitly paused source writes and checks. Their
+exact nine current paths are isolated in verified temporary stash
+`c3e1dbd4e447971bd17622d002886f0c83545b77`; original hashes are in
+`s4-peer-isolation-manifest.json`. The two original user stashes remain intact.
+Coordinator final isolated default tests and normal-hook commit follow, then
+restore/hash verification before peer resume. Fresh developer
+`develop_s7_runtime_cutover` is preparing its own plan only, based on the
+accepted S3 storage and S5/S6 interfaces. No S7 source dispatch has occurred.
+
+S4 final isolated acceptance: unrestricted `make test` passed **4,230 tests**,
+2,927 warnings, 132.06 seconds (`s4-ordinary-final-default-tests.log`). The exact
+repaired twelve paths still match the final independent review. Source/test
+content is frozen in `s4-ordinary-accepted-source-manifest.json`. Accept this
+bounded ordinary field/identity/zero-axis foundation and commit its twelve
+paths plus owning contract/progress records with normal hooks. Stored/cold
+S4 witnesses, S5 matching, S6 bridging and public cutover remain pending.
+
 ## Post-S2 sequencing decision
 
 The read-only `s3-gateway-handoff.md` confirms that legacy identity-relation
@@ -512,8 +639,8 @@ final contract. No claim of full S3-S6 acceptance precedes those witnesses.
 
 This sequencing preserves one final protocol and avoids a publicly published
 intermediate API. It changes implementation order, not the target or A01-A24
-requirements. S3 remains planned, not accepted. The ordinary S4 plan is being
-prepared before its development dispatch.
+requirements. S3 remains planned, not accepted. The ordinary S4 foundation is
+in development under its accepted plan.
 
 ## Evidence and limitations
 

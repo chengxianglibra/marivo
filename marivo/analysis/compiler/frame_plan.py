@@ -31,16 +31,19 @@ from marivo.analysis.compiler.native_formula import (
     NativeOriginalPhaseFinish,
 )
 from marivo.analysis.compiler.observation import FormulaProgram
-from marivo.analysis.compiler.query_program import DurationBinary, FrameProgram
+from marivo.analysis.compiler.query_program import DurationBinary, FrameCombineProgram, FrameProgram
 from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import DurationDataType, ScalarDataType
 from marivo.analysis.core.frame_expression import (
+    AlignFrameValues,
+    CompareFrameValues,
     FixedFrameInput,
     FrameExpression,
     FrameOperation,
     SourceFrameInput,
     expression_type,
     expressions,
+    infer_frame_combine_schema,
     infer_frame_schema,
 )
 from marivo.analysis.core.frame_structure import require_complete_structure
@@ -195,6 +198,7 @@ def plan_frame(
     boundaries: list[tuple[str, str]] = []
     leaves: dict[str, tuple[str, DataSchema]] = {}
     identities: dict[str, SourceFrameInput | FixedFrameInput] = {}
+    operations: dict[int, tuple[str, DataSchema]] = {}
 
     def visit(node: FrameExpression) -> tuple[str, DataSchema]:
         if isinstance(node, (SourceFrameInput, FixedFrameInput)) and node.input_id in leaves:
@@ -253,6 +257,25 @@ def plan_frame(
             identities[node.input_id] = node
             return result
         assert isinstance(node, FrameOperation)
+        existing = operations.get(id(node))
+        if existing is not None:
+            return existing
+        if isinstance(node.operation, (AlignFrameValues, CompareFrameValues)):
+            if len(node.inputs) != 2:
+                reject(
+                    "two explicit binary inputs",
+                    str(len(node.inputs)),
+                    "Bind both Frame inputs.",
+                    "frame.plan",
+                )
+            left, left_schema = visit(node.inputs[0])
+            right, right_schema = visit(node.inputs[1])
+            output_schema = infer_frame_combine_schema(left_schema, right_schema, node.operation)
+            binary = FrameCombineProgram(node.operation, left_schema, right_schema, output_schema)
+            compute = FrameCompute(f"frame:{len(stages)}", (left, right), binary)
+            stages.append(compute)
+            operations[id(node)] = (compute.stage_id, output_schema)
+            return compute.stage_id, output_schema
         if len(node.inputs) != 1:
             reject(
                 "one explicit input for an ordinary Frame operation",
@@ -283,11 +306,18 @@ def plan_frame(
         )
         compute = FrameCompute(f"frame:{len(stages)}", (source,), program)
         stages.append(compute)
+        operations[id(node)] = (compute.stage_id, output_schema)
         return compute.stage_id, output_schema
 
     output, schema = visit(root)
     consumers = tuple(
-        (s.stage_id, tuple(c.stage_id for c in stages if s.stage_id in c.inputs)) for s in stages
+        (
+            s.stage_id,
+            tuple(
+                c.stage_id for c in stages for dependency in c.inputs if dependency == s.stage_id
+            ),
+        )
+        for s in stages
     )
     plan = QueryPlan(
         tuple(stages),

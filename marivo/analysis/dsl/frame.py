@@ -7,11 +7,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 from json import dumps
-from typing import TypeAlias
+from typing import Literal, TypeAlias
 from uuid import uuid4
 
 import pandas as pd
 
+from marivo._definition.correspondence import CalendarCorrespondence
 from marivo._definition.query import (
     CoordinateSlot,
     FilterValues,
@@ -41,7 +42,13 @@ from marivo.analysis.core.frame_data import (
     SourceFrameBinding,
     StoredFrameBacking,
 )
-from marivo.analysis.core.frame_expression import FrameOperationKind, infer_frame_schema
+from marivo.analysis.core.frame_expression import (
+    AlignFrameValues,
+    CompareFrameValues,
+    FrameUnaryOperationKind,
+    infer_frame_combine_schema,
+    infer_frame_schema,
+)
 from marivo.analysis.core.frame_source_facts import captured_source_scopes
 from marivo.analysis.core.frame_structure import (
     PendingDataSchema,
@@ -289,7 +296,7 @@ class AnalysisFrame:
             )
         return statistic
 
-    def _derive(self, operation: FrameOperationKind) -> AnalysisFrame:
+    def _derive(self, operation: FrameUnaryOperationKind) -> AnalysisFrame:
         structure = infer_frame_schema(self._schema, operation)
         return self._from_expression(
             self._local, structure, OperationFrameBinding(operation, (self,))
@@ -392,6 +399,144 @@ class AnalysisFrame:
             value_name(name, location="frame.reduce")
             statistics.append((name, self._bind_statistic(value).definition))
         return self._derive(ReduceValues(tuple(statistics), positions))
+
+    def _combine(
+        self,
+        other: AnalysisFrame,
+        *,
+        on: tuple[tuple[FrameAxis, FrameAxis], ...] | None,
+        match: CalendarCorrespondence | None,
+        how: Literal["exact", "outer"],
+        zero_denominator: Literal["null", "error"] | None,
+    ) -> AnalysisFrame:
+        if (
+            how not in ("exact", "outer")
+            or zero_denominator not in (None, "null", "error")
+            or (match is not None and not isinstance(match, CalendarCorrespondence))
+            or (
+                on is not None
+                and (
+                    type(on) is not tuple
+                    or any(
+                        type(pair) is not tuple
+                        or len(pair) != 2
+                        or any(not isinstance(axis, FrameAxis) for axis in pair)
+                        for pair in on
+                    )
+                )
+            )
+        ):
+            reject(
+                "closed binary policies and a tuple of FrameAxis pairs",
+                repr((on, match, how, zero_denominator)),
+                "Use complete FrameAxis pairs and exact/outer, null/error policies.",
+                "frame.combine",
+            )
+        if not isinstance(other, AnalysisFrame) or other._local.owner != self._local.owner:
+            reject(
+                "Frame inputs from the same Store and Session",
+                repr(other),
+                "Use two inputs owned by the same Session.",
+                "frame.combine",
+            )
+        left_axes, right_axes = self.axes, other.axes
+        if any(axis.role == "paired" for axis in (*left_axes, *right_axes)):
+            reject(
+                "inputs without paired axes",
+                repr((left_axes, right_axes)),
+                "Reduce away paired axes or construct new source inputs.",
+                "frame.combine",
+            )
+        if len(left_axes) != len(right_axes):
+            reject(
+                "equal complete axis counts",
+                repr((len(left_axes), len(right_axes))),
+                "Reduce or reconstruct inputs with compatible axes.",
+                "frame.combine",
+            )
+        if on is None:
+            if left_axes:
+                reject(
+                    "a complete explicit axis bijection",
+                    repr((left_axes, right_axes)),
+                    "Pass on with every complete axis exactly once; ordinary axes cannot be inferred. Calendar inference joins S5 before public cutover.",
+                    "frame.combine",
+                )
+            on = ()
+        if (
+            len(on) != len(left_axes)
+            or {a.token for a, _ in on} != {a.token for a in left_axes}
+            or {b.token for _, b in on} != {b.token for b in right_axes}
+        ):
+            reject(
+                "a complete explicit axis bijection",
+                repr(on),
+                f"Bind each complete axis once from {left_axes!r} to {right_axes!r}.",
+                "frame.combine",
+            )
+        pairs = tuple((self._axis_index(a), other._axis_index(b)) for a, b in on)
+        if match is not None:
+            reject(
+                "no calendar match on ordinary or zero-axis inputs",
+                repr(match),
+                "Use equality for ordinary inputs; calendar matching joins S5 before public cutover.",
+                "frame.combine",
+            )
+        operation = (
+            AlignFrameValues(pairs, how)
+            if zero_denominator is None
+            else CompareFrameValues(pairs, how, zero_denominator)
+        )
+        schema = infer_frame_combine_schema(self._schema, other._schema, operation)
+        return self._from_expression(
+            self._local, schema, OperationFrameBinding(operation, (self, other))
+        )
+
+    def align(
+        self,
+        other: AnalysisFrame,
+        *,
+        on: tuple[tuple[FrameAxis, FrameAxis], ...] | None = None,
+        match: CalendarCorrespondence | None = None,
+        how: Literal["exact", "outer"] = "exact",
+    ) -> AnalysisFrame:
+        """Align all values by complete axes, adding independent row presence.
+
+        Pass same-Session ``other`` and a complete ``on`` bijection for ordinary
+        axes, for example ``left.align(right, on=((left.axes[0], right.axes[0]),))``.
+        ``how`` selects exact domains or an ordered outer union. Zero-axis inputs
+        may omit ``on``. Calendar ``match`` support belongs to the later private
+        calendar stage. Returns a lazy AnalysisFrame without reading input rows.
+        """
+        return self._combine(other, on=on, match=match, how=how, zero_denominator=None)
+
+    def compare(
+        self,
+        baseline: AnalysisFrame,
+        *,
+        on: tuple[tuple[FrameAxis, FrameAxis], ...] | None = None,
+        match: CalendarCorrespondence | None = None,
+        how: Literal["exact", "outer"] = "exact",
+        zero_denominator: Literal["null", "error"] = "null",
+    ) -> AnalysisFrame:
+        """Compare all equal named numeric values with matching units.
+
+        ``baseline``, ``on``, ``match`` and ``how`` follow align. For example,
+        ``current.compare(baseline, on=((current.axes[0], baseline.axes[0]),))``
+        returns a lazy Frame with left/right/absolute/relative value groups.
+        Relative change divides the difference by the absolute baseline;
+        ``zero_denominator`` selects null/error only after missing/NA masking.
+        """
+        if zero_denominator not in ("null", "error"):
+            reject(
+                "a null/error zero-denominator policy",
+                repr(zero_denominator),
+                "Use zero_denominator='null' or 'error'.",
+                "frame.compare",
+            )
+        return self._combine(
+            baseline, on=on, match=match, how=how, zero_denominator=zero_denominator
+        )
 
     def compute(self) -> AnalysisFrame:
         """Evaluate explicit inputs without publishing; complete memory returns itself."""
@@ -575,6 +720,14 @@ def _operation_summary(binding: OperationFrameBinding) -> str:
             f"top(n={operation.n}, by={_value_summary(operation.score, source)}, "
             f"descending={operation.descending})"
         )
+    if isinstance(operation, (AlignFrameValues, CompareFrameValues)):
+        name = "compare" if isinstance(operation, CompareFrameValues) else "align"
+        policy = (
+            f", zero_denominator={operation.zero_denominator!r}"
+            if isinstance(operation, CompareFrameValues)
+            else ""
+        )
+        return f"{name}(on={operation.pairs!r}, how={operation.how!r}{policy})"
     statistics = tuple(
         (
             name,

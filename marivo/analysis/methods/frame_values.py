@@ -7,6 +7,7 @@ import pyarrow as pa
 
 from marivo._definition.query import FilterValues, ReduceValues, SelectValues, TopValues
 from marivo.analysis.compiler.graph_plan import FrameCompute
+from marivo.analysis.compiler.query_program import FrameCombineProgram
 from marivo.analysis.core.data_types import DecimalDataType, DurationDataType, ScalarDataType
 from marivo.analysis.methods.numeric_state import checked_sum, finish_division, finish_float64
 from marivo.analysis.methods.physical import DecimalType, DurationType, stage_arrow_type
@@ -16,6 +17,10 @@ from marivo.semantic._numeric_lowering import numeric_failure
 
 def evaluate_frame(stage: FrameCompute, inputs: tuple[pd.DataFrame, ...]) -> pd.DataFrame:
     program = stage.program
+    if isinstance(program, FrameCombineProgram):
+        from marivo.analysis.methods.frame_comparison import combine_frames
+
+        return combine_frames(program, inputs)
     operation = program.operation
     source = inputs[0].reset_index(drop=True)
     output = program.output_schema

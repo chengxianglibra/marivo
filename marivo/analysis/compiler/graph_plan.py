@@ -10,6 +10,7 @@ from marivo._definition.expressions import FieldPredicate
 from marivo._definition.relations import PopulationDependency
 from marivo.analysis.compiler.query_program import (
     EMPTY_QUERY_CONTEXT,
+    FrameCombineProgram,
     FrameProgram,
     QueryContext,
     QueryParameter,
@@ -149,7 +150,7 @@ class FrameCompute:
 
     stage_id: str
     inputs: tuple[str, ...]
-    program: FrameProgram
+    program: FrameProgram | FrameCombineProgram
 
     @property
     def columns(self) -> tuple[DataColumn, ...]:

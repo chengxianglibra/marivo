@@ -20,7 +20,10 @@ if TYPE_CHECKING:
     from marivo.analysis.compiler.observation import FormulaProgram
     from marivo.analysis.compiler.original import DrillSchema
     from marivo.analysis.core.data_schema import DataSchema
-    from marivo.analysis.core.frame_expression import FrameOperationKind
+    from marivo.analysis.core.frame_expression import (
+        FrameBinaryOperationKind,
+        FrameUnaryOperationKind,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,7 +100,7 @@ class ResultProgram:
 class FrameProgram:
     """One data-only operation over current concrete directories."""
 
-    operation: FrameOperationKind
+    operation: FrameUnaryOperationKind
     input_schema: DataSchema
     output_schema: DataSchema
     statistic_types: tuple[DataType, ...] = ()
@@ -110,3 +113,13 @@ class FrameProgram:
     @property
     def key_groups(self) -> tuple[tuple[str, ...], ...]:
         return tuple(tuple(c.slot_id for c in axis.columns) for axis in self.input_schema.axes)
+
+
+@dataclass(frozen=True, slots=True)
+class FrameCombineProgram:
+    """Two explicit ordinary inputs and their fully inferred current output."""
+
+    operation: FrameBinaryOperationKind
+    left_schema: DataSchema
+    right_schema: DataSchema
+    output_schema: DataSchema

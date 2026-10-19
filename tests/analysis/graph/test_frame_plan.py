@@ -336,3 +336,83 @@ def test_native_source_child_keeps_one_prefixed_schedule(
             assert refused.reads == ()
     assert output.table.iloc[0, 0] == 1
     assert seen and all(identifier.startswith("source:0/") for identifier in seen)
+
+
+@pytest.mark.parametrize("compare", [False, True])
+def test_binary_self_input_has_one_read_and_two_consumer_occurrences(compare: bool) -> None:
+    from marivo.analysis.compiler.query_program import FrameCombineProgram
+    from marivo.analysis.core.frame_expression import AlignFrameValues, CompareFrameValues
+
+    schema = _schema()
+    leaf = FixedFrameInput("shared", schema)
+    operation = CompareFrameValues(((0, 0),)) if compare else AlignFrameValues(((0, 0),))
+    expression = FrameOperation((leaf, leaf), operation)
+    compiled = plan_frame(expression, {})
+    plan = optimize_query(compiled.lowered.plan)
+    assert tuple(type(stage) for stage in plan.stages) == (FrameInput, FrameCompute)
+    combine = plan.stages[-1]
+    assert isinstance(combine, FrameCompute) and isinstance(combine.program, FrameCombineProgram)
+    assert combine.inputs == ("fixed:0", "fixed:0")
+    assert dict(plan.consumers)["fixed:0"] == (combine.stage_id, combine.stage_id)
+    reads = 0
+    captured: list[weakref.ReferenceType[pd.DataFrame]] = []
+
+    def fixed(stage: FrameInput) -> StageOutput:
+        nonlocal reads
+        reads += 1
+        output = StageOutput.from_frame(
+            pd.DataFrame({"key": [2, 1], "amount": [8, 3]}), schema.columns, schema.key_fields
+        )
+        captured.append(weakref.ref(output.table))
+        return output
+
+    def binary(stage: FrameCompute, inputs: tuple[StageOutput, ...]) -> StageOutput:
+        assert inputs[0] is inputs[1]
+        return run_local(stage, inputs)
+
+    output = run_query_plan(
+        plan, lambda s: None, lambda s, i: None, lambda c, o: None, fixed=fixed, frame=binary
+    )
+    assert output is not None and len(output.table) == 2 and reads == 1
+    gc.collect()
+    assert captured[0]() is None
+    assert plan.fusion_groups == ()
+
+
+def test_binary_and_unary_arities_are_closed() -> None:
+    from marivo.analysis.core.frame_expression import AlignFrameValues
+
+    leaf = FixedFrameInput("one", _schema())
+    for expression in (
+        FrameOperation((leaf,), AlignFrameValues(((0, 0),))),
+        FrameOperation((leaf, leaf), SelectValues((("copy", ValueSlot(0)),))),
+    ):
+        with pytest.raises(AnalysisError, match=r"explicit.*input"):
+            plan_frame(expression, {})
+
+
+def test_self_combination_reuses_the_exact_derived_expression_stage() -> None:
+    from marivo.analysis.core.frame_expression import CompareFrameValues
+
+    leaf = FixedFrameInput("shared", _schema())
+    selected = FrameOperation((leaf,), SelectValues((("amount", ValueSlot(0)),)))
+    compiled = plan_frame(FrameOperation((selected, selected), CompareFrameValues(((0, 0),))), {})
+    stages = compiled.lowered.plan.stages
+    assert tuple(type(stage) for stage in stages) == (FrameInput, FrameCompute, FrameCompute)
+    assert stages[-1].inputs == (stages[1].stage_id, stages[1].stage_id)
+    assert dict(compiled.lowered.plan.consumers)[stages[1].stage_id] == (
+        stages[-1].stage_id,
+        stages[-1].stage_id,
+    )
+
+
+def test_native_division_inference_uses_typed_nonnull_proxy() -> None:
+    from marivo._definition.query import ValueBinary
+
+    schema = _schema()
+    selected = infer_frame_schema(
+        schema, SelectValues((("ratio", ValueBinary("div", ValueSlot(0), ValueSlot(0))),))
+    )
+    assert selected.values[0].dtype == ScalarDataType("float64")
+    assert selected.values[0].nullable is True
+    assert selected.values[0].unit == "1"

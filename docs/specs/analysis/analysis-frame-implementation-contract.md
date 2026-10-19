@@ -205,3 +205,19 @@ actual bucket coverage for every match, even after filtering removes rows.
 S5 first builds a partial nominal correspondence without `how`, then applies
 exact/outer to actual complete row keys. Extra directory buckets add no rows.
 A partial actual bucket remains readable/persistable but cannot enter match.
+
+S5/S3 concrete attachment handoff: the paired-map key columns are exactly the
+PairedDataAxis columns. Ordered endpoint value slots/names are `left.<index>`
+then `right.<index>`, with segment paths `("left", str(index))` and
+`("right", str(index))`. Each endpoint column retains its exact physical type
+and is nullable. One pure core layout builder owns this schema; codec, reader
+and matching adapters consume it rather than maintaining separate inventories.
+Shared full-coordinate validation checks every declared directory/map and all
+primary key references. Matchability remains a separate stronger requirement.
+
+Pandas presentation retains raw physical coordinate keys under the existing
+MultiIndex. Full exports include isolated typed frozen interpretation in attrs;
+positive previews resolve only the displayed keys and required endpoints to
+captured labels/bounds. Metadata-only previews do not read attachments. This is
+a presentation choice within the target's self-contained interpretation and
+copy-isolation guarantees, not a new calculation contract or endpoint API.

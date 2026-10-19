@@ -9,7 +9,9 @@ from typing import Literal, TypeAlias
 from marivo.analysis.core.artifact_data import OutputEvidence, OutputFinding
 from marivo.analysis.core.model import reject
 
-FrameOperationName: TypeAlias = Literal["source", "literal", "select", "where", "top", "reduce"]
+FrameOperationName: TypeAlias = Literal[
+    "source", "literal", "select", "where", "top", "reduce", "align", "compare"
+]
 
 
 def _identity(value: str) -> None:
@@ -93,7 +95,8 @@ class EvaluationRecord:
                 "frame.audit",
             )
         if type(self.operations) is not tuple or any(
-            value not in ("source", "literal", "select", "where", "top", "reduce")
+            value
+            not in ("source", "literal", "select", "where", "top", "reduce", "align", "compare")
             for value in self.operations
         ):
             reject(

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
-from typing import TypeAlias, overload
+from typing import Literal, TypeAlias, overload
 
 import ibis
 
@@ -23,7 +23,7 @@ from marivo._definition.query import (
     ValueSlot,
     ValueUnary,
 )
-from marivo.analysis.core.data_schema import DataColumn, DataSchema
+from marivo.analysis.core.data_schema import DataAxis, DataColumn, DataSchema
 from marivo.analysis.core.data_types import (
     DataType,
     DecimalDataType,
@@ -31,16 +31,36 @@ from marivo.analysis.core.data_types import (
     ScalarDataType,
 )
 from marivo.analysis.core.frame_structure import (
+    AxisRole,
+    PendingDataAxis,
     PendingDataColumn,
     PendingDataSchema,
     ValueKind,
+    axis_role,
     column_kind,
     value_name,
 )
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import reject
 
-FrameOperationKind: TypeAlias = SelectValues | FilterValues | TopValues | ReduceValues
+FrameUnaryOperationKind: TypeAlias = SelectValues | FilterValues | TopValues | ReduceValues
+
+
+@dataclass(frozen=True, slots=True)
+class AlignFrameValues:
+    pairs: tuple[tuple[int, int], ...]
+    how: Literal["exact", "outer"] = "exact"
+
+
+@dataclass(frozen=True, slots=True)
+class CompareFrameValues:
+    pairs: tuple[tuple[int, int], ...]
+    how: Literal["exact", "outer"] = "exact"
+    zero_denominator: Literal["null", "error"] = "null"
+
+
+FrameBinaryOperationKind: TypeAlias = AlignFrameValues | CompareFrameValues
+FrameOperationKind: TypeAlias = FrameUnaryOperationKind | FrameBinaryOperationKind
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,7 +99,7 @@ def admitted(expression: ValueExpression) -> None:
         admitted(expression.right)
 
 
-def expressions(operation: FrameOperationKind) -> tuple[ValueExpression, ...]:
+def expressions(operation: FrameUnaryOperationKind) -> tuple[ValueExpression, ...]:
     if isinstance(operation, SelectValues):
         result = tuple(value for _, value in operation.values)
     elif isinstance(operation, FilterValues):
@@ -251,8 +271,8 @@ def expression_type(schema: DataSchema, value: ValueExpression) -> DataType:
                 "Use matching Duration units or a numeric scale.",
                 "frame.expression",
             )
-    values = tuple(ibis.literal(None, type=ibis_type(c.dtype)) for c in schema.values)
-    coordinates = tuple(ibis.literal(None, type=ibis_type(a.columns[0].dtype)) for a in schema.axes)
+    values = tuple(ibis.param(ibis_type(c.dtype)) for c in schema.values)
+    coordinates = tuple(ibis.param(ibis_type(a.columns[0].dtype)) for a in schema.axes)
     try:
         return data_type(expression_value(value, values, coordinates).type())
     except (TypeError, ValueError) as error:
@@ -294,15 +314,15 @@ def _pending_kind(schema: PendingDataSchema, expression: ValueExpression) -> Val
 
 
 @overload
-def infer_frame_schema(schema: DataSchema, operation: FrameOperationKind) -> DataSchema: ...
+def infer_frame_schema(schema: DataSchema, operation: FrameUnaryOperationKind) -> DataSchema: ...
 @overload
 def infer_frame_schema(
-    schema: PendingDataSchema, operation: FrameOperationKind
+    schema: PendingDataSchema, operation: FrameUnaryOperationKind
 ) -> PendingDataSchema: ...
 
 
 def infer_frame_schema(
-    schema: DataSchema | PendingDataSchema, operation: FrameOperationKind
+    schema: DataSchema | PendingDataSchema, operation: FrameUnaryOperationKind
 ) -> DataSchema | PendingDataSchema:
     values = expressions(operation)
     for operand in values:
@@ -422,4 +442,276 @@ def infer_frame_schema(
         schema.projection_columns if isinstance(operation, SelectValues) else (),
         paths,
         schema.presence_paths if isinstance(operation, SelectValues) else (),
+    )
+
+
+def _compare_type(left: DataType, right: DataType) -> DataType:
+    if isinstance(left, DurationDataType) or isinstance(right, DurationDataType):
+        if left == right:
+            return left
+    elif all(
+        isinstance(dtype, DecimalDataType)
+        or dtype in (ScalarDataType("int64"), ScalarDataType("float64"))
+        for dtype in (left, right)
+    ):
+        if ScalarDataType("float64") in (left, right):
+            return ScalarDataType("float64")
+        decimals = tuple(dtype for dtype in (left, right) if isinstance(dtype, DecimalDataType))
+        if not decimals:
+            return ScalarDataType("int64")
+        scale = max(dtype.scale for dtype in decimals)
+        integer = max(
+            dtype.precision - dtype.scale if isinstance(dtype, DecimalDataType) else 19
+            for dtype in (left, right)
+        )
+        return DecimalDataType(min(38, integer + scale), scale)
+    reject(
+        "compatible numeric types or matching exact Duration units",
+        repr((left, right)),
+        "Select compatible numeric values before compare.",
+        "frame.compare",
+    )
+
+
+def _pending_column(column: DataColumn | PendingDataColumn) -> PendingDataColumn:
+    return PendingDataColumn(
+        column.slot_id, column.name, column_kind(column), column.nullable, column.unit
+    )
+
+
+@overload
+def infer_frame_combine_schema(
+    left: DataSchema, right: DataSchema, operation: FrameBinaryOperationKind
+) -> DataSchema: ...
+@overload
+def infer_frame_combine_schema(
+    left: DataSchema | PendingDataSchema,
+    right: DataSchema | PendingDataSchema,
+    operation: FrameBinaryOperationKind,
+) -> DataSchema | PendingDataSchema: ...
+
+
+def infer_frame_combine_schema(
+    left: DataSchema | PendingDataSchema,
+    right: DataSchema | PendingDataSchema,
+    operation: FrameBinaryOperationKind,
+) -> DataSchema | PendingDataSchema:
+    """Derive one complete binary layout from captured current structures only."""
+    if type(operation.pairs) is not tuple or any(
+        type(pair) is not tuple or len(pair) != 2 or any(type(i) is not int for i in pair)
+        for pair in operation.pairs
+    ):
+        reject(
+            "immutable integer axis-index pairs",
+            repr(operation.pairs),
+            "Resolve complete axis handles before planning.",
+            "frame.combine",
+        )
+    if operation.how not in ("exact", "outer") or (
+        isinstance(operation, CompareFrameValues)
+        and operation.zero_denominator not in ("null", "error")
+    ):
+        reject(
+            "closed binary policies",
+            repr(operation),
+            "Use exact/outer and null/error policies.",
+            "frame.combine",
+        )
+    left_axes: tuple[DataAxis | PendingDataAxis, ...] = left.axes
+    right_axes: tuple[DataAxis | PendingDataAxis, ...] = right.axes
+    left_values: tuple[DataColumn | PendingDataColumn, ...] = left.values
+    right_values: tuple[DataColumn | PendingDataColumn, ...] = right.values
+    left_roles: tuple[AxisRole, ...] = tuple(
+        a.role if isinstance(a, PendingDataAxis) else axis_role(a) for a in left_axes
+    )
+    right_roles: tuple[AxisRole, ...] = tuple(
+        a.role if isinstance(a, PendingDataAxis) else axis_role(a) for a in right_axes
+    )
+    if "paired" in (*left_roles, *right_roles):
+        reject(
+            "inputs without paired axes",
+            repr((left_roles, right_roles)),
+            "Reduce away paired axes or construct new source inputs.",
+            "frame.combine",
+        )
+    if len(left.axes) != len(right.axes):
+        reject(
+            "equal complete axis counts",
+            repr((len(left.axes), len(right.axes))),
+            "Reduce or reconstruct inputs with compatible axes.",
+            "frame.combine",
+        )
+    if (
+        len(operation.pairs) != len(left.axes)
+        or {a for a, _ in operation.pairs} != set(range(len(left.axes)))
+        or {b for _, b in operation.pairs} != set(range(len(right.axes)))
+    ):
+        reject(
+            "a complete axis bijection",
+            repr(operation.pairs),
+            "Bind every complete axis exactly once.",
+            "frame.combine",
+        )
+    if "calendar" in (*left_roles, *right_roles):
+        reject(
+            "ordinary field/identity axes in this private slice",
+            repr((left_roles, right_roles)),
+            "Calendar correspondence joins the S5 implementation before public cutover.",
+            "frame.combine",
+        )
+    partners = dict(operation.pairs)
+    axis_columns: list[tuple[DataColumn | PendingDataColumn, ...]] = []
+    for i, axis in enumerate(left_axes):
+        other = right_axes[partners[i]]
+        if (
+            left_roles[i] != right_roles[partners[i]]
+            or len(axis.columns) != len(other.columns)
+            or axis.at != other.at
+        ):
+            reject(
+                "matching roles, complete key arity and time interpretation",
+                repr((axis, other)),
+                "Bind compatible complete axes.",
+                "frame.combine",
+            )
+        columns: list[DataColumn | PendingDataColumn] = []
+        left_components: tuple[DataColumn | PendingDataColumn, ...] = axis.columns
+        right_components: tuple[DataColumn | PendingDataColumn, ...] = other.columns
+        for a, b in zip(left_components, right_components, strict=True):
+            if isinstance(a, DataColumn) and isinstance(b, DataColumn):
+                compatible = a.dtype == b.dtype
+            else:
+                ak, bk = column_kind(a), column_kind(b)
+                compatible = ak == bk or "unresolved" in (ak, bk)
+            if not compatible:
+                reject(
+                    "equal complete physical key types",
+                    repr((a, b)),
+                    "Bind axes with matching complete key component types.",
+                    "frame.combine",
+                )
+            nullable = (
+                True
+                if a.nullable is True or b.nullable is True
+                else None
+                if a.nullable is None or b.nullable is None
+                else False
+            )
+            columns.append(
+                replace(a, nullable=nullable)
+                if isinstance(a, PendingDataColumn)
+                else replace(_pending_column(a), nullable=nullable)
+                if nullable is None
+                else replace(a, nullable=nullable)
+            )
+        axis_columns.append(tuple(columns))
+    compare = isinstance(operation, CompareFrameValues)
+    if compare and (not left.value_paths or set(left.value_paths) != set(right.value_paths)):
+        reject(
+            "equal nonempty complete value path sets",
+            repr((left.value_paths, right.value_paths)),
+            "Select and name the same complete numeric value paths on both inputs.",
+            "frame.compare",
+        )
+    absolute_types: list[DataType | None] = []
+    if compare:
+        for path, a in zip(left.value_paths, left_values, strict=True):
+            b = right_values[right.value_paths.index(path)]
+            kinds = (column_kind(a), column_kind(b))
+            if (
+                a.unit != b.unit
+                or any(k not in ("numeric", "duration", "unresolved") for k in kinds)
+                or ("duration" in kinds and "numeric" in kinds)
+            ):
+                reject(
+                    "matching units and comparable numeric values",
+                    repr((a, b)),
+                    "Select compatible values with equal units before compare.",
+                    "frame.compare",
+                )
+            absolute_types.append(
+                _compare_type(a.dtype, b.dtype)
+                if isinstance(a, DataColumn) and isinstance(b, DataColumn)
+                else None
+            )
+    paths = tuple(
+        (side, *path)
+        for side, schema in (("left", left), ("right", left if compare else right))
+        for path in schema.value_paths
+    )
+    if compare:
+        paths += tuple(
+            (side, *path) for side in ("absolute", "relative") for path in left.value_paths
+        )
+    presence_paths = (
+        ("left_present",),
+        ("right_present",),
+        *(
+            (side, *path)
+            for side, schema in (("left", left), ("right", right))
+            for path in schema.presence_paths
+        ),
+    )
+    pending = isinstance(left, PendingDataSchema) or isinstance(right, PendingDataSchema)
+    values: list[DataColumn | PendingDataColumn] = []
+    count = len(left.values)
+    for index, path in enumerate(paths):
+        side, original = path[0], path[1:]
+        source = right if side == "right" else left
+        column = source.values[source.value_paths.index(original)]
+        nullable = (
+            True
+            if side in ("absolute", "relative") or operation.how == "outer"
+            else column.nullable
+        )
+        unit = None if side == "relative" else column.unit
+        if pending:
+            kind = "numeric" if side == "relative" else column_kind(column)
+            values.append(PendingDataColumn(f"value.{index}", ".".join(path), kind, nullable, unit))
+        else:
+            assert isinstance(column, DataColumn)
+            dtype = (
+                ScalarDataType("float64")
+                if side == "relative"
+                else absolute_types[index % count]
+                if side == "absolute"
+                else column.dtype
+            )
+            assert dtype is not None
+            values.append(DataColumn(f"value.{index}", ".".join(path), dtype, bool(nullable), unit))
+    if pending:
+        axes = tuple(
+            PendingDataAxis(
+                a.token,
+                a.name,
+                left_roles[i],
+                tuple(_pending_column(c) for c in axis_columns[i]),
+                a.at,
+            )
+            for i, a in enumerate(left_axes)
+        )
+        return PendingDataSchema(
+            axes,
+            tuple(_pending_column(c) for c in values),
+            paths,
+            tuple(
+                PendingDataColumn(f"presence.{i}", ".".join(p), "boolean", False)
+                for i, p in enumerate(presence_paths)
+            ),
+            presence_paths,
+        )
+    concrete_axes: list[DataAxis] = []
+    for i, axis in enumerate(left_axes):
+        assert isinstance(axis, DataAxis)
+        concrete_columns = tuple(c for c in axis_columns[i] if isinstance(c, DataColumn))
+        concrete_axes.append(replace(axis, columns=concrete_columns))
+    return DataSchema(
+        tuple(concrete_axes),
+        tuple(c for c in values if isinstance(c, DataColumn)),
+        tuple(
+            DataColumn(f"presence.{i}", ".".join(p), ScalarDataType("boolean"), False)
+            for i, p in enumerate(presence_paths)
+        ),
+        value_paths=paths,
+        presence_paths=presence_paths,
     )

@@ -51,6 +51,8 @@ from marivo.analysis.core.frame_data import (
     StoredFrameBacking,
 )
 from marivo.analysis.core.frame_expression import (
+    AlignFrameValues,
+    CompareFrameValues,
     FixedFrameInput,
     FrameExpression,
     FrameOperation,
@@ -204,7 +206,11 @@ def evaluate_frame(frame: AnalysisFrame) -> CompletedFrameResult:
                 inputs = tuple(collect(child) for child in root.inputs)
                 expression: FrameExpression = FrameOperation(inputs, root.operation)
                 operation: FrameOperationName = (
-                    "select"
+                    "align"
+                    if isinstance(root.operation, AlignFrameValues)
+                    else "compare"
+                    if isinstance(root.operation, CompareFrameValues)
+                    else "select"
                     if isinstance(root.operation, SelectValues)
                     else "where"
                     if isinstance(root.operation, FilterValues)
