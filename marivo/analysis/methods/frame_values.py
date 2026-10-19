@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from fractions import Fraction
+
 import pandas as pd
 import pyarrow as pa
 
@@ -104,6 +106,30 @@ def evaluate_frame(program: FrameProgram, inputs: tuple[pd.DataFrame, ...]) -> p
                             if ticks
                             else None
                         )
+                    elif statistic.method == "mean" and (
+                        dtype == ScalarDataType("int64") or isinstance(dtype, DecimalDataType)
+                    ):
+                        # Components keep their admitted type; only the temporary total is wide.
+                        exact = sum(
+                            (
+                                Fraction(checked_sum((item,), stage_arrow_type(dtype)))
+                                for item in active.tolist()
+                            ),
+                            Fraction(),
+                        )
+                        if not len(active):
+                            value = None
+                        else:
+                            exact /= len(active)
+                            value = (
+                                finish_division(
+                                    exact.numerator,
+                                    exact.denominator,
+                                    DecimalType(column.dtype.precision, column.dtype.scale),
+                                )
+                                if isinstance(column.dtype, DecimalDataType)
+                                else float(exact)
+                            )
                     else:
                         total = checked_sum(active.tolist(), stage_arrow_type(dtype))
                         value = (
