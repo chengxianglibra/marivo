@@ -80,7 +80,7 @@ def test_filter_ast_uses_only_raw_column_comparisons(dialect: str) -> None:
     ast = sqlglot.parse_one(sql, read=dialect)
     where = ast.find(sge.Where)
     assert where is not None
-    comparisons = list(where.find_all((sge.GTE, sge.LT)))
+    comparisons = list(where.find_all(sge.GTE, sge.LT))
     assert len(comparisons) == 2
     assert all(isinstance(item.this, sge.Column) for item in comparisons)
     assert {item.expression.this for item in comparisons} == {"20260701", "20260801"}

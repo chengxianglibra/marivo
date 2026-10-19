@@ -1,7 +1,6 @@
 """Public source consumers preserve results and reads under encoded filtering."""
 
 from dataclasses import replace
-from datetime import datetime, timezone
 
 import duckdb
 import ibis.expr.types as ir
@@ -25,9 +24,9 @@ from tests.support.source_trace import SourceTrace
 
 def _member_frame(frame: pd.DataFrame) -> pd.DataFrame:
     result = pd.DataFrame({"value": frame[("value", "value")]})
-    for axis in frame.attrs["marivo"]["axes"]:
-        result["coord_0" if axis["kind"] == "calendar" else "member"] = frame[
-            ("coordinate", axis["column"])
+    for axis in frame.attrs["axes"]:
+        result["coord_0" if axis["role"] == "calendar" else "member"] = frame[
+            ("coordinate", axis["token"])
         ]
     return result
 
@@ -105,7 +104,7 @@ def test_observation_preserves_population_windows_and_query_count(
                 during=case.session.time_scope(start=start, end=end),
                 by=population,
             )
-            .execute()
+            .compute()
             .to_pandas()
             .pipe(_member_frame)
             .sort_values("member")
@@ -155,7 +154,7 @@ def test_observation_preserves_population_windows_and_query_count(
             during=case.session.time_scope(start="2026-08-01", end="2026-09-01"),
             by=orders,
         )
-        .execute()
+        .compute()
         .to_pandas()
     )
     assert len(direct) == 5
@@ -182,18 +181,28 @@ def test_grid_window_has_scan_envelope_and_preserves_cells(
     population = case.session.members(ms.ref.entity("sales.customer"))
 
     def execute() -> pd.DataFrame:
-        return (
+        rows = (
             case.session.observe(
                 {"value": case.session.catalog.metrics.get("sales.revenue")},
                 during=grid,
                 by=mv.product(grid, population),
             )
-            .execute()
+            .compute()
             .to_pandas()
-            .pipe(_member_frame)
-            .sort_values(["member", "coord_0"])
-            .reset_index(drop=True)
         )
+        # Check producer order before the separate membership normalization oracle.
+        assert rows.iloc[:, 0].tolist() == [0] * 4 + [1] * 4
+        assert rows.iloc[:, 1].tolist() == ["A", "B", "C", "D"] * 2
+        directory = rows.attrs["frozen_coordinates"][0]["rows"]
+        assert [stamp.isoformat() for stamp in directory["nominal_start"]] == [
+            "2026-08-01T00:00:00+00:00",
+            "2026-09-01T00:00:00+00:00",
+        ]
+        assert [stamp.isoformat() for stamp in directory["actual_end"]] == [
+            "2026-09-01T00:00:00+00:00",
+            "2026-10-01T00:00:00+00:00",
+        ]
+        return _member_frame(rows).sort_values(["member", "coord_0"]).reset_index(drop=True)
 
     optimized = execute()
     optimized_purposes = [purpose for purpose, _ in reads]
@@ -238,11 +247,7 @@ def test_grid_window_has_scan_envelope_and_preserves_cells(
                 or isinstance(default, (sge.Null, sge.Case))
                 or (isinstance(default, sge.Cast) and isinstance(default.this, sge.Null))
             )
-    assert (
-        optimized.coord_0.tolist()
-        == [datetime(2026, 8, 1, tzinfo=timezone.utc), datetime(2026, 9, 1, tzinfo=timezone.utc)]
-        * 4
-    )
+    assert optimized.coord_0.tolist() == [0, 1] * 4
     reads.clear()
     with monkeypatch.context() as baseline:
         baseline.setattr(source_time, "encoded_time_predicate", _no_inverse)
@@ -256,13 +261,12 @@ def test_cumulative_grid_and_endpoint_match_original_temporal_filter(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     _encode_orders(case, "%Y%m%d%H%M%S", integer=True)
-    population = case.session.members(ms.ref.entity("sales.customer"))
     grid = case.session.time_scope(start="2026-08-15", end="2026-10-01").by(mv.grain("month"))
     metric = case.session.catalog.metrics.get("sales.revenue").window(mv.all_history())
 
     def execute() -> pd.DataFrame:
-        query = case.session.observe({"value": metric}, during=grid, by=population)
-        return query.rollup(by=(grid,)).execute().to_pandas()
+        query = case.session.observe({"value": metric}, during=grid)
+        return query.compute().to_pandas()
 
     optimized = execute()
     assert optimized[("value", "value")].tolist() == [1077, 1176]
@@ -274,10 +278,8 @@ def test_cumulative_grid_and_endpoint_match_original_temporal_filter(
         case.session.observe(
             {"value": metric},
             during=case.session.time_scope(start="2026-09-30", end="2026-10-01"),
-            by=population,
         )
-        .rollup()
-        .execute()
+        .compute()
         .to_pandas()
     )
     assert scalar[("value", "value")].tolist() == [1176]
@@ -297,7 +299,7 @@ def test_event_column_on_relationship_destination_keeps_its_own_range(
                 during=case.session.time_scope(start="2026-08-01", end="2026-09-01"),
                 by=population,
             )
-            .execute()
+            .compute()
             .to_pandas()
             .pipe(_member_frame)
             .sort_values("member")
@@ -328,7 +330,7 @@ def test_outside_window_relationship_mismatch_preserves_observation_scope(
                 during=case.session.time_scope(start="2026-08-01", end="2026-09-01"),
                 by=population,
             )
-            .execute()
+            .compute()
             .to_pandas()
             .pipe(_member_frame)
             .sort_values("member")
@@ -369,7 +371,7 @@ def test_encoded_and_parsed_time_failures_preserve_error_fields_and_run_ownershi
             {"value": case.session.catalog.metrics.get("sales.revenue")},
             during=case.session.time_scope(start="2026-08-01", end="2026-09-01"),
             by=population,
-        ).execute()
+        ).compute()
 
     with pytest.raises(AnalysisError) as optimized:
         execute()
@@ -385,7 +387,5 @@ def test_encoded_and_parsed_time_failures_preserve_error_fields_and_run_ownershi
         second.location,
         second.repair,
     )
-    for error in (first, second):
-        assert error.run_ref is not None
-        assert case.session.get_run(error.run_ref).lifecycle == "failed"
-    assert first.run_ref != second.run_ref
+    assert first.run_ref is second.run_ref is None
+    assert case.session.runs().items == ()

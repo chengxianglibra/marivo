@@ -14,6 +14,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.core.data_types import ScalarDataType
+from marivo.analysis.core.frame_data import StoredFrameBacking
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.source_fixtures import author_source_project
@@ -106,42 +107,40 @@ def test_native_temporal_mean_int64_identities_and_independent_cold_reads(
         scope = session.time_scope(start="2026-08-01", end="2026-08-03")
         calendar = scope.by(mv.grain("day"))
         temporal = session.observe({"value": total.per(time).mean()}, during=scope, by=members)
-        source = temporal.execute()
-        spatial = temporal.rollup().execute()
-        represented = temporal.reduce({"value": temporal["value"].mean()}).execute()
+        source = temporal.persist()
+        spatial = session.observe({"value": total.per(time).mean()}, during=scope).persist()
+        represented = temporal.reduce({"value": temporal["value"].mean()}).persist()
         samples = session.observe(
             {"sum": total, "rows": amount.count(time=time)}, during=calendar, by=members
-        ).execute()
+        ).persist()
         source_frame, spatial_frame, represented_frame, samples_frame = (
-            artifact.to_pandas() for artifact in (source, spatial, represented, samples)
+            saved.to_pandas() for saved in (source, spatial, represented, samples)
         )
         assert source_frame.iloc[:, 0].tolist() == list(subject_keys)
-        assert source._manifest.data.schema.axes[0].columns[0].dtype == ScalarDataType("int64")
+        assert isinstance(source._backing, StoredFrameBacking)
+        assert source._backing.data.schema.axes[0].columns[0].dtype == ScalarDataType("int64")
         assert source_frame[("value", "value")].tolist() == [18.0, 150.0]
         # Per subject: a has temporal totals [10+5,20+1], b has [100,200].
-        # Original rollup completes space at each time: mean([115,221])=168.
+        # Original source observation completes space at each time: mean([115,221])=168.
         assert spatial_frame[("value", "value")].tolist() == [168.0]
         # A reduction over the two already completed values is mean([18,150])=84.
         assert represented_frame[("value", "value")].tolist() == [84.0]
-        assert (
-            samples_frame.iloc[:, 0].tolist()
-            == [datetime(2026, 8, 1, tzinfo=timezone.utc)] * 2
-            + [datetime(2026, 8, 2, tzinfo=timezone.utc)] * 2
-        )
+        assert samples_frame.iloc[:, 0].tolist() == [0, 0, 1, 1]
         assert samples_frame.iloc[:, 1].tolist() == list(subject_keys) * 2
         assert samples_frame[("value", "sum")].tolist() == [15, 100, 21, 200]
         assert samples_frame[("value", "rows")].tolist() == [2, 1, 2, 1]
-        calendar_metadata = samples_frame.attrs["marivo"]["axes"][0]
+        calendar_metadata = samples_frame.attrs["axes"][0]["descriptor"]
+        directory = samples_frame.attrs["frozen_coordinates"][0]["rows"]
         assert calendar_metadata["timezone"] == "UTC"
         assert [
-            (cell["actual_start"], cell["actual_end"]) for cell in calendar_metadata["bounds"]
+            (cell.actual_start, cell.actual_end) for cell in directory.itertuples(index=False)
         ] == [
             (datetime(2026, 8, 1, tzinfo=timezone.utc), datetime(2026, 8, 2, tzinfo=timezone.utc)),
             (datetime(2026, 8, 2, tzinfo=timezone.utc), datetime(2026, 8, 3, tzinfo=timezone.utc)),
         ]
         outputs: dict[str, Json] = {
-            name: {"artifact": artifact.id, "snapshot": snapshot(artifact, frame=frame)}
-            for name, artifact, frame in (
+            name: {"artifact": saved.artifact.id, "snapshot": snapshot(saved, frame=frame)}
+            for name, saved, frame in (
                 ("subjects", source, source_frame),
                 ("spatial", spatial, spatial_frame),
                 ("represented", represented, represented_frame),
@@ -197,16 +196,16 @@ with patch.object(ms,'load',forbidden), patch.object(SemanticProject,'load',forb
     frames={}
     for name,output in outputs.items():
         selected=obj(output)
-        artifact=session.artifact(selected['artifact'])
-        frame=artifact.to_pandas()
-        assert snapshot(artifact,frame=frame)==selected['snapshot']
+        saved=session.persisted_frame(selected['artifact'])
+        frame=saved.to_pandas()
+        assert snapshot(saved,frame=frame)==selected['snapshot']
         frames[name]=frame
     assert frames['subjects'].iloc[:,0].tolist()==state['subject_keys']
     assert frames['subjects'][('value','value')].tolist()==[18.0,150.0]
     assert frames['spatial'][('value','value')].tolist()==[168.0]
     assert frames['represented'][('value','value')].tolist()==[84.0]
     assert frames['samples'][('value','sum')].tolist()==[15,100,21,200]
-    # Pandas can consume the committed time samples without a new source Query.
+    # Pandas can consume the committed time samples without a new source evaluation.
     assert frames['samples'][('value','sum')].groupby(frames['samples'].iloc[:,0]).sum().mean()==168
     assert run_ids(session)==before
     Path(sys.argv[2]).write_bytes(encode({'pid':os.getpid(),'phase':sys.argv[3],'source_forbidden':True,'runs':sorted(before)}))

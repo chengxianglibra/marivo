@@ -108,7 +108,7 @@ def _project(
     return database
 
 
-def _observe(session: Session, scope: TimeScope | CalendarAxis) -> mv.Query:
+def _observe(session: Session, scope: TimeScope | CalendarAxis) -> mv.AnalysisFrame:
     return session.observe(
         {"value": session.catalog.metrics.get("sales.average")},
         during=scope,
@@ -116,12 +116,13 @@ def _observe(session: Session, scope: TimeScope | CalendarAxis) -> mv.Query:
     )
 
 
-def _values(query: mv.Query) -> dict[str, object]:
-    frame = query.execute().to_pandas()
-    member = next(axis for axis in frame.attrs["marivo"]["axes"] if axis["kind"] == "member")
-    return dict(
-        zip(frame[("coordinate", member["column"])], frame[("value", "value")], strict=True)
-    )
+def _values(query: mv.AnalysisFrame) -> dict[str, object]:
+    frame = query.compute().to_pandas()
+    member = next(axis for axis in frame.attrs["axes"] if axis["role"] == "identity")
+    identities = frame[("coordinate", member["token"])].tolist()
+    assert identities == sorted(identities)
+    assert len(identities) == len(set(identities))
+    return dict(zip(identities, frame[("value", "value")], strict=True))
 
 
 def test_report_mean_members_and_next_window_have_independent_oracles(
@@ -133,7 +134,10 @@ def test_report_mean_members_and_next_window_have_independent_oracles(
     session = mv.session.get_or_create("mean-chain", report_timezone="Asia/Shanghai")
     values = _observe(session, session.time_scope(start="2026-08-01", end="2026-08-02"))
     assert _values(values) == {"A": 20, "B": 60}
-    selected = values.where(values["value"] < 50).population()
+    chosen = values.where(values["value"] < 50)
+    selected = session.population_from(
+        chosen, on=((chosen.axes[0], session.catalog.entities.get("sales.customers")),)
+    )
     assert case_members(session, selected) == ["A"]
     following = session.observe(
         {"value": session.catalog.metrics.get("sales.total")},
@@ -145,7 +149,7 @@ def test_report_mean_members_and_next_window_have_independent_oracles(
 
 
 def case_members(session: Session, population: mv.Population) -> list[object]:
-    return session.query(population).execute().to_pandas().iloc[:, 0].tolist()
+    return session.frame(population).compute().to_pandas().iloc[:, 0].tolist()
 
 
 @pytest.mark.parametrize(
@@ -240,11 +244,12 @@ def test_dst_mean_grid_and_cumulative_preserve_exact_windows(
         by=members,
     )
     assert _values(running) == {"A": 928, "B": 60}
-    output = gridded.execute().to_pandas()
-    calendar = output.attrs["marivo"]["axes"][0]
+    output = gridded.compute().to_pandas()
+    calendar = output.attrs["axes"][0]["descriptor"]
+    bounds = output.attrs["frozen_coordinates"][0]["rows"]
     assert calendar["timezone"] == "America/New_York"
     assert (
-        calendar["bounds"][0]["actual_end"] - calendar["bounds"][0]["actual_start"]
+        bounds["actual_end"].iloc[0] - bounds["actual_start"].iloc[0]
     ).total_seconds() == hours * 3600
 
 
@@ -275,7 +280,7 @@ def test_nanosecond_mean_or_conversion_rejects_before_business_read(
         AnalysisError,
         match="submicrosecond conversion unsupported",
     ):
-        _observe(session, session.time_scope(start="2026-08-01", end="2026-08-02")).execute()
+        _observe(session, session.time_scope(start="2026-08-01", end="2026-08-02")).compute()
     assert session.runs().items == before
 
 
@@ -299,7 +304,7 @@ def test_exact_mean_qualification_missing_still_rejects_before_run(
     monkeypatch.setattr(SourceSession, "qualify", missing)
     monkeypatch.setattr(SourceSession, "execute", forbidden)
     with pytest.raises(AnalysisError, match="qualification unavailable"):
-        value.execute()
+        value.compute()
     assert session.runs().items == ()
 
 
@@ -340,14 +345,14 @@ def test_failed_reader_timezone_probe_does_not_fall_back(
         name, zone = datasource_timezone.parse_timezone("Asia/Shanghai")
         return replace(current, engine_timezone_name=name, engine_timezone_tz=zone)
 
-    # Physical authority is prepared at execute, so constructing a Query does
+    # Physical authority is prepared at compute, so constructing a Frame does
     # not freeze an unprobed reader assumption. A failed probe never falls back.
     def failed(backend: object) -> datasource_timezone.DatasourceEngineTimezone:
         raise AnalysisError(message="timezone probe unavailable")
 
     monkeypatch.setattr(datasource_timezone, "probe_engine_timezone", failed)
     with pytest.raises(AnalysisError, match="timezone probe unavailable"):
-        value.execute()
+        value.compute()
     assert session.runs().items == ()
     monkeypatch.setattr(datasource_timezone, "probe_engine_timezone", changed)
     assert _values(value) == {"A": 465, "B": 60}
@@ -379,14 +384,14 @@ def test_timezone_mean_fixed_and_cold_preserve_authority_without_ambient_state(
     logical = _observe(
         session, session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day"))
     )
-    source = logical.execute()
+    source = logical.persist()
     expected = source.to_pandas()
     assert expected[("value", "value")].tolist() == [20, 60]
     shutil.rmtree(tmp_path / "models")
     database.rename(database.with_suffix(".offline"))
     for file in tmp_path.glob("*.parquet"):
         file.rename(file.with_suffix(".offline"))
-    pd.testing.assert_frame_equal(session.artifact(source.id).to_pandas(), expected)
+    pd.testing.assert_frame_equal(session.persisted_frame(source.artifact.id).to_pandas(), expected)
     worker = """
 import json, sys
 import duckdb, ibis
@@ -401,19 +406,20 @@ duckdb.connect = forbidden
 ibis.duckdb.connect = forbidden
 SourceSession.execute = forbidden
 session = mv.session.resume(sys.argv[1], by='id')
-frame = session.artifact(sys.argv[2]).to_pandas()
+frame = session.persisted_frame(sys.argv[2]).to_pandas()
 assert frame[('value','value')].tolist() == [20,60]
-calendar = frame.attrs['marivo']['axes'][0]
-assert calendar['kind'] == 'calendar' and calendar['timezone'] == 'Asia/Shanghai'
-assert calendar['bounds'][0]['actual_start'].isoformat() == '2026-07-31T16:00:00+00:00'
-assert calendar['bounds'][0]['actual_end'].isoformat() == '2026-08-01T16:00:00+00:00'
-assert frame.attrs['marivo']['axes'][1]['kind'] == 'member'
+calendar = frame.attrs['axes'][0]['descriptor']
+bounds = frame.attrs['frozen_coordinates'][0]['rows']
+assert frame.attrs['axes'][0]['role'] == 'calendar' and calendar['timezone'] == 'Asia/Shanghai'
+assert bounds['actual_start'].iloc[0].isoformat() == '2026-07-31T16:00:00+00:00'
+assert bounds['actual_end'].iloc[0].isoformat() == '2026-08-01T16:00:00+00:00'
+assert frame.attrs['axes'][1]['role'] == 'identity'
 print(json.dumps({'pid': __import__('os').getpid(), 'values': frame[('value','value')].tolist()}))
 """
     reports = []
     for _ in range(2):
         process = subprocess.run(
-            [sys.executable, "-c", worker, session.id, source.id],
+            [sys.executable, "-c", worker, session.id, source.artifact.id],
             cwd=tmp_path,
             env=dict(os.environ, PYTHONPATH=str(PROJECT_ROOT), TZ="America/Los_Angeles"),
             capture_output=True,
@@ -456,12 +462,12 @@ def test_population_time_predicate_uses_source_authority_and_owns_its_period(
                 members=members if condition == "members" else None,
                 where=mv.in_population(members) if condition == "predicate" else None,
             )
-            assert query.execute().to_pandas()[("value", "value")].tolist() == [expected_total]
+            assert query.compute().to_pandas()[("value", "value")].tolist() == [expected_total]
     # Image and set selection consume the same already governed identity selection.
     buyer = session.catalog.relationships.get("sales.buyer")
     assert case_members(session, members.image(via=(buyer,))) == ["A", "B"]
     assert case_members(session, members.intersection(members)) == expected_ids
     assert case_members(session, members.difference(members)) == []
-    assert session.observe({"value": metric}, during=scope).execute().to_pandas()[
+    assert session.observe({"value": metric}, during=scope).compute().to_pandas()[
         ("value", "value")
     ].tolist() == [expected_total]

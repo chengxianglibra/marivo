@@ -66,10 +66,15 @@ def test_report_day_buckets_preserve_declared_read_time_authority(
     grid = session.time_scope(start="2026-07-01", end="2026-07-03").by(mv.grain("day"))
     logical = session.observe({"value": session.catalog.metrics.get("sales.revenue")}, during=grid)
     assert session.runs().items == ()
-    result = logical.execute().to_pandas()
+    result = logical.compute().to_pandas()
     assert result[("value", "value")].tolist() == [1.0, 2.0]
-    assert [value.isoformat() for value in result.iloc[:, 0]] == [
+    assert result.iloc[:, 0].tolist() == [0, 1]
+    assert session.runs().items == ()
+    assert [
+        value.isoformat()
+        for value in result.attrs["frozen_coordinates"][0]["rows"]["nominal_start"]
+    ] == [
         "2026-06-30T16:00:00+00:00",
         "2026-07-01T16:00:00+00:00",
     ]
-    assert result.attrs["marivo"]["axes"][0]["timezone"] == "Asia/Shanghai"
+    assert result.attrs["axes"][0]["descriptor"]["timezone"] == "Asia/Shanghai"
