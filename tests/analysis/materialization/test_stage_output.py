@@ -55,20 +55,57 @@ def test_normalization_returns_a_new_exact_arrow_frame() -> None:
 
 
 @pytest.mark.parametrize(
-    ("frame", "fragment"),
+    ("frame", "expected", "received"),
     (
-        (pd.DataFrame({"r.0": [1], "k.0": [1]}), "column order"),
-        (pd.DataFrame({"k.0": [1], "r.0": [1.5]}), "float64 delivered for int64"),
-        (pd.DataFrame({"k.0": [1], "r.0": [1.0]}), "float64 delivered for int64"),
-        (pd.DataFrame({"k.0": [None, 2], "r.0": [1, 2]}), "null or duplicate key"),
-        (pd.DataFrame({"k.0": [1, 1], "r.0": [1, 2]}), "null or duplicate key"),
+        (
+            pd.DataFrame({"r.0": [1], "k.0": [1]}),
+            "stage column order ('k.0', 'r.0')",
+            "('r.0', 'k.0')",
+        ),
+        (
+            pd.DataFrame({"k.0": [1], "r.0": [1.5]}),
+            "r.0: a lossless int64 carrier",
+            "r.0: float64 delivered for int64",
+        ),
+        (
+            pd.DataFrame({"k.0": [1], "r.0": [1.0]}),
+            "r.0: a lossless int64 carrier",
+            "r.0: float64 delivered for int64",
+        ),
+        (
+            pd.DataFrame({"k.0": [None, 2], "r.0": [1, 2]}),
+            "k.0: a lossless int64 carrier",
+            "k.0: float64 delivered for int64",
+        ),
+        (
+            pd.DataFrame({"k.0": pd.Series([None, 2], dtype="Int64"), "r.0": [1, 2]}),
+            "k.0: a nonnullable column without NA",
+            "1 NA values",
+        ),
+        (
+            pd.DataFrame({"k.0": [1, 1], "r.0": [1, 2]}),
+            "a complete unique stage key ('k.0',)",
+            "null or duplicate key values",
+        ),
     ),
 )
-def test_normalization_rejects_layout_and_lossy_values(frame: pd.DataFrame, fragment: str) -> None:
+def test_normalization_rejects_layout_and_lossy_values(
+    frame: pd.DataFrame, expected: str, received: str
+) -> None:
     with pytest.raises(MaterializationError) as caught:
         normalize_stage_frame(frame, (KEY, VALUE), ("k.0",))
-    assert fragment in str(caught.value)
+    assert type(caught.value) is MaterializationError
+    assert caught.value.expected == expected
+    assert caught.value.received == received
+    assert caught.value.stage == "stage_output"
+    assert caught.value.location == "dataset.stage_output"
     assert caught.value.repair is not None
+    assert caught.value.repair.kind == "retry"
+    assert caught.value.repair.action == (
+        "Correct the source field type or stage layout; Marivo does not cast lossy values back."
+    )
+    assert caught.value.repair.help_target.surface == "analysis"
+    assert caught.value.repair.help_target.canonical_id == "analysis_frame.compute"
 
 
 def test_normalization_rejects_timezone_and_nullability_drift() -> None:
@@ -146,7 +183,7 @@ def test_nullable_integer_key_checks_accept_native_and_arrow_float_carriers(dtyp
 def test_native_date_representation_is_normalized_without_truncating_time() -> None:
     column = DataColumn("day", "day", ScalarDataType("date"), True)
     output = StageOutput.from_source_frame(
-        pd.DataFrame({"day": pd.to_datetime(["2026-07-01", None])}), (column,), ()
+        pd.DataFrame({"day": pd.to_datetime(pd.Series(["2026-07-01", None]))}), (column,), ()
     )
     assert str(output.table["day"].dtype) == "date32[day][pyarrow]"
     with pytest.raises(MaterializationError, match="without time"):

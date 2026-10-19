@@ -490,10 +490,22 @@ def test_complete_identity_requires_nonnullable_components_and_nonnull_rows(
         CompletedFrameData(
             DataSchema((invalid_axis,), ()), pd.DataFrame({c.slot_id: [None] for c in columns})
         )
-    with pytest.raises(MaterializationError, match="complete unique stage key"):
+    with pytest.raises(MaterializationError) as caught:
         CompletedFrameData(
             DataSchema((axis,), ()), pd.DataFrame({c.slot_id: [None] for c in columns})
         )
+    assert type(caught.value) is MaterializationError
+    assert caught.value.expected == "key.0: a nonnullable column without NA"
+    assert caught.value.received == "1 NA values"
+    assert caught.value.stage == "stage_output"
+    assert caught.value.location == "dataset.stage_output"
+    assert caught.value.repair is not None
+    assert caught.value.repair.kind == "retry"
+    assert caught.value.repair.action == (
+        "Correct the source field type or stage layout; Marivo does not cast lossy values back."
+    )
+    assert caught.value.repair.help_target.surface == "analysis"
+    assert caught.value.repair.help_target.canonical_id == "analysis_frame.compute"
     pending = tuple(PendingDataColumn(c.slot_id, c.name, "string", False) for c in columns)
     with pytest.raises(CoreRuleError, match="nonnullable complete identity"):
         PendingDataAxis(
