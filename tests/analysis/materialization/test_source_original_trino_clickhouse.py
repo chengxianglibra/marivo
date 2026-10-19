@@ -18,7 +18,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.publication_fixtures import publication_counts
 from tests.analysis.materialization.test_source_original_postgres import _native_scalar
 from tests.analysis.numeric.test_remote_numeric_query import _project
-from tests.datasource.source_cases import SourceData, source_case, source_params
+from tests.datasource.source_cases import Case, SourceData, source_case, source_params
 from tests.support.source_trace import capture_source
 
 pytestmark = pytest.mark.runtime
@@ -83,7 +83,11 @@ def test_remote_original_recompute_uses_qualified_integer_results(
             else getattr(amount, method)()
         )
         query = session.observe({"value": metric})
-        native = _native_scalar(case, method)
+        native = (
+            _native_clickhouse_weighted_scalar(case)
+            if backend == "clickhouse" and method == "weighted_mean"
+            else _native_scalar(case, method)
+        )
         trace = capture_source(monkeypatch)
         frame = query.compute().to_pandas()
         assert trace.returned_rows == [1]
@@ -168,7 +172,11 @@ def test_remote_integer_states_follow_native_precision_and_host_finish(
         weight = session.catalog.fields.get("sales.facts.weight")
         metric = amount.mean() if method == "mean" else amount.weighted_mean(weight=weight)
         query = session.observe({"value": metric})
-        native = _native_scalar(case, method)
+        native = (
+            _native_clickhouse_weighted_scalar(case)
+            if backend == "clickhouse" and method == "weighted_mean"
+            else _native_scalar(case, method)
+        )
         trace = capture_source(monkeypatch)
         frame = query.compute().to_pandas()
         assert trace.returned_rows == [1]
@@ -394,3 +402,24 @@ def test_remote_weighted_native_boundary_and_fixed_wide_mean(
         # All source weights are one; this exact row mean is a separate witness.
         finished = fixed.reduce({"mean": fixed["amount"].mean()}).compute()
         assert finished.to_pandas()[("value", "mean")].tolist() == [float(exact)]
+
+
+def _native_clickhouse_weighted_scalar(case: Case) -> float:
+    table = case.session.bind(case.source, source_identity="native-weighted-oracle").relation
+    table = table.filter(table.amount.notnull() & table.weight.notnull())
+    expression = (table.amount * table.weight).sum() / table.weight.sum()
+    native = float(case.session._backend.execute(expression))
+    from marivo.datasource.ir import TableSourceIR
+    from tests.datasource.environment.clickhouse_analysis import connection
+
+    assert isinstance(case.source, TableSourceIR)
+    # Independent native SQL uses the same uncast arithmetic on the source rows.
+    with connection() as client:
+        row = client.query(
+            "SELECT sum(amount * weight) / sum(weight) "
+            f"FROM qualification.{case.source.table} "
+            "WHERE amount IS NOT NULL AND weight IS NOT NULL"
+        ).first_row
+    assert row is not None
+    assert native == float(row[0])
+    return native

@@ -1156,6 +1156,10 @@ def _native_query_expression(prepared: PreparedSources, read: LoweredRead) -> ir
         exact_nodes: dict[ops.Node, ops.Node] = {}
         for node in expression.op().find((ops.IsNan, ops.IsInf)):
             quotient = node.arg
+            while isinstance(quotient, ops.Field) and isinstance(
+                quotient.rel, (ops.Project, ops.Aggregate)
+            ):
+                quotient = quotient.rel.values[quotient.name]
             if (
                 isinstance(quotient, ops.Divide)
                 and (quotient.left.dtype.is_decimal() or quotient.right.dtype.is_decimal())

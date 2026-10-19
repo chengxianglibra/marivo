@@ -228,12 +228,15 @@ def _clickhouse_weight_state_overflow(
         session = mv.session.get_or_create("native_remote", report_timezone="UTC")
         members = session.members(ms.ref.entity("sales.facts"))
         scope = session.time_scope(start="2026-07-01", end="2026-07-02")
-        observed = session.observe(
-            {"value": session.catalog.metrics.get("sales.weighted")}, during=scope, by=members
-        )
         from marivo.analysis.materialization.errors import MaterializationError
 
-        saved = observed.persist() if fixed else None
+        saved = (
+            session.read(
+                members, {"value": session.catalog.fields.get("sales.facts.value")}
+            ).persist()
+            if fixed
+            else None
+        )
         previous = saved.to_pandas() if saved is not None else None
         if saved is not None:
             weights = session.read(
