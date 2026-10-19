@@ -1,9 +1,11 @@
 # AnalysisFrame implementation progress
 
-Date: 2026-10-19
+Date: 2026-10-20
 
-Status: S0-S2 and S4-S6 private foundations accepted. This record tracks implementation, not release or
-provider qualification. The public API remains unchanged until S7.
+Status: **S0-S8 complete and accepted.** AnalysisFrame is the canonical public
+analysis surface, with completed `frame_output.v1` results in Store 12. All
+owning P2+ findings are closed within at most two review rounds. All accepted
+subtasks are locally committed; the final progress record is committed separately.
 
 ## Authority and baseline
 
@@ -57,19 +59,91 @@ provider qualification. The public API remains unchanged until S7.
   `evidence/analysis-frame/` (ignored local evidence); durable summaries and
   exact commands/results belong here.
 
-## Stage queue
+## Final stage status
 
-| Stage | Plan and exit | Acceptance | Status | Reviews |
-| --- | --- | --- | --- | --- |
-| S0 | Freeze target; trace producers/consumers; pin signatures, axis fields, retirement and error order | A01-A24 ownership | Complete: no review findings | 1/2 |
-| S1 | Closed structure/carriers, name paths, precise input binding, local service split | A01/A02/A14/A17 | Complete: both packages committed | Structure 2/2; services 1/2 |
-| S2 | Shared evaluation without publication; fixed leaves; ordinary operators and memory result extraction | A03-A05/A13/A14/A16/A17/A19-A21 | Complete: both packages committed | Compiler 2/2 clear; lifecycle 2/2 clear |
-| S3 | Store 12, lossless output/attachments, stored reader, audit and atomic publication | A02/A03/A14-A23 | Full implementation active in isolated S3 worktree; active switch coordinated with S7 | 0/2 |
-| S4 | Full-axis alignment/comparison, independent presence and deterministic order | A06-A08/A11/A19 | Ordinary private foundation accepted/committed; full exit needs S3/S5 | Ordinary 2/2 clear |
-| S5 | Frozen calendars, partial nominal matches and single-level paired coordinates | A07-A11/A14/A15/A18/A19 | Private source/memory foundation committed; full exit still needs S3 stored/cold | 2/2 clear |
-| S6 | Explicit Population bridge, fixed versus lazy selection, complete joint keys | A04/A12/A14/A15 | Private ordinary foundation accepted; full stored/cold stage exit needs S3 | 2/2 clear |
-| S7 | One public API; consumer-traced retirement; Help, errors, CLI, docs, skills and cutover notes | A01/A13/A16/A23/A24 | Runtime retirement and test migrations active in isolated worktree; docs/skills draft frozen; no accepted public cutover | 0/2 |
-| S8 | Freeze candidate; independent business witnesses; unrestricted broad gate and affected Runtime/slow checks | A01-A24 | Pending S7 | 0/2 |
+| Stage | Accepted result | Reviews |
+| --- | --- | --- |
+| S0 | Frozen contract, inventories and A01-A24 ownership committed | 1/2 clear |
+| S1 | Closed Frame structures and local service boundary committed | Structure 2/2; services 1/2 clear |
+| S2 | Existing scheduler evaluation, fixed leaves and no-publication compute committed | Compiler/lifecycle 2/2 clear |
+| S3 | Store 12 lossless reader, audit and atomic publication integrated in `716d2081e5b7` | 2/2 clear |
+| S4 | Full-axis alignment, comparison, presence and order; stored/cold exit accepted | Ordinary 2/2; stage-exit 1/2 clear |
+| S5 | Frozen nominal calendars, partial matching and paired coordinates; stored/cold exit accepted | Foundation 2/2; temporal/stage-exit 1/2 clear |
+| S6 | Explicit fixed-key bridge, current source restriction and qualified tuple/null/empty routes accepted | 2/2; real PostgreSQL/MySQL routes clear |
+| S7 | Public cutover, retirement, consumers, Help, errors, CLI, EN/ZH docs and both skills committed | Runtime/docs/T1a/T1b 2/2; other owning tasks 1/2 clear |
+| S8 | Five independent business witnesses, final broad/slow/fault/Runtime and same-wheel installed acceptance passed | Independent acceptance and repair reviews clear; no unresolved P2+ |
+
+## Final acceptance
+
+- Code commit before this coordinator-only record: `f2be3c5abcdf330858c1322cf178390e8d0c6c22`.
+- Final source freeze: `3ba19a97feec53f675d788e6dc750ab04840924c5b6c88fbdc53064f1b625ca4`;
+  all 98 production entries and all 299 production Python modules match.
+- Execution freeze: `4d652064a4bdc193dd00c07e3db76a664bf4cc80e367a5ef9cea77485ae7fc87`;
+  all 1,213 tracked execution files remain unchanged. This coordinator record is
+  deliberately excluded from that execution freeze.
+- Unrestricted final `make check-agent`: **4,666 passed**, 631 warnings, 184.69s;
+  formatting, lint, import contracts, typing and API docs all exit 0.
+- Focused final slow/cold: **12 passed**; publication/fault/storage: **161 passed**.
+- Final actual Runtime: PostgreSQL/MySQL **22 passed**; Trino **35 passed**;
+  ClickHouse **32 passed**. Other-profile skips are recorded separately.
+- Fresh independent business acceptance: **5 passed**, including explicit
+  names/alignment, calendar/presence, current-row versus source arithmetic,
+  fixed Top versus changed source, and guarded cold order/filter/reduce/republish.
+- One final wheel: `5cc28c37fc2a62e6791e1892e5caef45b38247ae5cc73b10319f2ac782b92c86`.
+  Build, twine and the 301-product-file content contract pass. Base installed
+  selection: **20 passed**. The same wheel passes actual installed source
+  journeys for **PostgreSQL, MySQL, Trino and ClickHouse**, each with distinct
+  producer/offline/cold PIDs, exact saved snapshots/descriptors/oracle and zero
+  cold Runs, artifacts or resources added.
+- Root independently verifies every final installed receipt, source/wheel hash
+  and PID/counter assertion. `evidence/analysis-frame/s8-acceptance-matrix.json`
+  closes all A01-A24 items; the local commit ledger records exact accepted scopes,
+  attribution and normal hooks. Original failures, fixes and probes remain evidence.
+- The dedicated `marivo-multisource` VM is restored to its original OFF state.
+  The temporary managed worktree is archived. Its complete ignored evidence is
+  preserved in `isolated-storage-full-evidence.tar.gz`, SHA256
+  `381e6e60d1622304640ad5bd6be4ec6a6cdcd76cef9e2c455f15253ffcb43e54`.
+  Both original user stashes remain unchanged. No push or release was performed.
+
+## Accepted implementation commits
+
+| Task | Commit |
+| --- | --- |
+| S0 | `f24c00828193` |
+| S1 services | `f3bd13083234` |
+| S1 structure | `d6b4707c65aa` |
+| S2 compiler | `48867bfb3b24` |
+| S2 lifecycle | `1870657b0a9c` |
+| S4 ordinary | `e677814887d4` |
+| S5 calendar | `50663acaf40d` |
+| S6 bridge | `9ce4783dc2e7` |
+| S3/S7 coherent core | `716d2081e5b7` |
+| membership | `220f4284b350` |
+| effective-types | `29530e67d620` |
+| residual | `acf7f7ffe6b8` |
+| exact-keys | `7a87033dd258` |
+| exact-mean | `b64430d168bc` |
+| helpers | `4e376d25b84f` |
+| disclosure | `cc1f29eccdcc` |
+| docs-skills | `8e21b814ff44` |
+| t1a | `2bed6022be3b` |
+| t1b | `a9b54834f01e` |
+| t1c | `068342aa7c41` |
+| t2a | `bfb439e5a71e` |
+| t2b | `8245bd4c0787` |
+| t3a | `505a5cb44af7` |
+| t3b | `578b67ce3e75` |
+| t3c | `1d8ec1a01652` |
+| integration | `6c5bba2ed1ef` |
+| stage-exit | `cdff78d1ce79` |
+| native-overflow | `3d7d9f36ac71` |
+| clickhouse-decimal | `3ac03b60ebd3` |
+| key-error-consumers | `9542a0f5a9bf` |
+| installed-native-oracle | `ffae79aa30dd` |
+| installed-surface-identity | `f2be3c5abcdf` |
+
+The chronological entries below preserve plans, failures, review rounds and
+intermediate evidence; their pending labels describe those historical candidates.
 
 ## S0 plan
 
@@ -1112,6 +1186,126 @@ Python files and differs from R2 only by the isolated peer context. The local
 normal-hook commit follows immediately; full S6 stored/cold stage qualification
 continues with S3/S7 rather than being inferred from this private foundation.
 
+S6 accepted local commit:
+`9ce4783dc2e7097652f527660a3996f7c8194939`
+(`feat: bridge Frame key domains into source plans`). Exact scope: 27 reviewed
+source/test paths and the two coordinator contract/progress documents.
+Normal hooks passed, including full source mypy and import contracts. Root
+verified all 29 commit paths and all 746 standalone source/test hashes, restored
+the exact three S3 peer hashes, dropped only its temporary stash, and preserved
+both original user stashes. `s6-commit-restoration.json` records the result.
+No push occurred. The isolated checkout already contains this reviewed source;
+do not recopy it over ongoing runtime retirement changes.
+
+Test execution is now held until a **full production-source freeze**, rather
+than a temporary import checkpoint followed by further receiver deletion.
+Runtime found and is restoring two genuinely live common-component lowering
+helpers removed with the adjacent receiver authorization helpers. Original
+144-pass/six-fail and typing diagnostics remain preserved. The calendar/fixed
+tests retain every no-source/Catalog/timezone/value-read tripwire while only
+their removed prepare_context spy is renamed or removed when the replacement
+is already covered.
+
+T2a has a concrete unresolved source construction report: standalone
+Session.values with a declared composite (tenant, id) identity plus nullable
+category rejects the valid complete ('a', 1) key at literal schema preparation.
+Runtime owns the producer investigation; no flattening, key alteration or
+private evaluation bypass is authorized. Raw result:
+`s7-t2a-comparison-calendar-reference.log` in the isolated checkout.
+
+T1a's member_count=3 report was resolved by the existing explicit-domain
+contract, without a source patch: observe's common where condition does not
+reselect the given three-member domain. The migrated control retains 3;
+explicitly rebuilding members with the selected East key predicate must yield
+2, and the original overall 340/3 ratio remains required. This separates
+explicit source reconstruction from the retired fine-result history receiver.
+
+Runtime restored the two live common-component lowering helpers and passed
+typing for 161 affected files. The composite literal defect is traced to
+removing the necessary literal_schemas preparation with the old ResultQuery
+branch; its explicit literal-root preparation now uses the real bound Entity
+schema. Focused regression remains pending the full freeze. Root additionally
+approved only the Frame.top constructor's obsolete empty partitions argument
+removal so the dead partition/coarsening grammar can close. S3 is informed of
+that exact Runtime-owned one-line exception in its Frame file.
+
+T2a static migration is frozen at 29 owned paths, 28 modified, with all 204
+original test names retained. T1a static migration is frozen at 15 paths with
+the complete 115-to-108 destination ledger (ten retired/renamed and three new
+current/source witnesses). AST/format/Ruff/diff checks pass for both scopes.
+Earlier partial 137/70/50-case outputs remain separate runs with original
+failures preserved; none is a final acceptance. Both agents have finished
+their turns and await same-task execution resumption after full source freeze.
+The shared helper task is authoring its fourth relation-journey file under
+the same execution hold. No additional user task or agent reuse is created.
+
+The isolated production candidate is now **fully frozen**. Runtime reports no
+remaining production edits or active checks. Shared 96-path manifest:
+`s7-production-freeze-manifest.json`, SHA256
+`ca74e9851769704609eed9c60c5ae088f5a9baa9e7f89cf5d3c47473e556285f`.
+Final affected typing passed 161 modules; lint, compile/import passed; actual
+controls passed **151 cases, two deselected, 15.62 seconds**. The previously
+reported complete composite identity plus nullable-category Session.values
+case now passes, as do explicit bridge/read, numeric refusal and no-Run checks.
+Production remains frozen while test owners validate; an actual new defect
+requires an explicit candidate refresh rather than silent continued cleanup.
+
+The same accepted T1c task is now implementing its exact 30 materialization
+paths. Its first recovery_worker handoff already uses persisted_frame, collects
+once for the shared snapshot, preserves exact [2,0,4]/sum6/positive2 and all
+source-forbidden/no-new-Run/resource checks, and retains Frame.show(n=1) as a
+positive preview. Runtime's seven boundary-test migrations remain the same
+pending task. Helper phase B and owned T1c checks may now run against the frozen
+source; T1a/T2a resume validation as execution slots become available.
+
+Root independently verified all 96 production freeze entries and captured all
+299 production Python hashes. Unnarrowed `make typecheck` on this coherent
+snapshot exited 0: **304 source/typing files passed**. Raw output is
+`s7-root-frozen-full-typecheck.log` in the isolated checkout. This clears the
+earlier transient external S3 source diagnostics for that snapshot; it does
+not certify unmigrated test-helper dependencies or the final broad gate.
+
+Helper phase B passed all four real three-process relation scenarios plus the
+actual a12-to-a06 caller alias. The first a07 failure exposed the old helper's
+DataFrame.to_json precision truncation; its one-way scalar serializer now
+retains represented values, and the independent Fraction oracle stays intact.
+All four helper lint/format/import checks pass. Final helper typing still
+reports only the outside-owner unmigrated packaging graph journey dependency.
+
+T1c's compiler/preparation group passed 63 cases. Its schema-drift planning
+failure remains a direct typed SemanticExpressionError under the already
+established S6 planning boundary, with exact fields and zero new Store records.
+A separate concrete execution gap is queued for bounded Runtime repair:
+an unexpected RuntimeError from SourceSession.execute during run_frame_plan
+escapes without the structured MaterializationError/cause expected by the
+public execution boundary. Already typed domain errors, planning/preparation
+and BaseException control flow must retain their owners. No test weakening or
+blanket catch across capture/preparation/cleanup is authorized.
+
+The bounded execution repair is frozen at manifest SHA256
+`5d48d28b8ea399a8f5d8c6bc39d1b97ddaec24278357ccba8e846c95388d6d43`.
+Root compared it mechanically with ca74: exactly frame_evaluation.py changed.
+Twenty-five actual fault, semantic, cleanup, control-flow, planning, fixed and
+typed-datasource controls passed; 161-source typing, lint/import and compile
+passed. Typed errors retain instance identity; unexpected causes are retained
+without inspecting potentially unsafe message text. No capture/preparation/
+planning/cleanup blanket catch was added. T1c/T2a final validation is resumed.
+
+Disclosure's final actual-method audit found the one missing public target:
+Session.population_from. Root authorized only session/_disclosure.py registration
+and dsl/_population_disclosure.py producer edges, with existing navigation and
+unchanged renderer/budget caps. This static overlay must receive its own freeze
+hash. Additional test-only ownership is limited to the old deviation-typing
+witness, synthetic rendering recovery text and the four-function handed-off
+tail of query_artifact_boundary.py; runtime retains that file's other functions.
+
+T1c static migration now covers all 30 owned paths and nine workers with Ruff
+clean. Concurrency prepares a complete fixed result before the count snapshot
+and tests contention only at persist; obsolete last_run_ref evidence is removed
+while actual Artifact identity, full counts and ownership/recovery checks stay.
+T2b receives the exact corresponding caller handoff. Both test scopes still
+require final execution, typing, independent review and acceptance.
+
 ## Post-S2 sequencing decision
 
 The read-only `s3-gateway-handoff.md` confirms that legacy identity-relation
@@ -1154,3 +1348,500 @@ in development under its accepted plan.
   profiles when their Runtime checks are ready; do not replace required
   provider evidence with skips or start unrelated services.
 - No final implementation or cutover claim is made by this progress record.
+
+
+## S7 source metadata freeze and test migration handoff
+
+Root verified the 97 changed/deleted production entries and all 299 production
+Python files in `s7-production-metadata-freeze-manifest.json` (SHA256
+`709f4cddf959ce0f39d7c2b1f52d3f440c28585ae3d029930bb3b24b1559694a`).
+This extends the preserved 7808 public freeze by exactly two approved static
+files: pending Frame.show now walks only current explicit source leaves for
+captured scope, period and anchors, labels actual ReadQuery as read, and stops
+at fixed carriers; FrameAxis.role uses the public closed Literal and complete
+docstrings. No evaluator, lifecycle, planner, numeric or storage semantics
+changed in these overlays. S3's associated regressions passed 93 cases. The
+production execution proof remains the separately preserved 5d48 freeze.
+
+T2a's exact 29-path migration is write-frozen: 265 default and 19 slow/cold
+cases passed, with exact typing, lint and all 204 original test names retained.
+T1c's exact 30-path candidate is write-frozen: 244 default, 13 slow/cold/worker
+and 18 fault/concurrency cases passed. Four shared helpers are frozen with all
+four real three-process relation journeys and additional lifecycle/physical
+temporal-key controls passing. T1c/helper typing currently has no owned errors
+but retains ten outside-owner legacy graph_journeys diagnostics. These are
+candidate results, not independent acceptance or stage completion.
+
+The same integration task is implementing its accepted 15-path plan, prioritizing
+graph_journeys to clear that external dependency. The same disclosure task is
+resumed for current captured read-fact audit projection and dynamic/tail tests;
+its old context caps remain fixed, with final journey measurements deferred
+until current documentation examples finish validation. Runtime owns the seven
+remaining boundary-test migrations and preserves disclosure's shared-file tail.
+Every newly dispatched task uses a fresh agent; later phases and repairs stay
+with their existing task agent. Independent reviews remain limited to two
+rounds per task, and accepted subtasks are committed locally without pushing.
+
+Root reran exact shared-helper plus T1c typing after integration migrated the
+graph journey dependency: all **34 files passed**, actual exit0. This clears
+the prior ten outside-owner diagnostics for that checkpoint; graph behavior
+and its full integration task remain pending. Raw log:
+`s7-root-helper-materialization-types.log`.
+
+
+S3 independent review round1 is assigned to a fresh Astra-high reviewer on
+`s3-review-candidate-manifest.json` (SHA256
+`bee1ac90da5e98e504475da1189e80e297244d8303ed9ddea62f03554a7c71b5`).
+It binds 27 exact current source/test paths and the 709f global source freeze;
+shared evaluator ownership is only S3's fixed-reader hook. No stage acceptance
+or commit is claimed before its findings are resolved.
+
+Integration preserved a real old credential test failure and requested boundary
+clarification. Wrong credential resolver scope and datasource metadata failures
+occur in preparation before run_frame_plan. Target design retains existing owning
+error types, and accepted 5d48 explicitly preserves typed MarivoError instances
+and excludes preparation/planning from its execution wrapper. Tests therefore
+assert the direct owning DatasourceCredentialScopeError/DatasourceConnectionError
+with concrete repair, original secret redaction, no-Run/resource and project-byte
+checks. Do not restore an enclosing AnalysisError merely to retain an old execute
+wrapper. The integration plan receives an explicit bounded addendum for the
+second affected credential test function already within its owned file; all
+original redaction assertions remain. Unexpected failures in actual scheduled
+execution remain the separately tested structured MaterializationError boundary.
+
+Disclosure's pre-context checkpoint is frozen at manifest SHA256
+`69a28243b6e5f95cd2145ef9a2c1686e6b853cef1f6fa1fad849d4350483b4d0`:
+268 surface/CLI and 17 audit/tail checks passed, 10 source/witness typing and 22
+owned-test lint/import checks passed. The original context baseline/caps are
+byte-identical; no final context-journey measurement has yet run. The slot is
+released for other accepted tasks until current docs/examples finish validation.
+
+
+Runtime and its seven boundary migrations are now write-frozen: 78 default and
+2 slow/cold cases passed, exact eight-file typing/lint/import checks passed.
+The test manifest is `a1da114deca7299cd7685da601117cab932a7ac4fef954e6b0947ba636eb82a3`;
+all production hashes remain709f. Root prepared the exact source/test review
+scope in `s7-runtime-review-candidate-manifest.json` (SHA256
+`969a70c7ead55749ba946c037c92f34c47444d998291b0214c4200703833530a`),
+73 paths with explicit shared-file/hunk ownership and the disclosure-only tail
+excluded. Fresh independent review is queued, not completed.
+
+The same docs/skills task is resumed for actual examples, packaged-skill/Help,
+API docs and site verification against the frozen public API. Remaining
+accepted test plans (source transport, graph, session, temporal, statistics)
+await execution slots. Integration prioritizes real local/cold journeys and
+authorized PostgreSQL/MySQL UUID-owned source probes; final one-wheel installed
+acceptance remains S8, and Trino/ClickHouse remain unstarted. No provisional
+wheel, release-check or MinIO is required.
+
+
+S3 round1 completed with **two confirmed P2 findings** and 146 independent
+focused tests passing: positive preview leaked FileNotFoundError for missing
+primary/required attachment, and attachment selection converted the full key
+row group to pandas/Python records before selecting the requested rows. The
+latter is distinct from permitted full Arrow key scan/hash/decompression I/O.
+All 27 review paths, 97 production entries and 299 Python hashes matched.
+S3 cannot be accepted yet. Its same developer is authorized a plan-first,
+sole graph_reading.py source overlay plus owned storage tests. Preserve typed
+read causes/repair and n0 metadata behavior; select required attachment records
+before pandas/Python materialization. R2 is the remaining independent review
+round, using the same assigned reviewer after exact candidate refresh.
+
+Integration preserved PostgreSQL positive/offline/cold passes and a MySQL
+weighted-mean mismatch (native21.6667 versus mathematical65/3). The committed
+source policy explicitly accepts native Ibis/provider precision loss without
+standardization casts. Root authorized an independent raw-SQL/direct-native-Ibis
+oracle with exact numerator130/denominator6, native dtype/value/SQL and the
+separate Fraction65/3 fact. Public output must match that independent native
+result tightly; no tolerance inflation or source precision cast is authorized.
+Cold receipt normalization is scalar/provenance only, with full snapshot and
+source-absence checks retained. This remains unqualified until actually run.
+
+
+Actual integration focused source probes now pass PostgreSQL and MySQL, including
+positive computations, no-Run checks, persist without source replay, finally-owned
+cleanup, raw offline failure and distinct no-model/source cold readers. Independent
+native weighted values are PostgreSQL float64 21.666666666666668 and MySQL float64
+21.6667, both with exact raw components130/6 and separately retained Fraction65/3.
+This validates the focused developer probes only; final frozen provider Runtime
+routes and installed-wheel acceptance are still pending S8. Twelve local
+three-process journey groups also passed their independent oracles.
+
+Docs/skills actual examples are stable: all50 file hashes remain453bf23b…,
+including both skills; tutorial/guides/cutover/new-source selection and nine
+multiround ledger fences passed,28 Help targets and3 packaged-skill tests passed.
+Site content verification passed381 files. Correct isolated-source API build,
+with PYTHONPATH bound to this checkout, revealed19 docutils errors/warnings in
+15 source docstrings; site build prebuild is blocked by the same failures.
+Both actual failures are retained, not reported as successful builds.
+A **fresh** Sol-high docstring-rendering task owns only the implicated docstrings
+in frame.py,frame_axis.py,artifact.py,session/core.py. It must plan first, prove
+AST equivalence excluding leading docstrings, preserve all APIs/claims and
+produce a four-file text-only overlay. No Sphinx suppression/config change is
+authorized. The existing docs task is checkpointed until source repair; final
+context measurements wait for the same refreshed static source.
+
+
+Source is refrozen at `s7-production-preview-docstring-freeze-manifest.json`,
+SHA256 `abee490906d0d4c0f6ec1eea24216c284514287c811950a0ca56009ecadd2212`.
+Root verified97 entries/all299 Python files and independently proved all4
+formatting files AST-equivalent with their saved709f preimages. Exactly5 source
+paths changed: the S3 reader and4 docstring files. Actual docs-api now exits0
+with zero warnings/errors;68 Help/docs checks,4-file typing/lint pass. S3 repairs
+pass13 targeted/159 related/22source typing/27lint. Fresh27-path S3 R2 manifest
+is `ed4c1623a8ae18ddea8a0cd95df1c21dd6cff491395e9fbe24cefa3713876408`;
+the same assigned independent reviewer is performing the second/final round.
+No source writers remain active. Runtime review scope is refreshed separately
+as `s7-runtime-review-current-manifest.json` (SHA256
+`bec1b296eb72acf8de8356dc593e60f8917ff869850bb70cad408caecef10ce2`).
+
+T3c statistics and T1a original-source validation are active on their own
+accepted plans. T3c's priority worker keeps the a11 callable/report handshake,
+now passes actual typing and an independent three-process cold case. Remaining
+external physical_workloads legacy diagnostics belong to queued T2b, never the
+shared4-helper owner. A compact coordinator-state.json under ignored evidence
+records each task's exact agent, status, candidate and review count alongside
+this committed-progress document; no cross-task agent reuse is introduced.
+
+
+S3 second/final independent round completed **No findings**: both original P2
+probes now pass, neighboring cross-row-group/order/duplicate/typed-error controls
+pass and159 independent tests pass. Reviewed27 scope files,97 production entries
+and299 Python files match abee freeze. This clears S3's independent code review;
+its public writer/reader switch remains one coherent acceptance with the S7
+gateway, whose fresh Astra reviewer is now in R1. No premature partial gateway
+commit or compatibility writer is introduced. Root's full15 integration typing
+also passes after the T3c worker handoff; actual unchanged a11 complete journey
+passes produce/fixed/cold across3 distinct processes.
+
+Root site build on the correct isolated source passed API documentation prebuild,
+then stopped because isolated site dependencies were absent (astro not found).
+This is preserved separately from the repaired source-docstring errors. Install
+only the checked-in locked site dependencies in the isolated worktree, preserving
+main's existing node_modules, then rerun the same actual site build. No source,
+lockfile, global tool or configuration change is authorized by this environment
+repair.
+
+
+Root site build completed actual exit0 after isolated npm ci from the unchanged
+lockfile:359 pages built;308 original documentation routes,44 latest pages and
+343 internal route/anchor targets verified; English/Chinese install outputs pass.
+Root reverified every authored docs/skill hash (all50 unchanged),97 source entries
+and299 Python hashes, and equal main/isolated lockfile hashes. Evidence is
+`s7-root-docs-site-verification.json`; the absent-astro failure remains separately
+preserved. Current docs/examples are stable for final context measurement once
+S7 runtime's pending canonical error-Help findings are resolved.
+
+T3c is development-frozen:15 owned paths/14 modified,51 original test functions
+retained;85 default,6 own slow,8 additional cold parameters and actual a11
+three-process route pass; exact15 typing/lint pass. No source/shared helper drift.
+Its fresh independent review is queued. T2b is now implementing its accepted32
+paths, prioritizing physical_workloads to clear T1a's external legacy typings;
+T1a retains independent source native-precision and exact fixed-row Fraction
+witnesses, not casts or looser tolerances. Runtime R1 is confirming constructor
+mapping-admission errors and incorrect compute Help targets against exact base;
+no source writer is dispatched until its final concrete report.
+
+
+S7 Runtime R1 finalized **two P2 findings**, with exact-base proof: malformed
+read/values mappings None/False/0 regress from six CoreRuleErrors to raw
+TypeErrors, and actual source-cleanup repair points to an unregistered
+analysis.frame.compute target. The closed inventory is14 explicit target/
+help_target literals across8 Runtime files; canonical analysis_frame.compute
+resolves. Independent2 valid-input controls and78 boundary tests passed; final
+73/97/299 hashes match abee. The same Runtime developer is authorized a written
+plan first, mapping admission in frame_sources plus those8 literal-only source
+paths, and its existing7 test-file scope. Preserve valid-input execution,
+output-name/source capture rules, typed exception boundaries and diagnostic
+location text. No Help alias or broad catch is authorized. The same reviewer
+gets final R2 after exact overlay/global-source refresh; S7 remains unaccepted.
+
+T2b's priority physical_workloads helper handoff now passes actual typing and
+retains values/total/builders/report signatures. validate consumes one completed
+Frame export, actual schema/attachments and independent seed arithmetic, with
+no hidden compute/persist. T1a is rerunning its final typing/default scope after
+this external dependency clears; no shared4-helper ownership is expanded.
+
+
+Runtime final independent R2 completed **No findings** after the two bounded
+P2 repairs. The original nine probes, ten adjacent checks and69 affected-file
+tests pass;73 candidate entries and97/299 production hashes match runtime
+freeze975c2b. S3 and Runtime have each used their maximum two independent
+review rounds and are clear; their coherent public integration remains pending.
+
+T1a, T2b, T3a and T3b are now development-frozen, respectively15/32/7/7 paths.
+Actual default checks pass149/157/67/66; T2b16 slow and T3b7 slow cases pass,
+including the required non-key outer/Top order through two source-free cold
+processes and republication. Original function/assertion migration ledgers and
+typing/lint receipts are preserved. Each awaits a fresh task-specific reviewer.
+T3a retained its complete mixed-graph Help/schema assertions locally; no
+assertion transfer or duplicate Disclosure test was introduced.
+
+Disclosure's final31-path plus shared-tail candidate is frozen. Actual context
+acceptance with recording unset passes all3 tests:30633 charged characters
+against the unchanged32845.7 aggregate cap,34 pages and22 Help calls; exact
+budget_reference values,1.10 individual allowance and current_mean<6 gate
+remain unchanged. A fresh Astra reviewer is in R1, with static review proceeding
+while the following separately owned one-file source repair finishes.
+
+T1b exposed a real public MembershipAxis audit serialization gap before source
+execution. A new Sol developer, never a reused task agent, owns only
+frame_source_facts.py and new tests in test_frame_evaluation.py. Its explicit
+closed three-field MembershipBinding encoding now passes the unchanged T1b
+20/10/0, null-domain, mean and classify witnesses. Root will freeze the exact
+overlay and dispatch a fresh independent review before accepting it; S3/Runtime
+review counts are not reset or extended. T1b's other17-path final checks continue.
+
+
+Root independently froze the membership repair as global f58ad28e: exactly one
+production file changes against975c, all299-file inventory keys remain equal,
+and all21 existing test/helper definitions are AST-identical. The added explicit
+canonical membership encoder is seven lines;43 affected tests and focused typing/
+lint/import checks pass. Fresh membership R1 is active alongside Disclosure R1.
+No production writer remains active; T1b final test-only checks use this freeze.
+
+
+Membership independent R1 completed **No findings**: adversarial closed encoding
+probes and5 public compute/audit/store controls pass;97/299 hashes verified.
+T1b is frozen on17 accepted paths:125 default,11 slow,17 typing/lint pass;102
+Runtime cases are collection-only. All95 original functions are accounted for.
+
+First coherent unrestricted check-agent stopped at formatting of three existing
+stage-exit tests before any later gate ran. Root's ownership reconciliation also
+found two of those earlier authorized Runtime test hunks absent from its73-file
+review inventory. A fresh bounded developer now owns exactly those3 test files,
+format-only current edits, original-oracle ledger and focused checks; a fresh
+reviewer will inspect their shared-stage exit test scope separately, without a
+third Runtime/S3 source review. Production f58 freeze remains unchanged. Root
+full make typecheck on f58 passed304 discovered source/typing files.
+
+
+Disclosure independent R1 completed **No findings** with240 scoped tests, four
+independent probes, seven shared-tail cases, two numerical semantic controls
+and typing/lint clear. All31+tail and97/299 hashes match f58. Docs/skills R1
+confirmed two P2 issues: stale literal reconstruction/no-continuation guidance
+and a deleted CRM validity/data premise still linked by the temporal example.
+The same docs developer is repairing those exact owning examples before R2.
+
+The first coherent default run actually completed3968 passed,11 failed and2
+collection errors in230.60s, after unrestricted formatting/lint/imports and304
+typing files passed. API documentation did not run after the test failure. Raw
+failure output remains intact. A fresh Luna exploration owns the twelve omitted
+consumer modules and actual closed SQL-submitter manifest; telemetry failures
+must be investigated rather than weakening suppression assertions. The three
+stage-exit tests now independently pass73 cases, exact typing/lint, and preserve
+184 original assertions,68 signatures and36 exception checks after concrete
+local narrowing; their fresh review is queued.
+
+Actual PostgreSQL/MySQL Runtime on f58 completed20 passed,2 failed,17 skipped
+(other profiles),9 deselected. Both real Frame-key routes and all3 MySQL typed
+parameter cases pass. The failures expose native nullable integer values whose
+StageOutput has an effective float type while Frame adaptation reapplies the
+declared int64 schema. The existing owning contract accepts native source value
+precision/effective types while keys/null/unit/time correctness stays strict.
+Root will dispatch a fresh bounded source task to establish and repair this
+handoff, with no driver precision casts or tolerance weakening. These failures
+are not provider qualification passes or final S8 acceptance.
+
+
+Original-source T1a R1 independently confirmed two P2 oracle losses: complete
+category/tenant/value associations in three-provider detail tests, and ordered
+calendar endpoint/customer/value plus frozen bounds in Top3. The same developer
+adds those assertions on exactly three files;11 affected local checks, four
+assertion-sensitivity probes and focused typing/lint pass, preserving the original
+assertions and other12 files. Final R2 will use the refreshed production freeze.
+
+Docs R1 repairs are frozen on exactly two files, preserving other48 files and
+historical appendices. Actual restored CRM validity/key/data premises and linked
+anchor consumers pass; fixed relationship keys remain fixed after source mutation,
+C404 refuses, and packaged skills3 checks pass. Final R2 is queued.
+
+The residual-consumer Luna handoff identified exactly twelve test modules, one
+dead SQL-submitter tuple in scripts/sql_ownership_audit.py and one real telemetry
+generation defect. A fresh Sol developer owns this closed14-file task. Telemetry
+now changes only its existing v11 path literal to v12; root verified the preimage
+and exact one-literal delta, preserving recovery suppression and avoiding a
+telemetry-to-analysis import cycle or old-generation dual read.
+
+The fresh effective-value-type task is development-frozen on four source modules
+and one new test file:8 new and295 existing tests pass, all source typing/lint
+clear, and both unchanged failing PostgreSQL/MySQL Runtime cases now pass. The
+repair uses exact-slot numeric value types and invocation-local replacement of
+existing Frame programs/core inference; it introduces no source casts, driver
+change, new executor or extra source reads. Root independently froze all98
+production entries and299 Python files as3996b86e, proving exactly these four
+source changes plus the telemetry literal against f58. Fresh effective-type R1
+is active. No production writer remains active.
+
+
+Third coherent unrestricted check-agent completed actual exit0:4476 default
+tests passed,631 warnings,210.01s; full formatting/lint/imports,304 discovered
+typing files and API documentation all pass. This is frozen3996 source evidence,
+not final main/installed/four-provider acceptance. PostgreSQL/MySQL selected
+Runtime now passes22 with17 other-profile skips and9 deselections.
+
+T1a and docs/skills final R2 each completed **No findings**, closing both owning
+P2 pairs at their two-round limit. Shared four-helper and residual14-path R1
+each completed **No findings**, with actual independent cold/telemetry/source
+guards, full narrowed typing/lint and source hash proof. T2a numeric R1 has48
+local,5 cold and independent math/no-Run controls green; final closure waits
+for the following separately owned S8 repairs.
+
+Trino actual Runtime passed34 with one failure in a migrated wide-original
+expectation (48 other-profile skips). A fresh Luna exploration traced the old
+grouped host-original rollup vs new explicit overall native weighted mean; a
+fresh Sol qualification task independently proved Trino native BIGINT overflow
+and ClickHouse native wrapping, separated from widened Decimal/manual math.
+Both provider parameters remain; only the owning function/imports change, with
+all other T1a R2 bytes preserved. Its additional fixed Frame mean witness exposed
+a real local-kernel bug and stays failing until that separate repair completes.
+
+Independent helper probes also exposed a pre-existing upstream pandas duplicate
+misclassification for unique Arrow temporal[MIN,null,MIN+1]. Because exact full
+keys are required by the Frame carrier contract, a fresh S8 task repairs only
+graph_exchange normalization using normalized Arrow scalar complete tuples,
+preserving float NaN identity, null validity and row order. New160 tests,285
+adjacent tests, exact typing/lint and original cold helper probes pass. Root
+froze its sole source delta as55520a68,98 entries/all299 files; fresh R1 active.
+
+A fresh local-mean task now owns only frame_values.py and a new focused test
+module. It preserves exact integer/Decimal subtotals until mean's declared final
+conversion; shared checked_sum, SUM/retained-state overflow checks, float fsum
+and Duration rules remain unchanged. This addresses the actual valid mean of
+two2**62 rows being rejected at a2**63 subtotal. Root will refresh the final
+source freeze and rerun affected evidence plus the final main broad gate.
+
+
+The S8 exact-mean source candidate is frozen as f949a7216ec1e480, with only
+frame_values.py changed against the preceding exact-key freeze. Exact-key R1,
+exact-mean R1, numeric T2a R1, materialization T1c R1 and graph T2b R1 all
+completed **No findings**. Independent materialization checks passed247 local,
+13 cold,1 recovery-parent,18 fault/concurrency and5 guard/no-replay cases; graph
+checks passed52 local,12 cold/concurrency and separate plan/no-replay probes.
+Exact-mean review passed62 tests plus243 independent numeric cases, preserving
+strict SUM overflow and cold integer/Decimal results. No production edits came
+from reviewers.
+
+Actual ClickHouse Runtime on f949 completed27 passed,5 failed,49 other-profile
+skips and7 deselections. The corrected native-boundary versus fixed-wide-mean
+case passed. One real source defect remains: native Decimal division reaches
+an isNaN check through a projection alias, bypassing the existing direct-Divide
+ClickHouse guard. Three weighted-mean assertions use a widened Decimal oracle
+instead of the explicit native expression, and one overflow test attempts to
+persist an already-overflowing native expression as its safe prior result.
+A new independently owned Sol task first writes a plan, then will repair the
+closed source/test scope; all raw failures and independent native SQL outcomes
+remain evidence. T1a and T2a owning review counts are not restarted; these new
+S8 overlays receive their own review and outside-hunk preservation proof.
+
+Fresh independent R1 agents now own T1b source transport and T3a session tests.
+Each new task continues to use a fresh agent. Final main integration, accepted
+subtask commits, broad gate, four-provider qualification and one-wheel installed
+acceptance remain outstanding; current evidence is not promoted to those gates.
+
+
+T1b fresh R1 established two P2 test-oracle losses despite125 default and11
+slow checks passing: remote grouped assertions accept corrupted off-diagonal
+values for both null policies, and numeric_top/selected_drill no longer reject
+extra source batches. Independent counterexamples and actual current10k traces
+are retained. The same task author will restore complete value/null matrices and
+pin the current [10000]/[1] batches, then receive its final R2. This is an
+acceptance blocker, not a provider numerical failure.
+
+
+The ClickHouse exact-alias repair is frozen as3ba19a97feec53f6:98 entries and
+299 production Python files match, with only graph_source_execution.py changed
+against f949. It follows the exact Field owner through Project or Aggregate
+before the existing Decimal Divide rule;12 local guard cases and7 affected
+actual ClickHouse cases pass. Fresh independent R1 is active. Root then ran the
+full selected ClickHouse batch:32 passed,49 other-profile skips,7 deselected,
+actual exit0. PostgreSQL/MySQL final-source rerun also exits0:22 passed,17
+other-profile skips,9 deselected. Trino is restarting serially for its final
+source run. None of these skips is counted as a provider pass.
+
+
+T1b final R2 completed **No findings**: both P2 coverage losses are closed;
+60 independent key/matrix/batch corruptions are rejected, original assertions
+remain, and the other15 files are byte-identical. T3b temporal R1 and S8
+ClickHouse correction R1 also complete **No findings** with exact own-scope
+and final production hash proofs. Actual final-source Trino now exits0 with
+35 passed and48 other-profile skips; all four required backend selections have
+passed on3ba19a97. The one-function native-overflow qualification has a fresh
+independent reviewer and final real Trino/ClickHouse evidence.
+
+Root copied360 frozen candidate paths to main and verified all98 production
+entries and299 Python files, preserving reserved docs, local canonical S3 files
+and both user stashes. Main unrestricted check-agent is running. To honor
+separate accepted-task commits without creating incompatible source boundaries,
+the core staged tree reconstructs exactly the reviewed975c2b72 baseline across
+all299 modules, with105 source/owning-test paths. Nine source-file overlays
+remain in the working tree and will be staged in their own accepted task
+commits. Current source stays3ba19a97 for the gate; normal commit hooks wait
+until that run exits to avoid changing imports during tests.
+
+
+All22 newly accepted task commits are now recorded in the local commit ledger,
+ending9542a0f5a9bfc603c77427bb7aea79001b188a5d, in addition to the earlier8
+stage commits. Every commit used normal hooks, exact reviewed path/preimage
+staging, substantive attribution and post-hook candidate/stash verification.
+One hook attempt was interrupted because root concurrently updated this
+progress file; all360 code/test/doc candidate paths were proven unchanged,
+the two own staged paths were reset for retry, and normal hooks then passed.
+The raw interruption remains evidence. Root no longer edits tracked progress
+while commit hooks run.
+
+The final key-error test consumer task R1 completed **No findings**:47 tests,
+two-file typing/lint and exact source98/299 closure pass. Both files are copied
+to main and committed9542a0f5; all five original stage refusal inputs remain,
+an explicit typed Int64 missing-key case is added, and the one pre-existing
+datetime typing fixture has an exact data-equivalence proof. Production source
+stays3ba19a97. All test-only overlays are now included in the361-path candidate.
+
+Root final-source focused slow/cold selection exits0:12 passed,16 warnings,
+31.14s, covering the exact planned witnesses including W5. Final focused
+publication/fault/storage checks exit0:161 passed,1 warning,32.32s. The main
+unrestricted broad rerun and a single final wheel with selected base/four-backend
+installed journeys remain the required closeout gates. No owning P2+ remains.
+
+
+Main unrestricted second check-agent exits0:4666 passed,631 warnings,203.20s;
+all formatting/lint/imports/typing and API documentation stages pass. The single
+final wheel/sdist pass build/twine/301-product-file content checks: wheel
+5cc28c37fc2a62e6791e1892e5caef45b38247ae5cc73b10319f2ac782b92c86,
+sdist e814411198c4f186ef428a7eea5bf5322037883a49d2373f3eefed2f0af1251e.
+Pre-existing dist artifacts were preserved.
+
+Installed initial outcomes remain raw evidence: PostgreSQL passes; MySQL's new
+mysqlclient extension lacks libmariadb linkage, so root rebuilds only that isolated
+driver using explicit installed connector flags. Trino exposes a private oracle
+integer-division21 versus declared public Float64 division21.666 mismatch. A
+fresh Sol one-function task mirrors actual Trino public operator semantics while
+retaining raw21,components130/6 and mathematical65/3; fresh R1 active.
+Base installed cases have19 passes and one environment-digest comparison failure.
+A fresh Luna proves that digest derives from version|interpreter|package_path;
+analysis exports/Help already match. A fresh Sol snapshot task normalizes only
+that opaque environment identity, retaining version and every static contract.
+Both test-only tasks preserve all production and final-wheel bytes. Separate
+accepted commits, same-wheel retries and a final broad rerun remain required.
+
+
+Both late installed-helper tasks completed fresh independent R1 **No findings**
+and normal-hook local commits:ffae79aa30dd24c397163ef92d50f989f06e4c9e
+(Trino operator-semantic oracle),f2be3c5abcdf330858c1322cf178390e8d0c6c22
+(environment identity snapshot). The existing301 product files,299 production
+Python files and single5cc28c37 wheel are unchanged. Raw native integer SQL,
+mathematicalFraction and source operand semantics remain independently recorded;
+masked fingerprint normalization reuses its owner and retains version/static
+contract sensitivity. MySQL driver source rebuild now links libmariadb and
+imports successfully; the fresh retry uses those explicit environment flags.
+Final frozen broad and same-wheel installed retries now follow.
+
+
+Final S8 closeout: all required gates are green on the frozen code and single
+wheel. Both installed-oracle corrections are test-only and preserve all package
+bytes. MySQL fresh-driver reconstruction fixes the isolated cached native
+extension linkage; no product dependency or source was changed. Root verifies
+four producer/offline/cold PID triplets and exact saved state, then restores the
+dedicated VM and archives the temporary worktree after preserving its evidence.
+All owning P2+ findings are closed, all accepted tasks have normal-hook local
+commits, and this coordinator-only record preserves the final accepted state.
