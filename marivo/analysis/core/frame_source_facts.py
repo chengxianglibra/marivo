@@ -151,6 +151,13 @@ def _scope(value: object) -> object:
         return {"scope": "PopulationParameter", "definition": _scope(value.definition)}
     if isinstance(value, PopulationPredicateParameter):
         return {"scope": "PopulationPredicateParameter", "condition": _scope(value.condition)}
+    if isinstance(value, MembershipBinding):
+        return {
+            "scope": "MembershipBinding",
+            "fields": _scope(value.fields),
+            "paths": _scope(value.paths),
+            "unmatched": _scope(value.unmatched),
+        }
     if isinstance(value, RelationshipParameter):
         return {
             "scope": "RelationshipParameter",

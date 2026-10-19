@@ -7,21 +7,26 @@ from collections.abc import Callable
 from datetime import date, timedelta
 from hashlib import sha256
 from pathlib import Path
+from typing import Literal
 
 import duckdb
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
+from marivo._definition.relations import MembershipBinding
 from marivo._definition.types import CalendarCoordinate
 from marivo._temporal import certify_period_calendar, semantic_grain
 from marivo.analysis.core.artifact_data import DataColumn, NamedCalendarData
 from marivo.analysis.core.data_types import ScalarDataType, TimestampDataType
 from marivo.analysis.core.frame_calendar import freeze_calendar
-from marivo.analysis.core.frame_data import MemoryFrameBacking
+from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
 from marivo.analysis.core.frame_source_facts import source_scope
+from marivo.analysis.core.model import CoreRuleError
+from marivo.analysis.core.output_records import OutputEvidence
 from marivo.analysis.dsl import frame_sources
 from marivo.analysis.dsl.frame import AnalysisFrame
-from marivo.analysis.dsl.population import _calendar_population
+from marivo.analysis.dsl.population import PopulationPredicate, _calendar_population
 from marivo.analysis.dsl.temporal import exact_scope
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
@@ -29,7 +34,9 @@ from marivo.datasource.adapters import SourceSession
 from marivo.refs import ref
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
+from tests.analysis.materialization.test_population_membership import _session as membership_session
 from tests.shared_fixtures import DslCaseFactory
+from tests.support.json import arr, checked
 
 
 @pytest.fixture
@@ -66,7 +73,28 @@ denominator = ms.measure_column(name='denominator', entity=facts, column='denomi
     return mv.session.get_or_create("frame-evaluation", report_timezone="UTC")
 
 
-def _observe(session: Session, *, grouped: bool = False, where: object = None) -> AnalysisFrame:
+def _fact_scopes(facts: tuple[OutputEvidence, ...]) -> list[object]:
+    scopes: list[object] = []
+    for fact in facts:
+        if fact.kind != "read":
+            continue
+        encoded = dict(fact.values)["source_scopes"]
+        assert isinstance(encoded, str)
+        for item in arr(checked(json.loads(encoded))):
+            scope = arr(item)[1]
+            assert isinstance(scope, str)
+            scopes.append(json.loads(scope))
+    return scopes
+
+
+def _memory(frame: AnalysisFrame) -> MemoryFrameBacking:
+    assert isinstance(frame._backing, MemoryFrameBacking)
+    return frame._backing
+
+
+def _observe(
+    session: Session, *, grouped: bool = False, where: Deferred | PopulationPredicate | None = None
+) -> AnalysisFrame:
     numerator = session.catalog.fields.get("sales.facts.numerator")
     denominator = session.catalog.fields.get("sales.facts.denominator")
     channel = session.catalog.fields.get("sales.facts.channel")
@@ -114,7 +142,7 @@ def test_source_recompute_sees_mutation_and_fixed_data_does_not(
         connection.execute("UPDATE facts SET numerator=numerator+denominator")
     fresh = source.compute()
     assert fresh.to_pandas()[("value", "ratio")].tolist() == [101.0, 11.0]
-    assert fixed._backing.metadata.result_id != fresh._backing.metadata.result_id
+    assert _memory(fixed).metadata.result_id != _memory(fresh).metadata.result_id
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("fixed data must not prepare sources")
@@ -125,9 +153,9 @@ def test_source_recompute_sees_mutation_and_fixed_data_does_not(
     reduced = fixed.reduce({"mean": fixed["ratio"].mean()}).compute()
     assert reduced.to_pandas()[("value", "mean")].tolist() == [55.0]
     assert (
-        reduced._backing.metadata.audit.source_facts == fixed._backing.metadata.audit.source_facts
+        _memory(reduced).metadata.audit.source_facts == _memory(fixed).metadata.audit.source_facts
     )
-    assert reduced._backing.metadata.audit.evaluation != fixed._backing.metadata.audit.evaluation
+    assert _memory(reduced).metadata.audit.evaluation != _memory(fixed).metadata.audit.evaluation
     assert len(session.runs().items) == 0
 
 
@@ -225,6 +253,7 @@ def test_source_numeric_failure_has_analysis_owner_and_closes_without_run(
     assert error.repair is not None and cause.repair is not None
     assert error.repair.action == cause.repair.action
     assert error.repair.help_target.canonical_id == "analysis_frame.compute"
+    assert error.received is not None
     assert "source=sales.facts" in error.received
     assert closed
     assert _inventory(session) == before and session.runs().items == ()
@@ -270,7 +299,7 @@ def test_source_fact_filters_and_special_complete_keys_are_lossless(
     card = capsys.readouterr().out
     assert "omitted (display budget" in card and len(card.encode("utf-8")) <= 8192
     fixed = source.compute()
-    facts = fixed._backing.metadata.audit.source_facts
+    facts = _memory(fixed).metadata.audit.source_facts
     serialized = str(tuple(fact.values for fact in facts))
     assert long_value in serialized and candidates[-3] in serialized
     assert "... omitted" not in serialized
@@ -280,16 +309,11 @@ def test_source_fact_filters_and_special_complete_keys_are_lossless(
     assert '"t1"' in key_fact and '"t2"' in key_fact and '"0x1"' in key_fact
     restricted = _observe(session, where=mv.in_population(selected)).compute()
     key_scope = json.loads(key_fact)
-    actual_scopes = [
-        json.loads(token[1])
-        for fact in restricted._backing.metadata.audit.source_facts
-        if fact.kind == "read"
-        for token in json.loads(dict(fact.values)["source_scopes"])
-    ]
+    actual_scopes = _fact_scopes(_memory(restricted).metadata.audit.source_facts)
 
     assert any(_contains_scope(scope, key_scope) for scope in actual_scopes)
     other = _observe(session, where=channel == "Store").compute()
-    assert fixed._backing.metadata.audit.source_facts != other._backing.metadata.audit.source_facts
+    assert _memory(fixed).metadata.audit.source_facts != _memory(other).metadata.audit.source_facts
 
 
 def test_general_population_composite_identity_frame(session: Session) -> None:
@@ -301,7 +325,7 @@ def test_general_population_composite_identity_frame(session: Session) -> None:
         session._runtime.connection_config,
         population,
     ).compute()
-    assert result.output_names == () and result._backing.data.row_count == 2
+    assert result.output_names == () and _memory(result).data.row_count == 2
     assert result.axes[0].role == "identity" and len(result.axes[0].key_names) == 2
 
 
@@ -316,12 +340,10 @@ def test_read_retains_complete_population_scope_without_producer_formula(session
         {"channel": session.catalog.fields.get("sales.facts.channel")},
     ).compute()
     assert result.to_pandas()[("value", "channel")].tolist() == ["Web", "Store"]
-    facts = result._backing.metadata.audit.source_facts
+    facts = _memory(result).metadata.audit.source_facts
     assert any(
-        _contains_scope(json.loads(token[1]), json.loads(source_scope(population.definition)))
-        for fact in facts
-        if fact.kind == "read"
-        for token in json.loads(dict(fact.values)["source_scopes"])
+        _contains_scope(scope, json.loads(source_scope(population.definition)))
+        for scope in _fact_scopes(facts)
     )
 
 
@@ -362,7 +384,7 @@ def test_complete_memory_releases_source_scope_and_runtime(session: Session) -> 
     assert isinstance(fixed._backing, MemoryFrameBacking)
     assert not hasattr(fixed._backing, "root")
     assert reference() is None
-    assert fixed.select({"twice": fixed["value"] * 2}).compute()._backing.data.row_count == 1
+    assert _memory(fixed.select({"twice": fixed["value"] * 2}).compute()).data.row_count == 1
 
 
 def test_source_identity_rows_cannot_hide_null_complete_key(session: Session) -> None:
@@ -464,11 +486,117 @@ def test_source_top_keeps_entire_frozen_calendar_directory(
     monkeypatch.setattr(frame_sources, "freeze_calendar", forbidden)
     source.show(n=20)
     result = source.top(1, by=source["sales"]).compute()
-    assert result._backing.data.row_count == 1
-    (directory,) = result._backing.data.copy_attachments()
+    assert _memory(result).data.row_count == 1
+    (directory,) = _memory(result).data.copy_attachments()
     assert directory.rows["ordinal"].tolist() == list(range(31))
     assert directory.rows["nominal_label"].tolist() == [f"2026-08-{day:02}" for day in range(1, 32)]
     assert directory.schema.axes[0].columns == result._schema.axes[0].columns
     assert all(
         column.dtype == TimestampDataType("us", "UTC") for column in directory.schema.values[2:]
     )
+
+
+@pytest.mark.parametrize("unmatched", ("exclude", "null"))
+def test_membership_scope_encodes_only_the_complete_closed_binding(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    unmatched: Literal["exclude", "null"],
+) -> None:
+    session = membership_session(semantic_project_factory, tmp_path, monkeypatch)
+    label = session.catalog.fields.get("sales.tags.label")
+    channel = session.catalog.fields.get("sales.tags.channel")
+    path = (
+        session.catalog.relationships.get("sales.order_links"),
+        session.catalog.relationships.get("sales.link_tags"),
+    )
+    public = mv.membership((label, channel), via=(path,), unmatched=unmatched)
+    base = MembershipBinding(public.fields, public.paths, public.unmatched)
+    encoded = source_scope(public)
+    assert encoded == source_scope(base)
+    assert json.loads(encoded) == {
+        "scope": "MembershipBinding",
+        "fields": json.loads(source_scope(public.fields)),
+        "paths": json.loads(source_scope(public.paths)),
+        "unmatched": json.loads(source_scope(unmatched)),
+    }
+    assert len(public.fields) == 2 and tuple(map(len, public.paths)) == (2,)
+    for key in ("sales.tags.label", "sales.tags.channel", "sales.order_links", "sales.link_tags"):
+        assert key in encoded
+    ordinary = public.fields[0]
+    assert json.loads(source_scope(ordinary)) == {
+        "scope": "FieldRead",
+        "field": ["reference", ordinary.field.ref.key, ordinary.field.version],
+        "entity": ["reference", ordinary.entity.ref.key, ordinary.entity.version],
+        "path": [],
+        "at": ["none", ""],
+    }
+    for unsupported in (object(), NamedCalendarData("sales.fiscal", "digest", "month")):
+        with pytest.raises(CoreRuleError, match="supported inert source constraint"):
+            source_scope(unsupported)
+
+
+def test_membership_source_audit_survives_fixed_and_persisted_results_without_replay(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = membership_session(semantic_project_factory, tmp_path, monkeypatch)
+    with duckdb.connect(str(tmp_path / "population.duckdb")) as connection:
+        connection.execute("UPDATE orders SET amount=10 WHERE id=2")
+    revenue = session.catalog.metrics.get("sales.revenue")
+    label = session.catalog.fields.get("sales.tags.label")
+    path = (
+        session.catalog.relationships.get("sales.order_links"),
+        session.catalog.relationships.get("sales.link_tags"),
+    )
+    buckets = mv.membership(label, via=(path,), unmatched="exclude")
+    domain = mv.coordinates(by=(buckets,), keys=(("A",), ("B",), ("C",)))
+    pending = session.observe({"revenue": revenue}, by=domain)
+    before = _inventory(session)
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("captured metadata and fixed results must not replay a source")
+
+    with monkeypatch.context() as guard:
+        guard.setattr("marivo.analysis.materialization.frame_evaluation.evaluate_frame", forbidden)
+        guard.setattr(
+            "marivo.analysis.materialization.frame_evaluation.open_query_sources", forbidden
+        )
+        guard.setattr("marivo.datasource.runtime.DatasourceConnectionConfig.operation", forbidden)
+        pending.show(n=0)
+    card = capsys.readouterr().out
+    assert "MembershipBinding" in card and "sales.tags.label" in card
+    assert "sales.order_links" in card and "sales.link_tags" in card
+    assert _inventory(session) == before and session.runs().items == ()
+    fixed = pending.compute()
+    assert fixed.to_pandas()[("value", "revenue")].tolist() == [20, 10, 0]
+    assert _inventory(session) == before and session.runs().items == ()
+    metadata = _memory(fixed).metadata
+    facts = metadata.audit.source_facts
+    scope = json.loads(source_scope(buckets))
+    assert any(_contains_scope(value, scope) for value in _fact_scopes(facts))
+    assert len(facts) == len(set(facts))
+    assert not hasattr(_memory(fixed), "root") and not hasattr(_memory(fixed), "graph")
+    assert all(not callable(value) for fact in facts for _, value in fact.values)
+
+    monkeypatch.setattr(
+        "marivo.analysis.materialization.frame_evaluation.open_query_sources", forbidden
+    )
+    monkeypatch.setattr("marivo.datasource.runtime.DatasourceConnectionConfig.operation", forbidden)
+    aligned = fixed.align(fixed, on=((fixed.axes[0], fixed.axes[0]),)).compute()
+    assert _memory(aligned).metadata.audit.source_facts == facts
+    assert len(_memory(aligned).metadata.audit.source_facts) == len(set(facts))
+    assert session.runs().items == ()
+    saved = fixed.persist()
+    assert isinstance(saved._backing, StoredFrameBacking)
+    assert saved._backing.metadata == metadata
+    assert len(session.runs().items) == 1
+    reopened = session.persisted_frame(saved._backing.artifact_id)
+    assert isinstance(reopened._backing, StoredFrameBacking)
+    assert reopened._backing.metadata == metadata
+    loaded = reopened.compute()
+    assert _memory(loaded).metadata == metadata
+    assert loaded.to_pandas()[("value", "revenue")].tolist() == [20, 10, 0]
+    assert len(session.runs().items) == 1
