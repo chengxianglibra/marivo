@@ -10,7 +10,6 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.semantic.reader import SemanticProject
-from tests.analysis.materialization.test_source_query_fusion import _execute
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import SourceData, source_case
 from tests.support.source_trace import capture_source
@@ -82,20 +81,24 @@ def test_remote_terminal_string_relations(
                 )
             )
         )
-        baseline = _execute(session, query, fuse=False)
-        optimized = _execute(session, query, fuse=True)
-        pd.testing.assert_frame_equal(optimized.table, baseline.table)
         trace = capture_source(monkeypatch)
-        result = query.execute().to_pandas()
-        assert trace.returned_rows == [{"read": 4, "where": 1, "top": 2, "row_count": 1}[operation]]
+        result = query.compute().to_pandas()
         assert trace.uploaded_key_rows == []
         assert len(result) == (
             1 if operation in ("where", "row_count") else 2 if operation == "top" else 4
         )
+        if operation == "row_count":
+            assert result["value", "n"].tolist() == [4]
+        elif operation == "where":
+            assert result["value", "category"].tolist() == ["a"]
+            assert result.iloc[:, 0].tolist() == [("t3", 3)]
+        elif operation == "top":
+            assert result["value", "category"].tolist() == ["ä", "z"]
+            assert result.iloc[:, 0].tolist() == [("t2", 2), ("t1", 1)]
 
 
 @pytest.mark.parametrize("backend,profile", CASES)
-def test_remote_aggregate_key_producer_has_no_host_roundtrip(
+def test_remote_aggregate_frame_bridge_uses_typed_key_transport(
     backend: str,
     profile: str,
     tmp_path: Path,
@@ -112,17 +115,13 @@ def test_remote_aggregate_key_producer_has_no_host_roundtrip(
         category = session.catalog.fields.get("sales.facts.category")
         producer = session.observe({"n": amount.count()}, by=(category,))
         selected = producer.top(1, by=producer["n"])
-        query = session.observe(
-            {"n": amount.count()}, where=mv.in_population(selected.population())
-        )
-        baseline = _execute(session, query, fuse=False)
-        optimized = _execute(session, query, fuse=True)
-        pd.testing.assert_frame_equal(optimized.table, baseline.table)
+        fixed = selected.compute()
+        keys = session.population_from(fixed, on=((fixed.axes[0], category),))
+        query = session.observe({"n": amount.count()}, where=mv.in_population(keys))
         trace = capture_source(monkeypatch)
-        frame = query.execute().to_pandas()
+        frame = query.compute().to_pandas()
         assert frame[("value", "n")].tolist() == [1]
-        assert trace.returned_rows == [1]
-        assert trace.uploaded_key_rows == []
+        assert trace.uploaded_key_rows == [1]
 
 
 @pytest.mark.parametrize("backend,profile", CASES)
@@ -145,21 +144,28 @@ def test_remote_fixed_strings_keep_reader_bytes(
                 "category": session.catalog.fields.get("sales.facts.category"),
             },
         )
-        for query in (
-            source.where(source["category"] == "a"),
-            source.top(2, by=source["category"]),
-            source.top(0, by=source["category"]),
+        for index, query in enumerate(
+            (
+                source.where(source["category"] == "a"),
+                source.top(2, by=source["category"]),
+                source.top(0, by=source["category"]),
+            )
         ):
             if backend == "clickhouse":
                 from marivo.analysis.materialization.errors import MaterializationError
 
-                for fuse in (False, True):
-                    with pytest.raises(MaterializationError, match="lossless string carrier"):
-                        _execute(session, query, fuse=fuse)
+                with pytest.raises(MaterializationError, match="lossless string carrier"):
+                    query.compute()
                 continue
-            baseline = _execute(session, query, fuse=False)
-            optimized = _execute(session, query, fuse=True)
-            pd.testing.assert_frame_equal(optimized.table, baseline.table)
+            rows = query.compute().to_pandas()
+            if index == 0:
+                assert rows["value", "category"].tolist() == ([] if backend == "trino" else ["a"])
+            elif index == 1:
+                assert rows["value", "category"].tolist() == (
+                    ["ä   ", "z   "] if backend == "trino" else ["ä", "z"]
+                )
+            else:
+                assert rows.empty
 
 
 def test_mysql_native_collated_groups_keep_the_existing_source_membership(
@@ -175,10 +181,14 @@ def test_mysql_native_collated_groups_keep_the_existing_source_membership(
         category = session.catalog.fields.get("sales.facts.category")
         source = session.observe({"n": amount.count()}, by=(category,))
         selected = source.top(1, by=source["n"])
-        query = session.observe(
-            {"n": amount.count()}, where=mv.in_population(selected.population())
-        )
-        baseline = _execute(session, query, fuse=False)
-        optimized = _execute(session, query, fuse=True)
-        pd.testing.assert_frame_equal(optimized.table, baseline.table)
-        assert baseline.table["value.0"].tolist() == [2]
+        fixed = selected.compute()
+        keys = session.population_from(fixed, on=((fixed.axes[0], category),))
+        query = session.observe({"n": amount.count()}, where=mv.in_population(keys))
+        assert fixed.to_pandas()["value", "n"].tolist() == [2]
+        table = case.session.bind(case.source, source_identity="collation-oracle").relation
+        key = fixed.to_pandas().iloc[0, 0]
+        filtered = table.filter(table.category.identical_to(key))
+        expected = case.session._backend.execute(filtered.aggregate(n=filtered.amount.count()))
+        assert isinstance(expected, pd.DataFrame)
+        rows = query.compute().to_pandas()
+        assert rows["value", "n"].tolist() == expected.n.tolist()

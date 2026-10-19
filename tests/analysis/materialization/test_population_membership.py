@@ -80,7 +80,8 @@ def test_named_metric_population_dependency_owns_its_window_scope(
         by=(channel,),
         during=session.time_scope(start="2026-08-01", end="2026-09-01"),
     )
-    selected = producer.where(producer["total"] > 900).population()
+    chosen = producer.where(producer["total"] > 900)
+    selected = session.population_from(chosen, on=((chosen.axes[0], channel),))
     condition = mv.in_population(selected)
     observed = session.observe(
         {"rows": count.where(condition).window(mv.all_history()) if consumer_window else count},
@@ -89,8 +90,8 @@ def test_named_metric_population_dependency_owns_its_window_scope(
     )
     # The upstream all-history endpoint selects web (927). The consumer's
     # July endpoint includes only the earlier web fact under either rule.
-    assert observed.execute().to_pandas()[("value", "rows")].tolist() == [1]
-    assert producer.execute().to_pandas()[("value", "total")].tolist() == [150, 927]
+    assert observed.compute().to_pandas()[("value", "rows")].tolist() == [1]
+    assert producer.compute().to_pandas()[("value", "total")].tolist() == [150, 927]
 
 
 def test_members_scalar_predicate_retains_its_relationship_sources(
@@ -101,7 +102,7 @@ def test_members_scalar_predicate_retains_its_relationship_sources(
     region = session.catalog.fields.get("sales.customer.region")
     buyer = session.catalog.relationships.get("sales.order_buyer")
     orders = session.members(ms.ref.entity("sales.order"), where=region.via((buyer,)) == "east")
-    keys = session.query(orders).execute().to_pandas()
+    keys = session.frame(orders).compute().to_pandas()
     assert keys.iloc[:, 0].tolist() == ["j1_a", "j1_b", "j1_july", "j1_september"]
     revenue = session.catalog.metrics.get("sales.revenue")
     result = (
@@ -110,7 +111,7 @@ def test_members_scalar_predicate_retains_its_relationship_sources(
             during=session.time_scope(start="2026-08-01", end="2026-09-01"),
             members=orders,
         )
-        .execute()
+        .compute()
         .to_pandas()
     )
     assert result[("value", "revenue")].tolist() == [600]
@@ -127,10 +128,10 @@ def test_members_scalar_predicate_retains_intermediate_relationship_sources(
         session.catalog.relationships.get("sales.order_buyer"),
     )
     lines = session.members(ms.ref.entity("sales.order_line"), where=customer_id.via(path) == "A")
-    keys = session.query(lines).execute().to_pandas()
+    keys = session.frame(lines).compute().to_pandas()
     assert keys.iloc[:, 0].tolist() == ["j3_l1", "j3_l2"]
     revenue = session.catalog.metrics.get("sales.line_revenue")
-    result = session.observe({"revenue": revenue}, members=lines).execute().to_pandas()
+    result = session.observe({"revenue": revenue}, members=lines).compute().to_pandas()
     assert result[("value", "revenue")].tolist() == [100]
 
 
@@ -151,7 +152,7 @@ def test_per_completes_ratio_per_sample_and_retains_empty_samples(
                 "fixed_revenue_mean": revenue.per(full).mean(),
             }
         )
-        .execute()
+        .compute()
         .to_pandas()
     )
     assert result[("value", "aov_mean")].tolist() == [60.0]
@@ -160,11 +161,12 @@ def test_per_completes_ratio_per_sample_and_retains_empty_samples(
         full.difference(mv.coordinates(by=(customer,), keys=((2,),))).definition
     ) == ((1,), (3,))
     assert population_keys(full.project(by=()).definition) == ((),)
-    assert len(session.query(full).execute().to_pandas()) == 3
+    assert len(session.frame(full).compute().to_pandas()) == 3
     omitted = mv.coordinates(by=(customer,), keys=((1,),))
-    captured = session.observe({"revenue": revenue}, by=omitted).population()
+    observed = session.observe({"revenue": revenue}, by=omitted)
+    captured = session.population_from(observed, on=((observed.axes[0], customer),))
     with pytest.raises(MaterializationError) as failure:
-        session.query(captured).execute()
+        session.frame(captured).compute()
     assert failure.value.expected is not None
     assert "covering every observed coordinate" in failure.value.expected
 
@@ -185,15 +187,15 @@ def test_membership_deduplicates_root_bucket_and_complete_domain(
     )
     buckets = mv.membership(label, via=(path,), unmatched="exclude")
     full = mv.coordinates(by=(buckets,), keys=(("A",), ("B",), ("C",)))
-    result = session.observe({"revenue": revenue}, by=full).execute().to_pandas()
+    result = session.observe({"revenue": revenue}, by=full).compute().to_pandas()
     assert result[("value", "revenue")].tolist() == [20, 10, 0]
     unmatched = mv.membership(label, via=(path,), unmatched="null")
-    with_null = session.observe({"revenue": revenue}, by=(unmatched,)).execute().to_pandas()
+    with_null = session.observe({"revenue": revenue}, by=(unmatched,)).compute().to_pandas()
     assert sorted(with_null[("value", "revenue")].tolist()) == [10, 20, 100]
-    samples = session.observe({"mean": revenue.per(full).mean()}).execute().to_pandas()
+    samples = session.observe({"mean": revenue.per(full).mean()}).compute().to_pandas()
     assert samples[("value", "mean")].tolist() == [10]
     classified = session.members(ms.ref.entity("sales.tags")).classify(by=(buckets,))
-    result = session.observe({"revenue": revenue}, by=classified).execute().to_pandas()
+    result = session.observe({"revenue": revenue}, by=classified).compute().to_pandas()
     assert result[("value", "revenue")].tolist() == [20, 10, 0]
 
 
@@ -213,8 +215,8 @@ def test_membership_correlated_tuple_differs_from_independent_product(
     joint = mv.membership((label, channel), via=(path,), unmatched="exclude")
     tags = mv.membership(label, via=(path,), unmatched="exclude")
     channels = mv.membership(channel, via=(path,), unmatched="exclude")
-    correlated = session.observe({"revenue": revenue}, by=(joint,)).execute().to_pandas()
-    independent = session.observe({"revenue": revenue}, by=(tags, channels)).execute().to_pandas()
+    correlated = session.observe({"revenue": revenue}, by=(joint,)).compute().to_pandas()
+    independent = session.observe({"revenue": revenue}, by=(tags, channels)).compute().to_pandas()
     assert len(correlated) == 2
     assert len(independent) == 4
     assert sorted(independent[("value", "revenue")].tolist()) == [10, 10, 10, 40]
@@ -233,7 +235,7 @@ def test_population_filters_and_relationship_images_preserve_typed_keys(
     selected = tags.where(
         mv.in_population(allowed) & ~mv.in_population(mv.identities(tag_entity, keys=((3,),)))
     )
-    selected_rows = session.query(selected).execute().to_pandas()
+    selected_rows = session.frame(selected).compute().to_pandas()
     assert selected_rows.shape[0] == 1
     assert selected_rows.iloc[0, 0] == 1
     path = (
@@ -241,13 +243,13 @@ def test_population_filters_and_relationship_images_preserve_typed_keys(
         session.catalog.relationships.get("sales.link_tags"),
     )
     reached = orders.image(via=path)
-    assert session.query(reached).execute().to_pandas().iloc[:, 0].tolist() == [1, 2]
+    assert session.frame(reached).compute().to_pandas().iloc[:, 0].tolist() == [1, 2]
     inverse = orders.preimage(selected, via=path)
-    assert session.query(inverse).execute().to_pandas().iloc[:, 0].tolist() == [1, 2]
+    assert session.frame(inverse).compute().to_pandas().iloc[:, 0].tolist() == [1, 2]
     with duckdb.connect(str(tmp_path / "population.duckdb")) as connection:
         connection.execute("INSERT INTO links VALUES (5,3,99)")
     # A complete foreign key is an identity reference even without a tag profile.
-    assert session.query(reached).execute().to_pandas().iloc[:, 0].tolist() == [1, 2, 99]
+    assert session.frame(reached).compute().to_pandas().iloc[:, 0].tolist() == [1, 2, 99]
 
 
 def test_metric_population_condition_selects_facts_without_multiplicity(
@@ -266,7 +268,7 @@ def test_metric_population_condition_selects_facts_without_multiplicity(
                 "other": revenue.where(~mv.in_population(selected)),
             }
         )
-        .execute()
+        .compute()
         .to_pandas()
     )
     assert result[("value", "selected")].tolist() == [40]
@@ -289,13 +291,14 @@ def test_zero_axis_population_preserves_the_unit_tuple(
     if source == "query":
         revenue = session.catalog.metrics.get("sales.revenue")
         customer = session.catalog.fields.get("sales.orders.customer")
-        domain = session.observe({"revenue": revenue}, by=(customer,)).population()
+        observed = session.observe({"revenue": revenue}, by=(customer,))
+        domain = session.population_from(observed, on=((observed.axes[0], customer),))
     else:
         domain = session.members(ms.ref.entity("sales.orders"))
     unit = domain.project(by=())
     if source == "product":
         unit = mv.product(unit, session.members(ms.ref.entity("sales.tags"))).project(by=())
-    result = session.query(unit).execute().to_pandas()
+    result = session.frame(unit).compute().to_pandas()
     assert result.shape == (0 if empty else 1, 0)
 
 
@@ -307,14 +310,15 @@ def test_medium_complete_identity_domain_materializes_and_filters_preimage(
     session = _session(semantic_project_factory, tmp_path, monkeypatch)
     entity = session.catalog.entities.get("sales.tags")
     literal = mv.identities(entity, keys=tuple((key,) for key in range(1, 2001)))
-    frame = session.query(literal).execute().to_pandas()
-    assert frame.iloc[:, 0].tolist() == list(range(1, 2001))
-    targets = session.query(literal).population()
+    frame = session.frame(literal).compute().to_pandas()
+    assert sorted(frame.iloc[:, 0].tolist()) == list(range(1, 2001))
+    fixed = session.frame(literal).compute()
+    targets = session.population_from(fixed, on=((fixed.axes[0], entity),))
     path = (
         session.catalog.relationships.get("sales.order_links"),
         session.catalog.relationships.get("sales.link_tags"),
     )
     selected = session.members(ms.ref.entity("sales.orders")).preimage(targets, via=path)
     revenue = session.catalog.metrics.get("sales.revenue")
-    result = session.observe({"value": revenue}, members=selected).execute().to_pandas()
+    result = session.observe({"value": revenue}, members=selected).compute().to_pandas()
     assert result[("value", "value")].tolist() == [40]

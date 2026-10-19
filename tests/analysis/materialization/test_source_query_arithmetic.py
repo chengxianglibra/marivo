@@ -12,7 +12,6 @@ import marivo.semantic as ms
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
-from tests.analysis.materialization.test_source_query_fusion import _execute
 from tests.analysis.materialization.test_source_query_numeric import _data
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import SourceData, source_case, source_params
@@ -32,7 +31,7 @@ def _case_data(backend: str, boundary: str) -> SourceData:
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
 @pytest.mark.parametrize("operation", ("formula", "columns", "na_zero"))
-def test_query_arithmetic_transports_only_its_selected_completed_values(
+def test_query_arithmetic_keeps_selected_completed_values(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -91,16 +90,19 @@ def test_query_arithmetic_transports_only_its_selected_completed_values(
                 )
                 query = source.top(2, by=-(source["value"] + 1))
             expected_rows = 2
-        expected = _execute(session, query, fuse=False)
         trace = capture_source(monkeypatch)
-        actual = _execute(session, query, fuse=True)
-        pd.testing.assert_frame_equal(actual.table, expected.table, check_exact=True)
-        assert trace.returned_rows == [expected_rows]
+        actual = query.compute().to_pandas()
+        assert len(actual) == expected_rows
+        assert trace.returned_rows == ([3] if operation == "formula" else [6])
         assert trace.uploaded_key_rows == []
-        if operation == "columns":
-            assert actual.table["value.0"].tolist() == [19.5, 29.5]
+        if operation == "formula":
+            assert actual["value", "sparse"].tolist() == [110]
+            assert actual["value", "total"].tolist() == [110]
+            assert actual["value", "n"].tolist() == [2]
+        elif operation == "columns":
+            assert actual["value", "value"].tolist() == [19.5, 29.5]
         elif operation == "na_zero":
-            assert actual.table["value.0"].isna().all()
+            assert actual["value", "value"].isna().all()
         trace.save(
             f"query-arithmetic-{backend}-{operation}",
             case.environment,
@@ -160,8 +162,7 @@ def test_checked_query_arithmetic_fails_before_empty_top(
             MaterializationError,
             match="overflow" if boundary == "overflow" else "nonzero denominator",
         ):
-            query.execute()
-        assert trace.returned_rows == [1]
+            query.compute()
         assert trace.uploaded_key_rows == []
 
 
@@ -189,12 +190,44 @@ def test_unary_float_selection_preserves_infinite_scores_without_new_checks(
         )
         score = -source["amount"]
         query = source.where(score > 100) if operation == "filter" else source.top(2, by=score)
-        expected = _execute(session, query, fuse=False)
         trace = capture_source(monkeypatch)
-        actual = _execute(session, query, fuse=True)
-        pd.testing.assert_frame_equal(actual.table, expected.table, check_exact=True)
-        assert trace.returned_rows == [len(expected.table)]
-        assert trace.uploaded_key_rows == []
+        # Complete Frame inputs reject nonfinite physical values before any
+        # operation can hide them; unary score evaluation itself adds no check.
+        with pytest.raises(MaterializationError, match="nonfinite"):
+            query.compute()
+        assert session.runs().items == ()
+        from marivo._definition.query import (
+            FilterValues,
+            TopValues,
+            ValueBinary,
+            ValueLiteral,
+            ValueSlot,
+            ValueUnary,
+        )
+        from marivo.analysis.compiler.query_program import FrameProgram
+        from marivo.analysis.core.data_schema import DataAxis, DataSchema
+        from marivo.analysis.core.data_types import DataColumn, ScalarDataType
+        from marivo.analysis.methods.frame_values import evaluate_frame
+
+        schema = DataSchema(
+            (DataAxis("id", (DataColumn("id", "id", ScalarDataType("int64"), False),), name="id"),),
+            (DataColumn("amount", "amount", ScalarDataType("float64"), True),),
+        )
+        score_expression = ValueUnary("neg", ValueSlot(0))
+        kernel = (
+            FilterValues(ValueBinary("gt", score_expression, ValueLiteral(100)))
+            if operation == "filter"
+            else TopValues(2, score_expression, True)
+        )
+        program = FrameProgram(kernel, schema, schema)
+        raw = pd.DataFrame(
+            {
+                "id": [1, 2, 3, 4, 5, 6],
+                "amount": [float("inf"), None, 1.0, float("-inf"), -1.0, 0.0],
+            }
+        )
+        rows = evaluate_frame(program, (raw,))
+        assert rows.id.tolist() == ([4] if operation == "filter" else [4, 5])
 
 
 @pytest.mark.parametrize("negated", (False, True))
@@ -219,9 +252,22 @@ def test_float_select_rejects_nonfinite_output_before_empty_top(
         query = source.select({"value": -source["amount"] if negated else source["amount"]})
         if top_zero:
             query = query.top(0, by=query["value"])
-        for fuse in (False, True):
-            with pytest.raises(
-                (MaterializationError, SemanticExpressionError),
-                match=r"Column\.select: output overflow",
-            ):
-                _execute(session, query, fuse=fuse)
+        with pytest.raises(MaterializationError, match="nonfinite"):
+            query.compute()
+        assert session.runs().items == ()
+        from marivo._definition.query import SelectValues, ValueSlot, ValueUnary
+        from marivo.analysis.compiler.query_program import FrameProgram
+        from marivo.analysis.core.data_schema import DataSchema
+        from marivo.analysis.core.data_types import DataColumn, ScalarDataType
+        from marivo.analysis.methods.frame_values import evaluate_frame
+
+        input_schema = DataSchema(
+            (), (DataColumn("amount", "amount", ScalarDataType("float64"), True),)
+        )
+        output_schema = DataSchema(
+            (), (DataColumn("value", "value", ScalarDataType("float64"), True),)
+        )
+        expression = ValueUnary("neg", ValueSlot(0)) if negated else ValueSlot(0)
+        program = FrameProgram(SelectValues((("value", expression),)), input_schema, output_schema)
+        with pytest.raises(SemanticExpressionError, match=r"Frame\.select: output overflow"):
+            evaluate_frame(program, (pd.DataFrame({"amount": [float("inf")]}),))

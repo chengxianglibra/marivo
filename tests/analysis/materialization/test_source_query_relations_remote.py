@@ -1,7 +1,6 @@
-"""Native remote joins retain complete endpoint presence and checked finishing."""
+"""Actual remote source values feed independent Frame endpoint and key operations."""
 
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 
@@ -11,15 +10,14 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.query_key_fusion import _outer_join_value
-from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
-from tests.analysis.materialization.test_source_query_fusion import _execute
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.support.source_trace import capture_source
 
-CASES = [("trino", "iceberg", 1), ("clickhouse", "mergetree", 0), ("clickhouse", "mergetree", 1)]
+CASES = [("trino", "iceberg"), ("clickhouse", "mergetree")]
 
 
 def _data() -> SourceData:
@@ -74,48 +72,18 @@ def test_clickhouse_outer_input_declares_nullable_structure_even_for_literals() 
     assert "NULLABLE(BOOL)" in sql
 
 
-@contextmanager
-def _join_mode(backend: str, join_nulls: int) -> Iterator[None]:
-    if backend != "clickhouse":
-        yield
-        return
-    from tests.datasource.environment import clickhouse_analysis as ch
-
-    with ch.connection(admin=True) as admin:
-        with ch.connection() as reader:
-            row = reader.query("SELECT getSetting('join_use_nulls')").first_row
-            assert row is not None
-            original = int(row[0])
-        admin.command(f"ALTER USER analysis_reader SETTINGS join_use_nulls={join_nulls}")
-        try:
-            with ch.connection() as reader:
-                assert reader.query("SELECT getSetting('join_use_nulls')").first_row == (
-                    join_nulls,
-                )
-            yield
-        finally:
-            admin.command(f"ALTER USER analysis_reader SETTINGS join_use_nulls={original}")
-
-
-@pytest.mark.parametrize(
-    "backend,profile,join_nulls",
-    source_params(CASES),
-)
-@pytest.mark.parametrize("operation", ("align", "compare", "broadcast"))
-def test_remote_string_endpoints_join_once_with_independent_presence(
+@pytest.mark.parametrize("backend,profile", source_params(CASES))
+@pytest.mark.parametrize("operation", ("align", "compare"))
+def test_remote_source_frames_keep_independent_endpoint_presence(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     backend: str,
     profile: str,
-    join_nulls: int,
     operation: str,
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    with (
-        source_case(backend, profile, tmp_path, monkeypatch, _data()) as case,
-        _join_mode(backend, join_nulls),
-    ):
+    with source_case(backend, profile, tmp_path, monkeypatch, _data()) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("remote-relations", report_timezone="UTC")
         category = session.catalog.fields.get("sales.facts.category")
@@ -123,47 +91,49 @@ def test_remote_string_endpoints_join_once_with_independent_presence(
         amount = session.catalog.fields.get("sales.facts.amount")
         left = session.observe(
             {"v": amount.sum(empty="null").where(tenant == "left")}, by=(category,)
-        )
+        ).compute()
         right = session.observe(
             {"v": amount.sum(empty="null").where(tenant == "right")}, by=(category,)
+        ).compute()
+        left_rows, right_rows = left.to_pandas(), right.to_pandas()
+        on = ((left.axes[0], right.axes[0]),)
+        query = (
+            left.align(right, on=on, how="outer")
+            if operation == "align"
+            else left.compare(right, on=on, how="outer", zero_denominator="error")
         )
-        if operation == "broadcast":
-            total = session.observe({"total": amount.count()})
-            query = left.select({"reference": mv.broadcast(total["total"], to=left)})
-            missing = total.where(total["total"] < 0)
-            invalid = left.select({"reference": mv.broadcast(missing["total"], to=left)})
-            invalid = invalid.top(0, by=invalid["reference"])
-            expected_error = "exactly one zero-axis reference key"
-        else:
-            query = (
-                left.align(right, how="outer")
-                if operation == "align"
-                else left.compare(right, how="outer", zero_denominator="error")
-            )
-            invalid = left.align(right)
-            invalid = invalid.top(0, by=invalid["left.v"])
-            expected_error = "equal complete endpoint key images"
-        expected = _execute(session, query, fuse=False)
         trace = capture_source(monkeypatch)
-        actual = _execute(session, query, fuse=True)
-        pd.testing.assert_frame_equal(actual.table, expected.table, check_exact=True)
-        assert trace.returned_rows == [3 if operation == "broadcast" else 5]
-        assert trace.uploaded_key_rows == []
-        with pytest.raises(AnalysisError, match=expected_error):
-            _execute(session, invalid, fuse=True)
-        assert len(trace.returned_rows) == 2
-        assert "JOIN" in trace.native_sql[0].upper()
-        trace.save(
-            f"query-relations-{backend}-{join_nulls}-{operation}",
-            case.environment,
-            {"rows": 7, "join_use_nulls": join_nulls},
-            {"operation": operation, "checked_failure": expected_error},
-            None,
-            (case.session,),
-        )
+        rows = query.compute().to_pandas()
+
+        def keys(table: pd.DataFrame) -> list[str | None]:
+            return [None if pd.isna(key) else key for key in table.iloc[:, 0]]
+
+        left_keys, right_keys = keys(left_rows), keys(right_rows)
+        assert keys(rows) == left_keys + [key for key in right_keys if key not in left_keys]
+        assert set(keys(rows)) == {"A", "B", "C", "", None}
+        assert rows["presence", "left_present"].tolist() == [key in left_keys for key in keys(rows)]
+        assert rows["presence", "right_present"].tolist() == [
+            key in right_keys for key in keys(rows)
+        ]
+        for index, key in enumerate(keys(rows)):
+            if key == "A":
+                assert pd.isna(rows["value", "left.v"].iloc[index])
+                assert rows["value", "right.v"].iloc[index] == 0
+            elif key is None:
+                assert rows["value", "left.v"].iloc[index] == 2
+                assert rows["value", "right.v"].iloc[index] == 3
+                if operation == "compare":
+                    assert rows["value", "absolute.v"].iloc[index] == -1
+        invalid = left.align(right, on=on)
+        with pytest.raises(AnalysisError, match=r"exact|complete"):
+            invalid.top(0, by=invalid["left.v"]).compute()
+        assert trace.native_sql == [] and trace.uploaded_key_rows == []
+        assert session.observe({"n": amount.count()}).compute().to_pandas()[
+            "value", "n"
+        ].tolist() == [5]
 
 
-@pytest.mark.parametrize("backend,profile,join_nulls", source_params(CASES))
+@pytest.mark.parametrize("backend,profile", source_params(CASES))
 @pytest.mark.parametrize("empty", ("zero", "null"))
 def test_remote_shared_consumers_keep_separate_group_images_and_parent_checks(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -171,20 +141,17 @@ def test_remote_shared_consumers_keep_separate_group_images_and_parent_checks(
     monkeypatch: pytest.MonkeyPatch,
     backend: str,
     profile: str,
-    join_nulls: int,
     empty: str,
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    with (
-        source_case(backend, profile, tmp_path, monkeypatch, _data()) as case,
-        _join_mode(backend, join_nulls),
-    ):
+    with source_case(backend, profile, tmp_path, monkeypatch, _data()) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("remote-shared-groups", report_timezone="UTC")
         category = session.catalog.fields.get("sales.facts.category")
         amount = session.catalog.fields.get("sales.facts.amount")
         producer = session.observe({"n": amount.count()}, by=(category,))
-        selected = producer.where(producer["n"] >= 1).population()
+        chosen = producer.where(producer["n"] >= 1)
+        selected = session.population_from(chosen, on=((chosen.axes[0], category),))
         condition = mv.in_population(selected)
         query = session.observe(
             {
@@ -194,21 +161,49 @@ def test_remote_shared_consumers_keep_separate_group_images_and_parent_checks(
             },
             by=(category,),
         )
-        expected = _execute(session, query, fuse=False)
         trace = capture_source(monkeypatch)
-        actual = _execute(session, query, fuse=True)
-        expected_frame = expected.table.copy()
-        if backend == "trino":
-            # Joined missing cells cross Trino's native pandas float carrier.
-            floating = ("value.0", "value.2") + (("value.1",) if empty == "zero" else ())
-            for slot in floating:
-                expected_frame[slot] = expected_frame[slot].astype("double[pyarrow]")
-        pd.testing.assert_frame_equal(actual.table, expected_frame, check_exact=True)
-        assert trace.returned_rows == [3]
-        assert trace.uploaded_key_rows == []
+        rows = query.compute().to_pandas()
+        assert len(rows) == 3
+        for index, key in enumerate(rows.iloc[:, 0]):
+            if pd.isna(key):
+                assert rows["value", "null_key"].iloc[index] == 5
+            elif key == "A":
+                assert rows["value", "a"].iloc[index] == 0
+            else:
+                assert key == "C"
+                value = rows["value", "c"].iloc[index]
+                assert value == 0 if empty == "zero" else pd.isna(value)
+        # Every consumer keeps its own source scope. Missing groups use that
+        # Metric's empty policy, including cells outside its own category.
+        missing = 0 if empty == "zero" else None
+        expected_values = {
+            "A": (0, missing, None),
+            "C": (missing, missing, None),
+            None: (missing, missing, 5),
+        }
+        actual_keys = [None if pd.isna(key) else key for key in rows.iloc[:, 0]]
+        assert set(actual_keys) == {"A", "C", None}
+        expected_rows = pd.DataFrame(
+            [(key, *expected_values[key]) for key in actual_keys],
+            columns=pd.MultiIndex.from_tuples(
+                [
+                    ("coordinate", "axis.0"),
+                    ("value", "a"),
+                    ("value", "c"),
+                    ("value", "null_key"),
+                ],
+                names=("kind", "name"),
+            ),
+        )
+        # Native handoff determines pandas dtypes; all keys, values and NA
+        # positions are still compared exactly, without numeric tolerances.
+        pd.testing.assert_frame_equal(
+            rows.reset_index(drop=True), expected_rows, check_dtype=False, check_exact=True
+        )
         if empty == "zero":
             parent = session.observe({"n": amount.sum(nulls="error")}, by=(category,))
-            checked = parent.top(0, by=parent["n"]).population()
+            empty_frame = parent.top(0, by=parent["n"])
+            checked = session.population_from(empty_frame, on=((empty_frame.axes[0], category),))
             failed = session.observe(
                 {
                     "a": amount.count().where(mv.in_population(checked)),
@@ -216,66 +211,33 @@ def test_remote_shared_consumers_keep_separate_group_images_and_parent_checks(
                 },
                 by=(category,),
             )
-            with pytest.raises(SemanticExpressionError, match="non-NA"):
-                _execute(session, failed, fuse=True)
-        trace.save(
-            f"query-shared-{backend}-{join_nulls}-{empty}",
-            case.environment,
-            {"rows": 7, "join_use_nulls": join_nulls},
-            {
-                "empty": empty,
-                "native_columns": {
-                    slot: {
-                        "dtype": str(actual.table[slot].dtype),
-                        "values": actual.table[slot]
-                        .astype(object)
-                        .where(actual.table[slot].notna(), None)
-                        .tolist(),
-                    }
-                    for slot in actual.table.columns
-                },
-            },
-            None,
-            (case.session,),
-        )
+            with pytest.raises(MaterializationError, match="non-NA"):
+                failed.compute()
+        assert trace.uploaded_key_rows
 
 
-@pytest.mark.parametrize("backend,profile,join_nulls", source_params(CASES))
+@pytest.mark.parametrize("backend,profile", source_params(CASES))
 def test_remote_multiple_shared_parameters_are_replaced_atomically(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     backend: str,
     profile: str,
-    join_nulls: int,
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    with (
-        source_case(backend, profile, tmp_path, monkeypatch, _data()) as case,
-        _join_mode(backend, join_nulls),
-    ):
+    with source_case(backend, profile, tmp_path, monkeypatch, _data()) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("remote-parameter-block", report_timezone="UTC")
         category = session.catalog.fields.get("sales.facts.category")
         amount = session.catalog.fields.get("sales.facts.amount")
         producer = session.observe({"n": amount.count()}, by=(category,))
-        left = producer.where(producer["n"] >= 1).population()
-        right = producer.where(producer["n"] <= 1).population()
+        first = producer.where(producer["n"] >= 1)
+        second = producer.where(producer["n"] <= 1)
+        left = session.population_from(first, on=((first.axes[0], category),))
+        right = session.population_from(second, on=((second.axes[0], category),))
         query = session.observe(
             {"n": amount.count().where(mv.in_population(left) & ~mv.in_population(right))}
         )
-        expected = _execute(session, query, fuse=False)
-        trace = capture_source(monkeypatch)
-        actual = _execute(session, query, fuse=True)
-        pd.testing.assert_frame_equal(actual.table, expected.table, check_exact=True)
-        assert actual.table["value.0"].tolist() == [2]
-        assert trace.returned_rows == [1]
-        assert trace.uploaded_key_rows == []
-        trace.save(
-            f"query-parameter-block-{backend}-{join_nulls}",
-            case.environment,
-            {"rows": 7, "join_use_nulls": join_nulls},
-            {"count": 2},
-            None,
-            (case.session,),
-        )
+        rows = query.compute().to_pandas()
+        assert rows["value", "n"].tolist() == [2]
+        assert session.runs().items == ()

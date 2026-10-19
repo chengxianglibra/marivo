@@ -1,26 +1,23 @@
-"""Shared source keys preserve independent host consumers and sample/window grids."""
+"""Explicit shared Frame keys retain independent source sample and window grids."""
 
 from collections.abc import Callable, Iterator
 from datetime import date, timedelta
 from pathlib import Path
+from typing import ParamSpec, TypeVar
 
 import duckdb
-import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.compiler.graph_lowering import LoweredQuery
-from marivo.analysis.compiler.graph_plan import LocalCompute, QueryPlan, SourceRead
-from marivo.analysis.core.artifact_data import OutputEvidence
-from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization import query_key_fusion, terminal_publication
-from marivo.analysis.materialization.graph_exchange import StageOutput
-from marivo.analysis.materialization.graph_source_execution import PreparedSources
+from marivo.analysis.compiler.frame_plan import CompiledFramePlan
+from marivo.analysis.compiler.graph_plan import FrameKeysInput, QueryPlan
+from marivo.analysis.materialization import frame_evaluation
+from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.materialization.graph_source_execution import run_frame_plan
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.test_source_original_samples_remote import _session
 from tests.analysis.numeric.test_remote_numeric_query import _project
@@ -28,6 +25,8 @@ from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.support.source_trace import capture_source
 
 CASES = [("duckdb", "table"), ("trino", "iceberg"), ("clickhouse", "mergetree")]
+P = ParamSpec("P")
+R = TypeVar("R")
 
 
 @pytest.fixture
@@ -72,27 +71,24 @@ def shared_session(
         yield mv.session.get_or_create("shared-boundaries", report_timezone="UTC")
 
 
-def _baseline(query: mv.Query, monkeypatch: pytest.MonkeyPatch) -> pd.DataFrame:
-    def unchanged(prepared: PreparedSources, lowered: LoweredQuery) -> LoweredQuery:
-        return lowered
-
-    with monkeypatch.context() as scoped:
-        scoped.setattr(query_key_fusion, "fuse_query_keys", unchanged)
-        scoped.setattr(query_key_fusion, "fuse_query_terminal", unchanged)
-        return query.execute().to_pandas()
-
-
 def _plans(monkeypatch: pytest.MonkeyPatch) -> list[QueryPlan]:
     plans: list[QueryPlan] = []
-    previous = terminal_publication._compute
 
-    def compute(
-        prepared: PreparedSources | None, lowered: LoweredQuery, evidence: list[OutputEvidence]
-    ) -> StageOutput:
-        plans.append(lowered.plan)
-        return previous(prepared, lowered, evidence)
+    def tracked(function: Callable[P, R]) -> Callable[P, R]:
+        def run(*args: P.args, **kwargs: P.kwargs) -> R:
+            assert args and isinstance(args[0], CompiledFramePlan)
+            plan = args[0].lowered.plan
+            plans.append(plan)
+            completed: set[str] = set()
+            for stage in plan.stages:
+                assert not isinstance(stage, FrameKeysInput)
+                assert set(stage.inputs) <= completed
+                completed.add(stage.stage_id)
+            return function(*args, **kwargs)
 
-    monkeypatch.setattr(terminal_publication, "_compute", compute)
+        return run
+
+    monkeypatch.setattr(frame_evaluation, "run_frame_plan", tracked(run_frame_plan))
     return plans
 
 
@@ -105,40 +101,19 @@ def test_shared_selected_keys_keep_both_host_endpoint_values(
     category = session.catalog.fields.get("sales.facts.category")
     producer = session.observe({"n": amount.count()}, by=(category,))
     chosen = producer.where(producer["n"] >= 0)
-    consumer = session.observe(
-        {"n": amount.count().where(mv.in_population(chosen.population()))}, by=(category,)
-    )
-    query = chosen.align(consumer)
-    expected = _baseline(query, monkeypatch)
+    keys = session.population_from(chosen, on=((chosen.axes[0], category),))
+    consumer = session.observe({"n": amount.count().where(mv.in_population(keys))}, by=(category,))
+    query = chosen.align(consumer, on=((chosen.axes[0], consumer.axes[0]),))
     plans = _plans(monkeypatch)
     trace = capture_source(monkeypatch)
-    actual = query.execute().to_pandas()
-    pd.testing.assert_frame_equal(actual, expected, check_exact=True)
-    assert sorted(actual[("value", "left.n")].tolist()) == [0, 0, 1, 2]
-    assert actual[("value", "left.n")].equals(actual[("value", "right.n")])
-    assert actual.iloc[:, 0].isna().sum() == 1
-    assert trace.uploaded_key_rows == []
-    assert trace.returned_rows == [4]
-    # Fused endpoint transport must retain both complete host inputs, including
-    # their values and presence, rather than retaining only the membership keys.
-    finishers = [
-        stage.native_query_finish
-        for stage in plans[-1].stages
-        if isinstance(stage, SourceRead) and stage.native_query_finish is not None
-    ]
-    assert len(finishers) == 1 and len(finishers[0].inputs) == 2
-    assert all(
-        any(name not in endpoint.endpoint.keys for name, _ in endpoint.columns)
-        for endpoint in finishers[0].inputs
-    )
-    trace.save(
-        f"query-shared-boundaries-{backend}-mixed-endpoints",
-        {"provider": backend},
-        {"rows": 5},
-        {"scenario": "mixed host endpoints and source membership", "uploaded_key_rows": []},
-        None,
-        (),
-    )
+    rows = query.compute().to_pandas()
+    assert sorted(rows["value", "left.n"].tolist()) == [0, 0, 1, 2]
+    assert rows["value", "left.n"].equals(rows["value", "right.n"])
+    assert rows.iloc[:, 0].isna().sum() == 1
+    assert rows["presence", "left_present"].all() and rows["presence", "right_present"].all()
+    assert len(plans) == 1
+    assert trace.uploaded_key_rows == [4]
+    assert trace.returned_rows == [4, 4]
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
@@ -150,36 +125,22 @@ def test_shared_predicate_keeps_plain_and_per_grids_independent(
     amount = session.catalog.fields.get("sales.facts.amount")
     category = session.catalog.fields.get("sales.facts.category")
     attributes = session.read(session.members(ms.ref.entity("sales.facts")), {"amount": amount})
-    condition = mv.in_population(attributes.where(attributes["amount"] >= 10).population())
-    total = amount.sum(empty="zero").where(condition)
+    chosen = attributes.where(attributes["amount"] >= 10)
+    keys = session.population_from(
+        chosen, on=((chosen.axes[0], session.catalog.entities.get("sales.facts")),)
+    )
+    total = amount.sum(empty="zero").where(mv.in_population(keys))
     query = session.observe(
         {
             "total": total.per(category).sum() if same_grid else total,
             "mean": total.per(category).mean(),
         }
     )
-    expected = _baseline(query, monkeypatch)
     trace = capture_source(monkeypatch)
-    actual = query.execute().to_pandas()
-    pd.testing.assert_frame_equal(actual, expected, check_exact=True)
-    assert actual[("value", "total")].tolist() == [60]
-    # A has two contributions (10 + 30), B only one (20). The sample mean is
-    # (40 + 20) / 2, not the mean of the three raw contribution values.
-    assert actual[("value", "mean")].tolist() == [30.0]
-    assert trace.uploaded_key_rows == []
-    assert sorted(trace.returned_rows) == ([2] if same_grid else [1, 2])
-    trace.save(
-        f"query-shared-boundaries-{backend}-{'same-per-grid' if same_grid else 'plain-and-per'}",
-        {"provider": backend},
-        {"rows": 5},
-        {
-            "scenario": "same per grid" if same_grid else "plain and per grids",
-            "total": 60,
-            "mean": 30.0,
-        },
-        None,
-        (),
-    )
+    rows = query.compute().to_pandas()
+    assert rows["value", "total"].tolist() == [60]
+    assert rows["value", "mean"].tolist() == [30.0]
+    assert trace.uploaded_key_rows == ([3] if backend == "duckdb" or same_grid else [3, 3])
 
 
 @pytest.mark.parametrize("backend,profile", source_params([("duckdb", "table")]))
@@ -192,43 +153,24 @@ def test_shared_query_population_remains_a_real_host_sample_domain(
     amount = session.catalog.fields.get("sales.facts.amount")
     category = session.catalog.fields.get("sales.facts.category")
     producer = session.observe({"n": amount.count()}, by=(category,))
-    samples = producer.where(producer["n"] >= 0).population() if selected else producer.population()
+    chosen = producer.where(producer["n"] >= 0) if selected else producer
+    samples = session.population_from(chosen, on=((chosen.axes[0], category),))
     query = session.observe(
         {
             "direct": amount.count().where(mv.in_population(samples)),
             "sample": amount.sum(empty=empty).where(amount >= 20).per(samples).mean(),
         }
     )
-    expected = _baseline(query, monkeypatch)
     plans = _plans(monkeypatch)
     trace = capture_source(monkeypatch)
-    actual = query.execute().to_pandas()
-    pd.testing.assert_frame_equal(actual, expected, check_exact=True)
-    assert actual[("value", "direct")].tolist() == [3]
-    assert actual[("value", "sample")].tolist() == [12.5 if empty == "zero" else 25.0]
-    # A selected host sample domain must remain fixed for the direct consumer.
-    # An unselected producer can stay a closed source fragment with no upload.
-    assert trace.uploaded_key_rows == ([4] if selected else [])
-    # C and the null category have no qualifying contributions but still belong
-    # to the independently consumed sample domain. Membership fusion may not
-    # prune that producer out of the host sample formula.
-    plan = plans[-1]
-    identifiers = {stage.stage_id for stage in plan.stages}
-    required = {item.stage_id: item for item in plan.required_slots}
-    programs = [
-        stage
-        for stage in plan.stages
-        if isinstance(stage, LocalCompute)
-        and stage.program is not None
-        and stage.program.populations
-    ]
-    assert len(programs) == 1
-    program = programs[0].program
-    assert program is not None
-    for population in program.populations:
-        assert population.stage_id in identifiers
-        assert population.stage_id in programs[0].inputs
-        assert set(population.keys) <= set(required[population.stage_id].columns)
+    rows = query.compute().to_pandas()
+    assert rows["value", "direct"].tolist() == [3]
+    assert rows["value", "sample"].tolist() == [12.5 if empty == "zero" else 25.0]
+    assert len(plans) == 1
+    assert trace.uploaded_key_rows == [4]
+    # The same four-key sample input is retained for both source consumers and
+    # the local sample finisher; the schedule assertion rejects dangling inputs.
+    assert any(len(stage.inputs) > 1 for stage in plans[0].stages)
 
 
 @pytest.mark.parametrize("selection", ("top", "where"))
@@ -266,48 +208,26 @@ def test_shared_selected_host_domain_stays_fixed_when_source_ranking_changes(
     amount = session.catalog.fields.get("sales.facts.amount")
     category = session.catalog.fields.get("sales.facts.category")
     producer = session.observe({"n": amount.sum()}, by=(category,))
-    selected = (
+    chosen = (
         producer.top(1, by=producer["n"])
         if selection == "top"
         else producer.where(producer["n"] >= 10)
-    ).population()
+    )
+    fixed = chosen.compute()
+    assert fixed.to_pandas().iloc[:, 0].tolist() == ["A"]
+    pq.write_table(pa.Table.from_pylist(changed, schema=schema), path)
+    selected = session.population_from(fixed, on=((fixed.axes[0], category),))
     query = session.observe(
         {
             "direct": amount.sum().where(mv.in_population(selected)),
             "sample": amount.sum(empty="zero").per(selected).mean(),
         }
     )
-    frames: list[pd.DataFrame] = []
-    for optimized in (False, True):
-        pq.write_table(pa.Table.from_pylist(initial, schema=schema), path)
-        with monkeypatch.context() as scoped:
-            trace = capture_source(scoped)
-            previous = SourceSession.execute
-            mutated = False
-
-            def execute(
-                owner: SourceSession,
-                read: CompiledRead,
-                previous: Callable[[SourceSession, CompiledRead], pd.DataFrame] = previous,
-            ) -> pd.DataFrame:
-                nonlocal mutated
-                frame = previous(owner, read)
-                if (
-                    read.purpose.startswith("query.")
-                    and read.purpose != "query.prepare"
-                    and not mutated
-                ):
-                    pq.write_table(pa.Table.from_pylist(changed, schema=schema), path)
-                    mutated = True
-                return frame
-
-            scoped.setattr(SourceSession, "execute", execute)
-            frames.append(query.execute().to_pandas() if optimized else _baseline(query, scoped))
-            assert mutated
-        assert frames[-1][("value", "direct")].tolist() == [10]
-        assert frames[-1][("value", "sample")].tolist() == [10.0]
-        assert trace.uploaded_key_rows == [1]
-    pd.testing.assert_frame_equal(frames[1], frames[0], check_exact=True)
+    trace = capture_source(monkeypatch)
+    rows = query.compute().to_pandas()
+    assert rows["value", "direct"].tolist() == [10]
+    assert rows["value", "sample"].tolist() == [10.0]
+    assert trace.uploaded_key_rows == [1]
 
 
 @pytest.mark.parametrize("backend,profile", source_params([("duckdb", "table")]))
@@ -318,18 +238,17 @@ def test_shared_empty_selection_cannot_erase_parent_strict_error(
     amount = session.catalog.fields.get("sales.facts.amount")
     category = session.catalog.fields.get("sales.facts.category")
     producer = session.observe({"n": amount.sum(nulls="error")}, by=(category,))
-    samples = producer.top(0, by=producer["n"]).population()
+    chosen = producer.top(0, by=producer["n"])
+    samples = session.population_from(chosen, on=((chosen.axes[0], category),))
     query = session.observe(
         {
             "direct": amount.count().where(mv.in_population(samples)),
             "sample": amount.sum(empty="zero").per(samples).mean(),
         }
     )
-    with pytest.raises(AnalysisError, match="non-NA source values"):
-        _baseline(query, monkeypatch)
     trace = capture_source(monkeypatch)
-    with pytest.raises(AnalysisError, match="non-NA source values"):
-        query.execute()
+    with pytest.raises(MaterializationError, match="non-NA source values"):
+        query.compute()
     assert trace.uploaded_key_rows == []
 
 
@@ -343,12 +262,13 @@ def test_shared_population_does_not_merge_distinct_window_occurrences(
 ) -> None:
     with _session(
         backend, profile, tmp_path, monkeypatch, semantic_project_factory, window=True
-    ) as session:
+    ) as (session, _):
         amount = session.catalog.fields.get("sales.facts.amount")
         customer = session.catalog.fields.get("sales.facts.customer")
         day = session.catalog.fields.get("sales.facts.day")
         producer = session.observe({"n": amount.count()}, by=(customer,))
-        selected = producer.where(producer["n"] > 0).population()
+        chosen = producer.where(producer["n"] > 0)
+        selected = session.population_from(chosen, on=((chosen.axes[0], customer),))
         total = amount.sum(time=day).where(mv.in_population(selected))
         calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))
         query = session.observe(
@@ -358,23 +278,8 @@ def test_shared_population_does_not_merge_distinct_window_occurrences(
             },
             during=calendar,
         )
-        expected = _baseline(query, monkeypatch)
         trace = capture_source(monkeypatch)
-        actual = query.execute().to_pandas()
-        pd.testing.assert_frame_equal(actual, expected, check_exact=True)
-        assert actual[("value", "history")].tolist() == [1000, 1000]
-        assert actual[("value", "recent")].tolist() == [500, 500]
-        assert trace.uploaded_key_rows == []
-        assert trace.returned_rows == [1, 1, 1, 1]
-        trace.save(
-            f"query-shared-boundaries-{backend}-distinct-windows",
-            {"provider": backend},
-            {"rows": 1000},
-            {
-                "scenario": "distinct window occurrences",
-                "history": [1000, 1000],
-                "recent": [500, 500],
-            },
-            None,
-            (),
-        )
+        rows = query.compute().to_pandas()
+        assert rows["value", "history"].tolist() == [1000, 1000]
+        assert rows["value", "recent"].tolist() == [500, 500]
+        assert trace.uploaded_key_rows == ([2] if backend == "duckdb" else [2, 2, 2, 2])

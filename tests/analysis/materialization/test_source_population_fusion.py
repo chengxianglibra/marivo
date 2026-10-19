@@ -4,12 +4,10 @@ from collections.abc import Callable
 from pathlib import Path
 
 import duckdb
-import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.materialization import query_key_fusion
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
@@ -31,14 +29,6 @@ def _case(
     return session
 
 
-def _baseline(query: mv.Query, monkeypatch: pytest.MonkeyPatch) -> pd.DataFrame:
-    with monkeypatch.context() as scoped:
-        scoped.setattr(
-            query_key_fusion, "_fold_population_checks", lambda prepared, lowered: lowered
-        )
-        return query.execute().to_pandas()
-
-
 @pytest.mark.parametrize(
     "operation", ("image", "image_count", "literal_preimage", "query_preimage", "empty_query")
 )
@@ -56,7 +46,7 @@ def test_relationship_population_only_returns_consumed_domain_or_value(
     )
     image = orders.image(via=path)
     if operation == "image":
-        query = session.query(image)
+        query = session.frame(image)
     elif operation == "image_count":
         query = session.observe(
             {
@@ -71,23 +61,29 @@ def test_relationship_population_only_returns_consumed_domain_or_value(
         else:
             tags = session.members(ms.ref.entity("sales.tags"))
             fields = session.read(tags, {"label": session.catalog.fields.get("sales.tags.label")})
-            targets = fields.where(
+            chosen = fields.where(
                 fields["label"] == ("missing" if operation == "empty_query" else "A")
-            ).population()
+            )
+            targets = session.population_from(
+                chosen, on=((chosen.axes[0], session.catalog.entities.get("sales.tags")),)
+            )
         selected = orders.preimage(targets, via=path)
         query = session.observe(
             {"v": session.catalog.metrics.get("sales.revenue")}, members=selected
         )
-    expected = _baseline(query, monkeypatch)
     trace = capture_source(monkeypatch)
-    frame = query.execute().to_pandas()
-    pd.testing.assert_frame_equal(frame, expected, check_exact=True)
+    frame = query.compute().to_pandas()
     if operation != "image":
         assert frame[("value", "v")].tolist() == [
             2 if operation == "image_count" else 0 if operation == "empty_query" else 500
         ]
-    assert trace.returned_rows == [2 if operation == "image" else 1]
-    assert trace.uploaded_key_rows == []
+    if operation == "image":
+        assert frame.iloc[:, 0].tolist() == [1, 2]
+    if operation in ("image", "image_count", "literal_preimage"):
+        assert trace.returned_rows == [2 if operation == "image" else 1]
+        assert trace.uploaded_key_rows == []
+    else:
+        assert trace.uploaded_key_rows == [0 if operation == "empty_query" else 1]
 
 
 @pytest.mark.parametrize("boundary", ("null_source", "missing_operand", "target_attributes"))
@@ -126,7 +122,10 @@ def test_relationship_population_failures_survive_empty_top(
             session.members(ms.ref.entity("sales.tags")),
             {"label": session.catalog.fields.get("sales.tags.label")},
         )
-        targets = fields.where(fields["label"] == "missing").population()
+        chosen = fields.where(fields["label"] == "missing")
+        targets = session.population_from(
+            chosen, on=((chosen.axes[0], session.catalog.entities.get("sales.tags")),)
+        )
         selected = orders.preimage(targets, via=path)
         metric = (
             session.catalog.fields.get("sales.orders.id").count().where(mv.in_population(selected))
@@ -134,12 +133,10 @@ def test_relationship_population_failures_survive_empty_top(
         expected = "exactly one attribute row"
     fine = session.observe({"v": metric})
     query = fine.top(0, by=fine["v"])
-    with pytest.raises(MaterializationError, match=expected):
-        _baseline(query, monkeypatch)
     trace = capture_source(monkeypatch)
     with pytest.raises(MaterializationError, match=expected):
-        query.execute()
-    assert trace.returned_rows == [1]
+        query.compute()
+    assert trace.returned_rows == [3 if boundary == "target_attributes" else 1]
     assert trace.uploaded_key_rows == []
 
 
@@ -160,16 +157,14 @@ def test_relationship_member_count_keeps_its_actual_member_input(
         {"n": mv.member_count(), "v": session.catalog.metrics.get("sales.revenue")},
         members=selected,
     )
-    expected = _baseline(query, monkeypatch)
-    frame = query.execute().to_pandas()
-    pd.testing.assert_frame_equal(frame, expected, check_exact=True)
+    frame = query.compute().to_pandas()
     assert frame[("value", "n")].tolist() == [500]
 
 
 @pytest.mark.parametrize(
     "backend,profile", source_params([("trino", "iceberg"), ("clickhouse", "mergetree")])
 )
-def test_remote_relationship_domains_and_query_targets_stay_at_source(
+def test_remote_relationship_domains_and_explicit_frame_targets(
     semantic_project_factory: Callable[..., SemanticProject],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -183,8 +178,12 @@ def test_remote_relationship_domains_and_query_targets_stay_at_source(
     from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
     from tests.datasource.source_cases import SourceData, source_case
 
-    orders = [{"id": i, "customer": i % 10, "amount": 1} for i in range(1000)]
-    links = [{"id": i, "order_id": i % 1000, "tag_id": i % 2 + 1} for i in range(2000)]
+    orders: list[dict[str, object]] = [
+        {"id": i, "customer": i % 10, "amount": 1} for i in range(1000)
+    ]
+    links: list[dict[str, object]] = [
+        {"id": i, "order_id": i % 1000, "tag_id": i % 2 + 1} for i in range(2000)
+    ]
     tags = [
         {"id": i, "label": label, "channel": "web"} for i, label in enumerate(("A", "B", "C"), 1)
     ]
@@ -245,7 +244,7 @@ def test_remote_relationship_domains_and_query_targets_stay_at_source(
         )
         image = source.image(via=path)
         trace = capture_source(monkeypatch)
-        assert len(session.query(image).execute().to_pandas()) == 2
+        assert len(session.frame(image).compute().to_pandas()) == 2
         count = (
             session.observe(
                 {
@@ -254,7 +253,7 @@ def test_remote_relationship_domains_and_query_targets_stay_at_source(
                     .where(mv.in_population(image))
                 }
             )
-            .execute()
+            .compute()
             .to_pandas()
         )
         assert count[("value", "v")].tolist() == [2]
@@ -263,15 +262,17 @@ def test_remote_relationship_domains_and_query_targets_stay_at_source(
             {"label": session.catalog.fields.get("sales.tags.label")},
         )
         for label, expected in (("A", 500), ("missing", 0)):
-            targets = fields.where(fields["label"] == label).population()
+            chosen = fields.where(fields["label"] == label)
+            targets = session.population_from(
+                chosen, on=((chosen.axes[0], session.catalog.entities.get("sales.tags")),)
+            )
             selected = source.preimage(targets, via=path)
             frame = (
                 session.observe(
                     {"v": session.catalog.metrics.get("sales.revenue")}, members=selected
                 )
-                .execute()
+                .compute()
                 .to_pandas()
             )
             assert frame[("value", "v")].tolist() == [expected]
-        assert trace.returned_rows == [2, 1, 1, 1]
-        assert trace.uploaded_key_rows == []
+        assert trace.uploaded_key_rows == [1, 0]

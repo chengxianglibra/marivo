@@ -22,14 +22,14 @@ CASES = [("trino", "iceberg"), ("clickhouse", "mergetree")]
 
 def _data(boundary: str = "ordinary") -> SourceData:
     amounts = (2.5, None, float("nan"), 2.5, -1.0, 0.0)
-    integers = (10, 20, 30, 40, 50, 60)
+    integers: tuple[int | None, ...] = (10, 20, 30, 40, 50, 60)
     if boundary == "strict":
         amounts = (2.5, None, 1.0, 2.5, -1.0, 0.0)
     if boundary == "precision":
         integers = (2**53 + 1, None, 0, 0, 0, 0)
     elif boundary == "overflow":
         integers = (2**63 - 1, 1, 0, 0, 0, 0)
-    rows = [
+    rows: list[dict[str, object]] = [
         {
             "id": i + 1,
             "tenant": f"t{i + 1}",
@@ -47,7 +47,7 @@ def _data(boundary: str = "ordinary") -> SourceData:
             "NULL"
             if row["amount"] is None
             else "nan()"
-            if pd.isna(row["amount"])
+            if isinstance(row["amount"], float) and pd.isna(row["amount"])
             else str(row["amount"])
         )
         + ","
@@ -106,15 +106,14 @@ def test_native_numeric_field_filters_and_top_keep_nan_as_missing(
         )
         trace = capture_source(monkeypatch)
         for query, identities in queries:
-            frame = query.execute().to_pandas()
+            frame = query.compute().to_pandas()
             assert [key[-1] for key in frame[("coordinate", "axis.0")]] == identities
-        assert trace.returned_rows == [2, 2, 2, 6, 2]
         assert trace.uploaded_key_rows == []
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
 @pytest.mark.parametrize("method", ("sum", "min", "max", "mean", "weighted_mean"))
-def test_native_numeric_aggregate_where_top_and_population_stay_at_source(
+def test_source_numeric_aggregate_frame_selection_and_explicit_bridge(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -137,19 +136,18 @@ def test_native_numeric_aggregate_where_top_and_population_stay_at_source(
         fine = session.observe({"value": metric}, by=(category,))
         eligible = fine.where(fine["value"] > 40.5)
         selected = eligible.top(1, by=eligible["value"])
-        consumer = session.observe(
-            {"n": big.count()}, where=mv.in_population(selected.population())
-        )
+        fixed = selected.compute()
+        keys = session.population_from(fixed, on=((fixed.axes[0], category),))
+        consumer = session.observe({"n": big.count()}, where=mv.in_population(keys))
         trace = capture_source(monkeypatch)
-        frame = selected.execute().to_pandas()
+        frame = fixed.to_pandas()
         assert frame[("coordinate", "axis.0")].tolist() == ["C"]
         assert frame[("value", "value")].tolist() == [
             {"sum": 110, "min": 50, "max": 60, "mean": 55, "weighted_mean": 55}[method]
         ]
-        counts = consumer.execute().to_pandas()
+        counts = consumer.compute().to_pandas()
         assert counts[("value", "n")].tolist() == [2]
-        assert trace.returned_rows == [1, 1]
-        assert trace.uploaded_key_rows == []
+        assert trace.uploaded_key_rows == [1]
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
@@ -164,15 +162,28 @@ def test_native_integer_predicate_uses_actual_source_value_before_pandas_roundin
     with source_case(backend, profile, tmp_path, monkeypatch, _data("precision")) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("numeric-native-precision", report_timezone="UTC")
+        big = session.catalog.fields.get("sales.facts.big")
+        # This is now an explicit source row predicate, independently checked
+        # before its admitted native pandas handoff, not a Frame fusion claim.
         source = session.read(
-            session.members(ms.ref.entity("sales.facts")),
-            {"big": session.catalog.fields.get("sales.facts.big")},
+            session.members(ms.ref.entity("sales.facts"), where=big > 2**53), {"big": big}
         )
-        trace = capture_source(monkeypatch)
-        frame = source.where(source["big"] > 2**53).execute().to_pandas()
-        assert frame[("coordinate", "axis.0")].tolist() == [("t1", 1)]
-        assert frame[("value", "big")].tolist() == [2**53 + 1]
-        assert trace.returned_rows == [1]
+        table = case.session.bind(case.source, source_identity="integer-predicate-oracle").relation
+        native = case.session._backend.execute(table.filter(table.big > 2**53).select(table.big))
+        assert isinstance(native, pd.DataFrame)
+        frame = source.compute().to_pandas()
+        assert frame.iloc[:, 0].tolist() == [("t1", 1)]
+        assert frame["value", "big"].tolist() == native.big.tolist()
+        # Fixed host integer data retains its exact current-row predicate.
+        category = session.catalog.fields.get("sales.facts.category")
+        fixed = session.values(
+            by=(category,),
+            columns={"big": None},
+            rows=((("A",), {"big": 2**53 + 1}), (("B",), {"big": None})),
+        ).compute()
+        selected = fixed.where(fixed["big"] > 2**53).compute().to_pandas()
+        assert selected.iloc[:, 0].tolist() == ["A"]
+        assert selected["value", "big"].tolist() == [2**53 + 1]
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
@@ -206,8 +217,7 @@ def test_native_numeric_parent_failures_survive_top_zero(
             MaterializationError,
             match={"overflow": "overflow", "strict": "non-NA", "zero": "zero"}[boundary],
         ):
-            fine.top(0, by=fine["value"]).execute()
-        assert trace.returned_rows == [1]
+            fine.top(0, by=fine["value"]).compute()
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
@@ -231,7 +241,7 @@ def test_native_decimal_field_filter_keeps_actual_source_comparison(
                 "amount": None
                 if row["amount"] is None
                 else Decimal("3.75")
-                if pd.isna(row["amount"])
+                if isinstance(row["amount"], float) and pd.isna(row["amount"])
                 else Decimal(str(row["amount"])),
             }
             for row in data.rows
@@ -246,10 +256,9 @@ def test_native_decimal_field_filter_keeps_actual_source_comparison(
             {"amount": session.catalog.fields.get("sales.facts.amount")},
         )
         trace = capture_source(monkeypatch)
-        frame = source.where(source["amount"] > Decimal("2.5")).execute().to_pandas()
+        frame = source.where(source["amount"] > Decimal("2.5")).compute().to_pandas()
         assert frame[("coordinate", "axis.0")].tolist() == [("t3", 3)]
         assert frame[("value", "amount")].tolist() == [Decimal("3.75")]
-        assert trace.returned_rows == [1]
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
@@ -260,7 +269,6 @@ def test_numeric_attribute_cardinality_failure_survives_empty_top(
     backend: str,
     profile: str,
 ) -> None:
-    from tests.analysis.materialization.test_source_query_fusion import _execute
 
     data = _data()
     data = SourceData(
@@ -280,11 +288,10 @@ def test_numeric_attribute_cardinality_failure_survives_empty_top(
         filtered = source.where(source["amount"] > 100.5)
         query = filtered.top(0, by=filtered["amount"])
         with pytest.raises(MaterializationError, match="exactly one attribute row"):
-            _execute(session, query, fuse=False)
+            query.compute()
         trace = capture_source(monkeypatch)
         with pytest.raises(MaterializationError, match="exactly one attribute row"):
-            query.execute()
-        assert trace.returned_rows == [1]
+            query.compute()
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
@@ -311,8 +318,7 @@ def test_nonnullable_float_source_uses_nullable_nan_branch(
             {"amount": session.catalog.fields.get("sales.facts.amount")},
         )
         trace = capture_source(monkeypatch)
-        frame = source.where(source["amount"].is_null()).execute().to_pandas()
+        frame = source.where(source["amount"].is_null()).compute().to_pandas()
         assert frame[("coordinate", "axis.0")].tolist() == [("t3", 3)]
-        top = source.top(2, by=source["amount"]).execute().to_pandas()
+        top = source.top(2, by=source["amount"]).compute().to_pandas()
         assert top[("coordinate", "axis.0")].tolist() == [("t1", 1), ("t4", 4)]
-        assert trace.returned_rows == [1, 2]

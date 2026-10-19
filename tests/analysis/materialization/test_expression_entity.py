@@ -6,7 +6,7 @@ import os
 import shutil
 import subprocess
 import sys
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pyarrow as pa
@@ -15,7 +15,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
 from tests.support.paths import PROJECT_ROOT
 
 
@@ -31,7 +31,8 @@ def project(root: Path, predicate: str = "raw.amount > 0") -> None:
                 "region": ["east", "east", "west", "west"],
                 "amount": [10, 20, 5, -8],
                 "day": pa.array(
-                    [datetime(2026, 1, 1, tzinfo=UTC)] * 4, type=pa.timestamp("us", tz="UTC")
+                    [datetime(2026, 1, 1, tzinfo=timezone.utc)] * 4,
+                    type=pa.timestamp("us", tz="UTC"),
                 ),
             }
         ),
@@ -65,37 +66,41 @@ def test_transformed_grain_and_cold_terminal_reads(
         {"value": session.catalog.metrics.get("sales.revenue")},
         by=(session.catalog.fields.get("sales.regional.region"),),
     )
-    result = logical.execute()
+    result = logical.persist()
     frame = result.to_pandas()
     assert frame.set_index(frame.columns[0])[("value", "value")].to_dict() == {
         "east": 30,
         "west": 5,
     }
-    total = logical.reduce({"value": logical["value"].sum()}).execute()
+    total = logical.reduce({"value": logical["value"].sum()}).persist()
     assert total.to_pandas()[("value", "value")].tolist() == [35]
-    fingerprint = logical._graph.fingerprint
+    assert isinstance(logical._backing, ExpressionFrameBacking)
+    assert isinstance(logical._backing.root, SourceFrameBinding)
+    fingerprint = logical._backing.root.graph.fingerprint
     project(tmp_path, "raw.amount > 15")
     other = mv.session.get_or_create("changed-expression")
     changed = other.observe(
         {"value": other.catalog.metrics.get("sales.revenue")},
         by=(other.catalog.fields.get("sales.regional.region"),),
     )
-    assert changed._graph.fingerprint != fingerprint
-    assert changed.execute().to_pandas()[("value", "value")].tolist() == [20]
+    assert isinstance(changed._backing, ExpressionFrameBacking)
+    assert isinstance(changed._backing.root, SourceFrameBinding)
+    assert changed._backing.root.graph.fingerprint != fingerprint
+    assert changed.compute().to_pandas()[("value", "value")].tolist() == [20]
     shutil.rmtree(tmp_path / "models")
     (tmp_path / "rows.parquet").unlink()
     assert result.to_pandas()[("value", "value")].sum() == 35
     code = """import sys
 import marivo.analysis as mv
 session = mv.session.resume(sys.argv[1], by='id')
-result = session.artifact(sys.argv[2])
+result = session.persisted_frame(sys.argv[2])
 frame = result.to_pandas()
 assert frame.set_index(frame.columns[0])[('value', 'value')].to_dict() == {'east':30, 'west':5}
-assert session.artifact(sys.argv[3]).to_pandas()[('value', 'value')].tolist() == [35]
+assert session.persisted_frame(sys.argv[3]).to_pandas()[('value', 'value')].tolist() == [35]
 assert frame[('value', 'value')].sum() == 35
 """
     completed = subprocess.run(
-        [sys.executable, "-c", code, session.id, result.id, total.id],
+        [sys.executable, "-c", code, session.id, result.artifact.id, total.artifact.id],
         cwd=tmp_path,
         env=dict(os.environ, PYTHONPATH=str(PROJECT_ROOT), MARIVO_PROJECT_ROOT=str(tmp_path)),
         capture_output=True,
@@ -112,10 +117,9 @@ def test_output_keys_rejected_before_run(tmp_path: Path, monkeypatch: pytest.Mon
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     session = mv.session.get_or_create("invalid-output-key")
-    with pytest.raises(MaterializationError) as caught:
-        session.query(session.members(ms.ref.entity("sales.regional"))).execute()
-    cause = caught.value.__cause__
-    assert isinstance(cause, ms.errors.SemanticRuntimeError)
+    with pytest.raises(ms.errors.SemanticRuntimeError) as caught:
+        session.frame(session.members(ms.ref.entity("sales.regional"))).compute()
+    cause = caught.value
     assert cause.expected == "primary_key 'amount' present on the Entity output schema"
     assert cause.received == "output columns: 'region', 'day', 'total'"
     assert session.runs().items == ()

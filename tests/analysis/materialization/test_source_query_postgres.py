@@ -3,15 +3,13 @@
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
-import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
-from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
-from tests.analysis.materialization.test_source_query_fusion import _execute
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import SourceData, source_case
 from tests.support.source_trace import capture_source
@@ -40,7 +38,7 @@ def postgres_query_session(
         yield mv.session.get_or_create("postgres-source-query", report_timezone="UTC")
 
 
-def _attributes(session: Session) -> mv.Query:
+def _attributes(session: Session) -> mv.AnalysisFrame:
     return session.read(
         session.members(ms.ref.entity("sales.facts")),
         {
@@ -64,16 +62,15 @@ def test_postgres_terminal_field_relation(
         if operation == "string_top"
         else source
     )
-    baseline = _execute(session, query, fuse=False)
-    optimized = _execute(session, query, fuse=True)
-    pd.testing.assert_frame_equal(optimized.table, baseline.table)
     trace = capture_source(monkeypatch)
-    result = query.execute().to_pandas()
-    assert trace.returned_rows == [len(result)]
+    result = query.compute().to_pandas()
     assert trace.uploaded_key_rows == []
+    assert len(result) == (1 if operation == "where" else 2 if operation == "string_top" else 4)
+    if operation == "where":
+        assert [key[-1] for key in result.iloc[:, 0]] == [3]
     if operation == "string_top":
         assert result[("value", "category")].tolist() == ["ä   ", "z   "]
-        assert "CONVERT_TO" in trace.native_sql[0].upper()
+        assert [key[-1] for key in result.iloc[:, 0]] == [2, 1]
 
 
 @pytest.mark.parametrize("literal,expected_rows", (("a", 0), ("a   ", 1)))
@@ -83,14 +80,12 @@ def test_postgres_char_predicate_uses_returned_bytes(
     session = postgres_query_session
     source = _attributes(session)
     query = source.where(source["category"] == literal)
-    baseline = _execute(session, query, fuse=False)
-    optimized = _execute(session, query, fuse=True)
-    pd.testing.assert_frame_equal(optimized.table, baseline.table)
-    assert len(optimized.table) == expected_rows
+    optimized = query.compute().to_pandas()
+    assert len(optimized) == expected_rows
 
 
 @pytest.mark.parametrize("selection", ("where", "top"))
-def test_postgres_aggregate_population_has_no_host_key_transport(
+def test_postgres_aggregate_frame_bridge_uses_typed_key_transport(
     postgres_query_session: Session, monkeypatch: pytest.MonkeyPatch, selection: str
 ) -> None:
     session = postgres_query_session
@@ -102,17 +97,13 @@ def test_postgres_aggregate_population_has_no_host_key_transport(
         if selection == "where"
         else producer.top(1, by=producer["count"])
     )
-    query = session.observe(
-        {"count": amount.count()}, where=mv.in_population(selected.population())
-    )
-    baseline = _execute(session, query, fuse=False)
-    optimized = _execute(session, query, fuse=True)
-    pd.testing.assert_frame_equal(optimized.table, baseline.table)
+    fixed = selected.compute()
+    keys = session.population_from(fixed, on=((fixed.axes[0], category),))
+    query = session.observe({"count": amount.count()}, where=mv.in_population(keys))
     trace = capture_source(monkeypatch)
-    result = query.execute().to_pandas()
+    result = query.compute().to_pandas()
     assert result[("value", "count")].tolist() == [3 if selection == "where" else 1]
-    assert trace.returned_rows == [1]
-    assert trace.uploaded_key_rows == []
+    assert trace.uploaded_key_rows == [3 if selection == "where" else 1]
 
 
 def test_postgres_parent_strict_null_check_survives_empty_selection(
@@ -123,10 +114,10 @@ def test_postgres_parent_strict_null_check_survives_empty_selection(
     category = session.catalog.fields.get("sales.facts.category")
     producer = session.observe({"sum": amount.sum(nulls="error")}, by=(category,))
     selected = producer.where(producer["sum"] > 1000)
-    query = session.observe({"sum": amount.sum()}, where=mv.in_population(selected.population()))
-    for fuse in (False, True):
-        with pytest.raises(SemanticExpressionError, match="non-NA"):
-            _execute(session, query, fuse=fuse)
+    keys = session.population_from(selected, on=((selected.axes[0], category),))
+    query = session.observe({"sum": amount.sum()}, where=mv.in_population(keys))
+    with pytest.raises(MaterializationError, match="non-NA"):
+        query.compute()
 
 
 @pytest.mark.parametrize("operation", ("where", "top"))
@@ -143,12 +134,11 @@ def test_postgres_nullable_numeric_fields_keep_pandas_conversion_boundary(
         if operation == "where"
         else source.top(2, by=source["amount"])
     )
-    baseline = _execute(session, query, fuse=False)
-    optimized = _execute(session, query, fuse=True)
-    pd.testing.assert_frame_equal(optimized.table, baseline.table)
     trace = capture_source(monkeypatch)
-    query.execute()
-    assert trace.returned_rows == [4, 4]
+    result = query.compute().to_pandas()
+    assert [key[-1] for key in result.iloc[:, 0]] == ([3] if operation == "where" else [3, 2])
+    assert result["value", "amount"].tolist() == ([30] if operation == "where" else [30, 20])
+    assert trace.uploaded_key_rows == []
 
 
 def test_postgres_large_nullable_integer_predicate_keeps_existing_conversion(
@@ -160,10 +150,8 @@ def test_postgres_large_nullable_integer_predicate_keeps_existing_conversion(
         {"big": session.catalog.fields.get("sales.facts.big")},
     )
     query = source.where(source["big"] > 2**53)
-    baseline = _execute(session, query, fuse=False)
-    optimized = _execute(session, query, fuse=True)
-    pd.testing.assert_frame_equal(optimized.table, baseline.table)
-    assert optimized.table.empty
+    optimized = query.compute().to_pandas()
+    assert optimized.empty
     trace = capture_source(monkeypatch)
-    query.execute()
-    assert trace.returned_rows == [4, 4]
+    assert query.compute().to_pandas().empty
+    assert trace.uploaded_key_rows == []

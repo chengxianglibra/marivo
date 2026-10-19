@@ -5,12 +5,14 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
+import ibis
 import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.compiler.source_predicates import query_numeric_value
+from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project
@@ -87,6 +89,19 @@ def test_native_cell_sum_keeps_each_na_mask_and_native_value(
             table.aggregate(value=query_numeric_value(table.amount, backend).sum())
         )
         assert isinstance(native, pd.DataFrame)
+        # The retired Query cell-fusion normalized NaN in its native source
+        # expression. Its SQL value is an independent native fact, not the
+        # original-Metric or compensated current-row reduction contract.
+        nan_function = "is_nan" if backend == "trino" else "isNaN"
+        direct_sql = (
+            f"SELECT SUM(CASE WHEN {nan_function}(amount) THEN NULL ELSE amount END) "
+            f"FROM ({ibis.to_sql(table, dialect=backend)}) AS input_rows"
+        )
+        direct = case.session._backend.raw_sql(direct_sql).fetchone()
+        assert direct is not None
+        assert native.value.iloc[0] == direct[0]
+        source_trace = capture_source(monkeypatch)
+        source = source.compute()
         trace = capture_source(monkeypatch)
         for selected in (
             source,
@@ -96,16 +111,16 @@ def test_native_cell_sum_keeps_each_na_mask_and_native_value(
             query = selected.reduce(
                 {"total": selected["amount"].sum(), "decimal": selected["decimal"].sum()}
             )
-            frame = query.execute().to_pandas()
+            frame = query.compute().to_pandas()
             if selected is source:
-                assert frame[("value", "total")].iloc[0] == native.value.iloc[0]
+                assert frame[("value", "total")].iloc[0] == 1.0
                 assert frame[("value", "decimal")].iloc[0] == Decimal("0.30")
             else:
                 assert frame[("value", "total")].isna().all()
                 assert frame[("value", "decimal")].isna().all()
-        assert trace.returned_rows == [1, 1, 1]
+        assert trace.returned_rows == []
         assert trace.uploaded_key_rows == []
-        trace.save(
+        source_trace.save(
             f"query-cell-sum-{backend}",
             case.environment,
             {"rows": 6},
@@ -140,7 +155,8 @@ def test_native_cell_sum_retains_numeric_errors_before_top_zero(
         total = source.reduce({"total": source["value"].sum()})
         query = total.top(0, by=total["total"])
         trace = capture_source(monkeypatch)
-        with pytest.raises(MaterializationError, match=r"nonfinite|overflow"):
-            query.execute()
-        assert trace.returned_rows == [1]
+        with pytest.raises(
+            (AnalysisError, MaterializationError), match=r"nonfinite|overflow|finite"
+        ):
+            query.compute()
         assert trace.uploaded_key_rows == []

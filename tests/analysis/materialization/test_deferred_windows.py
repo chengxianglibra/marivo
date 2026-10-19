@@ -9,7 +9,11 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo._definition.windows import TrailingDuration
 from marivo.analysis.binding.windows import _reset
+from marivo.analysis.core.data_schema import CalendarDataAxis
+from marivo.analysis.core.frame_data import MemoryFrameBacking
+from marivo.analysis.core.frozen_calendar import read_calendar_directory
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 
@@ -72,7 +76,7 @@ def test_window_recomputes_history_ratio_and_distinct(window_session: Session) -
             },
             during=scope.by(mv.grain("day")),
         )
-        .execute()
+        .compute()
         .to_pandas()
     )
     assert values[("value", "revenue")].tolist() == [120, 120]
@@ -89,7 +93,7 @@ def test_scalar_to_date_uses_endpoint_not_display_start(window_session: Session)
             session.observe(
                 {"mtd": metric}, during=session.time_scope(start=start, end="2026-10-08")
             )
-            .execute()
+            .compute()
             .to_pandas()
         )
         assert result[("value", "mtd")].tolist() == [20]
@@ -105,7 +109,9 @@ def test_exact_reset_boundary_and_elapsed_dst_duration() -> None:
     endpoint = datetime(2026, 3, 9, 4, tzinfo=timezone.utc)
     start, _ = _reset(endpoint, mv.grain("day"), "America/New_York")
     assert endpoint - start == timedelta(hours=23)
-    assert endpoint - mv.trailing_duration(duration=timedelta(hours=24)).duration != start
+    duration = mv.trailing_duration(duration=timedelta(hours=24))
+    assert isinstance(duration, TrailingDuration)
+    assert endpoint - duration.duration != start
 
 
 @pytest.mark.parametrize("calendar_first", [False, True])
@@ -116,14 +122,25 @@ def test_calendar_population_axis_order(window_session: Session, calendar_first:
     customers = mv.coordinates(by=(customer,), keys=((7,), (8,)))
     calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))
     domain = mv.product(calendar, customers) if calendar_first else mv.product(customers, calendar)
-    result = session.observe({"revenue": revenue}, by=domain).execute().to_pandas()
+    completed = session.observe({"revenue": revenue}, by=domain).compute()
+    result = completed.to_pandas()
     assert result[("value", "revenue")].to_dict() == {0: 20, 1: None, 2: None, 3: None}
     assert len(result) == 4
     days = [datetime(2026, 10, 7, tzinfo=timezone.utc), datetime(2026, 10, 8, tzinfo=timezone.utc)]
-    assert result.iloc[:, 0].tolist() == (
-        [days[0], days[0], days[1], days[1]] if calendar_first else [7, 7, 8, 8]
+    assert result.iloc[:, 0].tolist() == ([0, 0, 1, 1] if calendar_first else [7, 7, 8, 8])
+    assert result.iloc[:, 1].tolist() == ([7, 8, 7, 8] if calendar_first else [0, 1, 0, 1])
+    calendar_axis = next(
+        axis for axis in completed._schema.axes if isinstance(axis, CalendarDataAxis)
     )
-    assert result.iloc[:, 1].tolist() == ([7, 8, 7, 8] if calendar_first else days * 2)
+    assert calendar_axis.frozen is not None
+    assert isinstance(completed._backing, MemoryFrameBacking)
+    part = next(
+        part
+        for part in completed._backing.data.copy_attachments()
+        if part.name == calendar_axis.frozen.directory_name
+    )
+    directory = read_calendar_directory(calendar_axis, part.schema, part.rows)
+    assert [bucket.actual_start for bucket in directory.buckets] == days
 
 
 def test_per_calendar_population_retains_empty_samples(window_session: Session) -> None:
@@ -139,7 +156,7 @@ def test_per_calendar_population_retains_empty_samples(window_session: Session) 
                 "reverse_mean": revenue.per(mv.product(calendar, customers)).mean(),
             }
         )
-        .execute()
+        .compute()
         .to_pandas()
     )
     assert result[("value", "mean")].tolist() == [20.0]
@@ -153,9 +170,9 @@ def test_source_population_calendar_product(window_session: Session) -> None:
     customers = session.members(ms.ref.entity("sales.orders")).classify(by=(customer,))
     calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))
     samples = mv.product(customers, calendar)
-    result = session.observe({"revenue": revenue}, by=samples).execute().to_pandas()
+    result = session.observe({"revenue": revenue}, by=samples).compute().to_pandas()
     assert result[("value", "revenue")].to_dict() == {0: 20, 1: None}
-    average = session.observe({"mean": revenue.per(samples).mean()}).execute().to_pandas()
+    average = session.observe({"mean": revenue.per(samples).mean()}).compute().to_pandas()
     assert average[("value", "mean")].tolist() == [20.0]
 
 
