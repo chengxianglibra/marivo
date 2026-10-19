@@ -29,9 +29,9 @@ def test_exported_comparison_supports_pandas_deviation_selection(
     case = analysis_dsl_case_factory("j2")
     current = monthly(case, "2026-08-01", "2026-09-01")
     baseline = monthly(case, "2026-07-01", "2026-08-01")
-    comparison = current.compare(baseline)
-    artifact = comparison.execute()
-    frame = plain(artifact).rename(columns={"value.absolute": "value"})
+    comparison = current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))
+    artifact = comparison.persist()
+    frame = plain(artifact).rename(columns={"absolute.value": "value"})
     before = run_ids(case.session)
     result = deviation(frame, "zscore")
     values = tuple(frame.value)
@@ -44,7 +44,9 @@ def test_exported_comparison_supports_pandas_deviation_selection(
     assert positive.key_0.tolist() == result.loc[result.score > 0, "key_0"].tolist()
     ranked = result.sort_values(["score", "key_0"], ascending=[False, True]).head(2)
     assert ranked.score.tolist() == sorted(scores, reverse=True)[:2]
-    pd.testing.assert_frame_equal(plain(case.session.artifact(artifact.id)), plain(artifact))
+    pd.testing.assert_frame_equal(
+        plain(case.session.persisted_frame(artifact.artifact.id)), plain(artifact)
+    )
     assert run_ids(case.session) == before
 
 
@@ -62,10 +64,10 @@ def test_exported_scores_select_an_explicit_followup_query(
         db.execute(
             f'ALTER TABLE "order" ALTER amount TYPE {profile} USING CAST(amount * {factor} AS {profile})'
         )
-    comparison = monthly(case, "2026-08-01", "2026-09-01").compare(
-        monthly(case, "2026-07-01", "2026-08-01")
-    )
-    frame = plain(comparison.execute()).rename(columns={"value.absolute": "value"})
+    current = monthly(case, "2026-08-01", "2026-09-01")
+    baseline = monthly(case, "2026-07-01", "2026-08-01")
+    comparison = current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))
+    frame = plain(comparison.compute()).rename(columns={"absolute.value": "value"})
     before = run_ids(case.session)
     scores = deviation(frame, method)
     selected = scores.loc[scores.score > 0, "key_0"].tolist()
@@ -81,7 +83,7 @@ def test_exported_scores_select_an_explicit_followup_query(
         by=population,
         members=population,
     )
-    output = plain(following.execute())
+    output = plain(following.compute())
     assert len(output) == 62
     assert output.value.sum() == (Decimal("0.12") if profile.startswith("DECIMAL") else 120)
     assert output.value.eq(0).sum() == 61
@@ -94,7 +96,7 @@ def test_null_partitions_selection_boundary_and_shared_fit(
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as db:
         db.execute('UPDATE "order" SET channel=NULL WHERE amount=0')
-    artifact = orders(case).execute()
+    artifact = orders(case).compute()
     frame = plain(artifact)
     before = run_ids(case.session)
     groups = tuple((key, group) for key, group in frame.groupby("category", dropna=False))
@@ -121,7 +123,7 @@ def test_exported_time_scores_allow_explicit_pandas_refit(
     from tests.analysis.statistics.deviation_oracle import forbidden
 
     case = analysis_dsl_case_factory("j2")
-    artifact = daily(case, end="2026-09-01").execute()
+    artifact = daily(case, end="2026-09-01").compute()
     before = run_ids(case.session)
     monkeypatch.setattr(SourceSession, "__enter__", forbidden)
     monkeypatch.setattr(ms, "load", forbidden)
@@ -151,7 +153,7 @@ def test_observed_nullable_large_int64_preserves_native_and_saved_values(
         db.execute('ALTER TABLE "order" ALTER amount TYPE BIGINT')
         for key, value in zip(("a", "b", "c", "null"), (*values, None), strict=True):
             db.execute('INSERT INTO "order" (order_id, amount) VALUES (?, ?)', [key, value])
-    artifact = orders(case).execute()
+    artifact = orders(case).persist()
     frame = plain(artifact)
     assert frame.value.iloc[:3].tolist() == list(values)
     assert frame.value.isna().tolist() == [False, False, False, True]
@@ -160,7 +162,7 @@ def test_observed_nullable_large_int64_preserves_native_and_saved_values(
     assert scored.value.iloc[:3].tolist() == list(values)
     assert scored.score.iloc[:3].tolist() == list(expected(values, "zscore")[3])
     assert pd.isna(scored.score.iloc[3])
-    pd.testing.assert_frame_equal(plain(case.session.artifact(artifact.id)), frame)
+    pd.testing.assert_frame_equal(plain(case.session.persisted_frame(artifact.artifact.id)), frame)
 
 
 def test_extreme_binary64_export_supports_bounded_preview(
@@ -178,7 +180,7 @@ def test_extreme_binary64_export_supports_bounded_preview(
                     'INSERT INTO "order" (order_id, channel, amount) VALUES (?, ?, ?)',
                     [category + str(index), category, value],
                 )
-    artifact = orders(case).execute()
+    artifact = orders(case).compute()
     frame = plain(artifact)
     result = pd.concat([deviation(group, "mad") for _, group in frame.groupby("category")])
     assert result.score.tolist().count(expected(values, "mad")[3][0]) == 3
@@ -201,6 +203,9 @@ def test_construction_mode_identity_and_zero_business_reads(
     monkeypatch.setattr(SourceSession, "execute", forbidden)
     selected = query.where(query["value"] > 0)
     selected.show()
+    selected.show(n=0)
+    with pytest.raises(AnalysisError):
+        selected.to_pandas()
     assert run_ids(case.session) == before
     for name in ("deviation", "correlate", "forecast", "runs", "rank"):
         assert not hasattr(query, name)
@@ -208,28 +213,31 @@ def test_construction_mode_identity_and_zero_business_reads(
         query.select({"foreign": selected["value"]})
 
 
-@pytest.mark.parametrize("phase", ("query_admitted", "terminal_primary_written", "before_commit"))
+@pytest.mark.parametrize(
+    "phase", ("publication_admitted", "terminal_primary_written", "before_commit")
+)
 def test_export_phase_failure_is_atomic(
     analysis_dsl_case_factory: DslCaseFactory,
     phase: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from marivo.analysis.errors import AnalysisError
 
     case = analysis_dsl_case_factory("j2")
     query = orders(case)
-    runtime = case.session._runtime
 
     def inject(actual: str) -> None:
         if actual == phase:
             raise RuntimeError("injected export phase failure")
 
-    runtime._hook = inject
-    try:
-        with pytest.raises(AnalysisError):
-            query.execute()
-    finally:
-        runtime._hook = None
+    from marivo.analysis.materialization import terminal_publication
+
+    monkeypatch.setattr(terminal_publication, "_event", inject)
+    with pytest.raises(AnalysisError):
+        query.persist()
     assert_clean(case.session, artifacts=0)
+    assert len(case.session.runs(status="failed").items) == 1
+    assert case.session.runs(status="succeeded").items == ()
 
 
 @pytest.mark.slow

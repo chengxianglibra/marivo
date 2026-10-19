@@ -19,8 +19,8 @@ def test_artifact_rejects_unknown_evidence_without_source_replay(
     from tests.analysis.statistics.deviation_oracle import forbidden
 
     case = analysis_dsl_case_factory("j2")
-    artifact = orders(case).execute()
-    store, ref = case.session._runtime.store, artifact.id
+    artifact = orders(case).persist()
+    store, ref = case.session._runtime.store, artifact.artifact.id
     with store._read() as connection:
         saved = connection.execute(
             "SELECT descriptor_payload FROM dataset_artifacts WHERE artifact_ref=?", (ref,)
@@ -34,8 +34,9 @@ def test_artifact_rejects_unknown_evidence_without_source_replay(
             (canonical_json(payload), ref),
         )
     try:
-        with pytest.raises(AnalysisError):
-            case.session.artifact(ref)
+        with pytest.raises(AnalysisError) as caught:
+            case.session.persisted_frame(ref)
+        assert "non-canonical" not in str(caught.value.received)
         assert run_ids(case.session) == before
     finally:
         with store._write() as connection:
@@ -43,7 +44,9 @@ def test_artifact_rejects_unknown_evidence_without_source_replay(
                 "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
                 (saved, ref),
             )
-    pd.testing.assert_frame_equal(case.session.artifact(ref).to_pandas(), artifact.to_pandas())
+    pd.testing.assert_frame_equal(
+        case.session.persisted_frame(ref).to_pandas(), artifact.to_pandas()
+    )
 
 
 def test_forecast_model_policies_keep_their_current_owner() -> None:

@@ -10,6 +10,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+import marivo.analysis as mv
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.storage import _open_payload
@@ -24,7 +25,7 @@ def test_terminal_reader_failure_stops_pandas_scoring_without_run(
     from marivo.analysis.materialization import graph_reading as reading
 
     case = analysis_dsl_case_factory("j2")
-    artifact = orders(case).execute()
+    artifact = orders(case).persist()
     before = run_ids(case.session)
     opened = _open_payload
     for fault in ("iteration", "close"):
@@ -84,25 +85,27 @@ def test_decimal_output_overflow_is_rejection_not_positive_qualification(
         )
         connection.execute('UPDATE "order" SET amount=?', [maximum])
     query = orders(case)
-    previous = query.execute()
+    previous = query.persist()
+    before = run_ids(case.session)
     assert plain(previous).value.tolist() == [maximum] * 11
     with pytest.raises(AnalysisError):
-        query.reduce({"total": query["value"].sum()}).execute()
+        query.reduce({"total": query["value"].sum()}).persist()
     assert_clean(case.session, artifacts=1)
+    assert run_ids(case.session) == before
 
 
 def test_exported_subject_selection_has_no_artifact_continuation(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    artifact = orders(case).execute()
+    artifact = orders(case).persist()
     before = run_ids(case.session)
     scores = deviation(plain(artifact), "zscore")
     selected = scores.loc[scores.score > 0]
     assert not selected.empty
-    assert not hasattr(artifact, "population")
-    assert not hasattr(artifact, "observe")
-    assert not hasattr(artifact, "deviation")
+    audit = artifact.artifact
+    for name in ("population", "observe", "deviation", "to_pandas"):
+        assert not hasattr(audit, name)
     assert run_ids(case.session) == before
 
 
@@ -112,12 +115,13 @@ def test_local_failure_releases_prepared_sources_and_preserves_prior_artifact(
     monkeypatch: pytest.MonkeyPatch,
     cancel: bool,
 ) -> None:
-    from marivo.analysis.materialization import terminal_publication
+    from marivo.analysis.materialization import frame_evaluation
 
     case = analysis_dsl_case_factory("j2")
     query = orders(case)
-    previous = query.execute()
+    previous = query.persist()
     saved = previous.to_pandas()
+    before = run_ids(case.session)
 
     def fail(*args: object, **kwargs: object) -> None:
         if cancel:
@@ -125,17 +129,21 @@ def test_local_failure_releases_prepared_sources_and_preserves_prior_artifact(
         raise RuntimeError("local consumer failed")
 
     with monkeypatch.context() as scoped:
-        scoped.setattr(terminal_publication, "execute_numeric_query", fail)
+        scoped.setattr(frame_evaluation, "run_frame_plan", fail)
         with pytest.raises((AnalysisError, KeyboardInterrupt)):
-            query.execute()
-    pd.testing.assert_frame_equal(case.session.artifact(previous.id).to_pandas(), saved)
+            query.persist()
+    pd.testing.assert_frame_equal(
+        case.session.persisted_frame(previous.artifact.id).to_pandas(), saved
+    )
     assert_clean(case.session, artifacts=1)
+    assert run_ids(case.session) == before
 
 
 @pytest.mark.parametrize("point", ("insert_findings", "before_commit"))
 def test_transaction_failure_has_no_partial_success(
     analysis_dsl_case_factory: DslCaseFactory,
     point: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     runtime = case.session._runtime
@@ -146,13 +154,13 @@ def test_transaction_failure_has_no_partial_success(
             injected.append(actual)
             raise RuntimeError("injected terminal publication failure")
 
-    runtime._hook = inject
-    try:
-        with pytest.raises(AnalysisError):
-            orders(case).execute()
-    finally:
-        runtime._hook = None
+    from marivo.analysis.materialization import terminal_publication
+
+    monkeypatch.setattr(terminal_publication, "_event", inject)
+    with pytest.raises(AnalysisError):
+        orders(case).persist()
     assert injected == [point]
+    assert len(case.session.runs(status="failed").items) == 1
     assert_clean(case.session, artifacts=0)
     with runtime.store._read() as connection:
         assert (
@@ -185,16 +193,18 @@ def test_lost_commit_ack_returns_committed_output_without_source_replay(
             raise OSError("lost terminal commit acknowledgement")
 
     monkeypatch.setattr(SourceSession, "execute", read)
-    runtime = case.session._runtime
-    runtime._hook = lose_ack
-    try:
-        artifact = orders(case).execute()
-    finally:
-        runtime._hook = None
+    from marivo.analysis.materialization import terminal_publication
+
+    monkeypatch.setattr(terminal_publication, "_event", lose_ack)
+    artifact = orders(case).persist()
     assert reads and committed == [len(reads)]
     assert len(plain(artifact)) == 11
-    assert artifact._manifest.run_id == runtime.last_run_ref
-    assert artifact.evidence_digest().finding_count == 0
+    runs = case.session.runs(status="succeeded").items
+    assert len(runs) == 1
+    assert isinstance(runs[0], mv.SucceededRun)
+    assert runs[0].output_artifact_ref.ref == artifact.artifact.id
+    assert artifact.artifact._manifest.run_id == runs[0].run_id
+    assert artifact.artifact.evidence_digest().finding_count == 0
     assert_clean(case.session, artifacts=1)
     before = run_ids(case.session)
     deviation(plain(artifact), "zscore")

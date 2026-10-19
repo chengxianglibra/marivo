@@ -22,6 +22,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
+from tests.analysis.materialization.domain_recovery_worker import snapshot as frame_snapshot
 from tests.analysis.statistics.deviation_oracle import PROFILES, expected, forbidden
 from tests.analysis.statistics.deviation_time_worker import publish_calendar
 from tests.analysis.statistics.journeys import create
@@ -30,16 +31,8 @@ from tests.shared_fixtures import DslCase, run_ids
 from tests.support.paths import PROJECT_ROOT
 
 
-def snapshot(frame: pd.DataFrame) -> dict[str, object]:
-    return {
-        "columns": [repr(column) for column in frame.columns],
-        "dtypes": [str(dtype) for dtype in frame.dtypes],
-        "rows": [
-            [None if value is pd.NA or value is None else repr(value) for value in row]
-            for row in frame.itertuples(index=False, name=None)
-        ],
-        "metadata": json.loads(json.dumps(frame.attrs, default=str)),
-    }
+def snapshot(result: mv.AnalysisFrame, *, frame: pd.DataFrame | None = None) -> dict[str, object]:
+    return dict(frame_snapshot(result, frame=frame))
 
 
 def verify(frame: pd.DataFrame, mode: str, profile: dict[str, object]) -> None:
@@ -68,19 +61,25 @@ def verify(frame: pd.DataFrame, mode: str, profile: dict[str, object]) -> None:
         )
         assert sorted(values) == sorted(wanted)
         if mode in ("time", "entity_time", "category_time"):
-            axes = frame.attrs["marivo"]["axes"]
-            calendar = next(axis for axis in axes if axis["kind"] == "calendar")
+            axes = frame.attrs["axes"]
+            calendar = next(axis for axis in axes if axis["role"] == "calendar")
             zone = profile["zone"]
             assert isinstance(zone, str)
-            assert calendar["timezone"] == zone
+            descriptor = calendar["descriptor"]
+            assert descriptor["timezone"] == zone
+            directory = next(
+                part["rows"]
+                for part in frame.attrs["frozen_coordinates"]
+                if part["name"] == descriptor["frozen"]["directory_name"]
+            )
             days = (1, 2, 4, 7) if profile["calendar"] else (1, 2, 3, 4)
             boundaries = tuple(
                 datetime(2026, 8, day, tzinfo=ZoneInfo(zone)).astimezone(timezone.utc)
                 for day in days
             )
-            assert [(row["actual_start"], row["actual_end"]) for row in calendar["bounds"]] == list(
-                pairwise(boundaries)
-            )
+            assert list(
+                directory[["actual_start", "actual_end"]].itertuples(index=False, name=None)
+            ) == list(pairwise(boundaries))
             assert len(frame) == (3 if mode == "time" else 9)
             assert int(frame.value.isna().sum()) == (0 if mode in ("time", "category_time") else 6)
         if mode in ("entity", "entity_time"):
@@ -93,8 +92,8 @@ def verify(frame: pd.DataFrame, mode: str, profile: dict[str, object]) -> None:
             )
             member_index = next(
                 index
-                for index, axis in enumerate(frame.attrs["marivo"]["axes"])
-                if axis["kind"] != "calendar"
+                for index, axis in enumerate(frame.attrs["axes"])
+                if axis["role"] != "calendar"
             )
             assert frame[f"key_{member_index}"].drop_duplicates().tolist() == expected_keys
         if mode == "category":
@@ -162,13 +161,17 @@ def run(root: Path, phase: str, mode: str) -> dict[str, object]:
             ).by(grain)
             time = session.catalog.fields.get("sales.order.ordered_at")
             quantities = {
-                "value": field.sum(time=time) if mode == "category_time" else field.max(time=time)
+                "value": field.sum(time=time, empty="zero")
+                if mode == "category_time"
+                else field.max(time=time)
             }
             if mode == "category_time":
                 quantities.update(
                     (
                         f"profile_{index}",
-                        session.catalog.fields.get(f"sales.order.profile_{index}").sum(time=time),
+                        session.catalog.fields.get(f"sales.order.profile_{index}").sum(
+                            time=time, empty="zero"
+                        ),
                     )
                     for index in profile["profiles"][1:]
                 )
@@ -189,23 +192,23 @@ def run(root: Path, phase: str, mode: str) -> dict[str, object]:
             query = session.read(members, {"value": field})
             if mode == "display":
                 query = query.top(7, by=query["value"])
-        artifact = query.execute()
-        frame = plain(artifact)
+        saved = query.persist()
+        frame = plain(saved)
         verify(frame, mode, profile)
         state = {
             "session": session.id,
-            "artifact": artifact.id,
-            "frame": snapshot(frame),
+            "artifact": saved.artifact.id,
+            "frame": snapshot(saved, frame=frame),
             "profile": profile,
         }
         before = run_ids(session)
-        verify(plain(session.artifact(artifact.id)), mode, profile)
+        verify(plain(session.persisted_frame(saved.artifact.id)), mode, profile)
         assert run_ids(session) == before
         if mode == "entity_time" and profile["followup"]:
             member_index = next(
                 index
-                for index, axis in enumerate(frame.attrs["marivo"]["axes"])
-                if axis["kind"] != "calendar"
+                for index, axis in enumerate(frame.attrs["axes"])
+                if axis["role"] != "calendar"
             )
             fitted = deviation(frame, "zscore")
             keys = tuple(fitted.loc[fitted.score > 0, f"key_{member_index}"].drop_duplicates())
@@ -216,7 +219,7 @@ def run(root: Path, phase: str, mode: str) -> dict[str, object]:
                 during=session.time_scope(start="2026-08-01", end="2026-08-07"),
                 by=selected,
                 members=selected,
-            ).execute()
+            ).persist()
             followup = plain(following)
             assert followup.key_0.tolist() == [("c", 13)]
             index = profile["profiles"][0]
@@ -241,15 +244,16 @@ def run(root: Path, phase: str, mode: str) -> dict[str, object]:
         with (
             patch.object(ms, "load", forbidden),
             patch.object(SemanticProject, "load", forbidden),
+            patch.object(mv.Session, "catalog", property(forbidden)),
             patch.object(SourceSession, "__init__", forbidden),
             patch.object(duckdb, "connect", forbidden),
             patch.object(ibis.duckdb, "connect", forbidden),
         ):
             session = mv.session.resume(state["session"], by="id")
             before = run_ids(session)
-            artifact = session.artifact(state["artifact"])
-            frame = plain(artifact)
-            assert snapshot(frame) == state["frame"]
+            saved = session.persisted_frame(state["artifact"])
+            frame = plain(saved)
+            assert snapshot(saved, frame=frame) == state["frame"]
             verify(frame, mode, state["profile"])
             assert run_ids(session) == before
             assert session._runtime.store.resources(session.id) == ()

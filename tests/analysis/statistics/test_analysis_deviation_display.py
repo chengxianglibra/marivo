@@ -41,7 +41,7 @@ def test_mixed_table_preserves_each_current_value_and_original_fit(
     reverse: bool,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    artifact = orders(case).execute()
+    artifact = orders(case).persist()
     frame = plain(artifact)
     fitted = deviation(frame, method)
     if mode == "category":
@@ -61,14 +61,14 @@ def test_mixed_table_preserves_each_current_value_and_original_fit(
     }
     if mode == "ranks":
         assert sorted(display.other) == [1, 2, 3]
-    pd.testing.assert_frame_equal(plain(case.session.artifact(artifact.id)), frame)
+    pd.testing.assert_frame_equal(plain(case.session.persisted_frame(artifact.artifact.id)), frame)
 
 
 def test_pandas_rank_projection_retains_original_fit_scope(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    frame = plain(orders(case).execute())
+    frame = plain(orders(case).persist())
     before = run_ids(case.session)
     scores = deviation(frame, "zscore")
     rank = scores.score.rank(method="dense", ascending=False)
@@ -81,16 +81,18 @@ def test_pandas_rank_projection_retains_original_fit_scope(
 
 
 @pytest.mark.parametrize("fault", ("missing", "corrupt"))
-def test_saved_display_order_receipt_is_required_for_preview(
+def test_saved_result_order_and_primary_receipt_are_required_for_preview(
     analysis_dsl_case_factory: DslCaseFactory,
     fault: str,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     query = orders(case)
-    artifact = query.top(3, by=query["value"]).execute()
+    artifact = query.top(3, by=query["value"]).persist()
     paths = receipt_paths(case.root, artifact)
-    assert len(paths) == 2
-    path = paths[1]
+    assert len(paths) == 1  # Top order is carried by primary rows, without a permutation.
+    expected = plain(artifact)
+    assert expected.value.tolist() == sorted(expected.value, reverse=True)
+    path = paths[0]
     payload = path.read_bytes()
     before = run_ids(case.session)
     if fault == "missing":
@@ -98,13 +100,13 @@ def test_saved_display_order_receipt_is_required_for_preview(
     else:
         path.write_bytes(payload[:-1] + bytes((payload[-1] ^ 1,)))
     try:
-        reopened = case.session.artifact(artifact.id)
+        reopened = case.session.persisted_frame(artifact.artifact.id)
         with pytest.raises(AnalysisError):
             reopened.show(n=3)
         assert run_ids(case.session) == before
     finally:
         path.write_bytes(payload)
-    assert len(plain(artifact)) == 3
+    pd.testing.assert_frame_equal(plain(artifact), expected)
     assert case.session._runtime.store.resources(case.session.id) == ()
 
 
@@ -132,7 +134,7 @@ def test_decimal_grid_tables_retain_current_keys_and_full_fit(
         {"value": session.catalog.metrics.get("sales.revenue")},
         during=grid,
         by=session.members(ms.ref.entity("sales.customer")),
-    ).execute()
+    ).persist()
     frame = plain(artifact)
     assert len(frame) == 60 and frame.value.notna().all()
     assert all(isinstance(value, Decimal) for value in frame.value)
@@ -146,4 +148,4 @@ def test_decimal_grid_tables_retain_current_keys_and_full_fit(
     )
     assert len(selected) == 7 and selected.reference.tolist() == [center] * 7
     assert not selected[["key_0", "key_1"]].duplicated().any()
-    pd.testing.assert_frame_equal(plain(session.artifact(artifact.id)), frame)
+    pd.testing.assert_frame_equal(plain(session.persisted_frame(artifact.artifact.id)), frame)

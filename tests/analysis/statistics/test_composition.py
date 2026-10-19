@@ -41,7 +41,7 @@ def test_direct_score_runs_and_next_business_round(
     field = session.catalog.fields.get("sales.order.profile_0")
     time = session.catalog.fields.get("sales.order.ordered_at")
     grid = session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
-    artifact = session.observe({"value": field.sum(time=time, empty="zero")}, during=grid).execute()
+    artifact = session.observe({"value": field.sum(time=time, empty="zero")}, during=grid).compute()
     exported = artifact.to_pandas()
     assert exported[("value", "value")].tolist() == [-2, 2, -2]
     absolute = exported.copy(deep=True)
@@ -78,9 +78,13 @@ def test_direct_score_runs_and_next_business_round(
         during=session.time_scope(start="2026-08-04", end="2026-08-07"),
         by=domain,
     )
-    changes = plain(following.compare(previous).execute())
-    assert changes.set_index("key_0")["value.absolute"].to_dict() == {"a": 2, "b": -2, "c": 2}
-    assert changes["value.absolute"].sum() == 2
+    changes = plain(
+        following.compare(
+            previous, on=tuple(zip(following.axes, previous.axes, strict=True))
+        ).compute()
+    )
+    assert changes.set_index("key_0")["absolute.value"].to_dict() == {"a": 2, "b": -2, "c": 2}
+    assert changes["absolute.value"].sum() == 2
     assert session._runtime.store.resources(session.id) == ()
 
 
@@ -93,7 +97,7 @@ def test_shared_method_and_transport_are_distinct_from_new_kernels(
     session = prepare(case, "table")
     members = session.members(ms.ref.entity("sales.order"))
     query = session.read(members, {"value": session.catalog.fields.get("sales.order.profile_0")})
-    artifact = query.execute()
+    artifact = query.persist()
     frame = plain(artifact)
     assert frame.value.tolist() == [1, 2, 7]
     before = run_ids(session)
@@ -108,7 +112,7 @@ def test_shared_method_and_transport_are_distinct_from_new_kernels(
     else:
         chosen = frame.loc[frame.value > 1]
         assert len(chosen) == 2
-    pd.testing.assert_frame_equal(plain(session.artifact(artifact.id)), frame)
+    pd.testing.assert_frame_equal(plain(session.persisted_frame(artifact.artifact.id)), frame)
     assert run_ids(session) == before
 
 
@@ -131,17 +135,19 @@ def test_two_separate_axes_and_joint_keep_the_original_target(
         during=session.time_scope(start="2026-07-01", end="2026-08-01"),
         by=axes,
     )
-    frame = plain(current.compare(baseline).execute())
+    frame = plain(
+        current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True))).compute()
+    )
     facts = analysis_dsl_rows("j2")
     target = sum(
         1 if row[4].startswith("2026-08") else -1 if row[4].startswith("2026-07") else 0
         for row in facts.orders
     )
-    assert frame["value.absolute"].sum() == target
+    assert frame["absolute.value"].sum() == target
     before = run_ids(session)
     for axis in ("key_0", "key_1"):
-        assert frame.groupby(axis, dropna=False)["value.absolute"].sum().sum() == target
-    joint = frame.groupby(["key_0", "key_1"], dropna=False)["value.absolute"].sum()
+        assert frame.groupby(axis, dropna=False)["absolute.value"].sum().sum() == target
+    joint = frame.groupby(["key_0", "key_1"], dropna=False)["absolute.value"].sum()
     assert joint.sum() == target
     assert run_ids(session) == before
 
@@ -179,7 +185,7 @@ def test_pandas_score_selection_starts_an_explicit_followup_query(
     session = prepare(case, "parquet")
     members = session.members(ms.ref.entity("sales.order"))
     field = session.catalog.fields.get("sales.order.profile_0")
-    captured = session.read(members, {"value": field}).execute()
+    captured = session.read(members, {"value": field}).persist()
     frame = deviation(plain(captured), method)
     before = run_ids(session)
     selected = frame.loc[frame.score > 0, "key_0"].tolist()
@@ -192,7 +198,7 @@ def test_pandas_score_selection_starts_an_explicit_followup_query(
         by=population,
         members=population,
     )
-    output = plain(followup.execute())
+    output = plain(followup.persist())
     assert output.key_0.tolist() == [("c", 13)] and output.value.tolist() == [7]
     assert len(run_ids(session)) == len(before) + 1
 

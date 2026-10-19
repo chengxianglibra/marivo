@@ -10,7 +10,7 @@ from tests.analysis.statistics.runs_worker import segments
 from tests.shared_fixtures import DslCase, DslCaseFactory
 
 
-def _daily(case: DslCase) -> mv.Query:
+def _daily(case: DslCase) -> mv.AnalysisFrame:
     grid = case.session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
     return case.session.observe(
         {"value": case.session.catalog.metrics.get("sales.revenue")}, during=grid
@@ -22,7 +22,7 @@ def test_ratio_exports_na_without_requiring_retained_coverage(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     history = _daily(case)
-    ratio = history.select({"value": history["value"] / history["value"]}).execute()
+    ratio = history.select({"value": history["value"] / history["value"]}).compute()
     frame = ratio.to_pandas()
     assert frame[("value", "value")].iloc[0] == 1
     assert frame[("value", "value")].iloc[1:].isna().all()
@@ -34,7 +34,7 @@ def test_ratio_exports_na_without_requiring_retained_coverage(
 def test_public_runs(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j2")
     daily = _daily(case)
-    fixed = daily.execute()
+    fixed = daily.compute()
     frame = fixed.to_pandas()
     assert frame[("value", "value")].tolist() == [60, 0, 0]
     before = len(case.session.runs().items)
@@ -51,12 +51,14 @@ def test_public_runs(analysis_dsl_case_factory: DslCaseFactory) -> None:
 def test_offline_runs_keep_calendar_cold_recovery(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
+    import json
     import subprocess
     import sys
 
     case = analysis_dsl_case_factory("j2")
     root = case.root / "calendar-recipe"
     root.mkdir()
+    reports = []
     for phase in ("produce", "fixed", "cold"):
         if phase == "fixed":
             for path in root.glob("*.parquet"):
@@ -78,6 +80,10 @@ def test_offline_runs_keep_calendar_cold_recovery(
             timeout=120,
         )
         assert completed.returncode == 0, completed.stdout + completed.stderr
+        report = json.loads(completed.stdout.strip().splitlines()[-1])
+        assert report["phase"] == phase
+        reports.append(report)
+    assert len({report["pid"] for report in reports}) == 3
 
 
 @pytest.mark.parametrize("fixed", [False, True])
@@ -90,12 +96,15 @@ def test_new_grid_after_subject_selection(
     members = session.members(ms.ref.entity("sales.customer"))
     revenue = session.catalog.metrics.get("sales.revenue")
     values = session.observe({"value": revenue}, during=scope, by=members)
-    selected = values.where(values["value"] > 0).population()
+    selection = values.where(values["value"] > 0)
+    selected = session.population_from(
+        selection, on=((selection.axes[0], session.catalog.entities.get("sales.customer")),)
+    )
     fresh = session.observe(
         {"value": revenue}, by=mv.product(selected, scope.by(mv.grain("day"))), members=selected
     )
-    artifact = fresh.execute()
-    receiver = session.artifact(artifact.id) if fixed else artifact
+    artifact = fresh.persist()
+    receiver = session.persisted_frame(artifact.artifact.id) if fixed else artifact
     frame = receiver.to_pandas()
     assert frame[("value", "value")].tolist() == [60, 0, 0]
     before = len(session.runs().items)

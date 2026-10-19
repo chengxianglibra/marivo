@@ -5,9 +5,16 @@ from typing import Literal
 import pandas as pd
 import pytest
 
+from marivo.analysis.errors import AnalysisError
 from marivo.datasource import adapters
 from tests.analysis.statistics.deviation_oracle import forbidden
-from tests.analysis.statistics.pandas_workflows import deviation, forecast, orders, plain
+from tests.analysis.statistics.pandas_workflows import (
+    assert_clean,
+    deviation,
+    forecast,
+    orders,
+    plain,
+)
 from tests.shared_fixtures import DslCaseFactory, run_ids
 
 
@@ -33,8 +40,13 @@ def test_complete_export_supports_pandas_views_without_new_reads(
         return output
 
     monkeypatch.setattr(adapters.SourceSession, "execute", audited)
-    artifact = orders(case).execute()
-    frame = plain(artifact)
+    query = orders(case)
+    before = run_ids(case.session)
+    fixed = query.compute()
+    frame = plain(fixed)
+    assert run_ids(case.session) == before
+    assert_clean(case.session, artifacts=0)
+    artifact = fixed.persist()
     before = run_ids(case.session)
     assert issued and issued == submitted
     assert not any(
@@ -71,8 +83,15 @@ def test_complete_export_supports_pandas_views_without_new_reads(
     assert run_ids(case.session) == before
     for name in ("contract", "rollup", "deviation", "forecast", "correlate", "runs", "rank"):
         assert not hasattr(artifact, name)
+        assert not hasattr(artifact.artifact, name)
+    for invalid in (-1, True):
+        with pytest.raises(AnalysisError):
+            artifact.show(n=invalid)
+    fixed.show(n=0)
     artifact.show(n=3)
     assert len(capsys.readouterr().out.encode()) <= 8192
+    artifact.artifact.show()
+    assert len(capsys.readouterr().out.encode()) <= 8192
     assert "\n" not in repr(artifact) and ".show()" in repr(artifact)
-    pd.testing.assert_frame_equal(plain(case.session.artifact(artifact.id)), frame)
+    pd.testing.assert_frame_equal(plain(case.session.persisted_frame(artifact.artifact.id)), frame)
     assert run_ids(case.session) == before

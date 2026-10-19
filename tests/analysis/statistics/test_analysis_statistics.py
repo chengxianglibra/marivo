@@ -23,21 +23,21 @@ def test_exported_quantities_support_pandas_association_and_reopening(
     analysis_dsl_case_factory: DslCaseFactory, method: Literal["pearson", "spearman", "kendall"]
 ) -> None:
     case = analysis_dsl_case_factory("j4")
-    artifact = monthly(case, "2026-08-01", "2026-09-01").execute()
+    artifact = monthly(case, "2026-08-01", "2026-09-01").persist()
     frame = plain(artifact)
     before = run_ids(case.session)
     coefficients = frame[["value", "count"]].astype(float).corr(method=method)
     coefficient = coefficients.loc["value", "count"]
     assert isinstance(coefficient, float)
     assert -1 <= coefficient <= 1
-    restored = plain(case.session.artifact(artifact.id))
+    restored = plain(case.session.persisted_frame(artifact.artifact.id))
     pd.testing.assert_frame_equal(restored, frame)
     assert (
         restored[["value", "count"]].astype(float).corr(method=method).loc["value", "count"]
         == coefficient
     )
     assert run_ids(case.session) == before
-    assert not hasattr(artifact, "correlate")
+    assert not hasattr(artifact.artifact, "correlate")
 
 
 @pytest.mark.parametrize("model", ("naive", "drift", "seasonal_naive"))
@@ -45,7 +45,7 @@ def test_exported_history_supports_three_pandas_forecast_models(
     analysis_dsl_case_factory: DslCaseFactory, model: ForecastModel
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    artifact = daily(case).execute()
+    artifact = daily(case).persist()
     history = plain(artifact)
     before = run_ids(case.session)
     prediction = forecast(history.value, model)
@@ -53,20 +53,20 @@ def test_exported_history_supports_three_pandas_forecast_models(
     assert (prediction.lower <= prediction.prediction).all()
     assert (prediction.upper >= prediction.prediction).all()
     pd.testing.assert_frame_equal(
-        forecast(plain(case.session.artifact(artifact.id)).value, model), prediction
+        forecast(plain(case.session.persisted_frame(artifact.artifact.id)).value, model), prediction
     )
     for level in (0.0, 1.0, float("nan"), float("inf")):
         with pytest.raises(ValueError):
             forecast(history.value, model, level=level)
     assert run_ids(case.session) == before
-    assert not hasattr(artifact, "forecast")
+    assert not hasattr(artifact.artifact, "forecast")
 
 
 def test_exported_quantities_support_all_requested_pandas_pairs(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j4")
-    frame = plain(monthly(case, "2026-08-01", "2026-09-01").execute())
+    frame = plain(monthly(case, "2026-08-01", "2026-09-01").compute())
     values = pd.DataFrame({f"times_{i}": frame["count"].astype(float) * i for i in range(1, 17)})
     before = run_ids(case.session)
     pairs = [
@@ -82,7 +82,7 @@ def test_pandas_lag_shift_preserves_nominal_grid_distance(
     analysis_dsl_case_factory: DslCaseFactory, lag: int
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    history = plain(daily(case).execute())
+    history = plain(daily(case).compute())
     before = run_ids(case.session)
     # Pandas shift retains the nominal grid: filtering never compresses lag distance.
     pairs = pd.DataFrame({"left": history.value, "right": history.value.shift(lag)})
@@ -99,25 +99,27 @@ def test_pandas_lag_shift_preserves_nominal_grid_distance(
 
 @pytest.mark.parametrize("point", ("insert_evidence", "insert_findings", "before_commit"))
 def test_statistical_failure_is_atomic(
-    analysis_dsl_case_factory: DslCaseFactory, point: str
+    analysis_dsl_case_factory: DslCaseFactory, point: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     case = analysis_dsl_case_factory("j4")
     query = monthly(case, "2026-08-01", "2026-09-01")
-    previous = query.execute()
+    previous = query.persist()
     saved = previous.to_pandas()
 
     def inject(actual: str) -> None:
         if actual == point:
             raise RuntimeError("injected terminal publication failure")
 
-    case.session._runtime._hook = inject
-    try:
-        with pytest.raises(AnalysisError):
-            query.execute()
-    finally:
-        case.session._runtime._hook = None
-    pd.testing.assert_frame_equal(case.session.artifact(previous.id).to_pandas(), saved)
+    from marivo.analysis.materialization import terminal_publication
+
+    monkeypatch.setattr(terminal_publication, "_event", inject)
+    with pytest.raises(AnalysisError):
+        query.persist()
+    pd.testing.assert_frame_equal(
+        case.session.persisted_frame(previous.artifact.id).to_pandas(), saved
+    )
     assert_clean(case.session, artifacts=1)
+    assert len(case.session.runs(status="failed").items) == 1
 
 
 def test_pandas_forecast_can_feed_an_explicit_second_model_without_run(
@@ -127,7 +129,7 @@ def test_pandas_forecast_can_feed_an_explicit_second_model_without_run(
     from tests.analysis.statistics.deviation_oracle import forbidden
 
     case = analysis_dsl_case_factory("j2")
-    artifact = daily(case).execute()
+    artifact = daily(case).persist()
     before = run_ids(case.session)
     monkeypatch.setattr(SourceSession, "__enter__", forbidden)
     first = forecast(plain(artifact).value, "drift", horizon=3)

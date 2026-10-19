@@ -50,7 +50,7 @@ def test_exported_ratio_na_limits_pandas_statistical_input(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     query = daily(case)
-    ratio = query.select({"value": query["value"] / query["value"]}).execute()
+    ratio = query.select({"value": query["value"] / query["value"]}).compute()
     frame = plain(ratio)
     assert frame.value.iloc[0] == 1 and frame.value.iloc[1:].isna().all()
     before = run_ids(case.session)
@@ -71,13 +71,13 @@ def test_exported_statistics_use_pandas_rank_projection(
 ) -> None:
     case = analysis_dsl_case_factory("j4_ties")
     artifact = (
-        monthly(case, "2026-08-01", "2026-09-01").execute()
+        monthly(case, "2026-08-01", "2026-09-01").persist()
         if family == "association"
-        else daily(case).execute()
+        else daily(case).persist()
     )
     if fixed:
         case.database_path.rename(case.database_path.with_suffix(".offline"))
-    frame = plain(case.session.artifact(artifact.id))
+    frame = plain(case.session.persisted_frame(artifact.artifact.id))
     before = run_ids(case.session)
     if family == "association":
         coefficient = (

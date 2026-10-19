@@ -22,7 +22,7 @@ def test_three_quantity_search_and_forecast_views(
     grid = session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
     artifact = session.observe(
         {str(i): session.catalog.metrics.get(f"sales.total_{i}") for i in (0, 1, 5)}, during=grid
-    ).execute()
+    ).persist()
     frame = plain(artifact)
     assert frame["0"].tolist() == [1, 2, 7]
     before = run_ids(session)
@@ -40,7 +40,7 @@ def test_three_quantity_search_and_forecast_views(
         assert (output.lower <= output.prediction).all() and (
             output.upper >= output.prediction
         ).all()
-    assert artifact.evidence_digest().finding_count == 0
+    assert artifact.artifact.evidence_digest().finding_count == 0
     assert run_ids(session) == before
 
 
@@ -61,14 +61,12 @@ def test_large_export_does_not_truncate_pandas_forecast_rows(
         {"value": session.catalog.metrics.get("sales.order_count")},
         during=grid,
         by=session.members(ms.ref.entity("sales.customer")),
-    ).execute()
+    ).persist()
     frame = plain(artifact)
     assert len(frame) == 3003
     before = run_ids(session)
     member_index = next(
-        index
-        for index, axis in enumerate(frame.attrs["marivo"]["axes"])
-        if axis["kind"] != "calendar"
+        index for index, axis in enumerate(frame.attrs["axes"]) if axis["role"] != "calendar"
     )
     predictions = pd.concat(
         [
@@ -81,6 +79,6 @@ def test_large_export_does_not_truncate_pandas_forecast_rows(
     assert predictions.customer.nunique() == 1001
     assert (predictions.prediction == 0).all()
     assert predictions.loc[predictions.prediction < 0].empty
-    assert artifact.evidence_digest().finding_count == 0
-    assert artifact.findings().items == ()
+    assert artifact.artifact.evidence_digest().finding_count == 0
+    assert artifact.artifact.findings().items == ()
     assert run_ids(session) == before

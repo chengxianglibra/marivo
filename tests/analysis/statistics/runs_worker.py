@@ -22,14 +22,17 @@ from marivo.semantic.reader import SemanticProject
 
 def segments(frame: pd.DataFrame, threshold: float = 0) -> pd.DataFrame:
     """Find consecutive qualifying cells using the exported actual calendar bounds."""
-    metadata = frame.attrs["marivo"]
-    axes = metadata["axes"]
-    calendar_index = next(i for i, axis in enumerate(axes) if axis["kind"] == "calendar")
-    calendar = axes[calendar_index]
-    bounds = {row["nominal_start"]: row for row in calendar["bounds"]}
-    calendar_name = calendar["column"]
-    assert isinstance(calendar_name, str)
-    calendar_column = ("coordinate", calendar_name)
+    axes = frame.attrs["axes"]
+    calendar = next(axis for axis in axes if axis["role"] == "calendar")
+    descriptor = calendar["descriptor"]
+    directory = next(
+        part["rows"]
+        for part in frame.attrs["frozen_coordinates"]
+        if part["name"] == descriptor["frozen"]["directory_name"]
+    )
+    key_name = descriptor["columns"][0]["slot_id"]
+    bounds = {row[key_name]: row for row in directory.to_dict(orient="records")}
+    calendar_column = ("coordinate", calendar["token"])
     coordinate_columns: list[tuple[str, str]] = []
     for column in frame.columns.tolist():
         assert isinstance(column, tuple) and len(column) == 2
@@ -155,19 +158,22 @@ def run(root: Path, phase: str, calendar: bool = False) -> None:
         )
         result = session.observe(
             {"value": catalog.metrics.get("sales.maximum")}, during=scope.by(grain)
-        ).execute()
+        ).persist()
         assert result.to_pandas()[("value", "value")].tolist() == [1, 2, 7]
-        manifest_path.write_text(json.dumps({"session": session.id, "artifact": result.id}))
+        manifest_path.write_text(
+            json.dumps({"session": session.id, "artifact": result.artifact.id})
+        )
     else:
         manifest = json.loads(manifest_path.read_text())
         with (
             patch.object(ms, "load", forbidden),
             patch.object(SemanticProject, "load", forbidden),
+            patch.object(mv.Session, "catalog", property(forbidden)),
             patch.object(SourceSession, "__enter__", forbidden),
             patch.object(SourceSession, "execute", forbidden),
         ):
             session = mv.session.resume(manifest["session"], by="id")
-            result = session.artifact(manifest["artifact"])
+            result = session.persisted_frame(manifest["artifact"])
             frame = result.to_pandas()
             before = len(session.runs().items)
             selected = segments(frame, threshold=1)
@@ -180,3 +186,4 @@ def run(root: Path, phase: str, calendar: bool = False) -> None:
 
 if __name__ == "__main__":
     run(Path(sys.argv[1]), sys.argv[2], len(sys.argv) > 3 and sys.argv[3] == "calendar")
+    print(json.dumps({"phase": sys.argv[2], "pid": os.getpid()}))
