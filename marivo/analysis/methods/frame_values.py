@@ -8,6 +8,7 @@ import pyarrow as pa
 from marivo._definition.query import FilterValues, ReduceValues, SelectValues, TopValues
 from marivo.analysis.compiler.query_program import FrameProgram
 from marivo.analysis.core.data_types import DecimalDataType, DurationDataType, ScalarDataType
+from marivo.analysis.core.frozen_calendar import FrozenKey, frozen_key_rows
 from marivo.analysis.methods.numeric_state import checked_sum, finish_division, finish_float64
 from marivo.analysis.methods.physical import DecimalType, DurationType, stage_arrow_type
 from marivo.analysis.methods.query_values import expression_series
@@ -48,8 +49,8 @@ def evaluate_frame(program: FrameProgram, inputs: tuple[pd.DataFrame, ...]) -> p
     if isinstance(operation, TopValues):
         score = expression_series(operation.score, source, program)
         ranked = source.assign(__frame_score=score)
-        if program.keys:
-            ranked = ranked.sort_values(list(program.keys), kind="stable", na_position="first")
+        for key in reversed(program.keys):
+            ranked = ranked.sort_values(key, kind="stable", na_position="first")
         ranked = ranked.sort_values(
             "__frame_score", ascending=not operation.descending, kind="stable", na_position="last"
         )
@@ -63,22 +64,26 @@ def evaluate_frame(program: FrameProgram, inputs: tuple[pd.DataFrame, ...]) -> p
     selected = tuple(
         key for position in operation.positions for key in program.key_groups[position]
     )
-    groups = (
-        (((), source),)
-        if not selected
-        else tuple(source.groupby(list(selected), dropna=False, sort=False, observed=True))
-    )
+    grouped: dict[FrozenKey, list[int]] = {}
+    if selected:
+        columns = {column.slot_id: column for column in program.input_schema.columns}
+        for position, frozen_key in enumerate(
+            frozen_key_rows(source, tuple(columns[key] for key in selected))
+        ):
+            grouped.setdefault(frozen_key, []).append(position)
+        groups = tuple(grouped.values())
+    else:
+        groups = (list(range(len(source))),)
     rows: list[dict[str, object]] = []
-    for key, subset in groups:
-        keys = key if isinstance(key, tuple) else (key,)
-        row: dict[str, object] = dict(zip(output.key_fields, keys, strict=True))
+    for positions in groups:
+        row: dict[str, object] = {}
         for index, (name, statistic) in enumerate(operation.values):
             column = output.values[index]
             value: object
             if statistic.method == "row_count":
-                value = len(subset)
+                value = len(positions)
             else:
-                active = evaluated[name].iloc[subset.index].dropna()
+                active = evaluated[name].take(positions).dropna()
                 dtype = program.statistic_types[index]
                 try:
                     if isinstance(dtype, DurationDataType):
@@ -118,7 +123,12 @@ def evaluate_frame(program: FrameProgram, inputs: tuple[pd.DataFrame, ...]) -> p
                     numeric_failure("a qualified finite current-row statistic", str(error))
             row[column.slot_id] = value
         rows.append(row)
-    result = pd.DataFrame(rows, columns=[c.slot_id for c in output.columns], dtype=object)
+    result = pd.DataFrame(rows, columns=[column.slot_id for column in output.values], dtype=object)
+    if selected:
+        first_positions = [positions[0] for positions in groups]
+        for key in selected:
+            result[key] = source[key].take(first_positions).reset_index(drop=True).copy(deep=True)
+    result = result.loc[:, [column.slot_id for column in output.columns]]
     for column in output.values:
         if isinstance(column.dtype, DurationDataType):
             result[column.slot_id] = pd.Series(
@@ -130,6 +140,6 @@ def evaluate_frame(program: FrameProgram, inputs: tuple[pd.DataFrame, ...]) -> p
             )
         elif column.dtype == ScalarDataType("float64"):
             result[column.slot_id] = finish_float64(result[column.slot_id], "Frame.reduce")
-    if output.key_fields:
-        result = result.sort_values(list(output.key_fields), na_position="first", kind="stable")
+    for key in reversed(output.key_fields):
+        result = result.sort_values(key, na_position="first", kind="stable")
     return result.reset_index(drop=True)

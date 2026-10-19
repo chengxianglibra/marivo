@@ -73,9 +73,9 @@ def provider() -> DisclosureProvider:
             ("runtime.OutputEvidence", "runtime.values.render", "runtime.values.show"),
         ),
         "ArtifactRef": (
-            "Read a SucceededRun.output_artifact_ref or ArtifactSummary.artifact_ref; pass its .ref string to session.artifact.",
+            "Read a SucceededRun.output_artifact_ref or ArtifactSummary.artifact_ref; pass its .ref string to session.persisted_frame; read .artifact for audit.",
             ("SucceededRun", "ArtifactSummary"),
-            ("session.artifact", "session.graph"),
+            ("session.persisted_frame", "session.graph"),
         ),
         "ArtifactSummary": (
             "Read the selected Artifact entries in session.graph(...).artifacts.",
@@ -95,7 +95,7 @@ def provider() -> DisclosureProvider:
         "SucceededRun": (
             "Select a succeeded Run from session.runs() or session.get_run(id).",
             ("session.runs", "session.get_run"),
-            ("session.artifact",),
+            ("session.persisted_frame",),
         ),
         "RunPage": (
             "Call session.runs(); use next_cursor for the identical selection.",
@@ -209,44 +209,49 @@ def provider() -> DisclosureProvider:
             "members",
             "Population",
             "result = session.members(entity_ref)",
-            "Capture source Entity identities with their own exact anchor and condition; no schema, business rows or Run. Execute keys with session.query(population).",
+            "Capture source Entity identities with their own exact anchor and condition; no schema, business rows or Run. Use session.frame(population) for complete keys.",
         ),
         (
             Session,
-            "query",
-            "Query",
-            "result = session.query(population)",
-            "Capture a keys-only Query over a complete Population; execute publishes typed keys and preserves the domain selection program.",
+            "frame",
+            "AnalysisFrame",
+            "result = session.frame(population)",
+            "Capture a general complete Population key domain, including multiple axes and zero-axis empty/singleton domains; named values may be empty.",
         ),
         (
             Session,
             "observe",
-            "Query",
-            "overall = session.observe(metrics, during=calendar)\n"
-            "detail = session.observe(metrics, during=calendar, by=(field,))\n"
-            "result = detail.rollup(by=(calendar,))",
+            "AnalysisFrame",
+            "result = session.observe(metrics, during=calendar, by=(field,))",
             "Evaluate named Metrics at an explicit output grain: overall, by time, by classification, or their combination.",
         ),
         (
             Session,
             "read",
-            "Query",
+            "AnalysisFrame",
             "result = session.read(population, fields)",
             "Bind this Session explicitly and read named scalar attributes while retaining every complete identity.",
         ),
         (
             Session,
             "values",
-            "Query",
+            "AnalysisFrame",
             "result = session.values(by=(), columns={'budget': 'CNY'}, rows=(((), {'budget': 100}),))",
             "Capture finite literal value input with one unit declaration per named column; no DataFrame import or source read.",
         ),
         (
             Session,
-            "artifact",
-            "Artifact",
-            "result = session.artifact(artifact_id)",
-            "Open an exact terminal output ID in this Session using metadata only, without reading Parquet or restoring graphs.",
+            "persisted_frame",
+            "AnalysisFrame",
+            "result = session.persisted_frame(artifact_id)",
+            "Open one exact committed Frame ID in this Session using metadata only, without result rows, model, Catalog, schema or source access; .artifact provides audit.",
+        ),
+        (
+            Session,
+            "population_from",
+            "Population",
+            "result = session.population_from(frame, on=((frame.axes[0], target),))",
+            "Bind selected complete ordinary Frame keys to explicit caller semantic targets for a new source Population; construction reads no rows.",
         ),
         (
             Session,
@@ -302,11 +307,13 @@ def provider() -> DisclosureProvider:
         ),
     )
     acquisition = {
+        "frame": "Pass an AnalysisFrame from this exact Store/Session, not an Artifact, ID or raw table.",
+        "on": "Required immutable tuple of (exact FrameAxis, resolved Field or Entity) pairs; () is legal only for a zero-axis projection. Bind complete ordinary field/identity axes explicitly; calendar/paired axes are unsupported. Names, tokens and same types do not infer semantic targets.",
         "value": "Pass an ISO string, date, aware datetime or existing InstantAnchor.",
         "timezone": "Use None for the saved report timezone or supply an explicit boundary timezone.",
         "start": "Choose the inclusive exact boundary.",
         "end": "Choose the exclusive exact boundary, strictly after start.",
-        "where": "Pass a resolved Field predicate or closed PopulationPredicate. Source receivers may read fields needed for membership; Query.where only tests existing coordinates.",
+        "where": "Pass a resolved Field predicate or closed PopulationPredicate. Source receivers may read fields needed for membership; AnalysisFrame.where accepts only a same-input boolean Column.",
         "during": "Select starts with a finite half-open TimeScope.",
         "at": "Pass an exact InstantAnchor from session.instant(...) for versioned identity selection.",
         "population": "Pass a complete Population with no owner or the same Session owner.",
@@ -344,10 +351,12 @@ def provider() -> DisclosureProvider:
                 value,
                 bindings=(bind(value, receiver if isinstance(receiver, type) else None),),
                 summary=effect,
-                discovery_group="methods.metric"
+                discovery_group="population_tasks"
+                if name == "population_from"
+                else "methods.metric"
                 if name == "observe"
                 else "entry"
-                if name in ("members", "query", "read", "values")
+                if name in ("members", "frame", "read", "values")
                 else "inputs.time"
                 if name in ("instant", "time_scope")
                 else "methods.events"
@@ -360,8 +369,8 @@ def provider() -> DisclosureProvider:
                 if name in ("runs", "get_run")
                 else "runtime",
                 related=("session.resume",)
-                if name in ("runs", "get_run", "artifact")
-                else ("Query.rollup", "Query.execute", "TimeScope.by")
+                if name in ("runs", "get_run", "persisted_frame")
+                else ("analysis_frame.compute", "analysis_frame.persist", "TimeScope.by")
                 if name == "observe"
                 else ("session.observe", "TimeScope.by")
                 if name in ("instant", "time_scope")
@@ -384,7 +393,16 @@ def provider() -> DisclosureProvider:
                 ),
                 output=output,
                 constraints=(_doc_section(value, "Constraints"),)
-                if name in ("members", "observe", "query", "read", "values", "artifact")
+                if name
+                in (
+                    "members",
+                    "observe",
+                    "frame",
+                    "read",
+                    "values",
+                    "persisted_frame",
+                    "population_from",
+                )
                 else (effect,),
                 effects=effect,
                 telemetry=name in ("get_or_create", "resume", "abandon_run"),
@@ -404,13 +422,15 @@ def provider() -> DisclosureProvider:
                     else ("session", "pending_run")
                     if name == "abandon_run"
                     else ("session", "artifact_id")
-                    if name == "artifact"
+                    if name == "persisted_frame"
+                    else ("session", "frame", "target")
+                    if name == "population_from"
                     else ("session", "artifact_ref")
                     if name == "graph"
                     else ("session", "metrics", "calendar", "field")
                     if name == "observe"
                     else ("session", "population")
-                    if name == "query"
+                    if name == "frame"
                     else ("session", "population", "fields")
                     if name == "read"
                     else ("session", "run_id")
@@ -422,7 +442,8 @@ def provider() -> DisclosureProvider:
                     else ("session",),
                     "result",
                     output,
-                    name not in ("members", "observe", "query", "artifact"),
+                    name
+                    not in ("members", "observe", "frame", "persisted_frame", "population_from"),
                 ),
             )
         )
@@ -552,7 +573,7 @@ def provider() -> DisclosureProvider:
             guidance=(
                 "Acquire catalog = session.catalog. With exact refs, use require; check physical dependencies with readiness. Browse a typed collection only when identity is unknown.",
                 "Discover bounded choices with collection.show() and retain an exact collection.refs Ref. Describe Entity, field, Metric or Relationship definitions with catalog.describe(ref).show(); marivo.help('semantic.semantic_catalog.describe') owns that contract.",
-                "collection.get(full_path) and catalog.require(ref) return expression values or metadata entries. Native Deferred inputs carry no show()/contract(); the consuming Query.show() explains its captured definition.",
+                "collection.get(full_path) and catalog.require(ref) return expression values or metadata entries. Native Deferred inputs carry no show()/contract(); the consuming AnalysisFrame.show() explains its captured scope and operations.",
             ),
             discovery_group="inputs",
         )

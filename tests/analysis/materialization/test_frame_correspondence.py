@@ -397,7 +397,6 @@ def test_fixed_combine_never_prepares_sources_or_catalog(
         raise AssertionError("fixed data cannot prepare sources")
 
     monkeypatch.setattr(evaluator, "open_query_sources", forbidden)
-    monkeypatch.setattr(evaluator, "prepare_context", forbidden)
     monkeypatch.setattr(evaluator, "prepare_source_free_populations", forbidden)
     monkeypatch.setattr("marivo.analysis.session.core.Session.catalog", property(forbidden))
     output = left.compare(right, on=((left.axes[0], right.axes[0]),)).compute()

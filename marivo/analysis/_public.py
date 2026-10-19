@@ -1,9 +1,7 @@
-"""Canonical lazy Query construction and terminal output reading surface."""
+"""Canonical AnalysisFrame construction, operations and audit reading surface."""
 
 import marivo.analysis.session as session
 from marivo._definition.correspondence import CalendarCorrespondence as CalendarCorrespondence
-from marivo._definition.correspondence import CorrespondenceAxis as CorrespondenceAxis
-from marivo._definition.correspondence import DeclaredCorrespondence as DeclaredCorrespondence
 from marivo._temporal import BeforeEndBoundary as BeforeEndBoundary
 from marivo._temporal import Grain as Grain
 from marivo._temporal import InstantAnchor as InstantAnchor
@@ -12,10 +10,11 @@ from marivo.analysis import grain as grain
 from marivo.analysis.dsl.artifact import Artifact as Artifact
 from marivo.analysis.dsl.column import Column as Column
 from marivo.analysis.dsl.column import row_count as row_count
-from marivo.analysis.dsl.correspondence import corresponding as corresponding
 from marivo.analysis.dsl.correspondence import ordinal as ordinal
 from marivo.analysis.dsl.correspondence import period_offset as period_offset
 from marivo.analysis.dsl.correspondence import previous_year as previous_year
+from marivo.analysis.dsl.frame import AnalysisFrame as AnalysisFrame
+from marivo.analysis.dsl.frame_axis import FrameAxis as FrameAxis
 from marivo.analysis.dsl.metrics import member_count as member_count
 from marivo.analysis.dsl.population import MemberAxis as MemberAxis
 from marivo.analysis.dsl.population import MembershipAxis as MembershipAxis
@@ -27,8 +26,6 @@ from marivo.analysis.dsl.population import in_population as in_population
 from marivo.analysis.dsl.population import member as member
 from marivo.analysis.dsl.population import membership as membership
 from marivo.analysis.dsl.population import product as product
-from marivo.analysis.dsl.query import Query as Query
-from marivo.analysis.dsl.references import broadcast as broadcast
 from marivo.analysis.dsl.temporal import CalendarAxis as CalendarAxis
 from marivo.analysis.dsl.windows import all_history as all_history
 from marivo.analysis.dsl.windows import since as since
@@ -48,15 +45,14 @@ from marivo.analysis.session._lazy_read_model import SucceededRun as SucceededRu
 from marivo.analysis.session.core import Session as Session
 
 __all__ = [  # noqa: RUF022 - public order is contractual
-    "Query",
+    "AnalysisFrame",
+    "FrameAxis",
     "Column",
     "Population",
     "PopulationPredicate",
     "MembershipAxis",
     "MemberAxis",
-    "CorrespondenceAxis",
     "CalendarCorrespondence",
-    "DeclaredCorrespondence",
     "identities",
     "coordinates",
     "membership",
@@ -65,8 +61,6 @@ __all__ = [  # noqa: RUF022 - public order is contractual
     "member",
     "member_count",
     "row_count",
-    "broadcast",
-    "corresponding",
     "ordinal",
     "period_offset",
     "previous_year",

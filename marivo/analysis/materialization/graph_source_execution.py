@@ -33,7 +33,6 @@ from marivo.analysis.compiler.graph_plan import (
     SourceRead,
     SourceSchema,
 )
-from marivo.analysis.compiler.query_program import QueryContext
 from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import (
     DataType,
@@ -75,7 +74,6 @@ class PreparedSources:
     relations: dict[str, ir.Table]
     bound: dict[str, BoundSource]
     sources: dict[str, SourceSession] = field(default_factory=dict)
-    context: QueryContext = field(default_factory=QueryContext)
     entities: dict[str, ir.Table] = field(default_factory=dict)
     original_input_qualifications: dict[
         tuple[SourceSession, ops.Node], Literal["qualified", "other", "unavailable"]
@@ -378,7 +376,7 @@ def _preparation_error(expected: str, received: str) -> MaterializationError:
         received=received,
         repair="Use a supported physical field type while preserving the requested key, time and unit contract; no business row was read.",
         stage="execute_preparation",
-        help_target="query.execute",
+        help_target="analysis_frame.compute",
     )
 
 
@@ -390,7 +388,7 @@ def _route_gap(expected: str, received: str, repair: str) -> NoReturn:
         expected=expected,
         received=received,
         repair=f"{repair} No business row was read and no Run was admitted.",
-        target="query.execute",
+        target="analysis_frame.compute",
     )
 
 
@@ -483,7 +481,7 @@ def _population_field(
 def _query_populations(graph: BoundGraph) -> tuple[PopulationDependency, ...]:
     from marivo._definition.expressions import DeclaredMetricRef
     from marivo._definition.graph import DefinitionNode, children, computation_fingerprint
-    from marivo._definition.relations import FrameKeys, QueryKeys
+    from marivo._definition.relations import FrameKeys
 
     populations: dict[str, PopulationDependency] = {}
     seen: set[int] = set()
@@ -494,9 +492,7 @@ def _query_populations(graph: BoundGraph) -> tuple[PopulationDependency, ...]:
         seen.add(id(node))
         if isinstance(node, (PopulationProgram, LiteralPopulation)):
             populations[computation_fingerprint(node)] = node
-            if isinstance(node, PopulationProgram) and isinstance(
-                node.root, (QueryKeys, FrameKeys)
-            ):
+            if isinstance(node, PopulationProgram) and isinstance(node.root, FrameKeys):
                 return
         if isinstance(node, DeclaredMetricRef):
             visit(dict(graph.signature.declared_metrics)[node.ref])
@@ -515,24 +511,18 @@ def _query_populations(graph: BoundGraph) -> tuple[PopulationDependency, ...]:
 def _query_entities(graph: BoundGraph, state: CompiledSemanticState) -> tuple[str, ...]:
     """Resolve every required Entity before opening connections."""
     from marivo._definition.query import ResultQuery
+    from marivo._definition.relations import ReadQuery
+    from marivo._definition.types import AxisBinding
+    from marivo.analysis.core.graph import read_input_graph
 
+    if isinstance(graph.root, ReadQuery):
+        return _query_entities(read_input_graph(graph), state)
     if isinstance(graph.root, ResultQuery):
-        from marivo.analysis.compiler.queries import query_leaves
-        from marivo.analysis.materialization.drill_preparation import extra_entities
-        from marivo.analysis.materialization.query_correspondence import prepare_context
-
         return tuple(
             dict.fromkeys(
-                (
-                    *extra_entities(graph, state),
-                    *tuple(
-                        dict.fromkeys(
-                            path
-                            for leaf in query_leaves(graph, context=prepare_context(graph, state))
-                            for path in _query_entities(leaf, state)
-                        )
-                    ),
-                )
+                axis.entity.ref.path
+                for axis in graph.signature.axes
+                if isinstance(axis, AxisBinding)
             )
         )
 
@@ -585,95 +575,19 @@ def prepare_query_sources(
     frame_schemas: Mapping[str, DataSchema] | None = None,
 ) -> PreparedSources:
     """Prepare all physical fields and checked relationships without business reads."""
-    from marivo._definition.query import ResultQuery
+    from marivo._definition.relations import ReadQuery
+    from marivo.analysis.core.graph import read_input_graph
 
-    if isinstance(graph.root, ResultQuery):
-        from marivo.analysis.compiler.queries import query_leaves
-        from marivo.analysis.materialization.query_correspondence import prepare_context
-
-        context = prepare_context(graph, state)
-
-        prepared_inputs = tuple(
-            prepare_query_sources(
-                leaf, state, source, sources=sources, memo=memo, frame_schemas=frame_schemas
-            )
-            for leaf in query_leaves(graph, context=context)
-        )
-        combined = PreparedSources(
+    if isinstance(graph.root, ReadQuery):
+        return prepare_query_sources(
+            read_input_graph(graph),
+            state,
             source,
-            tuple(schema for prepared in prepared_inputs for schema in prepared.schemas),
-            {
-                key: value
-                for prepared in prepared_inputs
-                for key, value in prepared.relations.items()
-            },
-            {
-                f"{index}:{key}": value
-                for index, prepared in enumerate(prepared_inputs)
-                for key, value in prepared.bound.items()
-            },
-            {
-                key: value
-                for index, prepared in enumerate(prepared_inputs)
-                for key, value in (
-                    *prepared.sources.items(),
-                    *(
-                        (f"{index}:{path}", prepared.sources.get(path, prepared.source))
-                        for path in prepared.bound
-                    ),
-                )
-            },
-            QueryContext(
-                tuple(
-                    dict.fromkeys(
-                        (
-                            *context.relations,
-                            *(
-                                item
-                                for prepared in prepared_inputs
-                                for item in prepared.context.relations
-                            ),
-                        )
-                    )
-                ),
-                tuple(item for prepared in prepared_inputs for item in prepared.context.drills),
-            ),
-            {
-                path: table
-                for prepared in prepared_inputs
-                for path, table in prepared.entities.items()
-            },
+            sources=sources,
+            memo=memo,
+            frame_schemas=frame_schemas,
         )
-        from marivo.analysis.materialization.drill_preparation import prepare_drills
-        from marivo.analysis.materialization.literal_preparation import literal_schemas
 
-        available = sources or {source.datasource.semantic_id: source}
-        for path in _query_entities(graph, state):
-            if path in combined.entities:
-                continue
-            contract = normalize_target_entity(state.registry, path)
-            owner = available[contract.datasource_ref.path]
-            bound = owner.bind(contract.source, source_identity=path)
-            combined.entities[path] = bind_entity_output(
-                state.registry, state.sidecar, path, owner, bound, contract.dependency_fingerprint
-            )
-            combined.bound["drill_binding:" + path] = bound
-            combined.sources["drill_binding:" + path] = owner
-            combined.sources[path] = owner
-        query_context, new_relations = prepare_drills(
-            graph, combined.schemas, combined.context, combined.entities, state, memo=memo
-        )
-        combined.relations.update(new_relations)
-        for _, drills in query_context.drills:
-            for drill in drills:
-                combined.sources[drill.source_id] = available[
-                    state.registry.entities[drill.root.ref.path].datasource
-                ]
-        return replace(
-            combined,
-            context=query_context,
-            schemas=(*combined.schemas, *literal_schemas(graph, combined.entities, state)),
-        )
     from marivo.analysis.materialization.query_preparation import physical_fields, prepare_fields
     from marivo.datasource.timezone import probe_engine_timezone
 
@@ -691,6 +605,19 @@ def prepare_query_sources(
         )
         bounds[path] = bound
         owners[path] = owner
+    from marivo._definition.query import ResultQuery
+
+    if isinstance(graph.root, ResultQuery):
+        from marivo.analysis.materialization.literal_preparation import literal_schemas
+
+        return PreparedSources(
+            source,
+            literal_schemas(graph, entities, state),
+            {},
+            bounds,
+            owners,
+            entities,
+        )
     schemas: list[SourceSchema] = []
     relations: dict[str, ir.Table] = {}
     from marivo.analysis.materialization.query_parameters import prepare_parameters
@@ -954,16 +881,6 @@ def prepare_query_sources(
         relations,
         bounds,
         owners,
-        QueryContext(
-            tuple(
-                dict.fromkeys(
-                    item
-                    for dependency in dependency_inputs
-                    for item in dependency.context.relations
-                )
-            ),
-            tuple(item for dependency in dependency_inputs for item in dependency.context.drills),
-        ),
         entities,
     )
 
@@ -1043,7 +960,7 @@ def open_query_sources(
                 received=f"{type(physical).__name__}: existing_local_file={_local_file(physical.path)}, backend={datasource.backend_type}{facts}",
                 repair="Use an existing local file without runtime request parameters, or a qualified table/Parquet source.",
                 stage="execute_preparation",
-                help_target="query.execute",
+                help_target="analysis_frame.compute",
             )
     datasources = tuple(
         dict.fromkeys(state.registry.entities[path].datasource for path in entities)
@@ -1286,7 +1203,7 @@ def read_stage(
             received=f"{source.provider.name}: {type(error).__name__}: {error}",
             repair="Use a method and value range supported by the backend's native Ibis pandas conversion, or author an explicit business-specific expression.",
             stage="source_conversion",
-            help_target="query.execute",
+            help_target="analysis_frame.compute",
         ) from error
     if stage.common_reads:
         return _complete_common_read(stage, frame, lowered.numeric_checks)
@@ -1338,28 +1255,11 @@ def _complete_source_frame(
                     stage="population_coverage"
                     if name == "__query_population_uncovered"
                     else "scalar_field_lookup",
-                    help_target="query.execute",
+                    help_target="analysis_frame.compute",
                 )
             numeric_failure(check.expected, received)
     if "__numeric_present" in frame.columns and "__numeric_present" not in retained_checks:
         frame = frame.loc[frame["__numeric_present"].fillna(False)]
-    if stage.native_original_finish is not None:
-        from marivo.analysis.compiler.native_formula import (
-            NativeOriginalBatchFinish,
-            NativeOriginalPhaseFinish,
-        )
-        from marivo.analysis.materialization.graph_exchange import source_columns
-        from marivo.analysis.materialization.source_original import finish_native_original
-
-        if not isinstance(
-            stage.native_original_finish, (NativeOriginalBatchFinish, NativeOriginalPhaseFinish)
-        ):
-            source_columns(
-                frame,
-                tuple(column for column in stage.columns if column.slot_id in stage.keys),
-                stage.keys,
-            )
-        frame = finish_native_original(stage.native_original_finish, frame)
     if stage.native_query_finish is not None:
         from marivo.analysis.materialization.query_key_fusion import finish_native_query
 
@@ -1472,7 +1372,7 @@ def _complete_source_frame(
         source_rows=source_rows,
     )
     if stage.native_query_finish is not None:
-        completed = replace(completed, layout=stage.native_query_finish.program.output_layout)
+        completed = replace(completed, layout=stage.native_query_finish.layout)
     return completed
 
 

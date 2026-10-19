@@ -14,7 +14,7 @@ def test_artifact_exposes_only_terminal_output_reads() -> None:
         for name in dir(mv.Artifact)
         if not name.startswith("_") and callable(getattr(mv.Artifact, name))
     }
-    assert methods == {"show", "to_pandas", "findings", "evidence_digest"}
+    assert methods == {"show", "findings", "evidence_digest"}
     for field in (
         "value",
         "population",
@@ -42,21 +42,24 @@ def test_new_and_reopened_artifacts_cannot_enter_composition(
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("terminal-boundary")
     query = session.values(by=(), columns={"value": None}, rows=(((), {"value": 7}),))
-    saved = query.execute()
-    reopened = session.artifact(saved.id)
+    saved = query.persist()
+    reopened = session.persisted_frame(saved.artifact.id)
     runs = session.runs().items
     sources, catalog = session._sources_value, session._catalog_value
-    for result in (saved, reopened):
+    for result in (saved.artifact, reopened.artifact):
         with pytest.raises(AnalysisError):
             session.observe({"value": result})  # type: ignore[dict-item]  # Deliberately pass terminal output as Metric input.
         with pytest.raises(AnalysisError):
-            query.compare(result)  # type: ignore[arg-type]  # Deliberately pass terminal output as Query input.
+            query.compare(result)  # type: ignore[arg-type]  # Deliberately pass terminal output as Frame input.
         with pytest.raises(AnalysisError):
-            query.align(result)  # type: ignore[arg-type]  # Deliberately pass terminal output as Query input.
+            query.align(result)  # type: ignore[arg-type]  # Deliberately pass terminal output as Frame input.
         with pytest.raises(AnalysisError):
             query.select({"value": result})  # type: ignore[dict-item]  # Deliberately pass terminal output as Column input.
-        with pytest.raises(AnalysisError):
-            mv.broadcast(query, to=result)  # type: ignore[arg-type]  # Deliberately pass terminal output as Query input.
     assert session.runs().items == runs
     assert session._sources_value is sources and session._catalog_value is catalog
     assert reopened.to_pandas().equals(saved.to_pandas())
+
+    assert reopened.select({"double": reopened["value"] * 2}).compute().to_pandas()[
+        ("value", "double")
+    ].tolist() == [14]
+    assert session.runs().items == runs

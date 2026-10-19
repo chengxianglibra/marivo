@@ -95,7 +95,7 @@ def test_versioned_read_foreign_predicates_refuse_before_read_or_run(
                     )
                 )
             )
-        fixed = [tuple(value.execute() for value in values) for values in logical]
+        fixed = [tuple(value.persist() for value in values) for values in logical]
         frames = [[value.to_pandas() for value in values] for values in fixed]
         for family_frames in frames:
             assert all(

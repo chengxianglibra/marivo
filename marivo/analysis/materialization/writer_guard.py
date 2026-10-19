@@ -44,6 +44,7 @@ def session_writer_guard(lock_path: Path, *, session_ref: str | None = None) -> 
             received="an indirect lock path",
             repair="Place the project generation on a supported local filesystem.",
             stage="writer_guard",
+            help_target="analysis_frame.persist",
         )
     key = (os.getpid(), str(canonical))
     with _MUTEX:

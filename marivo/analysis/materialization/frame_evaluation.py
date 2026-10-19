@@ -12,6 +12,7 @@ from uuid import uuid4
 from marivo._definition.graph import computation_fingerprint
 from marivo._definition.query import FilterValues, PopulationValues, SelectValues, TopValues
 from marivo._definition.relations import FrameKeys, PopulationProgram
+from marivo._errors import MarivoError
 from marivo.analysis.compiler.frame_plan import (
     CompiledSourceFrame,
     frame_expression_schema,
@@ -30,7 +31,6 @@ from marivo.analysis.compiler.graph_plan import (
 from marivo.analysis.compiler.optimization import InvocationMemo, optimize_query
 from marivo.analysis.compiler.parameters import parameter_domains
 from marivo.analysis.compiler.queries import endpoint
-from marivo.analysis.compiler.query_program import QueryContext
 from marivo.analysis.core.artifact_data import (
     CalendarDataAxis,
     DataAxis,
@@ -81,7 +81,6 @@ from marivo.analysis.materialization.graph_source_execution import (
     qualify_query_sources,
     run_frame_plan,
 )
-from marivo.analysis.materialization.query_correspondence import prepare_context
 from marivo.semantic.errors import SemanticExpressionError
 
 if TYPE_CHECKING:
@@ -171,7 +170,7 @@ class _SourceContexts(ExitStack):
                 received=type(error).__name__,
                 repair="Inspect the source cleanup failure; no result was returned or published.",
                 stage="frame_compute",
-                help_target="frame.compute",
+                help_target="analysis_frame.compute",
             ) from error
 
 
@@ -253,7 +252,6 @@ def evaluate_frame(frame: AnalysisFrame) -> CompletedFrameResult:
             assert isinstance(binding, (SourceFrameBinding, LiteralFrameBinding))
             memo = InvocationMemo()
             prepared = None
-            context = QueryContext()
             schemas: tuple[SourceSchema, ...] = ()
             if isinstance(binding, SourceFrameBinding):
                 key_schemas = {
@@ -274,27 +272,20 @@ def evaluate_frame(frame: AnalysisFrame) -> CompletedFrameResult:
                         )
                     )
                     prepared_by_input[input_id] = prepared
-                    schemas, context = prepared.schemas, prepared.context
+                    schemas = prepared.schemas
                 else:
                     schemas = prepare_source_free_populations(
                         binding.graph, binding.state, frame_schemas=key_schemas
                     )
-                    context = prepare_context(binding.graph, binding.state)
                 scopes[input_id] = captured_source_scopes(binding.graph)
-            plan = optimize_query(plan_query(binding.graph, schemas, context=context, memo=memo))
+            plan = optimize_query(plan_query(binding.graph, schemas, memo=memo))
             lowered = lower_query(plan, {} if prepared is None else prepared.relations)
             if prepared is not None:
                 from marivo.analysis.materialization.query_key_fusion import (
                     fuse_query_keys,
                     fuse_query_terminal,
                 )
-                from marivo.analysis.materialization.source_original import fuse_source_original
-                from marivo.analysis.materialization.source_original_dependent import (
-                    fuse_dependent_original,
-                )
 
-                lowered = fuse_dependent_original(prepared, lowered)
-                lowered = fuse_source_original(prepared, lowered)
                 lowered = fuse_query_keys(prepared, lowered)
                 lowered = fuse_query_terminal(prepared, lowered)
                 qualify_query_sources(prepared, lowered)
@@ -337,12 +328,8 @@ def evaluate_frame(frame: AnalysisFrame) -> CompletedFrameResult:
             backing = fixed_frames[stage.input_id]._backing
             if isinstance(backing, MemoryFrameBacking):
                 return backing.data
-            reject(
-                "the full stored Frame reader",
-                stage.input_id,
-                "Stored input evaluation joins the Store 12 reader before public cutover.",
-                "frame.compute",
-            )
+            assert isinstance(backing, StoredFrameBacking)
+            return fixed_frames[stage.input_id]._local.read_complete(backing).data
 
         def adapt_source(input_id: str, output: StageOutput) -> StageOutput:
             current = source_frames[input_id]
@@ -500,6 +487,16 @@ def evaluate_frame(frame: AnalysisFrame) -> CompletedFrameResult:
                 received=error.received,
                 repair=error.repair.action,
                 stage="numeric_value",
+                help_target="analysis_frame.compute",
+            ) from error
+        except MarivoError:
+            raise
+        except Exception as error:
+            raise MaterializationError(
+                expected="successful execution of the checked Frame plan",
+                received="an unexpected execution failure before result completion",
+                repair="Inspect the source connection and input data, correct the execution failure, then retry frame.compute(); no Run was admitted.",
+                stage="frame_compute",
                 help_target="analysis_frame.compute",
             ) from error
         data = CompletedFrameData(compiled.schema, output.table, output.frame_attachments)

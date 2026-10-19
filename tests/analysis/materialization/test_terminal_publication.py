@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import subprocess
@@ -36,24 +37,23 @@ from marivo.analysis.core.artifact_data import (
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.analysis.core.graph import BoundGraph
-from marivo.analysis.dsl.artifact import Artifact
+from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, FrameResultMetadata
+from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
+from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.evidence._dataset_types import AssociationFindingValueV1, NoAssociationLagV1
-from marivo.analysis.materialization import terminal_store
+from marivo.analysis.materialization import terminal_publication, terminal_store
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.errors import (
     IntegrityError,
     MaterializationError,
     RecoveryPendingError,
 )
-from marivo.analysis.materialization.graph_exchange import StageOutput
-from marivo.analysis.materialization.resources import reserve_output
-from marivo.analysis.materialization.store import SessionStore, _new_run_ref
+from marivo.analysis.materialization.graph_reading import open_manifest
+from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.terminal_protocol import decode, encode
 from marivo.analysis.materialization.terminal_publication import reconcile
 from marivo.analysis.materialization.terminal_storage import POLICY, read_output, write_output
 from marivo.analysis.session.core import Session
-from tests.shared_fixtures import numeric_literal_node, numeric_program_query
 
 if TYPE_CHECKING:
     from tests.conftest import _SemanticProjectFactory
@@ -65,40 +65,99 @@ def session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Session:
     return mv.session.get_or_create("terminal", report_timezone="UTC")
 
 
-def constant(session: Session, value: int = 7) -> mv.Query:
-    return numeric_program_query(session, {"answer": numeric_literal_node(value)})
+def constant(session: Session, value: int = 7) -> AnalysisFrame:
+    return session.values(by=(), columns={"answer": None}, rows=(((), {"answer": value}),))
 
 
-def stored_frame(session: Session, artifact: Artifact) -> pd.DataFrame:
+def committed(frame: AnalysisFrame) -> ArtifactManifest:
+    return open_manifest(frame._local.store, frame._local.session_ref, frame._backing.artifact_id)
+
+
+def result_metadata(
+    *, findings: tuple[OutputFinding, ...] = (), checks: tuple[OutputEvidence, ...] = ()
+) -> FrameResultMetadata:
+    return FrameResultMetadata(
+        "existing-result",
+        FrameAudit(
+            (),
+            EvaluationRecord(datetime(2020, 1, 1, tzinfo=timezone.utc), (), ("literal",), checks),
+        ),
+        findings,
+    )
+
+
+def calendar_constant(session: Session, calendar: mv.CalendarAxis) -> AnalysisFrame:
+    from marivo._definition.types import CalendarCoordinate
+    from marivo._temporal import anchor_from_datetime
+    from marivo.analysis.core.frame_calendar import freeze_calendar
+
+    grid = calendar.grid
+    coordinate = CalendarCoordinate(
+        grid.identity,
+        grid.grain_spec,
+        grid.boundary_timezone,
+        grid.snapshot_digest,
+        tuple(
+            tuple(
+                anchor_from_datetime(value)
+                for value in (cell.original_start, cell.original_end, cell.start, cell.end)
+            )
+            for cell in grid.cells
+        ),
+        grid.calendar_snapshot,
+    )
+    frozen = freeze_calendar(
+        coordinate,
+        token="axis.0",
+        name="period",
+        key=DataColumn("key.0", "period", ScalarDataType("int64"), False),
+    )
+    value = DataColumn("value.0", "value", ScalarDataType("int64"), False)
+    schema = DataSchema((frozen.axis,), (value,), value_paths=(("value",),))
+    rows = pd.DataFrame(
+        {
+            "key.0": pd.Series(range(len(grid.cells)), dtype="int64[pyarrow]"),
+            "value.0": pd.Series([7] * len(grid.cells), dtype="int64[pyarrow]"),
+        }
+    )
+    return AnalysisFrame._from_memory(
+        session._runtime.local,
+        CompletedFrameResult(
+            CompletedFrameData(schema, rows, (frozen.directory,)), result_metadata()
+        ),
+    )
+
+
+def stored_frame(session: Session, artifact: AnalysisFrame) -> pd.DataFrame:
     store = session._runtime.store
     with store._read() as conn:
-        manifest = terminal_store.manifest(store, conn, artifact.id)
-    assert manifest == artifact._manifest
+        manifest = terminal_store.manifest(store, conn, artifact.artifact.id)
+    assert manifest == committed(artifact)
     return read_output(store.project_root, manifest.data.schema, manifest.data.rows)
 
 
 @overload
 def records(
-    session: Session, artifact: Artifact, kind: Literal["evidence"] = "evidence"
+    session: Session, artifact: AnalysisFrame, kind: Literal["evidence"] = "evidence"
 ) -> tuple[OutputEvidence, ...]: ...
 
 
 @overload
 def records(
-    session: Session, artifact: Artifact, kind: Literal["finding"]
+    session: Session, artifact: AnalysisFrame, kind: Literal["finding"]
 ) -> tuple[OutputFinding, ...]: ...
 
 
 def records(
     session: Session,
-    artifact: Artifact,
+    artifact: AnalysisFrame,
     kind: Literal["finding", "evidence"] = "evidence",
 ) -> tuple[OutputFinding | OutputEvidence, ...]:
     items: list[OutputFinding | OutputEvidence] = []
     cursor = None
     while True:
         page, cursor = terminal_store.records_page(
-            session._runtime.store, artifact.id, kind=kind, limit=1, cursor=cursor
+            session._runtime.store, artifact.artifact.id, kind=kind, limit=1, cursor=cursor
         )
         items.extend(page)
         if cursor is None:
@@ -109,20 +168,23 @@ def test_public_constant_executes_each_invocation_and_reads_committed_output(
     session: Session,
 ) -> None:
     query = constant(session)
-    first, second = query.execute(), query.execute()
-    assert first.id != second.id
-    assert "Artifact" in repr(first) and "\n" not in repr(first)
+    first, second = query.persist(), query.persist()
+    assert first.artifact.id != second.artifact.id
+    assert "AnalysisFrame" in repr(first) and "\n" not in repr(first)
     assert stored_frame(session, first)["value.0"].tolist() == [7]
     assert len(session.runs().items) == 2
     assert all(run.lifecycle == "succeeded" for run in session.runs().items)
-    assert session.get_run(first._manifest.run_id).dataset_input.kind == "query"
+    assert (
+        session.get_run(committed(first).run_id).dataset_input.result_id
+        == first._backing.metadata.result_id
+    )
     assert records(session, first, "finding") == ()
     assert all(item.kind != "read" for item in records(session, first))
-    for artifact in (first, session.artifact(first.id)):
+    for artifact in (first, session.persisted_frame(first.artifact.id)):
         assert artifact.to_pandas()[("value", "answer")].tolist() == [7]
         artifact.show()
-        assert artifact.findings().items == ()
-        assert not any(item.kind == "read" for item in artifact.evidence_digest().items)
+        assert artifact.artifact.findings().items == ()
+        assert not any(item.kind == "read" for item in artifact.artifact.evidence_digest().items)
     graph = session.graph()
     assert len(graph.artifacts) == 2 and len(graph.edges) == 2
     assert all(item.family_id == "terminal_output" for item in graph.artifacts)
@@ -149,7 +211,14 @@ def test_storage_wide_complete_keys_exact_dtypes_and_nullable_values(tmp_path: P
     )
     presence = (DataColumn("p0", "present", ScalarDataType("boolean"), False),)
     schema = DataSchema(
-        (DataAxis("region", (keys[0],)), DataAxis("customer", (keys[1],))), values, presence
+        (
+            DataAxis("region", (keys[0],), name="region"),
+            DataAxis("customer", (keys[1],), name="customer"),
+        ),
+        values,
+        presence,
+        value_paths=tuple((v.name,) for v in values),
+        presence_paths=(("present",),),
     )
     frame = pd.DataFrame(
         {
@@ -185,26 +254,25 @@ def test_storage_wide_complete_keys_exact_dtypes_and_nullable_values(tmp_path: P
         handle = write_output(tmp_path, staging, final, schema, data)
         os.rename(staging, final)
         output = read_output(tmp_path, schema, handle)
-        expected = data.sort_values(["k0", "k1"], na_position="first", kind="stable").reset_index(
-            drop=True
-        )
+        expected = data.reset_index(drop=True)
         pd.testing.assert_frame_equal(output, expected, check_dtype=False)
         assert tuple(output.columns) == tuple(column.slot_id for column in schema.columns)
         for column in schema.columns:
             assert isinstance(output[column.slot_id].dtype, pd.ArrowDtype)
-        manifest = ArtifactManifest("artifact", "session", "run", ArtifactData(schema, handle))
-        from marivo.analysis.materialization.graph_reading import ExportRead, OutputRead
+        manifest = ArtifactManifest(
+            "store", "artifact", "session", "run", ArtifactData(schema, handle), result_metadata()
+        )
         from marivo.analysis.materialization.pandas_export import export_frame
 
-        exported = export_frame(manifest, OutputRead(tmp_path), ExportRead())
+        exported = export_frame(manifest.data.schema, output)
         assert exported.columns.names == ["kind", "name"]
         assert list(exported.index) == list(range(len(data)))
         for column in values:
             pd.testing.assert_series_equal(
                 exported[("value", column.name)], expected[column.slot_id], check_names=False
             )
-        assert exported[("presence", ("present",))].tolist() == expected["p0"].tolist()
-        assert exported.attrs["marivo"]["quantities"][1]["unit"] == "CNY"
+        assert exported[("presence", "present")].tolist() == expected["p0"].tolist()
+        assert dict(exported.attrs["units"])["decimal"] == "CNY"
 
         assert decode(encode(manifest), ArtifactManifest) == manifest
     with pq.ParquetFile(tmp_path / "saved-3" / "data.parquet") as parquet:
@@ -228,38 +296,29 @@ def test_zero_axis_zero_value_unit_rows(tmp_path: Path, count: int) -> None:
     output = read_output(tmp_path, DataSchema((), ()), handle)
     assert output.shape == (count, 0)
     assert output.index.equals(pd.RangeIndex(count))
-    from marivo.analysis.materialization.graph_reading import ExportRead, OutputRead
     from marivo.analysis.materialization.pandas_export import export_frame
 
     manifest = ArtifactManifest(
-        "artifact", "session", "run", ArtifactData(DataSchema((), ()), handle)
+        "store",
+        "artifact",
+        "session",
+        "run",
+        ArtifactData(DataSchema((), ()), handle),
+        result_metadata(),
     )
-    exported = export_frame(manifest, OutputRead(tmp_path), ExportRead())
+    exported = export_frame(manifest.data.schema, output)
     assert exported.shape == (count, 0)
     assert exported.columns.names == ["kind", "name"]
-    assert exported.attrs["marivo"]["quantities"] == ()
+    assert exported.attrs["units"] == ()
 
 
 def test_records_codec_and_transaction_are_self_contained(session: Session) -> None:
     store = session._runtime.store
-    ref = _new_run_ref()
-    terminal_store.admit(store, session.id, ref)
-    nonce = "a" * 32
-    artifact = "artifact_" + nonce
-    staging, final, resources = reserve_output(
-        store, run_ref=ref, session_ref=session.id, artifact_ref=artifact, nonce=nonce
+    schema = DataSchema(
+        (),
+        (DataColumn("v0", "correlation", ScalarDataType("float64"), True),),
+        value_paths=(("correlation",),),
     )
-    schema = DataSchema((), (DataColumn("v0", "correlation", ScalarDataType("float64"), True),))
-    primary = write_output(
-        store.project_root,
-        staging / "primary",
-        final / "primary",
-        schema,
-        pd.DataFrame({"v0": [0.5]}),
-    )
-    final.parent.mkdir(parents=True, exist_ok=True)
-    os.rename(staging, final)
-    manifest = ArtifactManifest(artifact, session.id, ref, ArtifactData(schema, primary))
     finding = OutputFinding(
         "finding_exact",
         AssociationFindingValueV1(
@@ -288,32 +347,37 @@ def test_records_codec_and_transaction_are_self_contained(session: Session) -> N
     assert decode(encode(finding), OutputFinding) == finding
     assert all(decode(encode(item), OutputEvidence) == item for item in evidence)
     saved_findings = tuple(replace(finding, finding_id=f"finding_{index}") for index in range(3))
-    terminal_store.publish(store, manifest, saved_findings, evidence, resources, lambda point: None)
-    from marivo.analysis.materialization.graph_reading import TerminalReader
-
-    artifact_handle = Artifact._from_manifest(manifest, TerminalReader(store))
+    fixed = AnalysisFrame._from_memory(
+        session._runtime.local,
+        CompletedFrameResult(
+            CompletedFrameData(schema, pd.DataFrame({"v0": [0.5]})),
+            result_metadata(findings=saved_findings, checks=evidence),
+        ),
+    )
+    artifact_handle = fixed.persist()
+    artifact = artifact_handle.artifact.id
     assert records(session, artifact_handle, "finding") == saved_findings
     assert records(session, artifact_handle) == evidence
-    public = session.artifact(artifact)
-    assert public.evidence_digest().items == evidence
-    assert public.evidence_digest().evidence_count == 205
-    page = public.findings(limit=1)
+    public = session.persisted_frame(artifact)
+    assert public.artifact.evidence_digest().items == evidence
+    assert public.artifact.evidence_digest().evidence_count == 205
+    page = public.artifact.findings(limit=1)
     assert page.items[0].value == finding.value
     assert page.items[0].coordinates == finding.coordinates
     assert not hasattr(page.items[0], "derivation")
     assert not hasattr(page.items[0], "subject")
     assert "coefficient: 0.5" in page.items[0].render()
     assert "v0" in page.items[0].render()
-    page_two = public.findings(limit=1, cursor=page.next_cursor)
-    page_three = public.findings(limit=1, cursor=page_two.next_cursor)
+    page_two = public.artifact.findings(limit=1, cursor=page.next_cursor)
+    page_three = public.artifact.findings(limit=1, cursor=page_two.next_cursor)
     assert [item.finding_id for item in (*page.items, *page_two.items, *page_three.items)] == [
         item.finding_id for item in saved_findings
     ]
     assert not page_three.has_more and page_three.next_cursor is None
-    foreign = constant(session).execute()
+    foreign = constant(session).persist()
     with pytest.raises(IntegrityError):
-        foreign.findings(limit=1, cursor=page.next_cursor)
-    public.evidence_digest().show()
+        foreign.artifact.findings(limit=1, cursor=page.next_cursor)
+    public.artifact.evidence_digest().show()
 
     _, cursor = terminal_store.records_page(store, artifact, kind="evidence", limit=1)
     with pytest.raises(IntegrityError):
@@ -330,7 +394,7 @@ def test_records_codec_and_transaction_are_self_contained(session: Session) -> N
 @pytest.mark.parametrize(
     "point",
     (
-        "query_admitted",
+        "publication_admitted",
         "terminal_primary_written",
         "terminal_files_published",
         "insert_artifact",
@@ -341,18 +405,18 @@ def test_records_codec_and_transaction_are_self_contained(session: Session) -> N
     ),
 )
 def test_faults_never_expose_partial_output_or_delete_prior_commit(
-    session: Session, point: str
+    session: Session, point: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    saved = constant(session).execute()
+    saved = constant(session).persist()
 
     def fail(current: str) -> None:
         if current == point:
             raise OSError(point)
 
-    session._runtime._hook = fail
+    monkeypatch.setattr(terminal_publication, "_event", fail)
     with pytest.raises(MaterializationError):
-        constant(session, 8).execute()
-    session._runtime._hook = None
+        constant(session, 8).persist()
+    monkeypatch.setattr(terminal_publication, "_event", lambda event: None)
     assert stored_frame(session, saved)["value.0"].tolist() == [7]
     assert {run.lifecycle for run in session.runs().items} == {"succeeded", "failed"}
     assert session._runtime.store.resources(session.id) == ()
@@ -362,7 +426,9 @@ def test_faults_never_expose_partial_output_or_delete_prior_commit(
     assert len(list(session._runtime.store.layout.session_dir(session.id).glob("artifacts/*"))) == 1
 
 
-def test_lost_commit_ack_returns_original_without_reexecution(session: Session) -> None:
+def test_lost_commit_ack_returns_original_without_reexecution(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
     calls = []
 
     def fail(point: str) -> None:
@@ -370,9 +436,9 @@ def test_lost_commit_ack_returns_original_without_reexecution(session: Session) 
         if point == "after_commit":
             raise OSError("lost acknowledgement")
 
-    session._runtime._hook = fail
-    artifact = constant(session).execute()
-    assert calls.count("query_admitted") == 1 and calls.count("terminal_primary_written") == 1
+    monkeypatch.setattr(terminal_publication, "_event", fail)
+    artifact = constant(session).persist()
+    assert calls.count("publication_admitted") == 1 and calls.count("terminal_primary_written") == 1
     assert len(session.runs().items) == 1
     assert stored_frame(session, artifact)["value.0"].tolist() == [7]
 
@@ -425,20 +491,28 @@ def test_real_source_repeat_execution_and_nullable_local_combination(
         {"total": amount.sum(), "mean": amount.mean(), "ratio": amount.sum() / (amount.sum() * 0)},
         by=(region,),
     )
-    first = query.execute()
+    first = query.persist()
     frame = stored_frame(session, first)
-    assert frame["value.0"].tolist() == [5, 9007199254740993]
-    assert frame["key.0"].tolist() == [pd.NA, "A"]
+    assert {
+        (None if pd.isna(key) else key): value
+        for key, value in zip(frame["key.0"], frame["value.0"], strict=True)
+    } == {None: 5, "A": 9007199254740993}
     assert frame["value.2"].isna().all()
     facts = records(session, first)
     reads = [dict(item.values) for item in facts if item.kind == "read"]
-    assert reads and all(item["time_constraint"] == "none added" for item in reads)
+    assert reads and all(
+        item["period_start"] is None and item["period_end"] is None for item in reads
+    )
     with duckdb.connect(str(session.project_root / "warehouse.duckdb")) as conn:
         conn.execute("UPDATE orders SET amount=10 WHERE id=1")
-    second = query.execute()
-    assert second.id != first.id
-    assert stored_frame(session, second)["value.0"].tolist() == [5, 10]
-    assert stored_frame(session, first)["value.0"].tolist() == [5, 9007199254740993]
+    second = query.persist()
+    assert second.artifact.id != first.artifact.id
+    updated = stored_frame(session, second)
+    assert {
+        (None if pd.isna(key) else key): value
+        for key, value in zip(updated["key.0"], updated["value.0"], strict=True)
+    } == {None: 5, "A": 10}
+    pd.testing.assert_frame_equal(stored_frame(session, first), frame)
     assert records(session, second, "finding") == ()
 
 
@@ -446,9 +520,9 @@ def test_calendar_bounds_are_explicit_output_attachment(source_session: Session)
     session = source_session
     metric = session.catalog.metrics.get("sales.revenue")
     axis = session.time_scope(start="2026-01-01", end="2026-01-05").by(mv.grain("day"))
-    artifact = session.observe({"revenue": metric}, during=axis).execute()
-    (attachment,) = artifact._manifest.data.attachments
-    assert attachment.name == "calendar_bounds.axis.0"
+    artifact = session.observe({"revenue": metric}, during=axis).persist()
+    (attachment,) = committed(artifact).data.attachments
+    assert attachment.name == artifact._schema.axes[0].frozen.directory_name
     frame = read_output(session.project_root, attachment.schema, attachment.rows)
     assert len(frame) == 4 and frame["actual_start"].iloc[0] == pd.Timestamp("2026-01-01", tz="UTC")
     assert len(stored_frame(session, artifact)) == 4
@@ -465,10 +539,9 @@ def test_calendar_timezone_survives_private_cold_read(
     )
     if from_source:
         metric = session.catalog.metrics.get("sales.revenue")
-        artifact = session.observe({"value": metric}, during=axis).execute()
+        artifact = session.observe({"value": metric}, during=axis).persist()
     else:
-        literal = numeric_literal_node(7)
-        artifact = numeric_program_query(session, {"value": literal}, during=axis).execute()
+        artifact = calendar_constant(session, axis).persist()
     if not from_source:
         assert session._catalog_value is None
         assert not any(item.kind == "read" for item in records(session, artifact))
@@ -477,7 +550,7 @@ import sys
 import pandas as pd
 from marivo.analysis.core.artifact_data import CalendarDataAxis, TimestampDataType
 from marivo.analysis.materialization.store import SessionStore
-from marivo.analysis.materialization import terminal_store
+from marivo.analysis.materialization import terminal_store, terminal_publication
 from marivo.analysis.materialization.terminal_storage import read_output
 store = SessionStore.open_existing(Path(sys.argv[1]))
 with store._read() as conn:
@@ -486,10 +559,9 @@ attachment, = manifest.data.attachments
 zone = sys.argv[3]
 assert type(manifest.data.schema.axes[0]) is CalendarDataAxis
 assert manifest.data.schema.axes[0].timezone == zone
-assert type(attachment.schema.axes[0]) is CalendarDataAxis
-assert attachment.schema.axes[0].timezone == zone
+assert attachment.schema.axes[0].kind == "field"
 assert attachment.schema.axes[0].token == manifest.data.schema.axes[0].token
-assert all(column.dtype == TimestampDataType('us', 'UTC') for column in attachment.schema.values)
+assert all(column.dtype == TimestampDataType('us', 'UTC') for column in attachment.schema.values[2:])
 frame = read_output(store.project_root, attachment.schema, attachment.rows)
 starts = pd.date_range('2026-03-28', periods=3, tz=zone).tolist()
 ends = pd.date_range('2026-03-29', periods=3, tz=zone).tolist()
@@ -503,7 +575,7 @@ assert [(end-start).total_seconds()/3600 for start,end in zip(starts,ends)] == (
 )
 """
     result = subprocess.run(
-        [sys.executable, "-c", script, str(session.project_root), artifact.id, zone],
+        [sys.executable, "-c", script, str(session.project_root), artifact.artifact.id, zone],
         cwd=Path(__file__).resolve().parents[3],
         text=True,
         capture_output=True,
@@ -523,16 +595,56 @@ def test_read_evidence_preserves_nested_predicate_groups(source_session: Session
         (region == "A") | (region.isnull() & (amount < 10)),
         ~((region == "A") | region.isnull()) & (amount < 10),
     )
-    expected_filters = (
-        "(((sales.orders.region == 'A') | sales.orders.region.isnull()) & (sales.orders.amount < 10))",
-        "((sales.orders.region == 'A') | (sales.orders.region.isnull() & (sales.orders.amount < 10)))",
-        "(~((sales.orders.region == 'A') | sales.orders.region.isnull()) & (sales.orders.amount < 10))",
+    expected_shapes = (
+        (
+            "and",
+            "or",
+            "equal",
+            "end_call",
+            "isnull",
+            "end_call",
+            "end_call",
+            "less",
+            "end_call",
+            "end_call",
+        ),
+        (
+            "or",
+            "equal",
+            "end_call",
+            "and",
+            "isnull",
+            "end_call",
+            "less",
+            "end_call",
+            "end_call",
+            "end_call",
+        ),
+        (
+            "and",
+            "not",
+            "or",
+            "equal",
+            "end_call",
+            "isnull",
+            "end_call",
+            "end_call",
+            "end_call",
+            "less",
+            "end_call",
+            "end_call",
+        ),
     )
-    for predicate, expected, total in zip(predicates, expected_filters, (5, 15, 0), strict=True):
-        artifact = session.observe({"total": amount.sum(empty="zero")}, where=predicate).execute()
+    for predicate, expected, total in zip(predicates, expected_shapes, (5, 15, 0), strict=True):
+        artifact = session.observe({"total": amount.sum(empty="zero")}, where=predicate).persist()
         assert stored_frame(session, artifact)["value.0"].tolist() == [total]
         facts = records(session, artifact)
-        assert [dict(item.values)["filters"] for item in facts if item.kind == "read"] == [expected]
+        (scope,) = [dict(item.values)["filters"] for item in facts if item.kind == "read"]
+        assert isinstance(scope, str)
+        tree = json.loads(scope)
+        operators = {"and", "or", "not", "equal", "isnull", "less", "end_call"}
+        assert tuple(token for token in tree[0]["tokens"] if token in operators) == expected
+        assert "sales.orders.region" in scope and "sales.orders.amount" in scope
 
 
 def test_old_store_rejection_preserves_bytes_and_name_cannot_bypass(tmp_path: Path) -> None:
@@ -547,17 +659,17 @@ def test_old_store_rejection_preserves_bytes_and_name_cannot_bypass(tmp_path: Pa
         with pytest.raises(IntegrityError, match="user_version=9"):
             SessionStore.open_existing(tmp_path)
     assert old.read_bytes() == before
-    assert not (old.parent.parent / "v11").exists()
+    assert not (old.parent.parent / "v12").exists()
 
 
 def test_private_cold_roundtrip_does_not_need_producer_or_catalog(
     session: Session, tmp_path: Path
 ) -> None:
-    artifact = constant(session).execute()
+    artifact = constant(session).persist()
     script = """from pathlib import Path
 import sys
 from marivo.analysis.materialization.store import SessionStore
-from marivo.analysis.materialization import terminal_store
+from marivo.analysis.materialization import terminal_store, terminal_publication
 from marivo.analysis.materialization.terminal_storage import read_output
 store=SessionStore.open_existing(Path(sys.argv[1]))
 with store._read() as conn:
@@ -567,7 +679,7 @@ assert terminal_store.records_page(store,sys.argv[2],kind="finding")[0]==()
 assert terminal_store.records_page(store,sys.argv[2],kind="evidence")[0]
 """
     result = subprocess.run(
-        [sys.executable, "-c", script, str(tmp_path), artifact.id],
+        [sys.executable, "-c", script, str(tmp_path), artifact.artifact.id],
         cwd=Path(__file__).resolve().parents[3],
         text=True,
         capture_output=True,
@@ -578,7 +690,7 @@ assert terminal_store.records_page(store,sys.argv[2],kind="evidence")[0]
 @pytest.mark.parametrize(
     "point",
     (
-        "query_admitted",
+        "publication_admitted",
         "terminal_primary_written",
         "terminal_files_published",
         "insert_evidence",
@@ -588,7 +700,7 @@ assert terminal_store.records_page(store,sys.argv[2],kind="evidence")[0]
 )
 def test_process_loss_reconciles_original_without_replay(session: Session, point: str) -> None:
     store = session._runtime.store
-    saved = constant(session).execute()
+    saved = constant(session).persist()
     command = [
         sys.executable,
         "-m",
@@ -655,12 +767,12 @@ def test_unknown_commit_keeps_files_and_journal_until_reconciliation(
             monkeypatch.setattr(store, "_read", unavailable)
             raise OSError("commit outcome unknown")
 
-    session._runtime._hook = fail
+    monkeypatch.setattr(terminal_publication, "_event", fail)
     with pytest.raises(RecoveryPendingError) as caught:
-        constant(session).execute()
+        constant(session).persist()
     assert caught.value.stage == "terminal_commit_unknown"
     monkeypatch.setattr(store, "_read", original_read)
-    session._runtime._hook = None
+    monkeypatch.setattr(terminal_publication, "_event", lambda event: None)
     assert store.resources(session.id)
     assert len(list(store.layout.session_dir(session.id).glob("artifacts/*"))) == 1
     reconcile(store, session.id, lambda point: None)
@@ -679,8 +791,9 @@ def test_obsolete_output_envelope_is_rejected_without_rewrite() -> None:
 
 def test_large_output_uses_bounded_row_groups(tmp_path: Path) -> None:
     schema = DataSchema(
-        (DataAxis("key", (DataColumn("k0", "key", ScalarDataType("int64"), False),)),),
+        (DataAxis("key", (DataColumn("k0", "key", ScalarDataType("int64"), False),), name="key"),),
         (DataColumn("v0", "value", ScalarDataType("int64"), True),),
+        value_paths=(("value",),),
     )
     count = POLICY.row_group_rows + 7
     rows = pd.DataFrame(
@@ -699,17 +812,15 @@ def test_large_output_uses_bounded_row_groups(tmp_path: Path) -> None:
 
 def test_pure_source_publication_has_no_synthetic_local_check(source_session: Session) -> None:
     metric = source_session.catalog.metrics.get("sales.revenue")
-    artifact = source_session.observe({"revenue": metric}).execute()
+    artifact = source_session.observe({"revenue": metric}).persist()
     assert stored_frame(source_session, artifact)["value.0"].tolist() == [9007199254740998]
     facts = records(source_session, artifact)
     assert sum(item.kind == "read" for item in facts) == 1
     assert not any("Local numeric" in item.summary for item in facts)
-    assert all(
-        dict(item.values)["datasource"] == "warehouse" for item in facts if item.kind == "read"
-    )
+    assert all(dict(item.values)["source"] for item in facts if item.kind == "read")
 
 
-def test_explicit_numeric_error_fails_original_run_without_publication(
+def test_explicit_numeric_error_prevents_admission_and_publication(
     source_session: Session,
 ) -> None:
     amount = source_session.catalog.fields.get("sales.orders.amount")
@@ -718,9 +829,15 @@ def test_explicit_numeric_error_fails_original_run_without_publication(
     with pytest.raises(MaterializationError) as caught:
         source_session.observe(
             {"ratio": total.divide(total * 0, zero_denominator="error")}
-        ).execute()
-    assert caught.value.run_ref is not None
-    assert source_session.get_run(caught.value.run_ref).lifecycle == "failed"
+        ).persist()
+    from marivo.semantic.errors import SemanticExpressionError
+
+    assert isinstance(caught.value.__cause__, SemanticExpressionError)
+    assert caught.value.stage == "numeric_value"
+    assert caught.value.repair.help_target.canonical_id == "analysis_frame.compute"
+    assert caught.value.run_ref is None
+    assert source_session.runs().items == ()
+    assert source_session._runtime.store.resources(source_session.id) == ()
     with source_session._runtime.store._read() as conn:
         assert conn.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == 0
 
@@ -731,9 +848,10 @@ def test_preparation_failure_creates_no_run(source_session: Session) -> None:
     with duckdb.connect(str(source_session.project_root / "warehouse.duckdb")) as conn:
         conn.execute("ALTER TABLE orders ALTER region TYPE UBIGINT USING 1")
     with pytest.raises(MaterializationError) as caught:
-        source_session.observe({"revenue": metric}, by=(region,)).execute()
+        source_session.observe({"revenue": metric}, by=(region,)).persist()
     assert caught.value.run_ref is None
     assert source_session.runs().items == ()
+    assert source_session._runtime.store.resources(source_session.id) == ()
 
 
 def test_source_disconnect_failure_prevents_publication(
@@ -750,16 +868,20 @@ def test_source_disconnect_failure_prevents_publication(
     monkeypatch.setattr(BackendLease, "close", unconfirmed)
     metric = source_session.catalog.metrics.get("sales.revenue")
     with pytest.raises(MaterializationError) as caught:
-        source_session.observe({"revenue": metric}).execute()
-    assert caught.value.run_ref is not None
-    assert source_session.get_run(caught.value.run_ref).lifecycle == "failed"
+        source_session.observe({"revenue": metric}).persist()
+    assert caught.value.run_ref is None
+    assert source_session.runs().items == ()
     assert source_session._runtime.store.resources(source_session.id) == ()
     with source_session._runtime.store._read() as conn:
         assert conn.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == 0
 
 
-def test_lost_ack_with_missing_records_is_recovery_pending(session: Session) -> None:
+def test_lost_ack_with_missing_records_is_recovery_pending(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
     store = session._runtime.store
+    fixed = constant(session).compute()
+    assert fixed._backing.metadata.audit.evaluation.checks
 
     def corrupt(point: str) -> None:
         if point == "after_commit":
@@ -767,9 +889,9 @@ def test_lost_ack_with_missing_records_is_recovery_pending(session: Session) -> 
                 conn.execute("DELETE FROM output_evidence")
             raise OSError("lost acknowledgement with contradictory records")
 
-    session._runtime._hook = corrupt
+    monkeypatch.setattr(terminal_publication, "_event", corrupt)
     with pytest.raises(RecoveryPendingError):
-        constant(session).execute()
+        fixed.persist()
     assert session.runs().items[0].lifecycle == "succeeded"
     assert len(list(store.layout.session_dir(session.id).glob("artifacts/*"))) == 1
 
@@ -782,6 +904,7 @@ def test_time_units_roundtrip_exactly(tmp_path: Path, unit: Literal["s", "ms", "
             DataColumn("v0", "instant", TimestampDataType(unit, "UTC"), True),
             DataColumn("v1", "duration", DurationDataType(unit), True),
         ),
+        value_paths=(("instant",), ("duration",)),
     )
     rows = pd.DataFrame(
         {
@@ -809,7 +932,7 @@ def test_metadata_and_records_need_no_parquet_or_current_model(
 
     session = source_session
     amount = session.catalog.fields.get("sales.orders.amount")
-    artifact = session.observe({"total": amount.sum()}).execute()
+    artifact = session.observe({"total": amount.sum()}).persist()
     before = session.runs().items
 
     def forbidden(*args: object, **kwargs: object) -> NoReturn:
@@ -819,18 +942,18 @@ def test_metadata_and_records_need_no_parquet_or_current_model(
     monkeypatch.setattr(Session, "catalog", property(forbidden))
     monkeypatch.setattr(SourceSession, "__enter__", forbidden)
     monkeypatch.setattr(SourceSession, "execute", forbidden)
-    reopened = session.artifact(artifact.id)
-    assert reopened.id == artifact.id and "Artifact" in repr(reopened)
+    reopened = session.persisted_frame(artifact.artifact.id)
+    assert reopened.artifact.id == artifact.artifact.id and "AnalysisFrame" in repr(reopened)
     reopened.show(n=0)
     assert "rows" in capsys.readouterr().out
-    assert reopened.findings().items == ()
-    facts = reopened.evidence_digest().items
+    assert reopened.artifact.findings().items == ()
+    facts = reopened.artifact.evidence_digest().items
     assert any(item.kind == "read" for item in facts)
-    assert session.graph().artifacts[0].artifact_ref.ref == artifact.id
-    assert len(session.graph(artifact_ref=artifact.id).edges) == 1
-    assert session.graph(artifact_ref=artifact.id, direction="descendants").runs == ()
+    assert session.graph().artifacts[0].artifact_ref.ref == artifact.artifact.id
+    assert len(session.graph(artifact_ref=artifact.artifact.id).edges) == 1
+    assert session.graph(artifact_ref=artifact.artifact.id, direction="descendants").runs == ()
     assert "heads=1" in session.render()
-    assert session.get_run(artifact._manifest.run_id).lifecycle == "succeeded"
+    assert session.get_run(committed(artifact).run_id).lifecycle == "succeeded"
     assert session.runs().items == before
 
 
@@ -840,55 +963,44 @@ def test_public_read_isolated_copy_and_historical_values(source_session: Session
     region = session.catalog.fields.get("sales.orders.region")
     artifact = session.observe(
         {"total": amount.sum(), "mean": amount.mean()}, by=(region,)
-    ).execute()
+    ).persist()
     before = artifact.to_pandas()
-    assert before[("value", "total")].tolist() == [5, 9007199254740993]
-    assert pd.isna(before[("coordinate", "axis.0")].iloc[0])
-    assert before.attrs["marivo"]["axes"][0]["kind"] == "field"
+    assert {
+        (None if pd.isna(key) else key): value
+        for key, value in zip(
+            before[("coordinate", "axis.0")], before[("value", "total")], strict=True
+        )
+    } == {None: 5, "A": 9007199254740993}
+    assert before.attrs["axes"][0]["role"] == "field"
     changed = artifact.to_pandas()
     changed.iloc[0, 1] = 0
-    changed.attrs["marivo"]["axes"][0]["label"] = "changed"
-    changed.attrs["marivo"]["quantities"][0]["dtype"]["name"] = "changed"
-    pd.testing.assert_frame_equal(session.artifact(artifact.id).to_pandas(), before)
-    assert session.artifact(artifact.id).to_pandas().attrs == before.attrs
+    changed.attrs["axes"][0]["name"] = "changed"
+    changed.attrs["axes"][0]["descriptor"]["columns"][0]["dtype"]["name"] = "changed"
+    pd.testing.assert_frame_equal(session.persisted_frame(artifact.artifact.id).to_pandas(), before)
+    assert session.persisted_frame(artifact.artifact.id).to_pandas().attrs == before.attrs
 
 
 def test_preview_decodes_only_requested_rows_and_skips_unused_parts(
     session: Session, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from marivo.analysis.core.artifact_data import ArtifactPublication, OutputAttachment
-    from marivo.analysis.materialization import terminal_publication
-    from marivo.analysis.materialization.graph_reading import OutputRead
+    from marivo.analysis.materialization.graph_reading import FrameReader, OutputRead
 
     count = POLICY.row_group_rows + 9
     key = DataColumn("key.0", "group", ScalarDataType("int64"), False)
     value = DataColumn("value.0", "amount", ScalarDataType("int64"), False)
-    schema = DataSchema((DataAxis("axis.0", (key,)),), (value,))
-    rows = pd.DataFrame({"key.0": range(count), "value.0": range(count)})
-    original = terminal_publication._publication
-
-    def output(
-        graph: BoundGraph,
-        stage: StageOutput,
-        artifact_id: str,
-        run_id: str,
-        evidence: tuple[OutputEvidence, ...],
-    ) -> ArtifactPublication:
-        return ArtifactPublication(
-            artifact_id,
-            session.id,
-            run_id,
-            schema,
-            rows,
-            attachments=(OutputAttachment("unused", schema, rows.iloc[:1]),),
-            evidence=evidence,
-        )
-
-    monkeypatch.setattr(terminal_publication, "_publication", output)
-    artifact = constant(session).execute()
-    monkeypatch.setattr(terminal_publication, "_publication", original)
-    (unused,) = artifact._manifest.data.attachments
-    (session.project_root / unused.rows.receipt.project_relative_path / "data.parquet").unlink()
+    schema = DataSchema(
+        (DataAxis("axis.0", (key,), name="group"),), (value,), value_paths=(("amount",),)
+    )
+    rows = pd.DataFrame(
+        {
+            "key.0": pd.Series(range(count), dtype="int64[pyarrow]"),
+            "value.0": pd.Series(range(count), dtype="int64[pyarrow]"),
+        }
+    )
+    artifact = AnalysisFrame._from_memory(
+        session._runtime.local,
+        CompletedFrameResult(CompletedFrameData(schema, rows), result_metadata()),
+    ).persist()
     sizes: list[int] = []
     open_parquet = OutputRead._open
 
@@ -920,17 +1032,21 @@ def test_preview_decodes_only_requested_rows_and_skips_unused_parts(
         OutputRead, "_open", lambda self, layout: TrackedParquet(open_parquet(self, layout))
     )
     for requested in (0, 20, POLICY.batch_rows + 1, POLICY.row_group_rows + 1):
-        artifact.show(n=requested)
-        assert sum(sizes) == requested
-        assert all(size <= POLICY.batch_rows for size in sizes)
-        assert "amount" in capsys.readouterr().out
+        prefix = FrameReader(session._runtime.store, session.id).preview(
+            artifact._backing, requested
+        )
+        assert len(prefix.rows) == requested
+        assert sum(sizes) == requested and all(size <= POLICY.batch_rows for size in sizes)
         sizes.clear()
-    frame = session.artifact(artifact.id).to_pandas()
+    artifact.show(n=20)
+    assert "amount" in capsys.readouterr().out
+    sizes.clear()
+    frame = session.persisted_frame(artifact.artifact.id).to_pandas()
     assert len(frame) == count and sum(sizes) == count
     assert frame[("value", "amount")].iloc[-1] == count - 1
     primary = (
         session.project_root
-        / artifact._manifest.data.rows.receipt.project_relative_path
+        / committed(artifact).data.rows.receipt.project_relative_path
         / "data.parquet"
     )
     with primary.open("r+b") as stream:
@@ -938,115 +1054,123 @@ def test_preview_decodes_only_requested_rows_and_skips_unused_parts(
         stream.write(b"!")
     with pytest.raises(IntegrityError):
         artifact.to_pandas()
-    # Record reads remain independent even after both data files become unreadable.
-    assert artifact.findings().items == ()
-    artifact.evidence_digest()
+    assert artifact.artifact.findings().items == ()
+    artifact.artifact.evidence_digest()
+    # Unused attachments are no longer legal: exact attachment closure is tested
+    # by Store12 protocol/frozen-coordinate tests, rather than retaining a bypass.
 
 
 def test_wide_artifact_truncation_routes_to_callable_reads(
     session: Session, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    artifact = numeric_program_query(
-        session,
-        {f"quantity_{index}_" + "x" * 150: numeric_literal_node(index) for index in range(60)},
-    ).execute()
+    columns = {f"quantity_{i}_" + "x" * 150: None for i in range(60)}
+    values = {name: i for i, name in enumerate(columns)}
+    artifact = session.values(by=(), columns=columns, rows=(((), values),)).persist()
     artifact.show()
     text = capsys.readouterr().out
-    assert "output truncated" in text
+    assert "omitted" in text or "truncated" in text
     assert "max_output_bytes" not in text
-    assert ".to_pandas()" in text and ".evidence_digest()" in text
+    assert ".to_pandas()" in text and ".artifact" in text
     assert len(text.encode()) <= 8193
     assert artifact.to_pandas().shape == (1, 60)
-    assert artifact.evidence_digest().items
+    artifact.artifact.evidence_digest()
 
 
 @pytest.mark.parametrize("zone", ("Europe/Paris", "UTC+05:30"))
 def test_public_calendar_uses_saved_instants_and_boundaries(
     session: Session, zone: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.materialization.graph_reading import (
-        ExportRead,
-        OutputRead,
-        PreviewRead,
-        ReadLayout,
-    )
+    from marivo.analysis.materialization.graph_reading import OutputRead
 
     axis = session.time_scope(start="2026-03-28T06:00", end="2026-03-31", timezone=zone).by(
         mv.grain("day")
     )
-    artifact = numeric_program_query(
-        session, {"value": numeric_literal_node(7)}, during=axis
-    ).execute()
-    exported = session.artifact(artifact.id).to_pandas()
-    (description,) = exported.attrs["marivo"]["axes"]
-    assert description["kind"] == "calendar" and description["timezone"] == zone
-    assert description["key_components"][0]["dtype"] == {"unit": "us", "timezone": "UTC"}
-    assert len(description["bounds"]) == 3
-    assert exported[("coordinate", "axis.0")].tolist() == [
+    artifact = calendar_constant(session, axis).persist()
+    exported = session.persisted_frame(artifact.artifact.id).to_pandas()
+    (description,) = exported.attrs["axes"]
+    assert description["role"] == "calendar" and description["descriptor"]["timezone"] == zone
+    (part,) = exported.attrs["frozen_coordinates"]
+    bounds = part["rows"]
+    assert len(bounds) == 3
+    assert exported[("coordinate", "axis.0")].tolist() == [0, 1, 2]
+    assert bounds["nominal_start"].tolist() == [
         pd.Timestamp(cell.original_start) for cell in axis.grid.cells
     ]
-    assert description["bounds"][0]["actual_start"] > description["bounds"][0]["nominal_start"]
-    original = OutputRead.read
-    consumed = []
+    assert bounds["actual_start"].iloc[0] > bounds["nominal_start"].iloc[0]
+    original, consumed = OutputRead.select, []
 
-    def tracked(
-        self: OutputRead, layout: ReadLayout, request: PreviewRead | ExportRead
-    ) -> pd.DataFrame:
-        result = original(self, layout, request)
+    def tracked(self: OutputRead, *args: object, **kwargs: object) -> pd.DataFrame:
+        result = original(self, *args, **kwargs)
         consumed.append(len(result))
         return result
 
-    monkeypatch.setattr(OutputRead, "read", tracked)
+    monkeypatch.setattr(OutputRead, "select", tracked)
     artifact.show(n=1)
-    assert consumed == [1, 1]
+    assert consumed == [1]
 
 
 def test_public_produce_and_cold_read_are_independent_processes(source_session: Session) -> None:
     import shutil
 
     root = source_session.project_root
-    worker = Path(__file__).with_name("terminal_reading_worker.py")
+    worktree = Path(__file__).resolve().parents[3]
     produced = subprocess.run(
-        [sys.executable, str(worker), str(root), "public-cold", "produce"],
+        [
+            sys.executable,
+            "-m",
+            "tests.analysis.materialization.terminal_reading_worker",
+            str(root),
+            "public-cold",
+            "produce",
+        ],
+        cwd=worktree,
         text=True,
         capture_output=True,
-        check=True,
     )
+    assert produced.returncode == 0, produced.stdout + produced.stderr
     artifact_id = produced.stdout.strip().splitlines()[-1]
     (root / "warehouse.duckdb").unlink()
     shutil.rmtree(root / "models")
     reopened = subprocess.run(
-        [sys.executable, str(worker), str(root), "public-cold", "read", artifact_id],
+        [
+            sys.executable,
+            "-m",
+            "tests.analysis.materialization.terminal_reading_worker",
+            str(root),
+            "public-cold",
+            "read",
+            artifact_id,
+        ],
+        cwd=worktree,
         text=True,
         capture_output=True,
-        check=True,
     )
+    assert reopened.returncode == 0, reopened.stdout + reopened.stderr
     assert "public-cold-ok" in reopened.stdout
 
 
 def test_open_missing_and_foreign_ids_and_invalid_evidence_arguments(session: Session) -> None:
     from marivo.analysis.errors import ArtifactNotFoundError
 
-    artifact = constant(session).execute()
+    artifact = constant(session).persist()
     other = mv.session.get_or_create("another", report_timezone="UTC")
     with pytest.raises(ArtifactNotFoundError):
-        other.artifact(artifact.id)
+        other.persisted_frame(artifact.artifact.id)
     with pytest.raises(ArtifactNotFoundError):
-        session.artifact("missing")
+        session.persisted_frame("missing")
     with pytest.raises(TypeError):
         # The runtime contract must reject unsupported evidence pagination arguments.
-        artifact.evidence_digest(limit=1)  # type: ignore[call-arg]
+        artifact.artifact.evidence_digest(limit=1)  # type: ignore[call-arg]
 
 
 def test_composite_coordinates_remain_one_ordered_tuple(tmp_path: Path) -> None:
-    from marivo.analysis.materialization.graph_reading import ExportRead, OutputRead
     from marivo.analysis.materialization.pandas_export import export_frame
 
     keys = (
         DataColumn("a", "account", ScalarDataType("int64"), False),
         DataColumn("b", "region", ScalarDataType("string"), True),
     )
-    schema = DataSchema((DataAxis("axis.0", keys),), ())
+    schema = DataSchema((DataAxis("axis.0", keys, name="customer"),), ())
     rows = pd.DataFrame(
         {
             "a": pd.Series([9007199254740993, 9007199254740993], dtype="int64[pyarrow]"),
@@ -1055,10 +1179,70 @@ def test_composite_coordinates_remain_one_ordered_tuple(tmp_path: Path) -> None:
     )
     handle = write_output(tmp_path, tmp_path / "staging", tmp_path / "saved", schema, rows)
     os.rename(tmp_path / "staging", tmp_path / "saved")
-    manifest = ArtifactManifest("artifact", "session", "run", ArtifactData(schema, handle))
-    exported = export_frame(manifest, OutputRead(tmp_path), ExportRead())
+    manifest = ArtifactManifest(
+        "store", "artifact", "session", "run", ArtifactData(schema, handle), result_metadata()
+    )
+    exported = export_frame(schema, read_output(tmp_path, schema, handle))
     assert exported[("coordinate", "axis.0")].tolist() == [
-        (9007199254740993, None),
         (9007199254740993, "A"),
+        (9007199254740993, None),
     ]
-    assert len(exported.attrs["marivo"]["axes"][0]["key_components"]) == 2
+    assert len(exported.attrs["axes"][0]["descriptor"]["columns"]) == 2
+
+
+def test_operator_sequence_survives_real_source_finish_and_storage(source_session: Session) -> None:
+    from marivo.analysis.dsl.column import row_count
+
+    session = source_session
+    amount = session.catalog.fields.get("sales.orders.amount")
+    region = session.catalog.fields.get("sales.orders.region")
+    source = session.observe({"total": amount.sum()}, by=(region,))
+    ranked = source.top(2, by=source["total"])
+    filtered = ranked.where(ranked["total"] > 0)
+    selected = filtered.select({"amount": filtered["total"] * 2})
+    fixed = selected.compute()
+    expected = fixed.to_pandas()
+    assert expected[("coordinate", "axis.0")].tolist() == ["A", pd.NA]
+    assert expected[("value", "amount")].tolist() == [18014398509481986, 10]
+    pd.testing.assert_frame_equal(fixed.persist().to_pandas(), expected)
+    right = fixed.select({"amount": fixed["amount"] / 2}).compute()
+    for operation in (fixed.align, fixed.compare):
+        combined = operation(right, on=((fixed.axes[0], right.axes[0]),)).compute()
+        assert combined.to_pandas()[("coordinate", "axis.0")].tolist() == ["A", pd.NA]
+        pd.testing.assert_frame_equal(combined.persist().to_pandas(), combined.to_pandas())
+    reduced = fixed.reduce(
+        {"rows": row_count(), "total": fixed["amount"].sum()}, by=(fixed.axes[0],)
+    ).compute()
+    assert reduced.to_pandas()[("coordinate", "axis.0")].tolist() == [pd.NA, "A"]
+    assert reduced.to_pandas()[("value", "rows")].tolist() == [1, 1]
+    assert reduced.to_pandas()[("value", "total")].tolist() == [10, 18014398509481986]
+    saved = reduced.persist()
+    pd.testing.assert_frame_equal(saved.to_pandas(), reduced.to_pandas())
+    script = """
+import sys
+from pathlib import Path
+from unittest.mock import patch
+import pyarrow as pa
+from marivo.analysis.materialization.store import SessionStore
+from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.datasource.adapters import SourceSession
+
+def forbidden(*args, **kwargs):
+    raise AssertionError('cold reduce reopened source')
+local = LocalFrameServices(SessionStore.open_existing(Path(sys.argv[1])), sys.argv[2])
+with patch.object(SourceSession, '__init__', forbidden):
+    data = local.read_complete(local.open_frame(sys.argv[3])).data
+    rows = data.copy_rows()
+    assert pa.array(rows[data.schema.key_fields[0]]).to_pylist() == [None, 'A']
+    assert rows[data.schema.values[0].slot_id].tolist() == [1, 1]
+    assert rows[data.schema.values[1].slot_id].tolist() == [10, 18014398509481986]
+print('cold-reducer-exact')
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(session.project_root), session.id, saved.artifact.id],
+        cwd=Path(__file__).resolve().parents[3],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "cold-reducer-exact" in result.stdout

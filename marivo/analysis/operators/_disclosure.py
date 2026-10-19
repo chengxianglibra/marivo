@@ -24,7 +24,7 @@ def provider() -> DisclosureProvider:
                 parameters=(),
                 output="CalendarCorrespondence",
                 constraints=(
-                    "The consuming Query checks calendar authority, grain and complete endpoints; filtering does not renumber nominal positions.",
+                    "The consuming AnalysisFrame checks frozen calendar interpretation and complete nominal/actual buckets; filtering never renumbers original positions, including named calendars.",
                 ),
                 effects="Construct an axis-free rule without I/O.",
                 failures=("AnalysisError: repair incompatible consuming calendar bindings.",),
@@ -39,7 +39,7 @@ def provider() -> DisclosureProvider:
                 summary="Immutable axis-free calendar rule.",
                 acquisition="Use ordinal(), period_offset(by), or previous_year().",
                 producers=("ordinal", "period_offset", "previous_year"),
-                consumers=("Query.align", "Query.compare"),
+                consumers=("analysis_frame.align", "analysis_frame.compare"),
             ),
             operation(
                 "CalendarCorrespondence.show",
@@ -49,7 +49,9 @@ def provider() -> DisclosureProvider:
                 summary="Return the bounded calendar rule before endpoint calendars bind.",
                 parameters=(),
                 output="str",
-                constraints=("Endpoint calendars bind only at Query.align/compare.",),
+                constraints=(
+                    "Frozen endpoint calendars bind at AnalysisFrame.align/compare; match is explicit and is never inferred.",
+                ),
                 effects="Pure value rendering without I/O.",
                 failures=(),
                 example=ExampleInput(

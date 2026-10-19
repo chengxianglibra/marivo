@@ -806,7 +806,6 @@ def _consume(recipe: Resolver) -> _Facts:
             receiver = _consume(recipe.func.obj)
             if name == "window":
                 from marivo._definition.graph import DefinitionNode, children, walk
-                from marivo._definition.relations import QueryKeys
                 from marivo._definition.windows import (
                     AllHistory,
                     Since,
@@ -836,7 +835,7 @@ def _consume(recipe: Resolver) -> _Facts:
                 seen: set[int] = set()
                 while pending:
                     node = pending.pop()
-                    if id(node) in seen or isinstance(node, QueryKeys):
+                    if id(node) in seen:
                         continue
                     seen.add(id(node))
                     if isinstance(node, MetricWindow):

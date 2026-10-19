@@ -134,8 +134,8 @@ class _RunBase(RenderableResult):
             .status(self.lifecycle)
             .field("admitted_at", self.admitted_at.isoformat())
             .field(
-                "shape",
-                self.dataset_input.kind,
+                "result_id",
+                self.dataset_input.result_id,
             )
         )
 
@@ -414,7 +414,10 @@ class SessionRuntimeRecap(RenderableResult):
         ]
 
     def _card(self) -> Card:
-        available = [".runs()", ".get_run(run_id)", ".artifact(ref)"]
+        available = [".runs()", ".get_run(run_id)"]
+        available.extend(
+            f".persisted_frame({ref.ref!r}).artifact" for ref in self.head_artifact_refs
+        )
         if self.overall_graph_available:
             available.append(".graph()")
         return (

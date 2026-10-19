@@ -1,4 +1,4 @@
-"""Session-owned source construction and committed Dataset reads."""
+"""Session-owned explicit source construction and persisted Frame recovery."""
 
 from __future__ import annotations
 
@@ -28,25 +28,26 @@ if TYPE_CHECKING:
 
     from marivo._definition.correspondence import ComparisonAxis
     from marivo._definition.types import AxisBinding
-    from marivo.analysis.core.graph import BoundGraph
-    from marivo.analysis.dsl.artifact import Artifact
+    from marivo.analysis.dsl.frame import AnalysisFrame
+    from marivo.analysis.dsl.frame_axis import FrameAxis
     from marivo.analysis.dsl.population import (
         MemberAxis,
         MembershipAxis,
         Population,
         PopulationPredicate,
     )
-    from marivo.analysis.dsl.query import Query, ValueRow
+    from marivo.analysis.dsl.source_capture import ValueRow
     from marivo.analysis.dsl.temporal import CalendarAxis
     from marivo.analysis.materialization.admission import DatasetRuntime
+    from marivo.semantic.expressions import Entity
 
 
 class Session:
-    """One named Session for logical sources and committed Dataset reads.
+    """One named Session for explicit source inputs and immutable analysis data.
 
     Acquire with ``mv.session.get_or_create(name)`` or ``mv.session.resume(identity)``.
-    Source methods load authored semantics; members may perform schema-only R1 preflight.
-    Retained reads do not load current semantics or replay an origin graph.
+    Source construction resolves authored semantics without reading business rows.
+    Persisted Frame recovery reads exact commit metadata without loading semantics.
     """
 
     __slots__ = ("_catalog_value", "_runtime", "_sources_value")
@@ -186,7 +187,7 @@ class Session:
 
         Constraints:
             Source identities include only existing rows. Literal requested
-            identities use mv.identities; execution belongs to session.query.
+            identities use mv.identities; compute keys with session.frame(population).
         """
         from marivo._definition.relations import PopulationProgram, SourceIdentities
         from marivo._definition.types import AxisBinding, Owner
@@ -262,8 +263,8 @@ class Session:
 
         Args: bindings: Exact Entity refs mapped to declared non-secret parameters.
         Returns: A restoring authoring-scope context manager.
-        Example: ``with session.source_bindings(values): dataset = session.members(entity).observe(metric)``.
-        Constraints: execute() never rereads ambient bindings; values are not persisted.
+        Example: ``with session.source_bindings(values): frame = session.observe({'revenue': revenue})``.
+        Constraints: Evaluation never rereads ambient bindings; values are not persisted.
         """
         return self._sources().binding_scopes.scope(bindings)
 
@@ -312,87 +313,131 @@ class Session:
         by: tuple[Deferred | MembershipAxis | MemberAxis | ComparisonAxis, ...] | Population = (),
         where: Deferred | PopulationPredicate | None = None,
         members: Population | None = None,
-    ) -> Query:
-        """Capture named Metric expressions in a lazy Query.
+    ) -> AnalysisFrame:
+        """Capture named Metric expressions as a lazy AnalysisFrame.
 
         Args:
             metrics: Nonempty ordered mapping of names to resolved Metric expressions.
-            during: TimeScope filters only; CalendarAxis also adds time buckets and must
-                match an observation calendar in the complete output domain. None adds no time filter.
-            by: Output classifications. Empty () evaluates overall Metrics per time bucket,
-                or one scalar without a CalendarAxis. Nonempty fields add grouping axes.
-            where: Field condition appended separately to each contribution occurrence.
-                For member_count, conditions must be single-valued on the explicit members
-                without reselecting that identity domain.
+            during: TimeScope filters only; CalendarAxis also adds frozen calendar buckets.
+            by: Complete output classifications or a Population output domain. Empty ()
+                evaluates overall Metrics per time bucket, or one scalar without a calendar.
+            where: Field condition appended to each contribution occurrence, or an explicit
+                PopulationPredicate restricting contributions. For member_count, conditions
+                are single-valued on the explicit members without reselecting them.
             members: One complete Entity identity Population restricting contributions
-                independently of output grouping; member_count counts this explicit domain.
-        Returns: An immutable Query owned by this Session.
-        Example: ``query = session.observe({'revenue': revenue, 'aov': aov})``.
-        Constraints: Binds ordinary fields, conditions and time without schema/business reads or a Run. execute() prepares, evaluates and atomically publishes ordinary numeric output to Store 11. Artifact reads committed output without current-source or Catalog access. Artifact objects and IDs are not Metric inputs.
+                independently of grouping; member_count counts this explicit domain.
+
+        Returns:
+            An immutable pending AnalysisFrame owned by this Session.
+
+        Example:
+            ``frame = session.observe({'revenue': revenue, 'aov': aov}).compute()``.
+
+        Constraints: Capture reads no source schema or business rows and creates no Run. Only
+        compute/persist evaluate; persist publishes the completed result. Artifact objects and
+        IDs are not Metric expressions. Value names are single nonempty segments without dots,
+        backslashes, controls or reserved presence names.
         """
         from ibis.common.deferred import Deferred
 
-        from marivo._definition.types import Owner
-        from marivo.analysis.dsl.query import Query
+        from marivo.analysis.core.model import reject
+        from marivo.analysis.dsl import frame_sources
 
-        state = (
-            self.catalog._state
-            if isinstance(metrics, Mapping)
-            and (
-                any(isinstance(metric, Deferred) for metric in metrics.values())
-                or by
-                or where is not None
-                or members is not None
+        if not isinstance(metrics, Mapping) or not metrics:
+            reject(
+                "a nonempty named mapping of Metric expressions",
+                type(metrics).__name__,
+                "Pass session.observe({'revenue': revenue}).",
+                "session.observe",
             )
-            else None
-        )
-        return Query._from_metrics(
+        for metric in metrics.values():
+            if not isinstance(metric, Deferred):
+                reject(
+                    "a Metric expression for each output",
+                    type(metric).__name__,
+                    "Resolve a Metric expression; use persisted_frame(id) to read saved data.",
+                    "session.observe",
+                )
+        return frame_sources.observe(
+            self._runtime.local,
+            self.catalog._state,
+            self._runtime.connection_config,
             metrics,
-            Owner(self.id, self._runtime.store.store_id),
-            self._execute_query,
             during=during,
             by=by,
             where=where,
             members=members,
             timezone=self.report_tz_name,
-            state=state,
-            calendar_snapshots=self._sources().period_calendar_snapshots
-            if state is not None
-            else (),
+            calendar_snapshots=self._sources().period_calendar_snapshots,
         )
 
-    def query(self, population: Population) -> Query:
-        """Capture a keys-only Query over a complete Population.
+    def frame(self, population: Population) -> AnalysisFrame:
+        """Capture the complete key domain of a general Population as a Frame.
 
-        Args: population: A literal or source-backed coordinate domain.
-        Returns: A lazy Query owned by this Session.
-        Example: ``session.query(cohort).execute()``.
-        Constraints: Captures definitions without schema or business reads.
+        Args:
+            population: A literal, source-backed or explicitly bridged Population.
+
+        Returns:
+            A pending AnalysisFrame with complete axes and no named values.
+
+        Example:
+            ``keys = session.frame(cohort).compute()``.
+
+        Constraints: Supports multiple axes and zero-axis empty/singleton domains.
+        Construction reads no source rows or schema and creates no Run; the Population must be
+        unowned or belong to this exact Store and Session.
         """
-        from marivo._definition.types import Owner
-        from marivo.analysis.dsl.query import Query
+        from marivo.analysis.core.model import reject
+        from marivo.analysis.dsl import frame_sources
+        from marivo.analysis.dsl.population import Population, _owner
 
-        return Query._from_population(
-            population, Owner(self.id, self._runtime.store.store_id), self._execute_query
+        if not isinstance(population, Population):
+            reject(
+                "a Population key domain",
+                type(population).__name__,
+                "Construct a Population with members, identities, coordinates or population_from.",
+                "session.frame",
+            )
+        owner = _owner(population.definition)
+        if owner not in (None, self._runtime.local.owner):
+            reject(
+                "a Population from this Store and Session",
+                repr(owner),
+                "Rebuild the Population in this Session.",
+                "session.frame",
+            )
+        return frame_sources.frame(
+            self._runtime.local,
+            self.catalog._state,
+            self._runtime.connection_config,
+            population,
         )
 
-    def read(self, population: Population, fields: Mapping[str, Deferred]) -> Query:
-        """Read named attributes for an explicit identity domain in this Session.
+    def read(self, population: Population, fields: Mapping[str, Deferred]) -> AnalysisFrame:
+        """Capture named scalar attributes for one complete Entity identity domain.
 
-        Args: population: One Entity identity axis. fields: Nonempty named Fields.
-        Returns: A new lazy Query preserving every complete requested identity.
-        Example: ``q = session.read(customers, {'region': region})``.
-        Constraints: Checks Session ownership, scalar paths and exact version anchors; missing attribute mappings fail at execution.
+        Args:
+            population: One Entity identity axis.
+            fields: Nonempty named Fields.
+
+        Returns:
+            A pending AnalysisFrame preserving every requested complete identity.
+
+        Example:
+            ``attributes = session.read(customers, {'region': region}).compute()``.
+
+        Constraints: Checks Session ownership, scalar paths and captured time anchors; missing
+        attribute mappings fail at evaluation. Source construction does not read schema or
+        business rows. Value names follow the Frame name rules.
         """
-        from marivo._definition.types import Owner
-        from marivo.analysis.dsl.query import Query
+        from marivo.analysis.dsl import frame_sources
 
-        return Query._from_read(
+        return frame_sources.read(
+            self._runtime.local,
+            self.catalog._state,
+            self._runtime.connection_config,
             population,
             fields,
-            Owner(self.id, self._runtime.store.store_id),
-            self._execute_query,
-            self.catalog._state,
         )
 
     def values(
@@ -401,55 +446,64 @@ class Session:
         by: tuple[Deferred | AxisBinding, ...],
         columns: Mapping[str, str | None],
         rows: tuple[ValueRow, ...],
-    ) -> Query:
-        """Capture explicit finite value rows with one unit declaration per column.
+    ) -> AnalysisFrame:
+        """Capture finite literal rows with explicit complete axes and value units.
 
-        Args: by: Field/identity axes. columns: Names mapped to units or None.
+        Args:
+            by: Ordered Field/identity axes; () creates a zero-axis Frame.
+            columns: Ordered single-segment value names mapped to units or None.
             rows: Complete key tuples paired with exact named literal values.
 
-        Returns: A lazy Query over literal input.
-        Example: ``session.values(by=(), columns={'budget': 'CNY'}, rows=(((), {'budget': 100}),))``.
-        Constraints: No DataFrame import, null values, duplicate keys or hand-written calendars.
-        """
-        from marivo._definition.types import Owner
-        from marivo.analysis.dsl.query import Query
+        Returns:
+            A pending AnalysisFrame over the captured literal rows.
 
-        return Query._from_values(
+        Example:
+            ``budget = session.values(by=(), columns={'budget': 'CNY'}, rows=(((), {'budget':
+            100}),)).compute()``.
+
+        Constraints: No DataFrame import, null literal values, duplicate complete keys or
+        hand-written calendars. Zero-axis capture needs no Catalog or source configuration;
+        capture never reads source rows or creates a Run.
+        """
+        from marivo.analysis.core.model import reject
+        from marivo.analysis.dsl import frame_sources
+
+        if not isinstance(by, tuple):
+            reject(
+                "an ordered tuple of complete axes",
+                type(by).__name__,
+                "Pass by=() or by=(field,) with resolved semantic axes.",
+                "session.values",
+            )
+        if not by:
+            return frame_sources.values(self._runtime.local, columns=columns, rows=rows)
+        return frame_sources.coordinate_values(
+            self._runtime.local,
+            self.catalog._state,
+            self._runtime.connection_config,
             by=by,
             columns=columns,
             rows=rows,
-            owner=Owner(self.id, self._runtime.store.store_id),
-            execute=self._execute_query,
         )
 
-    def _execute_query(self, graph: BoundGraph) -> Artifact:
-        from marivo._definition.query import ResultQuery
+    def persisted_frame(self, artifact_id: str) -> AnalysisFrame:
+        """Recover the Frame bound to one exact committed Artifact ID.
 
-        observation = graph.signature.observation
-        state = (
-            self.catalog._state
-            if isinstance(graph.root, ResultQuery)
-            or (
-                observation is not None
-                and (
-                    observation.contributions
-                    or observation.coordinates.population is not None
-                    or observation.member_population is not None
-                )
-            )
-            else None
-        )
-        return self._runtime._execute_query(graph, state)
+        Args:
+            artifact_id: Exact nonempty Artifact ID string from this Session.
 
-    def artifact(self, artifact_id: str) -> Artifact:
-        """Open terminal output by exact ID without restoring a computation graph.
+        Returns:
+            A stored AnalysisFrame with its complete saved structure.
 
-        Args: artifact_id: Exact committed Artifact ID string from this Session.
-        Returns: The read-only Artifact for this exact committed output.
-        Example: ``saved = session.artifact('artifact_0123456789abcdef')``.
-        Constraints: Opens metadata without source, Catalog, graph or Parquet reads. IDs belong to this Session; old Stores cannot be resumed or migrated.
+        Example:
+            ``saved = session.persisted_frame('artifact_0123456789abcdef')``.
+
+        Constraints: Checks commit metadata without source, Catalog or payload reads. Data
+        reads validate consumed files. Old Stores are refused unchanged; missing or foreign
+        IDs fail. For audit metadata, use saved.artifact.
         """
         from marivo.analysis.core.model import reject
+        from marivo.analysis.dsl.frame import AnalysisFrame
 
         if (
             type(artifact_id) is not str
@@ -460,9 +514,59 @@ class Session:
                 "an exact nonempty Artifact ID string",
                 type(artifact_id).__name__,
                 "Pass the exact committed output ID, not an Artifact object or Ref.",
-                "session.artifact",
+                "session.persisted_frame",
             )
-        return self._runtime.local.artifact(artifact_id)
+        backing = self._runtime.local.open_frame(artifact_id)
+        return AnalysisFrame._from_stored(
+            self._runtime.local,
+            backing.data,
+            artifact_id=backing.artifact_id,
+            metadata=backing.metadata,
+        )
+
+    def population_from(
+        self,
+        frame: AnalysisFrame,
+        *,
+        on: tuple[tuple[FrameAxis, Deferred | Entity], ...],
+    ) -> Population:
+        """Bind selected complete Frame axes to explicit semantic coordinates.
+
+        Args:
+            frame: An AnalysisFrame owned by this exact Store and Session.
+            on: Required tuple of current FrameAxis and resolved Field/Entity pairs. An empty
+                tuple projects the empty joint key.
+
+        Returns:
+            A lazy Population retaining the explicit Frame data dependency.
+
+        Example:
+            ``parents = session.population_from(chosen, on=((chosen.axes[0], region),))``.
+
+        Constraints: Checks Frame type and ownership before resolving the receiving Catalog.
+        Construction reads no data rows or source schema. Select only ordinary field or
+        complete identity axes; targets declare new source bindings. Fixed input choices stay
+        fixed; pending choices evaluate anew.
+        """
+        from marivo.analysis.core.model import reject
+        from marivo.analysis.dsl.frame import AnalysisFrame
+        from marivo.analysis.dsl.frame_population import population_from
+
+        if type(frame) is not AnalysisFrame:
+            reject(
+                "an AnalysisFrame from the receiving Store and Session",
+                type(frame).__name__,
+                "Pass a Frame returned by this Session's constructors or operators.",
+                "session.population_from",
+            )
+        if frame._local.owner != self._runtime.local.owner:
+            reject(
+                "an AnalysisFrame from the receiving Store and Session",
+                repr(frame._local.owner),
+                "Build the Population in the selected Frame's owning Session.",
+                "session.population_from",
+            )
+        return population_from(self._runtime.local, self.catalog._state, frame, on=on)
 
     def runs(
         self, *, status: RunLifecycle | None = None, limit: int = 20, cursor: str | None = None

@@ -19,11 +19,9 @@ from marivo.analysis.session._lazy_read_model import (
 )
 
 if TYPE_CHECKING:
-    import pandas as pd
-
-    from marivo.analysis.core.artifact_data import ArtifactManifest
+    from marivo.analysis.core.frame_data import CompletedFrameResult, StoredFrameBacking
     from marivo.analysis.dsl.artifact import Artifact
-    from marivo.analysis.materialization.graph_reading import ExportRead, PreviewRead
+    from marivo.analysis.materialization.graph_reading import FramePreview
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,23 +54,31 @@ class LocalFrameServices:
 
         return open_artifact(self.store, self.session_ref, artifact_id)
 
-    def read(self, manifest: ArtifactManifest, request: PreviewRead | ExportRead) -> pd.DataFrame:
-        """Read exact committed data through the existing receipt-validating reader."""
-        from marivo.analysis.errors import ArtifactNotFoundError
-        from marivo.analysis.materialization.graph_reading import PreviewRead, TerminalReader
+    def open_frame(self, artifact_id: str) -> StoredFrameBacking:
+        """Validate one same-Session committed descriptor, without payload reads."""
+        from marivo.analysis.core.frame_data import StoredFrameBacking
+        from marivo.analysis.materialization.graph_reading import open_manifest
 
-        if isinstance(request, PreviewRead) and (type(request.n) is not int or request.n < 0):
-            from marivo.analysis.core.model import reject
+        value = open_manifest(self.store, self.session_ref, artifact_id)
+        return StoredFrameBacking(value.artifact_id, value.data, value.metadata)
 
-            reject(
-                "a nonnegative preview row count",
-                repr(request.n),
-                "Use a nonnegative integer for the requested preview row count.",
-                "frame.read",
-            )
-        if manifest.session_id != self.session_ref:
-            raise ArtifactNotFoundError.for_ref(manifest.artifact_id)
-        return TerminalReader(self.store)._frame(manifest, request)
+    def read_complete(self, backing: StoredFrameBacking) -> CompletedFrameResult:
+        """Load and fully validate independent saved data, preserving result facts."""
+        from marivo.analysis.materialization.graph_reading import FrameReader
+
+        return FrameReader(self.store, self.session_ref).complete(backing)
+
+    def preview(self, backing: StoredFrameBacking, n: int) -> FramePreview:
+        """Decode an ordered prefix and only its necessary coordinate records."""
+        from marivo.analysis.materialization.graph_reading import FrameReader
+
+        return FrameReader(self.store, self.session_ref).preview(backing, n)
+
+    def publish(self, result: CompletedFrameResult) -> StoredFrameBacking:
+        """Publish an already completed result through the original local Store."""
+        from marivo.analysis.materialization.terminal_publication import publish_completed
+
+        return publish_completed(self, result)
 
     def runs(
         self, *, status: RunLifecycle | None = None, limit: int = 20, cursor: str | None = None

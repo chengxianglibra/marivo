@@ -8,7 +8,7 @@ from typing import Literal
 
 from ibis.common.deferred import Deferred
 
-from marivo._definition.correspondence import ComparisonAxis, CorrespondenceAxis
+from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.deferred import RelationshipParameter
 from marivo._definition.graph import computation_fingerprint
 from marivo._definition.relations import (
@@ -30,7 +30,6 @@ from marivo._definition.relations import (
     PopulationProgram,
     PopulationProject,
     PopulationSet,
-    QueryKeys,
 )
 from marivo._definition.relations import (
     condition_populations as condition_populations,
@@ -113,14 +112,14 @@ def _axes(
         elif isinstance(item, MembershipAxis):
             memberships.append(item)
             axes.extend(_axis(read) for read in item.fields)
-        elif isinstance(item, (AxisBinding, CalendarCoordinate, CorrespondenceAxis)):
+        elif isinstance(item, (AxisBinding, CalendarCoordinate)):
             axes.append(item)
         else:
             field = consume_field(item)
             axes.append(_axis(field.field_read or FieldRead(field.reference, field.root)))
     identities = tuple(
         ("calendar", axis.identity)
-        if isinstance(axis, (CalendarCoordinate, CorrespondenceAxis))
+        if isinstance(axis, CalendarCoordinate)
         else (axis.entity.ref, axis.field.ref if axis.field else None, axis.path, axis.at)
         for axis in axes
     )
@@ -197,8 +196,6 @@ class Population(PopulationParameter):
                     f"axis[{index}]",
                     f"calendar={axis.grain} timezone={axis.timezone} cells={len(axis.cells)}"
                     if isinstance(axis, CalendarCoordinate)
-                    else f"correspondence={axis.identity}"
-                    if isinstance(axis, CorrespondenceAxis)
                     else f"{axis.field.ref.key if axis.field else axis.entity.ref.key}; path={axis.path}; at={axis.at}",
                 )
                 for index, axis in enumerate(self.axes[:6])
@@ -230,51 +227,10 @@ class Population(PopulationParameter):
         """
         axes, _ = _axes(by, available=self.axes)
         if any(axis not in self.axes for axis in axes):
-            endpoint_positions: list[int] = []
-            paths: list[tuple[str, ...] | None] = []
-            for axis in axes:
-                if axis in self.axes:
-                    endpoint_positions.append(self.axes.index(axis))
-                    paths.append(None)
-                    continue
-                candidates = tuple(
-                    (index, path)
-                    for index, source in enumerate(self.axes)
-                    if isinstance(source, CorrespondenceAxis)
-                    for path, target in source.projections.items()
-                    if target == axis
-                )
-                if len(candidates) != 1:
-                    reject(
-                        "one retained axis or existing endpoint projection",
-                        repr(axis),
-                        "Choose an unambiguous original endpoint binding.",
-                        "Population.project",
-                    )
-                index, path = candidates[0]
-                endpoint_positions.append(index)
-                paths.append(path)
-            if isinstance(self.definition, PopulationProgram) and isinstance(
-                self.definition.root, QueryKeys
-            ):
-                from marivo._definition.query import ProjectKeys, ResultQuery
-
-                captured = self.definition.root
-                assert self.definition.owner is not None
-                root = ResultQuery(
-                    (captured,),
-                    ProjectKeys(tuple(endpoint_positions), tuple(paths)),
-                    axes,
-                    self.definition.owner,
-                )
-                return Population(
-                    PopulationProgram(QueryKeys(root, axes), self.definition.owner, axes),
-                    self._frame_inputs,
-                )
             reject(
-                "a captured Query endpoint domain",
-                type(self.definition).__name__,
-                "Apply selection on the Query, then project its population endpoint.",
+                "complete axes already present in this Population",
+                repr(axes),
+                "Select existing complete axes; use explicit source relationships for new coordinates.",
                 "Population.project",
             )
         positions = tuple(self.axes.index(axis) for axis in axes)

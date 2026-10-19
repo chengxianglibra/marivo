@@ -23,19 +23,14 @@ from marivo._definition.expressions import (
 )
 from marivo._definition.graph import computation_fingerprint, walk
 from marivo._definition.query import (
-    CombineValues,
     CoordinateSlot,
-    DrillValues,
     FilterValues,
     KeyImage,
     LiteralValues,
     PopulationValues,
-    ProjectKeys,
     ReadFields,
     ReduceValues,
-    RollupValues,
     SelectValues,
-    ShareValues,
     TopValues,
     ValueBinary,
     ValueExpression,
@@ -58,7 +53,6 @@ from marivo._definition.relations import (
     PopulationSet,
 )
 from marivo._definition.types import AxisBinding
-from marivo.analysis.binding.correspondence import ComparisonEndpoint
 from marivo.analysis.compiler.graph_lowering import LoweredQuery, LoweredRead
 from marivo.analysis.compiler.graph_plan import (
     FrameKeysInput,
@@ -67,7 +61,7 @@ from marivo.analysis.compiler.graph_plan import (
     QueryStage,
     SourceRead,
 )
-from marivo.analysis.compiler.native_query import NativeQueryFinish, NativeQueryInput
+from marivo.analysis.compiler.native_query import NativeQueryFinish
 from marivo.analysis.compiler.observation import ReductionInput, ibis_type
 from marivo.analysis.compiler.optimization import RuleDecision, required_slots
 from marivo.analysis.compiler.queries import expression_value
@@ -88,7 +82,6 @@ from marivo.analysis.core.data_types import (
 from marivo.analysis.materialization.query_parameters import _replace_parameter
 from marivo.analysis.materialization.source_query_policy import (
     qualified_query_provider,
-    qualify_query_join,
     qualify_query_reduce,
     qualify_query_source,
     qualify_query_top,
@@ -613,13 +606,12 @@ def native_query_relation(
                 stage.source_id, prepared.source
             ) is not owner or not _physical_owner(read.expression, owner, prepared):
                 return "producer physical inputs do not belong to the consumer SourceSession"
-            if stage.native_original_finish is not None or stage.native_query_finish is not None:
+            if stage.native_query_finish is not None:
                 return "producer retains a governed host finish"
             if stage.common_reads:
                 if owner.provider.name not in ("duckdb", "trino", "clickhouse") or any(
                     member.reduction is None
                     or member.component_layout is not None
-                    or member.native_original_finish is not None
                     or member.native_query_finish is not None
                     or member.reduction.duration is not None
                     or member.reduction.calendar is not None
@@ -831,13 +823,7 @@ def native_query_relation(
             if isinstance(expression, str):
                 return expression
             return NativeQueryRelation(expression, members, sources, checks)
-        if (
-            program is None
-            or len(inputs) != 1
-            or program.references
-            or program.duration_operations
-            or program.drills
-        ):
+        if program is None or len(inputs) != 1 or program.duration_operations:
             return "producer is outside the admitted field relation grammar"
         expression = inputs[0].expression
         operation = program.operation
@@ -864,22 +850,6 @@ def native_query_relation(
                         strict=True,
                     )
                 )
-            )
-        elif isinstance(operation, ProjectKeys) and all(path is None for path in operation.paths):
-            columns = tuple(
-                key for index in operation.positions for key in program.key_groups[index]
-            )
-            expression = _distinct(
-                expression.select(
-                    **dict(
-                        zip(
-                            (column.slot_id for column in stage.columns),
-                            (expression[name] for name in columns),
-                            strict=True,
-                        )
-                    )
-                ),
-                owner.provider.name,
             )
         elif isinstance(operation, (FilterValues, SelectValues, TopValues, ReduceValues)):
             arithmetic = owner.provider.name in ("duckdb", "trino", "clickhouse")
@@ -1006,31 +976,12 @@ def native_query_relation(
                         for key in program.keys
                     ),
                 )
-                partitions = tuple(
-                    _string_bytes(expression[key], owner.provider.name)
-                    if expression[key].type().is_string()
-                    else expression[key]
-                    for position in operation.partitions
-                    for key in program.key_groups[position]
-                )
-                if partitions:
-                    ranked = expression.mutate(
-                        __query_rank=ibis.row_number().over(
-                            ibis.window(group_by=partitions, order_by=order)
-                        )
-                    )
-                    expression = ranked.filter(ranked["__query_rank"] < operation.n).drop(
-                        "__query_rank"
-                    )
-                else:
-                    expression = expression.order_by(*order).limit(operation.n)
+                expression = expression.order_by(*order).limit(operation.n)
             else:
                 if owner.provider.name != "duckdb":
                     issue = qualify_query_reduce(owner, program)
                     if issue is not None:
                         return issue
-                if operation.calendar_maps:
-                    return "cell reduction requires the qualified non-calendar DuckDB route"
                 aggregates: dict[str, ir.Value] = {}
                 checked_sums: list[str] = []
                 floating_sums: list[str] = []
@@ -1165,45 +1116,12 @@ def _attach_relation_checks(
 
 
 def finish_native_query(finish: NativeQueryFinish, frame: pd.DataFrame) -> pd.DataFrame:
-    """Restore checked endpoint frames before the existing exact local finisher."""
-    from marivo.analysis.binding.correspondence import fail
-    from marivo.analysis.materialization.graph_exchange import StageOutput
-    from marivo.analysis.methods.query_values import evaluate_result
-
-    if finish.passthrough:
-        return (
-            frame.sort_values(list(finish.order), kind="stable", na_position="last")
-            .loc[:, [column.slot_id for column in finish.columns]]
-            .reset_index(drop=True)
-        )
-    inputs: list[pd.DataFrame] = []
-    for item in finish.inputs:
-        if frame[item.duplicate].fillna(False).any():
-            fail("unique complete endpoint keys", "duplicate complete keys in a source endpoint")
-        aliases = dict(item.columns)
-        selected = frame.loc[frame[item.present].fillna(False), list(aliases.values())].rename(
-            columns={alias: name for name, alias in item.columns}
-        )
-        # A coarse endpoint is repeated by a valid broadcast join. Its original
-        # complete-key uniqueness was checked independently before that join.
-        selected = selected.drop_duplicates(list(item.endpoint.keys) or list(selected.columns))
-        if item.endpoint.keys:
-            selected = selected.sort_values(
-                list(item.endpoint.keys), kind="stable", na_position="last"
-            )
-        output = StageOutput.from_source_frame(
-            selected.reset_index(drop=True), item.endpoint.columns, item.endpoint.keys
-        )
-        inputs.append(output.table)
-    stage = LocalCompute(
-        "local:native-query-finish",
-        (),
-        "query.result@v1",
-        finish.columns,
-        finish.keys,
-        result=finish.program,
+    """Restore deterministic union order after the qualified source read."""
+    return (
+        frame.sort_values(list(finish.order), kind="stable", na_position="last")
+        .loc[:, [column.slot_id for column in finish.columns]]
+        .reset_index(drop=True)
     )
-    return evaluate_result(stage, tuple(inputs))
 
 
 def _same_key(left: ir.Value, right: ir.Value, provider: str) -> ir.BooleanValue:
@@ -1221,228 +1139,6 @@ def _outer_join_value(value: ir.Value, provider: str) -> ir.Value:
         assert isinstance(result, ir.Value)
         return result
     return value
-
-
-def fuse_query_relations(prepared: PreparedSources, lowered: LoweredQuery) -> LoweredQuery:
-    """Join qualified complete endpoints once, retaining their local numeric owner."""
-    for candidate in tuple(lowered.plan.stages):
-        if candidate.stage_id not in {stage.stage_id for stage in lowered.plan.stages}:
-            continue
-        if not isinstance(candidate, LocalCompute) or candidate.result is None:
-            continue
-        program = candidate.result
-        operation = program.operation
-        endpoints: tuple[ComparisonEndpoint, ...]
-        links: tuple[tuple[tuple[str, str], ...], ...]
-        if isinstance(operation, CombineValues):
-            binding = program.comparison
-            if (
-                binding is None
-                or binding.transformed is not None
-                or binding.relation_requirement is not None
-                or len(candidate.inputs) != 2
-            ):
-                continue
-            endpoints = (binding.left, binding.right)
-            links = (
-                tuple(
-                    (left, right)
-                    for i, j in binding.pairs
-                    for left, right in zip(
-                        binding.left.key_groups[i], binding.right.key_groups[j], strict=True
-                    )
-                ),
-            )
-        elif program.references and program.input_layout is not None:
-            if any(reference.mapping.calendars for reference in program.references):
-                continue
-            if len(candidate.inputs) != 1 + len(program.references) or any(
-                reference.input_index != index + 1
-                for index, reference in enumerate(program.references)
-            ):
-                continue
-            endpoints = (
-                program.input_layout,
-                *(reference.reference for reference in program.references),
-            )
-            links = tuple(reference.mapping.keys for reference in program.references)
-        else:
-            continue
-        by_id = {stage.stage_id: stage for stage in lowered.plan.stages}
-        closure: set[str] = set()
-
-        def include(
-            identifier: str, members: set[str] = closure, stages: dict[str, QueryStage] = by_id
-        ) -> None:
-            if identifier not in members:
-                members.add(identifier)
-                for dependency in stages[identifier].inputs:
-                    include(dependency, members, stages)
-
-        include(candidate.stage_id)
-        if program.references and any(
-            isinstance(item, LocalCompute)
-            and item.result is not None
-            and isinstance(item.result.operation, TopValues)
-            for item in lowered.plan.stages
-            if item.stage_id in closure and item.stage_id != candidate.stage_id
-        ):
-            continue
-        for owner in dict.fromkeys(prepared.sources.values()):
-            if qualify_query_join(owner, endpoints) is not None:
-                continue
-            native_inputs = tuple(
-                native_query_relation(
-                    prepared,
-                    lowered,
-                    identifier,
-                    owner,
-                    shared=True,
-                    allowed_consumers=frozenset(closure),
-                )
-                for identifier in candidate.inputs
-            )
-            if any(isinstance(value, str) for value in native_inputs):
-                continue
-            inputs = tuple(value for value in native_inputs if not isinstance(value, str))
-            if any(
-                not set(lowered.plan.consumers_of(identifier)) <= closure
-                for native in inputs
-                for identifier in native.stages
-            ):
-                continue
-            if any(
-                tuple(native.expression.columns)
-                != tuple(column.slot_id for column in endpoint.columns)
-                for native, endpoint in zip(inputs, endpoints, strict=True)
-            ):
-                continue
-            tables: list[ir.Table] = []
-            summaries: list[ir.Table] = []
-            carriers: list[NativeQueryInput] = []
-            for index, (native, endpoint) in enumerate(zip(inputs, endpoints, strict=True)):
-                table = native.expression
-                duplicate = f"__query_duplicate_{index}"
-                if endpoint.keys:
-                    counts = table.aggregate(
-                        __query_rows=table.count(),
-                        by={
-                            f"__query_key_{position}": _string_bytes(
-                                table[key], owner.provider.name
-                            )
-                            if table[key].type().is_string()
-                            else table[key]
-                            for position, key in enumerate(endpoint.keys)
-                        },
-                    )
-                    summaries.append(
-                        counts.aggregate(
-                            **{duplicate: (counts["__query_rows"] > 1).any().fill_null(False)}
-                        )
-                    )
-                else:
-                    summaries.append(table.aggregate(**{duplicate: table.count() > 1}))
-                aliases = tuple(
-                    (column.slot_id, f"__query_input_{index}_{position}")
-                    for position, column in enumerate(endpoint.columns)
-                )
-                present = f"__query_present_{index}"
-                tables.append(
-                    table.select(
-                        **{
-                            **{
-                                alias: _outer_join_value(table[name], owner.provider.name)
-                                for name, alias in aliases
-                            },
-                            present: _outer_join_value(ibis.literal(True), owner.provider.name),
-                        }
-                    )
-                )
-                carriers.append(NativeQueryInput(endpoint, aliases, present, duplicate))
-            expression = tables[0]
-            target_names = dict(carriers[0].columns)
-            for index, (table, mapping) in enumerate(zip(tables[1:], links, strict=True), 1):
-                names = dict(carriers[index].columns)
-                conditions = [
-                    _same_key(expression[target_names[a]], table[names[b]], owner.provider.name)
-                    for a, b in mapping
-                ]
-                if not isinstance(operation, CombineValues):
-                    conditions.append(
-                        _same_key(
-                            expression[carriers[0].present],
-                            table[carriers[index].present],
-                            owner.provider.name,
-                        )
-                    )
-                expression = expression.join(table, conditions or ibis.literal(True), how="outer")
-            summary = summaries[0]
-            for other in summaries[1:]:
-                summary = summary.cross_join(other)
-            expression = summary.left_join(expression, ibis.literal(True))
-            native = NativeQueryRelation(
-                expression,
-                frozenset({candidate.stage_id}).union(*(value.stages for value in inputs)),
-                tuple(
-                    {
-                        read.stage.stage_id: read for value in inputs for read in value.sources
-                    }.values()
-                ),
-                tuple(check for value in inputs for check in value.checks),
-            )
-            expression, preparation, checks = _attach_relation_checks(expression, native)
-            stage = SourceRead(
-                candidate.stage_id,
-                native.sources[0].stage.source_id,
-                (),
-                candidate.columns,
-                candidate.keys,
-                (),
-                (),
-                (),
-                None,
-                preparation_checks=preparation,
-                native_reductions=native.reductions,
-                native_reads=_logical_reads(tuple(read.stage for read in native.sources)),
-                native_query_finish=NativeQueryFinish(
-                    program, tuple(carriers), candidate.columns, candidate.keys
-                ),
-            )
-            removed = native.stages - {candidate.stage_id}
-            stages = tuple(
-                stage if item.stage_id == candidate.stage_id else item
-                for item in lowered.plan.stages
-                if item.stage_id not in removed
-            )
-            plan = replace(
-                lowered.plan,
-                stages=stages,
-                consumers=_consumers(stages),
-                fusion_groups=tuple(
-                    group
-                    for group in lowered.plan.fusion_groups
-                    if group.output not in native.stages
-                ),
-                optimization_decisions=(
-                    *lowered.plan.optimization_decisions,
-                    RuleDecision(
-                        "source_relation_fusion",
-                        "adopted",
-                        tuple(sorted(native.stages)),
-                        "One same-owner source relation transports complete endpoints and independent presence; the existing local operation finishes arithmetic and correspondence checks.",
-                    ),
-                ),
-            )
-            plan = replace(plan, required_slots=required_slots(plan))
-            lowered = LoweredQuery(
-                plan,
-                (
-                    *(read for read in lowered.reads if read.stage.stage_id not in native.stages),
-                    LoweredRead(stage, expression, checks),
-                ),
-            )
-            break
-    return lowered
 
 
 def fuse_query_terminal(prepared: PreparedSources, lowered: LoweredQuery) -> LoweredQuery:
@@ -1476,9 +1172,7 @@ def fuse_query_terminal(prepared: PreparedSources, lowered: LoweredQuery) -> Low
             if any(
                 isinstance(item, LocalCompute)
                 and item.result is not None
-                and isinstance(
-                    item.result.operation, (TopValues, ProjectKeys, ReduceValues, PopulationValues)
-                )
+                and isinstance(item.result.operation, (TopValues, ReduceValues, PopulationValues))
                 for item in lowered.plan.stages
                 if item.stage_id in native.stages and item.stage_id != endpoint.stage_id
             ):
@@ -1503,7 +1197,7 @@ def fuse_query_terminal(prepared: PreparedSources, lowered: LoweredQuery) -> Low
                     and item.result is not None
                     and isinstance(
                         item.result.operation,
-                        (TopValues, ProjectKeys, ReduceValues, PopulationValues),
+                        (TopValues, ReduceValues, PopulationValues),
                     )
                     for item in lowered.plan.stages
                     if item.stage_id in native.stages and item.stage_id != endpoint.stage_id
@@ -1550,12 +1244,9 @@ def fuse_query_terminal(prepared: PreparedSources, lowered: LoweredQuery) -> Low
                 )
                 native = replace(native, expression=expression)
                 finish = NativeQueryFinish(
-                    endpoint.result,
-                    (),
                     endpoint.columns,
-                    endpoint.keys,
                     ("__query_union_order", *endpoint.keys),
-                    True,
+                    endpoint.result.output_layout,
                 )
         expression, preparation, checks = _attach_relation_checks(native.expression, native)
         source_id = native.sources[0].stage.source_id
@@ -1673,7 +1364,6 @@ def _fuse_shared_query_keys(prepared: PreparedSources, lowered: LoweredQuery) ->
             or read.stage.reduction is None
             or read.stage.reduction.axes != first_reduction.axes
             or read.stage.common_reads
-            or read.stage.native_original_finish is not None
             or read.stage.native_query_finish is not None
             or read.stage.component_layout is not None
             or read.stage.reduction.duration is not None
@@ -2017,12 +1707,7 @@ def _fuse_parameter_blocks(prepared: PreparedSources, lowered: LoweredQuery) -> 
 
 def _fold_population_checks(prepared: PreparedSources, lowered: LoweredQuery) -> LoweredQuery:
     """Retain relationship-domain checks without transporting unused identity sets."""
-    if lowered.plan.checks or any(
-        isinstance(stage, LocalCompute)
-        and stage.result is not None
-        and isinstance(stage.result.operation, (RollupValues, DrillValues, ShareValues))
-        for stage in lowered.plan.stages
-    ):
+    if lowered.plan.checks:
         return lowered
     for candidate in tuple(lowered.plan.stages):
         if (
@@ -2218,7 +1903,6 @@ def fuse_query_keys(prepared: PreparedSources, lowered: LoweredQuery) -> Lowered
             ),
         )
     lowered = _fold_population_checks(prepared, lowered)
-    lowered = fuse_query_relations(prepared, lowered)
     lowered = _fuse_parameter_blocks(prepared, lowered)
     lowered = _fuse_shared_query_keys(prepared, lowered)
     decisions = list(lowered.plan.optimization_decisions)
@@ -2372,7 +2056,4 @@ def fuse_query_keys(prepared: PreparedSources, lowered: LoweredQuery) -> Lowered
                     if item.stage.stage_id not in removed
                 ),
             )
-    return fuse_query_relations(
-        prepared,
-        replace(lowered, plan=replace(lowered.plan, optimization_decisions=tuple(decisions))),
-    )
+    return replace(lowered, plan=replace(lowered.plan, optimization_decisions=tuple(decisions)))

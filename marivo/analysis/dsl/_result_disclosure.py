@@ -1,6 +1,5 @@
 """Native finite result operations and axis-free correspondence disclosure."""
 
-from marivo._definition.correspondence import CorrespondenceAxis, DeclaredCorrespondence
 from marivo.analysis._capabilities.dataset_model import (
     Descriptor,
     DisclosureProvider,
@@ -14,33 +13,17 @@ from marivo.analysis._capabilities.dataset_model import (
     ParameterInput as P,
 )
 from marivo.analysis.dsl.column import Column, row_count
-from marivo.analysis.dsl.correspondence import corresponding, period_offset, previous_year
+from marivo.analysis.dsl.correspondence import period_offset, previous_year
+from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.metrics import member_count
-from marivo.analysis.dsl.query import Query
-from marivo.analysis.dsl.references import broadcast
 
 
 def provider() -> DisclosureProvider:
     parameters: tuple[P, ...]
+    requires: tuple[str, ...]
     descriptors: list[Descriptor] = []
     exports: list[ExportInput] = []
     for target, value, parameters, output, summary, code, requires, group in (
-        (
-            "broadcast",
-            broadcast,
-            (
-                P("value", "A Column on a source Query."),
-                P(
-                    "to",
-                    "Same-Session target Query with a unique complete projection to the reference axes.",
-                ),
-            ),
-            "Column",
-            "Transport a reference by complete keys and require full target coverage.",
-            "result = broadcast(reference['value'], to=query)",
-            ("broadcast", "reference", "query"),
-            "methods.metric.reference",
-        ),
         (
             "row_count",
             row_count,
@@ -62,21 +45,11 @@ def provider() -> DisclosureProvider:
             "methods.metric",
         ),
         (
-            "corresponding",
-            corresponding,
-            (P("via", "Nonempty directed tuple of current declared one-to-one Relationships."),),
-            "DeclaredCorrespondence",
-            "Bind an explicit identity correspondence when consumed by Query.align/compare.",
-            "result = corresponding(via=(relationship,))",
-            ("corresponding", "relationship"),
-            "methods.compare",
-        ),
-        (
             "period_offset",
             period_offset,
             (P("by", "Non-boolean integer offset in the consuming complete calendar authority."),),
             "CalendarCorrespondence",
-            "Pair calendar periods by a certified or builtin period offset.",
+            "Pair calendar periods by a builtin period offset.",
             "result = period_offset(-1)",
             ("period_offset",),
             "inputs.time",
@@ -101,7 +74,9 @@ def provider() -> DisclosureProvider:
                 parameters=parameters,
                 output=output,
                 constraints=(
-                    "Construction reads no business rows; the consuming Query binds and checks complete coordinates.",
+                    "Construction reads no rows. period_offset supports builtin day/week/month/quarter/year only; previous_year supports builtin day/month/quarter/year and leap days have no counterpart. Matching rejects partial buckets and incompatible frozen interpretations."
+                    if target in ("period_offset", "previous_year")
+                    else "row_count is input-independent and counts current rows, including value NA. member_count is a source Metric over explicit observe(members=...), not a completed-data statistic.",
                 ),
                 effects="Capture an immutable definition without executing it.",
                 failures=(
@@ -112,67 +87,36 @@ def provider() -> DisclosureProvider:
             )
         )
         exports.append(ExportInput(target, value, target))
-    for cls, producers, consumers in (
-        (
+    descriptors.append(
+        value_type(
+            "Column",
             Column,
-            ("Query.__getitem__", "Query.coord"),
-            ("Query.select", "Query.where", "Query.top", "Column.sum", "Column.mean"),
-        ),
-        (DeclaredCorrespondence, ("corresponding",), ("Query.align", "Query.compare")),
-        (
-            CorrespondenceAxis,
-            ("Query.align", "Query.compare"),
-            ("Query.coord", "Population.project"),
-        ),
-    ):
-        descriptors.append(
-            value_type(
-                cls.__name__,
-                cls,
-                summary=f"Immutable {cls.__name__} bound value.",
-                acquisition="Use its registered producer; direct construction is not the workflow.",
-                producers=producers,
-                consumers=consumers,
-            )
+            summary="Immutable current-data expression bound to one exact Frame input.",
+            acquisition="Use frame[name] or frame.coord(axis).",
+            producers=("analysis_frame.__getitem__", "analysis_frame.coord"),
+            consumers=(
+                "analysis_frame.select",
+                "analysis_frame.where",
+                "analysis_frame.top",
+                "Column.sum",
+                "Column.mean",
+            ),
         )
-        exports.append(ExportInput(cls.__name__, cls, cls.__name__))
-    for correspondence_type, summary in (
-        (
-            DeclaredCorrespondence,
-            "Return bounded declared path identities without resolving sources.",
-        ),
-        (CorrespondenceAxis, "Return bounded projection paths over retained endpoint bindings."),
-    ):
-        descriptors.append(
-            operation(
-                f"{correspondence_type.__name__}.show",
-                "correspondence.show",
-                correspondence_type.show,
-                bindings=(bind(correspondence_type.show, correspondence_type),),
-                summary=summary,
-                parameters=(),
-                output="str",
-                constraints=("Rendering reads only the immutable correspondence value.",),
-                effects="Pure value rendering without I/O.",
-                failures=(),
-                example=ExampleInput(
-                    "result = correspondence.show()", ("correspondence",), "result", "str"
-                ),
-            )
-        )
+    )
+    exports.append(ExportInput("Column", Column, "Column"))
     for owner, name, parameters, output, summary, code, requires, group in (
         (
-            Query,
+            AnalysisFrame,
             "__getitem__",
             (P("name", "Exact existing value name."),),
             "Column",
-            "Locate a named value on this exact Query input.",
-            "result = query['value']",
-            ("query",),
+            "Locate a named value on this exact AnalysisFrame input.",
+            "result = frame['value']",
+            ("frame",),
             "methods.rows",
         ),
         (
-            Query,
+            AnalysisFrame,
             "coord",
             (
                 P(
@@ -182,12 +126,12 @@ def provider() -> DisclosureProvider:
             ),
             "Column",
             "Locate an existing scalar coordinate without reading a new attribute; complete composite keys remain coordinates and Population predicates.",
-            "result = query.coord(axis)",
-            ("query", "axis"),
+            "result = frame.coord(axis)",
+            ("frame", "axis"),
             "methods.rows",
         ),
         (
-            Query,
+            AnalysisFrame,
             "select",
             (
                 P(
@@ -195,47 +139,43 @@ def provider() -> DisclosureProvider:
                     "Nonempty named mapping of same-input Columns or immutable non-null literals.",
                 ),
             ),
-            "Query",
-            "Select named values and retain full keys, presence, projections and required checks.",
-            "result = query.select({'value': query['value']})",
-            ("query",),
+            "AnalysisFrame",
+            "Select named values, preserving complete coordinates and presence without hiding deleted values.",
+            "result = frame.select({'value': frame['value']})",
+            ("frame",),
             "methods.rows",
         ),
         (
-            Query,
+            AnalysisFrame,
             "where",
             (
                 P(
                     "predicate",
-                    "Same-input boolean Column or compatible PopulationPredicate; only True is selected.",
+                    "Same-input boolean Column; only True is selected. PopulationPredicate belongs to source construction.",
                 ),
             ),
-            "Query",
-            "Filter current coordinates while preserving upstream checks and display order.",
-            "result = query.where(query['value'] > 0)",
-            ("query",),
+            "AnalysisFrame",
+            "Filter current coordinates while preserving checks and current row order.",
+            "result = frame.where(frame['value'] > 0)",
+            ("frame",),
             "methods.rows",
         ),
         (
-            Query,
+            AnalysisFrame,
             "top",
             (
-                P("n", "Nonnegative integer maximum per partition."),
+                P("n", "Nonnegative integer maximum for the whole current input, excluding bool."),
                 P("by", "Same-input score Column; NA sorts last."),
                 P("descending", "Boolean; largest first by default."),
-                P(
-                    "partition_by",
-                    "Tuple of exact retained bound axes; empty means global ranking.",
-                ),
             ),
-            "Query",
-            "Rank one actual input, breaking ties with complete canonical keys.",
-            "result = query.top(10, by=query['value'])",
-            ("query",),
+            "AnalysisFrame",
+            "Rank the whole current input, with NA last and stable input order for ties.",
+            "result = frame.top(10, by=frame['value'])",
+            ("frame",),
             "methods.rows",
         ),
         (
-            Query,
+            AnalysisFrame,
             "reduce",
             (
                 P(
@@ -244,92 +184,57 @@ def provider() -> DisclosureProvider:
                 ),
                 P("by", "Existing retained grouping axes; empty produces one scalar coordinate."),
             ),
-            "Query",
-            "Compute current-value statistics without acquiring original Metric rollup authority.",
-            "result = query.reduce({'mean': query['value'].mean()})",
-            ("query",),
+            "AnalysisFrame",
+            "Compute current-value statistics with independent NA masks; remove presence and retain only the selected complete axes.",
+            "result = frame.reduce({'mean': frame['value'].mean()})",
+            ("frame",),
             "methods.metric.summary",
         ),
         (
-            Query,
+            AnalysisFrame,
             "align",
             (
-                P("other", "Another Query owned by this Session."),
-                P("match", "Axis-free correspondence or None for exact semantic binding identity."),
+                P("other", "Another AnalysisFrame owned by this Session."),
+                P(
+                    "on",
+                    "None only for zero axes or one calendar axis per input; otherwise a complete tuple of exact FrameAxis pairs.",
+                ),
+                P(
+                    "match",
+                    "Explicit supported CalendarCorrespondence or None for frozen coordinate equality; never inferred.",
+                ),
                 P("how", "exact or outer; presence is independent of value NA."),
             ),
-            "Query",
-            "Align complete coordinates and retain left/right values and projections.",
-            "result = query.align(other)",
-            ("query", "other"),
+            "AnalysisFrame",
+            "Align complete coordinates, retaining left.<name>/right.<name> values and independent non-nullable presence.",
+            "result = frame.align(other)",
+            ("frame", "other"),
             "methods.compare",
         ),
         (
-            Query,
+            AnalysisFrame,
             "compare",
             (
                 P(
                     "baseline",
-                    "Same-Session Query with matching nonempty value names and units; numeric or matching-tick Duration endpoints.",
+                    "Same-Session AnalysisFrame with matching nonempty value names and units; numeric or matching-tick Duration endpoints.",
                 ),
-                P("match", "Explicit axis-free correspondence or None."),
-                P("how", "exact or outer."),
                 P(
-                    "time_axis",
-                    "paired by default; current requires complete actual current projection.",
+                    "on",
+                    "None only for zero axes or one calendar axis per input; explicit mapping pairs every complete axis exactly once.",
                 ),
+                P("match", "Explicit supported CalendarCorrespondence or None; never inferred."),
+                P("how", "exact or outer."),
                 P(
                     "zero_denominator",
                     "null or error for newly computed relative differences only.",
                 ),
             ),
-            "Query",
-            "Compute current, baseline, absolute and relative difference divided by absolute baseline.",
-            "result = query.compare(baseline)",
-            ("query", "baseline"),
+            "AnalysisFrame",
+            "Emit left.<name>, right.<name>, absolute.<name> and relative.<name> in four ordered groups; relative divides the difference by the absolute baseline.",
+            "result = frame.compare(baseline)",
+            ("frame", "baseline"),
             "methods.compare",
-        ),
-        (
-            Query,
-            "rollup",
-            (
-                P(
-                    "by",
-                    "Keep only the output axes needed for the summary. Empty () produces a scalar; (calendar,) keeps time buckets and removes classifications. Window time axes stay unchanged.",
-                ),
-            ),
-            "Query",
-            "Compute totals or subtotals by recomputing original Metrics, including ratios and averages, at fewer axes.",
-            "overall = query.rollup()\nresult = query.rollup(by=(calendar,))",
-            ("query", "calendar"),
-            "methods.metric.reduce",
-        ),
-        (
-            Query,
-            "drill",
-            (P("add", "Nonempty tuple of new single-valued Field classifications."),),
-            "Query",
-            "Read new attributes only for selected complete versioned contribution identities and recompute originals.",
-            "result = query.drill(add=(field,))",
-            ("query", "field"),
-            "methods.metric.reduce",
-        ),
-        (
-            Query,
-            "share",
-            (
-                P("name", "One existing original additive quantity name."),
-                P(
-                    "partition_by",
-                    "Exact retained axes forming the denominator partitions; retain window time.",
-                ),
-                P("zero_denominator", "null or error for the newly computed share only."),
-            ),
-            "Query",
-            "Add a share using this actual selected input; later filtering retains its denominator.",
-            "result = query.share('value')",
-            ("query",),
-            "methods.metric.reference",
         ),
         (
             Column,
@@ -372,7 +277,7 @@ def provider() -> DisclosureProvider:
             "sum",
             (),
             "_Statistic",
-            "Request ignore-NA sum; empty/all-NA is NA. Complete with Query.reduce.",
+            "Request ignore-NA sum; empty/all-NA is NA. Complete with AnalysisFrame.reduce.",
             "result = column.sum()",
             ("column",),
             "methods.metric.summary",
@@ -382,7 +287,7 @@ def provider() -> DisclosureProvider:
             "mean",
             (),
             "_Statistic",
-            "Request ignore-NA mean; empty/all-NA is NA. Complete with Query.reduce.",
+            "Request ignore-NA mean; empty/all-NA is NA. Complete with AnalysisFrame.reduce.",
             "result = column.mean()",
             ("column",),
             "methods.metric.summary",
@@ -391,24 +296,23 @@ def provider() -> DisclosureProvider:
         value = getattr(owner, name)
         descriptors.append(
             operation(
-                f"{owner.__name__}.{name}",
-                f"{owner.__name__.lower()}.{name}",
+                f"{'analysis_frame' if owner is AnalysisFrame else 'column'}.{name}",
+                f"{'frame' if owner is AnalysisFrame else 'column'}.{name}",
                 value,
                 bindings=(bind(value, owner),),
                 summary=summary,
                 parameters=parameters,
                 output=output,
                 constraints=(
-                    "Only original Metric columns are accepted. Selected parent keys restrict contributions; source values may change on recomputation. Use a new observe for an independent full population. Completed ratios and averages are not summed. Query.reduce instead computes statistics of current values."
-                    if name == "rollup"
-                    else "Columns retain one exact lazy input; Artifact cannot enter computation.",
+                    "Validate parameter shape and Session ownership, reject paired inputs, then require equal axis counts before inferring or validating a complete on mapping. on/outer cannot repair ownership, paired axes, axis count or incompatible key/time types. exact checks actual complete row domains; outer keeps the ordered union. Calendar matching requires complete nominal/actual buckets."
+                    if name in ("align", "compare")
+                    else "Columns and statistics retain one exact Frame input; Artifact cannot enter computation. Current-row statistics do not acquire original Metric authority.",
                 ),
                 effects="Capture a lazy result operation; no source or schema read.",
                 failures=(
                     "AnalysisError: follow the concrete expected/received facts and repair.",
                 ),
                 example=ExampleInput(code, requires, "result", output),
-                related=("session.observe", "Query.reduce") if name == "rollup" else (),
                 discovery_group=group,
             )
         )
@@ -440,7 +344,7 @@ def provider() -> DisclosureProvider:
                 "column." + name,
                 function,
                 bindings=(bind(function, Column),),
-                summary="Construct a finite pointwise result expression on one exact Query input.",
+                summary="Construct a finite pointwise result expression on one exact AnalysisFrame input.",
                 parameters=()
                 if unary
                 else (
@@ -454,7 +358,9 @@ def provider() -> DisclosureProvider:
                     "Nullable values propagate; known units and literal kinds must agree. Division defaults to null at zero; divide(...,zero_denominator='error') is explicit.",
                 ),
                 effects="Capture a result expression without I/O.",
-                failures=("AnalysisError: use the exact Query input and compatible types/units.",),
+                failures=(
+                    "AnalysisError: use the exact AnalysisFrame input and compatible types/units.",
+                ),
                 example=ExampleInput(
                     "result = " + code,
                     ("column", "other") if name in ("__and__", "__or__") else ("column",),

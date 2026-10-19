@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal, TypeAlias
 
-from marivo.analysis.core.artifact_data import OutputEvidence, OutputFinding
 from marivo.analysis.core.model import reject
+from marivo.analysis.core.output_records import OutputEvidence, OutputFinding
 
 FrameOperationName: TypeAlias = Literal[
     "source", "literal", "select", "where", "top", "reduce", "align", "compare"

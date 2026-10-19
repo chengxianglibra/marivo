@@ -1,11 +1,9 @@
-"""Terminal Artifact: committed output identity, metadata and one read service."""
+"""Terminal Artifact: committed identity, submission metadata and audit reads."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Protocol
-
-import pandas as pd
 
 from marivo.analysis.core.artifact_data import ArtifactManifest
 from marivo.analysis.core.model import reject
@@ -14,11 +12,9 @@ from marivo.render import result_repr
 
 
 class ArtifactReader(Protocol):
-    """Read committed output only, without retaining data or execution state."""
+    """Read committed audit facts without result rows or execution state."""
 
-    def show(self, manifest: ArtifactManifest, *, n: int) -> None: ...
-
-    def to_pandas(self, manifest: ArtifactManifest) -> pd.DataFrame: ...
+    def show(self, manifest: ArtifactManifest) -> None: ...
 
     def findings(
         self, manifest: ArtifactManifest, *, limit: int, cursor: str | None
@@ -29,17 +25,19 @@ class ArtifactReader(Protocol):
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)
 class Artifact:
-    """Read-only committed output; acquire through Query.execute or Session.artifact.
+    """Read-only audit view acquired through a persisted AnalysisFrame's artifact.
 
-    Artifact never owns a Query, definition graph, execution context or in-memory
-    table. New and reopened handles read the same committed output.
+    This view retains the exact committed identity and audit reader. Read data
+    through the persisted Frame; audit reads never load result rows or sources.
     """
 
     _manifest: ArtifactManifest
     _reader: ArtifactReader
 
     def __init__(self) -> None:
-        raise TypeError("Use query.execute() or session.artifact(artifact_id).")
+        raise TypeError(
+            "Use frame.persist().artifact or session.persisted_frame(artifact_id).artifact."
+        )
 
     @classmethod
     def _from_manifest(cls, manifest: ArtifactManifest, reader: ArtifactReader) -> Artifact:
@@ -47,7 +45,7 @@ class Artifact:
             reject(
                 "a committed output manifest",
                 type(manifest).__name__,
-                "Open an exact committed Artifact ID.",
+                "Use session.persisted_frame(artifact_id).artifact.",
                 "artifact.open",
             )
         result = object.__new__(cls)
@@ -59,49 +57,42 @@ class Artifact:
     def id(self) -> str:
         """Return the stable identity of this committed Artifact.
 
-        Returns: The captured artifact id used by session.artifact(id).
-        Example: ``reopened = session.artifact(artifact.id)``.
+        Args: None.
+        Returns: The captured Artifact ID used by session.persisted_frame(id).
+        Example: ``reopened = session.persisted_frame(artifact.id)``.
         Constraints: Read-only metadata; reading does not open Store data, load semantic definitions or access a source.
         """
         return self._manifest.artifact_id
 
     @property
     def session_id(self) -> str:
-        """Return the owning Session ID."""
+        """Return the owning Session ID.
+
+        Args: None.
+        Returns: The exact Session identity captured by this committed output.
+        Example: ``session = mv.session.resume(artifact.session_id, by='id')``.
+        Constraints: Reads metadata without loading result rows or semantic definitions.
+        """
         return self._manifest.session_id
 
     def __repr__(self) -> str:
         return result_repr(f"Artifact id={self.id[:80]} session={self.session_id[:80]}")
 
-    def show(self, *, n: int = 20) -> None:
-        """Print a bounded preview of committed output rows.
-
-        Args: n: Maximum rows to decode for the preview.
-        Returns: None; prints the output card.
-        Example: ``artifact.show(n=20)``.
-        Constraints: Bounded decoding; receipt hashing can read a complete consumed part. No source lookup.
-        """
-        if type(n) is not int or n < 0:
-            reject(
-                "a nonnegative preview row count",
-                repr(n),
-                "Use artifact.show(n=20).",
-                "Artifact.show",
-            )
-        self._reader.show(self._manifest, n=n)
-
-    def to_pandas(self) -> pd.DataFrame:
-        """Export all committed output rows as an isolated pandas DataFrame.
+    def show(self) -> None:
+        """Print bounded submission metadata and audit summaries.
 
         Args: None.
-        Returns: A complete isolated DataFrame in the saved output layout.
-        Example: ``frame = artifact.to_pandas()``.
-        Constraints: Never samples rows or recreates a Query; complete export must fit in memory.
-        Complete supported changes to population, grain, aggregation, denominator
-        or comparison on Queries before export. Formatting and plotting saved
-        values are presentation; external calculations do not inherit typed Evidence.
+
+        Returns:
+            None; prints the audit card and exact Frame recovery guidance.
+
+        Example:
+            ``saved.artifact.show()``.
+
+        Constraints: Does not read result rows or coordinate attachments. For a data preview,
+        use session.persisted_frame(artifact.id).show(n=20).
         """
-        return self._reader.to_pandas(self._manifest)
+        self._reader.show(self._manifest)
 
     def findings(self, limit: int = 20, cursor: str | None = None) -> FindingPage:
         """Read a bounded page of committed method Findings.

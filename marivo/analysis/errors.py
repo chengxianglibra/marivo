@@ -161,14 +161,14 @@ class TimezoneInvalidError(AnalysisError):
 
 
 class AnalysisStageUnavailableError(AnalysisError):
-    """A requested Query/Artifact stage has not been delivered in this build."""
+    """A requested Frame/audit stage has not been delivered in this build."""
 
     def __init__(
         self, *, stage: str, expected: str, received: str, repair: str, target: str
     ) -> None:
         self.stage = stage
         super().__init__(
-            message="This Query/Artifact stage is not available in the current build.",
+            message="This Frame/audit stage is not available in the current build.",
             expected=expected,
             received=received,
             location=f"analysis.{target}",
@@ -272,11 +272,11 @@ class ArtifactNotFoundError(AnalysisError):
             message=f"Artifact {ref!r} does not exist in the current Session",
             expected="an exact Artifact ref owned by the current Session",
             received=ref,
-            location="session.artifact(ref)",
+            location="session.persisted_frame(artifact_id)",
             repair=_runtime_read_repair(
                 action="Inspect bounded Run history or the Session graph, then retry one exact ref.",
                 target="session.runs",
-                snippet="page = session.runs(limit=20)\nartifact = session.artifact('<ref>')",
+                snippet="page = session.runs(limit=20)\nframe = session.persisted_frame('<ref>')",
             ),
         )
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import ibis
@@ -13,19 +12,16 @@ import ibis.expr.types as ir
 import pyarrow as pa
 
 from marivo._definition.graph import computation_fingerprint
-from marivo._definition.relations import FrameKeys, QueryKeys
-from marivo.analysis.compiler.graph_plan import plan_query
+from marivo._definition.relations import FrameKeys
 from marivo.analysis.compiler.observation import ibis_type
 from marivo.analysis.compiler.parameters import parameter_domains
-from marivo.analysis.compiler.queries import prefixed_input
 from marivo.analysis.compiler.query_program import (
     FrameParameter,
     PopulationParameterPlan,
-    QueryParameter,
 )
 from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import DataColumn, ScalarDataType
-from marivo.analysis.core.graph import BoundGraph, capture_query
+from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import reject
 from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.methods.physical import stage_arrow_type
@@ -80,54 +76,7 @@ def prepare_parameters(
     memo: InvocationMemo | None = None,
     frame_schemas: Mapping[str, DataSchema] | None = None,
 ) -> tuple[tuple[PopulationParameterPlan, ...], tuple[PreparedSources, ...]]:
-    from marivo.analysis.materialization.graph_source_execution import prepare_query_sources
-
-    parameters: list[PopulationParameterPlan] = list(
-        prepare_frame_parameters(graph, frame_schemas or {}, entities)
-    )
-    prepared_inputs = []
-    observation = graph.signature.observation
-    namespace: tuple[int, ...] = ()
-    if observation is not None and observation.contributions:
-        first = observation.contributions[0]
-        logical = first.logical_occurrence or first.occurrence
-        namespace = first.occurrence[: -len(logical)]
-    for index, domain in enumerate(parameter_domains(graph)):
-        if isinstance(domain.root, FrameKeys):
-            continue
-        assert isinstance(domain.root, QueryKeys)
-        child = prefixed_input(domain.root, (*namespace, len(graph.signature.quantities), index))
-        prepared = prepare_query_sources(
-            child, state, source, sources=sources, memo=memo, frame_schemas=frame_schemas
-        )
-        prepared_inputs.append(prepared)
-        plan = plan_query(child, prepared.schemas, context=prepared.context, memo=memo)
-        output = next(stage for stage in plan.stages if stage.stage_id == plan.publish)
-        from marivo.analysis.compiler.graph_plan import LocalCompute
-        from marivo.analysis.compiler.queries import key_groups
-
-        groups = (
-            output.result.output_groups
-            if isinstance(output, LocalCompute) and output.result is not None
-            else key_groups(child, output.columns, output.keys)
-        )
-        columns = tuple(
-            replace(
-                next(column for column in output.columns if column.slot_id == slot),
-                slot_id=f"__population_{axis}_{component}",
-                name=f"__population_{axis}_{component}",
-            )
-            for axis, group in enumerate(groups)
-            for component, slot in enumerate(group)
-        )
-        identifier = computation_fingerprint(domain)
-        placeholder = "__marivo_population_" + identifier
-        table = ibis.table(
-            {column.slot_id: ibis_type(column.dtype) for column in columns}, name=placeholder
-        )
-        entities["population-parameter:" + identifier] = table
-        parameters.append(QueryParameter(domain, capture_query(child), placeholder, columns))
-    return tuple(parameters), tuple(prepared_inputs)
+    return prepare_frame_parameters(graph, frame_schemas or {}, entities), ()
 
 
 def parameter_data(columns: tuple[DataColumn, ...], output: StageOutput) -> pa.Table:

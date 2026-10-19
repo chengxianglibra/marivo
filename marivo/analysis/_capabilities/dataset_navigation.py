@@ -17,7 +17,7 @@ _GROUPS = (
     (
         "artifacts.reads",
         "artifacts",
-        "Read verified result rows, Evidence and the complete frozen Finding collection.",
+        "Read fixed Frame data and the saved Finding/Evidence audit collection.",
     ),
     (
         "inputs.population",
@@ -34,22 +34,12 @@ _GROUPS = (
     (
         "methods.metric",
         "methods",
-        "Observe Metrics and recompute originals from selected complete contributions.",
-    ),
-    (
-        "methods.metric.reduce",
-        "methods.metric",
-        "Compute totals and subtotals by recomputing original Metrics at fewer axes.",
+        "Observe source Metrics at an explicitly chosen grain and scope.",
     ),
     (
         "methods.metric.summary",
         "methods",
-        "Compute current-row statistics as a new quantity.",
-    ),
-    (
-        "methods.metric.reference",
-        "methods.metric",
-        "Transport complete references and compute same-input additive shares.",
+        "Compute current-row statistics with independent NA masks.",
     ),
     ("methods.compare", "methods", "Align complete endpoints and compare numeric values."),
     ("methods.rows", "methods", "Filter result rows, rank them or retain an ordered prefix."),
@@ -67,9 +57,9 @@ _HUBS = (
         (),
         "decision_hub",
         guidance=(
-            "Metric-first Query: session.observe(named_metrics).execute() atomically publishes Store 11 output; Artifact opens metadata, previews bounded rows, exports complete pandas output and reads saved facts.",
-            "Finite domains: session.members(Entity Ref), coordinates or identities; session.query(population).execute() publishes complete keys.",
-            "Known inputs: reuse exact refs and scope. Population/Query: show() -> exact type Help. Saved Artifact: show() -> saved Evidence.",
+            "Construct a Frame with session.observe/read/values/frame. compute() returns fixed memory; persist() returns a committed Frame. Continue from the returned Frame for data; .artifact reads its saved audit.",
+            "Finite domains: session.members(Entity Ref), coordinates or identities; session.frame(population) captures complete keys without requiring attributes.",
+            "Known inputs: retain exact refs and scope. Population/Frame: show() reports captured facts; exact type Help owns method discovery.",
             "Existing work: resume the Session; recovery does not replay sources.",
         ),
         related=("session.get_or_create", "session.resume", "catalog", "session.observe"),
@@ -80,7 +70,7 @@ _HUBS = (
         (),
         "decision_hub",
         guidance=(
-            "Population/Query: read show() and exact type Help targets. Saved Artifact: read its output; construct a new Query for further computation.",
+            "Frame: inspect captured facts with show(), then use exact type Help for current-data operations. Source Metric questions require explicit observe/read construction.",
         ),
     ),
     NavigationInput(
@@ -102,7 +92,7 @@ _HUBS = (
         (),
         "decision_hub",
         guidance=(
-            "Start with artifact.show() and artifact.evidence_digest(); .items contains all saved Evidence. Use artifact.findings() for paged method outputs.",
+            "Start with saved.artifact.show() and saved.artifact.evidence_digest(); .items contains all saved Evidence. Use saved.artifact.findings() for paged outputs.",
             "Recovery trusts committed local Evidence; it does not establish current semantic authority or source freshness.",
         ),
         related=(
@@ -118,7 +108,7 @@ _HUBS = (
         (),
         "decision_hub",
         guidance=(
-            "Cold recovery: resume a Session, read bounded Run history, then recover its exact committed Artifact. Obsolete formats require source re-execution; preserve history and files.",
+            "Cold recovery: resume a Session, inspect bounded Run history, then session.persisted_frame(id) for its exact committed data; .artifact is audit. Older Store generations require a compatible environment or prior export; old bytes are not migrated.",
             "Use a scoped graph only for factual adjacency; recovery does not execute origin queries.",
         ),
     ),
@@ -170,12 +160,12 @@ def navigation(providers: tuple[DisclosureProvider, ...]) -> tuple[NavigationInp
     result.append(
         NavigationInput(
             "",
-            "Construct without business reads; execute() publishes; show() inspects results.",
+            "Construct without business reads; compute fixes data, persist commits it, show inspects captured facts.",
             tuple(hub.canonical_id for hub in _HUBS),
             "root",
             guidance=(
                 "Imports: import marivo; import marivo.analysis as mv; import marivo.semantic as ms",
-                "Unknown capability: choose a route. Population/Query: show() -> exact type Help. Artifact: show().",
+                "Unknown capability: choose a route. Population/Frame: show() -> exact type Help. Artifact: metadata and audit only.",
                 "Agent: method choice and conclusions. Marivo: typed computation and Evidence.",
                 "Errors own expected/received facts and the exact repair.",
             ),

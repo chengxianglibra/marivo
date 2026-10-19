@@ -9,9 +9,6 @@ from typing import Literal
 from ibis.common.deferred import Deferred
 
 from marivo._definition.correspondence import ComparisonAxis
-from marivo._definition.graph import DefinitionNode, walk
-from marivo._definition.query import ReadFields, ResultQuery
-from marivo._definition.relations import ObserveQuery, QueryKeys
 from marivo._definition.types import AxisBinding, CalendarCoordinate
 from marivo._temporal import PeriodCalendarSnapshotV1, TimeScope
 from marivo.analysis.core.artifact_data import DataColumn
@@ -140,51 +137,6 @@ def _capture(
     connection: DatasourceConnectionConfig,
     frame_key_inputs: tuple[FrameKeyInput, ...] = (),
 ) -> AnalysisFrame:
-    root = graph.root
-    observation = graph.signature.observation
-    definitions = dict(graph.signature.declared_metrics)
-    if (
-        isinstance(root, ResultQuery)
-        and isinstance(root.operation, ReadFields)
-        and len(root.inputs) == 1
-        and isinstance(root.inputs[0].query, ObserveQuery)
-        and not root.inputs[0].query.metrics
-    ):
-        # capture_read's own keys-only classification envelope is not a
-        # legacy producer. Inspect its actual input domain and frozen scope.
-        captured = root.inputs[0]
-        root = captured.query
-        observation = captured.observation
-        definitions.update(captured.declared)
-    roots: list[DefinitionNode] = [root]
-    if observation is not None:
-        roots.extend(
-            node
-            for node in (
-                observation.condition,
-                observation.members,
-                observation.member_population,
-                observation.coordinates.population,
-            )
-            if node is not None
-        )
-        for contribution in observation.contributions:
-            roots.extend(
-                (
-                    contribution.definition,
-                    *contribution.intrinsic_conditions,
-                    *contribution.population_conditions,
-                )
-            )
-            if contribution.common_condition is not None:
-                roots.append(contribution.common_condition)
-    if any(isinstance(node, QueryKeys) for node in walk(roots, resolve=definitions.get).order):
-        reject(
-            "Frame source dependencies without retired QueryKeys producers",
-            "a legacy QueryKeys dependency in the captured Frame source definition",
-            "Build the producer with a Frame source factory, select its Frame, and map it explicitly with population_from(frame, on=...).",
-            "frame.source.capture",
-        )
     schema, calendars = pending_schema(graph, state)
     return AnalysisFrame._from_expression(
         local,
@@ -242,11 +194,12 @@ def read(
     population: Population,
     fields: Mapping[str, Deferred],
 ) -> AnalysisFrame:
+    graph = capture_read(population, fields, local.owner, state)
     for name in fields:
         value_name(name, location="frame.read")
     return _capture(
         local,
-        capture_read(population, fields, local.owner, state),
+        graph,
         state,
         connection,
         population._frame_inputs,
@@ -272,6 +225,13 @@ def values(
     local: LocalFrameServices, *, columns: Mapping[str, str | None], rows: tuple[ValueRow, ...]
 ) -> AnalysisFrame:
     """Capture zero-axis literal values without source configuration or scope."""
+    if not isinstance(columns, Mapping) or not columns:
+        reject(
+            "named columns and finite typed literal rows",
+            repr((columns, rows)),
+            "Provide at least one literal row to establish value kinds; filter the Frame when an empty typed result is needed.",
+            "Session.values",
+        )
     for name in columns:
         value_name(name, location="frame.values")
     graph = capture_values(by=(), columns=columns, rows=rows, owner=local.owner)
@@ -288,6 +248,13 @@ def coordinate_values(
     columns: Mapping[str, str | None],
     rows: tuple[ValueRow, ...],
 ) -> AnalysisFrame:
+    if not isinstance(columns, Mapping) or not columns:
+        reject(
+            "named columns and finite typed literal rows",
+            repr((columns, rows)),
+            "Provide at least one literal row to establish value kinds; filter the Frame when an empty typed result is needed.",
+            "Session.values",
+        )
     for name in columns:
         value_name(name, location="frame.values")
     return _capture(

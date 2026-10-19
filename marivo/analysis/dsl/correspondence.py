@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from marivo._definition.correspondence import CalendarCorrespondence, DeclaredCorrespondence
-from marivo._definition.deferred import RelationshipParameter
-from marivo._definition.types import DefinitionGraphError
+from marivo._definition.correspondence import CalendarCorrespondence
 from marivo.analysis.core.model import reject
 
 
@@ -41,22 +39,3 @@ def previous_year() -> CalendarCorrespondence:
     Constraints: Leap days have no counterpart; exact rejects missing sides.
     """
     return CalendarCorrespondence("previous_year")
-
-
-def corresponding(*, via: tuple[RelationshipParameter, ...]) -> DeclaredCorrespondence:
-    """Pair identity axes through an explicit directed declared relationship path.
-
-    Args: via: A nonempty tuple of captured Relationship values, left to right.
-    Returns: An axis-free declared correspondence.
-    Example: ``left.align(right, match=mv.corresponding(via=(account_match,)))``.
-    Constraints: Binding checks complete keys, one-to-one structure and versions.
-    """
-    try:
-        return DeclaredCorrespondence(via)
-    except DefinitionGraphError as error:
-        reject(
-            "a contiguous directed tuple of declared Relationships",
-            str(error),
-            "Use catalog Relationships in left-to-right identity order.",
-            "corresponding",
-        )

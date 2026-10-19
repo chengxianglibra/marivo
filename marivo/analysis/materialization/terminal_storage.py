@@ -13,7 +13,7 @@ import pyarrow.parquet as pq
 
 from marivo.analysis.core.artifact_data import DataSchema, ParquetHandle
 from marivo.analysis.materialization.contracts import FileEntry, LocalReceipt
-from marivo.analysis.materialization.graph_exchange import normalize_stage_frame
+from marivo.analysis.materialization.graph_exchange import normalize_complete_frame
 from marivo.analysis.materialization.storage import (
     _checked_path,
     _fsync_directory,
@@ -39,8 +39,6 @@ POLICY = TerminalStoragePolicy()
 def arrow_schema(schema: DataSchema) -> pa.Schema:
     if not schema.columns:
         return pa.schema([pa.field("__unit", pa.uint8(), nullable=False)])
-    # Parquet stores second-resolution timestamps as milliseconds. The manifest
-    # retains seconds and reading casts safely back to that exact logical type.
     return pa.schema(
         [
             pa.field(column.slot_id, stage_arrow_type(column.dtype), column.nullable)
@@ -50,11 +48,13 @@ def arrow_schema(schema: DataSchema) -> pa.Schema:
 
 
 def physical_schema(schema: DataSchema) -> pa.Schema:
+    # Parquet has no timestamp seconds. Persist exact int64 seconds instead of
+    # narrowing the admitted range through an overflowing millisecond cast.
     return pa.schema(
         [
             pa.field(
                 field.name,
-                pa.timestamp("ms", tz=field.type.tz)
+                pa.int64()
                 if pa.types.is_timestamp(field.type) and field.type.unit == "s"
                 else field.type,
                 field.nullable,
@@ -64,18 +64,14 @@ def physical_schema(schema: DataSchema) -> pa.Schema:
     )
 
 
-def canonical_frame(schema: DataSchema, rows: pd.DataFrame) -> pd.DataFrame:
+def complete_output(schema: DataSchema, rows: pd.DataFrame) -> pd.DataFrame:
     if not schema.key_fields and len(rows) > 1:
         raise invalid("zero-axis terminal output must contain zero or one row")
     if not schema.columns:
         if len(rows.columns):
             raise invalid("zero-column output has undeclared physical columns")
         return pd.DataFrame(index=pd.RangeIndex(len(rows)))
-    frame = normalize_stage_frame(rows, schema.columns, schema.key_fields)
-    if schema.key_fields:
-        frame = frame.sort_values(
-            list(schema.key_fields), kind="stable", na_position="first"
-        ).reset_index(drop=True)
+    frame = normalize_complete_frame(rows, schema.columns, schema.key_fields)
     for column in schema.columns:
         array = pa.array(frame[column.slot_id], from_pandas=True)
         if pa.types.is_floating(array.type) and pc.any(pc.invert(pc.is_finite(array))).as_py():
@@ -87,7 +83,7 @@ def write_output(
     root: Path, staging: Path, final: Path, schema: DataSchema, rows: pd.DataFrame
 ) -> ParquetHandle:
     """Encode final pandas output, without requiring an upstream Arrow handle."""
-    frame = canonical_frame(schema, rows)
+    frame = complete_output(schema, rows)
     _checked_path(root, staging)
     _checked_path(root, final)
     staging.mkdir(parents=True, exist_ok=False)

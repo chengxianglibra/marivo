@@ -11,22 +11,16 @@ import ibis.expr.types as ir
 
 from marivo._definition.expressions import EntityCount, SourceAggregate
 from marivo._definition.query import (
-    ComponentKeys,
     CoordinateSlot,
-    DrillValues,
     FilterValues,
     KeyImage,
     LiteralValues,
     PresenceSlot,
-    ProjectKeys,
     ReadFields,
     ReduceValues,
-    RollupValues,
     SelectValues,
-    ShareValues,
     TopValues,
     ValueBinary,
-    ValueBroadcast,
     ValueExpression,
     ValueLiteral,
     ValueSlot,
@@ -46,11 +40,10 @@ from marivo.analysis.compiler.graph_plan import (
 )
 from marivo.analysis.compiler.observation import FormulaProgram, common_slot, ibis_type
 from marivo.analysis.compiler.original import component_layout
-from marivo.analysis.compiler.query_program import QueryContext, ResultProgram
+from marivo.analysis.compiler.query_program import ResultProgram
 from marivo.analysis.core.data_types import DataColumn, DecimalDataType, ScalarDataType
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.local_laws import (
-    query_original_fusion_issue,
     query_selection_fusion_issue,
 )
 from marivo.analysis.core.model import ResultQuantity
@@ -126,14 +119,7 @@ def _expressions(expression: ValueExpression, program: ResultProgram) -> set[str
     if isinstance(expression, CoordinateSlot):
         return set(program.key_groups[expression.index])
     if isinstance(expression, PresenceSlot):
-        assert program.input_layout is not None
-        return {
-            next(
-                item.column
-                for item in program.input_layout.presence
-                if item.path == expression.path
-            )
-        }
+        return set()
     if isinstance(expression, ValueUnary):
         return _expressions(expression.operand, program)
     if isinstance(expression, ValueBinary):
@@ -171,17 +157,12 @@ def _input_columns(stage: LocalCompute, wanted: set[str]) -> set[str]:
                 ValueLiteral,
                 ValueUnary,
                 ValueBinary,
-                ValueBroadcast,
             ),
         ):
             return wanted | _expressions(operation.predicate, program)
         return wanted | set(program.keys)
     if isinstance(operation, TopValues):
-        return (
-            wanted
-            | _expressions(operation.score, program)
-            | {slot for index in operation.partitions for slot in program.key_groups[index]}
-        )
+        return wanted | _expressions(operation.score, program)
     if isinstance(operation, ReduceValues):
         return set().union(
             *(
@@ -190,25 +171,12 @@ def _input_columns(stage: LocalCompute, wanted: set[str]) -> set[str]:
                 if statistic.value is not None
             )
         ) | {slot for index in operation.positions for slot in program.key_groups[index]}
-    if isinstance(operation, (KeyImage, ComponentKeys, RollupValues, DrillValues)):
+    if isinstance(operation, KeyImage):
         return set(program.keys)
     if isinstance(operation, ReadFields):
         return set(program.key_groups[0]) | {
             slot for index in operation.positions for slot in program.key_groups[index]
         }
-    if isinstance(operation, ProjectKeys):
-        # Presence and endpoint projection facts are obligations, not ordinary
-        # value columns. Retaining the layout support avoids guessing a domain.
-        return (
-            set(program.keys)
-            | {
-                column.slot_id
-                for column in program.columns
-                if column.slot_id not in {value.slot_id for value in program.input_layout.values}
-            }
-            if program.input_layout is not None
-            else set(program.keys)
-        )
     return {column.slot_id for column in program.columns}
 
 
@@ -248,30 +216,7 @@ def required_slots(plan: QueryPlan) -> tuple[RequiredSlots, ...]:
             for source in stage.inputs:
                 wanted[source].update(column.slot_id for column in stages[source].columns)
             continue
-        original = (
-            stage.program
-            if stage.program is not None
-            else stage.result.original
-            if stage.result is not None
-            else None
-        )
         needed = set(components[stage.stage_id])
-        if stage.result is not None and original is not None:
-            operation = stage.result.operation
-            if isinstance(operation, (RollupValues, DrillValues)):
-                needed.update(value.column.slot_id for value in original.values)
-                if original.members is not None:
-                    needed.add("__original_member_count")
-            elif isinstance(operation, ShareValues):
-                needed.update(
-                    value.column.slot_id
-                    for value in original.values
-                    if value.occurrence[0] == operation.value_index
-                )
-                if original.members is not None:
-                    needed.add("__original_member_count")
-            elif isinstance(operation, ComponentKeys):
-                needed.add(operation.value_slot)
         if stage.program is not None:
             # The formula completes before downstream projection. Its source
             # check flags remain data for native branch demand, never eagerly
@@ -343,9 +288,6 @@ def _fuse(plan: QueryPlan) -> QueryPlan:
                 and inner.keys == stage.keys
                 and inner.result.key_groups == stage.result.key_groups
                 and inner.result.columns == stage.result.columns
-                and not inner.result.references
-                and not stage.result.references
-                and inner.result.original == stage.result.original
             )
             issue = query_selection_fusion_issue(
                 first,
@@ -387,65 +329,6 @@ def _fuse(plan: QueryPlan) -> QueryPlan:
                 )
             else:
                 decisions.append(RuleDecision("L1", "refused", pair, ": ".join(issue)))
-        elif isinstance(second, (FilterValues, TopValues, SelectValues)) and isinstance(
-            first, (ShareValues, TopValues, RollupValues, DrillValues)
-        ):
-            decisions.append(
-                RuleDecision(
-                    "local_fusion",
-                    "refused",
-                    pair,
-                    f"{type(first).__name__} retains its denominator, order or original fine-grid completion boundary.",
-                )
-            )
-        elif isinstance(first, RollupValues) and isinstance(second, RollupValues):
-            program = inner.result.original
-            outputs = tuple(
-                column.dtype for column in stage.columns if column.slot_id not in stage.keys
-            )
-            issue = query_original_fusion_issue(
-                first,
-                second,
-                tuple(node for _, node in program.outputs) if program is not None else (),
-                dict(program.declared) if program is not None else {},
-                outputs,
-                single_consumer=consumers[inner.stage_id] == {stage.stage_id}
-                and inner.stage_id != plan.publish,
-                same_components=program is not None and program == stage.result.original,
-                pending_checks=bool(check_stages & set(pair)),
-                ordinary=program is not None
-                and program.calendar is None
-                and not program.populations
-                and program.members is None,
-            )
-            if issue is None:
-                steps = (
-                    (*inner.fused_steps, replace(stage, fused_steps=()))
-                    if inner.fused_steps
-                    else (inner, replace(stage, fused_steps=()))
-                )
-                stages[stage.stage_id] = replace(stage, inputs=inner.inputs, fused_steps=steps)
-                removed.add(inner.stage_id)
-                for source in inner.inputs:
-                    consumers[source].discard(inner.stage_id)
-                    consumers[source].add(stage.stage_id)
-                consumers[inner.stage_id].clear()
-                members = (
-                    (*groups.pop(inner.stage_id).members, stage.stage_id)
-                    if inner.stage_id in groups
-                    else pair
-                )
-                groups[stage.stage_id] = FusionGroup("L8", members, stage.stage_id)
-                decisions.append(
-                    RuleDecision(
-                        "L8",
-                        "adopted",
-                        members,
-                        "Ordered exact original finishes retain every intermediate check inside one scheduled group.",
-                    )
-                )
-            else:
-                decisions.append(RuleDecision("L8", "refused", pair, ": ".join(issue)))
         elif isinstance(first, ReduceValues) and isinstance(second, ReduceValues):
             decisions.append(
                 RuleDecision(
@@ -586,18 +469,6 @@ def _common_sources(plan: QueryPlan) -> QueryPlan:
                 stage,
                 inputs=tuple(aliases.get(item, item) for item in stage.inputs),
                 program=program(stage.program),
-                result=replace(stage.result, original=program(stage.result.original))
-                if stage.result is not None
-                else None,
-                fused_steps=tuple(
-                    replace(
-                        step,
-                        result=replace(step.result, original=program(step.result.original))
-                        if step.result is not None
-                        else None,
-                    )
-                    for step in stage.fused_steps
-                ),
             )
         stages.append(stage)
     decisions = tuple(
@@ -697,7 +568,6 @@ class CompilationKey:
     node_id: str
     owner: Owner
     schemas: tuple[SourceSchema, ...]
-    context: QueryContext
     definition: BoundGraph = field(compare=False, repr=False)
     checks: tuple[SourceCheckRoute, ...] = ()
     required: tuple[str, ...] = ()
@@ -717,7 +587,6 @@ class CompilationKey:
 def compilation_key(
     graph: BoundGraph,
     schemas: tuple[SourceSchema, ...],
-    context: QueryContext,
     *,
     required: tuple[str, ...] = (),
     require_original: bool = False,
@@ -725,7 +594,7 @@ def compilation_key(
     checks: tuple[SourceCheckRoute, ...] = (),
 ) -> CompilationKey:
     signature = graph.signature
-    # These immutable records are shared by input_graph/capture_query. Holding
+    # These immutable source records are invocation-owned. Holding
     # the graph in the memo key keeps their identities alive for this execute;
     # no whole-subgraph serialization or recursive hash is needed per node.
     node_id = repr(
@@ -751,7 +620,6 @@ def compilation_key(
         node_id,
         graph.signature.owner,
         schemas,
-        context,
         graph,
         checks,
         required,
@@ -773,7 +641,7 @@ MemoSlot: TypeAlias = tuple[
 
 
 def _memo_slot(key: CompilationKey) -> MemoSlot:
-    # Owner, bound schema and context are invocation-wide invalidation guards.
+    # Owner and bound schema are invocation-wide invalidation guards.
     # A small hash key holds only structural IDs/versions, without recursively
     # hashing or serializing the captured definition graph at every node.
     return (
@@ -791,7 +659,7 @@ class InvocationMemo:
     """One execute call's typed compiler artifacts; results never enter this memo."""
 
     def __init__(self) -> None:
-        self._binding: tuple[Owner, tuple[SourceSchema, ...], QueryContext] | None = None
+        self._binding: tuple[Owner, tuple[SourceSchema, ...]] | None = None
         self._plans: dict[MemoSlot, QueryPlan] = {}
         self._lowered: dict[MemoSlot, LoweredQuery] = {}
         self._captures: dict[MemoSlot, BoundGraph] = {}
@@ -800,7 +668,7 @@ class InvocationMemo:
         self.misses = 0
 
     def _bind(self, key: CompilationKey) -> None:
-        binding = (key.owner, key.schemas, key.context)
+        binding = (key.owner, key.schemas)
         if binding != self._binding:
             self._plans.clear()
             self._lowered.clear()

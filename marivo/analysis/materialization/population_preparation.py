@@ -26,7 +26,6 @@ from marivo._definition.relations import (
     PopulationProgram,
     PopulationProject,
     PopulationSet,
-    QueryKeys,
     SourceIdentities,
     condition_populations,
     population_keys,
@@ -110,10 +109,6 @@ def population_entities(
                         for field_step in read.path:
                             relation = state.registry.relationships[field_step.ref.path]
                             entities.update((relation.from_entity, relation.to_entity))
-        elif isinstance(node, QueryKeys) and state is not None:
-            from marivo.analysis.materialization.query_population import query_population_entities
-
-            entities.update(query_population_entities(node, state))
         elif isinstance(node, PopulationFilter):
             entities.update(population_entities(node.operand, state))
             for domain in condition_populations(node.predicate):
@@ -320,10 +315,6 @@ def prepare_population(
         return PreparedPopulation(table, key_groups)
     assert isinstance(definition, PopulationProgram)
     node = definition.root
-    if isinstance(node, QueryKeys):
-        from marivo.analysis.materialization.query_population import prepare_query_keys
-
-        return prepare_query_keys(node, entities, state)
     if isinstance(node, PopulationFilter):
         prepared = prepare_population(node.operand, entities, state)
         table = prepared.table

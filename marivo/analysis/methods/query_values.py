@@ -10,20 +10,17 @@ import pandas as pd
 import pyarrow as pa
 
 from marivo._definition.query import (
-    CombineValues,
     CoordinateSlot,
     FilterValues,
     KeyImage,
     LiteralValues,
     PopulationValues,
     PresenceSlot,
-    ProjectKeys,
     ReadFields,
     ReduceValues,
     SelectValues,
     TopValues,
     ValueBinary,
-    ValueBroadcast,
     ValueExpression,
     ValueLiteral,
     ValueSlot,
@@ -67,14 +64,6 @@ def _binary(operation: str, left: object, right: object) -> object:
 def expression_series(
     expression: ValueExpression, frame: pd.DataFrame, program: ResultProgram | FrameProgram
 ) -> pd.Series:
-    if isinstance(expression, ValueBroadcast):
-        assert isinstance(program, ResultProgram)
-        index = next(
-            index
-            for index, reference in enumerate(program.references)
-            if reference.definition == expression.source
-        )
-        return frame[f"__broadcast.{index}"].reset_index(drop=True)
     if isinstance(expression, ValueSlot):
         columns = (
             program.input_schema.values
@@ -98,14 +87,12 @@ def expression_series(
                     program.input_schema.presence_paths.index(expression.path)
                 ].slot_id
             ].reset_index(drop=True)
-        assert program.input_layout is not None
-        return frame[
-            next(
-                item.column
-                for item in program.input_layout.presence
-                if item.path == expression.path
-            )
-        ].reset_index(drop=True)
+        reject(
+            "a Frame-bound presence slot",
+            repr(expression.path),
+            "Acquire presence from the current AnalysisFrame.",
+            "frame.expression",
+        )
     if isinstance(expression, ValueLiteral):
         literal = (
             Decimal(expression.value)
@@ -197,30 +184,6 @@ def evaluate_result(stage: LocalCompute, inputs: tuple[pd.DataFrame, ...]) -> pd
     program = stage.result
     assert program is not None
     operation = program.operation
-    if isinstance(operation, CombineValues):
-        from marivo.analysis.methods.query_comparison import align_frames, compare_frames
-
-        assert program.comparison is not None
-        relation_frame = None
-        if program.comparison.relation_requirement is not None:
-            requirement = program.comparison.relation_requirement
-            relation_frame = (
-                inputs[2]
-                .loc[:, [slot for group in program.relation_groups for slot in group]]
-                .copy()
-            )
-            relation_frame.columns = (*requirement.left_keys, *requirement.right_keys)
-        return (
-            align_frames(program.comparison, inputs[0], inputs[1], relation_frame=relation_frame)
-            if operation.operation == "align"
-            else compare_frames(
-                program.comparison,
-                inputs[0],
-                inputs[1],
-                zero_denominator=operation.zero_denominator,
-                relation_frame=relation_frame,
-            )
-        ).frame
     if isinstance(operation, KeyImage):
         frame = inputs[0].loc[:, list(program.keys)].copy()
         frame.columns = [column.slot_id for column in stage.columns]
@@ -255,51 +218,6 @@ def evaluate_result(stage: LocalCompute, inputs: tuple[pd.DataFrame, ...]) -> pd
         ]
         return pd.DataFrame(flattened, columns=[column.slot_id for column in stage.columns])
     frame = inputs[0].reset_index(drop=True).copy()
-    if isinstance(operation, ProjectKeys):
-        assert program.input_layout is not None
-        projected_columns: list[str] = []
-        assert program.output_layout is not None
-        for axis_index, (position, path) in enumerate(
-            zip(operation.positions, operation.paths, strict=True)
-        ):
-            if path is None:
-                projected_columns.extend(program.key_groups[position])
-                continue
-            projection = (
-                next(
-                    item
-                    for item in program.input_layout.projections
-                    if item.path == path and item.axis == program.output_layout.axes[axis_index]
-                )
-                if program.output_layout is not None
-                else next(item for item in program.input_layout.projections if item.path == path)
-            )
-            present = next(
-                item.column for item in program.input_layout.presence if item.path == path
-            )
-            if not frame[present].all():
-                reject(
-                    "a total endpoint coordinate projection",
-                    repr(path),
-                    "Filter this Query by the endpoint presence Column before population().project.",
-                    "Population.project",
-                )
-            projected_columns.extend(projection.columns)
-        result = frame.loc[:, projected_columns].drop_duplicates().reset_index(drop=True)
-        result.columns = [column.slot_id for column in stage.columns]
-        return result
-    if program.references:
-        from marivo.analysis.methods.query_comparison import broadcast_series
-
-        for index, reference in enumerate(program.references):
-            frame[f"__broadcast.{index}"] = broadcast_series(
-                reference.reference,
-                inputs[reference.input_index],
-                reference.target,
-                frame.loc[:, [column.slot_id for column in reference.target.columns]],
-                value_slot=reference.reference.values[0].slot_id,
-                mapping=reference.mapping,
-            )
     if isinstance(operation, ReadFields):
         columns = [
             *program.key_groups[0],
@@ -336,7 +254,6 @@ def evaluate_result(stage: LocalCompute, inputs: tuple[pd.DataFrame, ...]) -> pd
                 ValueLiteral,
                 ValueUnary,
                 ValueBinary,
-                ValueBroadcast,
             ),
         ):
             from marivo.analysis.methods.query_population import condition_mask
@@ -364,9 +281,6 @@ def evaluate_result(stage: LocalCompute, inputs: tuple[pd.DataFrame, ...]) -> pd
     if isinstance(operation, TopValues):
         score = expression_series(operation.score, frame, program)
         ordered = frame.assign(__score=score)
-        partitions = tuple(
-            key for position in operation.partitions for key in program.key_groups[position]
-        )
         # Stable score sorting preserves canonical complete-key order on ties.
         # Missing scores remain last independently of null coordinate categories.
         if program.keys:
@@ -374,11 +288,7 @@ def evaluate_result(stage: LocalCompute, inputs: tuple[pd.DataFrame, ...]) -> pd
         ordered = ordered.sort_values(
             "__score", ascending=not operation.descending, na_position="last", kind="stable"
         )
-        if partitions:
-            ordered = ordered.sort_values(list(partitions), na_position="first", kind="stable")
-            ordered = ordered.groupby(list(partitions), dropna=False, sort=False).head(operation.n)
-        else:
-            ordered = ordered.head(operation.n)
+        ordered = ordered.head(operation.n)
         return (
             ordered.loc[:, [column.slot_id for column in stage.columns]]
             .reset_index(drop=True)
@@ -390,9 +300,6 @@ def evaluate_result(stage: LocalCompute, inputs: tuple[pd.DataFrame, ...]) -> pd
             for name, statistic in operation.values
             if statistic.value is not None
         }
-        for position, mapping in operation.calendar_maps:
-            calendar_key = program.key_groups[operation.positions[position]][0]
-            frame[calendar_key] = frame[calendar_key].map(dict(enumerate(mapping)))
         selected = tuple(
             key for position in operation.positions for key in program.key_groups[position]
         )

@@ -13,6 +13,8 @@ import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._temporal import TemporalSnapshotStore
+from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
+from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.errors import AnalysisError
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.reader import SemanticProject
@@ -20,6 +22,12 @@ from tests.shared_fixtures import (
     fiscal_analysis_project_files,
     publish_fiscal_calendar_artifact,
 )
+
+
+def _source_graph(frame: mv.AnalysisFrame) -> BoundGraph:
+    assert isinstance(frame._backing, ExpressionFrameBacking)
+    assert isinstance(frame._backing.root, SourceFrameBinding)
+    return frame._backing.root.graph
 
 
 @pytest.fixture
@@ -93,7 +101,7 @@ def test_named_and_anonymous_scalar_windows_preserve_reset_and_null_semantics(
             {"named": session.catalog.metrics.get("sales.fiscal_total"), "anonymous": anonymous},
             during=session.time_scope(start="2026-01-20", end=end),
         )
-        .execute()
+        .compute()
         .to_pandas()
     )
     for name in ("named", "anonymous"):
@@ -112,21 +120,21 @@ def test_named_calendar_window_freezes_snapshot_before_execution(
         {"total": metric},
         during=session.time_scope(start="2026-01-31", end="2026-02-04").by(mv.grain("day")),
     )
-    binding = query._graph.signature.observation
+    binding = _source_graph(query).signature.observation
     assert binding is not None
     snapshot = session._sources().period_calendar_snapshots[0]
     assert {item.window_calendar_digest for item in binding.contributions} == {
         snapshot.snapshot_digest
     }
-    original = query._graph.fingerprint
+    original = _source_graph(query).fingerprint
     shutil.rmtree(TemporalSnapshotStore(catalog.workspace_dir)._directory(snapshot.calendar_ref))
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("execution refreshed the frozen temporal scope")
 
     monkeypatch.setattr(TemporalSnapshotStore, "inspect_current", forbidden)
-    assert query._graph.fingerprint == original
-    data = query.execute().to_pandas()
+    assert _source_graph(query).fingerprint == original
+    data = query.compute().to_pandas()
     assert data[("value", "total")].isna().tolist() == [False, True, True, False]
     assert data[("value", "total")].dropna().tolist() == [120, 7]
 
@@ -166,7 +174,7 @@ def test_explicit_grain_rejects_a_different_certified_snapshot(
         },
         during=scope_a.by(mv.grain("day")) if bucketed else scope_a,
     )
-    original_fingerprint = query_a._graph.fingerprint
+    original_fingerprint = _source_graph(query_a).fingerprint
 
     # Certify changed source rows under the same definition, not a fabricated digest.
     with duckdb.connect(str(database)) as connection:
@@ -206,17 +214,17 @@ def test_explicit_grain_rejects_a_different_certified_snapshot(
                 )
             assert not session.runs().items
 
-    assert query_a._graph.fingerprint == original_fingerprint
+    assert _source_graph(query_a).fingerprint == original_fingerprint
     for query, expected, snapshot in (
         (query_a, 120, grain_a._snapshot),
         (query_b, 20, grain_b._snapshot),
     ):
-        binding = query._graph.signature.observation
+        binding = _source_graph(query).signature.observation
         assert binding is not None
         assert {item.window_calendar_digest for item in binding.contributions} == {
             snapshot.snapshot_digest
         }
-        data = query.execute().to_pandas()
+        data = query.compute().to_pandas()
         for name in ("named", "explicit"):
             assert data[("value", name)].iloc[-1] == expected
 

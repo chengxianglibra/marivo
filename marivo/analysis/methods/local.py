@@ -235,7 +235,7 @@ def _combine_program(
                 received="observed coordinates outside by=Population",
                 repair="Include every observed output coordinate in by=Population, or filter contributions before choosing that complete output domain.",
                 stage="population_coverage",
-                help_target="query.execute",
+                help_target="analysis_frame.compute",
             )
         domain = complete_domain.drop_duplicates().reset_index(drop=True)
     declarations = dict(program.declared)

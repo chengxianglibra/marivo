@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from marivo._definition.graph import DefinitionNode, children, computation_fingerprint
 from marivo._definition.query import KeyImage, PopulationValues
-from marivo._definition.relations import FrameKeys, PopulationProgram, QueryKeys
+from marivo._definition.relations import FrameKeys, PopulationProgram
 from marivo.analysis.compiler.graph_plan import (
     FrameKeysInput,
     LocalCompute,
@@ -16,16 +16,12 @@ from marivo.analysis.compiler.graph_plan import (
     SourceRead,
     SourceSchema,
     _plan_query,
-    plan_query,
 )
 from marivo.analysis.compiler.query_program import (
-    EMPTY_QUERY_CONTEXT,
-    FrameParameter,
-    QueryContext,
     ResultProgram,
     SourceParameter,
 )
-from marivo.analysis.core.graph import BoundGraph, input_graph
+from marivo.analysis.core.graph import BoundGraph
 
 if TYPE_CHECKING:
     from marivo.analysis.compiler.optimization import InvocationMemo
@@ -40,7 +36,7 @@ def parameter_domains(graph: BoundGraph) -> tuple[PopulationProgram, ...]:
         if id(node) in seen:
             return
         seen.add(id(node))
-        if isinstance(node, PopulationProgram) and isinstance(node.root, (QueryKeys, FrameKeys)):
+        if isinstance(node, PopulationProgram) and isinstance(node.root, FrameKeys):
             result[computation_fingerprint(node)] = node
             return
         for edge in children(node):
@@ -57,7 +53,6 @@ def plan_parameters(
     graph: BoundGraph,
     schemas: tuple[SourceSchema, ...],
     checks: tuple[SourceCheckRoute, ...],
-    context: QueryContext = EMPTY_QUERY_CONTEXT,
     *,
     memo: InvocationMemo | None = None,
 ) -> QueryPlan:
@@ -91,24 +86,19 @@ def plan_parameters(
         return base
     producers: dict[str, QueryPlan] = {}
     for name, parameter in parameters.items():
-        if isinstance(parameter, FrameParameter):
-            from marivo.analysis.compiler.populations import frame_key_groups
+        from marivo.analysis.compiler.populations import frame_key_groups
 
-            assert isinstance(parameter.definition.root, FrameKeys)
-            leaf = FrameKeysInput(
-                "framekeys:" + computation_fingerprint(parameter.definition), parameter
-            )
-            producers[name] = QueryPlan(
-                (leaf,),
-                (),
-                ((leaf.stage_id, ()),),
-                leaf.stage_id,
-                frame_key_groups(parameter.definition.root),
-            )
-        else:
-            producers[name] = plan_query(
-                input_graph(parameter.query), schemas, context=context, memo=memo
-            )
+        assert isinstance(parameter.definition.root, FrameKeys)
+        leaf = FrameKeysInput(
+            "framekeys:" + computation_fingerprint(parameter.definition), parameter
+        )
+        producers[name] = QueryPlan(
+            (leaf,),
+            (),
+            ((leaf.stage_id, ()),),
+            leaf.stage_id,
+            frame_key_groups(parameter.definition.root),
+        )
     stages = {stage.stage_id: stage for plan in producers.values() for stage in plan.stages}
     for stage in base.stages:
         if not isinstance(stage, SourceRead):
@@ -162,17 +152,8 @@ def plan_parameters(
             output = next(item for item in producer.stages if item.stage_id == producer.publish)
             from marivo.analysis.compiler.queries import key_groups
 
-            if isinstance(direct, FrameParameter):
-                groups = producer.output_groups
-                input_axes = direct.definition.axes
-            else:
-                input_definition = input_graph(direct.query)
-                groups = (
-                    output.result.output_groups
-                    if isinstance(output, LocalCompute) and output.result is not None
-                    else key_groups(input_definition, output.columns, output.keys)
-                )
-                input_axes = input_definition.signature.axes
+            groups = producer.output_groups
+            input_axes = direct.definition.axes
             output_groups = tuple(
                 tuple(
                     stage.keys[tuple(key.column for key in schema.keys).index(column)]

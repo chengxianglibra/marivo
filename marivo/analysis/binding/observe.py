@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Literal
 
-from marivo._definition.correspondence import CorrespondenceAxis
 from marivo._definition.expressions import (
     ContributionFilter,
     DeclaredMetricRef,
@@ -297,13 +296,6 @@ def bind_observation(
         if isinstance(node, (PerReduce, PerWeightedMean)):
             domain = node.samples
             inner_domain_axes = domain if isinstance(domain, tuple) else domain.axes
-            if any(isinstance(axis, CorrespondenceAxis) for axis in inner_domain_axes):
-                reject(
-                    "source field or calendar sample axes",
-                    "a correspondence axis",
-                    "Project an original endpoint axis before sampling a source Metric.",
-                    "Metric.per",
-                )
             inner_axes = tuple(
                 axis
                 for axis in inner_domain_axes

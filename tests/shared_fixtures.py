@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from marivo._help.render import PublicHelpTarget
     from marivo._temporal import CalendarAxis, TimeScope
     from marivo.analysis.core.time_authority import TemporalExecution
-    from marivo.analysis.dsl.query import Query
+    from marivo.analysis.dsl.frame import AnalysisFrame
     from marivo.analysis.session.core import Session
     from marivo.datasource.ir import DatasourceIR
     from marivo.semantic.catalog import SemanticCatalog
@@ -892,12 +892,12 @@ def run_ids(session: Session) -> set[str]:
             return identities
 
 
-def numeric_program_query(
+def numeric_program_frame(
     session: Session,
     outputs: Mapping[str, MetricNode],
     *,
     during: TimeScope | CalendarAxis | None = None,
-) -> Query:
+) -> AnalysisFrame:
     """Build a terminal/compiler fixture from closed numeric nodes, bypassing authoring.
 
     Bare literals are deliberately not public Metric inputs. These tests exercise
@@ -906,9 +906,11 @@ def numeric_program_query(
     from marivo._definition.relations import ObserveQuery
     from marivo._definition.types import Owner
     from marivo.analysis.binding.observe import bind_observation
+    from marivo.analysis.core.frame_data import LiteralFrameBinding
     from marivo.analysis.core.graph import BoundGraph
     from marivo.analysis.core.model import BoundQuantity, BoundSignature
-    from marivo.analysis.dsl.query import Query
+    from marivo.analysis.dsl.frame import AnalysisFrame
+    from marivo.analysis.dsl.frame_sources import pending_schema
 
     owner = Owner(session.id, session._runtime.store.store_id)
     metrics = tuple(outputs.items())
@@ -921,12 +923,11 @@ def numeric_program_query(
         observation.coordinates.axes,
         observation=observation,
     )
-    result = object.__new__(Query)
-    object.__setattr__(
-        result, "_graph", BoundGraph(ObserveQuery(metrics, signature.axes, owner), signature)
+    graph = BoundGraph(ObserveQuery(metrics, signature.axes, owner), signature)
+    schema, _ = pending_schema(graph, None)
+    return AnalysisFrame._from_expression(
+        session._runtime.local, schema, LiteralFrameBinding(graph)
     )
-    object.__setattr__(result, "_execute", session._execute_query)
-    return result
 
 
 def numeric_literal_node(value: int) -> MetricExpression:

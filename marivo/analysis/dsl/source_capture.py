@@ -7,16 +7,15 @@ from typing import TypeAlias
 
 from ibis.common.deferred import Deferred
 
-from marivo._definition.correspondence import ComparisonAxis, CorrespondenceAxis
+from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.expressions import ContributionFilter, MetricNode
 from marivo._definition.query import (
     ResultQuery,
 )
 from marivo._definition.relations import (
-    FrameKeys,
     ObserveQuery,
     PopulationProgram,
-    QueryKeys,
+    ReadQuery,
 )
 from marivo._definition.types import (
     AxisBinding,
@@ -30,7 +29,7 @@ from marivo._definition.types import (
 )
 from marivo._temporal import PeriodCalendarSnapshotV1, TimeScope
 from marivo.analysis.binding.observe import bind_observation
-from marivo.analysis.core.graph import BoundGraph, capture_query
+from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import BoundQuantity, BoundSignature, ResultQuantity, reject
 from marivo.analysis.dsl.column import literal_kind
 from marivo.analysis.dsl.population import (
@@ -59,7 +58,6 @@ def capture_read(
     state: CompiledSemanticState,
 ) -> BoundGraph:
     from marivo._definition.observations import CoordinateBinding, ObservationBinding
-    from marivo._definition.query import ReadFields
     from marivo._definition.relations import PopulationClassify
     from marivo.analysis.binding.coordinates import bind_read
     from marivo.analysis.observation.relationship_binding import RelationshipResolver
@@ -118,14 +116,9 @@ def capture_read(
     )
     definition = PopulationProgram(PopulationClassify(population.definition, unique), owner, axes)
     binding = ObservationBinding(None, None, CoordinateBinding(axes, "grouped", definition), ())
-    base = BoundGraph(
-        ObserveQuery((), axes, owner, definition),
-        BoundSignature(owner, (), axes, observation=binding),
-    )
-    operation = ReadFields(tuple(unique.index(read) + 1 for read in reads))
     return BoundGraph(
-        ResultQuery((capture_query(base),), operation, (identity,), owner),
-        BoundSignature(owner, tuple(quantities), (identity,)),
+        ReadQuery(definition, tuple(unique.index(read) + 1 for read in reads), (identity,), owner),
+        BoundSignature(owner, tuple(quantities), (identity,), observation=binding),
     )
 
 
@@ -173,7 +166,7 @@ def capture_values(
         reject(
             "named columns and finite typed literal rows",
             repr((columns, rows)),
-            "Provide at least one literal row to establish value kinds; filter the Query when an empty typed result is needed.",
+            "Provide at least one literal row to establish value kinds; filter the Frame when an empty typed result is needed.",
             "Session.values",
         )
     names = tuple(columns)
@@ -241,7 +234,7 @@ def capture_values(
             )
     for key, row in rows:
         values.append((key, tuple(literal(row[name]) for name in names)))
-    root = ResultQuery((), LiteralValues(names, tuple(values)), axes, owner)
+    root = ResultQuery(LiteralValues(names, tuple(values)), axes, owner)
     signature = BoundSignature(
         owner,
         tuple(
@@ -316,13 +309,7 @@ def capture_metrics(
             population = (
                 members.classify(by=axes).definition if axes != members.axes else members.definition
             )
-    if any(isinstance(axis, CorrespondenceAxis) for axis in axes):
-        reject(
-            "original field or calendar observation axes",
-            "a correspondence axis",
-            "Project a complete original endpoint before observing source Metrics.",
-            "Session.observe",
-        )
+
     source_axes = tuple(
         axis for axis in axes if isinstance(axis, (AxisBinding, CalendarCoordinate))
     )
@@ -378,23 +365,9 @@ def capture_population(population: Population, owner: Owner) -> BoundGraph:
             "a Population from this Session",
             str(existing_owner),
             "Rebuild the Population in this Session.",
-            "session.query",
+            "session.frame",
         )
     axes = population.definition.axes
-    from marivo._definition.graph import walk
-
-    closure = walk((population.definition,), resolve=lambda _: None)
-    if any(isinstance(node, QueryKeys) for node in closure.order) and not any(
-        isinstance(node, FrameKeys) for node in closure.order
-    ):
-        from marivo._definition.query import PopulationValues
-        from marivo.analysis.compiler.populations import population_inputs
-
-        inputs = population_inputs(population.definition, owner)
-        return BoundGraph(
-            ResultQuery(inputs, PopulationValues(population.definition), axes, owner),
-            BoundSignature(owner, (), axes),
-        )
     binding = ObservationBinding(
         None,
         None,

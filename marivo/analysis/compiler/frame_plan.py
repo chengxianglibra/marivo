@@ -25,13 +25,6 @@ from marivo.analysis.compiler.graph_plan import (
     QueryStage,
     SourceRead,
 )
-from marivo.analysis.compiler.native_formula import (
-    NativeOriginalBatchFinish,
-    NativeOriginalFinish,
-    NativeOriginalFinisher,
-    NativeOriginalPhase,
-    NativeOriginalPhaseFinish,
-)
 from marivo.analysis.compiler.observation import FormulaProgram
 from marivo.analysis.compiler.query_program import DurationBinary, FrameCombineProgram, FrameProgram
 from marivo.analysis.core.data_schema import DataSchema
@@ -89,28 +82,6 @@ def _formula(program: FormulaProgram | None, names: Mapping[str, str]) -> Formul
     return _required_formula(program, names)
 
 
-def _phase(phase: NativeOriginalPhase, names: Mapping[str, str]) -> NativeOriginalPhase:
-    return replace(phase, program=_required_formula(phase.program, names))
-
-
-def _native(
-    finish: NativeOriginalFinisher | None, names: Mapping[str, str]
-) -> NativeOriginalFinisher | None:
-    if isinstance(finish, NativeOriginalFinish):
-        return replace(finish, program=_required_formula(finish.program, names))
-    if isinstance(finish, NativeOriginalPhaseFinish):
-        return replace(finish, phase=_phase(finish.phase, names))
-    if isinstance(finish, NativeOriginalBatchFinish):
-        return replace(
-            finish,
-            parent=_phase(finish.parent, names),
-            target=_phase(finish.target, names),
-            selections=tuple(_prefix_local(stage, names) for stage in finish.selections),
-            intermediates=tuple(_phase(phase, names) for phase in finish.intermediates),
-        )
-    return finish
-
-
 def _prefix(stage: QueryStage, names: Mapping[str, str]) -> QueryStage:
     inputs = tuple(_name(names, name) for name in stage.inputs)
     if isinstance(stage, SourceRead):
@@ -123,16 +94,6 @@ def _prefix(stage: QueryStage, names: Mapping[str, str]) -> QueryStage:
             ),
             common_reads=tuple(_prefix_read(s, names) for s in stage.common_reads),
             native_reads=tuple(_prefix_read(s, names) for s in stage.native_reads),
-            native_original_finish=_native(stage.native_original_finish, names),
-            native_query_finish=replace(
-                stage.native_query_finish,
-                program=replace(
-                    stage.native_query_finish.program,
-                    original=_formula(stage.native_query_finish.program.original, names),
-                ),
-            )
-            if stage.native_query_finish is not None
-            else None,
         )
     if isinstance(stage, LocalCompute):
         return replace(
@@ -140,9 +101,6 @@ def _prefix(stage: QueryStage, names: Mapping[str, str]) -> QueryStage:
             stage_id=_name(names, stage.stage_id),
             inputs=inputs,
             program=_formula(stage.program, names),
-            result=replace(stage.result, original=_formula(stage.result.original, names))
-            if stage.result is not None
-            else None,
             fused_steps=tuple(_prefix_local(s, names) for s in stage.fused_steps),
         )
     return replace(stage, stage_id=_name(names, stage.stage_id), inputs=inputs)

@@ -39,10 +39,7 @@ from marivo._definition.expressions import (
     SourceWeightedMean,
 )
 from marivo._definition.query import (
-    FilterValues,
-    PopulationValues,
     ResultQuery,
-    operation_dependencies,
 )
 from marivo._definition.relations import (
     CalendarKeys,
@@ -63,8 +60,8 @@ from marivo._definition.relations import (
     PopulationProgram,
     PopulationProject,
     PopulationSet,
-    QueryKeys,
     QueryNode,
+    ReadQuery,
     SourceIdentities,
 )
 from marivo._definition.types import (
@@ -223,21 +220,10 @@ def children(node: DefinitionNode) -> tuple[Edge, ...]:
             return ()
         case PopulationProgram():
             return _edges(("population", node.root))
-        case QueryKeys():
-            return _edges(("query", node.query))
+        case ReadQuery():
+            return _edges(("population", node.population))
         case ResultQuery():
-            return _edges(
-                *(
-                    ("query", item)
-                    for item in (*node.inputs, *operation_dependencies(node.operation))
-                ),
-                *(("population", node.operation.definition),)
-                if isinstance(node.operation, PopulationValues)
-                else (),
-                *_predicate_inputs(node.operation.predicate)
-                if isinstance(node.operation, FilterValues)
-                else (),
-            )
+            return ()
         case PopulationClassify() | PopulationProject():
             return _edges(("population", node.operand))
         case PopulationProduct():
@@ -451,9 +437,6 @@ def walk(
         captured: dict[ExactRef, MetricNode] | None = None,
         scope_id: int = 0,
     ) -> None:
-        if isinstance(node, QueryKeys):
-            captured = dict(node.declared)
-            scope_id = id(node)
         node_key = (id(node), scope_id)
         if node_key in done:
             return

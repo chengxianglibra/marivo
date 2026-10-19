@@ -18,7 +18,7 @@ class MaterializationError(DatasetConstructionError):
         repair: str,
         stage: str = "materialization",
         run_ref: str | None = None,
-        help_target: str = "query.execute",
+        help_target: str = "analysis_frame.compute",
     ) -> None:
         self.stage = stage
         super().__init__(
@@ -59,9 +59,9 @@ class StorageAccessError(IntegrityError):
         super().__init__(
             expected="authorized access to the exact committed storage version",
             received=f"selected storage is {status}",
-            repair="Restore access to the exact committed backing and inspect the selected Artifact again.",
+            repair="Restore access to the exact committed backing, then retry the same saved Frame through session.persisted_frame(artifact_id).",
             stage=stage,
-            help_target="session.artifact",
+            help_target="session.persisted_frame",
         )
 
 
@@ -81,4 +81,5 @@ class SessionBusyError(MaterializationError):
             else f"an active writer for Session {session_ref}",
             repair="Wait for the current Session action to finish, then retry the same definition.",
             stage="writer_guard",
+            help_target="analysis_frame.persist",
         )

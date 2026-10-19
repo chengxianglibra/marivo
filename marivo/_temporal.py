@@ -3457,18 +3457,6 @@ class CalendarAxis:
     def __repr__(self) -> str:
         return f"<CalendarAxis id={self.grid.identity[:16]} buckets={len(self.grid.cells)}; use .show()>"
 
-    def coarsen(self, grain: Grain) -> CalendarAxis:
-        """Construct a candidate coarser binding over this exact frozen scope.
-
-        Args: grain: A builtin or certified Grain.
-        Returns: A CalendarAxis with the same scope, timezone and clipped bounds.
-        Example: ``month = day.coarsen(mv.grain('month'))``.
-        Constraints: Consumers require each whole original bucket to map to one target
-        bucket; construction grants no Metric merge permission.
-        """
-        candidate = calendar_axis(self.scope, grain)
-        return self if candidate.grid.identity == self.grid.identity else candidate
-
     def show(self) -> None:
         """Display a bounded calendar summary.
 

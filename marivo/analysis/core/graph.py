@@ -8,9 +8,9 @@ from typing import NoReturn
 
 from marivo._definition.graph import computation_fingerprint, walk
 from marivo._definition.query import ResultQuery
-from marivo._definition.relations import ObserveQuery, QueryKeys, QueryNode
+from marivo._definition.relations import ObserveQuery, QueryNode, ReadQuery
 from marivo._definition.types import DefinitionGraphError
-from marivo.analysis.core.model import BoundQuantity, BoundSignature, ResultQuantity, reject
+from marivo.analysis.core.model import BoundQuantity, BoundSignature, reject
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,7 +22,7 @@ class BoundGraph:
 
     def __post_init__(self) -> None:
         if (
-            not isinstance(self.root, (ObserveQuery, ResultQuery))
+            not isinstance(self.root, (ObserveQuery, ReadQuery, ResultQuery))
             or type(self.signature) is not BoundSignature
         ):
             _fail("an observation definition and multi-output signature", type(self).__name__)
@@ -68,48 +68,14 @@ class BoundGraph:
         )
 
 
-def capture_query(graph: BoundGraph) -> QueryKeys:
-    """Capture the exact logical input, including its completed observation scope."""
-    signature = graph.signature
-    return QueryKeys(
-        graph.root,
-        signature.axes,
-        signature.observation,
-        signature.declared_metrics,
-        tuple(item.unit for item in signature.quantities),
-        tuple(item.name for item in signature.quantities),
-        tuple(
-            item.kind if isinstance(item, ResultQuantity) else "numeric"
-            for item in signature.quantities
-        ),
-    )
-
-
-def input_graph(captured: QueryKeys) -> BoundGraph:
-    """Recover an invocation input from immutable definition records."""
-    owner = captured.query.owner
-    if owner is None:
-        _fail("a Session-owned Query", "unbound owner")
-    quantities: tuple[BoundQuantity | ResultQuantity, ...] = (
-        tuple(
-            BoundQuantity(name, definition, unit)
-            for (name, definition), unit in zip(captured.query.metrics, captured.units, strict=True)
-        )
-        if isinstance(captured.query, ObserveQuery)
-        else tuple(
-            ResultQuantity(name, unit, kind)
-            for name, unit, kind in zip(captured.names, captured.units, captured.kinds, strict=True)
-        )
-    )
+def read_input_graph(graph: BoundGraph) -> BoundGraph:
+    """Prepare the explicit classified key domain of one source attribute read."""
+    root = graph.root
+    assert isinstance(root, ReadQuery)
+    axes = root.population.axes
     return BoundGraph(
-        captured.query,
-        BoundSignature(
-            owner,
-            quantities,
-            captured.axes,
-            captured.declared,
-            observation=captured.observation,
-        ),
+        ObserveQuery((), axes, root.owner, root.population),
+        BoundSignature(root.owner, (), axes, observation=graph.signature.observation),
     )
 
 

@@ -1,4 +1,4 @@
-"""Typed lazy analysis with explicit execution and committed Dataset reads."""
+"""Immutable analysis data with explicit computation and persistence."""
 
 from types import ModuleType
 from typing import TYPE_CHECKING, Literal
@@ -15,17 +15,16 @@ from marivo._temporal import TimeScope as TimeScope
 if TYPE_CHECKING:
     __all__: list[str]
     from marivo._definition.correspondence import CalendarCorrespondence as CalendarCorrespondence
-    from marivo._definition.correspondence import CorrespondenceAxis as CorrespondenceAxis
-    from marivo._definition.correspondence import DeclaredCorrespondence as DeclaredCorrespondence
     from marivo._temporal import InstantAnchor as InstantAnchor
     from marivo.analysis import session as session
     from marivo.analysis.dsl.artifact import Artifact as Artifact
     from marivo.analysis.dsl.column import Column as Column
     from marivo.analysis.dsl.column import row_count as row_count
-    from marivo.analysis.dsl.correspondence import corresponding as corresponding
     from marivo.analysis.dsl.correspondence import ordinal as ordinal
     from marivo.analysis.dsl.correspondence import period_offset as period_offset
     from marivo.analysis.dsl.correspondence import previous_year as previous_year
+    from marivo.analysis.dsl.frame import AnalysisFrame as AnalysisFrame
+    from marivo.analysis.dsl.frame_axis import FrameAxis as FrameAxis
     from marivo.analysis.dsl.metrics import member_count as member_count
     from marivo.analysis.dsl.population import MemberAxis as MemberAxis
     from marivo.analysis.dsl.population import MembershipAxis as MembershipAxis
@@ -37,8 +36,6 @@ if TYPE_CHECKING:
     from marivo.analysis.dsl.population import member as member
     from marivo.analysis.dsl.population import membership as membership
     from marivo.analysis.dsl.population import product as product
-    from marivo.analysis.dsl.query import Query as Query
-    from marivo.analysis.dsl.references import broadcast as broadcast
     from marivo.analysis.dsl.temporal import CalendarAxis as CalendarAxis
     from marivo.analysis.evidence._dataset_types import ArtifactDigest as ArtifactDigest
     from marivo.analysis.evidence._dataset_types import Finding as Finding

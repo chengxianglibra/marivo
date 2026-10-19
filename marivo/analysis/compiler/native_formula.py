@@ -3,102 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, TypeAlias
+from typing import Literal
 
 import ibis
 import ibis.expr.types as ir
 
 from marivo.analysis.compiler.observation import FormulaProgram
-from marivo.analysis.core.data_types import DataColumn, DurationDataType
+from marivo.analysis.core.data_types import DurationDataType
 from marivo.semantic._numeric_lowering import NumericCheck, NumericValue, lower_metric_formula
-
-if TYPE_CHECKING:
-    from marivo.analysis.compiler.graph_plan import LocalCompute
-
-
-@dataclass(frozen=True, slots=True)
-class NativeMeanState:
-    value: str
-    numerator: str
-    denominator: str
-
-
-@dataclass(frozen=True, slots=True)
-class NativeQuantileState:
-    value: str
-    upper: str
-    count: str
-    probability: float
-
-
-NativeOriginalState: TypeAlias = NativeMeanState | NativeQuantileState
-
-
-@dataclass(frozen=True, slots=True)
-class NativeOriginalFinish:
-    """Compact source reduction components finished by the existing host owner."""
-
-    program: FormulaProgram
-    keys: tuple[str, ...]
-    outputs: tuple[DataColumn, ...]
-    states: tuple[NativeOriginalState, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class NativeShareFinish:
-    """Finish a share against the denominator from its actual source input."""
-
-    numerator: str
-    denominator: str
-    output: str
-    zero_denominator: Literal["null", "error"]
-
-
-@dataclass(frozen=True, slots=True)
-class NativeOriginalLeaf:
-    tag: int
-    columns: tuple[tuple[str, str], ...]
-    states: tuple[NativeOriginalState, ...] = ()
-    keys: tuple[DataColumn, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class NativeOriginalPhase:
-    """Completed source leaves consumed by one existing sample formula."""
-
-    program: FormulaProgram
-    keys: tuple[str, ...]
-    outputs: tuple[DataColumn, ...]
-    leaves: tuple[NativeOriginalLeaf, ...]
-    populations: tuple[NativeOriginalLeaf, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class NativeOriginalPhaseFinish:
-    """Finish one checked compact phase before or after fixed-key selection."""
-
-    phase: NativeOriginalPhase
-    domain: NativeOriginalLeaf | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class NativeOriginalBatchFinish:
-    """Finish and check ordered original phases over one tagged source batch."""
-
-    parent: NativeOriginalPhase
-    target: NativeOriginalPhase
-    domain_mapping: tuple[tuple[str, str], ...]
-    selections: tuple[LocalCompute, ...] = ()
-    selection_keys: tuple[tuple[str, str], ...] = ()
-    target_domain_from_leaves: bool = False
-    intermediates: tuple[NativeOriginalPhase, ...] = ()
-    intermediate_domains: tuple[tuple[tuple[str, str], ...], ...] = ()
-
-
-NativeOriginalFinisher: TypeAlias = (
-    NativeOriginalFinish | NativeShareFinish | NativeOriginalBatchFinish | NativeOriginalPhaseFinish
-)
 
 
 def align_native_inputs(

@@ -11,6 +11,7 @@ from typing import NoReturn, TypeAlias
 
 import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
 
 from marivo._definition.correspondence import CalendarCorrespondence
 from marivo.analysis.core.data_schema import (
@@ -306,10 +307,10 @@ def _datetime(values: pa.Array, i: int) -> datetime:
     return value.astimezone(timezone.utc)
 
 
-def read_calendar_directory(
+def read_calendar_records(
     axis: CalendarDataAxis, schema: DataSchema, rows: pd.DataFrame
-) -> FrozenCalendarDirectory:
-    """Validate every original directory record without requiring matchability."""
+) -> tuple[FrozenCalendarBucket, ...]:
+    """Validate consumed records without claiming the complete finite directory."""
     if schema != calendar_directory_schema(axis):
         _fail("the exact calendar.v1 directory schema", repr(schema))
     _layout(schema, rows)
@@ -338,6 +339,17 @@ def read_calendar_directory(
     ordinals = tuple(bucket.ordinal for bucket in buckets)
     if len(set(labels)) != len(labels):
         _fail("unique nominal labels", repr(labels))
+    if any(ordinal < 0 for ordinal in ordinals) or len(set(ordinals)) != len(ordinals):
+        _fail("unique nonnegative original ordinals", repr(ordinals))
+    return tuple(buckets)
+
+
+def read_calendar_directory(
+    axis: CalendarDataAxis, schema: DataSchema, rows: pd.DataFrame
+) -> FrozenCalendarDirectory:
+    """Validate the entire original directory, including its complete ordinal sequence."""
+    buckets = read_calendar_records(axis, schema, rows)
+    ordinals = tuple(bucket.ordinal for bucket in buckets)
     if sorted(ordinals) != list(range(len(buckets))):
         _fail("the complete original ordinal sequence 0..n-1", repr(ordinals))
     return FrozenCalendarDirectory(axis, tuple(sorted(buckets, key=lambda bucket: bucket.ordinal)))
@@ -356,15 +368,15 @@ def _endpoint_keys(
     return tuple(result)
 
 
-def validate_paired_mapping(
+def validate_paired_records(
     axis: PairedDataAxis,
     schema: DataSchema,
     rows: pd.DataFrame,
-    left: FrozenCalendarDirectory,
-    right: FrozenCalendarDirectory,
+    left: tuple[FrozenCalendarBucket, ...],
+    right: tuple[FrozenCalendarBucket, ...],
 ) -> None:
     """Validate nominal bucket endpoints independently from primary row presence."""
-    if schema != paired_mapping_schema(axis) or (left.axis, right.axis) != (axis.left, axis.right):
+    if schema != paired_mapping_schema(axis):
         _fail("the exact paired mapping schema and endpoint directories", repr(schema))
     _layout(schema, rows)
     _unique(frozen_key_rows(rows, axis.columns), "paired")
@@ -375,15 +387,71 @@ def validate_paired_mapping(
     for keys, directory in zip(endpoints, (left, right), strict=True):
         present = tuple(key for key in keys if key is not None)
         _unique(present, "one-to-one endpoint")
-        domain = {bucket.key for bucket in directory.buckets}
+        domain = {bucket.key for bucket in directory}
         if any(key not in domain for key in present):
             _fail("endpoint keys resolving in their frozen directory", repr(present))
+
+
+def validate_paired_mapping(
+    axis: PairedDataAxis,
+    schema: DataSchema,
+    rows: pd.DataFrame,
+    left: FrozenCalendarDirectory,
+    right: FrozenCalendarDirectory,
+) -> None:
+    """Validate the full map against its exact complete endpoint directories."""
+    if (left.axis, right.axis) != (axis.left, axis.right):
+        _fail("the exact paired endpoint descriptors", repr((left.axis, right.axis)))
+    validate_paired_records(axis, schema, rows, left.buckets, right.buckets)
+
+
+def validate_paired_presence(
+    axis: PairedDataAxis,
+    schema: DataSchema,
+    rows: pd.DataFrame,
+    mapping_schema: DataSchema,
+    mapping_rows: pd.DataFrame,
+) -> None:
+    """Check consumed primary presence independently of the bucket-map domain."""
+    primary = frozen_key_rows(rows, axis.columns)
+    positions = {key: i for i, key in enumerate(frozen_key_rows(mapping_rows, axis.columns))}
+    if any(key not in positions for key in primary):
+        _fail("every primary paired key resolving in its map", axis.token)
+    width = len(axis.left.columns)
+    for side, columns in (
+        ("left", mapping_schema.values[:width]),
+        ("right", mapping_schema.values[width:]),
+    ):
+        path = (f"{side}_present",)
+        if path not in schema.presence_paths:
+            continue
+        present = _array(rows, schema.presence[schema.presence_paths.index(path)])
+        endpoints = _endpoint_keys(mapping_rows, columns)
+        if any(
+            endpoints[positions[key]] is None and present[i].as_py() is True
+            for i, key in enumerate(primary)
+        ):
+            _fail("row presence consistent with absent calendar endpoints", side)
+
+
+def validate_presence(schema: DataSchema, rows: pd.DataFrame) -> None:
+    """Require inherited true flags to agree with existing generated ancestors."""
+    columns = dict(zip(schema.presence_paths, schema.presence, strict=True))
+    arrays = {path: _array(rows, column) for path, column in columns.items()}
+    for path, child in arrays.items():
+        for index, side in enumerate(path[:-1]):
+            if side not in ("left", "right"):
+                continue
+            parent = arrays.get((*path[:index], f"{side}_present"))
+            if parent is not None and pc.any(pc.and_(child, pc.invert(parent))).as_py():
+                _fail("inherited true presence only beneath present outer rows", ".".join(path))
 
 
 def validate_frozen_coordinates(
     schema: DataSchema, rows: pd.DataFrame, attachments: tuple[FrozenAttachment, ...]
 ) -> None:
     """Validate complete coordinate closure, all attachments and primary references."""
+    validate_presence(schema, rows)
     layouts = coordinate_attachment_schemas(schema)
     names = tuple(attachment.name for attachment in attachments)
     if len(set(names)) != len(names) or set(names) != {name for name, _ in layouts}:
@@ -415,22 +483,7 @@ def validate_frozen_coordinates(
             _fail("every primary coordinate key resolving in its frozen attachment", axis.token)
         if isinstance(axis, PairedDataAxis):
             table = tables[axis.mapping_name]
-            positions = {key: i for i, key in enumerate(frozen_key_rows(table.rows, axis.columns))}
-            width = len(axis.left.columns)
-            for side, columns in (
-                ("left", table.schema.values[:width]),
-                ("right", table.schema.values[width:]),
-            ):
-                path = (f"{side}_present",)
-                if path not in schema.presence_paths:
-                    continue  # Reduce removes row presence while keeping the pair map.
-                present = _array(rows, schema.presence[schema.presence_paths.index(path)])
-                endpoints = _endpoint_keys(table.rows, columns)
-                if any(
-                    endpoints[positions[key]] is None and present[i].as_py() is True
-                    for i, key in enumerate(primary)
-                ):
-                    _fail("row presence consistent with absent calendar endpoints", side)
+            validate_paired_presence(axis, schema, rows, table.schema, table.rows)
 
 
 def require_matchable_calendar_directory(directory: FrozenCalendarDirectory) -> None:

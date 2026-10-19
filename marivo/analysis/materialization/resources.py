@@ -96,6 +96,7 @@ def discharge_resources(
                 received="the original control close acknowledgement is unavailable",
                 repair="Inspect the original Run and its control connection obligation; do not replay or cancel a different connection.",
                 stage="reconciliation",
+                help_target="session.get_run",
                 run_ref=resource.run_ref,
             )
         if resource.cleanup_capability_id == _READ_CAPABILITY:
@@ -114,6 +115,7 @@ def discharge_resources(
             received="an unsupported resource obligation",
             repair="Inspect the recorded resource obligation before retrying Session recovery.",
             stage="reconciliation",
+            help_target="session.get_run",
             run_ref=resource.run_ref,
         )
     resolved: list[ResourceRecord] = []
@@ -127,6 +129,7 @@ def discharge_resources(
                 received="an unsupported resource obligation",
                 repair="Restore the recorded cleanup capability before retrying.",
                 stage="reconciliation",
+                help_target="session.get_run",
                 run_ref=resource.run_ref,
             )
         relative = PurePosixPath(resource.safe_locator)
@@ -162,5 +165,6 @@ def _invalid_resource(resource: ResourceRecord) -> IntegrityError:
         received="an inconsistent resource obligation",
         repair="Inspect the selected generation integrity; do not delete guessed resources.",
         stage="reconciliation",
+        help_target="session.get_run",
         run_ref=resource.run_ref,
     )

@@ -294,8 +294,8 @@ def provider() -> DisclosureProvider:
     for value, producers, consumers in (
         (
             Population,
-            ("coordinates", "identities", "product", "session.members", "Query.population"),
-            ("session.query", "Population.project", "Population.classify", "Population.where"),
+            ("coordinates", "identities", "product", "session.members", "session.population_from"),
+            ("session.frame", "Population.project", "Population.classify", "Population.where"),
         ),
         (MembershipAxis, ("membership",), ("session.observe", "MembershipAxis.show")),
         (PopulationPredicate, ("in_population",), ("Population.where", "PopulationPredicate.show")),

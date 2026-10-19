@@ -11,7 +11,6 @@ from marivo._definition.query import FilterValues, ResultQuery, TopValues
 from marivo._definition.relations import (
     CalendarKeys,
     LiteralPopulation,
-    ObserveQuery,
     PopulationClassify,
     PopulationContains,
     PopulationImage,
@@ -19,7 +18,6 @@ from marivo._definition.relations import (
     PopulationProgram,
     PopulationProject,
     PopulationSet,
-    QueryKeys,
     SourceIdentities,
 )
 
@@ -108,12 +106,6 @@ def _node_summary(node: DefinitionNode) -> str:
         )
     if isinstance(node, CalendarKeys):
         return f"CalendarKeys grain={node.calendar.grain}; timezone={node.calendar.timezone}; cells={len(node.calendar.cells)}"
-    if isinstance(node, QueryKeys):
-        return "QueryKeys" + (
-            "; " + _observation_summary(node.observation) if node.observation is not None else ""
-        )
-    if isinstance(node, ObserveQuery):
-        return "ObserveQuery"
     if isinstance(node, ResultQuery):
         operation = node.operation
         if isinstance(operation, FilterValues):
@@ -158,13 +150,6 @@ def scope_summary(root: DefinitionNode, observation: ObservationBinding | None =
         edges = children(node)
         if isinstance(node, SourceIdentities) and isinstance(node.predicate, FieldPredicate):
             continue
-        if isinstance(node, QueryKeys) and node.observation is not None:
-            pending.extend(
-                (path + f".binding[{index}]", role, value)
-                for index, (role, value) in reversed(
-                    tuple(enumerate(_observation_scopes(node.observation)))
-                )
-            )
         pending.extend(
             (path + f".{edge.index}", edge.role, edge.child)
             for edge in reversed(edges)

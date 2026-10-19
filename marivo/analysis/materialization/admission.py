@@ -1,10 +1,10 @@
-"""Private first-route execution from pure definition to committed Dataset authority."""
+"""Private assembly of exact local authority and explicit source configuration."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 from uuid import uuid4
 
 from marivo._temporal import PeriodCalendarSnapshotV1
@@ -34,14 +34,9 @@ from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.validator import Registry
 
-if TYPE_CHECKING:
-    from marivo.analysis.core.graph import BoundGraph
-    from marivo.analysis.dsl.artifact import Artifact
-    from marivo.semantic._compiled_state import CompiledSemanticState
-
 
 class DatasetRuntime:
-    """Private assembly owner; construction, execution and reads have distinct boundaries."""
+    """Assemble local Store services separately from captured source configuration."""
 
     def __init__(
         self,
@@ -226,9 +221,3 @@ class DatasetRuntime:
     ) -> SessionGraph:
         """Read bounded same-Session production topology and omitted-neighbor boundaries."""
         return self.local.graph(artifact_ref=artifact_ref, direction=direction, max_nodes=max_nodes)
-
-    def _execute_query(self, graph: BoundGraph, state: CompiledSemanticState | None) -> Artifact:
-        """Execute a bound Query and publish through this Runtime's Store."""
-        from marivo.analysis.materialization.terminal_publication import execute
-
-        return execute(self, graph, state)

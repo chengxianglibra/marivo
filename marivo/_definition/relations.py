@@ -11,7 +11,7 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, TypeAlias
 
-from marivo._definition.correspondence import ComparisonAxis, CorrespondenceAxis
+from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.deferred import RelationshipParameter
 from marivo._definition.query import ResultQuery
 from marivo._definition.types import (
@@ -29,7 +29,6 @@ from marivo.refs import SemanticKind
 
 if TYPE_CHECKING:
     from marivo._definition.expressions import FieldPredicate, MetricNode
-    from marivo._definition.observations import ObservationBinding
     from marivo._temporal import InstantAnchor
 
 
@@ -56,10 +55,6 @@ def _coordinate_token(
     position: int,
     lengths: dict[int, int],
 ) -> tuple[str, str]:
-    if isinstance(axis, CorrespondenceAxis):
-        if not isinstance(value, str):
-            invalid("correspondence coordinates must come from their bound Query")
-        return (axis.identity, value)
     if isinstance(axis, CalendarCoordinate):
         if type(value) is not int or not 0 <= value < len(axis.cells):
             invalid("calendar coordinates must come from their frozen CalendarAxis")
@@ -152,22 +147,17 @@ class ObserveQuery:
     members: PopulationDependency | None = None
 
 
-QueryNode: TypeAlias = ObserveQuery | ResultQuery
-
-
 @dataclass(frozen=True, slots=True)
-class QueryKeys:
-    """Keys of a Query's output coordinates projected onto the given axes."""
+class ReadQuery:
+    """Explicit identity-domain attribute projection over a classified Population."""
 
-    query: QueryNode
-    axes: tuple[ComparisonAxis, ...]
-    observation: ObservationBinding | None = None
-    declared: tuple[tuple[ExactRef, MetricNode], ...] = ()
-    units: tuple[str | None, ...] = ()
-    names: tuple[str, ...] = ()
-    kinds: tuple[
-        Literal["numeric", "boolean", "string", "date", "timestamp", "duration", "unresolved"], ...
-    ] = ()
+    population: PopulationDependency
+    positions: tuple[int, ...]
+    by: tuple[ComparisonAxis, ...]
+    owner: Owner
+
+
+QueryNode: TypeAlias = ObserveQuery | ReadQuery | ResultQuery
 
 
 @dataclass(frozen=True, slots=True)
@@ -293,7 +283,6 @@ class CalendarKeys:
 
 PopulationNode: TypeAlias = (
     SourceIdentities
-    | QueryKeys
     | FrameKeys
     | PopulationSet
     | PopulationProject

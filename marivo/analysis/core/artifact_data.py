@@ -7,7 +7,6 @@ receipts; neither representation retains execution state or an Arrow table.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Literal
 
 import pandas as pd
@@ -25,18 +24,17 @@ from marivo.analysis.core.data_types import DecimalDataType as DecimalDataType
 from marivo.analysis.core.data_types import DurationDataType as DurationDataType
 from marivo.analysis.core.data_types import ScalarDataType as ScalarDataType
 from marivo.analysis.core.data_types import TimestampDataType as TimestampDataType
+from marivo.analysis.core.frame_audit import FrameResultMetadata
+from marivo.analysis.core.frame_structure import require_complete_structure
 from marivo.analysis.core.model import reject
-from marivo.analysis.evidence._dataset_types import (
-    AssociationFindingValueV1,
-    FindingValueV1,
-    ForecastPointFindingValueV1,
-    _coordinates,
-)
-from marivo.analysis.evidence._dataset_types import (
+from marivo.analysis.core.output_records import (
     OutputCoordinate as OutputCoordinate,
 )
-from marivo.analysis.evidence._dataset_types import (
+from marivo.analysis.core.output_records import (
     OutputEvidence as OutputEvidence,
+)
+from marivo.analysis.core.output_records import (
+    OutputFinding as OutputFinding,
 )
 from marivo.analysis.materialization.contracts import LocalReceipt
 
@@ -46,42 +44,6 @@ def _text(value: str, location: str) -> None:
         reject(
             "nonempty single-line data text", repr(value), "Use exact output metadata.", location
         )
-
-
-@dataclass(frozen=True, slots=True)
-class OutputFinding:
-    """An explicit method output, without a graph derivation or semantic subject."""
-
-    finding_id: str
-    value: FindingValueV1
-    coordinates: tuple[OutputCoordinate, ...] = ()
-
-    def __post_init__(self) -> None:
-        _text(self.finding_id, "output.finding_id")
-        if type(self.value) not in (AssociationFindingValueV1, ForecastPointFindingValueV1):
-            reject(
-                "a self-contained Finding value",
-                type(self.value).__name__,
-                "Publish the method's output value without a graph derivation.",
-                "output.finding",
-            )
-        _coordinates(self.coordinates)
-
-
-@dataclass(frozen=True, slots=True)
-class DataProjection:
-    axis_token: str
-    columns: tuple[str, ...]
-    path: tuple[str, ...] = ()
-    kind: Literal["field", "identity", "calendar", "correspondence"] = "field"
-    label: str = ""
-    timezone: str | None = None
-    bounds: tuple[tuple[datetime, datetime, datetime, datetime], ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class CanonicalOrder:
-    key_fields: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,7 +86,6 @@ class SavedAttachment:
 class ArtifactData:
     schema: DataSchema
     rows: ParquetHandle
-    coordinate_projections: tuple[DataProjection, ...] = ()
     attachments: tuple[SavedAttachment, ...] = ()
 
     def __post_init__(self) -> None:
@@ -151,52 +112,47 @@ class ArtifactData:
                 "Keep publication tables outside saved Artifact data.",
                 "artifact.data",
             )
-        if type(self.coordinate_projections) is not tuple or any(
-            type(p) is not DataProjection for p in self.coordinate_projections
-        ):
-            reject(
-                "immutable data projections",
-                type(self.coordinate_projections).__name__,
-                "Preserve output projections only.",
-                "artifact.projections",
-            )
-        for projection in self.coordinate_projections:
-            if (
-                projection.axis_token not in tuple(axis.token for axis in self.schema.axes)
-                or type(projection.columns) is not tuple
-                or not projection.columns
-                or any(
-                    column not in tuple(c.slot_id for c in self.schema.columns)
-                    for column in projection.columns
-                )
-            ):
-                reject(
-                    "projections onto declared data axes and columns",
-                    repr(projection),
-                    "Reference the saved output layout.",
-                    "artifact.projections",
-                )
-
-    @property
-    def order(self) -> CanonicalOrder:
-        return CanonicalOrder(self.schema.key_fields)
 
 
 @dataclass(frozen=True, slots=True)
 class ArtifactManifest:
+    store_id: str
     artifact_id: str
     session_id: str
     run_id: str
     data: ArtifactData
+    metadata: FrameResultMetadata
+    semantics_version: Literal["frame.v1"] = "frame.v1"
+
+    @property
+    def result_id(self) -> str:
+        return self.metadata.result_id
 
     def __post_init__(self) -> None:
-        for name in ("artifact_id", "session_id", "run_id"):
+        for name in ("store_id", "artifact_id", "session_id", "run_id"):
             _text(getattr(self, name), f"artifact.{name}")
-        if type(self.data) is not ArtifactData:
+        if (
+            type(self.data) is not ArtifactData
+            or type(self.metadata) is not FrameResultMetadata
+            or self.semantics_version != "frame.v1"
+        ):
             reject(
                 "committed output data",
                 type(self.data).__name__,
                 "Use the committed manifest.",
+                "artifact.manifest",
+            )
+        require_complete_structure(self.data.schema)
+        from marivo.analysis.core.frozen_calendar import coordinate_attachment_schemas
+
+        layouts = dict(coordinate_attachment_schemas(self.data.schema))
+        if set(layouts) != {part.name for part in self.data.attachments} or any(
+            layouts[part.name] != part.schema for part in self.data.attachments
+        ):
+            reject(
+                "complete frozen attachment layouts",
+                self.artifact_id,
+                "Retain exactly the declared coordinate attachments.",
                 "artifact.manifest",
             )
 
@@ -227,35 +183,3 @@ def _output_table(schema: DataSchema, rows: pd.DataFrame) -> None:
             "Project only the declared final output columns before publication.",
             "artifact.publication",
         )
-
-
-@dataclass(frozen=True, slots=True)
-class ArtifactPublication:
-    """One invocation's final pandas output, consumed by the terminal writer."""
-
-    artifact_id: str
-    session_id: str
-    run_id: str
-    schema: DataSchema
-    rows: pd.DataFrame
-    attachments: tuple[OutputAttachment, ...] = ()
-    findings: tuple[OutputFinding, ...] = ()
-    evidence: tuple[OutputEvidence, ...] = ()
-    coordinate_projections: tuple[DataProjection, ...] = ()
-
-    def __post_init__(self) -> None:
-        for name in ("artifact_id", "session_id", "run_id"):
-            _text(getattr(self, name), f"publication.{name}")
-        _output_table(self.schema, self.rows)
-        for items, expected in (
-            (self.attachments, OutputAttachment),
-            (self.findings, OutputFinding),
-            (self.evidence, OutputEvidence),
-        ):
-            if type(items) is not tuple or any(type(item) is not expected for item in items):
-                reject(
-                    "immutable typed output records",
-                    type(items).__name__,
-                    "Publish only explicit final outputs.",
-                    "artifact.publication",
-                )

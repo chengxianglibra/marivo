@@ -1,146 +1,152 @@
-"""Pure output layout conversion; pandas exports carry data descriptions only."""
+"""Shared isolated Frame exports and bounded source-free result formatting."""
 
 from __future__ import annotations
 
 from dataclasses import asdict
 
 import pandas as pd
+import pyarrow as pa
 
-from marivo.analysis.core.artifact_data import (
-    ArtifactManifest,
-    CalendarDataAxis,
-    DataColumn,
-    TimestampDataType,
-)
-from marivo.analysis.materialization.graph_reading import (
-    ExportRead,
-    OutputRead,
-    PreviewRead,
-    ReadLayout,
-)
-from marivo.analysis.materialization.terminal_protocol import invalid
+from marivo.analysis.core.artifact_data import DataSchema, OutputAttachment
+from marivo.analysis.core.data_types import DataColumn, DurationDataType, TimestampDataType
+from marivo.analysis.core.frame_structure import axis_role
+from marivo.analysis.core.frozen_calendar import FrozenKey, frozen_key_rows
 
 
-def column_metadata(column: DataColumn) -> dict[str, object]:
-    return {
-        "name": column.name,
-        "dtype": asdict(column.dtype),
-        "nullable": column.nullable,
-        "unit": column.unit,
-    }
+def _coordinate_scalar(array: pa.Array, index: int, column: DataColumn) -> object:
+    scalar = array[index]
+    if not scalar.is_valid:
+        return None
+    if isinstance(column.dtype, (TimestampDataType, DurationDataType)):
+        return scalar
+    try:
+        value: object = scalar.as_py()
+    except OverflowError:
+        if pa.types.is_date32(array.type):
+            return scalar
+        raise
+    return value
 
 
 def export_frame(
-    manifest: ArtifactManifest, reader: OutputRead, request: PreviewRead | ExportRead
+    schema: DataSchema, rows: pd.DataFrame, attachments: tuple[OutputAttachment, ...] = ()
 ) -> pd.DataFrame:
-    data = manifest.data
-    positions = None
-    order = next((part for part in data.attachments if part.name == "display_order"), None)
-    if order is not None:
-        selection = reader.read(ReadLayout(order.schema, order.rows), request)
-        positions = tuple(int(index) for index in selection["row_index"])
-    raw = reader.read(ReadLayout(data.schema, data.rows, positions), request)
+    """Copy exact physical arrays and inert frozen interpretation, without readers."""
     series: list[pd.Series] = []
-    labels: list[tuple[str, str | tuple[str, ...]]] = []
-    axes: list[dict[str, object]] = []
-    for axis in data.schema.axes:
-        description: dict[str, object] = {
-            "column": axis.token,
-            "kind": "calendar" if isinstance(axis, CalendarDataAxis) else axis.kind,
-            "label": axis.columns[0].name,
-            "dtype": asdict(axis.columns[0].dtype) if len(axis.columns) == 1 else "tuple",
-            "key_components": tuple(column_metadata(column) for column in axis.columns),
-            "projections": tuple(
-                {
-                    "columns": projection.columns,
-                    "path": projection.path,
-                    "kind": projection.kind,
-                    "label": projection.label,
-                    "timezone": projection.timezone,
-                    "bounds": projection.bounds,
-                    "values": tuple(
-                        tuple(None if pd.isna(value) else value for value in row)
-                        for row in raw.loc[:, list(projection.columns)].itertuples(
-                            index=False, name=None
-                        )
-                    ),
-                }
-                for projection in data.coordinate_projections
-                if projection.axis_token == axis.token
-            ),
-        }
-        if isinstance(axis, CalendarDataAxis):
-            attachment = next(
-                (part for part in data.attachments if part.name == f"calendar_bounds.{axis.token}"),
-                None,
-            )
-            if (
-                attachment is None
-                or attachment.schema.axes != (axis,)
-                or len(axis.columns) != 1
-                or attachment.schema.values
-                != tuple(
-                    DataColumn(name, name, TimestampDataType("us", "UTC"), False)
-                    for name in ("nominal_start", "nominal_end", "actual_start", "actual_end")
-                )
-                or attachment.schema.presence
-                or attachment.schema.projection_columns
-            ):
-                raise invalid("calendar output is missing its saved boundary attachment")
-            key = axis.columns[0].slot_id
-            indexes = raw[key]
-            bound_request = (
-                PreviewRead(int(indexes.max()) + 1 if len(indexes) else 0)
-                if isinstance(request, PreviewRead)
-                else ExportRead()
-            )
-            bounds = reader.read(ReadLayout(attachment.schema, attachment.rows), bound_request)
-            if len(bounds) and bounds[attachment.schema.key_fields[0]].tolist() != list(
-                range(len(bounds))
-            ):
-                raise invalid("calendar boundary output has invalid bucket positions")
-            if indexes.isna().any() or any(index < 0 or index >= len(bounds) for index in indexes):
-                raise invalid("calendar coordinate does not reference a saved boundary")
-            starts = bounds["nominal_start"].iloc[pd.Index(indexes)].reset_index(drop=True)
-            series.append(starts)
-            description["dtype"] = {"unit": "us", "timezone": "UTC"}
-            description["key_components"] = (
-                {**column_metadata(axis.columns[0]), "dtype": {"unit": "us", "timezone": "UTC"}},
-            )
-            description["timezone"] = axis.timezone
-            description["bounds"] = tuple(bounds.to_dict(orient="records"))
-        elif len(axis.columns) == 1:
-            series.append(raw[axis.columns[0].slot_id])
+    names: list[tuple[str, str]] = []
+    for axis in schema.axes:
+        if len(axis.columns) == 1:
+            series.append(rows[axis.columns[0].slot_id].reset_index(drop=True).copy(deep=True))
         else:
+            arrays = tuple(
+                pa.array(rows[column.slot_id], from_pandas=True) for column in axis.columns
+            )
             series.append(
                 pd.Series(
                     [
-                        tuple(None if pd.isna(value) else value for value in row)
-                        for row in raw.loc[
-                            :, [column.slot_id for column in axis.columns]
-                        ].itertuples(index=False, name=None)
+                        tuple(
+                            _coordinate_scalar(array, i, column)
+                            for column, array in zip(axis.columns, arrays, strict=True)
+                        )
+                        for i in range(len(rows))
                     ],
                     dtype=object,
                 )
             )
-        axes.append(description)
-        labels.append(("coordinate", axis.token))
-    for column in data.schema.values:
-        series.append(raw[column.slot_id])
-        labels.append(("value", column.name))
-    for column in sorted(data.schema.presence, key=lambda column: column.name):
-        series.append(raw[column.slot_id])
-        labels.append(("presence", tuple(column.name.split("."))))
-    result = pd.concat(series, axis=1) if series else pd.DataFrame(index=pd.RangeIndex(len(raw)))
-    result.columns = pd.MultiIndex.from_tuples(labels, names=("kind", "name"))
-    result.index = pd.RangeIndex(len(result))
-    result.attrs["marivo"] = {
-        "layout_version": 1,
-        "session_id": manifest.session_id,
-        "artifact_id": manifest.artifact_id,
-        "axes": tuple(axes),
-        "quantities": tuple(
-            {"kind": "value", **column_metadata(column)} for column in data.schema.values
+        names.append(("coordinate", axis.token))
+    for role, columns in (("value", schema.values), ("presence", schema.presence)):
+        for column in columns:
+            series.append(rows[column.slot_id].reset_index(drop=True).copy(deep=True))
+            names.append((role, column.name))
+    result = pd.concat(series, axis=1) if series else pd.DataFrame(index=pd.RangeIndex(len(rows)))
+    result.columns = (
+        pd.MultiIndex.from_tuples(names, names=("kind", "name"))
+        if names
+        else pd.MultiIndex.from_arrays([[], []], names=("kind", "name"))
+    )
+    result.attrs = {
+        "axes": tuple(
+            {
+                "token": axis.token,
+                "name": axis.name,
+                "role": axis_role(axis),
+                "key_names": tuple(column.name for column in axis.columns),
+                "at": axis.at,
+                "descriptor": asdict(axis),
+            }
+            for axis in schema.axes
+        ),
+        "units": tuple((column.name, column.unit) for column in schema.values),
+        "frozen_coordinates": tuple(
+            {"name": part.name, "schema": asdict(part.schema), "rows": part.rows.copy(deep=True)}
+            for part in attachments
         ),
     }
     return result
+
+
+def _cell(array: pa.Array, i: int, column: DataColumn) -> str:
+    if not array[i].is_valid:
+        return "NA"
+    if isinstance(column.dtype, (TimestampDataType, DurationDataType)):
+        # pandas scalar extraction maps a valid int64 minimum to NaT. Validity
+        # and exact physical ticks remain separate through presentation too.
+        return f"{array.cast(pa.int64())[i].as_py()} {array.type} ticks"
+    value = _coordinate_scalar(array, i, column)
+    if isinstance(value, pa.Scalar) and pa.types.is_date32(array.type):
+        return f"{array.cast(pa.int32())[i].as_py()} date32 day ticks"
+    return str(value)[:256]
+
+
+def preview_text(
+    schema: DataSchema, rows: pd.DataFrame, attachments: tuple[OutputAttachment, ...]
+) -> str:
+    """Format only the supplied prefix and its frozen coordinate interpretation."""
+    if not len(rows):
+        return "empty result"
+    if not schema.columns:
+        return "one row: ()"
+    columns = schema.columns[:8]
+    arrays = tuple(pa.array(rows[column.slot_id], from_pandas=True) for column in columns)
+    display = pd.DataFrame(
+        {
+            column.name: [_cell(array, i, column) for i in range(len(rows))]
+            for column, array in zip(columns, arrays, strict=True)
+        }
+    )
+    text = display.to_string(index=False, max_colwidth=60)
+    # Only selected attachment records are supplied by the stored preview reader.
+    # Memory uses the same key projection, without decoding files.
+    from marivo.analysis.core.data_schema import CalendarDataAxis, PairedDataAxis
+
+    parts = {part.name: part for part in attachments}
+
+    def labels(axis: CalendarDataAxis, keys: set[FrozenKey]) -> None:
+        nonlocal text
+        assert axis.frozen is not None
+        part = parts[axis.frozen.directory_name]
+        selected = [
+            i for i, key in enumerate(frozen_key_rows(part.rows, axis.columns)) if key in keys
+        ]
+        values = part.rows.iloc[selected]
+        text += f"\n{axis.name}: " + values.to_string(index=False, max_cols=7, max_colwidth=60)
+
+    for axis in schema.axes:
+        keys = set(frozen_key_rows(rows, axis.columns))
+        if isinstance(axis, PairedDataAxis):
+            part = parts[axis.mapping_name]
+            selected = [
+                i for i, key in enumerate(frozen_key_rows(part.rows, axis.columns)) if key in keys
+            ]
+            mapped = part.rows.iloc[selected]
+            width = len(axis.left.columns)
+            for endpoint, columns in (
+                (axis.left, part.schema.values[:width]),
+                (axis.right, part.schema.values[width:]),
+            ):
+                endpoint_keys = frozen_key_rows(mapped, columns)
+                # Nullable map columns carry the same dtype tags as endpoint keys.
+                labels(endpoint, set(endpoint_keys))
+        elif isinstance(axis, CalendarDataAxis):
+            labels(axis, keys)
+    return text

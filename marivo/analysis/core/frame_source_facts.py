@@ -10,14 +10,12 @@ from ibis.common.deferred import Attr, BinaryOperator, Call, Just, Resolver, Seq
 
 from marivo._definition.deferred import RelationshipParameter, canonical_recipe
 from marivo._definition.expressions import MeasureAssertion, RowExpression, RowField
-from marivo._definition.query import ReadFields, ResultQuery
 from marivo._definition.relations import (
     CalendarKeys,
     FrameKeyAxis,
     FrameKeys,
     LiteralPopulation,
     MembershipBinding,
-    ObserveQuery,
     PopulationAnd,
     PopulationClassify,
     PopulationContains,
@@ -32,7 +30,6 @@ from marivo._definition.relations import (
     PopulationProgram,
     PopulationProject,
     PopulationSet,
-    QueryKeys,
     SourceIdentities,
 )
 from marivo._definition.types import (
@@ -150,13 +147,6 @@ def _scope(value: object) -> object:
             "snapshot_digest": value.snapshot_digest,
             "cells": _scope(value.cells),
         }
-    if isinstance(value, QueryKeys):
-        reject(
-            "a source-only scope without Query producer keys",
-            "QueryKeys",
-            "Use the explicit Frame-to-Population bridge to capture complete key facts.",
-            "frame.audit.scope",
-        )
     if isinstance(value, PopulationParameter):
         return {"scope": "PopulationParameter", "definition": _scope(value.definition)}
     if isinstance(value, PopulationPredicateParameter):
@@ -190,16 +180,6 @@ def source_scope(value: object) -> str:
 def captured_source_scopes(graph: BoundGraph) -> tuple[str, ...]:
     """Read only the known source entry's captured restrictions, without execution."""
     observation = graph.signature.observation
-    root = graph.root
-    if (
-        observation is None
-        and isinstance(root, ResultQuery)
-        and isinstance(root.operation, ReadFields)
-        and len(root.inputs) == 1
-        and isinstance(root.inputs[0].query, ObserveQuery)
-        and not root.inputs[0].query.metrics
-    ):
-        observation = root.inputs[0].observation
     if observation is None:
         return ()
     scopes = (

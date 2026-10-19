@@ -13,10 +13,8 @@ from marivo._definition.query import (
     ValueBinary,
     ValueExpression,
     ValueLiteral,
-    ValueSlot,
     ValueUnary,
 )
-from marivo._definition.relations import QueryKeys
 from marivo._definition.types import DefinitionGraphError, LiteralValue, check_literal
 from marivo.analysis.core.frame_structure import ValueKind as ValueKind
 from marivo.analysis.core.model import reject
@@ -43,18 +41,17 @@ def literal_kind(value: LiteralValue) -> ValueKind:
 
 @dataclass(frozen=True, slots=True, repr=False, eq=False)
 class Column:
-    """A value expression over one exact lazy Query input.
+    """A value expression over one exact AnalysisFrame input.
 
-    Acquire with ``query['name']`` or ``query.coord(axis)``. Arithmetic,
+    Acquire with ``frame['name']`` or ``frame.coord(axis)``. Arithmetic,
     comparisons and is_null retain the complete input domain; evaluation belongs
-    to Query.execute. Columns from independent Queries require align/broadcast.
+    to AnalysisFrame.compute. Columns from independent Frames require explicit alignment.
     """
 
     _input_id: str
     _expression: ValueExpression
     _unit: str | None
     _kind: ValueKind
-    _query: QueryKeys | None = None
     _frame: AnalysisFrame | None = None
     _name: str | None = None
 
@@ -65,7 +62,7 @@ class Column:
         """Print captured Column binding facts without reading its source.
 
         Returns: None; prints input identity, role, position, kind and unit.
-        Example: ``query['revenue'].show()``.
+        Example: ``frame['revenue'].show()``.
         Constraints: Computed expressions may have no single name or coordinate.
         Unresolved types remain unresolved until execution.
         """
@@ -79,8 +76,6 @@ class Column:
         ]
         if self._name is not None:
             facts.append(("name", self._name))
-        elif self._query is not None and isinstance(expression, ValueSlot):
-            facts.append(("name", self._query.names[expression.index]))
         elif isinstance(expression, CoordinateSlot):
             facts.append(("coordinate_index", str(expression.index)))
         else:
@@ -90,7 +85,7 @@ class Column:
             if len(value.encode("utf-8")) > 600:
                 print(f"{name}=omitted ({len(value)} characters)")
                 if name == "name":
-                    print("Complete names: query.output_names")
+                    print("Complete names: frame.output_names")
             else:
                 print(f"{name}={value}")
         print("Help: analysis.column")
@@ -107,17 +102,10 @@ class Column:
     ) -> Column:
         if isinstance(other, Column):
             if self._input_id != other._input_id:
-                if self._frame is not None or other._frame is not None:
-                    reject(
-                        "Columns bound to this exact Frame input",
-                        "different Frame inputs",
-                        "Align the Frames before combining their Columns.",
-                        "Column",
-                    )
                 reject(
-                    "Columns bound to this exact Query input",
-                    "different Query domains",
-                    "Align or broadcast before combining Columns.",
+                    "Columns bound to this exact Frame input",
+                    "different Frame inputs",
+                    "Align the Frames before combining their Columns.",
                     "Column",
                 )
             expression, unit, kind = other._expression, other._unit, other._kind
@@ -224,7 +212,6 @@ class Column:
             ValueBinary(operation, left, right, zero_denominator),
             None if result_kind == "boolean" else result_unit,
             result_kind,
-            self._query,
             self._frame,
         )
 
@@ -311,7 +298,6 @@ class Column:
             ValueUnary("neg", self._expression),
             self._unit,
             self._kind,
-            self._query,
             self._frame,
         )
 
@@ -416,7 +402,6 @@ class Column:
             ValueUnary("not", self._expression),
             None,
             "boolean",
-            self._query,
             self._frame,
         )
 
@@ -450,24 +435,23 @@ class Column:
             ValueUnary("is_null", self._expression),
             None,
             "boolean",
-            self._query,
             self._frame,
         )
 
     def sum(self) -> _Statistic:
-        """Request an ignore-NA sum, completed only by Query.reduce.
+        """Request an ignore-NA sum, completed only by AnalysisFrame.reduce.
 
         Args: None. Returns: An unfinished statistic; empty/all-NA samples return NA.
-        Constraints: Numeric or Duration values; evaluation belongs to Query.reduce.
+        Constraints: Numeric or Duration values; evaluation belongs to AnalysisFrame.reduce.
         Example: ``q.reduce({'total': q['value'].sum()})``.
         """
         return self._statistic("sum")
 
     def mean(self) -> _Statistic:
-        """Request an ignore-NA mean, completed only by Query.reduce.
+        """Request an ignore-NA mean, completed only by AnalysisFrame.reduce.
 
         Args: None. Returns: An unfinished statistic; empty/all-NA samples return NA.
-        Constraints: Numeric or Duration values; evaluation belongs to Query.reduce.
+        Constraints: Numeric or Duration values; evaluation belongs to AnalysisFrame.reduce.
         Example: ``q.reduce({'average': q['value'].mean()})``.
         """
         return self._statistic("mean")
@@ -483,13 +467,13 @@ class Column:
         reject(
             "a lazy Column predicate",
             "Python truth conversion",
-            "Use & / | and Query.where; execute explicitly.",
+            "Use & / | and frame.where; call compute explicitly.",
             "Column",
         )
 
 
 class ColumnPredicate(Column):
-    """A closed boolean Column expression consumed by Query.where."""
+    """A closed boolean Column expression consumed by AnalysisFrame.where."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -501,7 +485,7 @@ class _Statistic:
 
 
 def row_count() -> _Statistic:
-    """Request the count of all current coordinates, completed by Query.reduce.
+    """Request the count of all current coordinates, completed by AnalysisFrame.reduce.
 
     Args: None. Returns: An input-independent unfinished statistic.
     Example: ``q.reduce({'rows': mv.row_count()})``.

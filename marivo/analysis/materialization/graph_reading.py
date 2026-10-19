@@ -1,7 +1,9 @@
-"""Committed terminal output reads; no computation or persistent data cache."""
+"""Separate completed Frame payload reads and metadata-only Artifact audit reads."""
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -13,17 +15,34 @@ import pyarrow.parquet as pq
 from marivo.analysis.core.artifact_data import (
     ArtifactManifest,
     DataSchema,
-    OutputEvidence,
+    OutputAttachment,
     OutputFinding,
     ParquetHandle,
 )
+from marivo.analysis.core.data_schema import CalendarDataAxis, PairedDataAxis
+from marivo.analysis.core.frame_data import (
+    CompletedFrameData,
+    CompletedFrameResult,
+    StoredFrameBacking,
+)
+from marivo.analysis.core.frozen_calendar import (
+    FrozenCalendarBucket,
+    FrozenKey,
+    frozen_key_rows,
+    frozen_key_table,
+    read_calendar_records,
+    validate_paired_presence,
+    validate_paired_records,
+    validate_presence,
+)
+from marivo.analysis.core.model import reject
 from marivo.analysis.dsl.artifact import Artifact
 from marivo.analysis.errors import ArtifactNotFoundError
 from marivo.analysis.evidence._dataset_types import ArtifactDigest, Finding, FindingPage
 from marivo.analysis.materialization import terminal_store
 from marivo.analysis.materialization.contracts import digest, parse_timestamp
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.graph_exchange import normalize_stage_frame
+from marivo.analysis.materialization.graph_exchange import normalize_complete_frame
 from marivo.analysis.materialization.storage import (
     _checked_path,
     _manifest_bytes,
@@ -32,11 +51,7 @@ from marivo.analysis.materialization.storage import (
 )
 from marivo.analysis.materialization.store import SessionStore, _one, _text
 from marivo.analysis.materialization.terminal_protocol import invalid
-from marivo.analysis.materialization.terminal_storage import (
-    POLICY,
-    arrow_schema,
-    physical_schema,
-)
+from marivo.analysis.materialization.terminal_storage import POLICY, arrow_schema, physical_schema
 from marivo.analysis.refs import ArtifactRef
 from marivo.render import Card
 
@@ -44,6 +59,15 @@ from marivo.render import Card
 @dataclass(frozen=True, slots=True)
 class PreviewRead:
     n: int
+
+    def __post_init__(self) -> None:
+        if type(self.n) is not int or self.n < 0:
+            reject(
+                "a nonnegative integer prefix length",
+                repr(self.n),
+                "Use n=0 for metadata only.",
+                "frame.show",
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,25 +79,30 @@ class ExportRead:
 class ReadLayout:
     schema: DataSchema
     handle: ParquetHandle
-    positions: tuple[int, ...] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class FramePreview:
+    schema: DataSchema
+    rows: pd.DataFrame
+    attachments: tuple[OutputAttachment, ...]
 
 
 class OutputRead:
-    """One call's receipt validation and Arrow lifetime, shared by its consumed parts."""
+    """One call's receipt validation; no data cache or saved display permutation."""
 
     def __init__(self, root: Path) -> None:
         self.root = root
         self._validated: set[ParquetHandle] = set()
 
     def _open(self, layout: ReadLayout) -> pq.ParquetFile:
-        handle = layout.handle
-        receipt = handle.receipt
+        handle, receipt = layout.handle, layout.handle.receipt
         directory = _checked_path(self.root, Path(receipt.project_relative_path))
         if handle not in self._validated:
             if payload_digest(self.root, directory, receipt) != handle.payload_digest:
-                raise invalid("terminal payload digest differs from its committed receipt")
+                raise invalid("Frame payload digest differs from its committed receipt")
             if (directory / "manifest.json").read_bytes() != _manifest_bytes(receipt.file_manifest):
-                raise invalid("terminal file manifest differs from its receipt")
+                raise invalid("Frame file manifest differs from its receipt")
             self._validated.add(handle)
         parquet, path = _open_payload(self.root, receipt)
         if (
@@ -84,66 +113,28 @@ class OutputRead:
             != path.stat().st_size + len(_manifest_bytes(receipt.file_manifest))
         ):
             parquet.close()
-            raise invalid("terminal payload schema, rows or bytes differ from its receipt")
+            raise invalid("Frame payload schema, rows or bytes differ from its receipt")
         return parquet
 
     def read(self, layout: ReadLayout, request: PreviewRead | ExportRead) -> pd.DataFrame:
         schema = layout.schema
         count = layout.handle.receipt.realized_row_count
-        if layout.positions is not None:
-            positions = layout.positions
-            if any(type(index) is not int or not 0 <= index < count for index in positions) or len(
-                set(positions)
-            ) != len(positions):
-                raise invalid(
-                    "display order contains duplicate or out-of-range primary row positions"
-                )
-            if not positions:
-                if isinstance(request, ExportRead):
-                    with self._open(layout):
-                        pass
-                return normalize_stage_frame(
-                    pd.DataFrame(columns=[column.slot_id for column in schema.columns]),
-                    schema.columns,
-                    schema.key_fields,
-                )
-            chunks: list[pd.DataFrame] = []
-            with self._open(layout) as parquet:
-                offset = 0
-                requested = set(positions)
-                for group in range(parquet.num_row_groups):
-                    length = parquet.metadata.row_group(group).num_rows
-                    selected = sorted(
-                        index for index in requested if offset <= index < offset + length
-                    )
-                    if selected:
-                        table = parquet.read_row_group(group).cast(arrow_schema(schema), safe=True)
-                        chunk = table.take(
-                            pa.array([index - offset for index in selected], type=pa.int64())
-                        ).to_pandas(types_mapper=pd.ArrowDtype)
-                        chunk.index = pd.Index(selected)
-                        chunks.append(chunk)
-                    offset += length
-            frame = pd.concat(chunks).loc[list(positions)].reset_index(drop=True)
-            return normalize_stage_frame(frame, schema.columns, schema.key_fields)
         remaining = min(request.n, count) if isinstance(request, PreviewRead) else count
         batches: list[pa.RecordBatch] = []
-        # A zero-row preview is metadata-only, including zero-column outputs.
         if remaining:
             with self._open(layout) as parquet:
                 for group in range(parquet.num_row_groups):
                     if not remaining:
                         break
-                    size = min(POLICY.batch_rows, remaining)
-                    for batch in parquet.iter_batches(batch_size=size, row_groups=[group]):
+                    for batch in parquet.iter_batches(
+                        batch_size=min(POLICY.batch_rows, remaining), row_groups=[group]
+                    ):
                         batches.append(batch)
                         remaining -= batch.num_rows
                         if not remaining:
                             break
-                        # The active Arrow reader applies this size to its next batch.
                         parquet.reader.set_batch_size(min(POLICY.batch_rows, remaining))
         elif isinstance(request, ExportRead):
-            # Full exports also verify an empty payload's receipt and frozen schema.
             with self._open(layout):
                 pass
         table = pa.Table.from_batches(batches, schema=physical_schema(schema)).cast(
@@ -154,88 +145,262 @@ class OutputRead:
                 raise invalid("invalid zero-axis unit output")
             return pd.DataFrame(index=pd.RangeIndex(table.num_rows))
         frame = table.to_pandas(types_mapper=pd.ArrowDtype)
-        normalized = normalize_stage_frame(frame, schema.columns, schema.key_fields)
-        for column in schema.columns:
-            array = table[column.slot_id]
-            if pa.types.is_floating(array.type) and pc.any(pc.invert(pc.is_finite(array))).as_py():
-                raise invalid("decoded terminal floating output contains non-finite values")
-        tied = pd.Series(True, index=pd.RangeIndex(max(0, len(frame) - 1)))
-        for key in schema.key_fields:
-            left = frame[key].iloc[:-1].reset_index(drop=True)
-            right = frame[key].iloc[1:].reset_index(drop=True)
-            if (tied & ((left.notna() & right.isna()) | (left > right).fillna(False))).any():
-                raise invalid("decoded terminal rows are not in canonical complete-key order")
-            tied &= (left == right).fillna(False) | (left.isna() & right.isna())
-        return normalized
+        return normalize_complete_frame(frame, schema.columns, schema.key_fields)
+
+    def select(self, layout: ReadLayout, keys: set[FrozenKey]) -> pd.DataFrame:
+        """Scan key columns, then materialize selected records only into pandas.
+
+        Receipt hashing and Parquet row-group decompression are not bounded by
+        selected row count. Unselected attachment values never form a pandas table.
+        """
+        schema = layout.schema
+        columns = tuple(column for axis in schema.axes for column in axis.columns)
+        chunks: list[pa.Table] = []
+        found: set[FrozenKey] = set()
+        requested = pa.Table.from_pandas(
+            frozen_key_table(columns, tuple(keys)), preserve_index=False
+        )
+        if keys:
+            with self._open(layout) as parquet:
+                for group in range(parquet.num_row_groups):
+                    key_table = parquet.read_row_group(
+                        group, columns=[column.slot_id for column in columns]
+                    ).cast(
+                        pa.schema(
+                            [arrow_schema(schema).field(column.slot_id) for column in columns]
+                        ),
+                        safe=True,
+                    )
+                    mask = pc.is_valid(pa.nulls(key_table.num_rows))
+                    for index in range(requested.num_rows):
+                        match = pc.is_null(pa.nulls(key_table.num_rows))
+                        for column in columns:
+                            values = key_table.column(column.slot_id)
+                            scalar = requested.column(column.slot_id)[index]
+                            equal = (
+                                pc.fill_null(pc.equal(values, scalar), False)
+                                if scalar.is_valid
+                                else pc.is_null(values)
+                            )
+                            match = pc.and_(match, equal)
+                        mask = pc.or_(mask, match)
+                    selected = key_table.filter(mask)
+                    if selected.num_rows > len(keys) - len(found):
+                        raise invalid("duplicate selected frozen coordinate key")
+                    if selected.num_rows:
+                        key_frame = selected.to_pandas(types_mapper=pd.ArrowDtype)
+                        for key in frozen_key_rows(key_frame, columns):
+                            if key in found:
+                                raise invalid("duplicate selected frozen coordinate key")
+                            found.add(key)
+                        # Parquet supplies row groups; take before pandas conversion.
+                        chunks.append(
+                            parquet.read_row_group(group)
+                            .cast(arrow_schema(schema), safe=True)
+                            .take(pc.indices_nonzero(mask))
+                        )
+        if found != keys:
+            raise invalid("selected coordinate does not resolve in its saved attachment")
+        table = (
+            pa.concat_tables(chunks)
+            if chunks
+            else pa.Table.from_batches([], schema=arrow_schema(schema))
+        )
+        return normalize_complete_frame(
+            table.to_pandas(types_mapper=pd.ArrowDtype), schema.columns, schema.key_fields
+        )
+
+
+def selected_manifest(store: SessionStore, value: ArtifactManifest) -> ArtifactManifest:
+    with store._read() as conn:
+        saved = terminal_store.manifest(store, conn, value.artifact_id)
+        if saved != value:
+            raise invalid("selected Frame commit metadata changed or disappeared")
+    return value
+
+
+def open_manifest(store: SessionStore, session_id: str, artifact_id: str) -> ArtifactManifest:
+    if type(artifact_id) is not str:
+        reject(
+            "an Artifact ID string",
+            type(artifact_id).__name__,
+            "Pass the exact saved Artifact ID.",
+            "session.persisted_frame",
+        )
+    with store._read() as conn:
+        row = _one(
+            conn, "SELECT session_ref FROM dataset_artifacts WHERE artifact_ref=?", (artifact_id,)
+        )
+        if row is None or _text(row, "session_ref") != session_id:
+            raise ArtifactNotFoundError.for_ref(artifact_id)
+        manifest = terminal_store.manifest(store, conn, artifact_id)
+        if manifest is None:
+            raise ArtifactNotFoundError.for_ref(artifact_id)
+    return manifest
+
+
+@contextmanager
+def _frame_read_boundary() -> Iterator[None]:
+    try:
+        yield
+    except (
+        pa.ArrowException,
+        OSError,
+        ValueError,
+        TypeError,
+        OverflowError,
+        MemoryError,
+    ) as error:
+        raise MaterializationError(
+            expected="complete checked saved Frame data",
+            received=f"{type(error).__name__}: {error}",
+            repair="Preserve the original data files and exact receipts; reads cannot return partial data.",
+            stage="frame.read",
+            help_target="analysis_frame.compute",
+        ) from error
+
+
+@dataclass(frozen=True, slots=True)
+class FrameReader:
+    store: SessionStore
+    session_id: str
+
+    def manifest(self, backing: StoredFrameBacking) -> ArtifactManifest:
+        value = open_manifest(self.store, self.session_id, backing.artifact_id)
+        if value.data != backing.data or value.metadata != backing.metadata:
+            raise invalid("stored Frame descriptor differs from its exact commit")
+        return value
+
+    def complete(self, backing: StoredFrameBacking) -> CompletedFrameResult:
+        value = self.manifest(backing)
+        reader = OutputRead(self.store.project_root)
+        with _frame_read_boundary():
+            rows = reader.read(ReadLayout(value.data.schema, value.data.rows), ExportRead())
+            parts = tuple(
+                OutputAttachment(
+                    part.name,
+                    part.schema,
+                    reader.read(ReadLayout(part.schema, part.rows), ExportRead()),
+                )
+                for part in value.data.attachments
+            )
+            return CompletedFrameResult(
+                CompletedFrameData(value.data.schema, rows, parts), value.metadata
+            )
+
+    def preview(self, backing: StoredFrameBacking, n: int) -> FramePreview:
+        request = PreviewRead(n)
+        value = self.manifest(backing)
+        with _frame_read_boundary():
+            reader = OutputRead(self.store.project_root)
+            schema = value.data.schema
+            rows = reader.read(ReadLayout(schema, value.data.rows), request)
+            validate_presence(schema, rows)
+            parts: dict[str, OutputAttachment] = {}
+            saved = {part.name: part for part in value.data.attachments}
+
+            def select(name: str, keys: set[FrozenKey]) -> OutputAttachment:
+                part = saved[name]
+                selected = OutputAttachment(
+                    name, part.schema, reader.select(ReadLayout(part.schema, part.rows), keys)
+                )
+                if name in parts:
+                    # Shared endpoints may be needed by more than one axis.
+                    previous = parts[name]
+                    merged = pd.concat([previous.rows, selected.rows], ignore_index=True)
+                    keys_seen: set[FrozenKey] = set()
+                    indices = []
+                    columns = tuple(c for axis in part.schema.axes for c in axis.columns)
+                    for i, key in enumerate(frozen_key_rows(merged, columns)):
+                        if key not in keys_seen:
+                            keys_seen.add(key)
+                            indices.append(i)
+                    selected = OutputAttachment(
+                        name, part.schema, merged.iloc[indices].reset_index(drop=True)
+                    )
+                parts[name] = selected
+                return selected
+
+            def calendar(
+                axis: CalendarDataAxis, keys: set[FrozenKey]
+            ) -> tuple[FrozenCalendarBucket, ...]:
+                assert axis.frozen is not None
+                part = select(axis.frozen.directory_name, keys)
+                return read_calendar_records(axis, part.schema, part.rows)
+
+            if n:
+                for axis in schema.axes:
+                    keys = set(frozen_key_rows(rows, axis.columns))
+                    if isinstance(axis, PairedDataAxis):
+                        mapping = select(axis.mapping_name, keys)
+                        width = len(axis.left.columns)
+                        endpoint_records = []
+                        for endpoint, columns in (
+                            (axis.left, mapping.schema.values[:width]),
+                            (axis.right, mapping.schema.values[width:]),
+                        ):
+                            endpoint_keys = frozen_key_rows(mapping.rows, columns)
+                            endpoint_records.append(
+                                calendar(
+                                    endpoint,
+                                    {
+                                        key
+                                        for key in endpoint_keys
+                                        if all(value is not None for _, value in key)
+                                    },
+                                )
+                            )
+                        validate_paired_records(
+                            axis,
+                            mapping.schema,
+                            mapping.rows,
+                            endpoint_records[0],
+                            endpoint_records[1],
+                        )
+                        validate_paired_presence(axis, schema, rows, mapping.schema, mapping.rows)
+                    elif isinstance(axis, CalendarDataAxis):
+                        calendar(axis, keys)
+            return FramePreview(schema, rows, tuple(parts.values()))
 
 
 @dataclass(frozen=True, slots=True)
 class TerminalReader:
-    """Store authority only; every data call reads committed Parquet anew."""
+    """Artifact commit/audit authority; never opens Frame payloads."""
 
     store: SessionStore
 
-    def _manifest(self, value: ArtifactManifest) -> ArtifactManifest:
+    def show(self, manifest: ArtifactManifest) -> None:
+        selected_manifest(self.store, manifest)
+        metadata = manifest.metadata
         with self.store._read() as conn:
-            saved = terminal_store.manifest(self.store, conn, value.artifact_id)
-            if saved != value:
-                raise invalid("selected terminal Artifact metadata changed or disappeared")
-            terminal_store.collection(conn, value.artifact_id)
-        return value
-
-    def _frame(self, manifest: ArtifactManifest, request: PreviewRead | ExportRead) -> pd.DataFrame:
-        from marivo.analysis.materialization.pandas_export import export_frame
-
-        self._manifest(manifest)
-        try:
-            return export_frame(manifest, OutputRead(self.store.project_root), request)
-        except (
-            pa.ArrowException,
-            OSError,
-            ValueError,
-            TypeError,
-            OverflowError,
-            MemoryError,
-        ) as error:
-            raise MaterializationError(
-                expected="a complete lossless read of the selected committed output",
-                received=f"{type(error).__name__}: {error}",
-                repair="Preserve the output files. Check the selected Artifact receipts and available memory; export cannot return partial rows.",
-                stage="terminal_reading",
-                help_target="artifact",
-            ) from error
-
-    def show(self, manifest: ArtifactManifest, *, n: int) -> None:
-        frame = self._frame(manifest, PreviewRead(n))
-        facts, _ = terminal_store.records_page(
-            self.store, manifest.artifact_id, kind="evidence", limit=3
+            producer = terminal_store.run(self.store, conn, manifest.run_id)
+        assert producer is not None
+        continuations = [f"session.persisted_frame({manifest.artifact_id!r}).show(n=20)"]
+        if metadata.findings:
+            continuations.append(".findings(limit=20)")
+        if metadata.audit.source_facts or metadata.audit.evaluation.checks:
+            continuations.append(".evidence_digest()")
+        print(
+            Card(
+                identity=f"Artifact id={manifest.artifact_id} session={manifest.session_id}",
+                available=continuations,
+                omission_recovery=f"use session.persisted_frame({manifest.artifact_id!r}) to read this saved Frame",
+            )
+            .field("result_id", metadata.result_id)
+            .field("evaluated_at", metadata.evaluated_at.isoformat())
+            .field("committed_at", str(producer.terminal_at))
+            .field("publishing_run", manifest.run_id)
+            .field("inputs", repr(metadata.audit.evaluation.inputs)[:1200])
+            .field("operations", repr(metadata.audit.evaluation.operations)[:600])
+            .field("source_facts", str(len(metadata.audit.source_facts)))
+            .field("checks", str(len(metadata.audit.evaluation.checks)))
+            .render()
         )
-        card = Card(
-            identity=f"Artifact id={manifest.artifact_id} session={manifest.session_id}",
-            available=(".to_pandas()", ".evidence_digest()"),
-            omission_recovery="use .to_pandas() for complete data and .evidence_digest() for all saved facts",
-        ).field("rows", str(manifest.data.rows.receipt.realized_row_count))
-        card.table(
-            tuple(str(column) for column in frame.columns),
-            tuple(
-                tuple(str(value)[:256] for value in row)
-                for row in frame.itertuples(index=False, name=None)
-            ),
-            label="output",
-        )
-        for index, item in enumerate(facts):
-            if not isinstance(item, OutputEvidence):
-                raise invalid("terminal Evidence contains another record kind")
-            card.field(f"evidence.{index}", f"{item.kind}: {item.summary}"[:512])
-        print(card.render())
-
-    def to_pandas(self, manifest: ArtifactManifest) -> pd.DataFrame:
-        return self._frame(manifest, ExportRead())
 
     def findings(
         self, manifest: ArtifactManifest, *, limit: int, cursor: str | None
     ) -> FindingPage:
-        self._manifest(manifest)
+        selected_manifest(self.store, manifest)
         items, next_cursor = terminal_store.records_page(
             self.store, manifest.artifact_id, kind="finding", limit=limit, cursor=cursor
         )
@@ -265,7 +430,7 @@ class TerminalReader:
         return FindingPage(tuple(findings), limit, next_cursor is not None, next_cursor)
 
     def evidence_digest(self, manifest: ArtifactManifest) -> ArtifactDigest:
-        self._manifest(manifest)
+        selected_manifest(self.store, manifest)
         saved, items = terminal_store.evidence(self.store, manifest.artifact_id)
         return ArtifactDigest(
             artifact_ref=ArtifactRef(ref=manifest.artifact_id),
@@ -279,15 +444,6 @@ class TerminalReader:
 
 
 def open_artifact(store: SessionStore, session_id: str, artifact_id: str) -> Artifact:
-    with store._read() as conn:
-        # Ownership is checked before exposing metadata from another Session.
-        row = _one(
-            conn, "SELECT session_ref FROM dataset_artifacts WHERE artifact_ref=?", (artifact_id,)
-        )
-        if row is None or _text(row, "session_ref") != session_id:
-            raise ArtifactNotFoundError.for_ref(artifact_id)
-        manifest = terminal_store.manifest(store, conn, artifact_id)
-        if manifest is None:
-            raise ArtifactNotFoundError.for_ref(artifact_id)
-        terminal_store.collection(conn, artifact_id)
-    return Artifact._from_manifest(manifest, TerminalReader(store))
+    return Artifact._from_manifest(
+        open_manifest(store, session_id, artifact_id), TerminalReader(store)
+    )

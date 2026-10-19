@@ -7,7 +7,6 @@ import ibis.expr.types as ir
 
 from marivo._definition.expressions import EntityCount, SourceAggregate, SourceWeightedMean
 from marivo._definition.query import ReduceValues
-from marivo.analysis.binding.correspondence import ComparisonEndpoint
 from marivo.analysis.compiler.graph_lowering import LoweredRead
 from marivo.analysis.compiler.query_program import ResultProgram
 from marivo.analysis.core.data_types import DecimalDataType, ScalarDataType
@@ -18,23 +17,6 @@ from marivo.datasource.ir import TableSourceIR
 def qualified_query_provider(owner: SourceSession) -> bool:
     """Recognize providers with an implemented relation route, not all shapes."""
     return owner.provider.name in ("duckdb", "postgres", "mysql", "trino", "clickhouse")
-
-
-def qualify_query_join(
-    owner: SourceSession, endpoints: tuple[ComparisonEndpoint, ...]
-) -> str | None:
-    """Admit joins whose complete axes survive nullable endpoint transport."""
-    if owner.provider.name == "duckdb":
-        return None
-    if owner.provider.name not in ("trino", "clickhouse"):
-        return "this provider has no qualified joined Query endpoint route"
-    if any(
-        endpoint.column(key).dtype != ScalarDataType("string")
-        for endpoint in endpoints
-        for key in endpoint.keys
-    ):
-        return "remote joined endpoints retain exact non-string identity carriers"
-    return None
 
 
 def qualify_query_source(

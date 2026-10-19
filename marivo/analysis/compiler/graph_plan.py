@@ -9,12 +9,10 @@ from typing import TYPE_CHECKING, Literal, TypeAlias
 from marivo._definition.expressions import FieldPredicate
 from marivo._definition.relations import PopulationDependency
 from marivo.analysis.compiler.query_program import (
-    EMPTY_QUERY_CONTEXT,
     FrameCombineProgram,
     FrameParameter,
     FrameProgram,
     PopulationParameterPlan,
-    QueryContext,
     ResultProgram,
     SourceParameter,
 )
@@ -25,7 +23,6 @@ from marivo.analysis.core.model import Obligation, reject
 from marivo.analysis.methods.physical import QUERY_COMBINE_KERNEL
 
 if TYPE_CHECKING:
-    from marivo.analysis.compiler.native_formula import NativeOriginalFinisher
     from marivo.analysis.compiler.native_query import NativeQueryFinish
     from marivo.analysis.compiler.observation import FormulaProgram, ReductionInput
     from marivo.analysis.compiler.optimization import (
@@ -108,7 +105,6 @@ class SourceRead:
     binding_id: str = ""
     common_reads: tuple[SourceRead, ...] = ()
     native_reductions: tuple[ReductionInput, ...] = ()
-    native_original_finish: NativeOriginalFinisher | None = None
     native_reads: tuple[SourceRead, ...] = ()
     native_query_finish: NativeQueryFinish | None = None
 
@@ -251,7 +247,7 @@ def _plan_source_reads(
             expected="at least one source contribution for a Query execution plan",
             received="source-free Metric outputs",
             repair="Bind a source-backed Metric through session.observe before executing the Query.",
-            target="query.execute",
+            target="analysis_frame.compute",
         )
     by_source = {schema.source_id: schema for schema in schemas}
     from marivo._definition.types import FieldRead, coordinate_read_keys, field_read_key
@@ -376,7 +372,7 @@ def _plan_source_reads(
                 expected=f"an implemented {obligation.check_id} check bound to its source occurrence",
                 received=f"{obligation.fact.kind} premise without a Query check route",
                 repair="This check route is not delivered yet; no business row was read.",
-                target="query.execute",
+                target="analysis_frame.compute",
             )
         planned.extend(
             PlannedCheck(obligation, by_occurrence[route.occurrence].stage_id) for route in routes
@@ -389,7 +385,6 @@ def plan_query(
     schemas: tuple[SourceSchema, ...],
     *,
     checks: tuple[SourceCheckRoute, ...] = (),
-    context: QueryContext = EMPTY_QUERY_CONTEXT,
     require_original: bool = False,
     memo: InvocationMemo | None = None,
     prefix: tuple[int, ...] = (),
@@ -402,7 +397,6 @@ def plan_query(
             compilation_key(
                 graph,
                 schemas,
-                context,
                 required=("prefix:" + repr(prefix),),
                 require_original=require_original,
                 checks=checks,
@@ -411,7 +405,6 @@ def plan_query(
                 graph,
                 schemas,
                 checks=checks,
-                context=context,
                 require_original=require_original,
                 memo=memo,
                 prefix=prefix,
@@ -421,7 +414,6 @@ def plan_query(
         graph,
         schemas,
         checks=checks,
-        context=context,
         require_original=require_original,
         memo=None,
         prefix=prefix,
@@ -433,23 +425,25 @@ def _plan_bound_query(
     schemas: tuple[SourceSchema, ...],
     *,
     checks: tuple[SourceCheckRoute, ...],
-    context: QueryContext,
     require_original: bool,
     memo: InvocationMemo | None,
     prefix: tuple[int, ...],
 ) -> QueryPlan:
     from marivo._definition.query import ResultQuery
+    from marivo._definition.relations import ReadQuery
 
     if isinstance(graph.root, ResultQuery):
-        from marivo.analysis.compiler.queries import plan_result
+        from marivo.analysis.compiler.queries import plan_literal
 
-        return plan_result(
-            graph, schemas, prefix, context=context, require_original=require_original, memo=memo
-        )
+        return plan_literal(graph, graph.root.operation, schemas)
+    if isinstance(graph.root, ReadQuery):
+        from marivo.analysis.compiler.queries import plan_read
+
+        return plan_read(graph, schemas, memo=memo)
 
     from marivo.analysis.compiler.parameters import plan_parameters
 
-    planned = plan_parameters(graph, schemas, checks, context, memo=memo)
+    planned = plan_parameters(graph, schemas, checks, memo=memo)
     if require_original:
         from marivo.analysis.compiler.optimization import retain_components
 

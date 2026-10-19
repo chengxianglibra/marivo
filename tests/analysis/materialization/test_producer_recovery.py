@@ -73,8 +73,8 @@ def producer_recovery(
             {"value": session.catalog.metrics.get("sales.total")},
             by=session.members(ms.ref.entity("sales.facts")),
         )
-        captures = [values.execute(), values.execute()]
-        assert captures[0].id != captures[1].id
+        captures = [values.persist(), values.persist()]
+        assert captures[0].artifact.id != captures[1].artifact.id
         frames: list[pd.DataFrame] = []
         for value in captures:
             frame = value.to_pandas()
@@ -89,7 +89,7 @@ def producer_recovery(
         source_trace.record(captures[0])
         state: dict[str, Json] = {
             "session": session.id,
-            "inputs": [value.id for value in captures],
+            "inputs": [value.artifact.id for value in captures],
             "input_snapshots": [
                 snapshot(value, frame=frame) for value, frame in zip(captures, frames, strict=True)
             ],
@@ -206,7 +206,7 @@ def test_http_source_remains_a_datasource_boundary(
             session.observe(
                 {"value": session.catalog.metrics.get("sales.total")},
                 by=session.members(ms.ref.entity("sales.facts")),
-            ).execute()
+            ).compute()
         error = failure.value
         assert error.expected and error.received
         assert "local" in error.expected.lower()

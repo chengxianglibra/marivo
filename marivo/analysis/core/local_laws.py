@@ -2,17 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-
-from marivo._definition.expressions import (
-    DeclaredMetricRef,
-    EntityCount,
-    MetricNode,
-    SourceAggregate,
-)
-from marivo._definition.query import FilterValues, RollupValues
-from marivo._definition.types import ExactRef
-from marivo.analysis.core.data_types import DataColumn, DataType, DecimalDataType, ScalarDataType
+from marivo._definition.query import FilterValues
+from marivo.analysis.core.data_types import DataColumn, ScalarDataType
 
 
 def query_selection_fusion_issue(
@@ -86,48 +77,4 @@ def query_selection_fusion_issue(
             "closed int64 comparisons with the same drop-NA mask policy",
             "unqualified predicate or numeric operation",
         )
-    return None
-
-
-def query_original_fusion_issue(
-    first: RollupValues,
-    second: RollupValues,
-    outputs: tuple[MetricNode, ...],
-    declared: Mapping[ExactRef, MetricNode],
-    dtypes: tuple[DataType, ...],
-    *,
-    single_consumer: bool,
-    same_components: bool,
-    pending_checks: bool,
-    ordinary: bool,
-) -> tuple[str, str] | None:
-    """L8 ordered direct-key group with every original finish retained.
-
-    Unlike eliminating a fixed-state finish, the group executes both checked
-    reductions in their original order. Thus no regrouping bound is inferred
-    from a final total, and intermediate int64/Decimal failures still occur.
-    """
-    if not single_consumer:
-        return "one consumer of the intermediate original reduction", "multiple consumers"
-    if pending_checks:
-        return "fixed external check positions", "a pending check boundary"
-    if not same_components or not ordinary or first.calendar_maps or second.calendar_maps:
-        return (
-            "identical ordinary components and direct retained axes",
-            "time/sample/component boundary",
-        )
-    if not all(
-        dtype == ScalarDataType("int64") or isinstance(dtype, DecimalDataType) for dtype in dtypes
-    ):
-        return "exact int64 or Decimal original quantities", "unqualified numeric finish"
-
-    def leaf(node: MetricNode) -> bool:
-        if isinstance(node, DeclaredMetricRef):
-            return leaf(declared[node.ref])
-        return isinstance(node, EntityCount) or (
-            isinstance(node, SourceAggregate) and node.reducer in ("sum", "count")
-        )
-
-    if not outputs or not all(leaf(node) for node in outputs):
-        return "direct exact source sum/count finishes", "formula/per/window finish boundary"
     return None

@@ -1,4 +1,4 @@
-"""Private unified Frame structure and exact handles, before public cutover."""
+"""Immutable current Frame structures, lazy operations and fixed-data lifecycles."""
 
 from __future__ import annotations
 
@@ -16,9 +16,7 @@ from marivo._definition.correspondence import CalendarCorrespondence
 from marivo._definition.query import (
     CoordinateSlot,
     FilterValues,
-    LiteralValues,
     PresenceSlot,
-    ReadFields,
     ReduceValues,
     ResultQuery,
     SelectValues,
@@ -29,6 +27,7 @@ from marivo._definition.query import (
     ValueSlot,
     ValueUnary,
 )
+from marivo._definition.relations import ReadQuery
 from marivo._definition.types import DefinitionGraphError, LiteralValue, check_literal
 from marivo.analysis.core.artifact_data import ArtifactData, DataSchema
 from marivo.analysis.core.frame_audit import FrameResultMetadata
@@ -57,6 +56,7 @@ from marivo.analysis.core.frame_structure import (
     require_complete_structure,
 )
 from marivo.analysis.core.model import reject
+from marivo.analysis.dsl.artifact import Artifact
 from marivo.analysis.dsl.column import Column, ColumnPredicate, _Statistic
 from marivo.analysis.dsl.frame_axis import FrameAxis
 from marivo.analysis.materialization.frame_services import LocalFrameServices
@@ -67,7 +67,11 @@ FrameSchema: TypeAlias = DataSchema | PendingDataSchema
 
 @dataclass(frozen=True, init=False, repr=False, eq=False)
 class AnalysisFrame:
-    """One current structure, exact binding, and closed private backing."""
+    """One immutable data structure with expression, complete-memory or stored backing.
+
+    Acquire through Session methods and Frame operators. Compute and persist return
+    fixed results without mutating the original object.
+    """
 
     _local: LocalFrameServices
     _input_id: str
@@ -150,14 +154,35 @@ class AnalysisFrame:
 
     @property
     def output_names(self) -> tuple[str, ...]:
+        """Return complete ordered value names, excluding coordinates and presence.
+
+        Args: None.
+        Returns: A tuple of exact public value paths joined by dots.
+        Example: ``names = frame.output_names``.
+        Constraints: Metadata only; does not prepare schema or read rows.
+        """
         return tuple(".".join(path) for path in self._schema.value_paths)
 
     @property
     def presence_names(self) -> tuple[str, ...]:
+        """Return ordered names of independent nonnullable boolean presence columns.
+
+        Args: None.
+        Returns: Exact current presence paths joined by dots.
+        Example: ``missing = frame.where(~frame['right_present'])``.
+        Constraints: Reads metadata only; value NA does not imply missing rows.
+        """
         return tuple(".".join(path) for path in self._schema.presence_paths)
 
     @property
     def axes(self) -> tuple[FrameAxis, ...]:
+        """Return ordered complete axis handles bound to this exact input.
+
+        Args: None.
+        Returns: A tuple of FrameAxis handles; composite identities remain grouped.
+        Example: ``axis = frame.axes[0]``.
+        Constraints: Metadata only; handles from another input do not authorize operations here.
+        """
         schema = self._schema
         return tuple(
             FrameAxis._from_frame(
@@ -167,6 +192,13 @@ class AnalysisFrame:
         )
 
     def axis(self, name: str) -> FrameAxis:
+        """Resolve one exact current display name to its bound complete axis.
+
+        Args: name: Exact display name in the current structure.
+        Returns: The unique matching FrameAxis.
+        Example: ``region = frame.axis('sales.order.region')``.
+        Constraints: Missing/ambiguous names reject with actual candidates; no cross-input inference.
+        """
         matches = tuple(axis for axis in self.axes if axis.name == name)
         if type(name) is not str or len(matches) != 1:
             reject(
@@ -178,6 +210,13 @@ class AnalysisFrame:
         return matches[0]
 
     def __getitem__(self, name: str) -> Column:
+        """Return a bound value or presence Column by its exact current path.
+
+        Args: name: Exact value/presence name.
+        Returns: A Column bound to this Frame input.
+        Example: ``column = frame['left.revenue']``.
+        Constraints: No row reads, suffix/role guessing or coordinate lookup; use coord for coordinates.
+        """
         if type(name) is str:
             for index, path in enumerate(self._schema.value_paths):
                 if name == ".".join(path):
@@ -229,6 +268,13 @@ class AnalysisFrame:
         )
 
     def coord(self, axis: FrameAxis) -> Column:
+        """Return a coordinate Column for one complete single-component axis.
+
+        Args: axis: A FrameAxis from this exact input.
+        Returns: A bound coordinate Column.
+        Example: ``key = frame.coord(frame.axes[0])``.
+        Constraints: Composite axes remain legal by/on inputs but cannot be split by coord.
+        """
         index = self._axis_index(axis)
         columns = self._schema.axes[index].columns
         if len(columns) != 1:
@@ -296,7 +342,13 @@ class AnalysisFrame:
         )
 
     def where(self, predicate: Column) -> AnalysisFrame:
-        """Filter current rows by a same-input boolean Column; NA is excluded."""
+        """Filter current rows by a same-input boolean Column.
+
+        Args: predicate: A boolean Column bound to this exact input.
+        Returns: A lazy AnalysisFrame with the same axes and presence.
+        Example: ``positive = frame.where(frame['revenue'] > 0)``.
+        Constraints: Excludes NA, preserves relative row order; no PopulationPredicate overload.
+        """
         self._require_column(predicate)
         if predicate._kind != "boolean":
             reject(
@@ -308,7 +360,13 @@ class AnalysisFrame:
         return self._derive(FilterValues(predicate._expression))
 
     def select(self, values: Mapping[str, Column | LiteralValue]) -> AnalysisFrame:
-        """Name current Columns or literals while preserving axes and presence."""
+        """Name current Columns or non-null supported literals, preserving the row domain.
+
+        Args: values: Nonempty ordered mapping of user name segments to bound Columns/literals.
+        Returns: A lazy Frame retaining axes and all presence, with only the selected values.
+        Example: ``selected = frame.select({'change': frame['absolute.revenue']})``.
+        Constraints: Does not recover removed values or endpoint inputs; no source reads.
+        """
         if not isinstance(values, Mapping) or not values:
             reject(
                 "a nonempty named value mapping",
@@ -355,7 +413,21 @@ class AnalysisFrame:
         return self._derive(SelectValues(tuple(expressions)))
 
     def top(self, n: int, *, by: Column, descending: bool = True) -> AnalysisFrame:
-        """Select the first global n ranked rows, with complete-key tie breaking."""
+        """Select global Top-N current rows with complete-key tie breaking.
+
+        Args:
+            n: Nonnegative integer excluding bool.
+            by: Same-input ranking Column.
+            descending: Boolean rank direction, default True.
+
+        Returns:
+            A lazy globally ranked AnalysisFrame.
+
+        Example:
+            ``leaders = frame.top(5, by=frame['revenue'])``.
+
+        Constraints: NA last; no partition parameter or source regrouping.
+        """
         if type(n) is not int or n < 0 or type(descending) is not bool:
             reject(
                 "a nonnegative integer and boolean descending",
@@ -364,12 +436,26 @@ class AnalysisFrame:
                 "frame.top",
             )
         self._require_column(by)
-        return self._derive(TopValues(n, by._expression, descending, ()))
+        return self._derive(TopValues(n, by._expression, descending))
 
     def reduce(
         self, values: Mapping[str, _Statistic], *, by: tuple[FrameAxis, ...] = ()
     ) -> AnalysisFrame:
-        """Aggregate current values by retained complete axes, deleting presence."""
+        """Aggregate current rows by retained complete axes, removing all presence.
+
+        Args:
+            values: Nonempty ordered named unfinished-statistic mapping.
+            by: Tuple of complete same-input FrameAxis handles, default ().
+
+        Returns:
+            A lazy current-row aggregate AnalysisFrame.
+
+        Example:
+            ``mean = frame.reduce({'mean': frame['revenue'].mean()})``.
+
+        Constraints: Independent NA masks; no original Metric regrouping or calendar
+        coarsening.
+        """
         if not isinstance(values, Mapping) or not values or type(by) is not tuple:
             reject(
                 "a nonempty statistic mapping and tuple of current axes",
@@ -489,13 +575,22 @@ class AnalysisFrame:
         match: CalendarCorrespondence | None = None,
         how: Literal["exact", "outer"] = "exact",
     ) -> AnalysisFrame:
-        """Align all values by complete axes, adding independent row presence.
+        """Align all current values by complete axes, adding independent row presence.
 
-        Pass same-Session ``other`` and a complete ``on`` bijection for ordinary
-        axes, for example ``left.align(right, on=((left.axes[0], right.axes[0]),))``.
-        ``how`` selects exact domains or an ordered outer union. Zero-axis inputs
-        may omit ``on``. Calendar ``match`` support belongs to the later private
-        calendar stage. Returns a lazy AnalysisFrame without reading input rows.
+        Args:
+            other: Same-Session Frame.
+            on: Complete FrameAxis-pair bijection or None.
+            match: Optional closed calendar rule.
+            how: 'exact' or ordered 'outer'.
+
+        Returns:
+            A lazy Frame containing all left/right values and presence.
+
+        Example:
+            ``paired = a.align(b, on=((a.axes[0], b.axes[0]),))``.
+
+        Constraints: Only zero axes or a sole calendar axis per side infer on; ordinary axes
+        require explicit mapping. Paired inputs reject. No Catalog or row reads.
         """
         return self._combine(other, on=on, match=match, how=how, zero_denominator=None)
 
@@ -508,13 +603,25 @@ class AnalysisFrame:
         how: Literal["exact", "outer"] = "exact",
         zero_denominator: Literal["null", "error"] = "null",
     ) -> AnalysisFrame:
-        """Compare all equal named numeric values with matching units.
+        """Compare every equal named numeric value with matching units.
 
-        ``baseline``, ``on``, ``match`` and ``how`` follow align. For example,
-        ``current.compare(baseline, on=((current.axes[0], baseline.axes[0]),))``
-        returns a lazy Frame with left/right/absolute/relative value groups.
-        Relative change divides the difference by the absolute baseline;
-        ``zero_denominator`` selects null/error only after missing/NA masking.
+        Args:
+            baseline: Same-Session Frame.
+            on: Complete FrameAxis-pair bijection or None.
+            match: Optional closed calendar rule.
+            how: 'exact' or 'outer'.
+            zero_denominator: 'null' or 'error', default 'null'.
+
+        Returns:
+            A lazy Frame with left/right/absolute/relative value groups.
+
+        Example:
+            ``change = current.compare(baseline, match=mv.ordinal())`` for sole compatible
+            calendars.
+
+        Constraints: Same nonempty value-name set and units; relative=(left-right)/abs(right).
+        Missing endpoints/NA precede zero policy; Duration differences preserve Duration. No
+        paired inputs, second result type or source replay.
         """
         if zero_denominator not in ("null", "error"):
             reject(
@@ -528,33 +635,120 @@ class AnalysisFrame:
         )
 
     def compute(self) -> AnalysisFrame:
-        """Evaluate explicit inputs without publishing; complete memory returns itself."""
+        """Complete explicit inputs without publishing or returning partial data.
+
+        Args: None.
+
+        Returns:
+            Self for complete memory; otherwise a new independent complete-memory Frame.
+
+        Example:
+            ``fixed = frame.compute()``.
+
+        Constraints: Reads only explicit inputs, closes sources before success, and creates no
+        persistent Run, Artifact or result files. Stored loading preserves result facts.
+        """
         if isinstance(self._backing, MemoryFrameBacking):
             return self
         if isinstance(self._backing, StoredFrameBacking):
-            reject(
-                "the complete stored Frame reader",
-                self._backing.artifact_id,
-                "Stored compute is integrated with the Store 12 reader before public cutover.",
-                "frame.compute",
-            )
+            return self._from_memory(self._local, self._local.read_complete(self._backing))
         from marivo.analysis.materialization.frame_evaluation import evaluate_frame
 
         return self._from_memory(self._local, evaluate_frame(self))
 
-    def to_pandas(self) -> pd.DataFrame:
-        """Export isolated completed data; pending expressions require compute."""
-        if not isinstance(self._backing, MemoryFrameBacking):
+    def persist(self) -> AnalysisFrame:
+        """Publish a completed result; exact stored roots return themselves.
+
+        Args: None.
+        Returns: A stored AnalysisFrame owned by the same original local service.
+        Example: ``saved = frame.compute().persist()``.
+        Constraints: Pending evaluation completes before publication admission;
+        memory publication does not reevaluate, and stored idempotence reads metadata only.
+        """
+        if isinstance(self._backing, StoredFrameBacking):
+            selected = self._local.open_frame(self._backing.artifact_id)
+            if selected != self._backing:
+                reject(
+                    "the exact original committed descriptor",
+                    self._backing.artifact_id,
+                    "Preserve the selected Artifact metadata.",
+                    "frame.persist",
+                )
+            return self
+        completed = self.compute()
+        assert isinstance(completed._backing, MemoryFrameBacking)
+        backing = self._local.publish(completed._backing.result)
+        return self._from_stored(
+            self._local, backing.data, artifact_id=backing.artifact_id, metadata=backing.metadata
+        )
+
+    @property
+    def artifact(self) -> Artifact:
+        """Open commit and audit metadata for this exact stored root.
+
+        Returns: The Artifact audit view for this committed Frame.
+        Example: ``saved.artifact.show()``.
+        Constraints: Memory and derived expressions require persist first; no payload read.
+        """
+        if not isinstance(self._backing, StoredFrameBacking):
             reject(
-                "a complete memory Frame",
+                "an exact stored Frame root",
                 type(self._backing).__name__,
-                "Call compute() and export the returned Frame.",
+                "Call persist() and use the returned Frame's artifact.",
+                "frame.artifact",
+            )
+        selected = self._local.open_frame(self._backing.artifact_id)
+        if selected != self._backing:
+            reject(
+                "the exact original committed descriptor",
+                self._backing.artifact_id,
+                "Preserve the selected Artifact metadata.",
+                "frame.artifact",
+            )
+        return self._local.artifact(self._backing.artifact_id)
+
+    def to_pandas(self) -> pd.DataFrame:
+        """Export all fixed data as isolated typed arrays and inert attrs.
+
+        Args: None.
+        Returns: A complete pandas DataFrame with raw coordinate MultiIndex columns.
+        Example: ``rows = saved.to_pandas()``.
+        Constraints: Pending expressions require compute/persist; saved reads fully validate.
+        """
+        from marivo.analysis.materialization.pandas_export import export_frame
+
+        if isinstance(self._backing, ExpressionFrameBacking):
+            reject(
+                "a complete memory or stored Frame",
+                "expression",
+                "Call compute() or persist() before exporting.",
                 "frame.to_pandas",
             )
-        return _export(self._backing.data.copy_rows(), self._schema)
+        result = (
+            self._local.read_complete(self._backing)
+            if isinstance(self._backing, StoredFrameBacking)
+            else self._backing.result
+        )
+        return export_frame(
+            result.data.schema, result.data.copy_rows(), result.data.copy_attachments()
+        )
 
     def show(self, *, n: int = 20) -> None:
-        """Display current metadata and a bounded completed-memory preview without execution."""
+        """Display current metadata and a bounded fixed-data prefix without evaluation.
+
+        Args:
+            n: Nonnegative integer excluding bool, default 20; zero is metadata only.
+
+        Returns:
+            None; prints the structure and available memory/stored preview.
+
+        Example:
+            ``saved.show(n=0)``.
+
+        Constraints: Pending display never prepares schema; positive stored previews bound
+        decoded output, not receipt hashing or Parquet IO. No Run, full-export/head, ancestor
+        rows, complete-result cache or fallback after a read error.
+        """
         if type(n) is not int or n < 0:
             reject(
                 "a nonnegative integer preview count",
@@ -564,7 +758,20 @@ class AnalysisFrame:
             )
         from marivo.render import Card
 
-        card = Card(identity=repr(self), available=(".axes", ".output_names", ".presence_names"))
+        available = (
+            (".compute()", ".persist()")
+            if isinstance(self._backing, ExpressionFrameBacking)
+            else (".to_pandas()", ".persist()")
+            if isinstance(self._backing, MemoryFrameBacking)
+            else (".to_pandas()", ".artifact")
+        )
+        card = Card(
+            identity=repr(self),
+            available=available,
+            omission_recovery="use .output_names and .axes for captured structure; compute() for data"
+            if isinstance(self._backing, ExpressionFrameBacking)
+            else "use .output_names for all names and .to_pandas() for complete fixed data",
+        )
         card.field("values", repr(self.output_names)).field("presence", repr(self.presence_names))
         card.field(
             "axes",
@@ -589,33 +796,43 @@ class AnalysisFrame:
                 node = root.graph.root
                 operation = (
                     "read"
-                    if isinstance(node, ResultQuery) and isinstance(node.operation, ReadFields)
+                    if isinstance(node, ReadQuery)
                     else "literal"
-                    if isinstance(node, ResultQuery) and isinstance(node.operation, LiteralValues)
+                    if isinstance(node, ResultQuery)
                     else "observe"
                     if root.graph.signature.quantities
                     else "frame"
                 )
                 card.field("operation", operation).field("inputs", "source")
-                scopes = captured_source_scopes(root.graph)
+            else:
+                card.field("operation", "literal").field("inputs", "literal")
+            sources = _pending_source_inputs(self)
+            if sources:
+                scopes = tuple(
+                    scope for _, source in sources for scope in captured_source_scopes(source.graph)
+                )
                 card.field(
                     "scope",
                     _bounded("; ".join(scopes), 1800)
                     if scopes
                     else "no captured filter or member restriction",
                 )
-                observation = root.graph.signature.observation
-                if observation is not None and observation.period is not None:
-                    card.field("period", _bounded(repr(observation.period)))
+                periods = tuple(
+                    (frame._input_id, observation.period)
+                    for frame, source in sources
+                    if (observation := source.graph.signature.observation) is not None
+                    and observation.period is not None
+                )
+                if periods:
+                    card.field("period", _bounded(repr(periods)))
                 anchors = tuple(
-                    (axis.token, axis.at.isoformat())
-                    for axis in self._schema.axes
+                    (frame._input_id, axis.token, axis.at.isoformat())
+                    for frame, _ in sources
+                    for axis in frame._schema.axes
                     if axis.at is not None
                 )
                 if anchors:
                     card.field("anchors", _bounded(repr(anchors)))
-            else:
-                card.field("operation", "literal").field("inputs", "literal")
             card.field("rows", "pending; no input rows read")
             card.field(
                 "types",
@@ -623,34 +840,64 @@ class AnalysisFrame:
                 if isinstance(self._schema, PendingDataSchema)
                 else "captured concrete data types",
             )
-        elif isinstance(self._backing, MemoryFrameBacking):
-            card.field("rows", str(self._backing.data.row_count))
+        else:
+            from marivo.analysis.materialization.pandas_export import preview_text
+
+            if isinstance(self._backing, MemoryFrameBacking):
+                total = self._backing.data.row_count
+            else:
+                selected = self._local.open_frame(self._backing.artifact_id)
+                if selected != self._backing:
+                    reject(
+                        "the exact original committed descriptor",
+                        self._backing.artifact_id,
+                        "Preserve the selected Artifact metadata.",
+                        "frame.show",
+                    )
+                total = self._backing.data.rows.receipt.realized_row_count
+            card.field("result_id", self._backing.metadata.result_id)
+            card.field("evaluated_at", self._backing.metadata.evaluated_at.isoformat())
+            if isinstance(self._backing, StoredFrameBacking):
+                card.field("artifact", self._backing.artifact_id)
+            card.field("rows", str(total))
             if n:
                 count = min(n, 20)
-                preview = self._backing.data.preview_rows(count)
-                card.field(
-                    "preview",
-                    preview.to_string(index=False, max_cols=8, max_colwidth=60)
-                    if len(preview)
-                    else "empty result",
-                )
-                if self._backing.data.row_count > count:
-                    card.field(
-                        "omitted",
-                        f"{self._backing.data.row_count - count} rows; preview/card budget",
-                    )
+                if isinstance(self._backing, MemoryFrameBacking):
+                    rows = self._backing.data.preview_rows(count)
+                    attachments = self._backing.data.copy_attachments()
+                else:
+                    prefix = self._local.preview(self._backing, count)
+                    rows, attachments = prefix.rows, prefix.attachments
+                assert isinstance(self._schema, DataSchema)
+                card.field("preview", _bounded(preview_text(self._schema, rows, attachments), 4000))
+                if total > count:
+                    card.field("omitted", f"{total - count} rows; preview/card budget")
             else:
                 card.field("preview", "omitted by n=0")
-        else:
-            card.field("rows", str(self._backing.data.rows.receipt.realized_row_count))
-            if n:
-                reject(
-                    "the stored Frame preview reader",
-                    self._backing.artifact_id,
-                    "Stored previews join the Store 12 reader before public cutover; n=0 inspects metadata.",
-                    "frame.show",
-                )
         print(card.render())
+
+
+def _pending_source_inputs(
+    frame: AnalysisFrame,
+) -> tuple[tuple[AnalysisFrame, SourceFrameBinding], ...]:
+    """Collect explicit current source leaves; fixed inputs never recover history."""
+    pending = [frame]
+    seen: set[str] = set()
+    sources: list[tuple[AnalysisFrame, SourceFrameBinding]] = []
+    while pending:
+        current = pending.pop()
+        if current._input_id in seen:
+            continue
+        seen.add(current._input_id)
+        backing = current._backing
+        if not isinstance(backing, ExpressionFrameBacking):
+            continue
+        root = backing.root
+        if isinstance(root, SourceFrameBinding):
+            sources.append((current, root))
+        elif isinstance(root, OperationFrameBinding):
+            pending.extend(reversed(root.inputs))
+    return tuple(sources)
 
 
 def _bounded(text: str, limit: int = 900) -> str:
@@ -728,49 +975,3 @@ def _operation_summary(binding: OperationFrameBinding) -> str:
     )
     axes = tuple(source._schema.axes[position].token for position in operation.positions)
     return f"reduce(values={statistics!r}, by={axes!r})"
-
-
-def _export(rows: pd.DataFrame, structure: FrameSchema) -> pd.DataFrame:
-    if not isinstance(structure, DataSchema):
-        reject(
-            "a complete data structure",
-            type(structure).__name__,
-            "Compute the Frame first.",
-            "frame.export",
-        )
-    series: list[pd.Series] = []
-    names: list[tuple[str, str]] = []
-    for axis in structure.axes:
-        if len(axis.columns) == 1:
-            series.append(rows[axis.columns[0].slot_id].reset_index(drop=True))
-        else:
-            series.append(
-                pd.Series(
-                    tuple(
-                        rows[[c.slot_id for c in axis.columns]].itertuples(index=False, name=None)
-                    )
-                )
-            )
-        names.append(("coordinate", axis.token))
-    for role, columns in (("value", structure.values), ("presence", structure.presence)):
-        for column in columns:
-            series.append(rows[column.slot_id].reset_index(drop=True))
-            names.append((role, column.name))
-    result = pd.concat(series, axis=1) if series else pd.DataFrame(index=pd.RangeIndex(len(rows)))
-    result.columns = (
-        pd.MultiIndex.from_tuples(names) if names else pd.MultiIndex.from_arrays([[], []])
-    )
-    result.attrs = {
-        "axes": tuple(
-            {
-                "token": axis.token,
-                "name": axis.name,
-                "role": axis_role(axis),
-                "key_names": tuple(c.name for c in axis.columns),
-                "at": axis.at,
-            }
-            for axis in structure.axes
-        ),
-        "units": tuple((column.name, column.unit) for column in structure.values),
-    }
-    return result

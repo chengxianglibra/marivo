@@ -1,4 +1,4 @@
-"""Schema-only admission of invocation-local original Metric inputs."""
+"""Schema-only source component admission and ordinary source lowering."""
 
 from __future__ import annotations
 
@@ -9,18 +9,12 @@ from typing import TypeAlias
 import ibis
 import ibis.expr.types as ir
 
-from marivo._definition.correspondence import ComparisonAxis
-from marivo._definition.deferred import attribute_name
 from marivo._definition.expressions import (
-    ContributionFilter,
     DeclaredMetricRef,
     EntityCount,
     FieldPredicate,
     MeasureAssertion,
-    MemberCount,
-    MetricExpression,
     MetricNode,
-    MetricWindow,
     PerReduce,
     RowField,
     RowNode,
@@ -28,17 +22,9 @@ from marivo._definition.expressions import (
     SourceWeightedMean,
 )
 from marivo._definition.types import (
-    AxisBinding,
-    CalendarCoordinate,
     ExactRef,
-    SumAll,
-    SumAllExcept,
-    SumAxes,
-    SumNone,
-    SumPermission,
 )
 from marivo.analysis.compiler.observation import (
-    FormulaProgram,
     ReductionInput,
     common_slot,
     data_type,
@@ -106,21 +92,6 @@ class ComponentLayout:
             *(column for column, _ in self.identity),
             *payload,
         )
-
-
-@dataclass(frozen=True, slots=True)
-class DrillSchema:
-    """One schema-bound new-attribute read over selected original identities."""
-
-    source_id: str
-    value_slot: str
-    root: ExactRef
-    identity: tuple[tuple[DataColumn, str], ...]
-    columns: tuple[DataColumn, ...]
-    keys: tuple[str, ...]
-    projections: tuple[tuple[str, str], ...]
-    preparation_checks: tuple[tuple[str, str, str], ...]
-    parameter: str
 
 
 def contribution_root(
@@ -198,143 +169,6 @@ def require_original_formula(node: MetricNode, declared: Mapping[ExactRef, Metri
     for edge in children(node):
         if isinstance(edge.child, MetricNode):
             require_original_formula(edge.child, declared)
-
-
-def _permission(node: RowNode) -> SumPermission | None:
-    if isinstance(node, RowField):
-        return node.permission
-    if isinstance(node, MeasureAssertion):
-        return node.permission if node.permission is not None else _permission(node.operand)
-    from marivo.semantic.expressions import _intersect
-
-    permissions = tuple(_permission(item) for item in node.inputs)
-    if not permissions or any(item is None for item in permissions):
-        return None
-    permission = permissions[0]
-    assert permission is not None
-    for other in permissions[1:]:
-        assert other is not None
-        permission = _intersect(permission, other)
-    return permission
-
-
-def _allows(
-    permission: SumPermission | None,
-    axes: tuple[ComparisonAxis, ...] | None,
-    node: SourceAggregate,
-) -> bool:
-    if isinstance(permission, SumAll):
-        return True
-    if permission is None or isinstance(permission, SumNone) or axes is None:
-        return False
-    references: list[ExactRef] = []
-    for axis in axes:
-        if isinstance(axis, AxisBinding):
-            references.append(axis.field if axis.field is not None else axis.entity)
-        elif isinstance(axis, CalendarCoordinate) and node.time is not None:
-            references.append(node.time.field)
-        else:
-            return False
-    if isinstance(permission, SumAxes):
-        return all(
-            any(axis.ref == allowed.ref for allowed in permission.axes) for axis in references
-        )
-    assert isinstance(permission, SumAllExcept)
-    return all(not any(axis.ref == fixed.ref for fixed in permission.axes) for axis in references)
-
-
-def require_rollup(
-    program: FormulaProgram,
-    source_axes: tuple[ComparisonAxis, ...],
-    target_axes: tuple[ComparisonAxis, ...],
-) -> None:
-    """Check source sum permissions on the original axes actually merged."""
-    from marivo._definition.graph import children
-
-    changed = tuple(axis for axis in source_axes if axis not in target_axes)
-    declared = dict(program.declared)
-
-    def visit(node: MetricNode) -> None:
-        if isinstance(node, DeclaredMetricRef):
-            visit(declared[node.ref])
-            return
-        if (
-            isinstance(node, SourceAggregate)
-            and node.reducer == "sum"
-            and not _allows(_permission(node.operand), changed, node)
-        ):
-            numeric_failure(
-                "sum authorization for every merged original coordinate axis",
-                f"source sum permission {_permission(node.operand)!r}; merged axes={changed!r}",
-            )
-        for edge in children(node):
-            if isinstance(edge.child, MetricNode):
-                visit(edge.child)
-
-    for _, node in program.outputs:
-        require_original_formula(node, declared)
-        visit(node)
-
-
-def share_additive(
-    node: MetricNode,
-    declared: Mapping[ExactRef, MetricNode],
-    merged_axes: tuple[ComparisonAxis, ...] | None = None,
-) -> bool:
-    """Prove contribution additivity; rollup eligibility alone grants no share."""
-    import operator
-
-    from ibis.common.deferred import Attr, BinaryOperator, Call, Just, UnaryOperator, Variable
-
-    if isinstance(node, DeclaredMetricRef):
-        return share_additive(declared[node.ref], declared, merged_axes)
-    if isinstance(node, (ContributionFilter, MetricWindow)):
-        return share_additive(node.operand, declared, merged_axes)
-    if isinstance(node, (EntityCount, MemberCount)):
-        return True
-    if isinstance(node, SourceAggregate):
-        return node.reducer in ("sum", "count") and (
-            node.reducer == "count" or _allows(_permission(node.operand), merged_axes, node)
-        )
-    if not isinstance(node, MetricExpression):
-        return False
-
-    def homogeneous(recipe: object) -> bool:
-        if isinstance(recipe, Just):
-            return isinstance(recipe.value, (int, float)) and bool(recipe.value == 0)
-        if isinstance(recipe, Variable):
-            return share_additive(
-                node.operands[int(recipe.name.removeprefix("slot_"))], declared, merged_axes
-            )
-        if isinstance(recipe, UnaryOperator):
-            return recipe.func is operator.neg and homogeneous(recipe.arg)
-        if isinstance(recipe, BinaryOperator):
-            if recipe.func in (operator.add, operator.sub):
-                return homogeneous(recipe.left) and homogeneous(recipe.right)
-            if recipe.func is operator.mul:
-                return (isinstance(recipe.left, Just) and homogeneous(recipe.right)) or (
-                    homogeneous(recipe.left) and isinstance(recipe.right, Just)
-                )
-            if recipe.func is operator.truediv:
-                return homogeneous(recipe.left) and isinstance(recipe.right, Just)
-        if isinstance(recipe, Call) and isinstance(recipe.func, Attr):
-            name = attribute_name(recipe.func)
-            receiver = recipe.func.obj
-            if name == "name":
-                return homogeneous(receiver)
-            if len(recipe.args) == 1:
-                argument = recipe.args[0]
-                if name in ("add", "subtract"):
-                    return homogeneous(receiver) and homogeneous(argument)
-                if name == "multiply":
-                    return (isinstance(receiver, Just) and homogeneous(argument)) or (
-                        homogeneous(receiver) and isinstance(argument, Just)
-                    )
-                if name == "divide":
-                    return homogeneous(receiver) and isinstance(argument, Just)
-        return False
-
-    return homogeneous(node.recipe)
 
 
 def lower_components(

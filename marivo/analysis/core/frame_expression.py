@@ -18,7 +18,6 @@ from marivo._definition.query import (
     Statistic,
     TopValues,
     ValueBinary,
-    ValueBroadcast,
     ValueExpression,
     ValueLiteral,
     ValueSlot,
@@ -99,13 +98,6 @@ FrameExpression: TypeAlias = SourceFrameInput | FixedFrameInput | FrameOperation
 
 
 def admitted(expression: ValueExpression) -> None:
-    if isinstance(expression, ValueBroadcast):
-        reject(
-            "a data-only Column expression",
-            "source broadcast",
-            "Align explicit Frame inputs.",
-            "frame.expression",
-        )
     if isinstance(expression, ValueUnary):
         admitted(expression.operand)
     elif isinstance(expression, ValueBinary):
@@ -130,8 +122,7 @@ def expressions(operation: FrameUnaryOperationKind) -> tuple[ValueExpression, ..
         result = (operation.predicate,)
     elif isinstance(operation, TopValues):
         if (
-            operation.partitions
-            or type(operation.n) is not int
+            type(operation.n) is not int
             or operation.n < 0
             or type(operation.descending) is not bool
         ):
@@ -143,13 +134,6 @@ def expressions(operation: FrameUnaryOperationKind) -> tuple[ValueExpression, ..
             )
         result = (operation.score,)
     else:
-        if operation.calendar_maps:
-            reject(
-                "reduction by current complete axes",
-                "calendar coarsening",
-                "Construct a new source observation.",
-                "frame.reduce",
-            )
         result = tuple(stat.value for _, stat in operation.values if stat.value is not None)
     for expression in result:
         admitted(expression)
@@ -200,8 +184,6 @@ def expression_unit(schema: DataSchema | PendingDataSchema, value: ValueExpressi
             if value.operation in ("not", "is_null")
             else expression_unit(schema, value.operand)
         )
-    if isinstance(value, ValueBroadcast):
-        admitted(value)
     assert isinstance(value, ValueBinary)
     a, b = expression_unit(schema, value.left), expression_unit(schema, value.right)
     if value.operation in ("add", "sub"):
@@ -376,7 +358,6 @@ def infer_frame_schema(
                     ValueLiteral,
                     ValueUnary,
                     ValueBinary,
-                    ValueBroadcast,
                 ),
             )
             kind = "numeric" if value is None else _pending_kind(schema, value)
@@ -412,7 +393,6 @@ def infer_frame_schema(
                     ValueLiteral,
                     ValueUnary,
                     ValueBinary,
-                    ValueBroadcast,
                 ),
             )
             dtype, unit, nullable = (
@@ -430,7 +410,6 @@ def infer_frame_schema(
                     ValueLiteral,
                     ValueUnary,
                     ValueBinary,
-                    ValueBroadcast,
                 ),
             )
             dtype = (

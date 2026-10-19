@@ -123,7 +123,7 @@ def prepare_fields(
                 "prepare",
                 "scalar relationship endpoints on one datasource",
                 read.entity.ref.path,
-                "Read and select the other datasource independently, then pass its complete typed Query keys as a Population parameter.",
+                "Read and compute the other datasource independently, then call session.population_from(frame, on=...) with explicit complete identity axes.",
             )
         for path_ref in read.path:
             scalar_relationship = normalize_target_relationship(registry, path_ref.ref.path)
@@ -139,7 +139,7 @@ def prepare_fields(
                     "prepare",
                     "scalar relationship endpoints on one datasource",
                     read.entity.ref.path,
-                    "Use an independently selected Query-key Population across datasources instead of a scalar relationship read.",
+                    "Compute an independent Frame and use session.population_from(frame, on=...) across datasources instead of a scalar relationship read.",
                 )
     dependencies: list[ir.Value] = []
     time_encodings: dict[str, tuple[ir.Value, TargetDimensionContract, SourceTimeAuthority]] = {}

@@ -8,7 +8,13 @@ from dataclasses import dataclass
 from typing import Literal
 
 from marivo.analysis._pages import decode_keyset_cursor, encode_keyset_cursor
-from marivo.analysis.core.artifact_data import ArtifactManifest, OutputEvidence, OutputFinding
+from marivo.analysis.core.artifact_data import (
+    ArtifactManifest,
+    DataSchema,
+    OutputEvidence,
+    OutputFinding,
+)
+from marivo.analysis.core.frame_audit import FrameResultMetadata
 from marivo.analysis.materialization.contracts import (
     ResourceRecord,
     RunFailure,
@@ -78,7 +84,7 @@ def run(store: SessionStore, conn: sqlite3.Connection, ref: str) -> TerminalRun 
     )
 
 
-def admit(store: SessionStore, session: str, ref: str) -> None:
+def admit(store: SessionStore, session: str, ref: str, result_id: str) -> None:
     with store._write() as conn:
         if (
             _one(
@@ -91,7 +97,7 @@ def admit(store: SessionStore, session: str, ref: str) -> None:
             raise invalid("Session already has an incomplete Run")
         conn.execute(
             "INSERT INTO analysis_action_runs VALUES(?,?,?,?,?)",
-            (ref, session, ref, _now(), encode(InvocationInput())),
+            (ref, session, ref, _now(), encode(InvocationInput(result_id))),
         )
 
 
@@ -102,12 +108,14 @@ def manifest(store: SessionStore, conn: sqlite3.Connection, ref: str) -> Artifac
     value = decode(_text(row, "descriptor_payload"), ArtifactManifest)
     producer = run(store, conn, value.run_id)
     if (
-        value.artifact_id != ref
+        value.store_id != store.store_id
+        or value.artifact_id != ref
         or value.session_id != _text(row, "session_ref")
         or producer is None
         or producer.lifecycle != "succeeded"
         or producer.session_ref != value.session_id
         or producer.output_artifact_ref != ref
+        or producer.dataset_input.result_id != value.result_id
         or producer.invocation_id != _text(row, "invocation_id")
         or producer.terminal_at != _text(row, "committed_at")
     ):
@@ -128,36 +136,52 @@ def manifest(store: SessionStore, conn: sqlite3.Connection, ref: str) -> Artifac
             for resource in store._resources(conn, value.session_id)
         ):
             raise invalid("committed terminal output retains a cleanup obligation")
+    confirm_records(conn, value.artifact_id, value.metadata.findings, audit_evidence(value))
     return value
 
 
-def publish(
-    store: SessionStore,
-    value: ArtifactManifest,
-    findings: tuple[OutputFinding, ...],
-    evidence: tuple[OutputEvidence, ...],
-    resources: tuple[ResourceRecord, ...],
-    event: Callable[[str], None],
-) -> ArtifactManifest:
-    payload = encode(value)
-    decode(payload, ArtifactManifest)
-    finding_payloads = tuple(encode(item) for item in findings)
-    evidence_payloads = tuple(encode(item) for item in evidence)
+def audit_evidence(value: ArtifactManifest) -> tuple[OutputEvidence, ...]:
+    return (*value.metadata.audit.source_facts, *value.metadata.audit.evaluation.checks)
+
+
+def validate_result_records(schema: DataSchema, metadata: FrameResultMetadata) -> None:
+    findings = metadata.findings
     if len({item.finding_id for item in findings}) != len(findings):
         raise invalid("duplicate terminal Finding identity")
-    slots = {column.slot_id for column in value.data.schema.columns}
-    records: tuple[OutputFinding | OutputEvidence, ...] = (*findings, *evidence)
+    slots = {column.slot_id for column in schema.columns}
+    if any(fact.coordinates for fact in metadata.audit.source_facts):
+        raise invalid("inherited source facts cannot reference current output slots")
+    records: tuple[OutputFinding | OutputEvidence, ...] = (
+        *findings,
+        *metadata.audit.evaluation.checks,
+    )
     for item in records:
         if len({coordinate.slot_id for coordinate in item.coordinates}) != len(
             item.coordinates
         ) or any(coordinate.slot_id not in slots for coordinate in item.coordinates):
             raise invalid("output record coordinates must reference distinct saved slots")
+
+
+def publish(
+    store: SessionStore,
+    value: ArtifactManifest,
+    resources: tuple[ResourceRecord, ...],
+    event: Callable[[str], None],
+) -> ArtifactManifest:
+    findings, evidence = value.metadata.findings, audit_evidence(value)
+    payload = encode(value)
+    decode(payload, ArtifactManifest)
+    finding_payloads = tuple(encode(item) for item in findings)
+    evidence_payloads = tuple(encode(item) for item in evidence)
+    validate_result_records(value.data.schema, value.metadata)
     with store._write() as conn:
         producer = run(store, conn, value.run_id)
         if (
             producer is None
             or producer.lifecycle != "incomplete"
             or producer.session_ref != value.session_id
+            or producer.dataset_input.result_id != value.result_id
+            or value.store_id != store.store_id
         ):
             raise invalid("terminal publication differs from its incomplete Run")
         now = _now()
@@ -174,7 +198,7 @@ def publish(
                 len(evidence),
                 len(findings),
                 digest(finding_payloads),
-                "terminal-output-v1",
+                "frame-output-v1",
             ),
         )
         conn.executemany(
@@ -228,7 +252,7 @@ def records_page(
         if manifest(store, conn, ref) is None:
             raise invalid("exact terminal Artifact is absent")
         collection = _one(conn, "SELECT * FROM dataset_evidence WHERE artifact_ref=?", (ref,))
-        if collection is None or _text(collection, "evidence_format") != "terminal-output-v1":
+        if collection is None or _text(collection, "evidence_format") != "frame-output-v1":
             raise invalid("terminal output collection is absent or obsolete")
         owner = digest(
             (
@@ -293,7 +317,7 @@ class OutputCollection:
 
 def collection(conn: sqlite3.Connection, ref: str) -> OutputCollection:
     row = _one(conn, "SELECT * FROM dataset_evidence WHERE artifact_ref=?", (ref,))
-    if row is None or _text(row, "evidence_format") != "terminal-output-v1":
+    if row is None or _text(row, "evidence_format") != "frame-output-v1":
         raise invalid("terminal output collection is absent or obsolete")
     evidence_count, finding_count = row["evidence_count"], row["finding_count"]
     if (
@@ -349,7 +373,7 @@ def confirm_records(
         or collection["evidence_count"] != len(evidence)
         or _text(collection, "finding_set_digest") != digest(finding_payloads)
         or _text(collection, "evidence_digest") != digest(evidence_payloads)
-        or _text(collection, "evidence_format") != "terminal-output-v1"
+        or _text(collection, "evidence_format") != "frame-output-v1"
     ):
         raise invalid("original terminal record collection differs from publication")
     rows = _rows(

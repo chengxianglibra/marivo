@@ -7,31 +7,16 @@ from typing import TYPE_CHECKING, TypeAlias
 
 from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.query import QueryOperation, ValueBinary
-from marivo._definition.relations import PopulationDependency, PopulationProgram, QueryKeys
-from marivo.analysis.binding.correspondence import (
-    BoundCorrespondence,
-    BroadcastMapping,
-    ComparisonEndpoint,
-    CorrespondenceRelation,
-)
+from marivo._definition.relations import PopulationDependency, PopulationProgram
+from marivo.analysis.binding.correspondence import ComparisonEndpoint
 from marivo.analysis.core.data_types import DataColumn, DataType, DurationDataType, ScalarDataType
 
 if TYPE_CHECKING:
-    from marivo.analysis.compiler.observation import FormulaProgram
-    from marivo.analysis.compiler.original import DrillSchema
     from marivo.analysis.core.data_schema import DataSchema
     from marivo.analysis.core.frame_expression import (
         FrameBinaryOperationKind,
         FrameUnaryOperationKind,
     )
-
-
-@dataclass(frozen=True, slots=True)
-class QueryParameter:
-    definition: PopulationDependency
-    query: QueryKeys
-    placeholder: str
-    columns: tuple[DataColumn, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,7 +28,7 @@ class FrameParameter:
     columns: tuple[DataColumn, ...]
 
 
-PopulationParameterPlan: TypeAlias = QueryParameter | FrameParameter
+PopulationParameterPlan: TypeAlias = FrameParameter
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,30 +36,6 @@ class SourceParameter:
     stage_id: str
     placeholder: str
     columns: tuple[DataColumn, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class RelationInput:
-    relation: CorrespondenceRelation
-    query: QueryKeys | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class QueryContext:
-    relations: tuple[RelationInput, ...] = ()
-    drills: tuple[tuple[str, tuple[DrillSchema, ...]], ...] = ()
-
-
-EMPTY_QUERY_CONTEXT = QueryContext()
-
-
-@dataclass(frozen=True, slots=True)
-class BroadcastInput:
-    definition: QueryKeys
-    input_index: int
-    reference: ComparisonEndpoint
-    target: ComparisonEndpoint
-    mapping: BroadcastMapping
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,11 +61,6 @@ class ResultProgram:
     population_layouts: tuple[tuple[tuple[str, ...], ...], ...] = ()
     input_layout: ComparisonEndpoint | None = None
     output_layout: ComparisonEndpoint | None = None
-    comparison: BoundCorrespondence | None = None
-    relation_groups: tuple[tuple[str, ...], ...] = ()
-    original: FormulaProgram | None = None
-    references: tuple[BroadcastInput, ...] = ()
-    drills: tuple[DrillSchema, ...] = ()
     duration_operations: tuple[DurationBinary, ...] = ()
 
 

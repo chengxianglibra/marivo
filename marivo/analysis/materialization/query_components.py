@@ -52,7 +52,7 @@ def _invalid(received: str) -> MaterializationError:
         received=received,
         repair="Retain the original complete contribution identities and fine coordinate mapping.",
         stage="query_components",
-        help_target="query.execute",
+        help_target="analysis_frame.compute",
     )
 
 

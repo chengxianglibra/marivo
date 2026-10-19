@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from marivo.analysis.core.frame_structure import AxisRole
 
@@ -13,13 +13,25 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True, init=False, repr=False, eq=False)
 class FrameAxis:
-    """Acquire complete coordinate handles from a Frame's axes or axis(name)."""
+    """A read-only complete coordinate handle acquired from one exact Frame.
+
+    Args: No public constructor; read frame.axes or call frame.axis(name).
+
+    Returns:
+        A handle with token, name, role and ordered complete key_names.
+
+    Example:
+        ``axis = frame.axes[0]; frame.coord(axis).show()`` for a scalar axis.
+
+    Constraints: Metadata does not read rows or sources. Local names/tokens do not prove
+    equality across inputs; complete composite keys stay together.
+    """
 
     _frame: AnalysisFrame
     _input_id: str
     token: str
     name: str
-    role: AxisRole
+    role: Literal["field", "identity", "calendar", "paired"]
     key_names: tuple[str, ...]
 
     def __init__(self) -> None:
@@ -45,7 +57,19 @@ class FrameAxis:
         return f"<FrameAxis token={self.token[:40]!r} role={self.role} input={self._input_id[:16]}; use .show()>"
 
     def show(self) -> None:
-        """Print captured coordinate metadata without reading rows or preparing sources."""
+        """Print bounded captured coordinate metadata.
+
+        Args: None.
+
+        Returns:
+            None; prints token, name, role and complete key names.
+
+        Example:
+            ``frame.axes[0].show()``.
+
+        Constraints: Reads captured metadata only; never reads rows, resolves a semantic
+        object or prepares sources. Long field text is marked omitted.
+        """
         print("FrameAxis")
         for key, value in (
             ("token", self.token),

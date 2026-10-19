@@ -12,20 +12,15 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from marivo._definition.query import (
-    CombineValues,
     CoordinateSlot,
-    DrillValues,
     ReadFields,
     ReduceValues,
-    RollupValues,
     SelectValues,
-    ValueBroadcast,
     ValueExpression,
     ValueSlot,
     ValueUnary,
 )
-from marivo._definition.types import CalendarCoordinate
-from marivo.analysis.binding.correspondence import ComparisonEndpoint, bind_correspondence
+from marivo.analysis.binding.correspondence import ComparisonEndpoint
 from marivo.analysis.compiler.graph_plan import LocalCompute, QueryPlan, SourceRead
 from marivo.analysis.compiler.observation import (
     FormulaProgram,
@@ -42,7 +37,7 @@ from marivo.analysis.core.data_types import (
     ScalarDataType,
 )
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.graph_exchange import StageOutput, source_columns
+from marivo.analysis.materialization.graph_exchange import StageOutput
 
 
 def source_value_keys(plan: QueryPlan) -> dict[str, tuple[str, ...]]:
@@ -148,7 +143,7 @@ def _shared_key(column: DataColumn, inputs: tuple[tuple[DataColumn, pd.Series], 
                     received=f"{column.name}: integer keys outside the unambiguous float64 range",
                     repair="Use a source route that preserves one exact key type across all contributions.",
                     stage="stage_output",
-                    help_target="query.execute",
+                    help_target="analysis_frame.compute",
                 )
     return replace(column, dtype=dtype)
 
@@ -201,65 +196,13 @@ def effective_local(stage: LocalCompute, inputs: tuple[StageOutput, ...]) -> Loc
     if program is None or not inputs:
         return stage
     receiver = {column.slot_id: column for column in inputs[0].columns}
-    original = _formula(program.original, actual)
     program = replace(
         program,
         columns=tuple(_column(column, receiver) for column in program.columns),
         input_layout=_endpoint(program.input_layout, receiver),
-        original=original,
     )
     columns = tuple(_column(column, receiver) for column in stage.columns)
     operation = program.operation
-    if isinstance(operation, DrillValues):
-        batches: list[tuple[DataColumn, ...]] = []
-        for schema, source in zip(program.drills, inputs[1:], strict=True):
-            names = tuple(
-                column.slot_id for column in schema.columns if column.slot_id not in schema.keys
-            )
-            checked = source_columns(source.table, schema.columns, names)
-            batches.append(tuple(column for column in checked if column.slot_id in names))
-        attributes = tuple(
-            _shared_key(
-                group[0],
-                tuple(
-                    (column, source.table[column.slot_id])
-                    for column, source in zip(group, inputs[1:], strict=True)
-                ),
-            )
-            for group in zip(*batches, strict=True)
-        )
-        added = dict(zip(stage.keys[len(program.keys) :], attributes, strict=True))
-        columns = tuple(
-            replace(column, dtype=added[column.slot_id].dtype)
-            if column.slot_id in added
-            else column
-            for column in columns
-        )
-    if isinstance(operation, CombineValues):
-        assert program.comparison is not None
-        binding = program.comparison
-        left = _endpoint(binding.left, receiver)
-        right = _endpoint(binding.right, {column.slot_id: column for column in inputs[1].columns})
-        assert left is not None and right is not None
-        binding = bind_correspondence(
-            left,
-            right,
-            match=operation.match,
-            how=binding.how,
-            operation=binding.operation,
-            roles=binding.roles,
-            time_axis=binding.time_axis,
-            relations=(binding.relation,) if binding.relation is not None else (),
-            calendar_snapshot=next(
-                (axis.snapshot for axis in left.axes if isinstance(axis, CalendarCoordinate)), None
-            ),
-        )
-        return replace(
-            stage,
-            columns=binding.layout.columns,
-            result=replace(program, comparison=binding, output_layout=binding.layout),
-        )
-
     value_columns = (
         program.input_layout.values
         if program.input_layout is not None
@@ -269,35 +212,11 @@ def effective_local(stage: LocalCompute, inputs: tuple[StageOutput, ...]) -> Loc
     coordinates = tuple(
         ibis.null().cast(ibis_type(receiver[group[0]].dtype)) for group in program.key_groups
     )
-    references = tuple(
-        (
-            reference.definition,
-            ibis.null().cast(
-                ibis_type(
-                    next(
-                        column
-                        for column in inputs[reference.input_index].columns
-                        if column.slot_id == reference.reference.values[0].slot_id
-                    ).dtype
-                )
-            ),
-        )
-        for reference in program.references
-    )
 
     def dtype(expression: ValueExpression) -> DataType:
         assert program is not None
         if isinstance(expression, ValueSlot):
             return value_columns[expression.index].dtype
-        if isinstance(expression, ValueBroadcast):
-            reference = next(
-                item for item in program.references if item.definition == expression.source
-            )
-            return next(
-                column.dtype
-                for column in inputs[reference.input_index].columns
-                if column.slot_id == reference.reference.values[0].slot_id
-            )
         if isinstance(expression, ValueUnary) and expression.operation in ("abs", "neg"):
             return dtype(expression.operand)
         if isinstance(expression, CoordinateSlot):
@@ -307,7 +226,7 @@ def effective_local(stage: LocalCompute, inputs: tuple[StageOutput, ...]) -> Loc
         )
         if duration is not None:
             return duration.output
-        return data_type(expression_value(expression, values, coordinates, references).type())
+        return data_type(expression_value(expression, values, coordinates).type())
 
     if isinstance(operation, SelectValues):
         selected = {
@@ -351,17 +270,13 @@ def effective_local(stage: LocalCompute, inputs: tuple[StageOutput, ...]) -> Loc
             else column
             for column in columns
         )
-    elif isinstance(operation, RollupValues) and original is not None:
-        output_types = {column.slot_id: column.dtype for column in formula_columns(original)}
-        columns = tuple(
-            replace(column, dtype=output_types[column.slot_id])
-            if column.slot_id in output_types
-            else column
-            for column in columns
-        )
-    effective = {column.slot_id: column for column in columns}
     return replace(
         stage,
         columns=columns,
-        result=replace(program, output_layout=_endpoint(program.output_layout, effective)),
+        result=replace(
+            program,
+            output_layout=_endpoint(
+                program.output_layout, {column.slot_id: column for column in columns}
+            ),
+        ),
     )
