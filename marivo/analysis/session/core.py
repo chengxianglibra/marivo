@@ -99,12 +99,7 @@ class Session:
         return sorted(name for name in type(self).__dict__ if not name.startswith("_"))
 
     def _record(self) -> SessionRecord:
-        from marivo.analysis.materialization.contracts import invalid
-
-        record = self._runtime.store.session(self.id)
-        if record is None:
-            raise invalid("Session is absent from its owning Store")
-        return record
+        return self._runtime.local.record()
 
     @property
     def id(self) -> str:
@@ -466,9 +461,7 @@ class Session:
                 "Pass the exact committed output ID, not an Artifact object or Ref.",
                 "session.artifact",
             )
-        from marivo.analysis.materialization.graph_reading import open_artifact
-
-        return open_artifact(self._runtime.store, self.id, artifact_id)
+        return self._runtime.local.artifact(artifact_id)
 
     def runs(
         self, *, status: RunLifecycle | None = None, limit: int = 20, cursor: str | None = None

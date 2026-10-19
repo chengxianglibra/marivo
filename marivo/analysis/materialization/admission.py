@@ -12,12 +12,12 @@ from marivo.analysis.core.time_authority import ReportTimeAuthority
 from marivo.analysis.materialization.errors import (
     _execution_error as _error,
 )
+from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization.reconciliation import reconcile_session
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.analysis.observation.contracts import ObservationOwner
 from marivo.analysis.refs import ArtifactRef
-from marivo.analysis.session import _lazy_graph, _lazy_runtime_reads
 from marivo.analysis.session._lazy_read_model import (
     GraphDirection,
     RunLifecycle,
@@ -53,17 +53,24 @@ class DatasetRuntime:
         session_record = store.session(session_ref)
         if session_record is None:
             raise _error("authority_resolution")
+        self.local = LocalFrameServices(store, session_ref)
         self.report_time = ReportTimeAuthority(
             timezone=session_record.report_timezone_name,
             resolution=session_record.report_timezone_resolution,
         )
-        self.store = store
-        self.session_ref = session_ref
         self._hook = event
         self.last_run_ref: str | None = None
         self.connection_config = DatasourceConnectionConfig(
             store.project_root, cr.current_resolver()
         )
+
+    @property
+    def store(self) -> SessionStore:
+        return self.local.store
+
+    @property
+    def session_ref(self) -> str:
+        return self.local.session_ref
 
     def connection_service(self) -> DatasourceConnectionService:
         """Create a source owner bound to this Runtime's captured host resolver."""
@@ -204,13 +211,11 @@ class DatasetRuntime:
         self, *, status: RunLifecycle | None = None, limit: int = 20, cursor: str | None = None
     ) -> RunPage:
         """Read a bounded newest-first page without admitting or reconciling work."""
-        return _lazy_runtime_reads.runs(
-            self.store, self.session_ref, status=status, limit=limit, cursor=cursor
-        )
+        return self.local.runs(status=status, limit=limit, cursor=cursor)
 
     def get_run(self, run_id: str) -> ReadRunRecord:
         """Read one exact Run owned by this execution Session."""
-        return _lazy_runtime_reads.get_run(self.store, self.session_ref, run_id)
+        return self.local.get_run(run_id)
 
     def graph(
         self,
@@ -220,10 +225,7 @@ class DatasetRuntime:
         max_nodes: int = 100,
     ) -> SessionGraph:
         """Read bounded same-Session production topology and omitted-neighbor boundaries."""
-        ref = ArtifactRef(ref=artifact_ref) if isinstance(artifact_ref, str) else artifact_ref
-        return _lazy_graph.graph(
-            self.store, self.session_ref, artifact_ref=ref, direction=direction, max_nodes=max_nodes
-        )
+        return self.local.graph(artifact_ref=artifact_ref, direction=direction, max_nodes=max_nodes)
 
     def _execute_query(self, graph: BoundGraph, state: CompiledSemanticState | None) -> Artifact:
         """Execute a bound Query and publish through this Runtime's Store."""

@@ -56,7 +56,7 @@ provider qualification. The public API remains unchanged until S7.
 | Stage | Plan and exit | Acceptance | Status | Reviews |
 | --- | --- | --- | --- | --- |
 | S0 | Freeze target; trace producers/consumers; pin signatures, axis fields, retirement and error order | A01-A24 ownership | Complete: no review findings | 1/2 |
-| S1 | Closed structure/carriers, name paths, precise input binding, local service split | A01/A02/A14/A17 | Development: two disjoint work packages | 0/2 |
+| S1 | Closed structure/carriers, name paths, precise input binding, local service split | A01/A02/A14/A17 | Services accepted; structure correcting round 1 | 1/2 |
 | S2 | Shared evaluation without publication; fixed leaves; ordinary operators and memory result extraction | A03-A05/A13/A14/A16/A17/A19-A21 | Pending S1 | 0/2 |
 | S3 | Store 12, lossless output/attachments, stored reader, audit and atomic publication | A02/A03/A14-A23 | Pending S2 | 0/2 |
 | S4 | Full-axis alignment/comparison, independent presence and deterministic order | A06-A08/A11/A19 | Pending S2; exit needs S3 | 0/2 |
@@ -97,6 +97,13 @@ signatures, field choices, error ordering, test owners, scoped retirement and
 current cleanup producers. Static review only; S0 is complete, not runtime
 acceptance. No second S0 review is required.
 
+S0 accepted commit: `f24c008281936c4f54323311277e89f6c043c439`
+(`docs: freeze AnalysisFrame implementation contracts`). Normal commit hooks
+passed; their Python checks correctly skipped this documentation-only commit.
+Pre/post content manifests confirmed all 741 peer source/test files unchanged
+across hook stash/restore. Only the two S0 record documents were committed;
+S1 source/tests remained in progress. Raw output: `s0-commit.log`.
+
 ## S1 work packages
 
 - Structure/identity developer owns concrete/pending structure, name paths,
@@ -122,6 +129,11 @@ acceptance. No second S0 review is required.
 - Both developers are `gpt-6.1-sol`, high. They coordinate the shared service
   interface before edits. One combined S1 review has at most two rounds;
   development checks do not count as independent review.
+- The user's per-subtask commit rule applies to both work packages: after
+  joint S1 acceptance, commit local services first and structure second, with
+  each accepted package's exact files and attribution. Freeze worker writes
+  and safely shelve only pending peer paths if normal hooks need a consistent
+  isolated snapshot; verify content manifests before restoring development.
 
 S1 local-service development is frozen pending combined review. Result:
 `evidence/analysis-frame/s1-services-result.md`. The new service has only
@@ -133,6 +145,47 @@ imports/types and the developer's incorrect flat-export/missing-file error
 expectations were fixed; raw failures remain in the named evidence logs.
 No full A14/A17 or S1 completion claim yet; the structure package is still
 being implemented. Combined S1 default tests and independent review remain.
+
+S1 structure development is frozen. Result:
+`evidence/analysis-frame/s1-structure-result.md`. Nineteen structure tests and
+92 related regression tests passed; six-module typing, lint/format/import
+checks and whitespace passed. Development repaired shared array storage and
+discarded arbitrary producer attrs at completed-data extraction. Ordinary axes
+preserve inert plain UTC anchors; pending completion checks typed metadata.
+Exact handles retain only the current input. Raw first failures are retained.
+
+The joint S1 candidate is HEAD `f24c008281` plus both owned source/test packages;
+all source/test hashes are frozen in
+`evidence/analysis-frame/s1-candidate-source-manifest.json`. Unrestricted default
+tests run with `env -u TESTS -u TYPECHECK_TARGETS -u LINT_TARGETS make test`;
+independent S1 review round 1 checks both packages against that source. S2/S3
+plans are saved as `s2-compiler-plan.md` and `s3-storage-plan.md`; no S2/S3
+production edits have started.
+
+S1 review round 1 has independently reproduced a P1 protocol regression:
+new dataclass fields changed terminal v1 encoding and strict decoding while
+the Store remains generation 11; a baseline-written scalar Artifact no longer
+opens. The bounded correction is one frozen existing v1 wire fieldset,
+rejecting new Frame metadata from the old codec, until S3 replaces the sole
+protocol and generation together. No dual reader or migration is planned.
+The reviewer also reproduced nullable identity-key and global paired-token
+closure gaps; final finding locations and fixes follow the round-1 report.
+Services currently have no reported finding. The source remains frozen while
+the reviewer completes this round; no S1 acceptance is claimed yet.
+
+Initial frozen S1 default gate passed: **4,078 tests**, 2,926 warnings,
+211.45 seconds, via the unrestricted `make test` command above. Raw output:
+`evidence/analysis-frame/s1-default-tests.log`. This does not discharge the
+independently reproduced protocol/structure findings. Rerun affected checks
+after their correction; final source must own its own broad evidence.
+
+Final round-1 report: `evidence/analysis-frame/s1-review-1.md`. Services:
+**No findings**, accepted with focused/default/static evidence; local commit
+next. Structure: **three findings** (P1 wire-shape drift, P2 nullable identity
+keys, P2 complete descriptor token/attachment-role closure). Fix all before
+the second and final structure review. Attachment-role collision was separately
+reproduced, not inferred from finite payload validation still owned by S3.
+S1 services and structure will be separate accepted-scope commits.
 
 ## Evidence and limitations
 
