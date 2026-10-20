@@ -87,6 +87,9 @@ def provider() -> DisclosureProvider:
                 "analysis_frame.select",
                 "analysis_frame.where",
                 "analysis_frame.top",
+                "analysis_frame.correlate",
+                "Column.corr",
+                "Column.pair_count",
                 "Column.sum",
                 "Column.mean",
             ),
@@ -169,13 +172,28 @@ def provider() -> DisclosureProvider:
             (
                 P(
                     "values",
-                    "Named Column.sum/mean or row_count requests; each uses its independent NA mask.",
+                    "Named Column sum/mean/corr/pair_count or row_count requests; each outputs one column using its independent NA mask. Names never infer pair relationships; use correlate for a matching coefficient/count.",
                 ),
                 P("by", "Existing retained grouping axes; empty produces one scalar coordinate."),
             ),
             "AnalysisFrame",
             "Compute current-value statistics with independent NA masks; remove presence and retain only the selected complete axes.",
             "result = frame.reduce({'mean': frame['value'].mean()})",
+            ("frame",),
+            "methods.metric.summary",
+        ),
+        (
+            AnalysisFrame,
+            "correlate",
+            (
+                P("x", "Numeric Column from this exact Frame/Session input."),
+                P("y", "Numeric Column from the same exact input; units may differ."),
+                P("method", "Required pearson or spearman; no default or inference."),
+                P("by", "Tuple of existing complete same-input axes; () produces one scalar row."),
+            ),
+            "AnalysisFrame",
+            "Correlate one numeric pair on current rows, returning coefficient and n_pairs together from one input evaluation.",
+            "result = frame.correlate(frame['value'], frame['other'], method='pearson').compute()",
             ("frame",),
             "methods.metric.summary",
         ),
@@ -273,6 +291,37 @@ def provider() -> DisclosureProvider:
         ),
         (
             Column,
+            "corr",
+            (
+                P("other", "Numeric Column from this exact Frame/Session input; units may differ."),
+                P(
+                    "method",
+                    "Required pearson or spearman; Spearman uses group-local paired average ranks.",
+                ),
+            ),
+            "_Statistic",
+            "Capture one coefficient statistic; finish with AnalysisFrame.reduce. Use AnalysisFrame.correlate for the matching coefficient and pair count.",
+            "result = frame.reduce({'coefficient': frame['value'].corr(frame['other'], method='spearman'), 'n_pairs': frame['value'].pair_count(frame['other'])}).compute()",
+            ("frame",),
+            "methods.metric.summary",
+        ),
+        (
+            Column,
+            "pair_count",
+            (
+                P(
+                    "other",
+                    "Numeric Column from this exact Frame/Session input; self-pairing counts non-NA values.",
+                ),
+            ),
+            "_Statistic",
+            "Capture an independent valid-pair count without ranking or computing a coefficient. AnalysisFrame.correlate already includes n_pairs.",
+            "result = frame.reduce({'n_pairs': frame['value'].pair_count(frame['other']), 'n_values': frame['value'].pair_count(frame['value'])}).compute()",
+            ("frame",),
+            "methods.metric.summary",
+        ),
+        (
+            Column,
             "mean",
             (),
             "_Statistic",
@@ -295,6 +344,10 @@ def provider() -> DisclosureProvider:
                 constraints=(
                     "Validate parameter shape and Session ownership, reject paired inputs, then require equal axis counts before inferring or validating a complete on mapping. on/outer cannot repair ownership, paired axes, axis count or incompatible key/time types. exact checks actual complete row domains; outer keeps the ordered union. Calendar matching requires complete nominal/actual buckets. Interval ordinal requires one declared record per side with the same boundary timezone; equality uses exact start/end/timezone."
                     if name in ("align", "compare")
+                    else "Numeric int64/finite float64/Decimal only, not Duration even when resolved during preparation. Use an explicitly defined numeric source expression or external computation for Duration. Both endpoints must share the exact Frame/Session input; align independent Frames first. Different units are allowed without conversion. Each group uses its own common non-NA pair mask after checking both expressions; zero and duplicate values remain. Zero-pair groups and Null categories remain; by=() on empty input returns one row. coefficient is nullable float64 with unit '1'; n_pairs is nonnullable int64 with no unit. Fewer than two pairs or a constant endpoint gives coefficient NA and retains n_pairs; empty grouped input has no rows. Spearman ranks paired values within each group with average ties. Presence is removed, never an implicit sample filter. Use analysis.analysis_frame.reduce with analysis.column.corr and analysis.column.pair_count for named compositions; output names do not infer pairing. Group coefficients/counts cannot reconstruct pooled correlation."
+                    if name == "correlate"
+                    else "Only same-input numeric Columns (int64/finite float64/Decimal), including self-pairs; Duration rejects during capture or physical preparation. Use a defined numeric source expression or external computation for Duration. Different units are allowed without conversion. Check both expressions, then use a common non-NA mask per group; zero and repeated values count. Self pair_count counts non-NA values. Retain zero-pair groups and counts for constant inputs; coefficient is NA for n<2 or a constant endpoint. corr returns only nullable float64/unit '1'; pair_count returns only nonnullable int64/no unit. No direct execution, arithmetic, automatic count expansion or inferred pair relationship. Use analysis.analysis_frame.reduce to finish; analysis.analysis_frame.correlate supplies the matched two-column result."
+                    if name in ("corr", "pair_count")
                     else "Columns and statistics retain one exact Frame input; Artifact cannot enter computation. Current-row statistics do not acquire original Metric authority.",
                 ),
                 effects="Capture a lazy result operation; no source or schema read.",

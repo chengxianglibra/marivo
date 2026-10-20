@@ -1,6 +1,19 @@
 # Correlation Statistics 实施计划
 
-Status: planned，2026-10-20；尚未实施或验收。本轮仅新增计划文档。
+Status: complete (local acceptance)，2026-10-20；S0–S5 与 C01–C11 完成，
+最终未缩小 check-agent 通过，gpt-6-astra/high 正式 R2 为 No findings。
+未运行 provider Runtime 或 release 验收。实施验收时未提交；后续提交与 main 集成见第 8 节，未推送。
+
+实施基线：`657334c78d58d3265e5d3be38b2819bd561233ed`；隔离 worktree 为
+`/Users/lichengxiang/.codex/worktrees/correlation-statistics/marivo`，分支为
+`codex/correlation-statistics`。主工作区的既有未提交内容不进入本次候选。
+设计版本为同一基线中的 `correlation-statistics-design.md`。
+命令原始输出保存在 `/tmp/marivo-correlation-evidence/`。
+
+团队责任：expression_types 负责 S1 表达、类型及实际类型消费者；runtime_kernel
+负责 S2 数值、执行及优化消费者；acceptance_tests 负责 C01–C08/C10–C11；
+主 agent 负责 S3、S4、集成与证据记录。独立正式审查使用 gpt-6-astra/high，
+最多两轮；未解决 P2+ 阻塞完成。实施阶段不提交；后续提交授权见第 8 节，不推送。
 
 ## 1. 依据与交付边界
 
@@ -82,8 +95,7 @@ C11 验收其接入结果。
 
 ## 3. 阶段、依赖与退出条件
 
-当前所有阶段及 C01–C11 均为待实施。以下为工作责任，不预设多 agent 或分支策略；
-同一实施者可顺序完成。实施时在此表补充实际状态和证据位置，避免另建重复台账。
+阶段状态与最终证据如下。S5 已完成本次本地验收。
 
 | 阶段 | 责任与主要文件 | 依赖 | 退出条件 |
 | --- | --- | --- | --- |
@@ -93,6 +105,41 @@ C11 验收其接入结果。
 | S3 | 高层入口：frame.py；pending show、共享求值与普通 Frame 续算 | S2 | C01、C11 完成，C10 保存恢复增量通过；两层没有第二套算法或独立读取 |
 | S4 | 公开披露：docstrings、Help 描述、类型/导出约束、文档 | S3 | C09 通过；常规与组合入口的例子实际可执行，英中和 API 文档一致 |
 | S5 | 集成验收与收尾 | S1–S4 | C01–C11 全部有结论；最终源码及未缩小的 check-agent 通过；无未解决 P2+，证据分层明确 |
+
+| 阶段 | 当前状态与证据（`/tmp/marivo-correlation-evidence/` 下） |
+| --- | --- |
+| S0 | 完成；基线/隔离范围见开头；逐一核对 Statistic/ReduceValues、旧 ResultProgram、优化与来源融合消费者 |
+| S1 | 完成；`s1-final-typecheck.log`：6 源文件 typing 通过；`s1-final-lint.log`：格式、lint 与导入合同通过；双端类型由 FrameProgram 分别承载，实际类型仍经 effective_frame 重建 |
+| S2 | 完成；`s2-regressions.log`：66 项通过；`s2-correlation-smoke.log`：28 项通过；`s2-typing-final.log`、`s2-lint-final.log` 通过；新增单一 frame_correlation 内核及来源/旧路线拒绝 |
+| S3 | 完成；correlate 固定两项 ReduceValues，pending show 披露有序端点；C11 与普通冷恢复专项通过 |
+| S4 | 完成；`disclosure-tests.log`：127 项通过，含三叶子执行示例/类/绑定方法/CLI 一致性；`disclosure-lint.log` 通过；最终 `site-content-final.log`：381 required files；`site-build-final.log`：359 pages、44 latest pages/343 targets 通过；`help-context-budget.log`：既有任务预算 1 项通过 |
+| S5 | 完成；gpt-6-astra/high 正式 R1 的 1 项 P2 已修复；正式 R2 为 No findings，无遗留 P2+；`check-agent-final.log`：未缩小 gate 退出 0，4810 测试通过、304 文件 typing、lint/导入及 API 文档构建通过 |
+
+已分类失败：S1 首次 typing 的局部变量注解和并行编辑中的旧 `.value` 分支已修复；
+新增规划测试首次查找了不适用的本地 stage，修正见证后 66 项回归通过。
+最初站点构建沿共享 venv 的 editable 安装导入主工作区，触发其它任务的文档失败；
+保留 `site-build.log`，显式设置本 worktree 的 PYTHONPATH 后完整构建通过，
+未修改主工作区。验收夹具/断言修正及最终结果在 S5 汇总。
+
+正式审查 R1：`review-r1.md`，独立专项 33 项通过，额外核验低 Decimal context、
+宽整数差值及 200 组样本的对称/重排序。发现 P2：声明为 float64 的合法 Decimal
+除法表达式未在配对输入边界完成 float64 转换，correlate/corr/pair_count 均会拒绝；
+复现及原始输出为 `review-r1-probe.py` / `review-r1-probe.log`。
+该问题交给未实现原内核的 expression_types 修复，保留精确 int/Decimal 路径；
+该阻塞已由修复、回归和正式 R2 解除。
+
+正式 R2：`review-r2.md`，No findings；原始复现和补充数值/溢出/端点上下文探针通过，
+独立专项 34 项通过。修复后生产差异 SHA256 为
+`af6ecb9813367aa5d85f67753e8f85f315d60fb10932353a6e877e4a5f8d2410`，
+新内核 SHA256 为 `bf923310190efd46b3ed1e6f8a0239be30eed6c3583b6cf03c618f55fc74b43d`。
+正式审查已完成两轮，不再增加轮次。
+
+首轮未缩小 gate：`check-agent-r1.log`，lint/导入及 304 文件 typing 通过；
+默认测试在 6 失败/4629 通过时停止。这 6 项均为原测试断言 Frame 不存在 correlate，
+包括 imports、deviation 构造和 4 个 pandas views 参数；与新合同直接冲突。
+仅更新这些负向表面断言，并继续断言 Session/Artifact 不提供该入口；
+`stale-contract-tests.log` 的 13 项复验通过。相关慢 typing 探测仍拒绝 Frame 作为
+Column 端点，而不依赖旧的“方法不存在”错误。
 
 ### S1–S2 的实现要点
 
@@ -202,7 +249,7 @@ AGENTS.md 与 packaged skills 不在本次修改授权内。普通 API 事实应
 
 ## 6. 检查、证据与完成条件
 
-实施时按改变的范围执行，以下命令不是本轮通过记录。新文件在其实施阶段创建后再运行。
+以下为计划的命令模板；实际执行范围、退出码及结果由阶段表和第 7 节记录。
 
 ```sh
 make test TESTS='tests/analysis/materialization/test_frame_correlation.py'
@@ -234,4 +281,75 @@ latest MDX 修改后使用站点现有 `npm --prefix site run verify:content` �
    未运行的 Runtime/发布资格明确列出，不推广为通过。
 4. 保存结果仍是普通 Frame；未引入隐藏样本、来源恢复或额外公共抽象。
 
-本轮交付仅为此计划；上述实施、测试、Help 同步和发布资格均未开始。
+## 7. 实际验收记录
+
+下表记录最终候选的专项判定；S5 的完整 gate 和正式 R2 退出独立拥有最终完成结论。
+`test_frame_correlation.py` 位于 `tests/analysis/materialization/`。
+
+| ID | 专项判定与定位 |
+| --- | --- |
+| C01 | 通过：required_method_binding、cross_session_pair_binding、pending_correlate；签名、错误参数、双端/完整轴绑定及构造/show 零读取 |
+| C02 | 通过：group_domain_masks、symmetry_keeps_ordered_capture；NA/其它统计独立、自配对与有序指纹 |
+| C03 | 通过：group_domain_masks_composite_keys；Null、复合键、规范排序、零配对组及 presence 删除 |
+| C04 | 通过：pair_before_rank、spearman_average_ties_and_group_local_ranks；配对后分组内平均秩，独立手算 oracle |
+| C05 | 通过：degenerate_and_empty_scalar；空标量/空分组、0/1/2 配对及常量端 |
+| C06 | 通过：numeric_precision_witnesses、known_duration、unresolved_source_duration、effective_source_float_types；大整数/Decimal/二进制极值及相邻值；R1 新增 float64_decimal_division_endpoints_match_explicit_select |
+| C07 | 通过：strict_subexpression、numeric_intermediate_failures、pair_count_does_not_compute_coefficients_or_ranks；NA/Top-0/剪列/后置筛选、有限性/零尺度及结构化字段；test_frame_plan.py 的 paired_reductions_stay_local_and_keep_both_endpoints 拒绝融合/合并 |
+| C08 | 通过：complete_key_alignment_zero_and_explicit_presence；完整复合键对齐、缺侧、有效零、显式 presence 新输入域 |
+| C09 | 通过：disclosure-tests.log 127 项，新增 test_correlation_help_contract_and_executable_examples；三个目标的 string/class/bound 归属、导航、预算、执行例子、CLI/Python 一致及既有导出快照 |
+| C10 | 通过：s2-regressions.log 66 项包含旧 sum/mean/row_count；test_frame_storage.py::test_correlation_is_ordinary_typed_frame_after_cold_recovery 验证 float64/int64/NA、禁回源、完整键序、续算及再次保存 |
+| C11 | 通过：group_domain_masks 等固定输入两层比较及独立 oracle；pending_correlate_shares_one_mutable_source_batch 同时断言业务读取恰好 1 次、返回 3 行输入、coefficient≈1/n_pairs=3、无 Run；返回值可继续普通 Frame 操作 |
+
+专项日志：`acceptance-focused-final.log` 为修复前 32 项通过，
+`r1-fix-affected-tests.log` 为修复后 34 项通过（包括规划拒绝资格见证）；
+`r1-fix-red.log` 保留 R1 P2 的先失败见证。`acceptance-failure-note.md` 为夹具与断言
+开发失败的回顾分类，明确区别于原始输出。另一次探索性检查把普通 runtime 测试文件
+加入 mypy，产生无效输入探测/联合类型收窄错误；保留 `r1-fix-typing.log`，
+未扩写无关测试。仓库要求的生产类型检查通过于 `r1-fix-typing-production.log`，
+最终未缩小 gate 仍覆盖全部 `marivo` 与 `tests/typing`。
+
+Runtime/provider 资格及 release-check 未运行；本次未改 provider 实现或授予来源相关下推资格。
+
+### 最终冻结与检查
+
+生产代码和测试在最终 gate 开始前冻结。最终执行：
+`PYTHONPATH=/Users/lichengxiang/.codex/worktrees/correlation-statistics/marivo make check-agent`，
+不缩小 TESTS、TYPECHECK_TARGETS 或 LINT_TARGETS；退出 0。
+`check-agent-final.log` 保留 4810 passed / 711 warnings 及 API 文档成功输出。
+`correlation-typing-probe.log` 的受影响慢 typing 检查 1 项通过，
+`help-context-budget.log` 的既有任务上下文预算 1 项通过；两者退出均为 0。
+
+最终 gate 期间仅补充英中 statistics 指南的相关能力边界说明；随后最终站点内容检查与
+完整构建退出均为 0。`final-candidate-manifest.json` 的其余 34 个冻结文件核对无变化，
+生产差异和新内核仍与正式 R2 的上述 SHA256 一致。最终交付文件清单位于
+`final-delivery-manifest.json`（包含这两份指南，排除本证据台账以避免自引用）；
+实施验收时 HEAD 为 `657334c78d58d3265e5d3be38b2819bd561233ed`，实现为 worktree 的未提交差异。
+收尾仅将设计文档状态更新为 locally validated；生产代码和测试未再修改。
+最终 36 文件清单 SHA256 为
+`a7c3719d4e49acc40d6fdac3df6025195fbc4f2fa99bd2f428d984a92194362c`。
+
+实际新增文件为 `marivo/analysis/methods/frame_correlation.py` 和
+`tests/analysis/materialization/test_frame_correlation.py`；其余实际文件与各自 SHA256
+由最终清单定位。AGENTS.md 与两个 packaged skills 均未编辑。
+
+## 8. 提交与 main 集成
+
+2026-10-20，用户授权按 commit-attribution skill 提交本次实现和修复，合并回 main，
+保留主工作区无关改动，不推送。
+
+- 实施提交：`df99e839b25fe79dbdac15e9c5706f1319b44b2b`，
+  `feat: add current-row correlation statistics`；37 个已审查文件，含开发、验收与
+  gpt-6-astra 审查的实质贡献归因，正常提交 hooks 全部通过。
+- main 集成基线：`b51fe999a1afdbcf7ec3cd1a4d6f16a377e0f126`（谓词统一）。
+  在隔离 worktree 的 `codex/correlation-main-integration` 分支自动合并，
+  没有冲突或手工源码修复；保留 main 的普通布尔 Column/原生条件合同。
+- 集成检查：相关统计、完整 Frame 规约/存储/对齐、谓词统一及公开 Help/CLI 共
+  403 项通过；未缩小 lint/import 检查和 305 文件 typing 通过。
+  原始日志为 `/tmp/marivo-correlation-commit/integration-{tests,lint,typecheck}.log`。
+- 集成文档：381 required files 内容检查通过，完整站点构建 359 pages、
+  44 latest pages / 343 targets 通过，包含 API 文档构建。
+  日志为 `/tmp/marivo-correlation-commit/integration-site-{content,build}.log`。
+- 本次集成没有重复正式审查；第 7 节的完整 gate 属于其原始冻结候选，
+  本节明确记录与当前 main 的组合检查，不扩展为 provider/Runtime 或发布资格。
+- 主工作区 README 的其它改动和五个未跟踪文档不进入提交；原始内容、索引和
+  差异已备份于 `/tmp/marivo-correlation-commit/main-before*`，供合并后逐项核对。

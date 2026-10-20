@@ -59,7 +59,7 @@ Duration 左右值及绝对差保留 Duration，相对变化无量纲。
 
 ### 2.2 运算不创建结果子类型
 
-compute/persist 只转换载体；where/top/select/reduce/align/compare 均返回 AnalysisFrame，
+compute/persist 只转换载体；where/top/select/reduce/correlate/align/compare 均返回 AnalysisFrame，
 按操作更新坐标、命名值和 presence。第 5.5 节统一规定结构传播，不额外维护子类型保持规则。
 
 列算术产生 Column，由 select 等接收者消费；不提供原地修改列或 attrs 的入口。
@@ -131,6 +131,10 @@ class AnalysisFrame:
     def top(self, n: int, *, by: Column, descending: bool = True) -> AnalysisFrame: ...
     def reduce(
         self, values: Mapping[str, Statistic], *, by: tuple[FrameAxis, ...] = ()
+    ) -> AnalysisFrame: ...
+    def correlate(
+        self, x: Column, y: Column, *,
+        method: Literal["pearson", "spearman"], by: tuple[FrameAxis, ...] = ()
     ) -> AnalysisFrame: ...
     def align(
         self,
@@ -305,7 +309,7 @@ show 不求值、不创建 Run/Artifact，不缓存预览为完整结果，也�
 依赖实际值的唯一性、映射覆盖和数值检查在消费前完成，不能靠类名或旧 Evidence 略过。
 方法不扫描生产图寻找 presence、原 Metric 或额外资格。
 
-首版数据操作包含值选择/算术、where(Column)、全局 top、按已有完整轴 reduce、
+首版数据操作包含值选择/算术、where(Column)、全局 top、按已有完整轴 reduce/correlate、
 全轴 align/compare 及有限日历对应。它们在各载体上使用同一合同。
 按已有轴规约不是日历粗化；不能用天桶句柄请求月桶，也不能隐式读取新属性。
 每个 Statistic 使用自己的有效值掩码，保留既有单位、空输入、全 NA、零分母与精度政策。
@@ -334,6 +338,17 @@ Top-0、空结果或列裁剪不能消除必要的上游检查。逻辑优化既
 客单价 `100/1`、`900/90` 的行均值为 55，原整体均值为 `1000/91`；
 distinct 桶 `{1,2}`、`{2,3}` 的计数和为 4，合并 distinct 为 3。
 保存均值或计数不自动取得原量能力。首版不保存隐藏 sum/count、贡献明细或原公式。
+
+`frame.correlate(x, y, method="pearson" | "spearman", by=())` 是当前行成对相关的
+常规入口：x、y 及完整 by 轴均绑定该精确 Frame/Session 输入，返回惰性普通 Frame，
+`output_names == ("coefficient", "n_pairs")`。系数为 nullable float64、unit="1"；
+配对数为 nonnullable int64、无单位。两端可以有不同数值类型/单位，但不接受 Duration。
+每组先检查两个表达式，再取共同非 NA 样本；零和重复值保留，presence 不隐式筛样本。
+不足两对或常量端时系数为 NA，配对数仍保留；零配对组不删除，空标量为一行 NA/0。
+Spearman 在各组有效配对内使用平均秩。`Column.corr` / `Column.pair_count` 可由 reduce
+显式命名组合其它统计；每项仅一列，名称不会推断配对关系，其它统计仍用独立掩码。
+保存的分组系数/计数不能恢复总体相关；从原样本重新规约。详见
+[Correlation Statistics](correlation-statistics-design.md)。
 
 当前 share 所要求的贡献可加性和共同实际输入不能改成普通数值列的隐含权限。
 显式算术只能产生调用方定义的当前值比例，不自动带有原贡献份额保证。

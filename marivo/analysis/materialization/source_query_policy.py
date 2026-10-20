@@ -6,7 +6,7 @@ import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
 from marivo._definition.expressions import EntityCount, SourceAggregate, SourceWeightedMean
-from marivo._definition.query import ReduceValues
+from marivo._definition.query import PairStatistic, ReduceValues
 from marivo.analysis.compiler.graph_lowering import LoweredRead
 from marivo.analysis.compiler.query_program import ResultProgram
 from marivo.analysis.core.data_types import DecimalDataType, ScalarDataType
@@ -143,8 +143,11 @@ def qualify_query_reduce(owner: SourceSession, program: ResultProgram) -> str | 
     if not qualified_query_provider(owner):
         return "this provider has no qualified cell reduction route"
     if not isinstance(program.operation, ReduceValues) or any(
-        statistic.method != "row_count"
-        and not (owner.provider.name in ("trino", "clickhouse") and statistic.method == "sum")
+        isinstance(statistic, PairStatistic)
+        or (
+            statistic.method != "row_count"
+            and not (owner.provider.name in ("trino", "clickhouse") and statistic.method == "sum")
+        )
         for _, statistic in program.operation.values
     ):
         return "remote cell statistics retain their existing local numeric method"

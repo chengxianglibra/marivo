@@ -29,6 +29,7 @@ from marivo._definition.query import (
     FilterValues,
     KeyImage,
     LiteralValues,
+    PairStatistic,
     PopulationValues,
     ReadFields,
     ReduceValues,
@@ -977,6 +978,8 @@ def native_query_relation(
                 )
                 expression = expression.order_by(*order).limit(operation.n)
             else:
+                if any(isinstance(statistic, PairStatistic) for _, statistic in operation.values):
+                    return "paired statistics retain their local Frame numeric method"
                 if owner.provider.name != "duckdb":
                     issue = qualify_query_reduce(owner, program)
                     if issue is not None:
@@ -987,6 +990,8 @@ def native_query_relation(
                 decimal_sums: dict[str, DecimalDataType] = {}
                 for index, (_, statistic) in enumerate(operation.values):
                     slot = f"value.{index}"
+                    if isinstance(statistic, PairStatistic):
+                        return "paired statistics retain their local Frame numeric method"
                     if statistic.method == "row_count":
                         aggregates[slot] = expression.count()
                     elif statistic.method == "sum" and isinstance(statistic.value, ValueSlot):

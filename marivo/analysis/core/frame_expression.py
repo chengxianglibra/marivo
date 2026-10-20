@@ -12,6 +12,7 @@ from marivo._definition.correspondence import CalendarCorrespondence
 from marivo._definition.query import (
     CoordinateSlot,
     FilterValues,
+    PairStatistic,
     PresenceSlot,
     ReduceValues,
     SelectValues,
@@ -125,7 +126,17 @@ def expressions(operation: FrameUnaryOperationKind) -> tuple[ValueExpression, ..
             )
         result = (operation.score,)
     else:
-        result = tuple(stat.value for _, stat in operation.values if stat.value is not None)
+        result = tuple(
+            value
+            for _, stat in operation.values
+            for value in (
+                (stat.left, stat.right)
+                if isinstance(stat, PairStatistic)
+                else ()
+                if stat.value is None
+                else (stat.value,)
+            )
+        )
     for expression in result:
         admitted(expression)
     return result
@@ -300,6 +311,32 @@ def _pending_kind(schema: PendingDataSchema, expression: ValueExpression) -> Val
     )
 
 
+def _validate_pair_statistic(
+    schema: DataSchema | PendingDataSchema, statistic: PairStatistic
+) -> None:
+    for side, expression in (("left", statistic.left), ("right", statistic.right)):
+        received: str
+        if isinstance(schema, PendingDataSchema):
+            kind = _pending_kind(schema, expression)
+            if kind in ("numeric", "unresolved"):
+                continue
+            received = kind
+        else:
+            dtype = expression_type(schema, expression)
+            if isinstance(dtype, DecimalDataType) or dtype in (
+                ScalarDataType("int64"),
+                ScalarDataType("float64"),
+            ):
+                continue
+            received = repr(dtype)
+        reject(
+            "a numeric Column (int64, float64 or Decimal)",
+            f"{side} endpoint: {received}",
+            "Construct a source expression with an explicit numeric unit, or use external computation.",
+            statistic.location,
+        )
+
+
 @overload
 def infer_frame_schema(schema: DataSchema, operation: FrameUnaryOperationKind) -> DataSchema: ...
 @overload
@@ -339,26 +376,24 @@ def infer_frame_schema(
     if isinstance(schema, PendingDataSchema):
         pending: list[PendingDataColumn] = []
         for index, (name, expression) in enumerate(operation.values):
-            value = expression.value if isinstance(expression, Statistic) else expression
-            assert value is None or isinstance(
-                value,
-                (
-                    ValueSlot,
-                    CoordinateSlot,
-                    PresenceSlot,
-                    ValueLiteral,
-                    ValueUnary,
-                    ValueBinary,
-                ),
-            )
-            kind = "numeric" if value is None else _pending_kind(schema, value)
+            kind: ValueKind
+            if isinstance(expression, PairStatistic):
+                _validate_pair_statistic(schema, expression)
+                kind = "numeric"
+                nullable = expression.method != "pair_count"
+                unit = None if expression.method == "pair_count" else "1"
+            else:
+                value = expression.value if isinstance(expression, Statistic) else expression
+                kind = "numeric" if value is None else _pending_kind(schema, value)
+                nullable = value is not None
+                unit = None if value is None else expression_unit(schema, value)
             pending.append(
                 PendingDataColumn(
                     f"value.{index}",
                     name,
                     kind,
-                    value is not None,
-                    None if value is None else expression_unit(schema, value),
+                    nullable,
+                    unit,
                 )
             )
         return PendingDataSchema(
@@ -374,35 +409,18 @@ def infer_frame_schema(
         )
     concrete: list[DataColumn] = []
     for index, (name, item) in enumerate(operation.values):
-        if isinstance(operation, SelectValues):
-            assert isinstance(
-                item,
-                (
-                    ValueSlot,
-                    CoordinateSlot,
-                    PresenceSlot,
-                    ValueLiteral,
-                    ValueUnary,
-                    ValueBinary,
-                ),
-            )
+        if isinstance(item, PairStatistic):
+            _validate_pair_statistic(schema, item)
+            dtype = ScalarDataType("int64" if item.method == "pair_count" else "float64")
+            unit = None if item.method == "pair_count" else "1"
+            nullable = item.method != "pair_count"
+        elif not isinstance(item, Statistic):
             dtype, unit, nullable = (
                 expression_type(schema, item),
                 expression_unit(schema, item),
                 True,
             )
         else:
-            assert not isinstance(
-                item,
-                (
-                    ValueSlot,
-                    CoordinateSlot,
-                    PresenceSlot,
-                    ValueLiteral,
-                    ValueUnary,
-                    ValueBinary,
-                ),
-            )
             dtype = (
                 ScalarDataType("int64")
                 if item.value is None

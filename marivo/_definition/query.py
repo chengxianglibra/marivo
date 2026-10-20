@@ -79,8 +79,16 @@ class Statistic:
 
 
 @dataclass(frozen=True, slots=True)
+class PairStatistic:
+    method: Literal["pearson", "spearman", "pair_count"]
+    left: ValueExpression
+    right: ValueExpression
+    location: str
+
+
+@dataclass(frozen=True, slots=True)
 class ReduceValues:
-    values: tuple[tuple[str, Statistic], ...]
+    values: tuple[tuple[str, Statistic | PairStatistic], ...]
     positions: tuple[int, ...]
 
 

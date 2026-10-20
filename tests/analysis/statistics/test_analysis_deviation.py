@@ -210,7 +210,8 @@ def test_construction_mode_identity_and_zero_business_reads(
     with pytest.raises(AnalysisError):
         selected.to_pandas()
     assert run_ids(case.session) == before
-    for name in ("deviation", "correlate", "forecast", "runs", "rank"):
+    assert callable(query.correlate)
+    for name in ("deviation", "forecast", "runs", "rank"):
         assert not hasattr(query, name)
     with pytest.raises(AnalysisError):
         query.select({"foreign": selected["value"]})

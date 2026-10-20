@@ -176,8 +176,11 @@ def test_grouping_surface_stays_with_finite_query_operations() -> None:
 def test_current_row_aggregation_has_one_public_entry() -> None:
     for function, target in (
         (mv.AnalysisFrame.reduce, "analysis_frame.reduce"),
+        (mv.AnalysisFrame.correlate, "analysis_frame.correlate"),
         (mv.Column.sum, "column.sum"),
         (mv.Column.mean, "column.mean"),
+        (mv.Column.corr, "column.corr"),
+        (mv.Column.pair_count, "column.pair_count"),
         (mv.row_count, "row_count"),
     ):
         route = route_help_target(function)

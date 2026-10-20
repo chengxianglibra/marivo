@@ -81,7 +81,9 @@ def test_complete_export_supports_pandas_views_without_new_reads(
         rank = output["count"].rank(method="dense", ascending=False)
     assert rank.min() == 1
     assert run_ids(case.session) == before
-    for name in ("contract", "rollup", "deviation", "forecast", "correlate", "runs", "rank"):
+    assert callable(artifact.correlate)
+    assert not hasattr(artifact.artifact, "correlate")
+    for name in ("contract", "rollup", "deviation", "forecast", "runs", "rank"):
         assert not hasattr(artifact, name)
         assert not hasattr(artifact.artifact, name)
     for invalid in (-1, True):

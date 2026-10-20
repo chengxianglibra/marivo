@@ -34,6 +34,8 @@ def provider() -> DisclosureProvider:
                 "session.persisted_frame",
             ),
             consumers=(
+                "analysis_frame.correlate",
+                "analysis_frame.reduce",
                 "analysis_frame.compute",
                 "analysis_frame.persist",
                 "analysis_frame.show",
@@ -51,6 +53,7 @@ def provider() -> DisclosureProvider:
             acquisition="Read frame.axes or call frame.axis(name); direct construction is not supported.",
             consumers=(
                 "analysis_frame.coord",
+                "analysis_frame.correlate",
                 "analysis_frame.reduce",
                 "analysis_frame.align",
                 "analysis_frame.compare",

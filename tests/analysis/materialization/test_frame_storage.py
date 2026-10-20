@@ -165,6 +165,99 @@ def counts(local: LocalFrameServices) -> tuple[int, int]:
         )
 
 
+def test_correlation_is_ordinary_typed_frame_after_cold_recovery(local: LocalFrameServices) -> None:
+    """C10: only complete keys and ordinary float/int/NA outputs survive cold read."""
+    import subprocess
+    import sys
+
+    group = DataColumn("group", "group", ScalarDataType("string"), False)
+    sample = DataColumn("sample", "sample", ScalarDataType("int64"), False)
+    schema = DataSchema(
+        (DataAxis("group", (group,), name="group"), DataAxis("sample", (sample,), name="sample")),
+        (
+            DataColumn("x", "x", ScalarDataType("int64"), True),
+            DataColumn("y", "y", ScalarDataType("int64"), True),
+        ),
+        value_paths=(("x",), ("y",)),
+    )
+    frame = AnalysisFrame._from_memory(
+        local,
+        CompletedFrameResult(
+            CompletedFrameData(
+                schema,
+                pd.DataFrame(
+                    {
+                        "group": ["B", "A", "B"],
+                        "sample": [1, 2, 3],
+                        "x": [1, None, 2],
+                        "y": [1, 3, 2],
+                    },
+                    dtype=object,
+                ),
+            ),
+            metadata(),
+        ),
+    )
+    result = frame.correlate(
+        frame["x"], frame["y"], method="pearson", by=(frame.axes[0],)
+    ).compute()
+    saved = result.persist()
+    assert saved.output_names == ("coefficient", "n_pairs")
+    assert saved.presence_names == ()
+    assert tuple(column.dtype for column in saved._schema.values) == (
+        ScalarDataType("float64"),
+        ScalarDataType("int64"),
+    )
+    assert manifest(saved).data.schema == saved._schema
+    script = """
+import os, sys
+from unittest.mock import patch
+import pandas as pd
+import pyarrow as pa
+import marivo.analysis as mv
+from marivo.analysis.materialization import frame_evaluation
+from marivo.analysis.session.core import Session
+from marivo.datasource.adapters import SourceSession
+os.environ["MARIVO_PROJECT_ROOT"] = sys.argv[1]
+def forbidden(*args, **kwargs):
+    raise AssertionError("cold correlation result attempted a source/model read")
+with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceSession, "__init__", forbidden), patch.object(frame_evaluation, "open_query_sources", forbidden):
+    session = mv.session.resume(sys.argv[2])
+    saved = session.persisted_frame(sys.argv[3])
+    assert saved.output_names == ("coefficient", "n_pairs")
+    assert saved.presence_names == ()
+    table = saved.to_pandas()
+    assert len(table.columns) == 3
+    assert table.iloc[:, 0].tolist() == ["A", "B"]
+    assert pa.array(table["value", "coefficient"]).type == pa.float64()
+    assert pa.array(table["value", "n_pairs"]).type == pa.int64()
+    assert table["value", "coefficient"].isna().tolist() == [True, False]
+    assert abs(table["value", "coefficient"].iloc[1] - 1.0) < 1e-12
+    assert table["value", "n_pairs"].tolist() == [0, 2]
+    before = len(session.runs().items)
+    filtered = saved.where(saved["n_pairs"] >= 2)
+    derived = filtered.select({"twice": filtered["coefficient"] * 2}).compute()
+    assert abs(derived.to_pandas()["value", "twice"].iloc[0] - 2.0) < 1e-12
+    copied = derived.persist()
+    pd.testing.assert_frame_equal(copied.to_pandas(), derived.to_pandas())
+    assert len(session.runs().items) == before + 1
+"""
+    cold = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            script,
+            str(local.store.project_root),
+            local.session_ref,
+            saved.artifact.id,
+        ],
+        cwd=Path(__file__).resolve().parents[3],
+        text=True,
+        capture_output=True,
+    )
+    assert cold.returncode == 0, cold.stdout + cold.stderr
+
+
 def test_sole_protocol_and_exact_closed_fields(local: LocalFrameServices) -> None:
     saved = ordinary(local).persist()
     value = manifest(saved)

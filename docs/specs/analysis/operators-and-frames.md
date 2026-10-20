@@ -36,6 +36,8 @@ by independent nonnullable boolean presence, never inferred from value NA.
 | weighted_mean | One common non-NA value/weight pair mask for both sums | The operator's denominator policy |
 | Frame Column sum | Current non-NA represented cells | NA |
 | Frame Column mean | Current non-NA represented cells | NA |
+| Frame corr / correlate coefficient | Common non-NA pairs within each current group | NA for fewer than two pairs or an exactly constant endpoint |
+| Frame pair_count / correlate n_pairs | The same common non-NA pairs, including zero and duplicates | 0; retain groups even without pairs |
 | row_count | All current coordinate rows, including NA values | 0 |
 
 Strict `nulls="error"` belongs to the source/internal reduction that captures it.
@@ -130,6 +132,24 @@ reconstructs original contributions nor changes a calendar's grain. Row mean 55
 can differ from original overall 1000/91; distinct counts 2+2=4 do not prove a
 union distinct count of 4 when the actual union has 3 members. Request original
 overall formulas with an explicit new observe and their governed source inputs.
+
+AnalysisFrame.correlate is the ordinary Pearson/Spearman entry, with explicit
+method and fixed coefficient/n_pairs outputs from one input evaluation.
+Column.corr and Column.pair_count compose through reduce, one scalar column per
+named statistic. Both endpoints must be numeric on the exact input; different
+units are allowed, Duration is rejected. Each pair uses its own common non-NA
+mask after both expression checks. Presence is independent, zero-pair groups
+remain, and Spearman ranks within each group's valid pairs using average ties.
+The coefficient is nullable float64/unit 1; the count is nonnullable int64 with
+no unit. Counts remain when the coefficient is undefined. Self pair_count is
+the expression's non-NA count. No source correlation pushdown is qualified.
+
+Correlation tests constants and ties on actual input values, then uses exact
+integer/Decimal differences or binary float scaling before two-pass centered
+stable sums and residual scaling. Nonfinite intermediates or a lost nonconstant
+scale fail before clipping a finite coefficient to [-1, 1]. The numeric and
+empty-domain contract is owned by [Correlation Statistics](correlation-statistics-design.md).
+Group coefficients and counts cannot reconstruct pooled correlation.
 
 Source Metric/per/window execution may retain internal sufficient state during
 one evaluation. Completed Frame data never persists it for later original

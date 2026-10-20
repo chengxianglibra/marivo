@@ -44,7 +44,10 @@ if standard_deviation > 0:
     standardized = (revenue_values - revenue_values.mean()) / standard_deviation
 ```
 
-外部排名、标准化、相关或预测需要说明样本、NA、并列、拟合范围与不确定性。
+当前行 Pearson/Spearman 已由 `frame.correlate(x, y, method=...)` 支持，并返回配套计数；
+参见[分析工作流](/zh-cn/docs/latest/concepts/analysis-workflow/)。适合该合同的问题应先完成类型化相关再导出。
+
+外部排名、标准化、其它相关方法或预测需要说明样本、NA、并列、拟合范围与不确定性。
 输出是普通数据，不继承类型化 Evidence；导出数据与 attrs 不能回灌为语义权威。
 原 Frame 仍可继续受支持的类型化数据操作。
 

@@ -147,6 +147,7 @@ def test_session_class_exposes_sources_and_frame_owned_operators() -> None:
         "where",
         "top",
         "reduce",
+        "correlate",
         "align",
         "compare",
         "compute",
@@ -156,7 +157,8 @@ def test_session_class_exposes_sources_and_frame_owned_operators() -> None:
         "coord",
     ):
         assert callable(getattr(mv.AnalysisFrame, name))
-    for name in ("correlate", "forecast", "deviation", "runs", "attribute"):
+    assert not hasattr(mv.Session, "correlate")
+    for name in ("forecast", "deviation", "runs", "attribute"):
         if name != "runs":
             assert not hasattr(mv.Session, name)
         assert not hasattr(mv.AnalysisFrame, name)

@@ -7,14 +7,53 @@ from fractions import Fraction
 import pandas as pd
 import pyarrow as pa
 
-from marivo._definition.query import FilterValues, ReduceValues, SelectValues, TopValues
+from marivo._definition.query import (
+    FilterValues,
+    PairStatistic,
+    ReduceValues,
+    SelectValues,
+    TopValues,
+)
 from marivo.analysis.compiler.query_program import FrameProgram
-from marivo.analysis.core.data_types import DecimalDataType, DurationDataType, ScalarDataType
+from marivo.analysis.core.data_types import (
+    DataType,
+    DecimalDataType,
+    DurationDataType,
+    ScalarDataType,
+)
 from marivo.analysis.core.frozen_calendar import FrozenKey, frozen_key_rows
-from marivo.analysis.methods.numeric_state import checked_sum, finish_division, finish_float64
+from marivo.analysis.core.model import reject
+from marivo.analysis.methods.frame_correlation import correlation
+from marivo.analysis.methods.numeric_state import (
+    Number,
+    checked_sum,
+    finish_division,
+    finish_float64,
+)
 from marivo.analysis.methods.physical import DecimalType, DurationType, stage_arrow_type
 from marivo.analysis.methods.query_values import expression_series
 from marivo.semantic._numeric_lowering import numeric_failure
+from marivo.semantic.errors import SemanticExpressionError
+
+
+def _pair_values(
+    values: pd.Series, dtype: DataType, *, endpoint: str, location: str
+) -> tuple[Number | None, ...]:
+    try:
+        if dtype == ScalarDataType("float64"):
+            values = finish_float64(values, "paired endpoint")
+        return tuple(
+            None if pd.isna(value) else checked_sum((value,), stage_arrow_type(dtype))
+            for value in values.tolist()
+        )
+    except (ValueError, OverflowError, SemanticExpressionError) as error:
+        received = error.received if isinstance(error, SemanticExpressionError) else str(error)
+        reject(
+            "finite admitted numeric inputs for paired statistics",
+            f"{endpoint}: {received}",
+            "Repair the input values to satisfy their numeric types, then retry.",
+            location,
+        )
 
 
 def evaluate_frame(program: FrameProgram, inputs: tuple[pd.DataFrame, ...]) -> pd.DataFrame:
@@ -58,11 +97,31 @@ def evaluate_frame(program: FrameProgram, inputs: tuple[pd.DataFrame, ...]) -> p
         )
         return ranked.head(operation.n).loc[:, list(source.columns)].reset_index(drop=True).copy()
     assert isinstance(operation, ReduceValues)
-    evaluated = {
-        name: expression_series(stat.value, source, program)
-        for name, stat in operation.values
-        if stat.value is not None
-    }
+    evaluated: dict[str, pd.Series] = {}
+    paired: dict[str, tuple[tuple[Number | None, ...], tuple[Number | None, ...]]] = {}
+    for index, (name, statistic) in enumerate(operation.values):
+        if isinstance(statistic, PairStatistic):
+            # Complete both expressions before applying either valid-value mask.
+            # A missing counterpart cannot hide a strict child arithmetic error.
+            left = expression_series(statistic.left, source, program)
+            right = expression_series(statistic.right, source, program)
+            left_type, right_type = program.statistic_types[index]
+            paired[name] = (
+                _pair_values(
+                    left,
+                    left_type,
+                    endpoint=f"left operand {statistic.left!r}",
+                    location=statistic.location,
+                ),
+                _pair_values(
+                    right,
+                    right_type,
+                    endpoint=f"right operand {statistic.right!r}",
+                    location=statistic.location,
+                ),
+            )
+        elif statistic.value is not None:
+            evaluated[name] = expression_series(statistic.value, source, program)
     selected = tuple(
         key for position in operation.positions for key in program.key_groups[position]
     )
@@ -82,11 +141,39 @@ def evaluate_frame(program: FrameProgram, inputs: tuple[pd.DataFrame, ...]) -> p
         for index, (name, statistic) in enumerate(operation.values):
             column = output.values[index]
             value: object
-            if statistic.method == "row_count":
+            if isinstance(statistic, PairStatistic):
+                left_values, right_values = paired[name]
+                active_left: list[Number] = []
+                active_right: list[Number] = []
+                for position in positions:
+                    left_value, right_value = left_values[position], right_values[position]
+                    if left_value is not None and right_value is not None:
+                        active_left.append(left_value)
+                        active_right.append(right_value)
+                if statistic.method == "pair_count":
+                    value = len(active_left)
+                else:
+                    left_type, right_type = program.statistic_types[index]
+                    try:
+                        value = correlation(
+                            active_left,
+                            active_right,
+                            left_type=left_type,
+                            right_type=right_type,
+                            method=statistic.method,
+                        )
+                    except (ValueError, OverflowError) as error:
+                        reject(
+                            "finite nonzero numeric scales for nonconstant paired statistics",
+                            f"{statistic.method}({statistic.left!r}, {statistic.right!r}): {error}",
+                            "Use finite representable numeric inputs, then retry the paired statistic.",
+                            statistic.location,
+                        )
+            elif statistic.method == "row_count":
                 value = len(positions)
             else:
                 active = evaluated[name].take(positions).dropna()
-                dtype = program.statistic_types[index]
+                (dtype,) = program.statistic_types[index]
                 try:
                     if isinstance(dtype, DurationDataType):
                         ticks = tuple(
