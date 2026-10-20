@@ -21,7 +21,11 @@ from marivo.analysis.core.data_types import (
     TimestampDataType,
 )
 from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, FrameResultMetadata
-from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
+from marivo.analysis.core.frame_data import (
+    CompletedFrameData,
+    CompletedFrameResult,
+    MemoryFrameBacking,
+)
 from marivo.analysis.core.frame_structure import PendingDataSchema
 from marivo.analysis.dsl import frame_sources
 from marivo.analysis.dsl.column import row_count
@@ -68,16 +72,18 @@ def test_outer_compare_manual_order_presence_and_negative_baseline(
 ) -> None:
     left = _memory(local, ["C", "A", None], [12, None, 3])
     right = _memory(local, ["B", None, "C"], [5, 0, -4])
-    combined = left.compare(right, on=((left.axes[0], right.axes[0]),), how="outer").compute()
+    combined = left.compare(
+        {"reference": right}, on={"reference": ((left.axes[0], right.axes[0]),)}, how="outer"
+    ).compute()
     rows = combined._backing.data.copy_rows()
     assert rows["key"].tolist() == ["C", "A", pd.NA, "B"]
     assert combined.output_names == (
-        "left.amount",
-        "right.amount",
-        "absolute.amount",
-        "relative.amount",
+        "amount",
+        "reference.baseline.amount",
+        "reference.absolute.amount",
+        "reference.relative.amount",
     )
-    assert combined.presence_names == ("left_present", "right_present")
+    assert combined.presence_names == ("current.present", "reference.present")
     assert rows[combined._schema.presence[0].slot_id].tolist() == [True, True, True, False]
     assert rows[combined._schema.presence[1].slot_id].tolist() == [True, False, True, True]
     assert rows[combined._schema.values[2].slot_id].tolist()[:1] == [16]
@@ -89,16 +95,22 @@ def test_self_compare_reads_shared_input_and_records_binary_operation(
     local: LocalFrameServices,
 ) -> None:
     frame = _memory(local, ["B", "A"], [4, 2])
-    output = frame.compare(frame, on=((frame.axes[0], frame.axes[0]),)).compute()
+    output = frame.compare(
+        {"reference": frame}, on={"reference": ((frame.axes[0], frame.axes[0]),)}
+    ).compute()
     assert len(output._backing.metadata.audit.evaluation.inputs) == 1
     assert output._backing.metadata.audit.evaluation.operations == ("compare",)
-    assert output.to_pandas()[("value", "absolute.amount")].tolist() == [0, 0]
+    assert output.to_pandas()[("value", "reference.absolute.amount")].tolist() == [0, 0]
 
 
 def test_compare_check_cannot_be_hidden_by_select(local: LocalFrameServices) -> None:
     left = _memory(local, ["A"], [1])
     right = _memory(local, ["A"], [0])
-    combined = left.compare(right, on=((left.axes[0], right.axes[0]),), zero_denominator="error")
+    combined = left.compare(
+        {"reference": right},
+        on={"reference": ((left.axes[0], right.axes[0]),)},
+        zero_denominator="error",
+    )
     with pytest.raises(MaterializationError, match="nonzero denominator") as failure:
         combined.select({"constant": 1}).compute()
     error = failure.value
@@ -157,12 +169,12 @@ def test_composite_identity_and_field_domains_are_full_tuples(local: LocalFrameS
     on = ((left.axes[0], right.axes[1]), (left.axes[1], right.axes[0]))
     with pytest.raises(AnalysisError, match="actual complete row-key domains"):
         left.align(right, on=on).compute()
-    output = left.compare(right, on=on, how="outer").compute()
+    output = left.compare({"reference": right}, on={"reference": on}, how="outer").compute()
     rows = output._backing.data.copy_rows()
     assert rows["tenant"].tolist() == ["t2", "t1", "t1", "t2"]
     assert rows["region"].isna().tolist() == [True, False, True, False]
-    assert _values(output, "absolute.amount") == [pd.NA] * 4
-    assert output.presence_names == ("left_present", "right_present")
+    assert _values(output, "reference.absolute.amount") == [pd.NA] * 4
+    assert output.presence_names == ("current.present", "reference.present")
 
 
 @pytest.mark.parametrize("explicit", [False, True])
@@ -174,12 +186,13 @@ def test_zero_axis_empty_and_singleton_domains(local: LocalFrameServices, explic
     singleton = _data_frame(local, schema, {"v": [8]})
     kwargs = {"on": ()} if explicit else {}
     assert len(empty.align(empty, **kwargs).compute().to_pandas()) == 0
+    kwargs = {"on": {"reference": ()}} if explicit else {}
     with pytest.raises(AnalysisError, match="actual complete row-key domains"):
-        singleton.compare(empty, **kwargs).compute()
-    result = singleton.compare(empty, how="outer", **kwargs).compute()
-    assert _values(result, "left.amount") == [8]
-    assert _values(result, "absolute.amount") == [pd.NA]
-    assert singleton.compare(singleton, **kwargs).compute()._schema.axes == ()
+        singleton.compare({"reference": empty}, **kwargs).compute()
+    result = singleton.compare({"reference": empty}, how="outer", **kwargs).compute()
+    assert _values(result, "amount") == [8]
+    assert _values(result, "reference.absolute.amount") == [pd.NA]
+    assert singleton.compare({"reference": singleton}, **kwargs).compute()._schema.axes == ()
 
 
 def test_no_ordinary_inference_and_complete_mapping_before_values(
@@ -188,15 +201,15 @@ def test_no_ordinary_inference_and_complete_mapping_before_values(
     left, right = _memory(local, ["A"], [1]), _memory(local, ["A"], [2])
     for on in (None, ()):
         with pytest.raises(AnalysisError, match="complete explicit axis bijection"):
-            left.compare(right, on=on)
+            left.compare({"reference": right}, on=None if on is None else {"reference": on})
     scalar = left.reduce({"different": row_count()})
     with pytest.raises(AnalysisError, match="equal complete axis counts"):
-        left.compare(scalar, on=())
+        left.compare({"reference": scalar}, on={"reference": ()})
     other = right.select({"different": right["amount"]})
     with pytest.raises(AnalysisError, match="complete explicit axis bijection"):
-        left.compare(other, on=())
+        left.compare({"reference": other}, on={"reference": ()})
     with pytest.raises(AnalysisError, match="equal nonempty complete value path sets"):
-        left.compare(other, on=((left.axes[0], other.axes[0]),))
+        left.compare({"reference": other}, on={"reference": ((left.axes[0], other.axes[0]),)})
     with pytest.raises(AnalysisError, match="exact Frame input"):
         left.align(right, on=((right.axes[0], left.axes[0]),))
 
@@ -205,7 +218,7 @@ def test_ownership_precedes_axis_mapping(local: LocalFrameServices, tmp_path: Pa
     other_local = DatasetRuntime.create(tmp_path / "other", "different", timezone="UTC").local
     left, right = _memory(local, ["A"], [1]), _memory(other_local, ["A"], [2])
     with pytest.raises(AnalysisError, match="same Store and Session"):
-        left.compare(right, on=())
+        left.compare({"reference": right}, on={"reference": ()})
 
 
 @pytest.mark.parametrize("change", ["role", "key_type", "at", "unit", "value_type"])
@@ -232,7 +245,7 @@ def test_key_role_time_and_value_compatibility(local: LocalFrameServices, change
         {"key": [key], "amount": [amount]},
     )
     with pytest.raises(AnalysisError):
-        left.compare(right, on=((left.axes[0], right.axes[0]),))
+        left.compare({"reference": right}, on={"reference": ((left.axes[0], right.axes[0]),)})
     if change in ("unit", "value_type"):
         assert left.align(right, on=((left.axes[0], right.axes[0]),)).compute().output_names == (
             "left.amount",
@@ -242,8 +255,10 @@ def test_key_role_time_and_value_compatibility(local: LocalFrameServices, change
 
 def test_full_path_pairing_right_reordering_and_nested_presence(local: LocalFrameServices) -> None:
     a, b = _memory(local, ["B", "A"], [8, 2]), _memory(local, ["C", "B"], [4, 2])
-    outer = a.compare(b, on=((a.axes[0], b.axes[0]),), how="outer").compute()
-    other = outer.where(outer["left_present"]).compute()
+    outer = a.compare(
+        {"reference": b}, on={"reference": ((a.axes[0], b.axes[0]),)}, how="outer"
+    ).compute()
+    other = outer.where(outer["current.present"]).compute()
     # Compare all four current values; right values deliberately use a different order.
     reordered_schema = replace(
         other._schema,
@@ -259,26 +274,26 @@ def test_full_path_pairing_right_reordering_and_nested_presence(local: LocalFram
         },
     )
     nested = outer.compare(
-        reordered, on=((outer.axes[0], reordered.axes[0]),), how="outer"
+        {"second": reordered}, on={"second": ((outer.axes[0], reordered.axes[0]),)}, how="outer"
     ).compute()
     assert nested.output_names[:4] == (
-        "left.left.amount",
-        "left.right.amount",
-        "left.absolute.amount",
-        "left.relative.amount",
+        "amount",
+        "reference.baseline.amount",
+        "reference.absolute.amount",
+        "reference.relative.amount",
     )
     assert nested.presence_names == (
-        "left_present",
-        "right_present",
-        "left.left_present",
-        "left.right_present",
-        "right.left_present",
-        "right.right_present",
+        "current.present",
+        "second.present",
+        "current.presence.current.present",
+        "current.presence.reference.present",
+        "second.presence.current.present",
+        "second.presence.reference.present",
     )
     table = nested.to_pandas()
-    assert table[("presence", "right.left_present")].tolist() == [True, True, False]
-    assert table[("presence", "right.right_present")].tolist() == [True, False, False]
-    selected = nested.select({"copied": nested["left.left.amount"]}).compute()
+    assert table[("presence", "second.presence.current.present")].tolist() == [True, True, False]
+    assert table[("presence", "second.presence.reference.present")].tolist() == [True, False, False]
+    selected = nested.select({"copied": nested["amount"]}).compute()
     assert selected.output_names == ("copied",) and selected.presence_names == nested.presence_names
     assert len(selected._schema.values) == 1
     assert selected.reduce({"rows": row_count()}, by=selected.axes).compute().presence_names == ()
@@ -296,13 +311,17 @@ def test_required_compare_checks_survive_downstream_pruning(
     right = _memory(
         local, ["B" if invalid == "domain" else "A"], [-1 if invalid == "overflow" else 0]
     )
-    combined = left.compare(right, on=((left.axes[0], right.axes[0]),), zero_denominator="error")
+    combined = left.compare(
+        {"reference": right},
+        on={"reference": ((left.axes[0], right.axes[0]),)},
+        zero_denominator="error",
+    )
     tail = (
         combined.select({"constant": 1})
         if prune == "select"
-        else combined.where(combined["left.amount"] < 0)
+        else combined.where(combined["amount"] < 0)
         if prune == "where"
-        else combined.top(0, by=combined["left.amount"])
+        else combined.top(0, by=combined["amount"])
     )
     with pytest.raises((AnalysisError, SemanticExpressionError)):
         tail.compute()
@@ -314,11 +333,13 @@ def test_na_precedes_zero_error(
 ) -> None:
     left, right = _memory(local, ["A"], [left_value]), _memory(local, ["A"], [right_value])
     output = left.compare(
-        right, on=((left.axes[0], right.axes[0]),), zero_denominator="error"
+        {"reference": right},
+        on={"reference": ((left.axes[0], right.axes[0]),)},
+        zero_denominator="error",
     ).compute()
-    assert _values(output, "absolute.amount") == [pd.NA]
-    assert _values(output, "relative.amount") == [pd.NA]
-    assert output.to_pandas()[("presence", "right_present")].tolist() == [True]
+    assert _values(output, "reference.absolute.amount") == [pd.NA]
+    assert _values(output, "reference.relative.amount") == [pd.NA]
+    assert output.to_pandas()[("presence", "reference.present")].tolist() == [True]
 
 
 @pytest.mark.parametrize(
@@ -343,9 +364,9 @@ def test_numeric_carriers(
         _data_frame(local, schema, {"v": [left_value]}),
         _data_frame(local, schema, {"v": [right_value]}),
     )
-    result = left.compare(right).compute()
-    assert _values(result, "absolute.amount") == [absolute]
-    assert _values(result, "relative.amount") == [relative]
+    result = left.compare({"reference": right}).compute()
+    assert _values(result, "reference.absolute.amount") == [absolute]
+    assert _values(result, "reference.relative.amount") == [relative]
     assert result._schema.values[-1].unit is None
 
 
@@ -363,11 +384,11 @@ def test_duration_uses_exact_original_ticks(local: LocalFrameServices, unit: str
 
     left = _data_frame(local, schema, {"v": ticks(9)})
     right = _data_frame(local, schema, {"v": ticks(-3)})
-    output = left.compare(right).compute()
+    output = left.compare({"reference": right}).compute()
     rows = output._backing.data.copy_rows()
     assert pa.array(rows[output._schema.values[2].slot_id]).cast(pa.int64()).to_pylist() == [12]
     assert output._schema.values[2].dtype == dtype
-    assert _values(output, "relative.elapsed") == [4.0]
+    assert _values(output, "reference.relative.elapsed") == [4.0]
 
 
 def test_pending_and_mixed_inference_completes_identical_directories(
@@ -376,12 +397,12 @@ def test_pending_and_mixed_inference_completes_identical_directories(
     left = frame_values(local, columns={"amount": "USD"}, rows=(((), {"amount": 8}),))
     right = frame_values(local, columns={"amount": "USD"}, rows=(((), {"amount": 2}),))
     for baseline in (right, right.compute()):
-        pending = left.compare(baseline)
+        pending = left.compare({"reference": baseline})
         assert isinstance(pending._schema, PendingDataSchema)
         result = pending.compute()
         pending._schema.complete(result._schema)
-        assert _values(result, "absolute.amount") == [6]
-        assert _values(result, "relative.amount") == [3.0]
+        assert _values(result, "reference.absolute.amount") == [6]
+        assert _values(result, "reference.relative.amount") == [3.0]
 
 
 def test_fixed_combine_never_prepares_sources_or_catalog(
@@ -397,8 +418,10 @@ def test_fixed_combine_never_prepares_sources_or_catalog(
     monkeypatch.setattr(evaluator, "open_query_sources", forbidden)
     monkeypatch.setattr(evaluator, "prepare_source_free_populations", forbidden)
     monkeypatch.setattr("marivo.analysis.session.core.Session.catalog", property(forbidden))
-    output = left.compare(right, on=((left.axes[0], right.axes[0]),)).compute()
-    assert _values(output, "absolute.amount") == [6]
+    output = left.compare(
+        {"reference": right}, on={"reference": ((left.axes[0], right.axes[0]),)}
+    ).compute()
+    assert _values(output, "reference.absolute.amount") == [6]
 
 
 def test_actual_source_plus_fixed_uses_one_binary_plan(
@@ -424,10 +447,10 @@ def test_actual_source_plus_fixed_uses_one_binary_plan(
         return original(compiled, **kwargs)
 
     monkeypatch.setattr(evaluator, "run_frame_plan", run)
-    result = source.compare(fixed).compute()
+    result = source.compare({"reference": fixed}).compute()
     assert len(schedules) == 1 and FrameInput in schedules[0] and FrameCompute in schedules[0]
-    assert _values(result, "left.amount") == [1176]
-    assert _values(result, "absolute.amount") == [0]
+    assert _values(result, "amount") == [1176]
+    assert _values(result, "reference.absolute.amount") == [0]
     assert len(session.runs().items) == 0
 
 
@@ -447,12 +470,12 @@ def test_paired_axis_rejection_precedes_count_and_mapping(local: LocalFrameServi
         (key,),
         "UTC",
         name="day",
-        frozen=FrozenCalendarData(BuiltinCalendarData("day", 1), "left.directory"),
+        frozen=FrozenCalendarData(BuiltinCalendarData("day", 1), "directory"),
     )
     right = replace(
         left,
-        token="right",
-        frozen=FrozenCalendarData(BuiltinCalendarData("day", 1), "right.directory"),
+        token="reference.baseline.",
+        frozen=FrozenCalendarData(BuiltinCalendarData("day", 1), "reference.baseline.directory"),
     )
     axis = PairedDataAxis("paired", (key,), left, right, "mapping", name="paired")
     schema = PendingDataSchema(
@@ -463,7 +486,7 @@ def test_paired_axis_rejection_precedes_count_and_mapping(local: LocalFrameServi
     paired = AnalysisFrame._bind(local, schema, frame._backing, "paired-input")
     scalar = frame.reduce({"rows": row_count()})
     with pytest.raises(AnalysisError, match="without paired axes"):
-        paired.compare(scalar, on=())
+        paired.compare({"reference": scalar}, on={"reference": ()})
 
 
 @pytest.mark.parametrize("variant", ["partial", "duplicate", "empty"])
@@ -546,7 +569,7 @@ def test_exact_carrier_failure_is_checked_before_projection(
 
     left, right = frame(left_type, left_value), frame(right_type, right_value)
     with pytest.raises((AnalysisError, SemanticExpressionError)):
-        combined = left.compare(right)
+        combined = left.compare({"reference": right})
         combined.select({"constant": 1}).compute()
 
 
@@ -555,7 +578,10 @@ def test_pending_binary_show_is_metadata_only(
 ) -> None:
     left = _memory(local, ["A"], [8])
     combined = left.compare(
-        left, on=((left.axes[0], left.axes[0]),), how="outer", zero_denominator="error"
+        {"reference": left},
+        on={"reference": ((left.axes[0], left.axes[0]),)},
+        how="outer",
+        zero_denominator="error",
     )
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -567,7 +593,7 @@ def test_pending_binary_show_is_metadata_only(
     text = capsys.readouterr().out
     assert "compare" in text and "outer" in text and "zero_denominator='error'" in text
     with pytest.raises(AnalysisError):
-        combined["left_present"].sum()
+        combined["current.present"].sum()
 
 
 def test_different_name_align_and_explicit_attainment(local: LocalFrameServices) -> None:
@@ -593,7 +619,7 @@ def test_empty_values_do_not_qualify_for_compare(local: LocalFrameServices) -> N
     frame = _data_frame(local, schema, {"k": [1]})
     assert frame.align(frame, on=((frame.axes[0], frame.axes[0]),)).compute().output_names == ()
     with pytest.raises(AnalysisError, match="equal nonempty complete value path sets"):
-        frame.compare(frame, on=((frame.axes[0], frame.axes[0]),))
+        frame.compare({"reference": frame}, on={"reference": ((frame.axes[0], frame.axes[0]),)})
 
 
 def test_source_binary_failure_still_closes_and_publishes_nothing(
@@ -627,7 +653,9 @@ def test_source_binary_failure_still_closes_and_publishes_nothing(
 
     monkeypatch.setattr(SourceSession, "close", fail_close)
     with pytest.raises(MaterializationError, match="source cleanup"):
-        source.compare(zero, zero_denominator="error").select({"ignored": 1}).compute()
+        source.compare({"reference": zero}, zero_denominator="error").select(
+            {"ignored": 1}
+        ).compute()
     assert closed and session.runs().items == ()
 
 
@@ -635,9 +663,11 @@ def test_empty_ordinary_domain_preserves_typed_schema(local: LocalFrameServices)
     empty, one = _memory(local, [], []), _memory(local, ["A"], [1])
     result = empty.align(empty, on=((empty.axes[0], empty.axes[0]),)).compute()
     assert len(result.to_pandas()) == 0 and len(result.axes) == 1
-    result = empty.compare(one, on=((empty.axes[0], one.axes[0]),), how="outer").compute()
+    result = empty.compare(
+        {"reference": one}, on={"reference": ((empty.axes[0], one.axes[0]),)}, how="outer"
+    ).compute()
     assert result._backing.data.copy_rows()["key"].tolist() == ["A"]
-    assert _values(result, "right.amount") == [1]
+    assert _values(result, "reference.baseline.amount") == [1]
 
 
 @pytest.mark.parametrize(
@@ -664,7 +694,9 @@ def test_minimum_nanosecond_field_key_is_not_null(
         return _data_frame(local, schema, {"k": keys, "v": [value]})
 
     left, right = frame(-(2**63), 10), frame(None, 3)
-    expression = left.compare(right, on=((left.axes[0], right.axes[0]),), how=how)
+    expression = left.compare(
+        {"reference": right}, on={"reference": ((left.axes[0], right.axes[0]),)}, how=how
+    )
     if how == "exact":
         with pytest.raises(AnalysisError, match="actual complete row-key domains"):
             expression.compute()
@@ -771,17 +803,16 @@ def test_interval_exact_identity_outer_and_ordinal(local: LocalFrameServices) ->
         _interval(local, 2, 5),
     )
     assert left.axes[0].role == "interval"
-    same = left.compare(equal).compute()
-    assert _values(same, "absolute.amount") == [pd.NA]
-    assert same.to_pandas()[("presence", "right_present")].tolist() == [True]
+    same = left.compare({"reference": equal}).compute()
+    assert _values(same, "reference.absolute.amount") == [pd.NA]
+    assert same.to_pandas()[("presence", "reference.present")].tolist() == [True]
     with pytest.raises(AnalysisError, match="actual complete row-key domains"):
         left.align(other).compute()
-    outer = left.compare(other, how="outer").compute()
-    assert len(outer.to_pandas()) == 2
-    assert outer.to_pandas()[("presence", "right_present")].tolist() == [False, True]
-    paired = left.compare(other, match=ordinal()).compute()
-    assert paired.axes[0].role == "paired"
-    assert _values(paired, "absolute.amount") == [0]
+    with pytest.raises(AnalysisError, match="actual baseline time row"):
+        left.compare({"reference": other}, how="outer").compute()
+    paired = left.compare({"reference": other}, match={"reference": ordinal()}).compute()
+    assert paired.axes[0].role == "interval"
+    assert _values(paired, "reference.absolute.amount") == [0]
     with pytest.raises(AnalysisError):
         left.align(_interval(local, 1, 4, zone="Asia/Shanghai"), match=ordinal()).compute()
     different_zone = left.align(_interval(local, 1, 4, zone="Asia/Shanghai"), how="outer").compute()
@@ -806,3 +837,151 @@ def test_interval_declared_directory_survives_filter_reduce_and_matching(
     reduced = sparse.reduce({"n": row_count()}, by=(sparse.axes[0],)).compute()
     assert len(reduced._backing.data.copy_attachments()[0].rows) == 2
     assert reduced.reduce({"n": row_count()}).compute().axes == ()
+
+
+def test_named_baselines_share_current_values_and_preserve_ordered_union(
+    local: LocalFrameServices,
+) -> None:
+    current = _memory(local, ["C", "A", None], [12, None, 3])
+    yoy = _memory(local, ["B", None, "C"], [5, 0, -4])
+    mom = _memory(local, ["D", "C"], [7, 6])
+    on = {
+        name: ((current.axes[0], baseline.axes[0]),)
+        for name, baseline in (("yoy", yoy), ("mom", mom))
+    }
+    combined = current.compare({"yoy": yoy, "mom": mom}, on=on, how="outer").compute()
+    assert combined._backing.data.copy_rows()["key"].tolist() == ["C", "A", pd.NA, "B", "D"]
+    assert combined.output_names == (
+        "amount",
+        "yoy.baseline.amount",
+        "yoy.absolute.amount",
+        "yoy.relative.amount",
+        "mom.baseline.amount",
+        "mom.absolute.amount",
+        "mom.relative.amount",
+    )
+    assert _values(combined, "amount") == [12, pd.NA, 3, pd.NA, pd.NA]
+    assert _values(combined, "yoy.absolute.amount") == [16, pd.NA, 3, pd.NA, pd.NA]
+    assert _values(combined, "mom.relative.amount") == [1.0, pd.NA, pd.NA, pd.NA, pd.NA]
+    assert combined.presence_names == ("current.present", "yoy.present", "mom.present")
+    table = combined.to_pandas()
+    assert table[("presence", "mom.present")].tolist() == [True, False, False, False, True]
+    independent = current.compare({"yoy": yoy}, on={"yoy": on["yoy"]}, how="outer").compute()
+    assert _values(combined, "yoy.relative.amount")[:4] == _values(
+        independent, "yoy.relative.amount"
+    )
+    with pytest.raises(AnalysisError, match="actual complete row-key domains"):
+        current.compare({"yoy": yoy, "mom": mom}, on=on).compute()
+
+
+def test_unused_second_baseline_retains_its_strict_numeric_checks(
+    local: LocalFrameServices,
+) -> None:
+    current, good, zero = (
+        _memory(local, ["A"], [4]),
+        _memory(local, ["A"], [2]),
+        _memory(local, ["A"], [0]),
+    )
+    compared = current.compare(
+        {"good": good, "zero": zero},
+        on={"good": ((current.axes[0], good.axes[0]),), "zero": ((current.axes[0], zero.axes[0]),)},
+        zero_denominator="error",
+    )
+    for tail in (
+        compared.select({"current": compared["amount"]}),
+        compared.top(0, by=compared["good.absolute.amount"]),
+    ):
+        with pytest.raises(MaterializationError, match="nonzero denominator"):
+            tail.compute()
+
+
+def test_comparison_path_collision_requires_explicit_rename(local: LocalFrameServices) -> None:
+    current = _memory(local, ["A"], [4])
+    first = current.compare(
+        {"reference": current}, on={"reference": ((current.axes[0], current.axes[0]),)}
+    ).compute()
+    with pytest.raises(AnalysisError, match="Select and rename"):
+        first.compare({"reference": first}, on={"reference": ((first.axes[0], first.axes[0]),)})
+
+
+def test_comparison_select_retains_only_direct_bindings_and_exact_presence(
+    local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    current, baseline = _memory(local, ["A"], [4]), _memory(local, ["B"], [2])
+    first = current.compare(
+        {"reference": baseline},
+        on={"reference": ((current.axes[0], baseline.axes[0]),)},
+        how="outer",
+    )
+    selected = first.select(
+        {"one": first["amount"], "two": first["amount"], "derived": first["amount"] + 1}
+    ).compute()
+    assert tuple(value.value_path for value in selected._schema.comparisons[0].values) == (
+        ("one",),
+        ("two",),
+    )
+    presence_only = selected.select({"literal": 1}).compute()
+    assert presence_only._schema.comparisons[0].values == ()
+    second = presence_only.compare(
+        {"reference": presence_only},
+        on={"reference": ((presence_only.axes[0], presence_only.axes[0]),)},
+    ).compute()
+    assert tuple((fact.namespace, fact.alias) for fact in second._schema.comparisons) == (
+        ((), "reference"),
+        (("current",), "reference"),
+        (("reference",), "reference"),
+    )
+    constant = second.select({"n": 1})
+    filtered = constant.where(constant["n"] > 0)
+    assert (
+        filtered.top(1, by=filtered["n"]).compute()._schema.comparisons
+        == constant._schema.comparisons
+    )
+    reduced = constant.reduce({"n": row_count()}, by=constant.axes).compute()
+    assert reduced._schema.comparisons == () and reduced.presence_names == ()
+
+    assert isinstance(second._backing, MemoryFrameBacking)
+    data = second._backing.data
+    original = CompletedFrameData.copy_rows
+
+    def corrupt(value: CompletedFrameData) -> pd.DataFrame:
+        rows = original(value)
+        if value is data:
+            parent = value.schema.presence[
+                value.schema.presence_paths.index(("current", "present"))
+            ]
+            rows.loc[0, parent.slot_id] = False
+        return rows
+
+    monkeypatch.setattr(CompletedFrameData, "copy_rows", corrupt)
+    with pytest.raises(AnalysisError, match="inherited true presence"):
+        constant.top(0, by=constant["n"]).compute()
+
+
+def test_interval_comparison_alignment_transports_explicit_maps(local: LocalFrameServices) -> None:
+    from marivo.analysis.core.data_schema import IntervalComparisonBinding
+    from marivo.analysis.dsl.correspondence import ordinal
+
+    current, baseline = _interval(local, 1, 4), _interval(local, 2, 5)
+    first = current.compare({"reference": baseline}, match={"reference": ordinal()})
+    selected = first.select({"delta": first["reference.absolute.amount"]})
+    aligned = selected.align(selected).compute()
+    assert tuple(fact.namespace for fact in aligned._schema.comparisons) == (("left",), ("right",))
+    assert all(
+        isinstance(fact.binding, IntervalComparisonBinding) for fact in aligned._schema.comparisons
+    )
+    assert isinstance(aligned._backing, MemoryFrameBacking)
+    assert len(aligned._backing.data.copy_attachments()) == 5
+    assert _values(aligned, "left.delta") == [0]
+
+
+def test_stage_completed_schema_requires_exact_columns_and_keys(local: LocalFrameServices) -> None:
+    frame = _memory(local, ["A"], [4])
+    assert isinstance(frame._schema, DataSchema)
+    schema = frame._schema
+    assert isinstance(frame._backing, MemoryFrameBacking)
+    rows = frame._backing.data.copy_rows()
+    stage = StageOutput.from_frame(rows, schema.columns, schema.key_fields, frame_schema=schema)
+    assert stage.frame_schema is schema
+    with pytest.raises(MaterializationError, match="matching exact stage columns and keys"):
+        StageOutput.from_frame(rows, schema.columns, (), frame_schema=schema)

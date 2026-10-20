@@ -69,8 +69,8 @@ is separate from fixed Frame inputs and local combination.
 
 ## Store generation and data layout
 
-Store 14 is under `<project_root>/.marivo/analysis/generations/v14/`. One closed
-`marivo.frame_output/v3` protocol stores values, complete axes, independent presence, typed
+Store 15 is under `<project_root>/.marivo/analysis/generations/v15/`. One closed
+`marivo.frame_output/v4` protocol stores values, complete axes, independent presence, typed
 frozen interval/calendar/map attachments, receipts and one audit. It stores no executable
 Python class path, source/Metric graph or hidden components. All analysis
 Artifacts are Frame commits; Artifact and stored Frame share one commit authority.
@@ -142,15 +142,18 @@ n (excluding bool) before reads. Memory/stored show(n=0) gives metadata only;
 Artifact.show() has no n and reads submission/audit only. Findings and Evidence
 reads do not read Parquet or coordinate attachments.
 
-Positive show renders the actual prefix in result order and resolves only needed
-frozen labels, nominal/actual bounds and paired endpoints. It cannot use full
+Positive show renders the actual prefix in result order and resolves required
+frozen labels, nominal/actual bounds and endpoint maps. Direct/calendar-comparison
+preview validates the finite required origin, target and mapping authority while
+primary rows remain bounded by n. Ordinary/paired-only preview keeps its selected
+coordinate boundary. It cannot use full
 export/head, sample, silently fall back on metadata, or cache a prefix as complete
 data. Receipt hashing or Parquet decompression may consume more bytes than n;
 preview success says nothing about unread payload integrity.
 
 Stored to_pandas validates complete current values/keys/presence and
 attachments: receipts, types, nullability, finite values, uniqueness, directory
-references and paired maps. Missing/corrupt records never become legitimate
+references, direct/comparison/paired maps and exact endpoint-presence implications. Missing/corrupt records never become legitimate
 unmatched endpoints. Full export is isolated and retains raw coordinate keys in
 `(kind, name)` MultiIndex columns, with kinds coordinate/value/presence. Typed
 attrs contain axis descriptions, units and isolated frozen coordinate tables;
@@ -166,8 +169,8 @@ method facts. A missing/corrupt method payload can leave metadata, previews and
 current-data export usable while full consumers fail. Cards show only count,
 bounded origins and the getter pointer, never full parents/coordinate rows.
 
-All Frames use `marivo.frame_output/v3`, `frame.v3` and `frame-output-v3` under
-`.marivo/analysis/generations/v14/`. Method files share the existing data receipt,
+All Frames use `marivo.frame_output/v4`, `frame.v4` and `frame-output-v4` under
+`.marivo/analysis/generations/v15/`. Method files share the existing data receipt,
 atomic publication/readback and unknown-commit reconciliation. A saved derivative
 owns its exact inherited payloads; deleting the original Artifact does not force
 an origin lookup or source/calendar rebuild. Origin explains the original total,

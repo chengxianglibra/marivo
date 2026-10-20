@@ -11,6 +11,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._temporal import CalendarAxis
+from marivo.analysis.core.data_schema import CalendarComparisonBinding, CalendarDataAxis, DataSchema
 from marivo.analysis.core.frame_data import StoredFrameBacking
 from marivo.analysis.errors import AnalysisError
 from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models
@@ -52,6 +53,25 @@ def paired_tables(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.D
     return mapping, left, right
 
 
+def comparison_tables(
+    result: mv.AnalysisFrame, frame: pd.DataFrame
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Read the named comparison's actual current, baseline and consumed map."""
+    schema = result._schema
+    assert isinstance(schema, DataSchema)
+    binding = next(item.binding for item in schema.comparisons if item.alias == "reference")
+    assert isinstance(binding, CalendarComparisonBinding)
+    current = next(axis for axis in schema.axes if axis.token == binding.current_axis_token)
+    assert isinstance(current, CalendarDataAxis) and current.frozen is not None
+    assert binding.baseline.frozen is not None
+    parts = {part["name"]: part["rows"] for part in frame.attrs["frozen_coordinates"]}
+    return (
+        parts[binding.mapping_name],
+        parts[current.frozen.directory_name],
+        parts[binding.baseline.frozen.directory_name],
+    )
+
+
 @pytest.mark.parametrize("lengths", [(3, 2), (2, 3)])
 @pytest.mark.parametrize("parquet", [False, True])
 def test_period_outer_keeps_time_missing_and_original_keys(
@@ -65,32 +85,44 @@ def test_period_outer_keeps_time_missing_and_original_keys(
         ms.load(workspace_dir=case.root)
     _, current = period(case.session, 8, lengths[0])
     _, baseline = period(case.session, 7, lengths[1])
-    result = current.compare(
-        baseline,
-        match=mv.ordinal(),
+    on = tuple(zip(current.axes, baseline.axes, strict=True))
+    comparison = current.compare(
+        {"reference": baseline},
+        match={"reference": mv.ordinal()},
         how="outer",
-        on=tuple(zip(current.axes, baseline.axes, strict=True)),
-    ).persist()
-    frame = result.to_pandas()
+        on={"reference": on},
+    )
+    if lengths[1] > lengths[0]:
+        with pytest.raises(AnalysisError, match="actual baseline time row"):
+            comparison.compute()
+        aligned = current.align(baseline, match=mv.ordinal(), how="outer", on=on).compute()
+        frame = aligned.to_pandas()
+        mapping, left_directory, right_directory = paired_tables(frame)
+        assert len(frame) == 12
+        assert set(frame.iloc[:, 0]) == set(mapping.iloc[:, 0])
+        for side, length, directory in zip(
+            ("left", "right"), lengths, (left_directory, right_directory), strict=True
+        ):
+            assert frame[("presence", side + "_present")].sum() == length * 4
+            assert set(mapping[side + ".0"].dropna()) == set(directory.iloc[:, 0])
+        difference = aligned.select(
+            {"change": aligned["left.value"] - aligned["right.value"]}
+        ).compute()
+        assert difference.to_pandas()[("value", "change")].dropna().sum() == 1
+        return
+    fixed = comparison.compute()
+    frame = fixed.to_pandas()
     assert len(frame) == 12
-    assert [axis["role"] for axis in frame.attrs["axes"]] == ["paired", "identity"]
-    mapping, left_directory, right_directory = paired_tables(frame)
-    assert set(frame.iloc[:, 0]) == set(mapping.iloc[:, 0])
+    assert [axis["role"] for axis in frame.attrs["axes"]] == ["calendar", "identity"]
     assert set(frame.iloc[:, 1]) == {"A", "B", "C", "D"}
-    tail_key = mapping.loc[mapping["left.0"].isna() | mapping["right.0"].isna()].iloc[0, 0]
-    tail = frame[frame.iloc[:, 0] == tail_key]
+    assert frame[("presence", "current.present")].sum() == lengths[0] * 4
+    assert frame[("presence", "reference.present")].sum() == lengths[1] * 4
+    assert frame[("value", "reference.absolute.value")].dropna().sum() == 1
+    tail = frame[~frame[("presence", "reference.present")]]
     assert len(tail) == 4
     for field in ("absolute", "relative"):
-        assert tail[("value", field + ".value")].isna().all()
-    for side, length, directory in zip(
-        ("left", "right"), lengths, (left_directory, right_directory), strict=True
-    ):
-        assert frame[("presence", side + "_present")].sum() == length * 4
-        present_keys = set(mapping[side + ".0"].dropna())
-        assert present_keys == set(directory.iloc[:, 0])
-        assert directory["ordinal"].tolist() == list(range(length))
-        assert len(directory) == length
-    assert frame[("value", "absolute.value")].dropna().sum() == 1
+        assert tail[("value", "reference." + field + ".value")].isna().all()
+    result = fixed.persist()
     recovered = case.session.persisted_frame(result.artifact.id)
     pd.testing.assert_frame_equal(recovered.to_pandas(), frame)
 
@@ -103,7 +135,9 @@ def test_period_exact_rejects_unequal_calendars_before_execution(
     _, baseline = period(case.session, 7, 2)
     with pytest.raises(AnalysisError, match="complete"):
         current.compare(
-            baseline, match=mv.ordinal(), on=tuple(zip(current.axes, baseline.axes, strict=True))
+            {"reference": baseline},
+            match={"reference": mv.ordinal()},
+            on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
         ).compute()
     assert case.session.runs().items == ()
 
@@ -116,18 +150,18 @@ def test_selected_periods_keep_original_positions_and_nullable_values(
     _, baseline = period(case.session, 7, 3)
     selected = current.where(current["value"] > 0)
     paired = selected.compare(
-        baseline,
-        match=mv.ordinal(),
+        {"reference": baseline},
+        match={"reference": mv.ordinal()},
         how="outer",
-        on=tuple(zip(selected.axes, baseline.axes, strict=True)),
+        on={"reference": tuple(zip(selected.axes, baseline.axes, strict=True))},
     )
     frame = paired.compute().to_pandas()
     assert len(frame) == 12
-    assert frame[("presence", "left_present")].sum() == 1
-    assert frame[("presence", "right_present")].all()
-    assert frame[("value", "absolute.value")].dropna().tolist() == [1]
+    assert frame[("presence", "current.present")].sum() == 1
+    assert frame[("presence", "reference.present")].all()
+    assert frame[("value", "reference.absolute.value")].dropna().tolist() == [1]
     for field in ("absolute", "relative"):
-        view = paired.select({"value": paired[field + ".value"]})
+        view = paired.select({"value": paired["reference." + field + ".value"]})
         defined = view.where(~view["value"].is_null())
         assert len(defined.compute().to_pandas()) == (1 if field == "absolute" else 0)
 
@@ -146,15 +180,17 @@ def test_grouped_grid_includes_empty_groups_and_propagates_both_values(
     empty = observed[observed.iloc[:, 1].isin(("south", "west"))]
     assert len(empty) == 6 and empty[("value", "value")].eq(0).all()
     comparison = current.compare(
-        baseline,
-        match=mv.ordinal(),
+        {"reference": baseline},
+        match={"reference": mv.ordinal()},
         how=how,
-        on=tuple(zip(current.axes, baseline.axes, strict=True)),
+        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
     )
     frame = comparison.compute().to_pandas()
     assert len(frame) == 9 and frame["presence"].all().all()
-    assert frame[("value", "absolute.value")].sum() == (1 if metric == "order_count" else 60)
-    assert frame[("value", "relative.value")].isna().all()
+    assert frame[("value", "reference.absolute.value")].sum() == (
+        1 if metric == "order_count" else 60
+    )
+    assert frame[("value", "reference.relative.value")].isna().all()
 
 
 def test_period_comparison_preserves_independent_spatial_endpoint_oracles(
@@ -170,15 +206,15 @@ def test_period_comparison_preserves_independent_spatial_endpoint_oracles(
         {"value": case.session.catalog.metrics.get("sales.order_count")}, by=(baseline_axis,)
     )
     comparison = current_totals.compare(
-        baseline_totals,
-        match=mv.ordinal(),
-        on=tuple(zip(current_totals.axes, baseline_totals.axes, strict=True)),
+        {"reference": baseline_totals},
+        match={"reference": mv.ordinal()},
+        on={"reference": tuple(zip(current_totals.axes, baseline_totals.axes, strict=True))},
     )
     frame = comparison.compute().to_pandas()
-    assert frame[("value", "left.value")].tolist() == [1, 0, 0]
-    assert frame[("value", "right.value")].tolist() == [0, 0, 0]
-    assert frame[("value", "absolute.value")].tolist() == [1, 0, 0]
-    assert frame[("value", "relative.value")].isna().all()
+    assert frame[("value", "value")].tolist() == [1, 0, 0]
+    assert frame[("value", "reference.baseline.value")].tolist() == [0, 0, 0]
+    assert frame[("value", "reference.absolute.value")].tolist() == [1, 0, 0]
+    assert frame[("value", "reference.relative.value")].isna().all()
 
 
 def test_period_outer_distinguishes_absent_groups_from_zero_activity(
@@ -203,18 +239,18 @@ def test_period_outer_distinguishes_absent_groups_from_zero_activity(
     current, baseline = observe(8, 1), observe(7, 9)
     frame = (
         current.compare(
-            baseline,
-            match=mv.ordinal(),
+            {"reference": baseline},
+            match={"reference": mv.ordinal()},
             how="outer",
-            on=tuple(zip(current.axes, baseline.axes, strict=True)),
+            on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
         )
         .compute()
         .to_pandas()
     )
     assert len(frame) == 6 and set(frame.iloc[:, 1]) == {"mobile", "web"}
-    assert frame[("value", "absolute.value")].isna().all()
-    assert frame[("presence", "left_present")].sum() == 3
-    assert frame[("presence", "right_present")].sum() == 3
+    assert frame[("value", "reference.absolute.value")].isna().all()
+    assert frame[("presence", "current.present")].sum() == 3
+    assert frame[("presence", "reference.present")].sum() == 3
 
 
 def test_period_saved_output_checks_endpoint_projections_and_presence(
@@ -223,20 +259,22 @@ def test_period_saved_output_checks_endpoint_projections_and_presence(
     from marivo.analysis.materialization.terminal_storage import read_output
 
     case = analysis_dsl_case_factory("j2")
-    _, current = period(case.session, 8, 2)
-    _, baseline = period(case.session, 7, 3)
+    _, current = period(case.session, 8, 3)
+    _, baseline = period(case.session, 7, 2)
     saved = current.compare(
-        baseline,
-        match=mv.ordinal(),
+        {"reference": baseline},
+        match={"reference": mv.ordinal()},
         how="outer",
-        on=tuple(zip(current.axes, baseline.axes, strict=True)),
+        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
     ).persist()
     backing = saved._backing
     assert isinstance(backing, StoredFrameBacking)
     data = backing.data
     read_output(case.root, data.schema, data.rows)
     with pytest.raises(AnalysisError):
-        mapping = next(part for part in data.attachments if part.name.startswith("mapping."))
+        binding = data.schema.comparisons[0].binding
+        assert isinstance(binding, CalendarComparisonBinding)
+        mapping = next(part for part in data.attachments if part.name == binding.mapping_name)
         read_output(
             case.root,
             replace(
@@ -261,26 +299,50 @@ def test_period_source_values_match_independent_count_oracle(
     _, current = period(case.session, 8, lengths[0])
     _, baseline = period(case.session, 7, lengths[1])
     comparison = current.compare(
-        baseline,
-        match=mv.ordinal(),
+        {"reference": baseline},
+        match={"reference": mv.ordinal()},
         how="outer",
-        on=tuple(zip(current.axes, baseline.axes, strict=True)),
+        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
     )
-    frame = comparison.compute().to_pandas()
-    mapping, left_directory, right_directory = paired_tables(frame)
+    if lengths[1] > lengths[0]:
+        with pytest.raises(AnalysisError, match="actual baseline time row"):
+            comparison.compute()
+        aligned = current.align(
+            baseline,
+            match=mv.ordinal(),
+            how="outer",
+            on=tuple(zip(current.axes, baseline.axes, strict=True)),
+        ).compute()
+        frame = aligned.to_pandas()
+        mapping, left_directory, right_directory = paired_tables(frame)
+        current_column, baseline_column = "left.0", "right.0"
+        presence = ("left_present", "right_present")
+        changes = (
+            aligned.select({"change": aligned["left.value"] - aligned["right.value"]})
+            .compute()
+            .to_pandas()
+        )
+    else:
+        fixed = comparison.compute()
+        frame = fixed.to_pandas()
+        mapping, left_directory, right_directory = comparison_tables(fixed, frame)
+        current_column, baseline_column = mapping.columns[0], "baseline.0"
+        presence = ("current.present", "reference.present")
+        changes = frame.rename(columns={"reference.absolute.value": "change"})
     left_ordinals = dict(zip(left_directory.iloc[:, 0], left_directory["ordinal"], strict=True))
     right_ordinals = dict(zip(right_directory.iloc[:, 0], right_directory["ordinal"], strict=True))
     pairs = mapping.set_index(mapping.columns[0])
-    for _, row in frame.iterrows():
+    for index, row in frame.iterrows():
         pair = pairs.loc[row.iloc[0]]
-        left, right = pair["left.0"], pair["right.0"]
+        left = row.iloc[0] if current_column == mapping.columns[0] else pair[current_column]
+        right = pair[baseline_column]
         a, b = pd.notna(left), pd.notna(right)
         position = left_ordinals[left] if a else right_ordinals[right]
         customer = row.iloc[1]
-        assert row[("presence", "left_present")] == a
-        assert row[("presence", "right_present")] == b
+        assert row[("presence", presence[0])] == a
+        assert row[("presence", presence[1])] == b
         expected = int(position == 0 and customer == "A")
         if a and b:
-            assert row[("value", "absolute.value")] == expected
+            assert changes.loc[index, ("value", "change")] == expected
         else:
-            assert pd.isna(row[("value", "absolute.value")])
+            assert pd.isna(changes.loc[index, ("value", "change")])

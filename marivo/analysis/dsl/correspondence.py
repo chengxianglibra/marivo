@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import overload
+
 from marivo._definition.correspondence import CalendarCorrespondence
 from marivo.analysis.core.model import reject
 
@@ -11,32 +13,51 @@ def ordinal() -> CalendarCorrespondence:
 
     Args: None.
     Returns: An axis-free calendar correspondence.
-    Example: ``current.compare(baseline, match=mv.ordinal())``.
+    Example: ``current.compare({'reference': baseline}, match={'reference': mv.ordinal()})``.
     Constraints: Calendars must be compatible and complete; interval directories
     must each declare one record with the same boundary timezone.
     """
     return CalendarCorrespondence("ordinal")
 
 
-def period_offset(by: int) -> CalendarCorrespondence:
-    """Pair each current period with the period at a calendar offset.
+class _Omitted:
+    """Distinguish an absent keyword from an explicitly invalid value."""
 
-    Args: by: Non-boolean integer; -1 selects the previous period.
+    def __repr__(self) -> str:
+        return "<omitted>"
+
+
+_OMITTED = _Omitted()
+
+
+@overload
+def offset(*, years: int) -> CalendarCorrespondence: ...
+
+
+@overload
+def offset(*, periods: int) -> CalendarCorrespondence: ...
+
+
+def offset(
+    *, years: int | _Omitted = _OMITTED, periods: int | _Omitted = _OMITTED
+) -> CalendarCorrespondence:
+    """Construct a civil-year or grain-period offset without binding an axis.
+
+    Args:
+        years: Non-boolean integer civil-year offset, mutually exclusive with periods.
+        periods: Non-boolean integer offset in the consuming axis's grain.
     Returns: An axis-free calendar correspondence.
-    Example: ``today.compare(yesterday, match=mv.period_offset(-1))``.
-    Constraints: The consuming calendars fix the grain and exact authority.
+    Example: ``baseline = periods.shift(mv.offset(years=-1))``.
+    Constraints: Supply exactly one keyword. Missing civil dates are not clamped.
     """
-    if type(by) is not int:
-        reject("a non-boolean integer", repr(by), "Pass an integer period offset.", "period_offset")
-    return CalendarCorrespondence("period_offset", by)
-
-
-def previous_year() -> CalendarCorrespondence:
-    """Pair same-name builtin day, month, quarter or year periods last year.
-
-    Args: None.
-    Returns: An axis-free calendar correspondence.
-    Example: ``current.compare(baseline, match=mv.previous_year())``.
-    Constraints: Leap days have no counterpart; exact rejects missing sides.
-    """
-    return CalendarCorrespondence("previous_year")
+    if (years is _OMITTED) == (periods is _OMITTED):
+        reject(
+            "exactly one of years or periods",
+            repr((years, periods)),
+            "Pass offset(years=-1) or offset(periods=-1).",
+            "offset",
+        )
+    value = periods if years is _OMITTED else years
+    if type(value) is not int:
+        reject("a non-boolean integer", repr(value), "Pass an integer offset.", "offset")
+    return CalendarCorrespondence("periods" if years is _OMITTED else "years", value)

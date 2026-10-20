@@ -34,9 +34,21 @@ on 必填，零轴允许 on=()。
 
 ## 时间与数值政策
 
-使用 Session instant/time_scope。部分日历桶在 exact/outer 下都不能 match；outer 不能修复
-缺失冻结数据。选择后不压缩原 ordinal。闰日 previous_year 无对应，选择合法政策或期间，
-不夹日期。不支持的 offset 需要支持范围内的显式来源问题，不能静默切换规则。
+使用 Session instant/time_scope，并向 `mv.offset(years=...)` 或
+`mv.offset(periods=...)` 指定唯一整数关键字。CalendarAxis.shift 支持单位步长内建
+week/month/year 完整桶或桶首前缀；部分 day/quarter、中段截取和有歧义的非零目标时刻
+需要显式支持的时间域。缺目标 ISO 周/民用截止日期是合法无对应，不夹日期。
+ordinal 仍要求完整桶，过滤不压缩原始序号。
+
+命名 compare 需要非空别名到 Frame 的映射，有普通轴时按别名完整提供 on。
+冻结直接关系必须与完整本期域相符；使用原始相容端点或显式一致规则，不能通过改 how
+修复错误锚点或冲突规则。实际基期时间行超出本期声明域时，显式过滤基期或使用 align 的
+一般双端时间并集。outer 不修复缺失/损坏附件或把 NA 当零。分别检查
+`current.present` / `<alias>.present`、值 NA 与继承的 `<alias>.presence.*`。
+参见 `marivo.help("analysis.calendar_axis.shift")` 和
+`marivo.help("analysis.analysis_frame.compare")`。
+
+
 
 除零政策只作用新算子，不覆盖严格子式。非有限值、溢出与必要覆盖失败阻止完成。
 缺少执行路线不授权改算法、来源或精度。
@@ -66,10 +78,10 @@ Artifact/ID 对象及 RawSqlResult 不是计算操作数。compute 失败不创�
 run_ref 指向精确 Run，reconciliation 解决原提交而不重算。
 缺失或损坏的消费数据不是 cache miss，不能回放来源修复。
 
-Store 14 拒绝所有旧 generation 数据且保持字节不变，不迁移或双读。缺少当前 generation 的
+Store 15 拒绝所有旧 generation 数据且保持字节不变，不迁移或双读。缺少当前 generation 的
 发现可返回 None/空而不暴露旧状态；create 不能绕过仅有旧 Store 的项目。
 切换前用原版本导出必要结果，或保留兼容读取环境。预览限制只影响显示，不截断完整执行。
-保留旧 Store，当前工作在新项目创建新的命名 Session。Store14 的 generation13/output-v2
+保留旧 Store，当前工作在新项目创建新的命名 Session。Store15 的 generation15/output-v4
 适用于所有 Frame，不提供自动导出/导入迁移或同项目旁路。
 [AnalysisFrame 切换说明](https://github.com/chengxianglibra/marivo/blob/main/docs/specs/analysis/analysis-frame-cutover.md)
 列明破坏性 API、量名、延期能力与恢复选择。

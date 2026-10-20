@@ -7,18 +7,26 @@ from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from math import isfinite
-from typing import NoReturn, TypeAlias
+from typing import Literal, NoReturn, TypeAlias
 
 import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 
 from marivo._definition.correspondence import CalendarCorrespondence
+from marivo._temporal_grid import (
+    CivilShiftResult,
+    CivilShiftTarget,
+    builtin_nominal_ordinal,
+    civil_shift,
+)
 from marivo.analysis.core.data_schema import (
     BuiltinCalendarData,
+    CalendarComparisonBinding,
     CalendarDataAxis,
     DataAxis,
     DataSchema,
+    IntervalComparisonBinding,
     IntervalDataAxis,
     NamedCalendarData,
     PairedDataAxis,
@@ -37,6 +45,7 @@ from marivo.analysis.core.model import reject
 FrozenScalar: TypeAlias = bool | str | int | float | date | Decimal
 FrozenKey: TypeAlias = tuple[tuple[DataType, FrozenScalar | None], ...]
 _BOUND_NAMES = ("nominal_start", "nominal_end", "actual_start", "actual_end")
+_CIVIL_NAMES = tuple(f"{name}_civil" for name in _BOUND_NAMES)
 
 
 def _fail(expected: str, received: str, *, match: bool = False) -> NoReturn:
@@ -68,6 +77,11 @@ class FrozenCalendarBucket:
     nominal_end: datetime
     actual_start: datetime
     actual_end: datetime
+    nominal_ordinal: int
+    nominal_start_civil: str
+    nominal_end_civil: str
+    actual_start_civil: str
+    actual_end_civil: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +96,93 @@ class FrozenBucketMatch:
     right_key: FrozenKey | None
 
 
+@dataclass(frozen=True, slots=True)
+class FrozenDirectMatch:
+    origin_key: FrozenKey
+    target_key: FrozenKey
+
+
+@dataclass(frozen=True, slots=True)
+class FrozenDirectAbsent:
+    origin_key: FrozenKey
+    reason: Literal["period_absent", "cutoff_absent"]
+
+
+FrozenDirectEntry: TypeAlias = FrozenDirectMatch | FrozenDirectAbsent
+
+
+def direct_mapping_schema(axis: CalendarDataAxis) -> DataSchema:
+    """Build one origin-key row with a target group or a closed no-match reason."""
+    _calendar(axis)
+    assert axis.frozen is not None and axis.frozen.direct is not None
+    origin = axis.frozen.direct.axis
+    values = (
+        *(
+            DataColumn(f"target.{i}", f"target.{i}", column.dtype, True, column.unit)
+            for i, column in enumerate(axis.columns)
+        ),
+        DataColumn("reason", "reason", ScalarDataType("string"), True),
+    )
+    return DataSchema(
+        (DataAxis(origin.token, origin.columns, name=origin.name, at=origin.at),),
+        values,
+        value_paths=(*(("target", str(i)) for i in range(len(axis.columns))), ("reason",)),
+    )
+
+
+def read_direct_mapping(
+    axis: CalendarDataAxis,
+    schema: DataSchema,
+    rows: pd.DataFrame,
+    origin: FrozenCalendarDirectory,
+    target: FrozenCalendarDirectory,
+) -> tuple[FrozenDirectEntry, ...]:
+    """Validate complete direct coverage; missing data never means no correspondence."""
+    assert axis.frozen is not None and axis.frozen.direct is not None
+    if (
+        schema != direct_mapping_schema(axis)
+        or origin.axis != axis.frozen.direct.axis
+        or target.axis != axis
+    ):
+        _fail("the exact direct mapping layout and endpoint directories", repr(schema))
+    for directory in (origin, target):
+        if any(
+            before.nominal_end > after.nominal_start
+            or before.nominal_ordinal >= after.nominal_ordinal
+            for before, after in zip(directory.buckets, directory.buckets[1:], strict=False)
+        ):
+            _fail("ordered nonoverlapping direct endpoint selections", repr(directory.buckets))
+    _layout(schema, rows)
+    origins = frozen_key_rows(rows, origin.axis.columns)
+    expected = tuple(bucket.key for bucket in origin.buckets)
+    if origins != expected:
+        _fail("exactly one ordered direct mapping row per origin bucket", repr(origins))
+    columns = schema.values[:-1]
+    arrays = tuple(_array(rows, column) for column in columns)
+    reasons = _array(rows, schema.values[-1])
+    result: list[FrozenDirectEntry] = []
+    targets: set[FrozenKey] = set()
+    for i, key in enumerate(origins):
+        nulls = tuple(not array[i].is_valid for array in arrays)
+        reason: object = reasons[i].as_py()
+        if all(nulls):
+            if reason not in ("period_absent", "cutoff_absent"):
+                _fail("a closed no-match reason for an absent direct target", repr(reason))
+            assert reason == "period_absent" or reason == "cutoff_absent"
+            result.append(FrozenDirectAbsent(key, reason))
+        elif any(nulls) or reason is not None:
+            _fail("one complete target key or one absent reason", repr((nulls, reason)))
+        else:
+            target_key = frozen_key_rows(rows.iloc[i : i + 1], columns)[0]
+            if target_key in targets:
+                _fail("unique direct target keys", repr(target_key))
+            targets.add(target_key)
+            result.append(FrozenDirectMatch(key, target_key))
+    if targets != {bucket.key for bucket in target.buckets}:
+        _fail("direct targets covering exactly the selected target directory", repr(targets))
+    return tuple(result)
+
+
 def _calendar(axis: CalendarDataAxis) -> None:
     if type(axis) is not CalendarDataAxis or axis.frozen is None:
         _fail("a complete frozen calendar descriptor", repr(axis))
@@ -90,12 +191,14 @@ def _calendar(axis: CalendarDataAxis) -> None:
 
 
 def calendar_directory_schema(axis: CalendarDataAxis) -> DataSchema:
-    """Build the single calendar.v1 directory layout used by writers and readers."""
+    """Build the calendar.v2 directory layout used by writers and readers."""
     _calendar(axis)
     values = (
         DataColumn("nominal_label", "nominal_label", ScalarDataType("string"), False),
         DataColumn("ordinal", "ordinal", ScalarDataType("int64"), False),
+        DataColumn("nominal_ordinal", "nominal_ordinal", ScalarDataType("int64"), False),
         *(DataColumn(name, name, TimestampDataType("us", "UTC"), False) for name in _BOUND_NAMES),
+        *(DataColumn(name, name, ScalarDataType("string"), False) for name in _CIVIL_NAMES),
     )
     return DataSchema(
         (DataAxis(axis.token, axis.columns, name=axis.name, at=axis.at),),
@@ -116,6 +219,91 @@ class FrozenIntervalBucket:
 class FrozenIntervalDirectory:
     axis: IntervalDataAxis
     buckets: tuple[FrozenIntervalBucket, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class FrozenComparisonMatch:
+    current_key: FrozenKey
+    baseline_key: FrozenKey
+
+
+@dataclass(frozen=True, slots=True)
+class FrozenComparisonAbsent:
+    current_key: FrozenKey
+    reason: Literal["period_absent", "cutoff_absent", "unmatched"]
+
+
+FrozenComparisonEntry: TypeAlias = FrozenComparisonMatch | FrozenComparisonAbsent
+
+
+def comparison_mapping_schema(
+    current: CalendarDataAxis | IntervalDataAxis,
+    binding: CalendarComparisonBinding | IntervalComparisonBinding,
+) -> DataSchema:
+    """Build one current-key row with a nullable complete baseline group or reason."""
+    if current.token != binding.current_axis_token or type(current) is not type(binding.baseline):
+        _fail(
+            "the exact authoritative current time axis for a consumed comparison map", repr(binding)
+        )
+    values = (
+        *(
+            DataColumn(f"baseline.{i}", f"baseline.{i}", column.dtype, True, column.unit)
+            for i, column in enumerate(binding.baseline.columns)
+        ),
+        DataColumn("reason", "reason", ScalarDataType("string"), True),
+    )
+    return DataSchema(
+        (DataAxis(current.token, current.columns, name=current.name, at=current.at),),
+        values,
+        value_paths=(
+            *(("baseline", str(i)) for i in range(len(binding.baseline.columns))),
+            ("reason",),
+        ),
+    )
+
+
+def read_comparison_mapping(
+    binding: CalendarComparisonBinding | IntervalComparisonBinding,
+    schema: DataSchema,
+    rows: pd.DataFrame,
+    current: FrozenCalendarDirectory | FrozenIntervalDirectory,
+    baseline: FrozenCalendarDirectory | FrozenIntervalDirectory,
+) -> tuple[FrozenComparisonEntry, ...]:
+    """Validate current coverage and partial one-to-one baseline references."""
+    if (
+        schema != comparison_mapping_schema(current.axis, binding)
+        or baseline.axis != binding.baseline
+    ):
+        _fail("the exact consumed comparison map layout and endpoints", repr(schema))
+    _layout(schema, rows)
+    keys = frozen_key_rows(rows, current.axis.columns)
+    if keys != tuple(bucket.key for bucket in current.buckets):
+        _fail("exactly one ordered comparison map row per current bucket", repr(keys))
+    columns = schema.values[:-1]
+    arrays = tuple(_array(rows, column) for column in columns)
+    reasons = _array(rows, schema.values[-1])
+    domain = {bucket.key for bucket in baseline.buckets}
+    seen: set[FrozenKey] = set()
+    result: list[FrozenComparisonEntry] = []
+    for index, key in enumerate(keys):
+        nulls = tuple(not array[index].is_valid for array in arrays)
+        reason: object = reasons[index].as_py()
+        if all(nulls):
+            if reason not in ("period_absent", "cutoff_absent", "unmatched"):
+                _fail("a closed absent reason for an unmapped comparison bucket", repr(reason))
+            assert reason == "period_absent" or reason == "cutoff_absent" or reason == "unmatched"
+            result.append(FrozenComparisonAbsent(key, reason))
+        elif any(nulls) or reason is not None:
+            _fail(
+                "one complete baseline key or one absent comparison reason", repr((nulls, reason))
+            )
+        else:
+            target = frozen_key_rows(rows.iloc[index : index + 1], columns)[0]
+            if target not in domain or target in seen:
+                _fail("unique comparison targets resolving in the baseline directory", repr(target))
+            seen.add(target)
+            result.append(FrozenComparisonMatch(key, target))
+    return tuple(result)
 
 
 def interval_directory_schema(axis: IntervalDataAxis) -> DataSchema:
@@ -263,12 +451,24 @@ def coordinate_attachment_schemas(schema: DataSchema) -> tuple[tuple[str, DataSc
         elif isinstance(axis, CalendarDataAxis):
             _calendar(axis)
             assert axis.frozen is not None
+            if axis.frozen.direct is not None:
+                visit(axis.frozen.direct.axis)
             result.append((axis.frozen.directory_name, calendar_directory_schema(axis)))
+            if axis.frozen.direct is not None:
+                result.append((axis.frozen.direct.mapping_name, direct_mapping_schema(axis)))
         elif axis.kind == "correspondence":
             _fail("a closed paired coordinate descriptor", repr(axis))
 
     for axis in schema.axes:
         visit(axis)
+    for fact in schema.comparisons:
+        binding = fact.binding
+        if isinstance(binding, (CalendarComparisonBinding, IntervalComparisonBinding)):
+            visit(binding.baseline)
+            current = next(axis for axis in schema.axes if axis.token == binding.current_axis_token)
+            assert isinstance(current, (CalendarDataAxis, IntervalDataAxis))
+            if binding.mapping_name not in {name for name, _ in result}:
+                result.append((binding.mapping_name, comparison_mapping_schema(current, binding)))
     assert tuple(name for name, _ in result) == required
     return tuple(result)
 
@@ -372,7 +572,7 @@ def frozen_key_table(
 
 
 def calendar_directory_rows(directory: FrozenCalendarDirectory) -> pd.DataFrame:
-    """Encode immutable directory records using the shared calendar.v1 layout."""
+    """Encode immutable directory records using the shared calendar.v2 layout."""
     rows = frozen_key_table(
         directory.axis.columns, tuple(bucket.key for bucket in directory.buckets)
     )
@@ -380,6 +580,9 @@ def calendar_directory_rows(directory: FrozenCalendarDirectory) -> pd.DataFrame:
         [b.nominal_label for b in directory.buckets], dtype="string[pyarrow]"
     )
     rows["ordinal"] = pd.Series([b.ordinal for b in directory.buckets], dtype="int64[pyarrow]")
+    rows["nominal_ordinal"] = pd.Series(
+        [b.nominal_ordinal for b in directory.buckets], dtype="int64[pyarrow]"
+    )
     for name, values in (
         ("nominal_start", tuple(b.nominal_start for b in directory.buckets)),
         ("nominal_end", tuple(b.nominal_end for b in directory.buckets)),
@@ -387,6 +590,10 @@ def calendar_directory_rows(directory: FrozenCalendarDirectory) -> pd.DataFrame:
         ("actual_end", tuple(b.actual_end for b in directory.buckets)),
     ):
         rows[name] = pd.Series(values, dtype="timestamp[us, tz=UTC][pyarrow]")
+    for name in _CIVIL_NAMES:
+        rows[name] = pd.Series(
+            [getattr(b, name) for b in directory.buckets], dtype="string[pyarrow]"
+        )
     return rows
 
 
@@ -428,12 +635,29 @@ def _datetime(values: pa.Array, i: int) -> datetime:
     return value.astimezone(timezone.utc)
 
 
+def _civil(values: pa.Array, i: int, bound: datetime) -> str:
+    value: object = values[i].as_py()
+    try:
+        if not isinstance(value, str):
+            raise ValueError("missing civil boundary")
+        stamp = datetime.fromisoformat(value)
+        if (
+            stamp.utcoffset() is None
+            or stamp.isoformat(timespec="microseconds") != value
+            or stamp.astimezone(timezone.utc) != bound
+        ):
+            raise ValueError("civil boundary differs from exact UTC instant")
+    except (ValueError, OverflowError) as error:
+        _fail("canonical offset-aware civil boundaries matching frozen UTC bounds", str(error))
+    return value
+
+
 def read_calendar_records(
     axis: CalendarDataAxis, schema: DataSchema, rows: pd.DataFrame
 ) -> tuple[FrozenCalendarBucket, ...]:
     """Validate consumed records without claiming the complete finite directory."""
     if schema != calendar_directory_schema(axis):
-        _fail("the exact calendar.v1 directory schema", repr(schema))
+        _fail("the exact calendar.v2 directory schema", repr(schema))
     _layout(schema, rows)
     arrays = {column.name: _array(rows, column) for column in schema.values}
     keys = frozen_key_rows(rows, axis.columns)
@@ -442,8 +666,13 @@ def read_calendar_records(
     for i, key in enumerate(keys):
         label: object = arrays["nominal_label"][i].as_py()
         ordinal: object = arrays["ordinal"][i].as_py()
-        if not isinstance(label, str) or type(ordinal) is not int:
-            _fail("nonnull labels and int64 ordinals", repr((label, ordinal)))
+        nominal_ordinal: object = arrays["nominal_ordinal"][i].as_py()
+        if (
+            not isinstance(label, str)
+            or type(ordinal) is not int
+            or type(nominal_ordinal) is not int
+        ):
+            _fail("nonnull labels and int64 ordinals", repr((label, ordinal, nominal_ordinal)))
         _label(label, axis)
         start, end, actual_start, actual_end = tuple(
             _datetime(arrays[name], i) for name in _BOUND_NAMES
@@ -453,8 +682,24 @@ def read_calendar_records(
                 "valid contained half-open nominal and actual bounds",
                 repr((start, end, actual_start, actual_end)),
             )
+        civil = tuple(
+            _civil(arrays[name], i, bound)
+            for name, bound in zip(
+                _CIVIL_NAMES, (start, end, actual_start, actual_end), strict=True
+            )
+        )
+        assert axis.frozen is not None
+        definition = axis.frozen.definition
+        if isinstance(
+            definition, BuiltinCalendarData
+        ) and nominal_ordinal != builtin_nominal_ordinal(
+            definition.unit, definition.step, datetime.fromisoformat(civil[0])
+        ):
+            _fail("the stable builtin nominal period ordinal", repr(nominal_ordinal))
         buckets.append(
-            FrozenCalendarBucket(key, label, ordinal, start, end, actual_start, actual_end)
+            FrozenCalendarBucket(
+                key, label, ordinal, start, end, actual_start, actual_end, nominal_ordinal, *civil
+            )
         )
     labels = tuple(bucket.nominal_label for bucket in buckets)
     ordinals = tuple(bucket.ordinal for bucket in buckets)
@@ -462,6 +707,11 @@ def read_calendar_records(
         _fail("unique nominal labels", repr(labels))
     if any(ordinal < 0 for ordinal in ordinals) or len(set(ordinals)) != len(ordinals):
         _fail("unique nonnegative original ordinals", repr(ordinals))
+    nominal_ordinals = tuple(bucket.nominal_ordinal for bucket in buckets)
+    if any(value < 0 for value in nominal_ordinals) or len(set(nominal_ordinals)) != len(
+        nominal_ordinals
+    ):
+        _fail("unique nonnegative nominal ordinals", repr(nominal_ordinals))
     return tuple(buckets)
 
 
@@ -566,6 +816,18 @@ def validate_presence(schema: DataSchema, rows: pd.DataFrame) -> None:
             parent = arrays.get((*path[:index], f"{side}_present"))
             if parent is not None and pc.any(pc.and_(child, pc.invert(parent))).as_py():
                 _fail("inherited true presence only beneath present outer rows", ".".join(path))
+    for fact in schema.comparisons:
+        for endpoint in (
+            fact.current_presence,
+            fact.baseline_presence,
+            *fact.enclosing_presence,
+        ):
+            for path in endpoint.inherited_paths:
+                if pc.any(pc.and_(arrays[path], pc.invert(arrays[endpoint.path]))).as_py():
+                    _fail(
+                        "inherited true presence only beneath its exact captured endpoint flag",
+                        repr((endpoint.path, path)),
+                    )
 
 
 def validate_frozen_coordinates(
@@ -589,11 +851,20 @@ def validate_frozen_coordinates(
     ) -> FrozenCalendarDirectory | FrozenIntervalDirectory:
         assert axis.frozen is not None
         attachment = tables[axis.frozen.directory_name]
-        return (
+        directory = (
             read_interval_directory(axis, attachment.schema, attachment.rows)
             if isinstance(axis, IntervalDataAxis)
             else read_calendar_directory(axis, attachment.schema, attachment.rows)
         )
+        if isinstance(axis, CalendarDataAxis) and axis.frozen.direct is not None:
+            direct = axis.frozen.direct
+            origin = read(direct.axis)
+            assert isinstance(origin, FrozenCalendarDirectory) and isinstance(
+                directory, FrozenCalendarDirectory
+            )
+            table = tables[direct.mapping_name]
+            read_direct_mapping(axis, table.schema, table.rows, origin, directory)
+        return directory
 
     for axis in schema.axes:
         if isinstance(axis, PairedDataAxis):
@@ -611,6 +882,30 @@ def validate_frozen_coordinates(
         if isinstance(axis, PairedDataAxis):
             table = tables[axis.mapping_name]
             validate_paired_presence(axis, schema, rows, table.schema, table.rows)
+    for fact in schema.comparisons:
+        binding = fact.binding
+        if isinstance(binding, (CalendarComparisonBinding, IntervalComparisonBinding)):
+            current = next(axis for axis in schema.axes if axis.token == binding.current_axis_token)
+            assert isinstance(current, (CalendarDataAxis, IntervalDataAxis))
+            table = tables[binding.mapping_name]
+            entries = read_comparison_mapping(
+                binding, table.schema, table.rows, read(current), read(binding.baseline)
+            )
+            absent = {
+                entry.current_key for entry in entries if isinstance(entry, FrozenComparisonAbsent)
+            }
+            present = _array(
+                rows,
+                schema.presence[schema.presence_paths.index(fact.baseline_presence.path)],
+            )
+            if any(
+                key in absent and present[index].as_py() is True
+                for index, key in enumerate(frozen_key_rows(rows, current.columns))
+            ):
+                _fail(
+                    "row presence consistent with absent comparison endpoints",
+                    repr((*fact.namespace, fact.alias, fact.baseline_presence.path)),
+                )
 
 
 def require_matchable_calendar_directory(directory: FrozenCalendarDirectory) -> None:
@@ -656,31 +951,66 @@ def require_calendar_match_rule(axis: CalendarDataAxis, rule: CalendarCorrespond
         _fail("a closed calendar correspondence rule", repr(rule), match=True)
     if rule.kind != "ordinal" and (
         not isinstance(definition, BuiltinCalendarData)
-        or definition.unit
-        not in (
-            ("day", "month", "quarter", "year")
-            if rule.kind == "previous_year"
-            else ("day", "week", "month", "quarter", "year")
-        )
+        or definition.unit not in ("day", "week", "month", "quarter", "year")
     ):
         _fail("supported builtin civil grains for this match rule", repr(definition), match=True)
 
 
-def _shift(label: str, definition: BuiltinCalendarData, rule: CalendarCorrespondence) -> str | None:
-    current = date.fromisoformat(label)
-    try:
-        if rule.kind == "previous_year":
-            return current.replace(year=current.year - 1).isoformat()
-        count = definition.step * rule.by
-        if definition.unit in ("day", "week"):
-            return (
-                current + timedelta(days=count * (7 if definition.unit == "week" else 1))
-            ).isoformat()
-        months = count * {"month": 1, "quarter": 3, "year": 12}[definition.unit]
-        year, month = divmod(current.year * 12 + current.month - 1 + months, 12)
-        return current.replace(year=year, month=month + 1).isoformat()
-    except (ValueError, OverflowError):
-        return None
+@dataclass(frozen=True, slots=True)
+class FrozenCalendarIntent:
+    """One civil intention, independent of selected target availability."""
+
+    key: FrozenKey
+    result: CivilShiftResult
+
+
+def calendar_match_intents(
+    directory: FrozenCalendarDirectory, rule: CalendarCorrespondence
+) -> tuple[FrozenCalendarIntent, ...]:
+    """Describe offset target bounds or a legal absent period/cutoff, without TZ lookup."""
+    require_calendar_match_rule(directory.axis, rule)
+    if rule.kind == "ordinal":
+        _fail("an offset rule for civil intentions", repr(rule), match=True)
+    if any(
+        before.nominal_end > after.nominal_start
+        for before, after in zip(directory.buckets, directory.buckets[1:], strict=False)
+    ):
+        _fail(
+            "ordered nonoverlapping selected nominal buckets", repr(directory.buckets), match=True
+        )
+    assert directory.axis.frozen is not None
+    definition = directory.axis.frozen.definition
+    assert isinstance(definition, BuiltinCalendarData)
+    result: list[FrozenCalendarIntent] = []
+    for bucket in directory.buckets:
+        try:
+            intent = civil_shift(
+                definition.unit,
+                definition.step,
+                rule.kind,
+                rule.by,
+                (
+                    bucket.nominal_start_civil,
+                    bucket.nominal_end_civil,
+                    bucket.actual_start_civil,
+                    bucket.actual_end_civil,
+                ),
+            )
+        except ValueError as error:
+            _fail(
+                "complete buckets or supported exact bucket-start prefixes", str(error), match=True
+            )
+        result.append(FrozenCalendarIntent(bucket.key, intent))
+    return tuple(result)
+
+
+def _wall_bounds(bucket: FrozenCalendarBucket) -> tuple[datetime, datetime, datetime, datetime]:
+    return (
+        datetime.fromisoformat(bucket.nominal_start_civil).replace(tzinfo=None),
+        datetime.fromisoformat(bucket.nominal_end_civil).replace(tzinfo=None),
+        datetime.fromisoformat(bucket.actual_start_civil).replace(tzinfo=None),
+        datetime.fromisoformat(bucket.actual_end_civil).replace(tzinfo=None),
+    )
 
 
 def build_partial_calendar_map(
@@ -688,24 +1018,49 @@ def build_partial_calendar_map(
     right: FrozenCalendarDirectory,
     rule: CalendarCorrespondence,
 ) -> tuple[FrozenBucketMatch, ...]:
-    """Map full nominal directories before any actual-row exact/outer policy."""
+    """Map declared finite directories before any actual-row exact/outer policy."""
     require_compatible_calendar_axes(left.axis, right.axis)
-    require_matchable_calendar_directory(left)
-    require_matchable_calendar_directory(right)
-    assert left.axis.frozen is not None
-    definition = left.axis.frozen.definition
     require_calendar_match_rule(left.axis, rule)
+    if rule.kind == "ordinal":
+        require_matchable_calendar_directory(left)
+        require_matchable_calendar_directory(right)
+        intents: tuple[FrozenCalendarIntent, ...] = ()
+    else:
+        intents = calendar_match_intents(left, rule)
+        # Validate target admission independently; never clip an aggregated target.
+        calendar_match_intents(right, CalendarCorrespondence("periods", 0))
     ordinals = {bucket.ordinal: bucket for bucket in right.buckets}
-    labels = {bucket.nominal_label: bucket for bucket in right.buckets}
+    nominal = {
+        (_wall_bounds(bucket)[0], _wall_bounds(bucket)[1]): bucket for bucket in right.buckets
+    }
     result: list[FrozenBucketMatch] = []
     used: set[FrozenKey] = set()
-    for bucket in left.buckets:
+    for i, bucket in enumerate(left.buckets):
         if rule.kind == "ordinal":
             partner = ordinals.get(bucket.ordinal)
         else:
-            assert isinstance(definition, BuiltinCalendarData)
-            target = _shift(bucket.nominal_label, definition, rule)
-            partner = labels.get(target) if target is not None else None
+            intended = intents[i].result
+            partner = None
+            if isinstance(intended, CivilShiftTarget):
+                partner = nominal.get((intended.bounds[0], intended.bounds[1]))
+                if partner is not None and (
+                    _wall_bounds(partner) != intended.bounds
+                    or (
+                        intended.exact_instants is not None
+                        and intended.exact_instants
+                        != (
+                            partner.nominal_start,
+                            partner.nominal_end,
+                            partner.actual_start,
+                            partner.actual_end,
+                        )
+                    )
+                ):
+                    _fail(
+                        "the exact saved nominal and prefix progress boundaries",
+                        partner.nominal_label,
+                        match=True,
+                    )
         if partner is not None:
             if partner.key in used:
                 _fail("a one-to-one nominal calendar map", repr(partner.key), match=True)

@@ -31,7 +31,7 @@ from marivo.analysis.compiler.observation import (
     ibis_type,
 )
 from marivo.analysis.compiler.queries import expression_value
-from marivo.analysis.compiler.query_program import FrameCombineProgram
+from marivo.analysis.compiler.query_program import FrameCombineProgram, FrameCompareProgram
 from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import (
     DataColumn,
@@ -40,7 +40,10 @@ from marivo.analysis.core.data_types import (
     DurationDataType,
     ScalarDataType,
 )
-from marivo.analysis.core.frame_expression import infer_frame_combine_schema
+from marivo.analysis.core.frame_expression import (
+    infer_frame_combine_schema,
+    infer_frame_compare_schema,
+)
 from marivo.analysis.core.model import reject
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import StageOutput
@@ -153,9 +156,24 @@ def effective_frame(stage: FrameCompute, inputs: tuple[StageOutput, ...]) -> Fra
                 ),
             ),
         )
+    if isinstance(program, FrameCompareProgram):
+        schemas = tuple(
+            item.frame_schema or effective_frame_schema(schema, item.columns)
+            for schema, item in zip(program.input_schemas, inputs, strict=True)
+        )
+        return replace(
+            stage,
+            program=FrameCompareProgram(
+                program.operation, schemas, infer_frame_compare_schema(schemas, program.operation)
+            ),
+        )
     if isinstance(program, FrameCombineProgram):
-        left = effective_frame_schema(program.left_schema, inputs[0].columns)
-        right = effective_frame_schema(program.right_schema, inputs[1].columns)
+        left = inputs[0].frame_schema or effective_frame_schema(
+            program.left_schema, inputs[0].columns
+        )
+        right = inputs[1].frame_schema or effective_frame_schema(
+            program.right_schema, inputs[1].columns
+        )
         return replace(
             stage,
             program=FrameCombineProgram(
@@ -165,7 +183,9 @@ def effective_frame(stage: FrameCompute, inputs: tuple[StageOutput, ...]) -> Fra
                 infer_frame_combine_schema(left, right, program.operation),
             ),
         )
-    schema = effective_frame_schema(program.input_schema, inputs[0].columns)
+    schema = inputs[0].frame_schema or effective_frame_schema(
+        program.input_schema, inputs[0].columns
+    )
     return replace(stage, program=frame_program(schema, program.operation))
 
 

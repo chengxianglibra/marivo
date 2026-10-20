@@ -78,11 +78,17 @@ def test_direct_score_runs_and_next_business_round(
     )
     changes = plain(
         following.compare(
-            previous, on=tuple(zip(following.axes, previous.axes, strict=True)), match=mv.ordinal()
+            {"reference": previous},
+            on={"reference": tuple(zip(following.axes, previous.axes, strict=True))},
+            match={"reference": mv.ordinal()},
         ).compute()
     )
-    assert changes.set_index("key_1")["absolute.value"].to_dict() == {"a": 2, "b": -2, "c": 2}
-    assert changes["absolute.value"].sum() == 2
+    assert changes.set_index("key_1")["reference.absolute.value"].to_dict() == {
+        "a": 2,
+        "b": -2,
+        "c": 2,
+    }
+    assert changes["reference.absolute.value"].sum() == 2
     assert session._runtime.store.resources(session.id) == ()
 
 
@@ -133,7 +139,9 @@ def test_two_separate_axes_and_joint_keep_the_original_target(
     )
     frame = plain(
         current.compare(
-            baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+            {"reference": baseline},
+            on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+            match={"reference": mv.ordinal()},
         ).compute()
     )
     facts = analysis_dsl_rows("j2")
@@ -141,11 +149,11 @@ def test_two_separate_axes_and_joint_keep_the_original_target(
         1 if row[4].startswith("2026-08") else -1 if row[4].startswith("2026-07") else 0
         for row in facts.orders
     )
-    assert frame["absolute.value"].sum() == target
+    assert frame["reference.absolute.value"].sum() == target
     before = run_ids(session)
     for axis in ("key_1", "key_2"):
-        assert frame.groupby(axis, dropna=False)["absolute.value"].sum().sum() == target
-    joint = frame.groupby(["key_1", "key_2"], dropna=False)["absolute.value"].sum()
+        assert frame.groupby(axis, dropna=False)["reference.absolute.value"].sum().sum() == target
+    joint = frame.groupby(["key_1", "key_2"], dropna=False)["reference.absolute.value"].sum()
     assert joint.sum() == target
     assert run_ids(session) == before
 

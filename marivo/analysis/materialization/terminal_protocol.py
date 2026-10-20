@@ -32,6 +32,15 @@ from marivo.analysis.core.artifact_data import (
     ScalarDataType,
     TimestampDataType,
 )
+from marivo.analysis.core.data_schema import (
+    CalendarComparisonBinding,
+    ComparisonValueBinding,
+    DataComparison,
+    EndpointPresence,
+    FrozenCalendarOrigin,
+    IntervalComparisonBinding,
+    OrdinaryComparisonBinding,
+)
 from marivo.analysis.core.frame_audit import (
     EvaluationRecord,
     FrameAudit,
@@ -74,7 +83,7 @@ from marivo.analysis.materialization.errors import IntegrityError
 
 def invalid(received: str) -> IntegrityError:
     return IntegrityError(
-        expected="a complete Store 14 Frame output v3 value",
+        expected="a complete Store 15 Frame output v4 value",
         received=received,
         repair="Preserve the selected Store and output files. Inspect the exact terminal record; old graph/continuation formats cannot be migrated or replayed.",
         stage="terminal_output",
@@ -104,6 +113,13 @@ _RECORDS = (
     BuiltinCalendarData,
     NamedCalendarData,
     FrozenCalendarData,
+    FrozenCalendarOrigin,
+    ComparisonValueBinding,
+    EndpointPresence,
+    OrdinaryComparisonBinding,
+    CalendarComparisonBinding,
+    IntervalComparisonBinding,
+    DataComparison,
     PairedDataAxis,
     DataColumn,
     ScalarDataType,
@@ -143,9 +159,9 @@ _RECORDS = (
 )
 _TYPES = {record.__name__: record for record in _RECORDS}
 T = TypeVar("T", ArtifactManifest, OutputFinding, OutputEvidence, InvocationInput)
-FORMAT = "marivo.frame_output/v3"
+FORMAT = "marivo.frame_output/v4"
 
-# One closed Store14 field inventory. No older field set or dataclass fallback.
+# One closed Store15 field inventory. No older field set or dataclass fallback.
 _FIELDS = {
     "ArtifactManifest": (
         "store_id",
@@ -165,6 +181,7 @@ _FIELDS = {
         "projection_columns",
         "value_paths",
         "presence_paths",
+        "comparisons",
     ),
     "DataAxis": ("token", "columns", "kind", "name", "at"),
     "CalendarDataAxis": ("token", "columns", "kind", "name", "at", "timezone", "frozen"),
@@ -172,7 +189,22 @@ _FIELDS = {
     "FrozenIntervalData": ("directory_name", "rule_version"),
     "BuiltinCalendarData": ("unit", "step"),
     "NamedCalendarData": ("identity", "snapshot_digest", "level"),
-    "FrozenCalendarData": ("definition", "directory_name", "rule_version"),
+    "FrozenCalendarData": ("definition", "directory_name", "rule_version", "direct"),
+    "FrozenCalendarOrigin": ("axis", "mapping_name", "kind", "by"),
+    "ComparisonValueBinding": ("role", "source_path", "value_path"),
+    "EndpointPresence": ("path", "inherited_paths"),
+    "OrdinaryComparisonBinding": (),
+    "CalendarComparisonBinding": ("current_axis_token", "baseline", "mapping_name"),
+    "IntervalComparisonBinding": ("current_axis_token", "baseline", "mapping_name"),
+    "DataComparison": (
+        "alias",
+        "values",
+        "binding",
+        "current_presence",
+        "baseline_presence",
+        "enclosing_presence",
+        "namespace",
+    ),
     "PairedDataAxis": ("token", "columns", "kind", "name", "at", "left", "right", "mapping_name"),
     "DataColumn": ("slot_id", "name", "dtype", "nullable", "unit"),
     "ScalarDataType": ("name",),
@@ -373,7 +405,7 @@ def decode(text: str, expected: type[T]) -> T:
     try:
         envelope = _obj(parse_json(text), "format value")
         if envelope["format"] != FORMAT:
-            raise invalid("expected Frame output v3; obsolete output format received")
+            raise invalid("expected Frame output v4; obsolete output format received")
         value = _decode(envelope["value"])
         if not isinstance(value, expected) or type(value) is not expected:
             raise invalid("terminal envelope has the wrong output record type")
@@ -399,7 +431,7 @@ def decode_method_record(text: str, expected: type[MethodRecord]) -> MethodRecor
     try:
         envelope = _obj(parse_json(text), "format value")
         if envelope["format"] != FORMAT:
-            raise invalid("expected Frame output v3 method record")
+            raise invalid("expected Frame output v4 method record")
         value = _decode(envelope["value"])
         if type(value) is not expected:
             raise invalid("method payload has the wrong record root")

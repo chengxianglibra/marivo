@@ -195,6 +195,10 @@ def bind_windows(
         visit(node, (index,), None)
     if not rules:
         return contributions
+    if calendar is not None and not calendar.cells:
+        # Retain source type bindings, without inventing an endpoint. Exact
+        # calendar membership makes these schema-bearing reads empty.
+        return contributions
     if period is None:
         reject(
             "an explicit window endpoint",

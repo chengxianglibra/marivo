@@ -18,6 +18,7 @@ if TYPE_CHECKING:
         assert_type(scope.end, mv.InstantAnchor)
         assert_type(session.instant(scope.end), mv.InstantAnchor)
         assert_type(scope.by(mv.grain("day")), mv.CalendarAxis)
+        assert_type(scope.by(mv.grain("month")).shift(mv.offset(years=-1)), mv.CalendarAxis)
         query = session.observe({"value": metric}, by=(scope, region), where=region == "APAC")
         assert_type(query, mv.AnalysisFrame)
         return query
@@ -102,7 +103,7 @@ if TYPE_CHECKING:
             mv.AnalysisFrame,
         )
         assert_type(query.align(other, on=((axis, other.axes[0]),)), mv.AnalysisFrame)
-        assert_type(query.compare(other, zero_denominator="null"), mv.AnalysisFrame)
+        assert_type(query.compare({"reference": other}, zero_denominator="null"), mv.AnalysisFrame)
         return query.select({"ratio": value / 2})
 
     def explicit_identity(
@@ -130,8 +131,8 @@ if TYPE_CHECKING:
             mv.AnalysisFrame,
         )
         assert_type(mv.ordinal(), mv.CalendarCorrespondence)
-        assert_type(mv.period_offset(-1), mv.CalendarCorrespondence)
-        assert_type(mv.previous_year(), mv.CalendarCorrespondence)
+        assert_type(mv.offset(periods=-1), mv.CalendarCorrespondence)
+        assert_type(mv.offset(years=-1), mv.CalendarCorrespondence)
         query = session.values(
             by=(field,), columns={"budget": "CNY"}, rows=(((1,), {"budget": 10}),)
         )

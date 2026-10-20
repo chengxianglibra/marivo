@@ -42,7 +42,14 @@ def rejected(query: mv.AnalysisFrame, artifact: mv.Artifact, field: Deferred, me
     query.reduce({'value': query['value']})  # invalid: unfinished reduction shape
     query.top('1', by=query['value'])  # invalid: rank count type
     query.top(1, by=field)  # invalid: source score at result
-    query.compare(artifact)  # invalid: terminal compare endpoint
+    query.compare({'reference': artifact})  # invalid: terminal compare endpoint
+    query.compare(query)  # invalid: retired bare baseline
+    mv.previous_year()  # invalid: retired rule constructor
+    mv.period_offset(-1)  # invalid: retired rule constructor
+    mv.offset()  # invalid: missing offset
+    mv.offset(years=-1, periods=-1)  # invalid: conflicting offset modes
+    mv.offset(-1)  # invalid: positional offset
+    mv.offset(years=None)  # invalid: missing integer
     query.align(artifact)  # invalid: terminal alignment endpoint
     query['value'].divide(1, zero_denominator='zero')  # invalid: denominator policy
     mv.broadcast(artifact, to=query)  # invalid: reference stage
@@ -68,7 +75,7 @@ def rejected(query: mv.AnalysisFrame, artifact: mv.Artifact, field: Deferred, me
     query.reduce({'rows': mv.row_count()}, by=(field,))  # invalid: source grouping axis
     query.align(query, on=(('left', 'right'),))  # invalid: string axes
     query.top(1, by=query['value'], partition_by=())  # invalid: retired partition policy
-    query.compare(query, time_axis='current')  # invalid: retired paired projection
+    query.compare({'reference': query}, time_axis='current')  # invalid: retired paired projection
     artifact.to_pandas()  # invalid: data belongs to Frame
     artifact.show(n=0)  # invalid: audit has no preview count
     artifact.execute()  # invalid: terminal execution
@@ -139,7 +146,7 @@ def current_receivers(query: mv.AnalysisFrame, other: mv.AnalysisFrame, field: D
     assert_type(query.where(query['revenue'] > 0), mv.AnalysisFrame)
     assert_type(query.top(3, by=query['revenue']), mv.AnalysisFrame)
     assert_type(query.reduce({'rows': mv.row_count(), 'mean': query['revenue'].mean()}), mv.AnalysisFrame)
-    assert_type(query.compare(other, match=mv.ordinal(), how='outer'), mv.AnalysisFrame)
+    assert_type(query.compare({'reference': other}, match={'reference': mv.ordinal()}, how='outer'), mv.AnalysisFrame)
     assert_type(session.read(population, {'category': field}), mv.AnalysisFrame)
 """
     )

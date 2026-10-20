@@ -46,6 +46,7 @@ from marivo._definition.types import (
     literal_token,
 )
 from marivo._grouping import Grouping
+from marivo._temporal_grid import TimeShiftAbsent
 from marivo.analysis.core.data_types import (
     DataColumn,
     DecimalDataType,
@@ -159,6 +160,31 @@ def _scope(value: object) -> object:
             "timezone": value.timezone,
             "snapshot_digest": value.snapshot_digest,
             "cells": _scope(value.cells),
+            "civil_bounds": _scope(value.civil_bounds),
+            "origin": (
+                {
+                    "kind": value.origin.kind,
+                    "by": value.origin.by,
+                    "identity": value.origin.grid.identity,
+                    "cells": _scope(
+                        tuple(
+                            (cell.original_start, cell.original_end, cell.start, cell.end)
+                            for cell in value.origin.grid.cells
+                        )
+                    ),
+                    "civil_bounds": _scope(value.origin.grid.civil_bounds),
+                    "entries": _scope(
+                        tuple(
+                            (entry.origin_identity, "absent", entry.reason)
+                            if isinstance(entry, TimeShiftAbsent)
+                            else (entry.origin_identity, "match", entry.target_identity)
+                            for entry in value.origin.entries
+                        )
+                    ),
+                }
+                if value.origin is not None
+                else None
+            ),
         }
     if isinstance(value, PopulationParameter):
         return {"scope": "PopulationParameter", "definition": _scope(value._definition)}

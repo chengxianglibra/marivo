@@ -1,4 +1,4 @@
-"""Store14 Frame protocol, source-free lifecycle, sequence and atomic publication."""
+"""Store15 Frame protocol, source-free lifecycle, sequence and atomic publication."""
 
 from __future__ import annotations
 
@@ -124,6 +124,21 @@ def calendar(local: LocalFrameServices, count: int = 128, *, offset: int = 0) ->
                 [point.date().isoformat() for point in starts], dtype="string[pyarrow]"
             ),
             "ordinal": pd.Series(range(count), dtype="int64[pyarrow]"),
+            "nominal_ordinal": pd.Series(
+                [point.date().toordinal() - 1 for point in starts], dtype="int64[pyarrow]"
+            ),
+            **{
+                name: pd.Series(
+                    [point.isoformat(timespec="microseconds") for point in values],
+                    dtype="string[pyarrow]",
+                )
+                for name, values in (
+                    ("nominal_start_civil", starts),
+                    ("nominal_end_civil", ends),
+                    ("actual_start_civil", starts),
+                    ("actual_end_civil", ends),
+                )
+            },
             **{
                 name: pd.Series(values, dtype="timestamp[us, tz=UTC][pyarrow]")
                 for name, values in (
@@ -137,6 +152,9 @@ def calendar(local: LocalFrameServices, count: int = 128, *, offset: int = 0) ->
     )
     value = DataColumn("amount", "amount", ScalarDataType("int64"), False)
     schema = DataSchema((axis,), (value,), value_paths=(("amount",),))
+    directory = directory.loc[
+        :, [column.slot_id for column in calendar_directory_schema(axis).columns]
+    ]
     return AnalysisFrame._from_memory(
         local,
         CompletedFrameResult(
@@ -159,6 +177,135 @@ def calendar(local: LocalFrameServices, count: int = 128, *, offset: int = 0) ->
 
 def manifest(frame: AnalysisFrame) -> ArtifactManifest:
     return open_manifest(frame._local.store, frame._local.session_ref, frame._backing.artifact_id)
+
+
+def period_endpoints(local: LocalFrameServices) -> tuple[AnalysisFrame, AnalysisFrame]:
+    from marivo._temporal import builtin_grain
+    from marivo.analysis.core.frame_calendar import freeze_calendar
+    from marivo.analysis.dsl.temporal import exact_scope
+
+    current = exact_scope("2027-01-01", "2027-03-01", "UTC").by(builtin_grain("month"))
+    baseline = current.shift(CalendarCorrespondence("years", -1))
+    frames = []
+    for axis, amounts, identity in (
+        (current, (180, 30), "period-current"),
+        (baseline, (120, 0), "period-baseline"),
+    ):
+        frozen = freeze_calendar(
+            axis._binding,
+            token="period",
+            name="month",
+            key=DataColumn("bucket", "bucket", ScalarDataType("int64"), False),
+        )
+        value = DataColumn("amount", "amount", ScalarDataType("int64"), False, "CNY")
+        schema = DataSchema((frozen.axis,), (value,), value_paths=(("amount",),))
+        rows = pd.DataFrame(
+            {
+                "bucket": pd.Series(range(2), dtype="int64[pyarrow]"),
+                "amount": pd.Series(amounts, dtype="int64[pyarrow]"),
+            }
+        )
+        frames.append(
+            AnalysisFrame._from_memory(
+                local,
+                CompletedFrameResult(
+                    CompletedFrameData(schema, rows, frozen.attachments),
+                    replace(metadata(), result_id=identity),
+                ),
+            )
+        )
+    return frames[0], frames[1]
+
+
+def test_comparison_preview_closes_direct_and_fact_references(
+    local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.analysis.core.frame_structure import coordinate_attachments
+
+    current, baseline = period_endpoints(local)
+    report = current.compare({"base": baseline}).compute()
+    literal = report.select({"constant": 1}).compute()
+    assert literal._schema.comparisons[0].values == ()
+    nested = report.align(report).compute()
+    assert all(fact.namespace for fact in nested._schema.comparisons)
+    for memory in (baseline, report, literal, nested):
+        saved = memory.persist()
+        value = manifest(saved)
+        assert decode(encode(value), ArtifactManifest) == value
+        prefix = local.preview(saved._backing, 1)
+        assert len(prefix.rows) == 1
+        assert {part.name for part in prefix.attachments} == set(
+            coordinate_attachments(saved._schema)
+        )
+        assert prefix.schema.comparisons == memory._schema.comparisons
+        exported = saved.to_pandas()
+        assert exported.attrs["comparisons"] == memory.to_pandas().attrs["comparisons"]
+        if exported.attrs["comparisons"]:
+            exported.attrs["comparisons"][0]["alias"] = "changed"
+            assert saved.to_pandas().attrs["comparisons"][0]["alias"] == "base"
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("zero preview read a required payload")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(OutputRead, "_open", forbidden)
+        assert local.preview(saved._backing, 0).attachments == ()
+        saved.show(n=0)
+
+
+def test_required_comparison_map_rejects_corrupt_payload(local: LocalFrameServices) -> None:
+    from marivo.analysis.core.artifact_data import ParquetHandle
+    from marivo.analysis.core.data_schema import CalendarComparisonBinding
+    from marivo.analysis.materialization.contracts import FileEntry
+    from marivo.analysis.materialization.storage import _manifest_bytes, payload_digest
+    from marivo.analysis.materialization.terminal_storage import physical_schema
+
+    current, baseline = period_endpoints(local)
+    saved = current.compare({"base": baseline}).persist()
+    value = manifest(saved)
+    binding = value.data.schema.comparisons[0].binding
+    assert isinstance(binding, CalendarComparisonBinding)
+    part = next(part for part in value.data.attachments if part.name == binding.mapping_name)
+    directory = local.store.project_root / part.rows.receipt.project_relative_path
+    rows = pq.read_table(directory / "data.parquet").to_pandas(types_mapper=pd.ArrowDtype)
+    rows[part.schema.values[0].slot_id] = pd.Series([999, 1], dtype="int64[pyarrow]")
+    pq.write_table(
+        pa.Table.from_pandas(
+            rows, schema=physical_schema(part.schema), preserve_index=False
+        ).replace_schema_metadata(None),
+        directory / "data.parquet",
+        version="2.6",
+    )
+    entry = FileEntry("data.parquet", (directory / "data.parquet").stat().st_size)
+    file_manifest = _manifest_bytes((entry,))
+    (directory / "manifest.json").write_bytes(file_manifest)
+    receipt = replace(
+        part.rows.receipt,
+        file_manifest=(entry,),
+        realized_byte_count=entry.size_bytes + len(file_manifest),
+    )
+    handle = ParquetHandle(receipt, payload_digest(local.store.project_root, directory, receipt))
+    corrupt = replace(
+        value,
+        data=replace(
+            value.data,
+            attachments=tuple(
+                replace(item, rows=handle) if item.name == part.name else item
+                for item in value.data.attachments
+            ),
+        ),
+    )
+    with local.store._write() as conn:
+        conn.execute(
+            "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
+            (encode(corrupt), value.artifact_id),
+        )
+    backing = local.open_frame(value.artifact_id)
+    for consume in (lambda: local.read_complete(backing), lambda: local.preview(backing, 1)):
+        with pytest.raises(AnalysisError, match="targets resolving in the baseline directory"):
+            consume()
+    assert local.preview(backing, 0).attachments == ()
+    local.artifact(value.artifact_id).show()
 
 
 def counts(local: LocalFrameServices) -> tuple[int, int]:
@@ -265,8 +412,8 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
 def test_sole_protocol_and_exact_closed_fields(local: LocalFrameServices) -> None:
     saved = ordinary(local).persist()
     value = manifest(saved)
-    assert FORMAT == "marivo.frame_output/v3"
-    assert local.store.layout.generation == 14
+    assert FORMAT == "marivo.frame_output/v4"
+    assert local.store.layout.generation == 15
     assert decode(encode(value), ArtifactManifest) == value
     assert value.result_id == value.metadata.result_id
     assert value.metadata == metadata()
@@ -392,9 +539,7 @@ def test_sparse_records_are_not_complete_directories(local: LocalFrameServices) 
 def test_paired_codec_and_prefix_keep_complete_mapping(local: LocalFrameServices) -> None:
     paired = (
         calendar(local, 3)
-        .compare(
-            calendar(local, 2, offset=10), match=CalendarCorrespondence("ordinal"), how="outer"
-        )
+        .align(calendar(local, 2, offset=10), match=CalendarCorrespondence("ordinal"), how="outer")
         .compute()
     )
     saved = paired.persist()
@@ -562,7 +707,7 @@ def test_sequence_spans_batches_and_row_groups(
         assert parquet.num_row_groups == 4
 
 
-@pytest.mark.parametrize("generation", [11, 12, 13])
+@pytest.mark.parametrize("generation", [11, 12, 13, 14])
 def test_old_only_store_rejected_without_any_byte_changes(tmp_path: Path, generation: int) -> None:
     old = tmp_path / f".marivo/analysis/generations/v{generation}/session_store.db"
     old.parent.mkdir(parents=True)
@@ -576,13 +721,13 @@ def test_old_only_store_rejected_without_any_byte_changes(tmp_path: Path, genera
         with pytest.raises(IntegrityError, match="generation"):
             constructor()
     assert old.read_bytes() == before
-    assert not (old.parent.parent / "v14").exists()
+    assert not (old.parent.parent / "v15").exists()
 
 
 def test_missing_unconsumed_endpoint_is_not_a_preview_read(local: LocalFrameServices) -> None:
     paired = (
         calendar(local, 3)
-        .compare(calendar(local, 2), match=CalendarCorrespondence("ordinal"), how="outer")
+        .align(calendar(local, 2), match=CalendarCorrespondence("ordinal"), how="outer")
         .compute()
         .persist()
     )
@@ -612,7 +757,7 @@ def test_paired_partial_records_reject_missing_and_false_presence(
 
     memory = (
         calendar(local, 3)
-        .compare(calendar(local, 2), match=CalendarCorrespondence("ordinal"), how="outer")
+        .align(calendar(local, 2), match=CalendarCorrespondence("ordinal"), how="outer")
         .compute()
     )
     prefix = local.preview(memory.persist()._backing, 1)
@@ -770,7 +915,7 @@ def test_full_read_rejects_duplicate_keys_beyond_a_valid_prefix(local: LocalFram
         local.read_complete(backing)
 
 
-@pytest.mark.parametrize("generation", [11, 12, 13])
+@pytest.mark.parametrize("generation", [11, 12, 13, 14])
 def test_every_old_generation_entry_preserves_old_tree(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, generation: int
 ) -> None:
@@ -808,7 +953,7 @@ def test_every_old_generation_entry_preserves_old_tree(
         if path.is_file()
     }
     assert after == before
-    assert not (old.parent.parent / "v14").exists()
+    assert not (old.parent.parent / "v15").exists()
 
 
 def test_old_manifest_cannot_enter_any_current_read(local: LocalFrameServices) -> None:
@@ -1263,11 +1408,11 @@ def test_actual_stored_inputs_derive_without_sources_and_republish_detached(
     positive = saved.where(saved["amount"] > 0).compute()
     assert positive.to_pandas()[("value", "amount")].tolist() == [1, 2]
     compared = (
-        saved.compare(saved, on=((saved.axes[0], saved.axes[0]),))
+        saved.compare({"base": saved}, on={"base": ((saved.axes[0], saved.axes[0]),)})
         if kind == "ordinary"
-        else saved.compare(saved, match=CalendarCorrespondence("ordinal"))
+        else saved.compare({"base": saved}, match={"base": CalendarCorrespondence("ordinal")})
     ).compute()
-    assert compared.to_pandas()[("value", "absolute.amount")].tolist() == (
+    assert compared.to_pandas()[("value", "base.absolute.amount")].tolist() == (
         [pd.NA, 0, 0] if kind == "ordinary" else [0, 0, 0]
     )
     assert counts(local) == before
@@ -1293,8 +1438,8 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
     derived = saved.where(saved["amount"] > 0)
     result = derived.top(2, by=derived["amount"]).compute()
     assert result.to_pandas()[("value", "amount")].tolist() == [2, 1]
-    compared = (saved.compare(saved, on=((saved.axes[0], saved.axes[0]),))
-                if sys.argv[4] == "ordinary" else saved.compare(saved, match=mv.ordinal())).compute()
+    compared = (saved.compare({"base": saved}, on={"base": ((saved.axes[0], saved.axes[0]),)})
+                if sys.argv[4] == "ordinary" else saved.compare({"base": saved}, match={"base": mv.ordinal()})).compute()
     assert len(compared.to_pandas()) == 3
     assert len(session.runs().items) == before
     copied = result.persist()
@@ -1702,7 +1847,7 @@ def test_interval_directory_presence_and_pairing_cold_recovery(local: LocalFrame
     selected = outer.where(outer["left.amount"] > 0)
     sparse = selected.select({"amount": selected["left.amount"]}).compute().persist()
     saved = first.persist()
-    paired = first.compare(second, match=CalendarCorrespondence("ordinal")).compute().persist()
+    paired = first.align(second, match=CalendarCorrespondence("ordinal")).compute().persist()
     assert len(sparse._backing.data.attachments) == 1
     assert len(paired._backing.data.attachments) == 3
     script = """
@@ -1730,7 +1875,7 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
     assert paired.to_pandas()[("presence", "left_present")].tolist() == [True]
     assert paired.to_pandas()[("presence", "right_present")].tolist() == [True]
     assert len(sparse.align(original).compute().to_pandas()) == 1
-    assert len(original.compare(original, match=mv.ordinal()).compute().to_pandas()) == 1
+    assert len(original.align(original, match=mv.ordinal()).compute().to_pandas()) == 1
     try:
         sparse.align(original, match=mv.ordinal()).compute()
     except AnalysisError:
@@ -1840,9 +1985,11 @@ def test_stored_interval_reads_and_matches_without_current_timezone_rules(
     first.show(n=1)
     assert "Asia/Shanghai" in capsys.readouterr().out
     assert len(first.align(first).compute().to_pandas()) == 1
-    paired = first.compare(second, match=CalendarCorrespondence("ordinal")).compute()
-    assert paired.to_pandas()[("value", "absolute.amount")].tolist() == [0]
-    assert paired.to_pandas()[("presence", "right_present")].tolist() == [True]
+    paired = first.compare(
+        {"base": second}, match={"base": CalendarCorrespondence("ordinal")}
+    ).compute()
+    assert paired.to_pandas()[("value", "base.absolute.amount")].tolist() == [0]
+    assert paired.to_pandas()[("presence", "base.present")].tolist() == [True]
 
 
 @pytest.fixture
@@ -1926,7 +2073,9 @@ def test_real_method_facts_propagate_through_fixed_and_pending_inputs(
         renamed = fixed.select({"doubled": fixed["contribution.q"] * 2})
         empty = renamed.top(0, by=renamed["doubled"]).compute()
         combined = fixed.align(fixed, on=((fixed.axes[0], fixed.axes[0]),)).compute()
-        compared = renamed.compare(renamed, on=((renamed.axes[0], renamed.axes[0]),)).compute()
+        compared = renamed.compare(
+            {"base": renamed}, on={"base": ((renamed.axes[0], renamed.axes[0]),)}
+        ).compute()
         for derived in (total, positive, subtotal, empty, combined, compared):
             assert derived.method_facts == original
             assert derived._backing.metadata.result_id != original[0].origin_result_id

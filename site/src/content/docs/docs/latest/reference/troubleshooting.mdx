@@ -40,11 +40,25 @@ population_from mapping; on is required, including legal on=().
 
 ## Time and numerical policies
 
-Use Session instant/time_scope. Partial calendar buckets fail match under exact
-and outer; outer cannot repair missing frozen data. Original ordinals do not
-compress after selection. Leap-day previous_year has no counterpart; select a
-permitted policy/period without clamping. Unsupported offsets require a supported
-explicit source question, not fallback to another rule.
+Use Session instant/time_scope and supply exactly one integer keyword to
+`mv.offset(years=...)` or `mv.offset(periods=...)`. CalendarAxis.shift accepts
+unit-step builtin week/month/year full buckets or bucket-start prefixes; partial
+day/quarter, middle slices and ambiguous nonzero target clocks require an explicit
+supported domain. Missing ISO week/civil cutoff is a legal absent target, not a
+clamped date. Ordinal still needs complete buckets and keeps original positions.
+
+Named compare needs a nonempty alias-to-Frame mapping and complete per-alias on
+bindings when ordinary axes exist. A frozen direct relation must match the whole
+current domain; use matching original endpoints or an explicit consistent rule.
+Do not repair a wrong anchor/conflicting rule by changing how. Actual baseline
+time rows outside the current declared domain require explicit baseline filtering
+or align's general time union. Outer does not repair missing/corrupt frozen data
+or turn NA into zero. Inspect `current.present` / `<alias>.present` separately from
+value NA and inherited `<alias>.presence.*`. See
+`marivo.help("analysis.calendar_axis.shift")` and
+`marivo.help("analysis.analysis_frame.compare")`.
+
+
 
 Division policies apply to that new operation, not strict children. Nonfinite,
 overflow and required coverage failures block completion. An unavailable route
@@ -83,13 +97,13 @@ Compute failure creates no Run. A publishing failure's run_ref identifies the
 exact Run; reconciliation resolves that original commit without recomputation.
 Missing/corrupt consumed data is not a cache miss and must not trigger replay.
 
-Store 14 refuses every older generation's data unchanged, without migration or
+Store 15 refuses every older generation's data unchanged, without migration or
 dual reads. Absent-current discovery may return None/empty without exposing old
 state; create cannot initialize around an old-only project.
 Before switching, export required results with the original version or retain a
 compatible environment. Preview limits affect display, not complete execution.
 Preserve the old Store and create a new named Session in a fresh project for
-current work. Store14 uses generation13/output-v2 for every Frame; this is not
+current work. Store15 uses generation15/output-v4 for every Frame; this is not
 automatic export/import migration or a same-project bypass.
 The [AnalysisFrame cutover note](https://github.com/chengxianglibra/marivo/blob/main/docs/specs/analysis/analysis-frame-cutover.md)
 explains breaking APIs, value names, postponed capabilities and recovery choices.

@@ -19,7 +19,12 @@ from marivo.analysis.core.artifact_data import (
     OutputFinding,
     ParquetHandle,
 )
-from marivo.analysis.core.data_schema import CalendarDataAxis, IntervalDataAxis, PairedDataAxis
+from marivo.analysis.core.data_schema import (
+    CalendarDataAxis,
+    DataAxis,
+    IntervalDataAxis,
+    PairedDataAxis,
+)
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
@@ -27,6 +32,7 @@ from marivo.analysis.core.frame_data import (
 )
 from marivo.analysis.core.frame_method_facts import FrameMethodFacts
 from marivo.analysis.core.frozen_calendar import (
+    FrozenAttachment,
     FrozenCalendarBucket,
     FrozenIntervalBucket,
     FrozenKey,
@@ -34,6 +40,7 @@ from marivo.analysis.core.frozen_calendar import (
     frozen_key_table,
     read_calendar_records,
     read_interval_directory,
+    validate_frozen_coordinates,
     validate_paired_presence,
     validate_paired_records,
     validate_presence,
@@ -323,6 +330,33 @@ class FrameReader:
             validate_presence(schema, rows)
             parts: dict[str, OutputAttachment] = {}
             saved = {part.name: part for part in value.data.attachments}
+
+            def direct(axis: DataAxis) -> bool:
+                if isinstance(axis, PairedDataAxis):
+                    return direct(axis.left) or direct(axis.right)
+                return (
+                    isinstance(axis, CalendarDataAxis)
+                    and axis.frozen is not None
+                    and axis.frozen.direct is not None
+                )
+
+            if n and (schema.comparisons or any(direct(axis) for axis in schema.axes)):
+                # Direct and consumed maps certify complete finite domains. Read
+                # that authority while keeping the primary payload a prefix.
+                required = tuple(
+                    OutputAttachment(
+                        part.name,
+                        part.schema,
+                        reader.read(ReadLayout(part.schema, part.rows), ExportRead()),
+                    )
+                    for part in value.data.attachments
+                )
+                validate_frozen_coordinates(
+                    schema,
+                    rows,
+                    tuple(FrozenAttachment(part.name, part.schema, part.rows) for part in required),
+                )
+                return FramePreview(schema, rows, required)
 
             def select(name: str, keys: set[FrozenKey]) -> OutputAttachment:
                 part = saved[name]

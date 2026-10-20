@@ -24,7 +24,7 @@ def positive(session: mv.Session, members: mv.Population, field: Deferred, other
     assert_type(query.select({"centered": query["value"] - 10}), mv.AnalysisFrame)
     assert_type(query.top(3, by=query["value"]), mv.AnalysisFrame)
     assert_type(query.reduce({"mean": query["value"].mean(), "sum": query["value"].sum(), "rows": mv.row_count()}), mv.AnalysisFrame)
-    assert_type(query.compare(other), mv.AnalysisFrame)
+    assert_type(query.compare({'reference': other}), mv.AnalysisFrame)
     assert_type(query.align(other), mv.AnalysisFrame)
     assert_type(query.compute(), mv.AnalysisFrame)
     assert_type(query.persist().artifact, mv.Artifact)

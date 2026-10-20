@@ -10,7 +10,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from marivo.analysis.binding.correspondence import ComparisonEndpoint
-from marivo.analysis.core.artifact_data import OutputAttachment
+from marivo.analysis.core.artifact_data import DataSchema, OutputAttachment
 from marivo.analysis.core.data_types import (
     DataColumn,
     DataType,
@@ -252,12 +252,20 @@ class StageOutput:
     frame_attachments: tuple[OutputAttachment, ...] = ()
     attribute_inputs: tuple[AttributeRootInputs, ...] = ()
     attribute_methods: tuple[AttributeMethodPayload, ...] = ()
+    frame_schema: DataSchema | None = None
 
     def __post_init__(self) -> None:
         if self._token is not _NORMALIZED:
             raise _stage_error(
                 "a normalized stage frame from StageOutput.from_frame",
                 "an unnormalized stage table",
+            )
+        if self.frame_schema is not None and (
+            self.frame_schema.columns != self.columns or self.frame_schema.key_fields != self.keys
+        ):
+            raise _stage_error(
+                "completed Frame schema matching exact stage columns and keys",
+                repr(self.frame_schema),
             )
 
     @classmethod
@@ -275,6 +283,7 @@ class StageOutput:
         frame_attachments: tuple[OutputAttachment, ...] = (),
         attribute_inputs: tuple[AttributeRootInputs, ...] = (),
         attribute_methods: tuple[AttributeMethodPayload, ...] = (),
+        frame_schema: DataSchema | None = None,
     ) -> StageOutput:
         return cls(
             columns,
@@ -290,6 +299,7 @@ class StageOutput:
             frame_attachments,
             attribute_inputs,
             attribute_methods,
+            frame_schema,
         )
 
     @classmethod

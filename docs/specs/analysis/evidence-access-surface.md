@@ -55,14 +55,16 @@ sum/count components, Python objects and executable source definitions are not s
 Session. `reopened.artifact` opens that same result's audit. Neither loads a
 Catalog, source schema, connection or model. Audit reads and Frame.show(n=0)
 consume no result payload. Positive preview reads the result prefix and required
-coordinate records. `to_pandas()` validates complete current data and required
+coordinate records. Direct/comparison preview validates its finite required
+endpoint/map authority while primary rows stay bounded by n. `to_pandas()`
+validates complete current data and required
 coordinate attachments; `method_facts` reads only complete owned explanation
 payloads. Stored compute and evaluated derivatives consume both. Metadata or
 preview success does not certify unread payload, and a bad method file can leave
 current rows exportable while full consumption fails.
 
-All Frames use `marivo.frame_output/v3`, `frame.v3` and `frame-output-v3` in
-Store14's `generations/v14` directory. Manifest method descriptors are bounded;
+All Frames use `marivo.frame_output/v4`, `frame.v4` and `frame-output-v4` in
+Store15's `generations/v15` directory. Manifest method descriptors are bounded;
 full parents, supports and independent coordinates live in owned method tables.
 Their receipts share the same publication transaction and reconciliation.
 The public getter validates these complete immutable facts without primary-row,
@@ -73,7 +75,7 @@ after the getter's explicit read. Pending getter access requires compute/persist
 
 Typed decoding preserves record identity, ownership and format. Missing data,
 corrupt required records, incompatible generations and foreign cursors fail.
-Store 14 refuses every older generation's data without changing old bytes;
+Store 15 refuses every older generation's data without changing old bytes;
 read-only recent discovery may return an empty page without exposing old state.
 An old-only project cannot initialize a new Store as a bypass. See the
 [cutover note](analysis-frame-cutover.md). Reconciliation resolves the original

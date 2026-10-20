@@ -40,20 +40,22 @@ def test_public_float_compare_keeps_absolute_and_outer_presence(
         rows=((("A",), {"sales": 2.0}), (("B",), {"sales": 0.0}), (("D",), {"sales": 7.0})),
     )
     artifact = current.compare(
-        baseline, on=((current.axes[0], baseline.axes[0]),), how="outer"
+        {"reference": baseline},
+        on={"reference": ((current.axes[0], baseline.axes[0]),)},
+        how="outer",
     ).persist()
     frame = session.persisted_frame(artifact.artifact.id).to_pandas()
-    assert frame[("value", "absolute.sales")].iloc[:2].tolist() == [8.0, 0.0]
-    assert frame[("value", "relative.sales")].iloc[0] == 4.0
-    assert frame[("value", "relative.sales")].iloc[1:].isna().all()
-    assert frame[("value", "absolute.sales")].iloc[2:].isna().all()
-    assert frame[("presence", "left_present")].tolist() == [True, True, True, False]
-    assert frame[("presence", "right_present")].tolist() == [True, True, False, True]
+    assert frame[("value", "reference.absolute.sales")].iloc[:2].tolist() == [8.0, 0.0]
+    assert frame[("value", "reference.relative.sales")].iloc[0] == 4.0
+    assert frame[("value", "reference.relative.sales")].iloc[1:].isna().all()
+    assert frame[("value", "reference.absolute.sales")].iloc[2:].isna().all()
+    assert frame[("presence", "current.present")].tolist() == [True, True, True, False]
+    assert frame[("presence", "reference.present")].tolist() == [True, True, False, True]
     before = session.runs(status="succeeded").items
     with pytest.raises(AnalysisError):
         current.compare(
-            baseline,
-            on=((current.axes[0], baseline.axes[0]),),
+            {"reference": baseline},
+            on={"reference": ((current.axes[0], baseline.axes[0]),)},
             how="outer",
             zero_denominator="error",
         ).persist()

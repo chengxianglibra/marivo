@@ -211,11 +211,13 @@ def _produce(session: mv.Session, scenario: DslScenario) -> dict[str, mv.Analysi
         elif scenario == "j2":
             current, baseline = current.compute(), baseline.compute()
             comparison = current.compare(
-                baseline,
-                on=tuple(zip(current.axes, baseline.axes, strict=True)),
-                match=mv.ordinal(),
+                {"reference": baseline},
+                on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+                match={"reference": mv.ordinal()},
             )
-            difference = comparison.select({"value": comparison["absolute.value"]}).compute()
+            difference = comparison.select(
+                {"value": comparison["reference.absolute.value"]}
+            ).compute()
             selected = difference.where(difference["value"] < 0).compute()
             chosen = session.population_from(
                 selected,

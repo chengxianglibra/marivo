@@ -126,7 +126,7 @@ def test_cross_period_paired_calendar_parent(
     metric = amount.sum(time=day)
     left = session.observe({"q": metric}, by=(current, region))
     right = session.observe({"q": metric}, by=(baseline, region))
-    paired = left.compare(
+    paired = left.align(
         right,
         on=tuple(zip(left.axes, right.axes, strict=True)),
         match=CalendarCorrespondence("ordinal"),
@@ -373,7 +373,7 @@ def test_structural_outer_missing_is_not_known_empty(session: Session) -> None:
     baseline = session.time_scope(start="2026-07-01", end="2026-07-02").by(mv.grain("day"))
     parent = (
         session.observe({"q": metric}, by=(current,))
-        .compare(
+        .align(
             session.observe({"q": metric}, by=(baseline,)),
             match=CalendarCorrespondence("ordinal"),
             how="outer",
@@ -450,7 +450,7 @@ def test_paired_complete_frozen_authority_survives_parent_selection(
     baseline = session.time_scope(start="2026-07-01", end="2026-07-03").by(mv.grain("day"))
     paired = (
         session.observe({"q": metric}, by=(current,))
-        .compare(
+        .align(
             session.observe({"q": metric}, by=(baseline,)),
             match=CalendarCorrespondence("ordinal"),
             how="outer",
@@ -460,6 +460,7 @@ def test_paired_complete_frozen_authority_survives_parent_selection(
     parent = paired.top(1, by=paired["left.q"]).compute()
     axis = parent._schema.axes[0]
     assert isinstance(axis, PairedDataAxis) and axis.right.frozen is not None
+    right_directory = axis.right.frozen.directory_name
     copied = CompletedFrameData.copy_attachments
 
     def attachments(self: CompletedFrameData) -> tuple[OutputAttachment, ...]:
@@ -469,15 +470,14 @@ def test_paired_complete_frozen_authority_survives_parent_selection(
             if corruption == "mapping" and attachment.name == axis.mapping_name:
                 rows = rows.copy()
                 rows.iloc[0, -1] = 999
-            elif (
-                corruption == "partial_directory"
-                and attachment.name == axis.right.frozen.directory_name
-            ):
+            elif corruption == "partial_directory" and attachment.name == right_directory:
                 rows = rows.copy()
-                column = next(
-                    column for column in attachment.schema.values if column.name == "actual_start"
+                columns = {column.name: column.slot_id for column in attachment.schema.values}
+                actual_start = pd.Timestamp("2026-07-02T01:00:00+00:00")
+                rows.loc[1, columns["actual_start"]] = actual_start
+                rows.loc[1, columns["actual_start_civil"]] = actual_start.isoformat(
+                    timespec="microseconds"
                 )
-                rows.loc[1, column.slot_id] = rows.loc[1, column.slot_id] + pd.Timedelta(hours=1)
             result.append(OutputAttachment(attachment.name, attachment.schema, rows))
         return tuple(result)
 
@@ -641,7 +641,7 @@ def test_paired_source_failure_retains_original_full_parent(
     original = amount.sum(time=day)
     left = session.observe({"q": original}, by=(current, region))
     right = session.observe({"q": original}, by=(baseline, region))
-    parent = left.compare(
+    parent = left.align(
         right,
         on=tuple(zip(left.axes, right.axes, strict=True)),
         match=CalendarCorrespondence("ordinal"),
@@ -895,7 +895,7 @@ def test_interval_parent_rejects_before_source_read(
     scope = session.time_scope(start="2026-08-01", end="2026-08-03")
     parent = session.observe({"q": metric}, by=(scope,))
     if paired:
-        parent = parent.compare(parent)
+        parent = parent.align(parent)
 
     def forbidden(*args: object, **kwargs: object) -> pd.DataFrame:
         raise AssertionError("Interval parent rejection read business rows")

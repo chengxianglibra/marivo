@@ -15,7 +15,8 @@ from marivo.analysis.core.model import reject
 if TYPE_CHECKING:
     from marivo.analysis.core.data_schema import DataSchema
     from marivo.analysis.core.frame_expression import (
-        FrameBinaryOperationKind,
+        AlignFrameValues,
+        CompareFrameValues,
         FrameUnaryOperationKind,
     )
 
@@ -99,7 +100,16 @@ class FrameProgram:
 class FrameCombineProgram:
     """Two explicit ordinary inputs and their fully inferred current output."""
 
-    operation: FrameBinaryOperationKind
+    operation: AlignFrameValues
     left_schema: DataSchema
     right_schema: DataSchema
+    output_schema: DataSchema
+
+
+@dataclass(frozen=True, slots=True)
+class FrameCompareProgram:
+    """One current input followed by ordered named baseline inputs."""
+
+    operation: CompareFrameValues
+    input_schemas: tuple[DataSchema, ...]
     output_schema: DataSchema

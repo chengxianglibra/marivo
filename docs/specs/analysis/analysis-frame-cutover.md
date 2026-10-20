@@ -112,14 +112,23 @@ Unsupported intents without a valid explicit source route remain unsupported;
 external arithmetic must state its own fixed input, denominator and limitations.
 
 Interval ordinal requires one declared record per side with the same boundary
-timezone. Calendar ordinal and supported builtin previous_year/period_offset consume frozen finite
-calendar data. Named calendars support ordinal only. Named offsets, subday/DST
-offsets, multiple matched calendars and time_axis=current projection are postponed.
-Match requires compatible complete nominal partitions and actual bounds equal to
-nominal bounds; partial buckets refuse under exact and outer. Actual-row coverage
-is checked after the stable directory map; unused directory buckets create no
-rows, and filtering never renumbers original ordinals. Both paired endpoints
-remain frozen and self-contained, without model/TZ reconstruction.
+timezone. Calendar ordinal consumes compatible complete nominal/actual partitions
+without compressing saved positions. `offset(*, years=n)` / `offset(*, periods=n)`
+replace `previous_year()` and `period_offset()` without public aliases; exactly
+one non-boolean integer keyword is
+required. Source CalendarAxis.shift admits unit-step builtin week/month/year full
+buckets or bucket-start prefixes and freezes exact sparse/empty target selections.
+Data-side complete day/quarter matching remains supported; partial day/quarter
+reject. Missing ISO weeks/civil cutoffs are legal absence, never clamped dates.
+
+Compare takes a nonempty named Frame mapping, preserving current axes/unqualified
+values and adding each alias's baseline/absolute/relative groups. Alias-keyed
+on/match bind complete axes; a compatible immediate frozen shift relation can
+supply match. Wrong anchors/conflicting rules reject. Exact checks actual complete
+keys; outer appends mapped baseline-only keys and rejects actual baseline time
+rows outside the current declared domain. Align retains paired output and the
+general two-ended union. No Metric, source or current TZ reconstruction occurs.
+
 
 ## Read integrity, interpretation and audit time
 
@@ -159,9 +168,9 @@ Metrics. by=P selects output keys rather than asserting coverage of all source
 coordinates. Time plus ordinary axes requires complete on; use explicit ordinal
 for a two-period comparison. Ordinary bridges select only ordinary axes.
 
-## Older Stores to Store 14
+## Older Stores to Store 15
 
-Store 14 refuses every older generation's Session/result and owned Finding/Evidence
+Store 15 refuses every older generation's Session/result and owned Finding/Evidence
 data reads without changing any old database/WAL/SHM/payload bytes. There is no
 migration, dual read or downgrade. The restriction covers data access beyond
 persisted_frame; renaming a Session or selecting an old descriptor cannot bypass
@@ -178,6 +187,8 @@ analysis, but that produces new source facts rather than recovering old state.
 
 
 ## Store 13 to Store 14: explicit Attribute and method facts
+
+Historical transition record. The Store15 section below owns the current generation.
 
 The current Store is generation 14 under `.marivo/analysis/generations/v14/`.
 All Frames use `marivo.frame_output/v3`, `frame.v3` semantics and the
@@ -217,3 +228,26 @@ Store and create a new named Session in a fresh project. Reading/exporting with
 the original compatible environment is a separate deliberate workflow, not a
 Store14 migration. This local implementation boundary does not establish new
 provider Runtime, installed-package or release qualification.
+
+
+## Store 15: exact period comparison and frozen relations
+
+The current Store is `.marivo/analysis/generations/v15/`. All Frames use
+`marivo.frame_output/v4`, `frame.v4` semantics and `frame-output-v4` evidence.
+Required closed schema facts now include exact direct calendar origins/maps and
+named comparison value/presence bindings, including transported presence-only
+facts. Frozen calendar directories use calendar.v2. Independent interval.v1,
+physical-part and Attribute method-payload tags retain their own contracts.
+
+The Store13 to Store14 section above records the earlier Attribute transition;
+it is historical version context. Store15 refuses Store14 and all earlier data
+unchanged, with no migration, dual read or same-project bypass. Preserve an old
+compatible environment for old data or explicitly reconstruct source questions
+in a fresh project. Restoring v4 endpoints and reports reads finite saved data,
+not Metric definitions, current models, callbacks or timezone reconstruction.
+
+Positive direct/comparison preview validates required finite endpoint/map
+authority while bounding primary rows. Zero preview and Artifact audit remain
+payload-free. Exports expose isolated comparisons/axes/units/frozen-coordinate
+metadata for interpretation only; attrs are never a recovery input. This current
+contract does not claim provider Runtime or release acceptance.

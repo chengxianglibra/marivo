@@ -22,9 +22,8 @@ from marivo.analysis.dsl.artifact import Artifact as Artifact
 from marivo.analysis.dsl.attribute import AttributeEndpoint as AttributeEndpoint
 from marivo.analysis.dsl.column import Column as Column
 from marivo.analysis.dsl.column import row_count as row_count
+from marivo.analysis.dsl.correspondence import offset as offset
 from marivo.analysis.dsl.correspondence import ordinal as ordinal
-from marivo.analysis.dsl.correspondence import period_offset as period_offset
-from marivo.analysis.dsl.correspondence import previous_year as previous_year
 from marivo.analysis.dsl.frame import AnalysisFrame as AnalysisFrame
 from marivo.analysis.dsl.frame_axis import FrameAxis as FrameAxis
 from marivo.analysis.dsl.population import Population as Population
@@ -74,8 +73,7 @@ __all__ = [  # noqa: RUF022 - public order is contractual
     "in_population",
     "row_count",
     "ordinal",
-    "period_offset",
-    "previous_year",
+    "offset",
     "grain",
     "Grain",
     "TimeScope",

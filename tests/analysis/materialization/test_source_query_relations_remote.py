@@ -100,7 +100,9 @@ def test_remote_source_frames_keep_independent_endpoint_presence(
         query = (
             left.align(right, on=on, how="outer")
             if operation == "align"
-            else left.compare(right, on=on, how="outer", zero_denominator="error")
+            else left.compare(
+                {"base": right}, on={"base": on}, how="outer", zero_denominator="error"
+            )
         )
         trace = capture_source(monkeypatch)
         rows = query.compute().to_pandas()
@@ -111,19 +113,25 @@ def test_remote_source_frames_keep_independent_endpoint_presence(
         left_keys, right_keys = keys(left_rows), keys(right_rows)
         assert keys(rows) == left_keys + [key for key in right_keys if key not in left_keys]
         assert set(keys(rows)) == {"A", "B", "C", "", None}
-        assert rows["presence", "left_present"].tolist() == [key in left_keys for key in keys(rows)]
-        assert rows["presence", "right_present"].tolist() == [
+        current_presence = "left_present" if operation == "align" else "current.present"
+        baseline_presence = "right_present" if operation == "align" else "base.present"
+        current_value = "left.v" if operation == "align" else "v"
+        baseline_value = "right.v" if operation == "align" else "base.baseline.v"
+        assert rows["presence", current_presence].tolist() == [
+            key in left_keys for key in keys(rows)
+        ]
+        assert rows["presence", baseline_presence].tolist() == [
             key in right_keys for key in keys(rows)
         ]
         for index, key in enumerate(keys(rows)):
             if key == "A":
-                assert pd.isna(rows["value", "left.v"].iloc[index])
-                assert rows["value", "right.v"].iloc[index] == 0
+                assert pd.isna(rows["value", current_value].iloc[index])
+                assert rows["value", baseline_value].iloc[index] == 0
             elif key is None:
-                assert rows["value", "left.v"].iloc[index] == 2
-                assert rows["value", "right.v"].iloc[index] == 3
+                assert rows["value", current_value].iloc[index] == 2
+                assert rows["value", baseline_value].iloc[index] == 3
                 if operation == "compare":
-                    assert rows["value", "absolute.v"].iloc[index] == -1
+                    assert rows["value", "base.absolute.v"].iloc[index] == -1
         invalid = left.align(right, on=on)
         with pytest.raises(AnalysisError, match=r"exact|complete"):
             invalid.top(0, by=invalid["left.v"]).compute()

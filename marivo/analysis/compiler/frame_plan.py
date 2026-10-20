@@ -28,7 +28,12 @@ from marivo.analysis.compiler.graph_plan import (
     SourceRead,
 )
 from marivo.analysis.compiler.observation import FormulaProgram
-from marivo.analysis.compiler.query_program import DurationBinary, FrameCombineProgram, FrameProgram
+from marivo.analysis.compiler.query_program import (
+    DurationBinary,
+    FrameCombineProgram,
+    FrameCompareProgram,
+    FrameProgram,
+)
 from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import DataType, DurationDataType, ScalarDataType
 from marivo.analysis.core.frame_expression import (
@@ -46,6 +51,7 @@ from marivo.analysis.core.frame_expression import (
     expression_type,
     expressions,
     infer_frame_combine_schema,
+    infer_frame_compare_schema,
     infer_frame_schema,
 )
 from marivo.analysis.core.frame_structure import require_complete_structure
@@ -479,7 +485,20 @@ def plan_frame(
             stages.append(compute)
             operations[id(node)] = (compute.stage_id, output_schema)
             return compute.stage_id, output_schema
-        if isinstance(node.operation, (AlignFrameValues, CompareFrameValues)):
+        if isinstance(node.operation, CompareFrameValues):
+            resolved = tuple(visit(child) for child in node.inputs)
+            schemas = tuple(schema for _, schema in resolved)
+            output_schema = infer_frame_compare_schema(schemas, node.operation)
+            program_compare = FrameCompareProgram(node.operation, schemas, output_schema)
+            compute = FrameCompute(
+                f"frame:{len(stages)}",
+                tuple(identifier for identifier, _ in resolved),
+                program_compare,
+            )
+            stages.append(compute)
+            operations[id(node)] = (compute.stage_id, output_schema)
+            return compute.stage_id, output_schema
+        if isinstance(node.operation, AlignFrameValues):
             if len(node.inputs) != 2:
                 reject(
                     "two explicit binary inputs",
@@ -586,7 +605,9 @@ def frame_expression_schema(
         assert not isinstance(expression.operation, AttributeProjectValues)
         result = (
             infer_frame_combine_schema(inputs[0], inputs[1], expression.operation)
-            if isinstance(expression.operation, (AlignFrameValues, CompareFrameValues))
+            if isinstance(expression.operation, AlignFrameValues)
+            else infer_frame_compare_schema(inputs, expression.operation)
+            if isinstance(expression.operation, CompareFrameValues)
             else infer_frame_schema(inputs[0], expression.operation)
         )
     memo[id(expression)] = result

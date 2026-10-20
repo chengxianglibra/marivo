@@ -7,7 +7,7 @@ description: Configure a Marivo project and share a semantic layer across reposi
 
 `marivo.toml` is optional. Without it, the project name is the project-root directory
 name, `semantic.layer_paths` is empty, local telemetry is enabled, and
-`compute()` returns complete memory data; `persist()` publishes project-local Frame Parquet under Store 14. Missing tables or
+`compute()` returns complete memory data; `persist()` publishes project-local Frame Parquet under Store 15. Missing tables or
 fields use those defaults; an existing invalid TOML document or explicitly invalid field
 fails closed. There is no project `version` setting.
 
@@ -62,8 +62,8 @@ telemetry, and cached metadata rather than shared declarations.
 Analysis results always use project-local Parquet. No result storage setting
 exists. Failed writes do not retry through another executor.
 
-Current analysis state lives under `.marivo/analysis/generations/v14/`. All Frames
-use `marivo.frame_output/v3`, `frame.v3` and `frame-output-v3`, including those
+Current analysis state lives under `.marivo/analysis/generations/v15/`. All Frames
+use `marivo.frame_output/v4`, `frame.v4` and `frame-output-v4`, including those
 without method facts. Owned method payloads share the existing publication
 transaction; no additional result-store configuration is required.
 

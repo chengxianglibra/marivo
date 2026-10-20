@@ -3,12 +3,12 @@ title: Evidence and recovery
 description: Read exact fixed data and audit without current sources.
 ---
 
-Store 14 saves Frame data under `.marivo/analysis/generations/v14/`. One
+Store 15 saves Frame data under `.marivo/analysis/generations/v15/`. One
 SQLite publication transaction commits manifest, receipts, Findings, Evidence
 and Run success after durable data. Compute creates no Run; persist evaluates
 before admission, then publishes an existing result ID. Memory persist never
 reevaluates; stored persist validates commit metadata and returns itself.
-All Frames use `marivo.frame_output/v3`, `frame.v3` and `frame-output-v3`.
+All Frames use `marivo.frame_output/v4`, `frame.v4` and `frame-output-v4`.
 Complete method tables, when present, and their receipts share this same atomic
 transaction; the manifest contains only bounded method descriptors.
 
@@ -61,8 +61,9 @@ investigation creates no new method facts or contribution proof. Exact access is
 documented by `marivo.help("analysis.analysis_frame.method_facts")`.
 
 Export returns isolated RangeIndex data with raw-key `(kind, name)` MultiIndex
-columns and isolated typed attrs: axes, units and frozen_coordinates tables.
-Calendar labels/bounds and paired endpoints remain self-contained; show is the
+columns and isolated typed attrs: axes, units, comparisons and frozen_coordinates tables.
+Named comparison facts carry inert exact value/presence bindings and consumed endpoint maps.
+Current calendar labels/bounds, baseline endpoints and align paired endpoints remain self-contained; show is the
 simplest interpretation path. No new visible projection columns/endpoint API or
 attrs importer exists. Supported data operations continue on the recovered Frame;
 new source facts require explicit construction.
@@ -77,7 +78,7 @@ are removed; reading the old stored handle still fails if its data is gone.
 
 ## Older data and evidence limits
 
-Store 14 refuses older-generation Session/result/Findings/Evidence access without
+Store 15 refuses older-generation Session/result/Findings/Evidence access without
 changing bytes or migrating/dual-reading. Absent-current discovery may return
 None/empty without exposing old data; create cannot initialize a
 bypass around an old-only project. Export with the original version before

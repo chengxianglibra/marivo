@@ -1907,6 +1907,7 @@ def execute_numeric_query(
                 stage.keys,
                 key_groups=tuple(tuple(c.slot_id for c in a.columns) for a in stage.schema.axes),
                 frame_attachments=checked.copy_attachments(),
+                frame_schema=checked.schema,
             )
         )
 

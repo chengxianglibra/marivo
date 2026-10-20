@@ -21,7 +21,7 @@ import marivo.semantic as ms
 from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
 from marivo.analysis.errors import AnalysisError
 from tests.analysis.numeric.pandas_coordinates import plain
-from tests.analysis.numeric.test_period_alignment import paired_tables
+from tests.analysis.numeric.test_period_alignment import comparison_tables
 from tests.shared_fixtures import (
     DslCase,
     DslCaseFactory,
@@ -132,7 +132,9 @@ def test_public_numeric_difference_source_and_fixed(
     _numeric_source(case, physical, True)
     current, baseline = _monthly(case, 8), _monthly(case, 7)
     comparison = current.compare(
-        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+        {"reference": baseline},
+        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+        match={"reference": mv.ordinal()},
     )
     saved = comparison.persist()
     source = _plain(saved).set_index("key_0")
@@ -147,30 +149,30 @@ def test_public_numeric_difference_source_and_fixed(
                 1 if month == "2026-08" else -1
             )
     for frame in (source, recovered):
-        absolute = frame["absolute.value"]
+        absolute = frame["reference.absolute.value"]
         if physical.startswith("duration"):
             absolute = pd.Series(
                 pa.array(absolute).cast(pa.duration("us")).cast(pa.int64()).to_pylist(),
                 index=absolute.index,
             )
         assert absolute.to_dict() == expected
-        assert frame[["presence.left_present", "presence.right_present"]].all().all()
+        assert frame[["presence.current.present", "presence.reference.present"]].all().all()
         for member in frame.index:
             denominator = totals[member, "2026-07"]
             if denominator == 0:
-                assert pd.isna(frame.loc[member, "relative.value"])
+                assert pd.isna(frame.loc[member, "reference.relative.value"])
             else:
-                assert frame.loc[member, "relative.value"] == float(
+                assert frame.loc[member, "reference.relative.value"] == float(
                     expected[member] / abs(denominator)
                 )
     if physical.startswith("DECIMAL"):
-        assert all(type(value) is Decimal for value in recovered["absolute.value"])
+        assert all(type(value) is Decimal for value in recovered["reference.absolute.value"])
     with pytest.raises(AnalysisError, match="nonzero denominator"):
         current.compare(
-            baseline,
+            {"reference": baseline},
             zero_denominator="error",
-            on=tuple(zip(current.axes, baseline.axes, strict=True)),
-            match=mv.ordinal(),
+            on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+            match={"reference": mv.ordinal()},
         ).compute()
     if physical.startswith("duration"):
         session = case.session
@@ -184,14 +186,19 @@ def test_public_numeric_difference_source_and_fixed(
             ),
         )
         null_saved = nullable.compare(
-            current, on=tuple(zip(nullable.axes, current.axes, strict=True)), match=mv.ordinal()
+            {"reference": current},
+            on={"reference": tuple(zip(nullable.axes, current.axes, strict=True))},
+            match={"reference": mv.ordinal()},
         ).persist()
         nulls = _plain(null_saved).set_index("key_0")
-        assert pd.isna(nulls.loc["D", "left.value"])
-        assert pd.isna(nulls.loc["D", "absolute.value"])
-        assert pd.isna(nulls.loc["D", "relative.value"])
-        assert nulls.loc["D", "presence.left_present"] and nulls.loc["D", "presence.right_present"]
-        assert pa.array(nulls["absolute.value"]).type == pa.duration("us")
+        assert pd.isna(nulls.loc["D", "value"])
+        assert pd.isna(nulls.loc["D", "reference.absolute.value"])
+        assert pd.isna(nulls.loc["D", "reference.relative.value"])
+        assert (
+            nulls.loc["D", "presence.current.present"]
+            and nulls.loc["D", "presence.reference.present"]
+        )
+        assert pa.array(nulls["reference.absolute.value"]).type == pa.duration("us")
         pd.testing.assert_frame_equal(
             null_saved.to_pandas(), session.persisted_frame(null_saved.artifact.id).to_pandas()
         )
@@ -222,9 +229,11 @@ def test_comparison_v2_cold_continuation_and_correspondence_integrity(
     _numeric_source(case, "BIGINT", True)
     current, baseline = _monthly(case, 9), _monthly(case, 8)
     comparison = current.compare(
-        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+        {"reference": baseline},
+        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+        match={"reference": mv.ordinal()},
     )
-    selected = comparison.where(~comparison["relative.value"].is_null())
+    selected = comparison.where(~comparison["reference.relative.value"].is_null())
     saved, filtered = comparison.persist(), selected.persist()
     backing = saved._backing
     assert isinstance(backing, StoredFrameBacking)
@@ -241,10 +250,10 @@ def test_comparison_v2_cold_continuation_and_correspondence_integrity(
         case,
         (saved, filtered),
         """frame = _plain(saved[0]).set_index('key_0')
-assert frame.loc['D', 'left.value'] == 0
-assert frame.loc['D', 'absolute.value'] == 0
-assert pd.isna(frame.loc['D', 'relative.value'])
-assert frame[['presence.left_present', 'presence.right_present']].all().all()
+assert frame.loc['D', 'value'] == 0
+assert frame.loc['D', 'reference.absolute.value'] == 0
+assert pd.isna(frame.loc['D', 'reference.relative.value'])
+assert frame[['presence.current.present', 'presence.reference.present']].all().all()
 assert _plain(saved[1]).key_0.tolist() == ['A', 'B']""",
     )
 
@@ -262,25 +271,33 @@ def test_nested_difference_keeps_independent_captures(
     _numeric_source(case, "BIGINT", True)
     august, july_first, july_second, june = (_monthly(case, month) for month in (8, 7, 7, 6))
     first = august.compare(
-        july_first, on=tuple(zip(august.axes, july_first.axes, strict=True)), match=mv.ordinal()
+        {"reference": july_first},
+        on={"reference": tuple(zip(august.axes, july_first.axes, strict=True))},
+        match={"reference": mv.ordinal()},
     )
-    first = first.reduce({"value": first["absolute.value"].sum()}, by=(first.axes[1],))
+    first = first.reduce({"value": first["reference.absolute.value"].sum()}, by=(first.axes[1],))
     second = july_second.compare(
-        june, on=tuple(zip(july_second.axes, june.axes, strict=True)), match=mv.ordinal()
+        {"reference": june},
+        on={"reference": tuple(zip(july_second.axes, june.axes, strict=True))},
+        match={"reference": mv.ordinal()},
     )
-    second = second.reduce({"value": second["absolute.value"].sum()}, by=(second.axes[1],))
-    nested = first.compare(second, on=tuple(zip(first.axes, second.axes, strict=True)))
+    second = second.reduce(
+        {"value": second["reference.absolute.value"].sum()}, by=(second.axes[1],)
+    )
+    nested = first.compare(
+        {"reference": second}, on={"reference": tuple(zip(first.axes, second.axes, strict=True))}
+    )
     saved = nested.persist()
     expected = {"A": -140, "B": -80, "C": -100, "D": 0}
-    assert _plain(saved).set_index("key_0")["absolute.value"].to_dict() == expected
+    assert _plain(saved).set_index("key_0")["reference.absolute.value"].to_dict() == expected
     # Each endpoint is reevaluated from its Query, with no retained result graph.
     assert _result_id(saved) != _result_id(nested.compute())
     _cold(
         case,
         (saved,),
         """frame = _plain(saved[0]).set_index('key_0')
-assert frame['absolute.value'].to_dict() == {'A': -140, 'B': -80, 'C': -100, 'D': 0}
-assert frame[['presence.left_present', 'presence.right_present']].all().all()""",
+assert frame['reference.absolute.value'].to_dict() == {'A': -140, 'B': -80, 'C': -100, 'D': 0}
+assert frame[['presence.current.present', 'presence.reference.present']].all().all()""",
     )
 
 
@@ -296,8 +313,11 @@ def test_ordinary_ratio_and_cohort_singleton(analysis_dsl_case_factory: DslCaseF
     assert not hasattr(saved, "rollup") and not hasattr(saved, "contract")
     first, second = _monthly(case, 8, overall=True), _monthly(case, 8, overall=True)
     assert _plain(
-        first.compare(second, on=tuple(zip(first.axes, second.axes, strict=True))).compute()
-    )["absolute.value"].tolist() == [0]
+        first.compare(
+            {"reference": second},
+            on={"reference": tuple(zip(first.axes, second.axes, strict=True))},
+        ).compute()
+    )["reference.absolute.value"].tolist() == [0]
 
 
 def test_union_keep_distinguishes_missing_coordinate_and_rejects_filtered_empty(
@@ -309,17 +329,22 @@ def test_union_keep_distinguishes_missing_coordinate_and_rejects_filtered_empty(
     left, right = current.where(current["value"] > 0), baseline.where(baseline["value"] > 0)
     with pytest.raises(AnalysisError, match="complete"):
         left.compare(
-            right, on=tuple(zip(left.axes, right.axes, strict=True)), match=mv.ordinal()
+            {"reference": right},
+            on={"reference": tuple(zip(left.axes, right.axes, strict=True))},
+            match={"reference": mv.ordinal()},
         ).compute()
     saved = left.compare(
-        right, how="outer", on=tuple(zip(left.axes, right.axes, strict=True)), match=mv.ordinal()
+        {"reference": right},
+        how="outer",
+        on={"reference": tuple(zip(left.axes, right.axes, strict=True))},
+        match={"reference": mv.ordinal()},
     ).persist()
     frame = _plain(saved).set_index("key_0")
-    assert frame.loc["A", "absolute.value"] == -40
-    assert frame.loc["B", "absolute.value"] == 20
-    assert pd.isna(frame.loc["C", "absolute.value"])
-    assert not frame.loc["C", "presence.left_present"]
-    assert frame.loc["C", "presence.right_present"]
+    assert frame.loc["A", "reference.absolute.value"] == -40
+    assert frame.loc["B", "reference.absolute.value"] == 20
+    assert pd.isna(frame.loc["C", "reference.absolute.value"])
+    assert not frame.loc["C", "presence.current.present"]
+    assert frame.loc["C", "presence.reference.present"]
     pd.testing.assert_frame_equal(
         saved.to_pandas(), case.session.persisted_frame(saved.artifact.id).to_pandas()
     )
@@ -362,17 +387,19 @@ def test_cohort_group_metric_empty_preserves_metric_null_policy(
         first, second = observe(members), observe(eastern)
         result = _plain(
             first.compare(
-                second, how="outer", on=tuple(zip(first.axes, second.axes, strict=True))
+                {"reference": second},
+                how="outer",
+                on={"reference": tuple(zip(first.axes, second.axes, strict=True))},
             ).compute()
         ).set_index("key_0")
         assert result.index.tolist() == ["east", "south", "west"]
-        assert result.loc["east", "absolute.value"] == 0
-        assert result.loc[["south", "west"], "absolute.value"].isna().all()
-        assert not result.loc[["south", "west"], "presence.right_present"].any()
+        assert result.loc["east", "reference.absolute.value"] == 0
+        assert result.loc[["south", "west"], "reference.absolute.value"].isna().all()
+        assert not result.loc[["south", "west"], "presence.reference.present"].any()
         if name == "count_ratio":
-            assert result["left.value"].tolist() == [1.0, 1.0, 1.0]
+            assert result["value"].tolist() == [1.0, 1.0, 1.0]
         elif name == "order_count":
-            assert result.loc[["south", "west"], "left.value"].tolist() == [1, 1]
+            assert result.loc[["south", "west"], "value"].tolist() == [1, 1]
 
 
 def test_period_change_retains_original_buckets_and_rejects_renumbering(
@@ -397,27 +424,33 @@ def test_period_change_retains_original_buckets_and_rejects_renumbering(
     shorter = observe(7, 9, 2)
     with pytest.raises(AnalysisError, match="complete"):
         current.compare(
-            shorter, match=mv.ordinal(), on=tuple(zip(current.axes, shorter.axes, strict=True))
+            {"reference": shorter},
+            match={"reference": mv.ordinal()},
+            on={"reference": tuple(zip(current.axes, shorter.axes, strict=True))},
         ).compute()
     saved = current.compare(
-        baseline, match=mv.ordinal(), on=tuple(zip(current.axes, baseline.axes, strict=True))
+        {"reference": baseline},
+        match={"reference": mv.ordinal()},
+        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
     ).compute()
     frame = _plain(saved)
     assert len(frame) == 12
-    assert sorted(frame["absolute.value"].tolist()) == [-1] + [0] * 11
-    mapping, left_directory, right_directory = paired_tables(saved.to_pandas())
+    assert sorted(frame["reference.absolute.value"].tolist()) == [-1] + [0] * 11
+    mapping, left_directory, right_directory = comparison_tables(saved, saved.to_pandas())
     assert set(left_directory["nominal_start"]) != set(right_directory["nominal_start"])
     selected = current.where(current["value"] > 0)
     with pytest.raises(AnalysisError, match="complete"):
         selected.compare(
-            baseline, match=mv.ordinal(), on=tuple(zip(selected.axes, baseline.axes, strict=True))
+            {"reference": baseline},
+            match={"reference": mv.ordinal()},
+            on={"reference": tuple(zip(selected.axes, baseline.axes, strict=True))},
         ).compute()
     outer = _plain(
         selected.compare(
-            baseline,
-            match=mv.ordinal(),
+            {"reference": baseline},
+            match={"reference": mv.ordinal()},
             how="outer",
-            on=tuple(zip(selected.axes, baseline.axes, strict=True)),
+            on={"reference": tuple(zip(selected.axes, baseline.axes, strict=True))},
         ).compute()
     )
     assert outer.time_0.nunique() == 3
@@ -484,21 +517,23 @@ def test_relative_and_ratio_cold_fixed_composition(
     _numeric_source(case, "BIGINT", True)
     current, baseline = _monthly(case, 8), _monthly(case, 7)
     current_total, baseline_total = _monthly(case, 8, overall=True), _monthly(case, 7, overall=True)
-    totals = current_total.compare(baseline_total)
+    totals = current_total.compare({"reference": baseline_total})
     positive = current.where(current["value"] > 0)
     ratio = positive.select({"value": positive["value"] / positive["value"]})
     individual = current.compare(
-        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+        {"reference": baseline},
+        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+        match={"reference": mv.ordinal()},
     )
     _cold(
         case,
         (totals.persist(), ratio.persist(), individual.persist()),
-        """assert _plain(saved[0])['relative.value'].tolist() == [-0.28]
+        """assert _plain(saved[0])['reference.relative.value'].tolist() == [-0.28]
 assert _plain(saved[1]).value.tolist() == [1.0, 1.0]
 frame = _plain(saved[2]).set_index('key_0')
-assert frame.loc['A', 'relative.value'] == -0.4
-assert frame.loc['B', 'relative.value'] == 0.2
-assert pd.isna(frame.loc['D', 'relative.value'])""",
+assert frame.loc['A', 'reference.relative.value'] == -0.4
+assert frame.loc['B', 'reference.relative.value'] == 0.2
+assert pd.isna(frame.loc['D', 'reference.relative.value'])""",
     )
 
 
@@ -547,11 +582,13 @@ def test_float_sum_and_native_mean_comparison_values(
         left, right = observe(8), observe(7)
         frame = _plain(
             left.compare(
-                right, on=tuple(zip(left.axes, right.axes, strict=True)), match=mv.ordinal()
+                {"reference": right},
+                on={"reference": tuple(zip(left.axes, right.axes, strict=True))},
+                match={"reference": mv.ordinal()},
             ).compute()
         )
-        assert frame["right.value"].tolist() == [denominator]
-        assert frame["relative.value"].tolist() == pytest.approx(
+        assert frame["reference.baseline.value"].tolist() == [denominator]
+        assert frame["reference.relative.value"].tolist() == pytest.approx(
             [(2.0 - denominator) / abs(denominator)]
         )
 
@@ -566,7 +603,9 @@ def test_comparison_construction_is_lazy_and_shared_source_runs_once(
     trace = capture_source(monkeypatch)
     ratio = observed.select({"value": observed["value"] / observed["value"]})
     comparison = observed.compare(
-        independent, on=tuple(zip(observed.axes, independent.axes, strict=True)), match=mv.ordinal()
+        {"reference": independent},
+        on={"reference": tuple(zip(observed.axes, independent.axes, strict=True))},
+        match={"reference": mv.ordinal()},
     )
     assert not trace.native_sql and not trace.owners
     first = ratio.compute()
@@ -577,7 +616,7 @@ def test_comparison_construction_is_lazy_and_shared_source_runs_once(
     assert len(trace.native_sql) == first_reads * 2
     assert _result_id(first) != _result_id(second)
     pd.testing.assert_frame_equal(first.to_pandas(), second.to_pandas())
-    assert _plain(comparison.compute())["absolute.value"].tolist() == [-40, 20, -50, 0]
+    assert _plain(comparison.compute())["reference.absolute.value"].tolist() == [-40, 20, -50, 0]
 
 
 @pytest.mark.parametrize("kind", ["ratio", "linear", "weighted"])
@@ -619,9 +658,11 @@ def test_comparison_of_float_original_expression_operands(
 
     left, right = observe(8), observe(7)
     result = left.compare(
-        right, on=tuple(zip(left.axes, right.axes, strict=True)), match=mv.ordinal()
+        {"reference": right},
+        on={"reference": tuple(zip(left.axes, right.axes, strict=True))},
+        match={"reference": mv.ordinal()},
     ).persist()
-    assert _plain(result)["absolute.value"].tolist() == [
+    assert _plain(result)["reference.absolute.value"].tolist() == [
         {"ratio": 0.0, "linear": -80.0, "weighted": -40.0}[kind]
     ]
     pd.testing.assert_frame_equal(
@@ -662,16 +703,16 @@ def test_union_keeps_present_nondefined_cell_separate_from_absence(
 
         left, right = observe(eastern), observe(members)
         result = left.compare(
-            right,
+            {"reference": right},
             how="outer",
-            on=tuple(zip(left.axes, right.axes, strict=True)),
-            match=mv.ordinal(),
+            on={"reference": tuple(zip(left.axes, right.axes, strict=True))},
+            match={"reference": mv.ordinal()},
         ).persist()
         frame = _plain(result).set_index("key_0")
-        assert frame.loc[["south", "west"], "absolute.value"].isna().all()
-        assert not frame.loc[["south", "west"], "presence.left_present"].any()
-        assert frame.loc[["south", "west"], "presence.right_present"].all()
-        assert pd.isna(frame.loc["west", "right.value"])
+        assert frame.loc[["south", "west"], "reference.absolute.value"].isna().all()
+        assert not frame.loc[["south", "west"], "presence.current.present"].any()
+        assert frame.loc[["south", "west"], "presence.reference.present"].all()
+        assert pd.isna(frame.loc["west", "reference.baseline.value"])
         pd.testing.assert_frame_equal(
             result.to_pandas(), session.persisted_frame(result.artifact.id).to_pandas()
         )
@@ -764,11 +805,13 @@ def test_float_status_fold_comparison_uses_native_values(
         ),
     )
     comparison = observed.compare(
-        observed, on=tuple(zip(observed.axes, observed.axes, strict=True)), match=mv.ordinal()
+        {"reference": observed},
+        on={"reference": tuple(zip(observed.axes, observed.axes, strict=True))},
+        match={"reference": mv.ordinal()},
     )
     result = _plain(comparison.compute())
-    assert result["absolute.value"].dropna().eq(0).all()
-    assert result["relative.value"].dropna().eq(0).all()
+    assert result["reference.absolute.value"].dropna().eq(0).all()
+    assert result["reference.relative.value"].dropna().eq(0).all()
 
 
 def test_float_row_statistic_comparison_uses_stable_value_reduction(
@@ -795,11 +838,12 @@ def test_float_row_statistic_comparison_uses_stable_value_reduction(
         assert value == (2.0 if name == "sum" else 0.5)
         compared = _plain(
             reduced.compare(
-                reduced, on=tuple(zip(reduced.axes, reduced.axes, strict=True))
+                {"reference": reduced},
+                on={"reference": tuple(zip(reduced.axes, reduced.axes, strict=True))},
             ).compute()
         )
-        assert compared["absolute.value"].tolist() == [0.0]
-        assert compared["relative.value"].tolist() == [0.0]
+        assert compared["reference.absolute.value"].tolist() == [0.0]
+        assert compared["reference.relative.value"].tolist() == [0.0]
 
 
 def test_stable_float_row_statistics_and_pandas_handoff(
@@ -844,5 +888,5 @@ def test_period_change_after_bucket_rollup(analysis_dsl_case_factory: DslCaseFac
         )
 
     left, right = grouped(8, 14), grouped(7, 9)
-    saved = left.compare(right, match=mv.ordinal()).compute()
-    assert sorted(_plain(saved)["absolute.value"].tolist()) == [-1, 0, 0]
+    saved = left.compare({"reference": right}, match={"reference": mv.ordinal()}).compute()
+    assert sorted(_plain(saved)["reference.absolute.value"].tolist()) == [-1, 0, 0]

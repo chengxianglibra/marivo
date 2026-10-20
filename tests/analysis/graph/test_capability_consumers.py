@@ -267,15 +267,19 @@ def test_source_coordinates_statistics_and_original_state(
             )
             difference = (
                 current.compare(
-                    baseline,
-                    on=tuple(zip(current.axes, baseline.axes, strict=True)),
-                    match=mv.ordinal(),
+                    {"reference": baseline},
+                    on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+                    match={"reference": mv.ordinal()},
                 )
                 .persist()
                 .to_pandas()
             )
             assert dict(
-                zip(difference.iloc[:, 1], difference["value", "absolute.value"], strict=True)
+                zip(
+                    difference.iloc[:, 1],
+                    difference["value", "reference.absolute.value"],
+                    strict=True,
+                )
             ) == {
                 ("a", 9007199254740992, 1): 2,
                 ("a", 9007199254740993, 2): 0,

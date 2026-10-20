@@ -249,7 +249,8 @@ paired 例子的 outer 允许结构单侧桶作默认调查，不承诺其可贡
 
 以下使用现有 Frame API 表达“发现异常 → 固定普通父键 → 显式新来源调查”。
 假定同一 Session 中已取得 revenue Metric、region/channel Field 和两个 TimeScope，
-轴显示名分别为 region/channel。来源结果带 interval 轴；比较后产生配对时间轴，桥接只选普通 region 轴。
+轴显示名分别为 region/channel。来源结果带 interval 轴；命名 compare 保留本期 interval
+及有限基期说明，桥接仍只选普通 region 轴。
 这不是 attribute 的调用签名：
 
 ```python
@@ -258,12 +259,12 @@ import marivo.analysis as mv
 current_regions = session.observe({'revenue': revenue}, by=(current_period, region))
 previous_regions = session.observe({'revenue': revenue}, by=(previous_period, region))
 regional_change = current_regions.compare(
-    previous_regions,
-    on=tuple(zip(current_regions.axes, previous_regions.axes)),
-    match=mv.ordinal(),
+    {'reference': previous_regions},
+    on={'reference': tuple(zip(current_regions.axes, previous_regions.axes))},
+    match={'reference': mv.ordinal()},
     how="outer",
 ).compute()
-selected = regional_change.where(regional_change["absolute.revenue"] < 0).compute()
+selected = regional_change.where(regional_change["reference.absolute.revenue"] < 0).compute()
 parents = session.population_from(selected, on=((selected.axis("region"), region),))
 current_groups = session.observe({'revenue': revenue}, by=(current_period, region, channel), where=mv.in_population(parents))
 previous_groups = session.observe({'revenue': revenue}, by=(previous_period, region, channel), where=mv.in_population(parents))
@@ -330,7 +331,8 @@ comparison_values = aligned_regions.select({
 
 当期 160、基期 100 得到 change=60、relative=0.6；零基准返回 null，缺侧或值 NA
 继续传播 NA。align 负责完整键、日历匹配和 presence；select 保留其坐标和 presence。
-完整 compare 还检查非空且相同的量名集合、类型及单位，生成 left.q/right.q/absolute.q/relative.q，
+完整 compare 还检查非空且相同的值路径、类型及单位；命名入口保留当前 q，生成
+reference.baseline.q/reference.absolute.q/reference.relative.q，
 并使用 abs(right)：当期 160、基期 −100 的 relative 是 2.6，不是 −2.6。
 Column 当前没有公开 abs；用户 select 不能声明这些点分路径，因此此示例不冒充完整替代。
 Decimal、Duration、负零、缺侧优先于零分母等行为仍由已有数值合同负责。
@@ -819,7 +821,7 @@ result_id，继承的事实仍只解释 origin。即使恒等 select、top(0) �
 | where/top，包括零行、top(0) | 完整继承原事实，不按保留行裁剪父摘要、不改总体分母；仅作 origin 的历史解释 |
 | select、重命名、剪列、Column 算术 | 完整继承输入事实；原路径仅归 origin，不能移接到新列或声明新值可分解 |
 | reduce，含删除全部父轴/日历轴 | 完整继承原事实和其独立坐标快照；无当前行级关联，不认证新聚合值；普通 presence 仍删除 |
-| align/compare | 按显式左输入再右输入次序继承双方历史事实，既不配对/合并父摘要，也不认证新变化 |
+| align/compare | align 按左再右，命名 compare 按本期再基期映射声明次序继承历史事实；不配对/合并父摘要，不认证新变化 |
 | population_from/其他显式 Frame 选择依赖→新来源结果 | 按实际 Frame 输入顺序继承其历史事实，不从事实恢复 Metric/范围；新贡献结果另有自己的 origin |
 
 单输入保持原顺序；多输入按确定的输入遍历顺序合并，以 origin_result_id 去重。

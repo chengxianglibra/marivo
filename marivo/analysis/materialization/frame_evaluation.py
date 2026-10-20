@@ -53,6 +53,7 @@ from marivo.analysis.core.frame_audit import (
     SourceInput,
     StoredInput,
 )
+from marivo.analysis.core.frame_calendar import FrozenSourceCalendar
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
@@ -516,7 +517,15 @@ def _evaluate_frame(
             assert isinstance(backing, ExpressionFrameBacking)
             binding = backing.root
             attachments = (
-                tuple(calendar.directory for calendar in binding.calendars)
+                tuple(
+                    attachment
+                    for calendar in binding.calendars
+                    for attachment in (
+                        calendar.attachments
+                        if isinstance(calendar, FrozenSourceCalendar)
+                        else (calendar.directory,)
+                    )
+                )
                 if isinstance(binding, SourceFrameBinding)
                 else ()
             )
@@ -532,6 +541,7 @@ def _evaluate_frame(
                 key_groups=tuple(tuple(c.slot_id for c in axis.columns) for axis in schema.axes),
                 frame_attachments=completed.copy_attachments(),
                 attribute_inputs=output.attribute_inputs,
+                frame_schema=schema,
             )
 
         def observe_read(request: LoweredRead, output: StageOutput) -> None:
@@ -723,7 +733,7 @@ def _evaluate_frame(
         if request is not None:
             return output
         data = CompletedFrameData(
-            effective_frame_schema(compiled.schema, output.columns),
+            output.frame_schema or effective_frame_schema(compiled.schema, output.columns),
             output.table,
             output.frame_attachments,
         )

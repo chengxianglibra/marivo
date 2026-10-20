@@ -164,16 +164,20 @@ def test_business_display_identifies_current_and_baseline_windows(
         period = capsys.readouterr().out
         assert start in period and end in period and "UTC" in period
     output = current.compare(
-        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+        {"reference": baseline},
+        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+        match={"reference": mv.ordinal()},
     ).compute()
     assert {column.name for column in output._schema.values} == {
-        "left.value",
-        "right.value",
-        "absolute.value",
-        "relative.value",
+        "value",
+        "reference.baseline.value",
+        "reference.absolute.value",
+        "reference.relative.value",
     }
     assert {
-        column.unit for column in output._schema.values if not column.name.startswith("relative.")
+        column.unit
+        for column in output._schema.values
+        if not column.name.startswith("reference.relative.")
     } == {"CNY"}
     output.show(n=0)
     assert "rows: 4" in capsys.readouterr().out

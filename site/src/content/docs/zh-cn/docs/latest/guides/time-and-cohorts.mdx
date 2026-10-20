@@ -94,16 +94,40 @@ current_days = session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.gr
 prior_days = session.time_scope(start="2026-07-01", end="2026-07-04").by(mv.grain("day"))
 current_daily = session.observe({'revenue': revenue}, by=(current_days,)).compute()
 prior_daily = session.observe({'revenue': revenue}, by=(prior_days,)).compute()
-paired = current_daily.compare(prior_daily, match=mv.ordinal()).compute()
-paired.show()
+comparison = current_daily.compare(
+    {"reference": prior_daily}, match={"reference": mv.ordinal()},
+).compute()
+comparison.show()
 ```
 
-双方各自仅有一个日历轴，因此 on 可推导，match 仍显式选择。
-对应需要相容完整名义分区且实际边界等于名义边界。过滤不重排原 ordinal。
-目录中未使用的桶不产生行；exact 检查实际联合行完整配对，outer 保留缺侧及独立 presence。
-两种政策均拒绝部分桶。
+双方各自只有一个日历轴，因此 on 可推导；按别名提供的 ordinal 显式对应完整原始序号，
+过滤不重新编号。compare 保留本期日历与命名基期说明；align 拥有配对轴及一般双端时间并集。
 
-builtin period_offset 支持 day/week/month/quarter/year；previous_year 支持
- day/month/quarter/year，闰日没有对应。命名日历只支持 ordinal，命名 offset、子日/DST offset
-与任意映射延期。规则只消费保存的标签与目录，不重建模型或时区规则。
-配对输出保留原始键、两端冻结描述和映射；show 解析标签与边界，不新增 endpoint 方法或 current-only 投影。
+## 观察精确偏移期间
+
+{/* example: shifted-period-comparison-query */}
+
+```python
+months = session.time_scope(start="2026-08-01", end="2026-08-20T12:00:00Z").by(mv.grain("month"))
+current_progress = session.observe({"revenue": revenue}, by=(months,))
+previous_progress = session.observe(
+    {"revenue": revenue}, by=(months.shift(mv.offset(periods=-1)),),
+)
+progress = current_progress.compare({"mom": previous_progress}, how="outer").compute()
+progress.show()
+```
+
+每端在自身精确域上完整求原 Metric，包括非可加公式。`offset(years=-1)` 使用民用年，
+week 使用 ISO week-year；`offset(periods=-1)` 使用名义粒度距离，不按稀疏结果行位置。
+必须且只能指定一个非 bool 整数关键字。shift 支持单位步长内建 week/month/year 的完整桶
+或桶首前缀。本例将 8 月 1–20 日中午与 7 月相同截止位置对应，不缩短本期。
+目标 ISO W53 或民用截止日期不存在时无对应；选定目标可稀疏或全空，不补包围范围、
+不夹日期、不追溯祖先恢复缺期。非零目标 DST gap/fold 拒绝；零偏移保留原始精确 instant。
+
+相容的直接冻结 shift 关系可提供 compare 的 match；错误锚点或显式冲突规则拒绝。
+无直接关系且省略 match 时等值对应。数据侧完整 day/quarter offset 仍受支持，部分桶拒绝；
+week/month/year 前缀须验证已保存进度精确相同。ordinal 要求相容完整名义/实际分区。
+命名日历仅支持 ordinal，命名/子日 offset 与任意映射不在范围。exact 检查实际联合键；
+outer 保留映到本期域的缺侧并披露独立 presence，实际基期时间行超出本期声明域时拒绝。
+保存端点/映射不恢复 Metric、来源或当前时区规则。shift 不更换贡献 Population 选择；
+by=P 是各端独立完整输出域，两期均需显式构造。

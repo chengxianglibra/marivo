@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, TypeAlias
 import pandas as pd
 
 from marivo.analysis.compiler.graph_plan import FrameCompute, LocalCompute
-from marivo.analysis.compiler.query_program import FrameCombineProgram
+from marivo.analysis.compiler.query_program import FrameCombineProgram, FrameCompareProgram
 from marivo.analysis.core.artifact_data import OutputAttachment
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
@@ -35,7 +35,7 @@ def run_local(
             validate_frozen_coordinates,
         )
         from marivo.analysis.materialization.query_runtime_types import effective_frame
-        from marivo.analysis.methods.frame_comparison import combine_frame_data
+        from marivo.analysis.methods.frame_comparison import combine_frame_data, compare_frame_data
         from marivo.analysis.methods.frame_values import evaluate_frame
 
         stage = effective_frame(stage, inputs)
@@ -101,8 +101,14 @@ def run_local(
             )
         elif isinstance(stage.program, AttributeProgram):
             frame, attachments = attribute_frame_data(stage.program, inputs)
+        elif isinstance(stage.program, FrameCompareProgram):
+            frame, attachments, resolved_schema = compare_frame_data(
+                stage.program,
+                tuple(item.table for item in inputs),
+                tuple(item.frame_attachments for item in inputs),
+            )
         elif isinstance(stage.program, FrameCombineProgram):
-            frame, attachments = combine_frame_data(
+            frame, attachments, resolved_schema = combine_frame_data(
                 stage.program,
                 tuple(item.table for item in inputs),
                 tuple(item.frame_attachments for item in inputs),
@@ -117,6 +123,11 @@ def run_local(
             )
             frame = evaluate_frame(stage.program, tuple(item.table for item in inputs))
             attachments = tuple(a for a in inputs[0].frame_attachments if a.name in required)
+        if isinstance(stage.program, (FrameCompareProgram, FrameCombineProgram)):
+            from dataclasses import replace
+
+            stage = replace(stage, program=replace(stage.program, output_schema=resolved_schema))
+            required = required_attachments(resolved_schema)
         if {a.name for a in attachments} != set(required):
             raise MaterializationError(
                 expected="all required frozen coordinate attachments",
@@ -134,6 +145,7 @@ def run_local(
             frame_attachments=attachments,
             attribute_methods=attribute_methods,
             attribute_inputs=attribute_inputs,
+            frame_schema=stage.program.output_schema,
         )
         validate_frozen_coordinates(
             stage.program.output_schema,

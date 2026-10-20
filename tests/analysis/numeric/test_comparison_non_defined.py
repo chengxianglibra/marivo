@@ -56,28 +56,34 @@ def test_null_operand_propagates_in_time_comparison(
     baseline = _observe(case, "2026-08-01", "2026-09-01")
     for first, second, sign in ((current, baseline, 1), (baseline, current, -1)):
         result = first.compare(
-            second, on=tuple(zip(first.axes, second.axes, strict=True)), match=mv.ordinal()
+            {"reference": second},
+            on={"reference": tuple(zip(first.axes, second.axes, strict=True))},
+            match={"reference": mv.ordinal()},
         ).compute()
         frame = result.to_pandas()
         frame = frame.set_index(ordinary_columns(frame)[0])
-        assert frame.loc["A", ("value", "absolute.value")] == -30 * sign
-        assert frame.loc["B", ("value", "absolute.value")] == 80 * sign
-        assert frame.loc["C", ("value", "absolute.value")] == 0
-        assert pd.isna(frame.loc["D", ("value", "absolute.value")])
-        assert pd.isna(frame.loc["D", ("value", "relative.value")])
+        assert frame.loc["A", ("value", "reference.absolute.value")] == -30 * sign
+        assert frame.loc["B", ("value", "reference.absolute.value")] == 80 * sign
+        assert frame.loc["C", ("value", "reference.absolute.value")] == 0
+        assert pd.isna(frame.loc["D", ("value", "reference.absolute.value")])
+        assert pd.isna(frame.loc["D", ("value", "reference.relative.value")])
         assert frame.loc["D", "presence"].all()
-        empty_endpoint = "left.value" if sign == 1 else "right.value"
-        populated_endpoint = "right.value" if sign == 1 else "left.value"
+        empty_endpoint = "value" if sign == 1 else "reference.baseline.value"
+        populated_endpoint = "reference.baseline.value" if sign == 1 else "value"
         assert pd.isna(frame.loc["D", ("value", empty_endpoint)])
         assert frame.loc["D", ("value", populated_endpoint)] == 0
     frame = (
         current.compare(
-            baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+            {"reference": baseline},
+            on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+            match={"reference": mv.ordinal()},
         )
         .compute()
         .to_pandas()
     )
-    assert frame[("value", "relative.value")].dropna().tolist() == pytest.approx([-0.5, 2 / 3])
+    assert frame[("value", "reference.relative.value")].dropna().tolist() == pytest.approx(
+        [-0.5, 2 / 3]
+    )
 
 
 def test_null_operands_propagate_in_period_comparison(
@@ -87,11 +93,13 @@ def test_null_operands_propagate_in_period_comparison(
     current = _observe(case, "2026-08-14", "2026-08-17", daily=True)
     baseline = _observe(case, "2026-07-09", "2026-07-12", daily=True)
     result = current.compare(
-        baseline, match=mv.ordinal(), on=tuple(zip(current.axes, baseline.axes, strict=True))
+        {"reference": baseline},
+        match={"reference": mv.ordinal()},
+        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
     ).persist()
     frame = result.to_pandas()
     assert len(frame) == 12
-    absolute = frame[("value", "absolute.value")]
+    absolute = frame[("value", "reference.absolute.value")]
     assert sorted(absolute.dropna().tolist()) == [-50, 0, 20]
     assert absolute.isna().sum() == 9
     assert frame["presence"].all().all()
@@ -148,7 +156,9 @@ def test_nonfinite_operand_still_fails_the_whole_run(
     baseline = _observe(case, "2026-08-01", "2026-09-01")
     with pytest.raises(AnalysisError) as caught:
         current.compare(
-            baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+            {"reference": baseline},
+            on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+            match={"reference": mv.ordinal()},
         ).compute()
     assert caught.value.expected and caught.value.received
     assert case.session.runs().items == ()

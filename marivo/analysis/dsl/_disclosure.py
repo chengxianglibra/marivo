@@ -219,6 +219,20 @@ def provider() -> DisclosureProvider:
         (
             CalendarAxis,
             "calendar_axis",
+            "shift",
+            (P("rule", "Pass mv.offset(years=n) or mv.offset(periods=n).", ("offset",)),),
+            "CalendarAxis",
+            "Construct an exact baseline domain and freeze its immediate current-to-baseline relation.",
+            "result = axis.shift(mv.offset(years=-1))",
+            ("axis",),
+            "inputs.time",
+            (
+                "Builtin unit-step week/month/year; complete buckets or prefixes from their bucket starts. ordinal, named calendars, partial day/quarter and middle slices reject. Missing ISO week or civil cutoff has no target; no clamping or current-domain shortening. Selected targets may be sparse or empty; no envelope filling. Only the immediate origin is retained, with frozen UTC/civil bounds; the input stays unchanged. Nonzero DST gap/fold targets reject, while zero offset preserves the exact captured instant. No business data, Metric evaluation or source access.",
+            ),
+        ),
+        (
+            CalendarAxis,
+            "calendar_axis",
             "show",
             (),
             "None",
@@ -226,7 +240,9 @@ def provider() -> DisclosureProvider:
             "result = axis.show()",
             ("axis",),
             "inputs.time",
-            ("Source calendar declarations are not FrameAxis handles.",),
+            (
+                "Exact selected buckets may be sparse or empty; show reports captured bounds and direct absence counts without evaluating. Source calendar declarations are not FrameAxis handles.",
+            ),
         ),
         (
             AnalysisFrame,
@@ -373,8 +389,12 @@ def provider() -> DisclosureProvider:
                 value,
                 summary=f"Immutable {value.__name__} temporal binding.",
                 acquisition=f"Call {producer}(...).",
-                producers=(producer,),
-                consumers=(consumer,),
+                producers=(producer, "calendar_axis.shift")
+                if value is CalendarAxis
+                else (producer,),
+                consumers=(consumer, "calendar_axis.shift", "session.observe", "product")
+                if value is CalendarAxis
+                else (consumer,),
                 constraints=("Frozen metadata only; no source or schema reads.",),
             )
         )
@@ -403,7 +423,9 @@ def provider() -> DisclosureProvider:
                 constraints=constraints,
                 effects=summary,
                 failures=(
-                    "AnalysisError: follow the concrete expected/received facts and repair.",
+                    "ValueError: use a supported exact calendar domain and an offset rule; target civil clocks must be unique."
+                    if owner is CalendarAxis and name == "shift"
+                    else "AnalysisError: follow the concrete expected/received facts and repair.",
                 ),
                 example=ExampleInput(code, requires, "result", output),
                 discovery_group=group,

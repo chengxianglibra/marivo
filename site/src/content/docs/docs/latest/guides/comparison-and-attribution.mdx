@@ -11,19 +11,28 @@ This guide continues the [local tutorial](/docs/latest/guides/python-quick-start
 
 ```python
 on = tuple(zip(current.axes, baseline.axes))
-change = current.compare(baseline, on=on, match=mv.ordinal(), how="exact").compute()
+change = current.compare({'reference': baseline}, on={'reference': on}, match={'reference': mv.ordinal()}, how="exact").compute()
 comparison = change.to_pandas()
-assert comparison[("value", "absolute.revenue")].tolist() == [-100, -100]
-assert comparison[("value", "relative.revenue")].tolist() == [-1 / 3, -1 / 7]
-outer = current.compare(baseline, on=on, match=mv.ordinal(), how="outer")
+assert comparison[("value", "reference.absolute.revenue")].tolist() == [-100, -100]
+assert comparison[("value", "reference.relative.revenue")].tolist() == [-1 / 3, -1 / 7]
+outer = current.compare({'reference': baseline}, on={'reference': on}, match={'reference': mv.ordinal()}, how="outer")
 ```
 
-Compare emits left/right/absolute/relative groups. Relative is
-(left-right)/abs(right). A valid zero right value defaults only the new relative
-to NA; zero_denominator="error" fails that demanded division. Missing endpoints
-or NA yield NA differences; child policies stay in force. Presence is independent
-of NA. Exact checks full joint keys; outer retains left rows then right-only rows.
-Each input has an interval and a region axis: on covers both, and ordinal explicitly pairs the two periods. Matching display names do not bind inputs.
+Compare retains current `revenue`, then adds `reference.baseline.revenue`,
+`reference.absolute.revenue` and `reference.relative.revenue`. Relative is
+(current-baseline)/abs(baseline). A valid zero baseline defaults only the new
+relative to NA; `zero_denominator="error"` fails that demanded division. Missing
+rows or NA yield NA differences; strict child policies stay required.
+`current.present` and `reference.present` are independent row flags; inherited
+presence lives below `current.presence.*` and `reference.presence.*`.
+
+Exact checks actual complete joint keys. Outer retains current order then
+mapped baseline-only keys; actual baseline time rows outside the declared current
+domain reject. Use align for a general two-ended time union. Each input here has
+interval and region axes: the alias-keyed on entry covers both, and the
+alias-keyed ordinal rule explicitly pairs periods. Display names do not bind
+inputs. Single and multiple baselines use the same named mapping; a name such
+as `yoy` never infers a rule or source computation.
 
 {/* example: aligned-absolute-only */}
 
@@ -142,7 +151,9 @@ chosen = current.top(1, by=current["revenue"]).compute()
 parents = session.population_from(chosen, on=((chosen.axes[1], region),))
 prior_selected = session.observe({'revenue': revenue}, by=(july, region), where=mv.in_population(parents)).compute()
 followup = chosen.compare(
-    prior_selected, on=tuple(zip(chosen.axes, prior_selected.axes)), match=mv.ordinal(),
+    {"reference": prior_selected},
+    on={"reference": tuple(zip(chosen.axes, prior_selected.axes))},
+    match={"reference": mv.ordinal()},
 ).compute()
 followup.show()
 ```
@@ -181,8 +192,8 @@ belongs to the explicit Attribute request above.
 
 ## Choose calendar correspondence deliberately
 
-Zero-axis pairs and a sole interval or calendar axis per side permit the specified on
-inference. Calendar match still needs an explicit ordinal/offset/year rule.
-Frozen paired output retains both endpoints; there is no time_axis="current"
-projection or arbitrary identity-relationship corresponding route. See
-[time and identities](/docs/latest/guides/time-and-cohorts/).
+Zero axes or a sole same-kind interval/calendar axis permit the specified on
+inference; other axes require a complete explicit binding. Named compare accepts
+per-alias match or a compatible immediate frozen shift relation. Align keeps an
+explicit match and paired/general time-union behavior; compare keeps current axes
+and inert named baseline facts. See [time and cohorts](/docs/latest/guides/time-and-cohorts/).

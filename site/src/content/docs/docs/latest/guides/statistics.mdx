@@ -63,11 +63,13 @@ as semantic authority. The original Frame still supports its typed data methods.
 
 ```python
 comparison = current.compare(
-    baseline, on=tuple(zip(current.axes, baseline.axes)), match=mv.ordinal(),
+    {"reference": baseline},
+    on={"reference": tuple(zip(current.axes, baseline.axes))},
+    match={"reference": mv.ordinal()},
 ).compute().to_pandas()
-present = comparison[("presence", "left_present")] & comparison[("presence", "right_present")]
-pairs = comparison.loc[present, "value"][["left.revenue", "right.revenue"]].dropna()
-paired_difference = pairs["left.revenue"] - pairs["right.revenue"]
+present = comparison[("presence", "current.present")] & comparison[("presence", "reference.present")]
+pairs = comparison.loc[present, "value"][["revenue", "reference.baseline.revenue"]].dropna()
+paired_difference = pairs["revenue"] - pairs["reference.baseline.revenue"]
 print(paired_difference.mean())
 ```
 

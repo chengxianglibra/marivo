@@ -37,6 +37,7 @@ from marivo.refs import PeriodCalendarKind, Ref, TemporalSetKind, WorkScheduleKi
 from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, Card, result_repr
 
 if TYPE_CHECKING:
+    from marivo._definition.correspondence import CalendarCorrespondence
     from marivo._definition.types import CalendarCoordinate
     from marivo._temporal_grid import BoundTimeGrid
 
@@ -3451,9 +3452,9 @@ def ref_factory_work_schedule(path: str) -> Ref[WorkScheduleKind]:
 
 @dataclass(frozen=True, slots=True, repr=False)
 class CalendarAxis(Grouping):
-    """Complete finite calendar obtained from TimeScope.by(Grain)."""
+    """Exact finite calendar selection with captured civil boundary authority."""
 
-    scope: TimeScope
+    scope: TimeScope | None
     grid: BoundTimeGrid
 
     @property
@@ -3481,7 +3482,35 @@ class CalendarAxis(Grouping):
                 for c in grid.cells
             ),
             grid.calendar_snapshot,
+            grid.origin,
+            civil_bounds=grid.civil_bounds,
         )
+
+    def shift(self, rule: CalendarCorrespondence) -> CalendarAxis:
+        """Construct an exact baseline calendar and freeze its direct correspondence.
+
+        Args: rule: An axis-free offset(years=...) or offset(periods=...) rule.
+        Returns: A new immutable CalendarAxis with exact selected target buckets.
+        Example: ``baseline = periods.shift(mv.offset(years=-1))``.
+        Constraints: Builtin unit-step week/month/year; full buckets or bucket-start
+        prefixes only. Missing civil periods/cutoffs have no selected target.
+        """
+        from marivo._definition.correspondence import CalendarCorrespondence
+        from marivo._temporal_grid import shift_grid
+
+        if type(rule) is not CalendarCorrespondence or rule.kind == "ordinal":
+            raise ValueError(
+                f"Expected offset(years=...) or offset(periods=...); received {rule!r}. "
+                "Construct an offset rule; ordinal pairs explicit complete inputs."
+            )
+        try:
+            return CalendarAxis(None, shift_grid(self.grid, rule.kind, rule.by))
+        except ValueError as error:
+            raise ValueError(
+                "Expected a unit week/month/year full bucket or bucket-start prefix "
+                f"with unique target instants; received {error}. "
+                "Use a supported calendar domain and explicit intervals for ambiguous civil times."
+            ) from error
 
     def __repr__(self) -> str:
         return f"<CalendarAxis id={self.grid.identity[:16]} buckets={len(self.grid.cells)}; use .show()>"
@@ -3497,6 +3526,22 @@ class CalendarAxis(Grouping):
         print(
             f"CalendarAxis {self.grid.grain_token}: {len(self.grid.cells)} buckets; timezone={self.grid.boundary_timezone}"
         )
+        if self.grid.cells:
+            print(
+                f"Selected bounds: first={self.grid.cells[0].start.isoformat()}; "
+                f"last_end={self.grid.cells[-1].end.isoformat()}; exact selected buckets only"
+            )
+        if self.grid.origin is not None:
+            from marivo._temporal_grid import TimeShiftAbsent
+
+            origin = self.grid.origin
+            missing = tuple(entry for entry in origin.entries if isinstance(entry, TimeShiftAbsent))
+            print(
+                f"Direct offset {origin.kind}={origin.by}: origin_buckets={len(origin.grid.cells)}; "
+                f"matched={len(origin.entries) - len(missing)}; "
+                f"period_absent={sum(entry.reason == 'period_absent' for entry in missing)}; "
+                f"cutoff_absent={sum(entry.reason == 'cutoff_absent' for entry in missing)}"
+            )
 
 
 def calendar_axis(scope: TimeScope, grain: Grain) -> CalendarAxis:

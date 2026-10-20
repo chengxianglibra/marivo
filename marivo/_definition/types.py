@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from typing import Final, Literal, NoReturn, TypeAlias
+from typing import TYPE_CHECKING, Final, Literal, NoReturn, TypeAlias
 
 from marivo._temporal import Grain, InstantAnchor, PeriodCalendarSnapshotV1
 from marivo.refs import Ref, SemanticKind, SemanticKindTag
+
+if TYPE_CHECKING:
+    from marivo._temporal_grid import CivilBounds, TimeGridOrigin
 
 DefinitionErrorKind: TypeAlias = Literal[
     "invalid_value",
@@ -253,6 +256,16 @@ class CalendarCoordinate:
     snapshot_digest: str | None
     cells: tuple[tuple[InstantAnchor, InstantAnchor, InstantAnchor, InstantAnchor], ...]
     snapshot: PeriodCalendarSnapshotV1 | None = None
+    origin: TimeGridOrigin | None = None
+    civil_bounds: tuple[CivilBounds, ...] = field(kw_only=True)
+
+    def __post_init__(self) -> None:
+        from marivo._temporal_grid import validate_civil_bounds
+
+        if len(self.civil_bounds) != len(self.cells):
+            invalid("calendar civil facts must cover the exact selected cells")
+        for civil, bounds in zip(self.civil_bounds, self.cells, strict=True):
+            validate_civil_bounds(civil, bounds)
 
     @property
     def grain(self) -> str:

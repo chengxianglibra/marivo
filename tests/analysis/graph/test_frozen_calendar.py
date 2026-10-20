@@ -9,12 +9,20 @@ import pyarrow as pa
 import pytest
 
 from marivo._definition.correspondence import CalendarCorrespondence
+from marivo._temporal_grid import builtin_nominal_ordinal
 from marivo.analysis.core.data_schema import (
     BuiltinCalendarData,
+    CalendarComparisonBinding,
     CalendarDataAxis,
+    ComparisonValueBinding,
     DataColumn,
+    DataComparison,
     DataSchema,
+    EndpointPresence,
     FrozenCalendarData,
+    FrozenIntervalData,
+    IntervalComparisonBinding,
+    IntervalDataAxis,
     NamedCalendarData,
     PairedDataAxis,
 )
@@ -26,13 +34,22 @@ from marivo.analysis.core.data_types import (
 from marivo.analysis.core.frozen_calendar import (
     FrozenAttachment,
     FrozenCalendarDirectory,
+    FrozenComparisonAbsent,
+    FrozenComparisonMatch,
+    FrozenIntervalBucket,
+    FrozenIntervalDirectory,
     build_partial_calendar_map,
     calendar_directory_rows,
     calendar_directory_schema,
+    comparison_mapping_schema,
     coordinate_attachment_schemas,
+    interval_directory_rows,
+    interval_directory_schema,
     merge_equal_calendar_directories,
     paired_mapping_schema,
     read_calendar_directory,
+    read_comparison_mapping,
+    read_interval_directory,
     require_matchable_calendar_directory,
     validate_frozen_coordinates,
     validate_paired_mapping,
@@ -66,6 +83,8 @@ def directory(
         datetime.combine(date.fromisoformat(label), datetime.min.time(), timezone.utc)
         for label in labels
     )
+    assert endpoint.frozen is not None
+    definition = endpoint.frozen.definition
     bounds = (
         tuple(
             datetime.combine(date.fromisoformat(label), datetime.min.time(), timezone.utc)
@@ -81,8 +100,29 @@ def directory(
             ),
             "nominal_label": pd.Series(labels, dtype="string[pyarrow]"),
             "ordinal": pd.Series(range(len(labels)), dtype="int64[pyarrow]"),
+            "nominal_ordinal": pd.Series(
+                [
+                    builtin_nominal_ordinal(definition.unit, definition.step, start)
+                    for start in starts
+                ]
+                if isinstance(definition, BuiltinCalendarData)
+                else range(len(labels)),
+                dtype="int64[pyarrow]",
+            ),
             **{
                 name: pd.Series(values, dtype="timestamp[us, tz=UTC][pyarrow]")
+                for name, values in (
+                    ("nominal_start", starts),
+                    ("nominal_end", bounds),
+                    ("actual_start", starts),
+                    ("actual_end", bounds),
+                )
+            },
+            **{
+                f"{name}_civil": pd.Series(
+                    [bound.isoformat(timespec="microseconds") for bound in values],
+                    dtype="string[pyarrow]",
+                )
                 for name, values in (
                     ("nominal_start", starts),
                     ("nominal_end", bounds),
@@ -121,16 +161,17 @@ def test_partial_actual_bucket_reads_but_never_becomes_matchable() -> None:
     endpoint = axis(unit="month")
     attachment = directory(endpoint, ("2026-08-01",), ends=("2026-09-01",))
     attachment.rows.loc[0, "actual_start"] = datetime(2026, 8, 15, tzinfo=timezone.utc)
+    attachment.rows.loc[0, "actual_start_civil"] = "2026-08-15T00:00:00.000000+00:00"
     frozen = read(attachment, endpoint)
     validate_frozen_coordinates(
         DataSchema((endpoint,), ()), attachment.rows.iloc[:0, :1], (attachment,)
     )
     for rule in (
         CalendarCorrespondence("ordinal"),
-        CalendarCorrespondence("previous_year"),
-        CalendarCorrespondence("period_offset", -1),
+        CalendarCorrespondence("years", -1),
+        CalendarCorrespondence("periods", -1),
     ):
-        with pytest.raises(CoreRuleError, match="complete actual"):
+        with pytest.raises(CoreRuleError, match="complete"):
             build_partial_calendar_map(frozen, frozen, rule)
 
 
@@ -138,7 +179,7 @@ def test_leap_day_mapping_is_civil_and_independent_of_actual_rows() -> None:
     left, right = axis("left"), axis("right")
     a = read(directory(left, ("2024-02-28", "2024-02-29", "2024-03-01")), left)
     b = read(directory(right, ("2023-02-28", "2023-03-01"), keys=(40, 50)), right)
-    pairs = build_partial_calendar_map(a, b, CalendarCorrespondence("previous_year"))
+    pairs = build_partial_calendar_map(a, b, CalendarCorrespondence("years", -1))
     assert tuple((p.left_key, p.right_key) for p in pairs) == (
         (a.buckets[0].key, b.buckets[0].key),
         (a.buckets[1].key, None),
@@ -180,11 +221,11 @@ def test_named_identity_includes_level_and_only_ordinal_is_supported() -> None:
     attachment.rows["nominal_label"] = pd.Series(['"August"'], dtype="string[pyarrow]")
     frozen = read(attachment, named)
     assert len(build_partial_calendar_map(frozen, frozen, CalendarCorrespondence("ordinal"))) == 1
-    for kind in ("previous_year", "period_offset"):
+    for kind in ("years", "periods"):
         rule = (
-            CalendarCorrespondence("previous_year")
-            if kind == "previous_year"
-            else CalendarCorrespondence("period_offset", -1)
+            CalendarCorrespondence("years", -1)
+            if kind == "years"
+            else CalendarCorrespondence("periods", -1)
         )
         with pytest.raises(CoreRuleError, match="builtin"):
             build_partial_calendar_map(frozen, frozen, rule)
@@ -310,10 +351,13 @@ def test_nominal_partition_checks_all_buckets_before_any_rule(overlap: bool) -> 
     frozen = read(attachment, endpoint)
     for rule in (
         CalendarCorrespondence("ordinal"),
-        CalendarCorrespondence("previous_year"),
-        CalendarCorrespondence("period_offset", -1),
+        CalendarCorrespondence("years", -1),
+        CalendarCorrespondence("periods", -1),
     ):
-        with pytest.raises(CoreRuleError, match="continuous nonoverlapping"):
+        if overlap or rule.kind == "ordinal":
+            with pytest.raises(CoreRuleError, match="nonoverlapping"):
+                build_partial_calendar_map(frozen, frozen, rule)
+        else:
             build_partial_calendar_map(frozen, frozen, rule)
 
 
@@ -337,7 +381,7 @@ def test_period_offset_uses_current_to_baseline_direction_and_captured_step(
     left, right = axis("left", unit=unit, step=2), axis("right", unit=unit, step=2)
     a = read(directory(left, (left_label,), ends=(left_end,)), left)
     b = read(directory(right, (right_label,), ends=(right_end,)), right)
-    (pair,) = build_partial_calendar_map(a, b, CalendarCorrespondence("period_offset", -1))
+    (pair,) = build_partial_calendar_map(a, b, CalendarCorrespondence("periods", -1))
     assert (pair.left_key, pair.right_key) == (a.buckets[0].key, b.buckets[0].key)
 
 
@@ -345,7 +389,7 @@ def test_month_label_offset_does_not_clamp_day_or_subtract_local_ordinals() -> N
     left, right = axis("left", unit="month"), axis("right", unit="month")
     a = read(directory(left, ("2024-03-31",), ends=("2024-04-30",)), left)
     b = read(directory(right, ("2024-02-29",), ends=("2024-03-31",)), right)
-    pairs = build_partial_calendar_map(a, b, CalendarCorrespondence("period_offset", -1))
+    pairs = build_partial_calendar_map(a, b, CalendarCorrespondence("periods", -1))
     assert tuple((p.left_key, p.right_key) for p in pairs) == (
         (a.buckets[0].key, None),
         (None, b.buckets[0].key),
@@ -360,7 +404,7 @@ def test_subday_offset_rejects_without_timezone_lookup() -> None:
     )
     frozen = read(attachment, endpoint)
     with pytest.raises(CoreRuleError, match="supported builtin"):
-        build_partial_calendar_map(frozen, frozen, CalendarCorrespondence("period_offset", -1))
+        build_partial_calendar_map(frozen, frozen, CalendarCorrespondence("periods", -1))
 
 
 @pytest.mark.parametrize("label", ["null", "[]", "{}", "NaN", '"a" ', "01"])
@@ -572,3 +616,413 @@ def test_paired_row_presence_only_implies_a_directory_endpoint_in_one_direction(
     rows.loc[0, "present"] = True
     with pytest.raises(CoreRuleError, match="presence consistent"):
         validate_frozen_coordinates(schema, rows, (a, b, mapping))
+
+
+def test_sparse_directory_keeps_nominal_distance_separate_from_selection_order() -> None:
+    endpoint = axis(unit="week")
+    attachment = directory(
+        endpoint, ("2020-12-21", "2021-01-04"), ends=("2020-12-28", "2021-01-11")
+    )
+    frozen = read(attachment, endpoint)
+    assert tuple(bucket.ordinal for bucket in frozen.buckets) == (0, 1)
+    assert frozen.buckets[1].nominal_ordinal - frozen.buckets[0].nominal_ordinal == 2
+    assert (
+        read_calendar_directory(endpoint, attachment.schema, calendar_directory_rows(frozen))
+        == frozen
+    )
+    with pytest.raises(CoreRuleError, match="continuous"):
+        require_matchable_calendar_directory(frozen)
+
+
+def test_two_hour_fold_writer_and_reader_preserve_distinct_nominal_starts() -> None:
+    from marivo._temporal import CalendarAxis, _BuiltinGrain, time_scope
+    from marivo._temporal_grid import bind_grid
+    from marivo.analysis.core.frame_calendar import freeze_calendar
+
+    scope = time_scope(start="2026-10-25", end="2026-10-26")
+    grid = bind_grid(scope, _BuiltinGrain(unit="hour", count=2), report_timezone="Europe/Berlin")
+    captured = freeze_calendar(
+        CalendarAxis(scope, grid)._binding,
+        token="axis.0",
+        name="time",
+        key=DataColumn("key", "time", ScalarDataType("int64"), False),
+    )
+    recovered = read_calendar_directory(
+        captured.axis, captured.directory.schema, captured.directory.rows
+    )
+    assert len(grid.cells) == len(recovered.buckets) == 13
+    first, second = recovered.buckets[1:3]
+    assert (first.nominal_start_civil, second.nominal_start_civil) == (
+        "2026-10-25T02:00:00.000000+02:00",
+        "2026-10-25T02:00:00.000000+01:00",
+    )
+    assert second.nominal_start - first.nominal_start == timedelta(hours=1)
+    assert second.nominal_ordinal - first.nominal_ordinal == 3_600_000_000
+    ranks = tuple(bucket.nominal_ordinal for bucket in recovered.buckets)
+    assert ranks == tuple(sorted(set(ranks)))
+    corrupted = captured.directory.rows.copy()
+    corrupted.loc[2, "nominal_ordinal"] = first.nominal_ordinal
+    with pytest.raises(CoreRuleError, match="stable builtin nominal period ordinal"):
+        read_calendar_directory(captured.axis, captured.directory.schema, corrupted)
+
+
+def direct_fixture(
+    *, absent: bool = False
+) -> tuple[CalendarDataAxis, tuple[FrozenAttachment, ...]]:
+    from marivo.analysis.core.data_schema import FrozenCalendarOrigin
+    from marivo.analysis.core.frozen_calendar import direct_mapping_schema
+
+    origin = axis("origin", unit="week")
+    target = axis("target", unit="week")
+    assert target.frozen is not None
+    target = replace(
+        target,
+        frozen=replace(
+            target.frozen, direct=FrozenCalendarOrigin(origin, "shift.target", "years", -1)
+        ),
+    )
+    original = directory(origin, ("2020-12-28",), ends=("2021-01-04",))
+    shifted = directory(
+        target, () if absent else ("2019-12-30",), ends=() if absent else ("2020-01-06",)
+    )
+    mapping = FrozenAttachment(
+        "shift.target",
+        direct_mapping_schema(target),
+        pd.DataFrame(
+            {
+                origin.columns[0].slot_id: pd.Series([0], dtype="int64[pyarrow]"),
+                "target.0": pd.Series([None if absent else 0], dtype="int64[pyarrow]"),
+                "reason": pd.Series(["period_absent" if absent else None], dtype="string[pyarrow]"),
+            }
+        ),
+    )
+    return target, (original, shifted, mapping)
+
+
+@pytest.mark.parametrize("absent", [False, True])
+def test_direct_map_owns_origin_directory_and_exact_target_or_closed_reason(absent: bool) -> None:
+    target, attachments = direct_fixture(absent=absent)
+    schema = DataSchema((target,), ())
+    primary = pd.DataFrame(
+        {target.columns[0].slot_id: pd.Series([] if absent else [0], dtype="int64[pyarrow]")}
+    )
+    assert tuple(name for name, _ in coordinate_attachment_schemas(schema)) == (
+        "calendar.origin",
+        "calendar.target",
+        "shift.target",
+    )
+    validate_frozen_coordinates(schema, primary, attachments)
+    with pytest.raises(CoreRuleError, match="required unique"):
+        validate_frozen_coordinates(schema, primary, attachments[:-1])
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    ["unknown_reason", "target_outside", "duplicate_origin", "civil", "nominal_ordinal"],
+)
+def test_corrupt_direct_facts_cannot_be_treated_as_legal_absence(corruption: str) -> None:
+    target, attachments = direct_fixture(absent=corruption == "unknown_reason")
+    origin, shifted, mapping = attachments
+    if corruption == "unknown_reason":
+        mapping.rows.loc[0, "reason"] = "missing_authority"
+    elif corruption == "target_outside":
+        mapping.rows.loc[0, "target.0"] = 99
+    elif corruption == "duplicate_origin":
+        mapping = replace(mapping, rows=pd.concat([mapping.rows, mapping.rows], ignore_index=True))
+    elif corruption == "civil":
+        shifted.rows.loc[0, "actual_start_civil"] = "2019-12-30T00:00:00.000000+01:00"
+    else:
+        shifted.rows.loc[0, "nominal_ordinal"] = 0
+    primary = pd.DataFrame({target.columns[0].slot_id: pd.Series([], dtype="int64[pyarrow]")})
+    with pytest.raises(CoreRuleError):
+        validate_frozen_coordinates(DataSchema((target,), ()), primary, (origin, shifted, mapping))
+
+
+def test_direct_origin_cannot_capture_an_ancestor_relation() -> None:
+    from marivo.analysis.core.data_schema import FrozenCalendarOrigin
+
+    target, _ = direct_fixture()
+    with pytest.raises(CoreRuleError, match="stripped immediate"):
+        FrozenCalendarOrigin(target, "shift.ancestor", "years", -1)
+
+
+def test_selected_grid_is_sparse_or_empty_and_direct_origin_changes_identity() -> None:
+    from marivo._definition.types import CalendarCoordinate
+    from marivo._temporal import _BuiltinGrain, anchor_from_datetime
+    from marivo._temporal_grid import (
+        BoundTimeGrid,
+        TimeCell,
+        TimeGridOrigin,
+        TimeShiftAbsent,
+        TimeShiftMatch,
+        _identity,
+        capture_civil_bounds,
+    )
+    from marivo.analysis.core.frame_calendar import freeze_calendar
+
+    grain = _BuiltinGrain(unit="week")
+
+    def cell(label: str) -> TimeCell:
+        start = datetime.fromisoformat(label).replace(tzinfo=timezone.utc)
+        end = start + timedelta(days=7)
+        return TimeCell(start.isoformat(), start, end, start, end, False)
+
+    def grid(cells: tuple[TimeCell, ...], origin: TimeGridOrigin | None = None) -> BoundTimeGrid:
+        civil = tuple(
+            capture_civil_bounds((c.original_start, c.original_end, c.start, c.end), "UTC")
+            for c in cells
+        )
+        return BoundTimeGrid(
+            _identity(
+                grain.to_token(), "UTC", "UTC", None, None, cells, origin=origin, civil_bounds=civil
+            ),
+            grain,
+            "UTC",
+            "UTC",
+            None,
+            None,
+            cells,
+            origin=origin,
+            civil_bounds=civil,
+        )
+
+    original = grid((cell("2021-12-27"), cell("2022-01-03")))
+    selected = (cell("2020-12-21"), cell("2021-01-04"))
+    direct = TimeGridOrigin(
+        original,
+        "years",
+        -1,
+        tuple(
+            TimeShiftMatch(a.identity, b.identity)
+            for a, b in zip(original.cells, selected, strict=True)
+        ),
+    )
+    shifted = grid(selected, direct)
+    assert shifted.cells == selected
+    assert shifted.identity != grid(selected).identity
+    assert original.origin is None
+    empty_origin = TimeGridOrigin(
+        grid((cell("2020-12-28"),)),
+        "years",
+        -1,
+        (TimeShiftAbsent(cell("2020-12-28").identity, "period_absent"),),
+    )
+    empty = grid((), empty_origin)
+    assert empty.cells == ()
+    coordinate = CalendarCoordinate(
+        shifted.identity,
+        grain,
+        "UTC",
+        None,
+        tuple(
+            (
+                anchor_from_datetime(c.original_start),
+                anchor_from_datetime(c.original_end),
+                anchor_from_datetime(c.start),
+                anchor_from_datetime(c.end),
+            )
+            for c in shifted.cells
+        ),
+        origin=direct,
+        civil_bounds=shifted.civil_bounds,
+    )
+    frozen = freeze_calendar(
+        coordinate,
+        token="shifted",
+        name="week",
+        key=DataColumn("key", "week", ScalarDataType("int64"), False),
+    )
+    validate_frozen_coordinates(
+        DataSchema((frozen.axis,), ()),
+        frozen.directory.rows.iloc[:, :1],
+        tuple(FrozenAttachment(a.name, a.schema, a.rows) for a in frozen.attachments),
+    )
+    invalid = TimeGridOrigin(
+        original,
+        "years",
+        -1,
+        (
+            TimeShiftMatch(original.cells[0].identity, selected[0].identity),
+            TimeShiftMatch(original.cells[1].identity, selected[0].identity),
+        ),
+    )
+    frozen_empty = freeze_calendar(
+        replace(
+            coordinate, identity=empty.identity, cells=(), origin=empty_origin, civil_bounds=()
+        ),
+        token="empty",
+        name="week",
+        key=DataColumn("key", "week", ScalarDataType("int64"), False),
+    )
+    assert frozen_empty.directory.rows.empty
+    validate_frozen_coordinates(
+        DataSchema((frozen_empty.axis,), ()),
+        frozen_empty.directory.rows.iloc[:, :1],
+        tuple(FrozenAttachment(a.name, a.schema, a.rows) for a in frozen_empty.attachments),
+    )
+    with pytest.raises(ValueError, match="unique selected"):
+        grid(selected, invalid)
+    with pytest.raises(ValueError, match="origin domain"):
+        grid(selected, TimeGridOrigin(shifted, "years", -1, direct.entries))
+
+
+def test_comparison_map_covers_current_domain_without_inventing_missing_targets() -> None:
+    current, baseline = axis("current"), axis("comparison.reference.baseline")
+    left = directory(current, ("2026-01-01", "2026-01-02"))
+    right = directory(baseline, ("2025-01-01", "2025-01-02", "2025-01-03"))
+    binding = CalendarComparisonBinding(current.token, baseline, "comparison.reference.map")
+    fact = DataComparison(
+        "reference",
+        (ComparisonValueBinding("current", ("value",), ("value",)),),
+        binding,
+        EndpointPresence(("present",), ()),
+        EndpointPresence(("present",), ()),
+    )
+    structure = DataSchema(
+        (current,),
+        (DataColumn("value.0", "value", ScalarDataType("int64"), True),),
+        presence=(DataColumn("presence.0", "present", ScalarDataType("boolean"), False),),
+        value_paths=(("value",),),
+        presence_paths=(("present",),),
+        comparisons=(fact,),
+    )
+    mapping_schema = comparison_mapping_schema(current, binding)
+    mapping = pd.DataFrame(
+        {
+            current.columns[0].slot_id: pd.Series([0, 1], dtype="int64[pyarrow]"),
+            "baseline.0": pd.Series([0, None], dtype="int64[pyarrow]"),
+            "reason": pd.Series([None, "unmatched"], dtype="string[pyarrow]"),
+        }
+    )
+    rows = pd.DataFrame(
+        {
+            current.columns[0].slot_id: pd.Series([0, 1], dtype="int64[pyarrow]"),
+            "value.0": pd.Series([10, 20], dtype="int64[pyarrow]"),
+            "presence.0": [True, False],
+        }
+    )
+    attachments = (left, right, FrozenAttachment(binding.mapping_name, mapping_schema, mapping))
+    validate_frozen_coordinates(structure, rows, attachments)
+    entries = read_comparison_mapping(
+        binding, mapping_schema, mapping, read(left, current), read(right, baseline)
+    )
+    assert entries == (
+        FrozenComparisonMatch(((ScalarDataType("int64"), 0),), ((ScalarDataType("int64"), 0),)),
+        FrozenComparisonAbsent(((ScalarDataType("int64"), 1),), "unmatched"),
+    )
+    assert tuple(name for name, _ in coordinate_attachment_schemas(structure)) == tuple(
+        a.name for a in attachments
+    )
+    with pytest.raises(CoreRuleError, match="required unique coordinate attachments"):
+        validate_frozen_coordinates(structure, rows, attachments[:2])
+    with pytest.raises(CoreRuleError, match="one ordered comparison map row"):
+        read_comparison_mapping(
+            binding, mapping_schema, mapping.iloc[:1], read(left, current), read(right, baseline)
+        )
+    invalid = mapping.copy()
+    invalid.loc[0, "baseline.0"] = 99
+    with pytest.raises(CoreRuleError, match="resolving in the baseline directory"):
+        read_comparison_mapping(
+            binding, mapping_schema, invalid, read(left, current), read(right, baseline)
+        )
+    invalid = mapping.copy()
+    invalid.loc[1, "reason"] = None
+    with pytest.raises(CoreRuleError, match="closed absent reason"):
+        read_comparison_mapping(
+            binding, mapping_schema, invalid, read(left, current), read(right, baseline)
+        )
+
+
+def test_interval_comparison_retains_current_coordinate_and_consumed_endpoint_map() -> None:
+    key = DataColumn("key.current", "scope", ScalarDataType("int64"), False)
+    current = IntervalDataAxis(
+        "current", (key,), FrozenIntervalData("interval.current"), name="scope"
+    )
+    baseline = IntervalDataAxis(
+        "comparison.reference.baseline",
+        (replace(key, slot_id="key.baseline"),),
+        FrozenIntervalData("interval.baseline"),
+        name="scope",
+    )
+    binding = IntervalComparisonBinding(current.token, baseline, "comparison.reference.map")
+    directories = tuple(
+        FrozenIntervalDirectory(
+            endpoint,
+            (
+                FrozenIntervalBucket(
+                    ((key.dtype, 0),),
+                    datetime(year, 1, 1, tzinfo=timezone.utc),
+                    datetime(year, 2, 1, tzinfo=timezone.utc),
+                    "UTC",
+                ),
+            ),
+        )
+        for endpoint, year in ((current, 2026), (baseline, 2025))
+    )
+    attachments = tuple(
+        FrozenAttachment(
+            endpoint.frozen.directory_name,
+            interval_directory_schema(endpoint),
+            interval_directory_rows(directory_),
+        )
+        for endpoint, directory_ in zip((current, baseline), directories, strict=True)
+    )
+    mapping_schema = comparison_mapping_schema(current, binding)
+    mapping = pd.DataFrame(
+        {
+            key.slot_id: pd.Series([0], dtype="int64[pyarrow]"),
+            "baseline.0": pd.Series([0], dtype="int64[pyarrow]"),
+            "reason": pd.Series([None], dtype="string[pyarrow]"),
+        }
+    )
+    fact = DataComparison(
+        "reference",
+        (ComparisonValueBinding("baseline", ("value",), ("saved",)),),
+        binding,
+        EndpointPresence(("present",), ()),
+        EndpointPresence(("present",), ()),
+    )
+    structure = DataSchema(
+        (current,),
+        (DataColumn("value.0", "saved", key.dtype, True),),
+        presence=(DataColumn("presence.0", "present", ScalarDataType("boolean"), False),),
+        value_paths=(("saved",),),
+        presence_paths=(("present",),),
+        comparisons=(fact,),
+    )
+    rows = pd.DataFrame(
+        {
+            key.slot_id: pd.Series([0], dtype="int64[pyarrow]"),
+            "value.0": pd.Series([5], dtype="int64[pyarrow]"),
+            "presence.0": [True],
+        }
+    )
+    validate_frozen_coordinates(
+        structure,
+        rows,
+        (*attachments, FrozenAttachment(binding.mapping_name, mapping_schema, mapping)),
+    )
+    assert (
+        len(
+            read_comparison_mapping(
+                binding,
+                mapping_schema,
+                mapping,
+                read_interval_directory(current, attachments[0].schema, attachments[0].rows),
+                read_interval_directory(baseline, attachments[1].schema, attachments[1].rows),
+            )
+        )
+        == 1
+    )
+
+    absent = mapping.copy()
+    absent["baseline.0"] = pd.Series([None], dtype="int64[pyarrow]")
+    absent["reason"] = pd.Series(["unmatched"], dtype="string[pyarrow]")
+    absent_attachments = (
+        *attachments,
+        FrozenAttachment(binding.mapping_name, mapping_schema, absent),
+    )
+    with pytest.raises(CoreRuleError, match="absent comparison endpoints"):
+        validate_frozen_coordinates(structure, rows, absent_attachments)
+    rows["presence.0"] = False
+    validate_frozen_coordinates(structure, rows, absent_attachments)

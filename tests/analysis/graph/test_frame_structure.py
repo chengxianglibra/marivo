@@ -22,6 +22,13 @@ from marivo.analysis.core.artifact_data import (
     PairedDataAxis,
     ParquetHandle,
 )
+from marivo.analysis.core.data_schema import (
+    CalendarComparisonBinding,
+    ComparisonValueBinding,
+    DataComparison,
+    EndpointPresence,
+    OrdinaryComparisonBinding,
+)
 from marivo.analysis.core.data_types import ScalarDataType
 from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, FrameResultMetadata
 from marivo.analysis.core.frame_data import (
@@ -609,3 +616,119 @@ def test_attachment_names_have_one_role_and_exact_descriptor_owner() -> None:
         require_complete_structure(
             DataSchema((first, replace(second, mapping_name=first.mapping_name)), ())
         )
+
+
+def test_named_comparison_facts_bind_exact_paths_in_pending_and_complete_schemas() -> None:
+    base = schema()
+    fact = DataComparison(
+        "reference",
+        (ComparisonValueBinding("current", ("original", "revenue"), ("revenue",)),),
+        OrdinaryComparisonBinding(),
+        EndpointPresence(("right_present",), ()),
+        EndpointPresence(("right_present",), ()),
+    )
+    complete = replace(base, comparisons=(fact, replace(fact, alias="other")))
+    pending = PendingDataSchema(
+        (
+            PendingDataAxis(
+                "axis.0",
+                "customer",
+                "identity",
+                (PendingDataColumn("key.0", "customer", "string", False),),
+            ),
+        ),
+        (PendingDataColumn("value.0", "revenue", "numeric", True, "USD"),),
+        (("revenue",),),
+        (PendingDataColumn("presence.0", "right_present", "boolean", False),),
+        (("right_present",),),
+        comparisons=complete.comparisons,
+    )
+    assert pending.complete(complete) is complete
+    assert data(complete).schema.comparisons == complete.comparisons
+    with pytest.raises(CoreRuleError, match="captured complete axes"):
+        pending.complete(base)
+    with pytest.raises(CoreRuleError, match="distinct named comparison aliases"):
+        replace(complete, comparisons=(fact, fact))
+    with pytest.raises(CoreRuleError, match="exact current value paths"):
+        replace(
+            complete, value_paths=(("renamed",),), values=(replace(base.values[0], name="renamed"),)
+        )
+    with pytest.raises(FrozenInstanceError):
+        fact.alias = "changed"
+
+
+def test_comparison_attachment_ownership_is_exact_and_current_axis_is_authoritative() -> None:
+    paired, other = _paired_axes()
+    assert isinstance(paired.left, CalendarDataAxis) and isinstance(paired.right, CalendarDataAxis)
+    assert isinstance(other.right, CalendarDataAxis)
+    current = paired.left
+    fact = DataComparison(
+        "one",
+        (ComparisonValueBinding("current", ("revenue",), ("revenue",)),),
+        CalendarComparisonBinding(current.token, paired.right, "compare.one"),
+        EndpointPresence(("right_present",), ()),
+        EndpointPresence(("right_present",), ()),
+    )
+    second = replace(
+        fact,
+        alias="two",
+        binding=CalendarComparisonBinding(current.token, other.right, "compare.two"),
+    )
+    structure = DataSchema(
+        (current,),
+        schema().values,
+        schema().presence,
+        value_paths=(("revenue",),),
+        presence_paths=schema().presence_paths,
+        comparisons=(fact, second),
+    )
+    assert required_attachments(structure) == (
+        "left.directory",
+        "right.directory",
+        "compare.one",
+        "right2.directory",
+        "compare.two",
+    )
+    with pytest.raises(CoreRuleError, match="exactly the required"):
+        CompletedFrameData(
+            structure, pd.DataFrame({current.columns[0].slot_id: [0], "value.0": [1]})
+        )
+    with pytest.raises(CoreRuleError, match="one current output time axis"):
+        replace(structure, axes=())
+    assert isinstance(second.binding, CalendarComparisonBinding)
+    conflict = replace(second, binding=replace(second.binding, mapping_name="compare.one"))
+    with pytest.raises(CoreRuleError, match="one role and exact descriptor owner"):
+        required_attachments(replace(structure, comparisons=(fact, conflict)))
+
+
+@pytest.mark.parametrize("mismatch", ["grain", "timezone"])
+def test_calendar_comparison_facts_require_matching_frozen_authority(mismatch: str) -> None:
+    paired, _ = _paired_axes()
+    assert isinstance(paired.left, CalendarDataAxis) and isinstance(paired.right, CalendarDataAxis)
+    current = paired.left
+    baseline = replace(paired.right, token="comparison.reference.baseline", name="baseline month")
+    fact = DataComparison(
+        "reference",
+        (ComparisonValueBinding("current", ("revenue",), ("revenue",)),),
+        CalendarComparisonBinding(current.token, baseline, "comparison.reference.map"),
+        EndpointPresence(("right_present",), ()),
+        EndpointPresence(("right_present",), ()),
+    )
+    structure = DataSchema(
+        (current,),
+        schema().values,
+        schema().presence,
+        value_paths=(("revenue",),),
+        presence_paths=schema().presence_paths,
+        comparisons=(fact,),
+    )
+    require_complete_structure(structure)
+    if mismatch == "grain":
+        assert current.frozen is not None
+        current = replace(
+            current, frozen=replace(current.frozen, definition=BuiltinCalendarData("day", 1))
+        )
+    else:
+        current = replace(current, timezone="Europe/Berlin")
+    with pytest.raises(CoreRuleError, match="compatible frozen calendar interpretations"):
+        replace(structure, axes=(current,))

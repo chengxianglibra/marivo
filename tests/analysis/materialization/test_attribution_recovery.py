@@ -100,23 +100,23 @@ def test_native_duckdb_attribution_independent_fixed_and_cold(
         current, baseline = endpoint(8), endpoint(7)
         outputs = {
             "groups": current.compare(
-                baseline,
-                on=tuple(zip(current.axes, baseline.axes, strict=True)),
-                match=mv.ordinal(),
+                {"reference": baseline},
+                on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+                match={"reference": mv.ordinal()},
             ).persist(),
             "difference": current.reduce({"value": current["value"].sum()})
-            .compare(baseline.reduce({"value": baseline["value"].sum()}))
+            .compare({"reference": baseline.reduce({"value": baseline["value"].sum()})})
             .persist(),
             "current": facts(8).persist(),
             "baseline": facts(7).persist(),
         }
         grouped = plain(outputs["groups"])
-        assert dict(zip(grouped.key_1, grouped["absolute.value"], strict=True)) == {
+        assert dict(zip(grouped.key_1, grouped["reference.absolute.value"], strict=True)) == {
             "a": 2,
             "b": 1,
             "c": -5,
         }
-        assert plain(outputs["difference"])["absolute.value"].tolist() == [-2]
+        assert plain(outputs["difference"])["reference.absolute.value"].tolist() == [-2]
         allocated = allocation(basis(outputs["current"]), basis(outputs["baseline"]), parents=())
         assert dict(zip(allocated.channel, allocated.contribution, strict=True)) == {
             "a": 2,

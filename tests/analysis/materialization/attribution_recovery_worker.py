@@ -47,12 +47,12 @@ def run(root: Path, phase: str, output: Path) -> None:
         }
         assert allocated.contribution.sum() == -2
         grouped = plain(outputs["groups"])
-        assert dict(zip(grouped.key_1, grouped["absolute.value"], strict=True)) == {
+        assert dict(zip(grouped.key_1, grouped["reference.absolute.value"], strict=True)) == {
             "a": 2,
             "b": 1,
             "c": -5,
         }
-        assert plain(outputs["difference"])["absolute.value"].tolist() == [-2]
+        assert plain(outputs["difference"])["reference.absolute.value"].tolist() == [-2]
         assert len(session.runs().items) == before
         assert all(not hasattr(value, "attribute") for value in outputs.values())
     output.write_bytes(encode({"phase": phase, "pid": os.getpid()}))

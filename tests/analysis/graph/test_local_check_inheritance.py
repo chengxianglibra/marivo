@@ -30,9 +30,11 @@ def test_period_comparison_coverage_finishes_before_inherited_reduction(
     _, baseline = period(case.session, 7, 3)
     endpoint = current.where(current["value"] > 0) if incomplete else current
     paired = endpoint.compare(
-        baseline, match=mv.ordinal(), on=tuple(zip(endpoint.axes, baseline.axes, strict=True))
+        {"reference": baseline},
+        match={"reference": mv.ordinal()},
+        on={"reference": tuple(zip(endpoint.axes, baseline.axes, strict=True))},
     )
-    changed = paired.select({"value": paired["absolute.value"]})
+    changed = paired.select({"value": paired["reference.absolute.value"]})
     selected = changed
     if prune == "select":
         selected = changed.select({"value": changed["value"]})

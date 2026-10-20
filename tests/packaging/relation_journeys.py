@@ -22,6 +22,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo import _temporal
 from marivo.analysis.core.data_schema import (
+    CalendarComparisonBinding,
     CalendarDataAxis,
     DataSchema,
     IntervalDataAxis,
@@ -222,11 +223,11 @@ def _produce(
     if scenario == "a02":
         current, baseline = current.compute(), baseline.compute()
         comparison = current.compare(
-            baseline,
-            on=tuple(zip(current.axes, baseline.axes, strict=True)),
-            match=mv.ordinal(),
+            {"reference": baseline},
+            on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+            match={"reference": mv.ordinal()},
         )
-        change = comparison.select({"value": comparison["absolute.value"]}).compute()
+        change = comparison.select({"value": comparison["reference.absolute.value"]}).compute()
         chosen = change.where(change["value"] < 0).compute()
         keys = session.population_from(
             chosen,
@@ -261,31 +262,32 @@ def _produce(
         shared["reused_observation"] = numeric_reads
         current, baseline = current.compute(), baseline.compute()
         comparison = current.compare(
-            baseline,
-            on=tuple(zip(current.axes, baseline.axes, strict=True)),
-            match=mv.ordinal(),
+            {"reference": baseline},
+            on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+            match={"reference": mv.ordinal()},
         )
         reverse = baseline.compare(
-            current,
-            on=tuple(zip(baseline.axes, current.axes, strict=True)),
-            match=mv.ordinal(),
+            {"reference": current},
+            on={"reference": tuple(zip(baseline.axes, current.axes, strict=True))},
+            match={"reference": mv.ordinal()},
         )
         absolute = comparison.reduce(
-            {"value": comparison["absolute.value"].sum()},
+            {"value": comparison["reference.absolute.value"].sum()},
             by=(next(axis for axis in comparison.axes if axis.role == "identity"),),
         )
         reversed_absolute = reverse.reduce(
-            {"value": reverse["absolute.value"].sum()},
+            {"value": reverse["reference.absolute.value"].sum()},
             by=(next(axis for axis in reverse.axes if axis.role == "identity"),),
         )
         negative = absolute.compare(
-            reversed_absolute, on=((absolute.axes[0], reversed_absolute.axes[0]),)
+            {"reference": reversed_absolute},
+            on={"reference": ((absolute.axes[0], reversed_absolute.axes[0]),)},
         )
         filtered = baseline.where(baseline["value"] > 80)
         union = current.compare(
-            filtered,
-            on=tuple(zip(current.axes, filtered.axes, strict=True)),
-            match=mv.ordinal(),
+            {"reference": filtered},
+            on={"reference": tuple(zip(current.axes, filtered.axes, strict=True))},
+            match={"reference": mv.ordinal()},
             how="outer",
         )
         counts_by_month = [
@@ -300,26 +302,35 @@ def _produce(
         ]
         first, second = (
             counts_by_month[0].compare(
-                counts_by_month[1],
-                on=tuple(zip(counts_by_month[0].axes, counts_by_month[1].axes, strict=True)),
-                match=mv.ordinal(),
+                {"reference": counts_by_month[1]},
+                on={
+                    "reference": tuple(
+                        zip(counts_by_month[0].axes, counts_by_month[1].axes, strict=True)
+                    )
+                },
+                match={"reference": mv.ordinal()},
             ),
             counts_by_month[1].compare(
-                counts_by_month[2],
-                on=tuple(zip(counts_by_month[1].axes, counts_by_month[2].axes, strict=True)),
-                match=mv.ordinal(),
+                {"reference": counts_by_month[2]},
+                on={
+                    "reference": tuple(
+                        zip(counts_by_month[1].axes, counts_by_month[2].axes, strict=True)
+                    )
+                },
+                match={"reference": mv.ordinal()},
             ),
         )
         first_delta = first.reduce(
-            {"value": first["absolute.value"].sum()},
+            {"value": first["reference.absolute.value"].sum()},
             by=(next(axis for axis in first.axes if axis.role == "identity"),),
         )
         second_delta = second.reduce(
-            {"value": second["absolute.value"].sum()},
+            {"value": second["reference.absolute.value"].sum()},
             by=(next(axis for axis in second.axes if axis.role == "identity"),),
         )
         nested = first_delta.compare(
-            second_delta, on=((first_delta.axes[0], second_delta.axes[0]),)
+            {"reference": second_delta},
+            on={"reference": ((first_delta.axes[0], second_delta.axes[0]),)},
         )
         quantities = session.observe(
             {"energy": metric, "count": count},
@@ -335,9 +346,9 @@ def _produce(
             session.observe({"value": count}, by=mv.product(grid, targets)) for grid in grids
         ]
         period = endpoints[0].compare(
-            endpoints[1],
-            on=tuple(zip(endpoints[0].axes, endpoints[1].axes, strict=True)),
-            match=mv.ordinal(),
+            {"reference": endpoints[1]},
+            on={"reference": tuple(zip(endpoints[0].axes, endpoints[1].axes, strict=True))},
+            match={"reference": mv.ordinal()},
         )
         temporal = session.time_scope(start="2026-07-01", end="2026-10-01").by(mv.grain("month"))
         running = session.observe(
@@ -351,10 +362,10 @@ def _produce(
         frames = {
             "current": current,
             "baseline": baseline,
-            "relative": comparison.select({"value": comparison["relative.value"]}),
-            "negative_relative": negative.select({"value": negative["relative.value"]}),
+            "relative": comparison.select({"value": comparison["reference.relative.value"]}),
+            "negative_relative": negative.select({"value": negative["reference.relative.value"]}),
             "union": union,
-            "nested": nested.select({"value": nested["absolute.value"]}),
+            "nested": nested.select({"value": nested["reference.absolute.value"]}),
             "ratio": quantities.select({"value": quantities["energy"] / quantities["count"]}),
             "branch_ratio": session.observe(
                 {"value": branch},
@@ -394,7 +405,7 @@ def _produce(
             session.observe({"value": metric}, by=(session.time_scope(start=start, end=end),))
             for start, end in (("2026-08-01", "2026-09-01"), ("2026-07-01", "2026-08-01"))
         ]
-        difference = totals[0].compare(totals[1], match=mv.ordinal())
+        difference = totals[0].compare({"reference": totals[1]}, match={"reference": mv.ordinal()})
         frames = {
             "counts": counts,
             "region": session.read(targets, {"value": region}),
@@ -657,14 +668,14 @@ def _assert_oracles(
                 else None
                 for m in members
             },
-            "absolute.value",
+            "reference.absolute.value",
         )
         union_rows = _frame(exports["union"])
         union = union_rows.set_index(_ordinary_keys(union_rows)[0])
         # Presence is independent of all value masks and complete identity keys.
         exported = exports["union"]
-        assert exported[("presence", "left_present")].all()
-        assert exported[("presence", "right_present")].tolist() == [True, True, False, False]
+        assert exported[("presence", "current.present")].all()
+        assert exported[("presence", "reference.present")].tolist() == [True, True, False, False]
         current_rows = _frame(exports["current"])
         assert union.index.tolist() == current_rows[_ordinary_keys(current_rows)[0]].tolist()
         assert len(union) == 4
@@ -704,29 +715,32 @@ def _assert_oracles(
         cells(
             "period",
             {
-                (str(index), m): count(m, left) - count(m, right)
+                (left, m): count(m, left) - count(m, right)
                 for m in members
-                for index, (left, right) in enumerate(
-                    (("2026-09", "2026-07"), ("2026-10", "2026-08"))
-                )
+                for left, right in (("2026-09", "2026-07"), ("2026-10", "2026-08"))
             },
-            "absolute.value",
+            "reference.absolute.value",
         )
         period = saved["period"]._schema
         assert isinstance(period, DataSchema)
-        paired = period.axes[0]
-        assert isinstance(paired, PairedDataAxis)
-        assert paired.left.frozen is not None and paired.right.frozen is not None
+        current_axis = period.axes[0]
+        assert isinstance(current_axis, CalendarDataAxis)
+        relation = period.comparisons[0].binding
+        assert isinstance(relation, CalendarComparisonBinding)
+        assert current_axis.frozen is not None and relation.baseline.frozen is not None
         tables = _frozen_tables(exports["period"])
-        mapping = tables[paired.mapping_name]
+        mapping = tables[relation.mapping_name]
         endpoint_months = []
-        for side, endpoint in (("left", paired.left), ("right", paired.right)):
+        for map_column, endpoint in (
+            (current_axis.columns[0].slot_id, current_axis),
+            ("baseline.0", relation.baseline),
+        ):
             assert endpoint.frozen is not None and len(endpoint.columns) == 1
             directory = tables[endpoint.frozen.directory_name]
             lookup = dict(
                 zip(directory[endpoint.columns[0].slot_id], directory.nominal_start, strict=True)
             )
-            endpoint_months.append([str(lookup[key])[:7] for key in mapping[f"{side}.0"]])
+            endpoint_months.append([str(lookup[key])[:7] for key in mapping[map_column]])
         assert list(zip(*endpoint_months, strict=True)) == [
             ("2026-09", "2026-07"),
             ("2026-10", "2026-08"),
@@ -777,7 +791,7 @@ def _assert_oracles(
         cells(
             "difference",
             {(): sum(amount(m, months[1]) - amount(m, months[0]) for m in members)},
-            "absolute.value",
+            "reference.absolute.value",
         )
         cells("current", {(m,): amount(m, months[1]) for m in members})
         ratios = arr(derived["ratios"])

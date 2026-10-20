@@ -188,16 +188,23 @@ output_names 仅值，presence_names 独立，两者完整有序。生成路径�
 
 ### 4.7 对齐、比较与参照
 
-普通轴要求完整显式 on，零轴及双方唯一总轴为同种 interval/日历时允许规定推导；显式 on 不自动补齐。
-跨 Session、已有配对轴、轴数/角色/完整键类型与时间不相容拒绝。exact 检查实际联合键域；
-outer 左序后右独有序。align 保留左右值；compare 要求同名相容数值/单位并生成四组：
-left/right/absolute/relative。相对变化 (left-right)/abs(right)，只对有效配对应用零政策。
-缺端点或 NA 差值为 NA。Duration 左右/绝对仍为 Duration，相对无量纲。
-presence 独立布尔，继承项带 left/right 前缀，不因元数据身份变为可求和数值。
+普通轴要求完整显式 on；零轴和双方唯一同种 interval/calendar 轴允许唯一结构推导。
+命名 compare 接收非空别名到同 Session Frame 的映射，on/match 均按别名；未知别名、
+不完整轴、paired 输入、错误 ownership/键类型/时间解释拒绝。相容直接 shift 关系可提供
+match，错误锚点或显式冲突规则拒绝；无关系时不猜 offset。align 的 match 仍显式。
 
-ordinal、builtin previous_year/period_offset 消费冻结有限目录；命名日历仅 ordinal。
-完整名义分区与实际边界准入先于 actual-row exact/outer；过滤不压缩 ordinal。
-单层配对轴保留两端目录/映射，无 endpoint 方法或 time_axis=current 投影。
+compare 保留本期轴和当前值；每个别名生成 baseline/absolute/relative，relative 为
+(current-baseline)/abs(baseline)。缺行或 NA 先于本次零分母政策，严格子式仍要求完成。
+Duration baseline/absolute 保留 tick，相对值无量纲。current.present/alias.present 独立于
+值 NA，继承项使用 current.presence.* / alias.presence.*。align 保留左右值、presence
+和一般双端时间并集，显式时间对应仍可产生 paired 轴。
+
+exact 检查每个实际完整联合键域；compare outer 先本期，再按别名顺序添加映到本期域的
+基期独有联合键，实际基期时间行超出本期声明域时拒绝。offset(years=...) /
+offset(periods=...) 消费冻结有限目录；名义距离不受稀疏输出影响。shift 支持内建单位步长
+week/month/year 的完整桶或桶首前缀，精确目标可稀疏/全空，仅保存直接前驱。
+数据侧完整 day/quarter 匹配保留，部分桶拒绝；合法 week/month/year 前缀须保存精确相同进度。
+ordinal 仍要求相容完整名义/实际分区，命名日历仅支持其既有 ordinal。无当前 TZ/model 重建。
 
 ### 4.8 份额：当前总体与分组总体
 
@@ -233,13 +240,13 @@ timestamp/Duration 保留实际 qualified 类型。源精度损失与保存值�
 
 ## 6. 求值、保存与披露
 
-完整求值先于 Run，Run 仅发布已有 result ID。Store 14 保存一种闭合 Frame 协议，
+完整求值先于 Run，Run 仅发布已有 result ID。Store 15 保存一种闭合 Frame 协议，
 来源事实按值继承并精确去重，本次求值记录不累计中间历史。show(n=0)/Artifact 审计不消费载荷，
 正 n 只解码前缀及必要坐标记录。to_pandas 验证完整当前数据与必要附件，不读方法事实；
 stored compute 与派生求值消费当前数据和完整方法事实。
 固定内存/存储操作无需模型、来源、语义对象或时区规则；读取失败不隐式回源。
 
-所有 Frame 使用 `marivo.frame_output/v3`、`frame.v3`、`frame-output-v3`。
+所有 Frame 使用 `marivo.frame_output/v4`、`frame.v4`、`frame-output-v4`。
 `method_facts` 返回不可执行的完整原解释，pending 访问需先 compute/persist；存储 getter
 只读 owned 方法文件，不读主表或来源。卡片只给数量、有界 origin 与 getter 指针，原父记录/
 坐标不在 manifest 中展开。原事实按输入传播、相同 origin 稳定去重；筛选或规约不改变原分母，

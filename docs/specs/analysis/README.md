@@ -41,6 +41,12 @@ optional qualified contribution. The [Attribute implementation progress](attribu
 records accepted execution/storage and public-disclosure status. Completed Frames
 retain inert `method_facts`, never original Metric authority or a producer graph.
 
+[Period comparison](period-comparison-design.md) defines named Frame comparison
+with `periods.shift(mv.offset(...))`, ISO-week year correspondence, exact
+same-progress scopes and explicit missing-baseline semantics. Its
+[implementation plan](period-comparison-implementation-plan.md) records staged
+implementation, independent review and the exact accepted evidence; documentation
+does not imply package, provider Runtime or release acceptance.
 [Correlation statistics](correlation-statistics-design.md) defines current-row
 Pearson/Spearman through AnalysisFrame.correlate with fixed coefficient/n_pairs
 outputs, retaining corr/pair_count composition through reduce; its candidate and

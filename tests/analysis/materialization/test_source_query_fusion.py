@@ -387,13 +387,16 @@ def test_shared_source_frames_keep_complete_endpoint_presence(
     paired = (
         left.align(right, on=on, how="outer")
         if operation == "align"
-        else left.compare(right, on=on, how="outer")
+        else left.compare({"base": right}, on={"base": on}, how="outer")
     )
     rows = paired.compute().to_pandas()
     assert rows.iloc[:, 0].tolist() == [1, 3, 4, 2]
-    assert rows["presence", "left_present"].tolist() == [True, True, True, False]
-    assert rows["presence", "right_present"].tolist() == [False, True, True, True]
-    assert rows["value", "left.value"].dropna().tolist() == [10, 20]
+    current_presence = "left_present" if operation == "align" else "current.present"
+    baseline_presence = "right_present" if operation == "align" else "base.present"
+    current_value = "left.value" if operation == "align" else "value"
+    assert rows["presence", current_presence].tolist() == [True, True, True, False]
+    assert rows["presence", baseline_presence].tolist() == [False, True, True, True]
+    assert rows["value", current_value].dropna().tolist() == [10, 20]
 
 
 def test_same_source_exact_alignment_failure_survives_top_zero(
@@ -423,21 +426,27 @@ def test_source_compare_keeps_large_integer_and_na_zero_policy(
     current = source.select({"value": source["amount"]})
     baseline = source.select({"value": source["baseline"]})
     rows = (
-        current.compare(baseline, on=((current.axes[0], baseline.axes[0]),)).compute().to_pandas()
+        current.compare({"base": baseline}, on={"base": ((current.axes[0], baseline.axes[0]),)})
+        .compute()
+        .to_pandas()
     )
-    assert rows["value", "left.value"].tolist() == [9007199254740993] * 4
-    assert rows["value", "absolute.value"].tolist() == [1] * 4
+    assert rows["value", "value"].tolist() == [9007199254740993] * 4
+    assert rows["value", "base.absolute.value"].tolist() == [1] * 4
     with duckdb.connect(str(tmp_path / "query.duckdb")) as db:
         db.execute("UPDATE orders SET amount=NULL, baseline=0 WHERE id=4")
     nullable = source.where(source["amount"].is_null())
     zero = nullable.select({"value": nullable["baseline"]})
     nullable = nullable.select({"value": nullable["amount"]})
     rows = (
-        nullable.compare(zero, on=((nullable.axes[0], zero.axes[0]),), zero_denominator="error")
+        nullable.compare(
+            {"base": zero},
+            on={"base": ((nullable.axes[0], zero.axes[0]),)},
+            zero_denominator="error",
+        )
         .compute()
         .to_pandas()
     )
-    assert rows["value", "absolute.value"].isna().all()
+    assert rows["value", "base.absolute.value"].isna().all()
 
 
 def _sets(session: Session, operation: str) -> mv.Population:

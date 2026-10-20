@@ -317,7 +317,7 @@ class ArtifactDigest(ArtifactEvidenceSummary):
 
     artifact_ref: ArtifactRef
     items: tuple[OutputEvidence, ...]
-    digest_version: Literal["frame-output-v3"] = "frame-output-v3"
+    digest_version: Literal["frame-output-v4"] = "frame-output-v4"
 
     def __post_init__(self) -> None:
         for value in (
@@ -332,7 +332,7 @@ class ArtifactDigest(ArtifactEvidenceSummary):
             type(self.artifact_ref) is not ArtifactRef
             or type(self.items) is not tuple
             or any(type(item) is not OutputEvidence for item in self.items)
-            or self.digest_version != "frame-output-v3"
+            or self.digest_version != "frame-output-v4"
         ):
             raise invalid("invalid complete output Evidence digest")
 

@@ -50,7 +50,7 @@ def test_new_and_reopened_artifacts_cannot_enter_composition(
         with pytest.raises(AnalysisError):
             session.observe({"value": result})  # type: ignore[dict-item]  # Deliberately pass terminal output as Metric input.
         with pytest.raises(AnalysisError):
-            query.compare(result)  # type: ignore[arg-type]  # Deliberately pass terminal output as Frame input.
+            query.compare({"reference": result})  # type: ignore[arg-type]  # Deliberately pass terminal output as Frame input.
         with pytest.raises(AnalysisError):
             query.align(result)  # type: ignore[arg-type]  # Deliberately pass terminal output as Frame input.
         with pytest.raises(AnalysisError):

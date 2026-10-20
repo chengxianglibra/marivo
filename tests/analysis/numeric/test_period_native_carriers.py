@@ -10,6 +10,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.core.artifact_data import DataSchema
 from marivo.analysis.core.data_types import ScalarDataType
+from marivo.analysis.errors import AnalysisError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.source_fixtures import author_source_project
 from tests.analysis.numeric.test_period_alignment import paired_tables
@@ -20,10 +21,10 @@ from tests.support.source_trace import SourceTrace
 @pytest.mark.parametrize(
     "backend", source_params(("duckdb", "postgres", "mysql", "trino", "clickhouse"))
 )
-@pytest.mark.parametrize("kind", ["ordinal", "period_offset"])
+@pytest.mark.parametrize("kind", ["ordinal", "periods"])
 def test_period_alignment_native_carriers(
     backend: str,
-    kind: Literal["ordinal", "period_offset"],
+    kind: Literal["ordinal", "periods"],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -59,12 +60,22 @@ def test_period_alignment_native_carriers(
         current = session.observe({"value": metric}, by=mv.product(current_axis, members))
         baseline = session.observe({"value": metric}, by=mv.product(baseline_axis, members))
         comparison = current.compare(
+            {"reference": baseline},
+            match={"reference": mv.ordinal() if kind == "ordinal" else mv.offset(periods=-1)},
+            how="outer",
+            on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+        )
+        with pytest.raises(AnalysisError, match="actual baseline time row"):
+            comparison.compute()
+        aligned = current.align(
             baseline,
-            match=mv.ordinal() if kind == "ordinal" else mv.period_offset(-1),
+            match=mv.ordinal() if kind == "ordinal" else mv.offset(periods=-1),
             how="outer",
             on=tuple(zip(current.axes, baseline.axes, strict=True)),
         )
-        result = comparison.compute()
+        result = aligned.select(
+            {"change": aligned["left.value"] - aligned["right.value"]}
+        ).compute()
         frame = result.to_pandas()
         assert len(frame) == 6
         assert set(frame.iloc[:, 1]) == {("a", 1, 1), ("b", 2, 1)}
@@ -72,12 +83,12 @@ def test_period_alignment_native_carriers(
         assert result._schema.axes[0].columns[0].dtype == ScalarDataType("int64")
         assert frame[("presence", "left_present")].sum() == 4
         assert frame[("presence", "right_present")].sum() == 6
-        assert frame[("value", "absolute.value")].dropna().tolist() == (
+        assert frame[("value", "change")].dropna().tolist() == (
             [2, -4, 0, 0] if kind == "ordinal" else [2, 0, -2, 0]
         )
         missing = frame[~frame[("presence", "left_present")]]
         assert len(missing) == 2
-        assert missing[("value", "absolute.value")].isna().all()
+        assert missing[("value", "change")].isna().all()
         mapping, _, _ = paired_tables(frame)
         assert mapping["left.0"].isna().sum() == 1
         absent_pairs = set(mapping.loc[mapping["left.0"].isna()].iloc[:, 0])

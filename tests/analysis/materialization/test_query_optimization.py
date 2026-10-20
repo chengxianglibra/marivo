@@ -721,11 +721,13 @@ def test_multiple_current_consumers_preserve_filter_barriers(optimization_sessio
     source = _wide(optimization_session)
     left = source.where(source["a"] > 10)
     right = source.where(source["a"] < 30)
-    query = left.compare(right, how="outer", on=tuple(zip(left.axes, right.axes, strict=True)))
+    query = left.compare(
+        {"base": right}, how="outer", on={"base": tuple(zip(left.axes, right.axes, strict=True))}
+    )
     _same(optimization_session, query)
     frame = query.compute().to_pandas()
-    assert frame[("presence", "left_present")].tolist() == [True, True, False]
-    assert frame[("presence", "right_present")].tolist() == [True, False, True]
+    assert frame[("presence", "current.present")].tolist() == [True, True, False]
+    assert frame[("presence", "base.present")].tolist() == [True, False, True]
 
 
 def test_float_source_reductions_have_no_exact_fusion_grant(optimization_session: Session) -> None:
@@ -1121,10 +1123,12 @@ def test_decimal_repeating_result_mean_finishes_before_comparison(
     assert frame[("value", "mean")].tolist() == [Decimal("33.33")]
     assert str(frame[("value", "mean")].dtype) == "decimal128(5, 2)[pyarrow]"
     comparison = (
-        mean.compare(mean, on=tuple(zip(mean.axes, mean.axes, strict=True))).compute().to_pandas()
+        mean.compare({"base": mean}, on={"base": tuple(zip(mean.axes, mean.axes, strict=True))})
+        .compute()
+        .to_pandas()
     )
-    assert comparison[("value", "absolute.mean")].tolist() == [Decimal("0.00")]
-    assert comparison[("value", "relative.mean")].tolist() == [0.0]
+    assert comparison[("value", "base.absolute.mean")].tolist() == [Decimal("0.00")]
+    assert comparison[("value", "base.relative.mean")].tolist() == [0.0]
 
 
 def test_composite_coord_column_refuses_during_preparation_before_read_or_run(

@@ -8,10 +8,13 @@ from typing import Literal, TypeAlias
 from unicodedata import category
 
 from marivo.analysis.core.data_schema import (
+    CalendarComparisonBinding,
     CalendarDataAxis,
     DataAxis,
     DataColumn,
+    DataComparison,
     DataSchema,
+    IntervalComparisonBinding,
     IntervalDataAxis,
     PairedDataAxis,
 )
@@ -163,6 +166,7 @@ class PendingDataSchema:
     value_paths: tuple[ValuePath, ...]
     presence: tuple[PendingDataColumn, ...] = ()
     presence_paths: tuple[ValuePath, ...] = ()
+    comparisons: tuple[DataComparison, ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -185,6 +189,7 @@ class PendingDataSchema:
                 "frame.pending.schema",
             )
         _directories(self.values, self.value_paths, self.presence, self.presence_paths)
+        validate_comparisons(self)
         if any(
             column.kind != "boolean" or column.nullable is not False for column in self.presence
         ):
@@ -222,6 +227,7 @@ class PendingDataSchema:
         if (
             schema.value_paths != self.value_paths
             or schema.presence_paths != self.presence_paths
+            or schema.comparisons != self.comparisons
             or tuple(
                 (a.token, a.name, axis_role(a), a.at, tuple(c.slot_id for c in a.columns))
                 for a in self.axes
@@ -375,6 +381,80 @@ def require_complete_structure(schema: DataSchema) -> None:
     coordinate_attachments(schema)
 
 
+def validate_comparisons(schema: DataSchema | PendingDataSchema) -> None:
+    """Resolve retained comparison values and current axes without name inference."""
+    if type(schema.comparisons) is not tuple or any(
+        type(fact) is not DataComparison for fact in schema.comparisons
+    ):
+        reject(
+            "immutable closed named comparison facts",
+            repr(schema.comparisons),
+            "Retain exact typed comparison facts only.",
+            "frame.comparisons",
+        )
+    aliases = tuple((fact.namespace, fact.alias) for fact in schema.comparisons)
+    if len(set(aliases)) != len(aliases):
+        reject(
+            "distinct named comparison aliases",
+            repr(aliases),
+            "Assign each retained named comparison a distinct alias.",
+            "frame.comparisons",
+        )
+    for fact in schema.comparisons:
+        if any(value.value_path not in schema.value_paths for value in fact.values):
+            reject(
+                "comparison bindings resolving to exact current value paths",
+                repr(fact.values),
+                "Update comparison bindings when selecting or renaming values.",
+                "frame.comparisons",
+            )
+        for endpoint in (
+            fact.current_presence,
+            fact.baseline_presence,
+            *fact.enclosing_presence,
+        ):
+            if any(
+                path not in schema.presence_paths
+                for path in (endpoint.path, *endpoint.inherited_paths)
+            ):
+                reject(
+                    "comparison endpoint and inherited flags resolving to exact presence paths",
+                    repr(endpoint),
+                    "Transport every endpoint-presence reference with its current columns.",
+                    "frame.comparisons",
+                )
+        binding = fact.binding
+        if isinstance(binding, (CalendarComparisonBinding, IntervalComparisonBinding)):
+            axes = tuple(axis for axis in schema.axes if axis.token == binding.current_axis_token)
+            expected = (
+                CalendarDataAxis
+                if isinstance(binding, CalendarComparisonBinding)
+                else IntervalDataAxis
+            )
+            if len(axes) != 1 or type(axes[0]) is not expected:
+                reject(
+                    "one current output time axis of the comparison endpoint kind",
+                    binding.current_axis_token,
+                    "Retain the authoritative current time axis or drop its row-level comparison facts.",
+                    "frame.comparisons",
+                )
+            current = axes[0]
+            if current.token == binding.baseline.token or tuple(
+                column.dtype for column in current.columns
+            ) != tuple(column.dtype for column in binding.baseline.columns):
+                reject(
+                    "distinct current and baseline tokens with equal complete key types",
+                    repr(binding),
+                    "Namespace the frozen baseline descriptor and retain complete compatible keys.",
+                    "frame.comparisons",
+                )
+            if isinstance(binding, CalendarComparisonBinding):
+                from marivo.analysis.core.frozen_calendar import require_compatible_calendar_axes
+
+                assert isinstance(current, CalendarDataAxis)
+                require_compatible_calendar_axes(current, binding.baseline)
+
+
 def coordinate_attachments(schema: DataSchema | PendingDataSchema) -> tuple[str, ...]:
     """Validate the reachable local directory and return its owned attachments.
 
@@ -383,10 +463,18 @@ def coordinate_attachments(schema: DataSchema | PendingDataSchema) -> tuple[str,
     This validates metadata only; finite attachment rows belong to consumption.
     """
     descriptors: dict[str, DataAxis | PendingDataAxis] = {}
-    attachments: dict[str, tuple[Literal["calendar", "interval", "paired"], DataAxis]] = {}
+    attachments: dict[
+        str,
+        tuple[
+            Literal["calendar", "interval", "paired", "direct", "comparison"],
+            DataAxis | CalendarComparisonBinding | IntervalComparisonBinding,
+        ],
+    ] = {}
 
     def attachment(
-        name: str, role: Literal["calendar", "interval", "paired"], axis: DataAxis
+        name: str,
+        role: Literal["calendar", "interval", "paired", "direct", "comparison"],
+        axis: DataAxis | CalendarComparisonBinding | IntervalComparisonBinding,
     ) -> None:
         owner = attachments.get(name)
         if owner is not None and owner != (role, axis):
@@ -416,11 +504,15 @@ def coordinate_attachments(schema: DataSchema | PendingDataSchema) -> tuple[str,
         descriptors[axis.token] = axis
         if isinstance(axis, (CalendarDataAxis, IntervalDataAxis)):
             if axis.frozen is not None:
+                if isinstance(axis, CalendarDataAxis) and axis.frozen.direct is not None:
+                    visit(axis.frozen.direct.axis)
                 attachment(
                     axis.frozen.directory_name,
                     "interval" if isinstance(axis, IntervalDataAxis) else "calendar",
                     axis,
                 )
+                if isinstance(axis, CalendarDataAxis) and axis.frozen.direct is not None:
+                    attachment(axis.frozen.direct.mapping_name, "direct", axis)
         elif isinstance(axis, PairedDataAxis):
             visit(axis.left)
             visit(axis.right)
@@ -428,4 +520,9 @@ def coordinate_attachments(schema: DataSchema | PendingDataSchema) -> tuple[str,
 
     for axis in schema.axes:
         visit(axis)
+    for fact in schema.comparisons:
+        binding = fact.binding
+        if isinstance(binding, (CalendarComparisonBinding, IntervalComparisonBinding)):
+            visit(binding.baseline)
+            attachment(binding.mapping_name, "comparison", binding)
     return tuple(attachments)

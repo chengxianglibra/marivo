@@ -350,6 +350,7 @@ def test_calendar_roles_match_across_periods_without_comparing_endpoint_director
                 for cell in grid.cells
             ),
             grid.calendar_snapshot,
+            civil_bounds=grid.civil_bounds,
         )
         return replace(
             bindings(node)[0],
@@ -517,6 +518,7 @@ def test_fixed_additive_window_retains_each_expanded_binding_obligation() -> Non
             for c in grid.cells
         ),
         grid.calendar_snapshot,
+        civil_bounds=grid.civil_bounds,
     )
     leaf = bindings(node)[0]
     captured = tuple(

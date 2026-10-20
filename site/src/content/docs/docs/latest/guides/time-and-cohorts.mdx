@@ -106,19 +106,50 @@ current_days = session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.gr
 prior_days = session.time_scope(start="2026-07-01", end="2026-07-04").by(mv.grain("day"))
 current_daily = session.observe({'revenue': revenue}, by=(current_days,)).compute()
 prior_daily = session.observe({'revenue': revenue}, by=(prior_days,)).compute()
-paired = current_daily.compare(prior_daily, match=mv.ordinal()).compute()
-paired.show()
+comparison = current_daily.compare(
+    {"reference": prior_daily}, match={"reference": mv.ordinal()},
+).compute()
+comparison.show()
 ```
 
-Both inputs have one sole calendar axis, so on is inferred while match is explicit.
-Matching requires compatible complete nominal partitions with actual boundaries
-equal to nominal ones. Filtering preserves original ordinals. A directory's unused
-buckets create no rows; exact checks actual joint row pairing, outer keeps missing
-sides with independent presence. Partial buckets reject under both policies.
+Both inputs have one sole calendar axis, so on is inferred; the explicit
+alias-keyed ordinal rule pairs complete original positions. Filtering never
+renumbers them. Compare retains the current calendar and named baseline facts;
+align owns paired output and a general two-ended time union.
 
-Builtin period_offset supports day/week/month/quarter/year; previous_year supports
-day/month/quarter/year and leaves leap days unmatched. Named calendars support
-ordinal only; named offsets, subday/DST offsets and arbitrary mappings are postponed.
-Rules consume saved labels/directories; no model or timezone rules are reconstructed.
-Paired output retains raw keys, both frozen endpoint descriptions and a map;
-show resolves labels/bounds. No endpoint method or current-only projection is added.
+## Observe exact shifted periods
+
+{/* example: shifted-period-comparison-query */}
+
+```python
+months = session.time_scope(start="2026-08-01", end="2026-08-20T12:00:00Z").by(mv.grain("month"))
+current_progress = session.observe({"revenue": revenue}, by=(months,))
+previous_progress = session.observe(
+    {"revenue": revenue}, by=(months.shift(mv.offset(periods=-1)),),
+)
+progress = current_progress.compare({"mom": previous_progress}, how="outer").compute()
+progress.show()
+```
+
+Each endpoint evaluates the original Metric over its own exact domain, including
+nonadditive formulas. `offset(years=-1)` uses civil years and ISO week-year for
+weeks; `offset(periods=-1)` uses nominal grain distance, never sparse row position.
+Supply exactly one non-boolean integer keyword. Unit-step builtin week/month/year
+shift supports full buckets or prefixes from their bucket starts. The example
+pairs August 1–20 noon with July 1–20 noon; no current range is shortened.
+Missing ISO W53 or civil cutoff dates have no target; selected targets may be
+sparse or empty. No envelope filling, date clamping or ancestor recovery occurs.
+Nonzero target DST gaps/folds reject; zero offsets retain exact captured instants.
+
+A compatible immediate frozen shift relation supplies compare's match; wrong
+anchors or conflicting explicit match reject. Otherwise omitted match is equality.
+Fixed-data complete day/quarter offset matching remains supported; their partial
+buckets reject, while week/month/year prefixes require exact saved progress.
+Ordinal requires complete compatible nominal/actual partitions. Named calendars
+support ordinal only; named/subday offsets and arbitrary maps remain outside the
+scope. Exact checks actual joint keys; outer keeps mapped missing sides with
+independent presence and rejects actual baseline time rows outside the current
+declared domain. Saved endpoint/map facts do not reconstruct Metric, source or
+current timezone rules. A Population contribution selection is unchanged by
+shift; by=P is each endpoint's own complete domain and must be constructed
+explicitly for both periods.

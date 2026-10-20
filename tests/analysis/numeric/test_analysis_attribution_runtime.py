@@ -369,12 +369,16 @@ def test_period_buckets_and_retained_coarsened_partition(
 
     current, baseline = endpoint(8), endpoint(7)
     result = current.compare(
-        baseline, match=mv.ordinal(), on=tuple(zip(current.axes, baseline.axes, strict=True))
+        {"reference": baseline},
+        match={"reference": mv.ordinal()},
+        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
     ).compute()
     compared = plain(result)
     assert len(compared) == 4
-    assert compared["absolute.value"].tolist() == [0, 0, 0, 0]
-    assert compared["left.value"].tolist() == compared["right.value"].tolist() == [1, 1, 1, 1]
+    assert compared["reference.absolute.value"].tolist() == [0, 0, 0, 0]
+    assert (
+        compared["value"].tolist() == compared["reference.baseline.value"].tolist() == [1, 1, 1, 1]
+    )
     assert compared.time_0.tolist() == [0] * 4
     assert compared.key_0.tolist() == ["A", "B", "C", "D"]
     assert compared.key_1.tolist() == ["web"] * 4

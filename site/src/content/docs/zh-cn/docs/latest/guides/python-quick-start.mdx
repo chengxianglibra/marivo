@@ -105,14 +105,16 @@ august = session.time_scope(start="2026-08-01", end="2026-09-01")
 baseline = session.observe({'revenue': revenue}, by=(july, region)).compute()
 current = session.observe({'revenue': revenue}, by=(august, region)).compute()
 change = current.compare(
-    baseline, on=tuple(zip(current.axes, baseline.axes)), match=mv.ordinal(),
+    {"reference": baseline},
+    on={"reference": tuple(zip(current.axes, baseline.axes))},
+    match={"reference": mv.ordinal()},
 )
 change.show()  # Pending comparison; no evaluation.
 saved = change.persist()
 table = saved.to_pandas()
-assert table[("value", "absolute.revenue")].tolist() == [-100, -100]
-assert table[("presence", "left_present")].all()
-assert table[("presence", "right_present")].all()
+assert table[("value", "reference.absolute.revenue")].tolist() == [-100, -100]
+assert table[("presence", "current.present")].all()
+assert table[("presence", "reference.present")].all()
 saved.show(n=20)
 saved.artifact.show()  # Submission and audit only.
 reopened = session.persisted_frame(saved.artifact.id)

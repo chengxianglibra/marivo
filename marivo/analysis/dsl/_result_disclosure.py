@@ -13,7 +13,7 @@ from marivo.analysis._capabilities.dataset_model import (
     ParameterInput as P,
 )
 from marivo.analysis.dsl.column import Column, row_count
-from marivo.analysis.dsl.correspondence import period_offset, previous_year
+from marivo.analysis.dsl.correspondence import offset
 from marivo.analysis.dsl.frame import AnalysisFrame
 
 
@@ -34,23 +34,22 @@ def provider() -> DisclosureProvider:
             "methods.metric.summary",
         ),
         (
-            "period_offset",
-            period_offset,
-            (P("by", "Non-boolean integer offset in the consuming complete calendar authority."),),
+            "offset",
+            offset,
+            (
+                P(
+                    "years",
+                    "Call offset(years=n): non-boolean integer; ISO week-year for weeks, civil year otherwise. Supply no periods keyword.",
+                ),
+                P(
+                    "periods",
+                    "Call offset(periods=n): non-boolean integer nominal grain-period offset. Supply no years keyword.",
+                ),
+            ),
             "CalendarCorrespondence",
-            "Pair calendar periods by a builtin period offset.",
-            "result = period_offset(-1)",
-            ("period_offset",),
-            "inputs.time",
-        ),
-        (
-            "previous_year",
-            previous_year,
-            (),
-            "CalendarCorrespondence",
-            "Pair same-name builtin day/month/quarter/year periods; leap days have no counterpart.",
-            "result = previous_year()",
-            ("previous_year",),
+            "Construct an axis-free civil-year or grain-period offset.",
+            "result = offset(years=-1)",
+            ("offset",),
             "inputs.time",
         ),
     ):
@@ -63,8 +62,8 @@ def provider() -> DisclosureProvider:
                 parameters=parameters,
                 output=output,
                 constraints=(
-                    "Construction reads no rows. period_offset supports builtin day/week/month/quarter/year only; previous_year supports builtin day/month/quarter/year and leap days have no counterpart. Matching rejects partial buckets and incompatible frozen interpretations."
-                    if target in ("period_offset", "previous_year")
+                    "Supply exactly one of years or periods. Construction reads no rows. Missing civil dates are not clamped; week years use ISO week-year. Source shift supports unit week/month/year complete buckets or prefixes; fixed-data complete day/quarter matching remains supported."
+                    if target == "offset"
                     else "row_count is input-independent and counts current rows, including value NA. Population.count() captures an explicit identity domain as a source Metric.",
                 ),
                 effects="Capture an immutable definition without executing it.",
@@ -223,23 +222,26 @@ def provider() -> DisclosureProvider:
             "compare",
             (
                 P(
-                    "baseline",
-                    "Same-Session AnalysisFrame with matching nonempty value names and units; numeric or matching-tick Duration endpoints.",
+                    "baselines",
+                    "Nonempty ordered named same-Session Frame mapping with matching nonempty value paths and units: compatible numeric or matching-tick exact Duration endpoints. current is reserved.",
                 ),
                 P(
                     "on",
-                    "None only for zero axes or one calendar or interval axis per input; explicit mapping pairs every complete axis exactly once.",
+                    "Per-alias complete axis bijections; omitted aliases infer only zero axes or one time axis.",
                 ),
-                P("match", "Explicit supported CalendarCorrespondence or None; never inferred."),
+                P(
+                    "match",
+                    "Per-alias explicit rules; omitted rules use compatible immediate frozen direct relations or equality.",
+                ),
                 P("how", "exact or outer."),
                 P(
                     "zero_denominator",
-                    "null or error for newly computed relative differences only.",
+                    "null or error for newly computed relative differences only; divide by the absolute baseline.",
                 ),
             ),
             "AnalysisFrame",
-            "Emit left.<name>, right.<name>, absolute.<name> and relative.<name> in four ordered groups; relative divides the difference by the absolute baseline.",
-            "result = frame.compare(baseline)",
+            "Retain current values and add <alias>.baseline.<name>, <alias>.absolute.<name> and <alias>.relative.<name>; relative divides the difference by the absolute baseline.",
+            "result = frame.compare({'reference': baseline})",
             ("frame", "baseline"),
             "methods.compare",
         ),
@@ -342,8 +344,10 @@ def provider() -> DisclosureProvider:
                 parameters=parameters,
                 output=output,
                 constraints=(
-                    "Validate parameter shape and Session ownership, reject paired inputs, then require equal axis counts before inferring or validating a complete on mapping. on/outer cannot repair ownership, paired axes, axis count or incompatible key/time types. exact checks actual complete row domains; outer keeps the ordered union. Calendar matching requires complete nominal/actual buckets. Interval ordinal requires one declared record per side with the same boundary timezone; equality uses exact start/end/timezone."
-                    if name in ("align", "compare")
+                    "Validate parameter shape and Session ownership, reject paired inputs, then require equal axis counts before inferring or validating a complete on mapping. on/outer cannot repair ownership, paired axes, axis count or incompatible key/time types. exact checks actual complete row domains; outer keeps the ordered union. Calendar ordinal requires complete nominal/actual buckets; offset also supports saved week/month/year bucket-start prefixes with exactly equal progress. Interval ordinal requires one declared record per side with the same boundary timezone; equality uses exact start/end/timezone."
+                    if name == "align"
+                    else "Validate each named same-Session endpoint and complete on binding; on/outer cannot repair ownership, paired axes, axis count or incompatible key/time types. Current axes and value paths stay unchanged. exact checks every actual complete joint key; outer preserves current order then mapped baseline-only keys in alias order. Reject baseline time rows outside the declared current time domain; use align for a general time union. Compatible direct shift relations may infer match; mismatched anchors or conflicting explicit rules reject. Prefix offset matching supports week/month/year with exact saved progress; ordinal requires complete buckets. current.present and <alias>.present are independent nonnullable row flags, distinct from value NA and inherited current.presence.* / <alias>.presence.*. Duration baseline/absolute preserve the original tick unit; relative is dimensionless. No missing value becomes zero; strict child errors remain required."
+                    if name == "compare"
                     else "Numeric int64/finite float64/Decimal only, not Duration even when resolved during preparation. Use an explicitly defined numeric source expression or external computation for Duration. Both endpoints must share the exact Frame/Session input; align independent Frames first. Different units are allowed without conversion. Each group uses its own common non-NA pair mask after checking both expressions; zero and duplicate values remain. Zero-pair groups and Null categories remain; by=() on empty input returns one row. coefficient is nullable float64 with unit '1'; n_pairs is nonnullable int64 with no unit. Fewer than two pairs or a constant endpoint gives coefficient NA and retains n_pairs; empty grouped input has no rows. Spearman ranks paired values within each group with average ties. Presence is removed, never an implicit sample filter. Use analysis.analysis_frame.reduce with analysis.column.corr and analysis.column.pair_count for named compositions; output names do not infer pairing. Group coefficients/counts cannot reconstruct pooled correlation."
                     if name == "correlate"
                     else "Only same-input numeric Columns (int64/finite float64/Decimal), including self-pairs; Duration rejects during capture or physical preparation. Use a defined numeric source expression or external computation for Duration. Different units are allowed without conversion. Check both expressions, then use a common non-NA mask per group; zero and repeated values count. Self pair_count counts non-NA values. Retain zero-pair groups and counts for constant inputs; coefficient is NA for n<2 or a constant endpoint. corr returns only nullable float64/unit '1'; pair_count returns only nonnullable int64/no unit. No direct execution, arithmetic, automatic count expansion or inferred pair relationship. Use analysis.analysis_frame.reduce to finish; analysis.analysis_frame.correlate supplies the matched two-column result."

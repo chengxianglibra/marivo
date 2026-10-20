@@ -135,8 +135,10 @@ def test_analysis_keeps_typed_correspondence_and_member_values() -> None:
     import marivo.analysis as mv
 
     assert isinstance(mv.ordinal(), mv.CalendarCorrespondence)
-    assert isinstance(mv.period_offset(1), mv.CalendarCorrespondence)
-    assert isinstance(mv.previous_year(), mv.CalendarCorrespondence)
+    assert isinstance(mv.offset(periods=1), mv.CalendarCorrespondence)
+    assert isinstance(mv.offset(years=-1), mv.CalendarCorrespondence)
+    assert not hasattr(mv, "period_offset")
+    assert not hasattr(mv, "previous_year")
     assert callable(mv.identity) and isinstance(mv.Grouping, type)
     assert callable(mv.Population.count)
     assert not hasattr(mv, "member_count")

@@ -171,14 +171,16 @@ def test_ordinary_compare_population_bridge_uses_fixed_keys_and_fresh_values(
     )
     left = left.reduce({"q": left["q"].sum()}, by=(left.axes[1],))
     right = right.reduce({"q": right["q"].sum()}, by=(right.axes[1],))
-    compared = left.compare(right, on=((left.axes[0], right.axes[0]),), how="outer").compute()
+    compared = left.compare(
+        {"reference": right}, on={"reference": ((left.axes[0], right.axes[0]),)}, how="outer"
+    ).compute()
     old = _flat(compared.to_pandas())
     assert list(old.iloc[:, 0]) == ["east", "west"]
-    assert old["absolute.q"].tolist() == [40, 10]
-    selected = compared.where(compared["absolute.q"] >= 20).persist()
+    assert old["reference.absolute.q"].tolist() == [40, 10]
+    selected = compared.where(compared["reference.absolute.q"] >= 20).persist()
     frozen = _flat(selected.to_pandas())
     assert frozen.iloc[:, 0].tolist() == ["east"]
-    assert frozen["absolute.q"].tolist() == [40]
+    assert frozen["reference.absolute.q"].tolist() == [40]
     parents = session.population_from(selected, on=((selected.axes[0], region),))
     with duckdb.connect(str(database)) as connection:
         connection.execute("UPDATE facts SET amount=171 WHERE id=5")
@@ -444,7 +446,7 @@ def test_plain_calendar_parent_and_paired_mixed_parent(session: Session, tmp_pat
             region,
         ),
     ).compute()
-    paired = left.compare(
+    paired = left.align(
         right,
         on=tuple(zip(left.axes, right.axes, strict=True)),
         how="outer",
@@ -780,7 +782,7 @@ def test_paired_structural_missing_side_exact_rejects_before_source_and_outer_ke
     july = session.time_scope(start="2026-07-01", end="2026-07-02").by(mv.grain("day"))
     parent = (
         session.observe({"q": metric}, by=(august,))
-        .compare(
+        .align(
             session.observe({"q": metric}, by=(july,)),
             match=CalendarCorrespondence("ordinal"),
             how="outer",
@@ -1161,3 +1163,21 @@ def test_default_native_decimal_formula_preserves_actual_carrier_and_parent_scop
     empty = unit.where(unit["parent"] < 0).compute()
     assert session.attribute(left, right, by=(channel,), parents=empty).compute().to_pandas().empty
     assert session.runs().items == ()
+
+
+def test_fixed_attribute_method_facts_survive_named_multi_baseline_compare(
+    session: Session,
+) -> None:
+    amount = session.catalog.fields.get("sales.facts.amount")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    endpoint = AttributeEndpoint({"q": amount.sum()}, where=channel != "N")
+    fixed = session.attribute(endpoint, endpoint, by=(channel,), contribution=True).compute()
+    on = tuple(zip(fixed.axes, fixed.axes, strict=True))
+    compared = fixed.compare({"one": fixed, "two": fixed}, on={"one": on, "two": on}).compute()
+    assert len(fixed.method_facts) == 1 and compared.method_facts == fixed.method_facts
+    assert compared.presence_names[:3] == ("current.present", "one.present", "two.present")
+    rows = compared.to_pandas()
+    for alias in ("one", "two"):
+        assert rows[("value", alias + ".absolute.left.q")].dropna().eq(0).all()
+        assert rows[("presence", alias + ".presence.left_present")].all()
+    assert len(compared._backing.metadata.audit.evaluation.inputs) == 1

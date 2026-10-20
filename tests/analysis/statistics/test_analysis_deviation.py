@@ -30,10 +30,12 @@ def test_exported_comparison_supports_pandas_deviation_selection(
     current = monthly(case, "2026-08-01", "2026-09-01")
     baseline = monthly(case, "2026-07-01", "2026-08-01")
     comparison = current.compare(
-        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+        {"reference": baseline},
+        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+        match={"reference": mv.ordinal()},
     )
     artifact = comparison.persist()
-    frame = plain(artifact).rename(columns={"absolute.value": "value"})
+    frame = plain(artifact).assign(value=lambda data: data["reference.absolute.value"])
     before = run_ids(case.session)
     result = deviation(frame, "zscore")
     values = tuple(frame.value)
@@ -69,9 +71,11 @@ def test_exported_scores_select_an_explicit_followup_query(
     current = monthly(case, "2026-08-01", "2026-09-01")
     baseline = monthly(case, "2026-07-01", "2026-08-01")
     comparison = current.compare(
-        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+        {"reference": baseline},
+        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+        match={"reference": mv.ordinal()},
     )
-    frame = plain(comparison.compute()).rename(columns={"absolute.value": "value"})
+    frame = plain(comparison.compute()).assign(value=lambda data: data["reference.absolute.value"])
     before = run_ids(case.session)
     scores = deviation(frame, method)
     selected = scores.loc[scores.score > 0, "key_1"].tolist()

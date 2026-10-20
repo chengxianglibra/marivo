@@ -105,7 +105,7 @@ restrictions. Membership rules belong only to the consumer's explicit
 `memberships=(rule, ...)` parameter on observe or per; they are not coordinates.
 FrameAxis remains a result-owned handle requiring population_from.
 Public grouping wrappers are lowered to existing axis/allocation records before
-fingerprinting, source audit or persistence; Store 14 uses `marivo.frame_output/v3`, including inert interval directories.
+fingerprinting, source audit or persistence; Store 15 uses `marivo.frame_output/v4`, including inert interval directories.
 
 Population preserves ordered complete tuples, ownership and its own selection
 context. Projection/sets operate on its existing axes; classify and directed
@@ -216,16 +216,34 @@ sum does not regain original contributions: row mean 55 differs from original
 questions require explicit Metric observation; there is no equivalent reduce
 replacement for original rollup/drill/share.
 
-Align preserves left/right value groups and adds left_present/right_present,
-then prefixed inherited presence. Compare requires equal value-name sets and
-compatible numeric types/units, emitting left/right/absolute/relative groups in
-left output order. Relative is `(left-right)/abs(right)`; missing endpoint or NA
-makes differences NA, with zero policy applied only to valid pairs. Duration
-endpoints/absolute stay Duration; relative is dimensionless. Exact checks full
-joint keys; outer preserves left rows then right-only rows. Matching names never
-rebind handles. Complete explicit on is required except zero axes or one sole
-interval axis or one sole calendar axis per side. Match is an explicit rule, never inferred from periods.
-Paired inputs cannot be aligned again in this first surface.
+Align preserves left/right value groups and left_present/right_present with
+prefixed inherited flags. Named compare takes a nonempty ordered mapping of
+same-Session Frames; each alias has a complete `on` and optional `match` entry.
+Only zero axes or a sole same-kind time axis permit structural `on` inference.
+Current axes/value paths stay unchanged; each alias adds baseline/absolute/relative
+groups in current value order. Relative is `(current-baseline)/abs(baseline)`;
+missing rows/NA precede zero policy. Duration baseline/absolute retain ticks and
+relative is dimensionless. New row flags are `current.present` / `<alias>.present`;
+inherited flags are `current.presence.*` / `<alias>.presence.*`.
+
+Exact checks complete actual joint keys for every alias. Outer preserves current
+row order then mapped baseline-only keys in alias order; baseline time rows outside
+the current declared time domain reject. Align owns the general time union and
+paired output. Paired inputs reject for both operations; compare's ordinary
+current axes can continue through eligible saved-data operations. A verified
+immediate shift relation may supply named compare's match; an unrelated anchor or
+conflicting explicit rule rejects. Equality without a direct relation guesses no
+offset. Matching names never rebind handles or establish equal Metric definitions.
+
+`offset(*, years=n)` / `offset(*, periods=n)` have mutually exclusive integer
+keywords. `CalendarAxis.shift` constructs exact unit-step builtin week/month/year
+full/prefix targets, including sparse or empty selections and direct absent
+reasons. Each explicit observe evaluates the original Metric independently; a
+saved baseline is not clipped or recomputed from aggregate rows. Selected
+membership and nominal window distances stay distinct. See the owning time and
+[period-comparison contract](period-comparison-design.md).
+
+
 
 Compare is a high-level data API combining full-key alignment, nullable arithmetic,
 validation and standard output construction. `session.attribute` is the explicit-source
@@ -291,7 +309,7 @@ See [Runtime coverage](../../testing/runtime-coverage.md).
 ## Terminal publication, reading and acceptance
 
 Evaluate before Run admission. A Run publishes an existing result ID through the
-single Store 14 transaction. Memory persist does not evaluate; stored persist
+single Store 15 transaction. Memory persist does not evaluate; stored persist
 is metadata-idempotent. One result audit retains inherited source facts and its
 current evaluation, not producer history. Use runs/get_run and output references for publishing history. Unknown outcome uses original transaction reconciliation.
 
@@ -306,13 +324,13 @@ resolves a saved prefix without claiming unread integrity. Raw-key MultiIndex
 export and isolated typed attrs preserve labels/bounds/paired interpretation.
 Exact order and presence/NA remain independent.
 
-Store 14 uses `marivo.frame_output/v3`, `frame.v3` and `frame-output-v3` for all
+Store 15 uses `marivo.frame_output/v4`, `frame.v4` and `frame-output-v4` for all
 Frames, including those without method facts. Method files share the existing atomic
 publication/receipt/reconciliation boundary. Cards show only count, bounded origins
 and a getter pointer. Actual completed native result types are preserved; a Decimal
 witness is not a universal precision guarantee.
 
-Store 14 refuses older data unchanged without migration/dual read. Absent-current
+Store 15 refuses older data unchanged without migration/dual read. Absent-current
 discovery may return None/empty without exposing old data; old-only projects
 cannot initialize a bypass. Preserve the old Store and use a new named Session in
 a fresh project; compatible-version export is a separate workflow. See [cutover](analysis-frame-cutover.md). Static,

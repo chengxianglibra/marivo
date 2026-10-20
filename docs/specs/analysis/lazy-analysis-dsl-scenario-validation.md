@@ -94,16 +94,16 @@ current = s.observe(metrics, by=(september, region)).compute()
 baseline = s.observe(metrics, by=(august, region)).compute()
 left = current.select({"net": current["net"]}).compute()
 right = baseline.select({"net": baseline["net"]}).compute()
-comparison = left.compare(right, on=tuple(zip(left.axes, right.axes)),
-                          match=mv.ordinal()).compute()
-negative = comparison.where(comparison["absolute.net"] < 0)
-focus_frame = negative.top(1, by=negative["absolute.net"], descending=False).compute()
+comparison = left.compare({'reference': right}, on={'reference': tuple(zip(left.axes, right.axes))},
+                          match={'reference': mv.ordinal()}).compute()
+negative = comparison.where(comparison["reference.absolute.net"] < 0)
+focus_frame = negative.top(1, by=negative["reference.absolute.net"], descending=False).compute()
 focus = s.population_from(focus_frame, on=((focus_frame.axes[1], region),))
 focus.show()
 current_detail = s.observe({'net': sales - refunds}, by=(september, region, channel), where=mv.in_population(focus)).compute()
 baseline_detail = s.observe({'net': sales - refunds}, by=(august, region, channel), where=mv.in_population(focus)).compute()
-detail = current_detail.compare(baseline_detail,
-    on=tuple(zip(current_detail.axes, baseline_detail.axes)), match=mv.ordinal(), how="outer").compute()
+detail = current_detail.compare({'reference': baseline_detail},
+    on={'reference': tuple(zip(current_detail.axes, baseline_detail.axes))}, match={'reference': mv.ordinal()}, how="outer").compute()
 budget = s.values(by=(region,), columns={"budget": "CNY"}, rows=(
     (("East",), {"budget": 300}), (("West",), {"budget": 200}),
 )).compute()
@@ -182,9 +182,9 @@ cohort = mv.coordinates(
 )
 baseline = s.observe({'mrr': mrr}, by=mv.product(august, cohort)).compute()
 current = s.observe({'mrr': mrr}, by=mv.product(september, cohort)).compute()
-change = current.compare(baseline, on=tuple(zip(current.axes, baseline.axes)),
-                         match=mv.ordinal()).compute()
-churned = change.where(change["left.mrr"] == 0).compute()
+change = current.compare({'reference': baseline}, on={'reference': tuple(zip(current.axes, baseline.axes))},
+                         match={'reference': mv.ordinal()}).compute()
+churned = change.where(change["mrr"] == 0).compute()
 churned_accounts = s.population_from(churned, on=((churned.axes[1], Accounts),))
 s.frame(churned_accounts).compute().show()
 saas_export = change.to_pandas()
@@ -198,10 +198,10 @@ saas_export = change.to_pandas()
 ```python
 import pandas as pd
 
-pairs = saas_export["value"][["left.mrr", "right.mrr"]]
+pairs = saas_export["value"][["mrr", "reference.baseline.mrr"]]
 if pairs.isna().any().any():
     raise ValueError("The SaaS readout requires non-missing endpoint values.")
-current_mrr, baseline_mrr = pairs["left.mrr"], pairs["right.mrr"]
+current_mrr, baseline_mrr = pairs["mrr"], pairs["reference.baseline.mrr"]
 retention_readout = {
     "nrr": current_mrr.sum() / baseline_mrr.sum(),
     "grr": current_mrr.clip(upper=baseline_mrr).sum() / baseline_mrr.sum(),
@@ -536,7 +536,7 @@ a_units = units.where(units.coord(units.axes[1]) == "A")
 b_units = units.where(units.coord(units.axes[1]) == "B")
 a_mean = a_units.reduce({"mean_workspace_revenue": a_units["revenue"].mean()})
 b_mean = b_units.reduce({"mean_workspace_revenue": b_units["revenue"].mean()})
-descriptive_lift = b_mean.compare(a_mean).compute()
+descriptive_lift = b_mean.compare({'reference': a_mean}).compute()
 experiment_export = units.to_pandas()
 ```
 
@@ -623,11 +623,13 @@ MTD 1220/1300、YTD/since-January 1920/2000。显示起点不截断回看；七�
 
 ### 7.3 同比环比：先计算两个端点，再按期间对应
 
-唯一日历轴可推导 on，match 仍显式。ordinal 用原完整名义序号；builtin period_offset
-支持 day/week/month/quarter/year，previous_year 支持 day/month/quarter/year 且闰日无对应。
-完整名义分区/实际边界准入先于 actual-row exact/outer。过滤不重新编号；未用目录桶不产生行。
-partial 桶在 exact/outer 均拒绝；命名日历仅 ordinal，子日/DST 和 named offsets 延期。
-保存双方冻结目录与配对 map，不加载模型/TZ，也不新增 endpoint 或 current-only 投影。
+唯一日历轴可推导 on；命名 compare 的 match 按别名提供，或消费锚点一致的直接 shift 关系。
+ordinal 保留完整原始名义序号；offset(periods=...) 按名义粒度，offset(years=...) 按民用年
+或 ISO week-year；闰日/目标周/截止日期不存在时无对应，不夹取或缩短本期。
+shift 支持单位步长内建 week/month/year 完整桶或桶首前缀，可返回精确稀疏/全空域。
+数据侧完整 day/quarter offset 保留，部分 day/quarter 拒绝；ordinal 不放宽完整桶准入。
+实际联合键的 exact/outer 先消费冻结映射；compare 保留当前轴与命名说明并拒绝域外实际基期
+时间行，align 保留一般双端并集和 paired 轴。未用目录桶不产生行；不加载模型/当前 TZ。
 
 ### 7.4 终端窗口产物与日格子统计
 

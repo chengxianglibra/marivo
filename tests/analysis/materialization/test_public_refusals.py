@@ -69,9 +69,12 @@ def test_public_composition_refuses_before_source_or_run(
         for refusal, (left, right, sessions) in refusals.items():
             before = [run_ids(item) for item in sessions]
             errors: list[Json] = []
-            for operation in (left.align, left.compare):
+            for operation in ("align", "compare"):
                 with pytest.raises(AnalysisError) as caught:
-                    operation(right)  # type: ignore[arg-type]  # Exercise the runtime Artifact boundary.
+                    if operation == "align":
+                        left.align(right)  # type: ignore[arg-type]  # Exercise the runtime Artifact boundary.
+                    else:
+                        left.compare({"base": right})  # type: ignore[dict-item]  # Exercise the runtime Artifact boundary.
                 error = caught.value
                 assert error.expected and error.received and error.repair is not None
                 assert error.repair.action
@@ -85,7 +88,9 @@ def test_public_composition_refuses_before_source_or_run(
                 )
             if isinstance(right, mv.AnalysisFrame):
                 with pytest.raises(AnalysisError):
-                    right.compare(left, on=tuple(zip(right.axes, left.axes, strict=True)))
+                    right.compare(
+                        {"base": left}, on={"base": tuple(zip(right.axes, left.axes, strict=True))}
+                    )
             assert calls == []
             assert [run_ids(item) for item in sessions] == before
             assert snapshot(previous) == saved
@@ -139,14 +144,14 @@ def test_public_required_output_receipts_block_consumption_without_new_work(
             ),
         )
         previous = current.compare(
-            baseline,
-            match=mv.ordinal(),
-            on=tuple(zip(current.axes, baseline.axes, strict=True)),
+            {"base": baseline},
+            match={"base": mv.ordinal()},
+            on={"base": tuple(zip(current.axes, baseline.axes, strict=True))},
         ).persist()
         frame = previous.to_pandas()
         assert len(frame) == 6
-        assert frame[("value", "left.value")].sum() == 6
-        assert frame[("value", "right.value")].sum() == 0
+        assert frame[("value", "value")].sum() == 6
+        assert frame[("value", "base.baseline.value")].sum() == 0
         assert frame["presence"].all().all()
         data = previous.artifact._manifest.data
         assert any(item.name.startswith("calendar.") for item in data.attachments)

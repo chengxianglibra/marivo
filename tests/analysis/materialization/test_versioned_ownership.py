@@ -137,7 +137,7 @@ def test_versioned_read_foreign_predicates_refuse_before_read_or_run(
                         if operation == "predicate":
                             value.where(~foreign["value"].is_null())
                         else:
-                            value.compare(foreign)
+                            value.compare({"reference": foreign})
                     error = caught.value
                     assert error.expected and error.received and error.repair is not None
                     assert error.repair.action

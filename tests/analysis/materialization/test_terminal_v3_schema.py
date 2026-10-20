@@ -1,4 +1,4 @@
-"""The sole Store14 protocol closes every field and refuses historical v1 bytes."""
+"""The sole Store15 protocol closes every field and refuses historical v1 bytes."""
 
 from dataclasses import fields
 from datetime import datetime, timezone
@@ -46,13 +46,16 @@ def manifest() -> ArtifactManifest:
     return ArtifactManifest("store", "artifact", "session", "run", data, metadata)
 
 
-@pytest.mark.parametrize("historical_format", ["marivo.frame_output/v1", "marivo.frame_output/v2"])
+@pytest.mark.parametrize(
+    "historical_format",
+    ["marivo.frame_output/v1", "marivo.frame_output/v2", "marivo.frame_output/v3"],
+)
 def test_historical_output_envelope_is_rejected_without_rewrite(historical_format: str) -> None:
     before = FROZEN
     historical = parse_json(FROZEN)
     assert isinstance(historical, dict)
     historical["format"] = historical_format
-    with pytest.raises(IntegrityError, match="expected Frame output v3"):
+    with pytest.raises(IntegrityError, match="expected Frame output v4"):
         protocol.decode(canonical_json(historical), ArtifactManifest)
     assert before == FROZEN
 
@@ -64,6 +67,19 @@ def test_one_explicit_closed_type_and_field_inventory() -> None:
     assert "DataProjection" not in protocol._FIELDS
     assert "CanonicalOrder" not in protocol._FIELDS
     assert protocol._FIELDS["InvocationInput"] == ("result_id",)
+    assert protocol._FIELDS["EndpointPresence"] == ("path", "inherited_paths")
+    assert protocol._FIELDS["DataComparison"] == (
+        "alias",
+        "values",
+        "binding",
+        "current_presence",
+        "baseline_presence",
+        "enclosing_presence",
+        "namespace",
+    )
+    assert {"BoundTimeGrid", "CalendarCoordinate", "Metric", "CivilShiftTarget"}.isdisjoint(
+        protocol._FIELDS
+    )
     assert protocol._FIELDS["ArtifactManifest"] == (
         "store_id",
         "artifact_id",
@@ -111,6 +127,11 @@ def test_nested_exact_fields_are_required_and_old_query_marker_is_absent() -> No
     assert '"name":"customer"' in payload
     assert '"at":null' in payload
     assert '"value_paths":[]' in payload
+    assert '"comparisons":[]' in payload
+    with pytest.raises(IntegrityError):
+        protocol.decode(
+            payload.replace('"comparisons":[]', '"legacy_comparisons":[]'), ArtifactManifest
+        )
     invocation = protocol.encode(protocol.InvocationInput("result"))
     assert '"result_id":"result"' in invocation and '"kind"' not in invocation
     with pytest.raises(IntegrityError):

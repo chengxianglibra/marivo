@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
+from datetime import datetime
 
 import ibis
 import ibis.expr.operations as ops
@@ -201,6 +202,46 @@ def prepare_fields(
         return name
 
     table = entities[contribution.root.ref.path].view() if root_table is None else root_table
+    # Calendar membership is independent of the enclosing source read period.
+    # Window bindings own their contribution period instead of the output cells.
+    selected_calendars = tuple(
+        calendar
+        for _, calendar in contribution.calendars
+        if contribution.window_key is None or calendar in contribution.sample_axes
+    )
+
+    def selected_time(time: ir.Value) -> ir.BooleanValue:
+        from marivo.analysis.compiler.observation import temporal_bound
+
+        condition: ir.BooleanValue = ibis.literal(True)
+        for calendar in selected_calendars:
+            cells = (
+                calendar.cells
+                if isinstance(calendar, CalendarCoordinate)
+                else ((calendar.start, calendar.end, calendar.start, calendar.end),)
+            )
+            intervals: list[tuple[datetime, datetime]] = []
+            for _, _, start, end in cells:
+                if intervals and intervals[-1][1] == start:
+                    intervals[-1] = (intervals[-1][0], end)
+                else:
+                    intervals.append((start, end))
+            member: ir.BooleanValue = ibis.literal(False)
+            for left, right in intervals:
+                member = member | (
+                    (time >= temporal_bound(time, left, calendar.timezone))
+                    & (time < temporal_bound(time, right, calendar.timezone))
+                )
+            condition = condition & member
+        return condition
+
+    if (
+        selected_calendars
+        and contribution.time is not None
+        and not contribution.time.path
+        and contribution.time.at is None
+    ):
+        table = table.filter(selected_time(value(contribution.time.field.ref.path, table)))
     if (
         contribution.period is not None
         and contribution.time is not None
@@ -392,6 +433,8 @@ def prepare_fields(
                 if final:
                     table = table.mutate(**{slot: table[renamed[slot]]})
         columns.append((read_key, slot))
+        if read == time_read and selected_calendars:
+            table = table.filter(selected_time(table[slot]))
         if read == time_read and contribution.period is not None:
             from marivo.analysis.compiler.observation import temporal_bound
 

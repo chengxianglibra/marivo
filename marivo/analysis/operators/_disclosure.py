@@ -37,9 +37,9 @@ def provider() -> DisclosureProvider:
                 "CalendarCorrespondence",
                 CalendarCorrespondence,
                 summary="Immutable axis-free calendar rule.",
-                acquisition="Use ordinal(), period_offset(by), or previous_year().",
-                producers=("ordinal", "period_offset", "previous_year"),
-                consumers=("analysis_frame.align", "analysis_frame.compare"),
+                acquisition="Use ordinal(), offset(years=...), or offset(periods=...).",
+                producers=("ordinal", "offset"),
+                consumers=("calendar_axis.shift", "analysis_frame.align", "analysis_frame.compare"),
             ),
             operation(
                 "CalendarCorrespondence.show",
@@ -50,7 +50,7 @@ def provider() -> DisclosureProvider:
                 parameters=(),
                 output="str",
                 constraints=(
-                    "Frozen endpoint calendars bind at AnalysisFrame.align/compare; match is explicit and is never inferred.",
+                    "shift accepts offset only and freezes a direct relation without business reads. align uses explicit match; named compare may consume a verified immediate shift relation, or an explicit per-alias match. ordinal pairs explicit complete endpoints only.",
                 ),
                 effects="Pure value rendering without I/O.",
                 failures=(),

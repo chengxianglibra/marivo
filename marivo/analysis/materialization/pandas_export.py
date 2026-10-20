@@ -77,6 +77,7 @@ def export_frame(
             for axis in schema.axes
         ),
         "units": tuple((column.name, column.unit) for column in schema.values),
+        "comparisons": tuple(asdict(fact) for fact in schema.comparisons),
         "frozen_coordinates": tuple(
             {"name": part.name, "schema": asdict(part.schema), "rows": part.rows.copy(deep=True)}
             for part in attachments

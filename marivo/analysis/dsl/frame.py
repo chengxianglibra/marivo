@@ -52,7 +52,9 @@ from marivo.analysis.core.frame_expression import (
     AttributeProjectValues,
     CompareFrameValues,
     FrameUnaryOperationKind,
+    NamedFrameComparison,
     infer_frame_combine_schema,
+    infer_frame_compare_schema,
     infer_frame_schema,
 )
 from marivo.analysis.core.frame_method_facts import FrameMethodFacts
@@ -371,7 +373,7 @@ class AnalysisFrame:
 
         Args: values: Nonempty ordered mapping of user name segments to bound Columns/literals.
         Returns: A lazy Frame retaining axes and all presence, with only the selected values.
-        Example: ``selected = frame.select({'change': frame['absolute.revenue']})``.
+        Example: ``selected = frame.select({'change': frame['reference.absolute.revenue']})``.
         Constraints: Does not recover removed values or endpoint inputs; no source reads.
         """
         if not isinstance(values, Mapping) or not values:
@@ -569,35 +571,28 @@ class AnalysisFrame:
             )
         )
 
-    def _combine(
+    def _axis_pairs(
         self,
         other: AnalysisFrame,
         *,
         on: tuple[tuple[FrameAxis, FrameAxis], ...] | None,
         match: CalendarCorrespondence | None,
-        how: Literal["exact", "outer"],
-        zero_denominator: Literal["null", "error"] | None,
-    ) -> AnalysisFrame:
-        if (
-            how not in ("exact", "outer")
-            or zero_denominator not in (None, "null", "error")
-            or (match is not None and not isinstance(match, CalendarCorrespondence))
-            or (
-                on is not None
-                and (
-                    type(on) is not tuple
-                    or any(
-                        type(pair) is not tuple
-                        or len(pair) != 2
-                        or any(not isinstance(axis, FrameAxis) for axis in pair)
-                        for pair in on
-                    )
+    ) -> tuple[tuple[int, int], ...]:
+        if (match is not None and not isinstance(match, CalendarCorrespondence)) or (
+            on is not None
+            and (
+                type(on) is not tuple
+                or any(
+                    type(pair) is not tuple
+                    or len(pair) != 2
+                    or any(not isinstance(axis, FrameAxis) for axis in pair)
+                    for pair in on
                 )
             )
         ):
             reject(
                 "closed binary policies and a tuple of FrameAxis pairs",
-                repr((on, match, how, zero_denominator)),
+                repr((on, match)),
                 "Use complete FrameAxis pairs and exact/outer, null/error policies.",
                 "frame.combine",
             )
@@ -650,16 +645,7 @@ class AnalysisFrame:
                 f"Bind each complete axis once from {left_axes!r} to {right_axes!r}.",
                 "frame.combine",
             )
-        pairs = tuple((self._axis_index(a), other._axis_index(b)) for a, b in on)
-        operation = (
-            AlignFrameValues(pairs, how, match)
-            if zero_denominator is None
-            else CompareFrameValues(pairs, how, zero_denominator, match)
-        )
-        schema = infer_frame_combine_schema(self._schema, other._schema, operation)
-        return self._from_expression(
-            self._local, schema, OperationFrameBinding(operation, (self, other))
-        )
+        return tuple((self._axis_index(a), other._axis_index(b)) for a, b in on)
 
     def align(
         self,
@@ -686,47 +672,108 @@ class AnalysisFrame:
         Constraints: Only zero axes or a sole calendar axis per side infer on; ordinary axes
         require explicit mapping. Paired inputs reject. No Catalog or row reads.
         """
-        return self._combine(other, on=on, match=match, how=how, zero_denominator=None)
+        pairs = self._axis_pairs(other, on=on, match=match)
+        operation = AlignFrameValues(pairs, how, match)
+        schema = infer_frame_combine_schema(self._schema, other._schema, operation)
+        return self._from_expression(
+            self._local, schema, OperationFrameBinding(operation, (self, other))
+        )
 
     def compare(
         self,
-        baseline: AnalysisFrame,
+        baselines: Mapping[str, AnalysisFrame],
         *,
-        on: tuple[tuple[FrameAxis, FrameAxis], ...] | None = None,
-        match: CalendarCorrespondence | None = None,
+        on: Mapping[str, tuple[tuple[FrameAxis, FrameAxis], ...]] | None = None,
+        match: Mapping[str, CalendarCorrespondence] | None = None,
         how: Literal["exact", "outer"] = "exact",
         zero_denominator: Literal["null", "error"] = "null",
     ) -> AnalysisFrame:
-        """Compare every equal named numeric value with matching units.
+        """Compare current values with one or more explicitly named baseline Frames.
 
         Args:
-            baseline: Same-Session Frame.
-            on: Complete FrameAxis-pair bijection or None.
-            match: Optional closed calendar rule.
-            how: 'exact' or 'outer'.
-            zero_denominator: 'null' or 'error', default 'null'.
+            baselines: Nonempty ordered mapping of same-Session Frames; current is reserved.
+            on: Per-alias complete axis bijections. Omitted aliases require unique inference.
+            match: Per-alias closed time rules, consistent with any frozen direct relation.
+            how: Exact joint actual domains or an ordered outer union within the current time domain.
+            zero_denominator: Null or error for valid pairs with a zero baseline.
 
         Returns:
-            A lazy Frame with left/right/absolute/relative value groups.
+            A lazy ordinary Frame with current values, named baseline/difference groups and presence.
 
         Example:
-            ``change = current.compare(baseline, match=mv.ordinal())`` for sole compatible
-            calendars.
+            ``change = current.compare({"reference": baseline}, match={"reference": mv.ordinal()})``.
 
-        Constraints: Same nonempty value-name set and units; relative=(left-right)/abs(right).
-        Missing endpoints/NA precede zero policy; Duration differences preserve Duration. No
-        paired inputs, second result type or source replay.
+        Constraints: Equal nonempty numeric value paths and units; no paired inputs. Relative
+        change is (current-baseline)/abs(baseline). Missing rows and NA precede zero policy.
+        No source replay or date inference from alias names.
         """
-        if zero_denominator not in ("null", "error"):
+        from marivo.analysis.core.frame_structure import validate_paths
+
+        if not isinstance(baselines, Mapping) or not baselines:
             reject(
-                "a null/error zero-denominator policy",
-                repr(zero_denominator),
-                "Use zero_denominator='null' or 'error'.",
+                "a nonempty named baseline Frame mapping",
+                repr(baselines),
+                "Pass compare({'reference': baseline}) even for one baseline.",
                 "frame.compare",
             )
-        return self._combine(
-            baseline, on=on, match=match, how=how, zero_denominator=zero_denominator
+        names = tuple(baselines)
+        validate_paths(tuple((name,) for name in names), location="frame.compare.aliases")
+        if "current" in names:
+            reject(
+                "baseline aliases other than current",
+                repr(names),
+                "Rename the baseline alias.",
+                "frame.compare",
+            )
+        if how not in ("exact", "outer") or zero_denominator not in ("null", "error"):
+            reject(
+                "exact/outer and null/error comparison policies",
+                repr((how, zero_denominator)),
+                "Use how='exact' or 'outer' and zero_denominator='null' or 'error'.",
+                "frame.compare",
+            )
+        for mapping in (on, match):
+            if mapping is not None and (
+                not isinstance(mapping, Mapping) or set(mapping) - set(names)
+            ):
+                reject(
+                    "on/match mappings containing only supplied baseline aliases",
+                    repr(mapping),
+                    f"Use the actual baseline aliases {names!r}.",
+                    "frame.compare",
+                )
+        if on is not None and any(type(pairs) is not tuple for pairs in on.values()):
+            reject(
+                "a complete axis-pair tuple for every explicitly supplied on alias",
+                repr(on),
+                "Omit an alias to request inference, or supply its complete axis-pair tuple.",
+                "frame.compare",
+            )
+        if match is not None and any(
+            type(rule) is not CalendarCorrespondence for rule in match.values()
+        ):
+            reject(
+                "a closed calendar rule for every explicitly supplied match alias",
+                repr(match),
+                "Omit an alias for direct inference or equality, or supply ordinal/offset.",
+                "frame.compare",
+            )
+        bindings = tuple(
+            NamedFrameComparison(
+                name,
+                self._axis_pairs(
+                    baseline,
+                    on=None if on is None else on.get(name),
+                    match=None if match is None else match.get(name),
+                ),
+                None if match is None else match.get(name),
+            )
+            for name, baseline in baselines.items()
         )
+        operation = CompareFrameValues(bindings, how, zero_denominator)
+        inputs = (self, *baselines.values())
+        schema = infer_frame_compare_schema(tuple(frame._schema for frame in inputs), operation)
+        return self._from_expression(self._local, schema, OperationFrameBinding(operation, inputs))
 
     def compute(self) -> AnalysisFrame:
         """Complete explicit inputs without publishing or returning partial data.
@@ -1079,15 +1126,11 @@ def _operation_summary(binding: OperationFrameBinding) -> str:
             f"top(n={operation.n}, by={_value_summary(operation.score, source)}, "
             f"descending={operation.descending})"
         )
-    if isinstance(operation, (AlignFrameValues, CompareFrameValues)):
-        name = "compare" if isinstance(operation, CompareFrameValues) else "align"
-        policy = (
-            f", zero_denominator={operation.zero_denominator!r}"
-            if isinstance(operation, CompareFrameValues)
-            else ""
-        )
+    if isinstance(operation, CompareFrameValues):
+        return f"compare(baselines={operation.baselines!r}, how={operation.how!r}, zero_denominator={operation.zero_denominator!r})"
+    if isinstance(operation, AlignFrameValues):
         match = f", match={operation.match!r}" if operation.match is not None else ""
-        return f"{name}(on={operation.pairs!r}, how={operation.how!r}{match}{policy})"
+        return f"align(on={operation.pairs!r}, how={operation.how!r}{match})"
     if isinstance(operation, AttributeContributionValues):
         return f"attribute(parent_how={operation.mapping.how!r}, contribution=True)"
     if isinstance(operation, AttributeInputsValues):

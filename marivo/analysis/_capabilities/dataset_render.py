@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import inspect
 
+from typing_extensions import get_overloads
+
 from marivo.analysis._capabilities.dataset_model import (
     CallableInput,
     NavigationInput,
@@ -94,16 +96,23 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
         signatures = tuple(
             dict.fromkeys(
                 str(
-                    b.signature.replace(
+                    signature.replace(
                         parameters=tuple(
                             p
-                            for name, p in b.signature.parameters.items()
+                            for name, p in signature.parameters.items()
                             if name not in ("self", "cls")
                         ),
                         return_annotation=inspect.Signature.empty,
                     )
                 )
                 for b in descriptor.bindings
+                for signature in (
+                    tuple(
+                        inspect.signature(overload) for overload in get_overloads(b.implementation)
+                    )
+                    if callable(b.implementation) and get_overloads(b.implementation)
+                    else (b.signature,)
+                )
             )
         )
         lines.extend("Signature: " + descriptor.public_entrypoint + s for s in signatures)

@@ -349,6 +349,7 @@ def _calendar_directory(axis: CalendarDataAxis) -> OutputAttachment:
                 ),
                 "nominal_label": pd.Series(["2026-01-01"], dtype="string[pyarrow]"),
                 "ordinal": pd.Series([0], dtype="int64[pyarrow]"),
+                "nominal_ordinal": pd.Series([24300], dtype="int64[pyarrow]"),
                 **{
                     name: pd.Series(
                         [datetime(2026, month, 1, tzinfo=timezone.utc)],
@@ -359,6 +360,22 @@ def _calendar_directory(axis: CalendarDataAxis) -> OutputAttachment:
                         ("nominal_end", 2),
                         ("actual_start", 1),
                         ("actual_end", 2),
+                    )
+                },
+                **{
+                    name: pd.Series(
+                        [
+                            datetime(2026, month, 1, tzinfo=timezone.utc).isoformat(
+                                timespec="microseconds"
+                            )
+                        ],
+                        dtype="string[pyarrow]",
+                    )
+                    for name, month in (
+                        ("nominal_start_civil", 1),
+                        ("nominal_end_civil", 2),
+                        ("actual_start_civil", 1),
+                        ("actual_end_civil", 2),
                     )
                 },
             }

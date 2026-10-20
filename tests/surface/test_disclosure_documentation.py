@@ -150,11 +150,23 @@ def test_latest_attribute_guide_runs_its_actual_tutorial_blocks(
     )
     exec(compile(block(tutorial, "demo-analysis"), "<tutorial-analysis>", "exec"), namespace)
     for marker in (
+        "compare-query",
+        "aligned-absolute-only",
         "attribute-default-investigation",
         "attribute-contribution-facts",
         "attribute-explicit-default-after-refusal",
     ):
         exec(compile(block(guide, marker), "<guide-" + marker + ">", "exec"), namespace)
+    for marker in ("comparison-endpoint-followup", "broadcast-reference"):
+        exec(compile(block(guide, marker), "<guide-" + marker + ">", "exec"), namespace)
+    time_guide = (guides / "time-and-cohorts.mdx").read_text()
+    for marker in ("period-comparison-query", "shifted-period-comparison-query"):
+        exec(compile(block(time_guide, marker), "<time-" + marker + ">", "exec"), namespace)
+    statistics = (guides / "statistics.mdx").read_text()
+    exec(
+        compile(block(statistics, "pandas-paired-statistics"), "<statistics-example>", "exec"),
+        namespace,
+    )
     explained = namespace["explained"]
     assert isinstance(explained, mv.AnalysisFrame)
     rows = explained.to_pandas()

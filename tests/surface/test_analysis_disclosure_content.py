@@ -152,7 +152,7 @@ def test_frame_targets_have_one_semantic_owner_and_no_retired_edges() -> None:
             "calendar_axis.coarsen",
         )
     compare = render_help_text("analysis.analysis_frame.compare")[0]
-    assert "absolute.<name>" in compare and "absolute baseline" in compare
+    assert "<alias>.absolute.<name>" in compare and "absolute baseline" in compare
     assert "on/outer cannot repair ownership" in compare
     assert "partition_by" not in render_help_text("analysis.analysis_frame.top")[0]
     assert (

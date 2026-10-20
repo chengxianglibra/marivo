@@ -128,10 +128,17 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
         by=mv.product(session.time_scope(start="2026-07-01", end="2026-08-01"), members),
     )
     change = values.compare(
-        earlier, on=tuple(zip(values.axes, earlier.axes, strict=True)), match=mv.ordinal()
+        {"reference": earlier},
+        on={"reference": tuple(zip(values.axes, earlier.axes, strict=True))},
+        match={"reference": mv.ordinal()},
     )
     assert isinstance(change, mv.AnalysisFrame)
-    assert change.output_names == ("left.value", "right.value", "absolute.value", "relative.value")
+    assert change.output_names == (
+        "value",
+        "reference.baseline.value",
+        "reference.absolute.value",
+        "reference.relative.value",
+    )
     amounts = session.observe(
         {"count": metric, "revenue": session.catalog.metrics.get("sales.revenue")},
         by=mv.product(august, members),

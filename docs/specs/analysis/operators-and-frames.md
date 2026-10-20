@@ -160,20 +160,34 @@ A new source read may see changes after a selection was fixed.
 
 ## Complete correspondence and comparison
 
-Align/compare pair every complete axis. Ordinary axes require a full explicit
-bijection in on; zero-axis pairs and a sole interval or calendar axis per side have only the
-specified inference. Explicit on never mixes with automatic supplementation.
-FrameAxis/Column belong to the exact receiver, regardless of matching names.
-Exact validates complete joint key domains; outer preserves left order followed
-by right-only rows. Presence is nonnullable boolean and independent of value NA.
+Align and each named compare baseline bind every complete axis. Ordinary axes
+require a full explicit bijection; zero-axis pairs or a sole same-kind time axis
+permit only the specified structural inference. Named compare's `on` and `match`
+are alias-keyed mappings. FrameAxis/Column belong to the exact receiver; matching
+names do not rebind them. Exact checks complete actual joint keys. Compare outer
+starts with current rows and appends mapped baseline-only keys by alias order;
+actual baseline time rows outside the current declared time domain reject. Align
+retains its general two-ended union and paired output.
 
-Align preserves left and right value groups. Compare requires equal names and
-compatible numeric types/units, and emits left/right/absolute/relative groups.
-Absolute is left-right; relative is `(left-right)/abs(right)`. Missing endpoints
-or NA yield NA differences; only a valid pair applies zero-denominator policy.
-Duration endpoints/absolute retain duration, relative is dimensionless. Child
-strict policies stay in force. New generated names use dot-separated immutable
-segments; user value names cannot contain dots or reserved presence names.
+Align preserves left/right values. Compare requires equal nonempty value paths
+and compatible numeric types/units. It keeps current axes/unqualified values and
+adds `<alias>.baseline.*`, `<alias>.absolute.*`, `<alias>.relative.*` in each alias's
+current value order. Absolute is current-baseline and relative divides by the
+absolute baseline. Missing rows/NA yield NA differences before zero policy.
+Duration baseline/absolute retain ticks; relative is dimensionless. Child strict
+policies stay required even after select or Top-0.
+
+Compare row flags are nonnullable `current.present` / `<alias>.present`, distinct
+from value NA; inherited flags use `current.presence.*` / `<alias>.presence.*`.
+Generated paths cannot collide with retained values/presence. Select remaps only
+direct saved value bindings; arithmetic does not gain comparison certification.
+Where/top retain complete frozen directories. Reduce drops row presence and all
+comparison certifications; retained current time axes keep only their own
+interval/calendar explanation. Same-domain equality composition may transport
+exact bindings; displaced time authority leaves only inert transported presence
+facts. No completed result recovers Metric or source evaluation authority.
+
+
 
 A TimeScope in by retains one interval coordinate; single-bucket results keep
 the axis. Interval equality uses exact bounds and boundary timezone. Explicit

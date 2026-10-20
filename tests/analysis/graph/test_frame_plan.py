@@ -102,7 +102,7 @@ def test_calendar_binary_pending_and_concrete_share_one_closed_program() -> None
         FrozenCalendarData,
         PairedDataAxis,
     )
-    from marivo.analysis.core.frame_expression import CompareFrameValues, infer_frame_combine_schema
+    from marivo.analysis.core.frame_expression import AlignFrameValues, infer_frame_combine_schema
 
     ordinary = _schema()
     axis = CalendarDataAxis(
@@ -118,7 +118,7 @@ def test_calendar_binary_pending_and_concrete_share_one_closed_program() -> None
         (PendingDataColumn("amount", "amount", "numeric", True, "CNY"),),
         (("amount",),),
     )
-    operation = CompareFrameValues(((0, 0),), match=CalendarCorrespondence("ordinal"))
+    operation = AlignFrameValues(((0, 0),), match=CalendarCorrespondence("ordinal"))
     captured = infer_frame_combine_schema(pending, concrete, operation)
     result = infer_frame_combine_schema(concrete, concrete, operation)
     assert isinstance(captured, PendingDataSchema)
@@ -467,18 +467,28 @@ def test_paired_reductions_stay_local_and_keep_both_endpoints(
 
 @pytest.mark.parametrize("compare", [False, True])
 def test_binary_self_input_has_one_read_and_two_consumer_occurrences(compare: bool) -> None:
-    from marivo.analysis.compiler.query_program import FrameCombineProgram
-    from marivo.analysis.core.frame_expression import AlignFrameValues, CompareFrameValues
+    from marivo.analysis.compiler.query_program import FrameCombineProgram, FrameCompareProgram
+    from marivo.analysis.core.frame_expression import (
+        AlignFrameValues,
+        CompareFrameValues,
+        NamedFrameComparison,
+    )
 
     schema = _schema()
     leaf = FixedFrameInput("shared", schema)
-    operation = CompareFrameValues(((0, 0),)) if compare else AlignFrameValues(((0, 0),))
+    operation = (
+        CompareFrameValues((NamedFrameComparison("reference", ((0, 0),)),))
+        if compare
+        else AlignFrameValues(((0, 0),))
+    )
     expression = FrameOperation((leaf, leaf), operation)
     compiled = plan_frame(expression, {})
     plan = optimize_query(compiled.lowered.plan)
     assert tuple(type(stage) for stage in plan.stages) == (FrameInput, FrameCompute)
     combine = plan.stages[-1]
-    assert isinstance(combine, FrameCompute) and isinstance(combine.program, FrameCombineProgram)
+    assert isinstance(combine, FrameCompute) and isinstance(
+        combine.program, FrameCompareProgram if compare else FrameCombineProgram
+    )
     assert combine.inputs == ("fixed:0", "fixed:0")
     assert dict(plan.consumers)["fixed:0"] == (combine.stage_id, combine.stage_id)
     reads = 0
@@ -522,11 +532,17 @@ def test_binary_and_unary_arities_are_closed() -> None:
 
 
 def test_self_combination_reuses_the_exact_derived_expression_stage() -> None:
-    from marivo.analysis.core.frame_expression import CompareFrameValues
+    from marivo.analysis.core.frame_expression import CompareFrameValues, NamedFrameComparison
 
     leaf = FixedFrameInput("shared", _schema())
     selected = FrameOperation((leaf,), SelectValues((("amount", ValueSlot(0)),)))
-    compiled = plan_frame(FrameOperation((selected, selected), CompareFrameValues(((0, 0),))), {})
+    compiled = plan_frame(
+        FrameOperation(
+            (selected, selected),
+            CompareFrameValues((NamedFrameComparison("reference", ((0, 0),)),)),
+        ),
+        {},
+    )
     stages = compiled.lowered.plan.stages
     assert tuple(type(stage) for stage in stages) == (FrameInput, FrameCompute, FrameCompute)
     assert stages[-1].inputs == (stages[1].stage_id, stages[1].stage_id)
@@ -546,3 +562,43 @@ def test_native_division_inference_uses_typed_nonnull_proxy() -> None:
     assert selected.values[0].dtype == ScalarDataType("float64")
     assert selected.values[0].nullable is True
     assert selected.values[0].unit == "1"
+
+
+def test_named_compare_has_one_stage_and_one_read_for_three_shared_occurrences() -> None:
+    from marivo.analysis.compiler.query_program import FrameCompareProgram
+    from marivo.analysis.core.frame_expression import CompareFrameValues, NamedFrameComparison
+
+    schema = _schema()
+    leaf = FixedFrameInput("shared", schema)
+    operation = CompareFrameValues(
+        (NamedFrameComparison("one", ((0, 0),)), NamedFrameComparison("two", ((0, 0),)))
+    )
+    plan = optimize_query(
+        plan_frame(FrameOperation((leaf, leaf, leaf), operation), {}).lowered.plan
+    )
+    assert tuple(type(stage) for stage in plan.stages) == (FrameInput, FrameCompute)
+    compare = plan.stages[-1]
+    assert isinstance(compare, FrameCompute) and isinstance(compare.program, FrameCompareProgram)
+    assert compare.inputs == ("fixed:0",) * 3
+    assert dict(plan.consumers)["fixed:0"] == (compare.stage_id,) * 3
+    reads = 0
+
+    def fixed(stage: FrameInput) -> StageOutput:
+        nonlocal reads
+        reads += 1
+        return StageOutput.from_frame(
+            pd.DataFrame({"key": [2, 1], "amount": [8, 3]}), schema.columns, schema.key_fields
+        )
+
+    def forbidden(*args: object) -> StageOutput:
+        raise AssertionError("fixed named compare reached a source reader")
+
+    def compare_inputs(stage: FrameCompute, inputs: tuple[StageOutput, ...]) -> StageOutput:
+        assert inputs[0] is inputs[1] is inputs[2]
+        return run_local(stage, inputs)
+
+    output = run_query_plan(
+        plan, forbidden, forbidden, lambda c, o: None, fixed=fixed, frame=compare_inputs
+    )
+    assert output is not None and len(output.table) == 2 and reads == 1
+    assert plan.required_slots[0].columns == tuple(column.slot_id for column in schema.columns)

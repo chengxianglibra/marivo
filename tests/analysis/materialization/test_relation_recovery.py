@@ -85,12 +85,14 @@ def test_required_terminal_receipts_reject_corruption_without_source(
         by=mv.product(session.time_scope(start="2026-07-01", end="2026-08-01"), members),
     )
     difference = current.compare(
-        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+        {"reference": baseline},
+        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+        match={"reference": mv.ordinal()},
     ).persist()
     previous = current.persist()
     expected = difference.to_pandas()
     previous_rows = previous.to_pandas()
-    assert expected[("value", "absolute.value")].tolist() == [0, 0, 0, 0]
+    assert expected[("value", "reference.absolute.value")].tolist() == [0, 0, 0, 0]
     assert previous_rows[("value", "value")].tolist() == [1, 1, 1, 1]
     runs_before = session.runs().items
 

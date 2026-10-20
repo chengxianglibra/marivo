@@ -12,13 +12,15 @@ import pytest
 
 import marivo.analysis as mv
 from marivo._definition.correspondence import CalendarCorrespondence
+from marivo._temporal_grid import builtin_nominal_ordinal
 from marivo.analysis.compiler.frame_plan import CompiledFramePlan
 from marivo.analysis.compiler.graph_lowering import LoweredRead
 from marivo.analysis.compiler.graph_plan import FrameCompute, FrameInput, LocalCompute
-from marivo.analysis.compiler.query_program import FrameCombineProgram
+from marivo.analysis.compiler.query_program import FrameCompareProgram
 from marivo.analysis.core.artifact_data import OutputAttachment
 from marivo.analysis.core.data_schema import (
     BuiltinCalendarData,
+    CalendarComparisonBinding,
     CalendarDataAxis,
     DataAxis,
     DataSchema,
@@ -102,8 +104,24 @@ def memory(
             "bucket": pd.Series(range(len(labels)), dtype="int64[pyarrow]"),
             "nominal_label": pd.Series(labels, dtype="string[pyarrow]"),
             "ordinal": pd.Series(range(len(labels)), dtype="int64[pyarrow]"),
+            "nominal_ordinal": pd.Series(
+                [builtin_nominal_ordinal(unit, 1, start) for start in starts],
+                dtype="int64[pyarrow]",
+            ),
             **{
                 name: pd.Series(items, dtype="timestamp[us, tz=UTC][pyarrow]")
+                for name, items in (
+                    ("nominal_start", starts),
+                    ("nominal_end", stops),
+                    ("actual_start", (actual_start,) if actual_start is not None else starts),
+                    ("actual_end", stops),
+                )
+            },
+            **{
+                f"{name}_civil": pd.Series(
+                    [bound.isoformat(timespec="microseconds") for bound in items],
+                    dtype="string[pyarrow]",
+                )
                 for name, items in (
                     ("nominal_start", starts),
                     ("nominal_end", stops),
@@ -145,8 +163,10 @@ def memory(
 def test_sole_calendar_automatic_equality_and_explicit_map_agree(local: LocalFrameServices) -> None:
     left = memory(local, ("2026-08-01", "2026-08-02"), (1, 0), (20, 10))
     right = memory(local, ("2026-08-01", "2026-08-02"), (0, 1), (2, 4))
-    automatic = left.compare(right).compute()
-    explicit = left.compare(right, on=((left.axes[0], right.axes[0]),)).compute()
+    automatic = left.compare({"reference": right}).compute()
+    explicit = left.compare(
+        {"reference": right}, on={"reference": ((left.axes[0], right.axes[0]),)}
+    ).compute()
     pd.testing.assert_frame_equal(
         _memory_backing(automatic).data.copy_rows(), _memory_backing(explicit).data.copy_rows()
     )
@@ -165,19 +185,22 @@ def test_frozen_leap_directory_only_entry_does_not_fail_actual_exact(
 ) -> None:
     left = memory(local, ("2024-02-28", "2024-02-29", "2024-03-01"), (2, 0), (30, 10))
     right = memory(local, ("2023-02-28", "2023-03-01"), (0, 1), (2, 3))
-    result = left.compare(right, match=CalendarCorrespondence("previous_year")).compute()
-    assert isinstance(result._schema.axes[0], PairedDataAxis)
+    result = left.compare(
+        {"reference": right}, match={"reference": CalendarCorrespondence("years", -1)}
+    ).compute()
+    assert isinstance(result._schema.axes[0], CalendarDataAxis)
     rows = _memory_backing(result).data.copy_rows()
     assert rows[result._schema.values[2].slot_id].tolist() == [27, 8]
     assert len(rows) == 2
     attachments = _memory_backing(result).data.copy_attachments()
     assert len({attachment.name for attachment in attachments}) == 3
-    paired = result._schema.axes[0]
+    binding = result._schema.comparisons[0].binding
+    assert isinstance(binding, CalendarComparisonBinding)
     mapping = next(
-        attachment for attachment in attachments if attachment.name == paired.mapping_name
+        attachment for attachment in attachments if attachment.name == binding.mapping_name
     )
-    assert mapping.rows["left.0"].tolist() == [0, 1, 2]
-    assert mapping.rows["right.0"].tolist() == [0, pd.NA, 1]
+    assert mapping.rows["bucket"].tolist() == [0, 1, 2]
+    assert mapping.rows["baseline.0"].tolist() == [0, pd.NA, 1]
 
 
 def test_paired_region_reduce_does_not_reconstruct_map_from_presence(
@@ -186,7 +209,7 @@ def test_paired_region_reduce_does_not_reconstruct_map_from_presence(
     left = memory(local, ("2026-08-01",), (0, 0), (10, 20), regions=("A", "B"))
     right = memory(local, ("2026-07-01",), (0,), (2,), regions=("A",))
     pairs = tuple(zip(left.axes, right.axes, strict=True))
-    compared = left.compare(
+    compared = left.align(
         right, on=pairs, match=CalendarCorrespondence("ordinal"), how="outer"
     ).compute()
     assert _memory_backing(compared).data.copy_rows()[
@@ -221,16 +244,18 @@ def test_actual_leap_row_fails_exact_before_projection_and_outer_retains_order(
 ) -> None:
     left = memory(local, ("2024-02-28", "2024-02-29", "2024-03-01"), (2, 1, 0), (30, 20, 10))
     right = memory(local, ("2023-02-28", "2023-03-01"), (0, 1), (2, 3))
-    combined = left.compare(right, match=CalendarCorrespondence("previous_year"))
+    combined = left.compare(
+        {"reference": right}, match={"reference": CalendarCorrespondence("years", -1)}
+    )
     for hidden in (
         combined,
         combined.select({"one": 1}),
-        combined.top(0, by=combined["left.amount"]),
+        combined.top(0, by=combined["amount"]),
     ):
         with pytest.raises(AnalysisError, match="equal actual complete"):
             hidden.compute()
     output = left.compare(
-        right, match=CalendarCorrespondence("previous_year"), how="outer"
+        {"reference": right}, match={"reference": CalendarCorrespondence("years", -1)}, how="outer"
     ).compute()
     rows = _memory_backing(output).data.copy_rows()
     assert rows[_complete_schema(output).key_fields[0]].tolist() == [2, 1, 0]
@@ -247,29 +272,35 @@ def test_sparse_ordinal_and_unobserved_31st_bucket_use_original_directory(
     )
     left = memory(local, july, (2,), (20,))
     right = memory(local, june, (2,), (5,))
-    output = left.compare(right, match=CalendarCorrespondence("ordinal")).compute()
+    output = left.compare(
+        {"reference": right}, match={"reference": CalendarCorrespondence("ordinal")}
+    ).compute()
     assert _memory_backing(output).data.copy_rows()[
         _complete_schema(output).key_fields[0]
     ].tolist() == [2]
-    pair_axis = output._schema.axes[0]
-    assert isinstance(pair_axis, PairedDataAxis)
+    pair_axis = output._schema.comparisons[0].binding
+    assert isinstance(pair_axis, CalendarComparisonBinding)
     mapping = next(
         a
         for a in _memory_backing(output).data.copy_attachments()
         if a.name == pair_axis.mapping_name
     )
     assert len(mapping.rows) == 31
-    assert mapping.rows["right.0"].iloc[-1] is pd.NA
+    assert mapping.rows["baseline.0"].iloc[-1] is pd.NA
     tail = memory(local, july, (30, 2), (30, 20))
     with pytest.raises(AnalysisError, match="equal actual complete"):
-        tail.compare(right, match=CalendarCorrespondence("ordinal")).compute()
-    outer = tail.compare(right, match=CalendarCorrespondence("ordinal"), how="outer").compute()
+        tail.compare(
+            {"reference": right}, match={"reference": CalendarCorrespondence("ordinal")}
+        ).compute()
+    outer = tail.compare(
+        {"reference": right}, match={"reference": CalendarCorrespondence("ordinal")}, how="outer"
+    ).compute()
     assert _memory_backing(outer).data.copy_rows()[
         _complete_schema(outer).key_fields[0]
     ].tolist() == [30, 2]
 
 
-@pytest.mark.parametrize("kind", ["ordinal", "previous_year", "period_offset"])
+@pytest.mark.parametrize("kind", ["ordinal", "years", "periods"])
 @pytest.mark.parametrize("how", ["exact", "outer"])
 def test_filter_cannot_remove_partial_month_admission(
     local: LocalFrameServices, kind: str, how: Literal["exact", "outer"]
@@ -289,25 +320,32 @@ def test_filter_cannot_remove_partial_month_admission(
     rule = (
         CalendarCorrespondence("ordinal")
         if kind == "ordinal"
-        else CalendarCorrespondence("previous_year")
-        if kind == "previous_year"
-        else CalendarCorrespondence("period_offset", -1)
+        else CalendarCorrespondence("years", -1)
+        if kind == "years"
+        else CalendarCorrespondence("periods", -1)
     )
-    combined = filtered.compare(complete, match=rule, how=how)
-    with pytest.raises(AnalysisError, match="complete actual"):
-        combined.top(0, by=combined["left.amount"]).compute()
+    combined = filtered.compare({"reference": complete}, match={"reference": rule}, how=how)
+    with pytest.raises(AnalysisError, match="complete"):
+        combined.top(0, by=combined["amount"]).compute()
 
 
 def test_calendar_region_joint_domain_and_mapping_are_separate(local: LocalFrameServices) -> None:
     left = memory(local, ("2026-08-01", "2026-08-02"), (1, 0), (8, None), regions=("B", "A"))
     right = memory(local, ("2026-07-01", "2026-07-02"), (0, 1), (3, 4), regions=("B", "A"))
     with pytest.raises(AnalysisError, match="complete explicit"):
-        left.compare(right, match=CalendarCorrespondence("ordinal"))
+        left.compare({"reference": right}, match={"reference": CalendarCorrespondence("ordinal")})
     pairs = tuple(zip(left.axes, right.axes, strict=True))
     with pytest.raises(AnalysisError, match="equal actual complete"):
-        left.compare(right, on=pairs, match=CalendarCorrespondence("ordinal")).compute()
+        left.compare(
+            {"reference": right},
+            on={"reference": pairs},
+            match={"reference": CalendarCorrespondence("ordinal")},
+        ).compute()
     output = left.compare(
-        right, on=pairs, match=CalendarCorrespondence("ordinal"), how="outer"
+        {"reference": right},
+        on={"reference": pairs},
+        match={"reference": CalendarCorrespondence("ordinal")},
+        how="outer",
     ).compute()
     rows = _memory_backing(output).data.copy_rows()
     assert list(zip(rows[_complete_schema(output).key_fields[0]], rows["region"], strict=True)) == [
@@ -323,7 +361,7 @@ def test_calendar_region_joint_domain_and_mapping_are_separate(local: LocalFrame
             next(
                 a
                 for a in _memory_backing(output).data.copy_attachments()
-                if a.name.startswith("mapping")
+                if a.name == "comparison.reference.map"
             ).rows
         )
         == 2
@@ -350,9 +388,11 @@ def test_equality_merges_complete_directory_without_renumbering_and_can_recombin
 def test_ordinary_equality_never_guesses_calendar_rule(local: LocalFrameServices) -> None:
     july = memory(local, ("2026-07-01",), (0,), (8,))
     august = memory(local, ("2026-08-01",), (0,), (4,))
-    with pytest.raises(AnalysisError, match="directory conflicts"):
-        august.compare(july).compute()
-    matched = august.compare(july, match=CalendarCorrespondence("period_offset", -31)).compute()
+    with pytest.raises(AnalysisError, match="actual baseline time row"):
+        august.compare({"reference": july}).compute()
+    matched = august.compare(
+        {"reference": july}, match={"reference": CalendarCorrespondence("periods", -31)}
+    ).compute()
     assert _memory_backing(matched).data.copy_rows()[
         matched._schema.values[2].slot_id
     ].tolist() == [-4]
@@ -377,13 +417,15 @@ def test_calendar_metadata_show_and_completed_match_need_no_source_or_timezone(
         forbidden,
     )
     monkeypatch.setattr("marivo.analysis.session.core.Session.catalog", property(forbidden))
-    monkeypatch.setattr("marivo.analysis.core.frame_calendar.parse_timezone", forbidden)
-    pending = left.compare(right, match=CalendarCorrespondence("previous_year"))
+    monkeypatch.setattr("marivo._temporal_grid.parse_timezone", forbidden)
+    pending = left.compare(
+        {"reference": right}, match={"reference": CalendarCorrespondence("years", -1)}
+    )
     with monkeypatch.context() as context:
         context.setattr(CompletedFrameData, "copy_rows", forbidden)
         context.setattr(CompletedFrameData, "copy_attachments", forbidden)
         pending.show(n=0)
-    assert "previous_year" in capsys.readouterr().out
+    assert "years" in capsys.readouterr().out
     result = pending.compute()
     assert _memory_backing(result).data.copy_rows()[result._schema.values[2].slot_id].tolist() == [
         6
@@ -397,7 +439,7 @@ def test_mutated_complete_attachment_is_checked_before_any_consumer(
 ) -> None:
     left = memory(local, ("2026-08-01",), (0,), (8,))
     right = memory(local, ("2026-07-01",), (0,), (2,))
-    output = left.compare(right, match=CalendarCorrespondence("ordinal")).compute()
+    output = left.align(right, match=CalendarCorrespondence("ordinal")).compute()
     paired = output._schema.axes[0]
     assert isinstance(paired, PairedDataAxis)
     mapping = next(
@@ -460,7 +502,10 @@ def test_source_plus_fixed_calendar_match_runs_one_existing_schedule(
 
     monkeypatch.setattr(evaluator, "run_frame_plan", run)
     monkeypatch.setattr(frame_sources, "freeze_calendar", forbidden)
-    pending = source.compare(fixed, match=CalendarCorrespondence("ordinal"))
+    pending = source.compare(
+        {"reference": fixed, "shared": source},
+        match={"reference": CalendarCorrespondence("ordinal")},
+    )
     result = pending.compute()
     assert isinstance(pending._schema, PendingDataSchema)
     pending._schema.complete(_complete_schema(result))
@@ -469,11 +514,17 @@ def test_source_plus_fixed_calendar_match_runs_one_existing_schedule(
     assert any(isinstance(stage, FrameInput) for stage in stages)
     assert (
         sum(
-            isinstance(stage, FrameCompute) and isinstance(stage.program, FrameCombineProgram)
+            isinstance(stage, FrameCompute) and isinstance(stage.program, FrameCompareProgram)
             for stage in stages
         )
         == 1
     )
+    compare_stage = next(
+        stage
+        for stage in stages
+        if isinstance(stage, FrameCompute) and isinstance(stage.program, FrameCompareProgram)
+    )
+    assert len(compare_stage.inputs) == 3 and compare_stage.inputs[0] == compare_stage.inputs[2]
     rows = _memory_backing(result).data.copy_rows()
     assert rows[result._schema.values[0].slot_id].tolist() == [60, 120]
     assert rows[result._schema.values[2].slot_id].tolist() == [0, 0]
@@ -504,7 +555,7 @@ def test_generated_pair_tokens_and_names_avoid_independent_input_names(
         return AnalysisFrame._from_memory(local, result)
 
     left, right = collision(left), collision(right)
-    output = left.compare(
+    output = left.align(
         right,
         on=tuple(zip(left.axes, right.axes, strict=True)),
         match=CalendarCorrespondence("ordinal"),
@@ -548,9 +599,13 @@ def test_named_ordinal_is_source_free_and_level_mismatch_precedes_values(
 
     left = named(memory(local, ("2026-08-01",), (0,), (8,)), "month")
     right = named(memory(local, ("2026-07-01",), (0,), (2,)), "month")
-    automatic = left.compare(right, match=CalendarCorrespondence("ordinal")).compute()
+    automatic = left.compare(
+        {"reference": right}, match={"reference": CalendarCorrespondence("ordinal")}
+    ).compute()
     explicit = left.compare(
-        right, on=((left.axes[0], right.axes[0]),), match=CalendarCorrespondence("ordinal")
+        {"reference": right},
+        on={"reference": ((left.axes[0], right.axes[0]),)},
+        match={"reference": CalendarCorrespondence("ordinal")},
     ).compute()
     pd.testing.assert_frame_equal(
         _memory_backing(automatic).data.copy_rows(), _memory_backing(explicit).data.copy_rows()
@@ -559,20 +614,24 @@ def test_named_ordinal_is_source_free_and_level_mismatch_precedes_values(
         automatic._schema.values[2].slot_id
     ].tolist() == [6]
     with pytest.raises(AnalysisError, match="supported builtin"):
-        left.compare(right, match=CalendarCorrespondence("period_offset", -1))
+        left.compare(
+            {"reference": right}, match={"reference": CalendarCorrespondence("periods", -1)}
+        )
     different = named(memory(local, ("2026-07-01",), (0,), (2,)), "quarter")
     different = different.select({"other_name": different["amount"]}).compute()
     with pytest.raises(AnalysisError, match="compatible frozen"):
-        left.compare(different, match=CalendarCorrespondence("ordinal"))
+        left.compare(
+            {"reference": different}, match={"reference": CalendarCorrespondence("ordinal")}
+        )
 
 
 def test_select_filter_and_top_keep_complete_pair_interpretation(local: LocalFrameServices) -> None:
     left = memory(local, ("2026-08-01", "2026-08-02"), (1, 0), (8, 4))
     right = memory(local, ("2026-07-01", "2026-07-02"), (0, 1), (2, 3))
-    output = left.compare(right, match=CalendarCorrespondence("ordinal")).compute()
-    selected = output.select({"copied": output["absolute.amount"]})
-    filtered = output.where(output["absolute.amount"] > 2)
-    top = output.top(1, by=output["absolute.amount"])
+    output = left.align(right, match=CalendarCorrespondence("ordinal")).compute()
+    selected = output.select({"copied": output["left.amount"]})
+    filtered = output.where(output["left.amount"] > 2)
+    top = output.top(1, by=output["left.amount"])
     for derived in (selected, filtered, top):
         result = derived.compute()
         assert result.presence_names == ("left_present", "right_present")
@@ -620,14 +679,16 @@ def test_paired_mapping_preserves_valid_minimum_temporal_endpoint_keys(
 
     left = temporal(memory(local, ("2026-08-01",), (0,), (8,)))
     right = temporal(memory(local, ("2026-07-01",), (0,), (2,)))
-    output = left.compare(right, match=CalendarCorrespondence("ordinal")).compute()
-    pair = output._schema.axes[0]
-    assert isinstance(pair, PairedDataAxis)
+    output = left.compare(
+        {"reference": right}, match={"reference": CalendarCorrespondence("ordinal")}
+    ).compute()
+    pair = output._schema.comparisons[0].binding
+    assert isinstance(pair, CalendarComparisonBinding)
     mapping = next(
         a for a in _memory_backing(output).data.copy_attachments() if a.name == pair.mapping_name
     )
-    assert pa.array(mapping.rows["left.0"]).cast(pa.int64()).to_pylist() == [-(2**63)]
-    assert pa.array(mapping.rows["right.0"]).cast(pa.int64()).to_pylist() == [-(2**63)]
+    assert pa.array(mapping.rows["bucket"]).cast(pa.int64()).to_pylist() == [-(2**63)]
+    assert pa.array(mapping.rows["baseline.0"]).cast(pa.int64()).to_pylist() == [-(2**63)]
     assert _memory_backing(output).data.copy_rows()[output._schema.values[2].slot_id].tolist() == [
         6
     ]
@@ -661,7 +722,9 @@ def test_empty_actual_domains_keep_nominal_map_without_synthetic_rows(
 ) -> None:
     left = memory(local, ("2026-08-01",), (), ())
     right = memory(local, ("2026-07-01",), (), ())
-    result = left.compare(right, match=CalendarCorrespondence("ordinal")).compute()
+    result = left.compare(
+        {"reference": right}, match={"reference": CalendarCorrespondence("ordinal")}
+    ).compute()
     assert _memory_backing(result).data.row_count == 0
     assert tuple(len(a.rows) for a in _memory_backing(result).data.copy_attachments()) == (1, 1, 1)
 
@@ -726,7 +789,7 @@ def test_captured_source_calendar_errors_precede_values_for_every_carrier(
         forbidden,
     )
     monkeypatch.setattr("marivo.analysis.session.core.Session.catalog", property(forbidden))
-    monkeypatch.setattr("marivo.analysis.core.frame_calendar.parse_timezone", forbidden)
+    monkeypatch.setattr("marivo._temporal_grid.parse_timezone", forbidden)
     monkeypatch.setattr(CompletedFrameData, "copy_rows", forbidden)
     monkeypatch.setattr(CompletedFrameData, "copy_attachments", forbidden)
     expected = "supported builtin" if fault == "hour_rule" else "compatible frozen"
@@ -737,7 +800,7 @@ def test_captured_source_calendar_errors_precede_values_for_every_carrier(
         (fixed_left, fixed_right),
     ):
         with pytest.raises(AnalysisError, match=expected):
-            a.compare(b, match=CalendarCorrespondence("previous_year"))
+            a.compare({"reference": b}, match={"reference": CalendarCorrespondence("years", -1)})
     assert frozen == 2
 
 
@@ -770,7 +833,7 @@ def test_pending_unary_shared_and_paired_axes_retain_exact_frozen_facts(
 
     monkeypatch.setattr(frame_sources, "freeze_calendar", forbidden)
     shared = reduced.align(reduced)
-    paired = reduced.compare(reduced, match=CalendarCorrespondence("ordinal"))
+    paired = reduced.align(reduced, match=CalendarCorrespondence("ordinal"))
     assert isinstance(shared._schema.axes[0], CalendarDataAxis)
     assert shared._schema.axes[0] == captured
     pair = paired._schema.axes[0]
@@ -778,7 +841,7 @@ def test_pending_unary_shared_and_paired_axes_retain_exact_frozen_facts(
     assert pair.left.frozen is not None and pair.right.frozen is not None
     assert captured.frozen is not None
     assert pair.left.frozen.definition == pair.right.frozen.definition == captured.frozen.definition
-    grouped = paired.reduce({"amount": paired["absolute.amount"].sum()}, by=paired.axes)
+    grouped = paired.reduce({"amount": paired["left.amount"].sum()}, by=paired.axes)
     assert grouped._schema.axes[0] is pair
     assert grouped.presence_names == ()
     for pending in (shared, paired, grouped):
@@ -787,7 +850,7 @@ def test_pending_unary_shared_and_paired_axes_retain_exact_frozen_facts(
         pending._schema.complete(_complete_schema(result))
         assert pending._schema.axes == result._schema.axes
     with pytest.raises(AnalysisError, match="without paired"):
-        grouped.compare(grouped)
+        grouped.compare({"reference": grouped})
 
 
 @pytest.mark.parametrize("fault", ["level", "digest"])
@@ -884,4 +947,364 @@ def test_named_source_pending_interpretation_is_checked_before_value_names(
     monkeypatch.setattr(CompletedFrameData, "copy_attachments", forbidden)
     for baseline in (right, frozen):
         with pytest.raises(AnalysisError, match="compatible frozen"):
-            left.compare(baseline, match=CalendarCorrespondence("ordinal"))
+            left.compare(
+                {"reference": baseline}, match={"reference": CalendarCorrespondence("ordinal")}
+            )
+
+
+def _captured_calendar_frame(
+    local: LocalFrameServices, calendar: mv.CalendarAxis, values: tuple[int, ...]
+) -> AnalysisFrame:
+    from marivo.analysis.core.frame_calendar import freeze_calendar
+
+    captured = freeze_calendar(
+        calendar._binding,
+        token="axis.0",
+        name="period",
+        key=DataColumn("bucket", "period", ScalarDataType("int64"), False),
+    )
+    schema = DataSchema(
+        (captured.axis,),
+        (DataColumn("amount", "amount", ScalarDataType("int64"), True, "USD"),),
+        value_paths=(("amount",),),
+    )
+    rows = pd.DataFrame(
+        {
+            "bucket": pd.Series(range(len(values)), dtype="int64[pyarrow]"),
+            "amount": pd.Series(values, dtype="int64[pyarrow]"),
+        }
+    )
+    result = CompletedFrameResult(
+        CompletedFrameData(schema, rows, captured.attachments),
+        FrameResultMetadata(
+            "captured",
+            FrameAudit((), EvaluationRecord(datetime(2026, 10, 19, tzinfo=timezone.utc), (), ())),
+        ),
+    )
+    return AnalysisFrame._from_memory(local, result)
+
+
+def test_named_compare_consumes_direct_frozen_relations_and_equivalent_explicit_intent(
+    local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.analysis.dsl.temporal import exact_scope
+
+    calendar = exact_scope("2026-01-01", "2026-03-01", "UTC").by(mv.grain("month"))
+    current = _captured_calendar_frame(local, calendar, (12, 20))
+    yoy = _captured_calendar_frame(local, calendar.shift(mv.offset(years=-1)), (4, 5))
+    mom = _captured_calendar_frame(local, calendar.shift(mv.offset(periods=-1)), (6, 10))
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("fixed named comparison consulted live time authority")
+
+    monkeypatch.setattr("marivo._temporal_grid.parse_timezone", forbidden)
+    result = current.compare({"yoy": yoy, "mom": mom}).compute()
+    assert isinstance(result._schema.axes[0], CalendarDataAxis)
+    assert result._schema.axes == current._schema.axes
+    rows = result.to_pandas()
+    assert rows[("value", "yoy.absolute.amount")].tolist() == [8, 15]
+    assert rows[("value", "mom.relative.amount")].tolist() == [1.0, 1.0]
+    assert len(_memory_backing(result).data.copy_attachments()) == 5
+    assert len({fact.binding.baseline.token for fact in result._schema.comparisons}) == 2
+    equivalent = current.compare({"yoy": yoy}, match={"yoy": mv.offset(periods=-12)}).compute()
+    assert equivalent.to_pandas()[("value", "yoy.absolute.amount")].tolist() == [8, 15]
+    with pytest.raises(AnalysisError, match="target intentions"):
+        current.compare({"yoy": yoy}, match={"yoy": mv.offset(periods=-1)}).select(
+            {"ignored": 1}
+        ).compute()
+    wrong = memory(local, ("2026-01-01",), (0,), (12,), unit="month", ends=("2026-02-01",))
+    with pytest.raises(AnalysisError, match="immediate current origin domain"):
+        wrong_compare = wrong.compare({"yoy": yoy})
+        wrong_compare.top(0, by=wrong_compare["amount"]).compute()
+
+
+def test_empty_direct_baseline_does_not_hide_conflicting_offset_intent(
+    local: LocalFrameServices,
+) -> None:
+    from marivo.analysis.dsl.temporal import exact_scope
+
+    calendar = exact_scope("2020-12-28", "2021-01-04", "UTC").by(mv.grain("week"))
+    current = _captured_calendar_frame(local, calendar, (7,))
+    absent = _captured_calendar_frame(local, calendar.shift(mv.offset(years=-1)), ())
+    output = current.compare({"yoy": absent}, how="outer").compute()
+    assert output.to_pandas()[("presence", "yoy.present")].tolist() == [False]
+    assert output.to_pandas()[("value", "yoy.baseline.amount")].isna().all()
+    with pytest.raises(AnalysisError, match="target intentions"):
+        current.compare(
+            {"yoy": absent}, match={"yoy": mv.offset(periods=-52)}, how="outer"
+        ).compute()
+
+
+def test_named_compare_rejects_actual_baseline_time_outside_current_domain(
+    local: LocalFrameServices,
+) -> None:
+    current = memory(local, ("2026-08-01", "2026-08-02"), (0, 1), (8, 9))
+    baseline = memory(local, ("2026-07-01", "2026-07-02", "2026-07-03"), (0, 2), (2, 3))
+    for how in ("exact", "outer"):
+        with pytest.raises(AnalysisError, match="actual baseline time row"):
+            current.compare(
+                {"reference": baseline}, match={"reference": mv.ordinal()}, how=how
+            ).compute()
+
+
+def test_explicit_match_uses_saved_endpoints_with_a_different_immediate_origin(
+    local: LocalFrameServices,
+) -> None:
+    from marivo.analysis.dsl.temporal import exact_scope
+
+    march = exact_scope("2026-03-01", "2026-04-01", "UTC").by(mv.grain("month"))
+    january = march.shift(mv.offset(periods=-1)).shift(mv.offset(periods=-1))
+    current = _captured_calendar_frame(local, march, (12,))
+    baseline = _captured_calendar_frame(local, january, (4,))
+    manual = _captured_calendar_frame(
+        local,
+        exact_scope("2026-01-01", "2026-02-01", "UTC").by(mv.grain("month")),
+        (4,),
+    )
+    actual = current.compare({"prior": baseline}, match={"prior": mv.offset(periods=-2)}).compute()
+    control = current.compare({"prior": manual}, match={"prior": mv.offset(periods=-2)}).compute()
+    pd.testing.assert_frame_equal(actual.to_pandas(), control.to_pandas())
+    assert actual.to_pandas()[("value", "prior.absolute.amount")].tolist() == [8]
+    for how in ("exact", "outer"):
+        with pytest.raises(AnalysisError, match="explicit match from the current"):
+            current.compare({"prior": baseline}, how=how).compute()
+    data = _memory_backing(baseline).data
+    endpoint = data.schema.axes[0]
+    assert isinstance(endpoint, CalendarDataAxis)
+    assert endpoint.frozen is not None and endpoint.frozen.direct is not None
+    invalid_endpoint = replace(
+        endpoint,
+        frozen=replace(endpoint.frozen, direct=replace(endpoint.frozen.direct, by=-2)),
+    )
+    invalid = AnalysisFrame._from_memory(
+        local,
+        CompletedFrameResult(
+            CompletedFrameData(
+                replace(data.schema, axes=(invalid_endpoint,)),
+                data.copy_rows(),
+                data.copy_attachments(),
+            ),
+            _memory_backing(baseline).metadata,
+        ),
+    )
+    with pytest.raises(AnalysisError, match="direct map consistent with its frozen target"):
+        current.compare({"prior": invalid}, match={"prior": mv.offset(periods=-2)}).compute()
+
+
+def test_calendar_comparison_continuations_use_full_completed_domain(
+    local: LocalFrameServices,
+) -> None:
+    from marivo.analysis.core.data_schema import OrdinaryComparisonBinding
+
+    current = memory(local, ("2026-01-01",), (0,), (8,))
+    baseline = memory(local, ("2025-01-01",), (0,), (2,))
+    first = current.compare({"reference": baseline}, match={"reference": mv.offset(years=-1)})
+    selected = first.select({"delta": first["reference.absolute.amount"]})
+    extra = memory(local, ("2026-01-01", "2026-01-02"), (0, 1), (3, 4))
+
+    def same_chain(frame: AnalysisFrame) -> AnalysisFrame:
+        return frame.compare({"again": frame})
+
+    def displaced_chain(frame: AnalysisFrame) -> AnalysisFrame:
+        paired = frame.align(extra, how="outer")
+        renamed = paired.select({"saved": paired["left.delta"]})
+        return renamed.compare({"again": renamed})
+
+    shared = selected.align(selected).compute()
+    assert tuple(fact.namespace for fact in shared._schema.comparisons) == (("left",), ("right",))
+    assert all(
+        isinstance(fact.binding, CalendarComparisonBinding) for fact in shared._schema.comparisons
+    )
+    assert len(_memory_backing(shared).data.copy_attachments()) == 5
+
+    def explicit_chain(frame: AnalysisFrame) -> None:
+        paired = frame.align(frame, match=mv.ordinal())
+        fixed = paired.compute()
+        assert isinstance(fixed._schema.axes[0], PairedDataAxis)
+        assert fixed.to_pandas()[("value", "left.delta")].tolist() == [6]
+        assert fixed.to_pandas()[("value", "right.delta")].tolist() == [6]
+        assert tuple(fact.namespace for fact in fixed._schema.comparisons) == (
+            ("left",),
+            ("right",),
+        )
+        assert all(
+            isinstance(fact.binding, OrdinaryComparisonBinding) and fact.values == ()
+            for fact in fixed._schema.comparisons
+        )
+        scalar = paired.select({"constant": 1}).compute()
+        assert scalar.to_pandas()[("value", "constant")].tolist() == [1]
+        assert scalar._schema.comparisons == fixed._schema.comparisons
+
+    explicit_chain(selected)
+    expected_same = same_chain(selected).compute()
+    expected_displaced = displaced_chain(selected).compute()
+    assert len(expected_same._schema.comparisons) == 3
+    assert all(
+        isinstance(fact.binding, CalendarComparisonBinding)
+        for fact in expected_same._schema.comparisons
+    )
+    assert len(_memory_backing(expected_same).data.copy_attachments()) == 7
+    assert expected_same.to_pandas()[("value", "again.absolute.delta")].tolist() == [0]
+    assert len(expected_displaced._schema.comparisons) == 3
+    assert all(
+        isinstance(fact.binding, OrdinaryComparisonBinding) and fact.values == ()
+        for fact in expected_displaced._schema.comparisons[1:]
+    )
+    assert len(_memory_backing(expected_displaced).data.copy_attachments()) == 3
+    assert expected_displaced.to_pandas()[("value", "saved")].tolist() == [6, pd.NA]
+    for fixed in (selected.compute(), selected.persist()):
+        explicit_chain(fixed)
+        same, displaced = same_chain(fixed).compute(), displaced_chain(fixed).compute()
+        assert same._schema == expected_same._schema
+        assert displaced._schema == expected_displaced._schema
+        pd.testing.assert_frame_equal(same.to_pandas(), expected_same.to_pandas())
+        pd.testing.assert_frame_equal(displaced.to_pandas(), expected_displaced.to_pandas())
+    filtered = expected_same.where(expected_same["delta"] > 0)
+    retained = filtered.top(0, by=filtered["delta"]).compute()
+    assert retained._schema.comparisons == expected_same._schema.comparisons
+    assert len(_memory_backing(retained).data.copy_attachments()) == 7
+    reduced = expected_same.reduce({"n": row_count()}, by=expected_same.axes).compute()
+    assert reduced._schema.comparisons == ()
+    assert len(_memory_backing(reduced).data.copy_attachments()) == 1
+    assert reduced.reduce({"n": row_count()}).compute()._schema.axes == ()
+
+
+def test_pending_source_comparison_continuations_match_completed_authority(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    from marivo.analysis.core.data_schema import OrdinaryComparisonBinding
+    from marivo.analysis.dsl import frame_sources
+
+    session = analysis_dsl_case_factory("j2").session
+    source = frame_sources.observe(
+        session._runtime.local,
+        session.catalog._state,
+        session._runtime.connection_config,
+        {"amount": session.catalog.metrics.get("sales.revenue")},
+        by=(session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day")),),
+    )
+    compared = source.compare({"reference": source})
+    selected = compared.select({"delta": compared["reference.absolute.amount"]})
+    assert isinstance(selected._schema, PendingDataSchema)
+    extra = memory(session._runtime.local, ("2026-08-01", "2026-08-02"), (0, 1), (3, 4))
+
+    def chain(frame: AnalysisFrame, *, displaced: bool) -> AnalysisFrame:
+        if displaced:
+            aligned = frame.align(extra, how="outer")
+            frame = aligned.select({"delta": aligned["left.delta"]})
+        return frame.compare({"again": frame})
+
+    pending_same = chain(selected, displaced=False).compute()
+    pending_displaced = chain(selected, displaced=True).compute()
+    assert all(
+        isinstance(fact.binding, CalendarComparisonBinding)
+        for fact in pending_same._schema.comparisons
+    )
+    assert all(
+        isinstance(fact.binding, OrdinaryComparisonBinding) and fact.values == ()
+        for fact in pending_displaced._schema.comparisons[1:]
+    )
+    for fixed in (selected.compute(), selected.persist()):
+        for displaced, expected in ((False, pending_same), (True, pending_displaced)):
+            actual = chain(fixed, displaced=displaced).compute()
+            assert actual._schema == expected._schema
+            pd.testing.assert_frame_equal(actual.to_pandas(), expected.to_pandas())
+
+
+def test_pending_shifted_self_align_owns_only_paired_endpoint_facts(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    from marivo.analysis.dsl import frame_sources
+
+    session = analysis_dsl_case_factory("j2").session
+    shifted = (
+        session.time_scope(start="2027-08-01", end="2027-09-01")
+        .by(mv.grain("month"))
+        .shift(mv.offset(years=-1))
+    )
+    source = frame_sources.observe(
+        session._runtime.local,
+        session.catalog._state,
+        session._runtime.connection_config,
+        {"amount": session.catalog.metrics.get("sales.revenue")},
+        by=(shifted,),
+    )
+    assert isinstance(source._schema, PendingDataSchema)
+    original = source._schema.axes[0]
+    assert isinstance(original, CalendarDataAxis) and original.frozen is not None
+    assert original.frozen.direct is not None
+    pending = source.align(source, match=mv.ordinal())
+    output = pending.compute()
+    pair = output._schema.axes[0]
+    assert isinstance(pair, PairedDataAxis)
+    assert isinstance(pair.left, CalendarDataAxis) and isinstance(pair.right, CalendarDataAxis)
+    assert pair.left.frozen is not None and pair.right.frozen is not None
+    assert pair.left.frozen.direct is None and pair.right.frozen.direct is None
+    assert len(_memory_backing(output).data.copy_attachments()) == 3
+    fixed = source.compute()
+    assert isinstance(fixed._schema.axes[0], CalendarDataAxis)
+    assert fixed._schema.axes[0].frozen == original.frozen
+    completed = fixed.align(fixed, match=mv.ordinal()).compute()
+    assert completed._schema == output._schema
+    pd.testing.assert_frame_equal(completed.to_pandas(), output.to_pandas())
+
+    extra = memory(
+        session._runtime.local,
+        ("2026-08-01", "2026-09-01"),
+        (0, 1),
+        (3, 4),
+        unit="month",
+        ends=("2026-09-01", "2026-10-01"),
+    )
+    expanded = source.align(extra, how="outer")
+    continued = expanded.select({"amount": expanded["left.amount"]}).compute()
+    axis = continued._schema.axes[0]
+    assert isinstance(axis, CalendarDataAxis) and axis.frozen is not None
+    assert axis.frozen.direct is None
+    assert len(_memory_backing(continued).data.copy_attachments()) == 1
+    completed_expanded = fixed.align(extra, how="outer")
+    completed_continued = completed_expanded.select(
+        {"amount": completed_expanded["left.amount"]}
+    ).compute()
+    assert completed_continued._schema == continued._schema
+    pd.testing.assert_frame_equal(completed_continued.to_pandas(), continued.to_pandas())
+
+
+def test_retained_comparison_absence_rejects_true_exact_endpoint_presence(
+    local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    current = memory(local, ("2026-01-01", "2026-01-02"), (0, 1), (8, 9), regions=("A", "A"))
+    baseline = memory(local, ("2025-01-01",), (0,), (2,), regions=("B",))
+    report = current.compare(
+        {"reference": baseline},
+        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+        match={"reference": mv.offset(years=-1)},
+        how="outer",
+    ).compute()
+    # A mapped period need not have an actual baseline row for the current joint category.
+    assert report.to_pandas()[("presence", "reference.present")].tolist() == [False, False, True]
+    inherited = report.align(report, on=tuple(zip(report.axes, report.axes, strict=True))).compute()
+    original = CompletedFrameData.copy_rows
+    for frame, namespace in ((report, ()), (inherited, ("left",))):
+        data = _memory_backing(frame).data
+        fact = next(fact for fact in data.schema.comparisons if fact.namespace == namespace)
+        assert isinstance(fact.binding, CalendarComparisonBinding)
+        path = fact.baseline_presence.path
+        column = data.schema.presence[data.schema.presence_paths.index(path)]
+        invalid = data.copy_rows()
+        invalid.loc[1, column.slot_id] = True
+        with pytest.raises(AnalysisError, match="absent comparison endpoints"):
+            CompletedFrameData(data.schema, invalid, data.copy_attachments())
+
+        def corrupt(
+            value: CompletedFrameData,
+            corrupted_data: CompletedFrameData = data,
+            corrupted_rows: pd.DataFrame = invalid,
+        ) -> pd.DataFrame:
+            return corrupted_rows.copy(deep=True) if value is corrupted_data else original(value)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(CompletedFrameData, "copy_rows", corrupt)
+            scalar = frame.select({"constant": 1})
+            with pytest.raises(AnalysisError, match="absent comparison endpoints"):
+                scalar.top(0, by=scalar["constant"]).compute()

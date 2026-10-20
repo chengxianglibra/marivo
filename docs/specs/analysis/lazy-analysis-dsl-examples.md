@@ -120,15 +120,15 @@ baseline = s.observe({'revenue': revenue, 'orders': orders, 'aov': aov}, by=(aug
 current_revenue = current.select({"revenue": current["revenue"]}).compute()
 baseline_revenue = baseline.select({"revenue": baseline["revenue"]}).compute()
 change = current_revenue.compare(
-    baseline_revenue, on=tuple(zip(current_revenue.axes, baseline_revenue.axes)),
-    match=mv.ordinal(),
+    {'reference': baseline_revenue}, on={'reference': tuple(zip(current_revenue.axes, baseline_revenue.axes))},
+    match={'reference': mv.ordinal()},
     how="outer",
 ).persist()
 change.show(n=10)
 change.artifact.show()
 ```
 
-生成值名为 left.revenue/right.revenue/absolute.revenue/relative.revenue，
+生成值名为 revenue、reference.baseline.revenue、reference.absolute.revenue、reference.relative.revenue，
 presence 独立于 NA。outer 不把缺失端点当零贡献；业务需要空地区贡献时要明确完整源域与 empty 政策。
 每次 source compute 固定自己的读数，不承诺跨读事务快照；比较消费这两份精确数据。
 
@@ -141,9 +141,9 @@ parents.show()
 current_detail = s.observe({'revenue': revenue}, by=(september, region_axis, customer_axis), where=mv.in_population(parents)).compute()
 baseline_detail = s.observe({'revenue': revenue}, by=(august, region_axis, customer_axis), where=mv.in_population(parents)).compute()
 detail = current_detail.compare(
-    baseline_detail,
-    on=tuple(zip(current_detail.axes, baseline_detail.axes)),
-    match=mv.ordinal(), how="outer",
+    {'reference': baseline_detail},
+    on={'reference': tuple(zip(current_detail.axes, baseline_detail.axes))},
+    match={'reference': mv.ordinal()}, how="outer",
 ).compute()
 detail.show()
 ```
@@ -269,15 +269,17 @@ from datetime import timedelta
 
 days = september.by(mv.grain("day"))
 rolling = s.observe({'revenue': revenue.window(mv.trailing_duration(duration=timedelta(days=7)))}, by=(days,)).compute()
-prior_days = august.by(mv.grain("day"))
+prior_days = s.time_scope(start="2026-08-01", end="2026-08-31").by(mv.grain("day"))
 prior = s.observe({'revenue': revenue.window(mv.trailing_duration(duration=timedelta(days=7)))}, by=(prior_days,)).compute()
-paired = rolling.compare(prior, match=mv.ordinal(), how="outer").compute()
+paired = rolling.compare({'reference': prior}, match={'reference': mv.ordinal()}, how="outer").compute()
 paired.show(n=5)
 ```
 
-双方唯一日历轴可推导 on，match 仍显式。完整名义目录不等于实际输出行；过滤不压缩序号。
-保存 paired map/两端冻结描述而不重建 TZ/model。部分桶拒绝 match；named offset、子日/DST
-对应和再次对齐配对轴延期。新月粒度需显式新的 TimeScope.by(month)，不是 days.coarsen。
+双方唯一日历轴可推导 on，本例显式按别名提供 ordinal。基期只声明 8 月前 30 日，对应
+9 月的 30 个完整日桶；compare 不丢弃域外基期行，若要一般双端时间并集应使用 align。
+结果保留本期轴和命名基期目录/映射，不重建 TZ/model。offset 源 shift 支持单位步长
+week/month/year 完整桶或桶首前缀；ordinal 不放宽部分桶。named/子日 offset 与 paired
+输入再次对齐仍不支持。新月粒度需显式 TimeScope.by(month)，不是 days.coarsen。
 
 ## 3. 时间锚点与版本选择
 

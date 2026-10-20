@@ -622,9 +622,12 @@ def test_source_top_keeps_entire_frozen_calendar_directory(
     assert directory.rows["ordinal"].tolist() == list(range(31))
     assert directory.rows["nominal_label"].tolist() == [f"2026-08-{day:02}" for day in range(1, 32)]
     assert directory.schema.axes[0].columns == result._schema.axes[0].columns
-    assert all(
-        column.dtype == TimestampDataType("us", "UTC") for column in directory.schema.values[2:]
-    )
+    boundary_names = ("nominal_start", "nominal_end", "actual_start", "actual_end")
+    assert {
+        column.name: column.dtype
+        for column in directory.schema.values
+        if column.name in boundary_names
+    } == {name: TimestampDataType("us", "UTC") for name in boundary_names}
 
 
 @pytest.mark.parametrize("unmatched", ("exclude", "null"))

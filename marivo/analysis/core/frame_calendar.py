@@ -2,28 +2,26 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Literal, TypeAlias
 
 import pandas as pd
 
 from marivo._definition.types import CalendarCoordinate, IntervalCoordinate
-from marivo._temporal import _BuiltinGrain, _key_token, _SemanticGrain
-from marivo._timezones import parse_timezone
+from marivo._temporal import _BuiltinGrain, _key_token, _SemanticGrain, anchor_from_datetime
+from marivo._temporal_grid import TimeShiftAbsent, TimeShiftMatch, builtin_nominal_ordinal
 from marivo.analysis.core.artifact_data import (
     BuiltinCalendarData,
     CalendarDataAxis,
-    DataAxis,
     DataColumn,
-    DataSchema,
     FrozenCalendarData,
     FrozenIntervalData,
     IntervalDataAxis,
     NamedCalendarData,
     OutputAttachment,
 )
-from marivo.analysis.core.data_types import ScalarDataType, TimestampDataType
+from marivo.analysis.core.data_schema import FrozenCalendarOrigin
 from marivo.analysis.core.model import reject
 
 BuiltinUnit = Literal["second", "minute", "hour", "day", "week", "month", "quarter", "year"]
@@ -43,25 +41,31 @@ _UNITS: dict[str, BuiltinUnit] = {
 class FrozenSourceCalendar:
     axis: CalendarDataAxis
     directory: OutputAttachment
+    additional: tuple[OutputAttachment, ...] = ()
+
+    @property
+    def attachments(self) -> tuple[OutputAttachment, ...]:
+        return (self.directory, *self.additional)
 
 
 def freeze_calendar(
     coordinate: CalendarCoordinate, *, token: str, name: str, key: DataColumn
 ) -> FrozenSourceCalendar:
     grain = coordinate.grain_spec
-    zone = parse_timezone(coordinate.timezone)[1]
     labels: list[str] = []
+    nominal_ordinals: list[int] = []
     if isinstance(grain, _BuiltinGrain):
         definition: BuiltinCalendarData | NamedCalendarData = BuiltinCalendarData(
             _UNITS[grain.unit], grain.count
         )
-        for cell in coordinate.cells:
-            local = cell[0].astimezone(zone)
+        for civil in coordinate.civil_bounds:
+            local = datetime.fromisoformat(civil[0])
             labels.append(
                 local.isoformat(timespec="microseconds")
                 if grain.unit in ("second", "minute", "hour")
                 else local.date().isoformat()
             )
+            nominal_ordinals.append(builtin_nominal_ordinal(grain.unit, grain.count, local))
     elif isinstance(grain, _SemanticGrain):
         snapshot = coordinate.snapshot
         if (
@@ -76,10 +80,14 @@ def freeze_calendar(
                 "frame.calendar",
             )
         definition = NamedCalendarData(grain.calendar.path, snapshot.snapshot_digest, grain.level)
-        for cell in coordinate.cells:
-            start, end = cell[0].astimezone(zone).date(), cell[1].astimezone(zone).date()
+        for civil in coordinate.civil_bounds:
+            start, end = (
+                datetime.fromisoformat(civil[0]).date(),
+                datetime.fromisoformat(civil[1]).date(),
+            )
             if grain.level == "day":
                 labels.append(_key_token(start.isoformat()))
+                nominal_ordinals.append(start.toordinal() - 1)
             else:
                 periods = tuple(
                     period
@@ -95,6 +103,7 @@ def freeze_calendar(
                         "frame.calendar",
                     )
                 labels.append(_key_token(periods[0].key))
+                nominal_ordinals.append(periods[0].global_ordinal)
     else:
         reject(
             "a structured builtin or named grain",
@@ -110,37 +119,106 @@ def freeze_calendar(
         name=name,
         frozen=FrozenCalendarData(definition, directory_name),
     )
-    values = (
-        DataColumn("nominal_label", "nominal_label", ScalarDataType("string"), False),
-        DataColumn("ordinal", "ordinal", ScalarDataType("int64"), False),
-        *(
-            DataColumn(name, name, TimestampDataType("us", "UTC"), False)
-            for name in ("nominal_start", "nominal_end", "actual_start", "actual_end")
-        ),
+    from marivo.analysis.core.frozen_calendar import (
+        calendar_directory_schema,
+        direct_mapping_schema,
     )
-    schema = DataSchema(
-        (DataAxis(token, (key,), name=name),),
-        values,
-        value_paths=tuple((column.name,) for column in values),
-    )
+
+    additional: tuple[OutputAttachment, ...] = ()
+    if coordinate.origin is not None:
+        origin = coordinate.origin
+        grid = origin.grid
+        origin_coordinate = CalendarCoordinate(
+            grid.identity,
+            grid.grain_spec,
+            grid.boundary_timezone,
+            grid.snapshot_digest,
+            tuple(
+                (
+                    anchor_from_datetime(cell.original_start),
+                    anchor_from_datetime(cell.original_end),
+                    anchor_from_datetime(cell.start),
+                    anchor_from_datetime(cell.end),
+                )
+                for cell in grid.cells
+            ),
+            grid.calendar_snapshot,
+            civil_bounds=grid.civil_bounds,
+        )
+        frozen_origin = freeze_calendar(
+            origin_coordinate,
+            token=f"{token}.origin",
+            name=name,
+            key=replace(key, slot_id=f"{key.slot_id}.origin"),
+        )
+        assert axis.frozen is not None
+        mapping_name = f"shift.{token}"
+        axis = replace(
+            axis,
+            frozen=replace(
+                axis.frozen,
+                direct=FrozenCalendarOrigin(
+                    frozen_origin.axis, mapping_name, origin.kind, origin.by
+                ),
+            ),
+        )
+        mapping_schema = direct_mapping_schema(axis)
+        targets = {cell[0].isoformat(): i for i, cell in enumerate(coordinate.cells)}
+        mapping_rows = pd.DataFrame(
+            {
+                frozen_origin.axis.columns[0].slot_id: pd.Series(
+                    range(len(origin.entries)), dtype="int64[pyarrow]"
+                ),
+                "target.0": pd.Series(
+                    [
+                        targets[entry.target_identity]
+                        if isinstance(entry, TimeShiftMatch)
+                        else None
+                        for entry in origin.entries
+                    ],
+                    dtype="int64[pyarrow]",
+                ),
+                "reason": pd.Series(
+                    [
+                        entry.reason if isinstance(entry, TimeShiftAbsent) else None
+                        for entry in origin.entries
+                    ],
+                    dtype="string[pyarrow]",
+                ),
+            }
+        )
+        additional = (
+            frozen_origin.directory,
+            OutputAttachment(mapping_name, mapping_schema, mapping_rows),
+        )
+    schema = calendar_directory_schema(axis)
+    bounds = ("nominal_start", "nominal_end", "actual_start", "actual_end")
     rows = pd.DataFrame(
         {
             key.slot_id: pd.Series(range(len(coordinate.cells)), dtype="int64[pyarrow]"),
             "nominal_label": pd.Series(labels, dtype="string[pyarrow]"),
             "ordinal": pd.Series(range(len(coordinate.cells)), dtype="int64[pyarrow]"),
+            "nominal_ordinal": pd.Series(nominal_ordinals, dtype="int64[pyarrow]"),
             **{
-                column.slot_id: pd.Series(
+                bound: pd.Series(
                     [
                         datetime.fromisoformat(cell[index].astimezone(timezone.utc).isoformat())
                         for cell in coordinate.cells
                     ],
                     dtype="timestamp[us, tz=UTC][pyarrow]",
                 )
-                for index, column in enumerate(values[2:])
+                for index, bound in enumerate(bounds)
+            },
+            **{
+                f"{bound}_civil": pd.Series(
+                    [civil[index] for civil in coordinate.civil_bounds],
+                    dtype="string[pyarrow]",
+                )
+                for index, bound in enumerate(bounds)
             },
         }
     )
-    return FrozenSourceCalendar(axis, OutputAttachment(directory_name, schema, rows))
+    return FrozenSourceCalendar(axis, OutputAttachment(directory_name, schema, rows), additional)
 
 
 @dataclass(frozen=True, slots=True)

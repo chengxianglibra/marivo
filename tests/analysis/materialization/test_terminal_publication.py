@@ -118,6 +118,7 @@ def calendar_constant(session: Session, calendar: mv.CalendarAxis) -> AnalysisFr
             for cell in grid.cells
         ),
         grid.calendar_snapshot,
+        civil_bounds=grid.civil_bounds,
     )
     frozen = freeze_calendar(
         coordinate,
@@ -198,7 +199,7 @@ def test_public_constant_executes_each_invocation_and_reads_committed_output(
         artifact.show()
         assert artifact.artifact.findings().items == ()
         digest = artifact.artifact.evidence_digest()
-        assert digest.digest_version == "frame-output-v3"
+        assert digest.digest_version == "frame-output-v4"
         assert not any(item.kind == "read" for item in digest.items)
     published = session.runs(status="succeeded").items
     assert all(isinstance(run, SucceededRun) for run in published)
@@ -583,7 +584,8 @@ assert type(manifest.data.schema.axes[0]) is CalendarDataAxis
 assert manifest.data.schema.axes[0].timezone == zone
 assert attachment.schema.axes[0].kind == "field"
 assert attachment.schema.axes[0].token == manifest.data.schema.axes[0].token
-assert all(column.dtype == TimestampDataType('us', 'UTC') for column in attachment.schema.values[2:])
+assert all(column.dtype == TimestampDataType('us', 'UTC') for column in attachment.schema.values
+           if column.name in ('nominal_start', 'nominal_end', 'actual_start', 'actual_end'))
 frame = read_output(store.project_root, attachment.schema, attachment.rows)
 starts = pd.date_range('2026-03-28', periods=3, tz=zone).tolist()
 ends = pd.date_range('2026-03-29', periods=3, tz=zone).tolist()
@@ -683,7 +685,7 @@ def test_old_store_rejection_preserves_bytes_and_name_cannot_bypass(tmp_path: Pa
         with pytest.raises(IntegrityError, match="user_version=12"):
             SessionStore.open_existing(tmp_path)
     assert old.read_bytes() == before
-    assert not (old.parent.parent / "v14").exists()
+    assert not (old.parent.parent / "v15").exists()
 
 
 def test_private_cold_roundtrip_does_not_need_producer_or_catalog(
@@ -1085,7 +1087,7 @@ def test_preview_decodes_only_requested_rows_and_skips_unused_parts(
     assert artifact.artifact.findings().items == ()
     artifact.artifact.evidence_digest()
     # Unused attachments are no longer legal: exact attachment closure is tested
-    # by Store14 protocol/frozen-coordinate tests, rather than retaining a bypass.
+    # by Store15 protocol/frozen-coordinate tests, rather than retaining a bypass.
 
 
 def test_wide_artifact_truncation_routes_to_callable_reads(
@@ -1177,6 +1179,47 @@ def test_public_produce_and_cold_read_are_independent_processes(source_session: 
     assert "public-cold-ok" in reopened.stdout
 
 
+def test_period_comparison_endpoints_and_report_cold_recovery(source_session: Session) -> None:
+    import shutil
+
+    root = source_session.project_root
+    worktree = Path(__file__).resolve().parents[3]
+    produced = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "tests.analysis.materialization.terminal_reading_worker",
+            str(root),
+            "period-cold",
+            "period-produce",
+        ],
+        cwd=worktree,
+        text=True,
+        capture_output=True,
+    )
+    assert produced.returncode == 0, produced.stdout + produced.stderr
+    session_id, *identities = produced.stdout.strip().splitlines()[-1].split()
+    assert len(identities) == 3
+    (root / "warehouse.duckdb").unlink()
+    shutil.rmtree(root / "models")
+    reopened = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "tests.analysis.materialization.terminal_reading_worker",
+            str(root),
+            session_id,
+            "period-read",
+            *identities,
+        ],
+        cwd=worktree,
+        text=True,
+        capture_output=True,
+    )
+    assert reopened.returncode == 0, reopened.stdout + reopened.stderr
+    assert "period-cold-ok" in reopened.stdout
+
+
 def test_open_missing_and_foreign_ids_and_invalid_evidence_arguments(session: Session) -> None:
     from marivo.analysis.errors import ArtifactNotFoundError
 
@@ -1234,8 +1277,14 @@ def test_operator_sequence_survives_real_source_finish_and_storage(source_sessio
     assert expected[("value", "amount")].tolist() == [18014398509481986, 10]
     pd.testing.assert_frame_equal(fixed.persist().to_pandas(), expected)
     right = fixed.select({"amount": fixed["amount"] / 2}).compute()
-    for operation in (fixed.align, fixed.compare):
-        combined = operation(right, on=((fixed.axes[0], right.axes[0]),)).compute()
+    for operation in ("align", "compare"):
+        combined = (
+            fixed.align(right, on=((fixed.axes[0], right.axes[0]),))
+            if operation == "align"
+            else fixed.compare(
+                {"reference": right}, on={"reference": ((fixed.axes[0], right.axes[0]),)}
+            )
+        ).compute()
         assert combined.to_pandas()[("coordinate", "axis.0")].tolist() == ["A", pd.NA]
         pd.testing.assert_frame_equal(combined.persist().to_pandas(), combined.to_pandas())
     reduced = fixed.reduce(
@@ -1290,7 +1339,7 @@ def test_method_payload_is_owned_by_same_commit_and_zero_rows_are_checked(
     saved = AnalysisFrame._from_memory(session._runtime.local, result).persist()
     value = committed(saved)
     assert value.method_facts == saved._backing.method_facts
-    assert value.semantics_version == "frame.v3"
+    assert value.semantics_version == "frame.v4"
     descriptor = value.method_facts[0]
     assert descriptor.parent_count == (0 if empty else 1)
     assert descriptor.coordinate_count == descriptor.coordinate_row_count == 0

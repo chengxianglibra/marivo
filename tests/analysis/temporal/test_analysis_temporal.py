@@ -757,24 +757,27 @@ def test_non_key_outer_and_top_order_survive_cold_filter_reduce_republish(
     assert left.to_pandas().iloc[:, 1].tolist() == ["c", "a"]
     assert right.to_pandas().iloc[:, 1].tolist() == ["b", "c"]
     outer = left.compare(
-        right, on=tuple(zip(left.axes, right.axes, strict=True)), match=mv.ordinal(), how="outer"
+        {"reference": right},
+        on={"reference": tuple(zip(left.axes, right.axes, strict=True))},
+        match={"reference": mv.ordinal()},
+        how="outer",
     ).compute()
-    top = outer.top(2, by=outer["left.value"]).compute()
+    top = outer.top(2, by=outer["value"]).compute()
     assert session.runs().items == ()
     outer_rows, top_rows = outer.to_pandas(), top.to_pandas()
     assert outer_rows.iloc[:, 1].tolist() == ["c", "a", "b"]
     assert top_rows.iloc[:, 1].tolist() == ["c", "a"]
-    assert outer_rows[("presence", "left_present")].tolist() == [True, True, False]
-    assert outer_rows[("presence", "right_present")].tolist() == [True, False, True]
-    assert outer_rows[("value", "left.value")].isna().tolist() == [False, False, True]
-    assert outer_rows[("value", "right.value")].isna().tolist() == [False, True, False]
-    assert outer_rows[("value", "absolute.value")].iloc[0] == 20
-    assert outer_rows[("value", "absolute.value")].isna().tolist() == [False, True, True]
+    assert outer_rows[("presence", "current.present")].tolist() == [True, True, False]
+    assert outer_rows[("presence", "reference.present")].tolist() == [True, False, True]
+    assert outer_rows[("value", "value")].isna().tolist() == [False, False, True]
+    assert outer_rows[("value", "reference.baseline.value")].isna().tolist() == [False, True, False]
+    assert outer_rows[("value", "reference.absolute.value")].iloc[0] == 20
+    assert outer_rows[("value", "reference.absolute.value")].isna().tolist() == [False, True, True]
     assert outer_rows.attrs["units"] == (
-        ("left.value", "CNY"),
-        ("right.value", "CNY"),
-        ("absolute.value", "CNY"),
-        ("relative.value", None),
+        ("value", "CNY"),
+        ("reference.baseline.value", "CNY"),
+        ("reference.absolute.value", "CNY"),
+        ("reference.relative.value", None),
     )
     assert len(outer_rows.attrs["frozen_coordinates"]) == 3
     saved_outer, saved_top = outer.persist(), top.persist()
@@ -850,18 +853,18 @@ with ExitStack() as guards:
         outer,top=original['outer'],original['top']
         assert outer.to_pandas().iloc[:,1].tolist()==['c','a','b']
         assert top.to_pandas().iloc[:,1].tolist()==['c','a']
-        filtered=outer.where(outer['left_present']).compute()
+        filtered=outer.where(outer['current.present']).compute()
         rows=filtered.to_pandas()
         assert rows.iloc[:,1].tolist()==['c','a']
-        assert rows[('presence','right_present')].tolist()==[True,False]
-        assert rows[('value','absolute.value')].iloc[0]==20
-        assert rows[('value','absolute.value')].isna().tolist()==[False,True]
-        reduced=filtered.reduce({'total':filtered['absolute.value'].sum()},by=(filtered.axes[0],)).compute()
+        assert rows[('presence','reference.present')].tolist()==[True,False]
+        assert rows[('value','reference.absolute.value')].iloc[0]==20
+        assert rows[('value','reference.absolute.value')].isna().tolist()==[False,True]
+        reduced=filtered.reduce({'total':filtered['reference.absolute.value'].sum()},by=(filtered.axes[0],)).compute()
         totals=reduced.to_pandas()
         assert totals[('value','total')].tolist()==[30-10]
         assert reduced.presence_names==()
         assert totals.attrs['units']==(('total','CNY'),)
-        assert len(totals.attrs['frozen_coordinates'])==3
+        assert len(totals.attrs['frozen_coordinates'])==1
         assert run_ids(session)==before
         copied={}
         for name,result in (('filtered',filtered),('reduced',reduced)):
@@ -905,10 +908,10 @@ with ExitStack() as guards:
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("rule_name", ["ordinal", "period_offset", "previous_year"])
+@pytest.mark.parametrize("rule_name", ["ordinal", "periods", "years"])
 def test_calendar_rules_keep_captured_facts_across_carriers(
     analysis_dsl_case_factory: DslCaseFactory,
-    rule_name: Literal["ordinal", "period_offset", "previous_year"],
+    rule_name: Literal["ordinal", "periods", "years"],
 ) -> None:
     import os
     import shutil
@@ -929,16 +932,16 @@ def test_calendar_rules_keep_captured_facts_across_carriers(
     session = case.session
     metric = session.catalog.metrics.get("sales.revenue")
     current_scope = session.time_scope(start="2026-08-01", end="2026-09-01")
-    year = rule_name == "previous_year"
+    year = rule_name == "years"
     previous_scope = session.time_scope(
         start="2025-08-01" if year else "2026-07-01",
         end="2025-09-01" if year else "2026-08-01",
     )
     rule = (
-        mv.previous_year()
+        mv.offset(years=-1)
         if year
-        else mv.period_offset(-1)
-        if rule_name == "period_offset"
+        else mv.offset(periods=-1)
+        if rule_name == "periods"
         else mv.ordinal()
     )
     left = session.observe({"value": metric}, by=(current_scope.by(mv.grain("month")),))
@@ -947,30 +950,34 @@ def test_calendar_rules_keep_captured_facts_across_carriers(
     left_memory, right_memory = left.compute(), right.compute()
     left_saved, right_saved = left_memory.persist(), right_memory.persist()
     for first, second in ((left, right), (left_memory, right_memory), (left_saved, right_saved)):
-        inferred = first.compare(second, match=rule).compute()
+        inferred = first.compare({"reference": second}, match={"reference": rule}).compute()
         explicit = first.compare(
-            second, on=((first.axes[0], second.axes[0]),), match=rule
+            {"reference": second},
+            on={"reference": ((first.axes[0], second.axes[0]),)},
+            match={"reference": rule},
         ).compute()
         actual = inferred.to_pandas()
         pd.testing.assert_frame_equal(actual, explicit.to_pandas())
-        assert actual[("value", "left.value")].tolist() == [1000]
-        assert actual[("value", "right.value")].tolist() == [expected_right]
-        assert actual[("value", "absolute.value")].tolist() == [1000 - expected_right]
-        assert actual[("presence", "left_present")].tolist() == [True]
-        assert actual[("presence", "right_present")].tolist() == [True]
+        assert actual[("value", "value")].tolist() == [1000]
+        assert actual[("value", "reference.baseline.value")].tolist() == [expected_right]
+        assert actual[("value", "reference.absolute.value")].tolist() == [1000 - expected_right]
+        assert actual[("presence", "current.present")].tolist() == [True]
+        assert actual[("presence", "reference.present")].tolist() == [True]
         assert len(actual.attrs["frozen_coordinates"]) == 3
-        assert actual.attrs["axes"][0]["role"] == "paired"
+        assert actual.attrs["axes"][0]["role"] == "calendar"
     scalar = session.observe({"value": metric}, by=(current_scope,)).compute()
     with pytest.raises(AnalysisError, match="calendar"):
-        scalar.compare(scalar, match=rule)
+        scalar.compare({"reference": scalar}, match={"reference": rule})
     partial = session.observe(
         {"value": metric},
         by=(session.time_scope(start="2026-08-15", end="2026-09-01").by(mv.grain("month")),),
     ).compute()
     empty_partial = partial.where(partial["value"] > 10000).compute()
     for how in ("exact", "outer"):
-        with pytest.raises(AnalysisError, match="complete actual coverage"):
-            empty_partial.compare(right_memory, match=rule, how=how).compute()
+        with pytest.raises(AnalysisError, match=r"complete|prefix"):
+            empty_partial.compare(
+                {"reference": right_memory}, match={"reference": rule}, how=how
+            ).compute()
     state = checked(
         {
             "session": session.id,
@@ -1008,12 +1015,12 @@ with ExitStack() as guards:
     session=mv.session.resume(state['session']); before=run_ids(session)
     left=session.persisted_frame(state['left']); right=session.persisted_frame(state['right'])
     assert [snapshot(left),snapshot(right)]==state['snapshots']
-    rule=mv.previous_year() if state['rule']=='previous_year' else mv.period_offset(-1) if state['rule']=='period_offset' else mv.ordinal()
-    output=left.compare(right,match=rule).compute()
+    rule=mv.offset(years=-1) if state['rule']=='years' else mv.offset(periods=-1) if state['rule']=='periods' else mv.ordinal()
+    output=left.compare({'reference': right},match={'reference': rule}).compute()
     rows=output.to_pandas()
-    assert rows[('value','left.value')].tolist()==[1000]
-    assert rows[('value','right.value')].tolist()==[state['right_value']]
-    assert rows[('value','absolute.value')].tolist()==[1000-state['right_value']]
+    assert rows[('value','value')].tolist()==[1000]
+    assert rows[('value','reference.baseline.value')].tolist()==[state['right_value']]
+    assert rows[('value','reference.absolute.value')].tolist()==[1000-state['right_value']]
     assert len(rows.attrs['frozen_coordinates'])==3
     assert run_ids(session)==before
     print(os.getpid())

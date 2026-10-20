@@ -26,11 +26,17 @@ from marivo._definition.query import (
 )
 from marivo._definition.types import CalendarCoordinate
 from marivo.analysis.core.data_schema import (
+    CalendarComparisonBinding,
     CalendarDataAxis,
+    ComparisonValueBinding,
     DataAxis,
     DataColumn,
+    DataComparison,
     DataSchema,
+    EndpointPresence,
+    IntervalComparisonBinding,
     IntervalDataAxis,
+    OrdinaryComparisonBinding,
     PairedDataAxis,
 )
 from marivo.analysis.core.data_types import (
@@ -71,11 +77,17 @@ class AlignFrameValues:
 
 
 @dataclass(frozen=True, slots=True)
-class CompareFrameValues:
+class NamedFrameComparison:
+    alias: str
     pairs: tuple[tuple[int, int], ...]
+    match: CalendarCorrespondence | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CompareFrameValues:
+    baselines: tuple[NamedFrameComparison, ...]
     how: Literal["exact", "outer"] = "exact"
     zero_denominator: Literal["null", "error"] = "null"
-    match: CalendarCorrespondence | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,10 +127,10 @@ class AttributeProjectValues:
     how: Literal["exact", "outer"] = "exact"
 
 
-FrameBinaryOperationKind: TypeAlias = AlignFrameValues | CompareFrameValues
 FrameOperationKind: TypeAlias = (
     FrameUnaryOperationKind
-    | FrameBinaryOperationKind
+    | AlignFrameValues
+    | CompareFrameValues
     | AttributeFrameValues
     | AttributeInputsValues
     | AttributeContributionValues
@@ -421,6 +433,23 @@ def infer_frame_schema(
             "Acquire by axes from this Frame.",
             "frame.reduce",
         )
+    comparisons = (
+        tuple(
+            replace(
+                fact,
+                values=tuple(
+                    replace(binding, value_path=path)
+                    for (path, (_, expression)) in zip(paths, operation.values, strict=True)
+                    if isinstance(expression, ValueSlot)
+                    for binding in fact.values
+                    if binding.value_path == schema.value_paths[expression.index]
+                ),
+            )
+            for fact in schema.comparisons
+        )
+        if isinstance(operation, SelectValues)
+        else ()
+    )
     if isinstance(schema, PendingDataSchema):
         pending: list[PendingDataColumn] = []
         for index, (name, expression) in enumerate(operation.values):
@@ -454,6 +483,7 @@ def infer_frame_schema(
             paths,
             schema.presence if isinstance(operation, SelectValues) else (),
             schema.presence_paths if isinstance(operation, SelectValues) else (),
+            comparisons,
         )
     concrete: list[DataColumn] = []
     for index, (name, item) in enumerate(operation.values):
@@ -492,6 +522,7 @@ def infer_frame_schema(
         schema.projection_columns if isinstance(operation, SelectValues) else (),
         paths,
         schema.presence_paths if isinstance(operation, SelectValues) else (),
+        comparisons,
     )
 
 
@@ -577,7 +608,9 @@ def _paired_axis(
         directory = name(f"{axis_role(axis)}.{token}.{side}")
         if isinstance(axis, CalendarDataAxis):
             return replace(
-                axis, token=f"{token}.{side}", frozen=replace(axis.frozen, directory_name=directory)
+                axis,
+                token=f"{token}.{side}",
+                frozen=replace(axis.frozen, directory_name=directory, direct=None),
             )
         return replace(
             axis, token=f"{token}.{side}", frozen=replace(axis.frozen, directory_name=directory)
@@ -595,20 +628,20 @@ def _paired_axis(
 
 @overload
 def infer_frame_combine_schema(
-    left: DataSchema, right: DataSchema, operation: FrameBinaryOperationKind
+    left: DataSchema, right: DataSchema, operation: AlignFrameValues
 ) -> DataSchema: ...
 @overload
 def infer_frame_combine_schema(
     left: DataSchema | PendingDataSchema,
     right: DataSchema | PendingDataSchema,
-    operation: FrameBinaryOperationKind,
+    operation: AlignFrameValues,
 ) -> DataSchema | PendingDataSchema: ...
 
 
 def infer_frame_combine_schema(
     left: DataSchema | PendingDataSchema,
     right: DataSchema | PendingDataSchema,
-    operation: FrameBinaryOperationKind,
+    operation: AlignFrameValues,
 ) -> DataSchema | PendingDataSchema:
     """Derive one complete binary layout from captured current structures only."""
     if type(operation.pairs) is not tuple or any(
@@ -622,13 +655,8 @@ def infer_frame_combine_schema(
             "frame.combine",
         )
     if (
-        (operation.match is not None and type(operation.match) is not CalendarCorrespondence)
-        or operation.how not in ("exact", "outer")
-        or (
-            isinstance(operation, CompareFrameValues)
-            and operation.zero_denominator not in ("null", "error")
-        )
-    ):
+        operation.match is not None and type(operation.match) is not CalendarCorrespondence
+    ) or operation.how not in ("exact", "outer"):
         reject(
             "closed binary policies",
             repr(operation),
@@ -637,8 +665,6 @@ def infer_frame_combine_schema(
         )
     left_axes: tuple[DataAxis | PendingDataAxis, ...] = left.axes
     right_axes: tuple[DataAxis | PendingDataAxis, ...] = right.axes
-    left_values: tuple[DataColumn | PendingDataColumn, ...] = left.values
-    right_values: tuple[DataColumn | PendingDataColumn, ...] = right.values
     left_roles: tuple[AxisRole, ...] = tuple(
         a.role if isinstance(a, PendingDataAxis) else axis_role(a) for a in left_axes
     )
@@ -742,44 +768,11 @@ def infer_frame_combine_schema(
         )
     if matched is not None:
         axis_columns[matched] = (_paired_layout(left, right, matched)[1],)
-    compare = isinstance(operation, CompareFrameValues)
-    if compare and (not left.value_paths or set(left.value_paths) != set(right.value_paths)):
-        reject(
-            "equal nonempty complete value path sets",
-            repr((left.value_paths, right.value_paths)),
-            "Select and name the same complete numeric value paths on both inputs.",
-            "frame.compare",
-        )
-    absolute_types: list[DataType | None] = []
-    if compare:
-        for path, a in zip(left.value_paths, left_values, strict=True):
-            b = right_values[right.value_paths.index(path)]
-            kinds = (column_kind(a), column_kind(b))
-            if (
-                a.unit != b.unit
-                or any(k not in ("numeric", "duration", "unresolved") for k in kinds)
-                or ("duration" in kinds and "numeric" in kinds)
-            ):
-                reject(
-                    "matching units and comparable numeric values",
-                    repr((a, b)),
-                    "Select compatible values with equal units before compare.",
-                    "frame.compare",
-                )
-            absolute_types.append(
-                _compare_type(a.dtype, b.dtype)
-                if isinstance(a, DataColumn) and isinstance(b, DataColumn)
-                else None
-            )
     paths = tuple(
         (side, *path)
-        for side, schema in (("left", left), ("right", left if compare else right))
+        for side, schema in (("left", left), ("right", right))
         for path in schema.value_paths
     )
-    if compare:
-        paths += tuple(
-            (side, *path) for side in ("absolute", "relative") for path in left.value_paths
-        )
     presence_paths = (
         ("left_present",),
         ("right_present",),
@@ -791,30 +784,18 @@ def infer_frame_combine_schema(
     )
     pending = isinstance(left, PendingDataSchema) or isinstance(right, PendingDataSchema)
     values: list[DataColumn | PendingDataColumn] = []
-    count = len(left.values)
     for index, path in enumerate(paths):
         side, original = path[0], path[1:]
         source = right if side == "right" else left
         column = source.values[source.value_paths.index(original)]
-        nullable = (
-            True
-            if side in ("absolute", "relative") or operation.how == "outer"
-            else column.nullable
-        )
-        unit = None if side == "relative" else column.unit
+        nullable = True if operation.how == "outer" else column.nullable
+        unit = column.unit
         if pending:
-            kind = "numeric" if side == "relative" else column_kind(column)
+            kind = column_kind(column)
             values.append(PendingDataColumn(f"value.{index}", ".".join(path), kind, nullable, unit))
         else:
             assert isinstance(column, DataColumn)
-            dtype = (
-                ScalarDataType("float64")
-                if side == "relative"
-                else absolute_types[index % count]
-                if side == "absolute"
-                else column.dtype
-            )
-            assert dtype is not None
+            dtype = column.dtype
             values.append(DataColumn(f"value.{index}", ".".join(path), dtype, bool(nullable), unit))
     if pending:
         pending_axes: list[PendingFrameAxis] = []
@@ -854,6 +835,26 @@ def infer_frame_combine_schema(
                 for i, p in enumerate(presence_paths)
             ),
             presence_paths,
+            (
+                *transport_comparisons(
+                    left,
+                    tuple(pending_axes),
+                    value_prefix=("left",),
+                    presence_prefix=("left",),
+                    namespace="left",
+                    axis_pairs=tuple((i, i) for i in range(len(left.axes))),
+                    endpoint_path=("left_present",),
+                ),
+                *transport_comparisons(
+                    right,
+                    tuple(pending_axes),
+                    value_prefix=("right",),
+                    presence_prefix=("right",),
+                    namespace="right",
+                    axis_pairs=tuple((j, i) for i, j in operation.pairs),
+                    endpoint_path=("right_present",),
+                ),
+            ),
         )
     concrete_axes: list[DataAxis] = []
     for i, axis in enumerate(left_axes):
@@ -872,4 +873,448 @@ def infer_frame_combine_schema(
         ),
         value_paths=paths,
         presence_paths=presence_paths,
+        comparisons=(
+            *transport_comparisons(
+                left,
+                tuple(concrete_axes),
+                value_prefix=("left",),
+                presence_prefix=("left",),
+                namespace="left",
+                axis_pairs=tuple((i, i) for i in range(len(left.axes))),
+                endpoint_path=("left_present",),
+            ),
+            *transport_comparisons(
+                right,
+                tuple(concrete_axes),
+                value_prefix=("right",),
+                presence_prefix=("right",),
+                namespace="right",
+                axis_pairs=tuple((j, i) for i, j in operation.pairs),
+                endpoint_path=("right_present",),
+            ),
+        ),
     )
+
+
+@overload
+def infer_frame_compare_schema(
+    inputs: tuple[DataSchema, ...], operation: CompareFrameValues
+) -> DataSchema: ...
+@overload
+def infer_frame_compare_schema(
+    inputs: tuple[DataSchema | PendingDataSchema, ...], operation: CompareFrameValues
+) -> DataSchema | PendingDataSchema: ...
+
+
+def infer_frame_compare_schema(
+    inputs: tuple[DataSchema | PendingDataSchema, ...], operation: CompareFrameValues
+) -> DataSchema | PendingDataSchema:
+    """Infer one current layout and all named baseline value groups together."""
+    from marivo.analysis.core.frame_structure import validate_paths
+
+    if (
+        type(operation.baselines) is not tuple
+        or not operation.baselines
+        or any(type(item) is not NamedFrameComparison for item in operation.baselines)
+        or len(inputs) != len(operation.baselines) + 1
+        or operation.how not in ("exact", "outer")
+        or operation.zero_denominator not in ("null", "error")
+    ):
+        reject(
+            "one current input and ordered named baseline bindings",
+            repr(operation),
+            "Bind a nonempty named baseline mapping with exact/outer and null/error policies.",
+            "frame.compare",
+        )
+    aliases = tuple(item.alias for item in operation.baselines)
+    validate_paths(tuple((alias,) for alias in aliases), location="frame.compare.aliases")
+    if "current" in aliases:
+        reject(
+            "baseline aliases other than current",
+            repr(aliases),
+            "Rename the baseline alias.",
+            "frame.compare",
+        )
+    current = inputs[0]
+    current_values: tuple[DataColumn | PendingDataColumn, ...] = current.values
+    pending = any(isinstance(schema, PendingDataSchema) for schema in inputs)
+    axes = current.axes
+    paths = current.value_paths
+    values: list[DataColumn | PendingDataColumn] = []
+    facts: list[DataComparison] = []
+    key_slots = {column.slot_id for axis in axes for column in axis.columns}
+    key_nullability = {
+        column.slot_id: column.nullable for axis in current.axes for column in axis.columns
+    }
+
+    def value(
+        path: tuple[str, ...],
+        source: DataColumn | PendingDataColumn,
+        dtype: DataType | None = None,
+        *,
+        relative: bool = False,
+        difference: bool = False,
+    ) -> None:
+        slot = f"compare.value.{len(values)}"
+        while slot in key_slots:
+            slot += ".value"
+        nullable = True if difference or operation.how == "outer" else source.nullable
+        unit = None if relative else source.unit
+        if pending:
+            values.append(
+                PendingDataColumn(
+                    slot,
+                    ".".join(path),
+                    "numeric" if relative else column_kind(source),
+                    nullable,
+                    unit,
+                )
+            )
+        else:
+            assert isinstance(source, DataColumn)
+            values.append(
+                DataColumn(slot, ".".join(path), dtype or source.dtype, bool(nullable), unit)
+            )
+
+    for path, column in zip(current.value_paths, current_values, strict=True):
+        value(path, column)
+    for item, baseline in zip(operation.baselines, inputs[1:], strict=True):
+        baseline_values: tuple[DataColumn | PendingDataColumn, ...] = baseline.values
+        validated = infer_frame_combine_schema(
+            current, baseline, AlignFrameValues(item.pairs, operation.how)
+        )
+        axes = validated.axes
+        for left_position, right_position in item.pairs:
+            left_components: tuple[DataColumn | PendingDataColumn, ...] = current.axes[
+                left_position
+            ].columns
+            right_components: tuple[DataColumn | PendingDataColumn, ...] = baseline.axes[
+                right_position
+            ].columns
+            for left_component, right_component in zip(
+                left_components, right_components, strict=True
+            ):
+                flags = (key_nullability[left_component.slot_id], right_component.nullable)
+                key_nullability[left_component.slot_id] = (
+                    True if True in flags else None if None in flags else False
+                )
+        temporal = tuple(
+            (i, j) for i, j in item.pairs if axis_role(current.axes[i]) in ("calendar", "interval")
+        )
+        if len(temporal) > 1 or (item.match is not None and not temporal):
+            reject(
+                "at most one compatible time axis pair, required for match",
+                repr(temporal),
+                "Construct inputs with one time axis or compare ordinary keys without match.",
+                "frame.compare",
+            )
+        binding: (
+            OrdinaryComparisonBinding | CalendarComparisonBinding | IntervalComparisonBinding
+        ) = OrdinaryComparisonBinding()
+        if temporal:
+            i, j = temporal[0]
+            left, right = current.axes[i], baseline.axes[j]
+            token = f"comparison.{item.alias}.baseline.{right.token}"
+            components: tuple[DataColumn | PendingDataColumn, ...] = right.columns
+            columns = tuple(
+                replace(c, slot_id=f"{token}.key.{k}")
+                for k, c in enumerate(components)
+                if isinstance(c, DataColumn)
+            )
+            name = f"comparison.{item.alias}.directory"
+            if isinstance(left, CalendarDataAxis) and isinstance(right, CalendarDataAxis):
+                if item.match is not None:
+                    require_calendar_match_rule(left, item.match)
+                assert right.frozen is not None
+                endpoint = replace(
+                    right,
+                    token=token,
+                    columns=columns,
+                    frozen=replace(right.frozen, directory_name=name, direct=None),
+                )
+                binding = CalendarComparisonBinding(
+                    left.token, endpoint, f"comparison.{item.alias}.map"
+                )
+            else:
+                assert isinstance(left, IntervalDataAxis) and isinstance(right, IntervalDataAxis)
+                if item.match is not None and item.match.kind != "ordinal":
+                    reject(
+                        "ordinal for interval coordinates",
+                        repr(item.match),
+                        "Use ordinal for declared interval endpoints.",
+                        "frame.compare",
+                    )
+                endpoint_interval = replace(
+                    right,
+                    token=token,
+                    columns=columns,
+                    frozen=replace(right.frozen, directory_name=name),
+                )
+                binding = IntervalComparisonBinding(
+                    left.token, endpoint_interval, f"comparison.{item.alias}.map"
+                )
+        elif item.match is not None:
+            reject(
+                "a time axis for match",
+                repr(item.match),
+                "Compare ordinary keys without match.",
+                "frame.compare",
+            )
+        if not current.value_paths or set(current.value_paths) != set(baseline.value_paths):
+            reject(
+                "equal nonempty complete value path sets",
+                repr((current.value_paths, baseline.value_paths)),
+                "Select and name the same complete numeric value paths on every input.",
+                "frame.compare",
+            )
+        types: list[DataType | None] = []
+        for path, left_value in zip(current.value_paths, current_values, strict=True):
+            right_value = baseline_values[baseline.value_paths.index(path)]
+            kinds = (column_kind(left_value), column_kind(right_value))
+            if (
+                left_value.unit != right_value.unit
+                or any(kind not in ("numeric", "duration", "unresolved") for kind in kinds)
+                or ("duration" in kinds and "numeric" in kinds)
+            ):
+                reject(
+                    "matching units and comparable numeric values",
+                    repr((left_value, right_value)),
+                    "Select compatible values with equal units before compare.",
+                    "frame.compare",
+                )
+            types.append(
+                _compare_type(left_value.dtype, right_value.dtype)
+                if isinstance(left_value, DataColumn) and isinstance(right_value, DataColumn)
+                else None
+            )
+        bindings = [ComparisonValueBinding("current", path, path) for path in current.value_paths]
+        for role in ("baseline", "absolute", "relative"):
+            for index, path in enumerate(current.value_paths):
+                output = (item.alias, role, *path)
+                if output in paths:
+                    reject(
+                        "distinct generated comparison paths",
+                        ".".join(output),
+                        "Select and rename conflicting input values before comparing.",
+                        "frame.compare",
+                    )
+                source = (
+                    baseline_values[baseline.value_paths.index(path)]
+                    if role == "baseline"
+                    else current_values[index]
+                )
+                value(
+                    output,
+                    source,
+                    ScalarDataType("float64")
+                    if role == "relative"
+                    else types[index]
+                    if role == "absolute"
+                    else None,
+                    relative=role == "relative",
+                    difference=role != "baseline",
+                )
+                paths += (output,)
+                bindings.append(ComparisonValueBinding(role, path, output))
+        facts.append(
+            DataComparison(
+                item.alias,
+                tuple(bindings),
+                binding,
+                EndpointPresence(
+                    ("current", "present"),
+                    tuple(("current", "presence", *path) for path in current.presence_paths),
+                ),
+                EndpointPresence(
+                    (item.alias, "present"),
+                    tuple((item.alias, "presence", *path) for path in baseline.presence_paths),
+                ),
+            )
+        )
+    presence_paths = (
+        ("current", "present"),
+        *((item.alias, "present") for item in operation.baselines),
+        *(
+            (name, "presence", *path)
+            for name, schema in zip(("current", *aliases), inputs, strict=True)
+            for path in schema.presence_paths
+        ),
+    )
+    facts.extend(
+        transport_comparisons(
+            current,
+            axes,
+            value_prefix=(),
+            presence_prefix=("current", "presence"),
+            namespace="current",
+            axis_pairs=tuple((i, i) for i in range(len(axes))),
+            endpoint_path=("current", "present"),
+        )
+    )
+    for item, baseline in zip(operation.baselines, inputs[1:], strict=True):
+        facts.extend(
+            transport_comparisons(
+                baseline,
+                axes,
+                value_prefix=(item.alias, "baseline"),
+                presence_prefix=(item.alias, "presence"),
+                namespace=item.alias,
+                axis_pairs=tuple((j, i) for i, j in item.pairs),
+                endpoint_path=(item.alias, "present"),
+            )
+        )
+    validate_paths(paths, location="frame.compare.values")
+    validate_paths(presence_paths, location="frame.compare.presence")
+    if set(paths) & set(presence_paths):
+        reject(
+            "disjoint generated value and presence paths",
+            repr(paths),
+            "Select and rename conflicting input values.",
+            "frame.compare",
+        )
+    if pending:
+        pending_axes: list[PendingFrameAxis] = []
+        for axis in axes:
+            if isinstance(
+                axis, (PendingDataAxis, CalendarDataAxis, IntervalDataAxis, PairedDataAxis)
+            ):
+                pending_axes.append(axis)
+            else:
+                role = axis_role(axis)
+                assert role in ("field", "identity")
+                pending_axes.append(
+                    PendingDataAxis(
+                        axis.token,
+                        axis.name,
+                        role,
+                        tuple(
+                            replace(_pending_column(c), nullable=key_nullability[c.slot_id])
+                            for c in axis.columns
+                        ),
+                        axis.at,
+                    )
+                )
+        return PendingDataSchema(
+            tuple(pending_axes),
+            tuple(_pending_column(c) for c in values),
+            paths,
+            tuple(
+                PendingDataColumn(f"compare.presence.{i}", ".".join(path), "boolean", False)
+                for i, path in enumerate(presence_paths)
+            ),
+            presence_paths,
+            tuple(facts),
+        )
+    return DataSchema(
+        tuple(
+            replace(
+                axis,
+                columns=tuple(
+                    replace(c, nullable=bool(key_nullability[c.slot_id])) for c in axis.columns
+                ),
+            )
+            for axis in axes
+            if isinstance(axis, DataAxis)
+        ),
+        tuple(c for c in values if isinstance(c, DataColumn)),
+        tuple(
+            DataColumn(f"compare.presence.{i}", ".".join(path), ScalarDataType("boolean"), False)
+            for i, path in enumerate(presence_paths)
+        ),
+        value_paths=paths,
+        presence_paths=presence_paths,
+        comparisons=tuple(facts),
+    )
+
+
+def transport_comparisons(
+    schema: DataSchema | PendingDataSchema,
+    output_axes: tuple[DataAxis | PendingDataAxis, ...],
+    *,
+    value_prefix: tuple[str, ...],
+    presence_prefix: tuple[str, ...],
+    namespace: str,
+    axis_pairs: tuple[tuple[int, int], ...],
+    endpoint_path: tuple[str, ...],
+    same_domains: frozenset[str] | None = None,
+) -> tuple[DataComparison, ...]:
+    """Transport exact captured bindings; finite runtime authority may remove certification."""
+    positions = dict(axis_pairs)
+    wrapper = EndpointPresence(
+        endpoint_path, tuple((*presence_prefix, *path) for path in schema.presence_paths)
+    )
+
+    def endpoint(record: EndpointPresence) -> EndpointPresence:
+        return EndpointPresence(
+            (*presence_prefix, *record.path),
+            tuple((*presence_prefix, *path) for path in record.inherited_paths),
+        )
+
+    result: list[DataComparison] = []
+    for fact in schema.comparisons:
+        scoped = (namespace, *fact.namespace)
+        binding = fact.binding
+        values = tuple(
+            replace(value, value_path=(*value_prefix, *value.value_path)) for value in fact.values
+        )
+        if isinstance(binding, (CalendarComparisonBinding, IntervalComparisonBinding)):
+            source = next(
+                i for i, axis in enumerate(schema.axes) if axis.token == binding.current_axis_token
+            )
+            target = output_axes[positions[source]]
+            expected = (
+                CalendarDataAxis
+                if isinstance(binding, CalendarComparisonBinding)
+                else IntervalDataAxis
+            )
+            if type(target) is not expected or (
+                same_domains is not None and binding.current_axis_token not in same_domains
+            ):
+                binding = OrdinaryComparisonBinding()
+                values = ()
+            else:
+                prefix = ".".join(("comparison", "inherited", *scoped, fact.alias))
+                baseline = binding.baseline
+                assert baseline.frozen is not None
+                columns = tuple(
+                    replace(column, slot_id=f"{prefix}.key.{i}")
+                    for i, column in enumerate(baseline.columns)
+                )
+                if isinstance(binding, CalendarComparisonBinding):
+                    assert isinstance(baseline, CalendarDataAxis) and baseline.frozen is not None
+                    copied = replace(
+                        baseline,
+                        token=f"{prefix}.baseline",
+                        columns=columns,
+                        frozen=replace(
+                            baseline.frozen, directory_name=f"{prefix}.directory", direct=None
+                        ),
+                    )
+                    binding = CalendarComparisonBinding(target.token, copied, f"{prefix}.map")
+                else:
+                    assert isinstance(baseline, IntervalDataAxis)
+                    copied_interval = replace(
+                        baseline,
+                        token=f"{prefix}.baseline",
+                        columns=columns,
+                        frozen=replace(baseline.frozen, directory_name=f"{prefix}.directory"),
+                    )
+                    binding = IntervalComparisonBinding(
+                        target.token, copied_interval, f"{prefix}.map"
+                    )
+        result.append(
+            DataComparison(
+                fact.alias,
+                values,
+                binding,
+                endpoint(fact.current_presence),
+                endpoint(fact.baseline_presence),
+                tuple(
+                    dict.fromkeys(
+                        (*tuple(endpoint(record) for record in fact.enclosing_presence), wrapper)
+                    )
+                ),
+                scoped,
+            )
+        )
+    return tuple(result)

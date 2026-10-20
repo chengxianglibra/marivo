@@ -156,6 +156,12 @@ def test_native_float_binary_pending_shared_input_matches_completed(
 
     def combine(frame: AnalysisFrame) -> AnalysisFrame:
         right = frame.where(~frame["big"].is_null())
+        if operation == "compare":
+            return frame.compare(
+                {"reference": right},
+                on={"reference": ((frame.axes[0], right.axes[0]),)},
+                how="outer",
+            )
         return getattr(frame, operation)(right, on=((frame.axes[0], right.axes[0]),), how="outer")
 
     pending = combine(source).compute()
@@ -163,14 +169,26 @@ def test_native_float_binary_pending_shared_input_matches_completed(
     completed = combine(fixed).compute()
     pd.testing.assert_frame_equal(pending.to_pandas(), completed.to_pandas())
     assert all(dtype == ScalarDataType("float64") for dtype in _schema(pending))
-    assert pending.to_pandas()["presence", "left_present"].tolist() == [True] * 4
-    assert pending.to_pandas()["presence", "right_present"].tolist() == [True, False, True, False]
+    presence = (
+        ("current.present", "reference.present")
+        if operation == "compare"
+        else ("left_present", "right_present")
+    )
+    assert pending.to_pandas()["presence", presence[0]].tolist() == [True] * 4
+    assert pending.to_pandas()["presence", presence[1]].tolist() == [True, False, True, False]
     if operation == "compare":
         values = pending.to_pandas()
-        assert values["value", "absolute.big"].dropna().tolist() == [0.0, 0.0]
-        assert values["value", "relative.big"].dropna().tolist() == [0.0, 0.0]
-        assert values["value", "absolute.big"].isna().tolist() == [False, True, False, True]
-    selected = pending.select({"left": pending["left.big"]}).compute()
+        assert values["value", "reference.absolute.big"].dropna().tolist() == [0.0, 0.0]
+        assert values["value", "reference.relative.big"].dropna().tolist() == [0.0, 0.0]
+        assert values["value", "reference.absolute.big"].isna().tolist() == [
+            False,
+            True,
+            False,
+            True,
+        ]
+    selected = pending.select(
+        {"left": pending["big" if operation == "compare" else "left.big"]}
+    ).compute()
     assert selected.presence_names == pending.presence_names
     assert calls == [4, 4]
 

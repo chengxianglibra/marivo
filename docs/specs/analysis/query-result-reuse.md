@@ -49,12 +49,12 @@ LogicalPlan 只负责表达显式依赖与惰性求值；对象的方法、字�
 内存/持久状态、单位、列类型和日历轴不产生公开子类，也不开放用户 codec 注册。
 对象由 Session/算子构造，不开放原始载体构造器。
 
-compare 是常用比较的便捷算子：先按 align 的合同对应，再逐个同名量生成左右值、
-绝对差和相对变化。相对变化为 (left - right) / abs(right)，零分母政策显式捕获。
-缺任一端点或任一值为 NA 时，两种差值均为 NA；仅两端值有效时应用零分母政策。
-Duration 左右值及绝对差保留 Duration，相对变化无量纲。
-这些是算子求值规则，不是结果类型资格；结果不保存额外比较量角色表或 endpoint 方法。
-首版不另增公共 change/relative_change 工厂；复用列算术与已有比较数值内核。
+compare 消费非空命名基期映射，保留本期轴与一份本期值，再为各基期生成 baseline、
+absolute、relative 三组。相对变化为 (current - baseline) / abs(baseline)，零分母政策显式捕获。
+缺行或任一值为 NA 时差值为 NA，之后才对有效数值对应用零分母政策。
+Duration 的 baseline/absolute 保留原 tick 单位，相对变化无量纲。
+结果保存有类型的有限端点、映射、值绑定与 presence 说明，不保存 Metric、来源图或执行回调。
+这些事实解释已经完成的值，不授权原贡献重算；不增加公共比较结果子类型或 endpoint 方法。
 
 ### 2.2 运算不创建结果子类型
 
@@ -77,22 +77,22 @@ compute/persist 只转换载体；where/top/select/reduce/correlate/align/compar
 | 操作 | 值名称与 presence |
 | --- | --- |
 | 普通声明 | 用户名称，例如 revenue |
-| align | left.q、right.q，例如 left.actual、right.budget；新增 left_present/right_present |
-| compare | left.q、right.q、absolute.q、relative.q，例如 absolute.revenue；同样新增 left_present/right_present |
-| 输入已有 presence | 加 left/right 前缀，例如 left.right_present |
-| select | 新值使用用户名称段，不能覆盖 presence 名称 |
+| align | left.q、right.q；新增 left_present/right_present |
+| compare | 当前 q 原样保留；每个 alias 添加 alias.baseline.q、alias.absolute.q、alias.relative.q |
+| compare 行存在性 | current.present、alias.present；继承路径进入 current.presence.*、alias.presence.* |
+| align 继承 presence | 加 left/right 前缀，例如 left.right_present |
+| select | 新值使用用户名称段，不能覆盖已有完整值或 presence 路径 |
 
-output_names 仅按定义次序列出命名值，不包含坐标或 presence；presence_names 完整列出
-独立 presence 路径。align 的值次序为左输入全部值、右输入全部值；compare 依次为
-left、right、absolute、relative 四组，各组按左输入 output_names 次序；右侧按精确名称查找。
-顶层 presence 次序为 left_present、right_present，再为左、右输入继承的 presence。
-presence 通过 __getitem__ 取非 nullable boolean Column，传播与缺端点处理统一见第 5.5 节。
-布尔列可筛选、组合谓词，不因 presence 身份获得数值 sum/mean 权限。
-统计缺右端行用 x.where(~x["right_present"]).reduce({"missing": mv.row_count()})。
+output_names 仅含值，presence_names 仅含独立 presence，均按定义次序列出完整路径。
+compare 先列出全部当前值，再按命名映射声明顺序逐个输出该基期的三组值；各组依当前值次序。
+每端非空值路径集合须相同，按精确路径验证数值类型和单位，不因同名认定业务公式相同。
+生成路径冲突时拒绝并要求先 select 重命名，不覆盖或自动编号。别名为单段名称，current 保留。
 
-再次 compare 仍按双方全部 output_names 逐列应用相同规则，不寻找“原指标”或主量；
-需要只比较某个派生值时先 select 显式命名。名称只是重复加前缀，没有独立嵌套比较类型。
-第 5.2 节对已含配对轴的输入有首版限制；无配对轴的普通结果可继续组合。
+presence 通过 __getitem__ 取得不可空 boolean Column，独立于值 NA 和事实贡献是否存在。
+缺基期行可显式用 x.where(~x["reference.present"]).reduce({"missing": mv.row_count()})。
+继承的历史 presence 与本次端点 presence 不混合；布尔身份不赋予数值 sum/mean 权限。
+再次 compare 按全部现存 output_names 逐列检查；需要仅比较某个值时先 select 成一致名称。
+普通当前轴允许后续合格组合，paired 输入的拒绝合同继续保留。
 
 ### 2.4 完整方法事实与当前数据分离
 
@@ -168,10 +168,10 @@ class AnalysisFrame:
     ) -> AnalysisFrame: ...
     def compare(
         self,
-        baseline: AnalysisFrame,
+        baselines: Mapping[str, AnalysisFrame],
         *,
-        on: tuple[tuple[FrameAxis, FrameAxis], ...] | None = None,
-        match: CalendarCorrespondence | None = None,
+        on: Mapping[str, tuple[tuple[FrameAxis, FrameAxis], ...]] | None = None,
+        match: Mapping[str, CalendarCorrespondence] | None = None,
         how: Literal["exact", "outer"] = "exact",
         zero_denominator: Literal["null", "error"] = "null",
     ) -> AnalysisFrame: ...
@@ -191,7 +191,7 @@ axis(name) 在接收者的当前轴目录中按完整显示名精确查找；不
 列出实际候选，要求从 axes 选择明确句柄，不任意取首项。该查找不构成跨输入匹配。
 select 保留轴名称，reduce 保留所选轴名称；组合后的轴名称来自左侧对应轴，右侧信息保存在必要描述中。
 coord(axis) 取坐标列；__getitem__(name) 只取值列与 presence，不能用值名代替坐标句柄。
-CalendarCorrespondence 复用现有 ordinal/period_offset/previous_year 的闭合值协议，
+CalendarCorrespondence 复用 ordinal、offset(years=...) 与 offset(periods=...) 的闭合值协议，
 它描述匹配规则，不携带 CalendarAxis 或执行回调；第 5.3 节限定数据侧支持范围。
 完整复合轴保持一个句柄；coord 首版只接受单物理分量轴，不拆开复合身份来伪装标量。
 by 和 on 可以选择完整复合轴，内部展开其完整键分量；空 by 表示合法的零轴标量规约。
@@ -225,16 +225,18 @@ baseline = session.observe({'revenue': revenue}, by=(baseline_period, region)).c
 current.show(n=10)
 
 comparison = current.compare(
-    baseline, on=tuple(zip(current.axes, baseline.axes)), match=mv.ordinal(),
+    {"reference": baseline},
+    on={"reference": tuple(zip(current.axes, baseline.axes))},
+    match={"reference": mv.ordinal()},
 )
 comparison.show()
 saved = comparison.persist()
 saved.show(n=10)
 saved.artifact.show()
 
-selected = saved.where(saved["absolute.revenue"] > 0)
+selected = saved.where(saved["reference.absolute.revenue"] > 0)
 selected.show()
-plain = selected.select({"change": selected["absolute.revenue"]}).compute()
+plain = selected.select({"change": selected["reference.absolute.revenue"]}).compute()
 values = plain.to_pandas()
 mean = plain.reduce({"mean_change": plain["change"].mean()}).compute()
 ```
@@ -263,12 +265,12 @@ attainment = aligned.select({
 ```python
 jul_daily = session.observe({'revenue': revenue}, by=(baseline_period.by(mv.grain('day')),))
 aug_daily = session.observe({'revenue': revenue}, by=(current_period.by(mv.grain('day')),))
-daily_change = aug_daily.compare(jul_daily, match=mv.ordinal()).compute()
+daily_change = aug_daily.compare({'reference': jul_daily}, match={'reference': mv.ordinal()}).compute()
 daily_change.show(n=31)
 ```
 
 双方都只有一个日历轴，on 自动确定；ordinal 明确选择月内第 1 天对第 1 天，依次对应。
-7 月和 8 月都有 31 天，默认 exact 检查实际行完整配对。日粒度的 period_offset(-1)
+7 月和 8 月都有 31 天，默认 exact 检查实际行完整配对。日粒度的 offset(periods=-1)
 表示前一天，不能根据月份范围自动替换 ordinal；两种比较意图须由调用方选择。
 
 比较 8 月上海与北京的整月销售额时，城市作为来源条件，两侧只有同一个 interval 轴：
@@ -277,11 +279,11 @@ daily_change.show(n=31)
 city = session.catalog.fields.get("sales.orders.city")
 shanghai = session.observe({'revenue': revenue}, by=(current_period,), where=city == '上海')
 beijing = session.observe({'revenue': revenue}, by=(current_period,), where=city == '北京')
-city_change = shanghai.compare(beijing).compute()
+city_change = shanghai.compare({'reference': beijing}).compute()
 city_change.show()
 ```
 
-无需 on=()；left.revenue 为上海，right.revenue 为北京，absolute.revenue 为上海减北京。
+无需 on=()；revenue 为上海，reference.baseline.revenue 为北京，reference.absolute.revenue 为上海减北京。
 若两侧都改为 by=(current_period.by(mv.grain("day")),)，同样省略 on 和 match，
 即可按同一天等值对应。改用返回的内存/持久 frame 或冷恢复对象时，推导规则不变。
 
@@ -318,7 +320,8 @@ n 必须是非负整数且不能为 bool，所有状态在读取前校验。n=0 
 Artifact.show() 没有 n 参数，只展示提交身份、时间和审计摘要及返回 frame 读取的指引，
 不读结果表或坐标附件。Artifact 保留 id、session_id、findings 和 evidence_digest，移除 to_pandas。
 预览取结果行序前 n 行，不重排、不抽样；超出卡片行、列、文本预算时明确省略。
-禁止以 to_pandas().head(n) 完整导出再预览；不为预览完整解码所有附件。
+禁止以 to_pandas().head(n) 完整导出再预览。直接/命名比较需校验所消费的完整有限端点/映射
+权威，主表仍限 n 行；普通/paired-only 预览保留原选中坐标边界，不泛化为全载荷校验。
 收据校验可能读取整个被消费文件，因此有限行解码不保证有限字节 I/O。
 预览成功不证明未消费部分已验证；读取错误不静默降级为元数据卡片。
 show 不求值、不创建 Run/Artifact，不缓存预览为完整结果，也不展示祖先行冒充派生输出。
@@ -433,116 +436,77 @@ Artifact ID 表示提交；同一内存结果可以有不同提交，不按 resu
 
 ### 5.2 跨结果对应：唯一推导或显式绑定
 
-align/compare 的 on 省略或为 None 时，只从双方当前结构推导完整轴对应，不读取结果行、
-访问 Catalog、扫描生产图或根据数值重合挑选对应。无论 on 是否省略，先检查 Session 所有权、
-配对轴限制及双方轴数；跨 Session、含配对轴或轴数不同，均报告对应的结构限制，不能通过补充 on 修复。
-轴数不同须显式规约或重新构造轴结构兼容的输入，不隐式广播、删轴或补轴。
-通过这些检查后，首版只自动处理以下两种形状：
+align 接收另一 Frame；compare 始终接收非空有序命名 Frame 映射，单基期也必须命名。
+每端先验证同 Session、无 paired 轴、相等轴数与相容的完整键/角色/时间解释。
+零轴或双方唯一同种 interval/calendar 轴可唯一推导；含普通轴时必须显式完整双射。
+compare 的 on/match 按基期别名分别提供；未知别名拒绝，部分 on 不自动补足。
+FrameAxis 的显示名、token、dtype 或相同值不证明跨输入身份，不依此猜映射。
 
-| 双方结构 | 推导结果 |
-| --- | --- |
-| 都是零轴 | 零轴标量对应，无需写 on=()；不接受日历 match |
-| 各自只有一个 interval 轴，或各自只有一个日历轴 | 自动绑定同种时间轴；interval 可显式 ordinal，日历保留已有规则；不跨种类转换 |
+compare 的时间关系按每个已绑定基期独立选择：显式 match 优先表达意图，但须与存在的直接
+shift 关系一致；省略时仅消费锚点与本期完整冻结域相符的直接关系，否则拒绝错误锚点。
+没有直接关系也没有 match 时按完整键等值，不猜日期偏移或沿祖先追溯。
+锚点比较 Grain、时区、规则版本、选定键与名义/实际边界，不要求同一内存对象或相同数据值。
+align 仍使用显式 match 或等值，不引入自动 shift 推导。
 
-含普通字段/身份轴的输入，即使各只有一轴或显示名相同，首版也要求显式 on。
-日历加分类轴、多日历轴均不自动补齐。
-现有目录中的局部 token、显示名和 dtype 不足以证明普通轴跨输入身份，不为自动推导
-新增语义身份服务或回源路线。只有通过上述结构检查、但不属于自动推导形状时，才提示提供完整显式 on，
-并列出双方真实轴目录及不能推导的原因；显式绑定仍须通过下述角色、类型和时间解释校验。
+每个基期的实际完整联合键先映到本期坐标，其它普通轴仍完整键等值。
+exact 要求各端实际键域相等；outer 先保留本期行序，再按基期声明序/原行序加入新联合键。
+额外目录桶无实际行时不制造输出行，也不单独使 exact 失败。实际基期时间行无法映到本期
+声明域时，两种政策均拒绝；需要一般双端时间并集时使用 align。
+compare 不裁短本期、不填零、不为某个别名重求本期量或分类。显式贡献 Population 不重选；
+显式 by=P 是该端完整输出域，基期对应时间×普通键域须由调用方独立构造。
 
-显式 on 逐对给出两侧 FrameAxis，必须覆盖双方全部输出轴且各用一次；不接受部分映射后再猜其余轴。
-显式 on=() 仅对双方零轴合法，不能用它表示自动推导；错误映射直接拒绝，不重试自动推导。
-无论显式还是推导，构造时统一检查 Session/输入所有权、身份/字段角色、完整键分量、类型及时间解释。
-推导只省略可确定的轴绑定，不省略完整性检查，也不授权按位置、显示名或相同值跨输入匹配。
-
-match 仍是独立的比较意图：省略时按完整元组等值匹配，给出时对唯一日历轴对使用该规则，
-其余轴仍等值。不根据日期范围、桶数或空交集自动选择 ordinal/period_offset/previous_year，
-也不在失败后换规则或将 exact 改为 outer。how="exact" 和 zero_denominator="null" 沿用默认值。
-
-how="exact" 要求给定对应下双方实际键域完整一一配对；how="outer" 保留匹配及单侧键。
-匹配按完整行键检查，包含所有非时间轴；仅月份有对应不证明某个地区有对应结果行。
-两者均产生独立行级 left_present/right_present，表示该完整键在原输入中是否有行，与值 NA 无关。
-align 保留双方所有值，不要求同名、同单位或全为数值。
-compare 的值路径集合须相等且非空，各路径单位相同、数值类型可比较；不能从同名推断单位。
-无 match 的等值对应输出普通共享轴（原轴为日历时仍保留其日历描述），不产生配对轴。
-共享轴键为通过 exact 验证的同一实际键域，或 outer 的实际键并集，端点缺失仍由独立 presence 表达。
-日历共享轴要求冻结目录在重叠桶上的名义/实际边界一致；合并双方有限域后标签/序号仍唯一，且同桶原始 ordinal 一致，
-否则拒绝并要求显式日历对应，不能重新编号来消解冲突。
-带 match 的日历对应仅把该日历轴变成配对轴，其余等值轴仍共享；即使偶然键值相等也保持此结构。
-首版 align/compare 均拒绝任一输入含配对轴，不递归构造配对轴；可先 reduce 去掉该轴，
-或显式提供新的来源分析。select/where 不会删除坐标，不能绕过限制。
-不提供 time_axis="current" 或 endpoint 等重新索引捷径；多量、复合键、缺端点和 NA 仍按数据检查处理。
+align 保留左右值和独立 left_present/right_present，显式时间 match 可生成单层 paired 轴。
+compare 始终保留本期普通时间轴、当前值及命名说明；current.present/alias.present 只表示行存在。
+两者拒绝已有 paired 输入；select/where 不删除坐标，不能绕过该限制。
 
 ### 5.2.1 interval 的冻结目录与对应
 
-TimeScope 在 by 中产生 interval 轴，包含精确 start/end 与边界时区；一个区间也不自动变成零轴。
-同区间的无 match 等值对应按边界与规范化时区识别，并合并去重双方完整声明目录。
-outer 只保留实际完整键并集，不为目录中未出现的区间补行；重叠区间和不同边界时区仍是不同坐标。
-where/top/select 及保留该轴的 reduce 保持完整目录与原引用，删除轴才移除目录。
-即使筛选后只剩一行，多区间声明目录也不能获得单区间 ordinal 资格。
+TimeScope 在 by 中产生 interval 轴，保存精确 start/end 与边界时区，不自动变成零轴。
+等值对应识别精确边界和时区。ordinal 要求每端完整声明目录恰有一条记录且边界时区相同，
+不同期间可明确配对；过滤成一行不会把多区间目录改成单区间目录。
+interval/calendar/零轴不互转或广播；time×普通分类仍须完整显式 on。
+compare 保留当前 interval 及命名基期说明；align 的双端并集/paired 语义继续存在。
+Store 15 / marivo.frame_output/v4 保存目录、实际键引用与关系，冷恢复不重建 TimeScope。
 
-interval 对 interval 的 mv.ordinal() 要求两侧冻结目录各恰有一条声明记录且边界时区一致。
-不同期间 exact 默认等值不匹配；显式 ordinal 配对，outer 保留缺侧 presence。
-只有单一 interval 轴时可推导 on，time×分类必须显式覆盖全部轴。
-interval/calendar/零轴不隐式互转或广播；配对结果仍不能再次匹配。
-目录、实际键引用与配对端点以 Store 14 / marivo.frame_output/v3 保存，冷恢复不重建 TimeScope。
+### 5.3 日历偏移、精确选择与自包含信息
 
-### 5.3 首版日历对应的自包含信息
+规则唯一入口为 mv.ordinal()、mv.offset(years=n) / mv.offset(periods=n)。offset 必须且只能
+指定一个非 bool 整数关键字；允许负、零、正值。periods 按名义粒度偏移，不按现存行位置；
+years 按民用年中的同名期间，week 使用 ISO week-year，不按固定 365 天或 52 周。
 
-首版保留 mv.ordinal()、mv.previous_year() 和 mv.period_offset(by) 的静态规则工厂，
-match 要求最终轴对应中恰有一对相容日历轴；可由 on 显式绑定或按第 5.2 节唯一推导，
-多日历轴或未知规则明确拒绝。
-规则只消费保存的有限日历数据及固定版本的纯算法，不加载旧 CalendarAxis 或当前模型。
-
-首版三种 match 均要求两侧冻结日历目录中的桶构成相容、连续且不重叠的完整名义分区，
-并逐桶验证实际起止边界等于名义起止边界。完整名义标签不等于实际观察覆盖完整桶。
-例如 8 月 15 日开始的月桶不能与完整 8 月做同比，exact/outer 均拒绝；修复是显式构造
-完整桶的来源分析，不补齐或重解释旧值。该结构准入针对冻结目录，where/top 不改变原边界，
-也不能通过删行绕过部分桶限制；普通读取或不带 match 的操作不因此新增完整桶要求。
-
-| 规则 | 支持范围与必需信息 |
+| 规则/接收者 | 准入与含义 |
 | --- | --- |
-| ordinal | 双方相容完整名义日历域的原始桶序号对应；不是当前结果行号或筛选后重新编号 |
-| previous_year | builtin day/month/quarter/year；按保存的民用名义期间标签找上一年，不按 365 天偏移；闰日无对应，不夹日 |
-| period_offset | 首版 builtin day/week/month/quarter/year；按同一粒度的名义期间偏移查找另一端已保存桶；查不到即无对应 |
+| CalendarAxis.shift(offset) | 单位步长内建 week/month/year；完整桶或从桶首开始的前缀；构造精确目标域及直接部分一一映射 |
+| 数据侧 offset match | 完整 builtin day/week/month/quarter/year；合法 week/month/year 前缀须验证双方已保存实际进度相同；部分 day/quarter 拒绝 |
+| ordinal | 相容连续非重叠完整名义分区和完整实际边界，保留原始序号；或同边界时区的单 interval；不能用于 shift |
 
-日历目录除桶键/名义和实际边界，还须保存固定规则版本、builtin 单位/步长或命名日历标识、
-timezone，以及原声明有限域内每个桶的唯一名义标签与序号。ordinal 要求双方完整域及相容性可验证。
-这些信息由显式来源绑定时冻结，是有限数据，不是可执行日历对象或完整语义快照。
-完整名义域、逐桶标签/序号和实际边界写入有类型与收据的附件；元数据只存小型描述和引用。
-builtin 与命名日历使用同一读取路线，首版不另增按规则重建目录的 codec。
-纯算法只计算匹配目标名义标签，不能据此重建丢失附件或物理边界。
-不同结果可有不同起止范围；不能仅把两个范围内的局部 ordinal 相减当作 period_offset。
-民用偏移先生成名义标签，再查找另一端已有桶记录，不能依赖当前时区数据库重新生成物理边界。
-命名日历首版只支持信息完整的 ordinal；命名日历 offset、子日粒度/DST offset 和任意关系匹配延期，
-不以当前规则补齐。不可用时报告具体 grain/范围与缺失前提，不能静默退回等值或 ordinal。
+完整桶对应完整目标桶，闰月允许 29 天对 28 天；前缀按目标周的相同星期、月的相同日号、
+年的相同月日及当地钟点确定截止。缺目标 ISO W53 与缺民用截止日期是不同合法无对应；
+不夹日期、不缩短本期。MTD/YTD 的日历位置不是相同 elapsed seconds 或年内天数。
+非零源 shift 的目标 DST gap/fold 拒绝，需显式无歧义区间；零偏移复制原始精确 instant。
 
-日历对应分为两步，不将 how 传入第一步作为覆盖要求：
+shift 可产生稀疏或全空选定域，保留 Grain、时区与无对应说明；不补中间桶、不造哨兵行。
+每次 shift 只保存直接输入端，链式 shift 不累计规则复活已丢失的期间。
+observe 按精确实际选定区间过滤贡献；窗口按名义日历距离完整求原 Metric，不合并旧聚合值。
 
-1. 通过结构准入后，按完整冻结目录建立稳定的部分一一对应，包含无对应的单侧桶。
-   ordinal 不因两侧目录长度不同而失败，也不按筛选后的行重新编号。
-2. 将实际完整行键映射到对应域，再按第 5.2 节执行 exact/outer。目录中没有实际行的
-   额外桶不产生输出行，也不导致 exact 失败；实际行无对应端点时，exact 失败，outer 保留。
-
-例如保留完整 2024/2023 年目录，但左侧已过滤掉 2 月 29 日，其他实际行完整对应时，
-previous_year 的 exact 成功；仍有闰日实际行时失败。完整目录是匹配解释，不是实际行域。
-必需目录或记录损坏仍是完整性错误，不能当作合法无对应或无实际行。
-名义桶序号是日历语义数据，不是独立展示顺序，不参与物化行序恢复。
+冻结目录保存选定桶键、稳定名义 ordinal、名义/实际 UTC 与规范化民用边界、时区和规则版本。
+shift 另保存直接来源的完整端点目录和明确匹配/无对应映射；compare 保存每个命名基期的
+端点目录、已消费映射、值绑定及端点 presence 所有权。这些是有限不可执行数据，不是来源图。
+数据侧规则只查询已保存目标桶及进度，不能把已聚合的完整基期裁成前缀或用当前 TZ/Catalog 补齐。
+缺失/损坏附件、键或边界是完整性错误，不归为合法缺期。命名日历仅支持既有 ordinal；
+命名 offset、子日 offset、多日历匹配和任意关系映射不在本范围。
 
 ```python
-# Each series has exactly one calendar axis.
-yearly = current_series.compare(
-    previous_series,
-    match=mv.previous_year(), how="outer",
-).compute()
+periods = session.time_scope(start="2026-01-01", end="2026-10-20T12:00:00Z").by(mv.grain("month"))
+metrics = {"revenue": revenue}
+current_series = session.observe(metrics, by=(periods,))
+previous_series = session.observe(metrics, by=(periods.shift(mv.offset(years=-1)),))
+yearly = current_series.compare({"yoy": previous_series}, how="outer").compute()
 ```
 
-此例可用于已经物化或冷恢复的 builtin 时间序列；环比用 period_offset(-1)，
-相容有限期间的按序对照用 ordinal。TimeScope 总量具有 interval 轴；不同期间须显式 ordinal，同期可按区间身份等值对应。
-对单位步长的 builtin 月/季轴，previous_year 分别与 period_offset(-12)/period_offset(-4)
-有相同名义对应；日粒度必须区分闰日与固定天数偏移。Help 明确适用粒度，避免混用。
-time_axis="current" 暂不保留，带 match 的结果保存完整配对坐标；该取舍不阻断同比/环比计算。
-未来任意对应必须使用绑定双方的自包含描述，不增加全局坐标身份服务。
+这里 revenue 为显式已解析来源 Metric。每个端点独立完整求值；同图可以共享合格依赖，
+但不承诺跨来源事务快照。保存端点恢复后，锚点一致时仍可省略 match，不恢复 Metric。
+手动准备的历史 Frame 使用显式 match={"yoy": mv.offset(years=-1)}；别名不推断规则。
 
 ### 5.4 闭合数据目录
 
@@ -564,8 +528,9 @@ left_present/right_present 及继承路径是单独的非 nullable boolean 行�
 日历按保存桶键定位，不依赖当前 CalendarAxis、来源行号或当前日历规则。
 元数据只保留小型描述及附件引用，不能为打开句柄而解码全部坐标值。
 
-配对坐标的数据投影只用于解释完整行键，不附带比较量角色或原输入值。
-compare 和 align 的保存协议完全相同，值名称与单位已足够解释生成列。
+配对坐标的数据投影只用于解释 align 的完整行键，不附带原输入值。
+compare 使用同一 Frame 保存协议，并保存有限命名值绑定、端点目录、已消费映射与 presence 说明；
+不靠列名前缀或 pandas attrs 恢复它们。
 零分母政策在构造时捕获并在本次求值完成，不进入后续运算资格或专用结果布局。
 
 ### 5.5 结构传播与完整性
@@ -573,12 +538,15 @@ compare 和 align 的保存协议完全相同，值名称与单位已足够解�
 | 变换 | 必须保留或更新的结构 |
 | --- | --- |
 | 载体转换/冷恢复 | 完整数据结构、坐标目录、数据附件与行序 |
-| align/compare | 按完整行键生成本次左右 presence；已有 presence 加对应前缀，缺外层行时继承值为 false；日历配对轴使用名义桶映射 |
+| align | 保留左右值和 left/right presence；显式时间对应可生成 paired 轴 |
+| compare | 保留本期轴与值，按别名添加值组与端点 presence；已有说明按精确路径与时域运输，缺外层行时继承 presence 为 false |
 | where/top | 当前行域、值和所有行级 presence 同步筛选；配对桶映射可按保留轴键裁剪 |
-| select | 保留完整坐标、所有行级 presence 及必要桶映射；更新命名值，不隐藏保留已裁掉的值 |
-| 按已有轴 reduce | 生成分组域，保留所选完整轴及必要桶映射/日历目录；删除全部行级 presence，包括继承路径，不自动 any/all 或取首值 |
+| select | 保留完整坐标、所有行级 presence 及必要映射；直接 Column 可复制/重命名比较值绑定，表达式不获得认证；无直接值时保留有限 presence-only 说明 |
+| 按已有轴 reduce | 生成分组域，保留所选当前轴及其目录；删除全部 presence 和比较列认证/逐桶基期关系，不自动 any/all 或取首值 |
 | 标量 reduce | 同样删除全部行级 presence，另移除全部坐标及其附件 |
 
+同完整时域的等值 align/再次 compare 可运输旧值绑定与端点说明；新的时间 match 置换旧时域时，
+旧列仅为保存值，不自动移动来源窗口。旧逐桶/值认证删除，只留命名的惰性历史 presence 说明。
 日历映射在筛选后保留原声明有限域及原始序号；额外桶不增加输出行或扩大当前域。
 reduce 后 presence_names 为空，即使分组保留全部轴也遵守同一规则；桶映射不进入 presence_names。
 若需统计缺侧，先用 presence 谓词筛选再 row_count；这些是显式统计值，不重新命名为隐含 presence。
@@ -734,8 +702,8 @@ compute 的纯载体加载、persist 和冷恢复均原样保留摘要，不新�
 
 ## 9. 保存格式与跨进程恢复
 
-所有 persist 结果使用 Store14 的 `marivo.frame_output/v3`、`frame.v3` 和 `frame-output-v3`，
-目录为 `.marivo/analysis/generations/v14/`；没有方法事实的 Frame 也使用同一当前协议。
+所有 persist 结果使用 Store15 的 `marivo.frame_output/v4`、`frame.v4` 和 `frame-output-v4`，
+目录为 `.marivo/analysis/generations/v15/`；没有方法事实的 Frame 也使用同一当前协议。
 Artifact 审计视图与 Frame 共享同一提交权威。
 描述包含协议/消费语义版本、Store/Session/Artifact/result_id、值与坐标目录、附件引用、
 收据、一份审计摘要和有界方法描述符；完整事实保存为自己的闭合方法表附件。
@@ -761,7 +729,7 @@ import marivo.analysis as mv
 session = mv.session.resume(saved_session_id)
 saved = session.persisted_frame(saved_artifact_id)
 saved.show(n=0)
-positive = saved.where(saved["absolute.revenue"] > 0).compute()
+positive = saved.where(saved["reference.absolute.revenue"] > 0).compute()
 positive.show(n=10)
 copied = positive.persist()
 report = copied.artifact
@@ -793,7 +761,7 @@ report.show()
 | axis(name) 不存在或重名 | 展示实际轴目录，使用精确名称或从 axes 明确选择句柄 |
 | align/compare 的任一输入含配对轴 | 首版拒绝再次对齐；显式规约去掉该轴或构造新的来源分析，不隐式拆轴 |
 | on 缺轴、重复、类型/时间不兼容或 exact 域不一致 | 指明具体轴与差异，修正完整对应或显式选择合法 outer 政策 |
-| 日历 match 的实际桶边界不同于名义边界 | 给出具体桶及两组边界，要求显式构造完整桶的来源分析；outer 不放宽此准入 |
+| 不合法部分桶或保存进度不符 | 给出具体桶/边界；offset 支持 week/month/year 桶首前缀，ordinal 仍须完整桶；重做精确观察，不能裁切旧聚合值 |
 | 请求来源重计算或未实现路线 | 指明来源依赖/版本范围及显式来源构造方向，不建议隐式恢复图 |
 | 数据结构、附件、保存数据缺失或损坏 | 恢复完整备份或显式重新构造；不降级、不回源 |
 | 版本不兼容 | 使用兼容环境或显式重新计算，不改写旧字节 |
@@ -816,7 +784,7 @@ Artifact 只有元数据卡片与 Finding/Evidence；预览、导出与数据运
 | 值选择/算术、where(Column)、全局 top | top 分区、Population 谓词重载 |
 | 既有完整轴的 reduce、单分量 coord | 日历粗化、新属性、原量 rollup/drill/share |
 | 全轴 align/compare、exact/outer；零轴及唯一日历轴的 on 推导 | 普通轴自动对应、再次对齐配对轴、自动广播、关系/任意映射、time_axis=current 投影 |
-| ordinal、builtin previous_year、day/week/month/quarter/year offset | 命名日历 offset、子日/DST offset、多日历轴匹配 |
+| ordinal、builtin offset(years=...)、day/week/month/quarter/year offset(periods=...) | 命名日历 offset、子日/DST offset、多日历轴匹配 |
 | 显式来源叶子与固定输入的本地组合 | 固定数据上传远端、跨载体融合优化 |
 | 现有 Population 输入及 session.population_from 普通轴桥接 | frame.population、配对/日历轴到来源的复杂交接 |
 

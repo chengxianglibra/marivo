@@ -179,6 +179,7 @@ def bind_observation(
             return
         if isinstance(node, (PerReduce, PerWeightedMean)) and (
             period is None
+            and time_axis is None
             and isinstance(node.samples, tuple)
             and any(
                 axis.field is not None and axis.field.ref.kind.value == "time_dimension"
@@ -298,6 +299,7 @@ def bind_observation(
                 dimension = state.registry.dimensions[node.time.field.ref.path]
                 if (
                     contribution_period is None
+                    and not coordinate_calendar_axes
                     and dimension.parse is not None
                     and getattr(dimension.parse, "sample_interval", None) is not None
                 ):
@@ -429,7 +431,7 @@ def bind_observation(
                     physical_slot += 1
                 else:
                     physical_slot += len(coordinate_read_keys(next(physical_reads)))
-            if contribution_period is not None and node.time is None:
+            if (contribution_period is not None or coordinate_calendars) and node.time is None:
                 reject(
                     "a declared business time role for this period",
                     root.ref.path,
@@ -526,7 +528,7 @@ def bind_observation(
     bound_contributions = bind_windows(
         tuple(contributions), metrics, declared, period, calendar, calendar_snapshots
     )
-    if state is not None:
+    if state is not None and (calendar is None or calendar.cells):
         bound_contributions = tuple(
             replace(item, coverage=sampling_coverage(item, state, calendar=calendar))
             for item in bound_contributions

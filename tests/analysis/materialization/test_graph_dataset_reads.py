@@ -50,7 +50,9 @@ def _capture(case: DslCase, kind: _Kind) -> mv.AnalysisFrame:
             by=mv.product(session.time_scope(start="2026-07-01", end="2026-08-01"), members),
         )
         query = query.compare(
-            baseline, on=tuple(zip(query.axes, baseline.axes, strict=True)), match=mv.ordinal()
+            {"base": baseline},
+            on={"base": tuple(zip(query.axes, baseline.axes, strict=True))},
+            match={"base": mv.ordinal()},
         )
     elif kind == "calendar":
         query = session.observe(

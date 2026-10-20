@@ -90,10 +90,15 @@ def test_calendar_products_keep_single_time_axis_descriptors_and_cold_metadata(
             assert tuple(bounds.columns[1:]) == (
                 "nominal_label",
                 "ordinal",
+                "nominal_ordinal",
                 "nominal_start",
                 "nominal_end",
                 "actual_start",
                 "actual_end",
+                "nominal_start_civil",
+                "nominal_end_civil",
+                "actual_start_civil",
+                "actual_end_civil",
             )
             assert bounds.actual_start.tolist() == (
                 march_starts if axis.timezone == "Europe/Paris" else february_starts

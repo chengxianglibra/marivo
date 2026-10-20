@@ -11,6 +11,7 @@ from marivo._definition.expressions import PredicateExpression
 from marivo._definition.relations import PopulationDependency
 from marivo.analysis.compiler.query_program import (
     FrameCombineProgram,
+    FrameCompareProgram,
     FrameParameter,
     FrameProgram,
     PopulationParameterPlan,
@@ -163,6 +164,7 @@ class FrameCompute:
     program: (
         FrameProgram
         | FrameCombineProgram
+        | FrameCompareProgram
         | AttributeProgram
         | AttributeProjectProgram
         | AttributeInputProgram

@@ -398,10 +398,14 @@ def test_mixed_component_attribution_source_and_fixed(
         where=mv.in_population(members),
     )
     changed = current.compare(
-        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+        {"reference": baseline},
+        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+        match={"reference": mv.ordinal()},
     ).persist()
     expected = 1.0 if method == "weighted" else 1.0 / weight
-    assert changed.to_pandas()[("value", "absolute.value")].tolist() == pytest.approx([expected])
+    assert changed.to_pandas()[("value", "reference.absolute.value")].tolist() == pytest.approx(
+        [expected]
+    )
     assert session.persisted_frame(changed.artifact.id).to_pandas().equals(changed.to_pandas())
 
 
@@ -494,10 +498,12 @@ def test_narrow_decimal_mean_difference_preserves_fixed_attribution_carrier(
         where=mv.in_population(members),
     )
     fixed = current.compare(
-        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+        {"reference": baseline},
+        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+        match={"reference": mv.ordinal()},
     ).persist()
     for result in (fixed, session.persisted_frame(fixed.artifact.id)):
-        values = result.to_pandas()[("value", "absolute.value")]
+        values = result.to_pandas()[("value", "reference.absolute.value")]
         assert values.tolist() == [Decimal("1.01")]
         dtype = values.dtype
         precision = int(value_type.split("(")[1].split(",")[0])
@@ -578,9 +584,11 @@ def test_native_linear_comparison_uses_represented_cells_in_both_routes(
         by=mv.product(session.time_scope(start="2026-07-01", end="2026-08-01"), members),
     )
     result = current.compare(
-        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+        {"reference": baseline},
+        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+        match={"reference": mv.ordinal()},
     ).persist()
-    assert result.to_pandas()[("value", "relative.value")].tolist() == [1.0]
+    assert result.to_pandas()[("value", "reference.relative.value")].tolist() == [1.0]
     current_values, baseline_values = _value(current.compute()), _value(baseline.compute())
     assert ((current_values - baseline_values) / baseline_values.abs()).tolist() == [1.0]
     assert session.persisted_frame(result.artifact.id).to_pandas().equals(result.to_pandas())

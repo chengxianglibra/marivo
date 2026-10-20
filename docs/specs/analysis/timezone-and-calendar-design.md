@@ -121,42 +121,50 @@ construction; summing represented window values is a different current-row quest
 
 ## Period correspondence
 
-Frame align/compare uses full explicit on, except zero axes and exactly one sole
-interval axis or one sole calendar axis on each input. Match is always an explicit
-choice. Interval ordinal requires exactly one declared interval record per side
-and equal boundary timezones; it does not require equal boundaries. A calendar
-match requires exactly one compatible calendar pair. Already paired inputs reject. All
-matching consumes finite frozen directories and versioned pure rules, without
-current CalendarAxis, model, certification or timezone-rule reconstruction.
+Every named compare baseline binds complete axes through alias-keyed on/match;
+zero axes or a sole same-kind interval/calendar pair permit unique structural
+on inference. Align retains a single explicit on/match. Both reject paired
+inputs and validate ownership, complete keys and compatible interpretation.
 
-Each directory has exact physical keys, original nominal label/ordinal and
-nominal/actual boundaries. Match requires compatible continuous nonoverlapping
-complete nominal partitions, with actual bounds equal to nominal bounds. This
-structural admission applies even after where/top; removing rows cannot hide
-partial buckets. Ordinary reading/equality without match does not gain that
-complete-bucket requirement. Corrupt/missing records are integrity errors.
+`offset(*, years=n)` and `offset(*, periods=n)` require exactly one non-boolean
+integer keyword. Period distance uses nominal grain, never sparse row position;
+year distance uses civil years, with ISO week-year for weeks. Complete builtin
+day/quarter matching stays available. Source `CalendarAxis.shift` admits only
+unit-step builtin week/month/year full buckets or bucket-start prefixes.
 
-Ordinal uses original full-domain positions and never compresses after selection.
-Builtin period_offset supports day/week/month/quarter/year by nominal label
-arithmetic followed by lookup in the other saved directory. previous_year supports
-builtin day/month/quarter/year and leaves leap days unmatched; it does not clamp
-February 29 or subtract 365 days. Named calendars support only ordinal with the
-same frozen identity/digest/level/timezone. Named offsets, subday/DST offsets,
-multiple calendar matches and arbitrary relation maps are postponed.
+Full buckets map to full targets. Prefixes preserve weekday/day-of-month/month-day
+and civil cutoff clock. Missing ISO W53 or civil cutoff date is legal absence,
+not clamping or a shorter current range. Nonzero target DST gap/fold rejects;
+zero offset copies the exact original instant, including an explicit fold branch.
+Shift returns exact selected targets, possibly sparse/empty, with one direct
+origin relation; chains never recover ancestors or revive an absent period.
 
-First build a stable partial one-to-one directory map, including one-sided buckets;
-then apply exact/outer to actual complete row keys. Unused directory buckets do
-not create output rows or cause exact failure. Unmatched actual rows fail exact;
-outer retains them with independent side presence. A full directory can contain
-a leap day that was filtered from actual rows, allowing exact on the remaining
-fully paired domain. Missing values and absent endpoints remain different.
+Frozen directories carry stable nominal ordinals, selected keys, exact
+nominal/actual UTC and canonical civil bounds, timezone and rule versions.
+Direct maps and legal absence reasons are finite typed attachments. Data-side
+offset validates saved target progress; partial day/quarter or a different saved
+prefix rejects instead of clipping aggregate values. Ordinal still requires
+continuous compatible complete nominal/actual partitions, or one declared
+interval per side with the same boundary timezone. Filtering never renumbers it.
+Named calendars retain only their existing ordinal support.
 
-A matched result retains a single paired axis with an opaque key, both frozen
-endpoint descriptions and a complete map. Frozen interpretation is self-contained;
-show resolves labels/bounds/paired endpoints, and full export retains isolated
-typed attachments. There is no time_axis="current" projection, endpoint method
-or new public visible projection column. Endpoint windows complete before
-pairing; mapping daily rows cannot replace the baseline's own window computation.
+A named compare can consume an immediate direct relation only when its origin
+matches the receiver's whole frozen time domain. Explicit conflicting match or
+wrong anchors reject; without a direct relation, omitted match means equality.
+Align's match stays explicit. After mapping, exact checks actual complete joint
+keys; compare outer retains current rows followed by alias-ordered mapped
+baseline-only rows. Any actual baseline time row outside the current declared
+domain rejects. Align owns the general two-ended time union and paired axes.
+Unused directory buckets do not create rows; presence remains independent of NA.
+
+Compare preserves current ordinary axes and stores named endpoint directories,
+consumed maps, exact value/presence bindings. Align may retain a paired axis with
+both frozen endpoints and its map. Full reads validate required attachments;
+positive comparison/direct previews validate required finite coordinate authority
+while bounding primary rows, and n=0 remains metadata-only. No current TZ,
+Catalog, source or Metric reconstruction occurs. Each explicit observe evaluates
+its original window Metric; matching aggregates never recomputes a baseline.
+
 
 ## Physical precision and saved output
 

@@ -4,17 +4,22 @@ from __future__ import annotations
 
 from dataclasses import replace
 from decimal import Decimal
-from typing import TypeAlias
+from typing import Literal, TypeAlias
 
 import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 
-from marivo.analysis.compiler.query_program import FrameCombineProgram
+from marivo._definition.correspondence import CalendarCorrespondence
+from marivo._temporal_grid import CivilShiftAbsent
+from marivo.analysis.compiler.query_program import FrameCombineProgram, FrameCompareProgram
 from marivo.analysis.core.artifact_data import OutputAttachment
 from marivo.analysis.core.data_schema import (
+    CalendarComparisonBinding,
     CalendarDataAxis,
     DataAxis,
+    DataSchema,
+    IntervalComparisonBinding,
     IntervalDataAxis,
     PairedDataAxis,
 )
@@ -26,13 +31,20 @@ from marivo.analysis.core.data_types import (
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.analysis.core.frame_expression import CompareFrameValues
 from marivo.analysis.core.frozen_calendar import (
     FrozenAttachment,
+    FrozenCalendarDirectory,
+    FrozenComparisonAbsent,
+    FrozenComparisonEntry,
+    FrozenComparisonMatch,
+    FrozenDirectMatch,
+    FrozenIntervalDirectory,
     build_partial_calendar_map,
     build_partial_interval_map,
     calendar_directory_rows,
     calendar_directory_schema,
+    calendar_match_intents,
+    comparison_mapping_schema,
     frozen_key_rows,
     frozen_key_table,
     interval_directory_rows,
@@ -41,7 +53,9 @@ from marivo.analysis.core.frozen_calendar import (
     merge_equal_interval_directories,
     paired_mapping_schema,
     read_calendar_directory,
+    read_direct_mapping,
     read_interval_directory,
+    require_compatible_calendar_axes,
     validate_frozen_coordinates,
 )
 from marivo.analysis.materialization.errors import MaterializationError
@@ -54,11 +68,16 @@ from marivo.analysis.methods.numeric_state import (
 Key: TypeAlias = tuple[tuple[DataType, object], ...]
 
 
-def _fail(expected: str, received: str) -> None:
+def _fail(
+    expected: str,
+    received: str,
+    *,
+    repair: str = "Use unique complete keys and compatible actual domains, or how='outer' for missing keys.",
+) -> None:
     raise MaterializationError(
         expected=expected,
         received=received,
-        repair="Use unique complete keys and compatible actual domains, or how='outer' for missing keys.",
+        repair=repair,
         stage="frame_combine",
     )
 
@@ -92,7 +111,7 @@ def combine_frame_data(
     program: FrameCombineProgram,
     inputs: tuple[pd.DataFrame, ...],
     attachments: tuple[tuple[OutputAttachment, ...], ...],
-) -> tuple[pd.DataFrame, tuple[OutputAttachment, ...]]:
+) -> tuple[pd.DataFrame, tuple[OutputAttachment, ...], DataSchema]:
     """Resolve frozen coordinates, then reuse the complete joint-key/value kernel."""
     if len(inputs) != 2 or len(attachments) != 2:
         _fail("two complete Frame inputs with their attachments", str(len(inputs)))
@@ -220,12 +239,31 @@ def combine_frame_data(
         # in the same joint key; output metadata remains the real paired axis.
         virtual = DataAxis(output.token, output.columns, name=output.name)
         left_axes[i], right_axes[j] = virtual, virtual
+
+    def numeric_schema(schema: DataSchema, axes: tuple[DataAxis, ...]) -> DataSchema:
+        time_tokens = {
+            axis.token for axis in axes if isinstance(axis, (CalendarDataAxis, IntervalDataAxis))
+        }
+        return replace(
+            schema,
+            axes=axes,
+            comparisons=tuple(
+                fact
+                for fact in schema.comparisons
+                if not isinstance(
+                    fact.binding, (CalendarComparisonBinding, IntervalComparisonBinding)
+                )
+                or fact.binding.current_axis_token in time_tokens
+            ),
+        )
+
     mapped = replace(
         program,
-        left_schema=replace(program.left_schema, axes=tuple(left_axes)),
-        right_schema=replace(program.right_schema, axes=tuple(right_axes)),
+        left_schema=numeric_schema(program.left_schema, tuple(left_axes)),
+        right_schema=numeric_schema(program.right_schema, tuple(right_axes)),
     )
-    return combine_frames(mapped, tuple(frames)), tuple(output_attachments)
+    resolved, carried = _resolve_comparison_facts(program, attachments, tuple(output_attachments))
+    return combine_frames(mapped, tuple(frames)), carried, resolved
 
 
 def combine_frames(program: FrameCombineProgram, inputs: tuple[pd.DataFrame, ...]) -> pd.DataFrame:
@@ -260,7 +298,6 @@ def combine_frames(program: FrameCombineProgram, inputs: tuple[pd.DataFrame, ...
             pa.array([i is not None for i in left_rows], type=pa.bool_()), left_values, right_values
         )
         columns[target] = pd.Series(pd.arrays.ArrowExtensionArray(values))
-    compare = isinstance(program.operation, CompareFrameValues)
     for i, path in enumerate(output.value_paths):
         side, original = path[0], path[1:]
         if side not in ("left", "right"):
@@ -268,68 +305,6 @@ def combine_frames(program: FrameCombineProgram, inputs: tuple[pd.DataFrame, ...
         schema, frame, indices = (a, left, left_rows) if side == "left" else (b, right, right_rows)
         column = schema.values[schema.value_paths.index(original)]
         columns[output.values[i].slot_id] = _take(frame, column.slot_id, indices)
-    if compare:
-        assert isinstance(program.operation, CompareFrameValues)
-        n = len(a.values)
-        for i in range(len(a.values)):
-            x, y = columns[output.values[i].slot_id], columns[output.values[n + i].slot_id]
-            valid = x.notna() & y.notna()
-            x, y = x.mask(~valid, pd.NA), y.mask(~valid, pd.NA)
-            absolute_type = output.values[2 * n + i].dtype
-            if isinstance(absolute_type, DurationDataType):
-                # Convert once to original ticks; abs(min_int64) is a Python int.
-                yt = pd.Series(
-                    pa.array(y, type=pa.duration(absolute_type.unit), from_pandas=True)
-                    .cast(pa.int64())
-                    .to_pylist(),
-                    dtype=object,
-                )
-                delta = duration_arithmetic(
-                    "subtract",
-                    x,
-                    y,
-                    left_type=absolute_type,
-                    right_type=absolute_type,
-                    output=absolute_type,
-                    zero_denominator="null",
-                )
-                ticks = pd.Series(
-                    pa.array(delta, type=pa.duration(absolute_type.unit), from_pandas=True)
-                    .cast(pa.int64())
-                    .to_pylist(),
-                    dtype=object,
-                ).mask(~valid, pd.NA)
-                denominator = yt.map(lambda v: abs(v) if pd.notna(v) else pd.NA)
-                relative = nullable_arithmetic(
-                    "divide",
-                    ticks,
-                    denominator,
-                    exact_duration=True,
-                    zero_denominator=program.operation.zero_denominator,
-                )
-            else:
-                delta = nullable_arithmetic("subtract", x, y)
-                denominator = y.map(
-                    lambda v: (
-                        v.copy_abs() if isinstance(v, Decimal) else abs(v) if pd.notna(v) else pd.NA
-                    )
-                )
-                relative = nullable_arithmetic(
-                    "divide",
-                    delta,
-                    denominator,
-                    zero_denominator=program.operation.zero_denominator,
-                )
-                if isinstance(absolute_type, DecimalDataType):
-                    delta = delta.map(
-                        lambda v: Decimal(v) if pd.notna(v) and not isinstance(v, Decimal) else v
-                    )
-                elif absolute_type == ScalarDataType("float64"):
-                    delta = finish_float64(delta, "Frame.compare absolute")
-            columns[output.values[2 * n + i].slot_id] = delta
-            columns[output.values[3 * n + i].slot_id] = finish_float64(
-                relative, "Frame.compare relative"
-            )
     columns[output.presence[0].slot_id] = pd.Series([i is not None for i in left_rows], dtype=bool)
     columns[output.presence[1].slot_id] = pd.Series([i is not None for i in right_rows], dtype=bool)
     inherited = 2
@@ -343,3 +318,545 @@ def combine_frames(program: FrameCombineProgram, inputs: tuple[pd.DataFrame, ...
     return pd.DataFrame(
         columns, columns=[c.slot_id for c in output.columns], index=pd.RangeIndex(len(keys))
     )
+
+
+def _comparison_values(
+    x: pd.Series, y: pd.Series, absolute_type: DataType, zero_denominator: Literal["null", "error"]
+) -> tuple[pd.Series, pd.Series]:
+    """Apply the existing nullable numeric policies after coordinate presence."""
+    valid = x.notna() & y.notna()
+    x, y = x.mask(~valid, pd.NA), y.mask(~valid, pd.NA)
+    if isinstance(absolute_type, DurationDataType):
+        # Convert once to original ticks; abs(min_int64) is a Python int.
+        yt = pd.Series(
+            pa.array(y, type=pa.duration(absolute_type.unit), from_pandas=True)
+            .cast(pa.int64())
+            .to_pylist(),
+            dtype=object,
+        )
+        delta = duration_arithmetic(
+            "subtract",
+            x,
+            y,
+            left_type=absolute_type,
+            right_type=absolute_type,
+            output=absolute_type,
+            zero_denominator="null",
+        )
+        ticks = pd.Series(
+            pa.array(delta, type=pa.duration(absolute_type.unit), from_pandas=True)
+            .cast(pa.int64())
+            .to_pylist(),
+            dtype=object,
+        ).mask(~valid, pd.NA)
+        denominator = yt.map(lambda v: abs(v) if pd.notna(v) else pd.NA)
+        relative = nullable_arithmetic(
+            "divide",
+            ticks,
+            denominator,
+            exact_duration=True,
+            zero_denominator=zero_denominator,
+        )
+    else:
+        delta = nullable_arithmetic("subtract", x, y)
+        denominator = y.map(
+            lambda v: v.copy_abs() if isinstance(v, Decimal) else abs(v) if pd.notna(v) else pd.NA
+        )
+        relative = nullable_arithmetic(
+            "divide",
+            delta,
+            denominator,
+            zero_denominator=zero_denominator,
+        )
+        if isinstance(absolute_type, DecimalDataType):
+            delta = delta.map(
+                lambda v: Decimal(v) if pd.notna(v) and not isinstance(v, Decimal) else v
+            )
+        elif absolute_type == ScalarDataType("float64"):
+            delta = finish_float64(delta, "Frame.compare absolute")
+    return delta, finish_float64(relative, "Frame.compare relative")
+
+
+def _calendar_relation(
+    current: FrozenCalendarDirectory,
+    baseline: FrozenCalendarDirectory,
+    tables: dict[str, OutputAttachment],
+    rule: CalendarCorrespondence | None,
+) -> tuple[FrozenComparisonEntry, ...]:
+    """Consume saved direct facts or the accepted matcher without reconstructing dates."""
+    assert baseline.axis.frozen is not None
+    direct = baseline.axis.frozen.direct
+    saved: tuple[FrozenComparisonEntry, ...] | None = None
+    if direct is not None:
+        attachment = (
+            tables[direct.axis.frozen.directory_name] if direct.axis.frozen is not None else None
+        )
+        assert attachment is not None
+        origin = read_calendar_directory(direct.axis, attachment.schema, attachment.rows)
+        require_compatible_calendar_axes(current.axis, origin.axis)
+        table = tables[direct.mapping_name]
+        entries = read_direct_mapping(baseline.axis, table.schema, table.rows, origin, baseline)
+        saved = tuple(
+            FrozenComparisonMatch(entry.origin_key, entry.target_key)
+            if isinstance(entry, FrozenDirectMatch)
+            else FrozenComparisonAbsent(entry.origin_key, entry.reason)
+            for entry in entries
+        )
+        direct_rule = CalendarCorrespondence(direct.kind, direct.by)
+        expected = _matched_calendar_relation(origin, baseline, direct_rule)
+        if saved != expected:
+            _fail(
+                "direct map consistent with its frozen target intentions and boundaries",
+                repr(saved),
+            )
+        if current.buckets != origin.buckets:
+            if rule is not None:
+                return _matched_calendar_relation(current, baseline, rule)
+            _fail(
+                "the complete frozen immediate current origin domain for inferred match",
+                "baseline origin differs from current calendar",
+                repair="Pass an explicit match from the current to baseline frozen domain, or supply a baseline shifted directly from this current domain.",
+            )
+        if (
+            rule is not None
+            and rule.kind != "ordinal"
+            and tuple(intent.result for intent in calendar_match_intents(current, rule))
+            != tuple(intent.result for intent in calendar_match_intents(current, direct_rule))
+        ):
+            _fail("explicit match consistent with the frozen direct target intentions", repr(rule))
+    if rule is not None:
+        result = _matched_calendar_relation(current, baseline, rule)
+        if saved is not None and result != saved:
+            _fail("explicit match consistent with the consumed direct relation", repr(rule))
+        return result
+    if saved is not None:
+        return saved
+    identities = {replace(bucket, key=(), ordinal=0): bucket.key for bucket in baseline.buckets}
+    return tuple(
+        FrozenComparisonMatch(bucket.key, target)
+        if (target := identities.get(replace(bucket, key=(), ordinal=0))) is not None
+        else FrozenComparisonAbsent(bucket.key, "unmatched")
+        for bucket in current.buckets
+    )
+
+
+def _matched_calendar_relation(
+    current: FrozenCalendarDirectory,
+    baseline: FrozenCalendarDirectory,
+    rule: CalendarCorrespondence,
+) -> tuple[FrozenComparisonEntry, ...]:
+    pairs = build_partial_calendar_map(current, baseline, rule)
+    reasons = (
+        {
+            intent.key: intent.result.reason
+            for intent in calendar_match_intents(current, rule)
+            if isinstance(intent.result, CivilShiftAbsent)
+        }
+        if rule.kind != "ordinal"
+        else {}
+    )
+    return tuple(
+        FrozenComparisonMatch(pair.left_key, pair.right_key)
+        if pair.right_key is not None
+        else FrozenComparisonAbsent(pair.left_key, reasons.get(pair.left_key, "unmatched"))
+        for pair in pairs
+        if pair.left_key is not None
+    )
+
+
+def compare_frame_data(
+    program: FrameCompareProgram,
+    inputs: tuple[pd.DataFrame, ...],
+    attachments: tuple[tuple[OutputAttachment, ...], ...],
+) -> tuple[pd.DataFrame, tuple[OutputAttachment, ...], DataSchema]:
+    """Compare all named baselines against one current actual full-key index."""
+    if len(inputs) != len(program.input_schemas) or len(attachments) != len(inputs):
+        _fail("one current input followed by every named baseline", str(len(inputs)))
+    for schema, rows, group in zip(program.input_schemas, inputs, attachments, strict=True):
+        validate_frozen_coordinates(
+            schema, rows, tuple(FrozenAttachment(a.name, a.schema, a.rows) for a in group)
+        )
+    current = program.input_schemas[0]
+    output = program.output_schema
+    current_columns = tuple(column for axis in current.axes for column in axis.columns)
+    current_keys, current_index = _index(inputs[0], current_columns)
+    all_keys = list(current_keys)
+    known_keys = set(all_keys)
+    indices = [current_index]
+    frames = [inputs[0]]
+    key_columns = [current_columns]
+    from marivo.analysis.core.frame_structure import coordinate_attachments
+
+    current_only = replace(
+        current,
+        values=(),
+        presence=(),
+        projection_columns=(),
+        value_paths=(),
+        presence_paths=(),
+        comparisons=(),
+    )
+    current_required = coordinate_attachments(current_only)
+    output_attachments = [
+        attachment for attachment in attachments[0] if attachment.name in current_required
+    ]
+    for item, schema, rows, group, fact in zip(
+        program.operation.baselines,
+        program.input_schemas[1:],
+        inputs[1:],
+        attachments[1:],
+        output.comparisons[: len(program.operation.baselines)],
+        strict=True,
+    ):
+        frame = rows.copy(deep=False)
+        partners = dict(item.pairs)
+        columns = tuple(
+            column for i in range(len(current.axes)) for column in schema.axes[partners[i]].columns
+        )
+        binding = fact.binding
+        if isinstance(binding, (CalendarComparisonBinding, IntervalComparisonBinding)):
+            position = next(
+                i for i, axis in enumerate(current.axes) if axis.token == binding.current_axis_token
+            )
+            left, right = current.axes[position], schema.axes[partners[position]]
+            assert isinstance(left, (CalendarDataAxis, IntervalDataAxis)) and isinstance(
+                right, (CalendarDataAxis, IntervalDataAxis)
+            )
+            assert left.frozen is not None and right.frozen is not None
+            left_tables, right_tables = (
+                {a.name: a for a in tables} for tables in (attachments[0], group)
+            )
+            a, b = (
+                left_tables[left.frozen.directory_name],
+                right_tables[right.frozen.directory_name],
+            )
+            if isinstance(left, CalendarDataAxis):
+                assert isinstance(right, CalendarDataAxis) and isinstance(
+                    binding.baseline, CalendarDataAxis
+                )
+                ldir = read_calendar_directory(left, a.schema, a.rows)
+                rdir = read_calendar_directory(right, b.schema, b.rows)
+                relation = _calendar_relation(ldir, rdir, right_tables, item.match)
+                copied = replace(rdir, axis=binding.baseline)
+                endpoint_rows = calendar_directory_rows(copied)
+                endpoint_schema = calendar_directory_schema(binding.baseline)
+            else:
+                assert isinstance(right, IntervalDataAxis) and isinstance(
+                    binding.baseline, IntervalDataAxis
+                )
+                li, ri = (
+                    read_interval_directory(left, a.schema, a.rows),
+                    read_interval_directory(right, b.schema, b.rows),
+                )
+                if item.match is not None:
+                    matches = build_partial_interval_map(li, ri, item.match)
+                    relation = tuple(
+                        FrozenComparisonMatch(pair.left_key, pair.right_key)
+                        for pair in matches
+                        if pair.left_key is not None and pair.right_key is not None
+                    )
+                else:
+                    interval_keys = {
+                        (bucket.start, bucket.end, bucket.timezone): bucket.key
+                        for bucket in ri.buckets
+                    }
+                    relation = tuple(
+                        FrozenComparisonMatch(bucket.key, target)
+                        if (
+                            target := interval_keys.get((bucket.start, bucket.end, bucket.timezone))
+                        )
+                        is not None
+                        else FrozenComparisonAbsent(bucket.key, "unmatched")
+                        for bucket in li.buckets
+                    )
+                copied_interval = replace(ri, axis=binding.baseline)
+                endpoint_rows = interval_directory_rows(copied_interval)
+                endpoint_schema = interval_directory_schema(binding.baseline)
+            assert binding.baseline.frozen is not None
+            output_attachments.append(
+                OutputAttachment(
+                    binding.baseline.frozen.directory_name, endpoint_schema, endpoint_rows
+                )
+            )
+            map_schema = comparison_mapping_schema(left, binding)
+            mapping_rows = frozen_key_table(
+                left.columns, tuple(entry.current_key for entry in relation)
+            )
+            targets = frozen_key_table(
+                map_schema.values[:-1],
+                tuple(
+                    entry.baseline_key if isinstance(entry, FrozenComparisonMatch) else None
+                    for entry in relation
+                ),
+            )
+            for column in map_schema.values[:-1]:
+                mapping_rows[column.slot_id] = targets[column.slot_id]
+            mapping_rows["reason"] = pd.Series(
+                [
+                    entry.reason if isinstance(entry, FrozenComparisonAbsent) else None
+                    for entry in relation
+                ],
+                dtype="string[pyarrow]",
+            )
+            output_attachments.append(
+                OutputAttachment(binding.mapping_name, map_schema, mapping_rows)
+            )
+            reverse = {
+                entry.baseline_key: entry.current_key
+                for entry in relation
+                if isinstance(entry, FrozenComparisonMatch)
+            }
+            actual = frozen_key_rows(rows, right.columns)
+            if any(key not in reverse for key in actual):
+                _fail(
+                    "every actual baseline time row mapping into the declared current domain",
+                    item.alias,
+                    repair="Filter the baseline to the declared current time domain, or use align for a general endpoint time union.",
+                )
+            encoded = frozen_key_table(right.columns, tuple(reverse[key] for key in actual))
+            for column in right.columns:
+                frame[column.slot_id] = encoded[column.slot_id]
+        keys, baseline_index = _index(frame, columns)
+        if program.operation.how == "exact" and baseline_index.keys() != current_index.keys():
+            _fail("equal actual complete row-key domains for every named baseline", item.alias)
+        for key in keys:
+            if key not in known_keys:
+                all_keys.append(key)
+                known_keys.add(key)
+        indices.append(baseline_index)
+        frames.append(frame)
+        key_columns.append(columns)
+    takes = [[index.get(key) for key in all_keys] for index in indices]
+    result: dict[str, pd.Series] = {}
+    for offset, column in enumerate(output.columns[: len(current_columns)]):
+        coordinates = pa.array(_take(frames[0], key_columns[0][offset].slot_id, takes[0]))
+        for frame, columns, take in zip(frames[1:], key_columns[1:], takes[1:], strict=True):
+            other = pa.array(_take(frame, columns[offset].slot_id, take))
+            coordinates = pc.coalesce(coordinates, other)
+        result[column.slot_id] = pd.Series(pd.arrays.ArrowExtensionArray(coordinates))
+    count = len(current.values)
+    for index, column in enumerate(current.values):
+        result[output.values[index].slot_id] = _take(frames[0], column.slot_id, takes[0])
+    for side, schema in enumerate(program.input_schemas[1:], 1):
+        start = count + (side - 1) * 3 * count
+        for index, path in enumerate(current.value_paths):
+            baseline_value = schema.values[schema.value_paths.index(path)]
+            y = _take(frames[side], baseline_value.slot_id, takes[side])
+            result[output.values[start + index].slot_id] = y
+            x = result[output.values[index].slot_id]
+            absolute = output.values[start + count + index]
+            delta, relative = _comparison_values(
+                x, y, absolute.dtype, program.operation.zero_denominator
+            )
+            result[absolute.slot_id] = delta
+            result[output.values[start + 2 * count + index].slot_id] = relative
+    for side, take in enumerate(takes):
+        result[output.presence[side].slot_id] = pd.Series(
+            [index is not None for index in take], dtype="bool[pyarrow]"
+        )
+    offset = len(takes)
+    for schema, frame, take in zip(program.input_schemas, frames, takes, strict=True):
+        for column in schema.presence:
+            result[output.presence[offset].slot_id] = pd.Series(
+                [
+                    False if index is None else bool(frame[column.slot_id].iloc[index])
+                    for index in take
+                ],
+                dtype="bool[pyarrow]",
+            )
+            offset += 1
+    resolved, carried = _resolve_comparison_facts(program, attachments, tuple(output_attachments))
+    return (
+        pd.DataFrame(
+            result,
+            columns=[column.slot_id for column in output.columns],
+            index=pd.RangeIndex(len(all_keys)),
+        ),
+        carried,
+        resolved,
+    )
+
+
+def _resolve_comparison_facts(
+    program: FrameCompareProgram | FrameCombineProgram,
+    inputs: tuple[tuple[OutputAttachment, ...], ...],
+    produced: tuple[OutputAttachment, ...],
+) -> tuple[DataSchema, tuple[OutputAttachment, ...]]:
+    """Resolve retained certification from exact finite input/output domains."""
+    from marivo.analysis.core.frame_expression import transport_comparisons
+    from marivo.analysis.core.frame_structure import coordinate_attachments
+
+    output = program.output_schema
+    specs: tuple[
+        tuple[
+            DataSchema,
+            tuple[str, ...],
+            tuple[str, ...],
+            str,
+            tuple[tuple[int, int], ...],
+            tuple[str, ...],
+        ],
+        ...,
+    ]
+    if isinstance(program, FrameCompareProgram):
+        roots = output.comparisons[: len(program.operation.baselines)]
+        specs = (
+            (
+                program.input_schemas[0],
+                (),
+                ("current", "presence"),
+                "current",
+                tuple((i, i) for i in range(len(output.axes))),
+                ("current", "present"),
+            ),
+            *(
+                (
+                    schema,
+                    (item.alias, "baseline"),
+                    (item.alias, "presence"),
+                    item.alias,
+                    tuple((j, i) for i, j in item.pairs),
+                    (item.alias, "present"),
+                )
+                for item, schema in zip(
+                    program.operation.baselines, program.input_schemas[1:], strict=True
+                )
+            ),
+        )
+    else:
+        roots = ()
+        specs = (
+            (
+                program.left_schema,
+                ("left",),
+                ("left",),
+                "left",
+                tuple((i, i) for i in range(len(output.axes))),
+                ("left_present",),
+            ),
+            (
+                program.right_schema,
+                ("right",),
+                ("right",),
+                "right",
+                tuple((j, i) for i, j in program.operation.pairs),
+                ("right_present",),
+            ),
+        )
+    tables = {attachment.name: attachment for attachment in produced}
+    retained = list(roots)
+    additions: list[OutputAttachment] = []
+
+    def directory(
+        axis: CalendarDataAxis | IntervalDataAxis, group: dict[str, OutputAttachment]
+    ) -> FrozenCalendarDirectory | FrozenIntervalDirectory:
+        assert axis.frozen is not None
+        table = group[axis.frozen.directory_name]
+        return (
+            read_calendar_directory(axis, table.schema, table.rows)
+            if isinstance(axis, CalendarDataAxis)
+            else read_interval_directory(axis, table.schema, table.rows)
+        )
+
+    if isinstance(program, FrameCombineProgram):
+        axes = list(output.axes)
+        left_tables = {attachment.name: attachment for attachment in inputs[0]}
+        for left_index, _ in program.operation.pairs:
+            source, target = program.left_schema.axes[left_index], axes[left_index]
+            if (
+                isinstance(source, CalendarDataAxis)
+                and isinstance(target, CalendarDataAxis)
+                and target.frozen is not None
+                and target.frozen.direct is not None
+                and directory(source, left_tables).buckets != directory(target, tables).buckets
+            ):
+                axes[left_index] = replace(target, frozen=replace(target.frozen, direct=None))
+        output = replace(output, axes=tuple(axes))
+
+    for (schema, value_prefix, presence_prefix, namespace, axis_pairs, endpoint_path), group in zip(
+        specs, inputs, strict=True
+    ):
+        source_tables = {attachment.name: attachment for attachment in group}
+        same: set[str] = set()
+        for source_index, output_index in axis_pairs:
+            source, target = schema.axes[source_index], output.axes[output_index]
+            if isinstance(source, (CalendarDataAxis, IntervalDataAxis)) and type(source) is type(
+                target
+            ):
+                assert isinstance(target, (CalendarDataAxis, IntervalDataAxis))
+                if directory(source, source_tables).buckets == directory(target, tables).buckets:
+                    same.add(source.token)
+        facts = transport_comparisons(
+            schema,
+            output.axes,
+            value_prefix=value_prefix,
+            presence_prefix=presence_prefix,
+            namespace=namespace,
+            axis_pairs=axis_pairs,
+            endpoint_path=endpoint_path,
+            same_domains=frozenset(same),
+        )
+        retained.extend(facts)
+        for original, copied in zip(schema.comparisons, facts, strict=True):
+            old, new = original.binding, copied.binding
+            if not isinstance(new, (CalendarComparisonBinding, IntervalComparisonBinding)):
+                continue
+            assert isinstance(old, (CalendarComparisonBinding, IntervalComparisonBinding))
+            frozen = directory(old.baseline, source_tables)
+            if isinstance(new.baseline, CalendarDataAxis):
+                assert isinstance(frozen, FrozenCalendarDirectory)
+                copied_directory = replace(frozen, axis=new.baseline)
+                layout, rows = (
+                    calendar_directory_schema(new.baseline),
+                    calendar_directory_rows(copied_directory),
+                )
+            else:
+                assert isinstance(frozen, FrozenIntervalDirectory)
+                copied_interval = replace(frozen, axis=new.baseline)
+                layout, rows = (
+                    interval_directory_schema(new.baseline),
+                    interval_directory_rows(copied_interval),
+                )
+            assert new.baseline.frozen is not None
+            additions.append(OutputAttachment(new.baseline.frozen.directory_name, layout, rows))
+            old_axis = next(axis for axis in schema.axes if axis.token == old.current_axis_token)
+            new_axis = next(axis for axis in output.axes if axis.token == new.current_axis_token)
+            assert isinstance(old_axis, (CalendarDataAxis, IntervalDataAxis)) and isinstance(
+                new_axis, (CalendarDataAxis, IntervalDataAxis)
+            )
+            original_map = source_tables[old.mapping_name]
+            map_schema = comparison_mapping_schema(new_axis, new)
+            mapping = frozen_key_table(
+                new_axis.columns, frozen_key_rows(original_map.rows, old_axis.columns)
+            )
+            for column in map_schema.values:
+                mapping[column.slot_id] = (
+                    original_map.rows[column.slot_id].reset_index(drop=True).copy()
+                )
+            additions.append(OutputAttachment(new.mapping_name, map_schema, mapping))
+    resolved = replace(output, comparisons=tuple(retained))
+    required = coordinate_attachments(resolved)
+    owned: dict[str, OutputAttachment] = {}
+    for attachment in (*produced, *additions):
+        if attachment.name not in required:
+            continue
+        previous = owned.get(attachment.name)
+        if previous is not None and (
+            previous.schema != attachment.schema or not previous.rows.equals(attachment.rows)
+        ):
+            _fail("one exact payload for each required attachment owner", attachment.name)
+        owned[attachment.name] = attachment
+    # The output current axis comes from the first input; only its unchanged
+    # direct ancestry can remain outside the newly produced/rebased attachments.
+    for attachment in inputs[0]:
+        if attachment.name not in required or attachment.name in tables:
+            continue
+        previous = owned.get(attachment.name)
+        if previous is not None and (
+            previous.schema != attachment.schema or not previous.rows.equals(attachment.rows)
+        ):
+            _fail("one exact payload for each required attachment owner", attachment.name)
+        owned[attachment.name] = attachment
+    if set(owned) != set(required):
+        _fail("all required frozen coordinate attachments", repr(tuple(owned)))
+    return resolved, tuple(owned[name] for name in required)

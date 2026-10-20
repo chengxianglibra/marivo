@@ -14,7 +14,7 @@ from marivo.analysis.materialization.layout import MaterializationLayout
 from marivo.semantic.reader import SemanticProject
 
 
-def test_new_public_session_starts_with_empty_v14_store(
+def test_new_public_session_starts_with_empty_v15_store(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)

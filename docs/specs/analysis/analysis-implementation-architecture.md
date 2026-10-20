@@ -33,7 +33,7 @@ explicit completed memory/stored Frame
 both -> one graph plan and one prepared stage schedule
      -> complete immutable data + frozen coordinate attachments + one audit
      -> compute returns memory root
-     -> persist publishes existing result through Store 14
+     -> persist publishes existing result through Store 15
      -> persisted Frame reads data; frame.artifact reads audit
 ```
 
@@ -156,7 +156,7 @@ both -> the same compiler, stage scheduler, compute and persist lifecycle
 | 基础能力 | 当前状态 | 组合设计的处理 |
 | --- | --- | --- |
 | 显式来源分类和筛选 | observe/read、Population、population_from 已有明确合同 | attribute.by 复用分类元组或单个 Population；多个完整域由调用方显式组合，来源绑定层检查指定键、类型与所有权；贡献请求独立证明完整分区，不增加混合块语法 |
-| 完整键/日历配对、presence、行序 | align/compare 共用 frame_comparison 的配对内核 | 保持一套对应与缺侧规则；不再匹配一遍已配对的轴 |
+| 完整键/日历对应、presence、行序 | align 与命名 compare 复用 frame_comparison 的键/数值核；compare 独立 N+1 计划和当前轴 schema | 保持实际键、缺侧与数值规则；不以 binary/paired 输出假设限制 named compare |
 | 差值与受控除法 | Column 算术/divide 与底层 nullable/Duration 数值内核可复用 | 缺侧/NA 优先于零分母政策，保持单位、精度和溢出合同 |
 | 相对变化的绝对值分母 | compare 内部已处理负数、Decimal 和 Duration；Column 无公开 abs | 属公开表达缺口，不是 compare 功能缺失；是否公开 abs 单独决定，不用平方/开方替代 |
 | 名称路径和批量比较检查 | compare 生成规范路径并检查全量量名/单位；用户 select 仅声明单段名 | 复用内部 schema/path 构造；不为手写等价放宽用户命名合同 |
@@ -322,17 +322,19 @@ spill、截断或回源。native sum/mean/weighted/ratio 有 PG/MySQL/Trino/Clic
 ## 11. 时间、窗口和实际覆盖检查
 
 Metric.window 保持来源意义；每端点完成自己的 W(t)。Frame 中冻结目录解释历史数据，
-match 要求完整相容名义分区与实际边界一致。先建立稳定部分一一目录映射，再检查实际联合行
-exact/outer 覆盖；未用目录桶不产生行。损坏附件不是无对应端点。见[时间合同](timezone-and-calendar-design.md)。
+ordinal 要求完整相容名义/实际分区；offset 支持经过精确保存进度验证的周/月/年前缀。
+shift 保存精确稀疏/空选择与直接映射。命名 compare 保留本期轴并逐别名检查实际完整键；
+outer 拒绝无法映入本期声明域的实际基期时间行。align 仍拥有 paired 轴及一般双端并集。
+未用目录桶不产生行，损坏附件不是无对应端点。见[时间合同](timezone-and-calendar-design.md)。
 
 ## 12. 保存、恢复与读取出口
 
 ### 12.1 一次提交的内容
 
-Store 14 保存 `marivo.frame_output/v3` 一种 Frame 协议，含独立 interval 目录：精确所有权/result ID、闭合结构、类型附件/收据和一份
+Store 15 保存 `marivo.frame_output/v4` 一种 Frame 协议，含独立 interval 目录：精确所有权/result ID、闭合结构、类型附件/收据和一份
 来源事实+当前求值审计，以及有界方法描述符。完整方法表为结果自己拥有的附件，与数据共享
 既有 receipt/readback、原子提交和未知结果协调。Run 只发布已有结果，不保存 producer graph。
-所有 Frame 使用 `marivo.frame_output/v3`、`frame.v3`、`frame-output-v3`。
+所有 Frame 使用 `marivo.frame_output/v4`、`frame.v4`、`frame-output-v4`。
 
 ### 12.2 重开只读取产物
 

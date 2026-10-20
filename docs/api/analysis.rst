@@ -76,21 +76,47 @@ variable pairs. Group coefficients/counts do not reconstruct pooled correlation.
 complete axes onto explicitly supplied Field/Entity bindings. ``on`` is required
 and may be empty. Calendar/paired axes and arbitrary value columns cannot bridge.
 
-``align`` preserves each side's values; ``compare`` emits left, right, absolute
-and relative value groups. Relative change is ``(left-right)/abs(right)``.
-Presence is separate from NA; missing endpoints never become zero. Ordinary
-axes require complete explicit ``on``. Only zero axes or one sole calendar axis
-permit the specified inference. Handles cannot be rebound by matching names or
-fingerprints. ``coord`` accepts a single-component complete axis; composite
-identities remain complete keys, not one scalar quantity.
+``align`` preserves left/right values and general paired time unions.
+``compare`` accepts a nonempty ordered mapping of named same-Session Frames,
+including a single baseline. It retains current axes and values, then adds each
+alias's ``baseline``, ``absolute`` and ``relative`` groups. For example,
+``current.compare({"yoy": baseline}, match={"yoy": mv.offset(years=-1)})``
+produces ``revenue`` and ``yoy.baseline.revenue``, ``yoy.absolute.revenue``,
+``yoy.relative.revenue``. Relative is ``(current-baseline)/abs(baseline)``.
+``current.present`` and ``yoy.present`` are row-existence flags independent of
+value NA; inherited flags live below ``current.presence.*`` / ``yoy.presence.*``.
+Missing rows/NA never become zero. Duration baseline/absolute retain their tick
+unit and relative is dimensionless; strict child policies remain required.
 
-``ordinal``, supported builtin ``period_offset`` and ``previous_year`` consume
-frozen finite calendar directories. Matching validates complete compatible
-nominal partitions and actual boundaries. Paired output retains both endpoint
-descriptions and a self-contained map. It does not reconstruct a CalendarAxis,
-current model or timezone database. Relationship correspondence, broadcasting,
-calendar coarsening, partitioned top and original rollup/drill/share receivers
-are outside this Frame surface; current-row reduce is not their equivalent.
+Each alias's ``on`` binds every complete axis, except zero axes or one sole
+interval/calendar axis permit unique structural inference. ``match`` is also
+alias-keyed. A compatible immediate frozen shift relationship can supply it;
+wrong anchors and conflicting explicit rules reject. ``exact`` checks complete
+actual joint keys; ``outer`` preserves current order then mapped baseline-only
+keys in alias order. Actual baseline time rows outside the declared current time
+domain reject; use ``align`` for a general two-ended time union.
+
+``offset(*, years=n)`` and ``offset(*, periods=n)`` construct an axis-free rule;
+supply exactly one non-boolean integer keyword. ``periods`` uses nominal grain
+distance and ``years`` uses civil years (ISO week-year for weeks), never fixed
+365 days or 52 weeks. ``CalendarAxis.shift`` accepts unit-step builtin
+week/month/year full buckets or bucket-start prefixes. It freezes exact selected
+targets and one direct relation; sparse/empty targets do not fill an envelope.
+Missing ISO weeks/civil cutoffs have no target and never shorten the current
+domain. Nonzero target DST gaps/folds reject; zero offsets retain captured exact
+instants. Observe each endpoint's original Metric explicitly before comparison.
+
+Fixed-data matching consumes saved finite UTC/civil boundaries. Complete builtin
+day/quarter offset matching remains supported; partial day/quarter reject.
+``ordinal`` requires compatible complete nominal partitions or a single interval
+per side with the same boundary timezone. It never compresses positions after
+filtering and cannot construct a shifted source domain. Completed comparison
+facts/attachments explain saved values and endpoint presence, with no Metric,
+source or current timezone reconstruction. Relationship correspondence,
+broadcasting, calendar coarsening and original rollup/drill/share receivers remain
+outside this Frame surface; current-row reduce is not their equivalent.
+
+
 
 Time, values and reading
 ------------------------
@@ -166,7 +192,7 @@ Evaluation, publication and recovery
 
 Compute creates no Run, Artifact or temporary saved result. Expression persist
 completes evaluation first, then publishes that existing result ID through the
-single Store 14 writer transaction. Run means publication; evaluation can precede
+single Store 15 writer transaction. Run means publication; evaluation can precede
 admission. Memory persist never reevaluates. Stored persist validates commit
 metadata and returns itself without another Run. A derived Frame never exposes
 an ancestor Artifact. Unknown publication outcome is reconciled, not recomputed.
@@ -177,10 +203,10 @@ semantic graph, connection or hidden aggregate components. Read, evaluation and
 commit times remain separate. Session Run records retain publication references
 without promising complete data lineage.
 
-Store 14 uses ``marivo.frame_output/v3``, ``frame.v3`` and ``frame-output-v3`` for
-all Frames, under ``.marivo/analysis/generations/v14/``. Owned method files share
+Store 15 uses ``marivo.frame_output/v4``, ``frame.v4`` and ``frame-output-v4`` for
+all Frames, under ``.marivo/analysis/generations/v15/``. Owned method files share
 the existing atomic publication, receipt and unknown-commit reconciliation.
-Store 14 refuses older-generation Session/result/audit data unchanged, without
+Store 15 refuses older-generation Session/result/audit data unchanged, without
 migration or dual reads. Documented absent-current discovery may return None or
 empty; create cannot bypass an old-only project. Preserve required
 old results by exporting with their original version or retaining a compatible
@@ -259,9 +285,7 @@ Canonical public exports
 
 .. autofunction:: ordinal
 
-.. autofunction:: period_offset
-
-.. autofunction:: previous_year
+.. autofunction:: offset
 
 .. autofunction:: grain
 

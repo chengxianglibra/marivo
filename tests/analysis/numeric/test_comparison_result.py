@@ -27,10 +27,10 @@ def _monthly(case: DslCase, start: str, end: str, metric: str = "revenue") -> mv
 
 def test_correspondence_factories_are_axis_free_and_checked() -> None:
     assert mv.ordinal() == mv.ordinal()
-    assert mv.period_offset(-1) == mv.period_offset(by=-1)
-    assert mv.previous_year() == mv.previous_year()
+    assert mv.offset(periods=-1) == mv.offset(periods=-1)
+    assert mv.offset(years=-1) == mv.offset(years=-1)
     with pytest.raises(AnalysisError):
-        mv.period_offset(True)
+        mv.offset(periods=True)
     with pytest.raises(TypeError):
         mv.ordinal(**{"trust": "declared"})
 
@@ -44,7 +44,9 @@ def test_comparison_owns_independent_nullable_columns(
     current = _monthly(case, "2026-09-01", "2026-10-01")
     baseline = _monthly(case, "2026-08-01", "2026-09-01")
     comparison = current.compare(
-        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+        {"reference": baseline},
+        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+        match={"reference": mv.ordinal()},
     )
     assert isinstance(comparison, mv.AnalysisFrame)
     before = run_ids(case.session)
@@ -52,25 +54,27 @@ def test_comparison_owns_independent_nullable_columns(
     assert "compute" in capsys.readouterr().out
     assert run_ids(case.session) == before
     assert "\n" not in repr(comparison)
-    relative = comparison.select({"value": comparison["relative.value"]})
+    relative = comparison.select({"value": comparison["reference.relative.value"]})
     defined = relative.where(~relative["value"].is_null())
     total = defined.reduce({"value": defined["value"].sum()})
     result = comparison.persist()
     assert isinstance(result, mv.AnalysisFrame)
     exported = result.to_pandas()
     frame = exported.set_index(ordinary_columns(exported)[0])
-    assert frame[("value", "left.value")].tolist() == [30, 200, 0, 0]
-    assert frame[("value", "right.value")].tolist() == [60, 120, 0, 0]
-    assert frame[("value", "absolute.value")].tolist() == [-30, 80, 0, 0]
-    assert frame[("value", "relative.value")].iloc[:2].tolist() == pytest.approx([-0.5, 2 / 3])
-    assert frame[("value", "relative.value")].iloc[2:].isna().all()
+    assert frame[("value", "value")].tolist() == [30, 200, 0, 0]
+    assert frame[("value", "reference.baseline.value")].tolist() == [60, 120, 0, 0]
+    assert frame[("value", "reference.absolute.value")].tolist() == [-30, 80, 0, 0]
+    assert frame[("value", "reference.relative.value")].iloc[:2].tolist() == pytest.approx(
+        [-0.5, 2 / 3]
+    )
+    assert frame[("value", "reference.relative.value")].iloc[2:].isna().all()
     assert frame["presence"].all().all()
     filtered = defined.compute().to_pandas()
     assert filtered[ordinary_columns(filtered)[0]].tolist() == ["A", "B"]
     assert total.compute().to_pandas()[("value", "value")].tolist() == pytest.approx([1 / 6])
     result.show()
     card = capsys.readouterr().out
-    assert "absolute.value" in card and "relative.value" in card
+    assert "reference.absolute.value" in card and "reference.relative.value" in card
     assert (
         result.artifact.evidence_digest()
         == case.session.persisted_frame(result.artifact.id).artifact.evidence_digest()
@@ -79,21 +83,23 @@ def test_comparison_owns_independent_nullable_columns(
         case.session.persisted_frame(result.artifact.id).to_pandas(), exported
     )
     # Exported values can be analyzed without constructing another execution.
-    assert frame[("value", "relative.value")].dropna().sum() == pytest.approx(1 / 6)
+    assert frame[("value", "reference.relative.value")].dropna().sum() == pytest.approx(1 / 6)
     before = run_ids(case.session)
     with pytest.raises(AnalysisError):
-        current.compare(result.artifact, match=mv.ordinal())  # type: ignore[arg-type]  # Audit views are not Frame operands.
+        current.compare({"reference": result.artifact}, match={"reference": mv.ordinal()})  # type: ignore[arg-type]  # Audit views are not Frame operands.
     assert run_ids(case.session) == before
     same = (
         current.compare(
-            current, on=tuple(zip(current.axes, current.axes, strict=True)), match=mv.ordinal()
+            {"reference": current},
+            on={"reference": tuple(zip(current.axes, current.axes, strict=True))},
+            match={"reference": mv.ordinal()},
         )
         .compute()
         .to_pandas()
     )
-    assert same[("value", "absolute.value")].tolist() == [0, 0, 0, 0]
-    assert same[("value", "relative.value")].iloc[:2].tolist() == [0.0, 0.0]
-    assert same[("value", "relative.value")].iloc[2:].isna().all()
+    assert same[("value", "reference.absolute.value")].tolist() == [0, 0, 0, 0]
+    assert same[("value", "reference.relative.value")].iloc[:2].tolist() == [0.0, 0.0]
+    assert same[("value", "reference.relative.value")].iloc[2:].isna().all()
 
 
 @pytest.mark.slow
@@ -113,20 +119,20 @@ def test_comparison_columns_recover_without_sources(
     current_total = current.reduce({"value": current["value"].sum()})
     baseline_total = baseline.reduce({"value": baseline["value"].sum()})
     result = current_total.compare(
-        baseline_total,
-        on=tuple(zip(current_total.axes, baseline_total.axes, strict=True)),
-        match=mv.ordinal(),
+        {"reference": baseline_total},
+        on={"reference": tuple(zip(current_total.axes, baseline_total.axes, strict=True))},
+        match={"reference": mv.ordinal()},
     ).persist()
     before = run_ids(case.session)
     frame = result.to_pandas()
-    assert frame[("value", "left.value")].tolist() == [3]
-    assert frame[("value", "right.value")].tolist() == [4]
-    assert frame[("value", "absolute.value")].tolist() == [-1]
-    assert frame[("value", "relative.value")].tolist() == [-0.25]
-    position = frame.columns.get_loc(("value", "absolute.value"))
+    assert frame[("value", "value")].tolist() == [3]
+    assert frame[("value", "reference.baseline.value")].tolist() == [4]
+    assert frame[("value", "reference.absolute.value")].tolist() == [-1]
+    assert frame[("value", "reference.relative.value")].tolist() == [-0.25]
+    position = frame.columns.get_loc(("value", "reference.absolute.value"))
     assert isinstance(position, int)
     frame.iloc[0, position] = 999
-    assert result.to_pandas()[("value", "absolute.value")].tolist() == [-1]
+    assert result.to_pandas()[("value", "reference.absolute.value")].tolist() == [-1]
     assert run_ids(case.session) == before
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     (case.root / "models").rename(case.root / "models.offline")
@@ -148,10 +154,10 @@ with patch.object(ms, 'load', forbidden), patch.object(SourceSession, '__init__'
     result = session.persisted_frame(sys.argv[2])
     assert isinstance(result, mv.AnalysisFrame)
     frame = result.to_pandas()
-    assert frame[('value', 'left.value')].tolist() == [3]
-    assert frame[('value', 'right.value')].tolist() == [4]
-    assert frame[('value', 'absolute.value')].tolist() == [-1]
-    assert frame[('value', 'relative.value')].dropna().tolist() == [-0.25]
+    assert frame[('value', 'value')].tolist() == [3]
+    assert frame[('value', 'reference.baseline.value')].tolist() == [4]
+    assert frame[('value', 'reference.absolute.value')].tolist() == [-1]
+    assert frame[('value', 'reference.relative.value')].dropna().tolist() == [-0.25]
     assert run_ids(session) == before
 """
     completed = subprocess.run(
@@ -181,22 +187,24 @@ def test_decimal_absolute_keeps_precision_and_relative_uses_float(
     baseline = _monthly(case, "2026-07-01", "2026-08-01")
     frame = (
         current.compare(
-            baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+            {"reference": baseline},
+            on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+            match={"reference": mv.ordinal()},
         )
         .compute()
         .to_pandas()
     )
     frame = frame.set_index(ordinary_columns(frame)[0])
-    assert frame.loc["C", ("value", "absolute.value")] == Decimal("-0.05")
-    assert frame.loc["C", ("value", "relative.value")] == -1.0
+    assert frame.loc["C", ("value", "reference.absolute.value")] == Decimal("-0.05")
+    assert frame.loc["C", ("value", "reference.relative.value")] == -1.0
     # A zero denominator rejects the whole comparison before any partial output.
     before = case.session.runs().items
     with pytest.raises(AnalysisError):
         current.compare(
-            baseline,
+            {"reference": baseline},
             zero_denominator="error",
-            on=tuple(zip(current.axes, baseline.axes, strict=True)),
-            match=mv.ordinal(),
+            on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+            match={"reference": mv.ordinal()},
         ).compute()
     assert case.session.runs().items == before
 
@@ -210,7 +218,9 @@ def test_comparison_output_rejects_incomplete_and_forged_columns(
     current = _monthly(case, "2026-09-01", "2026-10-01", "order_count")
     baseline = _monthly(case, "2026-08-01", "2026-09-01", "order_count")
     saved = current.compare(
-        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+        {"reference": baseline},
+        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+        match={"reference": mv.ordinal()},
     ).persist()
     backing = saved._backing
     assert isinstance(backing, StoredFrameBacking)
@@ -225,4 +235,4 @@ def test_comparison_output_rejects_incomplete_and_forged_columns(
             data.schema,
             values=(replace(data.schema.values[0], name="forged"), *data.schema.values[1:]),
         )
-    assert saved.to_pandas()[("value", "absolute.value")].tolist() == [0, 0, 0, -1]
+    assert saved.to_pandas()[("value", "reference.absolute.value")].tolist() == [0, 0, 0, -1]

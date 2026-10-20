@@ -93,12 +93,14 @@ class FrozenCalendarData:
 
     definition: BuiltinCalendarData | NamedCalendarData
     directory_name: str
-    rule_version: Literal["calendar.v1"] = "calendar.v1"
+    rule_version: Literal["calendar.v2"] = "calendar.v2"
+    direct: FrozenCalendarOrigin | None = None
 
     def __post_init__(self) -> None:
         if (
             type(self.definition) not in (BuiltinCalendarData, NamedCalendarData)
-            or self.rule_version != "calendar.v1"
+            or self.rule_version != "calendar.v2"
+            or (self.direct is not None and type(self.direct) is not FrozenCalendarOrigin)
         ):
             reject(
                 "a closed versioned frozen calendar descriptor",
@@ -126,6 +128,46 @@ class CalendarDataAxis(DataAxis):
                 "Freeze the calendar.",
                 "data.calendar",
             )
+        if self.frozen is not None and self.frozen.direct is not None:
+            origin = self.frozen.direct.axis
+            assert origin.frozen is not None
+            if (origin.frozen.definition, origin.timezone, origin.at) != (
+                self.frozen.definition,
+                self.timezone,
+                self.at,
+            ) or tuple(c.dtype for c in origin.columns) != tuple(c.dtype for c in self.columns):
+                reject(
+                    "one compatible frozen direct origin calendar",
+                    repr(origin),
+                    "Retain the immediate origin grain, timezone and complete key types.",
+                    "data.calendar.origin",
+                )
+
+
+@dataclass(frozen=True, slots=True)
+class FrozenCalendarOrigin:
+    """A direct origin directory and required finite map, without ancestor state."""
+
+    axis: CalendarDataAxis
+    mapping_name: str
+    kind: Literal["years", "periods"]
+    by: int
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.axis) is not CalendarDataAxis
+            or self.axis.frozen is None
+            or self.axis.frozen.direct is not None
+            or self.kind not in ("years", "periods")
+            or type(self.by) is not int
+        ):
+            reject(
+                "a stripped immediate calendar origin and an integer offset rule",
+                repr(self),
+                "Freeze only the direct input directory and closed shift facts.",
+                "data.calendar.origin",
+            )
+        _text(self.mapping_name, "data.calendar.mapping")
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,6 +235,129 @@ class PairedDataAxis(DataAxis):
 
 
 @dataclass(frozen=True, slots=True)
+class ComparisonValueBinding:
+    """One exact retained comparison value, independent of its displayed name."""
+
+    role: Literal["current", "baseline", "absolute", "relative"]
+    source_path: tuple[str, ...]
+    value_path: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        from marivo.analysis.core.frame_structure import validate_paths
+
+        if self.role not in ("current", "baseline", "absolute", "relative"):
+            reject(
+                "a closed comparison value role",
+                repr(self.role),
+                "Preserve the captured role of a directly selected comparison value.",
+                "data.comparison.value",
+            )
+        validate_paths((self.source_path,), location="data.comparison.source")
+        validate_paths((self.value_path,), location="data.comparison.value")
+
+
+@dataclass(frozen=True, slots=True)
+class OrdinaryComparisonBinding:
+    """A comparison without a time-coordinate relationship."""
+
+
+@dataclass(frozen=True, slots=True)
+class CalendarComparisonBinding:
+    """A current output axis and stripped baseline endpoint with a consumed map."""
+
+    current_axis_token: str
+    baseline: CalendarDataAxis
+    mapping_name: str
+
+    def __post_init__(self) -> None:
+        _text(self.current_axis_token, "data.comparison.current")
+        _text(self.mapping_name, "data.comparison.mapping")
+        if (
+            type(self.baseline) is not CalendarDataAxis
+            or self.baseline.frozen is None
+            or self.baseline.frozen.direct is not None
+        ):
+            reject(
+                "a stripped frozen baseline calendar descriptor",
+                repr(self.baseline),
+                "Retain the baseline directory and the consumed comparison map only.",
+                "data.comparison.calendar",
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class IntervalComparisonBinding:
+    """A current interval output axis and a frozen baseline endpoint map."""
+
+    current_axis_token: str
+    baseline: IntervalDataAxis
+    mapping_name: str
+
+    def __post_init__(self) -> None:
+        _text(self.current_axis_token, "data.comparison.current")
+        _text(self.mapping_name, "data.comparison.mapping")
+        if type(self.baseline) is not IntervalDataAxis:
+            reject(
+                "a frozen baseline interval descriptor",
+                repr(self.baseline),
+                "Retain the baseline interval directory and consumed comparison map.",
+                "data.comparison.interval",
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class EndpointPresence:
+    """One exact endpoint flag and the inherited flags that require it."""
+
+    path: tuple[str, ...]
+    inherited_paths: tuple[tuple[str, ...], ...]
+
+    def __post_init__(self) -> None:
+        from marivo.analysis.core.frame_structure import validate_paths
+
+        validate_paths((self.path,), location="data.comparison.presence")
+        validate_paths(self.inherited_paths, location="data.comparison.presence.children")
+
+
+@dataclass(frozen=True, slots=True)
+class DataComparison:
+    """An inert named explanation bound to exact current value paths."""
+
+    alias: str
+    values: tuple[ComparisonValueBinding, ...]
+    binding: OrdinaryComparisonBinding | CalendarComparisonBinding | IntervalComparisonBinding
+    current_presence: EndpointPresence
+    baseline_presence: EndpointPresence
+    enclosing_presence: tuple[EndpointPresence, ...] = ()
+    namespace: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        from marivo.analysis.core.frame_structure import validate_paths
+
+        validate_paths(((self.alias,),), location="data.comparison.alias")
+        if (
+            type(self.values) is not tuple
+            or any(type(value) is not ComparisonValueBinding for value in self.values)
+            or type(self.binding)
+            not in (OrdinaryComparisonBinding, CalendarComparisonBinding, IntervalComparisonBinding)
+            or type(self.current_presence) is not EndpointPresence
+            or type(self.baseline_presence) is not EndpointPresence
+            or type(self.enclosing_presence) is not tuple
+            or any(type(endpoint) is not EndpointPresence for endpoint in self.enclosing_presence)
+            or type(self.namespace) is not tuple
+        ):
+            reject(
+                "immutable exact value bindings and one closed comparison endpoint binding",
+                repr(self),
+                "Retain exact value bindings and endpoint-presence facts.",
+                "data.comparison",
+            )
+        validate_paths(tuple(value.value_path for value in self.values), location="data.comparison")
+        if self.namespace:
+            validate_paths((self.namespace,), location="data.comparison.namespace")
+
+
+@dataclass(frozen=True, slots=True)
 class DataSchema:
     axes: tuple[DataAxis | CalendarDataAxis | IntervalDataAxis | PairedDataAxis, ...]
     values: tuple[DataColumn, ...]
@@ -200,6 +365,7 @@ class DataSchema:
     projection_columns: tuple[DataColumn, ...] = ()
     value_paths: tuple[tuple[str, ...], ...] = ()
     presence_paths: tuple[tuple[str, ...], ...] = ()
+    comparisons: tuple[DataComparison, ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -265,6 +431,9 @@ class DataSchema:
                 "Assign each path to one current directory.",
                 "data.schema",
             )
+        from marivo.analysis.core.frame_structure import validate_comparisons
+
+        validate_comparisons(self)
 
     @property
     def columns(self) -> tuple[DataColumn, ...]:

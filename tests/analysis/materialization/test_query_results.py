@@ -310,17 +310,19 @@ def test_public_compare_retains_presence_and_projection_on_cold_read(
         columns={"sales": "CNY"},
         rows=((("A",), {"sales": -20}), (("B",), {"sales": 0}), (("D",), {"sales": 10})),
     )
-    comparison = current.compare(baseline, on=((current.axes[0], baseline.axes[0]),), how="outer")
+    comparison = current.compare(
+        {"base": baseline}, on={"base": ((current.axes[0], baseline.axes[0]),)}, how="outer"
+    )
     artifact = comparison.persist()
     frame = session.persisted_frame(artifact.artifact.id).to_pandas()
-    assert frame[("value", "absolute.sales")].iloc[:2].tolist() == [60, 20]
-    assert frame[("value", "relative.sales")].iloc[0] == 3.0
-    assert pd.isna(frame[("value", "relative.sales")].iloc[1])
-    assert frame[("presence", "left_present")].tolist() == [True, True, True, False]
-    assert frame[("presence", "right_present")].tolist() == [True, True, False, True]
+    assert frame[("value", "base.absolute.sales")].iloc[:2].tolist() == [60, 20]
+    assert frame[("value", "base.relative.sales")].iloc[0] == 3.0
+    assert pd.isna(frame[("value", "base.relative.sales")].iloc[1])
+    assert frame[("presence", "current.present")].tolist() == [True, True, True, False]
+    assert frame[("presence", "base.present")].tolist() == [True, True, False, True]
     assert comparison.axes[0].role == "field"
-    selected = comparison.select({"delta": comparison["absolute.sales"]})
-    assert selected.compute().to_pandas()[("presence", "left_present")].tolist() == [
+    selected = comparison.select({"delta": comparison["base.absolute.sales"]})
+    assert selected.compute().to_pandas()[("presence", "current.present")].tolist() == [
         True,
         True,
         True,
@@ -1097,13 +1099,13 @@ account_match = ms.relationship(name='account_match',from_entity=crm,to_entity=b
     assert len(statements) == 2
     assert "_marivo_keys_" in statements[-1]
     comparison = left.compare(
-        right,
-        on=((left.axes[0], right.axes[0]),),
+        {"base": right},
+        on={"base": ((left.axes[0], right.axes[0]),)},
     )
     artifact = comparison.persist()
     frame = artifact.to_pandas()
-    assert frame[("value", "absolute.sales")].tolist() == [50, 25]
-    assert frame[("presence", "left_present")].tolist() == [True, True]
+    assert frame[("value", "base.absolute.sales")].tolist() == [50, 25]
+    assert frame[("presence", "current.present")].tolist() == [True, True]
 
     def unavailable(*args: object, **kwargs: object) -> None:
         raise AssertionError("terminal reads must not reopen sources")

@@ -104,6 +104,49 @@ def _project(
     )
 
 
+@pytest.mark.parametrize("backend,profile", source_params([("postgres", "table")]))
+def test_postgres_sparse_calendar_keeps_window_contributions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    backend: str,
+    profile: str,
+) -> None:
+    data = SourceData(
+        DATA.columns,
+        "(1,'a','selected',10,1,1,DATE '2020-12-22'),"
+        "(2,'a','gap',100,2,1,DATE '2020-12-29'),"
+        "(3,'a','selected',20,3,1,DATE '2021-01-05')",
+        DATA.clickhouse_columns,
+        [],
+    )
+    monkeypatch.chdir(tmp_path)
+    with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
+        _project(backend, case, monkeypatch, semantic_project_factory)
+        session = mv.session.create("sparse_remote", timezone="UTC")
+        amount = session.catalog.fields.get("sales.facts.amount")
+        category = session.catalog.fields.get("sales.facts.category")
+        calendar = (
+            session.time_scope(start="2019-12-23", end="2020-01-06")
+            .by(mv.grain("week"))
+            .shift(mv.offset(years=1))
+        )
+        ordinary = (
+            session.observe({"total": amount.sum()}, by=(calendar, category)).compute().to_pandas()
+        )
+        assert ordinary.iloc[:, 0].tolist() == [0, 1]
+        assert ordinary.iloc[:, 1].tolist() == ["selected", "selected"]
+        assert ordinary[("value", "total")].tolist() == [Decimal(10), Decimal(20)]
+        windows = (
+            session.observe(
+                {"total": amount.sum().window(mv.trailing_periods(count=2))}, by=(calendar,)
+            )
+            .compute()
+            .to_pandas()
+        )
+        assert windows[("value", "total")].tolist() == [Decimal(10), Decimal(120)]
+
+
 @pytest.mark.parametrize("backend,profile", source_params([("mysql", "innodb-table")]))
 def test_mysql_direct_declared_utc_time_preserves_instants(
     tmp_path: Path,

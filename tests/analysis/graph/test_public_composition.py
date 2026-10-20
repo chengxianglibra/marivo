@@ -103,16 +103,18 @@ def test_empty_numeric_selection_has_distinct_row_policies(
 ) -> None:
     current, baseline = _observations(analysis_dsl_case_factory("j2"))
     comparison = current.compare(
-        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+        {"reference": baseline},
+        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+        match={"reference": mv.ordinal()},
     )
-    empty = comparison.where(comparison["absolute.value"] < -1000)
+    empty = comparison.where(comparison["reference.absolute.value"] < -1000)
     assert empty.persist().to_pandas().empty
     result = (
         empty.reduce(
             {
-                "sum": empty["absolute.value"].sum(),
+                "sum": empty["reference.absolute.value"].sum(),
                 "count": mv.row_count(),
-                "mean": empty["absolute.value"].mean(),
+                "mean": empty["reference.absolute.value"].mean(),
             }
         )
         .persist()
@@ -282,9 +284,15 @@ def test_incompatible_inputs_reject_before_business_or_artifact_reads(
     monkeypatch.setattr(SourceSession, "execute", forbidden)
     monkeypatch.setattr(terminal_storage, "read_output", forbidden)
     with pytest.raises(AnalysisError):
-        current.compare(fixed.artifact, on=tuple(zip(current.axes, fixed.axes, strict=True)))  # type: ignore[arg-type]  # Exercise the terminal Artifact boundary.
+        current.compare(
+            {"reference": fixed.artifact},
+            on={"reference": tuple(zip(current.axes, fixed.axes, strict=True))},
+        )  # type: ignore[arg-type]  # Exercise the terminal Artifact boundary.
     with pytest.raises(AnalysisError):
-        current.compare(foreign, on=tuple(zip(current.axes, foreign.axes, strict=False)))
+        current.compare(
+            {"reference": foreign},
+            on={"reference": tuple(zip(current.axes, foreign.axes, strict=False))},
+        )
     with pytest.raises(AnalysisError):
         baseline.align(foreign, on=tuple(zip(baseline.axes, foreign.axes, strict=False)))
     assert case.session.runs().items == before
@@ -314,10 +322,12 @@ def test_invalid_threshold_rejects_without_another_run(
     case = analysis_dsl_case_factory("j2")
     current, baseline = _observations(case)
     difference = current.compare(
-        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+        {"reference": baseline},
+        on={"reference": tuple(zip(current.axes, baseline.axes, strict=True))},
+        match={"reference": mv.ordinal()},
     )
     with pytest.raises(AnalysisError):
-        predicate = difference["absolute.value"] < threshold
+        predicate = difference["reference.absolute.value"] < threshold
         difference.where(predicate).persist()
     assert current._local.owner == baseline._local.owner
     assert case.session.runs().items == ()
@@ -356,4 +366,4 @@ def test_public_parquet_spearman_has_separate_source_evidence(
     oracle = pd.Series(amounts).rank().corr(pd.Series(counts).rank())
     assert values["revenue"].corr(values["count"], method="spearman") == pytest.approx(oracle)
     assert saved.artifact.evidence_digest().evidence_count > 0
-    assert case.session._runtime.store.layout.generation == 14
+    assert case.session._runtime.store.layout.generation == 15
