@@ -18,18 +18,7 @@ if TYPE_CHECKING:
     from marivo._grouping import Grouping as Grouping
     from marivo._temporal import InstantAnchor as InstantAnchor
     from marivo.analysis import session as session
-    from marivo.analysis.core.frame_method_facts import FrameAdditiveMethod as FrameAdditiveMethod
-    from marivo.analysis.core.frame_method_facts import FrameLinearMethod as FrameLinearMethod
-    from marivo.analysis.core.frame_method_facts import FrameLinearTerm as FrameLinearTerm
-    from marivo.analysis.core.frame_method_facts import (
-        FrameMethodCoordinate as FrameMethodCoordinate,
-    )
     from marivo.analysis.core.frame_method_facts import FrameMethodFacts as FrameMethodFacts
-    from marivo.analysis.core.frame_method_facts import FrameMethodMetric as FrameMethodMetric
-    from marivo.analysis.core.frame_method_facts import FrameMethodParent as FrameMethodParent
-    from marivo.analysis.core.frame_method_facts import FrameMethodSupport as FrameMethodSupport
-    from marivo.analysis.core.frame_method_facts import FrameMethodValue as FrameMethodValue
-    from marivo.analysis.core.frame_method_facts import FrameRatioMethod as FrameRatioMethod
     from marivo.analysis.dsl.artifact import Artifact as Artifact
     from marivo.analysis.dsl.attribute import AttributeEndpoint as AttributeEndpoint
     from marivo.analysis.dsl.column import Column as Column

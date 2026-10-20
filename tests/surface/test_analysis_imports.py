@@ -15,9 +15,7 @@ import sys
 assert 'scipy.stats' not in sys.modules
 from marivo.analysis._capabilities.registry import REGISTRY
 names = ('Population', 'AnalysisFrame', 'FrameAxis', 'Column', 'Artifact',
-         'AttributeEndpoint', 'FrameMethodValue', 'FrameMethodCoordinate', 'FrameMethodSupport',
-         'FrameAdditiveMethod', 'FrameRatioMethod', 'FrameLinearTerm', 'FrameLinearMethod',
-         'FrameMethodMetric', 'FrameMethodParent', 'FrameMethodFacts')
+         'AttributeEndpoint', 'FrameMethodFacts')
 bindings = tuple(getattr(mv, name) for name in names)
 assert 'marivo.analysis.public_dsl' not in sys.modules
 assert 'marivo.analysis.forecast_models' not in sys.modules

@@ -7,6 +7,12 @@ description: 声明连接，检查物理事实并选择有界来源证据。
 声明放在 `models/datasources/`，loader 收集时不需要显式注册。
 以下示例是不同选择，不是要在所有 provider 上运行的一份脚本。
 
+使用 `md.partition(...)`、`md.time_range(...)` 或 `md.unpruned(...)` 构造采集范围。
+从 inspection 字段读取规模、分区和执行能力记录，从 `md.test(...).failure`
+读取连接失败详情。这些返回记录类不作为 `md.*` 构造器导出；仍可通过
+`marivo.help(type(value))` 查询完整类型与字段 Help。使用 `md.table`、`md.csv`、
+`md.parquet`、`md.json` 和 `md.source_param` 构造来源描述，不直接构造 IR。
+
 ## 声明本地连接
 
 先按 Python 教程创建 DuckDB 文件。路径绑定到项目。

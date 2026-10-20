@@ -8,6 +8,17 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._help.render import render_help_text
 from marivo._temporal import TimeScope
+from marivo.analysis.core.frame_method_facts import (
+    FrameAdditiveMethod,
+    FrameLinearMethod,
+    FrameLinearTerm,
+    FrameMethodCoordinate,
+    FrameMethodMetric,
+    FrameMethodParent,
+    FrameMethodSupport,
+    FrameMethodValue,
+    FrameRatioMethod,
+)
 
 
 def test_grain_field_help_matches_runtime_variant_availability() -> None:
@@ -120,15 +131,15 @@ def test_frame_axis_role_help_discloses_its_closed_public_values() -> None:
     "owner,target",
     (
         (mv.AttributeEndpoint, "attribute_endpoint"),
-        (mv.FrameMethodValue, "frame_method_value"),
-        (mv.FrameMethodCoordinate, "frame_method_coordinate"),
-        (mv.FrameMethodSupport, "frame_method_support"),
-        (mv.FrameAdditiveMethod, "frame_additive_method"),
-        (mv.FrameRatioMethod, "frame_ratio_method"),
-        (mv.FrameLinearTerm, "frame_linear_term"),
-        (mv.FrameLinearMethod, "frame_linear_method"),
-        (mv.FrameMethodMetric, "frame_method_metric"),
-        (mv.FrameMethodParent, "frame_method_parent"),
+        (FrameMethodValue, "frame_method_value"),
+        (FrameMethodCoordinate, "frame_method_coordinate"),
+        (FrameMethodSupport, "frame_method_support"),
+        (FrameAdditiveMethod, "frame_additive_method"),
+        (FrameRatioMethod, "frame_ratio_method"),
+        (FrameLinearTerm, "frame_linear_term"),
+        (FrameLinearMethod, "frame_linear_method"),
+        (FrameMethodMetric, "frame_method_metric"),
+        (FrameMethodParent, "frame_method_parent"),
         (mv.FrameMethodFacts, "frame_method_facts"),
     ),
 )

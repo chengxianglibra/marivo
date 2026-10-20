@@ -11,6 +11,17 @@ import marivo.analysis as mv
 from marivo._help.render import render_help_text
 from marivo.analysis._capabilities.dataset_model import CallableInput, TypeInput
 from marivo.analysis._capabilities.dataset_registry import assemble, prepare
+from marivo.analysis.core.frame_method_facts import (
+    FrameAdditiveMethod,
+    FrameLinearMethod,
+    FrameLinearTerm,
+    FrameMethodCoordinate,
+    FrameMethodMetric,
+    FrameMethodParent,
+    FrameMethodSupport,
+    FrameMethodValue,
+    FrameRatioMethod,
+)
 from marivo.analysis.datasets.errors import DatasetRegistrationError
 from tests.shared_fixtures import DslCaseFactory
 
@@ -233,15 +244,15 @@ def test_correlation_help_contract_and_executable_examples(
 def test_fact_show_has_one_canonical_owner_for_every_concrete_record() -> None:
     registry = prepare()
     types = (
-        mv.FrameMethodValue,
-        mv.FrameMethodCoordinate,
-        mv.FrameMethodSupport,
-        mv.FrameAdditiveMethod,
-        mv.FrameRatioMethod,
-        mv.FrameLinearTerm,
-        mv.FrameLinearMethod,
-        mv.FrameMethodMetric,
-        mv.FrameMethodParent,
+        FrameMethodValue,
+        FrameMethodCoordinate,
+        FrameMethodSupport,
+        FrameAdditiveMethod,
+        FrameRatioMethod,
+        FrameLinearTerm,
+        FrameLinearMethod,
+        FrameMethodMetric,
+        FrameMethodParent,
         mv.FrameMethodFacts,
     )
     assert len({owner.show for owner in types}) == 1

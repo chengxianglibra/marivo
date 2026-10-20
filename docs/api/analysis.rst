@@ -221,33 +221,6 @@ Canonical public exports
 .. autoclass:: AttributeEndpoint
    :members:
 
-.. autoclass:: FrameMethodValue
-   :members:
-
-.. autoclass:: FrameMethodCoordinate
-   :members:
-
-.. autoclass:: FrameMethodSupport
-   :members:
-
-.. autoclass:: FrameAdditiveMethod
-   :members:
-
-.. autoclass:: FrameRatioMethod
-   :members:
-
-.. autoclass:: FrameLinearTerm
-   :members:
-
-.. autoclass:: FrameLinearMethod
-   :members:
-
-.. autoclass:: FrameMethodMetric
-   :members:
-
-.. autoclass:: FrameMethodParent
-   :members:
-
 .. autoclass:: FrameMethodFacts
    :members:
 
@@ -346,3 +319,15 @@ Canonical public exports
 
 .. automodule:: marivo.analysis.session
    :members:
+
+Nested method-fact records
+--------------------------
+
+Read complete original explanation records through ``frame.method_facts`` and
+its nested fields. ``FrameMethodFacts`` remains the aggregate public type.
+Nested value, coordinate, support, method, term, metric and parent record types
+retain native type/field Help through ``marivo.help(type(value))`` and
+``marivo.help("analysis.frame_method_facts")``. They are not ``mv.*`` constructor
+exports. Method variants retain their ``kind`` discriminants: ``additive``,
+``ratio_component`` and ``linear``. Reading these facts grants no source execution
+authority or new decomposition certification.

@@ -3827,6 +3827,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         SourceHealthCheckResult,
         "SourceHealthCheckResult",
         ("source_health",),
+        guidance=("Read report.checks from the source-health report.",),
         properties=(
             "kind",
             "status",
@@ -3854,6 +3855,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         ReadinessInputSummary,
         "ReadinessInputSummary",
         (),
+        guidance=("Read report.input_summary from the readiness report.",),
         properties=("datasources", "refs", "tables"),
         methods=("to_dict",),
     )
@@ -3861,6 +3863,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         ReadinessIssue,
         "ReadinessIssue",
         (),
+        guidance=("Read report.blockers and report.warnings from the readiness report.",),
         properties=(
             "kind",
             "severity",
@@ -3978,6 +3981,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         AiContextValue,
         "AiContextValue",
         ("ai_context",),
+        guidance=("Construct with ms.ai_context(...); annotate with ms.typing.AiContextValue.",),
     )
     return MappingProxyType(contracts)
 

@@ -3,6 +3,12 @@ title: 创作可复用语义
 description: 用明确的阶段、单位与业务授权创作表达式。
 ---
 
+通过 `ms.ai_context(...)` 和 `ms.period_correspondence(...)` 构造上下文与日历对应；
+显式上下文注解使用 `ms.typing.AiContextValue`。从报告字段读取 readiness 问题、
+输入摘要和 source-health 检查记录。这些类不作为根模块构造器导出；仍可通过
+`marivo.help(type(value))` 查询完整类型和字段契约。时间类型标记继续用于具体的
+`Ref[K]` 注解。
+
 数值和条件 Field、Measure 与 Metric 统一使用原生 Ibis Deferred。命名声明仅向同一配方附加不可变元数据；加载时只收录导出的根声明，匿名派生表达式仍是本地输入。物理类型在 来源求值准备阶段自动绑定。
 
 用 `finalized.show()` 查看物理捕获结果；加载后用 `catalog.describe(ms.ref.measure("sales.orders.amount")).show()` 查看定义事实。Deferred 没有 Marivo 的 `.show()` 或 `.contract()` 方法，执行事实由 `AnalysisFrame.show()` 披露。

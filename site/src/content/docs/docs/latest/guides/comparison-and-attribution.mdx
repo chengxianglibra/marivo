@@ -3,6 +3,13 @@ title: Compare and investigate changes
 description: Compare fixed data or request new source investigation and qualified contribution.
 ---
 
+Read nested fact records from `frame.method_facts` and its fields.
+`FrameMethodFacts` remains the root aggregate type; nested record classes are
+not `mv.*` constructors. Use `marivo.help(type(value))` to discover their complete
+fields. Inspect method variants through their `kind` values: `additive`,
+`ratio_component` or `linear`. These records retain original explanations without
+acquiring source authority or certifying a new decomposition.
+
 This guide continues the [local tutorial](/docs/latest/guides/python-quick-start/).
 
 ## Compare fixed data

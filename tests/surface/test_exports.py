@@ -8,6 +8,9 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import types
+
+import pytest
 
 import marivo.analysis as ma
 import marivo.datasource as md
@@ -15,14 +18,70 @@ import marivo.semantic as ms
 from tests.surface.exports import ANALYSIS_PUBLIC, DATASOURCE_PUBLIC, SEMANTIC_PUBLIC
 
 
-def test_partition_scope_constructor_signature_is_stable() -> None:
+@pytest.mark.parametrize(
+    "module,names",
+    (
+        (
+            md,
+            (
+                "PhysicalExtent",
+                "Partitioning",
+                "ExecutionCapabilities",
+                "DatasourceFailure",
+                "PartitionScope",
+                "UnprunedScope",
+            ),
+        ),
+        (
+            ms,
+            (
+                "ReadinessInputSummary",
+                "ReadinessIssue",
+                "SourceHealthCheckResult",
+                "PeriodCorrespondence",
+                "AiContextValue",
+            ),
+        ),
+        (
+            ma,
+            (
+                "FrameMethodValue",
+                "FrameMethodCoordinate",
+                "FrameMethodSupport",
+                "FrameAdditiveMethod",
+                "FrameRatioMethod",
+                "FrameLinearTerm",
+                "FrameLinearMethod",
+                "FrameMethodMetric",
+                "FrameMethodParent",
+            ),
+        ),
+    ),
+)
+def test_returned_records_do_not_leak_root_constructor_bindings(
+    module: types.ModuleType, names: tuple[str, ...]
+) -> None:
+    for name in names:
+        assert name not in module.__all__
+        assert name not in dir(module)
+        assert not hasattr(module, name)
+
+
+def test_partition_scope_factory_signature_is_stable() -> None:
     import inspect
 
     import marivo.datasource as md
 
-    assert str(inspect.signature(md.PartitionScope)) == (
-        "(values: 'tuple[tuple[str, str], ...]', max_rows: 'int', timeout_seconds: 'int') -> None"
+    assert tuple(inspect.signature(md.partition).parameters) == (
+        "values",
+        "max_rows",
+        "timeout_seconds",
     )
+    scope = md.partition({"dt": "2026-10-21"}, max_rows=10, timeout_seconds=2)
+    assert scope.values == (("dt", "2026-10-21"),)
+    assert (scope.max_rows, scope.timeout_seconds) == (10, 2)
+    assert not hasattr(md, "PartitionScope")
+    assert not hasattr(md, "UnprunedScope")
 
 
 def test_top_level_package_does_not_add_public_convenience_exports() -> None:

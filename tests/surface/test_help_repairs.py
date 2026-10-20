@@ -10,6 +10,9 @@ import pytest
 import marivo.analysis as mv
 from marivo._help.model import MarivoHelpTargetError
 from marivo._help.render import render_help_text
+from marivo.analysis.core.frame_method_facts import (
+    FrameMethodSupport,
+)
 from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.errors import (
     AnalysisError,
@@ -93,7 +96,7 @@ def test_attribute_fact_read_repairs_are_exact_and_unrelated_errors_stay_at_root
     assert captured.value.repair.help_target.display == "analysis.analysis_frame.method_facts"
     assert "Call compute() or persist()" in str(captured.value)
     assert "Kind: attribute" in render_help_text(captured.value.repair.help_target.display)[0]
-    support = mv.FrameMethodSupport("root", "rows", 1, 1, 1, 1)
+    support = FrameMethodSupport("root", "rows", 1, 1, 1, 1)
     with pytest.raises(AnalysisError) as captured:
         support.show(n=-1)
     assert captured.value.repair.help_target.display == "analysis.frame_method_facts.show"

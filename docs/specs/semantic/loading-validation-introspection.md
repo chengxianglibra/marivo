@@ -1,5 +1,11 @@
 # Loading, Validation, and Introspection
 
+Read readiness issues and input summaries through `report.blockers`,
+`report.warnings` and `report.input_summary`; read source-health check records
+through `report.checks`. These nested record classes are not root-module
+constructor exports. Fields, exact types and native type/attribute Help remain
+public; `marivo.help(type(value))` resolves the owning record contract.
+
 Native validation contract (2026-10-17):
 [Expression redesign v0.37](expression-model-redesign.md#36-沿-ibis-图推导与语义检查边界)
 separates safe Deferred capture and known semantic checks from automatic physical-type binding.

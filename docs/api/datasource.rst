@@ -60,9 +60,6 @@ Inspection & snapshots
    SourceInspection
    DiscoverySnapshot
    PartitionInspection
-   PhysicalExtent
-   Partitioning
-   ExecutionCapabilities
    raw_sql
 
 ``snapshot.show()`` displays captured facts without a source query
@@ -143,8 +140,6 @@ Metadata & sources
    :nosignatures:
 
    TableSource
-   PartitionScope
-   UnprunedScope
 
 Results
 -------
@@ -169,4 +164,14 @@ Business coverage remains unknown: Raw SQL does not establish semantic coverage.
    :nosignatures:
 
    DatasourceTestResult
-   DatasourceFailure
+
+Inspection records and acquisition scopes
+-----------------------------------------
+
+Read physical extents, partitioning and execution capabilities from returned
+``SourceInspection`` / ``PartitionInspection`` fields, and connection failure
+causes from ``DatasourceTestResult.failure``. Their concrete type and field Help
+remain available through ``marivo.help(type(value))``. Construct scopes with
+``partition``, ``time_range`` or ``unpruned``; their record classes are not root
+module exports. Source descriptors likewise come from ``table``, ``csv``,
+``parquet``, ``json`` and ``source_param`` rather than direct IR construction.

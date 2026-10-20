@@ -3,6 +3,11 @@ title: 比较并调查变化
 description: 比较固定数据，或显式请求新来源调查与合格贡献分解。
 ---
 
+从 `frame.method_facts` 及其字段读取嵌套记录。`FrameMethodFacts` 继续作为根模块的
+聚合类型；嵌套记录类不作为 `mv.*` 构造器导出。通过 `marivo.help(type(value))`
+发现完整字段，使用 method 的 `kind` 值 `additive`、`ratio_component` 或 `linear`
+区分变体。这些记录保留原解释，不获得来源执行权限，也不认证新的分解。
+
 本指南继续[本地教程](/zh-cn/docs/latest/guides/python-quick-start/)。
 
 ## 比较固定数据

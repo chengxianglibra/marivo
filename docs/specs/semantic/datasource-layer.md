@@ -255,6 +255,15 @@ free. Database metadata is read only when execution needs types, and only for th
 required dependency closure. CSV and JSON types are inferred during their actual
 read; remote JSON is not fetched only to inspect its schema.
 
+Construct source descriptors through these helpers and `md.source_param(...)`.
+Concrete source record types retain type and field Help, but are not root-module
+constructor exports. Inspection metadata records are acquired through
+`inspection.physical_extent`, `inspection.partitioning`,
+`inspection.execution_capabilities` and `inspection.partitions().partitioning`.
+Connectivity failures are read through `md.test(...).failure`. Their fields and
+concrete value types remain part of the returned-data contract; use
+`marivo.help(type(value))` for the owning type and member routes.
+
 ### Source projections and observed types
 
 Supplying `columns=` to `md.table(...)` selects and renames physical columns. Its

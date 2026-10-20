@@ -248,11 +248,8 @@ Readiness & assessment
    :nosignatures:
 
    ReadinessReport
-   ReadinessIssue
-   ReadinessInputSummary
    PreviewBatchResult
    SourceHealthReport
-   SourceHealthCheckResult
 
 Keys & kinds
 ------------
@@ -271,7 +268,6 @@ AI context
    :nosignatures:
 
    ai_context
-   AiContextValue
 
 Submodules
 ----------
@@ -295,3 +291,14 @@ and columns; ``max_output_bytes=None`` removes the byte limit, still respecting
 ``n``. Neither option reruns the preview or expands its source limit. Query
 truncation, scope coverage, sampling and warnings remain visible independently
 of display omissions. ``PreviewBatchResult`` remains a batch summary.
+
+Returned authoring and report records
+-------------------------------------
+
+Construct context with ``ms.ai_context(...)`` and calendar correspondences with
+``ms.period_correspondence(...)``. Use ``ms.typing.AiContextValue`` for explicit
+context annotations. Read readiness issue/input records through the report
+fields and health checks through ``SourceHealthReport.checks``. These returned
+records retain their exact types and field Help without root constructor exports;
+use ``marivo.help(type(value))`` for each owning type. Temporal kind markers
+remain exported for concrete ``Ref[K]`` annotations.

@@ -55,7 +55,6 @@ def test_all_symbols_importable() -> None:
 
 def test_all_list_matches_expected() -> None:
     expected = {
-        "AiContextValue",
         "CalendarLevelDetails",
         "CalendarPeriodPage",
         "CatalogCollection",
@@ -69,16 +68,12 @@ def test_all_list_matches_expected() -> None:
         "PeriodCalendarDetails",
         "PeriodCalendarEntry",
         "PeriodCalendarKind",
-        "PeriodCorrespondence",
         "PreviewBatchResult",
-        "ReadinessInputSummary",
-        "ReadinessIssue",
         "ReadinessReport",
         "Ref",
         "SemanticCatalog",
         "SemanticKind",
         "SourceCheck",
-        "SourceHealthCheckResult",
         "SourceHealthReport",
         "TemporalOccurrencePage",
         "TemporalSetDetails",
@@ -133,8 +128,8 @@ def test_reader_project_class() -> None:
 
 def test_readiness_public_dtos() -> None:
     assert ms.ReadinessReport is not None
-    assert ms.ReadinessIssue is not None
-    assert ms.ReadinessInputSummary is not None
+    assert not hasattr(ms, "ReadinessIssue")
+    assert not hasattr(ms, "ReadinessInputSummary")
 
 
 def test_semantic_import_does_not_load_analysis() -> None:
@@ -557,9 +552,9 @@ def test_ai_context_value_fields() -> None:
     assert field_names == {"business_definition", "guardrails"}
 
 
-def test_ai_context_value_accessible_from_ms() -> None:
-    assert hasattr(ms, "AiContextValue")
-    assert ms.AiContextValue is typing_mod.AiContextValue
+def test_ai_context_value_uses_existing_typing_namespace() -> None:
+    assert not hasattr(ms, "AiContextValue")
+    assert isinstance(ms.ai_context(), ms.typing.AiContextValue)
 
 
 # ---------------------------------------------------------------------------

@@ -21,7 +21,9 @@ from marivo.datasource.errors import (
     DatasourceFieldInvalidError,
     DatasourceObservedEffects,
 )
+from marivo.datasource.inspection import ExecutionCapabilities, Partitioning, PhysicalExtent
 from marivo.datasource.metadata import ColumnMetadata, PartitionMetadata, TableMetadata
+from marivo.datasource.source import PartitionScope
 
 
 @dataclass
@@ -99,7 +101,7 @@ def test_source_inspection_renders_physical_extent_scope_notes(
     inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
     local_only = replace(
         inspection,
-        physical_extent=md.PhysicalExtent(
+        physical_extent=PhysicalExtent(
             row_count=None,
             row_count_kind="unknown",
             size_bytes=None,
@@ -646,7 +648,7 @@ def test_direct_partition_scope_rejects_duplicate_fields(project_root: Path) -> 
             values_complete=False,
         ),
     )
-    duplicate_scope = md.PartitionScope(
+    duplicate_scope = PartitionScope(
         values=(("dt", "2026-07-10"), ("dt", "2026-07-11")),
         max_rows=10,
         timeout_seconds=30,
@@ -837,7 +839,7 @@ def test_partition_listing_rejects_invalid_bounds_before_metadata_query(
     inspection = md.SourceInspection(
         datasource=ms.ref.datasource("warehouse"),
         source=md.table("orders"),
-        physical_extent=md.PhysicalExtent(
+        physical_extent=PhysicalExtent(
             row_count=None,
             row_count_kind="unknown",
             size_bytes=None,
@@ -845,7 +847,7 @@ def test_partition_listing_rejects_invalid_bounds_before_metadata_query(
             source="metadata",
             notes=(),
         ),
-        partitioning=md.Partitioning(
+        partitioning=Partitioning(
             state="known",
             fields=(PartitionMetadata(name="dt", type="string"),),
             value_source="metadata",
@@ -853,7 +855,7 @@ def test_partition_listing_rejects_invalid_bounds_before_metadata_query(
             values_complete=True,
             truncated=False,
         ),
-        execution_capabilities=md.ExecutionCapabilities(
+        execution_capabilities=ExecutionCapabilities(
             partition_predicate_supported=True,
             transformed_partition_supported=False,
             timeout_enforced=True,

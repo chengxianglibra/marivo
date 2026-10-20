@@ -8,6 +8,14 @@ Install the selected backend extra first. Use the project’s conventional impor
 collects them without an explicit registration call. These examples are alternatives,
 not one script to run against every provider.
 
+Construct acquisition scopes with `md.partition(...)`, `md.time_range(...)` or
+`md.unpruned(...)`. Read extent, partitioning and execution-capability records
+from inspection fields, and connection failure details from `md.test(...).failure`.
+These returned record classes are not exported as `md.*` constructors. Their
+complete type and field Help remains available with `marivo.help(type(value))`.
+Source descriptors come from `md.table`, `md.csv`, `md.parquet`, `md.json` and
+`md.source_param`, with no direct IR construction.
+
 ## Declare a local connection
 
 Create the DuckDB file first, as in the Python tutorial. Paths bind to the project.

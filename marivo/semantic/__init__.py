@@ -39,7 +39,6 @@ from marivo.refs import (
 from marivo.semantic import errors as errors
 from marivo.semantic import typing as typing
 from marivo.semantic.authoring import (
-    PeriodCorrespondence,
     additive,
     additive_all,
     ai_context,
@@ -130,20 +129,15 @@ from marivo.semantic.ir import (
     JoinKey,
 )
 from marivo.semantic.readiness import (
-    ReadinessInputSummary,
-    ReadinessIssue,
     ReadinessReport,
 )
 from marivo.semantic.source_health import (
     SourceCheck,
-    SourceHealthCheckResult,
     SourceHealthReport,
     source_check,
 )
-from marivo.semantic.typing import AiContextValue
 
 __all__ = [
-    "AiContextValue",
     "CalendarLevelDetails",
     "CalendarPeriodPage",
     "CatalogCollection",
@@ -157,16 +151,12 @@ __all__ = [
     "PeriodCalendarDetails",
     "PeriodCalendarEntry",
     "PeriodCalendarKind",
-    "PeriodCorrespondence",
     "PreviewBatchResult",
-    "ReadinessInputSummary",
-    "ReadinessIssue",
     "ReadinessReport",
     "Ref",
     "SemanticCatalog",
     "SemanticKind",
     "SourceCheck",
-    "SourceHealthCheckResult",
     "SourceHealthReport",
     "TemporalOccurrencePage",
     "TemporalSetDetails",

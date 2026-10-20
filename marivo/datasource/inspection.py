@@ -587,7 +587,9 @@ def _preflight_sample(
                 scope_state=state,
             )
     if not isinstance(scope, PartitionScope | UnprunedScope):
-        raise TypeError("scope must be md.PartitionScope or md.UnprunedScope.")
+        raise TypeError(
+            "scope must be produced by md.partition(), md.time_range(), or md.unpruned()."
+        )
     _validate_scope_values(scope)
 
     if state == "unknown" and isinstance(scope, PartitionScope) and scope._time_range is None:

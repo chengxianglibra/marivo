@@ -1,6 +1,7 @@
 # Public class surface optimization plan
 
-Status: proposed; implementation has not started.
+Status: implemented. Unified acceptance and retained-candidate decisions are
+recorded in the [implementation progress](public-class-surface-implementation-progress.md).
 
 ## Goal and baseline
 
@@ -215,5 +216,5 @@ failures, and two-round review disposition. Report root namespace reduction and
 Help reading changes separately. Do not call fewer root exports a reduction in
 the total number of typed result variants or measured agent effort.
 
-This document is a design deliverable. Its acceptance table specifies future
-implementation checks; no implementation or test-pass claim is made here.
+This document records the design and acceptance requirements. Actual source,
+check and review evidence is maintained in the implementation progress record.

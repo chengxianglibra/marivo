@@ -1,5 +1,7 @@
 """Static contracts for Deferred observations, coordinate domains and terminal reads."""
 
+from datetime import date
+from decimal import Decimal
 from typing import TYPE_CHECKING, Literal
 
 from ibis.common.deferred import Deferred
@@ -11,6 +13,22 @@ from marivo.semantic.expressions import Entity, Relationship
 
 if TYPE_CHECKING:
     session = mv.session.create("typing-public", timezone="UTC")
+
+    def inspect_method_facts(frame: mv.AnalysisFrame) -> None:
+        assert_type(frame.method_facts, tuple[mv.FrameMethodFacts, ...])
+        for facts in frame.method_facts:
+            for parent in facts.parents:
+                for metric in parent.metrics:
+                    method = metric.method
+                    if method.kind == "ratio_component":
+                        assert_type(
+                            method.numerator_left.value,
+                            bool | int | float | str | date | Decimal | None,
+                        )
+                    elif method.kind == "linear":
+                        assert_type(method.terms[0].coefficient, int | float | Decimal)
+                    else:
+                        assert_type(method.kind, Literal["additive"])
 
     def ordinary_observation(metric: Deferred, region: Deferred) -> mv.AnalysisFrame:
         scope = session.time_scope(start="2026-01-01", end="2026-02-01")

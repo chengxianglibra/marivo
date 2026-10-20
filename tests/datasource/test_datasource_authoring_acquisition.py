@@ -19,7 +19,7 @@ from marivo.datasource.errors import DatasourceAuthoringError
 from marivo.datasource.inspection import SourceInspection
 from marivo.datasource.metadata import ColumnMetadata, PartitionMetadata
 from marivo.datasource.snapshot import DeterministicMatch, DiscoverySnapshot
-from marivo.datasource.source import AuthoringScope
+from marivo.datasource.source import AuthoringScope, PartitionScope, UnprunedScope
 from marivo.render import AgentResult
 
 
@@ -354,14 +354,14 @@ def test_columns_must_be_exact_tuple_of_strings_before_connection(
 @pytest.mark.parametrize(
     "scope",
     [
-        md.UnprunedScope(max_rows=0, timeout_seconds=1),
-        md.UnprunedScope(max_rows=True, timeout_seconds=1),
-        md.UnprunedScope(max_rows=1, timeout_seconds=0),
-        md.UnprunedScope(max_rows=1, timeout_seconds=False),
-        md.PartitionScope(values=(), max_rows=1, timeout_seconds=1),
-        md.PartitionScope(values=(("", "2026-07-10"),), max_rows=1, timeout_seconds=1),
-        md.PartitionScope(values=(("dt", ""),), max_rows=1, timeout_seconds=1),
-        md.PartitionScope(
+        UnprunedScope(max_rows=0, timeout_seconds=1),
+        UnprunedScope(max_rows=True, timeout_seconds=1),
+        UnprunedScope(max_rows=1, timeout_seconds=0),
+        UnprunedScope(max_rows=1, timeout_seconds=False),
+        PartitionScope(values=(), max_rows=1, timeout_seconds=1),
+        PartitionScope(values=(("", "2026-07-10"),), max_rows=1, timeout_seconds=1),
+        PartitionScope(values=(("dt", ""),), max_rows=1, timeout_seconds=1),
+        PartitionScope(
             values=cast("tuple[tuple[str, str], ...]", (("dt", 20260710),)),
             max_rows=1,
             timeout_seconds=1,

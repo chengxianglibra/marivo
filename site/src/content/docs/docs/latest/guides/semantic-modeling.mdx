@@ -3,6 +3,13 @@ title: Author reusable semantics
 description: Author expressions with explicit stages, units and business authority.
 ---
 
+Construct context with `ms.ai_context(...)` and calendar correspondences with
+`ms.period_correspondence(...)`; explicit context annotations use
+`ms.typing.AiContextValue`. Read readiness issue/input records and source-health
+checks from their report fields. These classes are not root constructor exports;
+`marivo.help(type(value))` retains their full type and field contracts. Temporal
+kind markers remain available for concrete `Ref[K]` annotations.
+
 Physical Entity/Field constructors capture typed Ref lookup keys. After all dependencies are declared, call `ms.finalize()` and resolve the needed values from its frozen result before composition. Named and local expressions share one graph; finalization never replays module or import effects.
 
 Browse entries expose semantic identity through `.ref`, such as `entry.ref.path`; use `catalog.describe(entry.ref).show()` for definition facts.

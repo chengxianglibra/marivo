@@ -156,7 +156,8 @@ def _validate_scope(
     if not isinstance(scope, PartitionScope | UnprunedScope):
         _blocked(
             preview_ref,
-            f"{operation}(..., scope=...) requires md.PartitionScope or md.UnprunedScope.",
+            f"{operation}(..., scope=...) requires a scope from "
+            "md.partition(), md.time_range(), or md.unpruned().",
             details={"received_type": type(scope).__name__},
         )
     if type(scope.max_rows) is not int or scope.max_rows < 1:

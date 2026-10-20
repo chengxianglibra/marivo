@@ -276,6 +276,13 @@ does not qualify arbitrary windows/per shapes. Unsupported rules, overlap, missi
 proof and original source/numeric failures retain their errors; there is no automatic
 downgrade. An explicit default request can investigate a valid original observation.
 
+`FrameMethodFacts` remains the root-exported aggregate result type. Acquire its
+nested value, coordinate, support, method, term, metric and parent records through
+returned fields; their classes are not root constructor exports. All concrete
+type/attribute Help routes remain available, including via
+`marivo.help(type(value))`. Method variants retain their existing `kind`
+discriminants (`additive`, `ratio_component`, `linear`) for inspection.
+
 `frame.method_facts` returns the complete immutable concrete fact family; pending
 access requires compute/persist first. New Attribute facts precede inherited facts
 at that expression; binary inputs retain complete left then right facts with stable

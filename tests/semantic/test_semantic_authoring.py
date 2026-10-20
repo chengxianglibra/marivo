@@ -2179,7 +2179,7 @@ def test_ai_context_with_non_string_in_list_raises() -> None:
 def test_ai_context_empty_returns_defaults() -> None:
     """ms.ai_context() with no args returns an empty AiContextValue."""
     val = ms.ai_context()
-    assert isinstance(val, ms.AiContextValue)
+    assert isinstance(val, ms.typing.AiContextValue)
     assert val.business_definition is None
     assert val.guardrails == ()
 
@@ -2215,9 +2215,9 @@ def test_ai_context_error_location_points_to_user_code() -> None:
 def test_ai_context_value_post_init_rejects_invalid_types() -> None:
     """AiContextValue.__post_init__ rejects invalid field types even when bypassing ms.ai_context()."""
     with pytest.raises(TypeError, match=r"ms\.ai_context"):
-        ms.AiContextValue(business_definition=42)  # type: ignore[arg-type]
+        ms.typing.AiContextValue(business_definition=42)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match=r"ms\.ai_context"):
-        ms.AiContextValue(guardrails=("ok", 1))  # type: ignore[arg-type]
+        ms.typing.AiContextValue(guardrails=("ok", 1))  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------

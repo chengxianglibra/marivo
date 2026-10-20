@@ -863,6 +863,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         DatasourceFailure,
         "DatasourceFailure",
         ("test", "DatasourceCatalog.test"),
+        guidance=("Read result.failure from a failed datasource test result.",),
         properties=(
             "code",
             "exception_type",
@@ -938,18 +939,21 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         PhysicalExtent,
         "PhysicalExtent",
         (),
+        guidance=("Read inspection.physical_extent from md.inspect(...).",),
         properties=("row_count", "row_count_kind", "size_bytes", "size_kind", "source", "notes"),
     )
     add(
         Partitioning,
         "Partitioning",
         (),
+        guidance=("Read inspection.partitioning or inspection.partitions().partitioning.",),
         properties=("state", "fields", "value_source", "values", "values_complete", "truncated"),
     )
     add(
         ExecutionCapabilities,
         "ExecutionCapabilities",
         (),
+        guidance=("Read inspection.execution_capabilities from md.inspect(...).",),
         properties=(
             "partition_predicate_supported",
             "transformed_partition_supported",

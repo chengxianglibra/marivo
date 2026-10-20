@@ -24,16 +24,12 @@ from marivo.datasource.credentials import (
 )
 from marivo.datasource.errors import DatasourceCredentialError, DatasourceCredentialScopeError
 from marivo.datasource.inspection import (
-    ExecutionCapabilities,
-    Partitioning,
     PartitionInspection,
-    PhysicalExtent,
     SourceInspection,
     inspect,
 )
 from marivo.datasource.manage import (
     DatasourceDescription,
-    DatasourceFailure,
     DatasourceList,
     DatasourceSummary,
     DatasourceTestResult,
@@ -46,9 +42,7 @@ from marivo.datasource.manage import (
 )
 from marivo.datasource.snapshot import DiscoverySnapshot
 from marivo.datasource.source import (
-    PartitionScope,
     TableSource,
-    UnprunedScope,
     csv,
     json,
     parquet,
@@ -67,25 +61,19 @@ __all__ = [
     "DatasourceCredentialError",
     "DatasourceCredentialScopeError",
     "DatasourceDescription",
-    "DatasourceFailure",
     "DatasourceList",
     "DatasourceSpec",
     "DatasourceSummary",
     "DatasourceTestResult",
     "DiscoverySnapshot",
     "DuckDBSpec",
-    "ExecutionCapabilities",
     "MySQLSpec",
     "PartitionInspection",
-    "PartitionScope",
-    "Partitioning",
-    "PhysicalExtent",
     "PostgresSpec",
     "SecretValue",
     "SourceInspection",
     "TableSource",
     "TrinoSpec",
-    "UnprunedScope",
     "clickhouse",
     "credential_scope",
     "csv",

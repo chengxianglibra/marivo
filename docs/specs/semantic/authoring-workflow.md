@@ -1,5 +1,11 @@
 # Semantic Authoring Workflow
 
+Use `ms.ai_context(...)` and `ms.period_correspondence(...)` for authored
+values. Context annotations use the existing `ms.typing.AiContextValue` path.
+Their concrete result types remain discoverable through native type Help;
+`AiContextValue` and `PeriodCorrespondence` are not root constructor exports.
+Temporal kind markers remain root exports for specific `Ref[K]` annotations.
+
 Native expression authoring (2026-10-17):
 [Expression redesign v0.37](expression-model-redesign.md#26-原生-ibis-与自动延迟绑定)
 now uses controlled native Ibis Deferred for every numerical or conditional Field,

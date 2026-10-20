@@ -445,7 +445,7 @@ def provider() -> DisclosureProvider:
             ExportInput("Artifact", Artifact, "Artifact"),
             ExportInput("InstantAnchor", InstantAnchor, "InstantAnchor"),
             ExportInput("CalendarAxis", CalendarAxis, "CalendarAxis"),
-            *(ExportInput(owner.__name__, owner, target) for owner, target, _, _ in fact_types),
+            ExportInput("FrameMethodFacts", FrameMethodFacts, "frame_method_facts"),
             *populations.exports,
             *results.exports,
         ),
