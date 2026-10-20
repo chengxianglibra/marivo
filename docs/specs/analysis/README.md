@@ -36,6 +36,9 @@ Static API facts, captured instance state and errors follow
 | [Implementation plan](analysis-frame-implementation-plan.md) | Historical S0-S8 task authority; not implementation evidence |
 
 [Attribute design](attribute-design.md) remains a future explicit-source extension.
+[Correlation statistics](correlation-statistics-design.md) proposes current-row
+Pearson/Spearman through AnalysisFrame.correlate with fixed coefficient/n_pairs
+outputs, retaining corr/pair_count composition through reduce; it is not implemented.
 [The Population refactor design and plan](population-refactor-design-and-plan.md)
 records unified literal domains, consumer-owned membership rules and general
 tuple counts; the [implementation record](population-refactor-implementation-progress.md)
