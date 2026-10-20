@@ -11,7 +11,11 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, TypeAlias
 
-from marivo._definition.correspondence import ComparisonAxis
+from marivo._definition.correspondence import (
+    ComparisonAxis,
+    coordinate_matches,
+    coordinate_position,
+)
 from marivo._definition.deferred import RelationshipParameter
 from marivo._definition.query import ResultQuery
 from marivo._definition.types import (
@@ -46,8 +50,31 @@ class MembershipBinding:
 class SampleDomain:
     """Observed internal coordinates with their membership allocation groups."""
 
-    axes: tuple[AxisBinding, ...]
+    axes: tuple[ComparisonAxis, ...]
     memberships: tuple[MembershipBinding, ...] = ()
+    population: PopulationDependency | None = None
+
+
+def validate_memberships(
+    axes: tuple[ComparisonAxis, ...], bindings: tuple[MembershipBinding, ...]
+) -> None:
+    """Require each consumer coordinate to have at most one explicit allocation."""
+    allocated: set[int] = set()
+    for binding in bindings:
+        positions: list[int] = []
+        for read in binding.fields:
+            axis = AxisBinding(read.entity, read.field, read.path, "field", read.at)
+            if not any(coordinate_matches(axis, candidate) for candidate in axes):
+                invalid("membership fields must already occur in the consuming coordinates")
+            position = coordinate_position(axes, axis)
+            if position in allocated:
+                invalid("a coordinate cannot have repeated membership allocation rules")
+            positions.append(position)
+            allocated.add(position)
+        if positions != sorted(positions):
+            invalid(
+                "membership fields must retain their captured order in the consuming coordinates"
+            )
 
 
 def _coordinate_token(
@@ -106,7 +133,6 @@ class LiteralPopulation:
     axes: tuple[AxisBinding, ...]
     keys: tuple[tuple[CoordinateValue, ...], ...]
     version: str
-    memberships: tuple[MembershipBinding, ...] = ()
 
     def __post_init__(self) -> None:
         unique: dict[tuple[tuple[str, str], ...], tuple[CoordinateValue, ...]] = {}
@@ -313,7 +339,6 @@ class PopulationProgram:
     root: PopulationNode
     owner: Owner | None
     axes: tuple[ComparisonAxis, ...] = ()
-    memberships: tuple[MembershipBinding, ...] = ()
 
 
 PopulationDependency: TypeAlias = LiteralPopulation | PopulationProgram
@@ -331,6 +356,15 @@ class PopulationPredicateParameter:
     """Private closed coordinate membership predicate shared with semantic consumers."""
 
     _condition: PopulationCondition
+
+
+def sample_population(
+    samples: tuple[AxisBinding, ...] | SampleDomain | LiteralPopulation | PopulationProgram,
+) -> PopulationDependency | None:
+    """Return the separately captured finite sample domain, when supplied."""
+    if isinstance(samples, SampleDomain):
+        return samples.population
+    return samples if isinstance(samples, (LiteralPopulation, PopulationProgram)) else None
 
 
 def condition_populations(condition: PopulationCondition) -> tuple[PopulationDependency, ...]:
@@ -366,7 +400,8 @@ def population_keys(
                 keys = population_keys(condition.population)
                 assert keys is not None
                 projection = tuple(
-                    row[definition.axes.index(axis)] for axis in condition.population.axes
+                    row[coordinate_position(definition.axes, axis)]
+                    for axis in condition.population.axes
                 )
 
                 def token_key(key: tuple[CoordinateValue, ...]) -> tuple[tuple[str, str], ...]:

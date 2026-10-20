@@ -58,7 +58,7 @@ _HUBS = (
         "decision_hub",
         guidance=(
             "Construct a Frame with session.observe/read/values/frame. compute() returns fixed memory; persist() returns a committed Frame. Continue from the returned Frame for data; .artifact reads its saved audit.",
-            "Finite domains: session.members(resolved Entity), coordinates or identities; session.frame(population) captures complete keys without requiring attributes.",
+            "Finite domains: session.members(resolved Entity), coordinates; session.frame(population) captures complete keys without requiring attributes.",
             "Known inputs: retain exact refs and scope. Population/Frame: show() reports captured facts; exact type Help owns method discovery.",
             "Existing work: resume the Session; recovery does not replay sources.",
         ),

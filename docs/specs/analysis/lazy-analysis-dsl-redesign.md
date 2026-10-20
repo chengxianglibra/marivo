@@ -73,7 +73,7 @@ Quantity×price 需要新的业务可加授权，dtype/名字/相消/乘零不�
 
 Orders.customer_id 可作字段分组，不等于 Customer Entity。Entity 身份需要所有主键分量，
 普通 Null 字段为合法类别，Entity 身份不能含空分量。组合分类保留完整联合元组，不逐列求积。
-显式 identities 只固定引用，不证明来源存在；members 选择已有源身份；frame 接一般完整域，
+coordinates 的 identity 轴只固定完整主键引用，不证明来源存在；members 选择已有源身份；frame 接一般完整域，
 read 只接受一个身份域与非空字段。新字段/关系/时点读取始终显式。
 
 ### 3.3 签名中使用的精确类型
@@ -91,7 +91,7 @@ FrameAxis 公开 token/name/role/key_names，不公开物理 codec、Ref 或原�
 
 ### 4.1 Session、字段、时间与路径
 
-observe(metrics, *, by=(), where=None)、read(population, fields)、
+observe(metrics, *, by=(), where=None, memberships=())、read(population, fields)、
 values(by, columns, rows)、frame(population) 均返回 AnalysisFrame。各入口不以空参数代用。
 TimeScope 与 CalendarAxis 都放入 by：前者产生一个 interval 坐标，后者产生冻结日历桶，
 最多一个输出时间轴；单桶不自动 squeeze。by=Population 只选择完整联合键并保留无事实坐标。
@@ -117,7 +117,12 @@ values.columns 声明每列 str|None 单位。Column 常量位置保留既有单
 ### 4.2 统一 Population 与明确身份读取
 
 Population 拥有完整轴投影、集合、分类、声明关系 image/preimage 和 membership 谓词。
-集合要求相容有序轴/绑定。分类/关系读取保持显式源依赖与完整键检查。
+集合要求相容有序轴/绑定；Population 不携带贡献分配规则。coordinates 统一构造字段、
+Entity identity 与相关多轴字面域：每个 identity 值始终是完整主键元组，包含单列主键。
+identity 可指定 at，不接受关系路径、membership 或时间分组；时间有限域通过 product 引入。
+分类只读取单身份域的直接同实体字段，可保留原身份；仅选原身份或零轴时采用投影语义。
+interval/calendar、membership、routed field 与不同身份的 classify 在构造时拒绝。
+分类/关系读取保持显式源依赖与完整键检查。
 population_from(frame, on=...) 是唯一结果到源键桥；on 必填，可为 ()，选普通字段/完整身份轴，
 显式绑定解析 Field/Entity。投影联合键并去重；空输入得到空约束，零轴空域与单例域不同。
 构造不读行，消费先完成选择与检查；固定根不重排旧 Top，待执行根每次先求值。interval/日历/配对轴与
@@ -134,13 +139,19 @@ Population.project 只选自身现有完整轴，image/preimage 沿显式声明�
 来源 Measure/Entity/Field 规约与 Metric 算术/per/window 继续由语义协议拥有。
 Metric 没有 expr/during/route 或任意 on 树位置参数。where 保留受治理条件/显式域闭包；
 内部 per 先逐样本完成整个子公式，再规约；显式样本可保留无贡献样本的 empty 政策。
-by=Population 选择指定完整键，不要求覆盖域外来源坐标。P.count() 捕获单 Entity 完整
-身份域，返回可组合的惰性 Metric，包含无事实身份；P/Q 分别计数，不从 by/where 推断分母。
-事实过滤不重选计数域，空域计 0；只有计数时无效果条件/窗口拒绝。
+by=Population 选择指定完整键，不要求覆盖域外来源坐标。P.count() 捕获完整去重元组域，
+返回单位为 1 的整数惰性 Metric，包含字段 Null 与无事实身份；P/Q 分别计数，不从 by/where 推断分母。
+普通分组坐标须已在 P 中；按新属性计成员须先 classify 并保留身份，直接投影到字段后计数则数类别。
+空域计 0，零轴单元域计 1，显式输出域的缺组计 0、空输出域仍无行。无时间轴域可广播到输出时间格，
+含时间轴域按冻结时间坐标匹配。事实过滤不重选计数域；只有计数时无效果条件/窗口拒绝。
 
 #### 4.3.4 显式成员关系分桶
 
-membership 明确成员字段、路径与 unmatched 政策；同描述内字段关联，不同描述形成独立因子。
+membership 明确成员字段、路径与 unmatched 政策，唯一消费入口是
+observe(..., memberships=(rule, ...)) 或 Metric.per(samples, memberships=(rule, ...))。
+by/samples 声明坐标或候选键，规则只解释已有坐标的事实分配，不放入 Population 或坐标参数。
+同层规则不重复分配一个坐标，外层/内层规则互相独立；纯 Population count 不应用分配路径。
+同描述内字段关联，不同描述形成独立因子。
 每个贡献/桶去重，不按数值去重。多根逐根绑定/规约后组合，不因另一个根行数增多而放大贡献。
 真实关联次数需独立关联 Entity，存在性筛选用 preimage，加权分摊用明确分配根；不混同。
 源 schema 与后端方法资格由真实准备检查，匿名表达式不提前连接，未知 operation/回调拒绝。

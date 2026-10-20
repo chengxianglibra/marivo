@@ -243,7 +243,7 @@ class PerWeightedMean:
 
 @dataclass(frozen=True, slots=True)
 class MemberCount:
-    """Count distinct complete identities in one explicitly captured domain."""
+    """Count complete distinct coordinate tuples in one explicitly captured domain."""
 
     population: LiteralPopulation | PopulationProgram
 

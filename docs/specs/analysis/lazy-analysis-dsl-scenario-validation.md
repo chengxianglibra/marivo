@@ -176,7 +176,10 @@ Accounts = catalog.entities.get("saas.accounts")
 mrr = catalog.fields.get("saas.recurring_lines.mrr_amount").sum(
     time=catalog.fields.get("saas.recurring_lines.month_at"), empty="zero",
 )
-cohort = mv.identities(Accounts, keys=(("t1", "A"), ("t1", "B"), ("t2", "A")))
+cohort = mv.coordinates(
+    by=(mv.identity(Accounts),),
+    keys=((("t1", "A"),), (("t1", "B"),), (("t2", "A"),)),
+)
 baseline = s.observe({'mrr': mrr}, by=mv.product(august, cohort)).compute()
 current = s.observe({'mrr': mrr}, by=mv.product(september, cohort)).compute()
 change = current.compare(baseline, on=tuple(zip(current.axes, baseline.axes)),
@@ -309,7 +312,9 @@ attribute_s = mv.session.create("scenario-customer-versions", timezone="Asia/Sha
 customers_entity = catalog.entities.get("crm.customers")
 tier = catalog.fields.get("crm.customers.tier")
 october = attribute_s.time_scope(start="2026-10-01", end="2026-11-01")
-fixed_customers = mv.identities(customers_entity, keys=(("C1",), ("C2",)))
+fixed_customers = mv.coordinates(
+    by=(mv.identity(customers_entity),), keys=((("C1",),), (("C2",),)),
+)
 attributes = attribute_s.read(fixed_customers, {
     "tier_at_start": tier.at(october.start),
     "tier_at_end": tier.at(october.end),

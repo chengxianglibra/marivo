@@ -27,8 +27,8 @@ _REPAIRS = {
     "time_via": "Pass time=time_field.via((relationship, ...)) on the source reduction, preserving the original time field and ordered path.",
     "fanout_policy": (
         "Remove fanout_policy. For existence filtering, use Population.preimage(...) and "
-        "mv.in_population(...); for overlapping labels, use mv.membership(...) in "
-        "Metric.per(...). When association or allocation rows are contributions, model them "
+        "mv.in_population(...); for overlapping labels, pass mv.membership(...) through "
+        "Metric.per(samples, memberships=(rule,)). When association or allocation rows are contributions, model them "
         "as a separately keyed Entity and define the row measure and any allocation weight; "
         "preserve each source root."
     ),

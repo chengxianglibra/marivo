@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from marivo._definition.expressions import FieldPredicate
+from marivo._definition.expressions import FieldPredicate, PerReduce, PerWeightedMean
 from marivo._definition.graph import DefinitionNode, children, direct_refs
 from marivo._definition.observations import ObservationBinding
 from marivo._definition.query import FilterValues, ResultQuery, TopValues
@@ -21,6 +21,7 @@ from marivo._definition.relations import (
     PopulationProgram,
     PopulationProject,
     PopulationSet,
+    SampleDomain,
     SourceIdentities,
 )
 from marivo._definition.types import AxisBinding
@@ -162,22 +163,26 @@ def scope_summary(root: DefinitionNode, observation: ObservationBinding | None =
     while pending and visited < 12:
         path, role, node = pending.pop()
         label = _bounded(path + (" " + role if role else ""), 100)
-        while isinstance(node, (PopulationProgram, LiteralPopulation)):
-            for binding in node.memberships:
-                if binding not in memberships:
-                    memberships.add(binding)
-                    fields = tuple(field.field.ref.path for field in binding.fields)
-                    paths = tuple(
-                        tuple(item.ref.ref.path for item in route) for route in binding.paths
+        bindings = (
+            node.samples.memberships
+            if isinstance(node, (PerReduce, PerWeightedMean))
+            and isinstance(node.samples, SampleDomain)
+            else ()
+        )
+        if observation is not None and visited == 0:
+            bindings = (*observation.coordinates.memberships, *bindings)
+        for binding in bindings:
+            if binding not in memberships:
+                memberships.add(binding)
+                fields = tuple(field.field.ref.path for field in binding.fields)
+                paths = tuple(tuple(item.ref.ref.path for item in route) for route in binding.paths)
+                lines.append(
+                    _bounded(
+                        f"{label}: MembershipBinding fields={fields}; paths={paths}; unmatched={binding.unmatched}",
+                        600,
                     )
-                    lines.append(
-                        _bounded(
-                            f"{label}: MembershipBinding fields={fields}; paths={paths}; unmatched={binding.unmatched}",
-                            600,
-                        )
-                    )
-            if isinstance(node, LiteralPopulation):
-                break
+                )
+        while isinstance(node, PopulationProgram):
             node = node.root
         previous = seen.get(id(node))
         if previous is not None:

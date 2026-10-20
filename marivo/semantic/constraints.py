@@ -511,7 +511,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "fanout_policy is retired; each source receiver retains its contribution root.",
         "Fan-out is a metric-level decision, gated by measure additivity on the merge grain.",
         "Remove fanout_policy. Use Population.preimage(...) with mv.in_population(...) for existence filtering, "
-        "or mv.membership(...) in Metric.per(...) for overlapping labels. Model contribution-bearing "
+        "or Metric.per(samples, memberships=(mv.membership(...),)) for overlapping labels. Model contribution-bearing "
         "association or allocation rows as a separately keyed Entity and define the row measure and any "
         "allocation weight; preserve each source root.",
     ),

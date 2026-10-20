@@ -130,7 +130,10 @@ def test_population_scope_is_bounded_for_large_literal_and_nested_domains(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     entity = case.catalog.entities.get("sales.customer")
-    large = mv.identities(entity, keys=tuple((f"member-{i}",) for i in range(5000)))
+    large = mv.coordinates(
+        by=(mv.identity(entity),),
+        keys=tuple(((f"member-{i}",),) for i in range(5000)),
+    )
     large.show()
     first = capsys.readouterr().out
     large.show()

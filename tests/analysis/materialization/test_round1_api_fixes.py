@@ -327,8 +327,16 @@ def test_literal_population_failures_use_structured_public_errors_without_reads(
         patch.setattr(SourceSession, "__enter__", forbidden)
         patch.setattr(SourceSession, "execute", forbidden)
         cases: tuple[tuple[Callable[[], mv.Population], str, str], ...] = (
-            (lambda: mv.identities(entity, keys=((None,),)), "cannot be None", "identities"),
-            (lambda: mv.identities(entity, keys=(("A",), ("B", "C"))), "same number", "identities"),
+            (
+                lambda: mv.coordinates(by=(mv.identity(entity),), keys=(((None,),),)),
+                "cannot be None",
+                "coordinates",
+            ),
+            (
+                lambda: mv.coordinates(by=(mv.identity(entity),), keys=((("A",),), (("B", "C"),))),
+                "same number",
+                "coordinates",
+            ),
             (lambda: mv.coordinates(by=(region,), keys=(("A", "B"),)), "1 values", "coordinates"),
             (
                 lambda: mv.coordinates(by=(region,), keys=((float("nan"),),)),

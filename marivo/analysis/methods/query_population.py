@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta
 import pandas as pd
 import pyarrow as pa
 
-from marivo._definition.correspondence import ComparisonAxis
+from marivo._definition.correspondence import ComparisonAxis, coordinate_position
 from marivo._definition.relations import (
     PopulationAnd,
     PopulationCondition,
@@ -174,7 +174,8 @@ def evaluate_population(
             def matches(condition: PopulationCondition, row: tuple[object, ...]) -> bool:
                 if isinstance(condition, PopulationContains):
                     projected = tuple(
-                        row[domain.axes.index(axis)] for axis in condition.population.axes
+                        row[coordinate_position(domain.axes, axis)]
+                        for axis in condition.population.axes
                     )
                     return _token(projected) in {_token(key) for key in rows(condition.population)}
                 if isinstance(condition, PopulationNot):

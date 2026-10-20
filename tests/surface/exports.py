@@ -77,7 +77,6 @@ ANALYSIS_PUBLIC = (
     "Population",
     "PopulationPredicate",
     "CalendarCorrespondence",
-    "identities",
     "coordinates",
     "membership",
     "product",

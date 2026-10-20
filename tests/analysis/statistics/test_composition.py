@@ -189,7 +189,10 @@ def test_pandas_score_selection_starts_an_explicit_followup_query(
     selected = frame.loc[frame.score > 0, "key_0"].tolist()
     assert selected == [("c", 13)]
     assert run_ids(session) == before
-    population = mv.identities(session.catalog.entities.get("sales.order"), keys=tuple(selected))
+    population = mv.coordinates(
+        by=(mv.identity(session.catalog.entities.get("sales.order")),),
+        keys=tuple((key,) for key in selected),
+    )
     followup = session.observe(
         {"value": field.sum(time=session.catalog.fields.get("sales.order.ordered_at"))},
         by=mv.product(session.time_scope(start="2026-08-03", end="2026-08-04"), population),

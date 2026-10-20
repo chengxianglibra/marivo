@@ -25,6 +25,7 @@ from ibis.common.deferred import (
     Variable,
 )
 
+from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.deferred import (
     DeclarationResolver,
     DeferredInspection,
@@ -62,6 +63,7 @@ from marivo._definition.relations import (
     PopulationPredicateParameter,
     PopulationProgram,
     SampleDomain,
+    validate_memberships,
 )
 from marivo._definition.types import (
     Authorization,
@@ -465,6 +467,40 @@ def _compose(
 
 def _constant(recipe: Resolver, default: object = None) -> object:
     return recipe.value if isinstance(recipe, Just) else default
+
+
+def _sample_memberships(
+    recipe: Resolver, axes: tuple[ComparisonAxis, ...]
+) -> tuple[MembershipBinding, ...]:
+    values = recipe.values if isinstance(recipe, Sequence) and recipe.typ is tuple else ()
+    if isinstance(recipe, Just) and recipe.value == ():
+        return ()
+    if not isinstance(recipe, Sequence) or recipe.typ is not tuple:
+        _fail(
+            "memberships requires a tuple of membership Grouping values.",
+            expected="memberships=(mv.membership(...),)",
+            received=repr(recipe),
+        )
+    bindings: list[MembershipBinding] = []
+    for value in values:
+        rule = _constant(value)
+        if not isinstance(rule, Grouping) or not isinstance(rule._binding, MembershipBinding):
+            _fail(
+                "memberships accepts only membership Grouping values.",
+                expected="memberships=(mv.membership(...),)",
+                received=type(rule).__name__,
+            )
+        assert isinstance(rule, Grouping) and isinstance(rule._binding, MembershipBinding)
+        bindings.append(rule._binding)
+    try:
+        validate_memberships(axes, tuple(bindings))
+    except DefinitionGraphError as error:
+        _fail(
+            "Membership rules must match distinct sample coordinates in captured order.",
+            expected="one allocation per existing sample coordinate",
+            received=str(error),
+        )
+    return tuple(bindings)
 
 
 def _time(recipe: Resolver | None, row: RowFacts) -> TimeBinding | None:
@@ -988,32 +1024,43 @@ def _consume(recipe: Resolver) -> _Facts:
                 assert isinstance(receiver, (RowFacts, _Samples))
                 return _reduce(receiver, name, recipe.args, dict(recipe.kwargs))
             if name == "per":
-                if not isinstance(receiver, MetricFacts) or len(recipe.args) != 1 or recipe.kwargs:
+                if (
+                    not isinstance(receiver, MetricFacts)
+                    or len(recipe.args) != 1
+                    or any(key != "memberships" for key in recipe.kwargs)
+                ):
                     _fail(
                         "per requires a Metric and one sample specification.",
-                        expected="Metric.per(field or tuple)",
+                        expected="Metric.per(field, tuple or Population, memberships=(...))",
                         received="invalid receiver or arguments",
                     )
                 axes_recipe = recipe.args[0]
                 domain = _constant(axes_recipe)
                 if isinstance(domain, PopulationParameter):
                     assert isinstance(receiver, MetricFacts)
-                    return _Samples(receiver, domain._definition)
+                    memberships = _sample_memberships(
+                        recipe.kwargs.get("memberships", Just(())), domain._definition.axes
+                    )
+                    return _Samples(
+                        receiver,
+                        SampleDomain(domain._definition.axes, memberships, domain._definition)
+                        if memberships
+                        else domain._definition,
+                    )
 
                 members = (
                     axes_recipe.values if isinstance(axes_recipe, Sequence) else (axes_recipe,)
                 )
                 axes: list[AxisBinding] = []
-                memberships: list[MembershipBinding] = []
                 for member in members:
                     membership = _constant(member)
                     if isinstance(membership, Grouping):
                         binding = membership._binding
                         if isinstance(binding, MembershipBinding):
-                            memberships.append(binding)
-                            axes.extend(
-                                AxisBinding(read.entity, read.field, read.path, "field", read.at)
-                                for read in binding.fields
+                            _fail(
+                                "Membership is a contribution mapping, not a sample coordinate.",
+                                expected="field samples with memberships=(rule,)",
+                                received="membership grouping in samples",
                             )
                         elif (
                             isinstance(binding, AxisBinding)
@@ -1026,7 +1073,7 @@ def _consume(recipe: Resolver) -> _Facts:
                             axes.append(binding)
                         else:
                             _fail(
-                                "Internal samples require native Dimension, TimeField or membership groupings.",
+                                "Internal samples require native Dimension or TimeField groupings.",
                                 expected="native field or explicit Population",
                                 received=membership.kind,
                             )
@@ -1078,9 +1125,12 @@ def _consume(recipe: Resolver) -> _Facts:
                         kind=ErrorKind.INVALID_EXPRESSION_VALUE,
                     )
                 assert isinstance(receiver, MetricFacts)
+                memberships = _sample_memberships(
+                    recipe.kwargs.get("memberships", Just(())), tuple(axes)
+                )
                 return _Samples(
                     receiver,
-                    SampleDomain(tuple(axes), tuple(memberships)) if memberships else tuple(axes),
+                    SampleDomain(tuple(axes), memberships) if memberships else tuple(axes),
                 )
             if name == "where":
                 if not isinstance(receiver, MetricFacts) or len(recipe.args) != 1:

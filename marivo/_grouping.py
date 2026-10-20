@@ -14,7 +14,8 @@ class Grouping(ABC):
     """An immutable field, complete identity, calendar or membership grouping.
 
     Obtain values from ``mv.identity``, ``mv.membership``, ``scope.by`` or
-    ``population.axes``. Pass ordered rules as ``by=(grouping,)`` to observe.
+    ``population.axes``. Pass coordinate rules as ``by=(grouping,)``; membership
+    rules use the consuming ``memberships=(grouping,)`` parameter.
     A rule carries no selected Population keys. Concrete variants are private;
     constructing or extending this family is not a public operation.
     """

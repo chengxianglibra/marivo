@@ -28,8 +28,10 @@ Population 键域，包括零轴与无命名值。构造与检查不读业务行
 未知身份按需浏览 Catalog，已知名称精确查找；没有顶层执行 Session 别名。
 
 tuple by 按观察到的联合坐标分组；by=Population 只选择指定完整键并保留无事实坐标。
-where=mv.in_population(P) 筛选事实贡献。P.count() 捕获单 Entity 完整身份域为惰性 Metric，
-包含无事实身份；P/Q 各自计数，不从 by 或 where 推断分母。
+where=mv.in_population(P) 筛选事实贡献。P.count() 捕获完整去重元组域为整数惰性 Metric，
+包含 Null 分类和无事实身份；P/Q 各自计数，不从 by 或 where 推断分母。
+空域计 0，零轴单元域计 1。分组坐标须已存在于 P；按新属性计成员须先显式 classify 并保留身份，
+直接投影到属性后计数则数去重类别。
 Field Null 是合法类别，Entity 身份保留全部非空主键分量。
 classify/image/preimage 使用显式受治理依赖，字段保留 via/at 绑定。
 同路径定义变化本身不拒绝旧输入；kind/root/grain/unit/time/null 正确性仍要检查。
@@ -78,7 +80,10 @@ interval 轴、日历轴、配对轴与任意值列不能桥接。by=Population 
 ## 保持来源贡献与时间含义
 
 Metric.per 先在每个样本完成完整子公式再规约。显式样本 Population 按子政策保留空样本；
-内部样本域与外部指定输出域各自独立。membership 保留关联元组与分配因子，重复链接不重复同次贡献，
+内部样本域与外部指定输出域各自独立。归属规则单独通过
+`observe(..., memberships=(rule,))` 或 `metric.per(samples, memberships=(rule,))` 传入，
+只映射本层 by/samples 已声明的坐标，外层/内层规则互相独立。Population 只保存键和依赖。
+membership 保留关联元组与分配因子，重复链接不重复同次贡献，
 等值但不同身份的贡献仍分别计算。多根公式先各自规约，再对齐完整域。
 
 Metric.window 绑定显式来源窗口，每个端点完成自己的 W(t)，显示起点不截断回看。
@@ -100,14 +105,20 @@ result ID 的发布，compute 失败不创建 Run。未知提交通过 reconcili
 
 
 分组规则使用 `by=(field_or_grouping, ...)`。`mv.identity(entity)` 声明完整身份分组，
-`mv.membership(...)` 声明多对多归属分组，`scope.by(grain)` 声明时间分桶。
+`scope.by(grain)` 声明时间分桶；`mv.membership(...)` 只传入消费端 memberships 参数。
 `population.axes` 复用坐标定义；`by=population` 选择完整输出键，包含空桶，不要求覆盖域外来源坐标。
-`mv.identities(entity, keys=...)` 构造有限身份集合，`mv.identity(entity)` 只声明贡献如何分组。
+`mv.coordinates(...)` 统一构造有限字段/身份域及相关多轴元组，每个身份值始终是完整主键元组；
+`mv.identity(entity, at=...)` 可指定版本锚点。
+Population.where 接受 `mv.in_population(...)` 谓词，字段条件通过 members/read/Frame 筛选。
 
 使用 `show()` 检查已捕获的人群，并通过 `axes` 复用其有序坐标：
 
 ```python
-domain = mv.identities(entity, keys=(("C1",), ("C2",)))
+domain = mv.coordinates(
+    by=(mv.identity(entity),), keys=((("C1",),), (("C2",),)),
+)
 domain.show()
 axes = domain.axes
 ```
+
+Population.show 打印捕获定义，不求值键；Python 真值判断不用于检查 Population 是否为空。

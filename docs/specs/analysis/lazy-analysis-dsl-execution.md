@@ -23,8 +23,12 @@ Status: AnalysisFrame cutover execution contract, 2026-10-19.
 #### 1.1.2 Metric 显式域依赖
 
 Population 保留自己期间、属性时点、条件、完整键/绑定与 Session。来源 Metric.per/where
-显式捕获其域；内部样本域和外部指定输出域独立。P.count() 也捕获自己的完整单 Entity
-身份域；P/Q 分别调度，包含无事实身份，不从 by/where 推断分母。Frame ordinary-axis bridge 的 on 必填、
+显式捕获其域；内部样本域和外部指定输出域独立。Population 只携带完整键与依赖，
+membership 由 observe/per 各自的 memberships 参数捕获，外层与内层不互相继承。
+P.count() 捕获自己的完整元组域；P/Q 分别调度，字段 Null 与无事实身份均参与计数，
+不从 by/where 推断分母，也不隐式读取分组属性。新属性须先显式 classify 并保留要计数的身份。
+空域计 0，零轴单元域计 1；无时间轴的域可广播到输出时间轴，已有时间轴按冻结坐标匹配。
+Frame ordinary-axis bridge 的 on 必填、
 可为 ()，先完成输入选择/检查，再联合投影去重，最后执行明确的新来源依赖。
 固定 Top/where 名单不重排，新来源值仍可变化；interval/日历/配对/任意值不桥接。
 

@@ -26,7 +26,7 @@ mv.instant  # invalid: Session-only instant constructor
 session = mv.session.create('static', timezone='UTC')
 population = session.members(session.catalog.entities.get('sales.customer'))
 session.members(ms.ref.metric('sales.revenue'))  # invalid: entity kind
-mv.identities(ms.ref.entity('sales.customer'), keys=(('C1',),))  # invalid: unresolved EntityRef
+mv.coordinates(by=(mv.identity(ms.ref.entity('sales.customer')),), keys=((('C1',),),))  # invalid: unresolved EntityRef
 
 def rejected(query: mv.AnalysisFrame, artifact: mv.Artifact, field: Deferred, metric: Deferred, relationship: Relationship) -> None:
     session.observe({'value': artifact})  # invalid: terminal metric input
@@ -120,7 +120,7 @@ population = session.members(session.catalog.entities.get('sales.customer'))
 assert_type(population, mv.Population)
 resolved_entity = session.catalog.entities.get(ms.ref.entity('sales.customer'))
 assert_type(resolved_entity, Entity)
-assert_type(mv.identities(resolved_entity, keys=(('C1',),)), mv.Population)
+assert_type(mv.coordinates(by=(mv.identity(resolved_entity),), keys=((('C1',),),)), mv.Population)
 amount: Deferred
 region: Deferred
 query = session.observe({'revenue': amount.sum()}, by=(region,))

@@ -168,6 +168,7 @@ def observe(
     *,
     by: tuple[Deferred | Grouping | TimeScope, ...] | Population = (),
     where: Deferred | PopulationPredicate | None = None,
+    memberships: tuple[Grouping, ...] = (),
     timezone: str = "UTC",
     calendar_snapshots: tuple[PeriodCalendarSnapshotV1, ...] = (),
 ) -> AnalysisFrame:
@@ -184,6 +185,7 @@ def observe(
         local.owner,
         by=by,
         where=where,
+        memberships=memberships,
         timezone=timezone,
         state=state,
         calendar_snapshots=calendar_snapshots,

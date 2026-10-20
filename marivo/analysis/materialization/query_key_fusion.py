@@ -13,6 +13,7 @@ import ibis.expr.operations as ops
 import ibis.expr.types as ir
 import pandas as pd
 
+from marivo._definition.correspondence import coordinate_position
 from marivo._definition.expressions import (
     EntityCount,
     MemberCount,
@@ -51,6 +52,7 @@ from marivo._definition.relations import (
     PopulationProgram,
     PopulationProject,
     PopulationSet,
+    sample_population,
 )
 from marivo._definition.types import AxisBinding
 from marivo.analysis.compiler.graph_lowering import LoweredQuery, LoweredRead
@@ -290,7 +292,9 @@ def _population_relation(
             predicates = tuple(
                 _same_key(left[a], right[b], provider)
                 for axis, group in zip(condition.population.axes, other.groups, strict=True)
-                for a, b in zip(value.groups[operand.axes.index(axis)], group, strict=True)
+                for a, b in zip(
+                    value.groups[coordinate_position(operand.axes, axis)], group, strict=True
+                )
             )
             return _NativePopulation(
                 left.semi_join(right, predicates or ibis.literal(True)), value.groups
@@ -404,10 +408,10 @@ def _prune_transport(plan: QueryPlan, producer: str) -> tuple[QueryPlan, tuple[s
         if any(isinstance(node, MemberCount) for node in closure.order):
             continue
         sample_domains = tuple(
-            node.samples
+            domain
             for node in closure.order
             if isinstance(node, (PerReduce, PerWeightedMean))
-            and isinstance(node.samples, PopulationProgram)
+            and isinstance(domain := sample_population(node.samples), PopulationProgram)
         )
         by_id = {stage.stage_id: stage for stage in plan.stages}
         redundant = tuple(
@@ -470,10 +474,10 @@ def _host_domain_selections(plan: QueryPlan) -> frozenset[str]:
         program = stage.program
         closure = walk((node for _, node in program.outputs), resolve=dict(program.declared).get)
         domains: list[PopulationDependency] = [
-            node.samples
+            domain
             for node in closure.order
             if isinstance(node, (PerReduce, PerWeightedMean))
-            and isinstance(node.samples, PopulationProgram)
+            and isinstance(domain := sample_population(node.samples), PopulationProgram)
         ]
         if program.output_population is not None:
             domains.append(program.output_population)

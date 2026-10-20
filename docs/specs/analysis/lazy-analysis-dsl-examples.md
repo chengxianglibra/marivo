@@ -280,7 +280,9 @@ C1 在 11 月 1 日零点从 Silver 换成 Gold，C2 保持 Bronze，新增 C3 �
 version_catalog = ms.load()
 tier = version_catalog.fields.get(ms.ref.dimension("crm.customers.tier"))
 VersionCustomers = version_catalog.entities.get(ms.ref.entity("crm.customers"))
-fixed_customers = mv.identities(VersionCustomers, keys=(("C1",), ("C2",)))
+fixed_customers = mv.coordinates(
+    by=(mv.identity(VersionCustomers),), keys=((("C1",),), (("C2",),)),
+)
 attributes = anchor_s.read(fixed_customers, {"tier": tier.at(october.end)}).compute()
 gold_values = attributes.where(attributes["tier"] == "Gold").compute()
 gold_customers = anchor_s.population_from(gold_values, on=((gold_values.axes[0], VersionCustomers),))
@@ -310,13 +312,15 @@ customer_entity = catalog.entities.get(customers_ref)
 buyer = catalog.relationships.get(ms.ref.relationship("sales.buyer"))
 customer_id = catalog.fields.get(ms.ref.dimension("sales.orders.customer_id"))
 orders = relation_s.members(order_entity)
-customers_a = mv.identities(customer_entity, keys=(("A",),))
+customers_a = mv.coordinates(by=(mv.identity(customer_entity),), keys=((("A",),),))
 buyers = orders.image(via=(buyer,))
 matched_orders = orders.preimage(customers_a, via=(buyer,))
 customer_values = orders.classify(by=(customer_id,))
 first_order = relation_s.members(
     order_entity,
-    where=mv.in_population(mv.identities(order_entity, keys=(("O1",),))),
+    where=mv.in_population(mv.coordinates(
+        by=(mv.identity(order_entity),), keys=((("O1",),),),
+    )),
 )
 expanded_orders = orders.preimage(first_order.image(via=(buyer,)), via=(buyer,))
 fixed_orders = relation_s.frame(matched_orders).compute()
@@ -364,7 +368,9 @@ buyer_region 的路径定位单值字段读取，贡献对客户身份域的归�
 ```python
 customer_count = relation_s.observe({'customers': customers_a.count()}).compute()
 customer_count_explicit = relation_s.observe({'customers': customers_a.count()}, by=()).compute()
-customers_b = mv.identities(customer_entity, keys=(("B",), ("missing",)))
+customers_b = mv.coordinates(
+    by=(mv.identity(customer_entity),), keys=((("B",),), (("missing",),)),
+)
 independent_counts = relation_s.observe({
     "a": customers_a.count(), "b": customers_b.count(),
     "both": customers_a.count() + customers_b.count(),
@@ -637,13 +643,15 @@ tag_buckets = mv.membership(TagId, via=((OrderTags,),), unmatched="exclude")
 
 @ms.metric()
 def mean_tag_revenue():
-    return Revenue.per(tag_buckets).mean()
+    return Revenue.per(TagId, memberships=(tag_buckets,)).mean()
 
-tag_mean_inline = Revenue.per(tag_buckets).mean()
-tag_query = s.observe({'revenue': Revenue}, by=(period, tag_buckets))
-full_tags = mv.coordinates(by=(tag_buckets,), keys=(("A",), ("B",)))
-full_tag_query = s.observe({'revenue': Revenue}, by=mv.product(period, full_tags))
-full_tag_mean = Revenue.per(full_tags).mean()
+tag_mean_inline = Revenue.per(TagId, memberships=(tag_buckets,)).mean()
+tag_query = s.observe({'revenue': Revenue}, by=(period, TagId), memberships=(tag_buckets,))
+full_tags = mv.coordinates(by=(TagId,), keys=(("A",), ("B",)))
+full_tag_query = s.observe(
+    {'revenue': Revenue}, by=mv.product(period, full_tags), memberships=(tag_buckets,),
+)
+full_tag_mean = Revenue.per(full_tags, memberships=(tag_buckets,)).mean()
 
 month_rule = mv.to_date(grain=mv.grain("month"))
 
@@ -673,16 +681,20 @@ elapsed_week 的七天恒为168小时；calendar_week 是七个输出日历期�
 
 
 完整域例：仅 A 有100收入时，子指标为 sum(empty="zero") 时，full_tag_query 为 A=100/B=0，full_tag_mean 为50；
-采用默认 sum() 时，B 为 NA、忽略 NA 的 mean 为100。按实际成员桶 per(tag_buckets) 则只有 A，mean 为100。
-full_tags 的绑定明确且不依赖事实观察；来源域可写 `s.members(TagEntity).classify(by=(tag_buckets,))`，
-此处直接读目标 TagEntity 的身份分类，不走 OrderTags，也不执行描述可能携带的 TagEntity 自关系。来源域会保留其 Session/时点，不能伪装成 source-free 模型参数。
+采用默认 sum() 时，B 为 NA、忽略 NA 的 mean 为100。按实际成员桶
+per(TagId, memberships=(tag_buckets,)) 则只有 A，mean 为100。
+full_tags 只声明键；来源域可写 `s.members(TagEntity).classify(by=(TagId,))`，
+此处直接读目标 TagEntity 的身份分类。OrderTags 分配路径只由消费端 memberships 执行。
+来源域保留其 Session/时点，不能伪装成 source-free 模型参数。
 
 若同时存在 OrderChannels，独立集合组合可写：
 
 ```python
 channels = mv.membership(ChannelId, via=((OrderChannels,),), unmatched="exclude")
-by_tag_channel = s.observe({'revenue': Revenue}, by=(period, tag_buckets, channels))
-mean_tag_channel = Revenue.per((tag_buckets, channels)).mean()
+by_tag_channel = s.observe(
+    {'revenue': Revenue}, by=(period, TagId, ChannelId), memberships=(tag_buckets, channels),
+)
+mean_tag_channel = Revenue.per((TagId, ChannelId), memberships=(tag_buckets, channels)).mean()
 ```
 
 一笔100属于标签 A/B、渠道 web/store 时，四桶各100，并集总额100。真实相关标签/渠道对须改用同一个成员 Entity
@@ -702,9 +714,9 @@ Payroll 为该根上的金额指标；其它上下文与本节相同：
 ```python
 manager_buckets = mv.membership(EmployeeId, via=((ReportsTo,),), unmatched="exclude")
 self_buckets = mv.membership(EmployeeId, via=(), unmatched="exclude")
-by_manager = s.observe({'payroll': Payroll}, by=(period, manager_buckets))
-by_self = s.observe({'payroll': Payroll}, by=(period, self_buckets))
-all_manager_keys = s.members(EmployeeEntity).classify(by=(manager_buckets,))
+by_manager = s.observe({'payroll': Payroll}, by=(period, EmployeeId), memberships=(manager_buckets,))
+by_self = s.observe({'payroll': Payroll}, by=(period, EmployeeId), memberships=(self_buckets,))
+all_manager_keys = s.members(EmployeeEntity).classify(by=(EmployeeId,))
 ```
 
 by_manager 沿 ReportsTo 分配贡献；by_self 才读取根自身分类。all_manager_keys 构造完整目标桶域，
@@ -896,7 +908,7 @@ tags = mv.membership(
     via=((OrderTags,), (RefundOrder, OrderTags)),
     unmatched="exclude",
 )
-tag_net = s.observe({'net_revenue': net_revenue}, by=(period, tags))
+tag_net = s.observe({'net_revenue': net_revenue}, by=(period, TagId), memberships=(tags,))
 ```
 
 订单 O1=100、退款 R1=20 归属 O1，O1 属于 A/B 两标签；同一 (O1,A) 的桥记录出现两次。

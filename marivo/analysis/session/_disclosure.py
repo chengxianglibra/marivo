@@ -256,6 +256,7 @@ def provider() -> DisclosureProvider:
         "where": "Pass a resolved Field predicate or closed PopulationPredicate. Source receivers may read fields needed for membership; AnalysisFrame.where accepts only a same-input boolean Column.",
         "at": "Pass an exact InstantAnchor from session.instant(...) for versioned identity selection.",
         "population": "Pass a complete Population with no owner or the same Session owner.",
+        "memberships": "Pass a tuple of mv.membership(...) rules for output coordinates. Rules map fact contributions; by supplies axes or selected keys. Internal sample rules belong to Metric.per(..., memberships=...).",
         "fields": "Pass a nonempty named mapping of resolved scalar fields with explicit paths and required version anchors.",
         "columns": "Map each literal value name to its one declared unit, or None.",
         "rows": "Pass finite complete key tuples paired with every declared literal value name.",
@@ -313,7 +314,7 @@ def provider() -> DisclosureProvider:
                         n,
                         "Use an exact incomplete or failed Run id; committed success cannot be abandoned."
                         if n == "run_id" and name == "reconcile_run"
-                        else "Empty () is one zero-axis cell. Pass fields, Grouping rules or TimeScope as an ordered tuple, or a Population selecting complete output keys. TimeScope contributes an interval axis; CalendarAxis contributes calendar buckets. population.axes carries rules without selected keys or allocation bindings."
+                        else "Empty () is one zero-axis cell. Pass fields, non-membership Grouping rules or TimeScope as an ordered tuple, or a Population selecting complete output keys. TimeScope contributes an interval axis; CalendarAxis contributes calendar buckets. population.axes carries rules without selected keys or allocation bindings."
                         if name == "observe" and n == "by"
                         else "Pass resolved fields or field or identity Grouping values; calendar and membership groupings are rejected. Use () for scalar literal rows."
                         if name == "values" and n == "by"

@@ -210,7 +210,10 @@ def run(root: Path, phase: str, mode: str) -> dict[str, object]:
             fitted = deviation(frame, "zscore")
             keys = tuple(fitted.loc[fitted.score > 0, f"key_{member_index}"].drop_duplicates())
             assert keys == (("c", 13),)
-            selected = mv.identities(session.catalog.entities.get("sales.order"), keys=keys)
+            selected = mv.coordinates(
+                by=(mv.identity(session.catalog.entities.get("sales.order")),),
+                keys=tuple((key,) for key in keys),
+            )
             following = session.observe(
                 {"value": field.sum(time=session.catalog.fields.get("sales.order.ordered_at"))},
                 by=mv.product(session.time_scope(start="2026-08-01", end="2026-08-07"), selected),

@@ -210,7 +210,8 @@ class Metric:
     def divide(self, other: MetricInput | NumericLiteral, *,
                zero_denominator: Literal["null", "error"] = "null") -> Metric: ...
     def where(self, predicate: FieldPredicate | PopulationPredicate) -> Metric: ...
-    def per(self, samples: Field | Grouping | tuple[Field | Grouping, ...] | Population) -> MetricSamples: ...
+    def per(self, samples: Field | Grouping | tuple[Field | Grouping, ...] | Population,
+            *, memberships: tuple[Grouping, ...] = ()) -> MetricSamples: ...
 ```
 
 Metric 支持有限数值常量、正负号、算术及已准入的原生 Ibis 数值函数；组合保持 Metric 阶段，
@@ -775,7 +776,8 @@ class MetricSamples:
 first/last 只接 §3.2.1 的有序时间样本，不开放任意回调变体。
 本版不提供从任意观察期间自动选择期末状态的 closing 规约，也不按主体取最后非空值或 forward fill。
 显式时点的已有快照读取仍遵守其声明合同；它不授权从期间末端猜快照、补缺测或用 end 减 tick。
-per(Field) 是 per((Field,)) 的单轴形态；非空元组也可包含显式 membership 描述，集合组合及完整域见 §3.7。
+per(Field) 是 per((Field,)) 的单轴形态；membership 描述单独通过 memberships 参数传入，
+不放入 samples 元组或 Population，集合组合及完整域见 §3.7。
 关键是先确定一个外部输出格子 k，再确定该格子内的样本 J_k；不是先构造一份全局客户值再分配给地区。
 Field 样本从 k 内各相关贡献根的完整键像并集推导，不填未出现类别；
 空值规约不删除这些键；窗口分支以各自 W(k) 的贡献键像参与并集，不先按显示期间丢弃历史身份。
@@ -803,7 +805,8 @@ per 在每个样本完成整个子式，不会把其中分母意外留在全局 
 per 不额外创建外部格子，K 仍按 observe 规则从相关贡献或显式输出域确定；内部零活动样本只在已有 k 内保留。
 
 Population 的准入按轴能否完整绑定判断，不因是多字段、身份×字段或多身份元组而一律拒绝。
-普通 Field/Member 轴须有明确角色、版本和对各相关贡献根的合法单值绑定；显式 membership 及携带其绑定的域按 §3.7 处理。不能隐式 fanout、
+普通 Field/Member 轴须有明确角色、版本和对各相关贡献根的合法单值绑定；显式 memberships
+参数对已声明样本坐标的分配按 §3.7 处理，Population 自身不携带分配规则。不能隐式 fanout、
 按同名猜关系、从一个样本权重重复一条贡献，或把域键存在当作来源覆盖证明。
 零轴非空域 {()} 表示每个 k 内一次子求值，零键域表示没有内部样本；二者不混同子指标本身的空贡献。
 CalendarAxis 可通过 product(Population, CalendarAxis) 保留权威网格，并作为内部完整桶样本；
@@ -824,10 +827,11 @@ Query 外部粗化时须先在共同内部键 j 上合法合并/恢复子指标�
 不能对 PerMean 无条件套用 SourceMean 的 sum/count 摘要：East=A100、West=A300 与
 East=A100、West=B300 有相同地区摘要 (100,1)/(300,1)，总体客户均额却为 400/200。
 没有内部身份/子状态时无法区分；本次计划必须提供对该表达式充分的输入/中间信息，不能用完成值代替。
-纯键数使用 s.query(population).reduce({"ids": mv.row_count()})，不把 per(...).count 当作名单基数。
+纯键数使用 population.count()；它计完整去重元组，不把 per(...).count 当作名单基数。
+按新属性计身份数先显式 classify 并保留身份；投影到属性后计数表示去重类别数。
 
-外部 observe(by=Population) 仍是完整输出覆盖合同，缺少被消费贡献的输出键必须失败；
-它不等于 per(Population) 的内部样本选择。数学区分见
+外部 observe(by=Population) 选择完整输出键并保留无事实坐标，不要求覆盖域外贡献；
+它与 per(Population) 的内部样本选择作用在不同层。数学区分见
 [核心分析代数](../analysis/algebra-theory.md)。
 
 ### 3.6 沿 Ibis 图推导与语义检查边界
@@ -975,7 +979,7 @@ guarded = ibis.ifelse(denominator != 0, strict_ratio, 0)
 ### 3.7 显式重叠成员分桶
 
 多值成员关系是贡献分组合同，不是数值字段读取。使用 DSL 的 `mv.membership(...)` 构造不可变分桶描述，
-在 observe 的 by 或 Metric.per 中消费；完整签名由 [DSL §4.3.4](../analysis/lazy-analysis-dsl-redesign.md#434-显式成员关系分桶)拥有。
+在 observe 或 Metric.per 的独立 memberships 参数中消费；完整签名由 [DSL §4.3.4](../analysis/lazy-analysis-dsl-redesign.md#434-显式成员关系分桶)拥有。
 例如标签成员关系把一条订单贡献映射到多个标签，但不改变订单贡献根、行粒度、量单位或求和授权。
 描述只捕获声明字段、显式有序路径和未匹配政策，不捕获 Session、后端表、活动连接或 Python 回调，命名体和匿名脚本可同样使用。
 每个事实根逐描述绑定：有唯一显式路径时优先使用并验证它；仅在未提供路径且根与成员 owner 的
@@ -994,13 +998,16 @@ guarded = ibis.ifelse(denominator != 0, strict_ratio, 0)
 
 未匹配成员按显式 unmatched="exclude" 或 "null" 处理；后者产生保留 NA 键的分类桶，不给数值补零。
 Null 分类键沿现有坐标相等性处理。有效成员版本/时点来自已有声明和绑定，不从订单时间或当前时间猜测。
-成员分配关系与输出域 K 分开：coordinates 显式携带 membership 绑定并声明完整字段键，
-成员 Entity 的 Population.classify 直接读取目标身份分类，给出来源驱动的完整域，多个域可 product。
-它不执行描述中的事实分配路径（含自关系）；描述被保留，直到消费事实时再按显式路径优先规则绑定。
-Query.population 只给实际逻辑输出域，不能作为补齐从未出现标签的唯一入口；轴投影/集合操作须保留分桶绑定。
-外部完整 K 须覆盖被消费的桶键，空桶仍按子指标的 empty/NA 政策完成；内部 per(Population) 选择完整样本域，
-不要求覆盖域外贡献。完整域不制造根事实，成员筛选、存在性半连接和重叠分桶不能互相代替。
-内部分桶 per(membership) 按同样集合语义生成样本；其 sum 必须证明桶间不交及量可加，mean 等只能表示桶统计，
+成员分配关系与输出域 K 分开：coordinates 用直接或已有受治理绑定的字段声明完整相关键，
+成员 Entity 的 Population.classify 用直接字段读取目标身份分类，给出来源驱动的完整域，多个域可 product。
+Population 不保存或执行事实分配路径；投影/集合运算仅操作相容有序坐标与完整键。
+observe(by=(tag, ...), memberships=(rule, ...)) 发现实际桶；by=Population 只选择该域完整键，
+保留无事实桶，不要求覆盖域外贡献。内部 per(Population, memberships=(rule, ...)) 同样选择完整样本域。
+规则字段须存在于本层 by/samples，且同一坐标不能被两个规则重复分配；外层 observe 与内层 per
+各自捕获规则，不隐式继承。只含 Population.count 的请求不消费 membership 事实路径。
+完整域不制造根事实，成员筛选、存在性半连接和重叠分桶不能互相代替。
+内部分桶 per((tag, ...), memberships=(rule, ...)) 按同样集合语义生成样本；
+其 sum 必须证明桶间不交及量可加，mean 等只能表示桶统计，
 不能把重叠桶统计冒称去重总体。外部 rollup/share 同样检查分区与分母支持，不自动分摊金额或归一化成总和 1。
 并集总计须从本次计划的根贡献和成员集合重新求值，或证明充分信息；完成标签值不足以恢复它。
 
@@ -1014,7 +1021,7 @@ fanout 描述关系展开后出现多行的现象，本身不是业务计数或�
 | 多根总量或比率 | 各来源接收者规约后做 Metric 算术 | 根从依赖取得，每根保留自己的贡献、过滤和时间；共同输出轴必须逐根合法绑定，不按某个主根删去单侧键 |
 | 读取关联属性或绑定主体 | 普通 Field.via/time 路径；members 的唯一声明归属路径 | 每条根贡献在消费位置保持单值；多值关系不能用默认去重、首条记录或任意选路修复 |
 | 只选有某类关联的事实 | 有限身份域的 Population.preimage，按需要以 in_population 约束组件 | 存在至少一个匹配即入选一次；关联次数不成为贡献次数，不把重叠分桶降为存在性筛选 |
-| 同一事实属于多个桶 | mv.membership，在 observe.by 或 Metric.per 消费 | 每个使用位置/窗口内按 (完整根贡献键, 完整桶键) 去重；跨桶可复用，不自动分摊或取得跨桶可加性 |
+| 同一事实属于多个桶 | mv.membership，在 observe 或 Metric.per 的 memberships 参数消费 | 每个使用位置/窗口内按 (完整根贡献键, 完整桶键) 去重；跨桶可复用，不自动分摊或取得跨桶可加性 |
 | 确实统计每条关联或事件 | 将关联记录建模为有完整稳定键的独立 Entity，再 count 或规约其 Measure | 贡献单位是关联记录；两个同端点的真实事件若有不同完整键必须保留，不能用 membership 的集合去重替代 |
 | 按业务权重分配金额 | 将分配记录建模为独立贡献根，显式提供金额与权重；为同根派生分配量声明单位/可加合同后规约 | 仅支持已获准的来源/行计算；使用位置已有准入的单值数值读取才可复用。权重、有效期和未分配部分由模型定义；无通用 allocation 参数、自动均分或归一化，weighted_mean 也不是分摊算子 |
 | 先按客户/订单等样本组合再统计 | 复合 Metric.per(共同字段或 Population) 后规约 | 先在每个 (k,j) 完成整个子式，再做外层规约；不要求各根先压到最终展示 k，外层 sum 仍需合法可加性 |

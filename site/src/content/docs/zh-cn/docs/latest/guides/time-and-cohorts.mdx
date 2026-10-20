@@ -11,7 +11,9 @@ description: 显式绑定来源人群并解释冻结日历数据。
 
 ```python
 Orders = session.catalog.entities.get("sales.orders")
-fixed_orders = mv.identities(Orders, keys=((4,), (5,), (6,)))
+fixed_orders = mv.coordinates(
+    by=(mv.identity(Orders),), keys=(((4,),), ((5,),), ((6,),)),
+)
 attributes = session.read(fixed_orders, {"region": region}).compute()
 chosen_orders = attributes.where(attributes["region"] == "east").compute()
 east = session.population_from(chosen_orders, on=((chosen_orders.axes[0], Orders),))
@@ -20,7 +22,8 @@ selected.show()
 session.frame(east).compute().show()
 ```
 
-identities 捕获完整显式引用，不证明来源存在。复合键保留全部主键分量。
+coordinates 捕获完整显式引用，不证明来源存在。每个身份值始终是完整主键元组，单列主键也一样；
+`mv.identity(Orders, at=instant)` 可同时捕获明确版本锚点。
 read 要求一个 Entity 身份域与非空命名字段；桥接把精确结果的完整身份轴绑定到显式已解析
 Entity，不能把 Field 升级为身份。on 必填，零轴可用 on=()；空投影域仍是空约束。
 Population 保持惰性，frame 绑定一般键域。属性 `.at(anchor)` 独立于观察期间。
@@ -32,6 +35,16 @@ TimeScope 直接放入 by 时产生一个 interval 坐标；单期间仍保留�
 `east.count()` 是捕获该身份域的惰性 Metric，包含无事实身份；事实条件不重选分母。
 若原有字段条件，使用 `revenue.where(mv.in_population(east))` 并保留
 `observe(..., where=field_condition)`。只有计数时无效果的条件/窗口拒绝。
+无时间轴的域在所请求时间轴上重复同一次选择的完整元组计数。
+按新属性计所选身份数时，显式保留身份：
+
+```python
+classified = east.classify(by=(east.axes[0], region))
+by_region = session.observe({"orders": classified.count()}, by=(region,)).compute()
+by_region.show()
+```
+
+若先把 classified 只投影到 region 再计数，数的是去重地区。
 
 ## 保留精确日历边界
 

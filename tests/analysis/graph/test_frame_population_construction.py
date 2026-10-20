@@ -309,7 +309,7 @@ def test_private_population_capture_fields_preserve_deferred_fingerprint() -> No
     assert not hasattr(predicate, "condition")
     assert (
         recipe_fingerprint(resolver_of(expression))
-        == "7568133cc15b29e7c5b9b0a7973f7bfef6de7cfdcd0a051103c2e567aab34db5"
+        == "627571f544f65dd695c48bc44600ad2a8d845acdb56b530883368023a6b19683"
     )
 
 

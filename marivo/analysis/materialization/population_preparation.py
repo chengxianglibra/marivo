@@ -9,6 +9,7 @@ import ibis
 import ibis.expr.datatypes as dt
 import ibis.expr.types as ir
 
+from marivo._definition.correspondence import coordinate_position
 from marivo._definition.expressions import ContributionFilter, EntityCount, RowExpression
 from marivo._definition.observations import ContributionBinding
 from marivo._definition.relations import (
@@ -335,7 +336,9 @@ def prepare_population(
                 (left, rename[right])
                 for axis, group in zip(domain.axes, selected.key_groups, strict=True)
                 for left, right in zip(
-                    prepared.key_groups[definition.axes.index(axis)], group, strict=True
+                    prepared.key_groups[coordinate_position(definition.axes, axis)],
+                    group,
+                    strict=True,
                 )
             ]
             predicates = [table[left].identical_to(allowed[right]) for left, right in pairs]

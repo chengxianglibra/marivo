@@ -1,12 +1,13 @@
 """Public grouping capture preserves source bindings and complete-domain semantics."""
 
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 
 import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo._definition.relations import LiteralPopulation, population_keys
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic._deferred_semantics import consume_metric
@@ -94,8 +95,7 @@ def test_shared_consumers_keep_their_grouping_boundaries(
         by=(identity,), columns={"value": None}, rows=(((("A",),), {"value": 1}),)
     )
     assert frame.axes[0].role == "identity"
-    with pytest.raises(AnalysisError, match="field or membership"):
-        mv.coordinates(by=(identity,), keys=())
+    assert mv.coordinates(by=(identity,), keys=()).axes == people.axes
     with pytest.raises(SemanticError):
         consume_metric(metric.per(identity).mean())
     with pytest.raises(AnalysisError):
@@ -104,3 +104,60 @@ def test_shared_consumers_keep_their_grouping_boundaries(
         mv.identity(())
     with pytest.raises(AnalysisError):
         mv.identity(ms.ref.entity("sales.customer"))  # type: ignore[arg-type]  # Unresolved lookup keys are not grouping definitions.
+
+
+def test_population_predicates_and_classify_have_explicit_boundaries(
+    analysis_dsl_case_factory: DslCaseFactory,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    session = analysis_dsl_case_factory("j1").session
+    region = session.catalog.fields.get("sales.customer.region")
+    entity = session.catalog.entities.get("sales.customer")
+    people = mv.coordinates(by=(mv.identity(entity),), keys=((("missing",),),))
+    with pytest.raises(AnalysisError) as caught:
+        people.where(region == "east")  # type: ignore[arg-type]  # Source predicates are not membership predicates.
+    assert caught.value.expected and caught.value.received and caught.value.repair
+    with pytest.raises(AnalysisError):
+        bool(people)
+    scope = session.time_scope(start="2026-08-01", end="2026-09-01")
+    interval = mv.product(people, scope).axes[1]
+    with pytest.raises(AnalysisError):
+        people.classify(by=(interval,))
+    unchanged = people.classify(by=people.axes)
+    assert session.frame(unchanged).compute().to_pandas().iloc[:, 0].tolist() == ["missing"]
+    left = mv.in_population(mv.coordinates(by=(region,), keys=(("east",),)))
+    right = mv.in_population(mv.coordinates(by=(region,), keys=(("west",),)))
+    assert (left & right).show() is None
+    conjunction = capsys.readouterr().out
+    assert (left | right).show() is None
+    disjunction = capsys.readouterr().out
+    assert conjunction != disjunction
+    assert "predicate=and" in conjunction and "predicate=or" in disjunction
+
+
+def test_population_algebra_matches_business_coordinates_across_definition_versions(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    session = analysis_dsl_case_factory("j1").session
+    region = session.catalog.fields.get("sales.customer.region")
+    current = mv.coordinates(by=(region,), keys=(("east",), ("west",)))
+    definition = current._definition
+    assert isinstance(definition, LiteralPopulation)
+    axis = definition.axes[0]
+    assert axis.field is not None
+    older = mv.Population(
+        replace(
+            definition,
+            axes=(
+                replace(
+                    axis,
+                    entity=replace(axis.entity, version="earlier-entity"),
+                    field=replace(axis.field, version="earlier-field"),
+                ),
+            ),
+            keys=(("east",),),
+        )
+    )
+    assert population_keys(older.union(current)._definition) == (("east",), ("west",))
+    assert population_keys(older.project(by=current.axes)._definition) == (("east",),)
+    assert population_keys(current.where(mv.in_population(older))._definition) == (("east",),)

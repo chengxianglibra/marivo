@@ -31,3 +31,24 @@ class CalendarCorrespondence:
 
 
 ComparisonAxis: TypeAlias = AxisBinding | CalendarCoordinate | IntervalCoordinate
+
+
+def coordinate_matches(left: ComparisonAxis, right: ComparisonAxis) -> bool:
+    """Match business coordinates without treating definition versions as identity."""
+    if isinstance(left, AxisBinding) and isinstance(right, AxisBinding):
+        return (
+            left.role == right.role
+            and left.entity.ref == right.entity.ref
+            and (left.field.ref if left.field is not None else None)
+            == (right.field.ref if right.field is not None else None)
+            and tuple(step.ref for step in left.path) == tuple(step.ref for step in right.path)
+            and left.at == right.at
+        )
+    return left == right
+
+
+def coordinate_position(axes: tuple[ComparisonAxis, ...], axis: ComparisonAxis) -> int:
+    """Locate one already validated business coordinate in its captured order."""
+    return next(
+        index for index, candidate in enumerate(axes) if coordinate_matches(candidate, axis)
+    )

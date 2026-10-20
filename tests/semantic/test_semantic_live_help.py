@@ -694,7 +694,11 @@ def test_per_help_covers_observed_and_complete_sample_domains(
     for family in ("Dimension", "TimeField", "Grouping", "tuple[", "Population"):
         assert family in text
     assert "Field samples use observed keys" in text
-    assert "Population binds every compatible member, including empty samples" in text
+    assert "Population binds every compatible tuple, including empty samples" in text
+    assert "native field Grouping" in text
+    assert "memberships=(rule,)" in text and "parameters: memberships" in text
+    assert "rules map contributions to existing sample coordinates" in text
+    assert "membership Grouping" not in text
 
 
 def test_semantic_concept_constructor_and_expression_role_share_one_navigation(

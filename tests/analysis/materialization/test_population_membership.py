@@ -38,7 +38,11 @@ def revenue():
 
 
 def _session(
-    factory: Callable[..., SemanticProject], root: Path, monkeypatch: pytest.MonkeyPatch
+    factory: Callable[..., SemanticProject],
+    root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    model: str = _MODEL,
 ) -> Session:
     database = root / "population.duckdb"
     with duckdb.connect(str(database)) as connection:
@@ -57,7 +61,7 @@ def _session(
     factory(
         {
             "sales/_domain.py": 'import marivo.semantic as ms\nms.domain(name="sales",owner="Analytics",default=True)\n',
-            "sales/objects.py": _MODEL,
+            "sales/objects.py": model,
         },
         load=False,
     )
@@ -190,18 +194,32 @@ def test_membership_deduplicates_root_bucket_and_complete_domain(
         session.catalog.relationships.get("sales.link_tags"),
     )
     buckets = mv.membership(label, via=(path,), unmatched="exclude")
-    full = mv.coordinates(by=(buckets,), keys=(("A",), ("B",), ("C",)))
-    result = session.observe({"revenue": revenue}, by=full).compute().to_pandas()
+    full = mv.coordinates(by=(label,), keys=(("A",), ("B",), ("C",)))
+    result = (
+        session.observe({"revenue": revenue}, by=full, memberships=(buckets,)).compute().to_pandas()
+    )
     assert result[("value", "revenue")].tolist() == [20, 10, 0]
     unmatched = mv.membership(label, via=(path,), unmatched="null")
-    with_null = session.observe({"revenue": revenue}, by=(unmatched,)).compute().to_pandas()
+    with_null = (
+        session.observe({"revenue": revenue}, by=(label,), memberships=(unmatched,))
+        .compute()
+        .to_pandas()
+    )
     assert sorted(with_null[("value", "revenue")].tolist()) == [10, 20, 100]
-    samples = session.observe({"mean": revenue.per(full).mean()}).compute().to_pandas()
+    samples = (
+        session.observe({"mean": revenue.per(full, memberships=(buckets,)).mean()})
+        .compute()
+        .to_pandas()
+    )
     assert samples[("value", "mean")].tolist() == [10]
     classified = session.members(session.catalog.require(ms.ref.entity("sales.tags"))).classify(
-        by=(buckets,)
+        by=(label,)
     )
-    result = session.observe({"revenue": revenue}, by=classified).compute().to_pandas()
+    result = (
+        session.observe({"revenue": revenue}, by=classified, memberships=(buckets,))
+        .compute()
+        .to_pandas()
+    )
     assert result[("value", "revenue")].tolist() == [20, 10, 0]
 
 
@@ -221,11 +239,62 @@ def test_membership_correlated_tuple_differs_from_independent_product(
     joint = mv.membership((label, channel), via=(path,), unmatched="exclude")
     tags = mv.membership(label, via=(path,), unmatched="exclude")
     channels = mv.membership(channel, via=(path,), unmatched="exclude")
-    correlated = session.observe({"revenue": revenue}, by=(joint,)).compute().to_pandas()
-    independent = session.observe({"revenue": revenue}, by=(tags, channels)).compute().to_pandas()
+    correlated = (
+        session.observe({"revenue": revenue}, by=(label, channel), memberships=(joint,))
+        .compute()
+        .to_pandas()
+    )
+    independent = (
+        session.observe({"revenue": revenue}, by=(label, channel), memberships=(tags, channels))
+        .compute()
+        .to_pandas()
+    )
     assert len(correlated) == 2
     assert len(independent) == 4
     assert sorted(independent[("value", "revenue")].tolist()) == [10, 10, 10, 40]
+
+
+@pytest.mark.parametrize("outer_route", ("direct", "association"))
+def test_nested_per_keeps_each_layers_membership_rule(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    outer_route: str,
+) -> None:
+    model = _MODEL.replace(
+        "frozen = ms.finalize()",
+        'order_direct = ms.relationship(name="order_direct", from_entity=orders, '
+        "to_entity=tags, keys=[ms.join_on(customer, tid)])\nfrozen = ms.finalize()",
+    )
+    session = _session(semantic_project_factory, tmp_path, monkeypatch, model=model)
+    revenue = session.catalog.metrics.get("sales.revenue")
+    label = session.catalog.fields.get("sales.tags.label")
+    association_path = (
+        session.catalog.relationships.get("sales.order_links"),
+        session.catalog.relationships.get("sales.link_tags"),
+    )
+    association = mv.membership(label, via=(association_path,), unmatched="null")
+    direct = mv.membership(
+        label, via=((session.catalog.relationships.get("sales.order_direct"),),), unmatched="null"
+    )
+    inner, outer = (association, direct) if outer_route == "direct" else (direct, association)
+    samples = mv.coordinates(by=(label,), keys=(("A",), ("B",), (None,)))
+    inner_samples = revenue.per(samples, memberships=(inner,))
+    result = (
+        session.observe(
+            {
+                "mean_of_means": inner_samples.mean().per(samples, memberships=(outer,)).mean(),
+                "mean_of_maxima": inner_samples.max().per(samples, memberships=(outer,)).mean(),
+            }
+        )
+        .compute()
+        .to_pandas()
+    )
+    # Association/direct bucket pairs carry 40, 10, 100 across nine complete cells.
+    # Reversing the layers preserves their sum but changes their three maxima.
+    assert result[("value", "mean_of_means")].tolist() == [pytest.approx(150 / 9)]
+    maxima = (40, 100, 0) if outer_route == "direct" else (40, 10, 100)
+    assert result[("value", "mean_of_maxima")].tolist() == [pytest.approx(sum(maxima) / 3)]
 
 
 def test_population_filters_and_relationship_images_preserve_typed_keys(
@@ -237,9 +306,10 @@ def test_population_filters_and_relationship_images_preserve_typed_keys(
     orders = session.members(session.catalog.require(ms.ref.entity("sales.orders")))
     tags = session.members(session.catalog.require(ms.ref.entity("sales.tags")))
     tag_entity = session.catalog.entities.get("sales.tags")
-    allowed = mv.identities(tag_entity, keys=((1,), (3,)))
+    allowed = mv.coordinates(by=(mv.identity(tag_entity),), keys=(((1,),), ((3,),)))
     selected = tags.where(
-        mv.in_population(allowed) & ~mv.in_population(mv.identities(tag_entity, keys=((3,),)))
+        mv.in_population(allowed)
+        & ~mv.in_population(mv.coordinates(by=(mv.identity(tag_entity),), keys=(((3,),),)))
     )
     selected_rows = session.frame(selected).compute().to_pandas()
     assert selected_rows.shape[0] == 1
@@ -317,7 +387,10 @@ def test_medium_complete_identity_domain_materializes_and_filters_preimage(
 ) -> None:
     session = _session(semantic_project_factory, tmp_path, monkeypatch)
     entity = session.catalog.entities.get("sales.tags")
-    literal = mv.identities(entity, keys=tuple((key,) for key in range(1, 2001)))
+    literal = mv.coordinates(
+        by=(mv.identity(entity),),
+        keys=tuple(((key,),) for key in range(1, 2001)),
+    )
     frame = session.frame(literal).compute().to_pandas()
     assert sorted(frame.iloc[:, 0].tolist()) == list(range(1, 2001))
     fixed = session.frame(literal).compute()

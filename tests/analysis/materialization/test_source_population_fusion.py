@@ -57,7 +57,9 @@ def test_relationship_population_only_returns_consumed_domain_or_value(
         )
     else:
         if operation == "literal_preimage":
-            targets = mv.identities(session.catalog.entities.get("sales.tags"), keys=((1,),))
+            targets = mv.coordinates(
+                by=(mv.identity(session.catalog.entities.get("sales.tags")),), keys=(((1,),),)
+            )
         else:
             tags = session.members(session.catalog.require(ms.ref.entity("sales.tags")))
             fields = session.read(tags, {"label": session.catalog.fields.get("sales.tags.label")})
@@ -108,8 +110,8 @@ def test_relationship_population_failures_survive_empty_top(
         )
         expected = "non-null complete identity keys"
     elif boundary == "missing_operand":
-        selected = mv.identities(
-            session.catalog.entities.get("sales.orders"), keys=((9999,),)
+        selected = mv.coordinates(
+            by=(mv.identity(session.catalog.entities.get("sales.orders")),), keys=(((9999,),),)
         ).image(via=path)
         metric = (
             session.catalog.fields.get("sales.tags.id").count().where(mv.in_population(selected))
@@ -151,7 +153,9 @@ def test_relationship_member_count_keeps_its_actual_member_input(
         session.catalog.relationships.get("sales.order_links"),
         session.catalog.relationships.get("sales.link_tags"),
     )
-    targets = mv.identities(session.catalog.entities.get("sales.tags"), keys=((1,),))
+    targets = mv.coordinates(
+        by=(mv.identity(session.catalog.entities.get("sales.tags")),), keys=(((1,),),)
+    )
     selected = orders.preimage(targets, via=path)
     query = session.observe(
         {"n": selected.count(), "v": session.catalog.metrics.get("sales.revenue")},

@@ -71,12 +71,16 @@ family with field, identity, interval, calendar and membership kinds, a bounded 
 source-free `.show()`. `mv.identity(entity)` captures a complete identity without
 selecting keys; `mv.identity((relationship, ...), at=instant)` captures a nonempty
 connected directed path and infers its target. Single-valued paths and version
-anchors retain their existing binding checks. `mv.identities(entity, keys=...)`
-instead declares a finite complete identity domain.
+anchors retain their existing binding checks. `mv.coordinates(by=(mv.identity(entity),),
+keys=((("C1",),), (("C2",),)))` declares a finite identity domain. Each identity
+axis value is one complete primary-key tuple, including for a one-column key.
+`coordinates` also accepts direct or governed field coordinates and correlated
+identity/field tuples; it rejects relationship-routed identity, membership and
+time groupings. Literal identities declare references, without proving source presence.
 
 `Population.axes` returns ordered single-coordinate Grouping values. Reusing these
-values imports neither selected keys nor membership allocation groups. `by=P`
-retains exactly its complete domain, allocation bindings and dependencies, including
+values imports no selected keys. Population stores no membership allocation rules. `by=P`
+retains exactly its complete domain and dependencies, including
 coordinates without facts; it need not cover source coordinates outside P.
 TimeScope in by contributes one interval coordinate; CalendarAxis contributes its
 finite calendar buckets. At most one output time axis is allowed. Time plus
@@ -89,12 +93,16 @@ as private capture details. Callers inspect the captured domain with `.show()`
 and reuse its ordered coordinates through `Population.axes`; raw IR fields are not
 public attributes or Help targets.
 
-Projection selects existing coordinates. Classify accepts direct same-Entity
-fields, its existing identity and membership classifications; it rejects calendar
-and routed field reads. Coordinates accepts field/membership groupings; values
-accepts field/identity groupings. Metric.per accepts native Dimension/TimeField
-and membership groupings or a complete Population, retaining existing sample
-restrictions. FrameAxis remains a result-owned handle requiring population_from.
+Projection selects or reorders existing coordinates and deduplicates full tuples.
+Classify accepts direct same-Entity fields and its existing identity; it rejects
+membership, interval/calendar and routed field reads. Selecting only the existing
+identity or zero axes uses projection semantics without an attribute read; new
+attributes require one corresponding source record per selected identity.
+Values accepts field/identity groupings. Metric.per accepts native Dimension/TimeField
+and supported groupings or a complete Population, retaining existing sample
+restrictions. Membership rules belong only to the consumer's explicit
+`memberships=(rule, ...)` parameter on observe or per; they are not coordinates.
+FrameAxis remains a result-owned handle requiring population_from.
 Public grouping wrappers are lowered to existing axis/allocation records before
 fingerprinting, source audit or persistence; Store 13 uses `marivo.frame_output/v2`, including inert interval directories.
 
@@ -128,17 +136,32 @@ conditions independently. Multi-root Metrics reduce each fact root under its
 own identity/time role before complete-grid combination; joining roots cannot
 multiply contributions. Membership retains correlated tuples and independent
 allocation factors. Duplicate links for one contribution/bucket count once;
-equal-valued distinct facts remain distinct. `P.count()` captures a complete Entity identity domain as a lazy Metric, including
-identities without facts. P and Q count independently; even a count-only formula
-schedules its captured domain. Fact conditions and windows do not reselect P;
-count-only conditions or windows with no fact meaning reject.
+equal-valued distinct facts remain distinct. Each membership rule names coordinates
+already present in that consumer's by/samples. Rules cannot overlap coordinates;
+outer observe and internal per rules are captured independently. Count alone does
+not consume membership paths.
 
-`Metric.per(samples)` evaluates the whole child Metric at each internal sample
+`P.count()` counts complete distinct tuples as a lazy integer Metric with unit 1.
+It includes field Null and literal identities without facts. Empty P counts 0;
+the zero-axis unit domain counts 1. Ordinary grouped coordinates must already be
+in P: retain identity while explicitly classifying a new attribute before counting
+members by that attribute. Projecting to the attribute alone counts categories.
+Missing groups in an explicit output domain count 0; an empty output domain has
+no rows. P and Q count independently; even a count-only formula schedules its
+captured domain. A domain without time broadcasts across a supplied time axis;
+an existing time coordinate must match its frozen meaning. Fact conditions and
+windows do not reselect P; count-only conditions or windows with no fact meaning reject.
+
+`Metric.per(samples, memberships=())` evaluates the whole child Metric at each internal sample
 before reduction. Explicit samples include empty samples under the child's
 policy. Internal samples and the selected output domain are independent.
 Use `where=mv.in_population(P)` for contribution selection without identity output.
 When preserving an existing field condition, attach the membership condition to
 the fact Metric with `.where(...)` and keep the field condition on observe.
+`Population.where` accepts only PopulationPredicate; field predicates belong to
+members/read/Frame filtering. Population truth evaluation rejects; it does not
+test emptiness. Predicate `.show()` prints bounded boolean structure, and neither
+Population nor predicate `.show()` evaluates the domain.
 
 ## Time and window authority
 

@@ -368,7 +368,9 @@ def test_multiroot_branch_arithmetic(analysis_dsl_case_factory: DslCaseFactory) 
         (ratio, {"book": 700 / 850, "game": 2.0}),
         (linear, {"book": -150, "game": 150}),
     ):
-        logical = session.observe({"value": metric}, by=(_window(session), buckets))
+        logical = session.observe(
+            {"value": metric}, by=(_window(session), category), memberships=(buckets,)
+        )
         result = logical.persist()
         exported = result.to_pandas()
         frame = exported.set_index(ordinary_columns(exported)[0])

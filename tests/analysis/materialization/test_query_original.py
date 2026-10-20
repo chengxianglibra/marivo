@@ -169,6 +169,7 @@ def test_member_count_uses_complete_identities_and_selected_fine_keys(
     amount = session.catalog.fields.get("sales.orders.amount")
     region = session.catalog.fields.get("sales.orders.region")
     members = session.members(session.catalog.require(ms.ref.entity("sales.orders")))
+    members = members.classify(by=(members.axes[0], region))
     fine = session.observe({"members": members.count()}, by=(region,))
     fixed = fine.where(fine.coord(fine.axes[0]) == "East").compute()
     keys = session.population_from(fixed, on=((fixed.axes[0], region),))
@@ -198,6 +199,7 @@ def test_member_count_drill_reuses_selected_complete_member_identities(
     members = session.members(
         session.catalog.require(ms.ref.entity("sales.orders")), where=region == "East"
     )
+    members = members.classify(by=(members.axes[0], region, channel))
     result = session.observe({"members": members.count()}, by=(region, channel)).compute()
     assert result.to_pandas()[("value", "members")].tolist() == [1, 1]
     assert len(result.to_pandas()) == 2

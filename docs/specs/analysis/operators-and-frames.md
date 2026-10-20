@@ -95,7 +95,10 @@ roles, then combine on complete target keys. One root's facts cannot be multipli
 by another root's rows. Existence selection, overlapping membership allocation
 and modeled association events retain different contribution meanings.
 
-A membership descriptor preserves correlated fields within one tuple. Separate
+A membership descriptor in the explicit `memberships` parameter of observe or
+Metric.per preserves correlated fields within one tuple. The coordinates are
+declared separately in by/samples; Population contains keys, not allocation rules.
+Outer and inner rules are independent. Separate
 descriptors form independent factors. Repeated `(contribution identity, bucket)`
 pairs are set occurrences; equal-valued distinct contributions remain separate.
 unmatched is explicit exclude or Null. A Population in by selects exactly its
@@ -103,14 +106,20 @@ complete output keys, including keys without facts. Selection preserves original
 contribution identities and allocation denominators; selecting one half-allocated
 bucket still yields its half, without renormalizing over the selected output.
 
-`Metric.per(samples)` completes the entire child Metric within each external and
+`Metric.per(samples, memberships=())` completes the entire child Metric within each external and
 internal key pair before applying the sample reducer. An average of per-customer
 ratios is not an overall ratio. A complete explicit internal domain retains empty
 samples under the child's empty policy; it may deliberately select a subset.
 
-`P.count()` captures the complete single-Entity identity Population as a lazy
-Metric, including identities without source facts. Empty P counts 0; P/Q count
-independently. Fact conditions and windows do not reselect the captured denominator.
+`P.count()` captures a Population and counts its complete distinct tuples as a
+lazy integer Metric, including Null categories and identities without source
+facts. Empty P counts 0; the zero-axis unit domain counts 1. Grouping matches
+coordinates already in P, without implicit attribute reads: to count identities
+by a new field, explicitly classify while retaining the identity axis first.
+Projecting away identity counts distinct resulting categories instead. Missing
+groups in an explicit output domain count 0. P/Q count independently. Time axes
+broadcast a timeless count or match P's existing frozen time coordinate.
+Fact conditions and windows do not reselect the captured denominator.
 Only-count observations reject conditions/windows with no fact meaning.
 
 ## Current cells, original Metrics and windows

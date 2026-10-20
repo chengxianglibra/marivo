@@ -27,7 +27,6 @@ from marivo.analysis.dsl.population import (
     Population,
     PopulationPredicate,
     coordinates,
-    identities,
     identity,
     in_population,
     membership,
@@ -58,17 +57,9 @@ def provider() -> DisclosureProvider:
         (
             coordinates,
             "Population",
-            "Capture complete field coordinate tuples; None is a source Null category.",
+            "Capture complete field and identity tuples; None is a field Null category.",
             "result = mv.coordinates(by=(region,), keys=(('east',), ('west',)))",
             ("region",),
-            "inputs.population",
-        ),
-        (
-            identities,
-            "Population",
-            "Capture complete resolved-Entity primary-key tuples; keys do not prove source presence.",
-            "result = mv.identities(entity, keys=(('C1',),))",
-            ("entity",),
             "inputs.population",
         ),
         (
@@ -137,14 +128,14 @@ def provider() -> DisclosureProvider:
         ),
     )
     grouping_inputs = {
-        "coordinates": "Pass resolved fields or field or membership Grouping values. Rejects identity and calendar groupings; use mv.identities for identity keys and product for calendar domains.",
+        "coordinates": "Pass resolved fields or field or identity Grouping values. Each identity value is a complete primary-key tuple; identity(entity, at=...) supplies its anchor. Rejects membership and calendar groupings; use product for calendar domains.",
         "membership": "Pass one resolved field or a nonempty tuple of resolved fields from one member Entity; put allocation paths in via, not in routed fields.",
-        "Population.project": "Select or reorder existing coordinates using population.axes, matching fields or membership groupings. Membership allocation comes from the receiver; projection cannot read new fields.",
-        "Population.classify": "Pass direct same-Entity fields, field groupings, the receiver's existing identity or membership classifications. Rejects calendar groupings and routed fields; requires one identity-axis Population.",
+        "Population.project": "Select or reorder existing coordinates using population.axes or matching fields. Projection cannot read new fields; allocation rules belong to consuming memberships parameters.",
+        "Population.classify": "Pass direct same-Entity fields, field groupings or the receiver's existing identity. Rejects membership, interval/calendar groupings and routed fields; requires one identity-axis Population.",
     }
     parameter_facts = {
         "target": "Pass a resolved Entity or a nonempty connected directed relationship path; its endpoint determines the Entity.",
-        "keys": "Give complete typed tuples in declared axis or primary-key order; duplicate tuples collapse.",
+        "keys": "Give one value per ordered axis; each identity value is a complete nonnull primary-key tuple. Duplicate complete tuples collapse; field None remains a category.",
         "entity": "Pass a resolved Entity from session.catalog.entities or a finalized scope; bare EntityRef inputs are rejected.",
         "via": "Pass a nonempty ordered tuple of declared relationships; membership takes a tuple of paths, one per contribution root.",
         "unmatched": "Choose exclude or null explicitly; null retains a source Null bucket.",
@@ -155,7 +146,7 @@ def provider() -> DisclosureProvider:
         "start": "Pass an aware datetime or an exact session.instant(...).",
         "grain": "Pass mv.grain(unit), ms.calendar_grain(calendar=ref, level=...), or a Catalog grain. Unbound semantic reset grains resolve in the Session's frozen certified scope; captured snapshots must match it.",
         "predicate": "Pass in_population(...) or its closed &, | and ~ combinations over existing axes.",
-        "other": "Pass a Population with identical ordered bound axes and membership allocation descriptors.",
+        "other": "Pass a Population with identical ordered bound business axes; project to matching coordinates before combining.",
         "targets": "Pass the path target Entity's single identity-axis Population from the same Session.",
         "at": "Pass an exact InstantAnchor when required attribute/version reads need it; omit otherwise.",
     }
@@ -180,7 +171,7 @@ def provider() -> DisclosureProvider:
                 constraints=(
                     (
                         "Pass by=(grouping,) to observe. Identity grouping does not select keys; "
-                        "mv.identities(entity, keys=...) constructs a complete domain. Observation "
+                        "mv.coordinates(by=(mv.identity(entity),), keys=...) constructs a complete domain. Observation "
                         "binds complete primary keys through single-valued routes and validates version anchors."
                     )
                     if function is identity
@@ -200,7 +191,7 @@ def provider() -> DisclosureProvider:
             Population,
             "count",
             "Deferred",
-            "Capture the distinct complete identities in this Population as a lazy Metric; declared identities without facts still count.",
+            "Count complete distinct tuples as a lazy Metric; declared identities without facts still count. Group only by existing domain coordinates.",
             "result = population.count()",
             ("population",),
         ),
@@ -216,7 +207,7 @@ def provider() -> DisclosureProvider:
             Population,
             "classify",
             "Population",
-            "Read one identity Entity's fields directly; retain membership allocation descriptors without traversing them.",
+            "Read one identity Entity's fields into correlated coordinates; existing-axis-only classification is projection.",
             "result = population.classify(by=(region,))",
             ("population", "region"),
         ),
@@ -287,8 +278,8 @@ def provider() -> DisclosureProvider:
         (
             PopulationPredicate,
             "show",
-            "str",
-            "Return the closed coordinate predicate kind without source access.",
+            "None",
+            "Print bounded closed boolean structure and domain facts without source access.",
             "result = predicate.show()",
             ("predicate",),
         ),
@@ -320,7 +311,7 @@ def provider() -> DisclosureProvider:
                 ),
                 output=output,
                 constraints=(
-                    "One complete Entity identity domain; declared absent identities count, empty is zero. Fact conditions/windows do not reselect it; count-only conditions/windows reject."
+                    "Count complete tuples, including field Null and absent identities; empty is zero and the zero-axis singleton is one. Grouping uses existing domain axes; classify explicitly to read attributes. Fact conditions/windows do not reselect the domain; count-only conditions/windows reject."
                     if owner is Population and name == "count"
                     else "One Session owner; complete typed keys and explicit version/path bindings remain authoritative.",
                 ),
@@ -333,7 +324,7 @@ def provider() -> DisclosureProvider:
     for value, producers, consumers in (
         (
             Population,
-            ("coordinates", "identities", "product", "session.members", "session.population_from"),
+            ("coordinates", "product", "session.members", "session.population_from"),
             ("session.frame", "Population.project", "Population.classify", "Population.where"),
         ),
         (Grouping, ("identity", "membership"), ("session.observe", "Grouping.show")),
@@ -346,7 +337,9 @@ def provider() -> DisclosureProvider:
                 summary=(
                     "A field, complete identity, interval, calendar or correlated membership grouping rule."
                     if value is Grouping
-                    else f"Immutable {value.__name__} definition."
+                    else "Finite immutable complete coordinate domain with explicit dependencies."
+                    if value is Population
+                    else "Closed immutable coordinate membership predicate."
                 ),
                 acquisition=(
                     "Use identity(entity), membership(...), scope.by(grain), or population.axes."
@@ -368,7 +361,7 @@ def provider() -> DisclosureProvider:
             producers=("all_history", "trailing_duration", "trailing_periods", "since", "to_date"),
             consumers=("ObservationWindow.show",),
             constraints=(
-                "Attach with metric.window(rule); supply during= on the consuming observation.",
+                "Attach with metric.window(rule); supply a TimeScope or CalendarAxis in the consuming observation by.",
             ),
         )
     )

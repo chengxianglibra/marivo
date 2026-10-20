@@ -41,7 +41,6 @@ REQUIRED_TARGETS = {
     "grouping",
     "population_predicate",
     "coordinates",
-    "identities",
     "membership",
     "product",
     "in_population",
@@ -81,12 +80,10 @@ def test_population_ir_fields_are_private_help_targets() -> None:
     population = registry.resolve("population").descriptor
     predicate = registry.resolve("population_predicate").descriptor
     assert isinstance(population, TypeInput) and isinstance(predicate, TypeInput)
-    assert tuple(field.name for field in population.bindings[0].fields) == (
-        "axes",
-        "memberships",
-    )
+    assert tuple(field.name for field in population.bindings[0].fields) == ("axes",)
     assert predicate.bindings[0].fields == ()
-    assert registry.resolve("population.memberships").kind == "attribute"
+    with pytest.raises(HelpTargetError):
+        registry.resolve("population.memberships")
 
 
 def test_shapes_methods_and_admission_links_are_derived_from_real_owners() -> None:

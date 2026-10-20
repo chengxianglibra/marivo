@@ -272,7 +272,8 @@ def test_source_attributes_keep_complete_keys_and_lookup_checks(
     amount = session.catalog.fields.get("sales.orders.amount")
     region = session.catalog.fields.get("sales.orders.region")
     source = session.read(
-        mv.identities(entity, keys=((1,), (2,))), {"amount": amount, "region": region}
+        mv.coordinates(by=(mv.identity(entity),), keys=(((1,),), ((2,),))),
+        {"amount": amount, "region": region},
     )
     query = source.select({"kept": source["amount"]})
     baseline, before, _, before_actual = _execute(session, source, optimized=False)
@@ -746,10 +747,12 @@ def test_null_empty_policy_and_different_source_fibers_remain_independent(
     assert not any(group.law == "L8" for group in plan.fusion_groups)
     entity = session.catalog.entities.get("sales.orders")
     one = session.observe(
-        {"sum": amount.sum()}, where=mv.in_population(mv.identities(entity, keys=((1,),)))
+        {"sum": amount.sum()},
+        where=mv.in_population(mv.coordinates(by=(mv.identity(entity),), keys=(((1,),),))),
     )
     two = session.observe(
-        {"other": amount.sum()}, where=mv.in_population(mv.identities(entity, keys=((2,),)))
+        {"other": amount.sum()},
+        where=mv.in_population(mv.coordinates(by=(mv.identity(entity),), keys=(((2,),),))),
     )
     query = one.align(two, on=tuple(zip(one.axes, two.axes, strict=True)))
     plan, _, _ = _same(session, query)
@@ -1157,7 +1160,7 @@ def test_composite_coord_column_refuses_during_preparation_before_read_or_run(
     assert calls == []
     exported = query.compute().to_pandas()
     assert exported.iloc[:, 0].tolist() == [(1, "x"), (2, "y"), (3, "x"), (4, "z")]
-    requested = mv.identities(composite, keys=((1, "x"), (2, "x")))
+    requested = mv.coordinates(by=(mv.identity(composite),), keys=(((1, "x"),), ((2, "x"),)))
     selected_frame = session.frame(members.where(mv.in_population(requested))).compute().to_pandas()
     assert selected_frame.iloc[:, 0].tolist() == [(1, "x")]
     scalar_members = session.members(session.catalog.require(ms.ref.entity("sales.orders")))
@@ -1167,7 +1170,7 @@ def test_composite_coord_column_refuses_during_preparation_before_read_or_run(
     ].tolist() == [1, 2, 3, 4]
 
 
-def test_identities_requires_resolved_entity_without_source_lookup(
+def test_literal_identity_coordinates_require_resolved_entity_without_source_lookup(
     optimization_session: Session,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1182,16 +1185,18 @@ def test_identities_requires_resolved_entity_without_source_lookup(
 
     with monkeypatch.context() as guarded:
         guarded.setattr(SourceSession, "__enter__", forbidden)
-        domain = mv.identities(entity, keys=((1, "x"), (999, "unconfirmed")))
+        domain = mv.coordinates(
+            by=(mv.identity(entity),), keys=(((1, "x"),), ((999, "unconfirmed"),))
+        )
         axis = domain._definition.axes[0]
         assert isinstance(axis, AxisBinding) and axis.entity == entity.ref
         with pytest.raises(AnalysisError) as error:
-            mv.identities(ms.ref.entity("sales.composite_orders"), keys=())  # type: ignore[arg-type]  # Exercise the runtime unresolved-Ref refusal.
-        assert error.value.location == "identities"
-        assert error.value.expected == "a resolved Entity"
+            mv.coordinates(by=(mv.identity(ms.ref.entity("sales.composite_orders")),), keys=())  # type: ignore[arg-type]  # Exercise the runtime unresolved-Ref refusal.
+        assert error.value.location == "identity"
+        assert error.value.expected == "a resolved Entity or nonempty relationship path"
         assert error.value.received == "Ref"
         assert error.value.repair is not None
-        assert "session.catalog.entities.get" in error.value.repair.action
+        assert "mv.identity(entity)" in error.value.repair.action
         assert session.runs().items == before
     assert session.frame(domain).compute().to_pandas().iloc[:, 0].tolist() == [
         (1, "x"),

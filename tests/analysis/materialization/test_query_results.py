@@ -200,7 +200,11 @@ def test_explicit_selected_members_keep_complete_identity(result_session: Sessio
     region = session.catalog.fields.get("sales.orders.region")
     channel = session.catalog.fields.get("sales.orders.channel")
     fine = session.observe(
-        {"people": session.members(session.catalog.entities.get("sales.orders")).count()},
+        {
+            "people": session.members(session.catalog.entities.get("sales.orders"))
+            .classify(by=(mv.identity(session.catalog.entities.get("sales.orders")), region))
+            .count()
+        },
         by=(region,),
     )
     selected = fine.where(fine["people"] == 2)
@@ -208,6 +212,7 @@ def test_explicit_selected_members_keep_complete_identity(result_session: Sessio
     domain = session.members(
         session.catalog.entities.get("sales.orders"), where=mv.in_population(chosen)
     )
+    domain = domain.classify(by=(domain.axes[0], region, channel))
     drilled = session.observe({"people": domain.count()}, by=(region, channel))
     assert drilled.compute().to_pandas()[("value", "people")].tolist() == [1, 1]
     assert session.observe({"people": domain.count()}, by=(region,)).compute().to_pandas()[
@@ -248,6 +253,13 @@ amount=ms.measure_column(name='amount',entity=orders,column='amount',additivity=
     amount = session.catalog.fields.get("sales.orders.amount")
     region = session.catalog.fields.get("sales.orders.region")
     channel = session.catalog.fields.get("sales.orders.channel")
+    entity = session.catalog.entities.get("sales.orders")
+    at = session.instant("2026-01-01")
+    existing = session.members(entity, at=at)
+    requested = mv.coordinates(by=(mv.identity(entity, at=at),), keys=(((1,),), ((999,),)))
+    assert session.frame(existing.intersection(requested)).compute().to_pandas().iloc[
+        :, 0
+    ].tolist() == [1]
     fine = session.observe({"total": amount.sum()}, by=(region,))
     selected = fine.where(fine["total"] < 100)
     chosen = _population(session, selected, region)
@@ -428,7 +440,7 @@ def test_explicit_members_and_member_count(result_session: Session) -> None:
     session = result_session
     orders = session.catalog.entities.get("sales.orders")
     amount = session.catalog.fields.get("sales.orders.amount")
-    requested = mv.identities(orders, keys=((1,), (3,), (999,)))
+    requested = mv.coordinates(by=(mv.identity(orders),), keys=(((1,),), ((3,),), ((999,),)))
     result = (
         session.observe(
             {
@@ -455,11 +467,13 @@ def test_explicit_members_and_member_count(result_session: Session) -> None:
     ].tolist() == [1, 3, 999]
     with pytest.raises(AnalysisError):
         session.observe({"total": amount.sum()}, by=(mv.identity(()),))
-    with pytest.raises(AnalysisError):
-        mv.coordinates(
-            by=(session.catalog.fields.get("sales.orders.region"),), keys=(("A",),)
-        ).count()
-    empty = mv.identities(orders, keys=())
+    regions = mv.coordinates(
+        by=(session.catalog.fields.get("sales.orders.region"),), keys=(("A",),)
+    )
+    assert session.observe({"regions": regions.count()}).compute().to_pandas()[
+        ("value", "regions")
+    ].tolist() == [1]
+    empty = mv.coordinates(by=(mv.identity(orders),), keys=())
     result = (
         session.observe(
             {"people": empty.count(), "sum": amount.sum()}, where=mv.in_population(empty)
@@ -469,6 +483,33 @@ def test_explicit_members_and_member_count(result_session: Session) -> None:
     )
     assert result[("value", "people")].tolist() == [0]
     assert result[("value", "sum")].isna().all()
+
+
+def test_population_count_counts_full_tuples_and_empty_cells(result_session: Session) -> None:
+    session = result_session
+    region = session.catalog.fields.get("sales.orders.region")
+    channel = session.catalog.fields.get("sales.orders.channel")
+    domain = mv.coordinates(
+        by=(region, channel),
+        keys=(("A", "Web"), ("A", "Store"), (None, "Web"), ("A", "Web")),
+    )
+    scalar = session.observe({"tuples": domain.count()}).compute().to_pandas()
+    assert scalar[("value", "tuples")].tolist() == [3]
+    groups = mv.coordinates(by=(region,), keys=(("A",), (None,), ("missing",)))
+    grouped = session.observe({"tuples": domain.count()}, by=groups).compute().to_pandas()
+    assert [
+        (None if pd.isna(key) else key, count)
+        for key, count in grouped.itertuples(index=False, name=None)
+    ] == [
+        (None, 1),
+        ("A", 2),
+        ("missing", 0),
+    ]
+    empty = mv.coordinates(by=(), keys=())
+    unit = mv.coordinates(by=(), keys=((),))
+    scalars = session.observe({"empty": empty.count(), "unit": unit.count()}).compute().to_pandas()
+    assert scalars[("value", "empty")].tolist() == [0]
+    assert scalars[("value", "unit")].tolist() == [1]
 
 
 def test_frame_keys_drive_a_later_typed_source_read(result_session: Session) -> None:
@@ -923,7 +964,7 @@ def test_session_read_preserves_identity_and_feeds_a_new_source(result_session: 
     orders = session.catalog.entities.get("sales.orders")
     amount = session.catalog.fields.get("sales.orders.amount")
     region = session.catalog.fields.get("sales.orders.region")
-    people = mv.identities(orders, keys=((1,), (2,)))
+    people = mv.coordinates(by=(mv.identity(orders),), keys=(((1,),), ((2,),)))
     q = session.read(people, {"amount": amount, "region": region})
     result = q.compute().to_pandas()
     assert result.iloc[:, 0].tolist() == [1, 2]
@@ -934,7 +975,9 @@ def test_session_read_preserves_identity_and_feeds_a_new_source(result_session: 
     assert session.observe(
         {"total": amount.sum()}, where=mv.in_population(selected)
     ).compute().to_pandas()[("value", "total")].tolist() == [30]
-    missing = session.read(mv.identities(orders, keys=((999,),)), {"region": region})
+    missing = session.read(
+        mv.coordinates(by=(mv.identity(orders),), keys=(((999,),),)), {"region": region}
+    )
     with pytest.raises(AnalysisError):
         missing.compute()
 
@@ -1199,8 +1242,8 @@ def test_population_counts_are_independent_of_fact_conditions(result_session: Se
     session = result_session
     entity = session.catalog.entities.get("sales.orders")
     amount = session.catalog.fields.get("sales.orders.amount")
-    p = mv.identities(entity, keys=((1,), (3,), (999,)))
-    q = mv.identities(entity, keys=((2,),))
+    p = mv.coordinates(by=(mv.identity(entity),), keys=(((1,),), ((3,),), ((999,),)))
+    q = mv.coordinates(by=(mv.identity(entity),), keys=(((2,),),))
     rows = (
         session.observe(
             {
@@ -1227,7 +1270,8 @@ def test_count_domains_follow_their_own_internal_samples(result_session: Session
     entity = session.catalog.entities.get("sales.orders")
     amount = session.catalog.fields.get("sales.orders.amount")
     region = session.catalog.fields.get("sales.orders.region")
-    selected = mv.identities(entity, keys=((1,), (3,)))
+    selected = mv.coordinates(by=(mv.identity(entity),), keys=(((1,),), ((3,),)))
+    selected = selected.classify(by=(selected.axes[0], region))
     rows = (
         session.observe({"count": selected.count(), "mean": amount.sum().per(region).mean()})
         .compute()

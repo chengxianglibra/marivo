@@ -18,10 +18,20 @@ Construction and inspection perform no business read or publication.
 
 Source grouping accepts ordered fields or ``Grouping`` rules, or a complete
 ``Population`` domain. ``identity(entity)`` declares one complete identity rule;
-``identities(entity, keys=...)`` declares a finite requested identity domain.
-``population.axes`` reuses grouping definitions without selected keys or allocation
-bindings. ``by=population`` retains the complete output domain and coverage checks.
-CalendarAxis is a calendar Grouping; membership retains correlated coordinate tuples.
+``coordinates(by=(identity(entity),), keys=((("C1",),),))`` declares a finite
+requested identity domain. Every identity value is a complete primary-key tuple.
+Coordinates also accepts field coordinates and correlated field/identity tuples.
+``population.axes`` reuses grouping definitions without selected keys.
+``by=population`` selects complete output keys, including keys without facts.
+CalendarAxis is a calendar Grouping. Membership rules preserve correlated tuples
+through the separate ``memberships`` parameter on observe or Metric.per;
+Population stores no allocation rules.
+
+``population.count()`` counts complete distinct tuples as a lazy integer Metric,
+including Null categories and references without source facts. Empty domains
+count 0; the zero-axis unit domain counts 1. Ordinary grouping coordinates must
+already exist in the Population. Classify a new attribute while retaining identity
+before counting members by it; projecting to the attribute alone counts categories.
 
 Use the returned ``compute()`` Frame for complete fixed memory data and the
 returned ``persist()`` Frame for committed data. Derived operations remain lazy.
@@ -130,8 +140,6 @@ Canonical public exports
 
 .. autoclass:: CalendarCorrespondence
    :members:
-
-.. autofunction:: identities
 
 .. autofunction:: coordinates
 

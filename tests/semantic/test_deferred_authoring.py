@@ -89,7 +89,9 @@ def test_declared_metric_accepts_public_grouping_samples(
         if kind == "field"
         else 'mv.membership(status, via=(), unmatched="exclude")'
     )
-    argument = "(samples,)" if as_tuple else "samples"
+    sample_argument = "samples" if kind == "field" else "status"
+    argument = f"({sample_argument},)" if as_tuple else sample_argument
+    options = "" if kind == "field" else ", memberships=(samples,)"
     source = (
         _MODEL
         + f"""
@@ -97,7 +99,7 @@ import marivo.analysis as mv
 samples = {grouping}
 @ms.metric()
 def average_sample():
-    return revenue.per({argument}).mean()
+    return revenue.per({argument}{options}).mean()
 """
     )
     catalog = _catalog(semantic_project_factory, source)
@@ -108,7 +110,13 @@ def average_sample():
         if kind == "field"
         else mv.membership(status, via=(), unmatched="exclude")
     )
-    expected = amount.sum().per((samples,) if as_tuple else samples).mean()
+    sample = samples if kind == "field" else status
+    argument_value = (sample,) if as_tuple else sample
+    expected = (
+        amount.sum().per(argument_value).mean()
+        if kind == "field"
+        else amount.sum().per(argument_value, memberships=(samples,)).mean()
+    )
     declared = catalog.metrics.get("sales.average_sample")
     body = next(
         body

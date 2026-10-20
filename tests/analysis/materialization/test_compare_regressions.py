@@ -127,7 +127,9 @@ def test_duration_comparison_kinds_allow_filter_projection_and_reduction(
             if endpoint == "read"
             else "sales.observations.elapsed"
         )
-        current = session.read(mv.identities(entity, keys=((1,),)), {"v": elapsed})
+        current = session.read(
+            mv.coordinates(by=(mv.identity(entity),), keys=(((1,),),)), {"v": elapsed}
+        )
         baseline = current.select({"v": current["v"] / 2})
 
     comparison = current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))

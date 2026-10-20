@@ -166,6 +166,7 @@ INPUT_FAMILIES = frozenset(
         "ReadinessInputSummary",
         "ReadinessIssue",
         "Dimension | TimeField | Grouping | tuple[Dimension | TimeField | Grouping, ...] | Population",
+        "tuple[Grouping, ...]",
         "CatalogEntry | Ref",
         "CatalogCollection",
         "CatalogLookupKey | Ref",
@@ -2474,6 +2475,12 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     "window": ("rule", "WindowRule", "revenue.window(mv.all_history())"),
                 }[method]
                 inputs.append(_parameter_input("dependency", input_family, parameter))
+                if method == "per":
+                    inputs.append(
+                        _parameter_input(
+                            "dependency", "tuple[Grouping, ...]", "memberships", optional=True
+                        )
+                    )
             elif prefix == "Entity":
                 inputs.append(_parameter_input("dependency", "TimeField", "time", optional=True))
                 example = "orders.count(time=paid_at)"
@@ -2512,9 +2519,11 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             summary = "Construct a native Deferred recipe at this receiver's stage without business source reads. "
             if prefix == "Metric" and method == "per":
                 summary += (
-                    "per accepts a Dimension, TimeField, native field or membership Grouping, a nonempty tuple of these, "
+                    "per accepts a Dimension, TimeField or native field Grouping, a nonempty tuple of these, "
                     "or a complete Population; finish with a sample reducer. Field samples use observed "
-                    "keys; Population binds every compatible member, including empty samples."
+                    "keys; Population binds every compatible tuple, including empty samples. "
+                    "Pass correlated mv.membership(...) rules through memberships=(rule,); "
+                    "rules map contributions to existing sample coordinates and do not select keys."
                 )
             elif prefix == "Metric" and method == "where":
                 summary += (

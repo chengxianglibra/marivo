@@ -63,6 +63,7 @@ from marivo._definition.relations import (
     PopulationSet,
     QueryNode,
     ReadQuery,
+    SampleDomain,
     SourceIdentities,
 )
 from marivo._definition.types import (
@@ -171,6 +172,8 @@ def _edges(*inputs: tuple[EdgeRole, DefinitionNode]) -> tuple[Edge, ...]:
 def _population_inputs(
     role: EdgeRole, value: object
 ) -> tuple[tuple[EdgeRole, DefinitionNode], ...]:
+    if isinstance(value, SampleDomain):
+        return ((role, value.population),) if value.population is not None else ()
     if isinstance(value, (LiteralPopulation, PopulationProgram)):
         return ((role, value),)
     return ()

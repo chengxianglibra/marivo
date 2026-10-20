@@ -347,7 +347,7 @@ frame 的坐标投影只产生当前域，不包含丢失的身份、贡献出�
 
 首版增加唯一桥接入口 session.population_from(frame, on=...)，将选定结果轴显式绑定到
 调用方提供的已解析 Field Deferred 或 Entity，生成可用于来源约束的 Population。
-这是 Population 构造族的键域投影和显式来源绑定，与 members/identities 分工明确；
+这是 Population 构造族的键域投影和显式来源绑定，与来源枚举 members、字面构造 coordinates 分工明确；
 由 Session 校验目标 Catalog 绑定，不是 frame 恢复原语义对象；原 frame 不变。
 on 只能选普通字段轴或完整身份轴，轴属于该 frame、目标角色与完整键类型必须相容，
 目标绑定按现有语义规则验证，不靠同名查找。首版不绑定interval 轴、日历轴、配对轴或任意值列。
@@ -360,7 +360,8 @@ on 只能选普通字段轴或完整身份轴，轴属于该 frame、目标角�
 来自待执行 frame 的桥接每次调用会先求值该选择计划；想固定历史选择需先 compute/persist。
 
 用于贡献过滤时走 observe 的 where=mv.in_population(...)；by=Population 只选择其完整输出键，
-保留无事实坐标，不要求覆盖域外贡献。P.count() 则独立捕获完整单 Entity 身份域。
+保留无事实坐标，不要求覆盖域外贡献。P.count() 则独立捕获完整去重元组域，
+分组只匹配域内已有坐标，不隐式读取新属性；成员属性分组先显式 classify 并保留身份。
 不增加 frame.population 或 where(PopulationPredicate) 重载；复杂关系导航仍需显式来源参数。
 
 ```python

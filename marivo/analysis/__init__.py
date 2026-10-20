@@ -29,7 +29,6 @@ if TYPE_CHECKING:
     from marivo.analysis.dsl.population import Population as Population
     from marivo.analysis.dsl.population import PopulationPredicate as PopulationPredicate
     from marivo.analysis.dsl.population import coordinates as coordinates
-    from marivo.analysis.dsl.population import identities as identities
     from marivo.analysis.dsl.population import identity as identity
     from marivo.analysis.dsl.population import in_population as in_population
     from marivo.analysis.dsl.population import membership as membership

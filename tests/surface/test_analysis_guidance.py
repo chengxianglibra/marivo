@@ -66,9 +66,12 @@ def test_grouping_is_the_public_observation_family() -> None:
 @pytest.mark.parametrize(
     ("target", "required"),
     (
-        ("coordinates", ("field or membership Grouping", "identity and calendar", "mv.identities")),
+        (
+            "coordinates",
+            ("field or identity Grouping", "complete primary-key tuple", "Rejects membership"),
+        ),
         ("membership", ("resolved fields", "one member Entity")),
-        ("population.project", ("existing coordinates", "receiver", "membership")),
+        ("population.project", ("existing coordinates", "population.axes", "memberships")),
         ("population.classify", ("same-Entity", "existing identity", "calendar", "routed fields")),
         ("session.values", ("field or identity Grouping", "calendar and membership")),
         (

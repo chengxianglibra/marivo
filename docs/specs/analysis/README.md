@@ -36,6 +36,10 @@ Static API facts, captured instance state and errors follow
 | [Implementation plan](analysis-frame-implementation-plan.md) | Historical S0-S8 task authority; not implementation evidence |
 
 [Attribute design](attribute-design.md) remains a future explicit-source extension.
+[The Population refactor design and plan](population-refactor-design-and-plan.md)
+records unified literal domains, consumer-owned membership rules and general
+tuple counts; the [implementation record](population-refactor-implementation-progress.md)
+tracks the current candidate and its validation separately.
 A completed Frame does not regain original Metric contributions or its producer graph.
 Historical acceptance records remain evidence only for their exact recorded scope.
 

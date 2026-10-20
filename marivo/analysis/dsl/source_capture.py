@@ -152,8 +152,8 @@ def capture_values(
             )
         return result
 
-    axes, memberships = _axes(by)
-    if memberships or any(isinstance(axis, CalendarCoordinate) for axis in axes):
+    axes = _axes(by)
+    if any(isinstance(axis, CalendarCoordinate) for axis in axes):
         reject(
             "explicit field or identity axes",
             repr(axes),
@@ -250,6 +250,7 @@ def capture_metrics(
     *,
     by: tuple[Deferred | Grouping | TimeScope, ...] | Population = (),
     where: Deferred | PopulationPredicate | None = None,
+    memberships: tuple[Grouping, ...] = (),
     timezone: str = "UTC",
     state: CompiledSemanticState | None = None,
     calendar_snapshots: tuple[PeriodCalendarSnapshotV1, ...] = (),
@@ -296,17 +297,43 @@ def capture_metrics(
                 "Rebuild the domain in this Session.",
                 "session.observe",
             )
-        axes, memberships = by._definition.axes, by.memberships
+        axes = by._definition.axes
         population = by._definition
     else:
         from marivo.analysis.dsl.temporal import freeze_scope
 
-        axes, memberships = _axes(
+        axes = _axes(
             tuple(
                 freeze_scope(item, timezone) if isinstance(item, TimeScope) else item for item in by
             )
         )
         population = None
+
+    from marivo._definition.relations import MembershipBinding, validate_memberships
+    from marivo._definition.types import DefinitionGraphError
+
+    if not isinstance(memberships, tuple) or any(
+        not isinstance(rule, Grouping) or not isinstance(rule._binding, MembershipBinding)
+        for rule in memberships
+    ):
+        reject(
+            "a tuple of membership Grouping rules",
+            repr(memberships),
+            "Pass memberships=(mv.membership(...),).",
+            "Session.observe.memberships",
+        )
+    bindings = tuple(
+        rule._binding for rule in memberships if isinstance(rule._binding, MembershipBinding)
+    )
+    try:
+        validate_memberships(axes, bindings)
+    except DefinitionGraphError as error:
+        reject(
+            "membership rules for distinct existing coordinates in captured order",
+            str(error),
+            "Match each rule to the ordered by coordinates and allocate each coordinate once.",
+            "Session.observe.memberships",
+        )
 
     source_axes = tuple(
         axis
@@ -335,7 +362,7 @@ def capture_metrics(
         timezone=timezone,
         state=state,
         calendar_snapshots=calendar_snapshots,
-        memberships=memberships,
+        memberships=bindings,
         population=population,
     )
     signature = BoundSignature(
@@ -370,7 +397,7 @@ def capture_population(population: Population, owner: Owner) -> BoundGraph:
     binding = ObservationBinding(
         None,
         None,
-        CoordinateBinding(axes, "grouped", population._definition, population.memberships),
+        CoordinateBinding(axes, "grouped", population._definition),
         (),
     )
     signature = BoundSignature(owner, (), axes, observation=binding)

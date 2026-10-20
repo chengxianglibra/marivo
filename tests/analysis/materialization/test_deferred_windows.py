@@ -233,7 +233,7 @@ def test_explicit_count_repeats_time_and_rejects_ineffective_window(
 
     session = window_session
     entity = session.catalog.entities.get("sales.orders")
-    people = mv.identities(entity, keys=((1,), (2,), (999,)))
+    people = mv.coordinates(by=(mv.identity(entity),), keys=(((1,),), ((2,),), ((999,),)))
     calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))
     rows = session.observe({"people": people.count()}, by=(calendar,)).compute().to_pandas()
     assert rows[("value", "people")].tolist() == [3, 3]

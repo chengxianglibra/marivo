@@ -39,6 +39,7 @@ def _combine_program(
 
     import ibis
 
+    from marivo._definition.correspondence import coordinate_position
     from marivo._definition.expressions import (
         DeclaredMetricRef,
         EntityCount,
@@ -51,9 +52,9 @@ def _combine_program(
     )
     from marivo._definition.graph import children, walk
     from marivo._definition.relations import (
-        LiteralPopulation,
         PopulationDependency,
         PopulationProgram,
+        sample_population,
     )
     from marivo._definition.types import AxisBinding, CalendarCoordinate, IntervalCoordinate
     from marivo.analysis.compiler.observation import (
@@ -211,7 +212,10 @@ def _combine_program(
         time_domains: list[tuple[str, int]] = []
         offset = 0
         for axis in program.axes:
-            if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)):
+            if (
+                isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
+                and axis not in classified
+            ):
                 time_domains.append(
                     (
                         key_slots[offset],
@@ -220,7 +224,9 @@ def _combine_program(
                 )
                 offset += 1
             else:
-                source_keys = classified[axis]
+                source_keys = count.axis_mapping[coordinate_position(count.population.axes, axis)][
+                    1
+                ]
                 mapping.extend(
                     zip(source_keys, key_slots[offset : offset + len(source_keys)], strict=True)
                 )
@@ -347,8 +353,9 @@ def _combine_program(
                 axes=(*program.axes, *sample_axes),
             )
             complete_domain = None
-            if isinstance(node.samples, (LiteralPopulation, PopulationProgram)):
-                sample_domain = population_domain(node.samples, sample_keys)
+            sample_population_definition = sample_population(node.samples)
+            if sample_population_definition is not None:
+                sample_domain = population_domain(sample_population_definition, sample_keys)
                 complete_domain = (
                     domain.merge(sample_domain, how="cross") if keys else sample_domain
                 )

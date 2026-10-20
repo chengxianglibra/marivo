@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal, TypeAlias
 
+from marivo._definition.correspondence import coordinate_position
 from marivo._definition.expressions import FieldPredicate
 from marivo._definition.relations import PopulationDependency
 from marivo.analysis.compiler.query_program import (
@@ -797,7 +798,7 @@ def _plan_query(
                     )
                 )
                 continue
-            group = member_groups[member_population.axes.index(axis)]
+            group = member_groups[coordinate_position(member_population.axes, axis)]
             for name in group:
                 slot = f"key.{len(output_columns)}"
                 item = member_schema.keys[member_slots.index(name)]

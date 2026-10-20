@@ -207,6 +207,8 @@ def captured_source_scopes(graph: BoundGraph) -> tuple[str, ...]:
         observation.condition,
         *(domain for pair in observation.count_populations for domain in pair),
         observation.coordinates.population,
+        *observation.coordinates.memberships,
+        *(rule for contribution in observation.contributions for rule in contribution.memberships),
         *(
             condition
             for contribution in observation.contributions

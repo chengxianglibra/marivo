@@ -32,7 +32,7 @@ if TYPE_CHECKING:
             members.axes[0].kind, Literal["field", "identity", "calendar", "interval", "membership"]
         )
         assert_type(session.frame(members), mv.AnalysisFrame)
-        fixed = mv.identities(entity, keys=(("C1",), ("C2",)))
+        fixed = mv.coordinates(by=(mv.identity(entity),), keys=((("C1",),), (("C2",),)))
         assert_type(fixed, mv.Population)
         complete = mv.coordinates(by=(region,), keys=(("east",), ("west",)))
         assert_type(complete, mv.Population)
@@ -51,7 +51,10 @@ if TYPE_CHECKING:
         assert_type(mv.product(complete, scope.by(mv.grain("day"))), mv.Population)
         revenue = session.catalog.metrics.get("sales.revenue")
         assert_type(revenue, Deferred)
-        assert_type(session.observe({"value": revenue}, by=(descriptor,)), mv.AnalysisFrame)
+        assert_type(
+            session.observe({"value": revenue}, by=(region,), memberships=(descriptor,)),
+            mv.AnalysisFrame,
+        )
         assert_type(session.observe({"value": revenue}, by=complete), mv.AnalysisFrame)
         return session.frame(complete)
 

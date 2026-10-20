@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Literal
 
 import duckdb
+import pandas as pd
 import pytest
 from ibis.common.deferred import Deferred
 
@@ -90,6 +91,36 @@ def _fact_scopes(facts: tuple[OutputEvidence, ...]) -> list[object]:
 def _memory(frame: AnalysisFrame) -> MemoryFrameBacking:
     assert isinstance(frame._backing, MemoryFrameBacking)
     return frame._backing
+
+
+def test_literal_joint_identity_coordinates_preserve_complete_tuples(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    entity = session.catalog.entities.get("sales.facts")
+    channel = session.catalog.fields.get("sales.facts.channel")
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("literal coordinate construction must not read a source")
+
+    with monkeypatch.context() as guard:
+        guard.setattr(SourceSession, "__enter__", forbidden)
+        population = mv.coordinates(
+            by=(mv.identity(entity), channel),
+            keys=((("t1", 1), "Web"), (("missing", 999), None), (("t1", 1), "Web")),
+        )
+    frame = session.frame(population).compute().to_pandas()
+    assert [
+        (key, None if pd.isna(value) else value)
+        for key, value in frame.itertuples(index=False, name=None)
+    ] == [
+        (("missing", 999), None),
+        (("t1", 1), "Web"),
+    ]
+    counts = session.observe({"n": population.count()}, by=(channel,)).compute().to_pandas()
+    assert counts[("value", "n")].tolist() == [1, 1]
+    assert session.observe({"n": population.count()}).compute().to_pandas()[
+        ("value", "n")
+    ].tolist() == [2]
 
 
 def _observe(
@@ -291,8 +322,8 @@ def test_pending_scope_summary_keeps_interval_count_domains_and_joint_keys_witho
     session: Session, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     entity = session.catalog.entities.get("sales.facts")
-    first = mv.identities(entity, keys=(("t1", 1), ("missing", 999)))
-    second = mv.identities(entity, keys=(("t2", 2),))
+    first = mv.coordinates(by=(mv.identity(entity),), keys=((("t1", 1),), (("missing", 999),)))
+    second = mv.coordinates(by=(mv.identity(entity),), keys=((("t2", 2),),))
     scope = session.time_scope(start="2026-08-01", end="2026-09-01", timezone="Asia/Shanghai")
     domain = mv.product(scope, first)
     counted = session.observe({"first": first.count(), "second": second.count()}, by=domain)
@@ -329,8 +360,12 @@ def test_pending_count_scope_distinguishes_literal_entities_with_the_same_keys(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    customers = mv.identities(case.catalog.entities.get("sales.customer"), keys=(("same",),))
-    orders = mv.identities(case.catalog.entities.get("sales.order"), keys=(("same",),))
+    customers = mv.coordinates(
+        by=(mv.identity(case.catalog.entities.get("sales.customer")),), keys=((("same",),),)
+    )
+    orders = mv.coordinates(
+        by=(mv.identity(case.catalog.entities.get("sales.order")),), keys=((("same",),),)
+    )
     pending = case.session.observe({"customers": customers.count(), "orders": orders.count()})
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -355,8 +390,12 @@ def test_pending_count_scope_distinguishes_fixed_frame_inputs_without_reading_ro
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     entity = case.catalog.entities.get("sales.customer")
-    first = case.session.frame(mv.identities(entity, keys=(("first",),))).compute()
-    second = case.session.frame(mv.identities(entity, keys=(("second",),))).compute()
+    first = case.session.frame(
+        mv.coordinates(by=(mv.identity(entity),), keys=((("first",),),))
+    ).compute()
+    second = case.session.frame(
+        mv.coordinates(by=(mv.identity(entity),), keys=((("second",),),))
+    ).compute()
     domains = tuple(
         case.session.population_from(frame, on=((frame.axes[0], entity),))
         for frame in (first, second)
@@ -396,7 +435,7 @@ def test_source_fact_filters_and_special_complete_keys_are_lossless(
     assert long_value in serialized and candidates[-3] in serialized
     assert "... omitted" not in serialized
     entity = session.catalog.entities.get("sales.facts")
-    selected = mv.identities(entity, keys=(("t1", 1), ("t2", 1)))
+    selected = mv.coordinates(by=(mv.identity(entity),), keys=((("t1", 1),), (("t2", 1),)))
     key_fact = source_scope(selected._definition)
     assert '"t1"' in key_fact and '"t2"' in key_fact and '"0x1"' in key_fact
     restricted = _observe(session, where=mv.in_population(selected)).compute()
@@ -410,7 +449,7 @@ def test_source_fact_filters_and_special_complete_keys_are_lossless(
 
 def test_general_population_composite_identity_frame(session: Session) -> None:
     entity = session.catalog.entities.get("sales.facts")
-    population = mv.identities(entity, keys=(("t2", 1), ("t1", 1)))
+    population = mv.coordinates(by=(mv.identity(entity),), keys=((("t2", 1),), (("t1", 1),)))
     result = frame_sources.frame(
         session._runtime.local,
         session.catalog._state,
@@ -423,7 +462,7 @@ def test_general_population_composite_identity_frame(session: Session) -> None:
 
 def test_read_retains_complete_population_scope_without_producer_formula(session: Session) -> None:
     entity = session.catalog.entities.get("sales.facts")
-    population = mv.identities(entity, keys=(("t2", 1), ("t1", 2)))
+    population = mv.coordinates(by=(mv.identity(entity),), keys=((("t2", 1),), (("t1", 2),)))
     result = frame_sources.read(
         session._runtime.local,
         session.catalog._state,
@@ -645,8 +684,8 @@ def test_membership_source_audit_survives_fixed_and_persisted_results_without_re
         session.catalog.relationships.get("sales.link_tags"),
     )
     buckets = mv.membership(label, via=(path,), unmatched="exclude")
-    domain = mv.coordinates(by=(buckets,), keys=(("A",), ("B",), ("C",)))
-    pending = session.observe({"revenue": revenue}, by=domain)
+    domain = mv.coordinates(by=(label,), keys=(("A",), ("B",), ("C",)))
+    pending = session.observe({"revenue": revenue}, by=domain, memberships=(buckets,))
     before = _inventory(session)
 
     def forbidden(*args: object, **kwargs: object) -> None:

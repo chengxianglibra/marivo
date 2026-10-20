@@ -23,8 +23,12 @@ def test_member_count_without_source_metric_prepares_members(
     members = (
         session.members(session.catalog.require(ms.ref.entity("sales.customer")))
         if domain == "source"
-        else mv.identities(customer, keys=(("A",), ("C",)) if domain == "literal" else ())
+        else mv.coordinates(
+            by=(mv.identity(customer),), keys=((("A",),), (("C",),)) if domain == "literal" else ()
+        )
     )
+    if grouped:
+        members = members.classify(by=(members.axes[0], region))
     frame = (
         session.observe({"n": members.count()}, by=(region,) if grouped else ())
         .compute()
@@ -48,8 +52,9 @@ def test_member_count_literal_absent_identity_needs_no_profile_confirmation(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
-    members = mv.identities(
-        session.catalog.entities.get("sales.customer"), keys=(("A",), ("missing",))
+    members = mv.coordinates(
+        by=(mv.identity(session.catalog.entities.get("sales.customer")),),
+        keys=((("A",),), (("missing",),)),
     )
     frame = session.observe({"n": members.count()}).compute().to_pandas()
     assert frame[("value", "n")].tolist() == [2]

@@ -11,7 +11,9 @@ This guide continues the [local tutorial](/docs/latest/guides/python-quick-start
 
 ```python
 Orders = session.catalog.entities.get("sales.orders")
-fixed_orders = mv.identities(Orders, keys=((4,), (5,), (6,)))
+fixed_orders = mv.coordinates(
+    by=(mv.identity(Orders),), keys=(((4,),), ((5,),), ((6,),)),
+)
 attributes = session.read(fixed_orders, {"region": region}).compute()
 chosen_orders = attributes.where(attributes["region"] == "east").compute()
 east = session.population_from(chosen_orders, on=((chosen_orders.axes[0], Orders),))
@@ -20,8 +22,10 @@ selected.show()
 session.frame(east).compute().show()
 ```
 
-Identities captures explicit complete references, not proof of source presence.
-Composite keys retain every primary-key component. read requires one Entity
+Coordinates captures explicit complete references without proving source presence.
+Each identity value is a complete primary-key tuple, even for a one-column key;
+`mv.identity(Orders, at=instant)` also captures an explicit version anchor.
+read requires one Entity
 identity domain and nonempty named fields. The bridge maps that exact result's
 complete identity axis to an explicit resolved Entity; a Field cannot be promoted
 to identity. `on` is required, with legal on=() for zero axes. Empty projected
@@ -37,6 +41,16 @@ captured identity domain and counts absent identities; fact conditions do not
 reselect its denominator. With an existing field condition, use
 `revenue.where(mv.in_population(east))` and retain `observe(..., where=field_condition)`.
 Only-count observations reject conditions/windows with no fact effect.
+A domain without time broadcasts the same selected tuple count across the requested
+time axis. To count selected identities by a new attribute, retain identity explicitly:
+
+```python
+classified = east.classify(by=(east.axes[0], region))
+by_region = session.observe({"orders": classified.count()}, by=(region,)).compute()
+by_region.show()
+```
+
+Projecting classified to region alone before counting would count distinct regions.
 
 ## Keep exact calendar boundaries
 

@@ -34,7 +34,13 @@ Resolve unknown inputs through bounded Catalog discovery; known names use exact
 lookup. There is no top-level execution Session alias.
 
 A tuple by groups observed coordinates; by=Population selects exactly its complete keys, including coordinates without facts.
-Use where=mv.in_population(P) for contribution selection. P.count() independently captures a complete single-Entity identity domain as a lazy Metric, including identities without facts; P/Q counts do not infer their domains from by or where. Field Null is a
+Use where=mv.in_population(P) for contribution selection. P.count() independently
+counts complete distinct tuples as a lazy integer Metric, including Null categories
+and identities without facts; P/Q counts do not infer their domains from by or where.
+Empty domains count 0 and the zero-axis unit domain counts 1. Grouping uses coordinates
+already in P; classify new attributes explicitly while retaining identity to count
+members by an attribute. Projecting to that attribute alone counts categories.
+Field Null is a
 valid category; complete Entity identities keep every nonnull primary-key part.
 Classify/image/preimage read explicit governed dependencies. Scalar routed/versioned
 fields keep their via/at bindings. Same-path definition changes alone do not
@@ -92,8 +98,12 @@ source construction. Frame reduce over current rows is not original rollup.
 
 Metric.per evaluates the full child formula per sample before reducing. Explicit
 sample Populations retain complete empty samples under the child's policy;
-internal sample selection and the requested output domain remain independent. Membership
-keeps correlated tuple paths and allocation factors; duplicate links do not
+internal sample selection and the requested output domain remain independent.
+Pass membership rules separately as `observe(..., memberships=(rule,))` or
+`metric.per(samples, memberships=(rule,))`. Each rule maps facts to coordinates
+already declared in that consumer's by/samples; outer and inner rules are independent.
+Population contains keys and dependencies. Membership keeps correlated tuple paths
+and allocation factors; duplicate links do not
 multiply one contribution/bucket, equal-valued distinct contributions remain.
 Multi-root formulas reduce roots independently before complete-grid combination.
 
@@ -121,15 +131,25 @@ See [statistics](/docs/latest/guides/statistics/),
 
 
 Grouping rules use `by=(field_or_grouping, ...)`. Obtain complete identity rules
-with `mv.identity(entity)`, membership rules with `mv.membership(...)`, and calendar
-rules with `scope.by(grain)`. `population.axes` reuses coordinate definitions;
-`by=population` selects its complete output keys, including empty buckets; source coordinates outside it do not fail coverage. `mv.identities(entity, keys=...)` constructs a finite identity
-domain, whereas `mv.identity(entity)` only declares how to group contributions.
+with `mv.identity(entity)` and calendar rules with `scope.by(grain)`.
+`mv.membership(...)` belongs to the consumer's `memberships` parameter.
+`population.axes` reuses coordinate definitions; `by=population` selects its
+complete output keys, including empty buckets; source coordinates outside it do not
+fail coverage. `mv.coordinates(...)` constructs finite field/identity domains,
+including correlated multi-axis tuples. Each identity value is one complete
+primary-key tuple; `mv.identity(entity, at=...)` can specify its version anchor.
+Population.where accepts `mv.in_population(...)` predicates, not field conditions;
+use members/read/Frame filtering for new attribute conditions.
 
 Inspect a captured domain with `show()` and reuse its ordered axes:
 
 ```python
-domain = mv.identities(entity, keys=(("C1",), ("C2",)))
+domain = mv.coordinates(
+    by=(mv.identity(entity),), keys=((("C1",),), (("C2",),)),
+)
 domain.show()
 axes = domain.axes
 ```
+
+Population.show prints its captured definition without evaluating keys. Python
+truth evaluation does not test whether a Population is empty.

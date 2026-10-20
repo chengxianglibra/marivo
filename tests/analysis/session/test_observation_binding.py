@@ -525,8 +525,8 @@ def test_explicit_count_capture_keeps_each_domain_without_reading(
     session = bound_catalog()
     entity = session.catalog.entities.get("sales.orders")
     amount = session.catalog.fields.get("sales.orders.amount")
-    p = mv.identities(entity, keys=((1,), (3,), (999,)))
-    q = mv.identities(entity, keys=((2,),))
+    p = mv.coordinates(by=(mv.identity(entity),), keys=(((1,),), ((3,),), ((999,),)))
+    q = mv.coordinates(by=(mv.identity(entity),), keys=(((2,),),))
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("count capture read a datasource")

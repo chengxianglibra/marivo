@@ -162,7 +162,7 @@ class Session:
 
         Constraints:
             Source identities include only existing rows. Literal requested
-            identities use mv.identities; compute keys with session.frame(population).
+            identities use mv.coordinates(by=(mv.identity(entity),), keys=...); compute keys with session.frame(population).
         """
         from marivo._definition.relations import PopulationProgram, SourceIdentities
         from marivo._definition.types import AxisBinding, Owner
@@ -278,6 +278,7 @@ class Session:
         *,
         by: tuple[Deferred | Grouping | TimeScope, ...] | Population = (),
         where: Deferred | PopulationPredicate | None = None,
+        memberships: tuple[Grouping, ...] = (),
     ) -> AnalysisFrame:
         """Capture named Metric expressions as a lazy AnalysisFrame.
 
@@ -286,6 +287,7 @@ class Session:
             by: Ordered fields, Grouping rules or finite TimeScopes, or a complete Population
                 output domain. Empty () evaluates one zero-axis cell.
             where: Extra field or PopulationPredicate conditions on fact contributions.
+            memberships: Explicit contribution mappings for existing output coordinates.
 
         Returns:
             An immutable pending AnalysisFrame owned by this Session.
@@ -325,6 +327,7 @@ class Session:
             metrics,
             by=by,
             where=where,
+            memberships=memberships,
             timezone=self.timezone,
             calendar_snapshots=self._sources().period_calendar_snapshots,
         )
@@ -353,7 +356,7 @@ class Session:
             reject(
                 "a Population key domain",
                 type(population).__name__,
-                "Construct a Population with members, identities, coordinates or population_from.",
+                "Construct a Population with members, coordinates or population_from.",
                 "session.frame",
             )
         owner = _owner(population._definition)

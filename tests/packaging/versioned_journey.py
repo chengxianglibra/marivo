@@ -223,8 +223,9 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             (session.catalog.relationships.get("sales.subject_profiles"),)
         )
         queries["attributes_aug"] = session.read(stable, {"value": profile.at(august)})
-        first = mv.identities(
-            session.catalog.entities.get("sales.subjects"), keys=((9007199254740992, "a"),)
+        first = mv.coordinates(
+            by=(mv.identity(session.catalog.entities.get("sales.subjects")),),
+            keys=(((9007199254740992, "a"),),),
         )
         queries["attribute_sep"] = session.read(first, {"value": profile.at(september)})
         values = {name: query.persist() for name, query in queries.items()}

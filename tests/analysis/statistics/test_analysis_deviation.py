@@ -77,8 +77,9 @@ def test_exported_scores_select_an_explicit_followup_query(
     selected = scores.loc[scores.score > 0, "key_1"].tolist()
     assert selected == ["B", "D"]
     assert run_ids(case.session) == before
-    population = mv.identities(
-        case.session.catalog.entities.get("sales.customer"), keys=tuple((key,) for key in selected)
+    population = mv.coordinates(
+        by=(mv.identity(case.session.catalog.entities.get("sales.customer")),),
+        keys=tuple(((key,),) for key in selected),
     )
     scope = case.session.time_scope(start="2026-08-01", end="2026-09-01")
     following = case.session.observe(

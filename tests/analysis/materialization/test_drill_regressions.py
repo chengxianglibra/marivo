@@ -87,6 +87,8 @@ def test_drill_after_original_operations_prepares_related_fields(
         members = session.members(
             session.catalog.require(ms.ref.entity("sales.orders")), where=tag == "keep"
         )
+    if members is not None:
+        members = members.classify(by=(members.axes[0], channel))
     metric = members.count() if members is not None else amount.sum()
     if operation == "rollup" and not member_count:
         metric = metric.where(tag == "keep")
