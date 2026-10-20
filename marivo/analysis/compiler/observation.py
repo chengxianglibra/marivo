@@ -20,7 +20,6 @@ from marivo._definition.expressions import (
     ContributionFilter,
     DeclaredMetricRef,
     EntityCount,
-    FieldPredicate,
     MeasureAssertion,
     MemberCount,
     MetricExpression,
@@ -28,6 +27,7 @@ from marivo._definition.expressions import (
     MetricWindow,
     PerReduce,
     PerWeightedMean,
+    PredicateExpression,
     RowExpression,
     RowField,
     RowNode,
@@ -45,6 +45,7 @@ from marivo._definition.types import (
 )
 from marivo.analysis.binding.observe import ContributionBinding
 from marivo.analysis.binding.sampling import SampleCoverage
+from marivo.analysis.compiler.predicate import lower_condition
 from marivo.analysis.core.data_types import (
     DataColumn,
     DataType,
@@ -56,7 +57,6 @@ from marivo.analysis.core.data_types import (
 from marivo.semantic._numeric_lowering import (
     NumericCheck,
     NumericValue,
-    lower_field_predicate,
     lower_metric_formula,
     lower_row,
     lower_source_reduction,
@@ -209,7 +209,7 @@ def lower_observation(
     prepared: ReductionInput,
     table: ir.Table,
     columns: Mapping[str, str],
-    predicates: tuple[FieldPredicate, ...],
+    predicates: tuple[PredicateExpression, ...],
     row_checks: tuple[tuple[str, str, str], ...] = (),
 ) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...]]:
     """Emit grouped nullable values and ephemeral check columns in one read."""
@@ -224,7 +224,7 @@ def lower_observation(
     fields = {path: table[name] for path, name in columns.items()}
     if window_slot is not None:
         fields[window_slot] = table[window_slot]
-    selected = [lower_field_predicate(node, fields) for node in predicates]
+    selected = [lower_condition(node, fields) for node in predicates]
     predicate_checks = (
         *tuple(check for item in selected for check in item.checks),
         *(NumericCheck(table[name], expected, received) for name, expected, received in row_checks),
@@ -380,11 +380,11 @@ def lower_common_observations(
     reductions: tuple[ReductionInput, ...],
     table: ir.Table,
     columns: Mapping[str, str],
-    predicates: tuple[FieldPredicate, ...],
+    predicates: tuple[PredicateExpression, ...],
 ) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...]]:
     """Emit admitted independent exact reductions in one native aggregate."""
     fields = {path: table[name] for path, name in columns.items()}
-    selected = tuple(lower_field_predicate(node, fields) for node in predicates)
+    selected = tuple(lower_condition(node, fields) for node in predicates)
     predicate_checks = tuple(check for item in selected for check in item.checks)
     first = reductions[0]
     predicate_axes = {slot: fields[path] for slot, path in first.axes}

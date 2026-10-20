@@ -13,23 +13,19 @@ from marivo._definition.correspondence import (
     coordinate_matches,
     coordinate_position,
 )
-from marivo._definition.deferred import RelationshipParameter
+from marivo._definition.deferred import PopulationContainsResolver, RelationshipParameter
 from marivo._definition.graph import computation_fingerprint
 from marivo._definition.grouping import _CoordinateGrouping, _MembershipGrouping
 from marivo._definition.relations import (
     CalendarKeys,
     LiteralPopulation,
     MembershipBinding,
-    PopulationAnd,
     PopulationClassify,
     PopulationContains,
     PopulationDependency,
     PopulationFilter,
     PopulationImage,
-    PopulationNot,
-    PopulationOr,
     PopulationParameter,
-    PopulationPredicateParameter,
     PopulationPreimage,
     PopulationProduct,
     PopulationProgram,
@@ -55,9 +51,13 @@ from marivo._definition.types import (
 from marivo._grouping import Grouping
 from marivo._temporal import CalendarAxis, InstantAnchor, TimeScope
 from marivo.analysis._scope import scope_summary
-from marivo.analysis.core.frame_key_inputs import FrameKeyInput, merge_frame_key_inputs
+from marivo.analysis.core.frame_key_inputs import (
+    FrameKeyInput,
+    collect_frame_key_inputs,
+    merge_frame_key_inputs,
+)
 from marivo.analysis.core.model import reject
-from marivo.semantic._deferred_semantics import consume_field
+from marivo.semantic._deferred_semantics import consume_field, consume_predicate
 from marivo.semantic.expressions import Entity, Relationship
 
 
@@ -232,7 +232,7 @@ class Population(PopulationParameter):
         facts = (
             ("axes", str(len(self._definition.axes))),
             ("definition", computation_fingerprint(self._definition)),
-            ("scope", scope_summary(self._definition)),
+            ("scope", scope_summary(self._definition, max_bytes=600)),
             ("owner", owner.session_id if owner is not None else "unbound"),
             (
                 "keys",
@@ -393,7 +393,7 @@ class Population(PopulationParameter):
             self._frame_inputs,
         )
 
-    def where(self, predicate: PopulationPredicate) -> Population:
+    def where(self, predicate: Deferred) -> Population:
         """Filter complete coordinates using closed Population membership logic.
 
         Args: predicate: ``in_population(other)`` combined with ``&``, ``|`` or ``~``.
@@ -401,14 +401,16 @@ class Population(PopulationParameter):
         Example: ``domain.where(mv.in_population(allowed))``.
         Constraints: Every predicate domain must project from the receiver axes.
         """
-        if not isinstance(predicate, PopulationPredicate):
+        frame_inputs = collect_frame_key_inputs(predicate)
+        condition = consume_predicate(predicate).node
+        if any(not isinstance(item, PopulationContains) for item in condition.inputs):
             reject(
-                "a closed PopulationPredicate",
-                type(predicate).__name__,
-                "Use mv.in_population(other); put field conditions in session.members(..., where=...).",
-                "Population.where",
+                "membership leaves over existing Population coordinates",
+                "a source field condition",
+                "Use session.members(..., where=...) for source fields, or filter a Frame with its boolean Column.",
+                "population.where",
             )
-        dependencies = condition_populations(predicate._condition)
+        dependencies = condition_populations(condition)
         for item in dependencies:
             if any(
                 not any(coordinate_matches(axis, original) for original in self._definition.axes)
@@ -423,11 +425,11 @@ class Population(PopulationParameter):
         owner = _combined_owner((self._definition, *dependencies))
         return Population(
             PopulationProgram(
-                PopulationFilter(self._definition, predicate._condition),
+                PopulationFilter(self._definition, condition),
                 owner,
                 self._definition.axes,
             ),
-            merge_frame_key_inputs(self._frame_inputs, predicate._frame_inputs, owner=owner),
+            merge_frame_key_inputs(self._frame_inputs, frame_inputs, owner=owner),
         )
 
     def image(
@@ -510,74 +512,31 @@ def _identity_path(population: Population, path: tuple[Relationship, ...]) -> No
         )
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class PopulationPredicate(PopulationPredicateParameter):
-    """Closed coordinate membership logic; construct with ``in_population``."""
-
-    _frame_inputs: tuple[FrameKeyInput, ...] = field(default=(), compare=False, repr=False)
-
-    def __and__(self, other: PopulationPredicate) -> PopulationPredicate:
-        return PopulationPredicate(
-            PopulationAnd(self._condition, other._condition),
-            merge_frame_key_inputs(self._frame_inputs, other._frame_inputs),
-        )
-
-    def __or__(self, other: PopulationPredicate) -> PopulationPredicate:
-        return PopulationPredicate(
-            PopulationOr(self._condition, other._condition),
-            merge_frame_key_inputs(self._frame_inputs, other._frame_inputs),
-        )
-
-    def __invert__(self) -> PopulationPredicate:
-        return PopulationPredicate(PopulationNot(self._condition), self._frame_inputs)
-
-    def __bool__(self) -> bool:
-        reject(
-            "a deferred coordinate predicate",
-            "Python truth evaluation",
-            "Use &, | or ~ and pass the result to where.",
-            "population.predicate",
-        )
-
-    def __repr__(self) -> str:
-        return f"<PopulationPredicate domains={len(condition_populations(self._condition))}; use .show()>"
-
-    def show(self) -> None:
-        """Print bounded Boolean structure and captured domain summaries.
-
-        Returns: None; prints at most twelve predicate nodes without source reads.
-        Example: ``mv.in_population(population).show()``.
-        Constraints: Inspection never evaluates a domain or enumerates source keys.
-        """
-        from marivo._definition.relations import PopulationCondition
-
-        pending: list[tuple[str, PopulationCondition]] = [("predicate", self._condition)]
-        visited = 0
-        while pending and visited < 12:
-            path, node = pending.pop()
-            if isinstance(node, PopulationContains):
-                print(f"{path}=in_population {Population(node.population)!r}")
-            elif isinstance(node, PopulationNot):
-                print(f"{path}=not")
-                pending.append((path + ".operand", node.operand))
-            else:
-                print(f"{path}={'and' if isinstance(node, PopulationAnd) else 'or'}")
-                pending.extend(((path + ".right", node.right), (path + ".left", node.left)))
-            visited += 1
-        if pending:
-            print("predicate_nodes=omitted")
-        print("Help: analysis.population_predicate")
-
-
-def in_population(population: Population) -> PopulationPredicate:
+def in_population(population: Population) -> Deferred:
     """Match complete coordinates projected onto a Population's bound axes.
 
-    Args: population: The allowed finite or lazy coordinate domain.
-    Returns: A closed predicate accepted by Population.where and Metric.where.
-    Example: ``domain.where(mv.in_population(allowed))``.
-    Constraints: This captures a domain definition and performs no source access.
+    Args:
+        population: The allowed finite or lazy coordinate domain.
+
+    Returns:
+        A native Deferred boolean leaf, combined with fields using &, | and ~.
+
+    Example:
+        ``domain.where(mv.in_population(allowed))``.
+
+    Constraints:
+        Captures complete tuples with null-safe matching and performs no
+        source access. Population.where accepts only membership combinations;
+        source consumers may also combine field conditions.
     """
-    return PopulationPredicate(PopulationContains(population._definition), population._frame_inputs)
+    if not isinstance(population, Population):
+        reject(
+            "a Population coordinate domain",
+            type(population).__name__,
+            "Construct a Population with coordinates, members or population_from.",
+            "in_population",
+        )
+    return Deferred(PopulationContainsResolver(population))
 
 
 def _interval_coordinate(scope: TimeScope) -> IntervalCoordinate:

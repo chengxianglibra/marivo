@@ -198,6 +198,31 @@ def test_observation_classification_reads_explicit_version(members_session: Sess
     assert frame.set_index(frame.columns[0])[("value", "value")].to_dict() == {"east": 10}
 
 
+def test_mixed_predicate_checks_scalar_condition_before_member_selection(
+    members_session: Session,
+) -> None:
+    session = members_session
+    prefix = _domain(session)
+    entity = session.catalog.entities.get(f"{prefix}.plain")
+    category = session.catalog.fields.get(f"{prefix}.plain.category")
+    selected = session.members(entity, where=category == "west")
+    route = session.catalog.relationships.get(f"{prefix}.to_snapshot")
+    later = (
+        session.catalog.fields.get(f"{prefix}.snapshot.category")
+        .via((route,))
+        .at(session.instant("2026-09-01"))
+    )
+    metric = session.catalog.metrics.get(f"{prefix}.observed_total")
+    # B is outside selected, but its missing September row is still required
+    # by the field leaf on the original contribution domain.
+    for condition in (
+        mv.in_population(selected) & (later == "east"),
+        (later == "east") | mv.in_population(selected),
+    ):
+        with pytest.raises(MaterializationError, match="exactly one matching scalar field row"):
+            session.observe({"value": metric}, where=condition).compute()
+
+
 def test_computed_measure_and_bound_dependency(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)

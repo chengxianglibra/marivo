@@ -75,7 +75,6 @@ ANALYSIS_PUBLIC = (
     "Grouping",
     "identity",
     "Population",
-    "PopulationPredicate",
     "CalendarCorrespondence",
     "coordinates",
     "membership",

@@ -206,8 +206,7 @@ class Column:
         result_kind: ValueKind = (
             "boolean" if comparison or operation in ("and", "or") else self._kind
         )
-        cls = ColumnPredicate if result_kind == "boolean" else Column
-        return cls(
+        return Column(
             self._input_id,
             ValueBinary(operation, left, right, zero_denominator),
             None if result_kind == "boolean" else result_unit,
@@ -397,7 +396,7 @@ class Column:
         """
         if self._kind != "boolean":
             reject("a boolean Column", self._kind, "Negate a predicate with ~.", "Column")
-        return ColumnPredicate(
+        return Column(
             self._input_id,
             ValueUnary("not", self._expression),
             None,
@@ -423,14 +422,14 @@ class Column:
             )
         return self._binary(other, "div", zero_denominator=zero_denominator)
 
-    def is_null(self) -> ColumnPredicate:
+    def is_null(self) -> Column:
         """Test nullable values; returns a same-input predicate without execution.
 
         Args: None. Returns: A same-input boolean Column.
         Example: ``q.where(~q['value'].is_null())``.
         Constraints: No rows are read; every value kind supports this test.
         """
-        return ColumnPredicate(
+        return Column(
             self._input_id,
             ValueUnary("is_null", self._expression),
             None,
@@ -470,10 +469,6 @@ class Column:
             "Use & / | and frame.where; call compute explicitly.",
             "Column",
         )
-
-
-class ColumnPredicate(Column):
-    """A closed boolean Column expression consumed by AnalysisFrame.where."""
 
 
 @dataclass(frozen=True, slots=True)

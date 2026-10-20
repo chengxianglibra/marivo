@@ -13,7 +13,7 @@ from marivo._definition.types import (
 )
 
 if TYPE_CHECKING:
-    from marivo._definition.relations import PopulationCondition, PopulationDependency
+    from marivo._definition.relations import PopulationDependency
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,8 +62,7 @@ class SelectValues:
 
 @dataclass(frozen=True, slots=True)
 class FilterValues:
-    predicate: ValueExpression | PopulationCondition
-    domains: tuple[PopulationDependency, ...] = ()
+    predicate: ValueExpression
 
 
 @dataclass(frozen=True, slots=True)

@@ -12,6 +12,7 @@ from ibis.common.deferred import Deferred, Variable, resolver
 
 from marivo._definition.expressions import (
     MetricExpression,
+    PredicateExpression,
     RowExpression,
     RowField,
     SourceAggregate,
@@ -220,7 +221,7 @@ def test_predicate_checks_follow_coordinate_demand_without_creating_output_keys(
             ReductionInput(reduction, (("key.0", "category"),), "value"),
             table,
             {"sales.facts.x": "x", "category": "category"},
-            (predicate,),
+            (PredicateExpression(Variable("slot_0"), (predicate,)),),
         )
         frame = connection.execute(lowered).set_index("key.0")
         assert frame.loc["kept", "value"] == 2

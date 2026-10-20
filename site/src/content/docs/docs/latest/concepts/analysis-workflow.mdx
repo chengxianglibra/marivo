@@ -37,6 +37,15 @@ A tuple by groups observed coordinates; by=Population selects exactly its comple
 Use where=mv.in_population(P) for contribution selection. P.count() independently
 counts complete distinct tuples as a lazy integer Metric, including Null categories
 and identities without facts; P/Q counts do not infer their domains from by or where.
+
+Observe and members also accept mixed native conditions such as
+`(status == "paid") | mv.in_population(P)`. Use `&`, `|` and `~` with parentheses.
+Field NA remains unknown until final True-only selection; member tests are
+nonnullable. Population.where accepts only member leaves over existing axes.
+Frame.where accepts an ordinary boolean Column from that exact Frame, including
+boolean values or presence columns; False and NA are excluded. Source conditions
+do not convert into result Columns. See `marivo.help("semantic.predicate")`.
+
 Empty domains count 0 and the zero-axis unit domain counts 1. Grouping uses coordinates
 already in P; classify new attributes explicitly while retaining identity to count
 members by an attribute. Projecting to that attribute alone counts categories.

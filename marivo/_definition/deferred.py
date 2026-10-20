@@ -229,6 +229,19 @@ class PopulationCountResolver(_FrozenResolver):
         invalid("Population counts require Marivo semantic binding.")
 
 
+class PopulationContainsResolver(_FrozenResolver):
+    """Invocation carrier for one membership leaf; binding never calls resolve."""
+
+    __slots__ = ("population",)
+    population: PopulationParameter
+
+    def __init__(self, population: PopulationParameter) -> None:
+        super().__init__(population=population)
+
+    def resolve(self, context: dict[str, object]) -> NoReturn:
+        invalid("Population membership requires Marivo predicate binding.")
+
+
 @dataclass(frozen=True, slots=True)
 class SemanticUse:
     """One captured input occurrence, including repeated shared inputs."""
@@ -328,6 +341,7 @@ class _Inspector:
         self.operations: list[RecipeUse] = []
         self.declarations: list[DeclarationRecord] = []
         self.has_population_count = False
+        self.has_population_contains = False
 
     def token(self, *values: str) -> None:
         self.tokens.extend(values)
@@ -336,7 +350,15 @@ class _Inspector:
         self.dependencies[_reference(value)] = value
 
     def visit(self, recipe: Resolver, path: tuple[str, ...]) -> None:
-        if type(recipe) is PopulationCountResolver:
+        if type(recipe) is PopulationContainsResolver:
+            self.has_population_contains = True
+            from marivo._definition.graph import computation_fingerprint, direct_refs
+
+            definition = recipe.population._definition
+            self.token("population_contains", computation_fingerprint(definition))
+            for reference in direct_refs(definition):
+                self.dependency(reference)
+        elif type(recipe) is PopulationCountResolver:
             self.has_population_count = True
             from marivo._definition.graph import computation_fingerprint
 
@@ -430,7 +452,6 @@ class _Inspector:
         from marivo._definition.relations import (
             MembershipBinding,
             PopulationParameter,
-            PopulationPredicateParameter,
         )
         from marivo._grouping import Grouping
 
@@ -446,16 +467,11 @@ class _Inspector:
                     self.dependency(reference)
                 return
 
-        if isinstance(
-            value, (MembershipBinding, PopulationParameter, PopulationPredicateParameter)
-        ):
+        if isinstance(value, (MembershipBinding, PopulationParameter)):
             refs: set[ExactRef] = set()
             if isinstance(value, PopulationParameter):
                 self.token("population", computation_fingerprint(value._definition))
                 refs.update(direct_refs(value._definition))
-            elif isinstance(value, PopulationPredicateParameter):
-                self.token("population_predicate", fingerprint(_encode(value._condition, {})))
-                _collect_refs(value._condition, refs)
             else:
                 self.token("membership", fingerprint(_encode(value, {})))
                 _collect_refs(value, refs)
@@ -612,7 +628,11 @@ def inspect_deferred(value: Deferred) -> DeferredInspection:
     recipe = resolver_of(value)
     inspector = _Inspector()
     inspector.visit(recipe, ())
-    if not inspector.uses and not inspector.has_population_count:
+    if (
+        not inspector.uses
+        and not inspector.has_population_count
+        and not inspector.has_population_contains
+    ):
         invalid(
             "Expected a semantic dependency; a literal alone cannot declare a Measure or Metric."
         )

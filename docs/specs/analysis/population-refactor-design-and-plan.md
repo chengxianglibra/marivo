@@ -75,7 +75,7 @@ class Session:
         entity: Entity,
         *,
         at: InstantAnchor | None = None,
-        where: Deferred | PopulationPredicate | None = None,
+        where: Deferred | None = None,
     ) -> Population: ...
 
     def population_from(
@@ -127,7 +127,7 @@ members 和 population_from 不合并进 coordinates：前者声明来源枚举�
 Frame 键，二者都提供字面值之外的独立输入。population_from 的 `on` 仍必填，支持 `on=()`；
 普通字段与完整身份轴资格、联合投影、固定/pending 行为保持不变。
 
-Population / PopulationPredicate 继续导出供类型注解和返回值使用；
+Population 继续导出供类型注解和返回值使用；成员判断返回原生 Deferred，不另导出谓词类型；
 原始 `_definition` / `_condition` / `_frame_inputs` 不是公开构造合同。
 不为误用内部构造器增加令牌、反射拦截、公开子类或防篡改机制。
 
@@ -142,7 +142,7 @@ Population / PopulationPredicate 继续导出供类型注解和返回值使用�
 | `union(other)` | 相同有序坐标域求并，不再比较分配规则 |
 | `intersection(other)` | 相同有序坐标域求交 |
 | `difference(other)` | 相同有序坐标域求差 |
-| `where(predicate)` | 保留，只接受闭合 PopulationPredicate，允许用部分坐标域筛选联合元组 |
+| `where(predicate)` | 保留，只接受原生 Deferred 中闭合成员叶子的布尔组合，允许用部分坐标域筛选联合元组 |
 | `image(*, via, at=None)` | 保留有向关系映射；目标由路径推导，at 锚定目标身份 |
 | `preimage(targets, *, via)` | 保留接收者范围内的存在选择；目标锚点来自 targets |
 | `count()` | 泛化为第 5 节的完整元组计数 Metric |
@@ -160,7 +160,7 @@ image/preimage 的公开 `via` 类型使用现有 `tuple[Relationship, ...]`，
 不把内部 `RelationshipParameter` 当成用户构造对象。路径非空、有向且连接；
 需要中间版本实体锚点时使用已有分步 image，不新增路径配置对象。
 
-`where` 明确校验 PopulationPredicate，错误输入返回已有 AnalysisError 模板。
+`where` 通过统一条件接收流程校验成员叶子与现有坐标，错误输入返回已有 AnalysisError 模板。
 不把字段 Deferred 静默转换为来源读取；字段筛选使用 `session.members(..., where=...)`，或 read 后的
 Frame.where。`P.where(in_population(Q))` 不能一律换成 intersection，因为 Q 可以只有 P 的部分轴。
 
@@ -169,10 +169,11 @@ Frame.where。`P.where(in_population(Q))` 不能一律换成 intersection，因�
 
 ### 3.3 谓词与检查
 
-`mv.in_population(P)`、PopulationPredicate 的 `&`、`|`、`~` 保留，
+`mv.in_population(P)` 返回原生 Deferred，支持 `&`、`|`、`~`；来源消费者可与字段条件组合，
 不增加 equals、contains、is_empty 等会隐含求值的新方法。
-Predicate.show 输出有界布尔结构及域摘要，并与 Population.show 一样打印、返回 None；
-repr 继续保持单行并指向 show。
+原生 Deferred 不提供条件 show；接收者 Population.show 或 AnalysisFrame.show
+展示有界捕获结构及域摘要，均打印并返回 None。Population 的 repr 保持单行并指向 show；
+源端布尔语法与消费者限制由 `marivo.help("semantic.predicate")` 拥有。
 
 Population 的 Python truth evaluation 明确拒绝，不把 `if P` 解释为空域检测。
 `==` 不增加集合等价求解器；现有定义结构比较不作为公开集合相等合同。
@@ -193,7 +194,7 @@ class Session:
         metrics: Mapping[str, Deferred],
         *,
         by: tuple[Deferred | Grouping | TimeScope, ...] | Population = (),
-        where: Deferred | PopulationPredicate | None = None,
+        where: Deferred | None = None,
         memberships: tuple[Grouping, ...] = (),
     ) -> AnalysisFrame: ...
 
@@ -351,7 +352,7 @@ Artifact 的终态身份。不保存可执行 Population 计划，不增加恢�
 | ID | 必要见证 | 主要复用位置 |
 | --- | --- | --- |
 | V1 | 字段＋完整复合身份的相关字面元组；去重/Null；带锚点字面身份能与同锚点 members 组合 | `test_grouping_inputs.py`、`test_frame_population_construction.py`、已有 members 版本 fixture |
-| V2 | 非法 where 字段谓词产生结构化错误；classify interval 在构造拒绝；仅身份 classify 不新增来源存在检查；Predicate.show 区分 and/or | 现有公开输入与 Population 测试，每个修复一个回归断言 |
+| V2 | 非法 where 字段谓词产生结构化错误；classify interval 在构造拒绝；仅身份 classify 不新增来源存在检查；接收者 Population.show 区分 and/or 条件 | 现有公开输入与 Population 测试，每个修复一个回归断言 |
 | V3 | 一个现有 fanout fixture 同时覆盖相关双字段与独立规则、重复链接去重；显式域保留无事实桶，per 使用同一规则后结果不变 | `test_population_membership.py` |
 | V4 | 一般 tuple count：标量总数、按已有字段分组、零轴/空域；显式 classify 的成员计数保持原数值；事实 where 不改分母，时间广播不重选域 | `test_observe_regressions.py`、`test_query_results.py` |
 | V5 | 沿用固定 Frame Top 后来源变化仍保留旧键的测试；选一个实际变更链路继续验证 compute/persist/恢复，不新增一套载体矩阵 | `test_frame_population_bridge.py` 及现有恢复测试 |

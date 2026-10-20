@@ -27,6 +27,7 @@ from marivo._definition.expressions import (
     MetricExpression,
     PerReduce,
     PerWeightedMean,
+    PredicateExpression,
     RowExpression,
     SourceAggregate,
     SourceWeightedMean,
@@ -1210,10 +1211,12 @@ def test_field_and_row_predicates_are_closed_values(catalog: SemanticCatalog) ->
     combined = paid & positive | ~missing
     assert all(isinstance(value, Deferred) for value in (paid, positive, missing, combined))
     for predicate in (paid, positive, missing, combined):
-        assert isinstance(consume_predicate(predicate).node, RowExpression)
+        assert isinstance(consume_predicate(predicate).node, PredicateExpression)
         assert consume_predicate(predicate).roots == (orders.ref,)
-    assert consume_predicate(combined).node.inputs[0].ref == consume_field(status).reference
-    assert consume_predicate(combined).node.inputs[-1].ref == consume_field(status).reference
+    fields = consume_predicate(combined).node.inputs[0]
+    assert isinstance(fields, RowExpression)
+    assert fields.inputs[0].ref == consume_field(status).reference
+    assert fields.inputs[-1].ref == consume_field(status).reference
     assert computation_fingerprint(consume_predicate(combined).node) != computation_fingerprint(
         consume_predicate(paid & positive & ~missing).node
     )
@@ -1467,7 +1470,7 @@ def test_paid_margin_and_aov_filter_each_source_reduction(catalog: SemanticCatal
     paid = status == "paid"
     paid_margin = (amount - cost).sum().where(paid)
     assert isinstance(_facts(paid_margin).node, ContributionFilter)
-    assert _facts(paid_margin).node.predicate == _facts(paid).node
+    assert _facts(paid_margin).node.predicate == consume_predicate(paid).node
     assert (_facts(paid_margin).roots, _facts(paid_margin).unit) == ((_reference(orders),), "CNY")
     revenue = amount.sum().where(paid)
     order_count = orders.count().where(paid)
@@ -1477,7 +1480,7 @@ def test_paid_margin_and_aov_filter_each_source_reduction(catalog: SemanticCatal
     assert computation_fingerprint(_facts(aov).node) == computation_fingerprint(_facts(again).node)
     positive = amount.sum().where(amount - cost > 0)
     assert isinstance(_facts(positive).node, ContributionFilter)
-    assert isinstance(_facts(positive).node.predicate, RowExpression)
+    assert isinstance(_facts(positive).node.predicate, PredicateExpression)
     nested = revenue.where(status.isnull())
     assert isinstance(_facts(nested).node, ContributionFilter)
     assert _facts(nested).node.operand == _facts(revenue).node

@@ -9,12 +9,9 @@ import pyarrow as pa
 
 from marivo._definition.correspondence import ComparisonAxis, coordinate_position
 from marivo._definition.relations import (
-    PopulationAnd,
-    PopulationCondition,
     PopulationContains,
     PopulationDependency,
     PopulationFilter,
-    PopulationNot,
     PopulationProduct,
     PopulationProgram,
     PopulationProject,
@@ -91,35 +88,6 @@ def _coordinate_rows(
     )
 
 
-def condition_mask(
-    condition: PopulationCondition,
-    frame: pd.DataFrame,
-    axes: tuple[ComparisonAxis, ...],
-    groups: tuple[tuple[str, ...], ...],
-    atoms: tuple[PopulationDependency, ...] = (),
-    frames: tuple[pd.DataFrame, ...] = (),
-    layouts: tuple[tuple[tuple[str, ...], ...], ...] = (),
-) -> pd.Series:
-    if isinstance(condition, PopulationContains):
-        finite_keys = population_keys(condition.population)
-        keys = (
-            evaluate_population(condition.population, atoms, frames, layouts)
-            if finite_keys is None
-            else finite_keys
-        )
-        members = {_token(key) for key in keys}
-        selected = tuple(groups[axes.index(axis)] for axis in condition.population.axes)
-        values = _coordinate_rows(frame, condition.population.axes, selected)
-        return pd.Series([_token(key) in members for key in values], dtype="boolean")
-    if isinstance(condition, PopulationNot):
-        return ~condition_mask(condition.operand, frame, axes, groups, atoms, frames, layouts)
-    left, right = (
-        condition_mask(condition.left, frame, axes, groups, atoms, frames, layouts),
-        condition_mask(condition.right, frame, axes, groups, atoms, frames, layouts),
-    )
-    return left & right if isinstance(condition, PopulationAnd) else left | right
-
-
 def evaluate_population(
     definition: PopulationDependency,
     atoms: tuple[PopulationDependency, ...],
@@ -170,20 +138,28 @@ def evaluate_population(
                 )
             )
         if isinstance(node, PopulationFilter):
+            # Resolve every leaf first so constant branches retain producer checks.
+            members = {
+                index: {_token(key) for key in rows(leaf.population)}
+                for index, leaf in enumerate(node.predicate.inputs)
+                if isinstance(leaf, PopulationContains)
+            }
 
-            def matches(condition: PopulationCondition, row: tuple[object, ...]) -> bool:
-                if isinstance(condition, PopulationContains):
+            def matches(row: tuple[object, ...]) -> bool:
+                values: dict[str, object] = {}
+                for index, leaf in enumerate(node.predicate.inputs):
+                    assert isinstance(leaf, PopulationContains)
                     projected = tuple(
-                        row[coordinate_position(domain.axes, axis)]
-                        for axis in condition.population.axes
+                        row[coordinate_position(domain.axes, axis)] for axis in leaf.population.axes
                     )
-                    return _token(projected) in {_token(key) for key in rows(condition.population)}
-                if isinstance(condition, PopulationNot):
-                    return not matches(condition.operand, row)
-                left, right = matches(condition.left, row), matches(condition.right, row)
-                return left and right if isinstance(condition, PopulationAnd) else left or right
+                    values[f"slot_{index}"] = pd.Series(
+                        [_token(projected) in members[index]], dtype="boolean"
+                    )
+                result = node.predicate.recipe.resolve(values)
+                assert isinstance(result, pd.Series)
+                return bool(result.iloc[0])
 
-            return tuple(row for row in rows(node.operand) if matches(node.predicate, row))
+            return tuple(row for row in rows(node.operand) if matches(row))
         reject(
             "a planned complete Population input",
             type(node).__name__,

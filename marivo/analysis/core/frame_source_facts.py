@@ -9,7 +9,12 @@ from decimal import Decimal
 from ibis.common.deferred import Attr, BinaryOperator, Call, Just, Resolver, Sequence, UnaryOperator
 
 from marivo._definition.deferred import RelationshipParameter, canonical_recipe
-from marivo._definition.expressions import MeasureAssertion, RowExpression, RowField
+from marivo._definition.expressions import (
+    MeasureAssertion,
+    PredicateExpression,
+    RowExpression,
+    RowField,
+)
 from marivo._definition.relations import (
     CalendarKeys,
     FrameKeyAxis,
@@ -17,15 +22,11 @@ from marivo._definition.relations import (
     IntervalKeys,
     LiteralPopulation,
     MembershipBinding,
-    PopulationAnd,
     PopulationClassify,
     PopulationContains,
     PopulationFilter,
     PopulationImage,
-    PopulationNot,
-    PopulationOr,
     PopulationParameter,
-    PopulationPredicateParameter,
     PopulationPreimage,
     PopulationProduct,
     PopulationProgram,
@@ -76,12 +77,8 @@ _SCOPE_RECORDS = (
     CalendarKeys,
     IntervalKeys,
     PopulationContains,
-    PopulationAnd,
-    PopulationOr,
-    PopulationNot,
     MembershipBinding,
     PopulationParameter,
-    PopulationPredicateParameter,
     AxisBinding,
     FieldRead,
     IdentityRead,
@@ -89,7 +86,7 @@ _SCOPE_RECORDS = (
     Owner,
 )
 
-_SPECIAL = (Grouping, MembershipBinding, PopulationParameter, PopulationPredicateParameter)
+_SPECIAL = (Grouping, MembershipBinding, PopulationParameter)
 
 
 def _special_scopes(recipe: Resolver) -> tuple[object, ...]:
@@ -136,7 +133,7 @@ def _scope(value: object) -> object:
             "unit": value.unit,
             "operand": _scope(value.operand),
         }
-    if isinstance(value, RowExpression):
+    if isinstance(value, (RowExpression, PredicateExpression)):
         return {
             "scope": "filter",
             "tokens": canonical_recipe(
@@ -163,8 +160,6 @@ def _scope(value: object) -> object:
         }
     if isinstance(value, PopulationParameter):
         return {"scope": "PopulationParameter", "definition": _scope(value._definition)}
-    if isinstance(value, PopulationPredicateParameter):
-        return {"scope": "PopulationPredicateParameter", "condition": _scope(value._condition)}
     if isinstance(value, MembershipBinding):
         return {
             "scope": "MembershipBinding",
@@ -212,7 +207,14 @@ def captured_source_scopes(graph: BoundGraph) -> tuple[str, ...]:
         *(
             condition
             for contribution in observation.contributions
-            for condition in contribution.population_conditions
+            for condition in (
+                *contribution.intrinsic_conditions,
+                *(
+                    (contribution.common_condition,)
+                    if contribution.common_condition is not None
+                    else ()
+                ),
+            )
         ),
     )
     return tuple(dict.fromkeys(source_scope(scope) for scope in scopes if scope is not None))

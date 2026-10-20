@@ -57,7 +57,7 @@ from marivo.analysis.core.frame_structure import (
 )
 from marivo.analysis.core.model import reject
 from marivo.analysis.dsl.artifact import Artifact
-from marivo.analysis.dsl.column import Column, ColumnPredicate, _Statistic
+from marivo.analysis.dsl.column import Column, _Statistic
 from marivo.analysis.dsl.frame_axis import FrameAxis
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 
@@ -221,8 +221,7 @@ class AnalysisFrame:
             for index, path in enumerate(self._schema.value_paths):
                 if name == ".".join(path):
                     column = self._schema.values[index]
-                    cls = ColumnPredicate if column_kind(column) == "boolean" else Column
-                    return cls(
+                    return Column(
                         self._input_id,
                         ValueSlot(index),
                         column.unit,
@@ -232,7 +231,7 @@ class AnalysisFrame:
                     )
             for path in self._schema.presence_paths:
                 if name == ".".join(path):
-                    return ColumnPredicate(
+                    return Column(
                         self._input_id, PresenceSlot(path), None, "boolean", _frame=self, _name=name
                     )
         reject(
@@ -285,8 +284,7 @@ class AnalysisFrame:
                 "frame.coord",
             )
         column = columns[0]
-        cls = ColumnPredicate if column_kind(column) == "boolean" else Column
-        return cls(
+        return Column(
             self._input_id,
             CoordinateSlot(index),
             column.unit,
@@ -347,7 +345,7 @@ class AnalysisFrame:
         Args: predicate: A boolean Column bound to this exact input.
         Returns: A lazy AnalysisFrame with the same axes and presence.
         Example: ``positive = frame.where(frame['revenue'] > 0)``.
-        Constraints: Excludes NA, preserves relative row order; no PopulationPredicate overload.
+        Constraints: Keeps True, excludes False and NA, and preserves relative row order.
         """
         self._require_column(predicate)
         if predicate._kind != "boolean":

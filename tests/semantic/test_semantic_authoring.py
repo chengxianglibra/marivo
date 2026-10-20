@@ -33,6 +33,7 @@ from marivo._definition.expressions import (
     EntityCount,
     MetricExpression,
     PerReduce,
+    PredicateExpression,
     RowExpression,
     RowField,
     SourceAggregate,
@@ -1591,9 +1592,11 @@ def test_count_predicate_retains_exact_field() -> None:
         state = finalized.resolve(state_ref)
         value = orders.count().where(state == "FAILED")
         assert isinstance(consume_metric(value).node, ContributionFilter)
-        assert isinstance(consume_metric(value).node.predicate, RowExpression)
+        assert isinstance(consume_metric(value).node.predicate, PredicateExpression)
         assert consume_metric(value).node.predicate == consume_predicate(state == "FAILED").node
-        assert consume_metric(value).node.predicate.inputs[0].ref == consume_field(state).reference
+        field_condition = consume_metric(value).node.predicate.inputs[0]
+        assert isinstance(field_condition, RowExpression)
+        assert field_condition.inputs[0].ref == consume_field(state).reference
     finally:
         _exit_ctx()
 
@@ -1614,7 +1617,7 @@ def test_explicit_membership_comparisons_normalize_inputs(
         predicate = (kind == membership[0]) | (kind == membership[1])
         value = orders.count().where(predicate)
         assert isinstance(consume_metric(value).node, ContributionFilter)
-        assert isinstance(consume_metric(value).node.predicate, RowExpression)
+        assert isinstance(consume_metric(value).node.predicate, PredicateExpression)
         assert (
             consume_metric(value).node.predicate
             == consume_predicate((kind == 2) | (kind == 4)).node

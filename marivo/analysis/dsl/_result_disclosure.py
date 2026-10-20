@@ -140,7 +140,7 @@ def provider() -> DisclosureProvider:
             (
                 P(
                     "predicate",
-                    "Same-input boolean Column; only True is selected. PopulationPredicate belongs to source construction.",
+                    "Same-input boolean Column; only True is selected. Native Deferred predicates belong to source consumers.",
                 ),
             ),
             "AnalysisFrame",

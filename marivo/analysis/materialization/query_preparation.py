@@ -9,9 +9,9 @@ import ibis
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
-from marivo._definition.expressions import FieldPredicate, TimeBinding
+from marivo._definition.expressions import PredicateExpression, TimeBinding
 from marivo._definition.observations import ObservationPeriod, SampleCoverage
-from marivo._definition.relations import MembershipBinding, PopulationCondition
+from marivo._definition.relations import MembershipBinding
 from marivo._definition.types import (
     AxisBinding,
     CalendarCoordinate,
@@ -71,9 +71,8 @@ class SourceInputContract:
     coordinates: tuple[FieldRead | IdentityRead, ...]
     time: TimeBinding | None
     period: ObservationPeriod | None
-    predicates: tuple[FieldPredicate, ...]
+    predicates: tuple[PredicateExpression, ...]
     memberships: tuple[MembershipBinding, ...]
-    population_conditions: tuple[PopulationCondition, ...]
     population_reads: tuple[tuple[AxisBinding, FieldRead | IdentityRead], ...]
     window_key: int | None
     sample_axes: tuple[AxisBinding | CalendarCoordinate | IntervalCoordinate, ...]
@@ -94,7 +93,6 @@ def prepare_fields(
     reader: DatasourceEngineTimezone,
     *,
     root_table: ir.Table | None = None,
-    defer_population_conditions: bool = False,
 ) -> PreparedFields:
     """Prepare expressions and checked many-to-one joins without reading values."""
     registry = state.registry
@@ -424,10 +422,48 @@ def prepare_fields(
     columns.extend(members.columns)
     originals.extend(members.originals)
     dependencies.extend(members.dependencies)
-    if contribution.population_conditions and not defer_population_conditions:
-        from marivo.analysis.materialization.population_condition import filter_contribution
+    from marivo.analysis.materialization.population_condition import prepare_condition_memberships
 
-        table = filter_contribution(table, contribution, dict(columns), entities, state)
+    prepared_memberships = prepare_condition_memberships(
+        table, contribution, dict(columns), entities, state
+    )
+    table = prepared_memberships[0]
+    columns.extend(prepared_memberships[1])
+    originals.extend((slot, table[slot]) for _, slot in prepared_memberships[1])
+    predicate_conditions = (
+        *contribution.intrinsic_conditions,
+        *((contribution.common_condition,) if contribution.common_condition is not None else ()),
+    )
+    if predicate_conditions and checks:
+        from marivo._definition.expressions import RowExpression, RowField
+        from marivo._definition.graph import walk
+        from marivo.analysis.compiler.predicate import lower_condition
+
+        # Condition inputs must be valid on the original domain. Output and
+        # reduction-only scalar lookups retain their selected-contribution scope.
+        condition_keys = {
+            field_read_key(node.read)
+            for condition in predicate_conditions
+            for leaf in condition.inputs
+            if isinstance(leaf, RowExpression)
+            for node in walk((leaf,), resolve=lambda _: None).order
+            if isinstance(node, RowField) and node.read is not None
+        }
+        condition_keys.update(
+            key for _, read in contribution.population_reads for key in coordinate_read_keys(read)
+        )
+        condition_keys.update(slot for key, slot in columns if key in condition_keys)
+        fields = {key: table[slot] for key, slot in columns}
+        selected = ibis.and_(
+            *(lower_condition(condition, fields).value for condition in predicate_conditions)
+        )
+        table = table.mutate(
+            **{
+                name: table[name] & selected.fill_null(False)
+                for name, _, received in checks
+                if received not in condition_keys
+            }
+        )
     return PreparedFields(
         table, tuple(columns), tuple(checks), tuple(originals), tuple(dependencies)
     )

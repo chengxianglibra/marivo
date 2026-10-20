@@ -24,7 +24,6 @@ from marivo._definition.expressions import (
     ContributionFilter,
     DeclaredMetricRef,
     EntityCount,
-    FieldPredicate,
     MeasureAssertion,
     MemberCount,
     MetricExpression,
@@ -32,6 +31,7 @@ from marivo._definition.expressions import (
     MetricWindow,
     PerReduce,
     PerWeightedMean,
+    PredicateExpression,
     RowExpression,
     RowField,
     RowNode,
@@ -47,15 +47,11 @@ from marivo._definition.relations import (
     IntervalKeys,
     LiteralPopulation,
     ObserveQuery,
-    PopulationAnd,
     PopulationClassify,
-    PopulationCondition,
     PopulationContains,
     PopulationFilter,
     PopulationImage,
     PopulationNode,
-    PopulationNot,
-    PopulationOr,
     PopulationPreimage,
     PopulationProduct,
     PopulationProgram,
@@ -83,7 +79,8 @@ DefinitionNode: TypeAlias = (
     | LiteralPopulation
     | PopulationProgram
     | PopulationNode
-    | PopulationCondition
+    | PredicateExpression
+    | PopulationContains
     | QueryNode
 )
 
@@ -181,9 +178,7 @@ def _population_inputs(
 
 def _predicate_inputs(predicate: object) -> tuple[tuple[EdgeRole, DefinitionNode], ...]:
     """Row expressions compared inside a field predicate, in predicate order."""
-    if isinstance(predicate, RowExpression):
-        return (("predicate", predicate),)
-    if isinstance(predicate, (PopulationContains, PopulationAnd, PopulationOr, PopulationNot)):
+    if isinstance(predicate, PredicateExpression):
         return (("predicate", predicate),)
     return _population_inputs("predicate", predicate)
 
@@ -191,6 +186,8 @@ def _predicate_inputs(predicate: object) -> tuple[tuple[EdgeRole, DefinitionNode
 def children(node: DefinitionNode) -> tuple[Edge, ...]:
     """Return the ordered role edges of ``node``; declared refs expand only during ``walk``."""
     match node:
+        case PredicateExpression():
+            return _edges(*(("predicate", item) for item in node.inputs))
         case RowExpression():
             return _edges(*(("operand", item) for item in node.inputs))
         case MetricExpression():
@@ -237,10 +234,6 @@ def children(node: DefinitionNode) -> tuple[Edge, ...]:
             return _edges(("left", node.left), ("right", node.right))
         case PopulationContains():
             return _edges(("population", node.population))
-        case PopulationAnd() | PopulationOr():
-            return _edges(("left", node.left), ("right", node.right))
-        case PopulationNot():
-            return _edges(("predicate", node.operand))
         case PopulationFilter():
             return _edges(("population", node.operand), *_predicate_inputs(node.predicate))
         case PopulationImage():
@@ -306,10 +299,12 @@ def _fingerprint_node(node: DefinitionNode, memo: dict[int, str]) -> str:
 
 
 def _encode_fields(node: DefinitionNode, memo: dict[int, str]) -> dict[str, object]:
-    if isinstance(node, (RowExpression, MetricExpression)):
+    if isinstance(node, (RowExpression, PredicateExpression, MetricExpression)):
         from marivo._definition.deferred import canonical_recipe
 
-        inputs = node.inputs if isinstance(node, RowExpression) else node.operands
+        inputs = (
+            node.inputs if isinstance(node, (RowExpression, PredicateExpression)) else node.operands
+        )
         return {
             "node": type(node).__name__,
             "recipe": canonical_recipe(
@@ -357,7 +352,7 @@ def _collect_refs(value: object, into: set[ExactRef]) -> None:
             _collect_refs(getattr(value, field.name), into)
 
 
-def direct_refs(root: DefinitionNode | FieldPredicate) -> frozenset[ExactRef]:
+def direct_refs(root: DefinitionNode) -> frozenset[ExactRef]:
     """Exact refs ``root`` consumes; declared Metric references are kept, not expanded.
 
     A Measure assertion's authorization names the declaration that asserted a

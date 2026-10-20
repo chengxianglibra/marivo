@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import re
 
-from marivo._definition.expressions import FieldPredicate, PerReduce, PerWeightedMean
+from marivo._definition.expressions import (
+    PerReduce,
+    PerWeightedMean,
+    PredicateExpression,
+    RowExpression,
+)
 from marivo._definition.graph import DefinitionNode, children, direct_refs
 from marivo._definition.observations import ObservationBinding
 from marivo._definition.query import FilterValues, ResultQuery, TopValues
@@ -15,6 +20,7 @@ from marivo._definition.relations import (
     LiteralPopulation,
     MembershipBinding,
     PopulationClassify,
+    PopulationContains,
     PopulationImage,
     PopulationPreimage,
     PopulationProduct,
@@ -36,18 +42,22 @@ def _bounded(text: str, limit: int) -> str:
     )
 
 
-def predicate_summary(predicate: FieldPredicate) -> str:
-    """Name governed fields in a captured Ibis predicate without evaluating it."""
-    names = {
-        f"slot_{i}": ", ".join(
-            sorted(
-                item.ref.path
-                for item in direct_refs(operand)
-                if item.ref.kind.value in ("dimension", "time_dimension", "measure")
+def predicate_summary(predicate: PredicateExpression | RowExpression) -> str:
+    """Describe native boolean structure and captured leaves without evaluation."""
+    names: dict[str, str] = {}
+    for index, operand in enumerate(predicate.inputs):
+        if isinstance(operand, PopulationContains):
+            names[f"slot_{index}"] = f"in_population({_node_summary(operand.population)})"
+        elif isinstance(operand, RowExpression):
+            names[f"slot_{index}"] = "(" + predicate_summary(operand) + ")"
+        else:
+            names[f"slot_{index}"] = ", ".join(
+                sorted(
+                    item.ref.path
+                    for item in direct_refs(operand)
+                    if item.ref.kind.value in ("dimension", "time_dimension", "measure")
+                )
             )
-        )
-        for i, operand in enumerate(predicate.inputs)
-    }
     return re.sub(r"\bslot_\d+\b", lambda match: names[match.group()], repr(predicate.recipe))
 
 
@@ -63,7 +73,7 @@ def _observation_summary(observation: ObservationBinding) -> str:
         if observation.condition is None
         else _bounded(predicate_summary(observation.condition), 400)
     )
-    return f"period={time}; field_where={where}"
+    return f"period={time}; where={where}"
 
 
 def _observation_scopes(observation: ObservationBinding) -> tuple[tuple[str, DefinitionNode], ...]:
@@ -75,8 +85,10 @@ def _observation_scopes(observation: ObservationBinding) -> tuple[tuple[str, Def
         if evaluation is not domain:
             scopes.append((f"count[{index}].evaluation", evaluation))
     for index, contribution in enumerate(observation.contributions):
-        for position, condition in enumerate(contribution.population_conditions):
+        for position, condition in enumerate(contribution.intrinsic_conditions):
             scopes.append((f"contribution[{index}].condition[{position}]", condition))
+        if contribution.common_condition is not None:
+            scopes.append((f"contribution[{index}].common", contribution.common_condition))
     return tuple(scopes)
 
 
@@ -90,16 +102,12 @@ def _axis_summary(axis: AxisBinding) -> str:
 
 
 def _node_summary(node: DefinitionNode) -> str:
+    if isinstance(node, PredicateExpression):
+        return "PredicateExpression " + _bounded(predicate_summary(node), 400)
     if isinstance(node, SourceIdentities):
         at = node.at.isoformat() if node.at else "none"
         predicate = node.predicate
-        where = (
-            "none added"
-            if predicate is None
-            else _bounded(predicate_summary(predicate), 400)
-            if isinstance(predicate, FieldPredicate)
-            else type(predicate).__name__
-        )
+        where = "none added" if predicate is None else _bounded(predicate_summary(predicate), 400)
         return f"SourceIdentities entity={node.entity.ref.path}; at={at}; where={where}"
     if isinstance(node, LiteralPopulation):
         keys = ", ".join(_bounded(repr(key), 160) for key in node.keys[:3])
@@ -141,7 +149,12 @@ def _node_summary(node: DefinitionNode) -> str:
     return type(node).__name__
 
 
-def scope_summary(root: DefinitionNode, observation: ObservationBinding | None = None) -> str:
+def scope_summary(
+    root: DefinitionNode,
+    observation: ObservationBinding | None = None,
+    *,
+    max_bytes: int = 3000,
+) -> str:
     """Summarize captured inputs, preserving relation roles without source reads.
 
     This bounded display is neither a complete definition nor an executable
@@ -193,8 +206,15 @@ def scope_summary(root: DefinitionNode, observation: ObservationBinding | None =
         lines.append(label + ": " + _bounded(_node_summary(node), 600))
         visited += 1
         edges = children(node)
-        if isinstance(node, SourceIdentities) and isinstance(node.predicate, FieldPredicate):
+        if isinstance(node, SourceIdentities) and (
+            node.predicate is None
+            or not any(isinstance(item, PopulationContains) for item in node.predicate.inputs)
+        ):
+            # The source summary already describes the captured field condition.
+            # Traverse membership producers separately when they are present.
             continue
+        if isinstance(node, PredicateExpression):
+            edges = tuple(edge for edge in edges if isinstance(edge.child, PopulationContains))
         pending.extend(
             (path + f".{edge.index}", edge.role, edge.child)
             for edge in reversed(edges)
@@ -202,4 +222,4 @@ def scope_summary(root: DefinitionNode, observation: ObservationBinding | None =
         )
     if pending:
         lines.append("... scope nodes omitted")
-    return _bounded("; ".join(lines), 3000)
+    return _bounded("; ".join(lines), max_bytes)

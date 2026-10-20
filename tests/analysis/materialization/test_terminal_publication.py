@@ -657,9 +657,11 @@ def test_read_evidence_preserves_nested_predicate_groups(source_session: Session
         facts = records(session, artifact)
         (scope,) = [dict(item.values)["filters"] for item in facts if item.kind == "read"]
         assert isinstance(scope, str)
-        tree = json.loads(scope)
+        (captured_condition,) = json.loads(scope)
+        (captured_field,) = captured_condition["inputs"]
+        assert captured_condition["scope"] == captured_field["scope"] == "filter"
         operators = {"and", "or", "not", "equal", "isnull", "less", "end_call"}
-        assert tuple(token for token in tree[0]["tokens"] if token in operators) == expected
+        assert tuple(token for token in captured_field["tokens"] if token in operators) == expected
         assert "sales.orders.region" in scope and "sales.orders.amount" in scope
 
 

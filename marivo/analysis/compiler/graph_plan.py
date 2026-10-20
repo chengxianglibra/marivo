@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Literal, TypeAlias
 
 from marivo._definition.correspondence import coordinate_position
-from marivo._definition.expressions import FieldPredicate
+from marivo._definition.expressions import PredicateExpression
 from marivo._definition.relations import PopulationDependency
 from marivo.analysis.compiler.query_program import (
     FrameCombineProgram,
@@ -95,7 +95,7 @@ class SourceRead:
     keys: tuple[str, ...]
     projections: tuple[tuple[str, str], ...]
     field_columns: tuple[tuple[str, str], ...]
-    predicates: tuple[FieldPredicate, ...]
+    predicates: tuple[PredicateExpression, ...]
     period: PeriodFilter | None
     reduction: ReductionInput | None = None
     preparation_checks: tuple[tuple[str, str, str], ...] = ()
@@ -251,7 +251,9 @@ def _plan_source_reads(
             target="analysis_frame.compute",
         )
     by_source = {schema.source_id: schema for schema in schemas}
+    from marivo._definition.relations import condition_populations
     from marivo._definition.types import FieldRead, coordinate_read_keys, field_read_key
+    from marivo.analysis.compiler.predicate import population_key
 
     reads: list[SourceRead] = []
     for contribution in contributions:
@@ -276,6 +278,18 @@ def _plan_source_reads(
             dict.fromkeys(
                 (
                     *(field_read_key(read) for read in contribution.reads),
+                    *(
+                        population_key(domain)
+                        for condition in (
+                            *contribution.intrinsic_conditions,
+                            *(
+                                (contribution.common_condition,)
+                                if contribution.common_condition is not None
+                                else ()
+                            ),
+                        )
+                        for domain in condition_populations(condition)
+                    ),
                     *(
                         key
                         for read in contribution.coordinates
@@ -668,7 +682,15 @@ def _plan_query(
     population_stages: list[SourceRead | LocalCompute] = []
     output_population = observation.coordinates.population if observation is not None else None
     closure = walk(
-        (graph.root,) if output_population is None else (graph.root, output_population),
+        (
+            graph.root,
+            *((output_population,) if output_population is not None else ()),
+            *(
+                (observation.condition,)
+                if observation is not None and observation.condition is not None
+                else ()
+            ),
+        ),
         resolve=dict(graph.signature.declared_metrics).get,
     )
     for population in closure.order:

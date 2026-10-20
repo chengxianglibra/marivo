@@ -21,7 +21,6 @@ from marivo._definition.query import (
     ReduceValues,
     SelectValues,
     TopValues,
-    ValueBinary,
     ValueExpression,
     ValueLiteral,
     ValueSlot,
@@ -338,34 +337,9 @@ def evaluate_result(stage: LocalCompute, inputs: tuple[pd.DataFrame, ...]) -> pd
                     result[column.slot_id] = frame[column.slot_id]
         return result
     if isinstance(operation, FilterValues):
-        if not isinstance(
-            operation.predicate,
-            (
-                ValueSlot,
-                CoordinateSlot,
-                PresenceSlot,
-                ValueLiteral,
-                ValueUnary,
-                ValueBinary,
-            ),
-        ):
-            from marivo.analysis.methods.query_population import condition_mask
-
-            mask = condition_mask(
-                operation.predicate,
-                frame,
-                program.axes,
-                program.key_groups,
-                program.population_inputs,
-                inputs[1 : 1 + len(program.population_inputs)],
-                program.population_layouts,
-            )
-        else:
-            mask = (
-                expression_series(operation.predicate, frame, program)
-                .astype("boolean")
-                .fillna(False)
-            )
+        mask = (
+            expression_series(operation.predicate, frame, program).astype("boolean").fillna(False)
+        )
         return (
             frame.loc[mask, [column.slot_id for column in stage.columns]]
             .reset_index(drop=True)

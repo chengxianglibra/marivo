@@ -10,18 +10,14 @@ import ibis.expr.datatypes as dt
 import ibis.expr.types as ir
 
 from marivo._definition.correspondence import coordinate_position
-from marivo._definition.expressions import ContributionFilter, EntityCount, RowExpression
+from marivo._definition.expressions import ContributionFilter, EntityCount
 from marivo._definition.observations import ContributionBinding
 from marivo._definition.relations import (
     FrameKeys,
-    PopulationAnd,
     PopulationClassify,
-    PopulationCondition,
-    PopulationContains,
     PopulationDependency,
     PopulationFilter,
     PopulationImage,
-    PopulationNot,
     PopulationPreimage,
     PopulationProduct,
     PopulationProgram,
@@ -84,9 +80,8 @@ def population_entities(
         if isinstance(node, SourceIdentities):
             entities.add(node.entity.ref.path)
             if node.predicate is not None:
-                if not isinstance(node.predicate, RowExpression):
-                    for domain in condition_populations(node.predicate):
-                        entities.update(population_entities(domain, state))
+                for domain in condition_populations(node.predicate):
+                    entities.update(population_entities(domain, state))
                 if state is not None:
                     contribution = _identity_condition(node, state)
                     for read in (
@@ -328,10 +323,16 @@ def prepare_population(
                 for offset, name in enumerate(selected.key_columns)
             }
             allowed = (
-                selected.table.select(**{new: selected.table[old] for old, new in rename.items()})
-                if rename
-                else _domain_table(selected)
-            ).mutate(**{marker: ibis.literal(True)})
+                (
+                    _domain_table(selected).select(
+                        **{new: selected.table[old] for old, new in rename.items()}
+                    )
+                    if rename
+                    else _domain_table(selected)
+                )
+                .distinct()
+                .mutate(**{marker: ibis.literal(True)})
+            )
             pairs = [
                 (left, rename[right])
                 for axis, group in zip(domain.axes, selected.key_groups, strict=True)
@@ -342,21 +343,18 @@ def prepare_population(
                 )
             ]
             predicates = [table[left].identical_to(allowed[right]) for left, right in pairs]
-            table = table.left_join(allowed, predicates).select(table, allowed[marker])
+            table = table.left_join(allowed, predicates or ibis.literal(True)).select(
+                table, allowed[marker]
+            )
             marks[domain] = marker
 
-        def condition_value(condition: PopulationCondition) -> ir.BooleanValue:
-            if isinstance(condition, PopulationContains):
-                value = table[marks[condition.population]].fill_null(False)
-                assert isinstance(value, ir.BooleanValue)
-                return value
-            if isinstance(condition, PopulationNot):
-                return ~condition_value(condition.operand)
-            if isinstance(condition, PopulationAnd):
-                return condition_value(condition.left) & condition_value(condition.right)
-            return condition_value(condition.left) | condition_value(condition.right)
+        from marivo.analysis.compiler.predicate import lower_condition, population_key
 
-        filtered = table.filter(condition_value(node.predicate))
+        markers = {
+            population_key(domain): table[marker].fill_null(False)
+            for domain, marker in marks.items()
+        }
+        filtered = table.filter(lower_condition(node.predicate, markers).value)
         return PreparedPopulation(
             filtered.select(*prepared.key_columns)
             if columns
@@ -388,7 +386,6 @@ def prepare_population(
         checks: tuple[tuple[str, str, str], ...] = ()
         summary: ir.Table | None = None
         if node.predicate is not None:
-            from marivo.analysis.materialization.population_condition import filter_contribution
             from marivo.analysis.materialization.query_preparation import prepare_fields
             from marivo.datasource.timezone import probe_engine_timezone
 
@@ -399,31 +396,25 @@ def prepare_population(
                 state,
                 probe_engine_timezone(source._find_backend()),
                 root_table=source,
-                defer_population_conditions=True,
             )
             source = identity_fields.table
-            if isinstance(node.predicate, RowExpression):
-                from marivo.semantic._numeric_lowering import lower_field_predicate
+            from marivo.analysis.compiler.predicate import lower_condition
 
-                fields = {key: source[slot] for key, slot in identity_fields.columns}
-                lowered = lower_field_predicate(node.predicate, fields)
-                if lowered.checks:
-                    reject(
-                        "a source identity predicate with completed data checks",
-                        "strict arithmetic checks",
-                        "Evaluate the checked quantity before selecting its identity domain.",
-                        "population.prepare",
-                    )
-                source = source.filter(lowered.value)
+            fields = {key: source[slot] for key, slot in identity_fields.columns}
+            lowered = lower_condition(contribution.intrinsic_conditions[0], fields)
+            if lowered.checks:
+                reject(
+                    "a source identity predicate with completed data checks",
+                    "strict arithmetic checks",
+                    "Evaluate the checked quantity before selecting its identity domain.",
+                    "population.prepare",
+                )
             checks = identity_fields.checks
             if checks:
                 summary = source.aggregate(
                     **{name: source[name].any().fill_null(False) for name, _, _ in checks}
                 )
-            if contribution.population_conditions:
-                source = filter_contribution(
-                    source, contribution, dict(identity_fields.columns), entities, state
-                )
+            source = source.filter(lowered.value)
         keys = state.registry.entities[node.entity.ref.path].primary_key
         null_key = "__identity_null"
         output = source.select(

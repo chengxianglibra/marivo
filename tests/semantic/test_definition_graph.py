@@ -17,6 +17,7 @@ from marivo._definition.expressions import (
     MetricDeclaration,
     MetricExpression,
     MetricNode,
+    PredicateExpression,
     RowExpression,
     RowField,
     SourceAggregate,
@@ -205,8 +206,12 @@ def test_ownership_conflict_and_unknown_rule_version_fail() -> None:
     first = PopulationProgram(SourceIdentities(CUSTOMER.entity), Owner("session-a", "owner-a"))
     second = PopulationProgram(SourceIdentities(CUSTOMER.entity), Owner("session-b", "owner-b"))
     combined = _combine(
-        ContributionFilter(revenue, PopulationContains(first)),
-        ContributionFilter(revenue, PopulationContains(second)),
+        ContributionFilter(
+            revenue, PredicateExpression(resolver_of(var("slot_0")), (PopulationContains(first),))
+        ),
+        ContributionFilter(
+            revenue, PredicateExpression(resolver_of(var("slot_0")), (PopulationContains(second),))
+        ),
     )
 
     with pytest.raises(DefinitionGraphError) as conflict:
@@ -215,6 +220,7 @@ def test_ownership_conflict_and_unknown_rule_version_fail() -> None:
     assert conflict.value.path == (
         "MetricExpression.operand[1]",
         "ContributionFilter.predicate[1]",
+        "PredicateExpression.predicate[0]",
         "PopulationContains.population[0]",
     )
 
@@ -302,14 +308,20 @@ def test_time_binding_path_is_part_of_the_computation() -> None:
 
 def test_row_comparisons_are_predicate_edges_and_sum_except_needs_an_axis() -> None:
     amount, cost = _field("amount"), _field("cost")
-    predicate = RowExpression(resolver_of((var("slot_0") - var("slot_1")) > 0), (amount, cost))
+    row_predicate = RowExpression(resolver_of((var("slot_0") - var("slot_1")) > 0), (amount, cost))
+    predicate = PredicateExpression(resolver_of(var("slot_0")), (row_predicate,))
     revenue = SourceAggregate(amount, "sum", time=PAID)
     filtered = ContributionFilter(revenue, predicate)
     edges = children(filtered)
     assert [(edge.role, edge.index) for edge in edges] == [("operand", 0), ("predicate", 1)]
     assert edges[1].child is predicate
-    assert children(predicate)[0].child is amount
-    inclusive = RowExpression(resolver_of((var("slot_0") - var("slot_1")) >= 0), (amount, cost))
+    assert [(edge.role, edge.index) for edge in children(predicate)] == [("predicate", 0)]
+    assert children(predicate)[0].child is row_predicate
+    assert children(row_predicate)[0].child is amount
+    inclusive = PredicateExpression(
+        resolver_of(var("slot_0")),
+        (RowExpression(resolver_of((var("slot_0") - var("slot_1")) >= 0), (amount, cost)),),
+    )
     assert computation_fingerprint(filtered) != computation_fingerprint(
         ContributionFilter(revenue, inclusive)
     )

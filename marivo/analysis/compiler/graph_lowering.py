@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import ibis
 import ibis.expr.types as ir
 
-from marivo._definition.expressions import FieldPredicate
+from marivo._definition.expressions import PredicateExpression
 from marivo.analysis.compiler.errors import compilation_error
 from marivo.analysis.compiler.graph_plan import QueryPlan, SourceRead
 from marivo.semantic._numeric_lowering import NumericCheck
@@ -59,13 +59,11 @@ def _attach_preparation_checks(
 
 
 def _query_predicate(
-    node: FieldPredicate, table: ir.Table, columns: dict[str, str]
+    node: PredicateExpression, table: ir.Table, columns: dict[str, str]
 ) -> ir.BooleanValue:
-    from marivo.semantic._numeric_lowering import lower_field_predicate
+    from marivo.analysis.compiler.predicate import lower_condition
 
-    value = lower_field_predicate(
-        node, {path: table[column] for path, column in columns.items()}
-    ).value
+    value = lower_condition(node, {path: table[column] for path, column in columns.items()}).value
     if not isinstance(value, ir.BooleanValue):
         raise compilation_error("a boolean predicate", str(value.type()))
     return value

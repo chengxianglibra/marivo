@@ -132,9 +132,6 @@ Canonical public exports
 .. autoclass:: Population
    :members:
 
-.. autoclass:: PopulationPredicate
-   :members:
-
 .. autoclass:: Grouping
    :members:
 

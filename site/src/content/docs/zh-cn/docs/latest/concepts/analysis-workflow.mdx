@@ -30,6 +30,13 @@ Population 键域，包括零轴与无命名值。构造与检查不读业务行
 tuple by 按观察到的联合坐标分组；by=Population 只选择指定完整键并保留无事实坐标。
 where=mv.in_population(P) 筛选事实贡献。P.count() 捕获完整去重元组域为整数惰性 Metric，
 包含 Null 分类和无事实身份；P/Q 各自计数，不从 by 或 where 推断分母。
+
+observe 与 members 也接受 `(status == "paid") | mv.in_population(P)` 这样的原生混合条件；
+使用带括号的 `&`、`|`、`~`。字段 NA 保持未知直到最终只选 True，成员判断为非 nullable。
+Population.where 只允许已有坐标上的成员叶子。Frame.where 接收该精确 Frame 的普通布尔
+Column，包括直接布尔值或 presence 列，False 与 NA 不选中；源端条件不转换为结果 Column。
+详见 `marivo.help("semantic.predicate")`。
+
 空域计 0，零轴单元域计 1。分组坐标须已存在于 P；按新属性计成员须先显式 classify 并保留身份，
 直接投影到属性后计数则数去重类别。
 Field Null 是合法类别，Entity 身份保留全部非空主键分量。

@@ -110,16 +110,6 @@ def expressions(operation: FrameUnaryOperationKind) -> tuple[ValueExpression, ..
     if isinstance(operation, SelectValues):
         result = tuple(value for _, value in operation.values)
     elif isinstance(operation, FilterValues):
-        if operation.domains or not isinstance(
-            operation.predicate,
-            (ValueSlot, CoordinateSlot, PresenceSlot, ValueLiteral, ValueUnary, ValueBinary),
-        ):
-            reject(
-                "a same-input boolean Column",
-                "source Population predicate",
-                "Use Frame Columns.",
-                "frame.where",
-            )
         result = (operation.predicate,)
     elif isinstance(operation, TopValues):
         if (

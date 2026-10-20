@@ -36,7 +36,7 @@ if TYPE_CHECKING:
         assert_type(fixed, mv.Population)
         complete = mv.coordinates(by=(region,), keys=(("east",), ("west",)))
         assert_type(complete, mv.Population)
-        assert_type(mv.in_population(complete), mv.PopulationPredicate)
+        assert_type(mv.in_population(complete), Deferred)
         assert_type(complete.where(~mv.in_population(complete)), mv.Population)
         assert_type(fixed.union(members), mv.Population)
         assert_type(fixed.intersection(members), mv.Population)

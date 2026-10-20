@@ -88,8 +88,8 @@ ordinary grouping discovers real joint categories then completes their requested
 time buckets; an explicit Population supplies its own full keys.
 
 
-Population and PopulationPredicate retain their raw definition and predicate IR
-as private capture details. Callers inspect the captured domain with `.show()`
+Population retains its raw definition and captured native condition as private
+details. Callers inspect the captured domain with `.show()`
 and reuse its ordered coordinates through `Population.axes`; raw IR fields are not
 public attributes or Help targets.
 
@@ -156,12 +156,26 @@ windows do not reselect P; count-only conditions or windows with no fact meaning
 before reduction. Explicit samples include empty samples under the child's
 policy. Internal samples and the selected output domain are independent.
 Use `where=mv.in_population(P)` for contribution selection without identity output.
-When preserving an existing field condition, attach the membership condition to
-the fact Metric with `.where(...)` and keep the field condition on observe.
-`Population.where` accepts only PopulationPredicate; field predicates belong to
-members/read/Frame filtering. Population truth evaluation rejects; it does not
-test emptiness. Predicate `.show()` prints bounded boolean structure, and neither
-Population nor predicate `.show()` evaluates the domain.
+Source conditions are controlled native Deferred expressions. Field conditions
+and `mv.in_population(P)` combine with `&`, `|` and `~`, retaining the complete
+boolean recipe. For example, `where=(status == "paid") | mv.in_population(P)`
+selects contributions satisfying either leaf; field NA retains three-valued
+boolean semantics and only final True selects. Member leaves are nonnullable,
+match complete correlated tuples with null-safe field keys, and never multiply
+contributions. `Metric.where(A).where(B)` conjoins conditions on the same input
+check domain; membership cannot shield another leaf's strict numerical errors.
+All captured producer dependencies remain required, including constant branches.
+
+Observe, eligible single-source Metric.where and members accept mixed conditions
+within their existing root/identity scope. `Population.where` accepts only member
+leaves over its existing coordinates; fields belong to members/read/Frame
+filtering. Source reduction `where=` accepts only existing same-row field leaves.
+Member leaves support only boolean operators and constants, not arbitrary native
+methods, comparisons or arithmetic. Bare Python bool and truth evaluation reject.
+No public Predicate type or condition `.show()` exists. Receiving Population and
+AnalysisFrame `.show()` describe bounded captured facts without evaluating domains
+or resolving recipes. `marivo.help("semantic.predicate")` owns the source grammar;
+Frame filtering consumes an ordinary boolean Column from that exact Frame.
 
 ## Time and window authority
 

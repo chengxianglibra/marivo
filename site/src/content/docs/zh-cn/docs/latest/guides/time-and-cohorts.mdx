@@ -33,8 +33,10 @@ coord 只接受单物理分量 FrameAxis，复合身份仍保持完整键。
 TimeScope 直接放入 by 时产生一个 interval 坐标；单期间仍保留时间轴。
 `by=mv.product(august, east)` 保留所选完整身份，包括无事实身份。
 `east.count()` 是捕获该身份域的惰性 Metric，包含无事实身份；事实条件不重选分母。
-若原有字段条件，使用 `revenue.where(mv.in_population(east))` 并保留
-`observe(..., where=field_condition)`。只有计数时无效果的条件/窗口拒绝。
+字段与成员叶子可以在同一原生 Deferred 条件中组合，例如
+`(region == "east") | mv.in_population(east)`，用于 observe、合法 Metric.where 或 members。
+两侧仍保留各自检查与依赖；nullable 字段保留三值布尔语义，条件不提供窗口端点或属性锚点。
+源端语法由 `marivo.help("semantic.predicate")` 披露。只有计数时无效果的条件/窗口拒绝。
 无时间轴的域在所请求时间轴上重复同一次选择的完整元组计数。
 按新属性计所选身份数时，显式保留身份：
 

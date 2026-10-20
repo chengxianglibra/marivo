@@ -78,6 +78,13 @@ missing_region_revenue = revenue.where(region.isnull())
 
 where 只过滤单一来源规约或共同配对作用域。复合 Metric 应先改各来源子指标，再组合。per 返回内部样本，必须规约后才是 Metric。
 
+来源条件是原生 Deferred。字段叶子与 `mv.in_population(population)` 可通过 `&`、`|`、`~`
+组合，例如 `revenue.where((region == "US") | mv.in_population(population))`。
+成员叶子判断完整联合元组，包含字段 Null，只支持布尔运算与常量；
+来源规约的 where= 仍只接受同行字段条件。两个布尔分支均保留所需检查与生产者依赖，
+连续 Metric.where 在同一检查域中合取。语法与消费者限制由
+`marivo.help("semantic.predicate")` 拥有。
+
 原生字段共用 `marivo.help("semantic.dimension.isnull")` 的空值谓词合同；原生 Deferred 方法通过静态 Help 路由查询，不注册为 Marivo callable Help。带路径的 TimeField 保留时间角色，只能用于 `time=`，选择求和许可坐标时也不能丢弃路径。
 
 ## 单位与显式求和授权

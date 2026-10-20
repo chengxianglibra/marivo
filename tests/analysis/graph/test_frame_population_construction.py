@@ -14,12 +14,14 @@ from ibis.common.deferred import Deferred, Just, Sequence
 
 import marivo.analysis as mv
 from marivo._definition.deferred import (
+    DeclarationRecord,
+    DeclarationResolver,
     canonical_recipe,
     recipe_fingerprint,
     resolver_of,
     semantic_input,
 )
-from marivo._definition.expressions import ContributionFilter
+from marivo._definition.expressions import ContributionFilter, PredicateExpression, RowExpression
 from marivo._definition.graph import (
     _encode_fields,
     canonical_bytes,
@@ -66,7 +68,7 @@ from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from marivo.refs import ref
-from marivo.semantic._deferred_semantics import consume_field, consume_metric
+from marivo.semantic._deferred_semantics import consume_field, consume_metric, consume_predicate
 from marivo.semantic.reader import SemanticProject
 
 
@@ -286,30 +288,31 @@ def test_predicates_and_deferred_recipes_preserve_inputs_before_consumption(
     left, right = _bridge(session, _fields(session)), _bridge(session, _fields(session))
     condition = in_population(left) & ~(in_population(left) | in_population(right))
     expected = (*left._frame_inputs, *right._frame_inputs)
-    assert condition._frame_inputs == expected
+    assert collect_frame_key_inputs(condition) == expected
     amount = session.catalog.fields.get("sales.facts.amount")
     metric = -(amount.sum().where(condition) + amount.sum().where(in_population(left)))
     assert collect_frame_key_inputs(metric, left, condition) == expected
     # Sequence literals are also visited without resolving their contents.
-    sequence = Deferred(Sequence((Just(left), Just(condition))))
+    sequence = Deferred(Sequence((Just(left), resolver_of(condition))))
     assert collect_frame_key_inputs(sequence) == expected
     consumed = consume_metric(amount.sum().where(condition))
     assert isinstance(consumed.node, ContributionFilter)
-    assert consumed.node.predicate == condition._condition
+    assert consumed.node.predicate == consume_predicate(condition).node
     tokens = canonical_recipe(resolver_of(metric))
     assert tokens and "FrameKeyInput" not in repr(tokens)
-    assert source_scope(condition) == source_scope(type(condition)(condition._condition))
+    assert source_scope(consumed.node.predicate) == source_scope(consume_predicate(condition).node)
 
 
 def test_private_population_capture_fields_preserve_deferred_fingerprint() -> None:
     population = mv.coordinates(by=(), keys=((),))
     predicate = mv.in_population(population)
-    expression = Deferred(Sequence((Just(population), Just(predicate))))
+    expression = Deferred(Sequence((Just(population), resolver_of(predicate))))
     assert not hasattr(population, "definition")
-    assert not hasattr(predicate, "condition")
-    assert (
-        recipe_fingerprint(resolver_of(expression))
-        == "627571f544f65dd695c48bc44600ad2a8d845acdb56b530883368023a6b19683"
+    assert isinstance(predicate, Deferred)
+    assert recipe_fingerprint(resolver_of(expression)) == recipe_fingerprint(
+        resolver_of(
+            Deferred(Sequence((Just(population), resolver_of(mv.in_population(population)))))
+        )
     )
 
 
@@ -508,8 +511,9 @@ def test_cross_session_inputs_reject_and_selected_frame_stays_alive(session: Ses
     with pytest.raises(CoreRuleError, match="receiving Store and Session"):
         population_from(session._runtime.local, session.catalog._state, foreign, on=())
     local_population, other_population = _bridge(session, _fields(session)), _bridge(other, foreign)
+    condition = in_population(local_population) | in_population(other_population)
     with pytest.raises(CoreRuleError, match="one Store and Session"):
-        in_population(local_population) | in_population(other_population)
+        collect_frame_key_inputs(condition)
 
     frame = _fields(session)
     reference = weakref.ref(frame)
@@ -535,3 +539,68 @@ def test_cross_session_inputs_reject_and_selected_frame_stays_alive(session: Ses
     live = reference()
     assert live is not None
     assert json.loads(source_scope(retained.frame_key_inputs[0].input_id))[1] == live._input_id
+
+
+def test_mixed_native_predicate_and_declared_metric_retain_all_frame_inputs(
+    session: Session,
+) -> None:
+    left, right = _bridge(session, _fields(session)), _bridge(session, _fields(session))
+    region = session.catalog.fields.get("sales.facts.region")
+    amount = session.catalog.fields.get("sales.facts.amount")
+    condition = ((region == "east") | in_population(left)) & ~(in_population(right) | False)
+    expected = (*left._frame_inputs, *right._frame_inputs)
+    facts = consume_predicate(condition)
+    assert isinstance(facts.node, PredicateExpression)
+    assert isinstance(facts.node.inputs[0], RowExpression)
+    assert facts.roots == (consume_field(region).root,)
+    assert collect_frame_key_inputs(condition) == expected
+    metric = amount.sum().where(condition)
+    declared = Deferred(
+        DeclarationResolver(resolver_of(metric), DeclarationRecord("metric", "selected"))
+    )
+    assert collect_frame_key_inputs(declared) == expected
+    graph = frame_sources.observe(
+        session._runtime.local,
+        session.catalog._state,
+        session._runtime.connection_config,
+        {"amount": declared},
+    )
+    assert isinstance(graph._backing, ExpressionFrameBacking)
+    assert isinstance(graph._backing.root, SourceFrameBinding)
+    assert graph._backing.root.frame_key_inputs == expected
+
+
+@pytest.mark.parametrize("operation", ["add", "compare", "cast", "ifelse", "sum"])
+def test_membership_methods_reject_at_shared_intake(session: Session, operation: str) -> None:
+    from marivo.semantic.errors import SemanticExpressionError
+
+    member = in_population(_bridge(session, _fields(session)))
+    invalid = {
+        "add": lambda: member + 1,
+        "compare": lambda: member == True,  # noqa: E712 - intentionally invalid native syntax
+        "cast": lambda: member.cast("boolean"),
+        "ifelse": lambda: member.ifelse(True, False),
+        "sum": lambda: member.sum(),
+    }[operation]()
+    with pytest.raises(SemanticExpressionError, match="only boolean combination") as error:
+        consume_predicate(invalid)
+    assert error.value.expected
+    assert error.value.repair
+
+
+def test_predicate_consumer_limits_and_hidden_field_roots(session: Session) -> None:
+    from marivo.semantic.errors import SemanticExpressionError
+
+    population = _bridge(session, _fields(session))
+    member = in_population(population)
+    region = session.catalog.fields.get("sales.facts.region")
+    segment = session.catalog.fields.get("sales.customers.segment")
+    amount = session.catalog.fields.get("sales.facts.amount")
+    with pytest.raises(CoreRuleError, match="source field condition"):
+        population.where((region == "east") | member)
+    with pytest.raises(SemanticExpressionError, match="only same-row field conditions"):
+        consume_metric(amount.sum(where=member | (region == "east")))
+    with pytest.raises(SemanticExpressionError, match="different contribution roots"):
+        consume_predicate(((region == "east") & member) | ((segment == "gold") & False))
+    for condition in ((region == "east") | member, member | (region == "east")):
+        assert consume_predicate(condition).roots == (consume_field(region).root,)

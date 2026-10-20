@@ -253,7 +253,7 @@ def provider() -> DisclosureProvider:
         "timezone": "On create, None resolves and freezes the system timezone; instant/time_scope use the frozen Session timezone unless explicitly overridden.",
         "start": "Choose the inclusive exact boundary.",
         "end": "Choose the exclusive exact boundary, strictly after start.",
-        "where": "Pass a resolved Field predicate or closed PopulationPredicate. Source receivers may read fields needed for membership; AnalysisFrame.where accepts only a same-input boolean Column.",
+        "where": "Pass a Deferred combining field and Population membership conditions. Source receivers may read fields needed for membership; AnalysisFrame.where accepts only a same-input boolean Column.",
         "at": "Pass an exact InstantAnchor from session.instant(...) for versioned identity selection.",
         "population": "Pass a complete Population with no owner or the same Session owner.",
         "memberships": "Pass a tuple of mv.membership(...) rules for output coordinates. Rules map fact contributions; by supplies axes or selected keys. Internal sample rules belong to Metric.per(..., memberships=...).",
@@ -320,7 +320,7 @@ def provider() -> DisclosureProvider:
                         if name == "values" and n == "by"
                         else "TimeScope filters without grouping; CalendarAxis adds time buckets and must match an existing output calendar; None adds no time filter."
                         if name == "observe" and n == "during"
-                        else "Pass a Field predicate or closed PopulationPredicate restricting fact contributions. Captured Population.count domains are not reselected; count-only conditions reject."
+                        else "Pass a Deferred combining field and Population membership conditions restricting fact contributions. Captured Population.count domains are not reselected; count-only conditions reject."
                         if name == "observe" and n == "where"
                         else acquisition[n],
                     )

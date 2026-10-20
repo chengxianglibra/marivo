@@ -111,7 +111,6 @@ OUTPUT_FAMILIES = frozenset(
         "Deferred",
         "MetricSamples",
         "Relationship",
-        "Predicate",
         "Number",
         "bool",
         "Text",
@@ -234,7 +233,6 @@ INPUT_FAMILIES = frozenset(
         "Deferred",
         "MetricSamples",
         "Relationship",
-        "Predicate",
         "Number",
         "bool",
         "Text",
@@ -2362,7 +2360,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             "the field's contribution root and version. Combine predicates with & and |; "
             "use ~ to negate. Pass the predicate to Metric.where or Session.observe(where=...).",
             kind="method",
-            output="Predicate",
+            output="Deferred",
             inputs=(
                 AuthoringInputRequirement(role="receiver", family="Field"),
                 _parameter_input("dependency", "SourceScalarSequence", "values"),
@@ -2370,7 +2368,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             effects=_NONE,
             example="region.isin(('US', 'CA'))",
             public_entrypoint="region.isin",
-            see_also=(_target("field"), _target("Metric.where")),
+            see_also=(_target("predicate"), _target("Metric.where")),
         ),
         _capability(
             "Dimension.isnull",
@@ -2384,7 +2382,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             effects=_NONE,
             example="region.isnull()",
             public_entrypoint="region.isnull",
-            see_also=(_target("expressions"),),
+            see_also=(_target("predicate"),),
         ),
     ]
     for prefix, _owner, family, methods in (
@@ -2465,7 +2463,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                 )
             elif prefix == "Metric":
                 parameter, input_family, example = {
-                    "where": ("predicate", "Predicate", "revenue.where(status == 'paid')"),
+                    "where": ("predicate", "Deferred", "revenue.where(status == 'paid')"),
                     "per": (
                         "samples",
                         "Dimension | TimeField | Grouping | tuple[Dimension | TimeField | Grouping, ...] | Population",
@@ -2527,9 +2525,12 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                 )
             elif prefix == "Metric" and method == "where":
                 summary += (
-                    "Filter source contributions before reduction using a resolved field predicate, "
-                    "for example status == 'paid'. Row quantities must first become Metrics through "
-                    "an authorized reducer. This is distinct from AnalysisFrame.where on current rows."
+                    "Filter source contributions before reduction within one source reduction or common paired scope using a native "
+                    "Deferred condition, including (status == 'paid') | mv.in_population(population). "
+                    "Repeated where calls conjoin conditions on the same input check domain; neither "
+                    "boolean side shields the other's errors. See semantic.predicate for grammar. "
+                    "Composite or sampled Metrics must filter the eligible child reduction. "
+                    "This is distinct from AnalysisFrame.where on current rows."
                 )
             elif method in {"first", "last"}:
                 summary += (
@@ -2555,7 +2556,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     example=example,
                     public_entrypoint=f"{'amount' if prefix == 'row' else 'samples' if prefix == 'MetricSamples' else 'revenue' if prefix == 'Metric' else 'orders' if prefix == 'Entity' else 'payment_time'}.{method}",
                     see_also=(
-                        _target("field"),
+                        _target("predicate"),
                         _target("expressions"),
                         LiveHelpTarget(surface="analysis", canonical_id="analysis_frame.where"),
                     )
@@ -2586,7 +2587,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             "TimeField.within",
             "_FieldComparisons",
             "within",
-            "Predicate",
+            "Deferred",
             "scope",
             "TimeScope",
             "created_at.within(scope)",
@@ -3413,6 +3414,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 canonical_id="field",
                 summary="A constructed scalar Dimension, TimeField or Measure retains its semantic owner. Capture physical fields with their constructors, then finalize and resolve their Refs before composition. TimeField is a resolved TimeDimension. Compare with ==, !=, <, <=, >, >=; for example (region == 'US') & (amount > 0). Combine predicates with &, | and ~ (not Python and/or/not). Deferred values have no .show(); inspect catalog.describe(ref).show().",
                 members=(
+                    _navigation_route("source boolean conditions", _target("predicate")),
                     _navigation_route(
                         "Dimension definition", _target("objects.dimension"), owns_discovery=False
                     ),
@@ -3428,6 +3430,59 @@ def _build_registry() -> SemanticCapabilityRegistry:
                     _navigation_route("attribute version anchor", _target("Field.at")),
                     _navigation_route("literal membership predicate", _target("Field.isin")),
                     _navigation_route("missing-value predicate", _target("Dimension.isnull")),
+                ),
+            ),
+            SemanticNavigationTopic(
+                canonical_id="predicate",
+                summary=(
+                    "Source conditions are native Deferred recipes. Compare resolved fields, use "
+                    "isnull/isin, and combine with mv.in_population(P) using &, | and ~; use "
+                    "parentheses, never Python and/or/not or bool. Example with resolved status, "
+                    "revenue and a compatible Population P: session.observe({'revenue': revenue}, "
+                    "where=(status == 'paid') | mv.in_population(P)). "
+                    "Membership tests complete correlated tuples with null-safe field matching; "
+                    "they return True or False. Field NA retains three-valued boolean semantics; "
+                    "only a final True selects a contribution. Both boolean sides retain static "
+                    "validation, numeric checks and producer dependencies, even under True/False. "
+                    "Observe, single-source Metric.where and members accept mixed conditions on "
+                    "their own contribution/identity domain. Population.where accepts membership "
+                    "leaves only over existing axes. Source reduction where= accepts field leaves "
+                    "only. Member leaves support boolean operators/constants, not comparisons, "
+                    "arithmetic, ifelse, cast or methods. Bare Python bool is not a condition. "
+                    "AnalysisFrame.where requires that exact Frame's boolean Column. Capture and "
+                    "show perform no business reads; Deferred has no show. Inspect captured "
+                    "conditions on the receiving Population or AnalysisFrame."
+                ),
+                members=(
+                    _navigation_route("field expressions", _target("field"), owns_discovery=False),
+                    _navigation_route(
+                        "source Metric filtering", _target("Metric.where"), owns_discovery=False
+                    ),
+                    _navigation_route(
+                        "membership leaf",
+                        LiveHelpTarget(surface="analysis", canonical_id="in_population"),
+                        owns_discovery=False,
+                    ),
+                    _navigation_route(
+                        "observation contributions",
+                        LiveHelpTarget(surface="analysis", canonical_id="session.observe"),
+                        owns_discovery=False,
+                    ),
+                    _navigation_route(
+                        "source identities",
+                        LiveHelpTarget(surface="analysis", canonical_id="session.members"),
+                        owns_discovery=False,
+                    ),
+                    _navigation_route(
+                        "existing Population coordinates",
+                        LiveHelpTarget(surface="analysis", canonical_id="population.where"),
+                        owns_discovery=False,
+                    ),
+                    _navigation_route(
+                        "current Frame rows",
+                        LiveHelpTarget(surface="analysis", canonical_id="analysis_frame.where"),
+                        owns_discovery=False,
+                    ),
                 ),
             ),
             SemanticNavigationTopic(

@@ -12,10 +12,10 @@ import ibis.expr.types as ir
 from marivo._definition.expressions import (
     DeclaredMetricRef,
     EntityCount,
-    FieldPredicate,
     MeasureAssertion,
     MetricNode,
     PerReduce,
+    PredicateExpression,
     RowField,
     RowNode,
     SourceAggregate,
@@ -32,10 +32,10 @@ from marivo.analysis.compiler.observation import (
     lower_observation,
     temporal_bound,
 )
+from marivo.analysis.compiler.predicate import lower_condition
 from marivo.analysis.core.data_types import DataColumn
 from marivo.semantic._numeric_lowering import (
     NumericCheck,
-    lower_field_predicate,
     lower_row,
     numeric_failure,
 )
@@ -175,7 +175,7 @@ def lower_components(
     layout: ComponentLayout,
     table: ir.Table,
     field_columns: Mapping[str, str],
-    predicates: tuple[FieldPredicate, ...],
+    predicates: tuple[PredicateExpression, ...],
 ) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...]]:
     """Complete the fine grid and transport its raw inputs in one source read.
 
@@ -185,7 +185,7 @@ def lower_components(
     reduction = layout.reduction
     completed, checks = lower_observation(reduction, table, field_columns, predicates)
     fields = {path: table[name] for path, name in field_columns.items()}
-    selected = tuple(lower_field_predicate(node, fields).value for node in predicates)
+    selected = tuple(lower_condition(node, fields).value for node in predicates)
     filtered = table.filter(*selected) if selected else table
     fields = {path: filtered[name] for path, name in field_columns.items()}
     axes: dict[str, ir.Value] = {slot: fields[path] for slot, path in reduction.axes}
@@ -256,14 +256,14 @@ def lower_common_components(
     layouts: tuple[ComponentLayout | None, ...],
     table: ir.Table,
     field_columns: Mapping[str, str],
-    predicates: tuple[FieldPredicate, ...],
+    predicates: tuple[PredicateExpression, ...],
 ) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...]]:
     """One checked aggregate and raw projection for a compiled source block."""
     completed, checks = lower_common_observations(reductions, table, field_columns, predicates)
     if not any(layout is not None for layout in layouts):
         return completed, checks
     fields = {path: table[name] for path, name in field_columns.items()}
-    selected = tuple(lower_field_predicate(node, fields).value for node in predicates)
+    selected = tuple(lower_condition(node, fields).value for node in predicates)
     filtered = table.filter(*selected) if selected else table
     fields = {path: filtered[name] for path, name in field_columns.items()}
     axes = {slot: fields[path] for slot, path in reductions[0].axes}

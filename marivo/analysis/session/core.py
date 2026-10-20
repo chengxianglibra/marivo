@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from marivo._grouping import Grouping
     from marivo.analysis.dsl.frame import AnalysisFrame
     from marivo.analysis.dsl.frame_axis import FrameAxis
-    from marivo.analysis.dsl.population import Population, PopulationPredicate
+    from marivo.analysis.dsl.population import Population
     from marivo.analysis.dsl.source_capture import ValueRow
     from marivo.analysis.materialization.admission import DatasetRuntime
     from marivo.semantic.expressions import Entity
@@ -145,14 +145,14 @@ class Session:
         entity: Entity,
         *,
         at: InstantAnchor | None = None,
-        where: Deferred | PopulationPredicate | None = None,
+        where: Deferred | None = None,
     ) -> Population:
         """Capture a source identity Population without reading schema or rows.
 
         Args:
             entity: Resolved Entity definition.
             at: Exact version selection instant.
-            where: An optional same-root semantic field predicate.
+            where: An optional same-root Deferred combining field and Population membership conditions.
 
         Returns:
             A lazy Population retaining this Session's ownership.
@@ -169,7 +169,6 @@ class Session:
         from marivo.analysis.core.model import reject
         from marivo.analysis.dsl.population import (
             Population,
-            PopulationPredicate,
             _owner,
             condition_populations,
         )
@@ -191,11 +190,14 @@ class Session:
                 "Resolve an Entity with the same complete identity structure.",
                 "session.members.entity",
             )
-        predicate = (
-            consume_predicate(where)
-            if where is not None and not isinstance(where, PopulationPredicate)
-            else None
+        from marivo.analysis.core.frame_key_inputs import collect_frame_key_inputs
+
+        frame_inputs = (
+            collect_frame_key_inputs(where, owner=Owner(self.id, self._runtime.store.store_id))
+            if where is not None
+            else ()
         )
+        predicate = consume_predicate(where) if where is not None else None
         if predicate is not None and any(root.ref != resolved.ref.ref for root in predicate.roots):
             reject(
                 "a predicate on the selected Entity",
@@ -211,9 +213,9 @@ class Session:
                 "session.members",
             )
         axis = AxisBinding(entity.ref, None, (), "identity", at)
-        if isinstance(where, PopulationPredicate) and any(
+        if predicate is not None and any(
             _owner(domain) not in (None, Owner(self.id, self._runtime.store.store_id))
-            for domain in condition_populations(where._condition)
+            for domain in condition_populations(predicate.node)
         ):
             reject(
                 "a predicate domain owned by this Session",
@@ -224,15 +226,11 @@ class Session:
         node = SourceIdentities(
             entity.ref,
             at,
-            where._condition
-            if isinstance(where, PopulationPredicate)
-            else predicate.node
-            if predicate is not None
-            else None,
+            predicate.node if predicate is not None else None,
         )
         return Population(
             PopulationProgram(node, Owner(self.id, self._runtime.store.store_id), (axis,)),
-            where._frame_inputs if isinstance(where, PopulationPredicate) else (),
+            frame_inputs,
         )
 
     def instant(
@@ -277,7 +275,7 @@ class Session:
         metrics: Mapping[str, Deferred],
         *,
         by: tuple[Deferred | Grouping | TimeScope, ...] | Population = (),
-        where: Deferred | PopulationPredicate | None = None,
+        where: Deferred | None = None,
         memberships: tuple[Grouping, ...] = (),
     ) -> AnalysisFrame:
         """Capture named Metric expressions as a lazy AnalysisFrame.
@@ -286,7 +284,7 @@ class Session:
             metrics: Nonempty ordered mapping of names to resolved Metric expressions.
             by: Ordered fields, Grouping rules or finite TimeScopes, or a complete Population
                 output domain. Empty () evaluates one zero-axis cell.
-            where: Extra field or PopulationPredicate conditions on fact contributions.
+            where: Extra Deferred field and Population membership conditions on fact contributions.
             memberships: Explicit contribution mappings for existing output coordinates.
 
         Returns:

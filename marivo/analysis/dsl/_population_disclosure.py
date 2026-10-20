@@ -25,7 +25,6 @@ from marivo.analysis._capabilities.dataset_model import (
 )
 from marivo.analysis.dsl.population import (
     Population,
-    PopulationPredicate,
     coordinates,
     identity,
     in_population,
@@ -80,8 +79,8 @@ def provider() -> DisclosureProvider:
         ),
         (
             in_population,
-            "PopulationPredicate",
-            "Test complete coordinates against a captured domain; combine with &, | and ~.",
+            "Deferred",
+            "Capture a native boolean membership leaf over complete null-safe tuples; combine with field conditions using &, | and ~. See semantic.predicate.",
             "result = mv.in_population(population)",
             ("population",),
             "inputs.population",
@@ -276,14 +275,6 @@ def provider() -> DisclosureProvider:
             ("grouping",),
         ),
         (
-            PopulationPredicate,
-            "show",
-            "None",
-            "Print bounded closed boolean structure and domain facts without source access.",
-            "result = predicate.show()",
-            ("predicate",),
-        ),
-        (
             _Window,
             "show",
             "str",
@@ -328,7 +319,6 @@ def provider() -> DisclosureProvider:
             ("session.frame", "Population.project", "Population.classify", "Population.where"),
         ),
         (Grouping, ("identity", "membership"), ("session.observe", "Grouping.show")),
-        (PopulationPredicate, ("in_population",), ("Population.where", "PopulationPredicate.show")),
     ):
         descriptors.append(
             value_type(

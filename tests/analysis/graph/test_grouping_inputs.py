@@ -115,7 +115,7 @@ def test_population_predicates_and_classify_have_explicit_boundaries(
     entity = session.catalog.entities.get("sales.customer")
     people = mv.coordinates(by=(mv.identity(entity),), keys=((("missing",),),))
     with pytest.raises(AnalysisError) as caught:
-        people.where(region == "east")  # type: ignore[arg-type]  # Source predicates are not membership predicates.
+        people.where(region == "east")  # Population selection permits membership leaves only.
     assert caught.value.expected and caught.value.received and caught.value.repair
     with pytest.raises(AnalysisError):
         bool(people)
@@ -127,12 +127,15 @@ def test_population_predicates_and_classify_have_explicit_boundaries(
     assert session.frame(unchanged).compute().to_pandas().iloc[:, 0].tolist() == ["missing"]
     left = mv.in_population(mv.coordinates(by=(region,), keys=(("east",),)))
     right = mv.in_population(mv.coordinates(by=(region,), keys=(("west",),)))
-    assert (left & right).show() is None
+    domain = mv.coordinates(by=(region,), keys=(("east",), ("west",)))
+    assert domain.where(left & right).show() is None
     conjunction = capsys.readouterr().out
-    assert (left | right).show() is None
+    assert domain.where(left | right).show() is None
     disjunction = capsys.readouterr().out
     assert conjunction != disjunction
-    assert "predicate=and" in conjunction and "predicate=or" in disjunction
+    assert " & " in conjunction and " | " in disjunction
+    assert all(value in conjunction and value in disjunction for value in ("east", "west"))
+    assert "in_population" in conjunction and "in_population" in disjunction
 
 
 def test_population_algebra_matches_business_coordinates_across_definition_versions(

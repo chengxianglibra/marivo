@@ -387,6 +387,44 @@ def test_native_time_dependencies_and_drill(
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
+def test_mixed_predicate_keeps_null_rows_and_complete_identity_membership(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    backend: str,
+    profile: str,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    with source_case(backend, profile, tmp_path, monkeypatch, DATA) as case:
+        _project(backend, case, monkeypatch, semantic_project_factory)
+        session = mv.session.create("remote_mixed_predicate", timezone="UTC")
+        entity = session.catalog.entities.get("sales.facts")
+        category = session.catalog.fields.get("sales.facts.category")
+        weight = session.catalog.fields.get("sales.facts.weight")
+        captured = session.values(
+            by=(mv.identity(entity),),
+            columns={"flag": None},
+            rows=(((("a", 3),), {"flag": True}),),
+        ).compute()
+        population = session.population_from(captured, on=((captured.axes[0], entity),))
+        field = category == "x"
+        member = mv.in_population(population)
+        # Independent source rows: x selects identities a/1 and b/2, while
+        # membership adds a/3 despite its null category. b/4 stays unknown.
+        for condition, total, identities in (
+            (field | member, 104, {("a", 1), ("b", 2), ("a", 3)}),
+            (member & field, 0, set()),
+            (~(field | member), 0, set()),
+        ):
+            observed = session.observe({"weight": weight.sum(empty="zero")}, where=condition)
+            assert observed.compute().to_pandas()[("value", "weight")].tolist() == [total]
+            scoped = session.observe({"weight": weight.sum(empty="zero").where(condition)})
+            assert scoped.compute().to_pandas()[("value", "weight")].tolist() == [total]
+            selected = session.frame(session.members(entity, where=condition)).compute().to_pandas()
+            assert set(selected.iloc[:, 0].tolist()) == identities
+
+
+@pytest.mark.parametrize("backend,profile", source_params(CASES))
 @pytest.mark.parametrize("selection", ("string", "null", "nul"))
 def test_same_source_read_filter_population_consumer(
     tmp_path: Path,

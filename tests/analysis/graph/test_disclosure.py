@@ -39,7 +39,6 @@ REQUIRED_TARGETS = {
     "population",
     "column",
     "grouping",
-    "population_predicate",
     "coordinates",
     "membership",
     "product",
@@ -74,14 +73,17 @@ def test_exact_export_bindings_and_required_native_targets() -> None:
 
 def test_population_ir_fields_are_private_help_targets() -> None:
     registry = prepare()
-    for target in ("population.definition", "population_predicate.condition"):
+    for target in (
+        "population.definition",
+        "population_predicate",
+        "population_predicate.condition",
+        "population_predicate.show",
+    ):
         with pytest.raises(HelpTargetError):
             registry.resolve(target)
     population = registry.resolve("population").descriptor
-    predicate = registry.resolve("population_predicate").descriptor
-    assert isinstance(population, TypeInput) and isinstance(predicate, TypeInput)
+    assert isinstance(population, TypeInput)
     assert tuple(field.name for field in population.bindings[0].fields) == ("axes",)
-    assert predicate.bindings[0].fields == ()
     with pytest.raises(HelpTargetError):
         registry.resolve("population.memberships")
 

@@ -44,8 +44,11 @@ def parameter_domains(graph: BoundGraph) -> tuple[PopulationProgram, ...]:
 
     visit(graph.root)
     observation = graph.signature.observation
-    if observation is not None and observation.coordinates.population is not None:
-        visit(observation.coordinates.population)
+    if observation is not None:
+        if observation.coordinates.population is not None:
+            visit(observation.coordinates.population)
+        if observation.condition is not None:
+            visit(observation.condition)
     return tuple(result.values())
 
 

@@ -39,8 +39,8 @@ def query_selection_fusion_issue(
         return "completed checks before selection fusion", "a pending check boundary"
     if original_boundary:
         return "an unchanged original fine-grid completion boundary", "original completion"
-    if not same_layout or first.domains or second.domains:
-        return "same-layout comparisons on the same actual input", "different domains or layout"
+    if not same_layout:
+        return "same-layout comparisons on the same actual input", "different layout"
     by_slot = {column.slot_id: column for column in columns}
 
     def operand(expression: ValueExpression) -> bool:

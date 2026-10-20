@@ -7,7 +7,7 @@ from typing import TypeAlias
 
 from ibis.common.deferred import Deferred
 
-from marivo._definition.expressions import ContributionFilter, MetricNode
+from marivo._definition.expressions import MetricNode
 from marivo._definition.query import (
     ResultQuery,
 )
@@ -15,6 +15,7 @@ from marivo._definition.relations import (
     ObserveQuery,
     PopulationProgram,
     ReadQuery,
+    condition_populations,
 )
 from marivo._definition.types import (
     AxisBinding,
@@ -35,7 +36,6 @@ from marivo.analysis.core.model import BoundQuantity, BoundSignature, ResultQuan
 from marivo.analysis.dsl.column import literal_kind
 from marivo.analysis.dsl.population import (
     Population,
-    PopulationPredicate,
     _axes,
     _owner,
 )
@@ -249,7 +249,7 @@ def capture_metrics(
     owner: Owner,
     *,
     by: tuple[Deferred | Grouping | TimeScope, ...] | Population = (),
-    where: Deferred | PopulationPredicate | None = None,
+    where: Deferred | None = None,
     memberships: tuple[Grouping, ...] = (),
     timezone: str = "UTC",
     state: CompiledSemanticState | None = None,
@@ -275,12 +275,7 @@ def capture_metrics(
         facts = (
             consume_metric_in_state(metric, state) if state is not None else consume_metric(metric)
         )
-        definition = (
-            ContributionFilter(facts.node, where._condition)
-            if isinstance(where, PopulationPredicate)
-            else facts.node
-        )
-        quantities.append(BoundQuantity(name, definition, facts.unit))
+        quantities.append(BoundQuantity(name, facts.node, facts.unit))
         definitions.update(facts._declared)
     if not isinstance(by, (tuple, Population)):
         reject(
@@ -348,7 +343,16 @@ def capture_metrics(
         else IdentityRead(axis.entity, axis.path, axis.at)
         for axis in source_axes
     )
-    condition = consume_predicate(where).node if isinstance(where, Deferred) else None
+    condition = consume_predicate(where).node if where is not None else None
+    if condition is not None:
+        for dependency in condition_populations(condition):
+            if _owner(dependency) not in (None, owner):
+                reject(
+                    "predicate Population dependencies owned by this Session",
+                    "a Population from another Store or Session",
+                    "Construct the condition and observation in the Population's owning Session.",
+                    "session.observe",
+                )
     signature = BoundSignature(
         owner, tuple(quantities), declared_metrics=tuple(definitions.items())
     )

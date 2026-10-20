@@ -31,7 +31,7 @@ from marivo.refs import DomainKind, Ref, SemanticKind, _validate_segment
 if TYPE_CHECKING:
     from marivo._definition.relations import (
         LiteralPopulation,
-        PopulationCondition,
+        PopulationContains,
         PopulationProgram,
         SampleDomain,
     )
@@ -156,10 +156,15 @@ class TimeBinding:
                 )
 
 
-# Field predicates --------------------------------------------------------
+# Source predicates -------------------------------------------------------
 
 
-FieldPredicate: TypeAlias = RowExpression
+@dataclass(frozen=True, slots=True)
+class PredicateExpression:
+    """Native boolean recipe over inert field subtrees and membership leaves."""
+
+    recipe: Resolver
+    inputs: tuple[RowExpression | PopulationContains, ...]
 
 
 # Metric stage ------------------------------------------------------------
@@ -201,10 +206,10 @@ class SourceWeightedMean:
 
 @dataclass(frozen=True, slots=True)
 class ContributionFilter:
-    """Contribution scope restricted by a field predicate or an explicit Population."""
+    """Contribution scope restricted by one captured source predicate."""
 
     operand: MetricNode
-    predicate: FieldPredicate | PopulationCondition
+    predicate: PredicateExpression
 
 
 @dataclass(frozen=True, slots=True)

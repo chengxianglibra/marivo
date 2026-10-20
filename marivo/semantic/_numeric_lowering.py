@@ -15,13 +15,13 @@ from marivo._definition.expressions import (
     ContributionFilter,
     DeclaredMetricRef,
     EntityCount,
-    FieldPredicate,
     MeasureAssertion,
     MetricExpression,
     MetricNode,
     MetricWindow,
     PerReduce,
     PerWeightedMean,
+    PredicateExpression,
     RowExpression,
     RowField,
     RowNode,
@@ -153,11 +153,44 @@ def lower_row(node: RowNode, fields: Mapping[str, ir.Value]) -> NumericValue:
     numeric_failure("an admitted native row recipe", type(node).__name__)
 
 
-def lower_field_predicate(node: FieldPredicate, fields: Mapping[str, ir.Value]) -> NumericValue:
+def lower_field_predicate(node: RowExpression, fields: Mapping[str, ir.Value]) -> NumericValue:
     """Lower a native boolean recipe with its demand-aware numeric checks."""
     if not isinstance(node, RowExpression):
         numeric_failure("an admitted native row predicate", type(node).__name__)
     return lower_row(node, fields)
+
+
+def lower_predicate(
+    node: PredicateExpression,
+    fields: Mapping[str, ir.Value],
+    memberships: tuple[ir.BooleanValue, ...] = (),
+) -> NumericValue:
+    """Bind each boolean slot and retain all field checks on the input domain."""
+    from marivo._definition.relations import PopulationContains
+    from marivo.semantic._numeric_recipe import lower_recipe
+
+    inputs: list[NumericValue] = []
+    markers = iter(memberships)
+    for item in node.inputs:
+        if isinstance(item, PopulationContains):
+            marker = next(markers, None)
+            if marker is None:
+                numeric_failure(
+                    "one prepared marker per Population membership leaf", "missing marker"
+                )
+            inputs.append(NumericValue(marker))
+        else:
+            field = lower_field_predicate(item, fields)
+            if not field.value.type().is_boolean():
+                numeric_failure("a physical boolean predicate", str(field.value.type()))
+            inputs.append(field)
+    if next(markers, None) is not None:
+        numeric_failure("one prepared marker per Population membership leaf", "extra marker")
+    checks = tuple(check for item in inputs for check in item.checks)
+    result = lower_recipe(node.recipe, tuple(NumericValue(item.value) for item in inputs))
+    if not result.value.type().is_boolean():
+        numeric_failure("a physical boolean predicate", str(result.value.type()))
+    return NumericValue(result.value, (*checks, *result.checks))
 
 
 def _source_sum(value: ir.Value) -> ir.Value:

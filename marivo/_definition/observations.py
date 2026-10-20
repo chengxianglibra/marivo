@@ -7,10 +7,9 @@ from datetime import datetime
 from typing import Literal
 
 from marivo._definition.correspondence import ComparisonAxis
-from marivo._definition.expressions import FieldPredicate, MetricNode, TimeBinding
+from marivo._definition.expressions import MetricNode, PredicateExpression, TimeBinding
 from marivo._definition.relations import (
     MembershipBinding,
-    PopulationCondition,
     PopulationDependency,
 )
 from marivo._definition.types import (
@@ -58,8 +57,8 @@ class ContributionBinding:
     occurrence: tuple[int, ...]
     definition: MetricNode
     root: ExactRef
-    intrinsic_conditions: tuple[FieldPredicate, ...]
-    common_condition: FieldPredicate | None
+    intrinsic_conditions: tuple[PredicateExpression, ...]
+    common_condition: PredicateExpression | None
     reads: tuple[FieldRead, ...]
     coordinates: tuple[FieldRead | IdentityRead, ...]
     time: TimeBinding | None
@@ -73,7 +72,6 @@ class ContributionBinding:
     output_axis_count: int = 0
     calendars: tuple[tuple[str, CalendarCoordinate | IntervalCoordinate], ...] = ()
     coverage: tuple[SampleCoverage, ...] = ()
-    population_conditions: tuple[PopulationCondition, ...] = ()
     population_reads: tuple[tuple[AxisBinding, FieldRead | IdentityRead], ...] = ()
 
 
@@ -82,7 +80,7 @@ class ObservationBinding:
     """One observation's conditions, frozen period, output domain and occurrences."""
 
     period: ObservationPeriod | None
-    condition: FieldPredicate | None
+    condition: PredicateExpression | None
     coordinates: CoordinateBinding
     contributions: tuple[ContributionBinding, ...]
     count_populations: tuple[tuple[PopulationDependency, PopulationDependency], ...] = ()

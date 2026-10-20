@@ -501,11 +501,12 @@ def _query_populations(graph: BoundGraph) -> tuple[PopulationDependency, ...]:
             visit(edge.child)
 
     visit(graph.root)
-    if (
-        graph.signature.observation is not None
-        and graph.signature.observation.coordinates.population is not None
-    ):
-        visit(graph.signature.observation.coordinates.population)
+    observation = graph.signature.observation
+    if observation is not None:
+        if observation.coordinates.population is not None:
+            visit(observation.coordinates.population)
+        if observation.condition is not None:
+            visit(observation.condition)
     return tuple(populations.values())
 
 
@@ -707,7 +708,6 @@ def prepare_query_sources(
                 ),
             ),
             contribution.memberships,
-            contribution.population_conditions,
             contribution.population_reads,
             contribution.window_key,
             contribution.sample_axes,

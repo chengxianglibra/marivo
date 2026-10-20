@@ -14,26 +14,26 @@ from marivo._definition.expressions import (
     ContributionFilter,
     DeclaredMetricRef,
     EntityCount,
-    FieldPredicate,
     MemberCount,
     MetricExpression,
     MetricNode,
     MetricWindow,
     PerReduce,
     PerWeightedMean,
-    RowExpression,
+    PredicateExpression,
     RowField,
     SourceAggregate,
     SourceWeightedMean,
 )
 from marivo._definition.graph import children, direct_refs, walk
+from marivo._definition.relations import PopulationContains
 from marivo.refs import SemanticKind, ref
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic._numeric_lowering import (
     NumericCheck,
     NumericValue,
-    lower_field_predicate,
     lower_metric_formula,
+    lower_predicate,
     lower_source_reduction,
     numeric_failure,
 )
@@ -47,7 +47,9 @@ def validate_preview_metric(value: Deferred) -> None:
     metric = consume_metric(value)
     closure = walk((metric.node,), resolve=dict(metric._declared).get)
     if any(
-        isinstance(node, (PerReduce, PerWeightedMean, MemberCount, MetricWindow))
+        isinstance(
+            node, (PerReduce, PerWeightedMean, MemberCount, MetricWindow, PopulationContains)
+        )
         for node in closure.order
     ):
         numeric_failure(
@@ -73,11 +75,6 @@ def validate_preview_metric(value: Deferred) -> None:
             numeric_failure(
                 "native time in an ordinary Metric preview",
                 "path/attribute anchor preview preparation is unavailable",
-            )
-        if isinstance(node, ContributionFilter) and not isinstance(node.predicate, RowExpression):
-            numeric_failure(
-                "native row predicates in a Metric preview",
-                "Population preview preparation is unavailable",
             )
 
 
@@ -117,13 +114,12 @@ def lower_preview_metric(
     checks: list[tuple[str, NumericCheck]] = []
 
     def visit(
-        node: MetricNode, occurrence: tuple[int, ...], predicates: tuple[FieldPredicate, ...]
+        node: MetricNode, occurrence: tuple[int, ...], predicates: tuple[PredicateExpression, ...]
     ) -> None:
         if isinstance(node, DeclaredMetricRef):
             visit(declared[node.ref], (*occurrence, 0), predicates)
             return
         if isinstance(node, ContributionFilter):
-            assert isinstance(node.predicate, RowExpression)
             visit(node.operand, (*occurrence, 0), (*predicates, node.predicate))
             return
         if isinstance(node, (SourceAggregate, SourceWeightedMean, EntityCount)):
@@ -134,7 +130,7 @@ def lower_preview_metric(
             )
             table = tables[root].view()
             fields = {name: table[name] for name in table.columns}
-            selected = tuple(lower_field_predicate(predicate, fields) for predicate in predicates)
+            selected = tuple(lower_predicate(predicate, fields) for predicate in predicates)
             predicate_checks = tuple(check for item in selected for check in item.checks)
             predicate_summary = (
                 table.aggregate(

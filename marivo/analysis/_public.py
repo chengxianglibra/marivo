@@ -17,7 +17,6 @@ from marivo.analysis.dsl.correspondence import previous_year as previous_year
 from marivo.analysis.dsl.frame import AnalysisFrame as AnalysisFrame
 from marivo.analysis.dsl.frame_axis import FrameAxis as FrameAxis
 from marivo.analysis.dsl.population import Population as Population
-from marivo.analysis.dsl.population import PopulationPredicate as PopulationPredicate
 from marivo.analysis.dsl.population import coordinates as coordinates
 from marivo.analysis.dsl.population import identity as identity
 from marivo.analysis.dsl.population import in_population as in_population
@@ -46,7 +45,6 @@ __all__ = [  # noqa: RUF022 - public order is contractual
     "Grouping",
     "identity",
     "Population",
-    "PopulationPredicate",
     "CalendarCorrespondence",
     "coordinates",
     "membership",

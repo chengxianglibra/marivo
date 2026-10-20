@@ -32,7 +32,6 @@ from marivo.analysis.core.model import ResultQuantity, reject
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.population import (
     Population,
-    PopulationPredicate,
 )
 from marivo.analysis.dsl.source_capture import (
     ValueRow,
@@ -167,7 +166,7 @@ def observe(
     metrics: Mapping[str, Deferred],
     *,
     by: tuple[Deferred | Grouping | TimeScope, ...] | Population = (),
-    where: Deferred | PopulationPredicate | None = None,
+    where: Deferred | None = None,
     memberships: tuple[Grouping, ...] = (),
     timezone: str = "UTC",
     calendar_snapshots: tuple[PeriodCalendarSnapshotV1, ...] = (),

@@ -8,8 +8,11 @@ Population objects, Sessions, Catalogs, Ibis expressions, or Artifacts.
 from __future__ import annotations
 
 import json
+import operator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, TypeAlias
+
+from ibis.common.deferred import BinaryOperator, Just, Resolver, UnaryOperator, Variable
 
 from marivo._definition.correspondence import (
     ComparisonAxis,
@@ -33,7 +36,7 @@ from marivo._definition.types import (
 from marivo.refs import SemanticKind
 
 if TYPE_CHECKING:
-    from marivo._definition.expressions import FieldPredicate, MetricNode
+    from marivo._definition.expressions import MetricNode, PredicateExpression
     from marivo._temporal import InstantAnchor
 
 
@@ -157,7 +160,7 @@ class SourceIdentities:
 
     entity: ExactRef
     at: InstantAnchor | None = None
-    predicate: FieldPredicate | PopulationCondition | None = None
+    predicate: PredicateExpression | None = None
 
     def __post_init__(self) -> None:
         if self.entity.ref.kind is not SemanticKind.ENTITY:
@@ -268,29 +271,9 @@ class PopulationContains:
 
 
 @dataclass(frozen=True, slots=True)
-class PopulationAnd:
-    left: PopulationCondition
-    right: PopulationCondition
-
-
-@dataclass(frozen=True, slots=True)
-class PopulationOr:
-    left: PopulationCondition
-    right: PopulationCondition
-
-
-@dataclass(frozen=True, slots=True)
-class PopulationNot:
-    operand: PopulationCondition
-
-
-PopulationCondition: TypeAlias = PopulationContains | PopulationAnd | PopulationOr | PopulationNot
-
-
-@dataclass(frozen=True, slots=True)
 class PopulationFilter:
     operand: PopulationDependency
-    predicate: PopulationCondition
+    predicate: PredicateExpression
 
 
 @dataclass(frozen=True, slots=True)
@@ -351,13 +334,6 @@ class PopulationParameter:
     _definition: PopulationDependency
 
 
-@dataclass(frozen=True, slots=True)
-class PopulationPredicateParameter:
-    """Private closed coordinate membership predicate shared with semantic consumers."""
-
-    _condition: PopulationCondition
-
-
 def sample_population(
     samples: tuple[AxisBinding, ...] | SampleDomain | LiteralPopulation | PopulationProgram,
 ) -> PopulationDependency | None:
@@ -367,13 +343,25 @@ def sample_population(
     return samples if isinstance(samples, (LiteralPopulation, PopulationProgram)) else None
 
 
-def condition_populations(condition: PopulationCondition) -> tuple[PopulationDependency, ...]:
-    """Return all immutable population operands in a closed predicate."""
-    if isinstance(condition, PopulationContains):
-        return (condition.population,)
-    if isinstance(condition, PopulationNot):
-        return condition_populations(condition.operand)
-    return (*condition_populations(condition.left), *condition_populations(condition.right))
+def condition_populations(condition: PredicateExpression) -> tuple[PopulationDependency, ...]:
+    """Return ordered inert Population operands without evaluating their programs."""
+    return tuple(
+        item.population for item in condition.inputs if isinstance(item, PopulationContains)
+    )
+
+
+def _condition_value(recipe: Resolver, values: tuple[bool, ...]) -> bool:
+    """Interpret the admitted native boolean structure on complete coordinate keys."""
+    if isinstance(recipe, Variable):
+        return values[int(str(recipe.name).removeprefix("slot_"))]
+    if isinstance(recipe, Just) and type(recipe.value) is bool:
+        return recipe.value
+    if isinstance(recipe, UnaryOperator) and recipe.func is operator.invert:
+        return not _condition_value(recipe.arg, values)
+    if isinstance(recipe, BinaryOperator) and recipe.func in (operator.and_, operator.or_):
+        left, right = _condition_value(recipe.left, values), _condition_value(recipe.right, values)
+        return left and right if recipe.func is operator.and_ else left or right
+    invalid("Expected an admitted membership boolean recipe; capture it through in_population.")
 
 
 def population_keys(
@@ -395,8 +383,11 @@ def population_keys(
         if source is None or any(population_keys(domain) is None for domain in domains):
             return None
 
-        def matches(condition: PopulationCondition, row: tuple[CoordinateValue, ...]) -> bool:
-            if isinstance(condition, PopulationContains):
+        def matches(row: tuple[CoordinateValue, ...]) -> bool:
+            values: list[bool] = []
+            for condition in node.predicate.inputs:
+                if not isinstance(condition, PopulationContains):
+                    invalid("Population.where requires membership leaves; use members for fields.")
                 keys = population_keys(condition.population)
                 assert keys is not None
                 projection = tuple(
@@ -404,22 +395,20 @@ def population_keys(
                     for axis in condition.population.axes
                 )
 
-                def token_key(key: tuple[CoordinateValue, ...]) -> tuple[tuple[str, str], ...]:
+                def token_key(
+                    key: tuple[CoordinateValue, ...],
+                    axes: tuple[ComparisonAxis, ...] = condition.population.axes,
+                ) -> tuple[tuple[str, str], ...]:
                     return tuple(
                         _coordinate_token(axis, value, index, {})
-                        for index, (axis, value) in enumerate(
-                            zip(condition.population.axes, key, strict=True)
-                        )
+                        for index, (axis, value) in enumerate(zip(axes, key, strict=True))
                     )
 
-                return token_key(projection) in {token_key(key) for key in keys}
-            if isinstance(condition, PopulationNot):
-                return not matches(condition.operand, row)
-            if isinstance(condition, PopulationAnd):
-                return matches(condition.left, row) and matches(condition.right, row)
-            return matches(condition.left, row) or matches(condition.right, row)
+                values.append(token_key(projection) in {token_key(key) for key in keys})
+            return _condition_value(node.predicate.recipe, tuple(values))
 
-        return tuple(row for row in source if matches(node.predicate, row))
+        return tuple(row for row in source if matches(row))
+
     if isinstance(node, PopulationSet):
         left, right = population_keys(node.left), population_keys(node.right)
         if left is None or right is None:

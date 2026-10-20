@@ -20,6 +20,7 @@ from marivo._definition.expressions import (
     MetricExpression,
     PerReduce,
     PerWeightedMean,
+    PredicateExpression,
     SourceAggregate,
 )
 from marivo._definition.graph import computation_fingerprint, walk
@@ -40,13 +41,10 @@ from marivo._definition.query import (
     ValueUnary,
 )
 from marivo._definition.relations import (
-    PopulationAnd,
-    PopulationCondition,
     PopulationContains,
     PopulationDependency,
     PopulationFilter,
     PopulationImage,
-    PopulationNot,
     PopulationPreimage,
     PopulationProduct,
     PopulationProgram,
@@ -282,46 +280,43 @@ def _population_relation(
         return _NativePopulation(expression, tuple(groups))
 
     def matches(
-        condition: PopulationCondition, operand: PopulationDependency, value: _NativePopulation
+        condition: PredicateExpression, operand: PopulationDependency, value: _NativePopulation
     ) -> _NativePopulation | str:
-        if isinstance(condition, PopulationContains):
-            other = rows(condition.population)
+        table = value.expression.view()
+        original = tuple(table.columns)
+        values: dict[str, object] = {}
+        for index, leaf in enumerate(condition.inputs):
+            assert isinstance(leaf, PopulationContains)
+            other = rows(leaf.population)
             if isinstance(other, str):
                 return other
-            left, right = value.expression.view(), other.expression.view()
+            marker = f"__population_match_{index}"
+            renamed = {
+                name: f"__population_match_{index}_{position}"
+                for position, name in enumerate(other.expression.columns)
+            }
+            right = _distinct(
+                other.expression.select(
+                    **{name: other.expression[old] for old, name in renamed.items()}
+                ),
+                provider,
+            ).mutate(**{marker: ibis.literal(True)})
             predicates = tuple(
-                _same_key(left[a], right[b], provider)
-                for axis, group in zip(condition.population.axes, other.groups, strict=True)
+                _same_key(table[a], right[renamed[b]], provider)
+                for axis, group in zip(leaf.population.axes, other.groups, strict=True)
                 for a, b in zip(
                     value.groups[coordinate_position(operand.axes, axis)], group, strict=True
                 )
             )
-            return _NativePopulation(
-                left.semi_join(right, predicates or ibis.literal(True)), value.groups
+            table = table.left_join(right, predicates or ibis.literal(True)).select(
+                table, right[marker]
             )
-        if isinstance(condition, PopulationNot):
-            selected = matches(condition.operand, operand, value)
-            if isinstance(selected, str):
-                return selected
-            left, right = value.expression.view(), selected.expression.view()
-            return _NativePopulation(
-                left.anti_join(
-                    right, [_same_key(left[key], right[key], provider) for key in left.columns]
-                ),
-                value.groups,
-            )
-        first = matches(condition.left, operand, value)
-        if isinstance(first, str):
-            return first
-        second = matches(
-            condition.right, operand, first if isinstance(condition, PopulationAnd) else value
-        )
-        if isinstance(second, str) or isinstance(condition, PopulationAnd):
-            return second
-        return _NativePopulation(
-            _distinct(first.expression.union(second.expression, distinct=False), provider),
-            value.groups,
-        )
+        for index, leaf in enumerate(condition.inputs):
+            assert isinstance(leaf, PopulationContains)
+            values[f"slot_{index}"] = table[f"__population_match_{index}"].fill_null(False)
+        selected = condition.recipe.resolve(values)
+        assert isinstance(selected, ir.BooleanValue)
+        return _NativePopulation(table.filter(selected).select(*original), value.groups)
 
     def rows(domain: PopulationDependency) -> _NativePopulation | str:
         found = available.get(computation_fingerprint(domain))

@@ -1,4 +1,4 @@
-"""Apply closed Population membership to source contributions without fanout."""
+"""Prepare non-null complete-tuple membership markers without filtering facts."""
 
 from __future__ import annotations
 
@@ -8,47 +8,45 @@ import ibis
 import ibis.expr.types as ir
 
 from marivo._definition.observations import ContributionBinding
-from marivo._definition.relations import (
-    PopulationAnd,
-    PopulationCondition,
-    PopulationContains,
-    PopulationDependency,
-    PopulationNot,
-)
+from marivo._definition.relations import PopulationDependency, condition_populations
 from marivo._definition.types import AxisBinding, coordinate_read_keys
-from marivo.analysis.dsl.population import condition_populations
+from marivo.analysis.compiler.predicate import population_key
 from marivo.analysis.materialization.population_preparation import _domain_table, prepare_population
 from marivo.semantic._compiled_state import CompiledSemanticState
 
 
-def filter_contribution(
+def prepare_condition_memberships(
     table: ir.Table,
     contribution: ContributionBinding,
     columns: Mapping[str, str],
     entities: Mapping[str, ir.Table],
     state: CompiledSemanticState,
-) -> ir.Table:
-    """Classify each fact once, then test membership in the captured key sets."""
-    original = tuple(table.columns)
+) -> tuple[ir.Table, tuple[tuple[str, str], ...]]:
+    """Classify every fact once while retaining the condition's original input domain."""
     reads = dict(contribution.population_reads)
     marks: dict[PopulationDependency, str] = {}
-    for condition in contribution.population_conditions:
+    conditions = (
+        *contribution.intrinsic_conditions,
+        *((contribution.common_condition,) if contribution.common_condition is not None else ()),
+    )
+    for condition in conditions:
         for domain in condition_populations(condition):
             if domain in marks:
                 continue
             selected = prepare_population(domain, entities, state)
             index = len(marks)
             marker = f"__predicate_present_{index}"
+            while marker in table.columns:
+                marker += "_"
             renamed = {
                 key: f"__predicate_{index}_{i}" for i, key in enumerate(selected.key_columns)
             }
+            allowed = _domain_table(selected)
             allowed = (
                 (
-                    _domain_table(selected).select(
-                        **{new: selected.table[old] for old, new in renamed.items()}
-                    )
+                    allowed.select(**{new: allowed[old] for old, new in renamed.items()})
                     if renamed
-                    else _domain_table(selected)
+                    else allowed
                 )
                 .distinct()
                 .mutate(**{marker: ibis.literal(True)})
@@ -58,20 +56,9 @@ def filter_contribution(
                 assert isinstance(axis, AxisBinding)
                 for left, right in zip(coordinate_read_keys(reads[axis]), group, strict=True):
                     predicates.append(table[columns[left]].identical_to(allowed[renamed[right]]))
-            table = table.left_join(allowed, predicates).select(table, allowed[marker])
+            table = table.left_join(allowed, predicates or ibis.literal(True)).select(
+                table, allowed[marker]
+            )
+            table = table.mutate(**{marker: table[marker].fill_null(False)})
             marks[domain] = marker
-
-    def value(condition: PopulationCondition) -> ir.BooleanValue:
-        if isinstance(condition, PopulationContains):
-            result = table[marks[condition.population]].fill_null(False)
-            assert isinstance(result, ir.BooleanValue)
-            return result
-        if isinstance(condition, PopulationNot):
-            return ~value(condition.operand)
-        if isinstance(condition, PopulationAnd):
-            return value(condition.left) & value(condition.right)
-        return value(condition.left) | value(condition.right)
-
-    return table.filter(
-        *(value(condition) for condition in contribution.population_conditions)
-    ).select(*original)
+    return table, tuple((population_key(domain), marker) for domain, marker in marks.items())

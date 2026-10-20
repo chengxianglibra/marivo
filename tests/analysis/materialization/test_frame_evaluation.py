@@ -27,7 +27,7 @@ from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.core.output_records import OutputEvidence
 from marivo.analysis.dsl import frame_sources
 from marivo.analysis.dsl.frame import AnalysisFrame
-from marivo.analysis.dsl.population import PopulationPredicate, _calendar_population
+from marivo.analysis.dsl.population import _calendar_population
 from marivo.analysis.dsl.temporal import exact_scope
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
@@ -124,7 +124,7 @@ def test_literal_joint_identity_coordinates_preserve_complete_tuples(
 
 
 def _observe(
-    session: Session, *, grouped: bool = False, where: Deferred | PopulationPredicate | None = None
+    session: Session, *, grouped: bool = False, where: Deferred | None = None
 ) -> AnalysisFrame:
     numerator = session.catalog.fields.get("sales.facts.numerator")
     denominator = session.catalog.fields.get("sales.facts.denominator")

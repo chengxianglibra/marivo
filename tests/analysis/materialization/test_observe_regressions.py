@@ -143,7 +143,7 @@ def test_common_population_condition_rejects_foreign_query_dependency(
     session = analysis_dsl_case_factory("j1").session
     other = mv.session.create("foreign-observation", timezone="UTC")
     selected = other.members(other.catalog.require(ms.ref.entity("sales.customer")))
-    with pytest.raises(AnalysisError, match="Session owner"):
+    with pytest.raises(AnalysisError, match="another Store or Session") as error:
         session.observe(
             {
                 "n": session.members(
@@ -152,6 +152,8 @@ def test_common_population_condition_rejects_foreign_query_dependency(
             },
             where=mv.in_population(selected),
         )
+    assert error.value.expected and error.value.received and error.value.repair
+    assert "owning Session" in str(error.value)
 
 
 @pytest.mark.parametrize("same_calendar", (False, True))

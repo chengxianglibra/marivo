@@ -38,8 +38,12 @@ A TimeScope directly in by supplies one interval coordinate; even a single perio
 retains that axis. Use `by=mv.product(august, east)` to retain every selected
 identity, including those without facts. `east.count()` is a lazy Metric over that
 captured identity domain and counts absent identities; fact conditions do not
-reselect its denominator. With an existing field condition, use
-`revenue.where(mv.in_population(east))` and retain `observe(..., where=field_condition)`.
+reselect its denominator. Combine field and member leaves in one native Deferred
+condition, for example `(region == "east") | mv.in_population(east)`, in
+observe, eligible Metric.where or members. Both sides retain their checks and
+dependencies; nullable fields keep three-valued boolean semantics. A condition
+does not acquire window endpoints or attribute anchors. See
+`marivo.help("semantic.predicate")` for the source grammar.
 Only-count observations reject conditions/windows with no fact effect.
 A domain without time broadcasts the same selected tuple count across the requested
 time axis. To count selected identities by a new attribute, retain identity explicitly:

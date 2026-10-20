@@ -16,8 +16,12 @@ from ibis.common.deferred import (
     UnaryOperator,
 )
 
-from marivo._definition.deferred import resolver_of
-from marivo._definition.relations import PopulationParameter, PopulationPredicateParameter
+from marivo._definition.deferred import (
+    DeclarationResolver,
+    PopulationContainsResolver,
+    resolver_of,
+)
+from marivo._definition.relations import PopulationParameter
 from marivo._definition.types import Owner
 from marivo.analysis.core.model import reject
 
@@ -91,14 +95,16 @@ def merge_frame_key_inputs(
 
 def _recipe_inputs(recipe: Resolver) -> tuple[FrameKeyInput, ...]:
     from marivo._definition.deferred import PopulationCountResolver
-    from marivo.analysis.dsl.population import Population, PopulationPredicate
+    from marivo.analysis.dsl.population import Population
 
-    if isinstance(recipe, PopulationCountResolver):
+    if isinstance(recipe, (PopulationCountResolver, PopulationContainsResolver)):
         value = recipe.population
         return value._frame_inputs if isinstance(value, Population) else ()
+    if isinstance(recipe, DeclarationResolver):
+        return _recipe_inputs(recipe.recipe)
     if isinstance(recipe, Just):
         value = recipe.value
-        return value._frame_inputs if isinstance(value, (Population, PopulationPredicate)) else ()
+        return value._frame_inputs if isinstance(value, Population) else ()
     if isinstance(recipe, BinaryOperator):
         return (*_recipe_inputs(recipe.left), *_recipe_inputs(recipe.right))
     if isinstance(recipe, UnaryOperator):
@@ -117,15 +123,15 @@ def _recipe_inputs(recipe: Resolver) -> tuple[FrameKeyInput, ...]:
 
 
 def collect_frame_key_inputs(
-    *values: Deferred | PopulationParameter | PopulationPredicateParameter | None,
+    *values: Deferred | PopulationParameter | None,
     owner: Owner | None = None,
 ) -> tuple[FrameKeyInput, ...]:
     """Extract original special literals before semantic consumption drops wrappers."""
-    from marivo.analysis.dsl.population import Population, PopulationPredicate
+    from marivo.analysis.dsl.population import Population
 
     groups: list[tuple[FrameKeyInput, ...]] = []
     for value in values:
-        if isinstance(value, (Population, PopulationPredicate)):
+        if isinstance(value, Population):
             groups.append(value._frame_inputs)
         elif isinstance(value, Deferred):
             groups.append(_recipe_inputs(resolver_of(value)))

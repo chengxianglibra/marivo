@@ -29,7 +29,7 @@ from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameRe
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.population import Population
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.methods.query_population import _token, condition_mask, evaluate_population
+from marivo.analysis.methods.query_population import _token, evaluate_population
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
@@ -220,14 +220,6 @@ def test_frame_keys_match_ordinary_python_temporal_literals(
             operation._definition, (selected._definition,), (rows,), ((("t",),),)
         )
         assert tuple(_token(key) for key in actual) == tuple(_token((key,)) for key in expected)
-    # Exercise the generic complete-row predicate consumer as well as PopulationFilter.
-    condition = mv.in_population(finite)._condition
-    assert condition_mask(
-        condition,
-        rows,
-        selected._definition.axes,
-        (("t",),),
-    ).tolist() == [False, True, True]
 
 
 @pytest.mark.parametrize("unit", ["s", "ms", "us", "ns"])

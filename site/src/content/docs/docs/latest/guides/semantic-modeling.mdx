@@ -73,6 +73,15 @@ missing_region_revenue = revenue.where(region.isnull())
 
 where accepts a single source reduction or common paired scope. Filter source child Metrics before composing them. per returns internal samples; reduce them to produce a Metric.
 
+Source conditions are native Deferred expressions. Field leaves and
+`mv.in_population(population)` combine with `&`, `|` and `~`; for example,
+`revenue.where((region == "US") | mv.in_population(population))`. Member leaves
+test complete correlated tuples, including field Nulls, and support only boolean
+operators/constants. Source reduction `where=` keeps its same-row field-only
+contract. Both boolean sides retain required checks and producer dependencies;
+repeated Metric.where calls conjoin conditions on the same check domain.
+Use `marivo.help("semantic.predicate")` for grammar and consumer restrictions.
+
 Native fields share the null-predicate contract at `marivo.help("semantic.dimension.isnull")`; native Deferred methods use these static Help routes instead of callable Help. A routed TimeField keeps its role and is accepted only as `time=`, including when choosing sum-permission coordinates.
 
 ## Units and explicit sum permission

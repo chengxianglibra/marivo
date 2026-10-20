@@ -29,6 +29,7 @@ from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.deferred import (
     DeclarationResolver,
     DeferredInspection,
+    PopulationContainsResolver,
     PopulationCountResolver,
     RelationshipParameter,
     SemanticInput,
@@ -40,7 +41,6 @@ from marivo._definition.expressions import (
     ContributionFilter,
     DeclaredMetricRef,
     EntityCount,
-    FieldPredicate,
     MeasureAssertion,
     MemberCount,
     MetricExpression,
@@ -48,6 +48,7 @@ from marivo._definition.expressions import (
     MetricWindow,
     PerReduce,
     PerWeightedMean,
+    PredicateExpression,
     Reducer,
     RowExpression,
     RowField,
@@ -59,8 +60,8 @@ from marivo._definition.expressions import (
 from marivo._definition.relations import (
     LiteralPopulation,
     MembershipBinding,
+    PopulationContains,
     PopulationParameter,
-    PopulationPredicateParameter,
     PopulationProgram,
     SampleDomain,
     validate_memberships,
@@ -107,7 +108,7 @@ class MetricFacts:
 
 @dataclass(frozen=True, slots=True)
 class PredicateFacts:
-    node: FieldPredicate
+    node: PredicateExpression
     roots: tuple[ExactRef, ...]
 
 
@@ -165,17 +166,6 @@ def _fail(
             else "Use resolved semantic fields at the same stage and reduce rows before combining Metrics."
         ),
     )
-
-
-def _require_predicate_root(predicate: RowFacts, roots: tuple[ExactRef, ...]) -> None:
-    if predicate.root.ref not in {root.ref for root in roots}:
-        raise SemanticExpressionError(
-            kind=ErrorKind.INVALID_WHERE_SCOPE,
-            message="The predicate belongs to another contribution root.",
-            expected=", ".join(root.ref.key for root in roots),
-            received=predicate.root.ref.key,
-            action="Use a predicate on a contribution root, or bind its field through a declared relationship.",
-        )
 
 
 def _rename_slots(recipe: Resolver, offset: int) -> Resolver:
@@ -721,15 +711,16 @@ def _reduce(
     else:
         node = SourceAggregate(row.node, reducer, time, q=q, nulls=policy, empty=empty)
     if "where" in kwargs:
-        predicate = _consume(kwargs["where"])
-        if not isinstance(predicate, RowFacts) or not predicate.boolean:
+        predicate = _consume_predicate_recipe(kwargs["where"])
+        if any(isinstance(item, PopulationContains) for item in predicate.node.inputs):
             _fail(
-                "Reduction where requires a row predicate.",
-                expected="boolean row expression",
-                received=type(predicate).__name__,
+                "Source reduction where accepts only same-row field conditions.",
+                expected="a boolean field condition without Population membership",
+                received="a membership leaf",
+                action="Apply .where(predicate) to the completed source Metric for membership conditions.",
+                help_target="predicate",
             )
-        assert isinstance(predicate, RowFacts) and isinstance(predicate.node, RowExpression)
-        _require_predicate_root(predicate, (row.root,))
+        _require_condition_roots(predicate, (row.root,))
         node = ContributionFilter(node, predicate.node)
     return MetricFacts(
         node,
@@ -739,6 +730,14 @@ def _reduce(
 
 
 def _consume(recipe: Resolver) -> _Facts:
+    if isinstance(recipe, PopulationContainsResolver):
+        _fail(
+            "Membership leaves require an admitted source predicate position.",
+            expected="membership combined only with &, |, ~ and boolean constants",
+            received="a membership leaf used as a numeric or method receiver",
+            action="Combine in_population(P) with boolean conditions and pass it to where.",
+            help_target="predicate",
+        )
     if isinstance(recipe, PopulationCountResolver):
         return MetricFacts(MemberCount(recipe.population._definition), (), "1")
     if isinstance(recipe, SemanticResolver):
@@ -1163,29 +1162,8 @@ def _consume(recipe: Resolver) -> _Facts:
                         received=type(source).__name__,
                         action="Filter each source child Metric before combining or sampling.",
                     )
-                predicate = _consume(recipe.args[0])
-                if isinstance(predicate, _Scalar) and isinstance(
-                    predicate.value, PopulationPredicateParameter
-                ):
-                    return replace(
-                        receiver, node=ContributionFilter(receiver.node, predicate.value._condition)
-                    )
-                if (
-                    not isinstance(predicate, RowFacts)
-                    or not predicate.boolean
-                    or not isinstance(predicate.node, RowExpression)
-                ):
-                    _fail(
-                        "where requires a row predicate.",
-                        expected="boolean row expression",
-                        received=type(predicate).__name__,
-                    )
-                assert (
-                    isinstance(receiver, MetricFacts)
-                    and isinstance(predicate, RowFacts)
-                    and isinstance(predicate.node, RowExpression)
-                )
-                _require_predicate_root(predicate, receiver.roots)
+                predicate = _consume_predicate_recipe(recipe.args[0])
+                _require_condition_roots(predicate, receiver.roots)
                 return replace(receiver, node=ContributionFilter(receiver.node, predicate.node))
             if name == "divide":
                 from marivo.semantic.expressions import _zero_denominator
@@ -1294,20 +1272,103 @@ def consume_field(value: Deferred) -> SemanticInput:
     return result.field
 
 
-def consume_predicate(value: Deferred) -> PredicateFacts:
-    result = _consume(_inspect(value).recipe)
-    if (
-        not isinstance(result, RowFacts)
-        or not result.boolean
-        or not isinstance(result.node, RowExpression)
-    ):
-        _fail(
-            "Expected a row predicate.",
-            expected="a semantic boolean expression",
-            received=type(result).__name__,
+def _contains_population(recipe: Resolver) -> bool:
+    if isinstance(recipe, PopulationContainsResolver):
+        return True
+    if isinstance(recipe, DeclarationResolver):
+        return _contains_population(recipe.recipe)
+    if isinstance(recipe, BinaryOperator):
+        return _contains_population(recipe.left) or _contains_population(recipe.right)
+    if isinstance(recipe, UnaryOperator):
+        return _contains_population(recipe.arg)
+    if isinstance(recipe, Attr):
+        return _contains_population(recipe.obj)
+    if isinstance(recipe, Call):
+        return any(
+            _contains_population(item)
+            for item in (recipe.func, *recipe.args, *recipe.kwargs.values())
         )
-    assert isinstance(result, RowFacts) and isinstance(result.node, RowExpression)
-    return PredicateFacts(result.node, (result.root,))
+    if isinstance(recipe, Sequence):
+        return any(_contains_population(item) for item in recipe.values)
+    return False
+
+
+def _require_condition_roots(predicate: PredicateFacts, roots: tuple[ExactRef, ...]) -> None:
+    allowed = {root.ref for root in roots}
+    for root in predicate.roots:
+        if root.ref not in allowed:
+            _fail(
+                "The predicate belongs to another contribution root.",
+                kind=ErrorKind.INVALID_WHERE_SCOPE,
+                expected=", ".join(item.ref.key for item in roots),
+                received=root.ref.key,
+                action="Use a predicate on a contribution root, or bind its field through a declared relationship.",
+                help_target="predicate",
+            )
+
+
+def _consume_predicate_recipe(recipe: Resolver) -> PredicateFacts:
+    inputs: list[RowExpression | PopulationContains] = []
+    roots: dict[str, ExactRef] = {}
+
+    def capture(item: Resolver) -> Resolver:
+        if isinstance(item, PopulationContainsResolver):
+            slot = Variable(f"slot_{len(inputs)}")
+            inputs.append(PopulationContains(item.population._definition))
+            return slot
+        if not _contains_population(item):
+            if isinstance(item, Just) and type(item.value) is bool:
+                return item
+            value = _consume(item)
+            if not isinstance(value, RowFacts) or not value.boolean:
+                _fail(
+                    "Expected a source boolean condition.",
+                    expected="a boolean field expression or Population membership leaf",
+                    received=type(value).__name__,
+                    help_target="predicate",
+                )
+            assert isinstance(value, RowFacts)
+            row_inputs: list[RowField | MeasureAssertion] = []
+            row_recipe = _row_recipe(value, row_inputs)
+            slot = Variable(f"slot_{len(inputs)}")
+            inputs.append(RowExpression(row_recipe, tuple(row_inputs)))
+            roots.setdefault(value.root.ref.key, value.root)
+            return slot
+        if isinstance(item, BinaryOperator) and item.func in (operator.and_, operator.or_):
+            return BinaryOperator(item.func, capture(item.left), capture(item.right))
+        if isinstance(item, UnaryOperator) and item.func is operator.invert:
+            return UnaryOperator(item.func, capture(item.arg))
+        _fail(
+            "Population membership supports only boolean combination.",
+            expected="&, |, ~ and boolean constants around membership leaves",
+            received=type(item).__name__,
+            action="Keep field methods inside a pure field condition, then combine it with in_population(P).",
+            help_target="predicate",
+        )
+
+    normalized = capture(recipe)
+    if not inputs:
+        _fail(
+            "A source predicate requires a captured semantic leaf.",
+            expected="a boolean field expression or Population membership leaf",
+            received="a bare boolean constant",
+            help_target="predicate",
+        )
+    if len(roots) > 1:
+        _fail(
+            "Predicate field leaves belong to different contribution roots.",
+            kind=ErrorKind.INVALID_WHERE_SCOPE,
+            expected="field conditions on one contribution root",
+            received=", ".join(roots),
+            action="Bind fields through an explicit single-valued relationship to one root.",
+            help_target="predicate",
+        )
+    return PredicateFacts(PredicateExpression(normalized, tuple(inputs)), tuple(roots.values()))
+
+
+def consume_predicate(value: Deferred) -> PredicateFacts:
+    """Capture the native boolean structure without reading or evaluating sources."""
+    return _consume_predicate_recipe(_inspect(value).recipe)
 
 
 def consume_metric_in_state(value: Deferred, state: CompiledSemanticState) -> MetricFacts:

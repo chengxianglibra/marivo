@@ -10,12 +10,12 @@ from marivo._definition.expressions import (
     ContributionFilter,
     DeclaredMetricRef,
     EntityCount,
-    FieldPredicate,
     MeasureAssertion,
     MemberCount,
     MetricNode,
     PerReduce,
     PerWeightedMean,
+    PredicateExpression,
     RowExpression,
     RowField,
     RowNode,
@@ -29,7 +29,6 @@ from marivo._definition.observations import ObservationBinding as ObservationBin
 from marivo._definition.observations import ObservationPeriod as ObservationPeriod
 from marivo._definition.relations import (
     MembershipBinding,
-    PopulationCondition,
     PopulationDependency,
     SampleDomain,
 )
@@ -70,11 +69,13 @@ def _row_fields(node: DefinitionNode) -> tuple[RowField, ...]:
 
 
 def _predicate_reads(
-    node: FieldPredicate, state: CompiledSemanticState, resolver: _Resolver
+    node: PredicateExpression, state: CompiledSemanticState, resolver: _Resolver
 ) -> tuple[FieldRead, ...]:
     return tuple(
         field.read or native_read(field.ref, state.registry, resolver)
-        for field in _row_fields(node)
+        for leaf in node.inputs
+        if isinstance(leaf, RowExpression)
+        for field in _row_fields(leaf)
     )
 
 
@@ -83,7 +84,7 @@ def bind_observation(
     declared: dict[ExactRef, MetricNode],
     *,
     by: tuple[FieldRead | IdentityRead | CalendarCoordinate | IntervalCoordinate, ...],
-    where: FieldPredicate | None,
+    where: PredicateExpression | None,
     timezone: str,
     state: CompiledSemanticState | None,
     calendar_snapshots: tuple[PeriodCalendarSnapshotV1, ...] = (),
@@ -146,7 +147,7 @@ def bind_observation(
     def visit(
         node: DefinitionNode,
         occurrence: tuple[int, ...],
-        filters: tuple[FieldPredicate | PopulationCondition, ...],
+        filters: tuple[PredicateExpression, ...],
         sample_axes: tuple[AxisBinding | CalendarCoordinate | IntervalCoordinate, ...] = (),
         sample_layers: tuple[_SampleLayer, ...] = (),
     ) -> None:
@@ -299,18 +300,13 @@ def bind_observation(
                 reads.append(
                     FieldRead(time_read.field, time_read.entity, node.time.path, node.time.at)
                 )
-            row_filters = tuple(
-                predicate for predicate in filters if isinstance(predicate, RowExpression)
-            )
-            population_filters = tuple(
-                predicate for predicate in filters if not isinstance(predicate, RowExpression)
-            )
-            for predicate in (*row_filters, *((condition,) if condition is not None else ())):
+            predicates = (*filters, *((condition,) if condition is not None else ()))
+            for predicate in predicates:
                 reads.extend(_predicate_reads(predicate, state, resolver))
             from marivo._definition.relations import condition_populations
 
             population_reads: dict[AxisBinding, FieldRead | IdentityRead] = {}
-            for predicate in population_filters:
+            for predicate in predicates:
                 for domain in condition_populations(predicate):
                     for axis in domain.axes:
                         if not isinstance(axis, AxisBinding):
@@ -426,9 +422,15 @@ def bind_observation(
                 assert isinstance(result, (RowField, MeasureAssertion))
                 return result
 
-            def bind_predicate(predicate: FieldPredicate) -> FieldPredicate:
+            def bind_predicate(predicate: PredicateExpression) -> PredicateExpression:
                 return replace(
-                    predicate, inputs=tuple(bind_leaf(item) for item in predicate.inputs)
+                    predicate,
+                    inputs=tuple(
+                        replace(item, inputs=tuple(bind_leaf(leaf) for leaf in item.inputs))
+                        if isinstance(item, RowExpression)
+                        else item
+                        for item in predicate.inputs
+                    ),
                 )
 
             contributions.append(
@@ -436,7 +438,7 @@ def bind_observation(
                     occurrence,
                     node,
                     root,
-                    tuple(bind_predicate(p) for p in row_filters),
+                    tuple(bind_predicate(p) for p in filters),
                     bind_predicate(condition) if condition is not None else None,
                     bound,
                     coordinates,
@@ -449,7 +451,6 @@ def bind_observation(
                         for axis in by
                     ),
                     calendars=tuple(coordinate_calendars),
-                    population_conditions=population_filters,
                     population_reads=tuple(population_reads.items()),
                 )
             )

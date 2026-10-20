@@ -362,7 +362,7 @@ on 只能选普通字段轴或完整身份轴，轴属于该 frame、目标角�
 用于贡献过滤时走 observe 的 where=mv.in_population(...)；by=Population 只选择其完整输出键，
 保留无事实坐标，不要求覆盖域外贡献。P.count() 则独立捕获完整去重元组域，
 分组只匹配域内已有坐标，不隐式读取新属性；成员属性分组先显式 classify 并保留身份。
-不增加 frame.population 或 where(PopulationPredicate) 重载；复杂关系导航仍需显式来源参数。
+不增加 frame.population 或 where(Deferred) 重载；复杂关系导航仍需显式来源参数。
 
 ```python
 regional = session.observe({'revenue': revenue}, by=(current_period, region))

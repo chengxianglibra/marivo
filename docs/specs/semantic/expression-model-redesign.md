@@ -182,7 +182,7 @@ aov = revenue / order_count
 ```
 
 来源条件用规约后的 Metric.where 绑定明确的贡献作用域，不新增一套行表筛选 DSL。
-数值行表达式的类型化比较产生 FieldPredicate，例如 margin > 0，沿同一贡献根在规约前求值；
+数值行表达式的类型化比较产生原生布尔 Deferred，例如 margin > 0，沿同一贡献根在规约前求值；
 谓词不改变被筛选业务量的单位或可加权限。
 where 创建新定义，仅用于单一来源规约或同一共同配对作用域；对复合指标应先改具体子指标再组合。
 不能把复合式的 where 猜成“过滤所有叶子”，也不提供 on 或表达式树位置参数。
@@ -209,7 +209,7 @@ pure Measure 的显式 additivity 在行表达式的冻结坐标中检查轴存�
 class Metric:
     def divide(self, other: MetricInput | NumericLiteral, *,
                zero_denominator: Literal["null", "error"] = "null") -> Metric: ...
-    def where(self, predicate: FieldPredicate | PopulationPredicate) -> Metric: ...
+    def where(self, predicate: Deferred) -> Metric: ...
     def per(self, samples: Field | Grouping | tuple[Field | Grouping, ...] | Population,
             *, memberships: tuple[Grouping, ...] = ()) -> MetricSamples: ...
 ```
@@ -938,6 +938,15 @@ Metric 多根集合必须保留每个规约发生位置、各自过滤和时间�
 不依赖内存地址、随机 ID、源码行号或输出标签，也不要求展开成重复的数值 AST。
 
 #### 3.6.5 条件分支的需求域与检查范围
+
+来源条件统一使用原生 Deferred。`mv.in_population(P)` 是非 nullable 成员叶子，
+可与字段条件通过 `&`、`|`、`~` 组合；字段 NA 保留三值布尔语义，只在最终筛选处选择 True。
+成员判断保留完整联合元组与 null-safe 字段匹配，不改变贡献次数或显式输出域。
+observe、单一来源 Metric.where 和 members 按各自根/身份域解释混合条件；
+Population.where 仅允许成员叶子，来源规约的 where= 仅允许同行字段条件。
+成员叶子不开放比较、算术、ifelse、cast 或任意方法。
+统一惰性 PredicateExpression 保存原生布尔 recipe 与字段/成员输入，不保存运行期 Session 或 Frame；
+Frame 强引用由调用期依赖闭包单独保留。公开语法与限制由 `semantic.predicate` Help 拥有。
 
 采用按表达式语义确定的需求域，不按 Python 赋值顺序或“是否已命名”决定求值。
 所有分支始终检查符号、依赖、阶段、根、单位、权限及真实 dtype；恒假分支中的跨根表达式、未知操作、
