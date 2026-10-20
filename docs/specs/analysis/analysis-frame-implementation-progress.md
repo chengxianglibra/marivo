@@ -6,6 +6,8 @@ Status: **S0-S8 complete and accepted.** AnalysisFrame is the canonical public
 analysis surface, with completed `frame_output.v1` results in Store 12. All
 owning P2+ findings are closed within at most two review rounds. All accepted
 subtasks are locally committed; the final progress record is committed separately.
+The subsequent [post-completion final review](#post-completion-final-review)
+and its accepted corrections are recorded separately below.
 
 ## Authority and baseline
 
@@ -75,6 +77,10 @@ subtasks are locally committed; the final progress record is committed separatel
 
 ## Final acceptance
 
+These receipts belong to the original S0-S8 closeout and its exact recorded
+source and wheel. The post-completion review below records the correction
+freeze and its separate acceptance evidence.
+
 - Code commit before this coordinator-only record: `f2be3c5abcdf330858c1322cf178390e8d0c6c22`.
 - Final source freeze: `3ba19a97feec53f675d788e6dc750ab04840924c5b6c88fbdc53064f1b625ca4`;
   all 98 production entries and all 299 production Python modules match.
@@ -104,6 +110,84 @@ subtasks are locally committed; the final progress record is committed separatel
   preserved in `isolated-storage-full-evidence.tar.gz`, SHA256
   `381e6e60d1622304640ad5bd6be4ec6a6cdcd76cef9e2c455f15253ffcb43e54`.
   Both original user stashes remain unchanged. No push or release was performed.
+
+## Post-completion final review
+
+Date: 2026-10-20. Status: **accepted; no unresolved P2+ findings in the reviewed scope.**
+
+The user requested a fresh `gpt-6-astra`, high, independent final review against
+the implementation plan, emphasizing semantic consistency, retired Query paths,
+and Help/docs/skills alignment. Round 1 reviewed
+`6c2800bfa758dd9045fa82ce191e89db7ffe9be8` against the original implementation
+baseline and final contracts. Its two P1 findings and one P2 finding were handed
+to two fresh development agents; the reviewer did not implement its own fixes.
+
+| Finding | Correction | Accepted commit |
+| --- | --- | --- |
+| R1-F1, P1: valid temporal extrema became NA in Column predicates; Duration unary overflow was masked; full-range dates failed | Preserve Arrow validity and exact physical ticks, checked Duration unary arithmetic, timestamp precision and awareness semantics | `4b1e21505d90` |
+| R1-F2, P1: Frame-to-Population projection merged a valid minimum timestamp with Null | Preserve complete typed tuples, source-free key schemas and exact selection audit ticks through projection, sets, predicates and transport | `4b1e21505d90` |
+| R1-F3, P2: current CLI and semantic Help recommended retired Query receivers | Use canonical Frame entry points and resolvable cross-surface guidance with receiver-equivalence and cold-import coverage | `038c9235cc8b` |
+
+The R1-F1 scalar algorithm already failed in an independently imported archive
+of `acfc03617a`; it is an inherited defect in the new fixed-data continuation
+guarantee, not a newly introduced algorithm regression. R1-F2 directly affects
+the new Frame-key bridge. The bounded repair also closes its adjacent audit
+scalar conversion and source-free type re-inference consumers. Actual source
+admission, provider/driver paths, the literal grammar and public exports were
+not expanded. No Query compatibility alias or alternate executor was added.
+
+The final candidate contains six production modules and four test paths.
+All 299 production Python modules have freeze
+`3f4ed233bbf7126fe6ac4c670cc11c9d8c53a10872ed2485b2204c4a6c462d8c`;
+the ten accepted paths have freeze
+`e28ee8f9d1a609b37fd87d8ae1ea41a29dee011f120064e4aa281f89e6d4b911`.
+The root and reviewer verified individual file hashes before and after
+acceptance; normal commit hooks preserved the same reviewed bytes.
+
+Independent Astra round 2 completed **No findings**, closing R1-F1/F2/F3.
+Its own evidence includes **172 focused tests**, 32 asymmetric cross-unit
+timestamp comparison cases, finite typed-key equivalence, three incompatible
+shared-target refusals, actual CLI examples and six cold import orders.
+Developer evidence includes 383 temporal/adjacent tests and 181 guidance tests,
+changed-module typing and scoped lint/import checks. These overlapping counts
+are separate runs, not an aggregate test total.
+
+Root unrestricted final command:
+
+```sh
+env -u LINT_TARGETS -u TYPECHECK_TARGETS -u TESTS make check-agent
+```
+
+Actual exit 0: formatting, lint, import contracts, all 304 typing files,
+**4,756 default tests** (635 warnings, 197.27s), and API documentation pass.
+Root independently repeated the original bridge witness and ten temporal
+type/carrier controls, including typed failure before publication. New tests
+also cover source-blocked cold continuation and actual local DuckDB key
+transport with exact persisted/reopened audit facts.
+
+Original failures and probe mistakes remain preserved. The root's initial
+post-fix harness used a coordinate display name instead of the exported token;
+only the harness was corrected. An independent finite-coordinate probe
+initially assumed no source-schema preparation; its retained failure and
+corrected typed-kernel witness do not change that existing source contract.
+
+Reports, manifests and raw outputs remain under
+`evidence/analysis-frame/final-review-20261020/`, including `review-r1.md`,
+`review-r2.md`, `candidate-manifest.json`, both development results and
+`root-check-agent.log`. All accepted task commits used normal hooks and
+substantive attribution; this coordinator record is committed separately.
+
+Both packaged skills and current latest EN/ZH guidance were checked; these
+corrections require no skill or site edits. AGENTS was not edited. Concurrent
+external changes to `attribute-design.md`, `python-analysis-design.md` and
+`analysis-implementation-architecture.md` were preserved byte-for-byte and
+excluded from the repair commits.
+
+This correction acceptance is static/local execution, cold-process and local
+source-transport evidence. No new remote-provider Runtime matrix,
+extreme-value external-provider producer, installed-wheel or release
+qualification is claimed. The original provider/wheel receipts above retain
+their exact original source authority. No push or release was performed.
 
 ## Accepted implementation commits
 
