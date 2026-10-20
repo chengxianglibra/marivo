@@ -78,6 +78,36 @@ Ordinary mapping needs complete explicit on; zero axes and one sole interval or 
 have only the stated inference. Generated value paths are exact names, not roles
 guessed by suffix. Presence is independent of NA.
 
+For current-row Pearson or Spearman correlation, choose the method explicitly:
+
+```python
+result = frame.correlate(frame['spend'], frame['revenue'], method='pearson').compute()
+result.show()  # coefficient, n_pairs
+
+combined = frame.reduce({
+    'spearman': frame['spend'].corr(frame['revenue'], method='spearman'),
+    'n_pairs': frame['spend'].pair_count(frame['revenue']),
+    'rows': mv.row_count(),
+}).compute()
+```
+
+Both numeric Columns and any `by=(frame.axes[0],)` grouping axes must belong to
+this exact Frame/Session input. Different units are allowed; Duration is rejected.
+`correlate` returns a lazy ordinary Frame with fixed ordered `coefficient`
+(nullable float64, unit `1`) and `n_pairs` (nonnullable int64, no unit), consuming
+one input evaluation. Each group uses common non-NA pairs after both expression
+checks. Zero and duplicate values count; zero-pair groups remain. Fewer than two
+pairs or a constant endpoint gives NA with the actual count. Spearman uses
+average ranks within each group's paired values. Presence never implicitly
+filters samples and is removed by reduction. Independent `pair_count(x)` on x
+counts its non-NA values; `reduce` names do not infer matching pairs. Group
+coefficients/counts cannot reconstruct pooled correlation; reduce the original
+sample Frame for that question. Compute the input first only when reusing one
+fixed dataset across analyses.
+
+Discover the focused contracts with `marivo.help("analysis.analysis_frame.correlate")`,
+`marivo.help("analysis.column.corr")` and `marivo.help("analysis.column.pair_count")`.
+
 ## Ask for new source facts explicitly
 
 ```python

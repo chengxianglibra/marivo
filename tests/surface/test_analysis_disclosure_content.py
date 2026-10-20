@@ -12,6 +12,7 @@ from marivo._help.render import render_help_text
 from marivo.analysis._capabilities.dataset_model import CallableInput, TypeInput
 from marivo.analysis._capabilities.dataset_registry import assemble, prepare
 from marivo.analysis.datasets.errors import DatasetRegistrationError
+from tests.shared_fixtures import DslCaseFactory
 
 
 def test_every_advertised_native_member_has_exact_help() -> None:
@@ -64,8 +65,8 @@ def test_family_projection_preserves_every_canonical_member() -> None:
     # AnalysisFrame owns each result operation once, without legacy receiver-family projections.
     assert families == {}
     for owner, methods in (
-        (mv.AnalysisFrame, ("select", "where", "reduce", "align", "compare")),
-        (mv.Column, ("sum", "mean", "divide", "is_null")),
+        (mv.AnalysisFrame, ("select", "where", "reduce", "correlate", "align", "compare")),
+        (mv.Column, ("sum", "mean", "corr", "pair_count", "divide", "is_null")),
     ):
         for method in methods:
             target = ("analysis_frame" if owner is mv.AnalysisFrame else "column") + "." + method
@@ -127,6 +128,7 @@ def test_frame_targets_have_one_semantic_owner_and_no_retired_edges() -> None:
         "select",
         "top",
         "reduce",
+        "correlate",
         "align",
         "compare",
     )
@@ -157,3 +159,72 @@ def test_frame_targets_have_one_semantic_owner_and_no_retired_edges() -> None:
         "PopulationPredicate belongs to source"
         in render_help_text("analysis.analysis_frame.where")[0]
     )
+
+
+def test_correlation_help_contract_and_executable_examples(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    """C09: canonical, class and bound targets share executable, bounded facts."""
+    case = analysis_dsl_case_factory("j2")
+    region = case.catalog.fields.get("sales.customer.region")
+    frame = case.session.values(
+        by=(region,),
+        columns={"value": "CNY", "other": "count"},
+        rows=(
+            (("east",), {"value": 1, "other": 1}),
+            (("north",), {"value": 2, "other": 3}),
+            (("west",), {"value": 3, "other": 2}),
+        ),
+    )
+    registry = prepare()
+    for target, implementation, bound, expected in (
+        (
+            "analysis_frame.correlate",
+            mv.AnalysisFrame.correlate,
+            frame.correlate,
+            ("coefficient", "n_pairs"),
+        ),
+        ("column.corr", mv.Column.corr, frame["value"].corr, ("coefficient", "n_pairs")),
+        (
+            "column.pair_count",
+            mv.Column.pair_count,
+            frame["value"].pair_count,
+            ("n_pairs", "n_values"),
+        ),
+    ):
+        text = render_help_text("analysis." + target)[0]
+        assert text == render_help_text(implementation)[0] == render_help_text(bound)[0]
+        assert text.startswith(f"Target: analysis.{target}\nKind: callable")
+        assert len(text) < 5000
+        for fact in (
+            "Duration",
+            "Frame/Session",
+            "constant",
+            "NA",
+            "analysis.analysis_frame.reduce",
+        ):
+            assert fact in text
+        descriptor = registry.by_canonical_id(target)
+        assert isinstance(descriptor, CallableInput)
+        namespace: dict[str, object] = {"frame": frame}
+        exec(descriptor.example.code, namespace)
+        result = namespace["result"]
+        assert isinstance(result, mv.AnalysisFrame)
+        assert result.output_names == expected
+        data = result.to_pandas()
+        assert data[("value", "n_pairs")].tolist() == [3]
+        if "coefficient" in expected:
+            assert data[("value", "coefficient")].tolist() == pytest.approx([0.5], abs=1e-12)
+        else:
+            assert data[("value", "n_values")].tolist() == [3]
+    frame_help = render_help_text("analysis.analysis_frame")[0]
+    column_help = render_help_text("analysis.column")[0]
+    axis_help = render_help_text("analysis.frame_axis")[0]
+    assert "analysis.analysis_frame.correlate" in frame_help
+    assert "analysis.column.corr" in column_help and "analysis.column.pair_count" in column_help
+    assert "analysis.analysis_frame.correlate" in axis_help
+    high = render_help_text("analysis.analysis_frame.correlate")[0]
+    assert "coefficient" in high and "n_pairs" in high and "one input evaluation" in high
+    assert "nonnullable int64" in high and "nullable float64" in high
+    count = render_help_text("analysis.column.pair_count")[0]
+    assert "Self pair_count counts non-NA" in count and "without ranking" in count

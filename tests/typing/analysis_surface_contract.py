@@ -22,3 +22,13 @@ if TYPE_CHECKING:
     assert_type(frame, mv.AnalysisFrame)
     assert_type(frame.compute(), mv.AnalysisFrame)
     assert_type(frame.persist(), mv.AnalysisFrame)
+    assert_type(
+        frame.correlate(frame["revenue"], frame["revenue"], method="pearson"), mv.AnalysisFrame
+    )
+    assert_type(
+        frame.reduce({"r": frame["revenue"].corr(frame["revenue"], method="spearman")}),
+        mv.AnalysisFrame,
+    )
+    assert_type(
+        frame.reduce({"n": frame["revenue"].pair_count(frame["revenue"])}), mv.AnalysisFrame
+    )

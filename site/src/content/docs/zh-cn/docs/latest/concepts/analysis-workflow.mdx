@@ -64,6 +64,32 @@ align/compare 与受支持冻结日历 match。Column/FrameAxis 绑定精确输�
 普通轴需要完整显式 on，零轴与各自唯一日历轴只有规定的推导。生成值路径按全名精确查询，
 不按后缀猜角色；presence 独立于 NA。
 
+当前行 Pearson 或 Spearman 相关需要显式选择方法：
+
+```python
+result = frame.correlate(frame['spend'], frame['revenue'], method='pearson').compute()
+result.show()  # coefficient, n_pairs
+
+combined = frame.reduce({
+    'spearman': frame['spend'].corr(frame['revenue'], method='spearman'),
+    'n_pairs': frame['spend'].pair_count(frame['revenue']),
+    'rows': mv.row_count(),
+}).compute()
+```
+
+两个数值 Column 与可选的 `by=(frame.axes[0],)` 完整分组轴必须来自该精确 Frame/Session
+输入。单位可以不同；Duration 拒绝。`correlate` 返回惰性普通 Frame，固定顺序为
+`coefficient`（nullable float64，unit `1`）与 `n_pairs`（nonnullable int64，无单位），
+消费同一次输入求值。各组先检查两个表达式，再选共同非 NA 配对；零和重复数值有效，
+零配对组保留。不足两对或常量端时系数为 NA，保留实际计数。Spearman 在组内有效配对
+中排平均秩。presence 不隐式筛样本，规约后被删除。x 的独立自配对 `pair_count(x)`
+统计非 NA 数量；reduce 的名称不推断配对关系。分组系数/计数不能恢复总体相关，
+需要从原样本 Frame 重新规约。仅在多次分析需要复用同一固定数据时才先 compute 输入。
+
+通过 `marivo.help("analysis.analysis_frame.correlate")`、
+`marivo.help("analysis.column.corr")` 与 `marivo.help("analysis.column.pair_count")`
+发现聚焦合同。
+
 ## 显式请求新来源事实
 
 ```python

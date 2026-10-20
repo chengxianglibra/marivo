@@ -15,6 +15,7 @@ from marivo._definition.query import (
     FilterValues,
     KeyImage,
     LiteralValues,
+    PairStatistic,
     PresenceSlot,
     ReadFields,
     ReduceValues,
@@ -166,9 +167,15 @@ def _input_columns(stage: LocalCompute, wanted: set[str]) -> set[str]:
     if isinstance(operation, ReduceValues):
         return set().union(
             *(
-                _expressions(statistic.value, program)
+                _expressions(expression, program)
                 for _, statistic in operation.values
-                if statistic.value is not None
+                for expression in (
+                    (statistic.left, statistic.right)
+                    if isinstance(statistic, PairStatistic)
+                    else (statistic.value,)
+                    if statistic.value is not None
+                    else ()
+                )
             )
         ) | {slot for index in operation.positions for slot in program.key_groups[index]}
     if isinstance(operation, KeyImage):

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Literal
 
 from marivo._definition.query import (
     CoordinateSlot,
+    PairStatistic,
     Statistic,
     ValueBinary,
     ValueExpression,
@@ -456,6 +457,101 @@ class Column:
         """
         return self._statistic("mean")
 
+    def corr(self, other: Column, *, method: Literal["pearson", "spearman"]) -> _Statistic:
+        """Request one paired correlation coefficient, completed by Frame.reduce.
+
+        Args:
+            other: Numeric Column from this exact Frame and Session input.
+            method: Required pearson or spearman; Spearman uses average ranks.
+        Returns: An unfinished scalar statistic with nullable float64 output and unit "1".
+        Example: ``frame.reduce({'r': frame['x'].corr(frame['y'], method='pearson')})``.
+        Constraints: Both endpoints must be numeric; Duration requires an explicit
+        numeric source expression or external computation. Only common non-NA rows
+        contribute, including zero; fewer than two pairs or a constant endpoint
+        return NA. Self-pairing is allowed. This descriptive coefficient does not
+        prove causality or support inference. Use Frame.correlate for a coefficient
+        with its paired count; this statistic contributes only its named column.
+        """
+        if method not in ("pearson", "spearman"):
+            reject(
+                "pearson or spearman",
+                repr(method),
+                "Choose an explicit supported correlation method.",
+                "Column.corr",
+            )
+        return self._pair_statistic(other, method, location="Column.corr")
+
+    def pair_count(self, other: Column) -> _Statistic:
+        """Count common non-NA endpoint values, completed by Frame.reduce.
+
+        Args: other: Numeric Column from this exact Frame and Session input.
+        Returns: An unfinished nonnullable int64 statistic with no declared unit.
+        Example: ``frame.reduce({'n': frame['x'].pair_count(frame['x'])})``.
+        Constraints: Self-pairing counts this expression's non-NA rows. Duration
+        requires an explicit numeric source expression or external computation.
+        Zero and constant values count; zero-pair groups remain present. Counting
+        does not compute ranks or a coefficient. Frame.correlate includes this
+        count, which is a row count rather than an independent sample size.
+        """
+        return self._pair_statistic(other, "pair_count", location="Column.pair_count")
+
+    def _pair_statistic(
+        self,
+        other: Column,
+        method: Literal["pearson", "spearman", "pair_count"],
+        *,
+        location: str,
+    ) -> _Statistic:
+        if method not in ("pearson", "spearman", "pair_count"):
+            reject(
+                "pearson, spearman or pair_count",
+                repr(method),
+                "Choose a supported paired statistic.",
+                location,
+            )
+        if not isinstance(other, Column):
+            reject(
+                "a numeric Column from this exact Frame input",
+                f"right endpoint: {type(other).__name__}",
+                "Acquire both numeric Columns from the same Frame, or align Frames first.",
+                location,
+            )
+        if (
+            self._input_id != other._input_id
+            or self._frame is None
+            or other._frame is None
+            or self._frame._local.owner != other._frame._local.owner
+        ):
+            reject(
+                "Columns from the same exact Store/Session/Frame input",
+                "left and right endpoints from different Frame inputs",
+                "Acquire both numeric Columns from the same Frame, or align Frames first.",
+                location,
+            )
+        for side, column in (("left", self), ("right", other)):
+            if column._kind not in ("numeric", "unresolved"):
+                from marivo.analysis.core.data_schema import DataSchema
+                from marivo.analysis.core.frame_expression import expression_type
+
+                assert column._frame is not None
+                received = (
+                    repr(expression_type(column._frame._schema, column._expression))
+                    if isinstance(column._frame._schema, DataSchema)
+                    else column._kind
+                )
+                reject(
+                    "a numeric Column (int64, float64 or Decimal)",
+                    f"{side} endpoint: {received}",
+                    "Construct a source expression with an explicit numeric unit, or use external computation.",
+                    location,
+                )
+        return _Statistic(
+            self._input_id,
+            PairStatistic(method, self._expression, other._expression, location),
+            None if method == "pair_count" else "1",
+            self._frame,
+        )
+
     def _statistic(self, method: Literal["sum", "mean"]) -> _Statistic:
         if self._kind not in ("numeric", "duration", "unresolved"):
             reject("a numeric Column", self._kind, "Reduce a numeric value.", "Column")
@@ -479,7 +575,7 @@ class ColumnPredicate(Column):
 @dataclass(frozen=True, slots=True)
 class _Statistic:
     input_id: str | None
-    definition: Statistic
+    definition: Statistic | PairStatistic
     unit: str | None
     _frame: AnalysisFrame | None = None
 

@@ -41,7 +41,7 @@ def rejected(session: mv.Session, members: mv.Population, query: mv.AnalysisFram
         "query.deviation(method='zscore')",
         "query.deviation(method='mad', partition_by=(field,))",
         "query.runs(where=query['value'] > 0)",
-        "query.correlate(other, method='pearson')",
+        "query.correlate(query['value'], other, method='pearson')",
         "query.forecast(horizon=2)",
         "artifact.execute()",
         "artifact.where(query['value'] > 0)",

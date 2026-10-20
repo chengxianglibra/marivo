@@ -48,8 +48,12 @@ if standard_deviation > 0:
     standardized = (revenue_values - revenue_values.mean()) / standard_deviation
 ```
 
+Current-row Pearson/Spearman is supported by `frame.correlate(x, y, method=...)`
+with its matching pair count; see [the analysis workflow](/docs/latest/concepts/analysis-workflow/).
+Use typed correlation before exporting when it fits the question.
+
 State sample, NA handling, tie method, fit scope and uncertainty for external
-ranking, standardization, correlation or forecasting. Such outputs are ordinary
+ranking, standardization, other correlation methods or forecasting. Such outputs are ordinary
 data and do not inherit typed Evidence. Exported data/attrs cannot be imported
 as semantic authority. The original Frame still supports its typed data methods.
 

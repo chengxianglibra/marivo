@@ -16,10 +16,12 @@ from marivo._definition.correspondence import CalendarCorrespondence
 from marivo._definition.query import (
     CoordinateSlot,
     FilterValues,
+    PairStatistic,
     PresenceSlot,
     ReduceValues,
     ResultQuery,
     SelectValues,
+    Statistic,
     TopValues,
     ValueBinary,
     ValueExpression,
@@ -318,6 +320,7 @@ class AnalysisFrame:
             )
         if (
             statistic.input_id is None
+            and isinstance(statistic.definition, Statistic)
             and statistic.definition.method == "row_count"
             and statistic.definition.value is None
         ):
@@ -453,8 +456,10 @@ class AnalysisFrame:
         Example:
             ``mean = frame.reduce({'mean': frame['revenue'].mean()})``.
 
-        Constraints: Independent NA masks; no original Metric regrouping or calendar
-        coarsening.
+        Constraints: Each named statistic produces one column with its independent
+        NA mask. Use correlate for a coefficient and its matching pair count;
+        corr/pair_count compose with sum/mean/row_count without inferred pairing.
+        No original Metric regrouping or calendar coarsening.
         """
         if not isinstance(values, Mapping) or not values or type(by) is not tuple:
             reject(
@@ -478,6 +483,87 @@ class AnalysisFrame:
             value_name(name, location="frame.reduce")
             statistics.append((name, self._bind_statistic(value).definition))
         return self._derive(ReduceValues(tuple(statistics), positions))
+
+    def correlate(
+        self,
+        x: Column,
+        y: Column,
+        *,
+        method: Literal["pearson", "spearman"],
+        by: tuple[FrameAxis, ...] = (),
+    ) -> AnalysisFrame:
+        """Correlate two numeric expressions over this Frame's current rows.
+
+        Args:
+            x: Numeric Column bound to this exact Frame/Session input.
+            y: Numeric Column on the same input; its unit may differ from x.
+            method: Required explicit pearson or spearman.
+            by: Tuple of complete same-input axes; () produces one scalar row.
+
+        Returns:
+            A lazy ordinary Frame with coefficient (nullable float64, unit 1)
+            and n_pairs (nonnullable int64, no unit), in that order.
+
+        Example:
+            ``frame.correlate(frame['spend'], frame['revenue'], method='pearson').compute()``.
+
+        Constraints: Both expressions are checked before a common non-NA mask;
+        Duration is rejected, including after physical type preparation. Retains
+        zero-pair groups, removes presence, and returns NA for fewer than two
+        pairs or a constant endpoint. Construction and show read no rows. Use
+        reduce with corr/pair_count to compose several named statistics.
+        """
+        if method not in ("pearson", "spearman"):
+            reject(
+                "pearson or spearman",
+                repr(method),
+                "Choose an explicit supported correlation method.",
+                "frame.correlate",
+            )
+        for label, column in (("x", x), ("y", y)):
+            if not isinstance(column, Column) or (
+                column._input_id != self._input_id
+                or column._frame is None
+                or column._frame._local.owner != self._local.owner
+            ):
+                reject(
+                    f"{label}: a Column from this exact Store/Session/Frame input",
+                    repr(column),
+                    "Acquire both Columns on this Frame; align independent Frames first.",
+                    "frame.correlate",
+                )
+        if type(by) is not tuple:
+            reject(
+                "a tuple of complete same-input FrameAxis handles",
+                repr(by),
+                "Use by=() or by=(frame.axes[0],).",
+                "frame.correlate",
+            )
+        for axis in by:
+            if not isinstance(axis, FrameAxis) or (
+                axis._input_id != self._input_id or axis._frame._local.owner != self._local.owner
+            ):
+                reject(
+                    "complete axes from this exact Frame/Session input",
+                    repr(axis),
+                    "Acquire by axes from this Frame.",
+                    "frame.correlate",
+                )
+        positions = tuple(self._axis_index(axis) for axis in by)
+        if len(set(positions)) != len(positions):
+            reject(
+                "distinct complete current axes",
+                repr(positions),
+                "Use each complete axis once.",
+                "frame.correlate",
+            )
+        coefficient = x._pair_statistic(y, method, location="frame.correlate")
+        count = x._pair_statistic(y, "pair_count", location="frame.correlate")
+        return self._derive(
+            ReduceValues(
+                (("coefficient", coefficient.definition), ("n_pairs", count.definition)), positions
+            )
+        )
 
     def _combine(
         self,
@@ -968,7 +1054,11 @@ def _operation_summary(binding: OperationFrameBinding) -> str:
         (
             name,
             statistic.method,
-            None if statistic.value is None else _value_summary(statistic.value, source),
+            (_value_summary(statistic.left, source), _value_summary(statistic.right, source))
+            if isinstance(statistic, PairStatistic)
+            else None
+            if statistic.value is None
+            else _value_summary(statistic.value, source),
         )
         for name, statistic in operation.values
     )

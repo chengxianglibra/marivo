@@ -7,7 +7,9 @@ from dataclasses import dataclass, replace
 from datetime import timedelta
 
 from marivo._definition.query import (
+    PairStatistic,
     ReduceValues,
+    Statistic,
     ValueBinary,
     ValueExpression,
     ValueLiteral,
@@ -28,7 +30,7 @@ from marivo.analysis.compiler.graph_plan import (
 from marivo.analysis.compiler.observation import FormulaProgram
 from marivo.analysis.compiler.query_program import DurationBinary, FrameCombineProgram, FrameProgram
 from marivo.analysis.core.data_schema import DataSchema
-from marivo.analysis.core.data_types import DurationDataType, ScalarDataType
+from marivo.analysis.core.data_types import DataType, DurationDataType, ScalarDataType
 from marivo.analysis.core.frame_expression import (
     AlignFrameValues,
     CompareFrameValues,
@@ -149,16 +151,24 @@ def _durations(schema: DataSchema, expression: ValueExpression) -> tuple[Duratio
     return result
 
 
+def _statistic_types(
+    schema: DataSchema, statistic: Statistic | PairStatistic
+) -> tuple[DataType, ...]:
+    if isinstance(statistic, PairStatistic):
+        return (
+            expression_type(schema, statistic.left),
+            expression_type(schema, statistic.right),
+        )
+    return () if statistic.value is None else (expression_type(schema, statistic.value),)
+
+
 def frame_program(schema: DataSchema, operation: FrameUnaryOperationKind) -> FrameProgram:
     """Infer one unary program from the concrete types consumed by its kernel."""
     return FrameProgram(
         operation,
         schema,
         infer_frame_schema(schema, operation),
-        tuple(
-            ScalarDataType("int64") if stat.value is None else expression_type(schema, stat.value)
-            for _, stat in operation.values
-        )
+        tuple(_statistic_types(schema, stat) for _, stat in operation.values)
         if isinstance(operation, ReduceValues)
         else (),
         tuple(item for expr in expressions(operation) for item in _durations(schema, expr)),

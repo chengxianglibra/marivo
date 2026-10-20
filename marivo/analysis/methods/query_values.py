@@ -15,11 +15,13 @@ from marivo._definition.query import (
     FilterValues,
     KeyImage,
     LiteralValues,
+    PairStatistic,
     PopulationValues,
     PresenceSlot,
     ReadFields,
     ReduceValues,
     SelectValues,
+    Statistic,
     TopValues,
     ValueBinary,
     ValueExpression,
@@ -388,9 +390,19 @@ def evaluate_result(stage: LocalCompute, inputs: tuple[pd.DataFrame, ...]) -> pd
             .copy()
         )
     if isinstance(operation, ReduceValues):
+        statistics: list[tuple[str, Statistic]] = []
+        for name, statistic in operation.values:
+            if isinstance(statistic, PairStatistic):
+                reject(
+                    "paired statistics evaluated by the local Frame route",
+                    statistic.method,
+                    "Keep paired statistics on their owning AnalysisFrame.",
+                    statistic.location,
+                )
+            statistics.append((name, statistic))
         evaluated = {
             name: expression_series(statistic.value, frame, program)
-            for name, statistic in operation.values
+            for name, statistic in statistics
             if statistic.value is not None
         }
         selected = tuple(
@@ -405,7 +417,7 @@ def evaluate_result(stage: LocalCompute, inputs: tuple[pd.DataFrame, ...]) -> pd
         for key, subset in groups:
             key_tuple = key if isinstance(key, tuple) else (key,)
             row: dict[str, object] = dict(zip(stage.keys, key_tuple, strict=True))
-            for index, (name, statistic) in enumerate(operation.values):
+            for index, (name, statistic) in enumerate(statistics):
                 if statistic.method == "row_count":
                     value: object = len(subset)
                 else:

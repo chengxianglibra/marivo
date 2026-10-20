@@ -187,6 +187,28 @@ source_overall.show()
 每项 reduce 统计独立忽略 NA，row_count 数全部行。来源整体必须从明确 Metric/期间请求，
 没有把 reduce 当作原量 rollup 的等价路线。
 
+常规相关入口直接接受 pending Frame；只在需要重复分析同一固定数据时先 compute 输入。
+例如在上面的固定客户行上，报告收入与订单数的相关及共同有效样本数：
+
+```python
+correlation = customer_values.correlate(
+    customer_values["revenue"], customer_values["orders"], method="pearson"
+).compute()
+correlation.show()  # coefficient, n_pairs
+
+combined = customer_values.reduce({
+    "pearson": customer_values["revenue"].corr(customer_values["orders"], method="pearson"),
+    "spearman": customer_values["revenue"].corr(customer_values["orders"], method="spearman"),
+    "n_pairs": customer_values["revenue"].pair_count(customer_values["orders"]),
+    "rows": mv.row_count(),
+}).compute()
+combined.show()
+```
+
+按组时传该输入的完整轴 `by=(customer_values.axes[0],)`。两端共同非 NA 才计数，
+零和重复值有效；Spearman 先选配对再在组内排平均秩。常量端或不足两对时系数为 NA，
+计数保留。不同单位可相关，Duration 拒绝；分组相关不能由系数/计数还原总体相关。
+
 ### 2.6 第五轮：固定选择与重新选择是不同问题
 
 ```python

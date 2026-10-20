@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo._definition.query import ReduceValues, SelectValues, Statistic, ValueSlot
+from marivo._definition.query import PairStatistic, ReduceValues, SelectValues, Statistic, ValueSlot
 from marivo.analysis.compiler.frame_plan import CompiledSourceFrame, plan_frame
 from marivo.analysis.compiler.graph_lowering import LoweredQuery, lower_query
 from marivo.analysis.compiler.graph_plan import (
@@ -404,6 +404,65 @@ def test_native_source_child_keeps_one_prefixed_schedule(
             assert refused.reads == ()
     assert output.table.iloc[0, 0] == 1
     assert seen and all(identifier.startswith("source:0/") for identifier in seen)
+
+
+def test_paired_reductions_stay_local_and_keep_both_endpoints(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    amount = case.session.catalog.fields.get("sales.order.amount")
+    query = case.session.observe({"amount": amount.sum(), "other": amount.mean()})
+    graph = _captured_graph(query)
+    with open_query_sources(
+        case.session._runtime.connection_service(), graph, case.session.catalog._state
+    ) as prepared:
+        child = optimize_query(plan_query(graph, prepared.schemas))
+        final = next(stage for stage in child.stages if stage.stage_id == child.publish)
+        schema = DataSchema((), final.columns, value_paths=(("amount",), ("other",)))
+        paired = FrameOperation(
+            (SourceFrameInput("source", graph),),
+            ReduceValues(
+                (
+                    (
+                        "coefficient",
+                        PairStatistic("pearson", ValueSlot(0), ValueSlot(1), "Column.corr"),
+                    ),
+                ),
+                (),
+            ),
+        )
+        expression = FrameOperation(
+            (paired,), ReduceValues((("mean", Statistic("mean", ValueSlot(0))),), ())
+        )
+        compiled = plan_frame(
+            expression,
+            {"source": CompiledSourceFrame(lower_query(child, prepared.relations), schema)},
+        )
+        optimized = optimize_query(compiled.lowered.plan)
+        frames = tuple(stage for stage in optimized.stages if isinstance(stage, FrameCompute))
+        assert len(frames) == 2
+        assert isinstance(frames[0].program, FrameProgram)
+        assert frames[0].program.statistic_types == (
+            (schema.values[0].dtype, schema.values[1].dtype),
+        )
+        source_boundary = next(
+            stage for stage in optimized.stages if stage.stage_id == frames[0].inputs[0]
+        )
+        assert next(
+            required
+            for required in optimized.required_slots
+            if required.stage_id == source_boundary.stage_id
+        ).columns == tuple(column.slot_id for column in schema.columns)
+        for fuse in (fuse_query_keys, fuse_query_terminal):
+            fused = fuse(prepared, replace(compiled.lowered, plan=optimized))
+            assert (
+                tuple(stage for stage in fused.plan.stages if isinstance(stage, FrameCompute))
+                == frames
+            )
+            assert not any(
+                {frame.stage_id for frame in frames}.intersection(group.members)
+                for group in fused.plan.fusion_groups
+            )
 
 
 @pytest.mark.parametrize("compare", [False, True])

@@ -6,10 +6,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeAlias
 
 from marivo._definition.correspondence import ComparisonAxis
-from marivo._definition.query import QueryOperation, ValueBinary
+from marivo._definition.query import PairStatistic, QueryOperation, ReduceValues, ValueBinary
 from marivo._definition.relations import PopulationDependency, PopulationProgram
 from marivo.analysis.binding.correspondence import ComparisonEndpoint
 from marivo.analysis.core.data_types import DataColumn, DataType, DurationDataType, ScalarDataType
+from marivo.analysis.core.model import reject
 
 if TYPE_CHECKING:
     from marivo.analysis.core.data_schema import DataSchema
@@ -63,6 +64,17 @@ class ResultProgram:
     output_layout: ComparisonEndpoint | None = None
     duration_operations: tuple[DurationBinary, ...] = ()
 
+    def __post_init__(self) -> None:
+        if isinstance(self.operation, ReduceValues):
+            for _, statistic in self.operation.values:
+                if isinstance(statistic, PairStatistic):
+                    reject(
+                        "ordinary Frame execution for paired statistics",
+                        "a paired statistic in a legacy ResultProgram",
+                        "Construct paired statistics through AnalysisFrame.correlate or reduce.",
+                        statistic.location,
+                    )
+
 
 @dataclass(frozen=True, slots=True)
 class FrameProgram:
@@ -71,7 +83,7 @@ class FrameProgram:
     operation: FrameUnaryOperationKind
     input_schema: DataSchema
     output_schema: DataSchema
-    statistic_types: tuple[DataType, ...] = ()
+    statistic_types: tuple[tuple[DataType, ...], ...] = ()
     duration_operations: tuple[DurationBinary, ...] = ()
 
     @property

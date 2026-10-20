@@ -1,14 +1,13 @@
 # Correlation Statistics：当前行上的成对相关统计
 
-Status: proposal，2026-10-20；公开表达与语义已按本设计确定，尚未实现或验收。
-当前 Live Help 的 `analysis.analysis_frame.reduce` 仅支持 Column sum/mean 和
-row_count；本文示例中的 correlate/corr/pair_count 是拟新增表达，不能当作当前可调用能力。
+Status: implemented and locally validated，2026-10-20；correlate/corr/pair_count 已实现，
+阶段、独立审查与最终验收结论见 [实施计划](correlation-statistics-implementation-plan.md)。
 
 本提案扩展 [AnalysisFrame](query-result-reuse.md) 的当前行规约，遵守
 [Python Analysis Design](python-analysis-design.md) 的输入绑定与生命周期，以及
 [Operators and Frames](operators-and-frames.md) 的坐标、NA、presence 和数值政策。
 本文只拥有相关统计的增量合同，不改变来源 Metric、Population、对齐或保存合同。
-实施完成前，当前未支持的相关计算仍遵循既有 pandas 外部计算边界。
+范围外的相关计算仍遵循既有 pandas 外部计算边界。
 
 ## 1. 目标与范围
 
@@ -57,7 +56,7 @@ def correlate(
   需要其它名称时，通过现有 select 显式命名返回结果。
 
 假定 frame 的完整坐标是一行一个客户，包含 region 轴及 spend/revenue 数值。
-以下为实施后的常规用法；先固定数据，便于后续核验复用同一份输入：
+以下为常规用法；先固定数据，便于后续核验复用同一份输入：
 
 ```python
 fixed = frame.compute()
@@ -394,7 +393,7 @@ skill 拥有；本设计只定义静态 API 事实、示例和导航，不修改
 
 ## 8. 验收标准
 
-下列 C01–C11 均为待验收义务，不是通过记录。应使用少量有判别力的共享样例，
+下列 C01–C11 是验收义务；实际通过记录由实施计划拥有。使用少量有判别力的共享样例，
 复用既有测试夹具；不扩成所有类型、载体、分组、后端的笛卡尔矩阵。
 
 | ID | 范围 | 必须满足的判定 |
@@ -485,5 +484,5 @@ schema 准备不计作业务读取。本见证属于 C11，不新增验收编号
 ### 8.2 验收证据层级
 
 验证与证据分层遵循 [AGENTS.md 的 Python and Validation](../../../AGENTS.md#python-and-validation)。
-本轮仅更新并检查设计文档；独立数值见证与两层等价比较用于后续实现验收，
-本轮不执行拟新增 API，也不将设计检查计为实现验收。
+独立数值见证与两层等价比较用于实现验收；实际命令、结果和候选源码由实施计划记录，
+设计检查不计为实现验收。

@@ -47,6 +47,29 @@ Current data operations
 ``top`` is global and deterministic. ``reduce`` uses current represented cells,
 with independent valid masks per statistic. It does not recompute original
 Metrics. New facts or original overall questions require explicit source inputs.
+
+``frame.correlate(x, y, method="pearson" | "spearman", by=())`` returns a lazy
+ordinary Frame with exactly ``coefficient`` (nullable float64, unit ``1``) and
+``n_pairs`` (nonnullable int64, no unit), evaluated from the same input once.
+Both numeric Columns and complete grouping axes belong to that exact input;
+different units are allowed, Duration is rejected. Each group uses common
+non-NA pairs after checking both expressions; zero and repeated values remain.
+Undefined coefficients (fewer than two pairs or a constant endpoint) retain
+their count, including zero-pair groups. Spearman uses average ranks within
+paired group values. Presence is removed and is never an implicit filter.
+``Column.corr(other, method=...)`` and ``Column.pair_count(other)`` are unfinished
+statistics for ``reduce`` compositions; each named item outputs one column.
+Self pair counting counts non-NA values. Output names never infer matching
+variable pairs. Group coefficients/counts do not reconstruct pooled correlation.
+
+.. code-block:: python
+
+   result = frame.correlate(frame['spend'], frame['revenue'], method='pearson').compute()
+   combined = frame.reduce({
+       'spearman': frame['spend'].corr(frame['revenue'], method='spearman'),
+       'n_pairs': frame['spend'].pair_count(frame['revenue']),
+   }).compute()
+
 ``session.population_from(frame, on=...)`` projects jointly selected ordinary
 complete axes onto explicitly supplied Field/Entity bindings. ``on`` is required
 and may be empty. Calendar/paired axes and arbitrary value columns cannot bridge.
