@@ -188,17 +188,19 @@ observe 声明指标求值。允许 read 的 fields 为空仍不能覆盖一般�
 ```python
 import marivo.analysis as mv
 
-session = mv.session.get_or_create("revenue-review", report_timezone="UTC")
+session = mv.session.create("revenue-review", timezone="UTC")
 revenue = session.catalog.metrics.get("sales.revenue")
 region = session.catalog.fields.get("sales.orders.region")
 current_period = session.time_scope(start="2026-08-01", end="2026-09-01")
 baseline_period = session.time_scope(start="2026-07-01", end="2026-08-01")
 
-current = session.observe({"revenue": revenue}, during=current_period, by=(region,)).compute()
-baseline = session.observe({"revenue": revenue}, during=baseline_period, by=(region,)).compute()
+current = session.observe({'revenue': revenue}, by=(current_period, region)).compute()
+baseline = session.observe({'revenue': revenue}, by=(baseline_period, region)).compute()
 current.show(n=10)
 
-comparison = current.compare(baseline, on=((current.axis("region"), baseline.axis("region")),))
+comparison = current.compare(
+    baseline, on=tuple(zip(current.axes, baseline.axes)), match=mv.ordinal(),
+)
 comparison.show()
 saved = comparison.persist()
 saved.show(n=10)
@@ -211,7 +213,7 @@ values = plain.to_pandas()
 mean = plain.reduce({"mean_change": plain["change"].mean()}).compute()
 ```
 
-示例假定地区轴显示名为 region，先在各自目录查找，再通过 on 表达两个绑定按完整键值对应；
+两侧均有 interval 与 region 轴；on 覆盖全部轴，ordinal 显式配对两期，region 按完整键等值对应；
 不能仅因为显示名相同就自动匹配。两次来源求值时间可以不同，不宣称共同事务快照。
 comparison/selected 是待执行对象，其 show 不执行比较或筛选；saved 才拥有自身产物。
 
@@ -233,12 +235,8 @@ attainment = aligned.select({
 沿用上述 revenue、current_period（8 月）和 baseline_period（7 月），比较两个月的每日销售额：
 
 ```python
-jul_daily = session.observe(
-    {"revenue": revenue}, during=baseline_period.by(mv.grain("day")),
-)
-aug_daily = session.observe(
-    {"revenue": revenue}, during=current_period.by(mv.grain("day")),
-)
+jul_daily = session.observe({'revenue': revenue}, by=(baseline_period.by(mv.grain('day')),))
+aug_daily = session.observe({'revenue': revenue}, by=(current_period.by(mv.grain('day')),))
 daily_change = aug_daily.compare(jul_daily, match=mv.ordinal()).compute()
 daily_change.show(n=31)
 ```
@@ -247,22 +245,18 @@ daily_change.show(n=31)
 7 月和 8 月都有 31 天，默认 exact 检查实际行完整配对。日粒度的 period_offset(-1)
 表示前一天，不能根据月份范围自动替换 ordinal；两种比较意图须由调用方选择。
 
-比较 8 月上海与北京的整月销售额时，城市作为来源条件，两侧结果都是零轴标量：
+比较 8 月上海与北京的整月销售额时，城市作为来源条件，两侧只有同一个 interval 轴：
 
 ```python
 city = session.catalog.fields.get("sales.orders.city")
-shanghai = session.observe(
-    {"revenue": revenue}, during=current_period, where=city == "上海",
-)
-beijing = session.observe(
-    {"revenue": revenue}, during=current_period, where=city == "北京",
-)
+shanghai = session.observe({'revenue': revenue}, by=(current_period,), where=city == '上海')
+beijing = session.observe({'revenue': revenue}, by=(current_period,), where=city == '北京')
 city_change = shanghai.compare(beijing).compute()
 city_change.show()
 ```
 
 无需 on=()；left.revenue 为上海，right.revenue 为北京，absolute.revenue 为上海减北京。
-若两侧都改为 during=current_period.by(mv.grain("day"))，同样省略 on 和 match，
+若两侧都改为 by=(current_period.by(mv.grain("day")),)，同样省略 on 和 match，
 即可按同一天等值对应。改用返回的内存/持久 frame 或冷恢复对象时，推导规则不变。
 
 ### 3.2 生命周期入口
@@ -356,7 +350,7 @@ frame 的坐标投影只产生当前域，不包含丢失的身份、贡献出�
 这是 Population 构造族的键域投影和显式来源绑定，与 members/identities 分工明确；
 由 Session 校验目标 Catalog 绑定，不是 frame 恢复原语义对象；原 frame 不变。
 on 只能选普通字段轴或完整身份轴，轴属于该 frame、目标角色与完整键类型必须相容，
-目标绑定按现有语义规则验证，不靠同名查找。首版不绑定日历轴、配对轴或任意值列。
+目标绑定按现有语义规则验证，不靠同名查找。首版不绑定interval 轴、日历轴、配对轴或任意值列。
 
 桥接按所选轴的完整联合键投影并去重，不能逐轴拆开再做笛卡尔积。
 字段 Null 是合法类别；Entity 身份要求完整非空主键，不能把普通字段升级成身份。
@@ -365,18 +359,15 @@ on 只能选普通字段轴或完整身份轴，轴属于该 frame、目标角�
 来自物化根的桥接持有固定数据依赖，后续来源计算不重跑其原 Top。
 来自待执行 frame 的桥接每次调用会先求值该选择计划；想固定历史选择需先 compute/persist。
 
-用于贡献过滤时走 observe 的 where=mv.in_population(...)；用于成员约束时仅可使用
-合格的单 Entity 身份域。by=Population 仍表示完整输出域及覆盖要求，不能偷换成过滤条件。
+用于贡献过滤时走 observe 的 where=mv.in_population(...)；by=Population 只选择其完整输出键，
+保留无事实坐标，不要求覆盖域外贡献。P.count() 则独立捕获完整单 Entity 身份域。
 不增加 frame.population 或 where(PopulationPredicate) 重载；复杂关系导航仍需显式来源参数。
 
 ```python
-regional = session.observe({"revenue": revenue}, during=current_period, by=(region,))
+regional = session.observe({'revenue': revenue}, by=(current_period, region))
 chosen = regional.top(5, by=regional["revenue"]).compute()
 parents = session.population_from(chosen, on=((chosen.axis("region"), region),))
-cities = session.observe(
-    {"revenue": revenue}, during=current_period, by=(region, city),
-    where=mv.in_population(parents),
-).compute()
+cities = session.observe({'revenue': revenue}, by=(current_period, region, city), where=mv.in_population(parents)).compute()
 ```
 
 这里 city 是调用方显式取得的新分类。来源变化时仍只调查已选地区，但城市值是本次新读取。
@@ -413,7 +404,7 @@ align/compare 的 on 省略或为 None 时，只从双方当前结构推导完�
 | 双方结构 | 推导结果 |
 | --- | --- |
 | 都是零轴 | 零轴标量对应，无需写 on=()；不接受日历 match |
-| 各自全部输出轴只有一个日历轴 | 自动绑定这两个轴，仍检查日历解释相容性；match 若给出则作用于此轴对 |
+| 各自只有一个 interval 轴，或各自只有一个日历轴 | 自动绑定同种时间轴；interval 可显式 ordinal，日历保留已有规则；不跨种类转换 |
 
 含普通字段/身份轴的输入，即使各只有一轴或显示名相同，首版也要求显式 on。
 日历加分类轴、多日历轴均不自动补齐。
@@ -443,6 +434,20 @@ compare 的值路径集合须相等且非空，各路径单位相同、数值类
 首版 align/compare 均拒绝任一输入含配对轴，不递归构造配对轴；可先 reduce 去掉该轴，
 或显式提供新的来源分析。select/where 不会删除坐标，不能绕过限制。
 不提供 time_axis="current" 或 endpoint 等重新索引捷径；多量、复合键、缺端点和 NA 仍按数据检查处理。
+
+### 5.2.1 interval 的冻结目录与对应
+
+TimeScope 在 by 中产生 interval 轴，包含精确 start/end 与边界时区；一个区间也不自动变成零轴。
+同区间的无 match 等值对应按边界与规范化时区识别，并合并去重双方完整声明目录。
+outer 只保留实际完整键并集，不为目录中未出现的区间补行；重叠区间和不同边界时区仍是不同坐标。
+where/top/select 及保留该轴的 reduce 保持完整目录与原引用，删除轴才移除目录。
+即使筛选后只剩一行，多区间声明目录也不能获得单区间 ordinal 资格。
+
+interval 对 interval 的 mv.ordinal() 要求两侧冻结目录各恰有一条声明记录且边界时区一致。
+不同期间 exact 默认等值不匹配；显式 ordinal 配对，outer 保留缺侧 presence。
+只有单一 interval 轴时可推导 on，time×分类必须显式覆盖全部轴。
+interval/calendar/零轴不隐式互转或广播；配对结果仍不能再次匹配。
+目录、实际键引用与配对端点以 Store 13 / marivo.frame_output/v2 保存，冷恢复不重建 TimeScope。
 
 ### 5.3 首版日历对应的自包含信息
 
@@ -495,7 +500,7 @@ yearly = current_series.compare(
 ```
 
 此例可用于已经物化或冷恢复的 builtin 时间序列；环比用 period_offset(-1)，
-相容有限期间的按序对照用 ordinal。无 CalendarAxis 的 TimeScope 总量比较仍是普通零轴或分类轴比较。
+相容有限期间的按序对照用 ordinal。TimeScope 总量具有 interval 轴；不同期间须显式 ordinal，同期可按区间身份等值对应。
 对单位步长的 builtin 月/季轴，previous_year 分别与 period_offset(-12)/period_offset(-4)
 有相同名义对应；日粒度必须区分闰日与固定天数偏移。Help 明确适用粒度，避免混用。
 time_axis="current" 暂不保留，带 match 的结果保存完整配对坐标；该取舍不阻断同比/环比计算。
@@ -665,7 +670,7 @@ Run 只有“发布”一种语义，输入标识已有 result_id；求值时间
 新 Artifact 的 producing_run_ref 表示发布者，不声称此 Run 计算了值。
 求值时间可早于 admission；提交时间位于该 Run 内，不能再用生产 Run admission 限制原求值时间。
 
-SessionGraph 保持 Run→Artifact 的发布图，不新增 consumes 边；roots/heads 不代表数据 lineage。
+使用 runs/get_run 与输出引用查询发布事实；Session 不提供 graph/roots/heads 接口。
 显式派生计算直接消费存储根 A 时，在新结果的求值摘要记录 A，不在发布 Run 中伪造输入读取。
 A.compute() 只是载体转换；得到 m 后再 persist 为 B 不新建求值事实，也不额外保存 A→B 边。
 这意味着摘要不保证追踪载体复制链，这是删除边界注记的明确取舍。
@@ -709,7 +714,7 @@ md.raw_sql 的 RawSqlResult 不进入 analysis Store，继续使用自己的 rea
 ```python
 import marivo.analysis as mv
 
-session = mv.session.resume(saved_session_id, by="id")
+session = mv.session.resume(saved_session_id)
 saved = session.persisted_frame(saved_artifact_id)
 saved.show(n=0)
 positive = saved.where(saved["absolute.revenue"] > 0).compute()

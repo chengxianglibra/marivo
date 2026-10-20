@@ -50,12 +50,12 @@ def session(
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.get_or_create("frame-effective-types", report_timezone="UTC")
+    return mv.session.create("frame-effective-types", timezone="UTC")
 
 
 def _read(session: Session, name: str = "big") -> AnalysisFrame:
     return session.read(
-        session.members(ms.ref.entity("sales.facts")),
+        session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
         {name: session.catalog.fields.get("sales.facts." + name)},
     )
 
@@ -236,7 +236,8 @@ def test_native_all_null_and_empty_source_carriers(
     big = session.catalog.fields.get("sales.facts.big")
     for condition, count in ((big.isnull(), 2), (big < 0, 0)):
         source = session.read(
-            session.members(ms.ref.entity("sales.facts"), where=condition), {"big": big}
+            session.members(session.catalog.require(ms.ref.entity("sales.facts")), where=condition),
+            {"big": big},
         )
         fixed = source.compute()
         assert len(fixed.to_pandas()) == count

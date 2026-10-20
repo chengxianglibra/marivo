@@ -13,15 +13,14 @@ def test_selection_discloses_explicit_source_bridge_for_complete_identity(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     values = session.observe(
         {"value": session.catalog.metrics.get("sales.order_count")},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=members,
+        by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), members),
     )
     entity = session.catalog.entities.get("sales.customer")
     selected = values.where(values["value"] > 0)
-    members = session.population_from(selected, on=((selected.axes[0], entity),))
+    members = session.population_from(selected, on=((selected.axes[1], entity),))
     assert isinstance(members, mv.Population)
     assert session.frame(members).compute().to_pandas().iloc[:, 0].tolist() == [
         "A",
@@ -32,7 +31,7 @@ def test_selection_discloses_explicit_source_bridge_for_complete_identity(
     derived = values.select({"count": values["value"] + 1})
     selected_derived = derived.where(derived["count"] > 1)
     derived_members = session.population_from(
-        selected_derived, on=((selected_derived.axes[0], entity),)
+        selected_derived, on=((selected_derived.axes[1], entity),)
     )
     assert session.frame(derived_members).compute().to_pandas().iloc[:, 0].tolist() == [
         "A",

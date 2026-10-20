@@ -19,6 +19,7 @@ from marivo.analysis.core.data_schema import (
     CalendarDataAxis,
     DataAxis,
     DataSchema,
+    IntervalDataAxis,
     NamedCalendarData,
     PairedDataAxis,
 )
@@ -42,10 +43,10 @@ def _fail(expected: str, received: str, *, match: bool = False) -> NoReturn:
     reject(
         expected,
         received,
-        "Construct compatible complete source calendar buckets before matching."
+        "Construct compatible complete time coordinates before matching."
         if match
         else "Retain the exact frozen coordinate descriptors and complete typed attachments.",
-        "frame.calendar.match" if match else "frame.calendar.data",
+        "frame.coordinates.match" if match else "frame.coordinates.data",
     )
 
 
@@ -103,10 +104,128 @@ def calendar_directory_schema(axis: CalendarDataAxis) -> DataSchema:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class FrozenIntervalBucket:
+    key: FrozenKey
+    start: datetime
+    end: datetime
+    timezone: str
+
+
+@dataclass(frozen=True, slots=True)
+class FrozenIntervalDirectory:
+    axis: IntervalDataAxis
+    buckets: tuple[FrozenIntervalBucket, ...]
+
+
+def interval_directory_schema(axis: IntervalDataAxis) -> DataSchema:
+    """Build the exact interval.v1 finite directory layout."""
+    if (
+        len(axis.columns) != 1
+        or axis.columns[0].dtype != ScalarDataType("int64")
+        or axis.columns[0].nullable
+    ):
+        _fail("one nonnullable int64 interval key", repr(axis.columns))
+    values = (
+        DataColumn("start", "start", TimestampDataType("us", "UTC"), False),
+        DataColumn("end", "end", TimestampDataType("us", "UTC"), False),
+        DataColumn("timezone", "timezone", ScalarDataType("string"), False),
+    )
+    return DataSchema(
+        (DataAxis(axis.token, axis.columns, name=axis.name, at=axis.at),),
+        values,
+        value_paths=tuple((column.name,) for column in values),
+    )
+
+
+def interval_directory_rows(directory: FrozenIntervalDirectory) -> pd.DataFrame:
+    """Encode all declared intervals independently of the current primary rows."""
+    rows = frozen_key_table(
+        directory.axis.columns, tuple(bucket.key for bucket in directory.buckets)
+    )
+    for name in ("start", "end"):
+        rows[name] = pd.Series(
+            [getattr(bucket, name) for bucket in directory.buckets],
+            dtype="timestamp[us, tz=UTC][pyarrow]",
+        )
+    rows["timezone"] = pd.Series(
+        [bucket.timezone for bucket in directory.buckets], dtype="string[pyarrow]"
+    )
+    return rows
+
+
+def read_interval_directory(
+    axis: IntervalDataAxis, schema: DataSchema, rows: pd.DataFrame
+) -> FrozenIntervalDirectory:
+    """Validate exact bounds, inert saved zone names and unique identities."""
+    if schema != interval_directory_schema(axis):
+        _fail("the exact interval.v1 directory schema", repr(schema))
+    _layout(schema, rows)
+    keys = frozen_key_rows(rows, axis.columns)
+    _unique(keys, "interval")
+    arrays = {column.name: _array(rows, column) for column in schema.values}
+    buckets: list[FrozenIntervalBucket] = []
+    identities: set[tuple[datetime, datetime, str]] = set()
+    for index, key in enumerate(keys):
+        start, end = _datetime(arrays["start"], index), _datetime(arrays["end"], index)
+        zone: object = arrays["timezone"][index].as_py()
+        if not isinstance(zone, str) or not zone or any(character.isspace() for character in zone):
+            _fail("a nonempty single-line frozen boundary timezone name", repr(zone))
+        # Source capture normalizes timezone names. Completed coordinates retain
+        # that exact identity and never resolve current timezone rules again.
+        if start >= end:
+            _fail(
+                "nonempty half-open intervals with frozen boundary timezones",
+                repr((start, end, zone)),
+            )
+        identity = (start, end, zone)
+        if identity in identities:
+            _fail("unique exact interval identities", repr(identity))
+        identities.add(identity)
+        buckets.append(FrozenIntervalBucket(key, start, end, zone))
+    return FrozenIntervalDirectory(axis, tuple(buckets))
+
+
+def build_partial_interval_map(
+    left: FrozenIntervalDirectory, right: FrozenIntervalDirectory, rule: CalendarCorrespondence
+) -> tuple[FrozenBucketMatch, ...]:
+    """Pair only single declared intervals with the same boundary timezone."""
+    if (
+        rule.kind != "ordinal"
+        or len(left.buckets) != 1
+        or len(right.buckets) != 1
+        or left.buckets[0].timezone != right.buckets[0].timezone
+    ):
+        _fail(
+            "ordinal between one declared interval on each side with the same boundary timezone",
+            repr((left, right, rule)),
+            match=True,
+        )
+    return (FrozenBucketMatch(left.buckets[0].key, right.buckets[0].key),)
+
+
+def merge_equal_interval_directories(
+    left: FrozenIntervalDirectory, right: FrozenIntervalDirectory, output_axis: IntervalDataAxis
+) -> FrozenIntervalDirectory:
+    """Union exact interval identities without trimming the declaration directory."""
+    buckets: list[FrozenIntervalBucket] = []
+    identities: set[tuple[datetime, datetime, str]] = set()
+    for bucket in (*left.buckets, *right.buckets):
+        identity = (bucket.start, bucket.end, bucket.timezone)
+        if identity not in identities:
+            identities.add(identity)
+            key = ((output_axis.columns[0].dtype, len(buckets)),)
+            buckets.append(replace(bucket, key=key))
+    return FrozenIntervalDirectory(output_axis, tuple(buckets))
+
+
 def paired_mapping_schema(axis: PairedDataAxis) -> DataSchema:
     """Build the complete pair key and nullable all-or-none endpoint key groups."""
-    _calendar(axis.left)
-    _calendar(axis.right)
+    for endpoint in (axis.left, axis.right):
+        if isinstance(endpoint, CalendarDataAxis):
+            _calendar(endpoint)
+        else:
+            interval_directory_schema(endpoint)
     if any(column.nullable for column in axis.columns):
         _fail("nonnullable complete paired keys", repr(axis.columns))
     values = tuple(
@@ -139,6 +258,8 @@ def coordinate_attachment_schemas(schema: DataSchema) -> tuple[tuple[str, DataSc
             visit(axis.left)
             visit(axis.right)
             result.append((axis.mapping_name, paired_mapping_schema(axis)))
+        elif isinstance(axis, IntervalDataAxis):
+            result.append((axis.frozen.directory_name, interval_directory_schema(axis)))
         elif isinstance(axis, CalendarDataAxis):
             _calendar(axis)
             assert axis.frozen is not None
@@ -372,8 +493,8 @@ def validate_paired_records(
     axis: PairedDataAxis,
     schema: DataSchema,
     rows: pd.DataFrame,
-    left: tuple[FrozenCalendarBucket, ...],
-    right: tuple[FrozenCalendarBucket, ...],
+    left: tuple[FrozenCalendarBucket, ...] | tuple[FrozenIntervalBucket, ...],
+    right: tuple[FrozenCalendarBucket, ...] | tuple[FrozenIntervalBucket, ...],
 ) -> None:
     """Validate nominal bucket endpoints independently from primary row presence."""
     if schema != paired_mapping_schema(axis):
@@ -396,8 +517,8 @@ def validate_paired_mapping(
     axis: PairedDataAxis,
     schema: DataSchema,
     rows: pd.DataFrame,
-    left: FrozenCalendarDirectory,
-    right: FrozenCalendarDirectory,
+    left: FrozenCalendarDirectory | FrozenIntervalDirectory,
+    right: FrozenCalendarDirectory | FrozenIntervalDirectory,
 ) -> None:
     """Validate the full map against its exact complete endpoint directories."""
     if (left.axis, right.axis) != (axis.left, axis.right):
@@ -463,10 +584,16 @@ def validate_frozen_coordinates(
     _layout(schema, rows)
     _unique(frozen_key_rows(rows, tuple(c for axis in schema.axes for c in axis.columns)), "row")
 
-    def read(axis: CalendarDataAxis) -> FrozenCalendarDirectory:
+    def read(
+        axis: CalendarDataAxis | IntervalDataAxis,
+    ) -> FrozenCalendarDirectory | FrozenIntervalDirectory:
         assert axis.frozen is not None
         attachment = tables[axis.frozen.directory_name]
-        return read_calendar_directory(axis, attachment.schema, attachment.rows)
+        return (
+            read_interval_directory(axis, attachment.schema, attachment.rows)
+            if isinstance(axis, IntervalDataAxis)
+            else read_calendar_directory(axis, attachment.schema, attachment.rows)
+        )
 
     for axis in schema.axes:
         if isinstance(axis, PairedDataAxis):
@@ -474,7 +601,7 @@ def validate_frozen_coordinates(
             table = tables[axis.mapping_name]
             validate_paired_mapping(axis, table.schema, table.rows, left, right)
             domain = set(frozen_key_rows(table.rows, axis.columns))
-        elif isinstance(axis, CalendarDataAxis):
+        elif isinstance(axis, (CalendarDataAxis, IntervalDataAxis)):
             domain = {bucket.key for bucket in read(axis).buckets}
         else:
             continue

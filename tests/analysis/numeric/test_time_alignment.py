@@ -58,7 +58,7 @@ def test_public_period_correspondence_preserves_independent_source_oracle(
             ],
         )
     metric = session.catalog.metrics.get("sales.revenue")
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     current_axis = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     if kind == "previous_year":
         baseline_axis = session.time_scope(start="2025-08-01", end="2025-08-03").by(mv.grain("day"))
@@ -72,8 +72,8 @@ def test_public_period_correspondence_preserves_independent_source_oracle(
         baseline_axis = session.time_scope(start="2025-08-01", end="2025-08-03").by(mv.grain("day"))
         match = mv.ordinal()
         expected = [20, 0, 0, 0, 0, 15, 0, 0]
-    current = session.observe({"value": metric}, during=current_axis, by=members)
-    baseline = session.observe({"value": metric}, during=baseline_axis, by=members)
+    current = session.observe({"value": metric}, by=mv.product(current_axis, members))
+    baseline = session.observe({"value": metric}, by=mv.product(baseline_axis, members))
     result = current.compare(
         baseline, match=match, on=tuple(zip(current.axes, baseline.axes, strict=True))
     ).compute()
@@ -93,8 +93,8 @@ def test_previous_year_leap_day_is_missing_and_current_projection_is_exact(
     metric = session.catalog.metrics.get("sales.revenue")
     current_axis = session.time_scope(start="2024-02-28", end="2024-03-01").by(mv.grain("day"))
     baseline_axis = session.time_scope(start="2023-02-28", end="2023-03-01").by(mv.grain("day"))
-    current = session.observe({"value": metric}, during=current_axis)
-    baseline = session.observe({"value": metric}, during=baseline_axis)
+    current = session.observe({"value": metric}, by=(current_axis,))
+    baseline = session.observe({"value": metric}, by=(baseline_axis,))
     with pytest.raises(AnalysisError, match="complete"):
         current.compare(
             baseline,

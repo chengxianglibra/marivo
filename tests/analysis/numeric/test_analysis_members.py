@@ -90,7 +90,7 @@ def members_session(analysis_dsl_case_factory: DslCaseFactory) -> Session:
     )
     source = "".join(definitions)
     (case.root / "models" / "semantic" / domain / "models.py").write_text(source)
-    return mv.session.get_or_create("r52-members", report_timezone="UTC")
+    return mv.session.create("r52-members", timezone="UTC")
 
 
 def _domain(session: Session) -> str:
@@ -132,7 +132,7 @@ def _identity_population(
 def test_member_axis_retains_ordered_composite_identity(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
-    members = session.members(ms.ref.entity(f"{prefix}.plain"))
+    members = session.members(session.catalog.require(ms.ref.entity(f"{prefix}.plain")))
     metric = session.catalog.metrics.get(f"{prefix}.observed_total")
     category = session.catalog.fields.get(f"{prefix}.plain.category")
     for axes, expected in (
@@ -172,7 +172,7 @@ def test_member_axis_retains_ordered_composite_identity(members_session: Session
 def test_observation_classification_reads_explicit_version(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
-    members = session.members(ms.ref.entity(f"{prefix}.plain"))
+    members = session.members(session.catalog.require(ms.ref.entity(f"{prefix}.plain")))
     metric = session.catalog.metrics.get(f"{prefix}.observed_total")
     route = session.catalog.relationships.get(f"{prefix}.to_snapshot")
     field = session.catalog.fields.get(f"{prefix}.snapshot.category")
@@ -190,14 +190,18 @@ def test_observation_classification_reads_explicit_version(members_session: Sess
     later = field.via((route,)).at(session.instant("2026-09-01"))
     read = session.read(selected, {"value": later})
     assert _values(read.compute()) == ["east"]
-    frame = session.observe({"value": metric}, members=selected, by=(later,)).compute().to_pandas()
+    frame = (
+        session.observe({"value": metric}, by=(later,), where=mv.in_population(selected))
+        .compute()
+        .to_pandas()
+    )
     assert frame.set_index(frame.columns[0])[("value", "value")].to_dict() == {"east": 10}
 
 
 def test_computed_measure_and_bound_dependency(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
-    members = session.members(ms.ref.entity(f"{prefix}.plain"))
+    members = session.members(session.catalog.require(ms.ref.entity(f"{prefix}.plain")))
     discounted = session.observe(
         {"value": session.catalog.fields.get(f"{prefix}.plain.discounted").sum()}, by=members
     )
@@ -221,7 +225,7 @@ def test_computed_boolean_dimension(
     members_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = members_session
-    members = session.members(ms.ref.entity(f"{_domain(session)}.plain"))
+    members = session.members(session.catalog.require(ms.ref.entity(f"{_domain(session)}.plain")))
     relation = _read(session, members, f"{_domain(session)}.plain.positive")
     saved = relation.persist()
     assert _values(saved) == [False, True]
@@ -248,7 +252,7 @@ def _replace_source(session: Session, query: str) -> None:
 def test_read_path_coverage_null_and_consumed_scope(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
-    members = session.members(ms.ref.entity(f"{prefix}.plain"))
+    members = session.members(session.catalog.require(ms.ref.entity(f"{prefix}.plain")))
     category = _read(session, members, f"{prefix}.plain.category")
     chosen_values = category.where(category["value"] == "west")
     chosen = _identity_population(
@@ -271,7 +275,7 @@ def test_temporal_literals_fixed_recovery_and_foreign_predicates(
 ) -> None:
     session = members_session
     prefix = _domain(session)
-    members = session.members(ms.ref.entity(f"{prefix}.plain"))
+    members = session.members(session.catalog.require(ms.ref.entity(f"{prefix}.plain")))
     logical = _read(session, members, f"{prefix}.plain.moment")
     with pytest.raises((AnalysisError, SemanticExpressionError)):
         logical.where(logical["value"] == datetime(2026, 8, 1))
@@ -282,9 +286,11 @@ def test_temporal_literals_fixed_recovery_and_foreign_predicates(
     selected = logical.where(logical["value"] < boundary).persist()
     restored = session.persisted_frame(selected.artifact.id)
     assert restored.to_pandas().iloc[:, 0].tolist() == [(1, "A")]
-    other = mv.session.get_or_create("other-r52", report_timezone="UTC")
+    other = mv.session.create("other-r52", timezone="UTC")
     foreign = _read(
-        other, other.members(ms.ref.entity(f"{prefix}.plain")), f"{prefix}.plain.moment"
+        other,
+        other.members(other.catalog.require(ms.ref.entity(f"{prefix}.plain"))),
+        f"{prefix}.plain.moment",
     )
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -303,7 +309,9 @@ def test_cold_typed_read_continuation_without_source(members_session: Session) -
     session = members_session
     prefix = _domain(session)
     fixed = _read(
-        session, session.members(ms.ref.entity(f"{prefix}.plain")), f"{prefix}.plain.moment"
+        session,
+        session.members(session.catalog.require(ms.ref.entity(f"{prefix}.plain"))),
+        f"{prefix}.plain.moment",
     ).persist()
     shutil.rmtree(session.project_root / "models")
     (session.project_root / "warehouse.duckdb").unlink()
@@ -319,7 +327,7 @@ def forbidden(*args, **kwargs):
 ms.load = forbidden
 duckdb.connect = forbidden
 SourceSession.bind = forbidden
-session = mv.session.resume(sys.argv[1], by='id')
+session = mv.session.resume(sys.argv[1])
 frame = session.persisted_frame(sys.argv[2]).to_pandas()
 selected = frame.loc[frame[('value','value')] < datetime(2026,8,2,tzinfo=timezone.utc)]
 assert selected.iloc[:,0].tolist() == [(1,'A')]
@@ -369,8 +377,8 @@ ssi = ms.dimension_column(name="sid", entity=subjects, column="sid")
 to_subject = ms.relationship(name="to_subject", from_entity=instances, to_entity=subjects, keys=[ms.join_on(it,st), ms.join_on(isi,ssi)])
 """)
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("subject-image", report_timezone="UTC")
-    domain = session.members(ms.ref.entity("test.instances"))
+    session = mv.session.create("subject-image", timezone="UTC")
+    domain = session.members(session.catalog.require(ms.ref.entity("test.instances")))
     image = domain.image(via=(session.catalog.relationships.get("test.to_subject"),))
     result = session.frame(image).persist()
     assert result.to_pandas().iloc[:, 0].tolist() == [(7, "A"), (7, "B")]
@@ -384,7 +392,7 @@ to_subject = ms.relationship(name="to_subject", from_entity=instances, to_entity
 def test_exact_boundary_null_and_corrupt_subject(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
-    entity = ms.ref.entity(f"{prefix}.valid")
+    entity = session.catalog.entities.get(f"{prefix}.valid")
     boundary = session.instant("2026-09-01")
     members = session.members(entity, at=boundary)
     assert _values(_read(session, members, f"{prefix}.valid.amount", at=boundary).compute()) == [
@@ -403,7 +411,7 @@ def test_exact_boundary_null_and_corrupt_subject(members_session: Session) -> No
             session, session.members(entity, at=noon), f"{prefix}.valid.amount", at=noon
         ).compute()
     ) == [30, 20]
-    snapshot = ms.ref.entity(f"{prefix}.snapshot")
+    snapshot = session.catalog.entities.get(f"{prefix}.snapshot")
     first = session.members(snapshot, at=session.instant("2026-08-01T23:59:59.999999+00:00"))
     assert session.frame(first).compute().to_pandas().iloc[:, 0].tolist() == [(1, "A"), (1, "B")]
     assert (
@@ -414,7 +422,7 @@ def test_exact_boundary_null_and_corrupt_subject(members_session: Session) -> No
     )
     with pytest.raises(AnalysisError, match="an exact InstantAnchor"):
         session.members(entity, at=datetime(2026, 9, 1))  # type: ignore[arg-type]  # Runtime probe: membership requires an InstantAnchor, not datetime.
-    plain = session.members(ms.ref.entity(f"{prefix}.plain"))
+    plain = session.members(session.catalog.require(ms.ref.entity(f"{prefix}.plain")))
     integer = _read(session, plain, f"{prefix}.plain.tenant")
     saved = integer.persist()
     assert saved.to_pandas().iloc[:, 0].tolist() == [(1, "A"), (1, "B")]
@@ -436,7 +444,7 @@ def test_wrong_role_and_many_mapping_reject_before_io(
 ) -> None:
     session = members_session
     prefix = _domain(session)
-    members = session.members(ms.ref.entity(f"{prefix}.plain"))
+    members = session.members(session.catalog.require(ms.ref.entity(f"{prefix}.plain")))
     at = session.instant("2026-08-01")
     field = session.catalog.fields.get(f"{prefix}.snapshot.amount")
     many = session.catalog.relationships.get(f"{prefix}.many_snapshot")
@@ -449,7 +457,9 @@ def test_wrong_role_and_many_mapping_reject_before_io(
         patch.setattr(SourceSession, "bind", forbidden)
         with pytest.raises((AnalysisError, SemanticExpressionError)):
             session.read(members, {"value": field.via((many,)).at(at)})
-        versioned = session.members(ms.ref.entity(f"{prefix}.snapshot"), at=at)
+        versioned = session.members(
+            session.catalog.require(ms.ref.entity(f"{prefix}.snapshot")), at=at
+        )
         with pytest.raises((AnalysisError, SemanticExpressionError)):
             session.read(versioned, {"value": field.via((route,)).at(at)})
     assert _values(session.read(members, {"value": field.at(at)}).compute()) == [10, 20]
@@ -462,7 +472,9 @@ def test_wrong_role_and_many_mapping_reject_before_io(
 def test_grid_attribute_point_is_independent_of_member_version(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
-    members = session.members(ms.ref.entity(f"{prefix}.valid"), at=session.instant("2026-08-01"))
+    members = session.members(
+        session.catalog.require(ms.ref.entity(f"{prefix}.valid")), at=session.instant("2026-08-01")
+    )
     for points, expected in (
         (("2026-08-01", "2026-09-01"), [10, 30, 20, 20]),
         (("2026-09-01", "2026-10-01"), [30, 30, 20, 20]),
@@ -510,7 +522,7 @@ def test_grid_attribute_point_is_independent_of_member_version(members_session: 
     stable = session.catalog.fields.get(f"{prefix}.plain.category")
     with pytest.raises(SemanticExpressionError):
         session.read(
-            session.members(ms.ref.entity(f"{prefix}.plain")),
+            session.members(session.catalog.require(ms.ref.entity(f"{prefix}.plain"))),
             {"value": stable.at(session.instant("2026-08-01"))},
         )
 
@@ -519,7 +531,9 @@ def test_grid_classification_uses_grid_point(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
     anchor = session.instant("2026-08-01T00:59:59.999999+00:00")
-    members = session.members(ms.ref.entity(f"{prefix}.snapshot"), at=anchor)
+    members = session.members(
+        session.catalog.require(ms.ref.entity(f"{prefix}.snapshot")), at=anchor
+    )
     category = session.catalog.fields.get(f"{prefix}.snapshot.category").at(anchor)
     categories = members.classify(by=(category,))
     grid = session.time_scope(
@@ -542,7 +556,7 @@ def test_grid_classification_uses_grid_point(members_session: Session) -> None:
 def test_composite_subject_predicates(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
-    members = session.members(ms.ref.entity(f"{prefix}.plain"))
+    members = session.members(session.catalog.require(ms.ref.entity(f"{prefix}.plain")))
     fields = {
         name: session.catalog.fields.get(f"{prefix}.plain.{name}")
         for name in ("amount", "enabled", "moment")

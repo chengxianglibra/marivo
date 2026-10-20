@@ -10,16 +10,20 @@ from marivo._definition.observations import ObservationBinding
 from marivo._definition.query import FilterValues, ResultQuery, TopValues
 from marivo._definition.relations import (
     CalendarKeys,
+    FrameKeys,
+    IntervalKeys,
     LiteralPopulation,
+    MembershipBinding,
     PopulationClassify,
-    PopulationContains,
     PopulationImage,
     PopulationPreimage,
+    PopulationProduct,
     PopulationProgram,
     PopulationProject,
     PopulationSet,
     SourceIdentities,
 )
+from marivo._definition.types import AxisBinding
 
 
 def _bounded(text: str, limit: int) -> str:
@@ -65,15 +69,23 @@ def _observation_scopes(observation: ObservationBinding) -> tuple[tuple[str, Def
     scopes: list[tuple[str, DefinitionNode]] = []
     if observation.coordinates.population is not None:
         scopes.append(("coordinates", observation.coordinates.population))
+    for index, (domain, evaluation) in enumerate(observation.count_populations):
+        scopes.append((f"count[{index}].domain", domain))
+        if evaluation is not domain:
+            scopes.append((f"count[{index}].evaluation", evaluation))
     for index, contribution in enumerate(observation.contributions):
         for position, condition in enumerate(contribution.population_conditions):
-            if (
-                isinstance(condition, PopulationContains)
-                and condition.population is observation.members
-            ):
-                continue
             scopes.append((f"contribution[{index}].condition[{position}]", condition))
     return tuple(scopes)
+
+
+def _axis_summary(axis: AxisBinding) -> str:
+    target = axis.field if axis.field is not None else axis.entity
+    return (
+        f"{axis.role}:{target.ref.path}"
+        + (f" via={tuple(item.ref.path for item in axis.path)}" if axis.path else "")
+        + (f" at={axis.at.isoformat()}" if axis.at else "")
+    )
 
 
 def _node_summary(node: DefinitionNode) -> str:
@@ -91,7 +103,14 @@ def _node_summary(node: DefinitionNode) -> str:
     if isinstance(node, LiteralPopulation):
         keys = ", ".join(_bounded(repr(key), 160) for key in node.keys[:3])
         more = "; keys omitted" if len(node.keys) > 3 else ""
-        return f"LiteralPopulation coordinates={len(node.keys)}; keys=[{keys}]{more}"
+        axes = tuple(_axis_summary(axis) for axis in node.axes if isinstance(axis, AxisBinding))
+        return f"LiteralPopulation axes={axes}; coordinates={len(node.keys)}; keys=[{keys}]{more}"
+    if isinstance(node, FrameKeys):
+        bindings = tuple(
+            (binding.token, binding.key_names, _axis_summary(binding.target))
+            for binding in node.bindings
+        )
+        return f"FrameKeys input={node.input_id}; on={bindings}"
     if isinstance(node, PopulationSet):
         return node.operation
     if isinstance(node, PopulationProject):
@@ -104,6 +123,11 @@ def _node_summary(node: DefinitionNode) -> str:
         return (
             type(node).__name__ + " path=" + ", ".join(item.ref.ref.path for item in node.path[:6])
         )
+    if isinstance(node, IntervalKeys):
+        interval = node.interval
+        return f"IntervalKeys [{interval.start.isoformat()}, {interval.end.isoformat()}) {interval.timezone}"
+    if isinstance(node, PopulationProduct):
+        return f"PopulationProduct factors={len(node.factors)}; joint tuples preserved"
     if isinstance(node, CalendarKeys):
         return f"CalendarKeys grain={node.calendar.grain}; timezone={node.calendar.timezone}; cells={len(node.calendar.cells)}"
     if isinstance(node, ResultQuery):
@@ -134,11 +158,27 @@ def scope_summary(root: DefinitionNode, observation: ObservationBinding | None =
     ]
     visited = 0
     seen: dict[int, str] = {}
+    memberships: set[MembershipBinding] = set()
     while pending and visited < 12:
         path, role, node = pending.pop()
-        while isinstance(node, PopulationProgram):
-            node = node.root
         label = _bounded(path + (" " + role if role else ""), 100)
+        while isinstance(node, (PopulationProgram, LiteralPopulation)):
+            for binding in node.memberships:
+                if binding not in memberships:
+                    memberships.add(binding)
+                    fields = tuple(field.field.ref.path for field in binding.fields)
+                    paths = tuple(
+                        tuple(item.ref.ref.path for item in route) for route in binding.paths
+                    )
+                    lines.append(
+                        _bounded(
+                            f"{label}: MembershipBinding fields={fields}; paths={paths}; unmatched={binding.unmatched}",
+                            600,
+                        )
+                    )
+            if isinstance(node, LiteralPopulation):
+                break
+            node = node.root
         previous = seen.get(id(node))
         if previous is not None:
             lines.append(label + ": same as " + previous)

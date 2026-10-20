@@ -443,14 +443,16 @@ class Workload:
     def values(self) -> mv.AnalysisFrame:
         return self.session.observe(
             {"value": self.session.catalog.metrics.get("cost.facts_total")},
-            during=self.session.time_scope(start="2026-08-01", end="2026-08-02"),
-            by=self.session.members(ms.ref.entity("cost.facts")),
+            by=mv.product(
+                self.session.time_scope(start="2026-08-01", end="2026-08-02"),
+                self.session.members(self.session.catalog.require(ms.ref.entity("cost.facts"))),
+            ),
         )
 
     def total(self) -> mv.AnalysisFrame:
         return self.session.observe(
             {"value": self.session.catalog.metrics.get("cost.facts_total")},
-            during=self.session.time_scope(start="2026-08-01", end="2026-08-02"),
+            by=(self.session.time_scope(start="2026-08-01", end="2026-08-02"),),
         )
 
     def validate(self, result: mv.AnalysisFrame) -> dict[str, bool]:
@@ -459,7 +461,7 @@ class Workload:
         frame = result.to_pandas()
         assert frame[("value", "value")].tolist() == [expected]
         assert len(frame) == 1
-        assert result._schema.axes == ()
+        assert tuple(axis.role for axis in result.axes) in ((), ("interval",))
         attachments = (
             result._backing.data.copy_attachments()
             if isinstance(result._backing, MemoryFrameBacking)
@@ -484,5 +486,5 @@ def workload(
     rows = _rows(facts, scenario)
     with _tables(backend, profile, root, monkeypatch, rows) as (case, subjects, other):
         _author(root, backend, case, subjects, other, monkeypatch)
-        session = mv.session.get_or_create("integer-sum-regression", report_timezone="UTC")
+        session = mv.session.create("integer-sum-regression", timezone="UTC")
         yield Workload(session, rows, case.environment)

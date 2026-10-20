@@ -99,6 +99,7 @@ def admit(store: SessionStore, session: str, ref: str, result_id: str) -> None:
             "INSERT INTO analysis_action_runs VALUES(?,?,?,?,?)",
             (ref, session, ref, _now(), encode(InvocationInput(result_id))),
         )
+        conn.execute("UPDATE sessions SET updated_at=? WHERE session_ref=?", (_now(), session))
 
 
 def manifest(store: SessionStore, conn: sqlite3.Connection, ref: str) -> ArtifactManifest | None:
@@ -198,7 +199,7 @@ def publish(
                 len(evidence),
                 len(findings),
                 digest(finding_payloads),
-                "frame-output-v1",
+                "frame-output-v2",
             ),
         )
         conn.executemany(
@@ -220,6 +221,9 @@ def publish(
         conn.execute(
             "INSERT INTO analysis_action_run_terminals VALUES(?,?,?,?,?,?)",
             (value.run_id, value.session_id, "succeeded", now, value.artifact_id, None),
+        )
+        conn.execute(
+            "UPDATE sessions SET updated_at=? WHERE session_ref=?", (now, value.session_id)
         )
         event("insert_terminal")
         store._delete_resources(conn, value.run_id, resources)
@@ -252,7 +256,7 @@ def records_page(
         if manifest(store, conn, ref) is None:
             raise invalid("exact terminal Artifact is absent")
         collection = _one(conn, "SELECT * FROM dataset_evidence WHERE artifact_ref=?", (ref,))
-        if collection is None or _text(collection, "evidence_format") != "frame-output-v1":
+        if collection is None or _text(collection, "evidence_format") != "frame-output-v2":
             raise invalid("terminal output collection is absent or obsolete")
         owner = digest(
             (
@@ -317,7 +321,7 @@ class OutputCollection:
 
 def collection(conn: sqlite3.Connection, ref: str) -> OutputCollection:
     row = _one(conn, "SELECT * FROM dataset_evidence WHERE artifact_ref=?", (ref,))
-    if row is None or _text(row, "evidence_format") != "frame-output-v1":
+    if row is None or _text(row, "evidence_format") != "frame-output-v2":
         raise invalid("terminal output collection is absent or obsolete")
     evidence_count, finding_count = row["evidence_count"], row["finding_count"]
     if (
@@ -373,7 +377,7 @@ def confirm_records(
         or collection["evidence_count"] != len(evidence)
         or _text(collection, "finding_set_digest") != digest(finding_payloads)
         or _text(collection, "evidence_digest") != digest(evidence_payloads)
-        or _text(collection, "evidence_format") != "frame-output-v1"
+        or _text(collection, "evidence_format") != "frame-output-v2"
     ):
         raise invalid("original terminal record collection differs from publication")
     rows = _rows(

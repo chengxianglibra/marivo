@@ -220,28 +220,11 @@ changes = md.json(
     records_path="$.data.change_infos",
 )
 ```
-{/* example: source-bindings */}
+Parameterized HTTP declarations can be inspected through semantic preview/readiness with explicit `source_bindings` inputs. They have no qualified numerical AnalysisFrame route; Session does not expose source_bindings. Keep parameterized JSON at that declaration/preview boundary.
 
-```python
-with session.source_bindings(
-    {
-        ms.ref.entity("monitoring.api_events"): {
-            "start": "now-3600",
-            "end": "now",
-        },
-    }
-):
-    events = session.members(ms.ref.entity("monitoring.api_events"))
-    pending = session.catalog.metrics.get("monitoring.pending_containers")
-    query = session.observe(
-        {"pending": pending}, members=events, by=(events.axes[0],)
-    )
-```
-
-This captures a lazy question; the current numerical source path does not admit HTTP execution. HTTP scope constrains declared endpoints; header/token secrets remain environment
+The numerical source path does not admit HTTP execution. HTTP scope constrains declared endpoints; header/token secrets remain environment
 references. Result paths and projected JSON fields do not certify pagination or
-business completeness. Declare the question’s bindings before graph construction,
-then follow its execution contract. Preview and raw SQL results support bounded
+business completeness. Inspect explicit bindings at the semantic preview boundary. Preview and raw SQL results support bounded
 `show(n=..., max_output_bytes=...)` and their native `render()` operations.
 
 ## Default datasource and host credentials

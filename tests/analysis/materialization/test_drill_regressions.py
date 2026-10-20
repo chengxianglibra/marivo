@@ -65,7 +65,7 @@ refund_amount = ms.measure_column(name='amount', entity=refunds, column='amount'
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.get_or_create("related-drill", report_timezone="UTC")
+    return mv.session.create("related-drill", timezone="UTC")
 
 
 @pytest.mark.parametrize("operation", ("direct", "where", "top", "select", "rollup"))
@@ -78,14 +78,19 @@ def test_drill_after_original_operations_prepares_related_fields(
     channel = session.catalog.fields.get("sales.orders.channel")
     tag = session.catalog.fields.get("sales.orders.tag")
     amount = session.catalog.fields.get("sales.orders.amount")
-    metric = mv.member_count() if member_count else amount.sum()
-    members = session.members(ms.ref.entity("sales.orders")) if member_count else None
-    source_filter = tag == "keep" if operation == "rollup" else None
+    members = (
+        session.members(session.catalog.require(ms.ref.entity("sales.orders")))
+        if member_count
+        else None
+    )
     if operation == "rollup" and member_count:
-        members = session.members(ms.ref.entity("sales.orders"), where=tag == "keep")
+        members = session.members(
+            session.catalog.require(ms.ref.entity("sales.orders")), where=tag == "keep"
+        )
+    metric = members.count() if members is not None else amount.sum()
     if operation == "rollup" and not member_count:
         metric = metric.where(tag == "keep")
-    fine = session.observe({"total": metric}, by=(channel,), where=source_filter, members=members)
+    fine = session.observe({"total": metric}, by=(channel,))
     name = "total"
     if operation == "where":
         parent = fine.where(fine["total"] >= (2 if member_count else 40))
@@ -110,9 +115,11 @@ def test_drill_after_original_operations_prepares_related_fields(
     if member_count:
         entity = session.catalog.entities.get("sales.orders")
         selected_members = (
-            session.members(ms.ref.entity("sales.orders"), where=where)
+            session.members(session.catalog.require(ms.ref.entity("sales.orders")), where=where)
             if operation != "rollup"
-            else session.members(ms.ref.entity("sales.orders"), where=tag == "keep")
+            else session.members(
+                session.catalog.require(ms.ref.entity("sales.orders")), where=tag == "keep"
+            )
         )
         selected_ids = session.frame(selected_members).compute()
         expected_ids = (
@@ -123,11 +130,7 @@ def test_drill_after_original_operations_prepares_related_fields(
         where = mv.in_population(fixed_members)
         metric = entity.count()
         members = None
-    result = (
-        session.observe({name: metric}, by=(channel, added), where=where, members=members)
-        .compute()
-        .to_pandas()
-    )
+    result = session.observe({name: metric}, by=(channel, added), where=where).compute().to_pandas()
     actual = list(zip(result.iloc[:, 0], result.iloc[:, 1], result["value", name], strict=True))
     if operation == "direct":
         expected = [

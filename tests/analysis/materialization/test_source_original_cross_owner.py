@@ -62,7 +62,7 @@ def _session(
     files["sales/facts.py"] = model
     factory(files)
     monkeypatch.chdir(root)
-    return mv.session.get_or_create("cross-owner-calendar", report_timezone="UTC")
+    return mv.session.create("cross-owner-calendar", timezone="UTC")
 
 
 @pytest.mark.parametrize("same_owner", (False, True))
@@ -80,7 +80,7 @@ def test_calendar_rollup_reduces_each_root_before_host_formula(
     days = session.time_scope(start="2026-10-01", end="2026-10-03").by(mv.grain("day"))
     metric = one.sum(time=one_day) - two.sum(time=two_day)
     trace = capture_source(monkeypatch)
-    result = session.observe({"net": metric}, during=days.scope).compute().to_pandas()
+    result = session.observe({"net": metric}, by=(days.scope,)).compute().to_pandas()
     assert result["value", "net"].tolist() == [-120]
     assert trace.uploaded_key_rows == []
 
@@ -101,7 +101,7 @@ def test_calendar_parent_formula_failure_precedes_valid_target_totals(
     two_day = session.catalog.fields.get("sales.two.day")
     days = session.time_scope(start="2026-10-01", end="2026-10-03").by(mv.grain("day"))
     metric = one.sum(time=one_day) + two.sum(time=two_day)
-    query = session.observe({"net": metric}, during=days)
+    query = session.observe({"net": metric}, by=(days,))
     trace = capture_source(monkeypatch)
     with pytest.raises(AnalysisError, match="overflow"):
         query.compute()
@@ -124,8 +124,8 @@ def test_cross_owner_calendar_missing_days_keep_independent_empty_policies(
     metric = one.sum(time=one_day, empty=empty).where(one > 0) - two.sum(
         time=two_day, empty=empty
     ).where(two > 0)
-    query = session.observe({"net": metric}, during=days.scope)
-    daily = session.observe({"net": metric}, during=days).compute().to_pandas()
+    query = session.observe({"net": metric}, by=(days.scope,))
+    daily = session.observe({"net": metric}, by=(days,)).compute().to_pandas()
     assert len(daily) == 2
     if empty == "zero":
         assert daily["value", "net"].tolist() == [60, -120]
@@ -151,7 +151,7 @@ def test_plain_calendar_coarsening_recomputes_with_original_clipped_period(
         end="2026-10-02T12:00:00" if partial else "2026-11-01",
     )
     days, month = (scope.by(mv.grain("day")), scope.by(mv.grain("month")))
-    query = session.observe({"total": amount.sum(time=day)}, during=month)
+    query = session.observe({"total": amount.sum(time=day)}, by=(month,))
     trace = capture_source(monkeypatch)
     result = query.compute().to_pandas()
     assert result["value", "total"].tolist() == [60 if partial else 120]
@@ -170,7 +170,7 @@ def test_plain_calendar_coarsening_checks_daily_formula_before_legal_month_total
     day = session.catalog.fields.get("sales.one.day")
     scope = session.time_scope(start="2026-10-01", end="2026-11-01")
     days, month = (scope.by(mv.grain("day")), scope.by(mv.grain("month")))
-    query = session.observe({"value": amount.sum(time=day) + 1}, during=days)
+    query = session.observe({"value": amount.sum(time=day) + 1}, by=(days,))
     trace = capture_source(monkeypatch)
     with pytest.raises(AnalysisError, match="overflow"):
         query.compute()
@@ -234,7 +234,7 @@ def test_remote_cross_owner_calendar_compacts_before_global_host_formula(
             model += f"{name}=ms.entity(name={name!r},datasource=ms.ref.datasource({name!r}),source=md.table({case.source.table!r},database={case.source.database!r}),primary_key=['id'])\n{name}_amount=ms.measure_column(name='amount',entity={name},column='amount',additivity=ms.additive_all())\n{name}_day=ms.time_dimension_column(name='day',entity={name},column='day',granularity='day',is_default=True)\n"
         files["sales/facts.py"] = model
         semantic_project_factory(files)
-        session = mv.session.get_or_create("remote-cross-owner", report_timezone="UTC")
+        session = mv.session.create("remote-cross-owner", timezone="UTC")
         one = session.catalog.fields.get("sales.one.amount")
         two = session.catalog.fields.get("sales.two.amount")
         one_day = session.catalog.fields.get("sales.one.day")
@@ -252,11 +252,13 @@ def test_remote_cross_owner_calendar_compacts_before_global_host_formula(
         metric = one_total + two_total if boundary == "overflow" else one_total - two_total
         query = session.observe(
             {"net": metric},
-            during=days
-            if boundary == "overflow"
-            else scope.by(mv.grain("month"))
-            if boundary in ("coarsen", "partial")
-            else scope,
+            by=(
+                days
+                if boundary == "overflow"
+                else scope.by(mv.grain("month"))
+                if boundary in ("coarsen", "partial")
+                else scope,
+            ),
         )
         trace = capture_source(monkeypatch)
         if boundary == "overflow":

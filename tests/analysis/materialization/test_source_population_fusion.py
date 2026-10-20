@@ -39,7 +39,7 @@ def test_relationship_population_only_returns_consumed_domain_or_value(
     operation: str,
 ) -> None:
     session = _case(semantic_project_factory, tmp_path, monkeypatch)
-    orders = session.members(ms.ref.entity("sales.orders"))
+    orders = session.members(session.catalog.require(ms.ref.entity("sales.orders")))
     path = (
         session.catalog.relationships.get("sales.order_links"),
         session.catalog.relationships.get("sales.link_tags"),
@@ -59,7 +59,7 @@ def test_relationship_population_only_returns_consumed_domain_or_value(
         if operation == "literal_preimage":
             targets = mv.identities(session.catalog.entities.get("sales.tags"), keys=((1,),))
         else:
-            tags = session.members(ms.ref.entity("sales.tags"))
+            tags = session.members(session.catalog.require(ms.ref.entity("sales.tags")))
             fields = session.read(tags, {"label": session.catalog.fields.get("sales.tags.label")})
             chosen = fields.where(
                 fields["label"] == ("missing" if operation == "empty_query" else "A")
@@ -69,7 +69,7 @@ def test_relationship_population_only_returns_consumed_domain_or_value(
             )
         selected = orders.preimage(targets, via=path)
         query = session.observe(
-            {"v": session.catalog.metrics.get("sales.revenue")}, members=selected
+            {"v": session.catalog.metrics.get("sales.revenue")}, where=mv.in_population(selected)
         )
     trace = capture_source(monkeypatch)
     frame = query.compute().to_pandas()
@@ -94,7 +94,7 @@ def test_relationship_population_failures_survive_empty_top(
     boundary: str,
 ) -> None:
     session = _case(semantic_project_factory, tmp_path, monkeypatch)
-    orders = session.members(ms.ref.entity("sales.orders"))
+    orders = session.members(session.catalog.require(ms.ref.entity("sales.orders")))
     path = (
         session.catalog.relationships.get("sales.order_links"),
         session.catalog.relationships.get("sales.link_tags"),
@@ -119,7 +119,7 @@ def test_relationship_population_failures_survive_empty_top(
         with duckdb.connect(str(tmp_path / "population.duckdb")) as db:
             db.execute("INSERT INTO tags VALUES (1,'corrupt','other')")
         fields = session.read(
-            session.members(ms.ref.entity("sales.tags")),
+            session.members(session.catalog.require(ms.ref.entity("sales.tags"))),
             {"label": session.catalog.fields.get("sales.tags.label")},
         )
         chosen = fields.where(fields["label"] == "missing")
@@ -146,7 +146,7 @@ def test_relationship_member_count_keeps_its_actual_member_input(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = _case(semantic_project_factory, tmp_path, monkeypatch)
-    orders = session.members(ms.ref.entity("sales.orders"))
+    orders = session.members(session.catalog.require(ms.ref.entity("sales.orders")))
     path = (
         session.catalog.relationships.get("sales.order_links"),
         session.catalog.relationships.get("sales.link_tags"),
@@ -154,8 +154,8 @@ def test_relationship_member_count_keeps_its_actual_member_input(
     targets = mv.identities(session.catalog.entities.get("sales.tags"), keys=((1,),))
     selected = orders.preimage(targets, via=path)
     query = session.observe(
-        {"n": mv.member_count(), "v": session.catalog.metrics.get("sales.revenue")},
-        members=selected,
+        {"n": selected.count(), "v": session.catalog.metrics.get("sales.revenue")},
+        where=mv.in_population(selected),
     )
     frame = query.compute().to_pandas()
     assert frame[("value", "n")].tolist() == [500]
@@ -236,8 +236,8 @@ def test_remote_relationship_domains_and_explicit_frame_targets(
                 "sales/objects.py": model,
             }
         )
-        session = mv.session.get_or_create("remote-population-fusion", report_timezone="UTC")
-        source = session.members(ms.ref.entity("sales.orders"))
+        session = mv.session.create("remote-population-fusion", timezone="UTC")
+        source = session.members(session.catalog.require(ms.ref.entity("sales.orders")))
         path = (
             session.catalog.relationships.get("sales.order_links"),
             session.catalog.relationships.get("sales.link_tags"),
@@ -258,7 +258,7 @@ def test_remote_relationship_domains_and_explicit_frame_targets(
         )
         assert count[("value", "v")].tolist() == [2]
         fields = session.read(
-            session.members(ms.ref.entity("sales.tags")),
+            session.members(session.catalog.require(ms.ref.entity("sales.tags"))),
             {"label": session.catalog.fields.get("sales.tags.label")},
         )
         for label, expected in (("A", 500), ("missing", 0)):
@@ -269,7 +269,8 @@ def test_remote_relationship_domains_and_explicit_frame_targets(
             selected = source.preimage(targets, via=path)
             frame = (
                 session.observe(
-                    {"v": session.catalog.metrics.get("sales.revenue")}, members=selected
+                    {"v": session.catalog.metrics.get("sales.revenue")},
+                    where=mv.in_population(selected),
                 )
                 .compute()
                 .to_pandas()

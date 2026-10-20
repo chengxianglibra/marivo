@@ -66,11 +66,10 @@ catalog.preview(
 
 campaigns = catalog.temporal_sets.get("sales.campaigns")
 launch = campaigns.occurrence("spring-2026")
-members = session.members(ms.ref.entity("sales.customer"))
+Customer = session.catalog.entities.get("sales.customer")
+members = session.members(Customer)
 revenue = session.catalog.metrics.get("sales.revenue")
-query = session.observe(
-    {"revenue": revenue}, during=launch, members=members, by=(members.axes[0],)
-)
+query = session.observe({'revenue': revenue}, by=mv.product(launch, members))
 ```
 
 Keep occurrence identity and interval semantics explicit; a selected occurrence is not a global time filter for every unrelated quantity.

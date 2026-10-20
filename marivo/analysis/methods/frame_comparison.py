@@ -12,7 +12,12 @@ import pyarrow.compute as pc
 
 from marivo.analysis.compiler.query_program import FrameCombineProgram
 from marivo.analysis.core.artifact_data import OutputAttachment
-from marivo.analysis.core.data_schema import CalendarDataAxis, DataAxis, PairedDataAxis
+from marivo.analysis.core.data_schema import (
+    CalendarDataAxis,
+    DataAxis,
+    IntervalDataAxis,
+    PairedDataAxis,
+)
 from marivo.analysis.core.data_types import (
     DataColumn,
     DataType,
@@ -25,13 +30,18 @@ from marivo.analysis.core.frame_expression import CompareFrameValues
 from marivo.analysis.core.frozen_calendar import (
     FrozenAttachment,
     build_partial_calendar_map,
+    build_partial_interval_map,
     calendar_directory_rows,
     calendar_directory_schema,
     frozen_key_rows,
     frozen_key_table,
+    interval_directory_rows,
+    interval_directory_schema,
     merge_equal_calendar_directories,
+    merge_equal_interval_directories,
     paired_mapping_schema,
     read_calendar_directory,
+    read_interval_directory,
     validate_frozen_coordinates,
 )
 from marivo.analysis.materialization.errors import MaterializationError
@@ -98,38 +108,90 @@ def combine_frame_data(
     frames = [frame.copy(deep=False) for frame in inputs]
     for i, j in program.operation.pairs:
         left, right, output = left_axes[i], right_axes[j], program.output_schema.axes[i]
-        if not isinstance(left, CalendarDataAxis):
-            continue
-        assert isinstance(right, CalendarDataAxis)
-        assert left.frozen is not None and right.frozen is not None
-        a, b = sources[0][left.frozen.directory_name], sources[1][right.frozen.directory_name]
-        ldir, rdir = (
-            read_calendar_directory(left, a.schema, a.rows),
-            read_calendar_directory(right, b.schema, b.rows),
-        )
-        if isinstance(output, CalendarDataAxis):
-            directory = merge_equal_calendar_directories(ldir, rdir, output)
-            assert output.frozen is not None
-            output_attachments.append(
-                OutputAttachment(
-                    output.frozen.directory_name,
-                    calendar_directory_schema(output),
-                    calendar_directory_rows(directory),
-                )
+        if isinstance(left, IntervalDataAxis):
+            assert isinstance(right, IntervalDataAxis)
+            a, b = sources[0][left.frozen.directory_name], sources[1][right.frozen.directory_name]
+            li, ri = (
+                read_interval_directory(left, a.schema, a.rows),
+                read_interval_directory(right, b.schema, b.rows),
             )
-            continue
-        assert isinstance(output, PairedDataAxis) and program.operation.match is not None
-        mapping = build_partial_calendar_map(ldir, rdir, program.operation.match)
-        for endpoint, directory in ((output.left, ldir), (output.right, rdir)):
-            assert endpoint.frozen is not None
-            copied = replace(directory, axis=endpoint)
-            output_attachments.append(
-                OutputAttachment(
-                    endpoint.frozen.directory_name,
-                    calendar_directory_schema(endpoint),
-                    calendar_directory_rows(copied),
+            if isinstance(output, IntervalDataAxis):
+                merged = merge_equal_interval_directories(li, ri, output)
+                output_attachments.append(
+                    OutputAttachment(
+                        output.frozen.directory_name,
+                        interval_directory_schema(output),
+                        interval_directory_rows(merged),
+                    )
                 )
+                identities = {
+                    (bucket.start, bucket.end, bucket.timezone): bucket.key
+                    for bucket in merged.buckets
+                }
+                for side, interval_directory in enumerate((li, ri)):
+                    interval_lookup = {
+                        bucket.key: identities[(bucket.start, bucket.end, bucket.timezone)]
+                        for bucket in interval_directory.buckets
+                    }
+                    encoded = frozen_key_table(
+                        output.columns,
+                        tuple(
+                            interval_lookup[key]
+                            for key in frozen_key_rows(
+                                frames[side], interval_directory.axis.columns
+                            )
+                        ),
+                    )
+                    for target, source in zip(
+                        output.columns, interval_directory.axis.columns, strict=True
+                    ):
+                        frames[side][source.slot_id] = encoded[target.slot_id]
+                continue
+            assert isinstance(output, PairedDataAxis) and program.operation.match is not None
+            mapping = build_partial_interval_map(li, ri, program.operation.match)
+            for endpoint, interval_directory in ((output.left, li), (output.right, ri)):
+                assert isinstance(endpoint, IntervalDataAxis)
+                copied_interval = replace(interval_directory, axis=endpoint)
+                output_attachments.append(
+                    OutputAttachment(
+                        endpoint.frozen.directory_name,
+                        interval_directory_schema(endpoint),
+                        interval_directory_rows(copied_interval),
+                    )
+                )
+        elif isinstance(left, CalendarDataAxis):
+            assert isinstance(right, CalendarDataAxis)
+            assert left.frozen is not None and right.frozen is not None
+            a, b = sources[0][left.frozen.directory_name], sources[1][right.frozen.directory_name]
+            ldir, rdir = (
+                read_calendar_directory(left, a.schema, a.rows),
+                read_calendar_directory(right, b.schema, b.rows),
             )
+            if isinstance(output, CalendarDataAxis):
+                directory = merge_equal_calendar_directories(ldir, rdir, output)
+                assert output.frozen is not None
+                output_attachments.append(
+                    OutputAttachment(
+                        output.frozen.directory_name,
+                        calendar_directory_schema(output),
+                        calendar_directory_rows(directory),
+                    )
+                )
+                continue
+            assert isinstance(output, PairedDataAxis) and program.operation.match is not None
+            mapping = build_partial_calendar_map(ldir, rdir, program.operation.match)
+            for endpoint, directory in ((output.left, ldir), (output.right, rdir)):
+                assert isinstance(endpoint, CalendarDataAxis) and endpoint.frozen is not None
+                copied = replace(directory, axis=endpoint)
+                output_attachments.append(
+                    OutputAttachment(
+                        endpoint.frozen.directory_name,
+                        calendar_directory_schema(endpoint),
+                        calendar_directory_rows(copied),
+                    )
+                )
+        else:
+            continue
         map_schema = paired_mapping_schema(output)
         rows = pd.DataFrame(
             {output.columns[0].slot_id: pd.Series(range(len(mapping)), dtype="int64[pyarrow]")}

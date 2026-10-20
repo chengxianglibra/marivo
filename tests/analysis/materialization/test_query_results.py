@@ -56,7 +56,7 @@ other_channel = ms.dimension_column(name='channel', entity=other_orders, column=
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.get_or_create("results", report_timezone="UTC")
+    return mv.session.create("results", timezone="UTC")
 
 
 @pytest.mark.parametrize("mapping", (None, False, 0, {}))
@@ -64,12 +64,11 @@ other_channel = ms.dimension_column(name='channel', entity=other_orders, column=
 def test_constructor_mapping_refusal_precedes_source_io(
     result_session: Session, monkeypatch: pytest.MonkeyPatch, mapping: object, entry: str
 ) -> None:
-    import marivo.semantic as ms
     from marivo.datasource.adapters import SourceSession
 
     session = result_session
     region = session.catalog.fields.get("sales.orders.region")
-    people = session.members(ms.ref.entity("sales.orders"))
+    people = session.members(session.catalog.entities.get("sales.orders"))
     calls: list[str] = []
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -93,7 +92,7 @@ def test_constructor_mapping_refusal_precedes_source_io(
         assert error.expected == "named columns and finite typed literal rows"
         assert "literal row" in error.repair.action
     assert error.run_ref is None and calls == []
-    assert session.runs().items == before == () and session.graph().artifacts == ()
+    assert session.runs().items == before == ()
     assert session._runtime.store.resources(session.id) == ()
 
 
@@ -147,7 +146,7 @@ def test_actual_source_failure_compute_help_resolves_without_run(
         assert error.expected == "value.0: a native numeric column"
         assert error.received == "string"
     assert error.run_ref is None
-    assert session.runs().items == () and session.graph().artifacts == ()
+    assert session.runs().items == ()
     assert session._runtime.store.resources(session.id) == ()
 
 
@@ -197,24 +196,23 @@ def test_explicit_source_reads_selected_fibers_and_original_mean(result_session:
 
 
 def test_explicit_selected_members_keep_complete_identity(result_session: Session) -> None:
-    import marivo.semantic as ms
-
     session = result_session
     region = session.catalog.fields.get("sales.orders.region")
     channel = session.catalog.fields.get("sales.orders.channel")
     fine = session.observe(
-        {"people": mv.member_count()},
+        {"people": session.members(session.catalog.entities.get("sales.orders")).count()},
         by=(region,),
-        members=session.members(ms.ref.entity("sales.orders")),
     )
     selected = fine.where(fine["people"] == 2)
     chosen = _population(session, selected, region)
-    domain = session.members(ms.ref.entity("sales.orders"), where=mv.in_population(chosen))
-    drilled = session.observe({"people": mv.member_count()}, by=(region, channel), members=domain)
+    domain = session.members(
+        session.catalog.entities.get("sales.orders"), where=mv.in_population(chosen)
+    )
+    drilled = session.observe({"people": domain.count()}, by=(region, channel))
     assert drilled.compute().to_pandas()[("value", "people")].tolist() == [1, 1]
-    assert session.observe(
-        {"people": mv.member_count()}, by=(region,), members=domain
-    ).compute().to_pandas()[("value", "people")].tolist() == [2]
+    assert session.observe({"people": domain.count()}, by=(region,)).compute().to_pandas()[
+        ("value", "people")
+    ].tolist() == [2]
 
 
 def test_explicit_source_read_preserves_snapshot_row_identity(
@@ -246,7 +244,7 @@ amount=ms.measure_column(name='amount',entity=orders,column='amount',additivity=
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("versions", report_timezone="UTC")
+    session = mv.session.create("versions", timezone="UTC")
     amount = session.catalog.fields.get("sales.orders.amount")
     region = session.catalog.fields.get("sales.orders.region")
     channel = session.catalog.fields.get("sales.orders.channel")
@@ -426,7 +424,6 @@ def test_frame_population_uses_selected_keys_and_preserves_checks(result_session
 
 
 def test_explicit_members_and_member_count(result_session: Session) -> None:
-    from marivo.analysis.dsl.metrics import member_count
 
     session = result_session
     orders = session.catalog.entities.get("sales.orders")
@@ -436,10 +433,10 @@ def test_explicit_members_and_member_count(result_session: Session) -> None:
         session.observe(
             {
                 "total": amount.sum(),
-                "people": member_count(),
-                "per_person": amount.sum() / member_count(),
+                "people": requested.count(),
+                "per_person": amount.sum() / requested.count(),
             },
-            members=requested,
+            where=mv.in_population(requested),
         )
         .compute()
         .to_pandas()
@@ -447,11 +444,7 @@ def test_explicit_members_and_member_count(result_session: Session) -> None:
     assert result[("value", "total")].tolist() == [30]
     assert result[("value", "people")].tolist() == [3]
     assert result[("value", "per_person")].tolist() == [10.0]
-    complete = (
-        session.observe({"total": amount.sum()}, members=requested, by=(requested.axes[0],))
-        .compute()
-        .to_pandas()
-    )
+    complete = session.observe({"total": amount.sum()}, by=requested).compute().to_pandas()
     assert complete.iloc[:, 0].tolist() == [1, 3, 999]
     assert complete[("value", "total")].to_dict() == {0: 10, 1: 20, 2: None}
     assert isinstance(requested.axes[0], mv.Grouping)
@@ -462,17 +455,15 @@ def test_explicit_members_and_member_count(result_session: Session) -> None:
     ].tolist() == [1, 3, 999]
     with pytest.raises(AnalysisError):
         session.observe({"total": amount.sum()}, by=(mv.identity(()),))
-    other_channel = session.catalog.fields.get("sales.other_orders.channel")
-    for identity in (mv.identity(orders), requested.axes[0]):
-        with pytest.raises(AnalysisError, match="direct classification fields"):
-            session.observe(
-                {"total": amount.sum()}, members=requested, by=(identity, other_channel)
-            )
     with pytest.raises(AnalysisError):
-        session.observe({"people": member_count()})
+        mv.coordinates(
+            by=(session.catalog.fields.get("sales.orders.region"),), keys=(("A",),)
+        ).count()
     empty = mv.identities(orders, keys=())
     result = (
-        session.observe({"people": member_count(), "sum": amount.sum()}, members=empty)
+        session.observe(
+            {"people": empty.count(), "sum": amount.sum()}, where=mv.in_population(empty)
+        )
         .compute()
         .to_pandas()
     )
@@ -534,11 +525,14 @@ def test_dependent_source_uses_complete_null_safe_key_relations(
     assert "JOIN" in statements[0]
     assert "'Store'" not in statements[0]
     assert "IS NOT DISTINCT FROM" in statements[-1]
-    import marivo.semantic as ms
 
-    selected = session.members(ms.ref.entity("sales.orders"), where=mv.in_population(chosen))
+    selected = session.members(
+        session.catalog.entities.get("sales.orders"), where=mv.in_population(chosen)
+    )
     assert session.frame(selected).compute().to_pandas().iloc[:, 0].tolist() == [2, 3, 4]
-    remainder = session.members(ms.ref.entity("sales.orders"), where=~mv.in_population(chosen))
+    remainder = session.members(
+        session.catalog.entities.get("sales.orders"), where=~mv.in_population(chosen)
+    )
     assert session.frame(remainder).compute().to_pandas().iloc[:, 0].tolist() == [1]
 
 
@@ -589,20 +583,19 @@ def test_source_read_frame_bridge_uses_bounded_key_transport(
 ) -> None:
     import ibis.expr.operations as ops
 
-    import marivo.semantic as ms
     from marivo.datasource.adapters import CompiledRead, SourceSession
 
     session = result_session
     region = session.catalog.fields.get("sales.orders.region")
     amount = session.catalog.fields.get("sales.orders.amount")
-    members = session.members(ms.ref.entity("sales.orders"))
+    members = session.members(session.catalog.entities.get("sales.orders"))
     attributes = session.read(members, {"region": region})
     selected = _population(
         session,
         attributes.where(attributes["region"] == "selected"),
         session.catalog.entities.get("sales.orders"),
     )
-    consumer = session.observe({"total": amount.sum()}, members=selected)
+    consumer = session.observe({"total": amount.sum()}, where=mv.in_population(selected))
     statements: list[tuple[str, int]] = []
     original = SourceSession.execute
 
@@ -639,7 +632,6 @@ def test_source_read_frame_bridge_preserves_complete_keys_and_complements(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import marivo.semantic as ms
     from marivo.datasource.adapters import CompiledRead, SourceSession
 
     large = 2**53 + 1
@@ -671,8 +663,8 @@ amount = ms.measure_column(name='amount',entity=accounts,column='amount',additiv
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("source-keys", report_timezone="UTC")
-    members = session.members(ms.ref.entity("sales.accounts"))
+    session = mv.session.create("source-keys", timezone="UTC")
+    members = session.members(session.catalog.entities.get("sales.accounts"))
     region = session.catalog.fields.get("sales.accounts.region")
     amount = session.catalog.fields.get("sales.accounts.amount")
     attributes = session.read(members, {"region": region})
@@ -731,7 +723,6 @@ def test_source_read_frame_bridge_checks_source_contracts_before_selection(
     corruption: str,
     expected: str,
 ) -> None:
-    import marivo.semantic as ms
     from marivo.datasource.adapters import CompiledRead, SourceSession
 
     session = result_session
@@ -743,7 +734,7 @@ def test_source_read_frame_bridge_checks_source_contracts_before_selection(
         )
     region = session.catalog.fields.get("sales.orders.region")
     amount = session.catalog.fields.get("sales.orders.amount")
-    members = session.members(ms.ref.entity("sales.orders"))
+    members = session.members(session.catalog.entities.get("sales.orders"))
     attributes = session.read(members, {"region": region})
     selected = _population(
         session,
@@ -759,19 +750,18 @@ def test_source_read_frame_bridge_checks_source_contracts_before_selection(
 
     monkeypatch.setattr(SourceSession, "execute", record)
     with pytest.raises(AnalysisError, match=expected):
-        session.observe({"total": amount.sum()}, members=selected).compute()
+        session.observe({"total": amount.sum()}, where=mv.in_population(selected)).compute()
     assert len(statements) == 1
 
 
 def test_top_selected_frame_bridge_keeps_source_checks(
     result_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.semantic as ms
     from marivo.datasource.adapters import CompiledRead, SourceSession
 
     session = result_session
     amount = session.catalog.fields.get("sales.orders.amount")
-    members = session.members(ms.ref.entity("sales.orders"))
+    members = session.members(session.catalog.entities.get("sales.orders"))
     attributes = session.read(members, {"amount": amount})
     selected = _population(
         session,
@@ -786,7 +776,11 @@ def test_top_selected_frame_bridge_keeps_source_checks(
         return original(owner, read)
 
     monkeypatch.setattr(SourceSession, "execute", record)
-    result = session.observe({"total": amount.sum()}, members=selected).compute().to_pandas()
+    result = (
+        session.observe({"total": amount.sum()}, where=mv.in_population(selected))
+        .compute()
+        .to_pandas()
+    )
     assert result[("value", "total")].tolist() == [30]
     assert len(statements) == 2
     assert "_marivo_keys_" in statements[-1]
@@ -795,7 +789,6 @@ def test_top_selected_frame_bridge_keeps_source_checks(
 def test_float_nan_attribute_selection_keeps_pandas_missing_value_semantics(
     result_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.semantic as ms
     from marivo.datasource.adapters import CompiledRead, SourceSession
 
     session = result_session
@@ -804,7 +797,9 @@ def test_float_nan_attribute_selection_keeps_pandas_missing_value_semantics(
         connection.execute("UPDATE orders SET amount='NaN'::DOUBLE WHERE id=4")
     entity = session.catalog.entities.get("sales.orders")
     amount = session.catalog.fields.get("sales.orders.amount")
-    attributes = session.read(session.members(ms.ref.entity("sales.orders")), {"amount": amount})
+    attributes = session.read(
+        session.members(session.catalog.entities.get("sales.orders")), {"amount": amount}
+    )
     selected = _population(
         session,
         attributes.where(attributes["amount"].is_null()),
@@ -818,7 +813,11 @@ def test_float_nan_attribute_selection_keeps_pandas_missing_value_semantics(
         return original(owner, read)
 
     monkeypatch.setattr(SourceSession, "execute", record)
-    result = session.observe({"rows": entity.count()}, members=selected).compute().to_pandas()
+    result = (
+        session.observe({"rows": entity.count()}, where=mv.in_population(selected))
+        .compute()
+        .to_pandas()
+    )
     assert result[("value", "rows")].tolist() == [1]
     assert len(statements) == 2
     assert "_marivo_keys_" in statements[-1]
@@ -827,7 +826,6 @@ def test_float_nan_attribute_selection_keeps_pandas_missing_value_semantics(
 def test_submicrosecond_timestamp_selection_keeps_exact_pandas_literal(
     result_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.semantic as ms
     from marivo.datasource.adapters import CompiledRead, SourceSession
 
     session = result_session
@@ -843,7 +841,7 @@ def test_submicrosecond_timestamp_selection_keeps_exact_pandas_literal(
     happened = session.catalog.fields.get("sales.orders.happened")
     amount = session.catalog.fields.get("sales.orders.amount")
     attributes = session.read(
-        session.members(ms.ref.entity("sales.orders")), {"happened": happened}
+        session.members(session.catalog.entities.get("sales.orders")), {"happened": happened}
     )
     selected = attributes.where(
         attributes["happened"] < pd.Timestamp("2026-10-18T01:02:03.123456999Z")
@@ -860,7 +858,9 @@ def test_submicrosecond_timestamp_selection_keeps_exact_pandas_literal(
     result = (
         session.observe(
             {"total": amount.sum(empty="zero")},
-            members=_population(session, selected, session.catalog.entities.get("sales.orders")),
+            where=mv.in_population(
+                _population(session, selected, session.catalog.entities.get("sales.orders"))
+            ),
         )
         .compute()
         .to_pandas()
@@ -876,13 +876,12 @@ def test_shared_frame_selection_transports_once_for_checked_source_consumers(
     import ibis.expr.types as ir
     import pyarrow as pa
 
-    import marivo.semantic as ms
     from marivo.datasource.adapters import CompiledRead, SourceSession
 
     session = result_session
     region = session.catalog.fields.get("sales.orders.region")
     amount = session.catalog.fields.get("sales.orders.amount")
-    members = session.members(ms.ref.entity("sales.orders"))
+    members = session.members(session.catalog.entities.get("sales.orders"))
     attributes = session.read(members, {"region": region})
     selected = _population(
         session,
@@ -932,9 +931,9 @@ def test_session_read_preserves_identity_and_feeds_a_new_source(result_session: 
     selected = _population(
         session, q.where(q["amount"] > 10), session.catalog.entities.get("sales.orders")
     )
-    assert session.observe({"total": amount.sum()}, members=selected).compute().to_pandas()[
-        ("value", "total")
-    ].tolist() == [30]
+    assert session.observe(
+        {"total": amount.sum()}, where=mv.in_population(selected)
+    ).compute().to_pandas()[("value", "total")].tolist() == [30]
     missing = session.read(mv.identities(orders, keys=((999,),)), {"region": region})
     with pytest.raises(AnalysisError):
         missing.compute()
@@ -995,7 +994,6 @@ def test_two_datasource_composite_parameters_compare_and_terminal_read(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import marivo.semantic as ms
     from marivo.datasource.adapters import CompiledRead, SourceSession
 
     databases = tuple(tmp_path / (name + ".duckdb") for name in ("crm", "billing"))
@@ -1030,9 +1028,9 @@ account_match = ms.relationship(name='account_match',from_entity=crm,to_entity=b
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("two-sources", report_timezone="UTC")
-    left_members = session.members(ms.ref.entity("sales.crm"))
-    right_members = session.members(ms.ref.entity("sales.billing"))
+    session = mv.session.create("two-sources", timezone="UTC")
+    left_members = session.members(session.catalog.entities.get("sales.crm"))
+    right_members = session.members(session.catalog.entities.get("sales.billing"))
     left_amount = session.catalog.fields.get("sales.crm.amount")
     right_amount = session.catalog.fields.get("sales.billing.amount")
     left = session.observe({"sales": left_amount.sum()}, by=left_members)
@@ -1097,17 +1095,15 @@ amount = ms.measure_column(name='amount',entity=orders,column='amount',additivit
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("calendar-share", report_timezone="UTC")
+    session = mv.session.create("calendar-share", timezone="UTC")
     amount = session.catalog.fields.get("sales.orders.amount")
     day = session.catalog.fields.get("sales.orders.day")
     region = session.catalog.fields.get("sales.orders.region")
     grid = session.time_scope(start="2026-01-30", end="2026-02-03").by(mv.grain("day"))
-    daily = session.observe(
-        {"sales": amount.sum(time=day, empty="zero")}, during=grid, by=(region,)
-    )
+    daily = session.observe({"sales": amount.sum(time=day, empty="zero")}, by=(grid, region))
     assert daily.compute().to_pandas()[("value", "sales")].tolist() == [10, 30, 60, 0, 20, 0, 40, 0]
     monthly = session.time_scope(start="2026-01-30", end="2026-02-03").by(mv.grain("month"))
-    coarse = session.observe({"sales": amount.sum(time=day, empty="zero")}, during=monthly)
+    coarse = session.observe({"sales": amount.sum(time=day, empty="zero")}, by=(monthly,))
     assert coarse.compute().to_pandas()[("value", "sales")].tolist() == [60, 100]
 
 
@@ -1178,3 +1174,82 @@ def test_nullable_source_sum_preserves_large_integer_through_local_consumers(
         session.observe({"total": total.per(region).sum()}),
     ):
         assert reduced.compute().to_pandas()[("value", "total")].tolist() == [large + 20]
+
+
+def test_explicit_domains_keep_joint_keys_and_empty_unit(result_session: Session) -> None:
+    session = result_session
+    amount = session.catalog.fields.get("sales.orders.amount")
+    region = session.catalog.fields.get("sales.orders.region")
+    channel = session.catalog.fields.get("sales.orders.channel")
+    domain = mv.coordinates(by=(region, channel), keys=(("A", "Web"), ("B", "Store")))
+    rows = session.observe({"mean": amount.mean()}, by=domain).compute().to_pandas()
+    assert list(zip(rows.iloc[:, 0], rows.iloc[:, 1], strict=True)) == [
+        ("A", "Web"),
+        ("B", "Store"),
+    ]
+    assert rows[("value", "mean")].iloc[0] == 10
+    assert pd.isna(rows[("value", "mean")].iloc[1])
+    unit = mv.coordinates(by=(), keys=((),))
+    empty = mv.coordinates(by=(), keys=())
+    assert len(session.observe({"total": amount.sum()}, by=unit).compute().to_pandas()) == 1
+    assert len(session.observe({"total": amount.sum()}, by=empty).compute().to_pandas()) == 0
+
+
+def test_population_counts_are_independent_of_fact_conditions(result_session: Session) -> None:
+    session = result_session
+    entity = session.catalog.entities.get("sales.orders")
+    amount = session.catalog.fields.get("sales.orders.amount")
+    p = mv.identities(entity, keys=((1,), (3,), (999,)))
+    q = mv.identities(entity, keys=((2,),))
+    rows = (
+        session.observe(
+            {
+                "p": p.count(),
+                "q": q.count(),
+                "sum": amount.sum(),
+                "ratio": amount.sum() / p.count(),
+            },
+            where=amount > 15,
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert rows[("value", "p")].tolist() == [3]
+    assert rows[("value", "q")].tolist() == [1]
+    assert rows[("value", "sum")].tolist() == [50]
+    assert rows[("value", "ratio")].tolist() == [50 / 3]
+    with pytest.raises(AnalysisError, match="fact contributions"):
+        session.observe({"p": p.count()}, where=amount > 15)
+
+
+def test_count_domains_follow_their_own_internal_samples(result_session: Session) -> None:
+    session = result_session
+    entity = session.catalog.entities.get("sales.orders")
+    amount = session.catalog.fields.get("sales.orders.amount")
+    region = session.catalog.fields.get("sales.orders.region")
+    selected = mv.identities(entity, keys=((1,), (3,)))
+    rows = (
+        session.observe({"count": selected.count(), "mean": amount.sum().per(region).mean()})
+        .compute()
+        .to_pandas()
+    )
+    assert rows[("value", "count")].tolist() == [2]
+    assert rows[("value", "mean")].tolist() == [30.0]
+    rows = (
+        session.observe(
+            {"count": selected.count(), "sampled_count": selected.count().per(region).sum()}
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert rows[("value", "count")].tolist() == [2]
+    assert rows[("value", "sampled_count")].tolist() == [2]
+    grouped = (
+        session.observe({"count": selected.count().per(region).sum()}, by=(region,))
+        .compute()
+        .to_pandas()
+    )
+    assert grouped[("value", "count")].tolist() == [1, 1]
+    requested = mv.coordinates(by=(region,), keys=(("A",), ("C",)))
+    rows = session.observe({"count": selected.count().per(requested).sum()}).compute().to_pandas()
+    assert rows[("value", "count")].tolist() == [1]

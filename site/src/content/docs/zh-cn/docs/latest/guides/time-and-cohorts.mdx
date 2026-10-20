@@ -15,10 +15,7 @@ fixed_orders = mv.identities(Orders, keys=((4,), (5,), (6,)))
 attributes = session.read(fixed_orders, {"region": region}).compute()
 chosen_orders = attributes.where(attributes["region"] == "east").compute()
 east = session.population_from(chosen_orders, on=((chosen_orders.axes[0], Orders),))
-selected = session.observe(
-    {"revenue": revenue}, during=august,
-    members=east, by=(east.axes[0],),
-).compute()
+selected = session.observe({'revenue': revenue}, by=mv.product(august, east)).compute()
 selected.show()
 session.frame(east).compute().show()
 ```
@@ -29,18 +26,23 @@ Entity，不能把 Field 升级为身份。on 必填，零轴可用 on=()；空�
 Population 保持惰性，frame 绑定一般键域。属性 `.at(anchor)` 独立于观察期间。
 coord 只接受单物理分量 FrameAxis，复合身份仍保持完整键。
 
+
+TimeScope 直接放入 by 时产生一个 interval 坐标；单期间仍保留时间轴。
+`by=mv.product(august, east)` 保留所选完整身份，包括无事实身份。
+`east.count()` 是捕获该身份域的惰性 Metric，包含无事实身份；事实条件不重选分母。
+若原有字段条件，使用 `revenue.where(mv.in_population(east))` 并保留
+`observe(..., where=field_condition)`。只有计数时无效果的条件/窗口拒绝。
+
 ## 保留精确日历边界
 
 {/* example: calendar-query */}
 
 ```python
 days = august.by(mv.grain("day"))
-daily = session.observe({"revenue": revenue}, during=days).compute()
+daily = session.observe({'revenue': revenue}, by=(days,)).compute()
 sum_of_days = daily.reduce({"sum_of_days": daily["revenue"].sum()}).compute()
 sum_of_days.show()
-monthly_source = session.observe(
-    {"revenue": revenue}, during=august.by(mv.grain("month")),
-).compute()
+monthly_source = session.observe({'revenue': revenue}, by=(august.by(mv.grain('month')),)).compute()
 monthly_source.show()
 ```
 
@@ -56,14 +58,8 @@ naive Python datetime、歧义或不存在的民用时刻拒绝。CalendarAxis �
 
 ```python
 from datetime import timedelta
-rolling = session.observe(
-    {"revenue": revenue.window(mv.trailing_duration(duration=timedelta(days=7)))},
-    during=days,
-).compute()
-month_to_date = session.observe(
-    {"revenue": revenue.window(mv.to_date(grain=mv.grain("month")))},
-    during=days,
-).compute()
+rolling = session.observe({'revenue': revenue.window(mv.trailing_duration(duration=timedelta(days=7)))}, by=(days,)).compute()
+month_to_date = session.observe({'revenue': revenue.window(mv.to_date(grain=mv.grain('month')))}, by=(days,)).compute()
 rolling.show(n=5)
 month_to_date.show(n=5)
 ```
@@ -81,8 +77,8 @@ all_history 无下界，to_date 选择在评估边界结束的重置期间。
 ```python
 current_days = session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
 prior_days = session.time_scope(start="2026-07-01", end="2026-07-04").by(mv.grain("day"))
-current_daily = session.observe({"revenue": revenue}, during=current_days).compute()
-prior_daily = session.observe({"revenue": revenue}, during=prior_days).compute()
+current_daily = session.observe({'revenue': revenue}, by=(current_days,)).compute()
+prior_daily = session.observe({'revenue': revenue}, by=(prior_days,)).compute()
 paired = current_daily.compare(prior_daily, match=mv.ordinal()).compute()
 paired.show()
 ```

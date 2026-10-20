@@ -351,7 +351,7 @@ def test_restored_session_suppresses_successful_internal_load_declarations(
 
     @tracked_capability(
         surface="analysis",
-        capability_id="session.get_or_create",
+        capability_id="session.create",
         capability_kind="lifecycle",
     )
     def resume(*, name: str, question: str, project_root: Path, fail: bool = False) -> str:
@@ -375,7 +375,7 @@ def test_restored_session_suppresses_successful_internal_load_declarations(
     )
 
     path = _event_path(telemetry_project)
-    assert len(_capability_records(path, "session.get_or_create")) == 2
+    assert len(_capability_records(path, "session.create")) == 2
     assert _capability_records(path, "load") == []
     assert _capability_records(path, "measure_column") == []
     assert _capability_records(path, "trino") == []
@@ -447,7 +447,7 @@ def test_session_creation_attributes_reads_only_current_generation(
         if p.is_file() and not p.name.endswith(("-wal", "-shm"))
     }
     attrs = _session_creation_attributes(
-        tmp_path, "session.get_or_create", {"name": "existing", "question": "requested question"}
+        tmp_path, "session.create", {"name": "existing", "question": "requested question"}
     )
     assert attrs["marivo.session.created"] is (generation != "current")
     assert attrs["marivo.session.requested_question"] == "requested question"
@@ -456,7 +456,7 @@ def test_session_creation_attributes_reads_only_current_generation(
     else:
         assert "marivo.session.question" not in attrs
         assert not MaterializationLayout(tmp_path).store_db.exists()
-    fresh = _session_creation_attributes(tmp_path, "session.get_or_create", {"name": "fresh"})
+    fresh = _session_creation_attributes(tmp_path, "session.create", {"name": "fresh"})
     assert fresh == {"marivo.session.created": True}
     assert _session_creation_attributes(tmp_path, "session.resume", {"name": "existing"}) == {}
     assert {
@@ -554,66 +554,28 @@ def test_free_text_collections_are_shape_only_and_closed_options_are_kept(
     assert "secret-account" not in text
 
 
-def test_session_question_update_and_explicit_resume_semantics(
+def test_session_creation_description_and_explicit_resume_semantics(
     telemetry_project: Path,
 ) -> None:
-    first = mv.session.get_or_create(
-        name="demo",
-        question="Original question",
-    )
-    updated = mv.session.get_or_create(
-        name="demo",
-        question="Replacement question",
-    )
-    omitted = mv.session.get_or_create(
-        name="demo",
-    )
-    resumed_by_name = mv.session.resume(
-        "demo",
-        by="name",
-    )
-    resumed_by_id = mv.session.resume(
-        first.id,
-        by="id",
-    )
-
+    first = mv.session.create(name="demo", question="Original question")
+    with pytest.raises(mv.errors.SessionAlreadyExistsError):
+        mv.session.create(name="demo", question="Replacement question")
+    resumed = mv.session.resume(first.id)
+    assert resumed.id == first.id and resumed.question == "Original question"
     path = _event_path(telemetry_project)
-    assert updated.id == omitted.id == resumed_by_name.id == resumed_by_id.id == first.id
-    assert (
-        updated.question
-        == omitted.question
-        == resumed_by_name.question
-        == resumed_by_id.question
-        == "Replacement question"
-    )
-    calls = [_attrs(record) for record in _capability_records(path, "session.get_or_create")]
-    assert len(calls) == 6
+    calls = [_attrs(record) for record in _capability_records(path, "session.create")]
+    assert len(calls) == 4
     assert calls[0]["marivo.session.created"] is True
-    assert "marivo.session.question_applied" not in calls[0]
-    assert calls[1]["marivo.session.question_applied"] is True
     assert calls[1]["marivo.session.question"] == "Original question"
-    assert calls[2]["marivo.session.created"] is False
-    assert "marivo.session.question_applied" not in calls[2]
-    assert calls[2]["marivo.session.requested_question"] == "Replacement question"
-    assert calls[2]["marivo.session.question"] == "Original question"
-    assert calls[3]["marivo.operation.status"] == "ok"
-    assert calls[3]["marivo.session.question_applied"] is True
-    assert calls[3]["marivo.session.question"] == "Replacement question"
-    assert calls[4]["marivo.session.created"] is False
-    assert "marivo.session.question_applied" not in calls[4]
-    assert calls[4]["marivo.session.question"] == "Replacement question"
-    assert calls[5]["marivo.session.question_applied"] is False
-    assert calls[5]["marivo.session.question"] == "Replacement question"
-
+    assert calls[-1]["marivo.operation.status"] == "error"
     resume_calls = [_attrs(record) for record in _capability_records(path, "session.resume")]
-    assert len(resume_calls) == 4
-    assert "demo" not in json.dumps(resume_calls)
-    assert all("marivo.input.identity" not in attrs for attrs in resume_calls)
-    assert all(attrs["marivo.input.identity.type"] == "str" for attrs in resume_calls)
-    assert [attrs["marivo.input.by"] for attrs in resume_calls] == ["name", "name", "id", "id"]
-    completed = [attrs for attrs in resume_calls if attrs["marivo.operation.status"] == "ok"]
-    assert len(completed) == 2
-    assert all(attrs["marivo.session.id"] == first.id for attrs in completed)
+    assert len(resume_calls) == 2
+    assert all(
+        "marivo.input.by" not in item and "marivo.input.session_id" not in item
+        for item in resume_calls
+    )
+    assert all(item["marivo.input.session_id.type"] == "str" for item in resume_calls)
+    assert resume_calls[-1]["marivo.session.id"] == first.id
 
 
 def test_failed_session_resume_does_not_disclose_identity(
@@ -633,9 +595,9 @@ def test_failed_session_resume_does_not_disclose_identity(
     ]
     assert len(calls) == 2
     assert identity not in json.dumps(calls)
-    assert all("marivo.input.identity" not in attrs for attrs in calls)
-    assert all(attrs["marivo.input.identity.type"] == "str" for attrs in calls)
-    assert all(attrs["marivo.input.identity.length"] == str(len(identity)) for attrs in calls)
+    assert all("marivo.input.session_id" not in attrs for attrs in calls)
+    assert all(attrs["marivo.input.session_id.type"] == "str" for attrs in calls)
+    assert all(attrs["marivo.input.session_id.length"] == str(len(identity)) for attrs in calls)
 
 
 def test_invalid_session_resume_selector_is_shape_only_in_telemetry(
@@ -644,7 +606,7 @@ def test_invalid_session_resume_selector_is_shape_only_in_telemetry(
     selector = "private-selector"
     resume_call = {"by": selector}
 
-    with pytest.raises(mv.errors.SessionStateError):
+    with pytest.raises(TypeError):
         # The invalid selector is deliberately outside the static Literal contract.
         resume: object = mv.session.resume
         assert callable(resume)
@@ -664,26 +626,27 @@ def test_invalid_session_resume_selector_is_shape_only_in_telemetry(
 def test_failed_session_question_update_reports_not_applied(
     telemetry_project: Path,
 ) -> None:
-    mv.session.get_or_create(
+    mv.session.create(
         name="demo",
         question="Original question",
-        report_timezone="UTC",
+        timezone="UTC",
     )
 
-    with pytest.raises(mv.errors.SessionTimezoneConflict):
-        mv.session.get_or_create(
+    with pytest.raises(mv.errors.SessionAlreadyExistsError):
+        mv.session.create(
             name="demo",
             question="Replacement question",
-            report_timezone="Asia/Shanghai",
+            timezone="Asia/Shanghai",
         )
 
     path = _event_path(telemetry_project)
-    calls = [_attrs(record) for record in _capability_records(path, "session.get_or_create")]
+    calls = [_attrs(record) for record in _capability_records(path, "session.create")]
     assert len(calls) == 4
     assert "marivo.session.question_applied" not in calls[-2]
     assert calls[-1]["marivo.operation.status"] == "error"
     assert calls[-1]["marivo.session.question_applied"] is False
-    assert mv.session.inspect("demo").summary.question == "Original question"
+    session_id = mv.session.recent().items[0].id
+    assert mv.session.inspect(session_id).summary.question == "Original question"
 
 
 def test_datasource_raw_sql_failure_keeps_reason_and_structured_repair(

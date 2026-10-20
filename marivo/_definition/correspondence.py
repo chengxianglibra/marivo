@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, TypeAlias
 
-from marivo._definition.types import AxisBinding, CalendarCoordinate, invalid
+from marivo._definition.types import AxisBinding, CalendarCoordinate, IntervalCoordinate, invalid
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -30,4 +30,4 @@ class CalendarCorrespondence:
         return repr(self)
 
 
-ComparisonAxis: TypeAlias = AxisBinding | CalendarCoordinate
+ComparisonAxis: TypeAlias = AxisBinding | CalendarCoordinate | IntervalCoordinate

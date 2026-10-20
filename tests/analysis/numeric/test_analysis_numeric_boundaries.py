@@ -7,6 +7,7 @@ import duckdb
 import pandas as pd
 import pytest
 
+import marivo.analysis as mv
 import marivo.semantic as ms
 from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models
 
@@ -65,11 +66,13 @@ def test_native_float_nonzero_denominator_survives_cancellation(
         if kind == "ratio"
         else value.weighted_mean(weight=weight, time=time)
     )
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     customer = session.catalog.fields.get("sales.order.customer_id")
     channel = session.catalog.fields.get("sales.order.channel")
     logical = session.observe(
-        {"value": metric}, by=(customer, channel) if coordinates else members, members=members
+        {"value": metric},
+        by=(customer, channel) if coordinates else members,
+        where=mv.in_population(members),
     )
     # Native sums retain a nonzero denominator of 16 despite cancellation.
     expected_total = 3.0 / 16.0 if kind == "ratio" else 1.0
@@ -87,7 +90,7 @@ def test_native_float_nonzero_denominator_survives_cancellation(
     assert defined == expected
     assert all(isinstance(value, float) for value in defined.values())
     assert session.persisted_frame(fixed.artifact.id).to_pandas().equals(rows)
-    results = [session.observe({"value": metric}, members=members).compute()]
+    results = [session.observe({"value": metric}, where=mv.in_population(members)).compute()]
     for result in results:
         assert result.to_pandas()[("value", "value")].tolist() == [expected_total]
 
@@ -121,16 +124,20 @@ def test_decimal_fold_retains_widened_sample_type(
     folded = value.sum(time=time).per(time).mean()
     logical = session.observe(
         {"value": folded},
-        during=session.time_scope(start="2026-08-01", end="2026-08-03"),
-        by=session.members(ms.ref.entity("sales.customer")),
+        by=mv.product(
+            session.time_scope(start="2026-08-01", end="2026-08-03"),
+            session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
+        ),
     )
     fixed = logical.persist()
     for result in (
         fixed,
         session.observe(
             {"value": folded},
-            during=session.time_scope(start="2026-08-01", end="2026-08-03"),
-            members=session.members(ms.ref.entity("sales.customer")),
+            by=(session.time_scope(start="2026-08-01", end="2026-08-03"),),
+            where=mv.in_population(
+                session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+            ),
         ).compute(),
     ):
         assert result.to_pandas()[("value", "value")].tolist() == [Decimal(1800)]
@@ -174,7 +181,8 @@ def test_decimal_boundary_fixed_rollup_does_not_round_range_check(
         else amount.max(time=time)
     )
     logical = session.observe(
-        {"value": metric}, by=session.members(ms.ref.entity("sales.customer"))
+        {"value": metric},
+        by=session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
     )
     if kind == "sum" and scale == 0:
         from marivo.analysis.materialization.errors import MaterializationError
@@ -194,7 +202,10 @@ def test_decimal_boundary_fixed_rollup_does_not_round_range_check(
     fixed = logical.persist()
     for result in (
         session.observe(
-            {"value": metric}, members=session.members(ms.ref.entity("sales.customer"))
+            {"value": metric},
+            where=mv.in_population(
+                session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+            ),
         ).compute(),
     ):
         assert result.to_pandas()[("value", "value")].tolist() == [value]
@@ -230,7 +241,8 @@ def test_numeric_raw_order_and_exchange_batches(
     amount_field = session.catalog.fields.get("sales.order.amount")
     time = session.catalog.fields.get("sales.order.ordered_at")
     logical = session.observe(
-        {"value": amount_field.sum(time=time)}, by=session.members(ms.ref.entity("sales.customer"))
+        {"value": amount_field.sum(time=time)},
+        by=session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
     )
     fixed = logical.persist()
     assert session.persisted_frame(fixed.artifact.id).to_pandas().equals(fixed.to_pandas())
@@ -239,7 +251,9 @@ def test_numeric_raw_order_and_exchange_batches(
     for result in (
         session.observe(
             {"value": amount_field.sum(time=time)},
-            members=session.members(ms.ref.entity("sales.customer")),
+            where=mv.in_population(
+                session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+            ),
         ).compute(),
     ):
         assert abs(result.to_pandas()[("value", "value")].iloc[0] - float(exact)) <= bound

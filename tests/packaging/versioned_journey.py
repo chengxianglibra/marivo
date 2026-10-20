@@ -12,7 +12,7 @@ import pyarrow as pa
 import marivo.analysis as mv
 import marivo.semantic as ms
 from tests.analysis.materialization.domain_recovery_worker import snapshot
-from tests.packaging.graph_journeys import _frame, _offline, _remove_sources
+from tests.packaging.graph_journeys import _frame, _offline, _ordinary_keys, _remove_sources
 from tests.shared_fixtures import run_ids
 from tests.support.json import Json, checked, encode, obj, read
 
@@ -132,23 +132,23 @@ def _verify(values: dict[str, mv.AnalysisFrame]) -> dict[str, Json]:
     keys = [(first, "a"), (second, "a"), (second, "b")]
     for name in ("snapshot_aug", "validity_aug", "validity_sep", "attributes_aug"):
         frame = _frame(values[name])
-        assert frame.key_0.tolist() == keys
+        assert frame[_ordinary_keys(frame)[0]].tolist() == keys
         assert frame.value.tolist() == ([40, 20, 30] if name == "validity_sep" else [10, 20, 30])
     for name, expected in (("snapshot_sep", [40]), ("attribute_sep", [40])):
         frame = _frame(values[name])
-        assert frame.key_0.tolist() == [(first, "a")]
+        assert frame[_ordinary_keys(frame)[0]].tolist() == [(first, "a")]
         assert frame.value.tolist() == expected
     expected_selected = [(second, "a"), (second, "b")]
     for kind in ("snapshot", "validity"):
         chosen = _frame(values[kind + "_chosen"])
-        assert chosen.key_0.tolist() == expected_selected
+        assert chosen[_ordinary_keys(chosen)[0]].tolist() == expected_selected
         for clock, wanted in (
             ("recorded", [11, 13]),
             ("settled_early", [0, 0]),
             ("settled", [11, 13]),
         ):
             frame = _frame(values[kind + "_" + clock])
-            assert frame.key_0.tolist() == expected_selected
+            assert frame[_ordinary_keys(frame)[0]].tolist() == expected_selected
             assert frame.value.tolist() == wanted
     return obj(
         checked(
@@ -177,25 +177,31 @@ def run(root: Path, phase: str) -> dict[str, Json]:
     state_path = root / "versioned.json"
     if phase == "produce":
         author(root)
-        session = mv.session.get_or_create("versioned", report_timezone="UTC")
+        session = mv.session.create("versioned", timezone="UTC")
         august = session.instant("2026-08-01")
         september = session.instant("2026-09-01")
         queries: dict[str, mv.AnalysisFrame] = {}
         for kind in ("snapshot", "validity"):
             entity = f"sales.subjects_{kind}"
-            members = session.members(ms.ref.entity(entity), at=august)
+            members = session.members(session.catalog.require(ms.ref.entity(entity)), at=august)
             amount = session.catalog.fields.get(entity + ".amount")
             enabled = session.catalog.fields.get(entity + ".enabled")
             queries[kind + "_aug"] = session.read(members, {"value": amount.at(august)})
             queries[kind + "_sep"] = session.read(
-                session.members(ms.ref.entity(entity), at=september),
+                session.members(session.catalog.require(ms.ref.entity(entity)), at=september),
                 {"value": amount.at(september)},
             )
             classification = session.read(members, {"enabled": enabled.at(august)})
             enabled_value = True
             fixed = classification.where(classification["enabled"] == enabled_value).compute()
             chosen = session.population_from(
-                fixed, on=((fixed.axes[0], session.catalog.entities.get(entity)),)
+                fixed,
+                on=(
+                    (
+                        next(axis for axis in fixed.axes if axis.role == "identity"),
+                        session.catalog.entities.get(entity),
+                    ),
+                ),
             )
             queries[kind + "_chosen"] = session.frame(chosen)
             for clock, start, end in (
@@ -210,11 +216,9 @@ def run(root: Path, phase: str) -> dict[str, Json]:
                 metric = energy.sum(time=time, empty="zero")
                 queries[kind + "_" + clock] = session.observe(
                     {"value": metric},
-                    during=session.time_scope(start=start, end=end),
-                    by=chosen,
-                    members=chosen,
+                    by=mv.product(session.time_scope(start=start, end=end), chosen),
                 )
-        stable = session.members(ms.ref.entity("sales.subjects"))
+        stable = session.members(session.catalog.require(ms.ref.entity("sales.subjects")))
         profile = session.catalog.fields.get("sales.subjects_snapshot.amount").via(
             (session.catalog.relationships.get("sales.subject_profiles"),)
         )
@@ -238,7 +242,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
         identity = state["session"]
         assert isinstance(identity, str)
         with _offline(root):
-            session = mv.session.resume(identity, by="id")
+            session = mv.session.resume(identity)
             before = run_ids(session)
             values = {}
             for name, reference in obj(state["artifacts"]).items():

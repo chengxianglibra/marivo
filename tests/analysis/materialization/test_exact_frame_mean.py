@@ -183,7 +183,7 @@ def test_source_read_wide_mean_retains_receipts_and_sum_stays_strict(
             [2**62, 2**62],
         )
     source = case.session.read(
-        case.session.members(ms.ref.entity("sales.order")),
+        case.session.members(case.session.catalog.require(ms.ref.entity("sales.order"))),
         {"x": case.catalog.fields.get("sales.order.amount")},
     )
     trace = capture_source(monkeypatch)

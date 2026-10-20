@@ -65,9 +65,9 @@ handles use the same exact stored input identity. Cross-Session operands reject.
 
 ## Population and observation binding
 
-Source grouping uses `tuple[Deferred | Grouping, ...] | Population`. A native
+Source grouping uses `tuple[Deferred | Grouping | TimeScope | CalendarAxis, ...] | Population`. A native
 Field Deferred is shorthand for a field grouping. Grouping is a closed immutable
-family with field, identity, calendar and membership kinds, a bounded repr and
+family with field, identity, interval, calendar and membership kinds, a bounded repr and
 source-free `.show()`. `mv.identity(entity)` captures a complete identity without
 selecting keys; `mv.identity((relationship, ...), at=instant)` captures a nonempty
 connected directed path and infers its target. Single-valued paths and version
@@ -76,11 +76,13 @@ instead declares a finite complete identity domain.
 
 `Population.axes` returns ordered single-coordinate Grouping values. Reusing these
 values imports neither selected keys nor membership allocation groups. `by=P`
-retains the complete domain, allocation bindings and dependencies. CalendarAxis
-is a calendar Grouping: in `by` it defines output buckets independently of an
-ordinary `during=TimeScope`; `during=CalendarAxis` retains its filtering and
-calendar-insertion behavior. Matching an identity grouping to explicit `members`
-retains existing member-domain completion. `member()` and MemberAxis are retired.
+retains exactly its complete domain, allocation bindings and dependencies, including
+coordinates without facts; it need not cover source coordinates outside P.
+TimeScope in by contributes one interval coordinate; CalendarAxis contributes its
+finite calendar buckets. At most one output time axis is allowed. Time plus
+ordinary grouping discovers real joint categories then completes their requested
+time buckets; an explicit Population supplies its own full keys.
+
 
 Population and PopulationPredicate retain their raw definition and predicate IR
 as private capture details. Callers inspect the captured domain with `.show()`
@@ -94,7 +96,7 @@ accepts field/identity groupings. Metric.per accepts native Dimension/TimeField
 and membership groupings or a complete Population, retaining existing sample
 restrictions. FrameAxis remains a result-owned handle requiring population_from.
 Public grouping wrappers are lowered to existing axis/allocation records before
-fingerprinting, source audit or persistence; storage format is unchanged.
+fingerprinting, source audit or persistence; Store 13 uses `marivo.frame_output/v2`, including inert interval directories.
 
 Population preserves ordered complete tuples, ownership and its own selection
 context. Projection/sets operate on its existing axes; classify and directed
@@ -107,16 +109,15 @@ Business versioned identities remain a separate data contract.
 
 `population_from` requires `on`, including legal `on=()`. Each pair uses an axis
 from that exact Frame and a caller-supplied resolved Field Deferred or Entity.
-Only ordinary field/complete identity axes qualify; calendar, paired and arbitrary
+Only ordinary field/complete identity axes qualify; interval, calendar, paired and arbitrary
 value columns do not. Projection takes the joint selected tuple and deduplicates,
 not a Cartesian product of per-axis keys. Empty input remains an empty filter;
 zero axes distinguish empty from singleton `{()}`. Construction reads no rows.
 A fixed root fixes selected keys; a pending selector evaluates on each use.
 The bridge does not recover original semantic objects, attributes or history.
 
-For contribution filtering, use `where=mv.in_population(population)`. A qualified
-single Entity identity Population may constrain `members`. `by=Population`
-requests a complete output domain and coverage, not merely a filter. New source
+For contribution filtering, use `where=mv.in_population(population)`.
+`by=Population` selects exactly its complete output keys, including absent facts. New source
 facts remain a new explicit observation, with their own read time and no promise
 of a shared snapshot with selection. Fixed Frame keys use the existing scheduler
 and qualified typed transport; no fixed-data upload/fusion or recursive executor
@@ -127,23 +128,28 @@ conditions independently. Multi-root Metrics reduce each fact root under its
 own identity/time role before complete-grid combination; joining roots cannot
 multiply contributions. Membership retains correlated tuples and independent
 allocation factors. Duplicate links for one contribution/bucket count once;
-equal-valued distinct facts remain distinct. `member_count()` can be the sole
-Metric and its explicit member domain remains a real dependency.
+equal-valued distinct facts remain distinct. `P.count()` captures a complete Entity identity domain as a lazy Metric, including
+identities without facts. P and Q count independently; even a count-only formula
+schedules its captured domain. Fact conditions and windows do not reselect P;
+count-only conditions or windows with no fact meaning reject.
 
 `Metric.per(samples)` evaluates the whole child Metric at each internal sample
 before reduction. Explicit samples include empty samples under the child's
-policy. Internal subset selection is not external output-domain coverage.
-`members` selects contributing identities; it does not add an output axis.
+policy. Internal samples and the selected output domain are independent.
+Use `where=mv.in_population(P)` for contribution selection without identity output.
+When preserving an existing field condition, attach the membership condition to
+the fact Metric with `.where(...)` and keep the field condition on observe.
 
 ## Time and window authority
 
 Session instant/time_scope freeze exact boundaries. Dates and offset-free strings
 use the Session or explicit zone; aware values preserve their instant. Naive
-Python datetimes and ambiguous/nonexistent clocks reject. `during=None` adds no
-ordinary time filter; temporal sampling/windows keep their own explicit needs.
+Python datetimes and ambiguous/nonexistent clocks reject. by=() has no time axis;
+a hard time predicate does not provide window endpoints. TimeScope contributes an
+interval with exact start/end and boundary timezone; a single bucket stays an axis.
 A CalendarAxis captures nominal buckets, clipped actual intervals, order, Grain,
-timezone and certified snapshot. Any calendar in by=Population must agree with
-during. A snapshot-bound named Grain must match the Session's frozen authority.
+timezone and certified snapshot. Its by binding is the endpoint authority.
+A snapshot-bound named Grain must match the Session's frozen authority.
 
 Metric.window is the source window attachment. all_history, trailing_duration,
 trailing_periods, since and to_date are immutable rules. Every endpoint evaluates
@@ -180,7 +186,7 @@ makes differences NA, with zero policy applied only to valid pairs. Duration
 endpoints/absolute stay Duration; relative is dimensionless. Exact checks full
 joint keys; outer preserves left rows then right-only rows. Matching names never
 rebind handles. Complete explicit on is required except zero axes or one sole
-calendar axis per side. Match is an explicit rule, never inferred from periods.
+interval axis or one sole calendar axis per side. Match is an explicit rule, never inferred from periods.
 Paired inputs cannot be aligned again in this first surface.
 
 Compare is a high-level data API combining full-key alignment, nullable arithmetic,
@@ -226,10 +232,9 @@ See [Runtime coverage](../../testing/runtime-coverage.md).
 ## Terminal publication, reading and acceptance
 
 Evaluate before Run admission. A Run publishes an existing result ID through the
-single Store 12 transaction. Memory persist does not evaluate; stored persist
+single Store 13 transaction. Memory persist does not evaluate; stored persist
 is metadata-idempotent. One result audit retains inherited source facts and its
-current evaluation, not producer history. SessionGraph is a publishing graph,
-not complete data lineage. Unknown outcome uses original transaction reconciliation.
+current evaluation, not producer history. Use runs/get_run and output references for publishing history. Unknown outcome uses original transaction reconciliation.
 
 Complete data has no model, producer graph, connection or aggregate components.
 Reopen and fixed operations need no source. Full export/compute validates required
@@ -238,7 +243,7 @@ resolves a saved prefix without claiming unread integrity. Raw-key MultiIndex
 export and isolated typed attrs preserve labels/bounds/paired interpretation.
 Exact order and presence/NA remain independent.
 
-Store 12 refuses older data unchanged without migration/dual read. Absent-current
+Store 13 refuses older data unchanged without migration/dual read. Absent-current
 discovery may return None/empty without exposing old data; old-only projects
 cannot initialize a bypass. See [cutover](analysis-frame-cutover.md). Static,
 local, process/slow, provider Runtime and release evidence remain distinct.

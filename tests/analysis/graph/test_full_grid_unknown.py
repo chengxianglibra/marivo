@@ -32,8 +32,10 @@ def _query(session: mv.Session) -> mv.AnalysisFrame:
     period = session.time_scope(start=START, end=START + timedelta(days=3))
     return session.observe(
         {"value": session.catalog.metrics.get("sales.total_0")},
-        during=period.by(mv.grain("day")),
-        by=session.members(ms.ref.entity("sales.order")),
+        by=mv.product(
+            period.by(mv.grain("day")),
+            session.members(session.catalog.require(ms.ref.entity("sales.order"))),
+        ),
     )
 
 
@@ -65,7 +67,7 @@ def test_public_full_grid_unknown(
     case = analysis_dsl_case_factory("j2")
     prepare_profiles(case, "KS", "parquet", "us", "UTC", False, followup=True, profile_indices=(0,))
     ms.load(workspace_dir=case.root)
-    session = mv.session.get_or_create("business-coverage", report_timezone="UTC")
+    session = mv.session.create("business-coverage", timezone="UTC")
     artifact = _query(session).persist()
     raw = artifact.to_pandas()
     assert len(raw) == 9 and not raw[("value", "value")].isna().any()
@@ -136,7 +138,7 @@ SemanticProject.load = forbidden
 SourceSession.__enter__ = forbidden
 SourceSession.execute = forbidden
 state = json.loads(Path('business-mask.json').read_text())
-session = mv.session.resume(state['session'], by='id')
+session = mv.session.resume(state['session'])
 before = len(session.runs().items)
 output = session.persisted_frame(state['artifact'])
 assert snapshot(output) == state['snapshot']
@@ -168,7 +170,7 @@ def test_public_duration_business_coverage(
         table.set_column(index, "profile_0", table["profile_0"].cast(pa.duration("us"))), path
     )
     ms.load(workspace_dir=case.root)
-    session = mv.session.get_or_create("duration-business-coverage", report_timezone="UTC")
+    session = mv.session.create("duration-business-coverage", timezone="UTC")
     query = _query(session)
     original = query.persist()
     ratio = query.select({"value": query["value"] / query["value"]}).persist()
@@ -194,7 +196,7 @@ def test_business_coverage_source_selection_keeps_original_support(
     case = analysis_dsl_case_factory("j2")
     prepare_profiles(case, "KS", "parquet", "us", "UTC", False, followup=True, profile_indices=(0,))
     ms.load(workspace_dir=case.root)
-    session = mv.session.get_or_create("business-coverage-selection", report_timezone="UTC")
+    session = mv.session.create("business-coverage-selection", timezone="UTC")
     original = _query(session).persist()
     raw = original.to_pandas()
     masked = _mask(raw)

@@ -16,10 +16,12 @@ from unittest.mock import patch
 import duckdb
 import ibis
 
+from marivo._temporal import CalendarAxis
+
 if TYPE_CHECKING:
     from marivo._definition.expressions import MetricExpression, MetricNode
     from marivo._help.render import PublicHelpTarget
-    from marivo._temporal import CalendarAxis, TimeScope
+    from marivo._temporal import TimeScope
     from marivo.analysis.core.time_authority import TemporalExecution
     from marivo.analysis.dsl.frame import AnalysisFrame
     from marivo.analysis.session.core import Session
@@ -911,11 +913,23 @@ def numeric_program_frame(
     from marivo.analysis.core.model import BoundQuantity, BoundSignature
     from marivo.analysis.dsl.frame import AnalysisFrame
     from marivo.analysis.dsl.frame_sources import pending_schema
+    from marivo.analysis.dsl.population import _interval_coordinate
 
     owner = Owner(session.id, session._runtime.store.store_id)
     metrics = tuple(outputs.items())
     observation = bind_observation(
-        metrics, {}, during=during, by=(), where=None, timezone=session.report_tz_name, state=None
+        metrics,
+        {},
+        by=(
+            ()
+            if during is None
+            else (during._binding,)
+            if isinstance(during, CalendarAxis)
+            else (_interval_coordinate(during),)
+        ),
+        where=None,
+        timezone=session.timezone,
+        state=None,
     )
     signature = BoundSignature(
         owner,

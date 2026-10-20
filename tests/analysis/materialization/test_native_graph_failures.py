@@ -30,7 +30,7 @@ def test_source_and_python_failures_preserve_atomic_publication(
     case = analysis_dsl_case_factory("j2")
     session = case.session
     logical = session.read(
-        session.members(ms.ref.entity("sales.order")),
+        session.members(session.catalog.require(ms.ref.entity("sales.order"))),
         {"value": session.catalog.fields.get("sales.order.amount")},
     )
     prior = logical.persist()
@@ -94,7 +94,7 @@ def test_graph_has_no_hidden_600_second_expiry(
 
     case = analysis_dsl_case_factory("j2")
     logical = case.session.read(
-        case.session.members(ms.ref.entity("sales.order")),
+        case.session.members(case.session.catalog.require(ms.ref.entity("sales.order"))),
         {"value": case.session.catalog.fields.get("sales.order.amount")},
     )
     ticks = [0.0]
@@ -126,7 +126,7 @@ def test_fresh_worker_contender_only_rejects_publication(
     case = analysis_dsl_case_factory("j1")
     saved = case.session.observe(
         {"value": case.session.catalog.metrics.get("sales.revenue")},
-        during=case.session.time_scope(start="2026-08-01", end="2026-09-01"),
+        by=(case.session.time_scope(start="2026-08-01", end="2026-09-01"),),
     ).persist()
     store = case.session._runtime.store
     with session_writer_guard(store.layout.lock_path(case.session.id), session_ref=case.session.id):

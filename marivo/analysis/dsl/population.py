@@ -45,11 +45,12 @@ from marivo._definition.types import (
     DefinitionGraphError,
     ExactRef,
     FieldRead,
+    IntervalCoordinate,
     LiteralValue,
     Owner,
 )
 from marivo._grouping import Grouping
-from marivo._temporal import CalendarAxis, InstantAnchor
+from marivo._temporal import CalendarAxis, InstantAnchor, TimeScope
 from marivo.analysis._scope import scope_summary
 from marivo.analysis.core.frame_key_inputs import FrameKeyInput, merge_frame_key_inputs
 from marivo.analysis.core.model import reject
@@ -62,12 +63,14 @@ def _axis(read: FieldRead) -> AxisBinding:
 
 
 def _axes(
-    by: tuple[Deferred | Grouping, ...],
+    by: tuple[Deferred | Grouping | TimeScope, ...],
 ) -> tuple[tuple[ComparisonAxis, ...], tuple[MembershipBinding, ...]]:
     axes: list[ComparisonAxis] = []
     memberships: list[MembershipBinding] = []
     for item in by:
-        if isinstance(item, Grouping):
+        if isinstance(item, TimeScope):
+            axes.append(_interval_coordinate(item))
+        elif isinstance(item, Grouping):
             binding = item._binding
             if isinstance(binding, MembershipBinding):
                 memberships.append(binding)
@@ -86,10 +89,17 @@ def _axes(
             )
     identities = tuple(
         ("calendar", axis.identity)
-        if isinstance(axis, CalendarCoordinate)
+        if isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
         else (axis.entity.ref, axis.field.ref if axis.field else None, axis.path, axis.at)
         for axis in axes
     )
+    if sum(isinstance(axis, (CalendarCoordinate, IntervalCoordinate)) for axis in axes) > 1:
+        reject(
+            "at most one output time axis",
+            repr(axes),
+            "Use one TimeScope or CalendarAxis.",
+            "population",
+        )
     if len(set(identities)) != len(identities):
         reject(
             "distinct coordinate axes",
@@ -183,6 +193,26 @@ class Population(PopulationParameter):
         """
         return tuple(_CoordinateGrouping(axis) for axis in self._definition.axes)
 
+    def count(self) -> Deferred:
+        """Capture a count of this complete Entity identity domain.
+
+        Args: None.
+        Returns: A closed Metric Deferred, independent of fact contributions.
+        Example: ``session.observe({'people': people.count()})``.
+        Constraints: Requires exactly one complete Entity identity axis; performs no reads.
+        """
+        from marivo._definition.deferred import PopulationCountResolver
+
+        axes = self._definition.axes
+        if len(axes) != 1 or not isinstance(axes[0], AxisBinding) or axes[0].field is not None:
+            reject(
+                "one complete Entity identity axis",
+                repr(axes),
+                "Project one complete identity domain before calling count().",
+                "Population.count",
+            )
+        return Deferred(PopulationCountResolver(self))
+
     @property
     def memberships(self) -> tuple[MembershipBinding, ...]:
         return self._definition.memberships
@@ -214,6 +244,8 @@ class Population(PopulationParameter):
                     f"axis[{index}]",
                     f"calendar={axis.grain} timezone={axis.timezone} cells={len(axis.cells)}"
                     if isinstance(axis, CalendarCoordinate)
+                    else f"interval={axis.start}/{axis.end} timezone={axis.timezone}"
+                    if isinstance(axis, IntervalCoordinate)
                     else f"{axis.field.ref.key if axis.field else axis.entity.ref.key}; path={axis.path}; at={axis.at}",
                 )
                 for index, axis in enumerate(self._definition.axes[:6])
@@ -519,6 +551,34 @@ def in_population(population: Population) -> PopulationPredicate:
     return PopulationPredicate(PopulationContains(population._definition), population._frame_inputs)
 
 
+def _interval_coordinate(scope: TimeScope) -> IntervalCoordinate:
+    from marivo._temporal import _SessionTimeScope, anchor_from_datetime
+    from marivo.analysis.core.time_grid import instant
+    from marivo.analysis.dsl.temporal import freeze_scope
+
+    if scope.kind == "absolute" and not isinstance(scope, _SessionTimeScope):
+        reject(
+            "a TimeScope with a frozen timezone",
+            repr(scope),
+            "Construct the scope with session.time_scope(...).",
+            "population.interval",
+        )
+    frozen = freeze_scope(scope, scope.boundary_timezone)
+    zone = frozen.boundary_timezone
+    start = anchor_from_datetime(instant(frozen.start, zone))
+    end = anchor_from_datetime(instant(frozen.end, zone))
+    return IntervalCoordinate(
+        f"interval:{start.isoformat()}:{end.isoformat()}:{zone}", start, end, zone
+    )
+
+
+def _interval_population(scope: TimeScope) -> Population:
+    from marivo._definition.relations import IntervalKeys
+
+    coordinate = _interval_coordinate(scope)
+    return Population(PopulationProgram(IntervalKeys(coordinate), None, (coordinate,)))
+
+
 def _calendar_population(calendar: CalendarAxis) -> Population:
     coordinate = calendar._binding
     return Population(PopulationProgram(CalendarKeys(coordinate), None, (coordinate,)))
@@ -657,7 +717,7 @@ def coordinates(
         )
 
 
-def product(*factors: Population | CalendarAxis) -> Population:
+def product(*factors: Population | CalendarAxis | TimeScope) -> Population:
     """Form a lazy Cartesian product of disjoint coordinate domains.
 
     Args: factors: At least two Populations with distinct axes and one owner.
@@ -673,7 +733,11 @@ def product(*factors: Population | CalendarAxis) -> Population:
             "product",
         )
     populations = tuple(
-        _calendar_population(factor) if isinstance(factor, CalendarAxis) else factor
+        _calendar_population(factor)
+        if isinstance(factor, CalendarAxis)
+        else _interval_population(factor)
+        if isinstance(factor, TimeScope)
+        else factor
         for factor in factors
     )
     axes = tuple(axis for factor in populations for axis in factor._definition.axes)

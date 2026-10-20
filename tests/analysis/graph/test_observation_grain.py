@@ -21,7 +21,7 @@ from tests.support.paths import PROJECT_ROOT
 
 
 def _members(case: DslCase) -> mv.Population:
-    return case.session.members(ms.ref.entity("sales.customer"))
+    return case.session.members(case.session.catalog.require(ms.ref.entity("sales.customer")))
 
 
 def _august(case: DslCase) -> mv.TimeScope:
@@ -36,11 +36,13 @@ def _query(
     members: mv.Population | None = None,
     during: mv.TimeScope | mv.CalendarAxis | None = None,
 ) -> mv.AnalysisFrame:
+    domain: tuple[Deferred | mv.Grouping | mv.TimeScope, ...] | mv.Population = by
+    if during is not None:
+        domain = mv.product(during, by) if isinstance(by, mv.Population) else (during, *by)
     return case.session.observe(
         {"value": case.session.catalog.metrics.get("sales.revenue") if metric is None else metric},
-        during=during,
-        by=by,
-        members=members,
+        by=domain,
+        where=mv.in_population(members) if members is not None else None,
     )
 
 
@@ -54,6 +56,10 @@ def _keyed(frame: pd.DataFrame, name: str = "value") -> dict[tuple[object, ...],
             coordinates.append((kind, column_name))
     calendars: dict[tuple[str, str], dict[object, object]] = {}
     for axis in frame.attrs["axes"]:
+        if axis["role"] in ("interval", "paired"):
+            temporal_column = ("coordinate", axis["token"])
+            assert frame[temporal_column].nunique() <= 1
+            coordinates.remove(temporal_column)
         if axis["role"] == "calendar":
             descriptor = axis["descriptor"]
             directory = next(
@@ -91,7 +97,7 @@ def test_overall_and_member_observations(analysis_dsl_case_factory: DslCaseFacto
         case.session.frame(
             case.session.population_from(
                 individual,
-                on=((individual.axes[0], case.session.catalog.entities.get("sales.customer")),),
+                on=((individual.axes[1], case.session.catalog.entities.get("sales.customer")),),
             )
         )
         .persist()
@@ -197,7 +203,9 @@ def test_member_classification_survives_rollup_for_additive_comparison(
     def endpoint(month: int) -> mv.AnalysisFrame:
         query = _query(
             case,
-            by=(members.axes[0], region) if keep_member else members.classify(by=(region,)),
+            by=members.classify(by=(members.axes[0], region))
+            if keep_member
+            else members.classify(by=(region,)),
             members=members,
             during=session.time_scope(start=f"2026-{month:02}-01", end=f"2026-{month + 1:02}-01"),
         )
@@ -272,15 +280,21 @@ def test_invalid_axes_and_removed_entries(analysis_dsl_case_factory: DslCaseFact
     case = analysis_dsl_case_factory("j1")
     session = case.session
     metric = session.catalog.metrics.get("sales.revenue")
-    members = session.members(ms.ref.entity("sales.order"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.order")))
     with pytest.raises(AnalysisError):
-        session.observe({"value": metric}, members=members, by=(members.axes[0], members.axes[0]))
+        session.observe(
+            {"value": metric},
+            by=(members.axes[0], members.axes[0]),
+            where=mv.in_population(members),
+        )
     with pytest.raises(AnalysisError):
         session.observe({"value": metric}, by=(mv.identity(()),))
     for invalid in (ms.ref.entity("sales.order"), ms.ref.entity("sales.customer")):
         with pytest.raises((AnalysisError, SemanticError)):
             session.observe({"value": metric}, by=(invalid,))  # type: ignore[arg-type]  # Exercise an Entity where a Field is required.
-    observed = session.observe({"value": metric}, members=members, by=(members.axes[0],))
+    observed = session.observe(
+        {"value": metric}, by=(members.axes[0],), where=mv.in_population(members)
+    )
     assert len(observed.persist().to_pandas()) == 5
     assert not hasattr(members, "group_by")
 
@@ -390,7 +404,7 @@ def forbidden(*args, **kwargs):
 ms.load = forbidden
 SourceSession.__enter__ = forbidden
 SourceSession.execute = forbidden
-session = mv.session.resume(sys.argv[1],by='id')
+session = mv.session.resume(sys.argv[1])
 before = len(session.runs().items)
 assert session.persisted_frame(sys.argv[2]).to_pandas()[('value','value')].sum() == 1000
 assert session.persisted_frame(sys.argv[3]).to_pandas()[('value','value')].tolist() == [1000]
@@ -434,8 +448,8 @@ def test_complete_member_entity_keeps_compound_key(
         )
     )
     ms.load(workspace_dir=case.root)
-    session = mv.session.get_or_create("compound-grain", report_timezone="UTC")
-    members = session.members(ms.ref.entity("sales.customer"))
+    session = mv.session.create("compound-grain", timezone="UTC")
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     observed = session.observe({"value": session.catalog.metrics.get("sales.revenue")}, by=members)
     result = observed.persist()
     assert len(result.artifact._manifest.data.schema.axes[0].columns) == 2
@@ -503,7 +517,9 @@ def test_member_groups_preserve_live_and_fixed_comparisons(
         )
 
     current, baseline = endpoint(8), endpoint(7)
-    comparison = current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))
+    comparison = current.compare(
+        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+    )
     saved = comparison.persist()
     expected = {("east",): -20, ("south",): -50, ("west",): 0}
     assert _keyed(saved.to_pandas(), "absolute.value") == expected
@@ -518,6 +534,6 @@ def test_member_groups_preserve_live_and_fixed_comparisons(
         session.persisted_frame(fixed_baseline.artifact.id).to_pandas(),
     )
     assert dict(
-        zip(left.iloc[:, 0], left[("value", "value")] - right[("value", "value")], strict=True)
+        zip(left.iloc[:, 1], left[("value", "value")] - right[("value", "value")], strict=True)
     ) == {key[0]: value for key, value in expected.items()}
     assert session.persisted_frame(saved.artifact.id).to_pandas().equals(saved.to_pandas())

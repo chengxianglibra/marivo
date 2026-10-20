@@ -50,7 +50,7 @@ def test_mysql_original_integer_recompute(
     monkeypatch.chdir(tmp_path)
     with source_case("mysql", "innodb-table", tmp_path, monkeypatch, DATA) as case:
         _project("mysql", case, monkeypatch, semantic_project_factory)
-        session = mv.session.get_or_create("mysql-original", report_timezone="UTC")
+        session = mv.session.create("mysql-original", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         category = session.catalog.fields.get("sales.facts.category")
         weight = session.catalog.fields.get("sales.facts.weight")
@@ -80,7 +80,7 @@ def test_mysql_original_drill_and_share(
     monkeypatch.chdir(tmp_path)
     with source_case("mysql", "innodb-table", tmp_path, monkeypatch, DATA) as case:
         _project("mysql", case, monkeypatch, semantic_project_factory)
-        session = mv.session.get_or_create("mysql-original-related", report_timezone="UTC")
+        session = mv.session.create("mysql-original-related", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         category = session.catalog.fields.get("sales.facts.category")
         tenant = session.catalog.fields.get("sales.facts.tenant")
@@ -127,7 +127,7 @@ def test_remote_decimal_weighted_recompute_keeps_fractional_native_value(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.get_or_create("remote-decimal-weighted", report_timezone="UTC")
+        session = mv.session.create("remote-decimal-weighted", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         category = session.catalog.fields.get("sales.facts.category")
         weight = session.catalog.fields.get("sales.facts.weight")
@@ -171,7 +171,7 @@ def test_mysql_unqualified_original_retains_actual_host_input(
     monkeypatch.chdir(tmp_path)
     with source_case("mysql", "innodb-table", tmp_path, monkeypatch, data) as case:
         _project("mysql", case, monkeypatch, semantic_project_factory)
-        session = mv.session.get_or_create("mysql-original-boundary", report_timezone="UTC")
+        session = mv.session.create("mysql-original-boundary", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         category = session.catalog.fields.get("sales.facts.category")
         metric = amount.count_distinct() if boundary == "nullable" else amount.sum()
@@ -226,7 +226,7 @@ def test_remote_original_recompute_does_not_require_input_anchor(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.get_or_create("remote-original-input", report_timezone="UTC")
+        session = mv.session.create("remote-original-input", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         category = session.catalog.fields.get("sales.facts.category")
         query = session.observe({"value": amount.sum()})

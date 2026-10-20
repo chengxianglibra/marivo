@@ -1289,14 +1289,8 @@ def _complete_source_frame(
                 raise MaterializationError(
                     expected=check.expected,
                     received=received,
-                    repair=(
-                        "Include every observed output coordinate in by=Population, or explicitly filter contributions before choosing that output domain."
-                        if name == "__query_population_uncovered"
-                        else "Inspect the relationship keys and exact snapshot/validity selection. Correct missing matches or overlapping rows so each selected contribution has exactly one matching field row, then retry."
-                    ),
-                    stage="population_coverage"
-                    if name == "__query_population_uncovered"
-                    else "scalar_field_lookup",
+                    repair="Inspect the relationship keys and exact snapshot/validity selection. Correct missing matches or overlapping rows so each selected contribution has exactly one matching field row, then retry.",
+                    stage="scalar_field_lookup",
                     help_target="analysis_frame.compute",
                 )
             numeric_failure(check.expected, received)

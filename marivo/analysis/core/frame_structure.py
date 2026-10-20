@@ -12,6 +12,7 @@ from marivo.analysis.core.data_schema import (
     DataAxis,
     DataColumn,
     DataSchema,
+    IntervalDataAxis,
     PairedDataAxis,
 )
 from marivo.analysis.core.data_types import DurationDataType, ScalarDataType, TimestampDataType
@@ -20,7 +21,7 @@ from marivo.analysis.core.model import reject
 ValueKind: TypeAlias = Literal[
     "numeric", "boolean", "string", "date", "timestamp", "duration", "unresolved"
 ]
-AxisRole: TypeAlias = Literal["field", "identity", "calendar", "paired"]
+AxisRole: TypeAlias = Literal["field", "identity", "calendar", "interval", "paired"]
 ValuePath: TypeAlias = tuple[str, ...]
 
 
@@ -70,6 +71,8 @@ def axis_role(axis: DataAxis | PendingDataAxis) -> AxisRole:
         return axis.role
     if isinstance(axis, PairedDataAxis):
         return "paired"
+    if isinstance(axis, IntervalDataAxis):
+        return "interval"
     if isinstance(axis, CalendarDataAxis):
         return "calendar"
     if axis.kind == "member":
@@ -148,7 +151,7 @@ class PendingDataAxis:
             )
 
 
-PendingFrameAxis: TypeAlias = PendingDataAxis | CalendarDataAxis | PairedDataAxis
+PendingFrameAxis: TypeAlias = PendingDataAxis | CalendarDataAxis | IntervalDataAxis | PairedDataAxis
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,7 +168,8 @@ class PendingDataSchema:
         if (
             type(self.axes) is not tuple
             or any(
-                type(axis) not in (PendingDataAxis, CalendarDataAxis, PairedDataAxis)
+                type(axis)
+                not in (PendingDataAxis, CalendarDataAxis, IntervalDataAxis, PairedDataAxis)
                 for axis in self.axes
             )
             or any(
@@ -196,7 +200,7 @@ class PendingDataSchema:
                 (axis.left, axis.right)
                 if isinstance(axis, PairedDataAxis)
                 else (axis,)
-                if isinstance(axis, CalendarDataAxis)
+                if isinstance(axis, (CalendarDataAxis, IntervalDataAxis))
                 else ()
             )
             if any(calendar.frozen is None for calendar in calendars):
@@ -341,7 +345,7 @@ def require_complete_structure(schema: DataSchema) -> None:
         calendars = (
             (axis.left, axis.right)
             if isinstance(axis, PairedDataAxis)
-            else ((axis,) if isinstance(axis, CalendarDataAxis) else ())
+            else ((axis,) if isinstance(axis, (CalendarDataAxis, IntervalDataAxis)) else ())
         )
         if type(axis) is DataAxis and axis.kind == "correspondence":
             reject(
@@ -379,9 +383,11 @@ def coordinate_attachments(schema: DataSchema | PendingDataSchema) -> tuple[str,
     This validates metadata only; finite attachment rows belong to consumption.
     """
     descriptors: dict[str, DataAxis | PendingDataAxis] = {}
-    attachments: dict[str, tuple[Literal["calendar", "paired"], DataAxis]] = {}
+    attachments: dict[str, tuple[Literal["calendar", "interval", "paired"], DataAxis]] = {}
 
-    def attachment(name: str, role: Literal["calendar", "paired"], axis: DataAxis) -> None:
+    def attachment(
+        name: str, role: Literal["calendar", "interval", "paired"], axis: DataAxis
+    ) -> None:
         owner = attachments.get(name)
         if owner is not None and owner != (role, axis):
             reject(
@@ -396,8 +402,8 @@ def coordinate_attachments(schema: DataSchema | PendingDataSchema) -> tuple[str,
         previous = descriptors.get(axis.token)
         if previous is not None:
             if (
-                type(previous) is CalendarDataAxis
-                and type(axis) is CalendarDataAxis
+                type(previous) in (CalendarDataAxis, IntervalDataAxis)
+                and type(previous) is type(axis)
                 and previous == axis
             ):
                 return
@@ -408,9 +414,13 @@ def coordinate_attachments(schema: DataSchema | PendingDataSchema) -> tuple[str,
                 "frame.structure",
             )
         descriptors[axis.token] = axis
-        if isinstance(axis, CalendarDataAxis):
+        if isinstance(axis, (CalendarDataAxis, IntervalDataAxis)):
             if axis.frozen is not None:
-                attachment(axis.frozen.directory_name, "calendar", axis)
+                attachment(
+                    axis.frozen.directory_name,
+                    "interval" if isinstance(axis, IntervalDataAxis) else "calendar",
+                    axis,
+                )
         elif isinstance(axis, PairedDataAxis):
             visit(axis.left)
             visit(axis.right)

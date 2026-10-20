@@ -471,8 +471,13 @@ def _plan_query(
         SourceAggregate,
     )
     from marivo._definition.graph import computation_fingerprint, walk
-    from marivo._definition.relations import LiteralPopulation, PopulationProgram
-    from marivo._definition.types import CalendarCoordinate, coordinate_read_keys
+    from marivo._definition.query import PopulationValues
+    from marivo._definition.relations import LiteralPopulation, PopulationProduct, PopulationProgram
+    from marivo._definition.types import (
+        CalendarCoordinate,
+        IntervalCoordinate,
+        coordinate_read_keys,
+    )
     from marivo.analysis.compiler.observation import (
         FormulaInput,
         FormulaProgram,
@@ -485,6 +490,9 @@ def _plan_query(
         reduction_input,
     )
 
+    def time_name(axis: CalendarCoordinate | IntervalCoordinate) -> str:
+        return f"calendar:{axis.grain}" if isinstance(axis, CalendarCoordinate) else "interval"
+
     observation = graph.signature.observation
     contributions = () if observation is None else observation.contributions
     base = (
@@ -493,12 +501,26 @@ def _plan_query(
         else QueryPlan((), (), (), "")
     )
     calendar = next(
-        (axis for axis in graph.signature.axes if isinstance(axis, CalendarCoordinate)), None
+        (
+            axis
+            for axis in graph.signature.axes
+            if isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
+        ),
+        None,
     )
     reads: list[SourceRead] = []
     values: list[FormulaInput] = []
     keys: tuple[DataColumn, ...] = (
-        (DataColumn("key.0", f"calendar:{calendar.grain}", ScalarDataType("int64"), False),)
+        (
+            DataColumn(
+                "key.0",
+                f"calendar:{calendar.grain}"
+                if isinstance(calendar, CalendarCoordinate)
+                else "interval",
+                ScalarDataType("int64"),
+                False,
+            ),
+        )
         if calendar is not None
         else ()
     )
@@ -528,7 +550,7 @@ def _plan_query(
         stage_keys = tuple(
             DataColumn(
                 slot,
-                f"calendar:{calendar_slots[slot].grain}"
+                (time_name(calendar_slots[slot]))
                 if slot in calendar_slots
                 else next(path for key, path in reduction.axes if key == slot),
                 next(
@@ -642,7 +664,7 @@ def _plan_query(
             )
         )
     population_inputs: list[PopulationInput] = []
-    population_reads: list[SourceRead] = []
+    population_stages: list[SourceRead | LocalCompute] = []
     output_population = observation.coordinates.population if observation is not None else None
     closure = walk(
         (graph.root,) if output_population is None else (graph.root, output_population),
@@ -668,37 +690,67 @@ def _plan_query(
         if population_keys(population) is not None:
             continue  # Keep schema-bound key types, execute finite keys locally.
         slots = tuple(column.slot_id for column in domain_columns)
-        population_reads.append(
-            SourceRead(
-                identifier,
-                identifier,
-                (),
-                domain_columns,
-                slots,
-                tuple(
-                    (column.slot_id, key.column)
-                    for column, key in zip(domain_columns, population_schema.keys, strict=True)
-                ),
-                (),
-                (),
-                None,
-                preparation_checks=population_schema.preparation_checks,
-                presence=population_schema.presence,
-            )
-        )
         column_slots = {
             key.column: column.slot_id
             for key, column in zip(population_schema.keys, domain_columns, strict=True)
         }
+        groups = tuple(
+            tuple(column_slots[column] for column in group)
+            for group in population_schema.key_groups
+        )
+        if isinstance(population, PopulationProgram) and isinstance(
+            population.root, PopulationProduct
+        ):
+            # Reuse checked factor keys, including factors consumed directly by the formula.
+            factors = tuple(
+                next(item for item in population_inputs if item.definition == factor)
+                for factor in population.root.factors
+                if population_keys(factor) is None
+            )
+            population_stages.append(
+                LocalCompute(
+                    identifier,
+                    tuple(factor.stage_id for factor in factors),
+                    "query.result@v1",
+                    domain_columns,
+                    slots,
+                    result=ResultProgram(
+                        PopulationValues(population),
+                        (),
+                        (),
+                        (),
+                        (),
+                        groups,
+                        population_inputs=tuple(factor.definition for factor in factors),
+                        population_layouts=tuple(factor.key_groups for factor in factors),
+                    ),
+                )
+            )
+        else:
+            population_stages.append(
+                SourceRead(
+                    identifier,
+                    identifier,
+                    (),
+                    domain_columns,
+                    slots,
+                    tuple(
+                        (column.slot_id, key.column)
+                        for column, key in zip(domain_columns, population_schema.keys, strict=True)
+                    ),
+                    (),
+                    (),
+                    None,
+                    preparation_checks=population_schema.preparation_checks,
+                    presence=population_schema.presence,
+                )
+            )
         population_inputs.append(
             PopulationInput(
                 population,
                 identifier,
                 slots,
-                key_groups=tuple(
-                    tuple(column_slots[column] for column in group)
-                    for group in population_schema.key_groups
-                ),
+                key_groups=groups,
             )
         )
     program = FormulaProgram(
@@ -709,11 +761,14 @@ def _plan_query(
         tuple(population_inputs),
         output_population=observation.coordinates.population if observation is not None else None,
         calendar_key=calendar_key,
+        axes=graph.signature.axes,
     )
-    if observation is not None and observation.member_population is not None:
+    count_inputs = []
+    for definition, member_population in (
+        () if observation is None else observation.count_populations
+    ):
         from marivo.analysis.compiler.observation import MemberInput
 
-        member_population = observation.member_population
         member_schema = next(
             item
             for item in schemas
@@ -727,14 +782,16 @@ def _plan_query(
             )
             for group in member_schema.key_groups
         )
-        mapping = []
         output_columns: list[DataColumn] = []
         for axis in graph.signature.axes:
-            if isinstance(axis, CalendarCoordinate):
+            if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)):
+                calendar_key = f"key.{len(output_columns)}"
                 output_columns.append(
                     DataColumn(
                         f"key.{len(output_columns)}",
-                        f"calendar:{axis.grain}",
+                        f"calendar:{axis.grain}"
+                        if isinstance(axis, CalendarCoordinate)
+                        else "interval",
                         ScalarDataType("int64"),
                         False,
                     )
@@ -743,14 +800,19 @@ def _plan_query(
             group = member_groups[member_population.axes.index(axis)]
             for name in group:
                 slot = f"key.{len(output_columns)}"
-                mapping.append((slot, name))
                 item = member_schema.keys[member_slots.index(name)]
                 output_columns.append(DataColumn(slot, item.field, item.dtype, item.nullable))
         if not reads:
             keys = tuple(output_columns)
-        program = replace(
-            program, members=MemberInput(member_population, member_slots, tuple(mapping))
+        count_inputs.append(
+            MemberInput(
+                definition,
+                member_population,
+                member_slots,
+                tuple(zip(member_population.axes, member_groups, strict=True)),
+            )
         )
+    program = replace(program, counts=tuple(count_inputs), calendar_key=calendar_key)
     columns = tuple(
         replace(column, unit=quantity.unit)
         for column, quantity in zip(
@@ -767,7 +829,7 @@ def _plan_query(
         )
     if (
         len(reads) == 1
-        and not population_reads
+        and not population_stages
         and program.output_population is None
         and direct == contributions[0].definition
         and calendar is None
@@ -788,16 +850,26 @@ def _plan_query(
         )
     combine = LocalCompute(
         "local:combine:" + graph.fingerprint,
-        tuple(stage.stage_id for stage in (*reads, *population_reads)),
+        tuple(stage.stage_id for stage in (*reads, *population_stages)),
         QUERY_COMBINE_KERNEL,
         (*keys, *columns),
         tuple(c.slot_id for c in keys),
         program,
     )
     return QueryPlan(
-        (*reads, *population_reads, combine),
+        (*reads, *population_stages, combine),
         base.checks,
-        tuple((stage.stage_id, (combine.stage_id,)) for stage in (*reads, *population_reads)),
+        tuple(
+            (
+                stage.stage_id,
+                tuple(
+                    consumer.stage_id
+                    for consumer in (*population_stages, combine)
+                    if stage.stage_id in consumer.inputs
+                ),
+            )
+            for stage in (*reads, *population_stages)
+        ),
         combine.stage_id,
         original=program,
     )

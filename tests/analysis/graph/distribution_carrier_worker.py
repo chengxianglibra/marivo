@@ -15,6 +15,7 @@ import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
+from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.support.json import encode, obj, read
 
 
@@ -22,7 +23,7 @@ def check_original(
     value: mv.AnalysisFrame, physical: str, kind: str, *, exported: pd.DataFrame | None = None
 ) -> None:
     exported = value.to_pandas() if exported is None else exported
-    frame = exported.set_index(exported.columns[0])
+    frame = exported.set_index(ordinary_columns(exported)[0])
     assert frame.index.tolist() == ["A", "B", "C", "D"]
     values = frame[("value", "value")]
     if physical == "decimal":
@@ -50,7 +51,7 @@ def run(root: Path, phase: str, output: Path) -> None:
         patch.object(SourceSession, "__enter__", forbidden),
         patch.object(SourceSession, "execute", forbidden),
     ):
-        session = mv.session.resume(session_id, by="id")
+        session = mv.session.resume(session_id)
         before = len(session.runs().items)
         for name, item in obj(state["originals"]).items():
             saved = obj(item)

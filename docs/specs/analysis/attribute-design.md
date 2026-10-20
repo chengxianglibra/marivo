@@ -90,7 +90,7 @@ undefined_input、root_denominator_zero、unqualified_contribution_route。
 请求显式提供或绑定两端父坐标和对应，不继承一个 compare 节点中的隐藏定义。
 数据侧日历匹配遵守 Frame 的自包含规则；新的来源范围、关系和分类仍必须显式提供。
 普通轴对应须完整显式绑定；零轴或双方唯一日历轴才使用 Frame 已允许的推导。
-基础桥接不接收日历/配对轴，也不允许配对轴再次 compare；本提案不绕过这些限制。
+基础桥接不接收interval/日历/配对轴，也不允许配对轴再次 compare；本提案不绕过这些限制。
 固定父域的每个完整键是独立总体，启用贡献时其本次重算变化拥有该父域的占比分母。
 选择时的 presence 不是本次来源的缺侧掩码；实际重算按各端本次输入及原输出域政策决定。
 原请求明确排除的范围仍不消费，不能与历史读取暂未出现的组混淆。
@@ -106,32 +106,28 @@ undefined_input、root_denominator_zero、unqualified_contribution_route。
 
 以下使用现有 Frame API 表达“发现异常 → 固定普通父键 → 显式新来源调查”。
 假定同一 Session 中已取得 revenue Metric、region/channel Field 和两个 TimeScope，
-轴显示名分别为 region/channel。这里没有日历轴或配对轴，也不是 attribute 的调用签名：
+轴显示名分别为 region/channel。来源结果带 interval 轴；比较后产生配对时间轴，桥接只选普通 region 轴。
+这不是 attribute 的调用签名：
 
 ```python
 import marivo.analysis as mv
 
-current_regions = session.observe({"revenue": revenue}, during=current_period, by=(region,))
-previous_regions = session.observe({"revenue": revenue}, during=previous_period, by=(region,))
+current_regions = session.observe({'revenue': revenue}, by=(current_period, region))
+previous_regions = session.observe({'revenue': revenue}, by=(previous_period, region))
 regional_change = current_regions.compare(
     previous_regions,
-    on=((current_regions.axis("region"), previous_regions.axis("region")),),
+    on=tuple(zip(current_regions.axes, previous_regions.axes)),
+    match=mv.ordinal(),
     how="outer",
 ).compute()
 selected = regional_change.where(regional_change["absolute.revenue"] < 0).compute()
 parents = session.population_from(selected, on=((selected.axis("region"), region),))
-current_groups = session.observe(
-    {"revenue": revenue}, during=current_period, by=(region, channel),
-    where=mv.in_population(parents),
-)
-previous_groups = session.observe(
-    {"revenue": revenue}, during=previous_period, by=(region, channel),
-    where=mv.in_population(parents),
-)
+current_groups = session.observe({'revenue': revenue}, by=(current_period, region, channel), where=mv.in_population(parents))
+previous_groups = session.observe({'revenue': revenue}, by=(previous_period, region, channel), where=mv.in_population(parents))
 aligned = current_groups.align(
     previous_groups,
-    on=((current_groups.axis("region"), previous_groups.axis("region")),
-        (current_groups.axis("channel"), previous_groups.axis("channel"))),
+    on=tuple(zip(current_groups.axes, previous_groups.axes)),
+    match=mv.ordinal(),
     how="outer",
 )
 comparison = aligned.select({
@@ -160,12 +156,8 @@ align + select 保留对齐行序；attribute 还需执行第 7 节的规范排�
 只改变来源观察粒度时，直接重新声明 by，不经过结果接收者接口：
 
 ```python
-east_total = session.observe(
-    {"revenue": revenue}, during=current_period, where=region == "East",
-)
-east_channels = session.observe(
-    {"revenue": revenue}, during=current_period, by=(channel,), where=region == "East",
-)
+east_total = session.observe({'revenue': revenue}, by=(current_period,), where=region == 'East')
+east_channels = session.observe({'revenue': revenue}, by=(current_period, channel), where=region == 'East')
 ```
 
 两者分别是 East 整体与按渠道的原指标观察；不会从已有组值推算原整体，
@@ -179,7 +171,8 @@ east_channels = session.observe(
 ```python
 aligned_regions = current_regions.align(
     previous_regions,
-    on=((current_regions.axis("region"), previous_regions.axis("region")),),
+    on=tuple(zip(current_regions.axes, previous_regions.axes)),
+    match=mv.ordinal(),
     how="outer",
 )
 left = aligned_regions["left.revenue"]
@@ -218,11 +211,12 @@ Population 不是一个名为“人群”的值列。同一个多轴 Population 
 均拒绝，不自动展开、合并或推断域。调用方先用已有 Population 操作构造一个完整域，再传给 by。
 同名字段、相似值或现存键本身不能证明来源可以映射到这些轴，仍须满足原来源绑定资格。
 
-Population 候选域必须覆盖两端当前作用域中实际消费的分类键，不能通过漏键过滤
-贡献。限定研究对象使用来源 where/members；声明输出域不能代替它。
+Population 候选域选择指定完整输出键，不要求覆盖域外来源坐标。
+来源事实过滤使用 where=mv.in_population(P)；指定输出域与贡献过滤各自明确。
 传入完整 Population 时，合法的无事实候选按 observe 的输出域、empty/NA 和 presence 政策处理，
 不能因没有事实就退回实际键域，也不能把无事实视为未知输入的零贡献。
-空 Population 仍是显式空输出域，覆盖检查不取消；作用域内有未覆盖贡献时必须失败。
+空 Population 是显式空输出域；其生产依赖或必要类型/来源错误仍正常传播。
+Attribute 的父域共同输入、精确贡献完整不交分区和守恒证明仍是本提案自己的要求，不能从 observe 的域选择推断。
 
 例如调用方已取得 region/channel Field，并明确要求两地区与两渠道的全部交叉组合，
 可使用现有 API 构造域；下面仍是基础来源示例，不是尚待定稿的 attribute 调用签名：
@@ -231,14 +225,11 @@ Population 候选域必须覆盖两端当前作用域中实际消费的分类键
 regions = mv.coordinates(by=(region,), keys=(("East",), ("West",)))
 channels = mv.coordinates(by=(channel,), keys=(("Online",), ("Store",)))
 joint_domain = mv.product(regions, channels)
-current_complete = session.observe(
-    {"revenue": revenue}, during=current_period, by=joint_domain,
-)
+current_complete = session.observe({'revenue': revenue}, by=mv.product(current_period, joint_domain))
 ```
 
 product 明确产生四个候选组合。即使来源只有 East/Online，其余组合也按声明完整域的
-政策处理；这与 `by=(region, channel)` 只生成实际分类组合不同。此例要求两期输入均被
-该域覆盖；需要限制研究范围时另行声明来源过滤。
+政策处理；这与 `by=(region, channel)` 只生成实际分类组合不同。此例只在指定期间与候选联合域中求值；需要独立限制事实贡献时另行声明来源过滤。
 若业务域只有 East/Online 与 West/Store 两个相关组合，应直接传入保留相关元组的域：
 
 ```python
@@ -273,10 +264,10 @@ by 的全部业务轴在一次调用中共同形成联合分区。例如 by=(reg
 
 例如地区 A 下两个渠道变化 +100/−100，地区 B 下一个渠道 +10：by=(region, channel)
 返回三个组合，A 的净变化为零不会隐藏其内部抵消。
-只研究 East 时，在来源端点通过原有条件/members 限定范围，或在已物化比较结果上选出父域，
+只研究 East 时，在来源端点通过原有条件/Population 谓词 限定范围，或在已物化比较结果上选出父域，
 再通过显式双端绑定作为新来源请求的范围。未保留在 compare 上的
 字段不能通过 coord 凭空读取，应先在来源端点表达所需条件或分类。
-by 只声明新增分类，不能作为隐式筛选器；Population 输出域也不能通过漏键筛选来源。
+by 的普通元组声明新增分类，Population 则选择指定完整输出键；贡献证明仍须满足自身完整分区与共同输入合同。
 
 每个请求中显式绑定的父键是独立分析总体。按地区父域再调查渠道时，贡献解释
 各地区自身变化；从全局父域请求 by=(region, channel) 则解释全局变化。
@@ -662,14 +653,14 @@ share 遵从 Frame 切换合同，已退役，不恢复此前“暂时保留”�
 | 共享执行 | 同一输入及检查义务进入统一调度；来源读取计数和计划证明确保总体/细组共享实际输入，而非两次 observe 后对账；无嵌套 compute/persist 或独立 runner |
 | 完整联合结果 | A 下 +100/−100，B 下 +10；返回三个联合组，无地区小计或根行 |
 | by 输入形状 | 接受非空分类元组或有新增轴的单个 Population；含 Population 的元组一律拒绝，不自动展开；空元组、零轴/重复/父域重复轴拒绝 |
-| 完整域组合 | mv.product 的两个两元素单轴因子形成四个候选；传入 by=该 Population 后保留合法空组合，域外贡献触发覆盖错误，不充当过滤 |
+| 完整域组合 | mv.product 的两个两元素单轴因子形成四个候选；传入 by=该 Population 后只保留指定完整键及合法空组合，不因域外来源坐标报覆盖错误；精确贡献请求另行证明完整分区 |
 | 相关联合域 | 单个 Population 仅含 East/Online、West/Store 时不增加交叉组合；多轴因子参加显式 product 时保持因子内部相关性 |
 | 域与顺序 | 调整分类轴顺序或显式 product 的因子顺序只改变布局及规范排序；同一联合分区按完整键对应的贡献不变 |
-| 空完整域 | 空 Population 不取消检查；有未覆盖输入时失败，无输入时依原 empty/NA 和贡献资格处理，不退化成无筛选或实际键域 |
+| 空完整域 | 空 Population 是显式空输出域，仍传播生产依赖与必要绑定错误；精确贡献继续独立检查共同输入及完整分区，不退化成无筛选或实际键域 |
 | 输入端筛选 | 固定 East 父域后显式构造两端新来源请求；只调查 East，以其本次变化为总体，不重跑原选择 |
 | 普通比较父域桥接 | 用 absolute.q 筛选普通地区轴 compare，compute 后以当前 FrameAxis 显式绑定到 region；两端 observe 只读取选中地区，无历史生产图恢复 |
 | 固定与惰性选择 | 固定后来源排名变化不改变父键；直接桥接待执行选择则重新求值；新来源值允许变化，不以历史差值作为本次贡献分母 |
-| 选择域边界 | 空选择保持空筛选，字段 Null 保留，多轴父键联合投影去重；日历/配对/值列不进入普通桥接，错误句柄拒绝 |
+| 选择域边界 | 空选择保持空筛选，字段 Null 保留，多轴父键联合投影去重；interval/日历/配对/值列不进入普通桥接，错误句柄拒绝 |
 | 多父域 | 相同渠道在不同父域独立分行，各父域占比分母独立 |
 | 可加变化 | 基期线上/线下 100/100，当期 160/80；贡献 +60/−20，总体 +40，占比 150%/−50% |
 | 零总体变化 | 子贡献 +100/−100，总体 0；贡献保留，占比 null，注明 zero_total_change |

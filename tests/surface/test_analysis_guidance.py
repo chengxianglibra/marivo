@@ -73,7 +73,11 @@ def test_grouping_is_the_public_observation_family() -> None:
         ("session.values", ("field or identity Grouping", "calendar and membership")),
         (
             "session.observe",
-            ("field, identity, calendar or membership", "population.axes", "by=population"),
+            (
+                "Grouping rules or TimeScope",
+                "population.axes",
+                "Population selecting complete output keys",
+            ),
         ),
     ),
 )
@@ -99,8 +103,9 @@ def test_time_binding_has_one_public_entry_per_operation() -> None:
         "MaterializedTimeAnalysisDomain",
     ):
         assert not hasattr(mv, name) and name not in REGISTRY.canonical_ids()
-    annotation = str(inspect.signature(mv.Session.observe).parameters["during"].annotation)
-    assert "TimeScope" in annotation and "CalendarAxis" in annotation
+    annotation = str(inspect.signature(mv.Session.observe).parameters["by"].annotation)
+    assert "TimeScope" in annotation and "Grouping" in annotation
+    assert "during" not in inspect.signature(mv.Session.observe).parameters
     assert tuple(inspect.signature(mv.Session.read).parameters) == ("self", "population", "fields")
 
 

@@ -20,7 +20,7 @@ from tests.support.paths import PROJECT_ROOT
 
 
 def _members(case: DslCase) -> mv.Population:
-    return case.session.members(ms.ref.entity("sales.customer"))
+    return case.session.members(case.session.catalog.require(ms.ref.entity("sales.customer")))
 
 
 def _observe(
@@ -33,17 +33,20 @@ def _observe(
 ) -> mv.AnalysisFrame:
     population = _members(case) if members is None else members
     region = case.session.catalog.fields.get("sales.customer.region")
+    scope = case.session.time_scope(start="2026-08-01", end="2026-09-01")
+    domain = (
+        (scope,)
+        if overall
+        else mv.product(scope, population.classify(by=(region,)))
+        if grouped
+        else mv.product(scope, population.classify(by=(population.axes[0], region)))
+        if classified
+        else mv.product(scope, population)
+    )
     return case.session.observe(
         {"value": case.session.catalog.metrics.get("sales.revenue")},
-        during=case.session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=()
-        if overall
-        else population.classify(by=(region,))
-        if grouped
-        else (population.axes[0], region)
-        if classified
-        else population,
-        members=population,
+        by=domain,
+        where=mv.in_population(population),
     )
 
 
@@ -56,15 +59,20 @@ def _source(
 ) -> mv.AnalysisFrame:
     return case.session.observe(
         {"value": metric},
-        during=case.session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=by,
-        members=members,
+        by=(case.session.time_scope(start="2026-08-01", end="2026-09-01"), *by),
+        where=mv.in_population(members) if members is not None else None,
     )
 
 
 def _selected_members(case: DslCase, frame: mv.AnalysisFrame) -> mv.Population:
     return case.session.population_from(
-        frame, on=((frame.axes[0], case.session.catalog.entities.get("sales.customer")),)
+        frame,
+        on=(
+            (
+                next(axis for axis in frame.axes if axis.role == "identity"),
+                case.session.catalog.entities.get("sales.customer"),
+            ),
+        ),
     )
 
 
@@ -75,7 +83,11 @@ def _region(case: DslCase) -> mv.AnalysisFrame:
 
 
 def _dict(frame: pd.DataFrame, name: str = "value") -> dict[object, object]:
-    return dict(zip(frame.iloc[:, 0], frame[("value", name)], strict=True))
+    coordinates = [axis for axis in frame.attrs["axes"] if axis["role"] != "interval"]
+    assert len(coordinates) == 1
+    return dict(
+        zip(frame[("coordinate", coordinates[0]["token"])], frame[("value", name)], strict=True)
+    )
 
 
 def test_row_methods_source_and_fixed(analysis_dsl_case_factory: DslCaseFactory) -> None:
@@ -106,8 +118,7 @@ def test_complete_coordinate_tuple_rollup(analysis_dsl_case_factory: DslCaseFact
     status = session.catalog.fields.get("sales.order.status")
     observed = session.observe(
         {"value": session.catalog.metrics.get("sales.revenue")},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=(customer, channel, status),
+        by=(session.time_scope(start="2026-08-01", end="2026-09-01"), customer, channel, status),
     )
     result = _source(
         case, session.catalog.metrics.get("sales.revenue"), by=(channel, status)
@@ -148,7 +159,7 @@ def test_explicit_classification_rollup_and_current_rows(
     totals = _observe(case, grouped=True).compute().to_pandas()
     assert _dict(totals) == {"east": 600, "south": 400, "west": 0}
     counts = (
-        observed.reduce({"count": mv.row_count()}, by=(observed.axes[1],)).compute().to_pandas()
+        observed.reduce({"count": mv.row_count()}, by=(observed.axes[2],)).compute().to_pandas()
     )
     assert _dict(counts, "count") == {"east": 2, "south": 1, "west": 1}
 
@@ -164,7 +175,7 @@ def test_selected_row_groups_preserve_count_mean_state(
     region = case.session.catalog.fields.get("sales.customer.region")
     stats = observed.reduce(
         {"count": mv.row_count(), "sum": observed["value"].sum(), "mean": observed["value"].mean()},
-        by=(observed.axes[1],),
+        by=(observed.axes[2],),
     )
     result = stats.persist()
     frame = result.to_pandas()
@@ -189,8 +200,7 @@ def test_original_mean_merges_support_not_finished_values(
     session = case.session
     observed = session.observe(
         {"value": session.catalog.metrics.get("sales.mean_amount")},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=_members(case),
+        by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), _members(case)),
     )
     fixed = observed.compute()
     assert fixed.to_pandas()[("value", "value")].tolist() == [1, 100]
@@ -210,14 +220,14 @@ def test_partial_reduction_matches_components_and_preserves_keys(
     status = session.catalog.fields.get("sales.order.status")
     observed = session.observe(
         {"value": session.catalog.metrics.get("sales.revenue")},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=(customer, channel, status),
+        by=(session.time_scope(start="2026-08-01", end="2026-09-01"), customer, channel, status),
     )
     partial = _source(case, session.catalog.metrics.get("sales.revenue"), by=(customer, channel))
     assert partial.compute().to_pandas()[("value", "value")].tolist() == [450, 150, 400]
     direct = _source(case, session.catalog.metrics.get("sales.revenue")).compute()
     assert direct.to_pandas()[("value", "value")].tolist() == [1000]
-    assert direct.to_pandas().attrs["frozen_coordinates"] == ()
+    assert len(direct.to_pandas().attrs["frozen_coordinates"]) == 1
+    assert direct.axes[0].role == "interval"
 
 
 def test_row_statistics_grouped_merge_preserves_mean_state_and_identity(
@@ -227,7 +237,7 @@ def test_row_statistics_grouped_merge_preserves_mean_state_and_identity(
     values = _observe(case, classified=True)
     region = case.session.catalog.fields.get("sales.customer.region")
     grouped = (
-        values.reduce({"sum": values["value"].sum(), "count": mv.row_count()}, by=(values.axes[1],))
+        values.reduce({"sum": values["value"].sum(), "count": mv.row_count()}, by=(values.axes[2],))
         .compute()
         .to_pandas()
     )
@@ -252,7 +262,7 @@ def test_cold_grouped_statistic_recovers_without_models_source_or_duckdb(
     observed = _observe(case, classified=True)
     region = case.session.catalog.fields.get("sales.customer.region")
     saved = observed.reduce(
-        {"sum": observed["value"].sum(), "count": mv.row_count()}, by=(observed.axes[1],)
+        {"sum": observed["value"].sum(), "count": mv.row_count()}, by=(observed.axes[2],)
     ).persist()
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     (case.root / "models").rename(case.root / "models.offline")
@@ -270,7 +280,7 @@ ms.load = forbidden
 duckdb.connect = forbidden
 ibis.duckdb.connect = forbidden
 DatasourceConnectionService.use_backend = forbidden
-session = mv.session.resume(sys.argv[1], by='id')
+session = mv.session.resume(sys.argv[1])
 before = len(session.runs().items)
 frame = session.persisted_frame(sys.argv[2]).to_pandas()
 assert frame[('value','sum')].sum() / frame[('value','count')].sum() == 49
@@ -300,14 +310,20 @@ def test_full_tuple_union_retains_denominator_only_and_cancelled_coordinates(
     for kind, expression in (("ratio", web / count), ("linear", count - count)):
         observed = session.observe(
             {"value": expression},
-            during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-            by=(customer, channel, status),
+            by=(
+                session.time_scope(start="2026-08-01", end="2026-09-01"),
+                customer,
+                channel,
+                status,
+            ),
         )
         grouped = _source(case, expression, by=(channel, status))
         saved = grouped.persist()
-        assert saved.to_pandas()[("value", "value")].tolist() == (
-            [0, 1] if kind == "ratio" else [0, 0]
-        )
+        rows = saved.to_pandas()
+        assert rows.set_index(list(rows.columns[1:3]))[("value", "value")].to_dict() == {
+            ("mobile", "paid"): 0,
+            ("web", "paid"): 1 if kind == "ratio" else 0,
+        }
         assert _source(case, expression).compute().to_pandas()[
             ("value", "value")
         ].tolist() == pytest.approx([2 / 3] if kind == "ratio" else [0])
@@ -358,8 +374,7 @@ def test_weighted_coordinates_merge_paired_components(
     channel = session.catalog.fields.get("sales.order.channel")
     observed = session.observe(
         {"value": session.catalog.metrics.get("sales.weighted")},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=(customer, channel),
+        by=(session.time_scope(start="2026-08-01", end="2026-09-01"), customer, channel),
     )
     partial = _source(case, session.catalog.metrics.get("sales.weighted"), by=(channel,))
     assert partial.compute().to_pandas()[("value", "value")].tolist() == [150, 425]
@@ -386,8 +401,7 @@ def test_combined_member_classifications_do_not_expand_facts(
     population = _members(case).classify(by=(region, cohort))
     grouped = session.observe(
         {"value": session.catalog.metrics.get("sales.revenue")},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=population,
+        by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), population),
     )
     frame = grouped.compute().to_pandas()
     assert len(frame) == 4
@@ -402,7 +416,7 @@ def test_numeric_read_grouping_creates_only_row_statistics(
     session = case.session
     channel = session.catalog.fields.get("sales.order.channel")
     raw = session.read(
-        session.members(ms.ref.entity("sales.order")),
+        session.members(session.catalog.require(ms.ref.entity("sales.order"))),
         {"amount": session.catalog.fields.get("sales.order.amount"), "channel": channel},
     )
     # Field values are explicit output; pandas owns post-export classification.
@@ -419,7 +433,7 @@ def test_invalid_classification_rejects(retained_coordinates_case: DslCase) -> N
     region = _region(case)
     east = region.where(region["region"] == "east")
     with pytest.raises(AnalysisError):
-        values.align(east, on=tuple(zip(values.axes, east.axes, strict=True))).compute()
+        values.align(east, on=((values.axes[1], east.axes[0]),)).compute()
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute("UPDATE customer SET region=NULL WHERE customer_id='C'")
     # Source Null is a real None classification in the current Field-axis contract.
@@ -428,14 +442,13 @@ def test_invalid_classification_rejects(retained_coordinates_case: DslCase) -> N
     grouped = (
         case.session.observe(
             {"value": case.session.catalog.metrics.get("sales.revenue")},
-            during=case.session.time_scope(start="2026-08-01", end="2026-09-01"),
-            by=domain,
+            by=mv.product(case.session.time_scope(start="2026-08-01", end="2026-09-01"), domain),
         )
         .compute()
         .to_pandas()
     )
-    assert grouped[("value", "value")].loc[grouped.iloc[:, 0] == "east"].tolist() == [140]
-    assert grouped[("value", "value")].loc[grouped.iloc[:, 0].isna()].tolist() == [7]
+    assert grouped[("value", "value")].loc[grouped.iloc[:, 1] == "east"].tolist() == [140]
+    assert grouped[("value", "value")].loc[grouped.iloc[:, 1].isna()].tolist() == [7]
 
 
 def test_duplicate_classification_rejects_source_and_fixed(
@@ -497,8 +510,10 @@ def test_typed_integer_classification_and_singleton(retained_coordinates_case: D
     band = session.catalog.fields.get("sales.customer.band")
     grouped = session.observe(
         {"value": session.catalog.metrics.get("sales.revenue")},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=_members(case).classify(by=(band,)),
+        by=mv.product(
+            session.time_scope(start="2026-08-01", end="2026-09-01"),
+            _members(case).classify(by=(band,)),
+        ),
     )
     assert _dict(grouped.compute().to_pandas()) == {1: 120, 2: 27}
     assert _observe(case, overall=True).compute().to_pandas()[("value", "value")].tolist() == [147]
@@ -548,8 +563,7 @@ def test_review_foreign_fact_predicate_transports_source_bindings(
             "value": session.catalog.metrics.get("sales.revenue"),
             "lines": session.catalog.metrics.get("sales.line_revenue"),
         },
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=_members(case),
+        by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), _members(case)),
     )
     selected = quantities.where(quantities["lines"] > 80)
     selected = selected.select({"value": selected["value"]})
@@ -570,10 +584,10 @@ def test_review_fixed_group_statistics_keep_axes_and_current_rows(
     grouped = _observe(case, grouped=True)
     fixed = grouped.compute()
     assert _dict(fixed.to_pandas()) == {"east": 140, "south": 7}
-    statistic = grouped.reduce({"mean": grouped["value"].mean()}, by=(grouped.axes[0],)).persist()
+    statistic = grouped.reduce({"mean": grouped["value"].mean()}, by=(grouped.axes[1],)).persist()
     frame = statistic.to_pandas()
     assert _dict(frame, "mean") == {"east": 140, "south": 7}
-    assert frame.columns[0] == fixed.to_pandas().columns[0]
+    assert statistic.axes[0].name == grouped.axes[1].name
     assert session.persisted_frame(statistic.artifact.id).to_pandas().equals(frame)
     assert _observe(case, overall=True).compute().to_pandas()[("value", "value")].tolist() == [147]
 
@@ -591,7 +605,7 @@ def test_fixed_grouped_statistic_preserves_cell_binding_and_empty_schema(
         if empty:
             current = current.where(current["value"] > 10000)
         request = mv.row_count() if method == "count" else current["value"].mean()
-        result = current.reduce({"value": request}, by=(current.axes[1],)).persist()
+        result = current.reduce({"value": request}, by=(current.axes[2],)).persist()
         frame = result.to_pandas()
         expected = (
             {}

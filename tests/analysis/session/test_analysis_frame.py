@@ -24,7 +24,7 @@ from marivo.analysis.materialization.frame_services import LocalFrameServices
 
 @pytest.fixture
 def local(tmp_path: Path) -> LocalFrameServices:
-    return DatasetRuntime.create(tmp_path, "frame-lifecycle", report_timezone="UTC").local
+    return DatasetRuntime.create(tmp_path, "frame-lifecycle", timezone="UTC").local
 
 
 def _memory(local: LocalFrameServices) -> AnalysisFrame:

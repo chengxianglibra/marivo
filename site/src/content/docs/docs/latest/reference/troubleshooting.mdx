@@ -59,9 +59,9 @@ Compute failure creates no Run. A publishing failure's run_ref identifies the
 exact Run; reconciliation resolves that original commit without recomputation.
 Missing/corrupt consumed data is not a cache miss and must not trigger replay.
 
-Store 12 refuses every older generation's data unchanged, without migration or
+Store 13 refuses every older generation's data unchanged, without migration or
 dual reads. Absent-current discovery may return None/empty without exposing old
-state; create/get_or_create cannot initialize around an old-only project.
+state; create cannot initialize around an old-only project.
 Before switching, export required results with the original version or retain a
 compatible environment. Preview limits affect display, not complete execution.
 The [AnalysisFrame cutover note](https://github.com/chengxianglibra/marivo/blob/main/docs/specs/analysis/analysis-frame-cutover.md)

@@ -56,7 +56,7 @@ def run(root: Path, phase: str, output: Path) -> None:
         patch.object(SourceSession, "__enter__", forbidden),
         patch.object(SourceSession, "execute", forbidden),
     ):
-        session = mv.session.resume(identity, by="id")
+        session = mv.session.resume(identity)
         before = len(session.runs().items)
         outputs: dict[str, mv.AnalysisFrame] = {}
         for name, saved in obj(state["outputs"]).items():

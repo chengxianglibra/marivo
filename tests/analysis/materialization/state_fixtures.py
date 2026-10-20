@@ -11,8 +11,10 @@ from tests.shared_fixtures import DslCase
 def _values(case: DslCase) -> mv.AnalysisFrame:
     return case.session.observe(
         {"value": case.session.catalog.metrics.get("sales.revenue")},
-        during=case.session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=case.session.members(ms.ref.entity("sales.customer")),
+        by=mv.product(
+            case.session.time_scope(start="2026-08-01", end="2026-09-01"),
+            case.session.members(case.session.catalog.require(ms.ref.entity("sales.customer"))),
+        ),
     )
 
 
@@ -22,7 +24,6 @@ def _snapshot(store: SessionStore) -> tuple[tuple[tuple[object, ...], ...], ...]
             tuple(tuple(row) for row in connection.execute(f"SELECT * FROM {table} ORDER BY 1"))
             for table in (
                 "sessions",
-                "runtime_state",
                 "analysis_action_runs",
                 "analysis_action_run_terminals",
                 "dataset_artifacts",

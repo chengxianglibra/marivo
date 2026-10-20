@@ -121,7 +121,7 @@ def computation_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.S
             "cost DECIMAL(12,2), quantity BIGINT)"
         )
         connection.execute(_ROWS)
-    return mv.session.get_or_create("computation", report_timezone="UTC")
+    return mv.session.create("computation", timezone="UTC")
 
 
 def _aggregate(session: mv.Session, metric: str) -> mv.AnalysisFrame:
@@ -341,7 +341,7 @@ def _remote_project_session(
         "def net_linear():\n"
         "    return amount_total - amount_total\n"
     )
-    return mv.session.get_or_create(f"c4-{backend}", report_timezone="UTC")
+    return mv.session.create(f"c4-{backend}", timezone="UTC")
 
 
 def _remote_matrix_case(
@@ -482,7 +482,7 @@ def trino_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[m
             "def amount_mean():\n"
             "    return amount_value.mean()\n"
         )
-        yield mv.session.get_or_create("c4-trino", report_timezone="UTC")
+        yield mv.session.create("c4-trino", timezone="UTC")
     finally:
         with trino.connection(admin=True) as admin:
             admin.cursor().execute(f"DROP TABLE IF EXISTS {table}").fetchall()

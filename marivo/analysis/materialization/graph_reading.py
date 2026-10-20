@@ -19,7 +19,7 @@ from marivo.analysis.core.artifact_data import (
     OutputFinding,
     ParquetHandle,
 )
-from marivo.analysis.core.data_schema import CalendarDataAxis, PairedDataAxis
+from marivo.analysis.core.data_schema import CalendarDataAxis, IntervalDataAxis, PairedDataAxis
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
@@ -27,10 +27,12 @@ from marivo.analysis.core.frame_data import (
 )
 from marivo.analysis.core.frozen_calendar import (
     FrozenCalendarBucket,
+    FrozenIntervalBucket,
     FrozenKey,
     frozen_key_rows,
     frozen_key_table,
     read_calendar_records,
+    read_interval_directory,
     validate_paired_presence,
     validate_paired_records,
     validate_presence,
@@ -322,11 +324,15 @@ class FrameReader:
                 return selected
 
             def calendar(
-                axis: CalendarDataAxis, keys: set[FrozenKey]
-            ) -> tuple[FrozenCalendarBucket, ...]:
+                axis: CalendarDataAxis | IntervalDataAxis, keys: set[FrozenKey]
+            ) -> tuple[FrozenCalendarBucket, ...] | tuple[FrozenIntervalBucket, ...]:
                 assert axis.frozen is not None
                 part = select(axis.frozen.directory_name, keys)
-                return read_calendar_records(axis, part.schema, part.rows)
+                return (
+                    read_interval_directory(axis, part.schema, part.rows).buckets
+                    if isinstance(axis, IntervalDataAxis)
+                    else read_calendar_records(axis, part.schema, part.rows)
+                )
 
             if n:
                 for axis in schema.axes:
@@ -358,7 +364,7 @@ class FrameReader:
                             endpoint_records[1],
                         )
                         validate_paired_presence(axis, schema, rows, mapping.schema, mapping.rows)
-                    elif isinstance(axis, CalendarDataAxis):
+                    elif isinstance(axis, (CalendarDataAxis, IntervalDataAxis)):
                         calendar(axis, keys)
             return FramePreview(schema, rows, tuple(parts.values()))
 

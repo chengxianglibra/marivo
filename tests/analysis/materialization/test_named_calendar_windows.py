@@ -91,7 +91,7 @@ def test_named_and_anonymous_scalar_windows_preserve_reset_and_null_semantics(
     calendar_window_project: SemanticCatalog, end: str, expected: int | None
 ) -> None:
     publish_fiscal_calendar_artifact(calendar_window_project)
-    session = mv.session.get_or_create("scalar-calendar", report_timezone="UTC")
+    session = mv.session.create("scalar-calendar", timezone="UTC")
     calendar = session.catalog.period_calendars.get("sales.fiscal")
     anonymous = session.catalog.metrics.get("sales.gmv").window(
         mv.to_date(grain=calendar.grain("fiscal_month"))
@@ -99,7 +99,7 @@ def test_named_and_anonymous_scalar_windows_preserve_reset_and_null_semantics(
     data = (
         session.observe(
             {"named": session.catalog.metrics.get("sales.fiscal_total"), "anonymous": anonymous},
-            during=session.time_scope(start="2026-01-20", end=end),
+            by=(session.time_scope(start="2026-01-20", end=end),),
         )
         .compute()
         .to_pandas()
@@ -114,11 +114,11 @@ def test_named_calendar_window_freezes_snapshot_before_execution(
 ) -> None:
     catalog = calendar_window_project
     publish_fiscal_calendar_artifact(catalog)
-    session = mv.session.get_or_create("frozen-calendar", report_timezone="UTC")
+    session = mv.session.create("frozen-calendar", timezone="UTC")
     metric = session.catalog.metrics.get("sales.fiscal_total")
     query = session.observe(
         {"total": metric},
-        during=session.time_scope(start="2026-01-31", end="2026-02-04").by(mv.grain("day")),
+        by=(session.time_scope(start="2026-01-31", end="2026-02-04").by(mv.grain("day")),),
     )
     binding = _source_graph(query).signature.observation
     assert binding is not None
@@ -161,7 +161,7 @@ def test_explicit_grain_rejects_a_different_certified_snapshot(
     calendar_ref = ms.ref.period_calendar("sales.fiscal")
     acquisition = md.unpruned(max_rows=100, timeout_seconds=10)
     catalog.preview(calendar_ref, scope=acquisition)
-    session_a = mv.session.get_or_create("calendar-a", report_timezone="UTC")
+    session_a = mv.session.create("calendar-a", timezone="UTC")
     calendar_a = session_a.catalog.period_calendars.get(calendar_ref)
     grain_a = calendar_a.grain("fiscal_month")
     scope_a = session_a.time_scope(start="2026-01-20", end="2026-02-01")
@@ -172,7 +172,7 @@ def test_explicit_grain_rejects_a_different_certified_snapshot(
                 mv.to_date(grain=grain_a)
             ),
         },
-        during=scope_a.by(mv.grain("day")) if bucketed else scope_a,
+        by=(scope_a.by(mv.grain("day")) if bucketed else scope_a,),
     )
     original_fingerprint = _source_graph(query_a).fingerprint
 
@@ -182,7 +182,7 @@ def test_explicit_grain_rejects_a_different_certified_snapshot(
             "UPDATE calendar SET fiscal_month = CASE WHEN calendar_date < DATE '2026-01-15' THEN 'M1' ELSE 'M2' END"
         )
     catalog.preview(calendar_ref, scope=acquisition)
-    session_b = mv.session.get_or_create("calendar-b", report_timezone="UTC")
+    session_b = mv.session.create("calendar-b", timezone="UTC")
     grain_b = session_b.catalog.period_calendars.get(calendar_ref).grain("fiscal_month")
     assert grain_a._snapshot is not None and grain_b._snapshot is not None
     assert grain_a._snapshot.snapshot_digest != grain_b._snapshot.snapshot_digest
@@ -194,7 +194,7 @@ def test_explicit_grain_rejects_a_different_certified_snapshot(
                 mv.to_date(grain=grain_b)
             ),
         },
-        during=scope_b.by(mv.grain("day")) if bucketed else scope_b,
+        by=(scope_b.by(mv.grain("day")) if bucketed else scope_b,),
     )
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -209,8 +209,7 @@ def test_explicit_grain_rejects_a_different_certified_snapshot(
             metric = session.catalog.metrics.get("sales.gmv").window(mv.to_date(grain=foreign))
             with pytest.raises(AnalysisError, match="same certified snapshot"):
                 session.observe(
-                    {"total": metric},
-                    during=scope.by(mv.grain("day")) if bucketed else scope,
+                    {"total": metric}, by=(scope.by(mv.grain("day")) if bucketed else scope,)
                 )
             assert not session.runs().items
 
@@ -236,7 +235,7 @@ def test_unusable_calendar_rejects_before_business_reads(
     status: str,
 ) -> None:
     monkeypatch.setattr(TemporalSnapshotStore, "inspect_current", lambda *a, **kw: (status, None))
-    session = mv.session.get_or_create("uncertified-calendar", report_timezone="UTC")
+    session = mv.session.create("uncertified-calendar", timezone="UTC")
     metric = session.catalog.metrics.get("sales.fiscal_total")
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -245,7 +244,7 @@ def test_unusable_calendar_rejects_before_business_reads(
     monkeypatch.setattr(duckdb, "connect", forbidden)
     with pytest.raises(AnalysisError, match="current certified calendar"):
         session.observe(
-            {"total": metric}, during=session.time_scope(start="2026-01-20", end="2026-02-01")
+            {"total": metric}, by=(session.time_scope(start="2026-01-20", end="2026-02-01"),)
         )
     assert not session.runs().items
 
@@ -255,7 +254,7 @@ def test_calendar_window_validates_consumed_authority(
     calendar_window_project: SemanticCatalog, case: str
 ) -> None:
     publish_fiscal_calendar_artifact(calendar_window_project)
-    session = mv.session.get_or_create("invalid-calendar", report_timezone="UTC")
+    session = mv.session.create("invalid-calendar", timezone="UTC")
     calendar = session.catalog.period_calendars.get("sales.fiscal")
     grain = ms.calendar_grain(
         calendar=calendar.ref, level="unknown" if case == "level" else "fiscal_month"
@@ -268,7 +267,6 @@ def test_calendar_window_validates_consumed_authority(
     )
     with pytest.raises(AnalysisError):
         session.observe(
-            {"total": metric},
-            during=scope.by(mv.grain("week")) if case == "containment" else scope,
+            {"total": metric}, by=(scope.by(mv.grain("week")) if case == "containment" else scope,)
         )
     assert not session.runs().items

@@ -90,7 +90,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 
 catalog = ms.load()
-s = mv.session.get_or_create("buyer-analysis", report_timezone="Asia/Shanghai")
+s = mv.session.create("buyer-analysis", timezone="Asia/Shanghai")
 OrdersRef = ms.ref.entity("sales.orders")
 OrdersEntity = catalog.entities.get(OrdersRef)
 customer_axis = catalog.fields.get(ms.ref.dimension("sales.orders.customer_id"))
@@ -106,7 +106,7 @@ september = s.time_scope(start="2026-09-01", end="2026-10-01")
 
 
 def orders_in(period: mv.TimeScope) -> mv.Population:
-    return s.members(OrdersRef, where=paid_at.within(period) & (status == "paid"))
+    return s.members(OrdersEntity, where=paid_at.within(period) & (status == "paid"))
 
 
 active_customer_ids = customer_axis.count_distinct(time=paid_at).where(status == "paid")
@@ -115,14 +115,13 @@ active_customer_ids = customer_axis.count_distinct(time=paid_at).where(status ==
 ### 2.2 第一轮：固定两个地区观察，再比较
 
 ```python
-current = s.observe({"revenue": revenue, "orders": orders, "aov": aov},
-                    during=september, by=(region_axis,)).compute()
-baseline = s.observe({"revenue": revenue, "orders": orders, "aov": aov},
-                     during=august, by=(region_axis,)).compute()
+current = s.observe({'revenue': revenue, 'orders': orders, 'aov': aov}, by=(september, region_axis)).compute()
+baseline = s.observe({'revenue': revenue, 'orders': orders, 'aov': aov}, by=(august, region_axis)).compute()
 current_revenue = current.select({"revenue": current["revenue"]}).compute()
 baseline_revenue = baseline.select({"revenue": baseline["revenue"]}).compute()
 change = current_revenue.compare(
-    baseline_revenue, on=((current_revenue.axes[0], baseline_revenue.axes[0]),),
+    baseline_revenue, on=tuple(zip(current_revenue.axes, baseline_revenue.axes)),
+    match=mv.ordinal(),
     how="outer",
 ).persist()
 change.show(n=10)
@@ -137,19 +136,14 @@ presence 独立于 NA。outer 不把缺失端点当零贡献；业务需要空�
 
 ```python
 chosen = current.top(1, by=current["revenue"]).compute()
-parents = s.population_from(chosen, on=((chosen.axes[0], region_axis),))
+parents = s.population_from(chosen, on=((chosen.axes[1], region_axis),))
 parents.show()
-current_detail = s.observe(
-    {"revenue": revenue}, during=september, by=(region_axis, customer_axis),
-    where=mv.in_population(parents),
-).compute()
-baseline_detail = s.observe(
-    {"revenue": revenue}, during=august, by=(region_axis, customer_axis),
-    where=mv.in_population(parents),
-).compute()
+current_detail = s.observe({'revenue': revenue}, by=(september, region_axis, customer_axis), where=mv.in_population(parents)).compute()
+baseline_detail = s.observe({'revenue': revenue}, by=(august, region_axis, customer_axis), where=mv.in_population(parents)).compute()
 detail = current_detail.compare(
     baseline_detail,
-    on=tuple(zip(current_detail.axes, baseline_detail.axes)), how="outer",
+    on=tuple(zip(current_detail.axes, baseline_detail.axes)),
+    match=mv.ordinal(), how="outer",
 ).compute()
 detail.show()
 ```
@@ -161,8 +155,8 @@ region/customer 字段由调用方明确提供。桥接投影完整联合普通�
 ### 2.4 第三轮：普通 ID 字段与订单身份分别固定
 
 ```python
-customer_source = s.observe({"revenue": revenue}, during=september, by=(customer_axis,)).compute()
-customer_keys = s.population_from(customer_source, on=((customer_source.axes[0], customer_axis),))
+customer_source = s.observe({'revenue': revenue}, by=(september, customer_axis)).compute()
+customer_keys = s.population_from(customer_source, on=((customer_source.axes[1], customer_axis),))
 selected_orders = orders_in(september)
 order_keys = s.frame(selected_orders).compute()
 order_population = s.population_from(order_keys, on=((order_keys.axes[0], OrdersEntity),))
@@ -176,17 +170,13 @@ frame 支持一般 Population 和零轴空/单例域，read 需要一个身份�
 ### 2.5 第四轮：区分当前行统计与原整体
 
 ```python
-customer_values = s.observe(
-    {"revenue": revenue, "orders": orders, "aov": aov},
-    during=september, by=(customer_axis,),
-).compute()
+customer_values = s.observe({'revenue': revenue, 'orders': orders, 'aov': aov}, by=(september, customer_axis)).compute()
 row_summary = customer_values.reduce({
     "mean_customer_revenue": customer_values["revenue"].mean(),
     "mean_customer_aov": customer_values["aov"].mean(),
     "rows": mv.row_count(),
 }).compute()
-source_overall = s.observe({"revenue": revenue, "orders": orders, "aov": aov},
-                           during=september).compute()
+source_overall = s.observe({'revenue': revenue, 'orders': orders, 'aov': aov}, by=(september,)).compute()
 row_summary.show()
 source_overall.show()
 ```
@@ -202,18 +192,16 @@ source_overall.show()
 ```python
 chosen_customers = customer_values.top(1, by=customer_values["revenue"]).compute()
 fixed_cohort = s.population_from(
-    chosen_customers, on=((chosen_customers.axes[0], customer_axis),),
+    chosen_customers, on=((chosen_customers.axes[1], customer_axis),),
 )
-prior_for_fixed = s.observe(
-    {"revenue": revenue}, during=august, by=fixed_cohort,
-    where=mv.in_population(fixed_cohort),
-).compute()
-new_selection = s.observe({"revenue": revenue}, during=august, by=(customer_axis,)).compute()
+prior_for_fixed = s.observe({'revenue': revenue}, by=mv.product(august, fixed_cohort), where=mv.in_population(fixed_cohort)).compute()
+new_selection = s.observe({'revenue': revenue}, by=(august, customer_axis)).compute()
 prior_for_fixed.show()
 new_selection.show()
 ```
 
-by=fixed_cohort 声明完整输出域，where 明确过滤贡献；不能用漏键 by 代替过滤。
+by=mv.product(august, fixed_cohort) 选择指定期间与客户的完整输出键，保留无事实客户。
+此处 where 明确过滤贡献；分配仍使用原始分母。
 重新求当期选择可能选中另一位客户，固定 cohort 不重跑旧 Top。空结果桥接仍是空筛选，
 required on=() 对零轴也是合法绑定，空零轴域与单例 {()} 不混同。
 
@@ -223,7 +211,7 @@ required on=() 对零轴也是合法绑定，空零轴域与单例 {()} 不混�
 saved = customer_values.persist()
 saved_session_id = s.id
 saved_artifact_id = saved.artifact.id
-resumed = mv.session.resume(saved_session_id, by="id")
+resumed = mv.session.resume(saved_session_id)
 restored = resumed.persisted_frame(saved_artifact_id)
 restored.show(n=0)
 positive = restored.where(restored["revenue"] > 0).compute()
@@ -241,12 +229,15 @@ positive.persist().artifact.show()
 budget = s.values(by=(region_axis,), columns={"budget": "CNY"}, rows=(
     (("East",), {"budget": 120}), (("West",), {"budget": 80}),
 )).compute()
-joined = current.align(budget, on=((current.axes[0], budget.axes[0]),))
+regional_values = current.reduce({"revenue": current["revenue"].sum()},
+                                 by=(current.axes[1],)).compute()
+joined = regional_values.align(budget, on=((regional_values.axes[0], budget.axes[0]),))
 variance = joined.select({"variance": joined["left.revenue"] - joined["right.budget"]}).compute()
 variance.show()
 ```
 
-这是完整同域对齐，不是 scalar broadcast，也不证明贡献包含。原贡献份额、任意关系对应、
+先对单期间的当前收入行按地区求和，显式移除 interval 轴，再与地区预算完整对齐。
+这是当前行统计，不声称对任意非可加 Metric 都能恢复原量；也不是 scalar broadcast，也不证明贡献包含。原贡献份额、任意关系对应、
 partitioned top 和日历粗化本版无等价接收者。外部固定数据比例要明确分母与证据限度。
 
 ### 2.9 时间分析：新来源窗口与冻结对应
@@ -255,15 +246,9 @@ partitioned top 和日历粗化本版无等价接收者。外部固定数据比�
 from datetime import timedelta
 
 days = september.by(mv.grain("day"))
-rolling = s.observe(
-    {"revenue": revenue.window(mv.trailing_duration(duration=timedelta(days=7)))},
-    during=days,
-).compute()
+rolling = s.observe({'revenue': revenue.window(mv.trailing_duration(duration=timedelta(days=7)))}, by=(days,)).compute()
 prior_days = august.by(mv.grain("day"))
-prior = s.observe(
-    {"revenue": revenue.window(mv.trailing_duration(duration=timedelta(days=7)))},
-    during=prior_days,
-).compute()
+prior = s.observe({'revenue': revenue.window(mv.trailing_duration(duration=timedelta(days=7)))}, by=(prior_days,)).compute()
 paired = rolling.compare(prior, match=mv.ordinal(), how="outer").compute()
 paired.show(n=5)
 ```
@@ -277,7 +262,7 @@ paired.show(n=5)
 规则见 [DSL §4.1.1](lazy-analysis-dsl-redesign.md#411-精确时刻与版本选择)。
 
 ```python
-anchor_s = mv.session.get_or_create("anchor-example", report_timezone="Asia/Shanghai")
+anchor_s = mv.session.create("anchor-example", timezone="Asia/Shanghai")
 october = anchor_s.time_scope(start="2026-10-01", end="2026-11-01")
 launch = anchor_s.instant("2026-10-15T09:30:00")
 absolute_launch = anchor_s.instant("2026-10-15T01:30:00+00:00")
@@ -317,20 +302,20 @@ Session.members 的 at 与关系像所需的版本选择遵守同一种边界解
 固定模拟来源只有 O1→A、O2→A、O3→B；customer_id 是订单上的普通字段。
 
 ```python
-relation_s = mv.session.get_or_create("relation-example", report_timezone="Asia/Shanghai")
+relation_s = mv.session.create("relation-example", timezone="Asia/Shanghai")
 orders_ref = ms.ref.entity("sales.orders")
 customers_ref = ms.ref.entity("sales.customers")
 order_entity = catalog.entities.get(orders_ref)
 customer_entity = catalog.entities.get(customers_ref)
 buyer = catalog.relationships.get(ms.ref.relationship("sales.buyer"))
 customer_id = catalog.fields.get(ms.ref.dimension("sales.orders.customer_id"))
-orders = relation_s.members(orders_ref)
+orders = relation_s.members(order_entity)
 customers_a = mv.identities(customer_entity, keys=(("A",),))
 buyers = orders.image(via=(buyer,))
 matched_orders = orders.preimage(customers_a, via=(buyer,))
 customer_values = orders.classify(by=(customer_id,))
 first_order = relation_s.members(
-    orders_ref,
+    order_entity,
     where=mv.in_population(mv.identities(order_entity, keys=(("O1",),))),
 )
 expanded_orders = orders.preimage(first_order.image(via=(buyer,)), via=(buyer,))
@@ -358,11 +343,7 @@ customer_region = catalog.fields.get(ms.ref.dimension("sales.customers.customer_
 buyer_region = customer_region.via((buyer,))
 order_revenue = catalog.metrics.get(ms.ref.metric("sales.revenue"))
 relation_october = relation_s.time_scope(start="2026-10-01", end="2026-11-01")
-buyer_revenue = relation_s.observe(
-    {"revenue": order_revenue},
-    members=customers_a,
-    during=relation_october,
-)
+buyer_revenue = relation_s.observe({'revenue': order_revenue}, by=(relation_october,), where=mv.in_population(customers_a))
 ```
 
 buyer_region 的路径定位单值字段读取，贡献对客户身份域的归属由语义层声明的唯一路径决定；两者不能互相替代。
@@ -381,31 +362,25 @@ buyer_region 的路径定位单值字段读取，贡献对客户身份域的归�
 继续使用上节显式客户身份域；计该名单的身份数不需要订单时间范围：
 
 ```python
-customer_count = relation_s.observe(
-    {"customers": mv.member_count()},
-    members=customers_a,
-).compute()
-customer_count_explicit = relation_s.observe(
-    {"customers": mv.member_count()},
-    members=customers_a,
-    during=None,
-).compute()
+customer_count = relation_s.observe({'customers': customers_a.count()}).compute()
+customer_count_explicit = relation_s.observe({'customers': customers_a.count()}, by=()).compute()
+customers_b = mv.identities(customer_entity, keys=(("B",), ("missing",)))
+independent_counts = relation_s.observe({
+    "a": customers_a.count(), "b": customers_b.count(),
+    "both": customers_a.count() + customers_b.count(),
+}).compute()
 ```
 
-这两个请求均计名单中的一个身份，不读取客户档案确认存在性，不代表当期活跃客户数。
+前两个请求均计名单中的一个身份，不读取客户档案确认存在性，不代表当期活跃客户数。
+independent_counts 的 a=1、b=2、both=3；missing 没有来源事实仍属于显式名单。
 普通来源规约有无业务时间角色均可省略期间；已有字段/版本绑定仍须合法。
 
 上节 order_revenue 有业务时间角色，但统计已选订单的总收入不需要再追加时间过滤：
 
 ```python
-selected_revenue = relation_s.observe(
-    {"revenue": order_revenue},
-    members=matched_orders,
-).compute()
+selected_revenue = relation_s.observe({'revenue': order_revenue}, where=mv.in_population(matched_orders)).compute()
 selected_revenue_explicit = relation_s.observe(
-    {"revenue": order_revenue},
-    members=matched_orders,
-    during=None,
+    {'revenue': order_revenue}, by=(), where=mv.in_population(matched_orders),
 ).compute()
 
 relation_paid_at = catalog.fields.get(ms.ref.time_dimension("sales.orders.paid_at"))
@@ -418,10 +393,10 @@ intrinsic_october_revenue = relation_s.observe({"revenue": october_definition}).
 ```
 
 前两个请求的期间绑定等价；每次来源求值 仍读取本次来源，不承诺独立读取的值相同。
-后两个请求分别通过观察条件和固有条件限定十月，不需要重复传入 during；省略期间不证明来源包含完整历史。
-把 member_count 与普通 order_revenue 放进同一次 observe 也可省略期间，显式身份域等要求保持。
-任何依赖要求按期间采样或时间样本规约时，仍须显式提供 during，日期条件和属性时点不能代替它。
-即使只观察 member_count，若 by 请求日历轴，也须显式给出相容 during，不能从 by 隐式推导。
+后两个请求分别通过观察条件和固有条件限定十月；by=() 没有输出时间轴，不证明来源包含完整历史。
+customers_a.count() 捕获名单完整身份，包含无事实身份；不同名单各自捕获并惰性求值。
+事实过滤不改变名单分母。计数可以按 by 中的 interval/calendar 重复；只有计数时附加
+无效果的事实条件或窗口拒绝。需要期间端点的窗口必须在 by 中提供时间域，日期条件和属性时点不能代替它。
 
 ## 6. 预定义与 runtime 共用表达式与声明
 
@@ -451,7 +426,7 @@ def average_order_value():
 
 ```python
 catalog = ms.load()
-s = mv.session.get_or_create("metric-expressions", report_timezone="Asia/Shanghai")
+s = mv.session.create("metric-expressions", timezone="Asia/Shanghai")
 amount = catalog.fields.get(ms.ref.measure("sales.orders.amount"))
 cost = catalog.fields.get(ms.ref.measure("sales.orders.cost"))
 paid_at = catalog.fields.get(ms.ref.time_dimension("sales.orders.paid_at"))
@@ -462,7 +437,7 @@ revenue = amount.sum(time=paid_at).where(status == "paid")
 order_count = orders.count(time=paid_at).where(status == "paid")
 aov = revenue / order_count
 september = s.time_scope(start="2026-09-01", end="2026-10-01")
-answer = s.observe({"trial_revenue": revenue, "trial_aov": aov}, during=september).compute()
+answer = s.observe({'trial_revenue': revenue, 'trial_aov': aov}, by=(september,)).compute()
 ```
 
 | 关注点 | 模型预定义 | runtime 临时定义 |
@@ -545,8 +520,8 @@ runtime_margin = (trial_amount - trial_cost).sum(time=paid_at)
 ```python
 literal_cohort = mv.coordinates(by=(customer_id,), keys=(("A",), ("B",)))
 literal_revenue = revenue.where(mv.in_population(literal_cohort))
-cohort_frame = s.observe({"revenue": revenue}, during=september, by=(customer_id,))
-source_cohort = s.population_from(cohort_frame, on=((cohort_frame.axes[0], customer_id),))
+cohort_frame = s.observe({'revenue': revenue}, by=(september, customer_id))
+source_cohort = s.population_from(cohort_frame, on=((cohort_frame.axes[1], customer_id),))
 selected_cohort_revenue = revenue.where(mv.in_population(source_cohort))
 
 
@@ -555,7 +530,7 @@ def selected_revenue():
     return selected_cohort_revenue
 
 
-selected = s.observe({"revenue": selected_revenue}, during=september).compute()
+selected = s.observe({'revenue': selected_revenue}, by=(september,)).compute()
 ```
 
 字面量域和来源/Frame 选择程序是显式依赖，不包含 Artifact 键引用。selected_revenue 仍依赖原选择程序，
@@ -665,9 +640,9 @@ def mean_tag_revenue():
     return Revenue.per(tag_buckets).mean()
 
 tag_mean_inline = Revenue.per(tag_buckets).mean()
-tag_query = s.observe({"revenue": Revenue}, during=period, by=(tag_buckets,))
+tag_query = s.observe({'revenue': Revenue}, by=(period, tag_buckets))
 full_tags = mv.coordinates(by=(tag_buckets,), keys=(("A",), ("B",)))
-full_tag_query = s.observe({"revenue": Revenue}, during=period, by=full_tags)
+full_tag_query = s.observe({'revenue': Revenue}, by=mv.product(period, full_tags))
 full_tag_mean = Revenue.per(full_tags).mean()
 
 month_rule = mv.to_date(grain=mv.grain("month"))
@@ -677,15 +652,15 @@ def revenue_mtd():
     return Revenue.window(month_rule)
 
 mtd_inline = Revenue.window(month_rule)
-q_named = s.observe({"value": revenue_mtd}, during=days)
-q_inline = s.observe({"value": mtd_inline}, during=days)
+q_named = s.observe({'value': revenue_mtd}, by=(days,))
+q_inline = s.observe({'value': mtd_inline}, by=(days,))
 history = Revenue.window(mv.all_history())
 elapsed_week = Revenue.window(mv.trailing_duration(duration=timedelta(days=7)))
 calendar_week = Revenue.window(mv.trailing_periods(count=7))
 ```
 
 每对 named/inline 的配方、政策、检查域与声明计算指纹相同，声明身份不同；schema 已知/未知均保持 Deferred。
-q_named 与 q_inline 使用同一规则和观察轴；没有 during=window 的第二入口。
+q_named 与 q_inline 使用同一规则和 by 中的观察时间轴；window 只挂在 Metric 上。
 这里展示配方等价，不承诺独立 execute 读取相同快照或近似计算产生逐位相同结果。
 无轴规则及 tag_buckets 不依赖 s，命名声明可独立收录；具体 Frame/days 不进入模型闭包。
 全部窗口表达式消费时须提供评价端点，calendar_week 还须 CalendarAxis；窗口不能补造基础指标的时间角色。
@@ -706,7 +681,7 @@ full_tags 的绑定明确且不依赖事实观察；来源域可写 `s.members(T
 
 ```python
 channels = mv.membership(ChannelId, via=((OrderChannels,),), unmatched="exclude")
-by_tag_channel = s.observe({"revenue": Revenue}, during=period, by=(tag_buckets, channels))
+by_tag_channel = s.observe({'revenue': Revenue}, by=(period, tag_buckets, channels))
 mean_tag_channel = Revenue.per((tag_buckets, channels)).mean()
 ```
 
@@ -714,7 +689,7 @@ mean_tag_channel = Revenue.per((tag_buckets, channels)).mean()
 上的字段元组描述；不能从两个独立集合猜出相关性。若另有标签根 Budget，`Revenue / Budget` 复用 tag_buckets 时，
 订单根走 OrderTags、标签根恒等绑定，先分别规约再相除，不能把 Budget join 到订单明细。
 
-标量 MTD 在 `during=s.time_scope(start="2026-09-01", end="2026-10-08")` 与起点改为10-01时，
+interval MTD 在 `by=(s.time_scope(start="2026-09-01", end="2026-10-08"),)` 与起点改为10-01时，
 都取[10-01,10-08)；端点恰为11-01零点时取完整十月。不要求显示起点在同一月，也不通过减一微秒选择月份。
 旧 first-seen 的重置/滚动迁移可在一致输入前提下使用精确 H/W 计数组合，完整命名/匿名配方见语义附录 A.1.1；
 A在09-30及10-02出现、B在10-03出现，十月窗口活跃去重2、首次新增1，不能把两者作为等价例子。
@@ -727,8 +702,8 @@ Payroll 为该根上的金额指标；其它上下文与本节相同：
 ```python
 manager_buckets = mv.membership(EmployeeId, via=((ReportsTo,),), unmatched="exclude")
 self_buckets = mv.membership(EmployeeId, via=(), unmatched="exclude")
-by_manager = s.observe({"payroll": Payroll}, during=period, by=(manager_buckets,))
-by_self = s.observe({"payroll": Payroll}, during=period, by=(self_buckets,))
+by_manager = s.observe({'payroll': Payroll}, by=(period, manager_buckets))
+by_self = s.observe({'payroll': Payroll}, by=(period, self_buckets))
 all_manager_keys = s.members(EmployeeEntity).classify(by=(manager_buckets,))
 ```
 
@@ -739,14 +714,11 @@ by_manager 沿 ReportsTo 分配贡献；by_self 才读取根自身分类。all_m
 
 ```python
 week_rule = mv.trailing_duration(duration=timedelta(days=7))
-regional_week = s.observe({"value": Revenue.window(week_rule)}, during=days, by=(Region,)).compute()
-all_regions_week = s.observe({"value": Revenue.window(week_rule)}, during=days).compute()
+regional_week = s.observe({'value': Revenue.window(week_rule)}, by=(days, Region)).compute()
+all_regions_week = s.observe({'value': Revenue.window(week_rule)}, by=(days,)).compute()
 cell_sum = regional_week.reduce({"sum_of_cells": regional_week["value"].sum()}).compute()
 monthly_scope = s.time_scope(start="2026-09-01", end="2026-10-01")
-coarse_week = s.observe(
-    {"value": Revenue.window(week_rule)},
-    during=monthly_scope.by(mv.grain("month")),
-).compute()
+coarse_week = s.observe({'value': Revenue.window(week_rule)}, by=(monthly_scope.by(mv.grain('month')),)).compute()
 ```
 
 all_regions_week 是明确新来源请求，保留相同端点/W；coarse_week 使用新月端点评价七日窗口。
@@ -793,7 +765,7 @@ aov_strict 是另一声明，显式 error 才拒绝共同非 NA 的零分母；�
 Frame Column 使用同一写法，不要求回到 Metric 阶段修改公式：
 
 ```python
-measured = s.observe({"revenue": revenue, "orders": order_count}, during=september)
+measured = s.observe({'revenue': revenue, 'orders': order_count}, by=(september,))
 column_aov = measured.select({"aov": measured["revenue"] / measured["orders"]})
 strict_column_aov = measured.select({
     "aov": measured["revenue"].divide(measured["orders"], zero_denominator="error"),
@@ -821,17 +793,14 @@ def cohort_mean_revenue():
 
 来源 A=100、C=300，B 无贡献，收入显式 sum(empty="zero") 空/全 NA 为零：完整 cohort 均额 50，全体实际客户均额 200，
 cohort 活跃客户均额 100，人群收入比率 1/4。per(cohort) 已选择内部样本，不要求再 where，也不因 C 在域外失败。
-外部 observe(by=cohort) 的完整输出覆盖合同不同，不能用它隐式筛掉 C。
+外部 observe(by=cohort) 只选择 cohort 的完整输出键，保留无事实坐标；内部 per 样本域仍独立。
 来源动态名单保留它自己的选择期间；固定名单不会在新期间重新选人。
 
 同一个客户可以在各地区分别成为一个内部样本；此处改用独立数据 East:A100，West:A300/B100：
 
 ```python
 region = catalog.fields.get(ms.ref.dimension("sales.orders.region"))
-regional_means = s.observe(
-    {"cohort_mean": cohort_mean, "active_mean": observed_mean},
-    during=september, by=(region,),
-).compute()
+regional_means = s.observe({'cohort_mean': cohort_mean, 'active_mean': observed_mean}, by=(september, region)).compute()
 ```
 
 完整 A/B 名单的均额为 East50/West200，实际客户均额为 East100/West200；总体客户均额为250。
@@ -850,9 +819,7 @@ def total_bandwidth_p95():
     return Bandwidth.sum(time=SampleAt).per(SampleAt).quantile(0.95)
 
 
-bandwidth_answer = s.observe(
-    {"bandwidth_p95": runtime_bandwidth_p95}, during=september,
-).compute()
+bandwidth_answer = s.observe({'bandwidth_p95': runtime_bandwidth_p95}, by=(september,)).compute()
 ```
 
 SampleAt 已被声明为五分钟状态采样轴，Bandwidth 仅在固定时点内可空间相加。
@@ -862,10 +829,7 @@ A=[10,0]、B=[0,10]，总体先得 [10,10]，P95=10；设备 P95 各为 9.5，�
 DeviceId 是同一来源上的设备维度；各设备共享相同采样时点也可以分别求 P95：
 
 ```python
-device_p95 = s.observe(
-    {"bandwidth_p95": runtime_bandwidth_p95},
-    during=september, by=(DeviceId,),
-).compute()
+device_p95 = s.observe({'bandwidth_p95': runtime_bandwidth_p95}, by=(september, DeviceId)).compute()
 ```
 
 内部样本为 (设备, 时点)，输出 A/B 各9.5；裸时点无需唯一映射到设备。
@@ -932,9 +896,7 @@ tags = mv.membership(
     via=((OrderTags,), (RefundOrder, OrderTags)),
     unmatched="exclude",
 )
-tag_net = s.observe(
-    {"net_revenue": net_revenue}, during=period, by=(tags,),
-)
+tag_net = s.observe({'net_revenue': net_revenue}, by=(period, tags))
 ```
 
 订单 O1=100、退款 R1=20 归属 O1，O1 属于 A/B 两标签；同一 (O1,A) 的桥记录出现两次。

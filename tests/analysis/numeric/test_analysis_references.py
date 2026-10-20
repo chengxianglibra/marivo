@@ -10,7 +10,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.datasource.errors import DatasourceConnectionError
 from tests.analysis.numeric.attribution_workflows import _number
-from tests.analysis.statistics.pandas_workflows import plain
+from tests.analysis.numeric.pandas_coordinates import plain
 from tests.shared_fixtures import (
     DslCase,
     DslCaseFactory,
@@ -46,18 +46,22 @@ def _monthly(case: DslCase, metric: str) -> mv.AnalysisFrame:
     session = case.session
     return session.observe(
         {"value": session.catalog.metrics.get("sales." + metric)},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=session.members(ms.ref.entity("sales.customer")),
+        by=mv.product(
+            session.time_scope(start="2026-08-01", end="2026-09-01"),
+            session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
+        ),
     )
 
 
 def _grouped(case: DslCase, metric: str) -> mv.AnalysisFrame:
     session = case.session
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     return session.observe(
         {"value": session.catalog.metrics.get("sales." + metric)},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=members.classify(by=(session.catalog.fields.get("sales.customer.region"),)),
+        by=mv.product(
+            session.time_scope(start="2026-08-01", end="2026-09-01"),
+            members.classify(by=(session.catalog.fields.get("sales.customer.region"),)),
+        ),
     )
 
 
@@ -86,7 +90,7 @@ from tests.shared_fixtures import run_ids
 def unavailable(*args, **kwargs):
     raise AssertionError('cold reference export reopened source or Semantic')
 with patch.object(duckdb, 'connect', unavailable), patch.object(ms, 'load', unavailable), patch.object(SourceSession, '__init__', unavailable):
-    session = mv.session.resume(sys.argv[1], by='id')
+    session = mv.session.resume(sys.argv[1])
     before = run_ids(session)
     saved = tuple(session.persisted_frame(ref) for ref in sys.argv[2:])
     assert all(isinstance(item, mv.AnalysisFrame) for item in saved)
@@ -240,13 +244,14 @@ def test_original_metric_standardization_matrix(
         db.execute(f'ALTER TABLE "order" ALTER amount TYPE {physical}')
     trace = capture_source(monkeypatch)
     session = case.session
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     region = session.catalog.fields.get("sales.customer.region")
     base = session.catalog.metrics.get("sales.revenue")
     groups = session.observe(
         {"sum": base, "ratio": base / base},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=members.classify(by=(region,)),
+        by=mv.product(
+            session.time_scope(start="2026-08-01", end="2026-09-01"), members.classify(by=(region,))
+        ),
     )
     weights = _grouped(case, "revenue")
     saved_groups, saved_weights = groups.persist(), weights.persist()
@@ -311,15 +316,16 @@ def test_public_exact_integer_reference_weights(analysis_dsl_case_factory: DslCa
     with duckdb.connect(str(case.database_path)) as db:
         db.execute('DELETE FROM "order" WHERE order_id != ?', [kept[0]])
     session = case.session
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     region = session.catalog.fields.get("sales.customer.region")
     amount, time = (
         session.catalog.fields.get("sales.order." + name) for name in ("amount", "ordered_at")
     )
     groups = session.observe(
         {"count": session.catalog.metrics.get("sales.order_count"), "mean": amount.mean(time=time)},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=members.classify(by=(region,)),
+        by=mv.product(
+            session.time_scope(start="2026-08-01", end="2026-09-01"), members.classify(by=(region,))
+        ),
     )
     saved = groups.persist()
     table = _plain(saved).set_index("key_0")
@@ -409,7 +415,7 @@ def test_composite_penetration_overlap_and_empty(analysis_dsl_case_factory: DslC
     )
     ms.load(workspace_dir=case.root)
     session = case.session
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     read = session.read(members, {"region": session.catalog.fields.get("sales.customer.region")})
     saved = read.persist()
     table = _plain(saved).set_index("key_0")
@@ -538,15 +544,16 @@ def test_reference_preparation_captures_independent_source_origins(
 
     case = analysis_dsl_case_factory("j3")
     session = case.session
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     region = session.catalog.fields.get("sales.customer.region")
     counts = session.catalog.metrics.get("sales.order_count")
     lines = session.catalog.metrics.get("sales.line_revenue")
     revenue = session.catalog.metrics.get("sales.revenue")
     q = session.observe(
         {"count": counts, "lines": lines, "average": lines / counts, "linear": revenue + lines},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=members.classify(by=(region,)),
+        by=mv.product(
+            session.time_scope(start="2026-08-01", end="2026-09-01"), members.classify(by=(region,))
+        ),
     )
     trace = capture_source(monkeypatch)
     saved = q.persist()

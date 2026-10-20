@@ -8,6 +8,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.errors import AnalysisError
+from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.shared_fixtures import (
     DslCase,
     DslCaseFactory,
@@ -20,8 +21,10 @@ from tests.support.paths import PROJECT_ROOT
 def _amounts(case: DslCase) -> mv.AnalysisFrame:
     return case.session.observe(
         {"value": case.session.catalog.metrics.get("sales.revenue")},
-        during=case.session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=case.session.members(ms.ref.entity("sales.customer")),
+        by=mv.product(
+            case.session.time_scope(start="2026-08-01", end="2026-09-01"),
+            case.session.members(case.session.catalog.require(ms.ref.entity("sales.customer"))),
+        ),
     )
 
 
@@ -36,14 +39,14 @@ def test_numeric_string_category_persists_and_exports(
             f'UPDATE "{case.names.customer}" SET region = ? WHERE "{case.names.customer_id}" = ?',
             ["123", "A"],
         )
-    members = case.session.members(ms.ref.entity("sales.customer"))
+    members = case.session.members(case.session.catalog.require(ms.ref.entity("sales.customer")))
     category = case.session.read(
         members, {"value": case.session.catalog.fields.get("sales.customer.region")}
     )
     selected = category.where(category["value"] == "123")
     saved = selected.persist()
     frame = saved.to_pandas()
-    assert frame.iloc[:, 0].tolist() == ["A"]
+    assert frame[ordinary_columns(frame)[0]].tolist() == ["A"]
     assert frame[("value", "value")].tolist() == ["123"]
     restored = case.session.persisted_frame(saved.artifact.id)
     assert restored.to_pandas().equals(frame)
@@ -56,14 +59,13 @@ def test_public_multi_input_source_and_exported_pandas(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     revenue = session.catalog.metrics.get("sales.revenue")
     region = session.catalog.fields.get("sales.customer.region")
     buyer = session.catalog.relationships.get(f"sales.{case.names.buyer}")
     amount = session.observe(
         {"amount": revenue, "twice": revenue + revenue},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=members,
+        by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), members),
         where=region.via((buyer,)) == "east",
     )
     predicate = (amount["amount"] > 0) & (amount["amount"] < amount["twice"])
@@ -74,12 +76,12 @@ def test_public_multi_input_source_and_exported_pandas(
         if member is not None and str(occurred).startswith("2026-08"):
             totals[member] = totals.get(member, 0) + value
     expected = {member for member, total in totals.items() if total > 0 and member in east}
-    assert set(amount.where(predicate).compute().to_pandas().iloc[:, 0]) == expected
+    assert set(amount.where(predicate).compute().to_pandas().iloc[:, 1]) == expected
     frame = amount.compute().to_pandas()
     matched = frame.loc[
         (frame[("value", "amount")] > 0) & (frame[("value", "amount")] < frame[("value", "twice")])
     ]
-    assert set(matched.iloc[:, 0]) == expected
+    assert set(matched[ordinary_columns(matched)[0]]) == expected
 
 
 def test_nullable_selection_keeps_positive_values_and_offline_export(
@@ -110,7 +112,7 @@ def test_nullable_selection_keeps_positive_values_and_offline_export(
     assert frame[("value", "value")].isna().sum() == 1
     selected = values.where(~values["value"].is_null())
     positive = selected.where(selected["value"] > 0).persist()
-    assert positive.to_pandas().iloc[:, 0].tolist() == ["A", "B"]
+    assert positive.to_pandas().iloc[:, 1].tolist() == ["A", "B"]
     assert positive.to_pandas()[("value", "value")].tolist() == [60, 120]
     assert values.where(values["value"] > 0).compute().to_pandas().equals(positive.to_pandas())
     offline = case.database_path.with_suffix(".offline")
@@ -119,12 +121,13 @@ def test_nullable_selection_keeps_positive_values_and_offline_export(
 import sys
 import duckdb
 import marivo.analysis as mv
+from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 import marivo.semantic as ms
 def unavailable(*args, **kwargs):
     raise AssertionError("terminal selection cannot reopen sources or Semantic")
 duckdb.connect = unavailable
 ms.load = unavailable
-session = mv.session.resume(sys.argv[1], by="id")
+session = mv.session.resume(sys.argv[1])
 values, saved = [session.persisted_frame(ref) for ref in sys.argv[2:]]
 frame = values.to_pandas()
 selected = frame.loc[frame[("value", "value")] > 0].reset_index(drop=True)
@@ -170,11 +173,13 @@ def test_public_decimal_field_comparison(
         if member is not None and str(occurred).startswith("2026-08"):
             totals[member] = totals.get(member, 0) + amount
     matched = values.where(values["value"] == values["value"]).compute()
-    assert set(matched.to_pandas().iloc[:, 0]) == set(totals)
+    assert set(matched.to_pandas().iloc[:, 1]) == set(totals)
     threshold = Decimal("0.00")
     saved = values.where(values["value"] > threshold).persist()
     frame = saved.to_pandas()
-    assert set(frame.iloc[:, 0]) == {member for member, total in totals.items() if total > 0}
+    assert set(frame[ordinary_columns(frame)[0]]) == {
+        member for member, total in totals.items() if total > 0
+    }
     assert all(isinstance(value, Decimal) for value in frame[("value", "value")])
     restored = case.session.persisted_frame(saved.artifact.id)
     assert restored.to_pandas().equals(frame)
@@ -210,7 +215,7 @@ def test_public_duration_field_comparison(
     }
     result = values.where(values["value"] == values["value"]).persist()
     frame = result.to_pandas()
-    assert set(frame.iloc[:, 0]) == expected
+    assert set(frame[ordinary_columns(frame)[0]]) == expected
     import pandas as pd
 
     dtype = frame[("value", "value")].dtype
@@ -245,14 +250,14 @@ def test_foreign_predicate_inputs_reject_before_execution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
+    members = case.session.members(case.session.catalog.require(ms.ref.entity("sales.customer")))
     values = case.session.read(
         members, {"value": case.session.catalog.fields.get("sales.customer.region")}
     )
     fixed = values.compute()
-    other_session = mv.session.get_or_create("foreign-r63", report_timezone="UTC")
+    other_session = mv.session.create("foreign-r63", timezone="UTC")
     other = other_session.read(
-        other_session.members(ms.ref.entity("sales.customer")),
+        other_session.members(other_session.catalog.require(ms.ref.entity("sales.customer"))),
         {"value": other_session.catalog.fields.get("sales.customer.region")},
     )
 
@@ -269,7 +274,9 @@ def test_foreign_predicate_inputs_reject_before_execution(
     with pytest.raises(AnalysisError):
         case.session.observe({"bad": fixed})  # type: ignore[dict-item]  # Fixed data is not a source Metric.
     with pytest.raises(AnalysisError, match="a Population from this Store and Session"):
-        case.session.frame(other_session.members(ms.ref.entity("sales.customer")))
+        case.session.frame(
+            other_session.members(other_session.catalog.require(ms.ref.entity("sales.customer")))
+        )
 
 
 def test_closed_policy_and_predicate_inputs(analysis_dsl_case_factory: DslCaseFactory) -> None:

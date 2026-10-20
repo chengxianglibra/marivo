@@ -88,7 +88,7 @@ def test_named_metrics_capture_without_catalog_schema_rows_or_run(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("capture", report_timezone="UTC")
+    session = mv.session.create("capture", timezone="UTC")
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("construction tried to open semantic sources")
@@ -126,8 +126,8 @@ def test_definition_ownership_is_checked_without_source_reads(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("receiver")
-    foreign = mv.session.get_or_create("other")
+    session = mv.session.create("receiver")
+    foreign = mv.session.create("other")
     import marivo.semantic as ms
     from marivo._definition.relations import SourceIdentities
     from marivo._definition.types import AxisBinding, ExactRef
@@ -182,7 +182,7 @@ def test_catalog_metrics_capture_the_r1_definition_closure(
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("catalog-capture")
+    session = mv.session.create("catalog-capture")
     revenue = session.catalog.metrics.get("sales.revenue")
     double = session.catalog.metrics.get("sales.double_revenue")
     outputs = {
@@ -215,7 +215,7 @@ def test_observe_does_not_resolve_ids_or_other_values(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bad: object
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("reject-input")
+    session = mv.session.create("reject-input")
     with pytest.raises(CoreRuleError, match="Metric expression"):
         session.observe({"bad": bad})  # type: ignore[dict-item]  # Deliberately invalid Metric input.
     assert session.runs().items == ()
@@ -248,7 +248,7 @@ def test_terminal_artifact_has_only_identity_and_reader(
     with pytest.raises(TypeError):
         Artifact()
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("reject-artifact")
+    session = mv.session.create("reject-artifact")
     with pytest.raises(CoreRuleError, match="Metric expression"):
         session.observe({"bad": artifact})  # type: ignore[dict-item]  # Audit output cannot be a Metric.
     with pytest.raises(CoreRuleError, match="Metric expression"):
@@ -272,7 +272,6 @@ def test_publication_tables_and_committed_data_have_distinct_contracts() -> None
     assert not hasattr(manifest.data, "findings")
     forbidden = {
         "signature",
-        "graph",
         "query",
         "definition",
         "components",
@@ -316,11 +315,11 @@ def test_session_reopen_remains_same_generation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    first = mv.session.get_or_create("same-generation", report_timezone="UTC")
-    resumed = mv.session.resume(first.id, by="id")
-    named = mv.session.get_or_create("same-generation")
+    first = mv.session.create("same-generation", timezone="UTC")
+    resumed = mv.session.resume(first.id)
+    named = mv.session.resume(first.id)
     assert resumed.id == named.id == first.id
-    assert MaterializationLayout(tmp_path).generation == 12
+    assert MaterializationLayout(tmp_path).generation == 13
     assert resumed.runs().items == ()
 
 
@@ -328,7 +327,7 @@ def test_old_graph_metadata_is_rejected_without_decoding_or_mutation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("old-output")
+    session = mv.session.create("old-output")
     with session._runtime.store._write() as connection:
         connection.execute(
             "INSERT INTO dataset_artifacts VALUES (?,?,?,?,?)",
@@ -377,7 +376,7 @@ def test_zero_axis_values_reject_malformed_mapping_before_catalog_or_source(
     from marivo.datasource.adapters import SourceSession
 
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("invalid-columns")
+    session = mv.session.create("invalid-columns")
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("malformed mapping attempted source configuration or I/O")
@@ -393,7 +392,7 @@ def test_zero_axis_values_reject_malformed_mapping_before_catalog_or_source(
     assert "literal row" in error.repair.action
     assert error.run_ref is None
     assert session._catalog_value is None and session._sources_value is None
-    assert session.runs().items == () and session.graph().artifacts == ()
+    assert session.runs().items == ()
     assert session._runtime.store.resources(session.id) == ()
 
 

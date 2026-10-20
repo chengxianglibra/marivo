@@ -6,9 +6,16 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
-from marivo._definition.expressions import DeclaredMetricRef, MetricNode, MetricWindow
+from marivo._definition.expressions import (
+    DeclaredMetricRef,
+    EntityCount,
+    MetricNode,
+    MetricWindow,
+    SourceAggregate,
+    SourceWeightedMean,
+)
 from marivo._definition.graph import DefinitionNode, children
-from marivo._definition.types import ExactRef
+from marivo._definition.types import CalendarCoordinate, ExactRef
 from marivo._definition.windows import (
     AllHistory,
     ObservationWindow,
@@ -29,7 +36,6 @@ from marivo.analysis.core.model import reject
 
 if TYPE_CHECKING:
     from marivo.analysis.binding.observe import ContributionBinding, ObservationPeriod
-    from marivo.analysis.dsl.temporal import CalendarAxis
 
 
 def _previous(value: datetime, grain: Grain) -> datetime:
@@ -101,7 +107,7 @@ def bind_windows(
     metrics: tuple[tuple[str, MetricNode], ...],
     declared: dict[ExactRef, MetricNode],
     period: ObservationPeriod | None,
-    calendar: CalendarAxis | None,
+    calendar: CalendarCoordinate | None,
     calendar_snapshots: tuple[PeriodCalendarSnapshotV1, ...] = (),
 ) -> tuple[ContributionBinding, ...]:
     """Expand each window usage into independent source reads per output endpoint."""
@@ -109,11 +115,25 @@ def bind_windows(
 
     rules: dict[tuple[int, ...], ObservationWindow] = {}
 
+    def has_fact(node: DefinitionNode) -> bool:
+        if isinstance(node, DeclaredMetricRef):
+            return has_fact(declared[node.ref])
+        return isinstance(node, (SourceAggregate, SourceWeightedMean, EntityCount)) or any(
+            has_fact(edge.child) for edge in children(node)
+        )
+
     def visit(node: DefinitionNode, path: tuple[int, ...], rule: ObservationWindow | None) -> None:
         if isinstance(node, DeclaredMetricRef):
             visit(declared[node.ref], (*path, 0), rule)
             return
         if isinstance(node, MetricWindow):
+            if not has_fact(node.operand):
+                reject(
+                    "fact contributions for a window",
+                    "a count-only or source-free formula",
+                    "Apply windows to fact Metrics; identity counts retain their captured domain.",
+                    "Metric.window",
+                )
             if rule is not None:
                 reject(
                     "one window per dependency path",
@@ -152,13 +172,13 @@ def bind_windows(
                     )
                 if (
                     calendar is not None
-                    and calendar.grid.calendar_snapshot is not None
-                    and calendar.grid.calendar_snapshot.calendar_ref == snapshot.calendar_ref
-                    and calendar.grid.snapshot_digest != snapshot.snapshot_digest
+                    and calendar.snapshot is not None
+                    and calendar.snapshot.calendar_ref == snapshot.calendar_ref
+                    and calendar.snapshot_digest != snapshot.snapshot_digest
                 ):
                     reject(
                         "one certified snapshot for the output and reset calendar",
-                        repr((calendar.grid.snapshot_digest, snapshot.snapshot_digest)),
+                        repr((calendar.snapshot_digest, snapshot.snapshot_digest)),
                         "Build the output axis and Metric in the same completed Session scope.",
                         "Metric.window",
                     )
@@ -175,15 +195,6 @@ def bind_windows(
         visit(node, (index,), None)
     if not rules:
         return contributions
-    if calendar is None and any(
-        item.occurrence in rules and item.calendars for item in contributions
-    ):
-        reject(
-            "an explicit during CalendarAxis for window endpoint binding",
-            "a CalendarAxis captured only in a Population",
-            "Bind the window output with during=scope.by(grain); Population calendar samples do not supply window endpoints.",
-            "Metric.window",
-        )
     if period is None:
         reject(
             "an explicit window endpoint",
@@ -197,7 +208,16 @@ def bind_windows(
         if rule is None:
             result.append(contribution)
             continue
-        cells = calendar.grid.cells if calendar is not None else ()
+        from marivo._temporal_grid import TimeCell
+
+        cells = (
+            tuple(
+                TimeCell(str(index), *cell, cell[0] != cell[2] or cell[1] != cell[3])
+                for index, cell in enumerate(calendar.cells)
+            )
+            if calendar is not None
+            else ()
+        )
         endpoints = tuple(c.end for c in cells) if cells else (period.end,)
         for index, end in enumerate(endpoints):
             start: datetime | None
@@ -231,14 +251,14 @@ def bind_windows(
                         "Observe a complete CalendarAxis.",
                         "Metric.window",
                     )
-                grid = calendar.grid
-                if grid.calendar_snapshot is not None:
+                grid = calendar
+                if grid.snapshot is not None:
                     captured = grid.grain_spec
                     assert captured.calendar is not None and captured.level is not None
                     grain = semantic_grain(
                         calendar=captured.calendar,
                         level=captured.level,
-                        snapshot=grid.calendar_snapshot,
+                        snapshot=grid.snapshot,
                     )
                     periods = _periods(grain, period.timezone)
                     position = next(
@@ -262,7 +282,7 @@ def bind_windows(
                     if grain.unit not in ("day", "week", "month", "quarter", "year"):
                         reject(
                             "day/week/month/quarter/year periods",
-                            grid.grain_token,
+                            grid.grain,
                             "Use trailing_duration for elapsed subday windows.",
                             "Metric.window",
                         )
@@ -284,7 +304,7 @@ def bind_windows(
                     contribution,
                     occurrence=(*contribution.occurrence, index),
                     logical_occurrence=contribution.occurrence,
-                    window_key=index if calendar is not None else None,
+                    window_key=index if contribution.calendars else None,
                     window_calendar_digest=(
                         rule.grain._snapshot.snapshot_digest
                         if isinstance(rule, ToDate) and rule.grain._snapshot is not None

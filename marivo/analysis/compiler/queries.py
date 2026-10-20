@@ -172,14 +172,20 @@ def key_groups(
         return ()
     observation = graph.signature.observation
     if observation is not None and observation.contributions:
-        from marivo._definition.types import CalendarCoordinate, coordinate_read_keys
+        from marivo._definition.types import (
+            CalendarCoordinate,
+            IntervalCoordinate,
+            coordinate_read_keys,
+        )
 
         contribution = observation.contributions[0]
         widths = iter(len(coordinate_read_keys(read)) for read in contribution.coordinates)
         result = []
         offset = 0
         for axis in axes:
-            width = 1 if isinstance(axis, CalendarCoordinate) else next(widths)
+            width = (
+                1 if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)) else next(widths)
+            )
             result.append(keys[offset : offset + width])
             offset += width
         return tuple(result)

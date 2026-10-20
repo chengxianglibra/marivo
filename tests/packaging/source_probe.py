@@ -207,10 +207,8 @@ ORIGINAL_VALUES = {
 
 
 def observed_rows(session: mv.Session, name: str) -> mv.AnalysisFrame:
-    members = session.members(ms.ref.entity("sales.customers"))
-    return session.observe(
-        {"value": session.catalog.metrics.get("sales." + name)}, by=members, members=members
-    )
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customers")))
+    return session.observe({"value": session.catalog.metrics.get("sales." + name)}, by=members)
 
 
 def _integer(value: object) -> int:
@@ -393,7 +391,7 @@ def produce(project: Path) -> dict[str, object]:
     """Evaluate admitted native numerics without publication, then save complete data once."""
     ms.load()
     rows, totals = _raw(project)
-    session = mv.session.get_or_create("installed", report_timezone="UTC")
+    session = mv.session.create("installed", timezone="UTC")
     before_runs = len(session.runs().items)
     before = publication_counts(session)
     assert before_runs == 0 and _artifact_count(session) == 0
@@ -473,7 +471,7 @@ def cold(project: Path) -> dict[str, object]:
         ):
             patch.setattr(owner, name, forbidden)
         patch.setattr(mv.Session, "catalog", property(forbidden))
-        session = mv.session.resume(identity, by="id")
+        session = mv.session.resume(identity)
         before_runs = len(session.runs().items)
         before = publication_counts(session)
         assert before_runs == state["run_count"] and before == state["publication_counts"]

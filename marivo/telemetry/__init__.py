@@ -405,7 +405,7 @@ def _session_attributes(arguments: Mapping[str, object]) -> dict[str, TelemetryV
 def _session_creation_attributes(
     root: Path, capability_id: str, arguments: Mapping[str, object]
 ) -> dict[str, TelemetryValue]:
-    if capability_id != "session.get_or_create":
+    if capability_id != "session.create":
         return {}
     attrs: dict[str, TelemetryValue] = {}
     requested = arguments.get("question")
@@ -414,7 +414,7 @@ def _session_creation_attributes(
     name = arguments.get("name")
     if not isinstance(name, str):
         return attrs
-    db_path = root / STATE_DIR / "analysis" / "generations" / "v12" / "session_store.db"
+    db_path = root / STATE_DIR / "analysis" / "generations" / "v13" / "session_store.db"
     if not db_path.is_file():
         attrs["marivo.session.created"] = True
         return attrs
@@ -531,13 +531,10 @@ def _input_attributes(
     for name, value in arguments.items():
         if name in {"analysis_purpose", "question", "reason"}:
             continue
-        if (
-            capability_id == "session.resume"
-            and name == "by"
-            and isinstance(value, str)
-            and value in {"name", "id"}
-        ):
-            attrs["marivo.input.by"] = value
+        if capability_id in {"session.resume", "session.inspect"} and name == "session_id":
+            attrs["marivo.input.session_id.type"] = type(value).__name__
+            if isinstance(value, str):
+                attrs["marivo.input.session_id.length"] = len(value)
             continue
         attrs.update(_parameter_attributes(name, value))
     attrs.update(_session_attributes(arguments))
@@ -551,7 +548,7 @@ def _operation_origin(
 ) -> Literal["explicit", "delegated", "internal_load"]:
     if not stack:
         return "explicit"
-    session_recovery_capabilities = {"session.get_or_create", "session.resume"}
+    session_recovery_capabilities = {"session.create", "session.resume"}
     loaded_by_session = surface in {"datasource", "semantic"} and any(
         active.surface == "analysis" and active.capability_id in session_recovery_capabilities
         for active in stack
@@ -688,9 +685,9 @@ def _capture_policy(
         if capability_kind == "operator" or capability_id == "boundary.to_pandas":
             return "long"
         if capability_id in {
-            "session.get_or_create",
+            "session.create",
             "session.resume",
-            "session.abandon_run",
+            "session.reconcile_run",
             "session.delete",
         }:
             return "short"
@@ -811,7 +808,7 @@ class _Operation:
         suppress_descendants = suppress_internal_load_success or (
             self.capability_id == "session.resume"
             or (
-                self.capability_id == "session.get_or_create"
+                self.capability_id == "session.create"
                 and self.attributes.get("marivo.session.created") is False
             )
         )
@@ -960,7 +957,7 @@ def tracked_capability(
                     (active.surface == "semantic" and active.capability_id == "load")
                     or (
                         active.surface == "analysis"
-                        and active.capability_id in {"session.get_or_create", "session.resume"}
+                        and active.capability_id in {"session.create", "session.resume"}
                     )
                     for active in _ACTIVE_OPERATIONS.get()
                 )
@@ -972,7 +969,7 @@ def tracked_capability(
                 cast("dict[str, object]", kwargs),
             )
             root = _project_root(arguments)
-            if surface == "analysis" and capability_id == "session.get_or_create":
+            if surface == "analysis" and capability_id == "session.create":
                 try:
                     load_project_config(root)
                 except (OSError, ValueError):
@@ -994,7 +991,7 @@ def tracked_capability(
                 mode=mode,
                 question_requested=(
                     arguments.get("question") is not None
-                    if capability_id == "session.get_or_create"
+                    if capability_id == "session.create"
                     else None
                 ),
                 defer_start_write=surface == "cli" and capability_id == "init",

@@ -18,10 +18,10 @@ def test_three_quantity_search_and_forecast_views(
         case, "KS", "parquet", "us", "UTC", False, followup=True, profile_indices=(0, 1, 5)
     )
     ms.load(workspace_dir=case.root)
-    session = mv.session.get_or_create("statistics", report_timezone="UTC")
+    session = mv.session.create("statistics", timezone="UTC")
     grid = session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
     artifact = session.observe(
-        {str(i): session.catalog.metrics.get(f"sales.total_{i}") for i in (0, 1, 5)}, during=grid
+        {str(i): session.catalog.metrics.get(f"sales.total_{i}") for i in (0, 1, 5)}, by=(grid,)
     ).persist()
     frame = plain(artifact)
     assert frame["0"].tolist() == [1, 2, 7]
@@ -59,8 +59,9 @@ def test_large_export_does_not_truncate_pandas_forecast_rows(
     grid = session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
     artifact = session.observe(
         {"value": session.catalog.metrics.get("sales.order_count")},
-        during=grid,
-        by=session.members(ms.ref.entity("sales.customer")),
+        by=mv.product(
+            grid, session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+        ),
     ).persist()
     frame = plain(artifact)
     assert len(frame) == 3003

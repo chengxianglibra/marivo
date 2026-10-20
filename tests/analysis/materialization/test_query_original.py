@@ -68,7 +68,7 @@ snapshot_amount=ms.measure_column(name='amount',entity=snapshots,column='amount'
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.get_or_create("original-source", report_timezone="UTC")
+    return mv.session.create("original-source", timezone="UTC")
 
 
 def test_raw_mean_and_weighted_pairs_finish_after_regrouping(
@@ -168,19 +168,22 @@ def test_member_count_uses_complete_identities_and_selected_fine_keys(
     session = original_source_session
     amount = session.catalog.fields.get("sales.orders.amount")
     region = session.catalog.fields.get("sales.orders.region")
-    members = session.members(ms.ref.entity("sales.orders"))
-    fine = session.observe({"members": mv.member_count()}, by=(region,), members=members)
+    members = session.members(session.catalog.require(ms.ref.entity("sales.orders")))
+    fine = session.observe({"members": members.count()}, by=(region,))
     fixed = fine.where(fine.coord(fine.axes[0]) == "East").compute()
     keys = session.population_from(fixed, on=((fixed.axes[0], region),))
-    control = session.observe(
-        {"members": mv.member_count()}, members=members, where=mv.in_population(keys)
-    ).compute()
+    with pytest.raises(AnalysisError, match="condition"):
+        session.observe({"members": members.count()}, where=mv.in_population(keys))
+    control = session.observe({"members": members.count()}).compute()
     assert control.to_pandas()[("value", "members")].tolist() == [3]
-    selected_members = session.members(ms.ref.entity("sales.orders"), where=mv.in_population(keys))
-    result = session.observe({"members": mv.member_count()}, members=selected_members).compute()
+    selected_members = session.members(
+        session.catalog.require(ms.ref.entity("sales.orders")), where=mv.in_population(keys)
+    )
+    result = session.observe({"members": selected_members.count()}).compute()
     assert result.to_pandas()[("value", "members")].tolist() == [2]
     overall = session.observe(
-        {"members": mv.member_count(), "ratio": amount.sum() / mv.member_count()}, members=members
+        {"members": members.count(), "ratio": amount.sum() / members.count()},
+        where=mv.in_population(members),
     ).compute()
     assert overall.to_pandas()[("value", "members")].tolist() == [3]
     assert overall.to_pandas()[("value", "ratio")].tolist() == pytest.approx([340 / 3])
@@ -192,10 +195,10 @@ def test_member_count_drill_reuses_selected_complete_member_identities(
     session = original_source_session
     region = session.catalog.fields.get("sales.orders.region")
     channel = session.catalog.fields.get("sales.orders.channel")
-    members = session.members(ms.ref.entity("sales.orders"), where=region == "East")
-    result = session.observe(
-        {"members": mv.member_count()}, by=(region, channel), members=members
-    ).compute()
+    members = session.members(
+        session.catalog.require(ms.ref.entity("sales.orders")), where=region == "East"
+    )
+    result = session.observe({"members": members.count()}, by=(region, channel)).compute()
     assert result.to_pandas()[("value", "members")].tolist() == [1, 1]
     assert len(result.to_pandas()) == 2
 
@@ -207,8 +210,12 @@ def test_version_coordinate_is_part_of_the_complete_contribution_identity(
     amount = session.catalog.fields.get("sales.snapshots.amount")
     first = session.instant("2026-01-01T12:00:00+00:00")
     second = session.instant("2026-01-02T12:00:00+00:00")
-    first_members = session.members(ms.ref.entity("sales.snapshots"), at=first)
-    second_members = session.members(ms.ref.entity("sales.snapshots"), at=second)
+    first_members = session.members(
+        session.catalog.require(ms.ref.entity("sales.snapshots")), at=first
+    )
+    second_members = session.members(
+        session.catalog.require(ms.ref.entity("sales.snapshots")), at=second
+    )
     one = session.read(first_members, {"amount": amount.at(first)}).compute().to_pandas()
     two = session.read(second_members, {"amount": amount.at(second)}).compute().to_pandas()
     assert one[("value", "amount")].tolist() == [10, 300]
@@ -224,7 +231,7 @@ def test_window_space_rollup_preserves_both_original_endpoints(
     day = session.catalog.fields.get("sales.orders.day")
     calendar = session.time_scope(start="2026-01-01", end="2026-01-03").by(mv.grain("day"))
     metric = amount.sum(time=day).window(mv.all_history())
-    result = session.observe({"window": metric}, during=calendar).compute().to_pandas()
+    result = session.observe({"window": metric}, by=(calendar,)).compute().to_pandas()
     assert result[("value", "window")].tolist() == [310, 340]
 
 
@@ -272,11 +279,15 @@ def test_drill_attribute_template_keeps_versions_and_selected_fiber_checks(
     region = session.catalog.fields.get("sales.orders.region")
     channel = session.catalog.fields.get("sales.orders.channel")
     segment = session.catalog.fields.get("sales.profiles.segment")
-    east = session.members(ms.ref.entity("sales.orders"), where=region == "East")
+    east = session.members(
+        session.catalog.require(ms.ref.entity("sales.orders")), where=region == "East"
+    )
     rows = session.read(east, {"channel": channel, "segment": segment}).compute().to_pandas()
     assert rows[("value", "channel")].tolist() == ["Web", "Store"]
     assert rows[("value", "segment")].tolist() == ["Good", "Good"]
-    west = session.members(ms.ref.entity("sales.orders"), where=region == "West")
+    west = session.members(
+        session.catalog.require(ms.ref.entity("sales.orders")), where=region == "West"
+    )
     with pytest.raises(AnalysisError, match="exactly one matching scalar field row"):
         session.read(west, {"segment": segment}).compute()
 

@@ -3,7 +3,7 @@ title: Evidence and recovery
 description: Read exact fixed data and audit without current sources.
 ---
 
-Store 12 saves Frame data under `.marivo/analysis/generations/v12/`. One
+Store 13 saves Frame data under `.marivo/analysis/generations/v13/`. One
 SQLite publication transaction commits manifest, receipts, Findings, Evidence
 and Run success after durable data. Compute creates no Run; persist evaluates
 before admission, then publishes an existing result ID. Memory persist never
@@ -39,7 +39,7 @@ Opening/repr, show(n=0), Artifact.show/findings/evidence_digest consume metadata
 or audit, not data payload. Positive show decodes the ordered prefix and selected
 frozen coordinate records; receipt hashing/decompression may read more bytes.
 Preview success does not certify unread data. Full compute/to_pandas validates
-required values/keys/presence and calendar/map attachments, without Catalog,
+required values/keys/presence and interval/calendar/map attachments, without Catalog,
 source schema, connection, model or timezone-rule reconstruction.
 
 Export returns isolated RangeIndex data with raw-key `(kind, name)` MultiIndex
@@ -51,8 +51,7 @@ new source facts require explicit construction.
 
 ## Keep publication and data history distinct
 
-SessionGraph has same-Session Run-to-Artifact publishing edges. Roots/heads do not
-choose a latest answer or promise complete data lineage. Current evaluation
+Use runs/get_run and output references for publication history. Session has no graph or roots/heads interface. Current evaluation
 records direct stored inputs actually consumed; carrier copying adds no fake
 read or lineage edge. Reconciliation resolves the original transaction rather
 than evaluating again. A full memory result stays independent after old files
@@ -60,9 +59,9 @@ are removed; reading the old stored handle still fails if its data is gone.
 
 ## Older data and evidence limits
 
-Store 12 refuses older-generation Session/result/Findings/Evidence access without
+Store 13 refuses older-generation Session/result/Findings/Evidence access without
 changing bytes or migrating/dual-reading. Absent-current discovery may return
-None/empty without exposing old data; create/get_or_create cannot initialize a
+None/empty without exposing old data; create cannot initialize a
 bypass around an old-only project. Export with the original version before
 switching, or retain a compatible reading environment. See
 [troubleshooting](/docs/latest/reference/troubleshooting/).

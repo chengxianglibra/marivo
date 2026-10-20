@@ -68,7 +68,7 @@ def shared_session(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        yield mv.session.get_or_create("shared-boundaries", report_timezone="UTC")
+        yield mv.session.create("shared-boundaries", timezone="UTC")
 
 
 def _plans(monkeypatch: pytest.MonkeyPatch) -> list[QueryPlan]:
@@ -124,7 +124,9 @@ def test_shared_predicate_keeps_plain_and_per_grids_independent(
     session = shared_session
     amount = session.catalog.fields.get("sales.facts.amount")
     category = session.catalog.fields.get("sales.facts.category")
-    attributes = session.read(session.members(ms.ref.entity("sales.facts")), {"amount": amount})
+    attributes = session.read(
+        session.members(session.catalog.require(ms.ref.entity("sales.facts"))), {"amount": amount}
+    )
     chosen = attributes.where(attributes["amount"] >= 10)
     keys = session.population_from(
         chosen, on=((chosen.axes[0], session.catalog.entities.get("sales.facts")),)
@@ -204,7 +206,7 @@ def test_shared_selected_host_domain_stays_fixed_when_source_ranking_changes(
         }
     )
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("shared-fixed-selection", report_timezone="UTC")
+    session = mv.session.create("shared-fixed-selection", timezone="UTC")
     amount = session.catalog.fields.get("sales.facts.amount")
     category = session.catalog.fields.get("sales.facts.category")
     producer = session.observe({"n": amount.sum()}, by=(category,))
@@ -276,7 +278,7 @@ def test_shared_population_does_not_merge_distinct_window_occurrences(
                 "history": total.window(mv.all_history()),
                 "recent": total.window(mv.trailing_duration(duration=timedelta(days=2))),
             },
-            during=calendar,
+            by=(calendar,),
         )
         trace = capture_source(monkeypatch)
         rows = query.compute().to_pandas()

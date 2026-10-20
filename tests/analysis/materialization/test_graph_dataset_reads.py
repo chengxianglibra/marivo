@@ -40,21 +40,22 @@ _Kind = Literal["numeric", "comparison", "calendar", "top", "empty_top"]
 
 def _capture(case: DslCase, kind: _Kind) -> mv.AnalysisFrame:
     session = case.session
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     metric = session.catalog.metrics.get("sales.revenue")
     scope = session.time_scope(start="2026-08-01", end="2026-09-01")
-    query = session.observe({"value": metric}, during=scope, by=members)
+    query = session.observe({"value": metric}, by=mv.product(scope, members))
     if kind == "comparison":
         baseline = session.observe(
             {"value": metric},
-            during=session.time_scope(start="2026-07-01", end="2026-08-01"),
-            by=members,
+            by=mv.product(session.time_scope(start="2026-07-01", end="2026-08-01"), members),
         )
-        query = query.compare(baseline, on=tuple(zip(query.axes, baseline.axes, strict=True)))
+        query = query.compare(
+            baseline, on=tuple(zip(query.axes, baseline.axes, strict=True)), match=mv.ordinal()
+        )
     elif kind == "calendar":
         query = session.observe(
             {"value": metric},
-            during=session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day")),
+            by=(session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day")),),
         )
     elif kind in ("top", "empty_top"):
         query = query.top(0 if kind == "empty_top" else 2, by=query["value"])
@@ -107,7 +108,7 @@ def test_projection_reads_each_receipt_once_per_call(
                 artifact.to_pandas()
         finally:
             path.write_bytes(original_bytes)
-    foreign = mv.session.get_or_create("foreign-reader", report_timezone="UTC")
+    foreign = mv.session.create("foreign-reader", timezone="UTC")
     opened.clear()
     with pytest.raises(AnalysisError):
         foreign.persisted_frame(artifact.artifact.id)
@@ -225,7 +226,7 @@ def forbidden(*args, **kwargs):
 ms.load = forbidden
 SourceSession.__enter__ = forbidden
 SourceSession.execute = forbidden
-session = mv.session.resume(sys.argv[1],by='id')
+session = mv.session.resume(sys.argv[1])
 artifact = session.persisted_frame(sys.argv[2])
 reads = []
 original = OutputRead._open

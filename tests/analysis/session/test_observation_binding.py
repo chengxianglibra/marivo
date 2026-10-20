@@ -151,7 +151,7 @@ def bound_catalog(
             load=False,
         )
         monkeypatch.chdir(tmp_path)
-        return mv.session.get_or_create("binding", report_timezone="Asia/Shanghai")
+        return mv.session.create("binding", timezone="Asia/Shanghai")
 
     return build
 
@@ -189,8 +189,7 @@ def test_each_fact_occurrence_keeps_its_condition_and_complete_classification(
     scope = session.time_scope(start="2026-01-01", end="2026-02-01")
     query = session.observe(
         {"net": revenue - refunds, "branches": branches},
-        during=scope.by(mv.grain("day")),
-        by=(region,),
+        by=(scope.by(mv.grain("day")), region),
         where=region == "APAC",
     )
     binding = _captured_observation(query)
@@ -255,10 +254,7 @@ def test_explicit_field_routes_and_during_none_are_frozen(
         {"revenue": catalog.metrics.get("sales.revenue")}, by=(routed,), where=routed == "APAC"
     )
     explicit_none = session.observe(
-        {"revenue": catalog.metrics.get("sales.revenue")},
-        during=None,
-        by=(routed,),
-        where=routed == "APAC",
+        {"revenue": catalog.metrics.get("sales.revenue")}, by=(routed,), where=routed == "APAC"
     )
     binding = _captured_observation(query)
     assert binding is not None and binding.period is None
@@ -290,7 +286,7 @@ def test_time_sample_requirement_is_checked_inside_formula_and_declared_closure(
     with pytest.raises(CoreRuleError, match="explicit observation period"):
         session.observe({"zero": nested}, where=field.within(scope))
     assert (
-        _captured_graph(session.observe({"sample": nested}, during=scope)).signature.observation
+        _captured_graph(session.observe({"sample": nested}, by=(scope,))).signature.observation
         is not None
     )
 
@@ -305,11 +301,11 @@ def test_time_role_is_optional_but_explicit_cross_entity_time_keeps_its_path(
     assert _captured_observation(query).contributions[0].time is None
     scope = session.time_scope(start="2026-01-01", end="2026-02-01")
     with pytest.raises(CoreRuleError, match="business time role"):
-        session.observe({"count": customers.count()}, during=scope)
+        session.observe({"count": customers.count()}, by=(scope,))
     time = catalog.fields.get("sales.customers.created_at")
     buyer = catalog.relationships.get("sales.buyer")
     amount = catalog.fields.get("sales.orders.amount")
-    query = session.observe({"revenue": amount.sum(time=time.via((buyer,)))}, during=scope)
+    query = session.observe({"revenue": amount.sum(time=time.via((buyer,)))}, by=(scope,))
     contribution = _captured_observation(query).contributions[0]
     assert contribution.time is not None
     assert contribution.time.field == consume_field(time).reference
@@ -346,7 +342,7 @@ def test_exact_boundaries_calendar_and_host_independence(
     from marivo._temporal import _time_scope_from_contract_data, _validate_time_scope_data
 
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("clock", report_timezone="America/New_York")
+    session = mv.session.create("clock", timezone="America/New_York")
     scope = session.time_scope(start="2026-03-07T12:00:00", end="2026-03-10T12:00:00")
     assert isinstance(scope.start, InstantAnchor) and isinstance(scope.end, InstantAnchor)
     assert scope.start == datetime(2026, 3, 7, 17, tzinfo=timezone.utc)
@@ -434,7 +430,7 @@ def test_certified_calendar_uses_frozen_snapshot_and_checks_coverage(
     from marivo.refs import ref
 
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("fiscal", report_timezone="UTC")
+    session = mv.session.create("fiscal", timezone="UTC")
     rows = tuple(
         {"date": date(2026, 1, day), "week": "W1" if day < 3 else "W2"} for day in range(1, 5)
     )
@@ -503,7 +499,7 @@ def filtered():
         raise AssertionError("binding opened a datasource")
 
     monkeypatch.setattr(backends, "_build_backend_from_effective", forbidden)
-    session = mv.session.get_or_create("inline-via", report_timezone="UTC")
+    session = mv.session.create("inline-via", timezone="UTC")
     catalog = session.catalog
     metric = catalog.metrics.get("sales.filtered")
     query = session.observe({"filtered": metric})
@@ -517,3 +513,38 @@ def filtered():
     with pytest.raises(SemanticError, match="native field"):
         consume_metric(routed.count())
     assert session.runs().items == ()
+
+
+def test_explicit_count_capture_keeps_each_domain_without_reading(
+    bound_catalog: BoundCatalogFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo._definition.expressions import MemberCount
+    from marivo._definition.graph import walk
+    from marivo.datasource.adapters import SourceSession
+
+    session = bound_catalog()
+    entity = session.catalog.entities.get("sales.orders")
+    amount = session.catalog.fields.get("sales.orders.amount")
+    p = mv.identities(entity, keys=((1,), (3,), (999,)))
+    q = mv.identities(entity, keys=((2,),))
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("count capture read a datasource")
+
+    monkeypatch.setattr(SourceSession, "__enter__", forbidden)
+    scope = session.time_scope(start="2026-01-01", end="2026-02-01")
+    frame = session.observe(
+        {"p": p.count(), "q": q.count(), "ratio": amount.sum() / p.count()}, by=(scope,)
+    )
+    graph = _captured_graph(frame)
+    counts = tuple(
+        node
+        for node in walk((graph.root,), resolve=dict(graph.signature.declared_metrics).get).order
+        if isinstance(node, MemberCount)
+    )
+    assert {node.population for node in counts} == {p._definition, q._definition}
+    assert len(_captured_observation(frame).count_populations) == 2
+    assert frame.axes[0].role == "interval"
+    assert session.runs().items == ()
+    with pytest.raises(AnalysisError, match="at most one output time axis"):
+        session.observe({"p": p.count()}, by=(scope, scope.by(mv.grain("day"))))

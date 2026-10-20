@@ -58,7 +58,7 @@ def revenue():
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.get_or_create("windows", report_timezone="UTC")
+    return mv.session.create("windows", timezone="UTC")
 
 
 def test_window_recomputes_history_ratio_and_distinct(window_session: Session) -> None:
@@ -74,7 +74,7 @@ def test_window_recomputes_history_ratio_and_distinct(window_session: Session) -
                 "aov": (revenue / amount.count()).window(mv.all_history()),
                 "customers": customer.count_distinct().window(mv.all_history()),
             },
-            during=scope.by(mv.grain("day")),
+            by=(scope.by(mv.grain("day")),),
         )
         .compute()
         .to_pandas()
@@ -91,7 +91,7 @@ def test_scalar_to_date_uses_endpoint_not_display_start(window_session: Session)
     for start in ("2026-09-01", "2026-10-01"):
         result = (
             session.observe(
-                {"mtd": metric}, during=session.time_scope(start=start, end="2026-10-08")
+                {"mtd": metric}, by=(session.time_scope(start=start, end="2026-10-08"),)
             )
             .compute()
             .to_pandas()
@@ -167,7 +167,9 @@ def test_source_population_calendar_product(window_session: Session) -> None:
     session = window_session
     revenue = session.catalog.metrics.get("sales.revenue")
     customer = session.catalog.fields.get("sales.orders.customer")
-    customers = session.members(ms.ref.entity("sales.orders")).classify(by=(customer,))
+    customers = session.members(session.catalog.require(ms.ref.entity("sales.orders"))).classify(
+        by=(customer,)
+    )
     calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))
     samples = mv.product(customers, calendar)
     result = session.observe({"revenue": revenue}, by=samples).compute().to_pandas()
@@ -176,15 +178,117 @@ def test_source_population_calendar_product(window_session: Session) -> None:
     assert average[("value", "mean")].tolist() == [20.0]
 
 
-def test_population_calendar_does_not_guess_window_endpoints(window_session: Session) -> None:
-    from marivo.analysis.core.model import CoreRuleError
-
+def test_population_calendar_supplies_explicit_window_endpoints(window_session: Session) -> None:
     session = window_session
     revenue = session.catalog.metrics.get("sales.revenue")
     customer = session.catalog.fields.get("sales.orders.customer")
     customers = mv.coordinates(by=(customer,), keys=((7,),))
     calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))
-    with pytest.raises(CoreRuleError, match="explicit during CalendarAxis"):
+    result = (
         session.observe(
             {"history": revenue.window(mv.all_history())}, by=mv.product(customers, calendar)
         )
+        .compute()
+        .to_pandas()
+    )
+    assert result[("value", "history")].tolist() == [120, 120]
+
+
+def test_interval_selection_keeps_window_history_and_hard_fact_filter(
+    window_session: Session,
+) -> None:
+    session = window_session
+    amount = session.catalog.fields.get("sales.orders.amount")
+    at = session.catalog.fields.get("sales.orders.ordered_at")
+    customer = session.catalog.fields.get("sales.orders.customer")
+    scope = session.time_scope(start="2026-10-07", end="2026-10-09")
+    customers = mv.coordinates(by=(customer,), keys=((7,), (8,)))
+    domain = mv.product(scope, customers)
+    rows = (
+        session.observe(
+            {"ordinary": amount.sum(), "history": amount.sum().window(mv.all_history())},
+            by=domain,
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert rows[("value", "ordinary")].to_dict() == {0: 20, 1: None}
+    assert rows[("value", "history")].to_dict() == {0: 120, 1: None}
+    restricted = (
+        session.observe(
+            {"history": amount.sum().window(mv.all_history())},
+            by=(scope,),
+            where=at >= session.instant("2026-10-01"),
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert restricted[("value", "history")].tolist() == [20]
+
+
+def test_explicit_count_repeats_time_and_rejects_ineffective_window(
+    window_session: Session,
+) -> None:
+    from marivo.analysis.errors import AnalysisError
+
+    session = window_session
+    entity = session.catalog.entities.get("sales.orders")
+    people = mv.identities(entity, keys=((1,), (2,), (999,)))
+    calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))
+    rows = session.observe({"people": people.count()}, by=(calendar,)).compute().to_pandas()
+    assert rows[("value", "people")].tolist() == [3, 3]
+    with pytest.raises(AnalysisError, match="fact contributions for a window"):
+        session.observe({"people": people.count().window(mv.all_history())}, by=(calendar,))
+
+
+def test_interval_internal_sample_domain_keeps_its_own_time(window_session: Session) -> None:
+    session = window_session
+    amount = session.catalog.fields.get("sales.orders.amount")
+    customer = session.catalog.fields.get("sales.orders.customer")
+    scope = session.time_scope(start="2026-10-07", end="2026-10-09")
+    customers = mv.coordinates(by=(customer,), keys=((7,), (8,)))
+    rows = (
+        session.observe({"mean": amount.sum().per(mv.product(scope, customers)).mean()})
+        .compute()
+        .to_pandas()
+    )
+    assert rows[("value", "mean")].tolist() == [20.0]
+    assert len(rows.columns) == 1
+
+
+@pytest.mark.parametrize("predicate", [False, True])
+def test_time_product_reuses_checked_domain_with_direct_count(
+    window_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    predicate: bool,
+) -> None:
+    import pandas as pd
+
+    from marivo.analysis.errors import AnalysisError
+    from marivo.datasource.adapters import CompiledRead, SourceSession
+
+    session = window_session
+    people = session.members(session.catalog.entities.get("sales.orders"))
+    amount = session.catalog.fields.get("sales.orders.amount")
+    scope = session.time_scope(start="2026-10-07", end="2026-10-09")
+    frame = session.observe(
+        {"value": amount.sum(), "people": people.count()},
+        by=mv.product(scope, people),
+        where=mv.in_population(people) if predicate else None,
+    )
+    reads: list[str] = []
+    execute = SourceSession.execute
+
+    def record(source: SourceSession, read: CompiledRead) -> pd.DataFrame:
+        reads.append(read.purpose)
+        return execute(source, read)
+
+    monkeypatch.setattr(SourceSession, "execute", record)
+    rows = frame.compute().to_pandas()
+    assert rows[("value", "value")].to_dict() == {0: None, 1: 20}
+    assert rows[("value", "people")].tolist() == [1, 1]
+    assert len([purpose for purpose in reads if purpose.startswith("query.")]) == 2
+    with duckdb.connect(str(session.project_root / "windows.duckdb")) as connection:
+        connection.execute("INSERT INTO orders VALUES (NULL, 7, '2026-09-20 00:00:00+00', 0)")
+    with pytest.raises(AnalysisError, match="non-null complete identity keys"):
+        frame.compute()

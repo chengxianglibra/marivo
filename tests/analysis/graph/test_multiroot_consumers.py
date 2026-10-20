@@ -20,6 +20,7 @@ from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
+from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case, source_params
 from tests.support.source_trace import SourceTrace
 
@@ -273,8 +274,8 @@ def test_independent_roots_and_temporal_fold(
         semantic_project_factory(
             {name.removeprefix("semantic/"): content for name, content in files.items()}
         )
-        session = mv.session.get_or_create("r93-multiroot", report_timezone="UTC")
-        members = session.members(ms.ref.entity("sales.subjects"))
+        session = mv.session.create("r93-multiroot", timezone="UTC")
+        members = session.members(session.catalog.require(ms.ref.entity("sales.subjects")))
         metrics = session.catalog.metrics
         left_total, right_total = metrics.get("sales.left_total"), metrics.get("sales.right_total")
         expression = left_total / right_total if ratio else left_total + right_total
@@ -294,10 +295,12 @@ def test_independent_roots_and_temporal_fold(
             return
         values = session.observe(
             {"value": expression if runtime_mode else metrics.get("sales.left_folded")},
-            by=members,
-            during=None
+            by=members
             if runtime_mode
-            else session.time_scope(start="2026-08-01", end="2026-08-03"),
+            else mv.product(
+                session.time_scope(start="2026-08-01", end="2026-08-03"),
+                members,
+            ),
         )
         if mode in {"linear_nonfinite", "ratio_decimal_overflow", "ratio_decimal_output_overflow"}:
             before = set(root.rglob("*.parquet"))
@@ -314,7 +317,7 @@ def test_independent_roots_and_temporal_fold(
             return
         result = values.persist()
         exported = result.to_pandas()
-        frame = exported.set_index(exported.columns[0])
+        frame = exported.set_index(ordinary_columns(exported)[0])
         actual = frame[("value", "value")]
         assert frame.index.tolist() == (["a", "b", "c"] if ratio else ["a", "b"])
         expected: dict[str, int | float | Decimal] = {
@@ -333,8 +336,10 @@ def test_independent_roots_and_temporal_fold(
             amount = session.catalog.fields.get("sales.left.amount")
             samples = session.observe(
                 {"value": left_total, "count": amount.count(time=clock)},
-                by=members,
-                during=session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day")),
+                by=mv.product(
+                    session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day")),
+                    members,
+                ),
             ).persist()
             sample_rows = samples.to_pandas()
             groups = sample_rows.groupby(sample_rows.columns[1])
@@ -355,7 +360,7 @@ def test_independent_roots_and_temporal_fold(
                 {"left": left_total, "right": right_total}, by=members
             ).persist()
             component_rows = components.to_pandas()
-            component_rows = component_rows.set_index(component_rows.columns[0])
+            component_rows = component_rows.set_index(ordinary_columns(component_rows)[0])
             numerators = component_rows[("value", "left")]
             denominators = component_rows[("value", "right")]
             assert Fraction(numerators.loc["a"]) == Fraction(amounts[0]) + Fraction(amounts[1])

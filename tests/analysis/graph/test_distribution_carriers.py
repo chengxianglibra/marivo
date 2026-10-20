@@ -10,6 +10,7 @@ from pathlib import Path
 import duckdb
 import pytest
 
+import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.semantic.errors import SemanticExpressionError
 from tests.analysis.graph.distribution_carrier_worker import check_original
@@ -69,15 +70,17 @@ def test_named_distribution_carriers_recover_independently(
         with pytest.raises(SemanticExpressionError, match="qualified approximate quantile route"):
             session.observe(
                 {"value": amount_field.approx_quantile(0.25, time=time)},
-                by=session.members(ms.ref.entity("sales.customer")),
+                by=session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
             ).persist()
         assert len(session.runs().items) == before
     originals: dict[str, Json] = {}
     for name, metric in methods.items():
         value = session.observe(
             {"value": metric},
-            during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-            by=session.members(ms.ref.entity("sales.customer")),
+            by=mv.product(
+                session.time_scope(start="2026-08-01", end="2026-09-01"),
+                session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
+            ),
         ).persist()
         exported = value.to_pandas()
         check_original(value, physical, name, exported=exported)

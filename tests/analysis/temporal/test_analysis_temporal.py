@@ -197,8 +197,10 @@ def _observation(
     during = session.time_scope(start=start, end=end)
     return session.observe(
         {"value": session.catalog.metrics.get("sales.revenue")},
-        during=during.by(mv.grain(grain)) if grain is not None else during,
-        by=session.members(ms.ref.entity("sales.customer")),
+        by=mv.product(
+            during.by(mv.grain(grain)) if grain is not None else during,
+            session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
+        ),
     )
 
 
@@ -206,7 +208,7 @@ def test_member_time_product_executes_on_frame(analysis_dsl_case_factory: DslCas
     case = analysis_dsl_case_factory("j1")
     session = case.session
     calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     result = session.frame(mv.product(calendar, members)).persist()
     frame = result.to_pandas()
     assert frame.iloc[:, 0].tolist() == [0] * 4 + [1] * 4
@@ -225,15 +227,15 @@ def test_time_product_observation_keeps_empty_cells_and_window_binding(
     case = analysis_dsl_case_factory("j1")
     session = case.session
     calendar = session.time_scope(start="2026-08-01", end="2026-10-01").by(mv.grain("month"))
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     metric = session.catalog.metrics.get("sales.revenue")
-    query = session.observe({"value": metric}, by=mv.product(calendar, members), during=calendar)
+    query = session.observe({"value": metric}, by=mv.product(calendar, members))
     saved = query.persist()
     frame = saved.to_pandas()
     assert frame[("value", "value")].tolist() == [450, 150, 400, 0, 99, 0, 0, 0]
     assert frame.iloc[:, 0].tolist() == [0] * 4 + [1] * 4
     assert frame.iloc[:, 1].tolist() == ["A", "B", "C", "D"] * 2
-    original = session.observe({"value": metric}, during=calendar.scope).compute()
+    original = session.observe({"value": metric}, by=(calendar.scope,)).compute()
     assert original.to_pandas()[("value", "value")].tolist() == [1099]
     assert saved.reduce({"value": saved["value"].sum()}).compute().to_pandas()[
         ("value", "value")
@@ -261,7 +263,7 @@ def test_coarser_calendar_requires_explicit_source_observation(
     daily = _observation(case, start="2026-08-01", end="2026-09-01", grain="day")
     month = case.session.time_scope(start="2026-08-01", end="2026-09-01").by(mv.grain("month"))
     coarse = case.session.observe(
-        {"value": case.session.catalog.metrics.get("sales.revenue")}, during=month
+        {"value": case.session.catalog.metrics.get("sales.revenue")}, by=(month,)
     )
     assert coarse.compute().to_pandas()[("value", "value")].tolist() == [1000]
     assert daily.reduce({"value": daily["value"].sum()}).compute().to_pandas()[
@@ -276,8 +278,10 @@ def test_identity_observation_has_no_inferred_relationship(
     session = case.session
     observed = session.observe(
         {"value": session.catalog.metrics.get("sales.revenue")},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=session.members(ms.ref.entity("sales.order")),
+        by=mv.product(
+            session.time_scope(start="2026-08-01", end="2026-09-01"),
+            session.members(session.catalog.require(ms.ref.entity("sales.order"))),
+        ),
     )
     assert observed.reduce({"value": observed["value"].sum()}).compute().to_pandas()[
         ("value", "value")
@@ -298,10 +302,10 @@ def test_grid_produce_and_offline_read_are_separate_processes(tmp_path: Path) ->
 import json
 import marivo.analysis as mv
 import marivo.semantic as ms
-session = mv.session.get_or_create('temporal-grid-recovery', report_timezone='UTC')
+session = mv.session.create('temporal-grid-recovery', timezone='UTC')
 calendar = session.time_scope(start='2026-08-01', end='2026-11-01').by(mv.grain('month'))
 metric = session.catalog.metrics.get('sales.revenue').window(mv.all_history())
-result = session.observe({'value':metric}, during=calendar).persist()
+result = session.observe({'value':metric}, by=(calendar,)).persist()
 assert result.to_pandas()[('value','value')].tolist() == [1077,1176,1176]
 print(json.dumps({'session':session.id,'artifact':result.artifact.id}))
 """
@@ -330,7 +334,7 @@ ms.load = forbidden
 duckdb.connect = forbidden
 ibis.duckdb.connect = forbidden
 SourceSession.execute = forbidden
-result = mv.session.resume(sys.argv[1], by='id').persisted_frame(sys.argv[2])
+result = mv.session.resume(sys.argv[1]).persisted_frame(sys.argv[2])
 frame = result.to_pandas()
 assert frame[('value','value')].tolist() == [1077,1176,1176]
 assert frame.attrs['axes'][0]['descriptor']['timezone'] == 'UTC'
@@ -390,14 +394,14 @@ def test_cumulative_anchors_ignore_display_start(analysis_dsl_case_factory: DslC
     saved = []
     for rule, expected in rules:
         metric = session.catalog.metrics.get("sales.revenue").window(rule)
-        result = session.observe({"value": metric}, during=calendar).persist()
+        result = session.observe({"value": metric}, by=(calendar,)).persist()
         assert result.to_pandas()[("value", "value")].tolist() == expected
         # This current-row sum consumes both completed endpoints; it never reopens history.
         assert result.reduce({"value": result["value"].sum()}).compute().to_pandas()[
             ("value", "value")
         ].tolist() == [sum(expected)]
         scalar = session.observe(
-            {"value": metric}, during=session.time_scope(start="2026-09-30", end="2026-10-01")
+            {"value": metric}, by=(session.time_scope(start="2026-09-30", end="2026-10-01"),)
         )
         assert scalar.compute().to_pandas()[("value", "value")].tolist() == [expected[-1]]
         saved.append((result, expected))
@@ -437,7 +441,7 @@ def test_fold_reaggregates_aligned_samples_before_time(
     session = case.session
     calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     revenue = session.catalog.metrics.get("sales.revenue")
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     expected = {"first": [10, 0], "last": [0, 10], "mean": [5, 5], "min": [0, 0], "max": [10, 10]}
     for kind, values in expected.items():
         samples = (
@@ -446,18 +450,17 @@ def test_fold_reaggregates_aligned_samples_before_time(
             else mv.product(mv.coordinates(by=(), keys=((),)), calendar)
         )
         metric = getattr(revenue.per(samples), kind)()
-        observed = session.observe({"value": metric}, during=calendar.scope, by=members)
+        observed = session.observe({"value": metric}, by=mv.product(calendar.scope, members))
         assert observed.compute().to_pandas()[("value", "value")].tolist() == values
-        overall = session.observe({"value": metric}, during=calendar.scope)
+        overall = session.observe({"value": metric}, by=(calendar.scope,))
         assert overall.compute().to_pandas()[("value", "value")].tolist() == [10]
     region = session.catalog.fields.get("sales.customer.region")
     regional = session.observe(
         {"value": revenue.per(session.catalog.fields.get("sales.order.ordered_at")).first()},
-        during=calendar.scope,
-        by=members.classify(by=(region,)),
+        by=mv.product(calendar.scope, members.classify(by=(region,))),
     )
     frame = regional.compute().to_pandas()
-    assert frame.iloc[:, 0].tolist() == ["east"]
+    assert frame.iloc[:, 1].tolist() == ["east"]
     assert frame[("value", "value")].tolist() == [10]
 
 
@@ -475,18 +478,20 @@ def test_fold_rejects_float64_overflow_before_source_spatial_reduction(
     )
     query = session.observe(
         {"value": metric},
-        during=calendar.scope,
-        by=session.members(ms.ref.entity("sales.customer")),
+        by=mv.product(
+            calendar.scope,
+            session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
+        ),
     )
     assert query.compute().to_pandas()[("value", "value")].tolist() == [1e308, 1e308]
     with pytest.raises(AnalysisError) as failure:
-        session.observe({"value": metric}, during=calendar.scope).compute()
+        session.observe({"value": metric}, by=(calendar.scope,)).compute()
     from marivo.semantic.errors import SemanticExpressionError
 
     cause = failure.value.__cause__
     assert isinstance(cause, SemanticExpressionError)
     assert cause.expected == "finite numeric values"
-    assert cause.received == "sum; coordinates=[]"
+    assert cause.received == "sum; coordinates=[{'key.0': 0}]"
     assert failure.value.run_ref is None
     assert session.runs().items == ()
 
@@ -516,7 +521,7 @@ def test_source_wall_clock_gap_and_fold_follow_admitted_conversion(
         case, start=wall[:10], end=(date.fromisoformat(wall[:10]) + timedelta(days=1)).isoformat()
     )
     frame = query.compute().to_pandas()
-    assert frame.iloc[:, 0].tolist() == ["A", "B", "C", "D"]
+    assert frame.iloc[:, 1].tolist() == ["A", "B", "C", "D"]
     assert frame[("value", "value")].tolist() == [10, 0, 0, 0]
 
 
@@ -531,10 +536,11 @@ def test_cumulative_ratio_binds_every_component_to_the_endpoint(
     )
     query = session.observe(
         {"value": ratio.window(mv.all_history())},
-        during=calendar,
-        by=session.members(ms.ref.entity("sales.customer")),
+        by=mv.product(
+            calendar, session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+        ),
     )
-    result = session.observe({"value": ratio.window(mv.all_history())}, during=calendar).persist()
+    result = session.observe({"value": ratio.window(mv.all_history())}, by=(calendar,)).persist()
     assert result.to_pandas()[("value", "value")].tolist() == [269.25, 235.2]
     pd.testing.assert_frame_equal(
         session.persisted_frame(result.artifact.id).to_pandas(), result.to_pandas()
@@ -583,17 +589,18 @@ def test_fixed_date_windows_keep_authority_on_a_foreign_zone_grid(
     path = case.root / "models/semantic/sales/models.py"
     path.write_text(path.read_text().replace("parse=ms.timestamp(timezone='UTC')", "parse=None"))
     ms.load(workspace_dir=case.root)
-    session = mv.session.get_or_create("date-window", report_timezone="Asia/Tokyo")
+    session = mv.session.create("date-window", timezone="Asia/Tokyo")
     grid = session.time_scope(start="2026-08-01", end="2026-08-03", timezone="America/New_York").by(
         mv.grain("day")
     )
     query = session.observe(
         {"value": session.catalog.metrics.get("sales.revenue")},
-        during=grid,
-        by=session.members(ms.ref.entity("sales.customer")),
+        by=mv.product(
+            grid, session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+        ),
     )
     frame = (
-        session.observe({"value": session.catalog.metrics.get("sales.revenue")}, during=grid)
+        session.observe({"value": session.catalog.metrics.get("sales.revenue")}, by=(grid,))
         .compute()
         .to_pandas()
     )
@@ -618,7 +625,7 @@ def test_empty_fold_keeps_typed_terminal_output(
             .per(mv.product(mv.coordinates(by=(), keys=((),)), calendar))
             .max()
         },
-        by=session.members(ms.ref.entity("sales.customer")),
+        by=session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
     )
     result = query.persist()
     assert result.to_pandas().empty
@@ -645,7 +652,7 @@ def test_selected_groups_keep_sample_selection_before_execution(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     session = case.session
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     region = session.catalog.fields.get("sales.customer.region")
     category = session.read(members, {"region": region})
     selected_rows = category.where(category["region"] == "east")
@@ -660,11 +667,12 @@ def test_selected_groups_keep_sample_selection_before_execution(
             .max()
         },
         by=selected.classify(by=(region,)),
-        members=selected,
+        where=mv.in_population(selected),
     )
     result = query.persist()
     frame = result.to_pandas()
-    assert frame.iloc[:, 0].tolist() == ["east"]
+    assert tuple(axis.role for axis in result.axes) == ("field",)
+    assert frame[("coordinate", result.axes[0].token)].tolist() == ["east"]
     assert frame[("value", "value")].tolist() == [450]
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     pd.testing.assert_frame_equal(session.persisted_frame(result.artifact.id).to_pandas(), frame)
@@ -693,8 +701,8 @@ def test_observe_help_example_preserves_totals_and_ratio_grain(
     exec(code, namespace)
     result = namespace["result"]
     assert isinstance(result, mv.AnalysisFrame)
-    overall = session.observe(metrics, during=calendar)
-    detail = session.observe(metrics, during=calendar, by=(field,))
+    overall = session.observe(metrics, by=(calendar,))
+    detail = session.observe(metrics, by=(calendar, field))
     direct = overall.compute().to_pandas()
     pd.testing.assert_frame_equal(result.compute().to_pandas(), detail.compute().to_pandas())
     assert direct[("value", "amount")].tolist() == [1000]
@@ -738,13 +746,11 @@ def test_non_key_outer_and_top_order_survive_cold_filter_reduce_republish(
     region = session.catalog.fields.get("sales.customer.region")
     current = session.observe(
         {"value": metric},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01").by(mv.grain("month")),
-        by=(region,),
+        by=(session.time_scope(start="2026-08-01", end="2026-09-01").by(mv.grain("month")), region),
     )
     baseline = session.observe(
         {"value": metric},
-        during=session.time_scope(start="2026-07-01", end="2026-08-01").by(mv.grain("month")),
-        by=(region,),
+        by=(session.time_scope(start="2026-07-01", end="2026-08-01").by(mv.grain("month")), region),
     )
     left = current.top(2, by=current["value"]).compute()
     right = baseline.top(2, by=baseline["value"]).compute()
@@ -829,7 +835,7 @@ with ExitStack() as guards:
         (_temporal,'ZoneInfo',forbidden),
     ):
         guards.enter_context(patch.object(target,name,replacement))
-    session=mv.session.resume(state['session'],by='id')
+    session=mv.session.resume(state['session'])
     before=run_ids(session)
     if sys.argv[2]=='continue':
         assert sorted(before)==state['runs']
@@ -935,8 +941,8 @@ def test_calendar_rules_keep_captured_facts_across_carriers(
         if rule_name == "period_offset"
         else mv.ordinal()
     )
-    left = session.observe({"value": metric}, during=current_scope.by(mv.grain("month")))
-    right = session.observe({"value": metric}, during=previous_scope.by(mv.grain("month")))
+    left = session.observe({"value": metric}, by=(current_scope.by(mv.grain("month")),))
+    right = session.observe({"value": metric}, by=(previous_scope.by(mv.grain("month")),))
     expected_right = 50 if year else 77
     left_memory, right_memory = left.compute(), right.compute()
     left_saved, right_saved = left_memory.persist(), right_memory.persist()
@@ -954,12 +960,12 @@ def test_calendar_rules_keep_captured_facts_across_carriers(
         assert actual[("presence", "right_present")].tolist() == [True]
         assert len(actual.attrs["frozen_coordinates"]) == 3
         assert actual.attrs["axes"][0]["role"] == "paired"
-    scalar = session.observe({"value": metric}, during=current_scope).compute()
+    scalar = session.observe({"value": metric}, by=(current_scope,)).compute()
     with pytest.raises(AnalysisError, match="calendar"):
         scalar.compare(scalar, match=rule)
     partial = session.observe(
         {"value": metric},
-        during=session.time_scope(start="2026-08-15", end="2026-09-01").by(mv.grain("month")),
+        by=(session.time_scope(start="2026-08-15", end="2026-09-01").by(mv.grain("month")),),
     ).compute()
     empty_partial = partial.where(partial["value"] > 10000).compute()
     for how in ("exact", "outer"):
@@ -999,7 +1005,7 @@ state=obj(read(root/'calendar-rules.json'))
 with ExitStack() as guards:
     for target,name,replacement in ((ms,'load',forbidden),(Session,'catalog',property(forbidden)),(SourceSession,'__init__',forbidden),(duckdb,'connect',forbidden),(ibis.duckdb,'connect',forbidden),(frame_evaluation,'open_query_sources',forbidden),(frame_calendar,'freeze_calendar',forbidden),(_temporal,'ZoneInfo',forbidden)):
         guards.enter_context(patch.object(target,name,replacement))
-    session=mv.session.resume(state['session'],by='id'); before=run_ids(session)
+    session=mv.session.resume(state['session']); before=run_ids(session)
     left=session.persisted_frame(state['left']); right=session.persisted_frame(state['right'])
     assert [snapshot(left),snapshot(right)]==state['snapshots']
     rule=mv.previous_year() if state['rule']=='previous_year' else mv.period_offset(-1) if state['rule']=='period_offset' else mv.ordinal()

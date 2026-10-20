@@ -12,16 +12,16 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.core.frame_data import StoredFrameBacking
 from marivo.analysis.errors import AnalysisError
+from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.shared_fixtures import DslCase, DslCaseFactory
 
 
 def _monthly(case: DslCase, start: str, end: str, metric: str = "revenue") -> mv.AnalysisFrame:
     session = case.session
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     return session.observe(
         {"value": session.catalog.metrics.get("sales." + metric)},
-        during=session.time_scope(start=start, end=end),
-        by=members,
+        by=mv.product(session.time_scope(start=start, end=end), members),
     )
 
 
@@ -43,7 +43,9 @@ def test_comparison_owns_independent_nullable_columns(
     case = analysis_dsl_case_factory("j2")
     current = _monthly(case, "2026-09-01", "2026-10-01")
     baseline = _monthly(case, "2026-08-01", "2026-09-01")
-    comparison = current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))
+    comparison = current.compare(
+        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+    )
     assert isinstance(comparison, mv.AnalysisFrame)
     before = run_ids(case.session)
     comparison.show()
@@ -56,7 +58,7 @@ def test_comparison_owns_independent_nullable_columns(
     result = comparison.persist()
     assert isinstance(result, mv.AnalysisFrame)
     exported = result.to_pandas()
-    frame = exported.set_index(exported.columns[0])
+    frame = exported.set_index(ordinary_columns(exported)[0])
     assert frame[("value", "left.value")].tolist() == [30, 200, 0, 0]
     assert frame[("value", "right.value")].tolist() == [60, 120, 0, 0]
     assert frame[("value", "absolute.value")].tolist() == [-30, 80, 0, 0]
@@ -64,7 +66,7 @@ def test_comparison_owns_independent_nullable_columns(
     assert frame[("value", "relative.value")].iloc[2:].isna().all()
     assert frame["presence"].all().all()
     filtered = defined.compute().to_pandas()
-    assert filtered.iloc[:, 0].tolist() == ["A", "B"]
+    assert filtered[ordinary_columns(filtered)[0]].tolist() == ["A", "B"]
     assert total.compute().to_pandas()[("value", "value")].tolist() == pytest.approx([1 / 6])
     result.show()
     card = capsys.readouterr().out
@@ -80,10 +82,12 @@ def test_comparison_owns_independent_nullable_columns(
     assert frame[("value", "relative.value")].dropna().sum() == pytest.approx(1 / 6)
     before = run_ids(case.session)
     with pytest.raises(AnalysisError):
-        current.compare(result.artifact)  # type: ignore[arg-type]  # Audit views are not Frame operands.
+        current.compare(result.artifact, match=mv.ordinal())  # type: ignore[arg-type]  # Audit views are not Frame operands.
     assert run_ids(case.session) == before
     same = (
-        current.compare(current, on=tuple(zip(current.axes, current.axes, strict=True)))
+        current.compare(
+            current, on=tuple(zip(current.axes, current.axes, strict=True)), match=mv.ordinal()
+        )
         .compute()
         .to_pandas()
     )
@@ -109,7 +113,9 @@ def test_comparison_columns_recover_without_sources(
     current_total = current.reduce({"value": current["value"].sum()})
     baseline_total = baseline.reduce({"value": baseline["value"].sum()})
     result = current_total.compare(
-        baseline_total, on=tuple(zip(current_total.axes, baseline_total.axes, strict=True))
+        baseline_total,
+        on=tuple(zip(current_total.axes, baseline_total.axes, strict=True)),
+        match=mv.ordinal(),
     ).persist()
     before = run_ids(case.session)
     frame = result.to_pandas()
@@ -129,6 +135,7 @@ import sys
 from unittest.mock import patch
 import duckdb
 import marivo.analysis as mv
+from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
 from tests.shared_fixtures import run_ids
@@ -136,7 +143,7 @@ from tests.shared_fixtures import run_ids
 def forbidden(*args, **kwargs):
     raise AssertionError('cold comparison accessed Semantic or business rows')
 with patch.object(ms, 'load', forbidden), patch.object(SourceSession, '__init__', forbidden), patch.object(duckdb, 'connect', forbidden):
-    session = mv.session.resume(sys.argv[1], by='id')
+    session = mv.session.resume(sys.argv[1])
     before = run_ids(session)
     result = session.persisted_frame(sys.argv[2])
     assert isinstance(result, mv.AnalysisFrame)
@@ -173,22 +180,25 @@ def test_decimal_absolute_keeps_precision_and_relative_uses_float(
     current = _monthly(case, "2026-08-01", "2026-09-01")
     baseline = _monthly(case, "2026-07-01", "2026-08-01")
     frame = (
-        current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))
+        current.compare(
+            baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+        )
         .compute()
         .to_pandas()
     )
-    frame = frame.set_index(frame.columns[0])
+    frame = frame.set_index(ordinary_columns(frame)[0])
     assert frame.loc["C", ("value", "absolute.value")] == Decimal("-0.05")
     assert frame.loc["C", ("value", "relative.value")] == -1.0
     # A zero denominator rejects the whole comparison before any partial output.
-    before = case.session.graph().artifacts
+    before = case.session.runs().items
     with pytest.raises(AnalysisError):
         current.compare(
             baseline,
             zero_denominator="error",
             on=tuple(zip(current.axes, baseline.axes, strict=True)),
+            match=mv.ordinal(),
         ).compute()
-    assert case.session.graph().artifacts == before
+    assert case.session.runs().items == before
 
 
 def test_comparison_output_rejects_incomplete_and_forged_columns(
@@ -200,7 +210,7 @@ def test_comparison_output_rejects_incomplete_and_forged_columns(
     current = _monthly(case, "2026-09-01", "2026-10-01", "order_count")
     baseline = _monthly(case, "2026-08-01", "2026-09-01", "order_count")
     saved = current.compare(
-        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True))
+        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
     ).persist()
     backing = saved._backing
     assert isinstance(backing, StoredFrameBacking)

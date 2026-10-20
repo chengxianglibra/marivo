@@ -29,7 +29,8 @@ from tests.analysis.numeric.attribution_workflows import (
     basis,
     basis_query,
 )
-from tests.analysis.statistics.pandas_workflows import plain, receipt_paths
+from tests.analysis.numeric.pandas_coordinates import plain
+from tests.analysis.statistics.pandas_workflows import receipt_paths
 from tests.shared_fixtures import (
     DslCase,
     DslCaseFactory,
@@ -53,9 +54,14 @@ def _count(case: DslCase, month: int) -> mv.AnalysisFrame:
     channel = session.catalog.fields.get("sales.order.channel")
     values = session.observe(
         {"value": session.catalog.metrics.get("sales.order_count")},
-        during=session.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
-        by=(customer, channel),
-        members=session.members(ms.ref.entity("sales.customer")),
+        by=(
+            session.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
+            customer,
+            channel,
+        ),
+        where=mv.in_population(
+            session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+        ),
     )
     return values
 
@@ -354,9 +360,10 @@ def test_period_buckets_and_retained_coarsened_partition(
         calendar = scope.by(mv.grain("month"))
         values = session.observe(
             {"value": session.catalog.metrics.get("sales.order_count")},
-            during=calendar,
-            by=(customer, channel),
-            members=session.members(ms.ref.entity("sales.customer")),
+            by=(calendar, customer, channel),
+            where=mv.in_population(
+                session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+            ),
         )
         return values
 
@@ -368,8 +375,9 @@ def test_period_buckets_and_retained_coarsened_partition(
     assert len(compared) == 4
     assert compared["absolute.value"].tolist() == [0, 0, 0, 0]
     assert compared["left.value"].tolist() == compared["right.value"].tolist() == [1, 1, 1, 1]
-    assert compared.key_1.tolist() == ["A", "B", "C", "D"]
-    assert compared.key_2.tolist() == ["web"] * 4
+    assert compared.time_0.tolist() == [0] * 4
+    assert compared.key_0.tolist() == ["A", "B", "C", "D"]
+    assert compared.key_1.tolist() == ["web"] * 4
     directories = [
         part["rows"]
         for part in result.to_pandas().attrs["frozen_coordinates"]

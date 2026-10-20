@@ -38,6 +38,7 @@ from marivo.analysis.core.artifact_data import (
     DataAxis,
     DataColumn,
     DataSchema,
+    IntervalDataAxis,
     OutputEvidence,
 )
 from marivo.analysis.core.frame_audit import (
@@ -132,11 +133,13 @@ def _schema(frame: AnalysisFrame, plan: QueryPlan) -> DataSchema:
             replace(
                 columns[key],
                 name=constraint.name,
-                nullable=False if role in ("identity", "calendar") else columns[key].nullable,
+                nullable=False
+                if role in ("identity", "calendar", "interval")
+                else columns[key].nullable,
             )
             for key, constraint in zip(keys, constraints, strict=True)
         )
-        if isinstance(captured, CalendarDataAxis):
+        if isinstance(captured, (CalendarDataAxis, IntervalDataAxis)):
             axes.append(replace(captured, columns=physical))
         else:
             axes.append(

@@ -15,25 +15,33 @@ DEFINED = {("a", 2**53, 1): 2, ("a", 2**53 + 1, 2): 0, ("b", 2**53 + 1, 1): 4}
 
 
 def comparison_queries(session: mv.Session) -> dict[Operation, mv.AnalysisFrame]:
-    members = session.members(ms.ref.entity("sales.facts"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.facts")))
     metric = session.catalog.metrics.get("sales.total")
 
     def observe(month: int) -> mv.AnalysisFrame:
         return session.observe(
             {"value": metric},
-            during=session.time_scope(start=f"2026-{month:02}-01", end=f"2026-{month + 1:02}-01"),
-            by=members,
+            by=mv.product(
+                session.time_scope(start=f"2026-{month:02}-01", end=f"2026-{month + 1:02}-01"),
+                members,
+            ),
         )
 
     current, baseline, earlier = observe(8), observe(7), observe(6)
-    first = current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))
-    first = first.select({"value": first["absolute.value"]})
-    second = baseline.compare(earlier, on=tuple(zip(baseline.axes, earlier.axes, strict=True)))
-    second = second.select({"value": second["absolute.value"]})
+    first = current.compare(
+        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+    )
+    first = first.reduce({"value": first["absolute.value"].sum()}, by=(first.axes[1],))
+    second = baseline.compare(
+        earlier, on=tuple(zip(baseline.axes, earlier.axes, strict=True)), match=mv.ordinal()
+    )
+    second = second.reduce({"value": second["absolute.value"].sum()}, by=(second.axes[1],))
     nested = first.compare(second, on=tuple(zip(first.axes, second.axes, strict=True)))
     nested = nested.select({"value": nested["absolute.value"]})
     left, right = current.where(current["value"] > 0), baseline.where(baseline["value"] > 0)
-    union = left.compare(right, how="outer", on=tuple(zip(left.axes, right.axes, strict=True)))
+    union = left.compare(
+        right, how="outer", on=tuple(zip(left.axes, right.axes, strict=True)), match=mv.ordinal()
+    )
     union = union.select({"value": union["absolute.value"]})
     return {
         "nested": nested,
@@ -44,9 +52,17 @@ def comparison_queries(session: mv.Session) -> dict[Operation, mv.AnalysisFrame]
 
 def assert_comparison(result: mv.AnalysisFrame, operation: Operation) -> None:
     frame = result.to_pandas()
-    values = dict(zip(frame.iloc[:, 0], frame[("value", "value")], strict=True))
+    identity = next(axis for axis in result.axes if axis.role == "identity")
+    values = dict(
+        zip(frame[("coordinate", identity.token)], frame[("value", "value")], strict=True)
+    )
     assert isinstance(result._schema, DataSchema)
-    assert [column.dtype for column in result._schema.axes[0].columns] == [
+    assert [
+        column.dtype
+        for column in next(
+            axis for axis in result._schema.axes if axis.token == identity.token
+        ).columns
+    ] == [
         ScalarDataType("string"),
         ScalarDataType("int64"),
         ScalarDataType("int64"),

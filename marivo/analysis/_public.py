@@ -16,7 +16,6 @@ from marivo.analysis.dsl.correspondence import period_offset as period_offset
 from marivo.analysis.dsl.correspondence import previous_year as previous_year
 from marivo.analysis.dsl.frame import AnalysisFrame as AnalysisFrame
 from marivo.analysis.dsl.frame_axis import FrameAxis as FrameAxis
-from marivo.analysis.dsl.metrics import member_count as member_count
 from marivo.analysis.dsl.population import Population as Population
 from marivo.analysis.dsl.population import PopulationPredicate as PopulationPredicate
 from marivo.analysis.dsl.population import coordinates as coordinates
@@ -35,11 +34,9 @@ from marivo.analysis.evidence._dataset_types import ArtifactDigest as ArtifactDi
 from marivo.analysis.evidence._dataset_types import Finding as Finding
 from marivo.analysis.evidence._dataset_types import FindingPage as FindingPage
 from marivo.analysis.refs import ArtifactRef as ArtifactRef
-from marivo.analysis.session._lazy_read_model import ArtifactSummary as ArtifactSummary
 from marivo.analysis.session._lazy_read_model import FailedRun as FailedRun
 from marivo.analysis.session._lazy_read_model import IncompleteRun as IncompleteRun
 from marivo.analysis.session._lazy_read_model import RunPage as RunPage
-from marivo.analysis.session._lazy_read_model import SessionGraph as SessionGraph
 from marivo.analysis.session._lazy_read_model import SucceededRun as SucceededRun
 from marivo.analysis.session.core import Session as Session
 
@@ -57,7 +54,6 @@ __all__ = [  # noqa: RUF022 - public order is contractual
     "membership",
     "product",
     "in_population",
-    "member_count",
     "row_count",
     "ordinal",
     "period_offset",
@@ -76,14 +72,12 @@ __all__ = [  # noqa: RUF022 - public order is contractual
     "Artifact",
     "ArtifactDigest",
     "ArtifactRef",
-    "ArtifactSummary",
     "Finding",
     "FindingPage",
     "FailedRun",
     "IncompleteRun",
     "SucceededRun",
     "RunPage",
-    "SessionGraph",
     "Session",
     "session",
 ]

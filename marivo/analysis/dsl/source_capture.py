@@ -8,7 +8,6 @@ from typing import TypeAlias
 from ibis.common.deferred import Deferred
 
 from marivo._definition.expressions import ContributionFilter, MetricNode
-from marivo._definition.grouping import _CoordinateGrouping
 from marivo._definition.query import (
     ResultQuery,
 )
@@ -24,6 +23,7 @@ from marivo._definition.types import (
     ExactRef,
     FieldRead,
     IdentityRead,
+    IntervalCoordinate,
     LiteralValue,
     Owner,
 )
@@ -39,7 +39,6 @@ from marivo.analysis.dsl.population import (
     _axes,
     _owner,
 )
-from marivo.analysis.dsl.temporal import CalendarAxis
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._deferred_semantics import (
     consume_metric,
@@ -249,10 +248,8 @@ def capture_metrics(
     metrics: Mapping[str, Deferred],
     owner: Owner,
     *,
-    during: TimeScope | CalendarAxis | None = None,
-    by: tuple[Deferred | Grouping, ...] | Population = (),
+    by: tuple[Deferred | Grouping | TimeScope, ...] | Population = (),
     where: Deferred | PopulationPredicate | None = None,
-    members: Population | None = None,
     timezone: str = "UTC",
     state: CompiledSemanticState | None = None,
     calendar_snapshots: tuple[PeriodCalendarSnapshotV1, ...] = (),
@@ -302,21 +299,23 @@ def capture_metrics(
         axes, memberships = by._definition.axes, by.memberships
         population = by._definition
     else:
-        axes, memberships = _axes(by)
-        population = None
-        if members is not None and any(axis in members._definition.axes for axis in axes):
-            population = (
-                members.classify(by=tuple(_CoordinateGrouping(axis) for axis in axes))._definition
-                if axes != members._definition.axes
-                else members._definition
+        from marivo.analysis.dsl.temporal import freeze_scope
+
+        axes, memberships = _axes(
+            tuple(
+                freeze_scope(item, timezone) if isinstance(item, TimeScope) else item for item in by
             )
+        )
+        population = None
 
     source_axes = tuple(
-        axis for axis in axes if isinstance(axis, (AxisBinding, CalendarCoordinate))
+        axis
+        for axis in axes
+        if isinstance(axis, (AxisBinding, CalendarCoordinate, IntervalCoordinate))
     )
     reads = tuple(
         axis
-        if isinstance(axis, CalendarCoordinate)
+        if isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
         else FieldRead(axis.field, axis.entity, axis.path, axis.at)
         if axis.field is not None
         else IdentityRead(axis.entity, axis.path, axis.at)
@@ -331,7 +330,6 @@ def capture_metrics(
     binding = bind_observation(
         root.metrics,
         definitions,
-        during=during,
         by=reads,
         where=condition,
         timezone=timezone,
@@ -339,7 +337,6 @@ def capture_metrics(
         calendar_snapshots=calendar_snapshots,
         memberships=memberships,
         population=population,
-        members=members._definition if members is not None else None,
     )
     signature = BoundSignature(
         owner,
@@ -352,7 +349,8 @@ def capture_metrics(
         root.metrics,
         signature.axes,
         owner,
-        members=binding.member_population or binding.members,
+        population=binding.coordinates.population,
+        count_populations=tuple(domain for _, domain in binding.count_populations),
     )
     return BoundGraph(root, signature)
 

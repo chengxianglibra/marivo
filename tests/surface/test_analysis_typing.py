@@ -23,8 +23,8 @@ mv.mean  # invalid: retired row factory
 mv.time_grid  # invalid: retired graph time grid
 mv.time_scope  # invalid: retired module-level time constructor
 mv.instant  # invalid: Session-only instant constructor
-session = mv.session.get_or_create('static', report_timezone='UTC')
-population = session.members(ms.ref.entity('sales.customer'))
+session = mv.session.create('static', timezone='UTC')
+population = session.members(session.catalog.entities.get('sales.customer'))
 session.members(ms.ref.metric('sales.revenue'))  # invalid: entity kind
 mv.identities(ms.ref.entity('sales.customer'), keys=(('C1',),))  # invalid: unresolved EntityRef
 
@@ -115,8 +115,8 @@ from ibis.common.deferred import Deferred
 from marivo.semantic.expressions import Entity
 from typing_extensions import assert_type
 
-session = mv.session.get_or_create('static', report_timezone='UTC')
-population = session.members(ms.ref.entity('sales.customer'))
+session = mv.session.create('static', timezone='UTC')
+population = session.members(session.catalog.entities.get('sales.customer'))
 assert_type(population, mv.Population)
 resolved_entity = session.catalog.entities.get(ms.ref.entity('sales.customer'))
 assert_type(resolved_entity, Entity)
@@ -130,7 +130,7 @@ assert_type(query.compute(), mv.AnalysisFrame)
 assert_type(query.persist(), mv.AnalysisFrame)
 assert_type(population.project(by=()), mv.Population)
 assert_type(population.where(mv.in_population(population)), mv.Population)
-assert_type(session.observe({'revenue': amount.sum()}, during=None), mv.AnalysisFrame)
+assert_type(session.observe({'revenue': amount.sum()}, by=()), mv.AnalysisFrame)
 
 def current_receivers(query: mv.AnalysisFrame, other: mv.AnalysisFrame, field: Deferred) -> None:
     assert_type(session.population_from(query, on=((query.axes[0], field),)), mv.Population)

@@ -23,7 +23,6 @@ from marivo.analysis.dsl.temporal import exact_scope
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.frame_services import LocalFrameServices
-from marivo.refs import ref
 from marivo.semantic.reader import SemanticProject
 
 STRING = ScalarDataType("string")
@@ -39,7 +38,7 @@ MEMBER = DataAxis(
 
 @pytest.fixture
 def local(tmp_path: Path) -> LocalFrameServices:
-    return DatasetRuntime.create(tmp_path, "complete-key-oracles", report_timezone="UTC").local
+    return DatasetRuntime.create(tmp_path, "complete-key-oracles", timezone="UTC").local
 
 
 def _memory(
@@ -275,10 +274,10 @@ account_match = ms.relationship(name='account_match', from_entity=crm, to_entity
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("kernel-comparison", report_timezone="UTC")
+    session = mv.session.create("kernel-comparison", timezone="UTC")
     domains = (
-        session.members(ref.entity("sales.crm")),
-        session.members(ref.entity("sales.billing")),
+        session.members(session.catalog.entities.get("sales.crm")),
+        session.members(session.catalog.entities.get("sales.billing")),
     )
     frames = tuple(
         session.observe(

@@ -78,24 +78,25 @@ def recent(
 
 
 def inspect(
-    store: SessionStore, name: str, *, run_limit: int = 5, after: tuple[str, str] | None
+    store: SessionStore, session_id: str, *, run_limit: int = 5, after: tuple[str, str] | None
 ) -> SessionInspection:
     with store._read() as conn:
-        row = _one(conn, "SELECT * FROM sessions WHERE name=?", (name,))
+        row = _one(conn, "SELECT * FROM sessions WHERE session_ref=?", (session_id,))
         if row is None:
             names = _rows(
-                conn, "SELECT name FROM sessions ORDER BY updated_at DESC,session_ref DESC LIMIT 10"
+                conn,
+                "SELECT session_ref FROM sessions ORDER BY updated_at DESC,session_ref DESC LIMIT 10",
             )
             raise SessionNotFoundError(
-                message="The selected Session name does not exist in this project.",
-                expected="one existing Session name",
-                received=name,
+                message="The selected Session ID does not exist in this project.",
+                expected="one existing Session ID",
+                received=session_id,
                 location="session.inspect",
                 repair=AnalysisRepair(
                     kind="inspect",
-                    action="Read recent() and inspect a returned Session name.",
+                    action="Read recent() and inspect a returned Session ID.",
                     help_target=LiveHelpTarget(surface="analysis", canonical_id="session.recent"),
-                    candidates=tuple(_text(value, "name") for value in names),
+                    candidates=tuple(_text(value, "session_ref") for value in names),
                 ),
             )
         summary = _summary(store, conn, row)

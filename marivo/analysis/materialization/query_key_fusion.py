@@ -398,7 +398,7 @@ def _prune_transport(plan: QueryPlan, producer: str) -> tuple[QueryPlan, tuple[s
         if not isinstance(original, LocalCompute) or original.program is None:
             continue
         program = original.program
-        if program.output_population is not None or (program.members is not None and original.keys):
+        if program.output_population is not None or (bool(program.counts) and original.keys):
             continue
         closure = walk((node for _, node in program.outputs), resolve=dict(program.declared).get)
         if any(isinstance(node, MemberCount) for node in closure.order):
@@ -428,7 +428,7 @@ def _prune_transport(plan: QueryPlan, producer: str) -> tuple[QueryPlan, tuple[s
             inputs=tuple(value for value in original.inputs if value not in redundant),
             program=replace(
                 program,
-                members=None if not original.keys else program.members,
+                counts=() if not original.keys else program.counts,
                 populations=tuple(
                     value for value in program.populations if value.stage_id not in redundant
                 ),
@@ -477,8 +477,8 @@ def _host_domain_selections(plan: QueryPlan) -> frozenset[str]:
         ]
         if program.output_population is not None:
             domains.append(program.output_population)
-        if program.members is not None:
-            domains.append(program.members.population)
+        if bool(program.counts):
+            domains.extend(count.population for count in program.counts)
         for binding in program.populations:
             if binding.definition in domains:
                 include(binding.stage_id)
@@ -794,7 +794,7 @@ def native_query_relation(
                 formula.values
                 or formula.outputs
                 or formula.calendar is not None
-                or formula.members is not None
+                or bool(formula.counts)
                 or formula.output_population is None
                 or tuple(column.slot_id for column in stage.columns) != stage.keys
             ):
@@ -1733,7 +1733,7 @@ def _fold_population_checks(prepared: PreparedSources, lowered: LoweredQuery) ->
             ).order
         ):
             continue
-        if program.members is not None and candidate.keys:
+        if bool(program.counts) and candidate.keys:
             continue
         by_id = {stage.stage_id: stage for stage in lowered.plan.stages}
         if candidate.stage_id not in by_id:
@@ -1827,7 +1827,7 @@ def _fold_population_checks(prepared: PreparedSources, lowered: LoweredQuery) ->
             preparation_checks=preparation,
             native_reads=_logical_reads((carrier.stage, *(source.stage for source in sources))),
         )
-        updated = replace(program, populations=kept, members=None)
+        updated = replace(program, populations=kept, counts=())
         compute = replace(
             candidate,
             inputs=tuple(

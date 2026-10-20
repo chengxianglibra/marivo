@@ -100,7 +100,7 @@ def test_native_versioned_members_independent_fixed_and_cold(
                 "sales/models.py": models,
             }
         )
-        session = mv.session.get_or_create("r94-versions", report_timezone="UTC")
+        session = mv.session.create("r94-versions", timezone="UTC")
         august = session.instant(datetime(2026, 8, 1, tzinfo=timezone.utc))
         september = session.instant(datetime(2026, 9, 1, tzinfo=timezone.utc))
         outputs: dict[str, mv.AnalysisFrame] = {}
@@ -254,7 +254,7 @@ from tests.support.json import encode, obj, read
 root, phase, output = Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3])
 state = read(root / 'r94-versions.json')
 with patch.object(ms, 'load', forbidden), patch.object(SemanticProject, 'load', forbidden), patch.object(SourceSession, '__enter__', forbidden), patch.object(SourceSession, 'execute', forbidden):
-    session = mv.session.resume(state['session'], by='id')
+    session = mv.session.resume(state['session'])
     before = len(session.runs().items)
     for name, item in obj(state['outputs']).items():
         value = session.persisted_frame(item['artifact'])

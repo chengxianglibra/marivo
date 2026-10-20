@@ -14,17 +14,17 @@ from marivo.analysis.materialization.layout import MaterializationLayout
 from marivo.semantic.reader import SemanticProject
 
 
-def test_new_public_session_starts_with_empty_v12_store(
+def test_new_public_session_starts_with_empty_v13_store(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("fresh-generation", report_timezone="UTC")
+    session = mv.session.create("fresh-generation", timezone="UTC")
     assert session.runs().items == ()
     assert session._runtime.store.db_path == MaterializationLayout(tmp_path).store_db
     with pytest.raises(ArtifactNotFoundError):
         session.persisted_frame("old-artifact")
     with pytest.raises(SessionNotFoundError):
-        mv.session.resume("old-session", by="id")
+        mv.session.resume("old-session")
     assert session.runs().items == ()
     pending = session.values(by=(), columns={"answer": None}, rows=(((), {"answer": 7}),))
     memory = pending.compute()
@@ -53,7 +53,7 @@ def test_public_session_rejects_existing_store_without_modifying_it(
     before = path.read_bytes()
     files = tuple(path.parent.iterdir())
     acquisitions: tuple[Callable[[], mv.Session], ...] = (
-        lambda: mv.session.get_or_create("new"),
+        lambda: mv.session.create("new"),
         lambda: mv.session.resume("old"),
     )
     for acquire in acquisitions:
@@ -91,7 +91,7 @@ def test_public_calendar_snapshot_is_captured_before_pure_construction(
     catalog = SemanticCatalog(semantic_project_factory(files))
     publish_fiscal_calendar_artifact(catalog)
     monkeypatch.chdir(catalog.workspace_dir)
-    session = mv.session.get_or_create("calendar", report_timezone="UTC")
+    session = mv.session.create("calendar", timezone="UTC")
     calendar = session.catalog.require(ms.ref.period_calendar("sales.fiscal"))
     grain = calendar.grain("fiscal_week")
     scope = calendar.period("fiscal_week", "M1-W1")
@@ -106,6 +106,6 @@ def test_public_calendar_snapshot_is_captured_before_pure_construction(
     snapshots = session._sources().period_calendar_snapshots
     assert len(snapshots) == 1
     assert snapshots[0].period_scope("fiscal_week", "M1-W1") == scope
-    frame = session.observe({"gmv": metric}, during=scope.by(grain))
+    frame = session.observe({"gmv": metric}, by=(scope.by(grain),))
     assert isinstance(frame, mv.AnalysisFrame)
     assert session.runs().items == ()

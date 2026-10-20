@@ -67,18 +67,20 @@ def test_native_duckdb_attribution_independent_fixed_and_cold(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         author_source_project(backend, case, monkeypatch, semantic_project_factory)
         ms.load(workspace_dir=tmp_path)
-        session = mv.session.get_or_create("r94-attribution", report_timezone="UTC")
-        members = session.members(ms.ref.entity("sales.facts"))
+        session = mv.session.create("r94-attribution", timezone="UTC")
+        members = session.members(session.catalog.require(ms.ref.entity("sales.facts")))
         bucket = session.catalog.fields.get("sales.facts.bucket")
         happened = session.catalog.fields.get("sales.facts.happened")
 
         def endpoint(month: int) -> mv.AnalysisFrame:
             return session.observe(
                 {"value": session.catalog.metrics.get("sales.total")},
-                during=session.time_scope(
-                    start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"
+                by=mv.product(
+                    session.time_scope(
+                        start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"
+                    ),
+                    mv.coordinates(by=(bucket,), keys=(("a",), ("b",), ("c",))),
                 ),
-                by=mv.coordinates(by=(bucket,), keys=(("a",), ("b",), ("c",))),
             )
 
         def facts(month: int) -> mv.AnalysisFrame:
@@ -98,7 +100,9 @@ def test_native_duckdb_attribution_independent_fixed_and_cold(
         current, baseline = endpoint(8), endpoint(7)
         outputs = {
             "groups": current.compare(
-                baseline, on=tuple(zip(current.axes, baseline.axes, strict=True))
+                baseline,
+                on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                match=mv.ordinal(),
             ).persist(),
             "difference": current.reduce({"value": current["value"].sum()})
             .compare(baseline.reduce({"value": baseline["value"].sum()}))
@@ -107,7 +111,7 @@ def test_native_duckdb_attribution_independent_fixed_and_cold(
             "baseline": facts(7).persist(),
         }
         grouped = plain(outputs["groups"])
-        assert dict(zip(grouped.key_0, grouped["absolute.value"], strict=True)) == {
+        assert dict(zip(grouped.key_1, grouped["absolute.value"], strict=True)) == {
             "a": 2,
             "b": 1,
             "c": -5,

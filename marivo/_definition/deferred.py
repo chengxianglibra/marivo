@@ -51,6 +51,7 @@ from marivo._temporal import InstantAnchor, _BuiltinGrain, _SemanticGrain
 from marivo.refs import DomainKind, Ref
 
 if TYPE_CHECKING:
+    from marivo._definition.relations import PopulationParameter
     from marivo.datasource.typing import AiContextValue
 
 RECIPE_RULE_VERSION: Final = 1
@@ -215,17 +216,17 @@ class DeclarationResolver(_FrozenResolver):
         invalid("Semantic declarations require Marivo binding; use the semantic consumer.")
 
 
-class ContextMetricResolver(_FrozenResolver):
-    """An immutable Metric whose identity domain is bound by observe.members."""
+class PopulationCountResolver(_FrozenResolver):
+    """A closed Metric carrying its explicit identity Population parameter."""
 
-    __slots__ = ("kind",)
-    kind: Literal["member_count"]
+    __slots__ = ("population",)
+    population: PopulationParameter
 
-    def __init__(self) -> None:
-        super().__init__(kind="member_count")
+    def __init__(self, population: PopulationParameter) -> None:
+        super().__init__(population=population)
 
     def resolve(self, context: dict[str, object]) -> NoReturn:
-        invalid("Context Metrics require an explicit Marivo observation binding.")
+        invalid("Population counts require Marivo semantic binding.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -326,7 +327,7 @@ class _Inspector:
         self.uses: list[SemanticUse] = []
         self.operations: list[RecipeUse] = []
         self.declarations: list[DeclarationRecord] = []
-        self.contextual = False
+        self.has_population_count = False
 
     def token(self, *values: str) -> None:
         self.tokens.extend(values)
@@ -335,9 +336,11 @@ class _Inspector:
         self.dependencies[_reference(value)] = value
 
     def visit(self, recipe: Resolver, path: tuple[str, ...]) -> None:
-        if type(recipe) is ContextMetricResolver:
-            self.contextual = True
-            self.token("context_metric", recipe.kind)
+        if type(recipe) is PopulationCountResolver:
+            self.has_population_count = True
+            from marivo._definition.graph import computation_fingerprint
+
+            self.token("population_count", computation_fingerprint(recipe.population._definition))
         elif type(recipe) is SemanticResolver:
             value = recipe.input
             self.uses.append(SemanticUse(path, value))
@@ -609,7 +612,7 @@ def inspect_deferred(value: Deferred) -> DeferredInspection:
     recipe = resolver_of(value)
     inspector = _Inspector()
     inspector.visit(recipe, ())
-    if not inspector.uses and not inspector.contextual:
+    if not inspector.uses and not inspector.has_population_count:
         invalid(
             "Expected a semantic dependency; a literal alone cannot declare a Measure or Metric."
         )

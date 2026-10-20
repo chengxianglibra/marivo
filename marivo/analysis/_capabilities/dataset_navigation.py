@@ -58,11 +58,11 @@ _HUBS = (
         "decision_hub",
         guidance=(
             "Construct a Frame with session.observe/read/values/frame. compute() returns fixed memory; persist() returns a committed Frame. Continue from the returned Frame for data; .artifact reads its saved audit.",
-            "Finite domains: session.members(Entity Ref), coordinates or identities; session.frame(population) captures complete keys without requiring attributes.",
+            "Finite domains: session.members(resolved Entity), coordinates or identities; session.frame(population) captures complete keys without requiring attributes.",
             "Known inputs: retain exact refs and scope. Population/Frame: show() reports captured facts; exact type Help owns method discovery.",
             "Existing work: resume the Session; recovery does not replay sources.",
         ),
-        related=("session.get_or_create", "session.resume", "catalog", "session.observe"),
+        related=("session.create", "session.resume", "catalog", "session.observe"),
     ),
     NavigationInput(
         "methods",
@@ -149,11 +149,7 @@ def navigation(providers: tuple[DisclosureProvider, ...]) -> tuple[NavigationInp
         if hub.canonical_id == "entry":
             members.sort(
                 key=lambda target: (
-                    0
-                    if target == "session.get_or_create"
-                    else 1
-                    if target == "session.members"
-                    else 2
+                    0 if target == "session.create" else 1 if target == "session.members" else 2
                 )
             )
         result.append(replace(hub, members=tuple(members)))

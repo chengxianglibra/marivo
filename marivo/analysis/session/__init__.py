@@ -4,12 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Literal
 
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.errors import (
     AnalysisRepair,
-    SessionIdentityAmbiguousError,
     SessionNotFoundError,
     SessionStateError,
 )
@@ -23,14 +21,14 @@ from marivo.analysis.session.core import Session
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.project import resolve_project_root
 
-__all__ = ["abandon_run", "current", "get_or_create", "inspect", "recent", "resume"]
+__all__ = ["create", "inspect", "recent", "reconcile_run", "resume"]
 
 
 def _invalid(expected: str, received: str) -> DatasetConstructionError:
     return DatasetConstructionError(
         expected=expected,
         received=received,
-        repair="Inspect mv.session.recent() for identities, or create a new named Session with mv.session.get_or_create(name).",
+        repair="Inspect mv.session.recent() for identities, or create a new named Session with mv.session.create(name).",
         location="session.identity",
     )
 
@@ -61,37 +59,36 @@ def _validate_project_manifest(root: Path) -> None:
             repair=AnalysisRepair(
                 kind="retry",
                 action="Repair marivo.toml, then create or resume the named Session.",
-                help_target=LiveHelpTarget(
-                    surface="analysis", canonical_id="session.get_or_create"
-                ),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="session.create"),
             ),
         ) from exc
 
 
-def get_or_create(
+def create(
     name: str,
-    question: str | None = None,
     *,
-    report_timezone: str | None = None,
+    question: str | None = None,
+    timezone: str | None = None,
     domains: str | Sequence[str] | None = None,
 ) -> Session:
-    """Create or recover a named Session in the current project's Store.
+    """Create a new named Session in the current project's Store.
 
     Args:
-        name: Nonempty Session name.
-        question: Optional current investigation question.
-        report_timezone: Optional IANA or explicit UTC-offset report timezone, fixed on first creation.
-        domains: Fixed semantic domain name or nonempty sequence. Omission retains
-            an existing scope; conflicting explicit selections are rejected.
+        name: Unique exact Session name without surrounding whitespace.
+        question: Optional creation-time investigation question.
+        timezone: Optional IANA or explicit UTC-offset report timezone, frozen at creation.
+        domains: Fixed semantic domain name or nonempty sequence. None selects all domains; selection is frozen at creation.
 
-    Returns: The activated Session, with authored semantics loaded only on demand.
-    Example: ``session = mv.session.get_or_create('revenue-review')``.
+    Returns: The new Session, with authored semantics loaded only on demand.
+    Example: ``session = mv.session.create('revenue-review')``.
     Constraints: Earlier Stores remain untouched and cannot be resumed or bypassed with another name. Use a fresh project for a new-format Store; no Session is migrated.
     """
     from marivo.analysis.materialization.admission import DatasetRuntime
 
-    if not isinstance(name, str) or not name.strip():
-        raise _invalid("a nonempty Session name", "empty or invalid name")
+    if not isinstance(name, str) or not name.strip() or name != name.strip():
+        raise _invalid(
+            "a nonempty exact Session name without surrounding whitespace", "empty or invalid name"
+        )
     if question is not None and not isinstance(question, str):
         raise _invalid("a question string or None", "invalid question")
     root = resolve_project_root()
@@ -110,7 +107,7 @@ def get_or_create(
                 message="domains must be a nonempty exact domain name or sequence of names.",
                 expected="one exact domain name or a nonempty sequence",
                 received=repr(domains),
-                location="mv.session.get_or_create(domains=...)",
+                location="mv.session.create(domains=...)",
                 hint="Pass exact domain names without surrounding whitespace.",
             )
         selected_domains = tuple(sorted(set(names)))
@@ -118,116 +115,48 @@ def get_or_create(
         root,
         name,
         question=question,
-        report_timezone=report_timezone,
+        timezone=timezone,
         domains=selected_domains,
     )
     return Session._from_runtime(runtime)
 
 
-def current() -> Session | None:
-    """Read the current existing Session without activation or source loading.
+def resume(session_id: str) -> Session:
+    """Recover one existing Session by its exact immutable ID.
 
-    Args: None.
-    Returns: The persisted current-generation Session, or None when the Store or current Session is absent.
-    Example: ``session = mv.session.current()``.
-    Constraints: This probe never creates a Store or reconciles pending work. Other generations are ignored; an invalid current Store still raises.
+    Args: session_id: Existing Session ID returned by create or recent.
+    Returns: The recovered Session with its saved context.
+    Example: ``session = mv.session.resume(session_id)``.
+    Constraints: Never creates identity or loads current semantics and sources.
     """
     from marivo.analysis.materialization.admission import DatasetRuntime
 
-    root = resolve_project_root()
-    store = _existing_store(root)
-    if store is None:
-        return None
-    record = store.current()
-    return (
-        None
-        if record is None
-        else Session._from_runtime(
-            DatasetRuntime.open(
-                root,
-                record.session_ref,
-            )
-        )
-    )
-
-
-def resume(identity: str, *, by: Literal["name", "id"] | None = None) -> Session:
-    """Recover and activate one existing Session by exact identity.
-
-    Args:
-        identity: Existing Session name or immutable id.
-        by: Explicit name/id selector when the two identities are ambiguous.
-    Returns: The activated existing Session.
-    Example: ``session = mv.session.resume(session_id, by='id')``.
-    Constraints: Missing, ambiguous or old-generation identities never create a Session.
-    """
-    from marivo.analysis.materialization.admission import DatasetRuntime
-
-    if by not in (None, "name", "id"):
-        raise SessionStateError(
-            message="The Session identity selector is not supported.",
-            expected='by="name", by="id", or omitted by',
-            received=str(by)[:160],
-            location="mv.session.resume(by=...)",
-            repair=AnalysisRepair(
-                kind="retry",
-                action='Select by="name" or by="id", or omit by.',
-                help_target=LiveHelpTarget(surface="analysis", canonical_id="session.resume"),
-                candidates=("name", "id"),
-            ),
-        )
-    if not isinstance(identity, str) or not identity.strip():
-        raise _invalid("a nonempty Session name or id", "empty or invalid identity")
+    if not isinstance(session_id, str) or not session_id.strip():
+        raise _invalid("an exact existing Session ID", "empty or invalid identity")
     root = resolve_project_root()
     store = SessionStore.open_existing(root)
-    named = store.session_by_name(identity) if by != "id" else None
-    keyed = store.session(identity) if by != "name" else None
-    if named is not None and keyed is not None and named.session_ref != keyed.session_ref:
-        raise SessionIdentityAmbiguousError(
-            message="This identity names two different Sessions.",
-            expected="one session matched by exact name or id",
-            received=identity[:320],
-            location="mv.session.resume(identity)",
-            repair=AnalysisRepair(
-                kind="user_choice",
-                action='Choose the matching Session with by="name" or by="id".',
-                help_target=LiveHelpTarget(surface="analysis", canonical_id="session.resume"),
-                candidates=(
-                    f'by="id" -> name={keyed.name!r}',
-                    f'by="name" -> id={named.session_ref!r}',
-                ),
-            ),
-        )
-    record = named or keyed
+    record = store.session(session_id)
     if record is None:
-        from marivo.analysis.materialization.store import _rows, _text
+        from marivo.analysis.session import _lazy_history
 
-        with store._read() as connection:
-            rows = _rows(
-                connection,
-                "SELECT name,session_ref FROM sessions ORDER BY updated_at DESC,session_ref DESC LIMIT 10",
-            )
-        selection = "name or id" if by is None else by
         raise SessionNotFoundError(
-            message="The selected Session does not exist in this project's Store.",
-            expected=f"an existing project session {selection} from mv.session.recent().items",
-            received=identity[:320],
-            location="mv.session.resume(identity)",
+            message="The selected Session ID does not exist in this project.",
+            expected="an exact existing Session ID from recent().items",
+            received=session_id,
+            location="mv.session.resume(session_id)",
             repair=AnalysisRepair(
                 kind="inspect",
-                action="Read recent() and resume one returned Session identity.",
+                action="Read recent() and resume a returned Session ID.",
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="session.recent"),
                 candidates=tuple(
-                    _text(row, "session_ref" if by == "id" else "name") for row in rows
+                    item.id for item in _lazy_history.recent(store, limit=10, after=None).items
                 ),
             ),
         )
-    return Session._from_runtime(
-        DatasetRuntime.create(
-            root,
-            record.name,
-        )
-    )
+    runtime = DatasetRuntime.open(root, session_id)
+    with session_writer_guard(store.layout.lock_path(session_id), session_ref=session_id):
+        reconcile_session(store, session_id, event=runtime._event)
+    return Session._from_runtime(runtime)
 
 
 def recent(*, limit: int = 20, cursor: str | None = None) -> SessionSummaryPage:
@@ -254,15 +183,17 @@ def recent(*, limit: int = 20, cursor: str | None = None) -> SessionSummaryPage:
     )
 
 
-def inspect(name: str, *, run_limit: int = 5, run_cursor: str | None = None) -> SessionInspection:
-    """Read a Session summary and one bounded Run page without activating it.
+def inspect(
+    session_id: str, *, run_limit: int = 5, run_cursor: str | None = None
+) -> SessionInspection:
+    """Read a Session summary and one bounded Run page without recovery.
 
     Args:
-        name: Exact existing Session name.
+        session_id: Exact existing Session ID.
         run_limit: Run page size from 1 through 100.
         run_cursor: The previous Run page's next_cursor, or None.
     Returns: The typed SessionInspection.
-    Example: ``mv.session.inspect('revenue-review').show()``.
+    Example: ``mv.session.inspect(session_id).show()``.
     Constraints: This metadata read never consults current datasource state.
     """
     from marivo.analysis.session import _lazy_history
@@ -271,21 +202,21 @@ def inspect(name: str, *, run_limit: int = 5, run_cursor: str | None = None) -> 
     after = page_after(run_limit, run_cursor, operation="inspect")
     return _lazy_history.inspect(
         SessionStore.open_existing(resolve_project_root()),
-        name,
+        session_id,
         run_limit=run_limit,
         after=after,
     )
 
 
-def abandon_run(*, session_id: str, run_id: str) -> None:
+def reconcile_run(*, session_id: str, run_id: str) -> None:
     """Reconcile one incomplete or failed Run under its Session's writer guard.
 
     Args:
         session_id: Exact owning Session identity.
         run_id: Exact same-Session incomplete or already failed Run identity.
     Returns: None after guarded reconciliation succeeds.
-    Example: ``mv.session.abandon_run(session_id=session_id, run_id=run_id)``.
-    Constraints: Local publication safety is mandatory; remote read status may remain unknown. Committed success cannot be abandoned.
+    Example: ``mv.session.reconcile_run(session_id=session_id, run_id=run_id)``.
+    Constraints: Local publication safety is mandatory; remote read status may remain unknown. Committed success cannot be reconciled as failure.
     """
     store = SessionStore.open_existing(resolve_project_root())
     with session_writer_guard(store.layout.lock_path(session_id), session_ref=session_id):
@@ -300,16 +231,16 @@ def abandon_run(*, session_id: str, run_id: str) -> None:
 def _install_telemetry() -> None:
     from marivo.telemetry import tracked_capability
 
-    global get_or_create, resume, abandon_run
-    get_or_create = tracked_capability(
-        surface="analysis", capability_id="session.get_or_create", capability_kind="callable"
-    )(get_or_create)
+    global create, resume, reconcile_run
+    create = tracked_capability(
+        surface="analysis", capability_id="session.create", capability_kind="callable"
+    )(create)
     resume = tracked_capability(
         surface="analysis", capability_id="session.resume", capability_kind="callable"
     )(resume)
-    abandon_run = tracked_capability(
-        surface="analysis", capability_id="session.abandon_run", capability_kind="callable"
-    )(abandon_run)
+    reconcile_run = tracked_capability(
+        surface="analysis", capability_id="session.reconcile_run", capability_kind="callable"
+    )(reconcile_run)
 
 
 _install_telemetry()

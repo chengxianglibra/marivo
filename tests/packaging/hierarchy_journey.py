@@ -10,7 +10,13 @@ import pandas as pd
 import marivo.analysis as mv
 import marivo.semantic as ms
 from tests.analysis.materialization.domain_recovery_worker import snapshot
-from tests.packaging.graph_journeys import _create, _frame, _offline, _remove_sources
+from tests.packaging.graph_journeys import (
+    _create,
+    _frame,
+    _offline,
+    _ordinary_keys,
+    _remove_sources,
+)
 from tests.shared_fixtures import analysis_dsl_rows, run_ids
 from tests.support.json import Json, checked, encode, obj, read
 
@@ -33,9 +39,11 @@ def _verify(values: dict[str, mv.AnalysisFrame]) -> dict[str, Json]:
 
     def regions(name: str) -> dict[str, object]:
         result: dict[str, object] = {}
-        for row in frames[name].itertuples():
-            assert isinstance(row.key_0, str)
-            result[row.key_0] = None if pd.isna(row.value) else row.value
+        (key,) = _ordinary_keys(frames[name])
+        for record in frames[name].to_dict(orient="records"):
+            member, value = record[key], record["value"]
+            assert isinstance(member, str)
+            result[member] = None if pd.isna(value) else value
         return result
 
     assert regions("direct") == region_oracle and regions("regions") == region_oracle
@@ -44,13 +52,23 @@ def _verify(values: dict[str, mv.AnalysisFrame]) -> dict[str, Json]:
     assert frames["coordinate_count"].value.tolist() == [3]
     assert frames["selected_count"].value.tolist() == [2]
     joined = frames["base"].merge(
-        frames["category"], on="key_0", suffixes=("_base", "_category"), validate="one_to_one"
+        frames["category"],
+        left_on=_ordinary_keys(frames["base"])[0],
+        right_on=_ordinary_keys(frames["category"])[0],
+        suffixes=("_base", "_category"),
+        validate="one_to_one",
     )
     assert {
         key: None if pd.isna(value) else value
         for key, value in joined.groupby("value_category").value_base.sum(min_count=1).items()
     } == region_oracle
-    assert frames["coordinates"].groupby("key_1").value.sum().to_dict() == channel_oracle
+    assert (
+        frames["coordinates"]
+        .groupby(_ordinary_keys(frames["coordinates"])[1])
+        .value.sum()
+        .to_dict()
+        == channel_oracle
+    )
     assert len(frames["coordinates"]) == 3 and int((frames["category"].value == "east").sum()) == 2
     return obj(checked({"regions": region_oracle, "channels": channel_oracle}))
 
@@ -62,7 +80,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
     state_path = root / "hierarchy.json"
     if phase == "produce":
         session = _create(root, "j1", "parquet")
-        members = session.members(ms.ref.entity("operations.device"))
+        members = session.members(session.catalog.require(ms.ref.entity("operations.device")))
         category = session.catalog.fields.get("operations.device.zone")
         amount = session.catalog.fields.get("operations.reading.energy")
         time = session.catalog.fields.get("operations.reading.recorded_at")
@@ -70,19 +88,20 @@ def run(root: Path, phase: str) -> dict[str, Json]:
         sensor = session.catalog.fields.get("operations.reading.sensor")
         scope = session.time_scope(start="2026-08-01", end="2026-09-01")
         metric = amount.sum(time=time, empty="null")
-        base = session.observe({"value": metric}, during=scope, by=members, members=members)
+        base = session.observe({"value": metric}, by=mv.product(scope, members))
         category_query = session.read(members, {"value": category})
         coordinates = session.observe(
-            {"value": metric}, during=scope, by=(device, sensor), members=members
+            {"value": metric}, by=(scope, device, sensor), where=mv.in_population(members)
         )
         direct = session.observe(
-            {"value": metric}, during=scope, by=members.classify(by=(category,)), members=members
+            {"value": metric},
+            by=mv.product(scope, members.classify(by=(category,))),
+            where=mv.in_population(members),
         )
         classified = session.observe(
             {"value": metric},
-            during=scope,
-            by=members.classify(by=(members.axes[0], category)),
-            members=members,
+            by=mv.product(scope, members.classify(by=(members.axes[0], category))),
+            where=mv.in_population(members),
         )
         selected = category_query.where(category_query["value"] == "east")
         queries = {
@@ -91,10 +110,12 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             "coordinates": coordinates,
             "direct": direct,
             "regions": classified.reduce(
-                {"value": classified["value"].sum()}, by=(classified.axes[1],)
+                {"value": classified["value"].sum()},
+                by=(next(axis for axis in classified.axes if axis.role == "field"),),
             ),
             "channels": coordinates.reduce(
-                {"value": coordinates["value"].sum()}, by=(coordinates.axes[1],)
+                {"value": coordinates["value"].sum()},
+                by=(tuple(axis for axis in coordinates.axes if axis.role == "field")[1],),
             ),
             "total": base.reduce({"value": base["value"].sum()}),
             "coordinate_count": coordinates.reduce({"value": mv.row_count()}),
@@ -115,7 +136,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
         identity = state["session"]
         assert isinstance(identity, str)
         with _offline(root):
-            session = mv.session.resume(identity, by="id")
+            session = mv.session.resume(identity)
             before = run_ids(session)
             values = {}
             for name, reference in obj(state["artifacts"]).items():

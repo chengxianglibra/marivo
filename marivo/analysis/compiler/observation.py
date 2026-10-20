@@ -14,6 +14,7 @@ import ibis.expr.operations as ops
 import ibis.expr.types as ir
 from ibis.common.deferred import Resolver
 
+from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.deferred import attribute_name
 from marivo._definition.expressions import (
     ContributionFilter,
@@ -38,6 +39,7 @@ from marivo._definition.types import (
     CalendarCoordinate,
     ExactRef,
     FieldRead,
+    IntervalCoordinate,
     coordinate_read_keys,
     field_read_key,
 )
@@ -70,12 +72,12 @@ class ReductionInput:
     node: SourceAggregate | SourceWeightedMean | EntityCount
     axes: tuple[tuple[str, str], ...]
     value_slot: str
-    calendar: CalendarCoordinate | None = None
+    calendar: CalendarCoordinate | IntervalCoordinate | None = None
     time_column: str | None = None
     duration: DurationDataType | None = None
     window_key: int | None = None
     preserve_sample_presence: bool = False
-    calendars: tuple[tuple[str, CalendarCoordinate], ...] = ()
+    calendars: tuple[tuple[str, CalendarCoordinate | IntervalCoordinate], ...] = ()
     sampled: bool = False
     retain_quantile_bounds: bool = False
     native_quantile_value: bool = False
@@ -108,9 +110,10 @@ class PopulationInput:
 
 @dataclass(frozen=True, slots=True)
 class MemberInput:
+    definition: PopulationDependency
     population: PopulationDependency
     keys: tuple[str, ...]
-    output_mapping: tuple[tuple[str, str], ...]
+    axis_mapping: tuple[tuple[ComparisonAxis, tuple[str, ...]], ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,11 +121,12 @@ class FormulaProgram:
     outputs: tuple[tuple[str, MetricNode], ...]
     declared: tuple[tuple[ExactRef, MetricNode], ...]
     values: tuple[FormulaInput, ...]
-    calendar: CalendarCoordinate | None = None
+    calendar: CalendarCoordinate | IntervalCoordinate | None = None
     populations: tuple[PopulationInput, ...] = ()
     output_population: PopulationDependency | None = None
     calendar_key: str = "key.0"
-    members: MemberInput | None = None
+    counts: tuple[MemberInput, ...] = ()
+    axes: tuple[ComparisonAxis, ...] = ()
 
 
 def ibis_type(dtype: DataType) -> dt.DataType:
@@ -161,7 +165,9 @@ def data_type(dtype: dt.DataType) -> DataType:
 
 
 def reduction_input(
-    contribution: ContributionBinding, slot: str, calendar: CalendarCoordinate | None
+    contribution: ContributionBinding,
+    slot: str,
+    calendar: CalendarCoordinate | IntervalCoordinate | None,
 ) -> ReductionInput:
     node = contribution.definition
     if not isinstance(node, (SourceAggregate, SourceWeightedMean, EntityCount)):
@@ -237,7 +243,12 @@ def lower_observation(
             assert prepared.time_column is not None
             time = available[prepared.time_column]
             bucket: ir.Value = ibis.null().cast("int64")
-            for i, (_, _, start, end) in reversed(tuple(enumerate(calendar.cells))):
+            cells = (
+                calendar.cells
+                if isinstance(calendar, CalendarCoordinate)
+                else ((calendar.start, calendar.end, calendar.start, calendar.end),)
+            )
+            for i, (_, _, start, end) in reversed(tuple(enumerate(cells))):
                 bucket = (
                     (time >= temporal_bound(time, start, calendar.timezone))
                     & (time < temporal_bound(time, end, calendar.timezone))

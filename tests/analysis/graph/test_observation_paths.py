@@ -171,15 +171,14 @@ def test_long_path_sum_and_count(
             }
         )
         trace = capture_source(monkeypatch)
-        session = mv.session.get_or_create("long-path", report_timezone="UTC")
-        population = session.members(ms.ref.entity("sales.subjects"))
+        session = mv.session.create("long-path", timezone="UTC")
+        population = session.members(session.catalog.require(ms.ref.entity("sales.subjects")))
         expected_keys = ((1, "a"), (1, "b"), (2, "c")) if compound else owner_values
         for metric, expected in (("total", [2**53 + 3, 7, 0]), ("number", [2, 1, 0])):
             expression = session.catalog.metrics.get("sales." + metric)
             logical = session.observe(
                 {"value": expression},
-                during=session.time_scope(start="2026-08-01", end="2026-08-02"),
-                by=population,
+                by=mv.product(session.time_scope(start="2026-08-01", end="2026-08-02"), population),
             )
             binding = source_graph(logical).signature.observation
             assert binding is not None and len(binding.contributions) == 1
@@ -200,8 +199,9 @@ def test_long_path_sum_and_count(
                 sliced = expression.where(field == ("a" if compound else owner_values[0]))
                 selected = session.observe(
                     {"value": sliced},
-                    during=session.time_scope(start="2026-08-01", end="2026-08-02"),
-                    by=population,
+                    by=mv.product(
+                        session.time_scope(start="2026-08-01", end="2026-08-02"), population
+                    ),
                 ).persist()
                 selected_frame = selected.to_pandas()
                 assert dict(

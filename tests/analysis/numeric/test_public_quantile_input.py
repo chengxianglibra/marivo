@@ -44,7 +44,7 @@ def test_defined_quantile_survives_source_offline_recovery(
     session = case.session
     query = session.observe(
         {"value": session.catalog.metrics.get("sales.median_amount")},
-        by=session.members(ms.ref.entity("sales.customer")),
+        by=session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
     )
     output = query.persist()
     exported = output.to_pandas()
@@ -79,7 +79,7 @@ def forbidden(*args, **kwargs):
     raise AssertionError('quantile output loaded Semantic or connected a source')
 ms.load = forbidden
 DatasourceConnectionService.use_backend = forbidden
-session = mv.session.resume(sys.argv[1], by='id')
+session = mv.session.resume(sys.argv[1])
 before = run_ids(session)
 fixed = session.persisted_frame(sys.argv[2])
 assert isinstance(fixed, mv.AnalysisFrame)

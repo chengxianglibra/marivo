@@ -6,20 +6,26 @@ from dataclasses import dataclass
 from typing import Literal
 
 from marivo._definition.relations import MembershipBinding
-from marivo._definition.types import AxisBinding, CalendarCoordinate
+from marivo._definition.types import AxisBinding, CalendarCoordinate, IntervalCoordinate
 from marivo._grouping import Grouping
 
 
 @dataclass(frozen=True, slots=True, repr=False)
 class _CoordinateGrouping(Grouping):
-    _value: AxisBinding | CalendarCoordinate
+    _value: AxisBinding | CalendarCoordinate | IntervalCoordinate
 
     @property
-    def kind(self) -> Literal["field", "identity", "calendar"]:
-        return "calendar" if isinstance(self._value, CalendarCoordinate) else self._value.role
+    def kind(self) -> Literal["field", "identity", "calendar", "interval"]:
+        return (
+            "calendar"
+            if isinstance(self._value, CalendarCoordinate)
+            else "interval"
+            if isinstance(self._value, IntervalCoordinate)
+            else self._value.role
+        )
 
     @property
-    def _binding(self) -> AxisBinding | CalendarCoordinate:
+    def _binding(self) -> AxisBinding | CalendarCoordinate | IntervalCoordinate:
         return self._value
 
 

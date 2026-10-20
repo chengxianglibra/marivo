@@ -44,7 +44,7 @@ def _field_axis(value: Deferred, state: CompiledSemanticState, resolver: _Resolv
 
 def population_from(
     local: LocalFrameServices,
-    state: CompiledSemanticState,
+    state: CompiledSemanticState | None,
     frame: AnalysisFrame,
     *,
     on: tuple[tuple[FrameAxis, Deferred | Entity], ...],
@@ -64,12 +64,13 @@ def population_from(
             "Pass on=((frame.axes[0], field),); use on=() for the empty joint key.",
             "frame.population",
         )
-    resolver = _Resolver(state)
+    resolver = _Resolver(state) if state is not None else None
     bindings: list[FrameKeyAxis] = []
     selected: set[int] = set()
     targets: set[AxisBinding] = set()
     inputs = merge_frame_key_inputs((FrameKeyInput(frame._input_id, frame),), owner=local.owner)
     for axis, target in on:
+        assert state is not None and resolver is not None
         index = frame._axis_index(axis)
         inputs = merge_frame_key_inputs(
             inputs, (FrameKeyInput(axis._input_id, axis._frame),), owner=local.owner

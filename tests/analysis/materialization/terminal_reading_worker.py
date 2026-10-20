@@ -11,6 +11,8 @@ from unittest.mock import patch
 import pandas as pd
 
 import marivo.analysis as mv
+from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
+from marivo.analysis.session._lazy_read_model import SucceededRun
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 
@@ -26,7 +28,7 @@ def main() -> None:
     root, name, mode = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
     os.chdir(root)
     if mode == "produce":
-        session = mv.session.get_or_create(name, report_timezone="UTC")
+        session = mv.session.create(name, timezone="UTC")
         amount = session.catalog.fields.get("sales.orders.amount")
         region = session.catalog.fields.get("sales.orders.region")
         artifact = session.observe(
@@ -39,7 +41,7 @@ def main() -> None:
                 rows[("coordinate", "axis.0")], rows[("value", "total")], strict=True
             )
         } == {None: 5, "A": 9007199254740993}
-        print(artifact.artifact.id)
+        print(session.id, artifact.artifact.id)
         return
     with ExitStack() as patches:
         for owner, attribute, replacement in (
@@ -48,7 +50,7 @@ def main() -> None:
             (SourceSession, "execute", forbidden),
         ):
             patches.enter_context(patch.object(owner, attribute, replacement))
-        session = mv.session.resume(name, by="name")
+        session = mv.session.resume(name)
         before = len(session.runs().items)
         artifact = session.persisted_frame(sys.argv[4])
         assert artifact.artifact.id in repr(artifact.artifact)
@@ -66,7 +68,10 @@ def main() -> None:
         facts = artifact.artifact.evidence_digest()
         assert any(item.kind == "read" for item in facts.items)
         facts.show()
-        assert len(session.graph().artifacts) == 1
+        published = session.runs(status="succeeded").items
+        assert len(published) == 1
+        assert isinstance(published[0], SucceededRun)
+        assert published[0].output_artifact_ref.ref == artifact.artifact.id
         assert len(session.runs().items) == before
         assert session._runtime.store.resources(session.id) == ()
         fixed = artifact.compute()
@@ -80,6 +85,8 @@ def main() -> None:
         assert reduced.to_pandas()[("value", "rows")].tolist() == [2]
         assert len(session.runs().items) == before
         copied = fixed.persist()
+        assert isinstance(copied._backing, StoredFrameBacking)
+        assert isinstance(fixed._backing, MemoryFrameBacking)
         assert copied._backing.metadata == fixed._backing.metadata
         assert len(session.runs().items) == before + 1
         print("public-cold-ok")

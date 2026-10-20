@@ -7,7 +7,6 @@ import duckdb
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.core.artifact_data import DataSchema
 from marivo.analysis.core.data_types import DecimalDataType, ScalarDataType
 
@@ -59,7 +58,7 @@ def decimal_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.Sessi
         connection.execute(
             "INSERT INTO orders VALUES (1,'2026-07-01',15.75,2.0,2.00), (2,'2026-07-01',4.25,3.0,3.00)"
         )
-    return mv.session.get_or_create("decimal", report_timezone="UTC")
+    return mv.session.create("decimal", timezone="UTC")
 
 
 def _observed(session: mv.Session, *, overall: bool = False) -> mv.AnalysisFrame:
@@ -68,8 +67,12 @@ def _observed(session: mv.Session, *, overall: bool = False) -> mv.AnalysisFrame
             "gmv": session.catalog.metrics.get("sales.gmv"),
             "fee": session.catalog.metrics.get("sales.fee"),
         },
-        during=session.time_scope(start="2026-07-01", end="2026-07-02"),
-        by=() if overall else session.members(ms.ref.entity("sales.orders")),
+        by=(session.time_scope(start="2026-07-01", end="2026-07-02"),)
+        if overall
+        else mv.product(
+            session.time_scope(start="2026-07-01", end="2026-07-02"),
+            session.members(session.catalog.entities.get("sales.orders")),
+        ),
     )
 
 
@@ -91,7 +94,7 @@ def test_ratio_accepts_independent_numeric_components(decimal_session: mv.Sessio
     for numerator in (fee, normalized_fee):
         observed = session.observe(
             {"rate": numerator / gmv},
-            during=session.time_scope(start="2026-07-01", end="2026-07-02"),
+            by=(session.time_scope(start="2026-07-01", end="2026-07-02"),),
         )
         result = observed.compute()
         assert isinstance(result._schema, DataSchema)

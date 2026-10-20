@@ -1,548 +1,201 @@
-"""Facade-based session lifecycle tests.
+"""Strict Session creation, exact recovery and read-only discovery."""
 
-All tests use ``import marivo.analysis as mv`` only; no direct imports
-from ``attach``, ``active``, or ``persistence``.
-"""
-
-from __future__ import annotations
-
-import threading
+import sqlite3
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from importlib import import_module
-from inspect import signature
+from inspect import Parameter, signature
 from pathlib import Path
-from types import SimpleNamespace
-from typing import Any, Literal, get_type_hints
 
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.materialization.contracts import SessionRecord
-
-# ---------------------------------------------------------------------------
-# __all__ and surface checks
-# ---------------------------------------------------------------------------
-
-
-def test_session_all_exports_exactly_six_names() -> None:
-    assert mv.session.__all__ == [
-        "abandon_run",
-        "current",
-        "get_or_create",
-        "inspect",
-        "recent",
-        "resume",
-    ]
+from marivo.analysis.errors import SessionAlreadyExistsError, SessionNotFoundError
+from marivo.analysis.materialization.terminal_store import admit
+from marivo.analysis.materialization.writer_guard import session_writer_guard
+from tests.shared_fixtures import DslCaseFactory
 
 
-def test_session_acquisition_has_concrete_return_annotations() -> None:
-    assert get_type_hints(mv.session.abandon_run)["return"] is type(None)
-    assert get_type_hints(mv.session.current)["return"] == mv.Session | None
-    assert get_type_hints(mv.session.get_or_create)["return"] is mv.Session
-    assert get_type_hints(mv.session.resume)["return"] is mv.Session
-    assert signature(mv.session.current).return_annotation != Any
-    assert signature(mv.session.get_or_create).return_annotation != Any
-    assert signature(mv.session.resume).return_annotation != Any
-    assert tuple(signature(mv.session.abandon_run).parameters) == ("session_id", "run_id")
-    assert all(
-        parameter.kind.name == "KEYWORD_ONLY"
-        for parameter in signature(mv.session.abandon_run).parameters.values()
+def test_lifecycle_surface_has_one_explicit_entrypoint() -> None:
+    assert set(mv.session.__all__) == {"create", "resume", "recent", "inspect", "reconcile_run"}
+    assert tuple(signature(mv.session.create).parameters) == (
+        "name",
+        "question",
+        "timezone",
+        "domains",
     )
-    assert tuple(signature(mv.session.resume).parameters) == (
-        "identity",
-        "by",
+    assert signature(mv.session.create).parameters["question"].kind is Parameter.KEYWORD_ONLY
+    assert tuple(signature(mv.session.resume).parameters) == ("session_id",)
+    for retired in ("get_or_create", "current", "abandon_run"):
+        assert not hasattr(mv.session, retired)
+
+
+def test_create_is_strict_and_preserves_frozen_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    original = mv.session.create(
+        "review", question="Why?", timezone="UTC", domains=["sales", "sales"]
     )
-
-
-# ---------------------------------------------------------------------------
-# current()
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# get_or_create()
-# ---------------------------------------------------------------------------
-
-
-def test_get_or_create_creates_and_marks_current(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    s = mv.session.get_or_create(name="s")
-    assert s.name == "s"
-    current = mv.session.current()
-    assert current is not None
-    assert current.id == s.id
-
-
-def test_get_or_create_resumes_same_id_and_marks_current(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    s1 = mv.session.get_or_create(name="s")
-    s2 = mv.session.get_or_create(name="s")
-    assert s1.id == s2.id
-    current = mv.session.current()
-    assert current is not None
-    assert current.id == s1.id
-
-
-def test_explicit_question_updates_existing_session(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    original = mv.session.get_or_create(name="s", question="why?")
-    before = mv.session.inspect("s").summary
-    store = original._runtime.store
-
-    updated = mv.session.get_or_create(name="s", question="different?")
-
-    current = mv.session.current()
-    inspection = mv.session.inspect("s").summary
-    record = store.session(updated.id)
-    assert record is not None
-    assert updated.id == original.id
-    assert updated.created_at == original.created_at
-    assert updated.question == "different?"
-    assert current is not None
-    assert current.id == original.id
-    assert current.question == "different?"
-    assert inspection.question == "different?"
-    assert inspection.updated_at > before.updated_at
-    assert record.question == "different?"
-
-
-def test_get_or_create_same_or_omitted_question_preserves_current_value(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    mv.session.get_or_create(name="s", question="why?")
-
-    matching = mv.session.get_or_create(name="s", question="why?")
-    omitted = mv.session.get_or_create(name="s")
-
-    assert matching.id == omitted.id
-    assert matching.question == "why?"
-    assert omitted.question == "why?"
-    assert mv.session.inspect("s").summary.question == "why?"
-
-
-def test_get_or_create_binds_question_to_existing_unbound_session(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    existing = mv.session.get_or_create(name="s")
-
-    updated = mv.session.get_or_create(name="s", question="new question")
-
-    assert updated.id == existing.id
-    assert updated.question == "new question"
-    assert mv.session.inspect("s").summary.question == "new question"
-
-
-def test_question_update_activates_historical_session_and_syncs_metadata(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    historical = mv.session.get_or_create(name="historical", question="original")
-    store = historical._runtime.store
-    mv.session.get_or_create(name="active")
-
-    updated = mv.session.get_or_create(name="historical", question="replacement")
-
-    current = mv.session.current()
-    record = store.session(updated.id)
-    assert record is not None
-    assert current is not None
-    assert updated.id == historical.id
-    assert current.id == historical.id
-    assert current.question == "replacement"
-    assert mv.session.inspect("historical").summary.question == "replacement"
-    assert record.question == "replacement"
-
-
-def test_get_or_create_explicit_empty_question_clears_current_value(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    original = mv.session.get_or_create(name="s", question="why?")
-
-    updated = mv.session.get_or_create(name="s", question="")
-
-    store = original._runtime.store
-    assert updated.id == original.id
-    assert updated.question == ""
-    assert mv.session.inspect("s").summary.question == ""
-    record = store.session(original.id)
-    assert record is not None
-    assert record.question == ""
-
-
-def test_question_and_current_activation_roll_back_together_on_store_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import sqlite3
-
-    monkeypatch.chdir(tmp_path)
-    original = mv.session.get_or_create("historical", question="original")
-    active = mv.session.get_or_create("active")
-    store = original._runtime.store
-    before = store.session(original.id)
-    with store._write() as connection:
-        connection.execute(
-            "CREATE TRIGGER fail_question BEFORE UPDATE OF question ON sessions BEGIN SELECT RAISE(ABORT, 'activation failed'); END"
+    before = original._record()
+    with pytest.raises(SessionAlreadyExistsError) as caught:
+        mv.session.create(
+            "review", question="Replacement", timezone="Asia/Shanghai", domains="finance"
         )
-    with pytest.raises(sqlite3.IntegrityError, match="activation failed"):
-        mv.session.get_or_create("historical", question="replacement")
-    assert store.session(original.id) == before
-    current = mv.session.current()
-    assert current is not None
-    assert current.id == active.id
-    assert mv.session.inspect("historical").summary.question == "original"
+    assert caught.value._context["session_id"] == original.id
+    assert caught.value.repair is not None
+    assert caught.value.repair.candidates == (original.id,)
+    assert original.id in str(caught.value)
+    assert original._record() == before
+    assert original.domains == ("sales",)
+    assert mv.session.resume(original.id)._record() == before
+    assert mv.session.inspect(original.id).summary.question == "Why?"
+    for field in ("id", "name", "question", "timezone", "domains", "created_at", "updated_at"):
+        with pytest.raises(AttributeError):
+            setattr(original, field, "changed")
 
 
-def test_concurrent_question_update_rejects_busy_writer_without_partial_activation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("name", ["", " ", " review", "review "])
+def test_invalid_name_does_not_create_store(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
 ) -> None:
-    from marivo.analysis.materialization.errors import SessionBusyError
-    from marivo.analysis.materialization.store import SessionStore
-
     monkeypatch.chdir(tmp_path)
-    original = mv.session.get_or_create("s", question="original")
-    entered = threading.Event()
-    release = threading.Event()
-    activate = SessionStore.activate
+    with pytest.raises(mv.errors.AnalysisError):
+        mv.session.create(name)
+    assert not (tmp_path / ".marivo").exists()
 
-    def paused(
-        store: SessionStore, session_ref: str, *, question: str | None = None
-    ) -> SessionRecord:
-        if question == "question-a":
-            entered.set()
-            assert release.wait(10)
-        return activate(store, session_ref, question=question)
 
-    monkeypatch.setattr(SessionStore, "activate", paused)
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        winner = executor.submit(mv.session.get_or_create, "s", "question-a")
+def test_competing_create_has_one_winner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    # Initialize the Store so this test isolates the unique-name transaction.
+    mv.session.create("initializer", timezone="UTC")
+
+    def create() -> str:
         try:
-            assert entered.wait(10)
-            with pytest.raises(SessionBusyError):
-                mv.session.get_or_create("s", question="question-b")
-            assert original.question == "original"
-        finally:
-            release.set()
-        assert winner.result().id == original.id
-    assert mv.session.inspect("s").summary.question == "question-a"
-    current = mv.session.current()
-    assert current is not None
-    assert current.question == "question-a"
-    assert mv.session.get_or_create("s", question="question-b").question == "question-b"
+            return mv.session.create("shared", timezone="UTC").id
+        except SessionAlreadyExistsError:
+            return "duplicate"
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda _: create(), range(2)))
+    assert results.count("duplicate") == 1
+    assert len([item for item in mv.session.recent().items if item.name == "shared"]) == 1
 
 
-def test_resume_by_id_restores_session_and_marks_current(
+def test_exact_id_cannot_be_confused_with_another_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    historical = mv.session.get_or_create(name="historical", question="why?")
-    mv.session.get_or_create(name="active")
-
-    resumed = mv.session.resume(historical.id)
-
-    assert resumed.id == historical.id
-    assert resumed.name == "historical"
-    assert resumed.question == "why?"
-    current = mv.session.current()
-    assert current is not None
-    assert current.id == historical.id
+    first = mv.session.create("first")
+    mv.session.create(first.id)
+    assert mv.session.resume(first.id).id == first.id
+    assert mv.session.inspect(first.id).summary.id == first.id
+    for read in (mv.session.resume, mv.session.inspect):
+        with pytest.raises(SessionNotFoundError):
+            read("first")
 
 
-def test_resume_by_name_restores_without_creating_or_changing_persisted_fields(
+def test_metadata_reads_and_compute_leave_updated_at_unchanged(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    historical = mv.session.get_or_create(
-        name="historical",
-        question="why?",
-        report_timezone="UTC",
-    )
-    mv.session.get_or_create(name="active")
-
-    resumed = mv.session.resume("historical")
-
-    assert resumed.id == historical.id
-    assert resumed.name == "historical"
-    assert resumed.question == "why?"
-    assert resumed.report_tz_name == "UTC"
-    assert {item.name for item in mv.session.recent(limit=10).items} == {
-        "active",
-        "historical",
-    }
-    current = mv.session.current()
-    assert current is not None
-    assert current.id == historical.id
-
-
-def test_resume_missing_identity_raises_typed_error_with_real_name_candidates(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    known = mv.session.get_or_create(name="known")
-
-    with pytest.raises(mv.errors.SessionNotFoundError) as exc_info:
-        mv.session.resume("sess_missing")
-
-    error = exc_info.value
-    assert error.expected == "an existing project session name or id from mv.session.recent().items"
-    assert error.received == "sess_missing"
-    assert error.location == "mv.session.resume(identity)"
-    assert error.repair is not None
-    assert error.repair.kind == "inspect"
-    assert error.repair.help_target.canonical_id == "session.recent"
-    assert error.repair.candidates == (known.name,)
-    current = mv.session.current()
-    assert current is not None
-    assert current.id == known.id
-
-
-def test_resume_rejects_identity_that_matches_different_id_and_name_rows(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    store_module = import_module("marivo.analysis.materialization.admission")
-    shared_identity = "session_" + "a" * 24
-    generated_ids = iter((shared_identity, "session_" + "b" * 24))
-    monkeypatch.setattr(
-        store_module,
-        "uuid4",
-        lambda: SimpleNamespace(hex=next(generated_ids).removeprefix("session_")),
-    )
-    id_match = mv.session.get_or_create(name="id-owner")
-    name_match = mv.session.get_or_create(name=shared_identity)
-
-    with pytest.raises(mv.errors.SessionIdentityAmbiguousError) as exc_info:
-        mv.session.resume(shared_identity)
-
-    error = exc_info.value
-    assert error.expected == "one session matched by exact name or id"
-    assert error.received == shared_identity
-    assert error.location == "mv.session.resume(identity)"
-    assert error.repair is not None
-    assert error.repair.kind == "user_choice"
-    assert error.repair.help_target.canonical_id == "session.resume"
-    assert error.repair.candidates == (
-        f'by="id" -> name={id_match.name!r}',
-        f'by="name" -> id={name_match.id!r}',
-    )
-
-    resumed_by_id = mv.session.resume(shared_identity, by="id")
-    resumed_by_name = mv.session.resume(shared_identity, by="name")
-
-    assert resumed_by_id.id == id_match.id
-    assert resumed_by_name.id == name_match.id
-    current = mv.session.current()
-    assert current is not None
-    assert current.id == name_match.id
-
-
-def test_resume_accepts_identity_matching_same_row_by_id_and_name(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    store_module = import_module("marivo.analysis.materialization.admission")
-    monkeypatch.setattr(store_module, "uuid4", lambda: SimpleNamespace(hex="same"))
-    session = mv.session.get_or_create(name="session_same")
-
-    resumed = mv.session.resume("session_same")
-
-    assert resumed.id == session.id == "session_same"
-
-
-@pytest.mark.parametrize(
-    ("by", "expected", "candidate_attribute"),
-    (
-        ("name", "an existing project session name", "name"),
-        ("id", "an existing project session id", "id"),
-    ),
-)
-def test_resume_explicit_selector_missing_identity_uses_matching_candidates(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    by: Literal["name", "id"],
-    expected: str,
-    candidate_attribute: str,
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    known = mv.session.get_or_create(name="known")
-
-    with pytest.raises(mv.errors.SessionNotFoundError) as exc_info:
-        mv.session.resume("missing", by=by)
-
-    error = exc_info.value
-    assert error.expected == f"{expected} from mv.session.recent().items"
-    assert error.repair is not None
-    assert error.repair.candidates == (getattr(known, candidate_attribute),)
-
-
-def test_resume_rejects_unknown_identity_selector(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    resume: Callable[..., mv.Session] = mv.session.resume
-
-    with pytest.raises(mv.errors.SessionStateError) as exc_info:
-        resume("s", by="prefix")
-
-    error = exc_info.value
-    assert error.expected == 'by="name", by="id", or omitted by'
-    assert error.received == "prefix"
-    assert error.location == "mv.session.resume(by=...)"
-    assert error.repair is not None
-    assert error.repair.candidates == ("name", "id")
-
-
-def test_resume_rejects_backends_and_backend_factory_together(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    session = mv.session.get_or_create(name="s")
-
-    resume: Callable[..., mv.Session] = mv.session.resume
-    with pytest.raises(TypeError):
-        resume(
-            session.id,
-            backends={"w": lambda: None},
-            backend_factory=lambda _name: None,
+    session = mv.session.create("stable", timezone="UTC")
+    record = session._record()
+    mv.session.resume(session.id)
+    mv.session.inspect(session.id)
+    mv.session.recent()
+    session.show()
+    session.values(columns={"answer": None}, rows=(((), {"answer": 7}),)).compute()
+    assert session._record() == record
+    with sqlite3.connect(session._runtime.store.db_path) as connection:
+        assert (
+            connection.execute(
+                "SELECT name FROM sqlite_master WHERE name='runtime_state'"
+            ).fetchall()
+            == []
         )
 
 
-def test_session_has_no_default_calendar_surface(
+def test_resume_recovers_pending_run_without_loading_catalog(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    session = mv.session.get_or_create(name="s")
-    assert not hasattr(session, "default_calendar")
-    get_or_create: Callable[..., mv.Session] = mv.session.get_or_create
-    with pytest.raises(TypeError):
-        get_or_create(name="s", default_calendar="fiscal")
+    session = mv.session.create("recover", timezone="UTC")
+    admit(session._runtime.store, session.id, "run_pending", "output_pending")
+    monkeypatch.setattr(mv.Session, "_sources", lambda _: pytest.fail("recovery loaded semantics"))
+    recovered = mv.session.resume(session.id)
+    assert recovered.get_run("run_pending").lifecycle == "failed"
+    stable = recovered._record()
+    assert mv.session.resume(session.id)._record() == stable
 
 
-def test_backends_and_backend_factory_both_raises_session_state_error(
+def test_recovery_respects_active_writer_and_run_ownership(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    get_or_create: Callable[..., mv.Session] = mv.session.get_or_create
-    with pytest.raises(TypeError):
-        get_or_create(
-            name="s",
-            backends={"w": lambda: None},
-            backend_factory=lambda name: None,
-        )
-
-
-# ---------------------------------------------------------------------------
-# recent() and inspect()
-# ---------------------------------------------------------------------------
-
-
-def test_recent_is_bounded_newest_first(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    first = mv.session.get_or_create(name="first")
-    second = mv.session.get_or_create(name="second")
-
-    page = mv.session.recent(limit=1)
-    assert [item.name for item in page.items] == ["second"]
-    assert page.has_more is True
-    assert page.next_cursor is not None
-    next_page = mv.session.recent(limit=1, cursor=page.next_cursor)
-    assert [item.name for item in next_page.items] == ["first"]
-    assert {item.id for item in (*page.items, *next_page.items)} == {first.id, second.id}
-
-
-def test_inspect_returns_bounded_snapshot_without_touching_session(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import marivo.semantic.catalog as catalog_module
-    from marivo.analysis.materialization.terminal_store import admit
-
-    monkeypatch.chdir(tmp_path)
-    historical = mv.session.get_or_create("historical", question="Why did revenue drop?")
-    store = historical._runtime.store
-    admit(
-        store,
-        historical.id,
-        "run_1",
-        "result_inspection",
-    )
-    active = mv.session.get_or_create("active")
-    before = store.session(historical.id)
-    monkeypatch.setattr(
-        catalog_module, "load", lambda **kwargs: pytest.fail("inspect loaded semantics")
-    )
-    snapshot = mv.session.inspect("historical", run_limit=1)
-    assert store.session(historical.id) == before
-    current = mv.session.current()
-    assert current is not None
-    assert current.id == active.id
-    assert snapshot.summary.question == "Why did revenue drop?"
-    assert snapshot.runs.items[0].run_id == "run_1"
-
-
-def test_inspect_missing_session_raises_typed_error_with_real_candidates(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    mv.session.get_or_create(name="known")
-
-    with pytest.raises(mv.errors.SessionNotFoundError) as exc_info:
-        mv.session.inspect("missing")
-
-    repair = exc_info.value.repair
-    assert repair is not None
-    assert repair.kind == "inspect"
-    assert repair.help_target.canonical_id == "session.recent"
-    assert repair.candidates == ("known",)
+    session = mv.session.create("guarded")
+    other = mv.session.create("other")
+    admit(session._runtime.store, session.id, "run_pending", "output_pending")
+    with pytest.raises(mv.errors.AnalysisError):
+        mv.session.reconcile_run(session_id=other.id, run_id="run_pending")
+    with (
+        session_writer_guard(
+            session._runtime.store.layout.lock_path(session.id), session_ref=session.id
+        ),
+        pytest.raises(mv.errors.AnalysisError),
+    ):
+        mv.session.resume(session.id)
+    mv.session.reconcile_run(session_id=session.id, run_id="run_pending")
+    assert session.get_run("run_pending").lifecycle == "failed"
 
 
 @pytest.mark.parametrize(
-    ("call", "message"),
-    [
-        (lambda: mv.session.recent(limit=0), "session.recent.limit"),
-        (lambda: mv.session.inspect("x", run_limit=0), "session.inspect.run_limit"),
-        (lambda: mv.session.inspect("x", run_limit=101), "session.inspect.run_limit"),
-    ],
+    "read",
+    [lambda: mv.session.recent(limit=0), lambda: mv.session.inspect("missing", run_limit=101)],
 )
-def test_history_limits_fail_before_lookup(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    call: Callable[[], object],
-    message: str,
+def test_invalid_page_is_rejected_before_store_creation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, read: Callable[[], object]
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    with pytest.raises(mv.errors.SessionStateError, match=message):
-        call()
+    with pytest.raises(mv.errors.AnalysisError):
+        read()
+    assert not (tmp_path / ".marivo").exists()
 
 
-# ---------------------------------------------------------------------------
-# delete()
-# ---------------------------------------------------------------------------
+def test_literal_frame_and_empty_bridge_do_not_load_catalog(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    session = mv.session.create("literal", timezone="UTC")
+    monkeypatch.setattr(
+        mv.Session, "_sources", lambda _: pytest.fail("literal domain loaded semantics")
+    )
+    unit = mv.coordinates(by=(), keys=((),))
+    empty = mv.coordinates(by=(), keys=())
+    assert len(session.frame(unit).compute().to_pandas()) == 1
+    assert len(session.frame(empty).compute().to_pandas()) == 0
+    values = session.values(columns={"answer": None}, rows=(((), {"answer": 7}),))
+    bridged = session.population_from(values, on=())
+    assert len(session.frame(bridged).compute().to_pandas()) == 1
+    assert session.runs().items == ()
+
+
+def test_members_consumes_resolved_entity_without_original_version_gate(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    from dataclasses import replace
+
+    from marivo._definition.relations import PopulationProgram, SourceIdentities
+    from marivo._definition.types import ExactRef
+
+    case = analysis_dsl_case_factory("j1")
+    entity = case.session.catalog.entities.get("sales.customer")
+    older = replace(entity, ref=ExactRef(entity.ref.ref, "previous-definition"))
+    population = case.session.members(older)
+    assert isinstance(population._definition, PopulationProgram)
+    assert isinstance(population._definition.root, SourceIdentities)
+    assert population._definition.root.entity == older.ref
+    assert case.session.frame(population).compute().to_pandas()[
+        ("coordinate", "axis.0")
+    ].tolist() == ["A", "B", "C", "D"]
+    with pytest.raises(mv.errors.AnalysisError, match="complete primary key"):
+        case.session.members(replace(entity, primary_key=("wrong",)))

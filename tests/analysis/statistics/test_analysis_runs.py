@@ -13,7 +13,7 @@ from tests.shared_fixtures import DslCase, DslCaseFactory
 def _daily(case: DslCase) -> mv.AnalysisFrame:
     grid = case.session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
     return case.session.observe(
-        {"value": case.session.catalog.metrics.get("sales.revenue")}, during=grid
+        {"value": case.session.catalog.metrics.get("sales.revenue")}, by=(grid,)
     )
 
 
@@ -93,15 +93,17 @@ def test_new_grid_after_subject_selection(
     case = analysis_dsl_case_factory("j2")
     session = case.session
     scope = session.time_scope(start="2026-08-01", end="2026-08-04")
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     revenue = session.catalog.metrics.get("sales.revenue")
-    values = session.observe({"value": revenue}, during=scope, by=members)
+    values = session.observe({"value": revenue}, by=mv.product(scope, members))
     selection = values.where(values["value"] > 0)
     selected = session.population_from(
-        selection, on=((selection.axes[0], session.catalog.entities.get("sales.customer")),)
+        selection, on=((selection.axes[1], session.catalog.entities.get("sales.customer")),)
     )
     fresh = session.observe(
-        {"value": revenue}, by=mv.product(selected, scope.by(mv.grain("day"))), members=selected
+        {"value": revenue},
+        by=mv.product(selected, scope.by(mv.grain("day"))),
+        where=mv.in_population(selected),
     )
     artifact = fresh.persist()
     receiver = session.persisted_frame(artifact.artifact.id) if fixed else artifact

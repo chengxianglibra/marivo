@@ -18,14 +18,14 @@ def main() -> None:
     assert Path(marivo_path).resolve().parents[1] == Path(__file__).resolve().parents[3], (
         "worker imported a different checkout"
     )
-    root, name, point = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+    root, session_id, point = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
 
     def event(current: str) -> None:
         if current == point:
             os._exit(37)
 
     try:
-        runtime = DatasetRuntime.create(root, name, report_timezone="UTC", event=event)
+        runtime = DatasetRuntime.open(root, session_id, event=event)
         session = Session._from_runtime(runtime)
         terminal_publication._event = event
         saved = session.values(

@@ -261,7 +261,7 @@ def test_bound_method_renders_the_same_descriptor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create(name="unified_help")
+    session = mv.session.create(name="unified_help")
     from marivo.introspection.live.resolve import resolve_live_target
 
     resolved = resolve_live_target(session.members, ANALYSIS_LIVE_SURFACE)

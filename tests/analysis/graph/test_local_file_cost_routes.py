@@ -13,6 +13,7 @@ import marivo.semantic as ms
 from marivo.analysis.core.data_types import ScalarDataType
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from tests.analysis.graph.physical_workloads import _rows, workload
+from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 
 
 @pytest.mark.parametrize(
@@ -57,16 +58,18 @@ def test_file_cost_original_sum_executes_exact_real_file_route(
         assert captures and any("SUM(" in read.sql.upper() for read, _ in captures)
         observed = values.persist()
         frame = observed.to_pandas()
-        assert set(frame.iloc[:, 0]) == {("a", 2**53 + index, 1) for index in range(len(facts))}
+        assert set(frame[ordinary_columns(frame)[0]]) == {
+            ("a", 2**53 + index, 1) for index in range(len(facts))
+        }
         assert frame[("value", "value")].tolist() == [0, 2, 3, 4]
         raw = work.session.read(
-            work.session.members(ms.ref.entity("cost.facts")),
+            work.session.members(work.session.catalog.require(ms.ref.entity("cost.facts"))),
             {"amount": work.session.catalog.fields.get("cost.facts.amount")},
         )
         support = raw.where(~raw["amount"].is_null()).reduce({"support": mv.row_count()})
         assert support.persist().to_pandas()[("value", "support")].tolist() == [3]
         assert [
-            column.dtype for column in observed.artifact._manifest.data.schema.axes[0].columns
+            column.dtype for column in observed.artifact._manifest.data.schema.axes[1].columns
         ] == [
             ScalarDataType("string"),
             ScalarDataType("int64"),

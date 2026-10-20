@@ -61,7 +61,7 @@ def core_session(
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.get_or_create("round1-core", report_timezone="UTC")
+    return mv.session.create("round1-core", timezone="UTC")
 
 
 @pytest.mark.parametrize("small_first", (None, True, False))
@@ -203,7 +203,9 @@ def test_duration_statistics_accumulate_exact_nanoseconds_and_finish_half_even(
         ),
         path,
     )
-    population = core_session.members(ms.ref.entity("sales.durations"))
+    population = core_session.members(
+        core_session.catalog.require(ms.ref.entity("sales.durations"))
+    )
     elapsed = core_session.catalog.fields.get("sales.durations.elapsed")
     query = core_session.read(population, {"elapsed": elapsed})
     result = (
@@ -218,7 +220,9 @@ def test_duration_statistics_accumulate_exact_nanoseconds_and_finish_half_even(
 
 
 def test_duration_empty_and_na_statistics_and_checked_middle_sum(core_session: Session) -> None:
-    population = core_session.members(ms.ref.entity("sales.durations"))
+    population = core_session.members(
+        core_session.catalog.require(ms.ref.entity("sales.durations"))
+    )
     elapsed = core_session.catalog.fields.get("sales.durations.elapsed")
     query = core_session.read(population, {"elapsed": elapsed})
     for selected in (query.where(query["elapsed"].is_null()), query.top(0, by=query["elapsed"])):
@@ -250,7 +254,9 @@ def test_grouped_duration_mean_keeps_large_ticks_beside_na(core_session: Session
         pa.table({"id": [1, 2], "elapsed": pa.array([ticks, None], type=pa.duration("ns"))}),
         path,
     )
-    population = core_session.members(ms.ref.entity("sales.durations"))
+    population = core_session.members(
+        core_session.catalog.require(ms.ref.entity("sales.durations"))
+    )
     elapsed = core_session.catalog.fields.get("sales.durations.elapsed")
     query = core_session.read(population, {"elapsed": elapsed})
     result = (
@@ -269,14 +275,14 @@ def test_explicit_source_monthly_values(core_session: Session) -> None:
     amount = core_session.catalog.fields.get("sales.orders.amount")
     day = core_session.catalog.fields.get("sales.orders.day")
     months = core_session.time_scope(start="2026-01-01", end="2026-03-01").by(mv.grain("month"))
-    current = core_session.observe({"sales": amount.sum(time=day)}, during=months).compute()
+    current = core_session.observe({"sales": amount.sum(time=day)}, by=(months,)).compute()
     assert current.to_pandas()[("value", "sales")].tolist() == [60, 100]
     with duckdb.connect(str(core_session.project_root / "core.duckdb")) as connection:
         connection.execute(
             "INSERT INTO orders SELECT id+10, region, day-INTERVAL '1 year', amount*2 FROM orders"
         )
     previous = core_session.time_scope(start="2025-01-01", end="2025-03-01").by(mv.grain("month"))
-    baseline = core_session.observe({"sales": amount.sum(time=day)}, during=previous).compute()
+    baseline = core_session.observe({"sales": amount.sum(time=day)}, by=(previous,)).compute()
     assert baseline.to_pandas()[("value", "sales")].tolist() == [120, 200]
 
 
@@ -374,7 +380,9 @@ def test_duration_binary_exact_ns_finish_na_and_overflow_barriers(core_session: 
         path,
     )
     represented_tick = tick
-    population = core_session.members(ms.ref.entity("sales.durations"))
+    population = core_session.members(
+        core_session.catalog.require(ms.ref.entity("sales.durations"))
+    )
     elapsed = core_session.catalog.fields.get("sales.durations.elapsed")
     query = core_session.read(population, {"d": elapsed})
     expression = query["d"] / 2
@@ -421,7 +429,9 @@ def test_duration_binary_rejects_mixed_tick_units_before_source_or_run(
     core_session: Session,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    population = core_session.members(ms.ref.entity("sales.durations"))
+    population = core_session.members(
+        core_session.catalog.require(ms.ref.entity("sales.durations"))
+    )
     source = core_session.read(
         population, {"d": core_session.catalog.fields.get("sales.durations.elapsed")}
     )

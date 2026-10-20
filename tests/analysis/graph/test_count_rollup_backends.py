@@ -22,6 +22,7 @@ from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
+from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.datasource.source_cases import SourceData, source_case
 from tests.support.paths import PROJECT_ROOT
 
@@ -58,13 +59,14 @@ def _cold_outputs(root: Path, session_id: str, expected: int, artifacts: tuple[s
 import sys
 from unittest.mock import patch
 import marivo.analysis as mv
+from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
 
 def forbidden(*args, **kwargs):
     raise AssertionError('terminal Count output accessed Semantic or a source')
 with patch.object(ms,'load',forbidden), patch.object(SourceSession,'__enter__',forbidden), patch.object(SourceSession,'execute',forbidden):
-    session = mv.session.resume(sys.argv[1],by='id')
+    session = mv.session.resume(sys.argv[1])
     before = len(session.runs().items)
     for artifact in sys.argv[3:]:
         frame = session.persisted_frame(artifact).to_pandas()
@@ -121,14 +123,14 @@ def test_native_count_rollup_and_group_state(
                 + "category=ms.dimension_column(name='category',entity=events,column='category')\nhappened=ms.time_dimension_column(name='happened',entity=events,column='happened',granularity='second',parse=ms.timestamp(timezone='UTC'),is_default=True)\nfrozen=ms.finalize()\nevents_value=frozen.resolve(events)\nclock=frozen.resolve(happened)\n@ms.metric()\ndef event_count():\n    return events_value.count(time=clock)\n",
             }
         )
-        session = mv.session.get_or_create("native-count", report_timezone="UTC")
+        session = mv.session.create("native-count", timezone="UTC")
         metric = session.catalog.metrics.get("counts.event_count")
         category = session.catalog.fields.get("counts.events.category")
-        members = session.members(ms.ref.entity("counts.events"))
+        members = session.members(session.catalog.require(ms.ref.entity("counts.events")))
         window = session.time_scope(start="2026-09-01", end="2026-09-02")
-        scalar = session.observe({"value": metric}, during=window)
-        individual = session.observe({"value": metric}, during=window, by=members)
-        grouped = session.observe({"value": metric}, during=window, by=(category,))
+        scalar = session.observe({"value": metric}, by=(window,))
+        individual = session.observe({"value": metric}, by=mv.product(window, members))
+        grouped = session.observe({"value": metric}, by=(window, category))
         reads: list[tuple[CompiledRead, pd.DataFrame]] = []
         execute = SourceSession.execute
 
@@ -149,7 +151,9 @@ def test_native_count_rollup_and_group_state(
         offset = len(reads)
         saved_groups = grouped.persist()
         frame = saved_groups.to_pandas()
-        assert dict(zip(frame.iloc[:, 0], frame[("value", "value")], strict=True)) == {
+        assert dict(
+            zip(frame[ordinary_columns(frame)[0]], frame[("value", "value")], strict=True)
+        ) == {
             "even": 4,
             "odd": 5,
         }
@@ -202,12 +206,12 @@ def test_native_count_rollup_and_group_state(
             chosen, on=((chosen.axes[0], session.catalog.entities.get("counts.events")),)
         )
         for query in (
-            session.observe({"value": metric}, during=window, members=empty),
-            session.observe({"value": metric}, during=window, members=empty),
+            session.observe({"value": metric}, by=(window,), where=mv.in_population(empty)),
+            session.observe({"value": metric}, by=(window,), where=mv.in_population(empty)),
         ):
             assert query.persist().to_pandas()[("value", "value")].tolist() == [0]
         calendar = session.time_scope(start="2026-09-01", end="2026-09-03").by(mv.grain("day"))
-        timed = session.observe({"value": metric}, during=calendar)
+        timed = session.observe({"value": metric}, by=(calendar,))
         assert timed.persist().to_pandas()[("value", "value")].tolist() == [9, 1]
         assert timed.reduce({"value": timed["value"].sum()}).persist().to_pandas()[
             ("value", "value")

@@ -17,7 +17,7 @@ def test_full_entity_time_cohort(
 
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    targets = session.members(ms.ref.entity("sales.customer"))
+    targets = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     grid = session.time_scope(start="2026-07-01", end="2026-10-01").by(mv.grain("month"))
     values = session.observe(
         {"value": session.catalog.metrics.get("sales.order_count")}, by=mv.product(targets, grid)
@@ -98,25 +98,22 @@ def spending_amount():
 """
     )
     session = case.session
-    users = session.members(ms.ref.entity("sales.customer"))
+    users = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     usage = session.observe(
         {"value": session.catalog.metrics.get("sales.avg_usage_hours")},
-        during=session.time_scope(start="2026-08-03", end="2026-08-10"),
-        by=users,
+        by=mv.product(session.time_scope(start="2026-08-03", end="2026-08-10"), users),
     )
     chosen = usage.where(usage["value"] > 10).compute()
     eligible = session.population_from(
-        chosen, on=((chosen.axes[0], session.catalog.entities.get("sales.customer")),)
+        chosen, on=((chosen.axes[1], session.catalog.entities.get("sales.customer")),)
     )
     spending = session.observe(
         {"value": session.catalog.metrics.get("sales.spending_amount")},
-        during=session.time_scope(start="2026-08-10", end="2026-08-17"),
-        by=eligible,
-        members=eligible,
+        by=mv.product(session.time_scope(start="2026-08-10", end="2026-08-17"), eligible),
     )
     assert session.runs().items == ()
     frame = spending.compute().to_pandas()
-    assert frame.set_index(frame.columns[0])[("value", "value")].to_dict() == {"A": 100, "C": 300}
+    assert frame.set_index(frame.columns[1])[("value", "value")].to_dict() == {"A": 100, "C": 300}
 
 
 @pytest.mark.slow
@@ -127,7 +124,7 @@ def test_cold_full_opportunity_exports(analysis_dsl_case_factory: DslCaseFactory
 
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    targets = session.members(ms.ref.entity("sales.customer"))
+    targets = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     grid = session.time_scope(start="2026-07-01", end="2026-10-01").by(mv.grain("month"))
     values = session.observe(
         {"value": session.catalog.metrics.get("sales.order_count")}, by=mv.product(targets, grid)
@@ -151,7 +148,7 @@ def unavailable(*args, **kwargs):
     raise AssertionError("exported cohort cannot reopen sources or Semantic")
 duckdb.connect = unavailable
 ms.load = unavailable
-session = mv.session.resume(sys.argv[1], by="id")
+session = mv.session.resume(sys.argv[1])
 targets, values, saved = [session.persisted_frame(ref) for ref in sys.argv[2:]]
 frame = values.to_pandas()
 assert len(frame) == len(targets.to_pandas()) * 3
@@ -188,7 +185,7 @@ def test_no_time_selection_preserves_complete_target_decisions(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    targets = session.members(ms.ref.entity("sales.customer"))
+    targets = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     category = session.read(
         targets, {"region": session.catalog.fields.get("sales.customer.region")}
     )

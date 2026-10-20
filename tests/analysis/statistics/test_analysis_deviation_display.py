@@ -132,8 +132,9 @@ def test_decimal_grid_tables_retain_current_keys_and_full_fit(
     grid = session.time_scope(start="2026-08-01", end="2026-08-16").by(mv.grain("day"))
     artifact = session.observe(
         {"value": session.catalog.metrics.get("sales.revenue")},
-        during=grid,
-        by=session.members(ms.ref.entity("sales.customer")),
+        by=mv.product(
+            grid, session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+        ),
     ).persist()
     frame = plain(artifact)
     assert len(frame) == 60 and frame.value.notna().all()

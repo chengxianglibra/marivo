@@ -23,9 +23,10 @@ Status: AnalysisFrame cutover execution contract, 2026-10-19.
 #### 1.1.2 Metric 显式域依赖
 
 Population 保留自己期间、属性时点、条件、完整键/绑定与 Session。来源 Metric.per/where
-显式捕获其域；内部子集不等于外部 output coverage。Frame ordinary-axis bridge 的 on 必填、
+显式捕获其域；内部样本域和外部指定输出域独立。P.count() 也捕获自己的完整单 Entity
+身份域；P/Q 分别调度，包含无事实身份，不从 by/where 推断分母。Frame ordinary-axis bridge 的 on 必填、
 可为 ()，先完成输入选择/检查，再联合投影去重，最后执行明确的新来源依赖。
-固定 Top/where 名单不重排，新来源值仍可变化；日历/配对/任意值不桥接。
+固定 Top/where 名单不重排，新来源值仍可变化；interval/日历/配对/任意值不桥接。
 
 #### 1.1.3 五项扩展的执行边界
 
@@ -41,11 +42,11 @@ Metric 完整子公式、时间/内部样本、近似方法、membership 与窗�
 ### 1.2 默认保存信息
 
 compute 产出完整 immutable data 与一份 audit，无持久 Run/Artifact 或临时结果文件。
-persist 对表达式先完整求值，再将已有 result ID 交给同一 Store 12 writer transaction。
+persist 对表达式先完整求值，再将已有 result ID 交给同一 Store 13 writer transaction。
 内存 persist 不求值；存储 persist 验证 commit 元数据后返回自身。派生 expression 不能返回祖先
 Artifact。每次内存发布可有新提交，但 result ID/求值时间/审计不因载体复制改变。
 
-保存闭合值/普通、日历、单层配对轴目录/独立 presence/必要 typed attachments 与 receipts。
+按 marivo.frame_output/v2 保存闭合值/普通、interval、日历、单层配对轴目录/独立 presence/必要 typed attachments 与 receipts。
 来源事实按值继承、只去重完全相同记录；当前 evaluation 记录本次输入身份/操作/检查，不累计
 中间事件。Run 的输入是已有结果 ID，表示发布，不声称当时读取来源。
 源读时间、evaluation 完成、admission 与 commit 时间保持独立。
@@ -103,7 +104,7 @@ FrameAxis 绑定精确输入，axis(name) 精确查目录，不重名取首项�
 
 PopulationPredicate 使用位置决定作用域。来源 observe.where 可引入明确来源条件；
 Frame.where 只接同 Frame boolean Column。population_from 是显式普通轴桥，不是自动
-恢复语义对象。by=Population 完整覆盖与 where 过滤不能互换。
+恢复语义对象。by=Population 选择完整输出键；where=mv.in_population(P) 选择事实贡献，两者可分别使用。
 
 ### 2.3 跨阶段错误给出有效修复
 
@@ -140,8 +141,8 @@ Frame.show(n=0) 与 Artifact.show/findings/evidence_digest 不读数据或坐标
 
 ## 4. 实施衔接
 
-Store 12 拒绝旧 generation 全部数据读且旧字节不变，无 migration/dual read。current/recent
-缺当前代可 None/空而不暴露旧数据；不能 create/get_or_create 旧项目旁路。原版本导出或兼容
+Store 13 拒绝旧 generation 全部数据读且旧字节不变，无 migration/dual read。recent
+缺当前代可为空页而不暴露旧数据；不能 create 旧项目旁路。原版本导出或兼容
 环境选择见[cutover](analysis-frame-cutover.md)。RawSqlResult reader 独立，不进入 Frame Store。
 开发/合同审查/业务 oracle、provider Runtime、slow 与 release 各自报告；不把代码路线或
 历史 Query-to-Artifact provider 结果提升为新 Frame 资格。最终 source-frozen broad gate 归 S8。

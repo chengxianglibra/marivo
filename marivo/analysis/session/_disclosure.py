@@ -26,13 +26,11 @@ from marivo.analysis.session.core import Session
 READ_TYPES: tuple[type[object], ...] = (
     e.ArtifactDigest,
     ArtifactRef,
-    r.ArtifactSummary,
     r.FailedRun,
     e.Finding,
     e.FindingPage,
     r.IncompleteRun,
     r.RunPage,
-    r.SessionGraph,
     r.SucceededRun,
 )
 
@@ -40,32 +38,6 @@ READ_TYPES: tuple[type[object], ...] = (
 def provider() -> DisclosureProvider:
     descriptors: list[Descriptor] = []
     exports: list[ExportInput] = []
-    descriptors.append(
-        operation(
-            "Session.source_bindings",
-            "session.source_bindings",
-            Session.source_bindings,
-            summary="Capture declared non-secret source parameters during construction.",
-            parameters=(
-                P("bindings", "Map exact Entity refs to their declared source parameters."),
-            ),
-            output="AbstractContextManager[None]",
-            constraints=("Captured bindings replace the ambient scope and restore it on exit.",),
-            effects="Pure semantic capture; execution does not reread ambient parameters.",
-            failures=(
-                "ObservationBindingError: bind exact Entity refs and declared non-secret source parameters.",
-            ),
-            discovery_group="inputs",
-            related=("session.members",),
-            example=ExampleInput(
-                "with session.source_bindings({}):\n    result = session.members(entity)",
-                ("session", "entity"),
-                "result",
-                "Population",
-            ),
-        )
-    )
-
     acquisitions = {
         "ArtifactDigest": (
             "Call artifact.evidence_digest(); .items contains all saved output facts.",
@@ -73,14 +45,9 @@ def provider() -> DisclosureProvider:
             ("runtime.OutputEvidence", "runtime.values.render", "runtime.values.show"),
         ),
         "ArtifactRef": (
-            "Read a SucceededRun.output_artifact_ref or ArtifactSummary.artifact_ref; pass its .ref string to session.persisted_frame; read .artifact for audit.",
-            ("SucceededRun", "ArtifactSummary"),
-            ("session.persisted_frame", "session.graph"),
-        ),
-        "ArtifactSummary": (
-            "Read the selected Artifact entries in session.graph(...).artifacts.",
-            ("session.graph",),
-            ("runtime.values.render", "runtime.values.show"),
+            "Read a SucceededRun.output_artifact_ref; pass its .ref string to session.persisted_frame; read .artifact for audit.",
+            ("SucceededRun",),
+            ("session.persisted_frame",),
         ),
         "FailedRun": (
             "Select a failed Run from session.runs() or session.get_run(id).",
@@ -90,7 +57,7 @@ def provider() -> DisclosureProvider:
         "IncompleteRun": (
             "Select an incomplete Run from session.runs() or session.get_run(id).",
             ("session.runs", "session.get_run"),
-            ("session.abandon_run",),
+            ("session.reconcile_run",),
         ),
         "SucceededRun": (
             "Select a succeeded Run from session.runs() or session.get_run(id).",
@@ -101,11 +68,6 @@ def provider() -> DisclosureProvider:
             "Call session.runs(); use next_cursor for the identical selection.",
             ("session.runs",),
             ("session.runs", "session.get_run", "SucceededRun", "FailedRun", "IncompleteRun"),
-        ),
-        "SessionGraph": (
-            "Call session.graph() with an explicit scope and node bound.",
-            ("session.graph",),
-            ("runtime.values.render", "runtime.values.show"),
         ),
         "Finding": (
             "Select an exact self-contained output item from artifact.findings().",
@@ -129,14 +91,6 @@ def provider() -> DisclosureProvider:
                 consumers=acquisitions[value.__name__][2],
                 constraints=(
                     "Retained metadata is not current source truth or a freshness verdict.",
-                )
-                + (
-                    (
-                        "Edges are Run-to-Artifact production only; root_run_ids contains every selected Run and head_artifact_refs every selected Artifact, not a latest-answer selection.",
-                        "boundary_artifact_refs and boundary_run_ids identify selected nodes with omitted requested neighbors; truncated reports an incomplete selection.",
-                    )
-                    if value is r.SessionGraph
-                    else ()
                 ),
             )
         )
@@ -146,11 +100,11 @@ def provider() -> DisclosureProvider:
             "Session",
             Session,
             summary="One Session binds logical construction and committed Runtime reads.",
-            acquisition="Create or recover through mv.session.get_or_create or mv.session.resume.",
-            producers=("session.get_or_create", "session.resume", "session.current"),
+            acquisition="Create or recover through mv.session.create or mv.session.resume.",
+            producers=("session.create", "session.resume"),
             constraints=(
                 "Source construction loads authored semantics on demand; retained reads do not require current sources.",
-                "session.domains is the persisted tuple[str, ...] or None for all domains; an explicit conflicting scope fails before activation.",
+                "session.domains is the persisted tuple[str, ...] or None for all domains; domains remain frozen after creation.",
             ),
         )
     )
@@ -164,24 +118,17 @@ def provider() -> DisclosureProvider:
     operations: tuple[tuple[object, str, str, str, str], ...] = (
         (
             session_namespace,
-            "get_or_create",
+            "create",
             "Session",
-            "import marivo.analysis as mv\nresult = mv.session.get_or_create('help-example')",
-            "Guarded create or recovery; sets current Session, updates an explicit question, and preserves earlier Store generations in this project.",
-        ),
-        (
-            session_namespace,
-            "current",
-            "Session | None",
-            "import marivo.analysis as mv\nresult = mv.session.current()",
-            "Read current Session; return None when the current-generation Store is absent. No creation or reconciliation.",
+            "import marivo.analysis as mv\nresult = mv.session.create('help-example')",
+            "Atomically create a uniquely named Session with frozen timezone and domains; duplicate names reject with the existing ID.",
         ),
         (
             session_namespace,
             "resume",
             "Session",
-            "import marivo.analysis as mv\nresult = mv.session.resume(saved_session_id, by='id')",
-            "Guarded recovery and activation of an existing Session; never creates a missing identity.",
+            "import marivo.analysis as mv\nresult = mv.session.resume(saved_session_id)",
+            "Recover an existing exact Session ID; no creation or activation.",
         ),
         (
             session_namespace,
@@ -194,21 +141,21 @@ def provider() -> DisclosureProvider:
             session_namespace,
             "inspect",
             "SessionInspection",
-            "import marivo.analysis as mv\nresult = mv.session.inspect(saved_session_name)",
+            "import marivo.analysis as mv\nresult = mv.session.inspect(saved_session_id)",
             "Read one existing Session snapshot; no recovery or activation.",
         ),
         (
             session_namespace,
-            "abandon_run",
+            "reconcile_run",
             "None",
-            "import marivo.analysis as mv\nresult = mv.session.abandon_run(session_id=session.id, run_id=pending_run)",
+            "import marivo.analysis as mv\nresult = mv.session.reconcile_run(session_id=session.id, run_id=pending_run)",
             "Reconcile one Run under its writer guard; local publication must be safe while remote read status may remain unknown.",
         ),
         (
             Session,
             "members",
             "Population",
-            "result = session.members(entity_ref)",
+            "result = session.members(entity)",
             "Capture source Entity identities with their own exact anchor and condition; no schema, business rows or Run. Use session.frame(population) for complete keys.",
         ),
         (
@@ -222,7 +169,7 @@ def provider() -> DisclosureProvider:
             Session,
             "observe",
             "AnalysisFrame",
-            "result = session.observe(metrics, during=calendar, by=(field,))",
+            "result = session.observe(metrics, by=(calendar, field))",
             "Evaluate named Metrics at an explicit output grain: overall, by time, by classification, or their combination.",
         ),
         (
@@ -269,13 +216,6 @@ def provider() -> DisclosureProvider:
         ),
         (
             Session,
-            "graph",
-            "SessionGraph",
-            "result = session.graph(artifact_ref=artifact_ref)",
-            "Read bounded same-Session Run-to-Artifact production topology without reading Parquet or semantic graphs; omitted requested neighbors remain explicit boundaries.",
-        ),
-        (
-            Session,
             "show",
             "None",
             "result = session.show()",
@@ -310,23 +250,19 @@ def provider() -> DisclosureProvider:
         "frame": "Pass an AnalysisFrame from this exact Store/Session, not an Artifact, ID or raw table.",
         "on": "Required immutable tuple of (exact FrameAxis, resolved Field or Entity) pairs; () is legal only for a zero-axis projection. Bind complete ordinary field/identity axes explicitly; calendar/paired axes are unsupported. Names, tokens and same types do not infer semantic targets.",
         "value": "Pass an ISO string, date, aware datetime or existing InstantAnchor.",
-        "timezone": "Use None for the saved report timezone or supply an explicit boundary timezone.",
+        "timezone": "On create, None resolves and freezes the system timezone; instant/time_scope use the frozen Session timezone unless explicitly overridden.",
         "start": "Choose the inclusive exact boundary.",
         "end": "Choose the exclusive exact boundary, strictly after start.",
         "where": "Pass a resolved Field predicate or closed PopulationPredicate. Source receivers may read fields needed for membership; AnalysisFrame.where accepts only a same-input boolean Column.",
-        "during": "Select starts with a finite half-open TimeScope.",
         "at": "Pass an exact InstantAnchor from session.instant(...) for versioned identity selection.",
         "population": "Pass a complete Population with no owner or the same Session owner.",
         "fields": "Pass a nonempty named mapping of resolved scalar fields with explicit paths and required version anchors.",
         "columns": "Map each literal value name to its one declared unit, or None.",
         "rows": "Pass finite complete key tuples paired with every declared literal value name.",
-        "members": "Pass one complete Entity identity Population from this Session or a literal identity domain; it restricts contributions independently of output grouping.",
         "max_output_bytes": "Use the default byte budget or explicitly request a tighter output bound.",
-        "name": "Choose a project-local Session name from recent() or a new name for get_or_create().",
-        "report_timezone": "Choose an IANA or explicit UTC-offset report timezone on first creation; existing Sessions retain their timezone.",
+        "name": "Choose a new project-local name without surrounding whitespace.",
         "domains": "Select an exact domain name or nonempty sequence on first creation; existing Sessions retain their persisted scope and reject conflicting explicit selections.",
-        "question": "Optional guiding question; omission preserves the existing question.",
-        "identity": "Use an exact existing Session name or id from recent()/inspect(); missing identities provide real candidates and never create a Session.",
+        "question": "Optional description frozen at creation.",
         "by": "Choose name or id explicitly when resolving an ambiguous identity.",
         "limit": "Choose a page size within the owning read's bounded interval.",
         "cursor": "Use the preceding page's opaque next_cursor with the identical selection.",
@@ -336,11 +272,8 @@ def provider() -> DisclosureProvider:
         "run_id": "Use an exact incomplete, failed or succeeded Run id from session.runs().",
         "artifact_id": "Use an exact committed Artifact ID string from this Session; objects and Refs are not IDs.",
         "metrics": "Pass a nonempty ordered mapping from output names to resolved Metric expressions; Artifact objects and IDs are rejected.",
-        "entity": "Governed Entity Ref from catalog.",
-        "artifact_ref": "Choose a committed Artifact ref from this Session, or None for the bounded Session graph.",
+        "entity": "Pass a resolved governed Entity, not a Ref or path.",
         "status": "Choose incomplete, failed, succeeded or None.",
-        "direction": "With an Artifact focus, ancestors includes its producer and descendants returns only the terminal Artifact. Without a focus, use ancestors.",
-        "max_nodes": "Choose a positive graph node bound within the Runtime limit.",
     }
     for receiver, name, output, code, effect in operations:
         value = getattr(receiver, name)
@@ -379,14 +312,14 @@ def provider() -> DisclosureProvider:
                     P(
                         n,
                         "Use an exact incomplete or failed Run id; committed success cannot be abandoned."
-                        if n == "run_id" and name == "abandon_run"
-                        else "Empty () computes overall Metrics within each time bucket, or one scalar without a CalendarAxis. Pass fields or field, identity, calendar or membership Grouping rules. population.axes reuses coordinates without keys or allocation bindings; by=population requests complete output coverage. A matching identity grouping with members=P includes identities without facts; classifications must be single-valued on P."
+                        if n == "run_id" and name == "reconcile_run"
+                        else "Empty () is one zero-axis cell. Pass fields, Grouping rules or TimeScope as an ordered tuple, or a Population selecting complete output keys. TimeScope contributes an interval axis; CalendarAxis contributes calendar buckets. population.axes carries rules without selected keys or allocation bindings."
                         if name == "observe" and n == "by"
                         else "Pass resolved fields or field or identity Grouping values; calendar and membership groupings are rejected. Use () for scalar literal rows."
                         if name == "values" and n == "by"
                         else "TimeScope filters without grouping; CalendarAxis adds time buckets and must match an existing output calendar; None adds no time filter."
                         if name == "observe" and n == "during"
-                        else "Pass a Field predicate or closed PopulationPredicate; member_count requires single-valued conditions on the explicit members without reselecting them."
+                        else "Pass a Field predicate or closed PopulationPredicate restricting fact contributions. Captured Population.count domains are not reselected; count-only conditions reject."
                         if name == "observe" and n == "where"
                         else acquisition[n],
                     )
@@ -407,7 +340,7 @@ def provider() -> DisclosureProvider:
                 )
                 else (effect,),
                 effects=effect,
-                telemetry=name in ("get_or_create", "resume", "abandon_run"),
+                telemetry=name in ("create", "resume", "reconcile_run"),
                 failures=(
                     "AnalysisError: read its fields and repair."
                     if name == "members"
@@ -416,19 +349,17 @@ def provider() -> DisclosureProvider:
                 example=ExampleInput(
                     code,
                     ()
-                    if name in ("get_or_create", "current", "recent")
+                    if name in ("create", "recent")
                     else ("saved_session_id",)
                     if name == "resume"
-                    else ("saved_session_name",)
+                    else ("saved_session_id",)
                     if name == "inspect"
                     else ("session", "pending_run")
-                    if name == "abandon_run"
+                    if name == "reconcile_run"
                     else ("session", "artifact_id")
                     if name == "persisted_frame"
                     else ("session", "frame", "target")
                     if name == "population_from"
-                    else ("session", "artifact_ref")
-                    if name == "graph"
                     else ("session", "metrics", "calendar", "field")
                     if name == "observe"
                     else ("session", "population")
@@ -437,7 +368,7 @@ def provider() -> DisclosureProvider:
                     if name == "read"
                     else ("session", "run_id")
                     if name == "get_run"
-                    else ("session", "entity_ref")
+                    else ("session", "entity")
                     if name == "members"
                     else ("session", "buyer", "members", "window")
                     if name == "anchors"
@@ -481,18 +412,6 @@ def provider() -> DisclosureProvider:
             ("runtime.SessionSummaryPage", "runtime.SessionInspection"),
             ("session.resume",),
         ),
-        (
-            r.SessionGraphEdge,
-            "Read an edge from session.graph(...).edges.",
-            ("session.graph",),
-            ("runtime.values.show",),
-        ),
-        (
-            e.ArtifactEvidenceSummary,
-            "Read the committed Evidence summary attached to an ArtifactSummary.",
-            ("ArtifactSummary",),
-            ("Artifact.findings",),
-        ),
     )
     for value, acquisition_text, producers, consumers in nested_reads:
         descriptors.append(
@@ -513,8 +432,6 @@ def provider() -> DisclosureProvider:
                 r.SessionSummaryPage,
                 r.SessionInspection,
                 r.SessionSummary,
-                r.SessionGraphEdge,
-                e.ArtifactEvidenceSummary,
                 e.OutputEvidence,
                 e.OutputCoordinate,
             )

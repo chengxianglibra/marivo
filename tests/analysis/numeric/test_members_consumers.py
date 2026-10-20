@@ -97,8 +97,8 @@ def test_complete_versioned_members(
                 ),
             }
         )
-        session = mv.session.get_or_create("c03-versions", report_timezone="UTC")
-        entity = ms.ref.entity("sales.subjects")
+        session = mv.session.create("c03-versions", timezone="UTC")
+        entity = session.catalog.entities.get("sales.subjects")
         august = session.instant("2026-08-01")
         before_runs = len(session.runs().items)
         calls: list[str] = []
@@ -289,8 +289,8 @@ def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(
             }
         )
         root.environment["profile"] = profile
-        session = mv.session.get_or_create("c03-scalar-path", report_timezone="UTC")
-        members = session.members(ms.ref.entity("sales.subjects"))
+        session = mv.session.create("c03-scalar-path", timezone="UTC")
+        members = session.members(session.catalog.require(ms.ref.entity("sales.subjects")))
         field = session.catalog.fields.get("sales.attributes.amount")
         via = session.catalog.relationships.get("sales.attributes_path")
         inferred = session.read(members, {"value": field})

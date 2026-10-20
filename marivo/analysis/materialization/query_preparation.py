@@ -18,6 +18,7 @@ from marivo._definition.types import (
     ExactRef,
     FieldRead,
     IdentityRead,
+    IntervalCoordinate,
     coordinate_read_keys,
     field_read_key,
 )
@@ -75,8 +76,8 @@ class SourceInputContract:
     population_conditions: tuple[PopulationCondition, ...]
     population_reads: tuple[tuple[AxisBinding, FieldRead | IdentityRead], ...]
     window_key: int | None
-    sample_axes: tuple[AxisBinding | CalendarCoordinate, ...]
-    calendars: tuple[tuple[str, CalendarCoordinate], ...]
+    sample_axes: tuple[AxisBinding | CalendarCoordinate | IntervalCoordinate, ...]
+    calendars: tuple[tuple[str, CalendarCoordinate | IntervalCoordinate], ...]
     coverage: tuple[SampleCoverage, ...]
 
 

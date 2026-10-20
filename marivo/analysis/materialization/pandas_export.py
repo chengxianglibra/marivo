@@ -117,11 +117,11 @@ def preview_text(
     text = display.to_string(index=False, max_colwidth=60)
     # Only selected attachment records are supplied by the stored preview reader.
     # Memory uses the same key projection, without decoding files.
-    from marivo.analysis.core.data_schema import CalendarDataAxis, PairedDataAxis
+    from marivo.analysis.core.data_schema import CalendarDataAxis, IntervalDataAxis, PairedDataAxis
 
     parts = {part.name: part for part in attachments}
 
-    def labels(axis: CalendarDataAxis, keys: set[FrozenKey]) -> None:
+    def labels(axis: CalendarDataAxis | IntervalDataAxis, keys: set[FrozenKey]) -> None:
         nonlocal text
         assert axis.frozen is not None
         part = parts[axis.frozen.directory_name]
@@ -147,6 +147,6 @@ def preview_text(
                 endpoint_keys = frozen_key_rows(mapped, columns)
                 # Nullable map columns carry the same dtype tags as endpoint keys.
                 labels(endpoint, set(endpoint_keys))
-        elif isinstance(axis, CalendarDataAxis):
+        elif isinstance(axis, (CalendarDataAxis, IntervalDataAxis)):
             labels(axis, keys)
     return text

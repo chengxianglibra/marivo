@@ -10,6 +10,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import SourceSession
@@ -73,20 +74,18 @@ def test_required_terminal_receipts_reject_corruption_without_source(
     export_dsl_parquet_models(case, case.root)
     ms.load(workspace_dir=case.root)
     session = case.session
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     metric = session.catalog.metrics.get("sales.order_count")
     current = session.observe(
         {"value": metric},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=members,
+        by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), members),
     )
     baseline = session.observe(
         {"value": metric},
-        during=session.time_scope(start="2026-07-01", end="2026-08-01"),
-        by=members,
+        by=mv.product(session.time_scope(start="2026-07-01", end="2026-08-01"), members),
     )
     difference = current.compare(
-        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True))
+        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
     ).persist()
     previous = current.persist()
     expected = difference.to_pandas()

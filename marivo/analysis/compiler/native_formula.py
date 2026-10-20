@@ -63,7 +63,7 @@ def lower_native_formula(
     The caller retains the input reducers' complete checks before applying any
     selection. Native arithmetic is deliberately separate from local finishers.
     """
-    if program.calendar or program.populations or program.output_population or program.members:
+    if program.calendar or program.populations or program.output_population or program.counts:
         return "formula retains a calendar, sample or explicit output domain"
     if not program.values:
         return "formula has no ordinary source reductions"

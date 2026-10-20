@@ -32,15 +32,19 @@ def test_public_composition_refuses_before_source_or_run(
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     with source_case("duckdb", profile, tmp_path, monkeypatch, reference_data("duckdb")) as case:
         author_source_project("duckdb", case, monkeypatch, semantic_project_factory)
-        session = mv.session.get_or_create("r94-refusal", report_timezone="UTC")
+        session = mv.session.create("r94-refusal", timezone="UTC")
         entity = ms.ref.entity("sales.facts")
         measure = ms.ref.measure("sales.facts.amount")
-        live = session.read(session.members(entity), {"value": session.catalog.fields.get(measure)})
+        live = session.read(
+            session.members(session.catalog.require(entity)),
+            {"value": session.catalog.fields.get(measure)},
+        )
         previous = live.persist()
         saved = snapshot(previous)
-        foreign = mv.session.get_or_create("r94-foreign", report_timezone="UTC")
+        foreign = mv.session.create("r94-foreign", timezone="UTC")
         other = foreign.read(
-            foreign.members(entity), {"value": foreign.catalog.fields.get(measure)}
+            foreign.members(foreign.catalog.require(entity)),
+            {"value": foreign.catalog.fields.get(measure)},
         )
         published_before = publication_counts(session)
         calls: list[str] = []
@@ -117,18 +121,22 @@ def test_public_required_output_receipts_block_consumption_without_new_work(
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     with source_case("duckdb", "table", tmp_path, monkeypatch, reference_data("duckdb")) as case:
         author_source_project("duckdb", case, monkeypatch, semantic_project_factory)
-        session = mv.session.get_or_create("required-output", report_timezone="UTC")
-        members = session.members(ms.ref.entity("sales.facts"))
+        session = mv.session.create("required-output", timezone="UTC")
+        members = session.members(session.catalog.require(ms.ref.entity("sales.facts")))
         metric = session.catalog.metrics.get("sales.total")
         current = session.observe(
             {"value": metric},
-            during=session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day")),
-            by=members,
+            by=mv.product(
+                session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day")),
+                members,
+            ),
         )
         baseline = session.observe(
             {"value": metric},
-            during=session.time_scope(start="2026-07-01", end="2026-07-03").by(mv.grain("day")),
-            by=members,
+            by=mv.product(
+                session.time_scope(start="2026-07-01", end="2026-07-03").by(mv.grain("day")),
+                members,
+            ),
         )
         previous = current.compare(
             baseline,
@@ -214,8 +222,8 @@ def test_public_cross_datasource_observation_refuses_before_business_read(
                 "sales/models.py": models,
             }
         )
-        session = mv.session.get_or_create("r94-cross-datasource", report_timezone="UTC")
-        members = session.members(ms.ref.entity("sales.subjects"))
+        session = mv.session.create("r94-cross-datasource", timezone="UTC")
+        members = session.members(session.catalog.require(ms.ref.entity("sales.subjects")))
         previous = session.read(
             members, {"value": session.catalog.fields.get("sales.subjects.subjects_amount")}
         ).persist()

@@ -111,8 +111,9 @@ def _project(
 def _observe(session: Session, scope: TimeScope | CalendarAxis) -> mv.AnalysisFrame:
     return session.observe(
         {"value": session.catalog.metrics.get("sales.average")},
-        during=scope,
-        by=session.members(ms.ref.entity("sales.customers")),
+        by=mv.product(
+            scope, session.members(session.catalog.require(ms.ref.entity("sales.customers")))
+        ),
     )
 
 
@@ -131,19 +132,17 @@ def test_report_mean_members_and_next_window_have_independent_oracles(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
     _project(tmp_path, monkeypatch, semantic_project_factory, form="parquet")
-    session = mv.session.get_or_create("mean-chain", report_timezone="Asia/Shanghai")
+    session = mv.session.create("mean-chain", timezone="Asia/Shanghai")
     values = _observe(session, session.time_scope(start="2026-08-01", end="2026-08-02"))
     assert _values(values) == {"A": 20, "B": 60}
     chosen = values.where(values["value"] < 50)
     selected = session.population_from(
-        chosen, on=((chosen.axes[0], session.catalog.entities.get("sales.customers")),)
+        chosen, on=((chosen.axes[1], session.catalog.entities.get("sales.customers")),)
     )
     assert case_members(session, selected) == ["A"]
     following = session.observe(
         {"value": session.catalog.metrics.get("sales.total")},
-        during=session.time_scope(start="2026-08-03", end="2026-08-10"),
-        by=selected,
-        members=selected,
+        by=mv.product(session.time_scope(start="2026-08-03", end="2026-08-10"), selected),
     )
     assert _values(following) == {"A": 100}
 
@@ -175,7 +174,7 @@ def test_source_kind_and_authority_remain_independent_of_report(
         representation=representation,
         read_zone=read_zone,
     )
-    session = mv.session.get_or_create("source-meaning", report_timezone="Asia/Shanghai")
+    session = mv.session.create("source-meaning", timezone="Asia/Shanghai")
     values = _observe(session, session.time_scope(start="2026-08-01", end="2026-08-02"))
     assert _values(values) == {"A": expected, "B": 60}
 
@@ -230,18 +229,17 @@ def test_dst_mean_grid_and_cumulative_preserve_exact_windows(
         representation="aware",
         read_zone=None,
     )
-    session = mv.session.get_or_create("dst", report_timezone="America/New_York")
+    session = mv.session.create("dst", timezone="America/New_York")
     scope = session.time_scope(start=start, end=end)
     assert (scope.end - scope.start).total_seconds() == hours * 3600
     assert _values(_observe(session, scope)) == {"A": 20, "B": 60}
     grid = scope.by(mv.grain("day"))
-    members = session.members(ms.ref.entity("sales.customers"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customers")))
     gridded = _observe(session, grid)
     assert _values(gridded) == {"A": 20, "B": 60}
     running = session.observe(
         {"value": session.catalog.metrics.get("sales.total").window(mv.all_history())},
-        during=grid,
-        by=members,
+        by=mv.product(grid, members),
     )
     assert _values(running) == {"A": 928, "B": 60}
     output = gridded.compute().to_pandas()
@@ -269,7 +267,7 @@ def test_nanosecond_mean_or_conversion_rejects_before_business_read(
         table["happened"].cast(pa.timestamp("ns")),
     )
     pq.write_table(table, path)
-    session = mv.session.get_or_create("unsupported-conversion", report_timezone="Asia/Shanghai")
+    session = mv.session.create("unsupported-conversion", timezone="Asia/Shanghai")
     before = session.runs().items
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -292,7 +290,7 @@ def test_exact_mean_qualification_missing_still_rejects_before_run(
     from marivo.datasource.adapters import QualifiedSource
 
     _project(tmp_path, monkeypatch, semantic_project_factory)
-    session = mv.session.get_or_create("no-fallback", report_timezone="Asia/Shanghai")
+    session = mv.session.create("no-fallback", timezone="Asia/Shanghai")
     value = _observe(session, session.time_scope(start="2026-08-01", end="2026-08-02"))
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -316,7 +314,7 @@ def test_explicit_instant_bounds_do_not_erase_report_identity(
     _project(tmp_path, monkeypatch, semantic_project_factory)
     boundaries = []
     for zone in ("UTC", "Asia/Shanghai"):
-        session = mv.session.get_or_create(zone, report_timezone=zone)
+        session = mv.session.create(zone, timezone=zone)
         scope = session.time_scope(
             start=datetime(2026, 8, 1, tzinfo=timezone.utc),
             end=datetime(2026, 8, 2, tzinfo=timezone.utc),
@@ -336,7 +334,7 @@ def test_failed_reader_timezone_probe_does_not_fall_back(
     from marivo.datasource import timezone as datasource_timezone
 
     _project(tmp_path, monkeypatch, semantic_project_factory, read_zone=None)
-    session = mv.session.get_or_create("engine-change", report_timezone="Asia/Shanghai")
+    session = mv.session.create("engine-change", timezone="Asia/Shanghai")
     value = _observe(session, session.time_scope(start="2026-08-01", end="2026-08-02"))
     original = datasource_timezone.probe_engine_timezone
 
@@ -380,7 +378,7 @@ def test_timezone_mean_fixed_and_cold_preserve_authority_without_ambient_state(
         read_zone="UTC",
         rows=rows,
     )
-    session = mv.session.get_or_create("recover-time", report_timezone="Asia/Shanghai")
+    session = mv.session.create("recover-time", timezone="Asia/Shanghai")
     logical = _observe(
         session, session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day"))
     )
@@ -405,7 +403,7 @@ ms.load = forbidden
 duckdb.connect = forbidden
 ibis.duckdb.connect = forbidden
 SourceSession.execute = forbidden
-session = mv.session.resume(sys.argv[1], by='id')
+session = mv.session.resume(sys.argv[1])
 frame = session.persisted_frame(sys.argv[2]).to_pandas()
 assert frame[('value','value')].tolist() == [20,60]
 calendar = frame.attrs['axes'][0]['descriptor']
@@ -448,19 +446,20 @@ def test_population_time_predicate_uses_source_authority_and_owns_its_period(
     expected_total: int,
 ) -> None:
     _project(tmp_path, monkeypatch, semantic_project_factory, read_zone=read_zone)
-    session = mv.session.get_or_create("within-members", report_timezone="Asia/Shanghai")
+    session = mv.session.create("within-members", timezone="Asia/Shanghai")
     scope = session.time_scope(start="2026-08-01", end="2026-08-02")
     time = session.catalog.fields.get("sales.orders.happened")
     metric = session.catalog.metrics.get("sales.total")
-    members = session.members(ms.ref.entity("sales.orders"), where=time.within(scope))
+    members = session.members(
+        session.catalog.require(ms.ref.entity("sales.orders")), where=time.within(scope)
+    )
     assert case_members(session, members) == expected_ids
     for period in (scope, session.time_scope(start="2026-07-01", end="2026-09-01")):
         for condition in ("members", "predicate"):
             query = session.observe(
                 {"value": metric},
-                during=period,
-                members=members if condition == "members" else None,
-                where=mv.in_population(members) if condition == "predicate" else None,
+                by=(period,),
+                where=mv.in_population(members),
             )
             assert query.compute().to_pandas()[("value", "value")].tolist() == [expected_total]
     # Image and set selection consume the same already governed identity selection.
@@ -468,6 +467,6 @@ def test_population_time_predicate_uses_source_authority_and_owns_its_period(
     assert case_members(session, members.image(via=(buyer,))) == ["A", "B"]
     assert case_members(session, members.intersection(members)) == expected_ids
     assert case_members(session, members.difference(members)) == []
-    assert session.observe({"value": metric}, during=scope).compute().to_pandas()[
+    assert session.observe({"value": metric}, by=(scope,)).compute().to_pandas()[
         ("value", "value")
     ].tolist() == [expected_total]

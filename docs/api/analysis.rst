@@ -143,8 +143,6 @@ Canonical public exports
 
 .. autofunction:: identity
 
-.. autofunction:: member_count
-
 .. autofunction:: row_count
 
 .. autofunction:: ordinal
@@ -189,9 +187,6 @@ Canonical public exports
 .. autoclass:: ArtifactRef
    :members:
 
-.. autoclass:: ArtifactSummary
-   :members:
-
 .. autoclass:: Finding
    :members:
 
@@ -208,9 +203,6 @@ Canonical public exports
    :members:
 
 .. autoclass:: RunPage
-   :members:
-
-.. autoclass:: SessionGraph
    :members:
 
 .. autoclass:: Session

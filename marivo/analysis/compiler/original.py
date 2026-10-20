@@ -200,7 +200,14 @@ def lower_components(
         assert reduction.time_column is not None
         time = fields[reduction.time_column]
         bucket: ir.Value = ibis.null().cast("int64")
-        for index, (_, _, start, end) in reversed(tuple(enumerate(calendar.cells))):
+        from marivo._definition.types import CalendarCoordinate
+
+        cells = (
+            calendar.cells
+            if isinstance(calendar, CalendarCoordinate)
+            else ((calendar.start, calendar.end, calendar.start, calendar.end),)
+        )
+        for index, (_, _, start, end) in reversed(tuple(enumerate(cells))):
             bucket = (
                 (time >= temporal_bound(time, start, calendar.timezone))
                 & (time < temporal_bound(time, end, calendar.timezone))

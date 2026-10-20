@@ -112,7 +112,7 @@ def run(mode: str, project: Path) -> dict[str, Json]:
                 "cost DECIMAL(12,2), quantity BIGINT)"
             )
             connection.executemany("INSERT INTO orders VALUES (?, ?, ?, ?, ?)", DAY_ROWS)
-        session = mv.session.get_or_create("equation", report_timezone="UTC")
+        session = mv.session.create("equation", timezone="UTC")
         metrics = session.catalog.metrics
         gmv = metrics.get("sales.gmv")
         qty_total = metrics.get("sales.qty_total")
@@ -123,9 +123,12 @@ def run(mode: str, project: Path) -> dict[str, Json]:
         }
         scope = session.time_scope(start="2026-07-01", end="2026-08-01")
         original = session.observe(
-            metrics_by_name, during=scope, by=session.members(ms.ref.entity("sales.orders"))
+            metrics_by_name,
+            by=mv.product(
+                scope, session.members(session.catalog.require(ms.ref.entity("sales.orders")))
+            ),
         ).persist()
-        monthly = session.observe(metrics_by_name, during=scope).persist()
+        monthly = session.observe(metrics_by_name, by=(scope,)).persist()
         artifacts: dict[str, Json] = {
             name: {"artifact": result.artifact.id, "snapshot": snapshot(result)}
             for name, result in (("original", original), ("monthly", monthly))
@@ -143,7 +146,7 @@ def run(mode: str, project: Path) -> dict[str, Json]:
         patch.object(SourceSession, "__enter__", forbidden),
         patch.object(SourceSession, "execute", forbidden),
     ):
-        session = mv.session.resume(session_id, by="id")
+        session = mv.session.resume(session_id)
         before = len(session.runs().items)
         artifacts = obj(state["artifacts"])
         for item in artifacts.values():

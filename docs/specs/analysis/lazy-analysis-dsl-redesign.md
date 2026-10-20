@@ -25,7 +25,7 @@ RawSqlResult 保持独立 datasource reader，不进入 Frame Store。
 ```python
 import marivo.analysis as mv
 
-s = mv.session.get_or_create("fixed-values", report_timezone="UTC")
+s = mv.session.create("fixed-values", timezone="UTC")
 pending = s.values(by=(), columns={"amount": "CNY"}, rows=(((), {"amount": 100}),))
 pending.show()
 fixed = pending.compute()
@@ -80,7 +80,7 @@ read 只接受一个身份域与非空字段。新字段/关系/时点读取始�
 
 LiteralValue 是闭合字面量联合：bool/int/有限 float/Decimal/str/date/aware datetime/timedelta；
 None 可作普通字段 Null 坐标，不是量值或算术字面量。ValueRow 是有序坐标元组与命名值映射。
-日历/配对轴不接受手写任意内部键。Deferred 是受控表达式载体，裸 Ibis Table/关系值与任意
+interval/日历/配对轴不接受手写任意内部键。Deferred 是受控表达式载体，裸 Ibis Table/关系值与任意
 回调不是 Metric。Statistic 是既有私有 unfinished statistic 协议，不新增公共同名导出。
 FrameAxis 公开 token/name/role/key_names，不公开物理 codec、Ref 或原始载体构造器。
 
@@ -91,8 +91,14 @@ FrameAxis 公开 token/name/role/key_names，不公开物理 codec、Ref 或原�
 
 ### 4.1 Session、字段、时间与路径
 
-observe(metrics, during, by, where, members)、read(population, fields)、
+observe(metrics, *, by=(), where=None)、read(population, fields)、
 values(by, columns, rows)、frame(population) 均返回 AnalysisFrame。各入口不以空参数代用。
+TimeScope 与 CalendarAxis 都放入 by：前者产生一个 interval 坐标，后者产生冻结日历桶，
+最多一个输出时间轴；单桶不自动 squeeze。by=Population 只选择完整联合键并保留无事实坐标。
+普通 tuple 的时间加分类先发现真实联合类别，再补时间桶；无分类域不虚构 Null 类别。
+where 的 Population 谓词筛选事实贡献；若还保留原字段条件，使用
+Metric.where(mv.in_population(P)) 配合 observe.where=field_predicate，不将两种谓词直接 &。
+
 Session instant/time_scope 是唯一分析时间构造器。source read 只在求值发生；字段 via/at
 和 Metric 固有条件保持不可变，不因调用方更换期间覆盖旧选择。
 
@@ -114,8 +120,8 @@ Population 拥有完整轴投影、集合、分类、声明关系 image/preimage
 集合要求相容有序轴/绑定。分类/关系读取保持显式源依赖与完整键检查。
 population_from(frame, on=...) 是唯一结果到源键桥；on 必填，可为 ()，选普通字段/完整身份轴，
 显式绑定解析 Field/Entity。投影联合键并去重；空输入得到空约束，零轴空域与单例域不同。
-构造不读行，消费先完成选择与检查；固定根不重排旧 Top，待执行根每次先求值。日历/配对轴与
-任意值列不桥接。where=mv.in_population 是贡献过滤，by=Population 是完整输出覆盖。
+构造不读行，消费先完成选择与检查；固定根不重排旧 Top，待执行根每次先求值。interval/日历/配对轴与
+任意值列不桥接。where=mv.in_population 是贡献过滤，by=Population 选择指定完整输出域（包含无事实坐标）。
 
 #### 4.2.1 像、逆像与已有坐标投影
 
@@ -128,8 +134,9 @@ Population.project 只选自身现有完整轴，image/preimage 沿显式声明�
 来源 Measure/Entity/Field 规约与 Metric 算术/per/window 继续由语义协议拥有。
 Metric 没有 expr/during/route 或任意 on 树位置参数。where 保留受治理条件/显式域闭包；
 内部 per 先逐样本完成整个子公式，再规约；显式样本可保留无贡献样本的 empty 政策。
-外部输出域需覆盖全部消费贡献，不能拿内部子集规则代替。member_count 消费明确身份域，
-不把贡献行数、身份×日期数或普通字段计数伪装成人数。
+by=Population 选择指定完整键，不要求覆盖域外来源坐标。P.count() 捕获单 Entity 完整
+身份域，返回可组合的惰性 Metric，包含无事实身份；P/Q 分别计数，不从 by/where 推断分母。
+事实过滤不重选计数域，空域计 0；只有计数时无效果条件/窗口拒绝。
 
 #### 4.3.4 显式成员关系分桶
 
@@ -162,7 +169,7 @@ output_names 仅值，presence_names 独立，两者完整有序。生成路径�
 
 ### 4.7 对齐、比较与参照
 
-普通轴要求完整显式 on，零轴及双方唯一总轴为日历时允许规定推导；显式 on 不自动补齐。
+普通轴要求完整显式 on，零轴及双方唯一总轴为同种 interval/日历时允许规定推导；显式 on 不自动补齐。
 跨 Session、已有配对轴、轴数/角色/完整键类型与时间不相容拒绝。exact 检查实际联合键域；
 outer 左序后右独有序。align 保留左右值；compare 要求同名相容数值/单位并生成四组：
 left/right/absolute/relative。相对变化 (left-right)/abs(right)，只对有效配对应用零政策。
@@ -188,7 +195,7 @@ Metric.window 绑定 all_history/trailing_duration/trailing_periods/since/to_dat
 
 #### 4.9.3 覆盖、缺桶与执行检查
 
-by=Population 对真实消费贡献检查完整覆盖，不能先 inner join 丢域外贡献再宣称完整。
+by=Population 只在指定完整键上求值，域外来源坐标不引发覆盖错误。分配保留原贡献分母，选择输出桶不重归一化。
 认证日历证明有限名义域/边界，不证明来源采集完整。Match 的完整名义桶结构与实际行域
 分开检查；缺损目录/映射是错误，不是普通没有对应，where/top 不绕过必要检查。
 
@@ -207,7 +214,7 @@ timestamp/Duration 保留实际 qualified 类型。源精度损失与保存值�
 
 ## 6. 求值、保存与披露
 
-完整求值先于 Run，Run 仅发布已有 result ID。Store 12 保存一种闭合 Frame 协议，
+完整求值先于 Run，Run 仅发布已有 result ID。Store 13 保存一种闭合 Frame 协议，
 来源事实按值继承并精确去重，本次求值记录不累计中间历史。show(n=0)/Artifact 审计不消费载荷，
 正 n 只解码前缀及必要坐标记录；full compute/export 验证必要全部数据。
 固定内存/存储操作无需模型、来源、语义对象或时区规则；读取失败不隐式回源。

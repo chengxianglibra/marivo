@@ -75,8 +75,8 @@ def test_source_and_retained(
                 "frozen = ms.finalize()",
             )
         )
-        session = mv.session.get_or_create("r93-attribution", report_timezone="UTC")
-        members = session.members(ms.ref.entity("sales.facts"))
+        session = mv.session.create("r93-attribution", timezone="UTC")
+        members = session.members(session.catalog.require(ms.ref.entity("sales.facts")))
         fields = {
             name: session.catalog.fields.get("sales.facts." + path)
             for name, path in (

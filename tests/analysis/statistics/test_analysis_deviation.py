@@ -29,7 +29,9 @@ def test_exported_comparison_supports_pandas_deviation_selection(
     case = analysis_dsl_case_factory("j2")
     current = monthly(case, "2026-08-01", "2026-09-01")
     baseline = monthly(case, "2026-07-01", "2026-08-01")
-    comparison = current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))
+    comparison = current.compare(
+        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+    )
     artifact = comparison.persist()
     frame = plain(artifact).rename(columns={"absolute.value": "value"})
     before = run_ids(case.session)
@@ -41,8 +43,8 @@ def test_exported_comparison_supports_pandas_deviation_selection(
     assert result.deviation.tolist() == [Fraction(value) - center for value in values]
     assert result.score.tolist() == list(scores)
     positive = result.loc[result.score > 0]
-    assert positive.key_0.tolist() == result.loc[result.score > 0, "key_0"].tolist()
-    ranked = result.sort_values(["score", "key_0"], ascending=[False, True]).head(2)
+    assert positive.key_1.tolist() == result.loc[result.score > 0, "key_1"].tolist()
+    ranked = result.sort_values(["score", "key_1"], ascending=[False, True]).head(2)
     assert ranked.score.tolist() == sorted(scores, reverse=True)[:2]
     pd.testing.assert_frame_equal(
         plain(case.session.persisted_frame(artifact.artifact.id)), plain(artifact)
@@ -66,11 +68,13 @@ def test_exported_scores_select_an_explicit_followup_query(
         )
     current = monthly(case, "2026-08-01", "2026-09-01")
     baseline = monthly(case, "2026-07-01", "2026-08-01")
-    comparison = current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))
+    comparison = current.compare(
+        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+    )
     frame = plain(comparison.compute()).rename(columns={"absolute.value": "value"})
     before = run_ids(case.session)
     scores = deviation(frame, method)
-    selected = scores.loc[scores.score > 0, "key_0"].tolist()
+    selected = scores.loc[scores.score > 0, "key_1"].tolist()
     assert selected == ["B", "D"]
     assert run_ids(case.session) == before
     population = mv.identities(
@@ -79,9 +83,7 @@ def test_exported_scores_select_an_explicit_followup_query(
     scope = case.session.time_scope(start="2026-08-01", end="2026-09-01")
     following = case.session.observe(
         {"value": case.session.catalog.metrics.get("sales.revenue")},
-        during=scope.by(mv.grain("day")),
-        by=population,
-        members=population,
+        by=mv.product(scope.by(mv.grain("day")), population),
     )
     output = plain(following.compute())
     assert len(output) == 62

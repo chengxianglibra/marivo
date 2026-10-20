@@ -12,13 +12,12 @@ def test_reduced_count_compares_as_an_independent_quantity(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     values = session.observe(
         {"value": session.catalog.metrics.get("sales.order_count")},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=members,
+        by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), members),
     )
-    selected = values.where(values.coord(values.axes[0]) != "D")
+    selected = values.where(values.coord(values.axes[1]) != "D")
     current = values.reduce({"rows": mv.row_count()})
     baseline = selected.reduce({"rows": mv.row_count()})
     assert current.persist().to_pandas()[("value", "rows")].tolist() == [4]

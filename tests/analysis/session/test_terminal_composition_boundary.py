@@ -40,7 +40,7 @@ def test_new_and_reopened_artifacts_cannot_enter_composition(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("terminal-boundary")
+    session = mv.session.create("terminal-boundary")
     query = session.values(by=(), columns={"value": None}, rows=(((), {"value": 7}),))
     saved = query.persist()
     reopened = session.persisted_frame(saved.artifact.id)

@@ -36,7 +36,7 @@ def decimal_session(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        yield mv.session.get_or_create("decimal-original", report_timezone="UTC")
+        yield mv.session.create("decimal-original", timezone="UTC")
 
 
 @pytest.mark.parametrize(

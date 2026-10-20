@@ -78,7 +78,7 @@ quantity × (unit_price − unit_cost)，未扣退款，不等于净额或完整
 
 ```python
 catalog = ms.load()
-s = mv.session.get_or_create("scenario-commerce", report_timezone="Asia/Shanghai")
+s = mv.session.create("scenario-commerce", timezone="Asia/Shanghai")
 august = s.time_scope(start="2026-08-01", end="2026-09-01")
 september = s.time_scope(start="2026-09-01", end="2026-10-01")
 paid_at = catalog.fields.get("commerce.orders.paid_at")
@@ -90,25 +90,26 @@ refunds = catalog.fields.get("commerce.refunds.refund_amount").sum(time=posted_a
 orders = catalog.entities.get("commerce.orders").count(time=paid_at)
 metrics = {"sales": sales, "refunds": refunds, "orders": orders,
            "net": sales - refunds, "aov": sales / orders}
-current = s.observe(metrics, during=september, by=(region,)).compute()
-baseline = s.observe(metrics, during=august, by=(region,)).compute()
+current = s.observe(metrics, by=(september, region)).compute()
+baseline = s.observe(metrics, by=(august, region)).compute()
 left = current.select({"net": current["net"]}).compute()
 right = baseline.select({"net": baseline["net"]}).compute()
-comparison = left.compare(right, on=((left.axes[0], right.axes[0]),)).compute()
+comparison = left.compare(right, on=tuple(zip(left.axes, right.axes)),
+                          match=mv.ordinal()).compute()
 negative = comparison.where(comparison["absolute.net"] < 0)
 focus_frame = negative.top(1, by=negative["absolute.net"], descending=False).compute()
-focus = s.population_from(focus_frame, on=((focus_frame.axes[0], region),))
+focus = s.population_from(focus_frame, on=((focus_frame.axes[1], region),))
 focus.show()
-current_detail = s.observe({"net": sales - refunds}, during=september,
-                          by=(region, channel), where=mv.in_population(focus)).compute()
-baseline_detail = s.observe({"net": sales - refunds}, during=august,
-                           by=(region, channel), where=mv.in_population(focus)).compute()
+current_detail = s.observe({'net': sales - refunds}, by=(september, region, channel), where=mv.in_population(focus)).compute()
+baseline_detail = s.observe({'net': sales - refunds}, by=(august, region, channel), where=mv.in_population(focus)).compute()
 detail = current_detail.compare(baseline_detail,
-    on=tuple(zip(current_detail.axes, baseline_detail.axes)), how="outer").compute()
+    on=tuple(zip(current_detail.axes, baseline_detail.axes)), match=mv.ordinal(), how="outer").compute()
 budget = s.values(by=(region,), columns={"budget": "CNY"}, rows=(
     (("East",), {"budget": 300}), (("West",), {"budget": 200}),
 )).compute()
-aligned = current.align(budget, on=((current.axes[0], budget.axes[0]),))
+regional_sales = current.reduce({"sales": current["sales"].sum()},
+                                by=(current.axes[1],)).compute()
+aligned = regional_sales.align(budget, on=((regional_sales.axes[0], budget.axes[0]),))
 attainment = aligned.select({
     "attainment": aligned["left.sales"] / aligned["right.budget"],
 }).compute()
@@ -168,7 +169,7 @@ MRR 缺记录按数据契约代表该月无经常性贡献；若缺记录其实�
 
 ```python
 catalog = ms.load()
-s = mv.session.get_or_create("scenario-saas", report_timezone="Asia/Shanghai")
+s = mv.session.create("scenario-saas", timezone="Asia/Shanghai")
 august = s.time_scope(start="2026-08-01", end="2026-09-01")
 september = s.time_scope(start="2026-09-01", end="2026-10-01")
 Accounts = catalog.entities.get("saas.accounts")
@@ -176,18 +177,19 @@ mrr = catalog.fields.get("saas.recurring_lines.mrr_amount").sum(
     time=catalog.fields.get("saas.recurring_lines.month_at"), empty="zero",
 )
 cohort = mv.identities(Accounts, keys=(("t1", "A"), ("t1", "B"), ("t2", "A")))
-baseline = s.observe({"mrr": mrr}, members=cohort, during=august, by=(cohort.axes[0],)).compute()
-current = s.observe({"mrr": mrr}, members=cohort, during=september, by=(cohort.axes[0],)).compute()
-change = current.compare(baseline, on=((current.axes[0], baseline.axes[0]),)).compute()
+baseline = s.observe({'mrr': mrr}, by=mv.product(august, cohort)).compute()
+current = s.observe({'mrr': mrr}, by=mv.product(september, cohort)).compute()
+change = current.compare(baseline, on=tuple(zip(current.axes, baseline.axes)),
+                         match=mv.ordinal()).compute()
 churned = change.where(change["left.mrr"] == 0).compute()
-churned_accounts = s.population_from(churned, on=((churned.axes[0], Accounts),))
+churned_accounts = s.population_from(churned, on=((churned.axes[1], Accounts),))
 s.frame(churned_accounts).compute().show()
 saas_export = change.to_pandas()
 ```
 
 复合键不能按 account_id 单独去重。显式 empty="zero" 来自本题已批准的无月度贡献含义，
 不是对未知缺失记录的通用补零。churned 来源于这份固定 change，不重新选择基期人群。
-新使用量观察仍需显式 Metric/期间与 members，不从结果恢复历史。
+新使用量观察仍需显式 Metric、by 时间域与 Population 条件，不从结果恢复历史。
 
 <!-- pandas-example:saas-readout -->
 ```python
@@ -303,7 +305,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 
 catalog = ms.load(workspace_dir=".")
-attribute_s = mv.session.get_or_create("scenario-customer-versions", report_timezone="Asia/Shanghai")
+attribute_s = mv.session.create("scenario-customer-versions", timezone="Asia/Shanghai")
 customers_entity = catalog.entities.get("crm.customers")
 tier = catalog.fields.get("crm.customers.tier")
 october = attribute_s.time_scope(start="2026-10-01", end="2026-11-01")
@@ -362,7 +364,7 @@ plant/model/outcome 为单值 Dimension，tested_at 为检验时间。数据没�
 
 ```python
 catalog = ms.load()
-s = mv.session.get_or_create("scenario-quality", report_timezone="Asia/Shanghai")
+s = mv.session.create("scenario-quality", timezone="Asia/Shanghai")
 september = s.time_scope(start="2026-09-01", end="2026-10-01")
 plant = catalog.fields.get("quality.inspections.plant")
 model = catalog.fields.get("quality.inspections.model")
@@ -373,16 +375,16 @@ failed = inspected.where(outcome == "fail")
 rate = failed.divide(inspected, zero_denominator="error")
 plant_keys = mv.coordinates(by=(plant,), keys=(("A",), ("B",)))
 model_keys = mv.coordinates(by=(model,), keys=(("Easy",), ("Hard",)))
-cells = s.observe({"rate": rate}, during=september,
-                  by=mv.product(plant_keys, model_keys)).compute()
-pooled = s.observe({"rate": rate}, during=september, by=plant_keys).compute()
+cells = s.observe({'rate': rate}, by=mv.product(september, mv.product(plant_keys, model_keys))).compute()
+pooled = s.observe({'rate': rate}, by=mv.product(september, plant_keys)).compute()
 weights = s.values(by=(plant, model), columns={"weight": "1"}, rows=(
     (("A", "Easy"), {"weight": Decimal("0.5")}),
     (("A", "Hard"), {"weight": Decimal("0.5")}),
     (("B", "Easy"), {"weight": Decimal("0.5")}),
     (("B", "Hard"), {"weight": Decimal("0.5")}),
 )).compute()
-joined = cells.align(weights, on=tuple(zip(cells.axes, weights.axes)))
+cell_values = cells.reduce({"rate": cells["rate"].mean()}, by=cells.axes[1:]).compute()
+joined = cell_values.align(weights, on=tuple(zip(cell_values.axes, weights.axes)))
 weighted = joined.select({"weighted_rate": joined["left.rate"] * joined["right.weight"]})
 standardized = weighted.reduce({"standardized_rate": weighted["weighted_rate"].sum()},
                                by=(weighted.axes[0],)).compute()
@@ -390,7 +392,8 @@ pooled.show()
 standardized.show()
 ```
 
-参照明确覆盖全部 (plant,model) 完整键；不是把 model-only 表自动广播。
+单期间每个 (plant,model) 只有一个 rate；先以当前行 mean 移除 interval 轴，再对齐参照。
+这不把多个期间的率均值当成原来源率。参照明确覆盖全部 (plant,model) 完整键；不是把 model-only 表自动广播。
 pooled 是新的原来源公式，standardized 是显式固定参照上的当前格子加权和。
 正权重层缺样本必须失败/明确改口径；NA 不可静默丢弃后重新归一化。
 
@@ -398,7 +401,7 @@ pooled 是新的原来源公式，standardized 是显式固定参照上的当前
 
 A 原始不良率 120/1000=12%，B 为 185/1000=18.5%；统一 50%/50% 后为 20%/12.5%。
 原始 B 高 6.5 个百分点，标准结构 B 低 7.5 个百分点；不证明工厂造成质量差异。
-20%/80% 参照给 26%/17%。实际字段 Null 与缺关系映射不同；漏 Hard 完整域应覆盖失败。
+20%/80% 参照给 26%/17%。实际字段 Null 与缺关系映射不同；指定域省略 Hard 时只返回所选键；精确总体分解仍须独立证明相关样本完整。
 B/Hard 无样本时严格 rate 0/0 失败，不能跳过/补零后仍称原标准化率。
 
 ## 5. 物流：完整日网格、未送达件与 P95 上卷
@@ -430,7 +433,7 @@ B/Hard 无样本时严格 rate 0/0 失败，不能跳过/补零后仍称原标�
 
 ```python
 catalog = ms.load()
-s = mv.session.get_or_create("scenario-logistics", report_timezone="Asia/Shanghai")
+s = mv.session.create("scenario-logistics", timezone="Asia/Shanghai")
 hub = catalog.fields.get("logistics.shipments.hub")
 dispatched_at = catalog.fields.get("logistics.shipments.dispatched_at")
 duration = catalog.fields.get("logistics.shipments.delivery_hours")
@@ -438,15 +441,11 @@ window = s.time_scope(start="2026-10-01", end="2026-10-04")
 days = window.by(mv.grain("day"))
 hubs = mv.coordinates(by=(hub,), keys=(("H1",), ("H2",)))
 p95 = duration.quantile(0.95, time=dispatched_at)
-daily = s.observe({
-    "shipments": catalog.entities.get("logistics.shipments").count(time=dispatched_at),
-    "timed": duration.count(time=dispatched_at),
-    "mean_hours": duration.mean(time=dispatched_at), "p95_hours": p95,
-}, during=days, by=mv.product(hubs, days)).compute()
+daily = s.observe({'shipments': catalog.entities.get('logistics.shipments').count(time=dispatched_at), 'timed': duration.count(time=dispatched_at), 'mean_hours': duration.mean(time=dispatched_at), 'p95_hours': p95}, by=mv.product(hubs, days)).compute()
 known = daily.where(~daily["p95_hours"].is_null())
 worst_days = known.top(2, by=known["p95_hours"]).compute()
-by_hub = s.observe({"p95_hours": p95}, during=window, by=hubs).compute()
-network = s.observe({"p95_hours": p95}, during=window).compute()
+by_hub = s.observe({'p95_hours': p95}, by=mv.product(window, hubs)).compute()
+network = s.observe({'p95_hours': p95}, by=(window,)).compute()
 logistics_export = daily.to_pandas()
 worst_days.show()
 ```
@@ -512,22 +511,24 @@ H1 全窗 P95=75.5，全网=66.05（位置 (n-1)*0.95 插值）；日 P95 平均
 
 ```python
 catalog = ms.load()
-s = mv.session.get_or_create("scenario-experiment", report_timezone="Asia/Shanghai")
+s = mv.session.create("scenario-experiment", timezone="Asia/Shanghai")
 september = s.time_scope(start="2026-09-01", end="2026-10-01")
 arm = catalog.fields.get("experiment.workspaces.arm")
 experiment_id = catalog.fields.get("experiment.workspaces.experiment_id")
 preperiod = catalog.fields.get("experiment.workspaces.preperiod_sessions")
-cohort = s.members(ms.ref.entity("experiment.workspaces"), where=experiment_id == "E1")
+Workspaces = catalog.entities.get("experiment.workspaces")
+cohort = s.members(Workspaces, where=experiment_id == "E1")
 revenue = catalog.fields.get("experiment.purchases.purchase_amount").sum(
     time=catalog.fields.get("experiment.purchases.purchased_at"), empty="zero",
 )
 sessions = catalog.entities.get("experiment.sessions").count(
     time=catalog.fields.get("experiment.sessions.started_at"),
 )
-units = s.observe({"revenue": revenue, "sessions": sessions}, members=cohort,
-                  during=september, by=(arm, preperiod, cohort.axes[0])).compute()
-a_units = units.where(units.coord(units.axes[0]) == "A")
-b_units = units.where(units.coord(units.axes[0]) == "B")
+unit_domain = cohort.classify(by=(arm, preperiod, cohort.axes[0]))
+units = s.observe({'revenue': revenue, 'sessions': sessions},
+                  by=mv.product(september, unit_domain)).compute()
+a_units = units.where(units.coord(units.axes[1]) == "A")
+b_units = units.where(units.coord(units.axes[1]) == "B")
 a_mean = a_units.reduce({"mean_workspace_revenue": a_units["revenue"].mean()})
 b_mean = b_units.reduce({"mean_workspace_revenue": b_units["revenue"].mean()})
 descriptive_lift = b_mean.compare(a_mean).compute()
@@ -543,8 +544,8 @@ import pandas as pd
 if experiment_export["value"][["revenue", "sessions"]].isna().any().any():
     raise ValueError("The experiment summary requires non-missing unit-level outcomes.")
 units_frame = experiment_export["value"][["revenue", "sessions"]].copy()
-units_frame["arm"] = experiment_export[("coordinate", units.axes[0].token)]
-activity = experiment_export[("coordinate", units.axes[1].token)]
+units_frame["arm"] = experiment_export[("coordinate", units.axes[1].token)]
+activity = experiment_export[("coordinate", units.axes[2].token)]
 if activity.isna().any():
     raise ValueError("This example requires a known preperiod activity class.")
 units_frame["baseline_activity"] = pd.Series(
@@ -599,13 +600,13 @@ Analysis 不从“收入”列名猜时间角色、paid 条件或空值规则，
 
 ```python
 catalog = ms.load()
-s = mv.session.get_or_create("scenario-temporal-sales", report_timezone="Asia/Shanghai")
+s = mv.session.create("scenario-temporal-sales", timezone="Asia/Shanghai")
 income = catalog.metrics.get("sales.revenue")
 display = s.time_scope(start="2026-10-07", end="2026-10-09")
 days = display.by(mv.grain("day"))
-rolling = s.observe({"income": income.window(mv.trailing_periods(count=7))}, during=days).compute()
-mtd = s.observe({"income": income.window(mv.to_date(grain=mv.grain("month")))}, during=days).compute()
-ytd = s.observe({"income": income.window(mv.to_date(grain=mv.grain("year")))}, during=days).compute()
+rolling = s.observe({'income': income.window(mv.trailing_periods(count=7))}, by=(days,)).compute()
+mtd = s.observe({'income': income.window(mv.to_date(grain=mv.grain('month')))}, by=(days,)).compute()
+ytd = s.observe({'income': income.window(mv.to_date(grain=mv.grain('year')))}, by=(days,)).compute()
 joined = mtd.align(ytd)
 cumulative = joined.select({"mtd": joined["left.income"], "ytd": joined["right.income"]}).compute()
 rolling.show()
@@ -660,7 +661,7 @@ aware 值保留瞬时，naive datetime/歧义时刻拒绝。改变期间不覆�
 
 ### 7.11 观察期间省略与关系元组
 
-during=None 表示不增加普通来源时间条件，不证明完整历史；时间样本/窗口仍有独立期间要求。
+by=() 表示没有输出时间轴，不证明完整历史；需要端点的时间样本/窗口必须显式提供 by 时间域。
 联合元组桥接不能分列去重再笛卡尔积，普通 Field Null 保留，Entity 身份不空。
 
 ### 7.12 截断月桶的原指标上卷与月内份额

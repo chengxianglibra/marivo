@@ -48,7 +48,7 @@ def test_query_arithmetic_keeps_selected_completed_values(
         _case_data(backend, "ordinary" if operation == "na_zero" else "strict"),
     ) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.get_or_create("source-query-arithmetic", report_timezone="UTC")
+        session = mv.session.create("source-query-arithmetic", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         big = session.catalog.fields.get("sales.facts.big")
         weight = session.catalog.fields.get("sales.facts.weight")
@@ -67,7 +67,7 @@ def test_query_arithmetic_keeps_selected_completed_values(
             expected_rows = 1
         else:
             source = session.read(
-                session.members(ms.ref.entity("sales.facts")),
+                session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
                 {"amount": amount, "big": big, "weight": weight},
             )
             if operation == "na_zero":
@@ -132,7 +132,7 @@ def test_checked_query_arithmetic_fails_before_empty_top(
         _case_data(backend, "overflow" if boundary == "overflow" else "strict"),
     ) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.get_or_create("source-query-checks", report_timezone="UTC")
+        session = mv.session.create("source-query-checks", timezone="UTC")
         big = session.catalog.fields.get("sales.facts.big")
         weight = session.catalog.fields.get("sales.facts.weight")
         category = session.catalog.fields.get("sales.facts.category")
@@ -147,7 +147,8 @@ def test_checked_query_arithmetic_fails_before_empty_top(
             )
         else:
             source = session.read(
-                session.members(ms.ref.entity("sales.facts")), {"big": big, "weight": weight}
+                session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
+                {"big": big, "weight": weight},
             )
             source = source.select(
                 {
@@ -183,9 +184,9 @@ def test_unary_float_selection_preserves_infinite_scores_without_new_checks(
     )
     with source_case("duckdb", "table", tmp_path, monkeypatch, data) as case:
         _project("duckdb", case, monkeypatch, semantic_project_factory)
-        session = mv.session.get_or_create("unary-query", report_timezone="UTC")
+        session = mv.session.create("unary-query", timezone="UTC")
         source = session.read(
-            session.members(ms.ref.entity("sales.facts")),
+            session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
             {"amount": session.catalog.fields.get("sales.facts.amount")},
         )
         score = -source["amount"]
@@ -245,9 +246,9 @@ def test_float_select_rejects_nonfinite_output_before_empty_top(
     data = replace(data, values=data.values.replace("2.5", "CAST('Infinity' AS DOUBLE)", 1))
     with source_case("duckdb", "table", tmp_path, monkeypatch, data) as case:
         _project("duckdb", case, monkeypatch, semantic_project_factory)
-        session = mv.session.get_or_create("finite-select", report_timezone="UTC")
+        session = mv.session.create("finite-select", timezone="UTC")
         source = session.read(
-            session.members(ms.ref.entity("sales.facts")),
+            session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
             {"amount": session.catalog.fields.get("sales.facts.amount")},
         )
         query = source.select({"value": -source["amount"] if negated else source["amount"]})

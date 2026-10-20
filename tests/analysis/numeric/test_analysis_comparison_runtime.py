@@ -20,8 +20,8 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
 from marivo.analysis.errors import AnalysisError
+from tests.analysis.numeric.pandas_coordinates import plain
 from tests.analysis.numeric.test_period_alignment import paired_tables
-from tests.analysis.statistics.pandas_workflows import plain
 from tests.shared_fixtures import (
     DslCase,
     DslCaseFactory,
@@ -44,10 +44,12 @@ def _monthly(
     case: DslCase, month: int, metric: str = "revenue", *, overall: bool = False
 ) -> mv.AnalysisFrame:
     session = case.session
+    scope = session.time_scope(start=f"2026-{month:02}-01", end=f"2026-{month + 1:02}-01")
     return session.observe(
         {"value": session.catalog.metrics.get("sales." + metric)},
-        during=session.time_scope(start=f"2026-{month:02}-01", end=f"2026-{month + 1:02}-01"),
-        by=() if overall else session.members(ms.ref.entity("sales.customer")),
+        by=(scope,)
+        if overall
+        else mv.product(scope, session.members(session.catalog.entities.get("sales.customer"))),
     )
 
 
@@ -90,7 +92,7 @@ from tests.shared_fixtures import run_ids
 def unavailable(*args, **kwargs):
     raise AssertionError('terminal comparison reopened source or Semantic')
 with patch.object(duckdb, 'connect', unavailable), patch.object(ms, 'load', unavailable), patch.object(SourceSession, '__init__', unavailable):
-    session = mv.session.resume(sys.argv[1], by='id')
+    session = mv.session.resume(sys.argv[1])
     before = run_ids(session)
     saved = tuple(session.persisted_frame(ref) for ref in sys.argv[2:])
     assert all(isinstance(item, mv.AnalysisFrame) for item in saved)
@@ -129,7 +131,9 @@ def test_public_numeric_difference_source_and_fixed(
         raw = connection.execute('SELECT customer_id, ordered_at, amount FROM "order"').fetchall()
     _numeric_source(case, physical, True)
     current, baseline = _monthly(case, 8), _monthly(case, 7)
-    comparison = current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))
+    comparison = current.compare(
+        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+    )
     saved = comparison.persist()
     source = _plain(saved).set_index("key_0")
     recovered = _plain(case.session.persisted_frame(saved.artifact.id)).set_index("key_0")
@@ -166,6 +170,7 @@ def test_public_numeric_difference_source_and_fixed(
             baseline,
             zero_denominator="error",
             on=tuple(zip(current.axes, baseline.axes, strict=True)),
+            match=mv.ordinal(),
         ).compute()
     if physical.startswith("duration"):
         session = case.session
@@ -173,11 +178,13 @@ def test_public_numeric_difference_source_and_fixed(
         time = session.catalog.fields.get("sales.order.ordered_at")
         nullable = session.observe(
             {"value": amount.sum(time=time, empty="null")},
-            during=session.time_scope(start="2026-09-01", end="2026-10-01"),
-            by=session.members(ms.ref.entity("sales.customer")),
+            by=mv.product(
+                session.time_scope(start="2026-09-01", end="2026-10-01"),
+                session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
+            ),
         )
         null_saved = nullable.compare(
-            current, on=tuple(zip(nullable.axes, current.axes, strict=True))
+            current, on=tuple(zip(nullable.axes, current.axes, strict=True)), match=mv.ordinal()
         ).persist()
         nulls = _plain(null_saved).set_index("key_0")
         assert pd.isna(nulls.loc["D", "left.value"])
@@ -214,7 +221,9 @@ def test_comparison_v2_cold_continuation_and_correspondence_integrity(
     case = analysis_dsl_case_factory("j2")
     _numeric_source(case, "BIGINT", True)
     current, baseline = _monthly(case, 9), _monthly(case, 8)
-    comparison = current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))
+    comparison = current.compare(
+        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+    )
     selected = comparison.where(~comparison["relative.value"].is_null())
     saved, filtered = comparison.persist(), selected.persist()
     backing = saved._backing
@@ -252,10 +261,14 @@ def test_nested_difference_keeps_independent_captures(
         )
     _numeric_source(case, "BIGINT", True)
     august, july_first, july_second, june = (_monthly(case, month) for month in (8, 7, 7, 6))
-    first = august.compare(july_first, on=tuple(zip(august.axes, july_first.axes, strict=True)))
-    first = first.select({"value": first["absolute.value"]})
-    second = july_second.compare(june, on=tuple(zip(july_second.axes, june.axes, strict=True)))
-    second = second.select({"value": second["absolute.value"]})
+    first = august.compare(
+        july_first, on=tuple(zip(august.axes, july_first.axes, strict=True)), match=mv.ordinal()
+    )
+    first = first.reduce({"value": first["absolute.value"].sum()}, by=(first.axes[1],))
+    second = july_second.compare(
+        june, on=tuple(zip(july_second.axes, june.axes, strict=True)), match=mv.ordinal()
+    )
+    second = second.reduce({"value": second["absolute.value"].sum()}, by=(second.axes[1],))
     nested = first.compare(second, on=tuple(zip(first.axes, second.axes, strict=True)))
     saved = nested.persist()
     expected = {"A": -140, "B": -80, "C": -100, "D": 0}
@@ -295,9 +308,11 @@ def test_union_keep_distinguishes_missing_coordinate_and_rejects_filtered_empty(
     current, baseline = _monthly(case, 8), _monthly(case, 7)
     left, right = current.where(current["value"] > 0), baseline.where(baseline["value"] > 0)
     with pytest.raises(AnalysisError, match="complete"):
-        left.compare(right, on=tuple(zip(left.axes, right.axes, strict=True))).compute()
+        left.compare(
+            right, on=tuple(zip(left.axes, right.axes, strict=True)), match=mv.ordinal()
+        ).compute()
     saved = left.compare(
-        right, how="outer", on=tuple(zip(left.axes, right.axes, strict=True))
+        right, how="outer", on=tuple(zip(left.axes, right.axes, strict=True)), match=mv.ordinal()
     ).persist()
     frame = _plain(saved).set_index("key_0")
     assert frame.loc["A", "absolute.value"] == -40
@@ -316,7 +331,7 @@ def test_cohort_group_metric_empty_preserves_metric_null_policy(
     case = analysis_dsl_case_factory("j2")
     _numeric_source(case, "BIGINT", True)
     session = case.session
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     region = session.catalog.fields.get("sales.customer.region")
     categories = session.read(members, {"region": region})
     selection_values = categories.where(categories["region"] == "east")
@@ -337,9 +352,11 @@ def test_cohort_group_metric_empty_preserves_metric_null_policy(
         def observe(population: mv.Population, metric: Deferred = metric) -> mv.AnalysisFrame:
             return session.observe(
                 {"value": metric},
-                during=session.time_scope(start="2026-07-01", end="2026-08-01"),
-                by=population.classify(by=(region,)),
-                members=population,
+                by=mv.product(
+                    session.time_scope(start="2026-07-01", end="2026-08-01"),
+                    population.classify(by=(region,)),
+                ),
+                where=mv.in_population(population),
             )
 
         first, second = observe(members), observe(eastern)
@@ -371,8 +388,9 @@ def test_period_change_retains_original_buckets_and_rejects_renumbering(
         ).by(mv.grain("day"))
         return session.observe(
             {"value": session.catalog.metrics.get("sales.order_count")},
-            during=axis,
-            by=session.members(ms.ref.entity("sales.customer")),
+            by=mv.product(
+                axis, session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+            ),
         )
 
     current, baseline = observe(8, 14, 3), observe(7, 9, 3)
@@ -402,7 +420,7 @@ def test_period_change_retains_original_buckets_and_rejects_renumbering(
             on=tuple(zip(selected.axes, baseline.axes, strict=True)),
         ).compute()
     )
-    assert outer.key_0.nunique() == 3
+    assert outer.time_0.nunique() == 3
 
 
 @pytest.mark.parametrize("calendar", [False, True])
@@ -426,7 +444,8 @@ finalized = ms.finalize()
     ms.load(workspace_dir=case.root)
     session = case.session
     customer, account = (
-        session.members(ms.ref.entity("sales." + name)) for name in ("customer", "account")
+        session.members(session.catalog.require(ms.ref.entity("sales." + name)))
+        for name in ("customer", "account")
     )
     scope = (
         session.time_scope(start="2026-07-09", end="2026-07-12")
@@ -435,11 +454,13 @@ finalized = ms.finalize()
     )
     during = scope.by(mv.grain("day")) if calendar else scope
     metric = session.catalog.metrics.get("sales.revenue")
-    left = session.observe({"value": metric}, during=during, by=customer)
-    right = session.observe({"value": metric}, during=during, by=account)
+    left = session.observe({"value": metric}, by=mv.product(during, customer))
+    right = session.observe({"value": metric}, by=mv.product(during, account))
     # Relationship routing is explicit at the source; current data aligns only
     # the complete compatible keys deliberately supplied by this test.
-    aligned = left.align(right, on=tuple(zip(left.axes, right.axes, strict=True)))
+    aligned = left.align(
+        right, on=tuple(zip(left.axes, right.axes, strict=True)), match=mv.ordinal()
+    )
     ratio = aligned.select({"value": aligned["left.value"] / aligned["right.value"]})
     result = _plain(ratio.compute())
     assert result.value.dropna().tolist() == [1.0, 1.0, 1.0]
@@ -449,7 +470,7 @@ finalized = ms.finalize()
     with pytest.raises(AnalysisError):
         left.align(right, on=((left.axes[0], left.axes[0]),))
     if calendar:
-        assert result.key_0.nunique() == 3
+        assert result.time_0.nunique() == 3
         assert ratio.reduce({"count": mv.row_count()}).compute().to_pandas()[
             ("value", "count")
         ].tolist() == [12]
@@ -466,7 +487,9 @@ def test_relative_and_ratio_cold_fixed_composition(
     totals = current_total.compare(baseline_total)
     positive = current.where(current["value"] > 0)
     ratio = positive.select({"value": positive["value"] / positive["value"]})
-    individual = current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))
+    individual = current.compare(
+        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+    )
     _cold(
         case,
         (totals.persist(), ratio.persist(), individual.persist()),
@@ -496,7 +519,7 @@ def test_float_sum_and_native_mean_comparison_values(
         )
     session = case.session
     identities = session.read(
-        session.members(ms.ref.entity("sales.customer")),
+        session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
         {"id": session.catalog.fields.get("sales.customer.customer_id")},
     )
     selection_values = identities.where(identities["id"] == "A")
@@ -515,16 +538,17 @@ def test_float_sum_and_native_mean_comparison_values(
         def observe(month: int, metric: Deferred = metric) -> mv.AnalysisFrame:
             return session.observe(
                 {"value": metric},
-                during=session.time_scope(
-                    start=f"2026-{month:02}-01", end=f"2026-{month + 1:02}-01"
+                by=mv.product(
+                    session.time_scope(start=f"2026-{month:02}-01", end=f"2026-{month + 1:02}-01"),
+                    members,
                 ),
-                by=members,
-                members=members,
             )
 
         left, right = observe(8), observe(7)
         frame = _plain(
-            left.compare(right, on=tuple(zip(left.axes, right.axes, strict=True))).compute()
+            left.compare(
+                right, on=tuple(zip(left.axes, right.axes, strict=True)), match=mv.ordinal()
+            ).compute()
         )
         assert frame["right.value"].tolist() == [denominator]
         assert frame["relative.value"].tolist() == pytest.approx(
@@ -542,7 +566,7 @@ def test_comparison_construction_is_lazy_and_shared_source_runs_once(
     trace = capture_source(monkeypatch)
     ratio = observed.select({"value": observed["value"] / observed["value"]})
     comparison = observed.compare(
-        independent, on=tuple(zip(observed.axes, independent.axes, strict=True))
+        independent, on=tuple(zip(observed.axes, independent.axes, strict=True)), match=mv.ordinal()
     )
     assert not trace.native_sql and not trace.owners
     first = ratio.compute()
@@ -564,7 +588,7 @@ def test_comparison_of_float_original_expression_operands(
     _numeric_source(case, "DOUBLE", False)
     session = case.session
     identities = session.read(
-        session.members(ms.ref.entity("sales.customer")),
+        session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
         {"id": session.catalog.fields.get("sales.customer.customer_id")},
     )
     selection_values = identities.where(identities["id"] == "A")
@@ -587,13 +611,16 @@ def test_comparison_of_float_original_expression_operands(
     def observe(month: int, metric: Deferred = metric) -> mv.AnalysisFrame:
         return session.observe(
             {"value": metric},
-            during=session.time_scope(start=f"2026-{month:02}-01", end=f"2026-{month + 1:02}-01"),
-            by=members,
-            members=members,
+            by=mv.product(
+                session.time_scope(start=f"2026-{month:02}-01", end=f"2026-{month + 1:02}-01"),
+                members,
+            ),
         )
 
     left, right = observe(8), observe(7)
-    result = left.compare(right, on=tuple(zip(left.axes, right.axes, strict=True))).persist()
+    result = left.compare(
+        right, on=tuple(zip(left.axes, right.axes, strict=True)), match=mv.ordinal()
+    ).persist()
     assert _plain(result)["absolute.value"].tolist() == [
         {"ratio": 0.0, "linear": -80.0, "weighted": -40.0}[kind]
     ]
@@ -607,7 +634,7 @@ def test_union_keeps_present_nondefined_cell_separate_from_absence(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     session = case.session
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     region = session.catalog.fields.get("sales.customer.region")
     categories = session.read(members, {"region": region})
     selection_values = categories.where(categories["region"] == "east")
@@ -626,14 +653,19 @@ def test_union_keeps_present_nondefined_cell_separate_from_absence(
         def observe(population: mv.Population, metric: Deferred = metric) -> mv.AnalysisFrame:
             return session.observe(
                 {"value": metric},
-                during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-                by=population.classify(by=(region,)),
-                members=population,
+                by=mv.product(
+                    session.time_scope(start="2026-08-01", end="2026-09-01"),
+                    population.classify(by=(region,)),
+                ),
+                where=mv.in_population(population),
             )
 
         left, right = observe(eastern), observe(members)
         result = left.compare(
-            right, how="outer", on=tuple(zip(left.axes, right.axes, strict=True))
+            right,
+            how="outer",
+            on=tuple(zip(left.axes, right.axes, strict=True)),
+            match=mv.ordinal(),
         ).persist()
         frame = _plain(result).set_index("key_0")
         assert frame.loc[["south", "west"], "absolute.value"].isna().all()
@@ -665,14 +697,12 @@ def test_public_decimal_ratio_uses_declared_float_carrier(
     )
     ms.load(workspace_dir=case.root)
     session = case.session
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     time = session.catalog.fields.get("sales.order.ordered_at")
     denominator = session.catalog.fields.get("sales.order.denominator").sum(time=time)
     q = session.observe(
         {"numerator": session.catalog.metrics.get("sales.revenue"), "denominator": denominator},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=members,
-        members=members,
+        by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), members),
     )
     result = q.select({"value": q["numerator"] / q["denominator"]}).persist()
     values = _plain(result).set_index("key_0").value.to_dict()
@@ -692,7 +722,7 @@ def test_ordinary_ratio_over_untimed_numeric_read(
     case = analysis_dsl_case_factory("j2")
     session = case.session
     values = session.read(
-        session.members(ms.ref.entity("sales.order")),
+        session.members(session.catalog.require(ms.ref.entity("sales.order"))),
         {"value": session.catalog.fields.get("sales.order.amount")},
     )
     saved = values.select({"value": values["value"] / values["value"]}).persist()
@@ -728,11 +758,13 @@ def test_float_status_fold_comparison_uses_native_values(
             .per(session.catalog.fields.get("sales.order.ordered_at"))
             .mean()
         },
-        during=session.time_scope(start="2026-08-01", end="2026-08-03"),
-        by=session.members(ms.ref.entity("sales.customer")),
+        by=mv.product(
+            session.time_scope(start="2026-08-01", end="2026-08-03"),
+            session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
+        ),
     )
     comparison = observed.compare(
-        observed, on=tuple(zip(observed.axes, observed.axes, strict=True))
+        observed, on=tuple(zip(observed.axes, observed.axes, strict=True)), match=mv.ordinal()
     )
     result = _plain(comparison.compute())
     assert result["absolute.value"].dropna().eq(0).all()
@@ -799,13 +831,16 @@ def test_period_change_after_bucket_rollup(analysis_dsl_case_factory: DslCaseFac
         ).by(mv.grain("day"))
         observed = session.observe(
             {"value": session.catalog.metrics.get("sales.order_count")},
-            during=axis,
-            by=session.members(ms.ref.entity("sales.customer")),
+            by=mv.product(
+                axis, session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+            ),
         )
         return session.observe(
             {"value": session.catalog.metrics.get("sales.order_count")},
-            during=axis,
-            members=session.members(ms.ref.entity("sales.customer")),
+            by=(axis,),
+            where=mv.in_population(
+                session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+            ),
         )
 
     left, right = grouped(8, 14), grouped(7, 9)

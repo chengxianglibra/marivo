@@ -52,11 +52,11 @@ def test_analysis_session_creates_state_without_manifest_or_models(
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
-    session = mv.session.get_or_create(name="zero_init")
+    session = mv.session.create(name="zero_init")
 
     assert session.project_root == tmp_path
     assert (
-        tmp_path / ".marivo" / "analysis" / "generations" / "v12" / "session_store.db"
+        tmp_path / ".marivo" / "analysis" / "generations" / "v13" / "session_store.db"
     ).is_file()
     assert not (tmp_path / "marivo.toml").exists()
     assert not (tmp_path / "models").exists()
@@ -115,10 +115,10 @@ def test_project_surfaces_fail_before_writing_when_manifest_is_invalid(
     with pytest.raises(SemanticLoadFailed, match="name must be a non-empty string"):
         ms.load()
     with pytest.raises(SessionStateError, match="name must be a non-empty string") as analysis:
-        mv.session.get_or_create(name="invalid")
+        mv.session.create(name="invalid")
     assert analysis.value.location == str(tmp_path / "marivo.toml")
     assert analysis.value.repair is not None
-    assert analysis.value.repair.help_target.canonical_id == "session.get_or_create"
+    assert analysis.value.repair.help_target.canonical_id == "session.create"
 
     assert not (tmp_path / "models").exists()
     assert not (tmp_path / ".marivo").exists()

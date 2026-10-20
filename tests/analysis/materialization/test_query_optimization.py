@@ -99,7 +99,7 @@ other_amount = ms.measure_column(name='amount', entity=other, column='amount', a
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.get_or_create("optimization", report_timezone="UTC")
+    return mv.session.create("optimization", timezone="UTC")
 
 
 def _source_graph(frame: AnalysisFrame) -> BoundGraph:
@@ -745,8 +745,12 @@ def test_null_empty_policy_and_different_source_fibers_remain_independent(
     plan, _, _ = _same(session, query)
     assert not any(group.law == "L8" for group in plan.fusion_groups)
     entity = session.catalog.entities.get("sales.orders")
-    one = session.observe({"sum": amount.sum()}, members=mv.identities(entity, keys=((1,),)))
-    two = session.observe({"other": amount.sum()}, members=mv.identities(entity, keys=((2,),)))
+    one = session.observe(
+        {"sum": amount.sum()}, where=mv.in_population(mv.identities(entity, keys=((1,),)))
+    )
+    two = session.observe(
+        {"other": amount.sum()}, where=mv.in_population(mv.identities(entity, keys=((2,),)))
+    )
     query = one.align(two, on=tuple(zip(one.axes, two.axes, strict=True)))
     plan, _, _ = _same(session, query)
     assert not any(group.law == "source_block" for group in plan.fusion_groups)
@@ -771,7 +775,7 @@ def test_internal_samples_and_windows_keep_their_physical_boundaries(
         time = session.catalog.fields.get("sales.orders.ordered_at")
         calendar = session.time_scope(start="2026-01-01", end="2026-01-03").by(mv.grain("day"))
         metric = amount.sum(time=time).window(mv.all_history())
-        source = session.observe({"a": metric, "b": metric}, during=calendar, by=(region, detail))
+        source = session.observe({"a": metric, "b": metric}, by=(calendar, region, detail))
         query = source
     plan, _, _ = _same(session, query)
     assert not any(group.law in ("L8", "source_block") for group in plan.fusion_groups)
@@ -784,11 +788,11 @@ def test_common_block_keeps_same_period_filter_and_exact_checks(
     amount = session.catalog.fields.get("sales.orders.amount")
     time = session.catalog.fields.get("sales.orders.ordered_at")
     region = session.catalog.fields.get("sales.orders.region")
+    scope = session.time_scope(start="2026-01-01", end="2026-01-02")
     query = session.observe(
         {"a": amount.sum(time=time, empty="zero"), "b": amount.count(time=time)},
-        during=session.time_scope(start="2026-01-01", end="2026-01-02"),
         by=(region,),
-        where=amount > 0,
+        where=(amount > 0) & time.within(scope),
     )
     plan, _, _ = _same(session, query)
     assert any(group.law == "source_block" for group in plan.fusion_groups)
@@ -993,9 +997,7 @@ def test_decimal_source_quantile_keeps_exact_endpoints_and_windows(
         assert str(result[("value", "p95")].dtype) == f"decimal128({precision}, 2)[pyarrow]"
     days = session.time_scope(start="2026-01-01", end="2026-01-03").by(mv.grain("day"))
     windowed = session.observe(
-        {"p95": quantile.window(mv.trailing_periods(count=2))},
-        during=days,
-        by=(region,),
+        {"p95": quantile.window(mv.trailing_periods(count=2))}, by=(days, region)
     )
     assert windowed.compute().to_pandas()[("value", "p95")].tolist() == [expected, expected]
 
@@ -1085,7 +1087,7 @@ def test_decimal_quantile_probability_boundaries_samples_and_strict_nulls(
     ]
     sampled = session.observe(
         {"p95": value.sum(time=time).per(time).quantile(0.95)},
-        during=session.time_scope(start="2026-01-01", end="2026-01-05"),
+        by=(session.time_scope(start="2026-01-01", end="2026-01-05"),),
     )
     assert sampled.compute().to_pandas()[("value", "p95")].tolist() == [Decimal("85.15")]
     with duckdb.connect(str(session.catalog.workspace_dir / "optimization.duckdb")) as connection:
@@ -1131,7 +1133,7 @@ def test_composite_coord_column_refuses_during_preparation_before_read_or_run(
 
     session = optimization_session
     composite = session.catalog.entities.get("sales.composite_orders")
-    members = session.members(ms.ref.entity("sales.composite_orders"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.composite_orders")))
     query = session.frame(members)
     runs_before = session.runs().items
     calls: list[str] = []
@@ -1158,7 +1160,7 @@ def test_composite_coord_column_refuses_during_preparation_before_read_or_run(
     requested = mv.identities(composite, keys=((1, "x"), (2, "x")))
     selected_frame = session.frame(members.where(mv.in_population(requested))).compute().to_pandas()
     assert selected_frame.iloc[:, 0].tolist() == [(1, "x")]
-    scalar_members = session.members(ms.ref.entity("sales.orders"))
+    scalar_members = session.members(session.catalog.require(ms.ref.entity("sales.orders")))
     scalar = session.frame(scalar_members)
     assert scalar.select({"identity": scalar.coord(scalar.axes[0])}).compute().to_pandas()[
         ("value", "identity")

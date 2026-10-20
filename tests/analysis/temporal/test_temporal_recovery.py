@@ -99,26 +99,26 @@ def test_native_temporal_mean_int64_identities_and_independent_cold_reads(
             )
         )
         ms.load(workspace_dir=tmp_path)
-        session = mv.session.get_or_create("temporal-int64-recovery", report_timezone="UTC")
-        members = session.members(ms.ref.entity("sales.subjects"))
+        session = mv.session.create("temporal-int64-recovery", timezone="UTC")
+        members = session.members(session.catalog.require(ms.ref.entity("sales.subjects")))
         total = session.catalog.metrics.get("sales.total")
         time = session.catalog.fields.get("sales.facts.happened")
         amount = session.catalog.fields.get("sales.facts.amount")
         scope = session.time_scope(start="2026-08-01", end="2026-08-03")
         calendar = scope.by(mv.grain("day"))
-        temporal = session.observe({"value": total.per(time).mean()}, during=scope, by=members)
+        temporal = session.observe({"value": total.per(time).mean()}, by=mv.product(scope, members))
         source = temporal.persist()
-        spatial = session.observe({"value": total.per(time).mean()}, during=scope).persist()
+        spatial = session.observe({"value": total.per(time).mean()}, by=(scope,)).persist()
         represented = temporal.reduce({"value": temporal["value"].mean()}).persist()
         samples = session.observe(
-            {"sum": total, "rows": amount.count(time=time)}, during=calendar, by=members
+            {"sum": total, "rows": amount.count(time=time)}, by=mv.product(calendar, members)
         ).persist()
         source_frame, spatial_frame, represented_frame, samples_frame = (
             saved.to_pandas() for saved in (source, spatial, represented, samples)
         )
-        assert source_frame.iloc[:, 0].tolist() == list(subject_keys)
+        assert source_frame.iloc[:, 1].tolist() == list(subject_keys)
         assert isinstance(source._backing, StoredFrameBacking)
-        assert source._backing.data.schema.axes[0].columns[0].dtype == ScalarDataType("int64")
+        assert source._backing.data.schema.axes[1].columns[0].dtype == ScalarDataType("int64")
         assert source_frame[("value", "value")].tolist() == [18.0, 150.0]
         # Per subject: a has temporal totals [10+5,20+1], b has [100,200].
         # Original source observation completes space at each time: mean([115,221])=168.
@@ -188,10 +188,10 @@ os.chdir(root)
 os.environ['MARIVO_PROJECT_ROOT']=str(root)
 state=read(root/'temporal-recovery.json')
 with patch.object(ms,'load',forbidden), patch.object(SemanticProject,'load',forbidden), patch.object(SourceSession,'__init__',forbidden), patch.object(duckdb,'connect',forbidden), patch.object(ibis.duckdb,'connect',forbidden), patch.object(source_timezone,'probe_engine_timezone',forbidden), patch.object(source_timezone,'_resolve_system_timezone',forbidden):
-    session=mv.session.resume(state['session'],by='id')
+    session=mv.session.resume(state['session'])
     before=run_ids(session)
     assert sorted(before)==state['runs']
-    assert session.report_tz_name=='UTC'
+    assert session.timezone=='UTC'
     outputs=obj(state['outputs'])
     frames={}
     for name,output in outputs.items():

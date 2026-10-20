@@ -27,14 +27,14 @@ def period(
     axis = session.time_scope(
         start=f"2026-{month:02d}-01", end=f"2026-{month:02d}-{length + 1:02d}"
     ).by(mv.grain("day"))
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     domain = (
         members.classify(by=(session.catalog.fields.get("sales.customer.region"),))
         if grouped
         else members
     )
     return axis, session.observe(
-        {"value": session.catalog.metrics.get("sales." + metric)}, during=axis, by=domain
+        {"value": session.catalog.metrics.get("sales." + metric)}, by=mv.product(axis, domain)
     )
 
 
@@ -164,10 +164,10 @@ def test_period_comparison_preserves_independent_spatial_endpoint_oracles(
     current_axis, current = period(case.session, 8, 3, grouped=True)
     baseline_axis, baseline = period(case.session, 7, 3, grouped=True)
     current_totals = case.session.observe(
-        {"value": case.session.catalog.metrics.get("sales.order_count")}, during=current_axis
+        {"value": case.session.catalog.metrics.get("sales.order_count")}, by=(current_axis,)
     )
     baseline_totals = case.session.observe(
-        {"value": case.session.catalog.metrics.get("sales.order_count")}, during=baseline_axis
+        {"value": case.session.catalog.metrics.get("sales.order_count")}, by=(baseline_axis,)
     )
     comparison = current_totals.compare(
         baseline_totals,
@@ -197,7 +197,7 @@ def test_period_outer_distinguishes_absent_groups_from_zero_activity(
             start=f"2026-{month:02}-{start:02}", end=f"2026-{month:02}-{start + 3:02}"
         ).by(mv.grain("day"))
         return session.observe(
-            {"value": session.catalog.metrics.get("sales.order_count")}, during=axis, by=(channel,)
+            {"value": session.catalog.metrics.get("sales.order_count")}, by=(axis, channel)
         )
 
     current, baseline = observe(8, 1), observe(7, 9)

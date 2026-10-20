@@ -8,12 +8,12 @@ from typing import Literal
 
 from ibis.common.deferred import Deferred
 
-from marivo._definition.types import AxisBinding, CalendarCoordinate
+from marivo._definition.types import AxisBinding, CalendarCoordinate, IntervalCoordinate
 from marivo._grouping import Grouping
 from marivo._temporal import PeriodCalendarSnapshotV1, TimeScope
 from marivo.analysis.core.artifact_data import DataColumn
 from marivo.analysis.core.data_types import ScalarDataType
-from marivo.analysis.core.frame_calendar import FrozenSourceCalendar, freeze_calendar
+from marivo.analysis.core.frame_calendar import FrozenSourceTime, freeze_calendar, freeze_interval
 from marivo.analysis.core.frame_data import LiteralFrameBinding, SourceFrameBinding
 from marivo.analysis.core.frame_key_inputs import (
     FrameKeyInput,
@@ -41,7 +41,6 @@ from marivo.analysis.dsl.source_capture import (
     capture_read,
     capture_values,
 )
-from marivo.analysis.dsl.temporal import CalendarAxis
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.datasource.runtime import DatasourceConnectionConfig
 from marivo.semantic._compiled_state import CompiledSemanticState
@@ -57,14 +56,26 @@ def _utc(value: datetime | None) -> datetime | None:
 
 def pending_schema(
     graph: BoundGraph, state: CompiledSemanticState | None
-) -> tuple[PendingDataSchema, tuple[FrozenSourceCalendar, ...]]:
+) -> tuple[PendingDataSchema, tuple[FrozenSourceTime, ...]]:
     """Capture current axis facts and freeze each source calendar exactly once."""
     axes: list[PendingFrameAxis] = []
-    calendars: list[FrozenSourceCalendar] = []
+    calendars: list[FrozenSourceTime] = []
     offset = 0
     role: Literal["field", "identity"]
     components: tuple[str, ...]
     for index, axis in enumerate(graph.signature.axes):
+        if isinstance(axis, IntervalCoordinate):
+            name = "interval"
+            interval = freeze_interval(
+                axis,
+                token=f"axis.{index}",
+                name=name,
+                key=DataColumn(f"key.{offset}", name, ScalarDataType("int64"), False),
+            )
+            calendars.append(interval)
+            axes.append(interval.axis)
+            offset += len(interval.axis.columns)
+            continue
         if isinstance(axis, CalendarCoordinate):
             name = f"calendar:{axis.grain}"
             frozen = freeze_calendar(
@@ -155,10 +166,8 @@ def observe(
     connection: DatasourceConnectionConfig,
     metrics: Mapping[str, Deferred],
     *,
-    during: TimeScope | CalendarAxis | None = None,
-    by: tuple[Deferred | Grouping, ...] | Population = (),
+    by: tuple[Deferred | Grouping | TimeScope, ...] | Population = (),
     where: Deferred | PopulationPredicate | None = None,
-    members: Population | None = None,
     timezone: str = "UTC",
     calendar_snapshots: tuple[PeriodCalendarSnapshotV1, ...] = (),
 ) -> AnalysisFrame:
@@ -167,17 +176,14 @@ def observe(
     frame_inputs = collect_frame_key_inputs(
         *metrics.values(),
         where,
-        members,
         by if isinstance(by, Population) else None,
         owner=local.owner,
     )
     graph = capture_metrics(
         metrics,
         local.owner,
-        during=during,
         by=by,
         where=where,
-        members=members,
         timezone=timezone,
         state=state,
         calendar_snapshots=calendar_snapshots,
@@ -204,12 +210,30 @@ def read(
     )
 
 
+def population_needs_state(population: Population) -> bool:
+    """Resolve a Catalog only when the captured domain consumes definitions."""
+    from marivo._definition.graph import direct_refs
+
+    return bool(direct_refs(population._definition))
+
+
 def frame(
     local: LocalFrameServices,
-    state: CompiledSemanticState,
+    state: CompiledSemanticState | None,
     connection: DatasourceConnectionConfig,
     population: Population,
 ) -> AnalysisFrame:
+    if state is None:
+        from marivo.semantic._compiled_state import build_compiled_state
+        from marivo.semantic._expression_binding import CompiledExpressionSidecar
+        from marivo.semantic.validator import Registry
+
+        state = build_compiled_state(
+            registry=Registry(),
+            sidecar=CompiledExpressionSidecar({}, {}, frozenset()),
+            selected_root_roles=(),
+            filtered_domains=(),
+        )
     return _capture(
         local,
         capture_population(population, local.owner),

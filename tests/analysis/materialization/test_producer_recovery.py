@@ -68,10 +68,10 @@ def producer_recovery(
             file_digest = hashlib.sha256(source_file.read_bytes()).hexdigest()
         else:
             author_source_project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.get_or_create("r94-producer", report_timezone="UTC")
+        session = mv.session.create("r94-producer", timezone="UTC")
         values = session.observe(
             {"value": session.catalog.metrics.get("sales.total")},
-            by=session.members(ms.ref.entity("sales.facts")),
+            by=session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
         )
         captures = [values.persist(), values.persist()]
         assert captures[0].artifact.id != captures[1].artifact.id
@@ -201,11 +201,11 @@ def test_http_source_remains_a_datasource_boundary(
             case.source, source_identity="http_boundary.datasource", source_params=case.params
         )
         author_http_case(case, semantic_project_factory)
-        session = mv.session.get_or_create("http-boundary", report_timezone="UTC")
+        session = mv.session.create("http-boundary", timezone="UTC")
         with pytest.raises(AnalysisError) as failure:
             session.observe(
                 {"value": session.catalog.metrics.get("sales.total")},
-                by=session.members(ms.ref.entity("sales.facts")),
+                by=session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
             ).compute()
         error = failure.value
         assert error.expected and error.received

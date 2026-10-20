@@ -97,7 +97,7 @@ def analysis_dsl_case_factory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
             destination.write_text(source)
         catalog = ms.load(workspace_dir=root)
         monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(root))
-        session = session_attach.get_or_create(f"dsl-{scenario}", report_timezone="UTC")
+        session = session_attach.create(f"dsl-{scenario}", timezone="UTC")
         return DslCase(scenario, names, root, database_path, catalog, session)
 
     return build

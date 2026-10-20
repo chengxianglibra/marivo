@@ -26,7 +26,6 @@ if TYPE_CHECKING:
     from marivo.analysis.dsl.correspondence import previous_year as previous_year
     from marivo.analysis.dsl.frame import AnalysisFrame as AnalysisFrame
     from marivo.analysis.dsl.frame_axis import FrameAxis as FrameAxis
-    from marivo.analysis.dsl.metrics import member_count as member_count
     from marivo.analysis.dsl.population import Population as Population
     from marivo.analysis.dsl.population import PopulationPredicate as PopulationPredicate
     from marivo.analysis.dsl.population import coordinates as coordinates
@@ -40,11 +39,9 @@ if TYPE_CHECKING:
     from marivo.analysis.evidence._dataset_types import Finding as Finding
     from marivo.analysis.evidence._dataset_types import FindingPage as FindingPage
     from marivo.analysis.refs import ArtifactRef as ArtifactRef
-    from marivo.analysis.session._lazy_read_model import ArtifactSummary as ArtifactSummary
     from marivo.analysis.session._lazy_read_model import FailedRun as FailedRun
     from marivo.analysis.session._lazy_read_model import IncompleteRun as IncompleteRun
     from marivo.analysis.session._lazy_read_model import RunPage as RunPage
-    from marivo.analysis.session._lazy_read_model import SessionGraph as SessionGraph
     from marivo.analysis.session._lazy_read_model import SucceededRun as SucceededRun
     from marivo.analysis.session.core import Session as Session
 
@@ -56,7 +53,7 @@ if not TYPE_CHECKING:
             raise AttributeError('Use marivo.help("analysis") for the public analysis contract.')
         if name == "catalog":
             raise AttributeError(
-                "The analysis catalog is session-bound; acquire session = mv.session.get_or_create(name), then use catalog = session.catalog."
+                "The analysis catalog is session-bound; acquire session = mv.session.create(name), then use catalog = session.catalog."
             )
         if name.startswith("__") and name not in ("__all__", "__marivo_telemetry_capabilities__"):
             raise AttributeError(name)

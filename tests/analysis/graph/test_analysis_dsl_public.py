@@ -30,7 +30,7 @@ def _observe(
     session = case.session if session is None else session
     names = case.names
     population = (
-        session.members(ms.ref.entity(f"{names.domain}.{names.customer}"))
+        session.members(session.catalog.require(ms.ref.entity(f"{names.domain}.{names.customer}")))
         if members is None
         else members
     )
@@ -39,9 +39,10 @@ def _observe(
     )
     return session.observe(
         {"value": value},
-        during=session.time_scope(start=start, end=end),
-        by=() if scalar else population,
-        members=population,
+        by=(session.time_scope(start=start, end=end),)
+        if scalar
+        else mv.product(session.time_scope(start=start, end=end), population),
+        where=mv.in_population(population),
     )
 
 
@@ -49,7 +50,7 @@ def test_public_j1_scope_uses_persisted_report_timezone(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    session = mv.session.get_or_create("j1-report-zone", report_timezone="Asia/Shanghai")
+    session = mv.session.create("j1-report-zone", timezone="Asia/Shanghai")
     local = _observe(case, "2026-08-01", "2026-09-01", session=session, scalar=True).persist()
     assert local.to_pandas()[("value", "value")].tolist() == [677]
     absolute = _observe(
@@ -62,7 +63,7 @@ def test_public_contract_actions_and_result_card(
     analysis_dsl_case_factory: DslCaseFactory, capsys: pytest.CaptureFixture[str]
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    population = case.session.members(ms.ref.entity("sales.customer"))
+    population = case.session.members(case.session.catalog.require(ms.ref.entity("sales.customer")))
     assert isinstance(route_help_target("analysis.population"), NativeHelpRoute)
     assert ".show()" in repr(population)
     subject_key = "subject-key-only-private-7b5d4e"
@@ -100,7 +101,7 @@ def test_public_empty_and_undefined_cards(
     analysis_dsl_case_factory: DslCaseFactory, capsys: pytest.CaptureFixture[str]
 ) -> None:
     empty = analysis_dsl_case_factory("empty_domain")
-    members = empty.session.members(ms.ref.entity("sales.customer"))
+    members = empty.session.members(empty.session.catalog.require(ms.ref.entity("sales.customer")))
     saved = empty.session.frame(members).persist()
     assert saved.to_pandas().empty
     saved.show()
@@ -120,13 +121,13 @@ def test_public_singleton_same_entity_observation_allows_omitted_route(
     metric = session.catalog.metrics.get("sales.revenue")
     channel = session.catalog.fields.get("sales.order.channel")
     window = session.time_scope(start="2026-08-01", end="2026-09-01")
-    grouped = session.observe({"value": metric}, during=window, by=(channel,))
+    grouped = session.observe({"value": metric}, by=(window, channel))
     frame = grouped.persist().to_pandas()
-    assert dict(zip(frame.iloc[:, 0], frame[("value", "value")], strict=True)) == {
+    assert dict(zip(frame.iloc[:, 1], frame[("value", "value")], strict=True)) == {
         "web": 850,
         "mobile": 150,
     }
-    assert session.observe({"value": metric}, during=window).persist().to_pandas()[
+    assert session.observe({"value": metric}, by=(window,)).persist().to_pandas()[
         ("value", "value")
     ].tolist() == [1000]
 
@@ -137,16 +138,17 @@ def test_public_grouped_foreign_entity_observation_infers_unique_route(
     case = analysis_dsl_case_factory("j1")
     session = case.session
     region = session.catalog.fields.get("sales.customer.region")
-    population = session.members(ms.ref.entity("sales.customer")).classify(by=(region,))
+    population = session.members(session.catalog.require(ms.ref.entity("sales.customer"))).classify(
+        by=(region,)
+    )
     before = session.runs().items
     query = session.observe(
         {"value": session.catalog.metrics.get("sales.revenue")},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=population,
+        by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), population),
     )
     assert session.runs().items == before
     frame = query.persist().to_pandas()
-    assert dict(zip(frame.iloc[:, 0], frame[("value", "value")], strict=True)) == {
+    assert dict(zip(frame.iloc[:, 1], frame[("value", "value")], strict=True)) == {
         "east": 600,
         "south": 400,
         "west": 0,
@@ -162,17 +164,17 @@ def test_public_coordinate_rollup_is_composed_before_terminal_publication(
     customer = session.catalog.fields.get("sales.order.customer_id")
     query = session.observe(
         {"value": session.catalog.metrics.get("sales.revenue")},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=(customer, channel),
+        by=(session.time_scope(start="2026-08-01", end="2026-09-01"), customer, channel),
     )
-    grouped = query.reduce({"value": query["value"].sum()}, by=(query.axes[1],)).persist()
+    grouped = query.reduce(
+        {"value": query["value"].sum()}, by=(query.axes[0], query.axes[2])
+    ).persist()
     direct = session.observe(
         {"value": session.catalog.metrics.get("sales.revenue")},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=(channel,),
+        by=(session.time_scope(start="2026-08-01", end="2026-09-01"), channel),
     ).persist()
     grouped_rows, direct_rows = grouped.to_pandas(), direct.to_pandas()
-    assert grouped.axes[0].name == direct.axes[0].name
+    assert grouped.axes[1].name == direct.axes[1].name
     assert grouped_rows.to_numpy().tolist() == direct_rows.to_numpy().tolist()
     assert grouped_rows.dtypes.tolist() == direct_rows.dtypes.tolist()
     assert session.persisted_frame(grouped.artifact.id).to_pandas().equals(grouped.to_pandas())
@@ -197,7 +199,9 @@ def test_public_comparison_uses_semantic_member_binding_and_checks_units(
     current = _observe(case, "2026-08-01", "2026-09-01")
     separate = _observe(case, "2026-07-01", "2026-08-01")
     compared = (
-        current.compare(separate, on=tuple(zip(current.axes, separate.axes, strict=True)))
+        current.compare(
+            separate, on=tuple(zip(current.axes, separate.axes, strict=True)), match=mv.ordinal()
+        )
         .persist()
         .to_pandas()
     )
@@ -235,10 +239,12 @@ def test_public_j2_selected_members_and_next_month_mean(
     case = analysis_dsl_case_factory("j2")
     current = _observe(case, "2026-08-01", "2026-09-01")
     baseline = _observe(case, "2026-07-01", "2026-08-01")
-    change = current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))
+    change = current.compare(
+        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+    )
     chosen = change.where(change["absolute.value"] < 0)
     selected = case.session.population_from(
-        chosen, on=((chosen.axes[0], case.session.catalog.entities.get("sales.customer")),)
+        chosen, on=((chosen.axes[1], case.session.catalog.entities.get("sales.customer")),)
     )
     observed = _observe(case, "2026-09-01", "2026-10-01", members=selected)
     assert observed.reduce({"mean": observed["value"].mean()}).persist().to_pandas()[
@@ -285,14 +291,13 @@ def test_public_j4_renamed_entity_and_fields_keep_the_public_route(
     )
     case = analysis_dsl_case_factory("j4", names=names, revenue_unit="kWh")
     session = case.session
-    devices = session.members(ms.ref.entity("telemetry.device"))
+    devices = session.members(session.catalog.require(ms.ref.entity("telemetry.device")))
     query = session.observe(
         {
             "signal": session.catalog.metrics.get("telemetry.signal_sum"),
             "readings": session.catalog.metrics.get("telemetry.reading_count"),
         },
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=devices,
+        by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), devices),
     )
     saved = query.persist()
     frame = saved.to_pandas()
@@ -309,7 +314,7 @@ def test_public_wrong_relationship_rejects_before_execution(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    members = session.members(ms.ref.entity("sales.order"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.order")))
     wrong = session.catalog.relationships.get("sales.line_order")
     region = session.catalog.fields.get("sales.customer.region")
     before = session.runs().items

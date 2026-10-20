@@ -32,7 +32,7 @@ def test_contract_cards_and_actions_without_source_reads_or_runs(
 
     monkeypatch.setattr(SourceSession, "__enter__", forbidden)
     monkeypatch.setattr(SourceSession, "execute", forbidden)
-    population = case.session.members(ms.ref.entity("sales.customer"))
+    population = case.session.members(case.session.catalog.require(ms.ref.entity("sales.customer")))
     receiver = case.session.observe({"revenue": metric}) if kind == "AnalysisFrame" else population
     assert capsys.readouterr().out == ""
     assert ".show()" in repr(receiver)
@@ -72,14 +72,14 @@ def test_selected_member_scope_survives_contract_transform_and_saved_evidence(
     with monkeypatch.context() as guard:
         guard.setattr(SourceSession, "__enter__", forbidden)
         guard.setattr(SourceSession, "execute", forbidden)
-        members = session.members(ms.ref.entity("sales.customer"), where=region == "east")
+        members = session.members(
+            session.catalog.require(ms.ref.entity("sales.customer")), where=region == "east"
+        )
         complete = mv.coordinates(by=(region,), keys=(("east",), ("south",), ("west",)))
         query = session.observe(
             {"revenue": revenue},
-            members=members if selection == "members" else None,
-            where=mv.in_population(members) if selection == "where" else None,
-            by=complete,
-            during=session.time_scope(start="2026-08-01", end="2026-09-01"),
+            by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), complete),
+            where=mv.in_population(members),
         )
         selected = query.select({"revenue": query["revenue"]})
         for receiver in (members, query, selected):
@@ -138,8 +138,12 @@ def test_population_scope_is_bounded_for_large_literal_and_nested_domains(
     assert "5000" in first and "member-4999" not in first
     assert len(first.encode()) <= 8193
     region = case.catalog.fields.get("sales.customer.region")
-    east = case.session.members(ms.ref.entity("sales.customer"), where=region == "east")
-    south = case.session.members(ms.ref.entity("sales.customer"), where=region == "south")
+    east = case.session.members(
+        case.session.catalog.require(ms.ref.entity("sales.customer")), where=region == "east"
+    )
+    south = case.session.members(
+        case.session.catalog.require(ms.ref.entity("sales.customer")), where=region == "south"
+    )
     domain = east.union(south).difference(south)
     domain.show()
     scope = capsys.readouterr().out

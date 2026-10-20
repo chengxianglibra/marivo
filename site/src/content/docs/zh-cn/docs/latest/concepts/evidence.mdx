@@ -3,7 +3,7 @@ title: 证据与恢复
 description: 无需当前来源读取精确固定数据与审计。
 ---
 
-Store 12 在 `.marivo/analysis/generations/v12/` 保存 Frame 数据。数据持久后，一个
+Store 13 在 `.marivo/analysis/generations/v13/` 保存 Frame 数据。数据持久后，一个
 SQLite 发布事务同时提交 manifest、收据、Findings、Evidence 与 Run 成功。
 compute 不创建 Run；persist 在准入前完成求值，再发布已有 result ID。
 内存 persist 不重新求值，存储根 persist 验证提交元数据并返回自身。
@@ -44,15 +44,15 @@ Catalog、来源 schema、连接、模型或时区规则。
 
 ## 区分发布图与数据历史
 
-SessionGraph 只有同 Session Run-to-Artifact 发布边；roots/heads 不选择最新答案，
+使用 runs/get_run 与输出引用查询发布历史；Session 不提供 graph/roots/heads。
 也不承诺完整数据血缘。本次求值记录实际直接消费的存储输入；载体复制不伪造读取或血缘边。
 reconciliation 解决原事务，不重新求值。完整内存结果在旧文件删除后仍独立可用；旧存储句柄
 若再次读取已删除数据仍会失败。
 
 ## 旧数据与证据限度
 
-Store 12 拒绝旧 generation 的 Session/result/Findings/Evidence 访问，不改写旧字节，
-不迁移或双读。缺少当前 generation 的发现可返回 None/空而不暴露旧数据；create/get_or_create
+Store 13 拒绝旧 generation 的 Session/result/Findings/Evidence 访问，不改写旧字节，
+不迁移或双读。缺少当前 generation 的发现可返回 None/空而不暴露旧数据；create
 不能在仅有旧 Store 的项目初始化旁路。切换前用原版本导出，或保留兼容读取环境。
 参见[故障排查](/zh-cn/docs/latest/reference/troubleshooting/)。
 

@@ -1,4 +1,4 @@
-"""Store12 Frame protocol, source-free lifecycle, sequence and atomic publication."""
+"""Store13 Frame protocol, source-free lifecycle, sequence and atomic publication."""
 
 from __future__ import annotations
 
@@ -68,7 +68,7 @@ from tests.shared_fixtures import DslCaseFactory
 
 @pytest.fixture
 def local(tmp_path: Path) -> LocalFrameServices:
-    return DatasetRuntime.create(tmp_path, "saved-frames", report_timezone="UTC").local
+    return DatasetRuntime.create(tmp_path, "saved-frames", timezone="UTC").local
 
 
 def metadata() -> FrameResultMetadata:
@@ -168,8 +168,8 @@ def counts(local: LocalFrameServices) -> tuple[int, int]:
 def test_sole_protocol_and_exact_closed_fields(local: LocalFrameServices) -> None:
     saved = ordinary(local).persist()
     value = manifest(saved)
-    assert FORMAT == "marivo.frame_output/v1"
-    assert local.store.layout.generation == 12
+    assert FORMAT == "marivo.frame_output/v2"
+    assert local.store.layout.generation == 13
     assert decode(encode(value), ArtifactManifest) == value
     assert value.result_id == value.metadata.result_id
     assert value.metadata == metadata()
@@ -466,10 +466,10 @@ def test_sequence_spans_batches_and_row_groups(
 
 
 def test_old_only_store_rejected_without_any_byte_changes(tmp_path: Path) -> None:
-    old = tmp_path / ".marivo/analysis/generations/v11/session_store.db"
+    old = tmp_path / ".marivo/analysis/generations/v12/session_store.db"
     old.parent.mkdir(parents=True)
     with sqlite3.connect(old) as conn:
-        conn.execute("PRAGMA user_version=11")
+        conn.execute("PRAGMA user_version=12")
     before = old.read_bytes()
     for constructor in (
         lambda: SessionStore(tmp_path),
@@ -478,7 +478,7 @@ def test_old_only_store_rejected_without_any_byte_changes(tmp_path: Path) -> Non
         with pytest.raises(IntegrityError, match="generation"):
             constructor()
     assert old.read_bytes() == before
-    assert not (old.parent.parent / "v12").exists()
+    assert not (old.parent.parent / "v13").exists()
 
 
 def test_missing_unconsumed_endpoint_is_not_a_preview_read(local: LocalFrameServices) -> None:
@@ -678,10 +678,10 @@ def test_every_old_generation_entry_preserves_old_tree(
     import marivo.analysis as mv
 
     monkeypatch.chdir(tmp_path)
-    old = tmp_path / ".marivo/analysis/generations/v11/session_store.db"
+    old = tmp_path / ".marivo/analysis/generations/v12/session_store.db"
     old.parent.mkdir(parents=True)
     with sqlite3.connect(old) as conn:
-        conn.execute("PRAGMA user_version=11")
+        conn.execute("PRAGMA user_version=12")
     payload = old.parent / "sessions/original/artifacts/original/primary/data.parquet"
     payload.parent.mkdir(parents=True)
     payload.write_bytes(b"immutable old-generation payload")
@@ -691,18 +691,17 @@ def test_every_old_generation_entry_preserves_old_tree(
         if path.is_file()
     }
     attempts = (
-        lambda: mv.session.get_or_create("original", report_timezone="UTC"),
-        lambda: mv.session.get_or_create("renamed", report_timezone="UTC"),
-        lambda: mv.session.resume("original", by="name"),
-        lambda: mv.session.resume("session_original", by="id"),
+        lambda: mv.session.create("original", timezone="UTC"),
+        lambda: mv.session.create("renamed", timezone="UTC"),
+        lambda: mv.session.resume("original"),
+        lambda: mv.session.resume("session_original"),
         lambda: mv.session.inspect("original"),
-        lambda: mv.session.abandon_run(session_id="session_original", run_id="run_original"),
+        lambda: mv.session.reconcile_run(session_id="session_original", run_id="run_original"),
         lambda: SessionStore.open_existing(tmp_path),
     )
     for attempt in attempts:
         with pytest.raises(AnalysisError):
             attempt()
-    assert mv.session.current() is None
     assert mv.session.recent().items == ()
     after = {
         str(path.relative_to(tmp_path)): path.read_bytes()
@@ -710,7 +709,7 @@ def test_every_old_generation_entry_preserves_old_tree(
         if path.is_file()
     }
     assert after == before
-    assert not (old.parent.parent / "v12").exists()
+    assert not (old.parent.parent / "v13").exists()
 
 
 def test_old_manifest_cannot_enter_any_current_read(local: LocalFrameServices) -> None:
@@ -1181,6 +1180,7 @@ import os, sys
 from unittest.mock import patch
 import marivo.analysis as mv
 from marivo.analysis.core import frame_calendar
+from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import frame_evaluation
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
@@ -1188,7 +1188,7 @@ os.environ["MARIVO_PROJECT_ROOT"] = sys.argv[1]
 def forbidden(*args, **kwargs):
     raise AssertionError("cold stored derive attempted source/model/calendar reconstruction")
 with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceSession, "__init__", forbidden), patch.object(frame_calendar, "freeze_calendar", forbidden), patch.object(frame_evaluation, "open_query_sources", forbidden):
-    session = mv.session.resume(sys.argv[2], by="id")
+    session = mv.session.resume(sys.argv[2])
     saved = session.persisted_frame(sys.argv[3])
     before = len(session.runs().items)
     derived = saved.where(saved["amount"] > 0)
@@ -1240,7 +1240,9 @@ def test_pending_show_keeps_deep_shared_scope_and_stops_at_fixed_inputs(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     import marivo.analysis as mv
-    from marivo.analysis.core.graph import BoundGraph
+    from marivo._definition.graph import DefinitionNode
+    from marivo._definition.observations import ObservationBinding
+    from marivo.analysis.core.frame_source_facts import captured_source_scopes
     from marivo.analysis.dsl import frame as frame_module
     from marivo.analysis.materialization import frame_evaluation
     from marivo.analysis.session.core import Session
@@ -1251,8 +1253,15 @@ def test_pending_show_keeps_deep_shared_scope_and_stops_at_fixed_inputs(
     source = case.session.observe(
         {"sales": case.catalog.metrics.get("sales.revenue")},
         where=region == "east",
-        by=mv.coordinates(by=(region,), keys=(("east",), ("south",), ("west",))),
-        during=case.session.time_scope(start="2026-08-01", end="2026-09-01"),
+        by=mv.product(
+            case.session.time_scope(start="2026-08-01", end="2026-09-01"),
+            mv.coordinates(by=(region,), keys=(("east",), ("south",), ("west",))),
+        ),
+    )
+    raw_scopes = captured_source_scopes(source._backing.root.graph)
+    assert all(
+        value in " ".join(raw_scopes)
+        for value in ("sales.customer.region", "east", "south", "west")
     )
     memory = source.compute()
     saved = memory.persist()
@@ -1260,18 +1269,18 @@ def test_pending_show_keeps_deep_shared_scope_and_stops_at_fixed_inputs(
     deep = source
     for _ in range(1100):
         deep = deep.select({"sales": deep["sales"]})
-    shared = deep.align(deep, on=((deep.axes[0], deep.axes[0]),))
+    shared = deep.align(deep, on=tuple((axis, axis) for axis in deep.axes))
     calls: list[int] = []
-    capture = frame_module.captured_source_scopes
+    capture = frame_module.scope_summary
 
-    def observed(graph: BoundGraph) -> tuple[str, ...]:
-        calls.append(id(graph))
-        return capture(graph)
+    def observed(root: DefinitionNode, observation: ObservationBinding | None = None) -> str:
+        calls.append(id(root))
+        return capture(root, observation)
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("pending metadata show read source/Catalog/schema/rows/history")
 
-    monkeypatch.setattr(frame_module, "captured_source_scopes", observed)
+    monkeypatch.setattr(frame_module, "scope_summary", observed)
     monkeypatch.setattr(Session, "catalog", property(forbidden))
     monkeypatch.setattr(SourceSession, "__enter__", forbidden)
     monkeypatch.setattr(SourceSession, "execute", forbidden)
@@ -1287,8 +1296,9 @@ def test_pending_show_keeps_deep_shared_scope_and_stops_at_fixed_inputs(
         pending.show(n=20)
         card = capsys.readouterr().out
         assert len(calls) == 1
+        assert "scope:" in card and "PopulationProduct factors=2; joint tuples preserved" in card
         assert all(value in card for value in ("sales.customer.region", "east", "south", "west"))
-        assert "period:" in card and "2026-08-01" in card and "2026-09-01" in card
+        assert "period=[" in card and "2026-08-01" in card and "2026-09-01" in card
         assert "pending; no input rows read" in card
         assert len(card.encode()) <= 8193
         pending.show(n=20)
@@ -1311,7 +1321,9 @@ def test_pending_read_label_and_derived_anchor_are_captured_without_execution(
 ) -> None:
     import marivo.analysis as mv
     import marivo.semantic as ms
-    from marivo.analysis.core.graph import BoundGraph
+    from marivo._definition.graph import DefinitionNode
+    from marivo._definition.observations import ObservationBinding
+    from marivo.analysis.core.frame_source_facts import captured_source_scopes
     from marivo.analysis.dsl import frame as frame_module
     from marivo.analysis.materialization import frame_evaluation
     from marivo.analysis.session.core import Session
@@ -1319,27 +1331,31 @@ def test_pending_read_label_and_derived_anchor_are_captured_without_execution(
 
     case = analysis_dsl_case_factory("j2")
     region = case.catalog.fields.get("sales.customer.region")
-    members = case.session.members(ms.ref.entity("sales.customer"), where=region == "east")
+    members = case.session.members(
+        case.catalog.require(ms.ref.entity("sales.customer")), where=region == "east"
+    )
     read = case.session.read(members, {"region": region})
     selected = read.select({"selected_region": read["region"]})
     instant = case.session.instant("2026-08-01T00:00:00Z")
     anchored = case.session.frame(
-        case.session.members(ms.ref.entity("sales.customer"), at=instant)
+        case.session.members(case.catalog.require(ms.ref.entity("sales.customer")), at=instant)
     ).reduce({"rows": mv.row_count()})
 
-    capture = frame_module.captured_source_scopes
-    read_scopes = capture(read._backing.root.graph)
-    observed: list[tuple[str, ...]] = []
+    capture = frame_module.scope_summary
+    graph = read._backing.root.graph
+    raw_scopes = captured_source_scopes(graph)
+    read_scope = capture(graph.root, graph.signature.observation)
+    observed: list[str] = []
 
-    def capture_current(graph: BoundGraph) -> tuple[str, ...]:
-        scopes = capture(graph)
-        observed.append(scopes)
-        return scopes
+    def capture_current(root: DefinitionNode, observation: ObservationBinding | None = None) -> str:
+        summary = capture(root, observation)
+        observed.append(summary)
+        return summary
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("pending metadata show prepared or executed a source")
 
-    monkeypatch.setattr(frame_module, "captured_source_scopes", capture_current)
+    monkeypatch.setattr(frame_module, "scope_summary", capture_current)
     monkeypatch.setattr(Session, "catalog", property(forbidden))
     monkeypatch.setattr(SourceSession, "__enter__", forbidden)
     monkeypatch.setattr(SourceSession, "execute", forbidden)
@@ -1359,8 +1375,9 @@ def test_pending_read_label_and_derived_anchor_are_captured_without_execution(
     assert len(card.encode()) <= 8193
     selected.show(n=0)
     assert capsys.readouterr().out == card
-    assert observed == [read_scopes, read_scopes, read_scopes]
-    assert capture(read._backing.root.graph) == read_scopes
+    assert observed == [read_scope, read_scope, read_scope]
+    assert capture(graph.root, graph.signature.observation) == read_scope
+    assert captured_source_scopes(graph) == raw_scopes
     anchored.show(n=0)
     card = capsys.readouterr().out
     assert "anchors:" in card and "2026-08-01T00:00:00+00:00" in card
@@ -1538,3 +1555,192 @@ def test_missing_preview_payload_has_typed_cause_and_never_affects_memory_or_aud
     memory.show(n=1)
     assert "omitted by n=0" in capsys.readouterr().out
     assert counts(local) == before
+
+
+def interval(
+    local: LocalFrameServices, start: int, end: int, *, zone: str = "UTC"
+) -> AnalysisFrame:
+    from marivo._definition.types import IntervalCoordinate
+    from marivo._temporal import anchor_from_datetime
+    from marivo.analysis.core.frame_calendar import freeze_interval
+
+    frozen = freeze_interval(
+        IntervalCoordinate(
+            "interval",
+            anchor_from_datetime(datetime(2024, 1, start, tzinfo=timezone.utc)),
+            anchor_from_datetime(datetime(2024, 1, end, tzinfo=timezone.utc)),
+            zone,
+        ),
+        token="interval",
+        name="interval",
+        key=DataColumn("key", "interval", ScalarDataType("int64"), False),
+    )
+    schema = DataSchema(
+        (frozen.axis,),
+        (DataColumn("amount", "amount", ScalarDataType("int64"), True),),
+        value_paths=(("amount",),),
+    )
+    rows = pd.DataFrame(
+        {
+            "key": pd.Series([0], dtype="int64[pyarrow]"),
+            "amount": pd.Series([5], dtype="int64[pyarrow]"),
+        }
+    )
+    return AnalysisFrame._from_memory(
+        local,
+        CompletedFrameResult(CompletedFrameData(schema, rows, (frozen.directory,)), metadata()),
+    )
+
+
+def test_interval_directory_presence_and_pairing_cold_recovery(local: LocalFrameServices) -> None:
+    import subprocess
+    import sys
+
+    first, second = interval(local, 1, 4), interval(local, 2, 5)
+    before = counts(local)
+    outer = first.align(second, how="outer").compute()
+    assert counts(local) == before
+    selected = outer.where(outer["left.amount"] > 0)
+    sparse = selected.select({"amount": selected["left.amount"]}).compute().persist()
+    saved = first.persist()
+    paired = first.compare(second, match=CalendarCorrespondence("ordinal")).compute().persist()
+    assert len(sparse._backing.data.attachments) == 1
+    assert len(paired._backing.data.attachments) == 3
+    script = """
+import os, sys
+from unittest.mock import patch
+import marivo.analysis as mv
+from marivo.analysis.core import frame_calendar
+from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization import frame_evaluation
+from marivo.analysis.session.core import Session
+from marivo.datasource.adapters import SourceSession
+os.environ["MARIVO_PROJECT_ROOT"] = sys.argv[1]
+def forbidden(*args, **kwargs):
+    raise AssertionError("cold interval recovery attempted source/model reconstruction")
+with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceSession, "__init__", forbidden), patch.object(frame_calendar, "freeze_interval", forbidden), patch.object(frame_evaluation, "open_query_sources", forbidden):
+    session = mv.session.resume(sys.argv[2])
+    sparse, original, paired = (session.persisted_frame(value) for value in sys.argv[3:])
+    before = len(session.runs().items)
+    for frame, expected in ((sparse, 2), (original, 1), (paired, 1)):
+        table = frame.to_pandas()
+        assert len(table) == 1
+        assert len(table.attrs["frozen_coordinates"][0]["rows"]) == expected
+        frame.show(n=1)
+    assert sparse.axes[0].role == "interval" and paired.axes[0].role == "paired"
+    assert paired.to_pandas()[("presence", "left_present")].tolist() == [True]
+    assert paired.to_pandas()[("presence", "right_present")].tolist() == [True]
+    assert len(sparse.align(original).compute().to_pandas()) == 1
+    assert len(original.compare(original, match=mv.ordinal()).compute().to_pandas()) == 1
+    try:
+        sparse.align(original, match=mv.ordinal()).compute()
+    except AnalysisError:
+        pass
+    else:
+        raise AssertionError("ordinal admitted the filtered two-interval directory")
+    assert len(session.runs().items) == before
+"""
+    cold = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            script,
+            str(local.store.project_root),
+            local.session_ref,
+            sparse.artifact.id,
+            saved.artifact.id,
+            paired.artifact.id,
+        ],
+        cwd=Path(__file__).resolve().parents[3],
+        text=True,
+        capture_output=True,
+    )
+    assert cold.returncode == 0, cold.stdout + cold.stderr
+
+
+def test_interval_attachment_rejects_invalid_bounds_after_receipt_validation(
+    local: LocalFrameServices,
+) -> None:
+    from marivo.analysis.core.artifact_data import ParquetHandle
+    from marivo.analysis.materialization.contracts import FileEntry
+    from marivo.analysis.materialization.storage import _manifest_bytes, payload_digest
+    from marivo.analysis.materialization.terminal_storage import physical_schema
+
+    saved = interval(local, 1, 4).persist()
+    value = manifest(saved)
+    part = value.data.attachments[0]
+    directory = local.store.project_root / part.rows.receipt.project_relative_path
+    rows = pq.read_table(directory / "data.parquet").to_pandas(types_mapper=pd.ArrowDtype)
+    rows["end"] = rows["start"]
+    pq.write_table(
+        pa.Table.from_pandas(
+            rows, schema=physical_schema(part.schema), preserve_index=False
+        ).replace_schema_metadata(None),
+        directory / "data.parquet",
+        version="2.6",
+    )
+    entry = FileEntry("data.parquet", (directory / "data.parquet").stat().st_size)
+    file_manifest = _manifest_bytes((entry,))
+    (directory / "manifest.json").write_bytes(file_manifest)
+    receipt = replace(
+        part.rows.receipt,
+        file_manifest=(entry,),
+        realized_byte_count=entry.size_bytes + len(file_manifest),
+    )
+    handle = ParquetHandle(receipt, payload_digest(local.store.project_root, directory, receipt))
+    corrupt = replace(value, data=replace(value.data, attachments=(replace(part, rows=handle),)))
+    with local.store._write() as conn:
+        conn.execute(
+            "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
+            (encode(corrupt), value.artifact_id),
+        )
+    backing = local.open_frame(value.artifact_id)
+    with pytest.raises(AnalysisError, match="nonempty half-open intervals"):
+        local.read_complete(backing)
+    with pytest.raises(AnalysisError, match="nonempty half-open intervals"):
+        local.preview(backing, 1)
+
+
+def test_interval_never_squeezes_or_bridges_calendar_and_scalar(local: LocalFrameServices) -> None:
+    scope = interval(local, 1, 2)
+    daily = calendar(local, 1)
+    from marivo.analysis.dsl.column import row_count
+
+    scalar = scope.reduce({"n": row_count()}).compute()
+    assert len(scope.axes) == 1 and len(scope.to_pandas()) == 1
+    assert scalar.axes == ()
+    with pytest.raises(AnalysisError):
+        scope.align(scalar)
+    for match in (None, CalendarCorrespondence("ordinal")):
+        with pytest.raises(AnalysisError):
+            scope.align(daily, on=((scope.axes[0], daily.axes[0]),), match=match)
+
+
+def test_stored_interval_reads_and_matches_without_current_timezone_rules(
+    local: LocalFrameServices,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from zoneinfo import ZoneInfoNotFoundError
+
+    from marivo import _timezones
+
+    first = interval(local, 1, 4, zone="Asia/Shanghai").persist()
+    second = interval(local, 2, 5, zone="Asia/Shanghai").persist()
+
+    def unavailable(key: str) -> None:
+        raise ZoneInfoNotFoundError(f"tzdata unavailable: {key}")
+
+    monkeypatch.setattr(_timezones, "ZoneInfo", unavailable)
+    rows = first.to_pandas()
+    assert rows[("value", "amount")].tolist() == [5]
+    directory = rows.attrs["frozen_coordinates"][0]["rows"]
+    assert directory["timezone"].tolist() == ["Asia/Shanghai"]
+    assert directory["start"].tolist() == [datetime(2024, 1, 1, tzinfo=timezone.utc)]
+    assert directory["end"].tolist() == [datetime(2024, 1, 4, tzinfo=timezone.utc)]
+    first.show(n=1)
+    assert "Asia/Shanghai" in capsys.readouterr().out
+    assert len(first.align(first).compute().to_pandas()) == 1
+    paired = first.compare(second, match=CalendarCorrespondence("ordinal")).compute()
+    assert paired.to_pandas()[("value", "absolute.amount")].tolist() == [0]
+    assert paired.to_pandas()[("presence", "right_present")].tolist() == [True]

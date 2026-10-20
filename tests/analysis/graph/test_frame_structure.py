@@ -58,7 +58,7 @@ def metadata(result_id: str) -> FrameResultMetadata:
 
 @pytest.fixture
 def local(tmp_path: Path) -> LocalFrameServices:
-    return DatasetRuntime.create(tmp_path, "frame-structure", report_timezone="UTC").local
+    return DatasetRuntime.create(tmp_path, "frame-structure", timezone="UTC").local
 
 
 def schema(*, duplicate_names: bool = False, composite: bool = False) -> DataSchema:
@@ -271,7 +271,7 @@ def test_equal_structures_are_independent_inputs_and_old_handles_fail(
 
 
 def test_cross_session_handles_are_rejected(local: LocalFrameServices, tmp_path: Path) -> None:
-    other = DatasetRuntime.create(tmp_path, "second-session", report_timezone="UTC").local
+    other = DatasetRuntime.create(tmp_path, "second-session", timezone="UTC").local
     first, second = memory(local), memory(other)
     with pytest.raises(CoreRuleError, match="exact Store/Session/Frame"):
         second._require_column(first["revenue"])
@@ -406,9 +406,9 @@ def test_stored_bindings_are_stable_only_for_exact_store_session_artifact(
     second._require_column(first["revenue"])
     second._bind_statistic(first["revenue"].sum())
     assert second.coord(first.axes[0])._input_id == second._input_id
-    other_session = DatasetRuntime.create(tmp_path, "stored-other", report_timezone="UTC").local
+    other_session = DatasetRuntime.create(tmp_path, "stored-other", timezone="UTC").local
     other_store = DatasetRuntime.create(
-        tmp_path / "other-store", "frame-structure", report_timezone="UTC"
+        tmp_path / "other-store", "frame-structure", timezone="UTC"
     ).local
     for different in (
         reopen(local, "artifact_2"),
@@ -594,6 +594,7 @@ def test_attachment_names_have_one_role_and_exact_descriptor_owner() -> None:
     first, second = _paired_axes()
     with pytest.raises(CoreRuleError, match="one role and exact descriptor owner"):
         required_attachments(DataSchema((replace(first, mapping_name="left.directory"),), ()))
+    assert isinstance(second.left, CalendarDataAxis)
     conflicting = replace(
         second,
         left=replace(

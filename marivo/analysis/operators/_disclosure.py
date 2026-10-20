@@ -20,14 +20,14 @@ def provider() -> DisclosureProvider:
                 "ordinal",
                 "mv.ordinal",
                 ordinal,
-                summary="Pair compatible complete calendars by their frozen nominal positions.",
+                summary="Pair compatible complete calendars by frozen positions, or one declared interval per side.",
                 parameters=(),
                 output="CalendarCorrespondence",
                 constraints=(
-                    "The consuming AnalysisFrame checks frozen calendar interpretation and complete nominal/actual buckets; filtering never renumbers original positions, including named calendars.",
+                    "Calendars require compatible frozen interpretation and complete nominal/actual buckets; filtering preserves original positions. Interval ordinal requires one declared record per side and equal boundary timezones; filtered multi-record directories still reject.",
                 ),
                 effects="Construct an axis-free rule without I/O.",
-                failures=("AnalysisError: repair incompatible consuming calendar bindings.",),
+                failures=("AnalysisError: repair incompatible frozen time bindings.",),
                 example=ExampleInput(
                     "result = ordinal()", ("ordinal",), "result", "CalendarCorrespondence"
                 ),

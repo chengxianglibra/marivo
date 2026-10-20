@@ -27,11 +27,21 @@ def _observe(
     case: DslCase, expression: Deferred, *, windowed: bool = True, overall: bool = False
 ) -> mv.AnalysisFrame:
     session = case.session
+    members = session.members(session.catalog.entities.get("sales.customer"))
+    scope = session.time_scope(start="2026-08-01", end="2026-09-01") if windowed else None
+    domain = (
+        (scope,)
+        if overall and scope is not None
+        else ()
+        if overall
+        else mv.product(scope, members)
+        if scope is not None
+        else members
+    )
     return session.observe(
         {"value": expression},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01") if windowed else None,
-        by=() if overall else session.members(ms.ref.entity("sales.customer")),
-        members=session.members(ms.ref.entity("sales.customer")) if overall else None,
+        by=domain,
+        where=mv.in_population(members) if overall else None,
     )
 
 
@@ -43,7 +53,7 @@ def _source_binding(frame: mv.AnalysisFrame) -> SourceFrameBinding:
 
 
 def _by_member(frame: pd.DataFrame) -> pd.Series:
-    return frame.set_index(frame.columns[0])[("value", "value")]
+    return frame.set_index(frame.columns[-2])[("value", "value")]
 
 
 def _extend(case: DslCase, *, physical: str = "", definitions: str = "") -> None:
@@ -74,7 +84,7 @@ def forbidden(*args, **kwargs):
     raise AssertionError('terminal output loaded Semantic or connected a source')
 ms.load = forbidden
 DatasourceConnectionService.use_backend = forbidden
-session = mv.session.resume(sys.argv[1], by='id')
+session = mv.session.resume(sys.argv[1])
 before = run_ids(session)
 fixed = session.persisted_frame(sys.argv[2])
 assert isinstance(fixed, mv.AnalysisFrame)
@@ -461,8 +471,10 @@ def test_common_condition_reaches_each_leaf_before_reduction(
     composite = revenue / session.catalog.metrics.get("sales.order_count")
     observed = session.observe(
         {"value": composite},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=session.members(ms.ref.entity("sales.customer")),
+        by=mv.product(
+            session.time_scope(start="2026-08-01", end="2026-09-01"),
+            session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
+        ),
         where=channel == "web",
     )
     binding = _source_binding(observed).graph.signature.observation
@@ -472,10 +484,12 @@ def test_common_condition_reaches_each_leaf_before_reduction(
     assert rows.loc[["A", "C"]].tolist() == [450, 400]
     assert rows.loc[["B", "D"]].isna().all()
     assert session.observe(
-        {"value": composite},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        members=session.members(ms.ref.entity("sales.customer")),
-        where=channel == "web",
+        {
+            "value": revenue.where(channel == "web")
+            / session.catalog.metrics.get("sales.order_count").where(channel == "web")
+        },
+        by=(session.time_scope(start="2026-08-01", end="2026-09-01"),),
+        where=mv.in_population(session.members(session.catalog.entities.get("sales.customer"))),
     ).compute().to_pandas()[("value", "value")].tolist() == [425]
 
 
@@ -493,6 +507,6 @@ def test_literal_membership_predicate_executes_in_typed_flow(
     channel = session.catalog.fields.get("sales.order.channel")
     revenue = session.catalog.metrics.get("sales.revenue")
     period = session.time_scope(start="2026-08-01", end="2026-09-01")
-    query = session.observe({"amount": revenue}, during=period, where=channel.isin(choices))
+    query = session.observe({"amount": revenue}, by=(period,), where=channel.isin(choices))
     saved = query.compute()
     assert saved.to_pandas()[("value", "amount")].tolist() == [expected]

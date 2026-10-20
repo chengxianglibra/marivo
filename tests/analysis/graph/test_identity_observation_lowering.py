@@ -3,8 +3,10 @@
 import pandas as pd
 import pytest
 
+import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.datasource.adapters import CompiledRead, SourceSession
+from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.shared_fixtures import DslCaseFactory
 
 
@@ -29,15 +31,16 @@ def test_public_identity_observation_executes_and_retains_outside_window_members
     time = session.catalog.fields.get(
         f"{case.names.domain}.{case.names.order}.{case.names.ordered_at}"
     )
-    members = session.members(ms.ref.entity(f"{case.names.domain}.{case.names.order}"))
+    members = session.members(
+        session.catalog.require(ms.ref.entity(f"{case.names.domain}.{case.names.order}"))
+    )
     observed = session.observe(
         {"value": amount.sum(time=time, empty="null")},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=members,
+        by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), members),
     )
     result = observed.persist()
     frame = result.to_pandas()
-    actual = frame.set_index(frame.columns[0])[("value", "value")]
+    actual = frame.set_index(ordinary_columns(frame)[0])[("value", "value")]
     assert {key: None if pd.isna(value) else value for key, value in actual.items()} == {
         "j1_a": 450,
         "j1_b": 150,

@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from tests.analysis.graph.physical_workloads import workload
+from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.support.source_trace import SourceTrace
 
 
@@ -55,18 +56,17 @@ def test_duckdb_local_original_sum_consumes_group_input(
         axis = session.catalog.fields.get("cost.facts.kind")
         grouped = session.observe(
             {"value": session.catalog.metrics.get("cost.facts_total")},
-            during=session.time_scope(start="2026-08-01", end="2026-08-02"),
-            by=(axis,),
+            by=(session.time_scope(start="2026-08-01", end="2026-08-02"), axis),
         )
         frame = grouped.persist().to_pandas()
         assert (
-            dict(zip(frame.iloc[:, 0], frame[("value", "value")], strict=True))
+            dict(zip(frame[ordinary_columns(frame)[0]], frame[("value", "value")], strict=True))
             == independent_totals
         )
         scores = (frame[("value", "value")] - frame[("value", "value")].mean()) / frame[
             ("value", "value")
         ].std(ddof=0)
-        assert dict(zip(frame.iloc[:, 0], scores, strict=True)) == {
+        assert dict(zip(frame[ordinary_columns(frame)[0]], scores, strict=True)) == {
             "started": -1.0,
             "finished": 1.0,
         }

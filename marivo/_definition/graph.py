@@ -44,6 +44,7 @@ from marivo._definition.query import (
 from marivo._definition.relations import (
     CalendarKeys,
     FrameKeys,
+    IntervalKeys,
     LiteralPopulation,
     ObserveQuery,
     PopulationAnd,
@@ -197,6 +198,7 @@ def children(node: DefinitionNode) -> tuple[Edge, ...]:
             | DeclaredMetricRef()
             | LiteralPopulation()
             | CalendarKeys()
+            | IntervalKeys()
             | FrameKeys()
         ):
             return ()
@@ -217,7 +219,7 @@ def children(node: DefinitionNode) -> tuple[Edge, ...]:
                 *_population_inputs("samples", node.samples),
             )
         case MemberCount():
-            return ()
+            return _edges(("population", node.population))
         case PopulationProgram():
             return _edges(("population", node.root))
         case ReadQuery():
@@ -252,10 +254,9 @@ def children(node: DefinitionNode) -> tuple[Edge, ...]:
                     if node.population is not None
                     else ()
                 ),
-                *(
-                    (Edge("members", len(node.metrics) + 1, node.members),)
-                    if node.members is not None
-                    else ()
+                *tuple(
+                    Edge("population", len(node.metrics) + 1 + index, population)
+                    for index, population in enumerate(node.count_populations)
                 ),
             )
         case _:

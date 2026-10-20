@@ -108,7 +108,7 @@ def _manifest() -> Manifest:
             "SessionStore._read",
             "SessionStore._write",
             "SessionStore.create_session",
-            "SessionStore.activate",
+            "SessionStore.discharge",
             "SessionStore.reserve",
             "SessionStore._delete_resources",
             "SessionStore.fail",

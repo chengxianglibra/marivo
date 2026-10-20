@@ -73,7 +73,9 @@ def test_busy_contender_preserves_real_producer(
         return execute(source, read)
 
     monkeypatch.setattr(SourceSession, "execute", capture)
-    committed = case.session.frame(case.session.members(ms.ref.entity("sales.customer"))).persist()
+    committed = case.session.frame(
+        case.session.members(case.session.catalog.require(ms.ref.entity("sales.customer")))
+    ).persist()
     logical = observation(case.session, "sales.revenue")
     metric = "sales.revenue" if key == "same" else "sales.order_count"
     contender = observation(case.session, metric).compute()
@@ -193,16 +195,16 @@ def test_busy_contender_preserves_real_producer(
     _evidence(f"contention-{key}-{mode}", evidence)
 
 
-def test_canonical_creation_releases_candidate_before_winner_guard(
+def test_competing_creation_releases_each_candidate_guard(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from marivo.analysis.errors import SessionAlreadyExistsError
+
     SessionStore(tmp_path)
     barrier = threading.Barrier(2)
     original_create = SessionStore.create_session
     held = threading.local()
-    observed: list[tuple[int, str]] = []
-    winner: list[str] = []
-    winner_released = threading.Event()
+    observed: list[str] = []
 
     @contextmanager
     def tracked_guard(path: Path, *, session_ref: str | None = None) -> Iterator[None]:
@@ -210,13 +212,11 @@ def test_canonical_creation_releases_candidate_before_winner_guard(
         with session_writer_guard(path, session_ref=session_ref):
             assert session_ref is not None
             held.active = True
-            observed.append((threading.get_ident(), session_ref))
+            observed.append(session_ref)
             try:
                 yield
             finally:
                 held.active = False
-        if winner and session_ref == winner[0]:
-            winner_released.set()
 
     def create(
         store: SessionStore,
@@ -229,7 +229,7 @@ def test_canonical_creation_releases_candidate_before_winner_guard(
         domains: tuple[str, ...] | None = None,
     ) -> SessionRecord:
         barrier.wait(timeout=10)
-        record = original_create(
+        return original_create(
             store,
             name,
             session_ref=session_ref,
@@ -238,48 +238,35 @@ def test_canonical_creation_releases_candidate_before_winner_guard(
             report_timezone_resolution=report_timezone_resolution,
             domains=domains,
         )
-        if record.session_ref == session_ref:
-            winner.append(record.session_ref)
-        else:
-            assert winner_released.wait(10)
-        return record
 
     monkeypatch.setattr(admission, "session_writer_guard", tracked_guard)
     monkeypatch.setattr(SessionStore, "create_session", create)
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = [pool.submit(DatasetRuntime.create, tmp_path, "canonical") for _ in range(2)]
-        runtimes = [future.result(timeout=20) for future in futures]
-    assert runtimes[0].session_ref == runtimes[1].session_ref
-    assert snapshot(runtimes[0])["sessions"] == 1
-    assert len(observed) == 3
-    assert observed[-1][1] == runtimes[0].session_ref
-    assert runtimes[0].store.current() == runtimes[0].store.session(runtimes[0].session_ref)
+        winners: list[DatasetRuntime] = []
+        duplicates = 0
+        for future in futures:
+            try:
+                winners.append(future.result(timeout=20))
+            except SessionAlreadyExistsError:
+                duplicates += 1
+    assert duplicates == len(winners) == 1
+    assert snapshot(winners[0])["sessions"] == 1
+    assert len(observed) == len(set(observed)) == 2
 
 
-def test_losing_candidate_cannot_activate_busy_canonical_session(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_duplicate_creation_does_not_recover_busy_existing_session(tmp_path: Path) -> None:
+    from marivo.analysis.errors import SessionAlreadyExistsError
+
     winner = DatasetRuntime.create(tmp_path, "canonical")
-    current = DatasetRuntime.create(tmp_path, "current")
-    original = SessionStore.session_by_name
-    first = True
-
-    def stale_lookup(store: SessionStore, name: str) -> SessionRecord | None:
-        nonlocal first
-        if first:
-            first = False
-            return None
-        return original(store, name)
-
-    monkeypatch.setattr(SessionStore, "session_by_name", stale_lookup)
+    before = winner.store.session(winner.session_ref)
     with (
         session_writer_guard(winner.store.layout.lock_path(winner.session_ref)),
-        pytest.raises(SessionBusyError) as rejected,
+        pytest.raises(SessionAlreadyExistsError),
     ):
         DatasetRuntime.create(tmp_path, "canonical")
-    assert rejected.value.session_ref == winner.session_ref
-    assert winner.store.current() == winner.store.session(current.session_ref)
-    assert snapshot(winner)["sessions"] == 2
+    assert winner.store.session(winner.session_ref) == before
+    assert snapshot(winner)["sessions"] == 1
 
 
 @pytest.mark.slow
@@ -319,8 +306,8 @@ def test_fresh_process_name_race_has_one_canonical_identity(tmp_path: Path) -> N
         canonical = store.session_by_name("raced")
         assert canonical is not None
         assert {item["session"] for item in records} == {canonical.session_ref}
-        assert "created" in {item["status"] for item in records}
-        assert store.current() == canonical
+        assert {item["status"] for item in records} == {"created", "duplicate"}
+        assert store.session(canonical.session_ref) == canonical
         _evidence("creation-process-race", {"processes": records, "session": canonical.session_ref})
     finally:
         for process in processes:
@@ -329,46 +316,33 @@ def test_fresh_process_name_race_has_one_canonical_identity(tmp_path: Path) -> N
                 process.communicate(timeout=10)
 
 
-def test_activation_is_guarded_and_existing_handle_owner_is_stable(
-    retained_coordinates_case: DslCase, monkeypatch: pytest.MonkeyPatch
+def test_resume_is_guarded_and_existing_handle_owner_is_stable(
+    retained_coordinates_case: DslCase,
 ) -> None:
-    tmp_path = retained_coordinates_case.root
-    sessions = [mv.session.get_or_create(name) for name in ("first", "second")]
+    sessions = [mv.session.create(name) for name in ("first", "second")]
     first, second = (session._runtime for session in sessions)
     logical = observation(sessions[0], "sales.revenue")
+    before_second = second.store.session(second.session_ref)
     with session_writer_guard(
         first.store.layout.lock_path(first.session_ref), session_ref=first.session_ref
     ):
         with pytest.raises(SessionBusyError) as rejected:
-            DatasetRuntime.create(tmp_path, "first")
+            mv.session.resume(first.session_ref)
         assert rejected.value.session_ref == first.session_ref
-        assert first.store.current() == first.store.session(second.session_ref)
-        opened = DatasetRuntime.open(tmp_path, first.session_ref)
-        assert opened.session_ref == first.session_ref
-        assert DatasetRuntime.create(tmp_path, "second").session_ref == second.session_ref
-    original = SessionStore.activate
-    barrier = threading.Barrier(2)
-
-    def activate(
-        store: SessionStore, session_ref: str, *, question: str | None = None
-    ) -> SessionRecord:
-        barrier.wait(timeout=10)
-        return original(store, session_ref, question=question)
-
-    monkeypatch.setattr(SessionStore, "activate", activate)
+        assert (
+            DatasetRuntime.open(retained_coordinates_case.root, first.session_ref).session_ref
+            == first.session_ref
+        )
+        assert mv.session.resume(second.session_ref).id == second.session_ref
     with ThreadPoolExecutor(max_workers=2) as pool:
-        futures = [
-            pool.submit(DatasetRuntime.create, tmp_path, name) for name in ("first", "second")
-        ]
-        assert {value.result(timeout=20).session_ref for value in futures} == {
+        futures = [pool.submit(mv.session.resume, item.session_ref) for item in (first, second)]
+        assert {future.result(timeout=20).id for future in futures} == {
             first.session_ref,
             second.session_ref,
         }
-    current = first.store.current()
-    assert current is not None and current.session_ref in (first.session_ref, second.session_ref)
     result = logical.persist()
     assert result.artifact.session_id == first.session_ref
-    assert first.store.current() == current
+    assert second.store.session(second.session_ref) == before_second
 
 
 def test_different_sessions_overlap_inside_real_duckdb_queries(
@@ -421,7 +395,7 @@ def test_different_sessions_overlap_inside_real_duckdb_queries(
     model = case.root / "models/semantic/sales/models.py"
     model.write_text(model.read_text().replace("md.table('order')", "md.table('blocked_orders')"))
     ms.load(workspace_dir=case.root)
-    sessions = [mv.session.get_or_create(name) for name in ("first", "second")]
+    sessions = [mv.session.create(name) for name in ("first", "second")]
     runtimes = [session._runtime for session in sessions]
     logicals = [observation(session, "sales.revenue") for session in sessions]
     with ThreadPoolExecutor(max_workers=2) as pool:

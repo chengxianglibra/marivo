@@ -144,7 +144,7 @@ def test_absent_empty_and_invalid_ontology_states_are_distinct(tmp_path) -> None
     assert issue.repair is not None
     assert issue.repair.help_target.canonical_id == "authoring"
 
-    session = mv.session.get_or_create(name="invalid-ontology")
+    session = mv.session.create(name="invalid-ontology")
     assert not hasattr(session, "_ontology_state")
 
 

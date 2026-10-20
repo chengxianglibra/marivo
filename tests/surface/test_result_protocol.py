@@ -242,7 +242,7 @@ def test_committed_runtime_projections_satisfy_terminal_protocol(
     terminal_store.admit(store, case.session.id, "pending", "result_pending")
     page = runtime.runs()
     assert {item.lifecycle for item in page.items} == {"succeeded", "failed", "incomplete"}
-    candidates = (*page.items, page, runtime.graph(), _artifact_digest())
+    candidates = (*page.items, page, _artifact_digest())
     for candidate in candidates:
         assert_conforms(candidate)
         assert candidate.render() == candidate.render()

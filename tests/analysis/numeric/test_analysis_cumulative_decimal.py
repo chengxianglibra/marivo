@@ -103,7 +103,7 @@ def _session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.Session:
         _seed(con)
     finally:
         con.disconnect()
-    return mv.session.get_or_create("cum_decimal", report_timezone="UTC")
+    return mv.session.create("cum_decimal", timezone="UTC")
 
 
 def _schema(frame: mv.AnalysisFrame) -> DataSchema:
@@ -131,7 +131,7 @@ def _observe(
 ) -> mv.AnalysisFrame:
     return session.observe(
         {"value": session.catalog.metrics.get(metric)},
-        during=session.time_scope(start=start, end=end).by(mv.grain("day")),
+        by=(session.time_scope(start=start, end=end).by(mv.grain("day")),),
     ).compute()
 
 

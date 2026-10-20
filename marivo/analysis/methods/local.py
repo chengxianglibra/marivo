@@ -49,15 +49,16 @@ def _combine_program(
         SourceAggregate,
         SourceWeightedMean,
     )
-    from marivo._definition.graph import children
+    from marivo._definition.graph import children, walk
     from marivo._definition.relations import (
         LiteralPopulation,
         PopulationDependency,
         PopulationProgram,
     )
-    from marivo._definition.types import AxisBinding, CalendarCoordinate
+    from marivo._definition.types import AxisBinding, CalendarCoordinate, IntervalCoordinate
     from marivo.analysis.compiler.observation import (
         FormulaInput,
+        MemberInput,
         data_type,
         duration_type,
         formula_columns,
@@ -121,7 +122,12 @@ def _combine_program(
             buckets = pd.DataFrame(
                 {
                     program.calendar_key: pd.Series(
-                        range(len(program.calendar.cells)), dtype="int64[pyarrow]"
+                        range(
+                            len(program.calendar.cells)
+                            if isinstance(program.calendar, CalendarCoordinate)
+                            else 1
+                        ),
+                        dtype="int64[pyarrow]",
                     )
                 }
             )
@@ -199,18 +205,38 @@ def _combine_program(
         ]
         return pd.DataFrame(records, columns=slots)
 
-    member_data: pd.DataFrame | None = None
-    if program.members is not None:
-        member_data = population_domain(program.members.population, program.members.keys)
-        member_coordinates = member_data.loc[
-            :, [source for _, source in program.members.output_mapping]
-        ].rename(columns={source: target for target, source in program.members.output_mapping})
-        if program.calendar is not None:
-            member_coordinates = member_coordinates.merge(
-                pd.DataFrame({program.calendar_key: range(len(program.calendar.cells))}),
-                how="cross",
-            )
-        if keys:
+    def count_coordinates(count: MemberInput, members: pd.DataFrame) -> pd.DataFrame:
+        classified = dict(count.axis_mapping)
+        mapping: list[tuple[str, str]] = []
+        time_domains: list[tuple[str, int]] = []
+        offset = 0
+        for axis in program.axes:
+            if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)):
+                time_domains.append(
+                    (
+                        key_slots[offset],
+                        len(axis.cells) if isinstance(axis, CalendarCoordinate) else 1,
+                    )
+                )
+                offset += 1
+            else:
+                source_keys = classified[axis]
+                mapping.extend(
+                    zip(source_keys, key_slots[offset : offset + len(source_keys)], strict=True)
+                )
+                offset += len(source_keys)
+        selected = members.loc[:, [source for source, _ in mapping]].copy()
+        selected.columns = [target for _, target in mapping]
+        for slot, size in time_domains:
+            selected = selected.merge(pd.DataFrame({slot: range(size)}), how="cross")
+        return selected
+
+    count_data = {}
+    for count in program.counts:
+        member_data = population_domain(count.population, count.keys)
+        count_data[count.definition] = (count, member_data)
+        member_coordinates = count_coordinates(count, member_data)
+        if keys and forced_domain is None:
             member_coordinates = member_coordinates.loc[:, keys].drop_duplicates()
             domain = (
                 pd.concat([domain, member_coordinates], ignore_index=True)
@@ -220,23 +246,6 @@ def _combine_program(
 
     if program.output_population is not None:
         complete_domain = population_domain(program.output_population, key_slots)
-        if keys:
-            covered = domain.merge(
-                complete_domain.drop_duplicates().assign(__covered=True), on=keys, how="left"
-            )
-            uncovered = bool(covered["__covered"].isna().any())
-        else:
-            uncovered = bool(inputs) and len(domain) > 0 and len(complete_domain) == 0
-        if uncovered:
-            from marivo.analysis.materialization.errors import MaterializationError
-
-            raise MaterializationError(
-                expected="an output Population covering every observed coordinate",
-                received="observed coordinates outside by=Population",
-                repair="Include every observed output coordinate in by=Population, or filter contributions before choosing that complete output domain.",
-                stage="population_coverage",
-                help_target="analysis_frame.compute",
-            )
         domain = complete_domain.drop_duplicates().reset_index(drop=True)
     declarations = dict(program.declared)
     type_values = {
@@ -248,15 +257,8 @@ def _combine_program(
         if isinstance(node, MemberCount):
             if any(binding.occurrence == occurrence for binding in bindings):
                 return
-            assert program.members is not None and member_data is not None
-            selected = member_data.rename(
-                columns={source: target for target, source in program.members.output_mapping}
-            )
-            if program.calendar is not None:
-                selected = selected.merge(
-                    pd.DataFrame({program.calendar_key: range(len(program.calendar.cells))}),
-                    how="cross",
-                )
+            count, member_data = count_data[node.population]
+            selected = count_coordinates(count, member_data)
             slot = "members:" + ".".join(str(part) for part in occurrence)
             counted = (
                 selected.groupby(keys, dropna=False, sort=True).size().rename(slot).reset_index()
@@ -292,10 +294,22 @@ def _combine_program(
             remaining_groups = tuple(
                 group for group in source_groups if not all(key in key_slots for key in group)
             )
+            sample_widths = {
+                axis: len(group) for count in program.counts for axis, group in count.axis_mapping
+            }
+            next_sample_slot = len(keys)
+            fallback_groups = []
+            for axis in sample_axes:
+                width = sample_widths.get(axis, 1)
+                fallback_groups.append(
+                    tuple(
+                        f"key.{index}"
+                        for index in range(next_sample_slot, next_sample_slot + width)
+                    )
+                )
+                next_sample_slot += width
             sample_groups = (
-                remaining_groups[: len(sample_axes)]
-                if remaining_groups
-                else tuple((f"key.{len(keys) + i}",) for i in range(len(sample_axes)))
+                remaining_groups[: len(sample_axes)] if remaining_groups else tuple(fallback_groups)
             )
             sample_keys = tuple(key for group in sample_groups for key in group)
             complete_keys = (*key_slots, *sample_keys)
@@ -315,6 +329,11 @@ def _combine_program(
                         )
                         selected_frames.append(frame)
                         consumed.append(index)
+            relevant_counts = {
+                child.population
+                for child in walk(operands, resolve=declarations.get).order
+                if isinstance(child, MemberCount)
+            }
             child_program = FormulaProgram(
                 tuple((f"sample_{i}", operand) for i, operand in enumerate(operands)),
                 program.declared,
@@ -322,6 +341,10 @@ def _combine_program(
                 program.calendar,
                 program.populations,
                 calendar_key=program.calendar_key,
+                counts=tuple(
+                    count for count in program.counts if count.definition in relevant_counts
+                ),
+                axes=(*program.axes, *sample_axes),
             )
             complete_domain = None
             if isinstance(node.samples, (LiteralPopulation, PopulationProgram)):
@@ -440,7 +463,7 @@ def _combine_program(
                     ),
                 )
         else:
-            value = frame[slot].astype(object).reset_index(drop=True)
+            value = frame[slot].astype(object).reset_index(drop=True).iloc[: len(domain)]
         name = f"input_{input_index}"
         active_coverage = tuple(coverage for coverage in binding.coverage if coverage.key in keys)
         check_names = tuple(f"check_{input_index}_{i}" for i in range(len(binding.checks)))
@@ -454,7 +477,7 @@ def _combine_program(
         )
         physical[name] = value
         checks = []
-        aligned = merged if keys else frame.reset_index(drop=True)
+        aligned = merged if keys else frame.reset_index(drop=True).iloc[: len(domain)]
         for key, (column_name, expected, received) in zip(check_names, binding.checks, strict=True):
             physical[key] = aligned[column_name].fillna(False).astype(object)
             checks.append(NumericCheck(table[key], expected, received))

@@ -13,16 +13,12 @@ from marivo.analysis.materialization.errors import (
     _execution_error as _error,
 )
 from marivo.analysis.materialization.frame_services import LocalFrameServices
-from marivo.analysis.materialization.reconciliation import reconcile_session
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.analysis.observation.contracts import ObservationOwner
-from marivo.analysis.refs import ArtifactRef
 from marivo.analysis.session._lazy_read_model import (
-    GraphDirection,
     RunLifecycle,
     RunPage,
-    SessionGraph,
 )
 from marivo.analysis.session._lazy_read_model import (
     RunRecord as ReadRunRecord,
@@ -80,91 +76,43 @@ class DatasetRuntime:
         name: str,
         *,
         question: str | None = None,
-        report_timezone: str | None = None,
+        timezone: str | None = None,
         domains: tuple[str, ...] | None = None,
         event: Callable[[str], None] | None = None,
     ) -> DatasetRuntime:
         from marivo.analysis.timezone import resolve_system_timezone, zoneinfo_from_name
 
-        zone = resolve_system_timezone() if report_timezone is None else None
-        timezone_name = zone.name if zone is not None else report_timezone
+        zone = resolve_system_timezone() if timezone is None else None
+        timezone_name = zone.name if zone is not None else timezone
         assert timezone_name is not None
         timezone_resolution: Literal["iana", "fixed_offset"] = (
             "fixed_offset" if zone is not None and zone.resolution == "fixed_offset" else "iana"
         )
-        if report_timezone is not None:
-            from datetime import timezone
+        if timezone is not None:
+            from datetime import timezone as fixed_timezone
 
             from marivo.datasource.timezone import parse_timezone
 
             try:
-                timezone_name, resolved_zone = parse_timezone(report_timezone)
+                timezone_name, resolved_zone = parse_timezone(timezone)
             except (ValueError, KeyError):
-                zoneinfo_from_name(report_timezone)
+                zoneinfo_from_name(timezone)
                 raise
-            timezone_resolution = "fixed_offset" if isinstance(resolved_zone, timezone) else "iana"
-        store = SessionStore(project_root)
-        record = store.session_by_name(name)
-        if record is None:
-            candidate_ref = "session_" + uuid4().hex
-            with session_writer_guard(
-                store.layout.lock_path(candidate_ref), session_ref=candidate_ref
-            ):
-                record = store.create_session(
-                    name,
-                    session_ref=candidate_ref,
-                    question=question,
-                    report_timezone_name=timezone_name,
-                    report_timezone_resolution=timezone_resolution,
-                    domains=domains,
-                )
-                if record.session_ref == candidate_ref:
-                    return cls(
-                        store,
-                        record.session_ref,
-                        event=event,
-                    )
-            # A competing creator won this name. Its guard must be acquired only
-            # after the unused candidate guard has been released.
-        runtime = cls(
-            store,
-            record.session_ref,
-            event=event,
-        )
-        with session_writer_guard(
-            store.layout.lock_path(record.session_ref), session_ref=record.session_ref
-        ):
-            resolved = store.session_by_name(name)
-            if resolved is None or resolved.session_ref != record.session_ref:
-                raise _error("authority_resolution")
-            if domains is not None and resolved.domains != domains:
-                from marivo.analysis.errors import SessionStateError
-
-                raise SessionStateError(
-                    message="Session domain scope conflicts with the persisted scope.",
-                    expected=f"existing domains: {resolved.domains or 'all domains'}",
-                    received=f"requested domains: {domains}",
-                    location="mv.session.get_or_create(domains=...)",
-                    context={"existing_domains": resolved.domains, "requested_domains": domains},
-                    hint="Reopen with the existing domain scope or create a new Session name.",
-                )
-            if report_timezone is not None and resolved.report_timezone_name != timezone_name:
-                from marivo.analysis.errors import SessionTimezoneConflict
-
-                raise SessionTimezoneConflict(
-                    message="Session report timezone conflicts with the persisted timezone.",
-                    context={
-                        "persisted_report_tz": resolved.report_timezone_name,
-                        "requested_report_tz": report_timezone,
-                    },
-                )
-            reconcile_session(
-                store,
-                record.session_ref,
-                event=runtime._event,
+            timezone_resolution = (
+                "fixed_offset" if isinstance(resolved_zone, fixed_timezone) else "iana"
             )
-            store.activate(record.session_ref, question=question)
-        return runtime
+        store = SessionStore(project_root)
+        candidate_ref = "session_" + uuid4().hex
+        with session_writer_guard(store.layout.lock_path(candidate_ref), session_ref=candidate_ref):
+            record = store.create_session(
+                name,
+                session_ref=candidate_ref,
+                question=question,
+                report_timezone_name=timezone_name,
+                report_timezone_resolution=timezone_resolution,
+                domains=domains,
+            )
+        return cls(store, record.session_ref, event=event)
 
     @classmethod
     def open(
@@ -211,13 +159,3 @@ class DatasetRuntime:
     def get_run(self, run_id: str) -> ReadRunRecord:
         """Read one exact Run owned by this execution Session."""
         return self.local.get_run(run_id)
-
-    def graph(
-        self,
-        *,
-        artifact_ref: str | ArtifactRef | None = None,
-        direction: GraphDirection = "ancestors",
-        max_nodes: int = 100,
-    ) -> SessionGraph:
-        """Read bounded same-Session production topology and omitted-neighbor boundaries."""
-        return self.local.graph(artifact_ref=artifact_ref, direction=direction, max_nodes=max_nodes)

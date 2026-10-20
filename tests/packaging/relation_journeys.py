@@ -21,12 +21,17 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo import _temporal
-from marivo.analysis.core.data_schema import CalendarDataAxis, DataSchema, PairedDataAxis
+from marivo.analysis.core.data_schema import (
+    CalendarDataAxis,
+    DataSchema,
+    IntervalDataAxis,
+    PairedDataAxis,
+)
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import _scalar, forbidden, snapshot
 from tests.analysis.numeric.attribution_workflows import allocation
-from tests.packaging.graph_journeys import NAMES
+from tests.packaging.graph_journeys import NAMES, _ordinary_keys
 from tests.shared_fixtures import (
     DslCase,
     DslRows,
@@ -99,7 +104,7 @@ def folded_energy():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
     catalog = ms.load(workspace_dir=project)
-    session = mv.session.get_or_create("installed-relations", report_timezone="UTC")
+    session = mv.session.create("installed-relations", timezone="UTC")
     case = DslCase("j2", NAMES, project, database, catalog, session)
     if source == "parquet":
         export_dsl_parquet_models(case, project)
@@ -198,15 +203,17 @@ def _records(frame: pd.DataFrame) -> Json:
 def _produce(
     session: mv.Session, scenario: Scenario, patch: pytest.MonkeyPatch
 ) -> tuple[dict[str, mv.AnalysisFrame], dict[str, Json]]:
-    targets = session.members(ms.ref.entity("operations.device"))
+    targets = session.members(session.catalog.require(ms.ref.entity("operations.device")))
     metric = session.catalog.metrics.get("operations.energy_total")
     count = session.catalog.metrics.get("operations.reading_count")
 
     def monthly(month: int) -> mv.AnalysisFrame:
         return session.observe(
             {"value": metric},
-            during=session.time_scope(start=f"2026-{month:02}-01", end=f"2026-{month + 1:02}-01"),
-            by=targets,
+            by=mv.product(
+                session.time_scope(start=f"2026-{month:02}-01", end=f"2026-{month + 1:02}-01"),
+                targets,
+            ),
         )
 
     current, baseline = monthly(8), monthly(7)
@@ -214,22 +221,32 @@ def _produce(
     shared: dict[str, Json] = {}
     if scenario == "a02":
         current, baseline = current.compute(), baseline.compute()
-        comparison = current.compare(baseline, on=((current.axes[0], baseline.axes[0]),))
+        comparison = current.compare(
+            baseline,
+            on=tuple(zip(current.axes, baseline.axes, strict=True)),
+            match=mv.ordinal(),
+        )
         change = comparison.select({"value": comparison["absolute.value"]}).compute()
         chosen = change.where(change["value"] < 0).compute()
         keys = session.population_from(
             chosen,
-            on=((chosen.axes[0], session.catalog.entities.get("operations.device")),),
+            on=(
+                (
+                    next(axis for axis in chosen.axes if axis.role == "identity"),
+                    session.catalog.entities.get("operations.device"),
+                ),
+            ),
         )
-        selected = session.members(ms.ref.entity("operations.device"), where=mv.in_population(keys))
+        selected = session.members(
+            session.catalog.require(ms.ref.entity("operations.device")),
+            where=mv.in_population(keys),
+        )
         frames = {
             "difference": change,
             "members": session.frame(selected),
             "next": session.observe(
                 {"value": metric},
-                during=session.time_scope(start="2026-09-01", end="2026-10-01"),
-                by=selected,
-                members=selected,
+                by=mv.product(session.time_scope(start="2026-09-01", end="2026-10-01"), selected),
             ),
             "current": current,
             "baseline": baseline,
@@ -243,42 +260,70 @@ def _produce(
         assert sum('"energy"' in sql for sql in trace.native_sql) == numeric_reads
         shared["reused_observation"] = numeric_reads
         current, baseline = current.compute(), baseline.compute()
-        comparison = current.compare(baseline, on=((current.axes[0], baseline.axes[0]),))
-        reverse = baseline.compare(current, on=((baseline.axes[0], current.axes[0]),))
-        absolute = comparison.select({"value": comparison["absolute.value"]})
-        reversed_absolute = reverse.select({"value": reverse["absolute.value"]})
+        comparison = current.compare(
+            baseline,
+            on=tuple(zip(current.axes, baseline.axes, strict=True)),
+            match=mv.ordinal(),
+        )
+        reverse = baseline.compare(
+            current,
+            on=tuple(zip(baseline.axes, current.axes, strict=True)),
+            match=mv.ordinal(),
+        )
+        absolute = comparison.reduce(
+            {"value": comparison["absolute.value"].sum()},
+            by=(next(axis for axis in comparison.axes if axis.role == "identity"),),
+        )
+        reversed_absolute = reverse.reduce(
+            {"value": reverse["absolute.value"].sum()},
+            by=(next(axis for axis in reverse.axes if axis.role == "identity"),),
+        )
         negative = absolute.compare(
             reversed_absolute, on=((absolute.axes[0], reversed_absolute.axes[0]),)
         )
         filtered = baseline.where(baseline["value"] > 80)
-        union = current.compare(filtered, on=((current.axes[0], filtered.axes[0]),), how="outer")
+        union = current.compare(
+            filtered,
+            on=tuple(zip(current.axes, filtered.axes, strict=True)),
+            match=mv.ordinal(),
+            how="outer",
+        )
         counts_by_month = [
             session.observe(
                 {"value": count},
-                during=session.time_scope(
-                    start=f"2026-{month:02}-01", end=f"2026-{month + 1:02}-01"
+                by=mv.product(
+                    session.time_scope(start=f"2026-{month:02}-01", end=f"2026-{month + 1:02}-01"),
+                    targets,
                 ),
-                by=targets,
             )
             for month in (8, 7, 6)
         ]
         first, second = (
             counts_by_month[0].compare(
-                counts_by_month[1], on=((counts_by_month[0].axes[0], counts_by_month[1].axes[0]),)
+                counts_by_month[1],
+                on=tuple(zip(counts_by_month[0].axes, counts_by_month[1].axes, strict=True)),
+                match=mv.ordinal(),
             ),
             counts_by_month[1].compare(
-                counts_by_month[2], on=((counts_by_month[1].axes[0], counts_by_month[2].axes[0]),)
+                counts_by_month[2],
+                on=tuple(zip(counts_by_month[1].axes, counts_by_month[2].axes, strict=True)),
+                match=mv.ordinal(),
             ),
         )
-        first_delta = first.select({"value": first["absolute.value"]})
-        second_delta = second.select({"value": second["absolute.value"]})
+        first_delta = first.reduce(
+            {"value": first["absolute.value"].sum()},
+            by=(next(axis for axis in first.axes if axis.role == "identity"),),
+        )
+        second_delta = second.reduce(
+            {"value": second["absolute.value"].sum()},
+            by=(next(axis for axis in second.axes if axis.role == "identity"),),
+        )
         nested = first_delta.compare(
             second_delta, on=((first_delta.axes[0], second_delta.axes[0]),)
         )
         quantities = session.observe(
             {"energy": metric, "count": count},
-            during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-            by=targets,
+            by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), targets),
         )
         sensor = session.catalog.fields.get("operations.reading.sensor")
         branch = count.where(sensor == "web") / count
@@ -286,7 +331,9 @@ def _produce(
             session.time_scope(start=start, end=end).by(mv.grain("month"))
             for start, end in (("2026-09-01", "2026-11-01"), ("2026-07-01", "2026-09-01"))
         ]
-        endpoints = [session.observe({"value": count}, during=grid, by=targets) for grid in grids]
+        endpoints = [
+            session.observe({"value": count}, by=mv.product(grid, targets)) for grid in grids
+        ]
         period = endpoints[0].compare(
             endpoints[1],
             on=tuple(zip(endpoints[0].axes, endpoints[1].axes, strict=True)),
@@ -295,13 +342,11 @@ def _produce(
         temporal = session.time_scope(start="2026-07-01", end="2026-10-01").by(mv.grain("month"))
         running = session.observe(
             {"value": session.catalog.metrics.get("operations.running_energy")},
-            during=temporal,
-            by=targets,
+            by=mv.product(temporal, targets),
         )
         folded = session.observe(
             {"value": session.catalog.metrics.get("operations.folded_energy")},
-            during=temporal,
-            by=targets,
+            by=mv.product(temporal, targets),
         )
         frames = {
             "current": current,
@@ -313,22 +358,20 @@ def _produce(
             "ratio": quantities.select({"value": quantities["energy"] / quantities["count"]}),
             "branch_ratio": session.observe(
                 {"value": branch},
-                during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-                by=targets,
+                by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), targets),
             ),
             "branch_total": session.observe(
-                {"value": branch}, during=session.time_scope(start="2026-08-01", end="2026-09-01")
+                {"value": branch}, by=(session.time_scope(start="2026-08-01", end="2026-09-01"),)
             ),
             "period": period,
             "running": running,
             "running_total": session.observe(
-                {"value": session.catalog.metrics.get("operations.running_energy")}, during=temporal
+                {"value": session.catalog.metrics.get("operations.running_energy")}, by=(temporal,)
             ),
             "folded": folded,
             "folded_total": session.observe(
                 {"value": session.catalog.metrics.get("operations.folded_energy")},
-                during=session.time_scope(start="2026-07-01", end="2026-10-01"),
-                by=targets,
+                by=mv.product(session.time_scope(start="2026-07-01", end="2026-10-01"), targets),
             ),
         }
         saved = {name: frame.persist() for name, frame in frames.items()}
@@ -338,22 +381,20 @@ def _produce(
         region = session.catalog.fields.get("operations.device.zone")
         counts = session.observe(
             {"value": count},
-            during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-            by=targets,
+            by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), targets),
         )
         groups = session.observe(
             {"value": count},
-            during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-            by=targets.classify(by=(region,)),
+            by=mv.product(
+                session.time_scope(start="2026-08-01", end="2026-09-01"),
+                targets.classify(by=(region,)),
+            ),
         )
         totals = [
-            session.observe(
-                {"value": metric},
-                during=session.time_scope(start=start, end=end),
-            )
+            session.observe({"value": metric}, by=(session.time_scope(start=start, end=end),))
             for start, end in (("2026-08-01", "2026-09-01"), ("2026-07-01", "2026-08-01"))
         ]
-        difference = totals[0].compare(totals[1])
+        difference = totals[0].compare(totals[1], match=mv.ordinal())
         frames = {
             "counts": counts,
             "region": session.read(targets, {"value": region}),
@@ -361,7 +402,7 @@ def _produce(
             "groups": groups,
             "difference": difference,
         }
-        readings = session.members(ms.ref.entity("operations.reading"))
+        readings = session.members(session.catalog.require(ms.ref.entity("operations.reading")))
         basis = session.read(
             readings,
             {
@@ -382,8 +423,10 @@ def _produce(
         controlled = session.time_scope(start="2026-06-01", end="2026-10-01").by(mv.grain("month"))
         frames = {
             "targets": session.frame(targets),
-            "values": session.observe({"value": count}, during=temporal, by=targets),
-            "controlled_values": session.observe({"value": count}, during=controlled, by=targets),
+            "values": session.observe({"value": count}, by=mv.product(temporal, targets)),
+            "controlled_values": session.observe(
+                {"value": count}, by=mv.product(controlled, targets)
+            ),
         }
     return {name: frame.persist() for name, frame in frames.items()}, shared
 
@@ -395,15 +438,16 @@ def _derived(exports: dict[str, pd.DataFrame], scenario: Scenario) -> dict[str, 
         change = _frame(exports["difference"])
         selected = change[change.value < 0]
         current, baseline = _frame(exports["current"]), _frame(exports["baseline"])
-        assert current.key_0.tolist() == baseline.key_0.tolist()
+        (member_key,) = _ordinary_keys(current)
+        assert current[member_key].tolist() == baseline[member_key].tolist()
         result = {
             "where": _records(selected),
-            "members": checked(selected.key_0.tolist()),
+            "members": checked(selected[member_key].tolist()),
             "sum": checked(int(change.value.sum())),
             "compare": checked(
                 dict(
                     zip(
-                        current.key_0,
+                        current[member_key],
                         (
                             int(left) - int(right)
                             for left, right in zip(current.value, baseline.value, strict=True)
@@ -426,11 +470,12 @@ def _derived(exports: dict[str, pd.DataFrame], scenario: Scenario) -> dict[str, 
         shares = _frame(exports["current"])
         total = sum((Fraction(value) for value in shares.value), Fraction())
         shares["ratio"] = shares.value.map(lambda value: float(Fraction(value) / total))
-        ranking = shares.sort_values(["ratio", "key_0"], ascending=[False, True]).reset_index(
-            drop=True
-        )
+        ranking = shares.sort_values(
+            ["ratio", _ordinary_keys(shares)[0]], ascending=[False, True]
+        ).reset_index(drop=True)
         ranking["rank"] = ranking["ratio"].rank(method="min", ascending=False).astype(int)
-        groups = _frame(exports["groups"]).set_index("key_0")
+        group_rows = _frame(exports["groups"])
+        groups = group_rows.set_index(_ordinary_keys(group_rows)[0])
         assert groups.index.is_unique
         denominator = sum((Fraction(value) for value in groups.value), Fraction())
         weights = groups.value.map(lambda value: Fraction(value) / denominator)
@@ -455,8 +500,8 @@ def _derived(exports: dict[str, pd.DataFrame], scenario: Scenario) -> dict[str, 
             "ranking": _records(ranking),
             "limited": _records(ranking.iloc[:1]),
             "standardized": float(standardized),
-            "penetration": len(counts.loc[counts.value > 0, "key_0"].unique())
-            / len(counts.key_0.unique()),
+            "penetration": len(counts.loc[counts.value > 0, _ordinary_keys(counts)[0]].unique())
+            / len(counts[_ordinary_keys(counts)[0]].unique()),
             "attribution": _records(allocated),
             "selected": _records(allocated[allocated.contribution > 0]),
             "table": _records(
@@ -535,6 +580,23 @@ def _assert_oracles(
         schema = saved[name]._schema
         assert isinstance(schema, DataSchema)
         keys = [f"key_{index}" for index, _ in enumerate(saved[name].axes)]
+        interval_positions = {
+            index
+            for index, axis in enumerate(schema.axes)
+            if isinstance(axis, IntervalDataAxis)
+            or (isinstance(axis, PairedDataAxis) and isinstance(axis.left, IntervalDataAxis))
+        }
+        if interval_positions:
+            expanded: dict[tuple[str, ...], object] = {}
+            for coordinate, wanted in expected.items():
+                assert len(coordinate) + len(interval_positions) == len(schema.axes)
+                values = iter(coordinate)
+                full_key = tuple(
+                    "0" if index in interval_positions else next(values)
+                    for index in range(len(schema.axes))
+                )
+                expanded[full_key] = wanted
+            expected = expanded
         labels: dict[str, dict[object, str]] = {}
         for index, axis in enumerate(schema.axes):
             if isinstance(axis, CalendarDataAxis):
@@ -597,12 +659,14 @@ def _assert_oracles(
             },
             "absolute.value",
         )
-        union = _frame(exports["union"]).set_index("key_0")
+        union_rows = _frame(exports["union"])
+        union = union_rows.set_index(_ordinary_keys(union_rows)[0])
         # Presence is independent of all value masks and complete identity keys.
         exported = exports["union"]
         assert exported[("presence", "left_present")].all()
         assert exported[("presence", "right_present")].tolist() == [True, True, False, False]
-        assert union.index.tolist() == _frame(exports["current"]).key_0.tolist()
+        current_rows = _frame(exports["current"])
+        assert union.index.tolist() == current_rows[_ordinary_keys(current_rows)[0]].tolist()
         assert len(union) == 4
         cells(
             "nested",
@@ -717,17 +781,23 @@ def _assert_oracles(
         )
         cells("current", {(m,): amount(m, months[1]) for m in members})
         ratios = arr(derived["ratios"])
-        assert {obj(row)["key_0"]: obj(row)["ratio"] for row in ratios} == {
-            m: float(Fraction(amount(m, months[1]), total)) for m in members
-        }
+        assert {
+            obj(row)[_ordinary_keys(_frame(exports["current"]))[0]]: obj(row)["ratio"]
+            for row in ratios
+        } == {m: float(Fraction(amount(m, months[1]), total)) for m in members}
         ordered = sorted(members, key=lambda m: (-amount(m, months[1]), m))
         ranking = arr(derived["ranking"])
-        assert [obj(row)["key_0"] for row in ranking] == ordered
+        assert [
+            obj(row)[_ordinary_keys(_frame(exports["current"]))[0]] for row in ranking
+        ] == ordered
         assert [obj(row)["rank"] for row in ranking] == [
             1 + sum(amount(other, months[1]) > amount(m, months[1]) for other in members)
             for m in ordered
         ]
-        assert [obj(row)["key_0"] for row in arr(derived["limited"])] == ordered[:1]
+        assert [
+            obj(row)[_ordinary_keys(_frame(exports["current"]))[0]]
+            for row in arr(derived["limited"])
+        ] == ordered[:1]
         grouped = {
             str(region): sum(
                 count(str(m), months[1]) for m, label in facts.customers if label == region
@@ -876,7 +946,7 @@ def journey(phase: str, project: Path, scenario_name: str, source: str) -> dict[
             state = read(state_path)
             identity = state["session"]
             assert isinstance(identity, str)
-            session = mv.session.resume(identity, by="id")
+            session = mv.session.resume(identity)
             assert session._runtime.store.store_id == state["store"]
             saved = {}
             for name, reference in obj(state["artifacts"]).items():

@@ -16,7 +16,7 @@ def test_session_public_fields_are_read_only(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("immutable")
+    session = mv.session.create("immutable")
     for name in ("id", "name", "created_at"):
         with pytest.raises(AttributeError):
             setattr(session, name, "other")
@@ -24,7 +24,7 @@ def test_session_public_fields_are_read_only(
 
 def test_session_exposes_catalog_property(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("catalog")
+    session = mv.session.create("catalog")
     assert isinstance(session.catalog, SemanticCatalog)
     assert session.catalog.workspace_dir == tmp_path
 
@@ -89,7 +89,7 @@ def test_session_catalog_loads_external_semantic_layer(
 
     monkeypatch.chdir(project_root)
 
-    session = mv.session.get_or_create(name="external_layer_session")
+    session = mv.session.create(name="external_layer_session")
 
     refunds = consume_metric(session.catalog.metrics.get("finance.refunds_total"))
     assert isinstance(refunds.node, DeclaredMetricRef)
@@ -157,7 +157,7 @@ def test_session_observe_uses_external_layer_datasource(
     )
     monkeypatch.chdir(project_root)
 
-    session = mv.session.get_or_create(name="external_layer_observe", report_timezone="UTC")
+    session = mv.session.create(name="external_layer_observe", timezone="UTC")
     metric = session.catalog.metrics.get("finance.refunds_total")
     frame = session.observe({"refunds": metric}).compute()
 

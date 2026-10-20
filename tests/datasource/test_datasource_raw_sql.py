@@ -109,7 +109,7 @@ def test_raw_sql_result_cannot_reenter_typed_analysis(
     )
 
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("raw-sql-terminal", report_timezone="UTC")
+    session = mv.session.create("raw-sql-terminal", timezone="UTC")
     with pytest.raises(AnalysisError, match="RawSqlResult"):
         session.observe({"raw": result})
     from marivo.datasource.adapters import provider_for

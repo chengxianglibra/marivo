@@ -34,7 +34,7 @@ from marivo.semantic import catalog
 @pytest.fixture
 def session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Session:
     monkeypatch.chdir(tmp_path)
-    return mv.session.get_or_create("local-services", report_timezone="UTC")
+    return mv.session.create("local-services", timezone="UTC")
 
 
 def _forbidden(*args: object, **kwargs: object) -> None:
@@ -80,7 +80,7 @@ def test_local_metadata_reads_never_prepare_sources_mutate_or_read_payload(
     monkeypatch.setattr(SessionStore, "_write", _forbidden)
     monkeypatch.setattr(SessionStore, "open_existing", _forbidden)
     monkeypatch.setattr(OutputRead, "_open", _forbidden)
-    monkeypatch.setattr("marivo.analysis.materialization.admission.reconcile_session", _forbidden)
+    monkeypatch.setattr("marivo.analysis.session.reconcile_session", _forbidden)
     monkeypatch.setattr(
         "marivo.analysis.materialization.admission.session_writer_guard", _forbidden
     )
@@ -93,7 +93,7 @@ def test_local_metadata_reads_never_prepare_sources_mutate_or_read_payload(
     assert local.artifact(artifact.id)._manifest == reopened._manifest
     assert local.runs() == session.runs()
     assert local.get_run(artifact._manifest.run_id) == session.get_run(artifact._manifest.run_id)
-    assert local.graph() == session.graph()
+    assert local.runs() == session.runs()
     backing = local.open_frame(artifact.id)
     assert local.preview(backing, 0).rows.empty
     saved.show(n=0)
@@ -146,7 +146,7 @@ def test_local_data_reads_use_receipts_and_do_not_cache_results(
 def test_local_reads_reject_foreign_session_and_store(session: Session, tmp_path: Path) -> None:
     artifact = _publish(session)
     backing = session._runtime.local.open_frame(artifact.id)
-    other_session = mv.session.get_or_create("foreign", report_timezone="UTC")
+    other_session = mv.session.create("foreign", timezone="UTC")
     local = other_session._runtime.local
     with pytest.raises(ArtifactNotFoundError):
         local.artifact(artifact.id)
@@ -172,7 +172,7 @@ def test_invalid_preview_precedes_metadata_or_payload_reads(
     artifact = _publish(session)
     local = session._runtime.local
     backing = local.open_frame(artifact.id)
-    foreign = mv.session.get_or_create("foreign-preview")._runtime.local
+    foreign = mv.session.create("foreign-preview")._runtime.local
     monkeypatch.setattr(SessionStore, "_read", _forbidden)
     monkeypatch.setattr(OutputRead, "_open", _forbidden)
     with pytest.raises(CoreRuleError, match="nonnegative integer prefix"):
@@ -199,7 +199,7 @@ def test_retained_local_service_does_not_keep_runtime_session_hook_or_resolver(
     hook = _SessionHook()
     with cr.bind_resolver(resolver):
         runtime = DatasetRuntime.create(
-            authoring_evidence_project, "lifetime", report_timezone="UTC", event=hook
+            authoring_evidence_project, "lifetime", timezone="UTC", event=hook
         )
     session = Session._from_runtime(runtime)
     hook.session = session

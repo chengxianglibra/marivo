@@ -26,9 +26,9 @@ from ibis.common.deferred import (
 )
 
 from marivo._definition.deferred import (
-    ContextMetricResolver,
     DeclarationResolver,
     DeferredInspection,
+    PopulationCountResolver,
     RelationshipParameter,
     SemanticInput,
     SemanticResolver,
@@ -703,8 +703,8 @@ def _reduce(
 
 
 def _consume(recipe: Resolver) -> _Facts:
-    if isinstance(recipe, ContextMetricResolver):
-        return MetricFacts(MemberCount(), (), "1")
+    if isinstance(recipe, PopulationCountResolver):
+        return MetricFacts(MemberCount(recipe.population._definition), (), "1")
     if isinstance(recipe, SemanticResolver):
         item = recipe.input
         if item.reference.ref.kind is SemanticKind.ENTITY:

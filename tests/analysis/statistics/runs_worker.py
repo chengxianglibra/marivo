@@ -147,7 +147,7 @@ def run(root: Path, phase: str, calendar: bool = False) -> None:
             from tests.analysis.statistics.deviation_time_worker import publish_calendar
 
             publish_calendar(catalog, "UTC")
-        session = mv.session.get_or_create("runs-export", report_timezone="UTC")
+        session = mv.session.create("runs-export", timezone="UTC")
         scope = session.time_scope(
             start="2026-08-01", end="2026-08-07" if calendar else "2026-08-04"
         )
@@ -157,7 +157,7 @@ def run(root: Path, phase: str, calendar: bool = False) -> None:
             else mv.grain("day")
         )
         result = session.observe(
-            {"value": catalog.metrics.get("sales.maximum")}, during=scope.by(grain)
+            {"value": catalog.metrics.get("sales.maximum")}, by=(scope.by(grain),)
         ).persist()
         assert result.to_pandas()[("value", "value")].tolist() == [1, 2, 7]
         manifest_path.write_text(
@@ -172,7 +172,7 @@ def run(root: Path, phase: str, calendar: bool = False) -> None:
             patch.object(SourceSession, "__enter__", forbidden),
             patch.object(SourceSession, "execute", forbidden),
         ):
-            session = mv.session.resume(manifest["session"], by="id")
+            session = mv.session.resume(manifest["session"])
             result = session.persisted_frame(manifest["artifact"])
             frame = result.to_pandas()
             before = len(session.runs().items)

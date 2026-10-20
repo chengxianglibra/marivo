@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Literal, TypeAlias
 
 import pandas as pd
 
-from marivo._definition.types import CalendarCoordinate
+from marivo._definition.types import CalendarCoordinate, IntervalCoordinate
 from marivo._temporal import _BuiltinGrain, _key_token, _SemanticGrain
 from marivo._timezones import parse_timezone
 from marivo.analysis.core.artifact_data import (
@@ -18,6 +18,8 @@ from marivo.analysis.core.artifact_data import (
     DataColumn,
     DataSchema,
     FrozenCalendarData,
+    FrozenIntervalData,
+    IntervalDataAxis,
     NamedCalendarData,
     OutputAttachment,
 )
@@ -139,3 +141,41 @@ def freeze_calendar(
         }
     )
     return FrozenSourceCalendar(axis, OutputAttachment(directory_name, schema, rows))
+
+
+@dataclass(frozen=True, slots=True)
+class FrozenSourceInterval:
+    axis: IntervalDataAxis
+    directory: OutputAttachment
+
+
+FrozenSourceTime: TypeAlias = FrozenSourceCalendar | FrozenSourceInterval
+
+
+def freeze_interval(
+    coordinate: IntervalCoordinate, *, token: str, name: str, key: DataColumn
+) -> FrozenSourceInterval:
+    """Freeze the sole declared scope using an inert key and exact UTC bounds."""
+    from marivo.analysis.core.frozen_calendar import (
+        FrozenIntervalBucket,
+        FrozenIntervalDirectory,
+        interval_directory_rows,
+        interval_directory_schema,
+    )
+
+    axis = IntervalDataAxis(token, (key,), FrozenIntervalData(f"interval.{token}"), name=name)
+    start, end = (
+        datetime.fromisoformat(value.astimezone(timezone.utc).isoformat())
+        for value in (coordinate.start, coordinate.end)
+    )
+    directory = FrozenIntervalDirectory(
+        axis, (FrozenIntervalBucket(((key.dtype, 0),), start, end, coordinate.timezone),)
+    )
+    return FrozenSourceInterval(
+        axis,
+        OutputAttachment(
+            axis.frozen.directory_name,
+            interval_directory_schema(axis),
+            interval_directory_rows(directory),
+        ),
+    )

@@ -47,8 +47,8 @@ def test_period_alignment_native_carriers(
         author_source_project(
             backend, case, monkeypatch, semantic_project_factory, time_parse="string"
         )
-        session = mv.session.get_or_create("period-native", report_timezone="UTC")
-        members = session.members(ms.ref.entity("sales.facts"))
+        session = mv.session.create("period-native", timezone="UTC")
+        members = session.members(session.catalog.require(ms.ref.entity("sales.facts")))
         metric = session.catalog.metrics.get("sales.total")
         current_axis = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
         baseline_axis = (
@@ -56,8 +56,8 @@ def test_period_alignment_native_carriers(
             if kind == "ordinal"
             else session.time_scope(start="2026-07-31", end="2026-08-03").by(mv.grain("day"))
         )
-        current = session.observe({"value": metric}, during=current_axis, by=members)
-        baseline = session.observe({"value": metric}, during=baseline_axis, by=members)
+        current = session.observe({"value": metric}, by=mv.product(current_axis, members))
+        baseline = session.observe({"value": metric}, by=mv.product(baseline_axis, members))
         comparison = current.compare(
             baseline,
             match=mv.ordinal() if kind == "ordinal" else mv.period_offset(-1),

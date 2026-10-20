@@ -92,10 +92,10 @@ def test_baseline_retains_complete_outputs() -> None:
 def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     metric = session.catalog.metrics.get("sales.order_count")
     august = session.time_scope(start="2026-08-01", end="2026-09-01")
-    values = session.observe({"value": metric}, during=august, by=members)
+    values = session.observe({"value": metric}, by=mv.product(august, members))
     traces: dict[str, Trace] = {}
 
     trace = traces["source_overall"] = Trace(case.root)
@@ -105,7 +105,7 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     trace.read("members metadata", members.show)
     trace.help(session.observe)
     trace.read("observation metadata", values.show)
-    overall = session.observe({"value": metric}, during=august)
+    overall = session.observe({"value": metric}, by=(august,))
     trace.help(overall.compute)
     total = overall.compute()
     trace.read("total result", total.show)
@@ -125,16 +125,16 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     trace.help(values.compare)
     earlier = session.observe(
         {"value": metric},
-        during=session.time_scope(start="2026-07-01", end="2026-08-01"),
-        by=members,
+        by=mv.product(session.time_scope(start="2026-07-01", end="2026-08-01"), members),
     )
-    change = values.compare(earlier, on=tuple(zip(values.axes, earlier.axes, strict=True)))
+    change = values.compare(
+        earlier, on=tuple(zip(values.axes, earlier.axes, strict=True)), match=mv.ordinal()
+    )
     assert isinstance(change, mv.AnalysisFrame)
     assert change.output_names == ("left.value", "right.value", "absolute.value", "relative.value")
     amounts = session.observe(
         {"count": metric, "revenue": session.catalog.metrics.get("sales.revenue")},
-        during=august,
-        by=members,
+        by=mv.product(august, members),
     )
     trace.help(mv.Column.divide)
     quotient = amounts.select({"value": amounts["count"] / amounts["revenue"]})
@@ -146,7 +146,7 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     trace.read("selection metadata", selected.show)
     trace.help(session.population_from)
     entity = session.catalog.entities.get("sales.customer")
-    selected_members = session.population_from(selected, on=((selected.axes[0], entity),))
+    selected_members = session.population_from(selected, on=((selected.axes[1], entity),))
     trace.read("selected members metadata", selected_members.show)
     assert isinstance(selected_members, mv.Population)
 
@@ -176,12 +176,10 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
 
     prepare_profiles(case, "KS", "table", "us", "UTC", False, followup=True, profile_indices=(0,))
     ms.load(workspace_dir=case.root)
-    forecast_session = mv.session.get_or_create("context-budget-forecast", report_timezone="UTC")
+    forecast_session = mv.session.create("context-budget-forecast", timezone="UTC")
     daily = forecast_session.observe(
         {"value": forecast_session.catalog.metrics.get("sales.total_0")},
-        during=forecast_session.time_scope(start="2026-08-01", end="2026-08-04").by(
-            mv.grain("day")
-        ),
+        by=(forecast_session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day")),),
     )
     trace = traces["drift"] = Trace(case.root)
     trace.help("analysis.session.observe")

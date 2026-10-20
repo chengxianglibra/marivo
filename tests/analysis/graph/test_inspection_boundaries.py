@@ -20,7 +20,9 @@ def test_missing_backing_discards_native_exception_and_locator(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    result = case.session.frame(case.session.members(ms.ref.entity("sales.customer"))).persist()
+    result = case.session.frame(
+        case.session.members(case.session.catalog.require(ms.ref.entity("sales.customer")))
+    ).persist()
     receipt = result.artifact._manifest.data.rows.receipt
     path = case.root / receipt.project_relative_path / receipt.file_manifest[0].relative_path
     path.unlink()

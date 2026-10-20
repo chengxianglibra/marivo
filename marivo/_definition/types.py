@@ -234,6 +234,16 @@ def coordinate_read_keys(read: FieldRead | IdentityRead) -> tuple[str, ...]:
 
 
 @dataclass(frozen=True, slots=True)
+class IntervalCoordinate:
+    """One frozen finite interval coordinate, distinct from calendar periods."""
+
+    identity: str
+    start: InstantAnchor
+    end: InstantAnchor
+    timezone: str
+
+
+@dataclass(frozen=True, slots=True)
 class CalendarCoordinate:
     """Frozen output calendar, including nominal and actual half-open buckets."""
 

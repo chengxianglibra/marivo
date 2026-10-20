@@ -96,15 +96,17 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 
 catalog = ms.load(workspace_dir=".")
-session = mv.session.get_or_create("demo-revenue", report_timezone="UTC")
+session = mv.session.create("demo-revenue", timezone="UTC")
 revenue = session.catalog.metrics.get("sales.revenue")
 amount = session.catalog.fields.get("sales.orders.amount")
 region = session.catalog.fields.get("sales.orders.region")
 july = session.time_scope(start="2026-07-01", end="2026-08-01")
 august = session.time_scope(start="2026-08-01", end="2026-09-01")
-baseline = session.observe({"revenue": revenue}, during=july, by=(region,)).compute()
-current = session.observe({"revenue": revenue}, during=august, by=(region,)).compute()
-change = current.compare(baseline, on=((current.axes[0], baseline.axes[0]),))
+baseline = session.observe({'revenue': revenue}, by=(july, region)).compute()
+current = session.observe({'revenue': revenue}, by=(august, region)).compute()
+change = current.compare(
+    baseline, on=tuple(zip(current.axes, baseline.axes)), match=mv.ordinal(),
+)
 change.show()  # Pending comparison; no evaluation.
 saved = change.persist()
 table = saved.to_pandas()
@@ -123,7 +125,7 @@ saved_artifact_id = saved.artifact.id
 Use the returned computed Frames to retain the exact observed values; the
 original source expressions would evaluate sources again. Persist publishes the
 completed comparison after evaluation. Keep the exact Session ID and
-`frame.artifact.id`; `mv.session.resume(saved_session_id, by="id")` and
+`frame.artifact.id`; `mv.session.resume(saved_session_id)` and
 `session.persisted_frame(saved_artifact_id)` recover its complete data without
 loading the model or source. Supported data operations continue on that Frame;
 new source facts require explicit new construction. Artifact is audit only.

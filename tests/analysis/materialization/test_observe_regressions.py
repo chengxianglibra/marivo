@@ -21,12 +21,12 @@ def test_member_count_without_source_metric_prepares_members(
     customer = session.catalog.entities.get("sales.customer")
     region = session.catalog.fields.get("sales.customer.region")
     members = (
-        session.members(ms.ref.entity("sales.customer"))
+        session.members(session.catalog.require(ms.ref.entity("sales.customer")))
         if domain == "source"
         else mv.identities(customer, keys=(("A",), ("C",)) if domain == "literal" else ())
     )
     frame = (
-        session.observe({"n": mv.member_count()}, members=members, by=(region,) if grouped else ())
+        session.observe({"n": members.count()}, by=(region,) if grouped else ())
         .compute()
         .to_pandas()
     )
@@ -51,7 +51,7 @@ def test_member_count_literal_absent_identity_needs_no_profile_confirmation(
     members = mv.identities(
         session.catalog.entities.get("sales.customer"), keys=(("A",), ("missing",))
     )
-    frame = session.observe({"n": mv.member_count()}, members=members).compute().to_pandas()
+    frame = session.observe({"n": members.count()}).compute().to_pandas()
     assert frame[("value", "n")].tolist() == [2]
 
 
@@ -61,20 +61,23 @@ def test_member_count_rejects_multivalued_common_condition(
     analysis_dsl_case_factory: DslCaseFactory, population_condition: bool, mixed: bool
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     channel = session.catalog.fields.get("sales.order.channel")
     condition = (
         mv.in_population(mv.coordinates(by=(channel,), keys=(("web",),)))
         if population_condition
         else channel == "web"
     )
-    metrics = {"n": mv.member_count()}
+    metrics = {"n": members.count()}
     if mixed:
         metrics["revenue"] = session.catalog.metrics.get("sales.revenue")
-    with pytest.raises(AnalysisError) as captured:
-        session.observe(metrics, members=members, where=condition)
-    assert "sales.customer" in str(captured.value)
-    assert captured.value.repair is not None
+    if mixed:
+        frame = session.observe(metrics, where=condition).compute().to_pandas()
+        assert frame[("value", "n")].tolist() == [4]
+        assert frame[("value", "revenue")].tolist() == [927]
+    else:
+        with pytest.raises(AnalysisError, match="condition"):
+            session.observe(metrics, where=condition)
 
 
 @pytest.mark.parametrize("population_condition", (False, True))
@@ -82,7 +85,7 @@ def test_member_count_condition_checks_do_not_reselect_explicit_members(
     analysis_dsl_case_factory: DslCaseFactory, population_condition: bool
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     region = session.catalog.fields.get("sales.customer.region")
     condition = (
         mv.in_population(mv.coordinates(by=(region,), keys=(("east",),)))
@@ -91,8 +94,7 @@ def test_member_count_condition_checks_do_not_reselect_explicit_members(
     )
     frame = (
         session.observe(
-            {"n": mv.member_count(), "revenue": session.catalog.metrics.get("sales.revenue")},
-            members=members,
+            {"n": members.count(), "revenue": session.catalog.metrics.get("sales.revenue")},
             where=condition,
         )
         .compute()
@@ -114,9 +116,14 @@ def test_common_population_condition_preserves_formula_and_query_dependency(
     selected = session.population_from(chosen, on=((chosen.axes[0], channel),))
     frame = (
         session.observe(
-            {"n": mv.member_count(), "average": revenue / count},
-            members=session.members(ms.ref.entity("sales.order")),
-            where=mv.in_population(selected),
+            {
+                "n": session.members(session.catalog.require(ms.ref.entity("sales.order"))).count(),
+                "average": revenue / count,
+            },
+            where=mv.in_population(selected)
+            & mv.in_population(
+                session.members(session.catalog.require(ms.ref.entity("sales.order")))
+            ),
         )
         .compute()
         .to_pandas()
@@ -129,18 +136,21 @@ def test_common_population_condition_rejects_foreign_query_dependency(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
-    other = mv.session.get_or_create("foreign-observation", report_timezone="UTC")
-    selected = other.members(ms.ref.entity("sales.customer"))
+    other = mv.session.create("foreign-observation", timezone="UTC")
+    selected = other.members(other.catalog.require(ms.ref.entity("sales.customer")))
     with pytest.raises(AnalysisError, match="Session owner"):
         session.observe(
-            {"n": mv.member_count()},
-            members=session.members(ms.ref.entity("sales.customer")),
+            {
+                "n": session.members(
+                    session.catalog.require(ms.ref.entity("sales.customer"))
+                ).count()
+            },
             where=mv.in_population(selected),
         )
 
 
 @pytest.mark.parametrize("same_calendar", (False, True))
-def test_observe_complete_domain_requires_compatible_during_calendar(
+def test_observe_complete_domain_uses_its_own_calendar(
     analysis_dsl_case_factory: DslCaseFactory, same_calendar: bool
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
@@ -151,26 +161,15 @@ def test_observe_complete_domain_requires_compatible_during_calendar(
         august if same_calendar else july,
         mv.coordinates(by=(channel,), keys=(("web",), ("mobile",))),
     )
-    if not same_calendar:
-        with pytest.raises(AnalysisError) as captured:
-            session.observe(
-                {"revenue": session.catalog.metrics.get("sales.revenue")},
-                during=august,
-                by=requested,
-            )
-        assert captured.value.location == "session.observe"
-        assert captured.value.repair is not None
+    result = session.observe(
+        {"revenue": session.catalog.metrics.get("sales.revenue")}, by=requested
+    )
+    frame = result.compute().to_pandas()
+    values = frame[("value", "revenue")]
+    if same_calendar:
+        assert dict(zip(frame.iloc[:, 1], values, strict=True)) == {"mobile": 150, "web": 850}
     else:
-        result = session.observe(
-            {"revenue": session.catalog.metrics.get("sales.revenue")},
-            during=august,
-            by=requested,
-        )
-        frame = result.compute().to_pandas()
-        assert dict(zip(frame.iloc[:, 1], frame[("value", "revenue")], strict=True)) == {
-            "mobile": 150,
-            "web": 850,
-        }
+        assert dict(zip(frame.iloc[:, 1], values, strict=True)) == {"mobile": 0, "web": 77}
 
 
 @pytest.mark.parametrize("conflict", ("period", "grain"))
@@ -185,17 +184,8 @@ def test_observe_rejects_conflicting_extra_calendar_even_when_one_matches(
         if conflict == "period"
         else scope.by(mv.grain("day"))
     )
-    requested = mv.product(august, other)
-    # Pure coordinate products remain independent of observation time binding.
-    assert len(session.frame(requested).output_names) == 0
-    with pytest.raises(AnalysisError) as captured:
-        session.observe(
-            {"revenue": session.catalog.metrics.get("sales.revenue")},
-            during=august,
-            by=requested,
-        )
-    assert captured.value.location == "session.observe"
-    assert captured.value.repair is not None
+    with pytest.raises(AnalysisError, match="at most one output time axis"):
+        mv.product(august, other)
 
 
 @pytest.mark.parametrize("grain", ("day", "month"))
@@ -208,7 +198,6 @@ def test_observe_accepts_exact_complete_calendar_binding(
     frame = (
         session.observe(
             {"revenue": session.catalog.metrics.get("sales.revenue")},
-            during=calendar,
             by=mv.product(calendar, mv.coordinates(by=(channel,), keys=(("web",), ("mobile",)))),
         )
         .compute()

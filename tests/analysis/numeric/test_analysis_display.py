@@ -11,7 +11,8 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
-from tests.analysis.statistics.pandas_workflows import plain, receipt_paths
+from tests.analysis.numeric.pandas_coordinates import plain
+from tests.analysis.statistics.pandas_workflows import receipt_paths
 from tests.shared_fixtures import (
     DslCase,
     DslCaseFactory,
@@ -34,19 +35,26 @@ def _values(
     members: mv.Population | None = None,
 ) -> mv.AnalysisFrame:
     session = case.session
-    members = session.members(ms.ref.entity("sales.customer")) if members is None else members
+    members = (
+        session.members(session.catalog.require(ms.ref.entity("sales.customer")))
+        if members is None
+        else members
+    )
     field = session.catalog.fields.get("sales.customer.region")
+    scope = session.time_scope(start="2026-08-01", end="2026-09-01")
+    domain = (
+        (scope,)
+        if overall
+        else mv.product(scope, members.classify(by=(field,)))
+        if grouped
+        else mv.product(scope, members.classify(by=(members.axes[0], field)))
+        if region
+        else mv.product(scope, members)
+    )
     return session.observe(
         {"value": session.catalog.metrics.get("sales." + metric)},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=()
-        if overall
-        else (field,)
-        if grouped
-        else (members.axes[0], field)
-        if region
-        else members,
-        members=members if region or grouped or overall else None,
+        by=domain,
+        where=mv.in_population(members) if region or grouped or overall else None,
     )
 
 
@@ -93,7 +101,7 @@ def test_business_display_reads_saved_rows_and_preserves_state_summary(
     with duckdb.connect(str(case.database_path)) as db:
         db.execute('UPDATE "order" SET channel = ?', ["retained" * 200])
     session = case.session
-    members = session.members(ms.ref.entity("sales.order"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.order")))
     logical = session.read(members, {"value": session.catalog.fields.get("sales.order.amount")})
     values = logical.persist()
     ratio = logical.select({"value": logical["value"] / logical["value"]}).persist()
@@ -142,12 +150,12 @@ def test_business_display_identifies_current_and_baseline_windows(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     current_scope = session.time_scope(start="2026-08-01", end="2026-09-01")
     baseline_scope = session.time_scope(start="2026-07-01", end="2026-08-01")
     metric = session.catalog.metrics.get("sales.revenue")
-    current = session.observe({"value": metric}, by=members, during=current_scope)
-    baseline = session.observe({"value": metric}, by=members, during=baseline_scope)
+    current = session.observe({"value": metric}, by=mv.product(current_scope, members))
+    baseline = session.observe({"value": metric}, by=mv.product(baseline_scope, members))
     for query, start, end in (
         (current, "2026-08-01", "2026-09-01"),
         (baseline, "2026-07-01", "2026-08-01"),
@@ -156,7 +164,7 @@ def test_business_display_identifies_current_and_baseline_windows(
         period = capsys.readouterr().out
         assert start in period and end in period and "UTC" in period
     output = current.compare(
-        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True))
+        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
     ).compute()
     assert {column.name for column in output._schema.values} == {
         "left.value",
@@ -369,7 +377,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
 from tests.analysis.materialization.domain_recovery_worker import snapshot
-from tests.analysis.statistics.pandas_workflows import plain
+from tests.analysis.numeric.pandas_coordinates import plain
 
 def forbidden(*args, **kwargs):
     raise AssertionError('cold display accessed source or Semantic')
@@ -377,7 +385,7 @@ ms.load = forbidden
 SourceSession.__enter__ = forbidden
 SourceSession.execute = forbidden
 state = json.loads(Path('display.json').read_text())
-session = mv.session.resume(state['session'], by='id')
+session = mv.session.resume(state['session'])
 before = len(session.runs().items)
 for name in ('selected', 'terminal'):
     saved = state[name]
@@ -487,7 +495,7 @@ def test_complete_composite_keys_scalar_columns_and_nulls(
     ms.load(workspace_dir=case.root)
     session = case.session
     query = session.read(
-        session.members(ms.ref.entity("sales.display")),
+        session.members(session.catalog.require(ms.ref.entity("sales.display"))),
         {
             name: session.catalog.fields.get("sales.display." + name)
             for name in ("moment", "day", "region", "amount", "enabled")
@@ -549,7 +557,7 @@ def test_empty_original_domain_and_numeric_view_continuations(
             chosen_values = chosen.compute()
             selected_members = case.session.population_from(
                 chosen_values,
-                on=((chosen_values.axes[0], case.session.catalog.entities.get("sales.customer")),),
+                on=((chosen_values.axes[1], case.session.catalog.entities.get("sales.customer")),),
             )
             assert _values(case, overall=True, members=selected_members).compute().to_pandas()[
                 ("value", "value")
@@ -575,16 +583,14 @@ def test_group_and_entity_time_display_domains(analysis_dsl_case_factory: DslCas
     assert ranking["rank"].tolist() == [1, 2, 2]
     assert group_values["value"].tolist() == [2, 1, 1]
     period = session.time_scope(start="2026-07-01", end="2026-10-01").by(mv.grain("month"))
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     values = session.observe(
         {"value": session.catalog.metrics.get("sales.order_count")},
-        during=period,
-        by=(members.axes[0], region),
-        members=members,
+        by=(period, members.axes[0], region),
+        where=mv.in_population(members),
     )
     frame = plain(values.compute())
-    member_position = next(i for i, axis in enumerate(values.axes) if axis.role == "identity")
-    frame = frame.rename(columns={f"key_{member_position}": "member"})
+    frame = frame.rename(columns={"key_0": "member"})
     frame = _rank(frame)
     facts = analysis_dsl_rows("j2")
     expected = {

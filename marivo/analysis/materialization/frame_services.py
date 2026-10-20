@@ -8,14 +8,11 @@ from typing import TYPE_CHECKING
 from marivo._definition.types import Owner
 from marivo.analysis.materialization.contracts import SessionRecord, invalid
 from marivo.analysis.materialization.store import SessionStore
-from marivo.analysis.refs import ArtifactRef
-from marivo.analysis.session import _lazy_graph, _lazy_runtime_reads
+from marivo.analysis.session import _lazy_runtime_reads
 from marivo.analysis.session._lazy_read_model import (
-    GraphDirection,
     RunLifecycle,
     RunPage,
     RunRecord,
-    SessionGraph,
 )
 
 if TYPE_CHECKING:
@@ -89,15 +86,3 @@ class LocalFrameServices:
 
     def get_run(self, run_id: str) -> RunRecord:
         return _lazy_runtime_reads.get_run(self.store, self.session_ref, run_id)
-
-    def graph(
-        self,
-        *,
-        artifact_ref: str | ArtifactRef | None = None,
-        direction: GraphDirection = "ancestors",
-        max_nodes: int = 100,
-    ) -> SessionGraph:
-        ref = ArtifactRef(ref=artifact_ref) if isinstance(artifact_ref, str) else artifact_ref
-        return _lazy_graph.graph(
-            self.store, self.session_ref, artifact_ref=ref, direction=direction, max_nodes=max_nodes
-        )

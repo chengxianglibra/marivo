@@ -43,7 +43,7 @@ weight=ms.measure_column(name='weight',entity=orders,column='weight',additivity=
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.get_or_create("original", report_timezone="UTC")
+    return mv.session.create("original", timezone="UTC")
 
 
 @pytest.mark.parametrize(
@@ -358,9 +358,9 @@ def test_source_original_does_not_deduplicate_or_admit_invalid_identity(
     amount = session.catalog.fields.get("sales.orders.amount")
     bucket = session.catalog.fields.get("sales.orders.bucket")
     trace = capture_source(monkeypatch)
-    members = session.members(ms.ref.entity("sales.orders"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.orders")))
     with pytest.raises(AnalysisError, match="non-null complete identity keys"):
-        session.observe({"metric": amount.sum()}, members=members).compute()
+        session.observe({"metric": amount.sum()}, where=mv.in_population(members)).compute()
     assert trace.returned_rows
 
 

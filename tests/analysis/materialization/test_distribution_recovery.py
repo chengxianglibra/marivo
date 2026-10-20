@@ -113,7 +113,7 @@ def test_native_distributions_independent_fixed_and_cold(
 
             monkeypatch.setattr(type(subject.session._backend), "create_table", forbid_staging)
             monkeypatch.setattr(type(subject.session._backend), "drop_table", forbid_staging)
-        session = mv.session.get_or_create("r94-distribution", report_timezone="UTC")
+        session = mv.session.create("r94-distribution", timezone="UTC")
         outputs: dict[str, mv.AnalysisFrame] = {}
         for kind in ("approx_distinct", "distinct", "identity", "quantile", "approx_quantile"):
             field = session.catalog.fields.get(
@@ -131,8 +131,10 @@ def test_native_distributions_independent_fixed_and_cold(
             )
             query = session.observe(
                 {"value": metric},
-                during=session.time_scope(start="2026-08-01", end="2026-08-02"),
-                by=session.members(ms.ref.entity("sales.subjects")),
+                by=mv.product(
+                    session.time_scope(start="2026-08-01", end="2026-08-02"),
+                    session.members(session.catalog.require(ms.ref.entity("sales.subjects"))),
+                ),
             )
             if kind == "approx_quantile":
                 before = session.runs().items
@@ -195,7 +197,7 @@ from tests.support.json import encode, obj, read
 root, phase, output = Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3])
 state = read(root / 'r94-distribution.json')
 with patch.object(ms, 'load', forbidden), patch.object(SemanticProject, 'load', forbidden), patch.object(SourceSession, '__enter__', forbidden), patch.object(SourceSession, 'execute', forbidden):
-    session = mv.session.resume(state['session'], by='id')
+    session = mv.session.resume(state['session'])
     before = len(session.runs().items)
     for name, item in obj(state['outputs']).items():
         value = session.persisted_frame(item['artifact'])

@@ -69,7 +69,7 @@ def test_actual_failure_type_advertises_a_queryable_static_page(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create(name="help-error-roundtrip")
+    session = mv.session.create(name="help-error-roundtrip")
     with pytest.raises(ArtifactNotFoundError) as captured:
         session.persisted_frame("missing")
     text, _, _ = render_help_text(type(captured.value))

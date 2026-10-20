@@ -22,16 +22,15 @@ def run_process(project: str, session_id: str, phase: str) -> None:
     os.environ["MARIVO_PROJECT_ROOT"] = project
     os.chdir(root)
     manifest = root / "numeric-source.json"
-    session = mv.session.resume(session_id, by="id")
+    session = mv.session.resume(session_id)
     if phase == "produce":
-        members = session.members(ms.ref.entity("sales.customer"))
+        members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
         region = session.catalog.fields.get("sales.customer.region")
         scope = session.time_scope(start="2026-08-01", end="2026-09-01")
         observed = session.observe(
             {"value": session.catalog.metrics.get("sales.revenue")},
-            during=scope,
-            by=(members.axes[0], region),
-            members=members,
+            by=(scope, members.axes[0], region),
+            where=mv.in_population(members),
         )
         results = {
             "sum": observed.reduce(
@@ -52,19 +51,20 @@ def run_process(project: str, session_id: str, phase: str) -> None:
         assert raw.min() == 7 and raw.max() == 120
         for name in ("distinct", "approx_distinct", "quantile"):
             results[name] = session.observe(
-                {"value": session.catalog.metrics.get("sales." + name)}, during=scope, by=members
+                {"value": session.catalog.metrics.get("sales." + name)},
+                by=mv.product(scope, members),
             ).persist()
         assert results["distinct"].to_pandas()[("value", "value")].tolist() == [2, 1, 1]
         assert results["quantile"].to_pandas()[("value", "value")].tolist() == [60, 20, 7]
         results["read"] = session.read(
-            session.members(ms.ref.entity("sales.order")),
+            session.members(session.catalog.require(ms.ref.entity("sales.order"))),
             {"value": session.catalog.fields.get("sales.order.amount")},
         ).persist()
         results["category"] = session.read(members, {"value": region}).persist()
         before = len(session.runs().items)
         try:
             session.observe(
-                {"value": session.catalog.metrics.get("sales.approx_quantile")}, during=scope
+                {"value": session.catalog.metrics.get("sales.approx_quantile")}, by=(scope,)
             ).persist()
         except (AnalysisError, SemanticExpressionError) as error:
             assert error.expected and error.received and error.repair

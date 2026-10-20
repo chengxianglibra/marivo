@@ -151,7 +151,7 @@ def warehouse_session(
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.get_or_create("schedule", report_timezone="UTC")
+    return mv.session.create("schedule", timezone="UTC")
 
 
 def _query(
@@ -164,7 +164,9 @@ def _query(
 ) -> BoundGraph:
     metric = session.catalog.metrics.get(f"sales.{name}")
     assert isinstance(metric, Deferred)
-    return _source_graph(session.observe({name: metric}, during=during, by=by, where=where))
+    return _source_graph(
+        session.observe({name: metric}, by=by if during is None else (during, *by), where=where)
+    )
 
 
 def _dimension(session: Session, path: str) -> Deferred:
@@ -185,12 +187,9 @@ def test_single_root_plan_reads_once_and_publishes_its_source_stage(
 ) -> None:
     session = warehouse_session
     region = _dimension(session, "sales.orders.region")
-    graph = _query(
-        session,
-        "revenue",
-        during=session.time_scope(start="2026-01-01", end="2026-02-01"),
-        where=region == "APAC",
-    )
+    time = _dimension(session, "sales.orders.ordered_at")
+    scope = session.time_scope(start="2026-01-01", end="2026-02-01")
+    graph = _query(session, "revenue", where=(region == "APAC") & time.within(scope))
     with open_query_sources(
         session._runtime.connection_service(), graph, session.catalog._state
     ) as prepared:
@@ -214,13 +213,16 @@ def test_multi_root_plan_combines_locally_without_mutating_shared_reads(
     session = warehouse_session
     graph = _query(session, "net", during=session.time_scope(start="2026-01-01", end="2026-02-01"))
     seen: list[tuple[pd.DataFrame, ...]] = []
-    rows = (DataColumn("n.0", "rows", ScalarDataType("int64"), False),)
+    rows = (
+        DataColumn("key.0", "interval", ScalarDataType("int64"), False),
+        DataColumn("n.0", "rows", ScalarDataType("int64"), False),
+    )
 
     def kernel(stage: LocalCompute, inputs: tuple[pd.DataFrame, ...]) -> pd.DataFrame:
         seen.append(inputs)
         for frame in inputs:
             frame.iloc[:, 0] = -1
-        return pd.DataFrame({"n.0": [sum(len(frame) for frame in inputs)]})
+        return pd.DataFrame({"key.0": [0], "n.0": [sum(len(frame) for frame in inputs)]})
 
     with open_query_sources(
         session._runtime.connection_service(), graph, session.catalog._state
@@ -426,7 +428,7 @@ def test_parquet_source_metadata_controls_lossless_preparation(
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("metadata", report_timezone="UTC")
+    session = mv.session.create("metadata", timezone="UTC")
     graph = _query(session, "total")
     if kind == "duration":
         with open_query_sources(
@@ -483,7 +485,9 @@ def _compute(
     by: tuple[Deferred, ...] = (),
     where: Deferred | None = None,
 ) -> StageOutput:
-    graph = _source_graph(session.observe(metrics, during=during, by=by, where=where))
+    graph = _source_graph(
+        session.observe(metrics, by=by if during is None else (during, *by), where=where)
+    )
     with open_query_sources(
         session._runtime.connection_service(), graph, session.catalog._state
     ) as prepared:

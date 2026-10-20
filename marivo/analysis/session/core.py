@@ -3,24 +3,18 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from contextlib import AbstractContextManager
-from datetime import date, datetime, tzinfo
+from datetime import date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from marivo._temporal import InstantAnchor, TimeScope, _SessionTimeScope
 from marivo.analysis.materialization.contracts import SessionRecord
 from marivo.analysis.observation.contracts import ObservationOwner
-from marivo.analysis.observation.source_bindings import SourceBindingMap
-from marivo.analysis.refs import ArtifactRef
 from marivo.analysis.session._lazy_read_model import (
-    GraphDirection,
     RunLifecycle,
     RunPage,
     RunRecord,
-    SessionGraph,
 )
-from marivo.refs import EntityKind, Ref, SemanticKind
 from marivo.semantic.catalog import SemanticCatalog
 
 if TYPE_CHECKING:
@@ -31,7 +25,6 @@ if TYPE_CHECKING:
     from marivo.analysis.dsl.frame_axis import FrameAxis
     from marivo.analysis.dsl.population import Population, PopulationPredicate
     from marivo.analysis.dsl.source_capture import ValueRow
-    from marivo.analysis.dsl.temporal import CalendarAxis
     from marivo.analysis.materialization.admission import DatasetRuntime
     from marivo.semantic.expressions import Entity
 
@@ -39,7 +32,7 @@ if TYPE_CHECKING:
 class Session:
     """One named Session for explicit source inputs and immutable analysis data.
 
-    Acquire with ``mv.session.get_or_create(name)`` or ``mv.session.resume(identity)``.
+    Acquire with ``mv.session.create(name)`` or ``mv.session.resume(session_id)``.
     Source construction resolves authored semantics without reading business rows.
     Persisted Frame recovery reads exact commit metadata without loading semantics.
     """
@@ -47,7 +40,7 @@ class Session:
     __slots__ = ("_catalog_value", "_runtime", "_sources_value")
 
     def __new__(cls) -> Session:
-        raise TypeError("Use mv.session.get_or_create(name) or mv.session.resume(identity).")
+        raise TypeError("Use mv.session.create(name) or mv.session.resume(session_id).")
 
     @classmethod
     def _from_runtime(cls, runtime: DatasetRuntime) -> Session:
@@ -136,21 +129,9 @@ class Session:
         return parse_timestamp(self._record().updated_at)
 
     @property
-    def report_tz_name(self) -> str:
-        """Return the persisted report timezone name."""
+    def timezone(self) -> str:
+        """Return the normalized timezone frozen when this Session was created."""
         return self._record().report_timezone_name
-
-    @property
-    def report_tz_resolution(self) -> str:
-        """Return the persisted timezone resolution kind."""
-        return self._record().report_timezone_resolution
-
-    @property
-    def report_tz(self) -> tzinfo:
-        """Return the persisted report timezone."""
-        from marivo.analysis.timezone import restore_timezone
-
-        return restore_timezone(self.report_tz_name, self.report_tz_resolution)
 
     @property
     def catalog(self) -> SemanticCatalog:
@@ -161,7 +142,7 @@ class Session:
 
     def members(
         self,
-        entity: Ref[EntityKind],
+        entity: Entity,
         *,
         at: InstantAnchor | None = None,
         where: Deferred | PopulationPredicate | None = None,
@@ -169,7 +150,7 @@ class Session:
         """Capture a source identity Population without reading schema or rows.
 
         Args:
-            entity: Declared Entity Ref.
+            entity: Resolved Entity definition.
             at: Exact version selection instant.
             where: An optional same-root semantic field predicate.
 
@@ -177,7 +158,7 @@ class Session:
             A lazy Population retaining this Session's ownership.
 
         Example:
-            ``customers = session.members(ms.ref.entity('sales.customer'))``.
+            ``customers = session.members(customer)``.
 
         Constraints:
             Source identities include only existing rows. Literal requested
@@ -195,19 +176,21 @@ class Session:
         from marivo.semantic._deferred_semantics import consume_predicate
         from marivo.semantic.expressions import Entity, _Resolver
 
-        if not isinstance(entity, Ref) or entity.kind is not SemanticKind.ENTITY:
-            repair = (
-                f"Pass ms.ref.entity({entity.ref.ref.path!r})."
-                if isinstance(entity, Entity)
-                else "Pass ms.ref.entity(path) for the intended Entity."
-            )
+        if not isinstance(entity, Entity):
             reject(
-                "an EntityRef lookup key",
-                f"{entity.kind.value} Ref" if isinstance(entity, Ref) else type(entity).__name__,
-                repair,
+                "a resolved Entity",
+                type(entity).__name__,
+                "Resolve the Entity with session.catalog.require(ms.ref.entity(path)).",
                 "session.members.entity",
             )
-        resolved = _Resolver(self.catalog._state).entity(entity.path)
+        resolved = _Resolver(self.catalog._state).entity(entity.ref.ref.path)
+        if entity.primary_key != resolved.primary_key:
+            reject(
+                "an Entity with the receiving Catalog's complete primary key",
+                repr(entity.primary_key),
+                "Resolve an Entity with the same complete identity structure.",
+                "session.members.entity",
+            )
         predicate = (
             consume_predicate(where)
             if where is not None and not isinstance(where, PopulationPredicate)
@@ -227,7 +210,7 @@ class Session:
                 "Construct at with session.instant(...).",
                 "session.members",
             )
-        axis = AxisBinding(resolved.ref, None, (), "identity", at)
+        axis = AxisBinding(entity.ref, None, (), "identity", at)
         if isinstance(where, PopulationPredicate) and any(
             _owner(domain) not in (None, Owner(self.id, self._runtime.store.store_id))
             for domain in condition_populations(where._condition)
@@ -239,7 +222,7 @@ class Session:
                 "session.members",
             )
         node = SourceIdentities(
-            resolved.ref,
+            entity.ref,
             at,
             where._condition
             if isinstance(where, PopulationPredicate)
@@ -252,16 +235,6 @@ class Session:
             where._frame_inputs if isinstance(where, PopulationPredicate) else (),
         )
 
-    def source_bindings(self, bindings: SourceBindingMap) -> AbstractContextManager[None]:
-        """Capture source parameters while constructing logical sources.
-
-        Args: bindings: Exact Entity refs mapped to declared non-secret parameters.
-        Returns: A restoring authoring-scope context manager.
-        Example: ``with session.source_bindings(values): frame = session.observe({'revenue': revenue})``.
-        Constraints: Evaluation never rereads ambient bindings; values are not persisted.
-        """
-        return self._sources().binding_scopes.scope(bindings)
-
     def instant(
         self, value: str | date | datetime, *, timezone: str | None = None
     ) -> InstantAnchor:
@@ -269,14 +242,14 @@ class Session:
 
         Args:
             value: ISO date/timestamp, date, aware datetime, or existing anchor.
-            timezone: Explicit parsing timezone; None uses report_tz_name.
+            timezone: Explicit parsing timezone; None uses the saved timezone.
         Returns: An immutable UTC InstantAnchor.
         Example: ``anchor = session.instant('2026-01-01')``.
         Constraints: Rejects naive datetimes and ambiguous/nonexistent local clocks; no source reads.
         """
         from marivo.analysis.dsl.temporal import exact_instant
 
-        return exact_instant(value, self.report_tz_name if timezone is None else timezone)
+        return exact_instant(value, self.timezone if timezone is None else timezone)
 
     def time_scope(
         self,
@@ -297,29 +270,22 @@ class Session:
         """
         from marivo.analysis.dsl.temporal import exact_scope
 
-        return exact_scope(start, end, self.report_tz_name if timezone is None else timezone)
+        return exact_scope(start, end, self.timezone if timezone is None else timezone)
 
     def observe(
         self,
         metrics: Mapping[str, Deferred],
         *,
-        during: TimeScope | CalendarAxis | None = None,
-        by: tuple[Deferred | Grouping, ...] | Population = (),
+        by: tuple[Deferred | Grouping | TimeScope, ...] | Population = (),
         where: Deferred | PopulationPredicate | None = None,
-        members: Population | None = None,
     ) -> AnalysisFrame:
         """Capture named Metric expressions as a lazy AnalysisFrame.
 
         Args:
             metrics: Nonempty ordered mapping of names to resolved Metric expressions.
-            during: TimeScope filters only; CalendarAxis also adds frozen calendar buckets.
-            by: Ordered semantic fields or Grouping rules, or a complete Population output domain. Empty ()
-                evaluates overall Metrics per time bucket, or one scalar without a calendar.
-            where: Field condition appended to each contribution occurrence, or an explicit
-                PopulationPredicate restricting contributions. For member_count, conditions
-                are single-valued on the explicit members without reselecting them.
-            members: One complete Entity identity Population restricting contributions
-                independently of grouping; member_count counts this explicit domain.
+            by: Ordered fields, Grouping rules or finite TimeScopes, or a complete Population
+                output domain. Empty () evaluates one zero-axis cell.
+            where: Extra field or PopulationPredicate conditions on fact contributions.
 
         Returns:
             An immutable pending AnalysisFrame owned by this Session.
@@ -357,11 +323,9 @@ class Session:
             self.catalog._state,
             self._runtime.connection_config,
             metrics,
-            during=during,
             by=by,
             where=where,
-            members=members,
-            timezone=self.report_tz_name,
+            timezone=self.timezone,
             calendar_snapshots=self._sources().period_calendar_snapshots,
         )
 
@@ -402,7 +366,7 @@ class Session:
             )
         return frame_sources.frame(
             self._runtime.local,
-            self.catalog._state,
+            self.catalog._state if frame_sources.population_needs_state(population) else None,
             self._runtime.connection_config,
             population,
         )
@@ -437,7 +401,7 @@ class Session:
     def values(
         self,
         *,
-        by: tuple[Deferred | Grouping, ...],
+        by: tuple[Deferred | Grouping, ...] = (),
         columns: Mapping[str, str | None],
         rows: tuple[ValueRow, ...],
     ) -> AnalysisFrame:
@@ -560,7 +524,9 @@ class Session:
                 "Build the Population in the selected Frame's owning Session.",
                 "session.population_from",
             )
-        return population_from(self._runtime.local, self.catalog._state, frame, on=on)
+        return population_from(
+            self._runtime.local, self.catalog._state if on else None, frame, on=on
+        )
 
     def runs(
         self, *, status: RunLifecycle | None = None, limit: int = 20, cursor: str | None = None
@@ -586,27 +552,6 @@ class Session:
         Constraints: Foreign Run identities are rejected.
         """
         return self._runtime.get_run(run_id)
-
-    def graph(
-        self,
-        *,
-        artifact_ref: str | ArtifactRef | None = None,
-        direction: GraphDirection = "ancestors",
-        max_nodes: int = 100,
-    ) -> SessionGraph:
-        """Read bounded same-Session Run-to-Artifact production topology.
-
-        Args:
-            artifact_ref: Optional exact committed Artifact from this Session.
-            direction: Ancestors includes the producer; descendants returns only the terminal Artifact. Without a focus, use ancestors.
-            max_nodes: Node bound within [1, 500]; omitted neighbors become boundaries.
-        Returns: The typed committed SessionGraph.
-        Example: ``session.graph(artifact_ref=ref).show()``.
-        Constraints: Graph reads never execute or infer origin lineage. Terminal Artifact summaries use committed metadata without reading Parquet or semantic graphs.
-        """
-        return self._runtime.graph(
-            artifact_ref=artifact_ref, direction=direction, max_nodes=max_nodes
-        )
 
     def render(self, *, max_output_bytes: int | None = 8192) -> str:
         """Render a bounded metadata recap.

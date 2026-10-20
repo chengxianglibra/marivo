@@ -35,12 +35,12 @@ def postgres_query_session(
     monkeypatch.chdir(tmp_path)
     with source_case("postgres", "table", tmp_path, monkeypatch, data) as case:
         _project("postgres", case, monkeypatch, semantic_project_factory)
-        yield mv.session.get_or_create("postgres-source-query", report_timezone="UTC")
+        yield mv.session.create("postgres-source-query", timezone="UTC")
 
 
 def _attributes(session: Session) -> mv.AnalysisFrame:
     return session.read(
-        session.members(ms.ref.entity("sales.facts")),
+        session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
         {
             "category": session.catalog.fields.get("sales.facts.category"),
         },
@@ -126,7 +126,7 @@ def test_postgres_nullable_numeric_fields_keep_pandas_conversion_boundary(
 ) -> None:
     session = postgres_query_session
     source = session.read(
-        session.members(ms.ref.entity("sales.facts")),
+        session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
         {"amount": session.catalog.fields.get("sales.facts.amount")},
     )
     query = (
@@ -146,7 +146,7 @@ def test_postgres_large_nullable_integer_predicate_keeps_existing_conversion(
 ) -> None:
     session = postgres_query_session
     source = session.read(
-        session.members(ms.ref.entity("sales.facts")),
+        session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
         {"big": session.catalog.fields.get("sales.facts.big")},
     )
     query = source.where(source["big"] > 2**53)

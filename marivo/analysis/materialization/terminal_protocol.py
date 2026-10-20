@@ -19,6 +19,8 @@ from marivo.analysis.core.artifact_data import (
     DecimalDataType,
     DurationDataType,
     FrozenCalendarData,
+    FrozenIntervalData,
+    IntervalDataAxis,
     NamedCalendarData,
     OutputCoordinate,
     OutputEvidence,
@@ -59,7 +61,7 @@ from marivo.analysis.materialization.errors import IntegrityError
 
 def invalid(received: str) -> IntegrityError:
     return IntegrityError(
-        expected="a complete Store 12 Frame output v1 value",
+        expected="a complete Store 13 Frame output v2 value",
         received=received,
         repair="Preserve the selected Store and output files. Inspect the exact terminal record; old graph/continuation formats cannot be migrated or replayed.",
         stage="terminal_output",
@@ -84,6 +86,8 @@ _RECORDS = (
     DataSchema,
     DataAxis,
     CalendarDataAxis,
+    IntervalDataAxis,
+    FrozenIntervalData,
     BuiltinCalendarData,
     NamedCalendarData,
     FrozenCalendarData,
@@ -115,9 +119,9 @@ _RECORDS = (
 )
 _TYPES = {record.__name__: record for record in _RECORDS}
 T = TypeVar("T", ArtifactManifest, OutputFinding, OutputEvidence, InvocationInput)
-FORMAT = "marivo.frame_output/v1"
+FORMAT = "marivo.frame_output/v2"
 
-# One closed Store12 field inventory. No older field set or dataclass fallback.
+# One closed Store13 field inventory. No older field set or dataclass fallback.
 _FIELDS = {
     "ArtifactManifest": (
         "store_id",
@@ -139,6 +143,8 @@ _FIELDS = {
     ),
     "DataAxis": ("token", "columns", "kind", "name", "at"),
     "CalendarDataAxis": ("token", "columns", "kind", "name", "at", "timezone", "frozen"),
+    "IntervalDataAxis": ("token", "columns", "kind", "name", "at", "frozen"),
+    "FrozenIntervalData": ("directory_name", "rule_version"),
     "BuiltinCalendarData": ("unit", "step"),
     "NamedCalendarData": ("identity", "snapshot_digest", "level"),
     "FrozenCalendarData": ("definition", "directory_name", "rule_version"),
@@ -293,7 +299,7 @@ def decode(text: str, expected: type[T]) -> T:
     try:
         envelope = _obj(parse_json(text), "format value")
         if envelope["format"] != FORMAT:
-            raise invalid("expected Frame output v1; obsolete output format received")
+            raise invalid("expected Frame output v2; obsolete output format received")
         value = _decode(envelope["value"])
         if not isinstance(value, expected) or type(value) is not expected:
             raise invalid("terminal envelope has the wrong output record type")

@@ -33,7 +33,7 @@ explicit completed memory/stored Frame
 both -> one graph plan and one prepared stage schedule
      -> complete immutable data + frozen coordinate attachments + one audit
      -> compute returns memory root
-     -> persist publishes existing result through Store 12
+     -> persist publishes existing result through Store 13
      -> persisted Frame reads data; frame.artifact reads audit
 ```
 
@@ -108,7 +108,7 @@ Session observe/read/values/frame 返回 AnalysisFrame；persisted_frame 只接�
 
 ### 6.2 Session 只做三类事情
 
-Session 拥有持久身份/报告时间、显式 Catalog 来源构造，以及本地 Store/runtime 服务装配。
+Session 拥有持久身份/创建时冻结时区、显式 Catalog 来源构造，以及本地 Store/runtime 服务装配。
 固定数据不捕获 Session/Catalog 或连接。结果不反向缓存；Frame/Column/Axis 强持必要
 依赖，在原 Session 被 GC 后仍可使用既有本地服务，不能按路径自动重建 Session。
 
@@ -143,7 +143,7 @@ both -> the same compiler, stage scheduler, compute and persist lifecycle
 | 层 | 拥有的责任 | 不承担的责任 |
 | --- | --- | --- |
 | Semantic 定义与规则 | 原公式、单位、贡献根、样本/空值政策；可加性和 N/D 等组件角色的规则依据 | 不从完成结果列反推原公式，不按数值拟合分解 |
-| 来源与坐标绑定 | 显式范围、完整父键、新分类、两端对应；已有 Population 桥接及覆盖检查 | 不恢复历史来源，不把候选输出域偷换成过滤 |
+| 来源与坐标绑定 | 显式范围、完整父键、新分类、两端对应；已有普通 Population 桥接、指定键选择及必要绑定检查 | 不恢复历史来源，保持输出域选择与事实条件各自明确 |
 | 高级 API | compare 的量名/类型/单位准入与规范输出；attribute 的规则选择、贡献开关、规范排序输出要求、解释事实和结构化错误上下文 | 不递归调用 compute/persist、不直接管理连接或另建数值政策 |
 | 基础计算与编译 | 完整键配对、nullable 算术、规约；按已证明的角色获取组件和传递检查义务，选择合格物理路线 | 不因最终贡献和正确就跳过分区/样本证明 |
 | 统一执行与发布 | 调度共享输入、资源释放、完整结果提取、compute/persist、冻结附件及原子发布 | 不为高级 API 新建 runner、缓存、Store 或结果子类型 |
@@ -155,7 +155,7 @@ both -> the same compiler, stage scheduler, compute and persist lifecycle
 
 | 基础能力 | 当前状态 | 组合设计的处理 |
 | --- | --- | --- |
-| 显式来源分类和筛选 | observe/read、Population、population_from 已有明确合同 | attribute.by 复用分类元组或单个 Population；多个完整域由调用方显式组合，来源绑定层检查覆盖与所有权，不增加混合块语法 |
+| 显式来源分类和筛选 | observe/read、Population、population_from 已有明确合同 | attribute.by 复用分类元组或单个 Population；多个完整域由调用方显式组合，来源绑定层检查指定键、类型与所有权；贡献请求独立证明完整分区，不增加混合块语法 |
 | 完整键/日历配对、presence、行序 | align/compare 共用 frame_comparison 的配对内核 | 保持一套对应与缺侧规则；不再匹配一遍已配对的轴 |
 | 差值与受控除法 | Column 算术/divide 与底层 nullable/Duration 数值内核可复用 | 缺侧/NA 优先于零分母政策，保持单位、精度和溢出合同 |
 | 相对变化的绝对值分母 | compare 内部已处理负数、Decimal 和 Duration；Column 无公开 abs | 属公开表达缺口，不是 compare 功能缺失；是否公开 abs 单独决定，不用平方/开方替代 |
@@ -200,7 +200,7 @@ both -> the same compiler, stage scheduler, compute and persist lifecycle
 这不是固定物理阶段顺序：compiler 可使用已准入的单值关联、半连接、贡献键集合去重或预聚合计划，
 须满足[语义 §3.7.2](../semantic/expression-model-redesign.md#372-逻辑贡献约束与物理执行策略)的身份、次序、政策和充分性条件。
 源 Null 被规约忽略时，其分类键仍在键像中；字段 Null 归 None，缺字段映射不伪造成 None。
-by=Population 的覆盖检查针对实际被消费贡献，不能先做 inner join 将域外贡献删掉后宣称覆盖完整。
+by=Population 选择指定完整键，允许来源存在域外坐标；分配仍使用原贡献身份和原分母，再选择输出桶。
 
 内外键处理是独立的窄步骤：键域关系只承载轴/键，组件关系承载该根的键/值/状态，最终才组装多量表。
 它们是同一计划中的关系，不是需要分别发布的多个 Artifact。
@@ -324,7 +324,7 @@ exact/outer 覆盖；未用目录桶不产生行。损坏附件不是无对应�
 
 ### 12.1 一次提交的内容
 
-Store 12 保存一种 Frame 协议：精确所有权/result ID、闭合结构、类型附件/收据和一份
+Store 13 保存 `marivo.frame_output/v2` 一种 Frame 协议，含独立 interval 目录：精确所有权/result ID、闭合结构、类型附件/收据和一份
 来源事实+当前求值审计。Run 只发布已有结果，不再次保存求值副本或 producer graph。
 
 ### 12.2 重开只读取产物
@@ -334,8 +334,8 @@ persisted_frame(str ID) 打开同 Session 提交元数据；完整读取验证�
 
 ### 12.3 格式切换
 
-旧 generation 全部数据读拒绝且旧字节不变，无迁移/双读。current/recent 缺当前代时可
-None/空而不暴露旧数据；create/get_or_create 不得初始化旧项目旁路。兼容环境/原版本导出
+旧 generation 全部数据读拒绝且旧字节不变，无迁移/双读。recent 缺当前代时可
+空页而不暴露旧数据；create 不得初始化旧项目旁路。兼容环境/原版本导出
 恢复选择见[切换说明](analysis-frame-cutover.md)。
 
 ### 12.4 读取与 pandas

@@ -10,24 +10,26 @@ description: 使用完整坐标映射与显式新来源输入。
 {/* example: compare-query */}
 
 ```python
-on = ((current.axes[0], baseline.axes[0]),)
-change = current.compare(baseline, on=on, how="exact").compute()
+on = tuple(zip(current.axes, baseline.axes))
+change = current.compare(baseline, on=on, match=mv.ordinal(), how="exact").compute()
 comparison = change.to_pandas()
 assert comparison[("value", "absolute.revenue")].tolist() == [-100, -100]
 assert comparison[("value", "relative.revenue")].tolist() == [-1 / 3, -1 / 7]
-outer = current.compare(baseline, on=on, how="outer")
+outer = current.compare(baseline, on=on, match=mv.ordinal(), how="outer")
 ```
 
 compare 按 left/right/absolute/relative 分组输出值，相对变化为 (left-right)/abs(right)。
 有效右值为零时默认仅新增 relative 为 NA；zero_denominator="error" 使该次有效除法失败。
 缺端点或 NA 的差值为 NA，子表达式严格政策继续有效。presence 独立于 NA。
 exact 检查完整联合键，outer 先保留左行，再追加右侧独有行。
-普通轴需要完整显式 on，同名显示标签不能绑定输入。
+两侧各有 interval 与 region 轴：on 覆盖全部轴，ordinal 显式配对两期。同名显示标签不能绑定输入。
 
 {/* example: aligned-absolute-only */}
 
 ```python
-aligned = current.align(baseline, on=((current.axes[0], baseline.axes[0]),))
+aligned = current.align(
+    baseline, on=tuple(zip(current.axes, baseline.axes)), match=mv.ordinal(),
+)
 difference = aligned.select({
     "difference": aligned["left.revenue"] - aligned["right.revenue"],
 }).compute()
@@ -40,13 +42,10 @@ difference.show()
 
 ```python
 chosen = current.top(1, by=current["revenue"]).compute()
-parents = session.population_from(chosen, on=((chosen.axes[0], region),))
-prior_selected = session.observe(
-    {"revenue": revenue}, during=july, by=(region,),
-    where=mv.in_population(parents),
-).compute()
+parents = session.population_from(chosen, on=((chosen.axes[1], region),))
+prior_selected = session.observe({'revenue': revenue}, by=(july, region), where=mv.in_population(parents)).compute()
 followup = chosen.compare(
-    prior_selected, on=((chosen.axes[0], prior_selected.axes[0]),),
+    prior_selected, on=tuple(zip(chosen.axes, prior_selected.axes)), match=mv.ordinal(),
 ).compute()
 followup.show()
 ```
@@ -64,7 +63,9 @@ budget = session.values(
     by=(region,), columns={"budget": "CNY"},
     rows=((("east",), {"budget": 250}), (("west",), {"budget": 750})),
 ).compute()
-aligned_budget = current.align(budget, on=((current.axes[0], budget.axes[0]),))
+regional = current.reduce({"revenue": current["revenue"].sum()},
+                          by=(current.axes[1],)).compute()
+aligned_budget = regional.align(budget, on=((regional.axes[0], budget.axes[0]),))
 vs_budget = aligned_budget.select({
     "revenue": aligned_budget["left.revenue"],
     "budget_variance": aligned_budget["left.revenue"] - aligned_budget["right.budget"],
@@ -72,11 +73,11 @@ vs_budget = aligned_budget.select({
 vs_budget.show()
 ```
 
-预算显式覆盖同一地区域。这是普通全轴对齐与算术，不会广播标量、推断关系或证明贡献包含。
+先将单期间收入的当前行按地区求和，显式移除 interval 轴后再对齐预算；这不恢复任意非可加 Metric 的原量。预算显式覆盖同一地区域。这是普通全轴对齐与算术，不会广播标量、推断关系或证明贡献包含。
 自动广播与原贡献份额不在本版范围内，不能声称有等价替代。
 
 ## 主动选择日历对应
 
-零轴配对或双方各自仅含一个日历轴时，允许规定的 on 推导；日历 match 仍需显式选择
+零轴配对或双方各自仅含一个 interval 轴/日历轴时，允许规定的 on 推导；日历 match 仍需显式选择
 ordinal/offset/year 规则。冻结配对结果保留两端，没有 time_axis="current" 投影或任意身份关系
 corresponding 路线。参见[时间与身份](/zh-cn/docs/latest/guides/time-and-cohorts/)。

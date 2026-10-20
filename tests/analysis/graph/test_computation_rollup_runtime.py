@@ -63,11 +63,10 @@ def test_duckdb_decimal_mean_retains_captured_scale(
     with duckdb.connect(str(project / "warehouse.duckdb")) as connection:
         connection.executemany("INSERT INTO orders VALUES (?, ?, ?, ?, ?)", DAY_ROWS)
     monkeypatch.chdir(project)
-    session = mv.session.get_or_create("equation-mean", report_timezone="UTC")
+    session = mv.session.create("equation-mean", timezone="UTC")
     query = session.observe(
         {"value": session.catalog.metrics.get("sales.amount_mean")},
-        during=session.time_scope(start="2026-07-01", end="2026-08-01"),
-        by=(),
+        by=(session.time_scope(start="2026-07-01", end="2026-08-01"),),
     )
     result = query.persist()
     # Merge the original 54.14 sum and count 3, then finish at Decimal(12,2).

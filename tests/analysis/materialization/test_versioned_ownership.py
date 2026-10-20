@@ -76,14 +76,14 @@ def test_versioned_read_foreign_predicates_refuse_before_read_or_run(
             }
         )
         sessions = [
-            mv.session.get_or_create("r94-owner-left", report_timezone="UTC"),
-            mv.session.get_or_create("r94-owner-right", report_timezone="UTC"),
+            mv.session.create("r94-owner-left", timezone="UTC"),
+            mv.session.create("r94-owner-right", timezone="UTC"),
         ]
         point = datetime(2026, 8, 1, tzinfo=timezone.utc)
         logical = []
         for owner in sessions:
             at = owner.instant(point)
-            members = owner.members(ms.ref.entity("sales.subjects"), at=at)
+            members = owner.members(owner.catalog.require(ms.ref.entity("sales.subjects")), at=at)
             logical.append(
                 tuple(
                     owner.read(members, {"value": owner.catalog.fields.get(path).at(at)})

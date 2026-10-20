@@ -103,13 +103,11 @@ def journey(phase: str, project: Path) -> dict[str, object]:
     state_path = project / "display.json"
     if phase == "produce":
         session = _create(project, "j2", "parquet")
-        members = session.members(ms.ref.entity("operations.device"))
+        members = session.members(session.catalog.require(ms.ref.entity("operations.device")))
         grid = session.time_scope(start="2026-07-01", end="2026-10-01").by(mv.grain("month"))
         values = session.observe(
             {"value": session.catalog.metrics.get("operations.reading_count")},
-            during=grid,
-            by=members,
-            members=members,
+            by=mv.product(grid, members),
         ).persist()
         categories = session.read(
             members, {"value": session.catalog.fields.get("operations.device.zone")}
@@ -150,7 +148,7 @@ def journey(phase: str, project: Path) -> dict[str, object]:
         identity = state["session"]
         assert isinstance(identity, str)
         with _offline(project):
-            session = mv.session.resume(identity, by="id")
+            session = mv.session.resume(identity)
             before = run_ids(session)
             artifacts = {}
             for name, reference in obj(state["artifacts"]).items():

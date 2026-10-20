@@ -28,7 +28,7 @@ def run(root: Path, phase: str, output: Path) -> None:
         patch.object(SourceSession, "__enter__", forbidden),
         patch.object(SourceSession, "execute", forbidden),
     ):
-        session = mv.session.resume(session_id, by="id")
+        session = mv.session.resume(session_id)
         before = len(session.runs().items)
         outputs: dict[str, mv.AnalysisFrame] = {}
         for name, saved in obj(state["outputs"]).items():
@@ -47,7 +47,7 @@ def run(root: Path, phase: str, output: Path) -> None:
         }
         assert allocated.contribution.sum() == -2
         grouped = plain(outputs["groups"])
-        assert dict(zip(grouped.key_0, grouped["absolute.value"], strict=True)) == {
+        assert dict(zip(grouped.key_1, grouped["absolute.value"], strict=True)) == {
             "a": 2,
             "b": 1,
             "c": -5,

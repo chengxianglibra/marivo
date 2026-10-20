@@ -13,7 +13,7 @@ import marivo.analysis as mv
 import sys
 assert 'scipy.stats' not in sys.modules
 from marivo.analysis._capabilities.registry import REGISTRY
-names = ('Population', 'AnalysisFrame', 'FrameAxis', 'Column', 'Artifact', 'ArtifactSummary')
+names = ('Population', 'AnalysisFrame', 'FrameAxis', 'Column', 'Artifact')
 bindings = tuple(getattr(mv, name) for name in names)
 assert 'marivo.analysis.public_dsl' not in sys.modules
 assert 'marivo.analysis.forecast_models' not in sys.modules
@@ -31,12 +31,14 @@ from marivo.analysis.session.core import Session
 exports = tuple(mv.__all__)
 help_targets = REGISTRY.canonical_ids()
 members = Session.members
-bindings = Session.source_bindings
+members = Session.members
+assert not hasattr(Session, "source_bindings")
 for module in ('source_bindings', 'relationship_binding', 'contracts', 'errors'):
     importlib.import_module('marivo.analysis.observation.' + module)
 importlib.import_module('marivo.analysis.session._lazy_sources')
 assert Session.members is members
-assert Session.source_bindings is bindings
+assert Session.members is members
+assert not hasattr(Session, "source_bindings")
 assert tuple(mv.__all__) == exports
 assert REGISTRY.canonical_ids() == help_targets
 """
@@ -122,7 +124,8 @@ def test_analysis_keeps_typed_correspondence_and_member_values() -> None:
     assert isinstance(mv.period_offset(1), mv.CalendarCorrespondence)
     assert isinstance(mv.previous_year(), mv.CalendarCorrespondence)
     assert callable(mv.identity) and isinstance(mv.Grouping, type)
-    assert callable(mv.member_count)
+    assert callable(mv.Population.count)
+    assert not hasattr(mv, "member_count")
     assert callable(mv.row_count)
 
 
@@ -182,7 +185,7 @@ assert 'marivo.analysis.session' not in sys.modules
 from marivo.analysis.materialization import terminal_storage
 assert 'marivo.analysis._capabilities.registry' not in sys.modules
 # A normal session facade access must still install wrappers before invocation.
-assert callable(mv.session.get_or_create)
+assert callable(mv.session.create)
 from marivo.analysis.session.core import Session
 assert mv.Session is Session
 assert callable(Session.members)

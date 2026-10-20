@@ -18,6 +18,7 @@ from marivo.datasource.ir import DatasourceIR
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.source_fixtures import author_source_project
+from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.support.source_trace import SourceTrace
 
@@ -34,8 +35,9 @@ def _full(
 ) -> mv.AnalysisFrame:
     return session.observe(
         {"value": session.catalog.metrics.get(metric)},
-        during=during,
-        by=session.members(ms.ref.entity("sales.facts")),
+        by=mv.product(during, session.members(session.catalog.entities.get("sales.facts")))
+        if during is not None
+        else session.members(session.catalog.entities.get("sales.facts")),
     )
 
 
@@ -111,16 +113,18 @@ def test_declared_string_time_uses_owned_execution_functions(
         author_source_project(
             backend, case, monkeypatch, semantic_project_factory, time_parse="string"
         )
-        session = mv.session.get_or_create("r93-string-time", report_timezone=str(zone))
+        session = mv.session.create("r93-string-time", timezone=str(zone))
         values = session.observe(
             {"value": session.catalog.metrics.get("sales.total")},
-            during=session.time_scope(start=start, end=end),
-            by=session.members(ms.ref.entity("sales.facts")),
+            by=mv.product(
+                session.time_scope(start=start, end=end),
+                session.members(session.catalog.require(ms.ref.entity("sales.facts"))),
+            ),
         )
         assert isinstance(values, mv.AnalysisFrame)
         result = values.persist()
         frame = result.to_pandas()
-        frame = frame.set_index(frame.columns[0])
+        frame = frame.set_index(ordinary_columns(frame)[0])
         expected_values = {
             ("a", 9007199254740992, 1): 2,
             ("a", 9007199254740993, 2): 0,
@@ -209,8 +213,8 @@ def test_source_coordinates_statistics_and_original_state(
     )
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         remote = author_source_project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.get_or_create("r93-c05", report_timezone="UTC")
-        members = session.members(ms.ref.entity("sales.facts"))
+        session = mv.session.create("r93-c05", timezone="UTC")
+        members = session.members(session.catalog.require(ms.ref.entity("sales.facts")))
         bucket = session.catalog.fields.get("sales.facts.bucket")
         revision = session.catalog.fields.get("sales.facts.revision")
         read = session.read(members, {"value": bucket})
@@ -221,7 +225,7 @@ def test_source_coordinates_statistics_and_original_state(
         values = session.observe(
             {"value": session.catalog.metrics.get("sales.total")},
             by=(selected.axes[0], bucket, revision),
-            members=selected,
+            where=mv.in_population(selected),
         )
         counted = values.reduce({"value": mv.row_count()}, by=(values.axes[1],)).persist()
         assert _value(counted).tolist() == [2]
@@ -242,12 +246,15 @@ def test_source_coordinates_statistics_and_original_state(
         mean = values.reduce({"value": values["value"].mean()}, by=(values.axes[1],)).persist()
         assert _value(mean).tolist() == [1.0]
         original = session.observe(
-            {"value": session.catalog.metrics.get("sales.total")}, by=(bucket,), members=selected
+            {"value": session.catalog.metrics.get("sales.total")},
+            by=(bucket,),
+            where=mv.in_population(selected),
         ).persist()
         assert _value(original).tolist() == [2]
         assert _value(
             session.observe(
-                {"value": session.catalog.metrics.get("sales.total")}, members=selected
+                {"value": session.catalog.metrics.get("sales.total")},
+                where=mv.in_population(selected),
             ).persist()
         ).tolist() == [2]
         full = _full(session)
@@ -259,12 +266,16 @@ def test_source_coordinates_statistics_and_original_state(
                 session, during=session.time_scope(start="2026-08-02", end="2026-08-03")
             )
             difference = (
-                current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))
+                current.compare(
+                    baseline,
+                    on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                    match=mv.ordinal(),
+                )
                 .persist()
                 .to_pandas()
             )
             assert dict(
-                zip(difference.iloc[:, 0], difference["value", "absolute.value"], strict=True)
+                zip(difference.iloc[:, 1], difference["value", "absolute.value"], strict=True)
             ) == {
                 ("a", 9007199254740992, 1): 2,
                 ("a", 9007199254740993, 2): 0,
@@ -299,9 +310,7 @@ def test_source_coordinates_statistics_and_original_state(
             absent, on=((absent.axes[0], session.catalog.entities.get("sales.facts")),)
         )
         empty = session.observe(
-            {"value": session.catalog.metrics.get("sales.total")},
-            by=empty_members,
-            members=empty_members,
+            {"value": session.catalog.metrics.get("sales.total")}, by=empty_members
         )
         assert _value(empty.reduce({"value": mv.row_count()}).persist()).tolist() == [0]
         assert _value(empty.reduce({"value": empty["value"].mean()}).persist()).isna().all()
@@ -368,7 +377,7 @@ def test_original_mean_preserves_component_weights(
         remote = author_source_project(
             backend, case, monkeypatch, semantic_project_factory, identity_type
         )
-        session = mv.session.get_or_create("r93-c05-mean", report_timezone="UTC")
+        session = mv.session.create("r93-c05-mean", timezone="UTC")
         bucket = session.catalog.fields.get("sales.facts.bucket")
         amount = session.catalog.fields.get("sales.facts.amount")
         time = session.catalog.fields.get("sales.facts.happened")
@@ -475,17 +484,18 @@ def test_cumulative_keeps_anchor_and_overlap(
             time_parse="string",
             cumulative_anchor=anchor,
         )
-        session = mv.session.get_or_create("r93-cumulative", report_timezone="UTC")
+        session = mv.session.create("r93-cumulative", timezone="UTC")
         grid = session.time_scope(start="2026-08-15", end="2026-10-01").by(mv.grain("month"))
         logical = session.observe(
             {"value": session.catalog.metrics.get("sales.running")},
-            during=grid,
-            by=session.members(ms.ref.entity("sales.facts")),
+            by=mv.product(
+                grid, session.members(session.catalog.require(ms.ref.entity("sales.facts")))
+            ),
         )
         fixed = logical.persist()
         source_trace.record(fixed)
         grouped = session.observe(
-            {"value": session.catalog.metrics.get("sales.running")}, during=grid
+            {"value": session.catalog.metrics.get("sales.running")}, by=(grid,)
         ).persist()
         assert _value(grouped).tolist() == expected
         assert not hasattr(fixed, "rollup")
@@ -564,7 +574,7 @@ def test_dst_grid_keeps_instant_edges_and_fixed_coordinate(
         author_source_project(
             backend, case, monkeypatch, semantic_project_factory, time_parse="string"
         )
-        session = mv.session.get_or_create("r93-dst-grid", report_timezone="Asia/Tokyo")
+        session = mv.session.create("r93-dst-grid", timezone="Asia/Tokyo")
         zone = ZoneInfo("America/New_York")
         scope = session.time_scope(
             start=datetime.fromisoformat(start).replace(tzinfo=zone),
@@ -585,8 +595,9 @@ def test_dst_grid_keeps_instant_edges_and_fixed_coordinate(
         assert bound.cells[-1].end.strftime("%Y-%m-%d %H:%M:%S") == instants[3]
         logical = session.observe(
             {"value": session.catalog.metrics.get("sales.total")},
-            during=grid,
-            by=session.members(ms.ref.entity("sales.facts")),
+            by=mv.product(
+                grid, session.members(session.catalog.require(ms.ref.entity("sales.facts")))
+            ),
         )
         fixed = logical.persist()
         frame = fixed.to_pandas()
@@ -594,7 +605,7 @@ def test_dst_grid_keeps_instant_edges_and_fixed_coordinate(
         assert not frame["value", "value"].isna().any()
         source_trace.record(fixed)
         grouped = session.observe(
-            {"value": session.catalog.metrics.get("sales.total")}, during=grid
+            {"value": session.catalog.metrics.get("sales.total")}, by=(grid,)
         ).persist()
         assert _value(grouped).tolist() == [7, 11]
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
@@ -728,14 +739,14 @@ def test_certified_unequal_calendar_owns_native_boundaries(
         entry = catalog.period_calendars.get(calendar)
         assert entry.details().snapshot_status == "current"
         grain = entry.grain("period")
-        session = mv.session.get_or_create("r93-certified-calendar", report_timezone="UTC")
+        session = mv.session.create("r93-certified-calendar", timezone="UTC")
         scope = session.time_scope(
             start=datetime(2026, 7, 31, 16, tzinfo=timezone.utc),
             end=datetime(2026, 8, 5, 16, tzinfo=timezone.utc),
             timezone="Asia/Shanghai",
         )
         grid = scope.by(grain)
-        members = session.members(ms.ref.entity("sales.facts"))
+        members = session.members(session.catalog.require(ms.ref.entity("sales.facts")))
         with pytest.raises(ValueError) as conflict:
             session.time_scope(start=scope.start, end=scope.end, timezone="UTC").by(grain)
         assert str(conflict.value) == (
@@ -743,13 +754,13 @@ def test_certified_unequal_calendar_owns_native_boundaries(
             "in the certified calendar boundary timezone."
         )
         logical = session.observe(
-            {"value": session.catalog.metrics.get("sales.total")}, during=grid, by=members
+            {"value": session.catalog.metrics.get("sales.total")}, by=mv.product(grid, members)
         )
         fixed = logical.persist()
         assert len(fixed.to_pandas()) == 10
         source_trace.record(fixed)
         grouped = session.observe(
-            {"value": session.catalog.metrics.get("sales.total")}, during=grid
+            {"value": session.catalog.metrics.get("sales.total")}, by=(grid,)
         ).persist()
         assert _value(grouped).tolist() == [7, 41]
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
@@ -814,7 +825,7 @@ def test_civil_date_grid_keeps_date_keys_on_foreign_zone(
         author_source_project(
             backend, case, monkeypatch, semantic_project_factory, time_parse="date"
         )
-        session = mv.session.get_or_create("r93-civil-date", report_timezone="UTC")
+        session = mv.session.create("r93-civil-date", timezone="UTC")
         zone = ZoneInfo("America/New_York")
         grid = session.time_scope(
             start=datetime(2026, 8, 1, tzinfo=zone),
@@ -823,15 +834,16 @@ def test_civil_date_grid_keeps_date_keys_on_foreign_zone(
         ).by(mv.grain("day"))
         logical = session.observe(
             {"value": session.catalog.metrics.get("sales.total")},
-            during=grid,
-            by=session.members(ms.ref.entity("sales.facts")),
+            by=mv.product(
+                grid, session.members(session.catalog.require(ms.ref.entity("sales.facts")))
+            ),
         )
         fixed = logical.persist()
         frame = fixed.to_pandas()
         assert len(frame) == 8 and (not frame["value", "value"].isna().any())
         source_trace.record(fixed)
         grouped = session.observe(
-            {"value": session.catalog.metrics.get("sales.total")}, during=grid
+            {"value": session.catalog.metrics.get("sales.total")}, by=(grid,)
         ).persist()
         assert _value(grouped).tolist() == [2, 5]
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
@@ -917,7 +929,7 @@ def test_native_timestamp_retains_reader_and_grid_authority(
         author_source_project(
             backend, case, monkeypatch, semantic_project_factory, time_parse="native_resolved"
         )
-        session = mv.session.get_or_create("r93-native-time", report_timezone="Asia/Tokyo")
+        session = mv.session.create("r93-native-time", timezone="Asia/Tokyo")
         zone = ZoneInfo("America/New_York")
         scope = session.time_scope(
             start=datetime(2026, 8, 1, tzinfo=zone),
@@ -925,20 +937,20 @@ def test_native_timestamp_retains_reader_and_grid_authority(
             timezone=str(zone),
         )
         grid = scope.by(mv.grain("day"))
-        members = session.members(ms.ref.entity("sales.facts"))
+        members = session.members(session.catalog.require(ms.ref.entity("sales.facts")))
         from marivo.datasource.timezone import probe_engine_timezone
 
         reader = probe_engine_timezone(case.session._backend)
         reader_zone = reader.engine_timezone_name if reader is not None else None
         logical = session.observe(
-            {"value": session.catalog.metrics.get("sales.total")}, during=grid, by=members
+            {"value": session.catalog.metrics.get("sales.total")}, by=mv.product(grid, members)
         )
         fixed = logical.persist()
         frame = fixed.to_pandas()
         assert len(frame) == 10 and (not frame["value", "value"].isna().any())
         source_trace.record(fixed)
         grouped = session.observe(
-            {"value": session.catalog.metrics.get("sales.total")}, during=grid
+            {"value": session.catalog.metrics.get("sales.total")}, by=(grid,)
         ).persist()
         assert _value(grouped).tolist() == [7, 11]
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
@@ -997,7 +1009,7 @@ def test_aware_native_repeated_hour_keeps_distinct_instants(
         author_source_project(
             backend, case, monkeypatch, semantic_project_factory, time_parse="native_resolved"
         )
-        session = mv.session.get_or_create("r93-aware-time", report_timezone="Asia/Tokyo")
+        session = mv.session.create("r93-aware-time", timezone="Asia/Tokyo")
         zone = ZoneInfo("America/New_York")
         scope = session.time_scope(
             start=datetime(2026, 11, 1, tzinfo=zone),
@@ -1007,8 +1019,9 @@ def test_aware_native_repeated_hour_keeps_distinct_instants(
         grid = scope.by(mv.grain("day"))
         logical = session.observe(
             {"value": session.catalog.metrics.get("sales.total")},
-            during=grid,
-            by=session.members(ms.ref.entity("sales.facts")),
+            by=mv.product(
+                grid, session.members(session.catalog.require(ms.ref.entity("sales.facts")))
+            ),
         )
         fixed = logical.persist()
         frame = fixed.to_pandas()
@@ -1016,7 +1029,7 @@ def test_aware_native_repeated_hour_keeps_distinct_instants(
         assert sorted(frame["value", "value"].tolist()) == [0, 2, 5, 11]
         source_trace.record(fixed)
         grouped = session.observe(
-            {"value": session.catalog.metrics.get("sales.total")}, during=grid
+            {"value": session.catalog.metrics.get("sales.total")}, by=(grid,)
         ).persist()
         assert _value(grouped).tolist() == [18]
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
@@ -1074,7 +1087,7 @@ def test_native_observation_does_not_audit_wall_times_outside_its_scope(
         author_source_project(
             backend, case, monkeypatch, semantic_project_factory, read_timezone="America/New_York"
         )
-        session = mv.session.get_or_create("r93-native-wall-scope", report_timezone="Asia/Tokyo")
+        session = mv.session.create("r93-native-wall-scope", timezone="Asia/Tokyo")
         zone = ZoneInfo("America/New_York")
         scope = session.time_scope(
             start=datetime.fromisoformat(start).replace(tzinfo=zone),
@@ -1084,8 +1097,9 @@ def test_native_observation_does_not_audit_wall_times_outside_its_scope(
         grid = scope.by(mv.grain("day"))
         logical = session.observe(
             {"value": session.catalog.metrics.get("sales.total")},
-            during=grid,
-            by=session.members(ms.ref.entity("sales.facts")),
+            by=mv.product(
+                grid, session.members(session.catalog.require(ms.ref.entity("sales.facts")))
+            ),
         )
         result = logical.persist()
         assert sorted(_value(result).tolist()) == [0, 2]

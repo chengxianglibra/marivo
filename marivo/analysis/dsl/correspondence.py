@@ -7,12 +7,13 @@ from marivo.analysis.core.model import reject
 
 
 def ordinal() -> CalendarCorrespondence:
-    """Pair complete compatible calendar buckets by their original position.
+    """Pair complete calendar buckets or one declared interval per side by position.
 
     Args: None.
     Returns: An axis-free calendar correspondence.
     Example: ``current.compare(baseline, match=mv.ordinal())``.
-    Constraints: Both endpoints must have one compatible complete calendar.
+    Constraints: Calendars must be compatible and complete; interval directories
+    must each declare one record with the same boundary timezone.
     """
     return CalendarCorrespondence("ordinal")
 

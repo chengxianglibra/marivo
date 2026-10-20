@@ -10,15 +10,27 @@ marivo-analysis 技能负责问题范围、语义交接与完成判断。未知�
 Population/Frame.show 拥有已捕获结构，聚焦类型 Help 拥有调用，错误拥有修复。
 Catalog 定义卡、readiness、真实来源求值与保存数据证明不同事实。
 
+## 创建并恢复精确 Session
+
+`mv.session.create(name, *, question=None, timezone=None, domains=None)` 创建项目内唯一的新名称；
+同名错误给出现存真实 ID。规范化 domains 与 timezone 在创建时冻结；省略时区只在创建时解析
+系统时区，显式非法时区失败。`session.timezone` 返回保存的名称。
+`mv.session.resume(session_id)` 只恢复该精确已有身份；`recent()` 有界发现名称与 ID，
+`inspect(session_id)` 只读元数据、不恢复。没有隐含 current Session。
+纯 resume/inspect/compute 不刷新 updated_at。
+`reconcile_run(session_id=..., run_id=...)` 核对原发布事务和资源，活动 writer 冲突会拒绝。
+
 ## 显式构造来源输入
 
-所有数据入口返回不可变 AnalysisFrame。observe 绑定已解析 Metric 和 during/by/where/members；
+所有数据入口返回不可变 AnalysisFrame。observe 绑定已解析 Metric 和 by/where；TimeScope 与 CalendarAxis 都放入 by；
 read 将非空字段绑定到一个完整 Entity 身份域；values 声明字面量坐标与值；frame 绑定一般
 Population 键域，包括零轴与无命名值。构造与检查不读业务行或 schema，不创建 Run。
 未知身份按需浏览 Catalog，已知名称精确查找；没有顶层执行 Session 别名。
 
-tuple by 按观察到的坐标分组，by=Population 要求完整输出覆盖；members 是独立身份约束，
-不会自动增加输出轴。Field Null 是合法类别，Entity 身份保留全部非空主键分量。
+tuple by 按观察到的联合坐标分组；by=Population 只选择指定完整键并保留无事实坐标。
+where=mv.in_population(P) 筛选事实贡献。P.count() 捕获单 Entity 完整身份域为惰性 Metric，
+包含无事实身份；P/Q 各自计数，不从 by 或 where 推断分母。
+Field Null 是合法类别，Entity 身份保留全部非空主键分量。
 classify/image/preimage 使用显式受治理依赖，字段保留 via/at 绑定。
 同路径定义变化本身不拒绝旧输入；kind/root/grain/unit/time/null 正确性仍要检查。
 
@@ -29,7 +41,7 @@ import marivo
 import marivo.analysis as mv
 
 # Reuse the local tutorial's resolved inputs and Session.
-pending = session.observe({"revenue": revenue}, during=august, by=(region,))
+pending = session.observe({'revenue': revenue}, by=(august, region))
 pending.show()  # Captured facts only.
 fixed = pending.compute()
 fixed.show(n=10)
@@ -53,27 +65,24 @@ align/compare 与受支持冻结日历 match。Column/FrameAxis 绑定精确输�
 ## 显式请求新来源事实
 
 ```python
-parents = session.population_from(selected, on=((selected.axes[0], region),))
-new_source = session.observe(
-    {"revenue": revenue}, during=july, by=(region,),
-    where=mv.in_population(parents),
-).compute()
+parents = session.population_from(selected, on=((selected.axes[1], region),))
+new_source = session.observe({'revenue': revenue}, by=(july, region), where=mv.in_population(parents)).compute()
 new_source.show()
 ```
 
 桥接投影普通轴完整联合键，并显式提供 Field/Entity 绑定。on 必填，也可为空。
 它不重建语义历史、不把字段升级为身份；固定父键不重新排名，新读事实仍可能变化。
-日历轴、配对轴与任意值列不能桥接。by=Population 仍表示完整覆盖，不能当过滤条件。
+interval 轴、日历轴、配对轴与任意值列不能桥接。by=Population 选择完整输出键；in_population 选择事实贡献。
 原整体均值/去重、新属性、窗口或粒度需要显式来源构造，当前行 reduce 不等于原量 rollup。
 
 ## 保持来源贡献与时间含义
 
 Metric.per 先在每个样本完成完整子公式再规约。显式样本 Population 按子政策保留空样本；
-内部子集不等于外部输出覆盖。membership 保留关联元组与分配因子，重复链接不重复同次贡献，
+内部样本域与外部指定输出域各自独立。membership 保留关联元组与分配因子，重复链接不重复同次贡献，
 等值但不同身份的贡献仍分别计算。多根公式先各自规约，再对齐完整域。
 
 Metric.window 绑定显式来源窗口，每个端点完成自己的 W(t)，显示起点不截断回看。
-经过时间与民用期间不同，Session/parser/calendar 时区权威分离；输出日历必须匹配 during，
+经过时间与民用期间不同，Session/parser/calendar 时区权威分离；by 提供唯一 interval/calendar 时间轴与窗口端点，
 已绑定快照的 Grain 必须匹配 Session 冻结权威。完整 Frame 解释不重载模型或时区规则。
 
 ## 按边界读取数据与审计
@@ -92,7 +101,7 @@ result ID 的发布，compute 失败不创建 Run。未知提交通过 reconcili
 
 分组规则使用 `by=(field_or_grouping, ...)`。`mv.identity(entity)` 声明完整身份分组，
 `mv.membership(...)` 声明多对多归属分组，`scope.by(grain)` 声明时间分桶。
-`population.axes` 复用坐标定义；`by=population` 还指定完整输出域，包括空桶与覆盖检查。
+`population.axes` 复用坐标定义；`by=population` 选择完整输出键，包含空桶，不要求覆盖域外来源坐标。
 `mv.identities(entity, keys=...)` 构造有限身份集合，`mv.identity(entity)` 只声明贡献如何分组。
 
 使用 `show()` 检查已捕获的人群，并通过 `axes` 复用其有序坐标：

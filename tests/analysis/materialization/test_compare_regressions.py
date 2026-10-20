@@ -100,7 +100,7 @@ elapsed_field = ms.dimension_column(name='elapsed_field', entity=observations, c
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.get_or_create("comparison-regressions", report_timezone="UTC")
+    return mv.session.create("comparison-regressions", timezone="UTC")
 
 
 @pytest.mark.parametrize("endpoint", ("literal", "metric", "read", "read_measure"))

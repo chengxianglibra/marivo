@@ -216,27 +216,10 @@ changes = md.json(
     records_path="$.data.change_infos",
 )
 ```
-{/* example: source-bindings */}
+参数化 HTTP 声明通过语义 preview/readiness 的显式 `source_bindings` 输入检查。它没有合格的数值 AnalysisFrame 路线；Session 不提供 source_bindings。参数化 JSON 保留在声明与预览边界。
 
-```python
-with session.source_bindings(
-    {
-        ms.ref.entity("monitoring.api_events"): {
-            "start": "now-3600",
-            "end": "now",
-        },
-    }
-):
-    events = session.members(ms.ref.entity("monitoring.api_events"))
-    pending = session.catalog.metrics.get("monitoring.pending_containers")
-    query = session.observe(
-        {"pending": pending}, members=events, by=(events.axes[0],)
-    )
-```
-
-此处只捕获 lazy 问题，当前数值来源路线未准入 HTTP 执行。HTTP scope 约束声明的端点；header/token secret 仍是环境引用。
-结果路径与 JSON 字段投影不认证分页或业务完整性。在构造图之前声明当前问题的绑定，
-再跟随执行契约。Preview 和 raw SQL 结果支持有界
+当前数值来源路线未准入 HTTP 执行。HTTP scope 约束声明的端点；header/token secret 仍是环境引用。
+结果路径与 JSON 字段投影不认证分页或业务完整性。在语义预览边界检查显式绑定。Preview 和 raw SQL 结果支持有界
 `show(n=..., max_output_bytes=...)`及其原生 `render()`操作。
 
 ## 默认数据源与宿主凭据

@@ -49,7 +49,7 @@ def test_public_float_compare_keeps_absolute_and_outer_presence(
     assert frame[("value", "absolute.sales")].iloc[2:].isna().all()
     assert frame[("presence", "left_present")].tolist() == [True, True, True, False]
     assert frame[("presence", "right_present")].tolist() == [True, True, False, True]
-    before = session.graph().artifacts
+    before = session.runs(status="succeeded").items
     with pytest.raises(AnalysisError):
         current.compare(
             baseline,
@@ -57,4 +57,4 @@ def test_public_float_compare_keeps_absolute_and_outer_presence(
             how="outer",
             zero_denominator="error",
         ).persist()
-    assert session.graph().artifacts == before
+    assert session.runs(status="succeeded").items == before

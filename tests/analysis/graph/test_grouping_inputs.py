@@ -25,7 +25,7 @@ def test_identity_grouping_and_domain_have_distinct_completion(
     metric = session.catalog.metrics.get("sales.revenue")
     region = session.catalog.fields.get("sales.customer.region")
     period = session.time_scope(start="2026-08-01", end="2026-09-01")
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     before = session.runs().items
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -40,35 +40,36 @@ def test_identity_grouping_and_domain_have_distinct_completion(
         assert "sales.customer" in capsys.readouterr().out
         assert len(repr(grouping)) < 200 and "\n" not in repr(grouping)
         with pytest.raises((FrozenInstanceError, AttributeError, TypeError)):
-            grouping.kind = "field"
+            grouping.kind = "field"  # type: ignore[misc]  # Runtime immutability probe.
         for by in ((grouping, region), (region, grouping)):
             reuse = tuple(members.axes[0] if item is grouping else item for item in by)
-            left = session.observe({"value": metric}, by=by, during=period)
-            right = session.observe({"value": metric}, by=reuse, during=period)
+            left = session.observe({"value": metric}, by=(period, *by))
+            right = session.observe({"value": metric}, by=(period, *reuse))
             assert source_graph(left).signature == source_graph(right).signature
     assert session.runs().items == before
-    observed = session.observe({"value": metric}, by=(grouping,), during=period)
-    complete = session.observe({"value": metric}, by=members, during=period)
-    inferred = session.observe({"value": metric}, by=(grouping,), members=members, during=period)
+    observed = session.observe({"value": metric}, by=(period, grouping))
+    complete = session.observe({"value": metric}, by=mv.product(period, members))
+    inferred = session.observe(
+        {"value": metric}, by=(period, grouping), where=mv.in_population(members)
+    )
     assert observed.compute().to_pandas()[("value", "value")].tolist() == [450, 150, 400]
     assert complete.compute().to_pandas()[("value", "value")].tolist() == [450, 150, 400, 0]
-    pd.testing.assert_frame_equal(inferred.compute().to_pandas(), complete.compute().to_pandas())
+    pd.testing.assert_frame_equal(inferred.compute().to_pandas(), observed.compute().to_pandas())
 
 
-def test_calendar_grouping_keeps_independent_observation_scope(
+def test_calendar_grouping_is_the_unique_output_time_scope(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
     metric = session.catalog.metrics.get("sales.revenue")
-    period = session.time_scope(start="2026-08-01", end="2026-09-01")
     calendar = session.time_scope(start="2026-08-01", end="2026-10-01").by(mv.grain("month"))
     assert isinstance(calendar, mv.Grouping) and calendar.kind == "calendar"
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     captured_calendar = mv.product(members, calendar).axes[1]
-    direct = session.observe({"value": metric}, during=period, by=(calendar,))
-    reused = session.observe({"value": metric}, during=period, by=(captured_calendar,))
+    direct = session.observe({"value": metric}, by=(calendar,))
+    reused = session.observe({"value": metric}, by=(captured_calendar,))
     assert source_graph(direct).signature == source_graph(reused).signature
-    assert direct.compute().to_pandas()[("value", "value")].tolist() == [1000, 0]
+    assert direct.compute().to_pandas()[("value", "value")].tolist() == [1000, 99]
 
 
 def test_shared_consumers_keep_their_grouping_boundaries(
@@ -86,7 +87,7 @@ def test_shared_consumers_keep_their_grouping_boundaries(
         consume_metric(metric.per(field).mean()).node
         == consume_metric(metric.per(region).mean()).node
     )
-    people = session.members(ms.ref.entity("sales.customer"))
+    people = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     assert people.project(by=(identity,)).axes == people.axes
     assert people.classify(by=(identity, region)).axes[0].kind == "identity"
     frame = session.values(

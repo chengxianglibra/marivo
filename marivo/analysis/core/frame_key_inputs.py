@@ -90,8 +90,12 @@ def merge_frame_key_inputs(
 
 
 def _recipe_inputs(recipe: Resolver) -> tuple[FrameKeyInput, ...]:
+    from marivo._definition.deferred import PopulationCountResolver
     from marivo.analysis.dsl.population import Population, PopulationPredicate
 
+    if isinstance(recipe, PopulationCountResolver):
+        value = recipe.population
+        return value._frame_inputs if isinstance(value, Population) else ()
     if isinstance(recipe, Just):
         value = recipe.value
         return value._frame_inputs if isinstance(value, (Population, PopulationPredicate)) else ()

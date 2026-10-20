@@ -41,10 +41,6 @@ CREATE TABLE sessions (
  created_at TEXT NOT NULL CHECK(length(created_at)>0), updated_at TEXT NOT NULL CHECK(length(updated_at)>0),
  domains_payload TEXT
 ) STRICT;
-CREATE TABLE runtime_state (
- singleton_key INTEGER PRIMARY KEY CHECK(singleton_key=1),
- current_session_ref TEXT REFERENCES sessions(session_ref) ON DELETE SET NULL
-) STRICT;
 CREATE TABLE analysis_action_runs (
  run_ref TEXT PRIMARY KEY NOT NULL CHECK(length(run_ref)>0),
  session_ref TEXT NOT NULL REFERENCES sessions(session_ref) ON DELETE RESTRICT,
@@ -79,7 +75,7 @@ CREATE TABLE dataset_evidence (
  evidence_count INTEGER NOT NULL CHECK(evidence_count>=0),
  finding_count INTEGER NOT NULL CHECK(finding_count>=0),
  finding_set_digest TEXT NOT NULL CHECK(length(finding_set_digest)>0),
- evidence_format TEXT NOT NULL CHECK(evidence_format='frame-output-v1')
+ evidence_format TEXT NOT NULL CHECK(evidence_format='frame-output-v2')
 ) STRICT;
 CREATE TABLE output_evidence (
  artifact_ref TEXT NOT NULL REFERENCES dataset_evidence(artifact_ref) ON DELETE RESTRICT,
@@ -112,7 +108,7 @@ CREATE INDEX artifact_recency ON dataset_artifacts(session_ref,committed_at,arti
 """
 
 
-def _generation_error(version: object, expected: int = 12) -> IntegrityError:
+def _generation_error(version: object, expected: int = 13) -> IntegrityError:
     return IntegrityError(
         expected=f"an existing complete Session Store with user_version={expected}",
         received=f"Session Store user_version={version}",
@@ -146,7 +142,7 @@ def _enable_wal(conn: sqlite3.Connection) -> None:
             time.sleep(0.01)
         else:
             if mode != "wal":
-                raise invalid("Store 12 requires WAL durability")
+                raise invalid("Store 13 requires WAL durability")
             return
 
 
@@ -200,11 +196,11 @@ class SessionStore:
 
     @classmethod
     def open_existing(cls, project_root: str | Path) -> SessionStore:
-        """Open an existing complete Store 12 without initializing state."""
+        """Open an existing complete Store 13 without initializing state."""
         try:
             return cls(project_root, existing_only=True)
         except (sqlite3.Error, OSError):
-            raise invalid("selected Store 12 is unavailable") from None
+            raise invalid("selected Store 13 is unavailable") from None
 
     @property
     def project_root(self) -> Path:
@@ -261,7 +257,6 @@ class SessionStore:
                 if version == self.layout.generation:
                     expected = {
                         "sessions",
-                        "runtime_state",
                         "analysis_action_runs",
                         "analysis_action_run_terminals",
                         "dataset_artifacts",
@@ -281,11 +276,11 @@ class SessionStore:
                         with self.db_path.open("rb") as source:
                             wal_header = source.read(20)[18:20]
                         if wal_header != b"\x02\x02":
-                            raise invalid("Store 12 requires WAL durability")
+                            raise invalid("Store 13 requires WAL durability")
                     else:
                         journal: object = read.execute("PRAGMA journal_mode").fetchone()[0]
                         if journal != "wal":
-                            raise invalid("Store 12 requires WAL durability")
+                            raise invalid("Store 13 requires WAL durability")
             finally:
                 read.close()
             if version == self.layout.generation:
@@ -423,7 +418,26 @@ class SessionStore:
         with self._write() as conn:
             row = _one(conn, "SELECT * FROM sessions WHERE name=?", (name,))
             if row is not None:
-                return self._session(row)
+                from marivo.analysis.errors import AnalysisRepair, SessionAlreadyExistsError
+                from marivo.introspection.live.model import LiveHelpTarget
+
+                existing = self._session(row)
+                raise SessionAlreadyExistsError(
+                    message="A Session with this exact name already exists.",
+                    expected="a unique project-local Session name",
+                    received=name,
+                    location="mv.session.create(name)",
+                    context={"session_id": existing.session_ref, "name": name},
+                    repair=AnalysisRepair(
+                        kind="retry",
+                        action="Resume the existing Session by its exact ID or choose a new name.",
+                        help_target=LiveHelpTarget(
+                            surface="analysis", canonical_id="session.resume"
+                        ),
+                        snippet=f"session = mv.session.resume({existing.session_ref!r})",
+                        candidates=(existing.session_ref,),
+                    ),
+                )
             ref = session_ref or "sess_" + secrets.token_hex(12)
             now = _now()
             conn.execute(
@@ -443,38 +457,7 @@ class SessionStore:
             if row is None:
                 raise invalid("created Session is absent")
             result = self._session(row)
-            conn.execute(
-                "INSERT INTO runtime_state VALUES(1,?) ON CONFLICT(singleton_key) DO UPDATE SET current_session_ref=excluded.current_session_ref",
-                (result.session_ref,),
-            )
         return result
-
-    def activate(self, session_ref: str, *, question: str | None = None) -> SessionRecord:
-        with self._write() as conn:
-            row = _one(conn, "SELECT * FROM sessions WHERE session_ref=?", (session_ref,))
-            if row is None:
-                raise invalid("missing activation Session")
-            current = self._session(row)
-            conn.execute(
-                "UPDATE sessions SET question=?,updated_at=? WHERE session_ref=?",
-                (current.question if question is None else question, _now(), session_ref),
-            )
-            conn.execute(
-                "INSERT INTO runtime_state VALUES(1,?) ON CONFLICT(singleton_key) DO UPDATE SET current_session_ref=excluded.current_session_ref",
-                (session_ref,),
-            )
-            row = _one(conn, "SELECT * FROM sessions WHERE session_ref=?", (session_ref,))
-            if row is None:
-                raise invalid("activated Session is absent")
-            return self._session(row)
-
-    def current(self) -> SessionRecord | None:
-        with self._read() as conn:
-            row = _one(
-                conn,
-                "SELECT s.* FROM sessions s JOIN runtime_state r ON r.current_session_ref=s.session_ref WHERE r.singleton_key=1",
-            )
-            return None if row is None else self._session(row)
 
     def _resource_run(self, run_ref: str) -> TerminalRun | None:
         from marivo.analysis.materialization.terminal_store import run
@@ -548,6 +531,10 @@ class SessionStore:
     def discharge(self, resource: ResourceRecord) -> None:
         with self._write() as conn:
             self._delete_resources(conn, resource.run_ref, (resource,))
+            conn.execute(
+                "UPDATE sessions SET updated_at=? WHERE session_ref=(SELECT session_ref FROM analysis_action_runs WHERE run_ref=?)",
+                (_now(), resource.run_ref),
+            )
 
     def fail(
         self,
@@ -564,8 +551,12 @@ class SessionStore:
             run = terminal_run(self, conn, run_ref)
             if run is None or run.lifecycle != "incomplete":
                 raise invalid("terminal history cannot be rewritten")
+            now = _now()
             conn.execute(
                 "INSERT INTO analysis_action_run_terminals VALUES(?,?,?,?,?,?)",
-                (run_ref, run.session_ref, "failed", _now(), None, payload),
+                (run_ref, run.session_ref, "failed", now, None, payload),
             )
             self._delete_resources(conn, run_ref, resolved_resources)
+            conn.execute(
+                "UPDATE sessions SET updated_at=? WHERE session_ref=?", (now, run.session_ref)
+            )

@@ -98,13 +98,20 @@ and modeled association events retain different contribution meanings.
 A membership descriptor preserves correlated fields within one tuple. Separate
 descriptors form independent factors. Repeated `(contribution identity, bucket)`
 pairs are set occurrences; equal-valued distinct contributions remain separate.
-unmatched is explicit exclude or Null. Complete requested output K is independent
-of allocation and must cover the contributions it claims to represent.
+unmatched is explicit exclude or Null. A Population in by selects exactly its
+complete output keys, including keys without facts. Selection preserves original
+contribution identities and allocation denominators; selecting one half-allocated
+bucket still yields its half, without renormalizing over the selected output.
 
 `Metric.per(samples)` completes the entire child Metric within each external and
 internal key pair before applying the sample reducer. An average of per-customer
 ratios is not an overall ratio. A complete explicit internal domain retains empty
 samples under the child's empty policy; it may deliberately select a subset.
+
+`P.count()` captures the complete single-Entity identity Population as a lazy
+Metric, including identities without source facts. Empty P counts 0; P/Q count
+independently. Fact conditions and windows do not reselect the captured denominator.
+Only-count observations reject conditions/windows with no fact meaning.
 
 ## Current cells, original Metrics and windows
 
@@ -125,7 +132,7 @@ A new source read may see changes after a selection was fixed.
 ## Complete correspondence and comparison
 
 Align/compare pair every complete axis. Ordinary axes require a full explicit
-bijection in on; zero-axis pairs and a sole calendar axis per side have only the
+bijection in on; zero-axis pairs and a sole interval or calendar axis per side have only the
 specified inference. Explicit on never mixes with automatic supplementation.
 FrameAxis/Column belong to the exact receiver, regardless of matching names.
 Exact validates complete joint key domains; outer preserves left order followed
@@ -138,6 +145,13 @@ or NA yield NA differences; only a valid pair applies zero-denominator policy.
 Duration endpoints/absolute retain duration, relative is dimensionless. Child
 strict policies stay in force. New generated names use dot-separated immutable
 segments; user value names cannot contain dots or reserved presence names.
+
+A TimeScope in by retains one interval coordinate; single-bucket results keep
+the axis. Interval equality uses exact bounds and boundary timezone. Explicit
+ordinal pairs intervals only when both complete declared directories contain one
+record and their boundary timezones agree. where/top/select retain the full
+directory, so filtering a multi-interval result to one row does not qualify it
+for ordinal. Time plus ordinary coordinates requires complete explicit on.
 
 Calendar match consumes frozen finite directories and versioned pure rules,
 without model or timezone database reconstruction. Original ordinals do not

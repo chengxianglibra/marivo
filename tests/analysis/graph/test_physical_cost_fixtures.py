@@ -9,6 +9,7 @@ from marivo.analysis.core.data_types import ScalarDataType
 from marivo.datasource.adapters import PhysicalRequirement
 from marivo.datasource.ir import TableSourceIR
 from tests.analysis.graph.physical_workloads import _data, _rows, _tables, workload
+from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.support.paths import PROJECT_ROOT
 
 
@@ -70,14 +71,14 @@ def test_local_file_profiles_retain_full_original_facts_and_fixed_total(
         frame = captured.to_pandas()
         assert len(frame) == 16
         expected_keys = {("a", 2**53 + index, 1) for index in range(16)}
-        assert set(frame.iloc[:, 0]) == expected_keys
+        assert set(frame[ordinary_columns(frame)[0]]) == expected_keys
         assert not frame[("value", "value")].isna().any()
         total = logical.reduce({"value": logical["value"].sum()}).persist()
         expected = sum(index % 17 + 1 for index in range(16) if index % 23)
         assert total.to_pandas()[("value", "value")].tolist() == [expected]
         assert work.session.persisted_frame(captured.artifact.id).to_pandas().equals(frame)
         assert [
-            column.dtype for column in captured.artifact._manifest.data.schema.axes[0].columns
+            column.dtype for column in captured.artifact._manifest.data.schema.axes[1].columns
         ] == [
             ScalarDataType("string"),
             ScalarDataType("int64"),

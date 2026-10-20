@@ -49,21 +49,16 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             DslCase("j4", NAMES, root, root / "warehouse.duckdb", catalog, session), root
         )
         ms.load(workspace_dir=root)
-        population = session.members(ms.ref.entity("operations.device"))
+        population = session.members(session.catalog.require(ms.ref.entity("operations.device")))
         window = session.time_scope(start="2026-08-01", end="2026-09-01")
         amount = session.catalog.fields.get("operations.reading.energy")
         time = session.catalog.fields.get("operations.reading.recorded_at")
         left = session.observe(
-            {"value": amount.sum(time=time, empty="null")},
-            during=window,
-            by=population,
-            members=population,
+            {"value": amount.sum(time=time, empty="null")}, by=mv.product(window, population)
         ).persist()
         right = session.observe(
             {"value": session.catalog.metrics.get("operations.reading_count")},
-            during=window,
-            by=population,
-            members=population,
+            by=mv.product(window, population),
         ).persist()
         before = publication_counts(session)
         result = _verify(left, right)
@@ -90,7 +85,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
         identity = state["session"]
         assert isinstance(identity, str)
         with _offline(root):
-            session = mv.session.resume(identity, by="id")
+            session = mv.session.resume(identity)
             before_runs = run_ids(session)
             before = publication_counts(session)
             left_ref, right_ref = state["left"], state["right"]

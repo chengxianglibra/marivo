@@ -49,8 +49,8 @@ Artifact/ID 对象及 RawSqlResult 不是计算操作数。compute 失败不创�
 run_ref 指向精确 Run，reconciliation 解决原提交而不重算。
 缺失或损坏的消费数据不是 cache miss，不能回放来源修复。
 
-Store 12 拒绝所有旧 generation 数据且保持字节不变，不迁移或双读。缺少当前 generation 的
-发现可返回 None/空而不暴露旧状态；create/get_or_create 不能绕过仅有旧 Store 的项目。
+Store 13 拒绝所有旧 generation 数据且保持字节不变，不迁移或双读。缺少当前 generation 的
+发现可返回 None/空而不暴露旧状态；create 不能绕过仅有旧 Store 的项目。
 切换前用原版本导出必要结果，或保留兼容读取环境。预览限制只影响显示，不截断完整执行。
 [AnalysisFrame 切换说明](https://github.com/chengxianglibra/marivo/blob/main/docs/specs/analysis/analysis-frame-cutover.md)
 列明破坏性 API、量名、延期能力与恢复选择。

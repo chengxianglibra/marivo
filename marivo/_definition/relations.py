@@ -20,6 +20,7 @@ from marivo._definition.types import (
     CoordinateValue,
     ExactRef,
     FieldRead,
+    IntervalCoordinate,
     Owner,
     check_literal,
     invalid,
@@ -55,6 +56,10 @@ def _coordinate_token(
     position: int,
     lengths: dict[int, int],
 ) -> tuple[str, str]:
+    if isinstance(axis, IntervalCoordinate):
+        if type(value) is not int or value != 0:
+            invalid("interval coordinates must come from their frozen TimeScope")
+        return ("interval", str(value))
     if isinstance(axis, CalendarCoordinate):
         if type(value) is not int or not 0 <= value < len(axis.cells):
             invalid("calendar coordinates must come from their frozen CalendarAxis")
@@ -144,7 +149,7 @@ class ObserveQuery:
     by: tuple[ComparisonAxis, ...]
     owner: Owner | None
     population: PopulationDependency | None = None
-    members: PopulationDependency | None = None
+    count_populations: tuple[PopulationDependency, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -277,6 +282,11 @@ class PopulationPreimage:
 
 
 @dataclass(frozen=True, slots=True)
+class IntervalKeys:
+    interval: IntervalCoordinate
+
+
+@dataclass(frozen=True, slots=True)
 class CalendarKeys:
     calendar: CalendarCoordinate
 
@@ -292,6 +302,7 @@ PopulationNode: TypeAlias = (
     | PopulationImage
     | PopulationPreimage
     | CalendarKeys
+    | IntervalKeys
 )
 
 
@@ -340,6 +351,8 @@ def population_keys(
     if isinstance(definition, LiteralPopulation):
         return definition.keys
     node = definition.root
+    if isinstance(node, IntervalKeys):
+        return ((0,),)
     if isinstance(node, CalendarKeys):
         return tuple((index,) for index in range(len(node.calendar.cells)))
     if isinstance(node, PopulationFilter):

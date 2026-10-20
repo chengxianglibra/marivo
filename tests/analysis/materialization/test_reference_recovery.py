@@ -35,8 +35,8 @@ def test_native_reference_independent_fixed_and_cold(
     profile = {"trino": "iceberg", "clickhouse": "mergetree"}.get(backend, "table")
     with source_case(backend, profile, tmp_path, monkeypatch, reference_data(backend)) as case:
         author_source_project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.get_or_create("r94-reference", report_timezone="UTC")
-        members = session.members(ms.ref.entity("sales.facts"))
+        session = mv.session.create("r94-reference", timezone="UTC")
+        members = session.members(session.catalog.require(ms.ref.entity("sales.facts")))
 
         bucket = session.catalog.fields.get("sales.facts.bucket")
         values = session.observe({"value": session.catalog.metrics.get("sales.total")}, by=members)
@@ -45,7 +45,7 @@ def test_native_reference_independent_fixed_and_cold(
         )
         calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
         opportunities = session.observe(
-            {"value": session.catalog.metrics.get("sales.total")}, during=calendar, by=members
+            {"value": session.catalog.metrics.get("sales.total")}, by=mv.product(calendar, members)
         )
         category = session.read(members, {"bucket": bucket})
         chosen = values.where(values["value"] > 0)

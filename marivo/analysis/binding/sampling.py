@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from marivo._definition.types import CalendarCoordinate, FieldRead, coordinate_read_keys
+from marivo._definition.types import (
+    CalendarCoordinate,
+    FieldRead,
+    IntervalCoordinate,
+    coordinate_read_keys,
+)
 from marivo._temporal import builtin_grain, time_scope
 from marivo._temporal_grid import bind_grid
 from marivo.analysis.core.model import reject
@@ -12,7 +17,6 @@ from marivo.semantic.ir import DatetimeParse, StrptimeParse, TimestampParse
 
 if TYPE_CHECKING:
     from marivo.analysis.binding.observe import ContributionBinding
-    from marivo.analysis.dsl.temporal import CalendarAxis
     from marivo.semantic._compiled_state import CompiledSemanticState
 
 
@@ -23,7 +27,7 @@ def sampling_coverage(
     contribution: ContributionBinding,
     state: CompiledSemanticState,
     *,
-    calendar: CalendarAxis | None,
+    calendar: CalendarCoordinate | None,
 ) -> tuple[SampleCoverage, ...]:
     result: list[SampleCoverage] = []
     offset = 0
@@ -31,7 +35,8 @@ def sampling_coverage(
     if not calendar_slots and calendar is not None:
         offset = 1
     outer_calendar_count = len(calendar_slots) - sum(
-        isinstance(axis, CalendarCoordinate) for axis in contribution.sample_axes
+        isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
+        for axis in contribution.sample_axes
     )
     outer_calendar = contribution.calendars[0] if outer_calendar_count else None
     for i, read in enumerate(contribution.coordinates):
@@ -80,7 +85,18 @@ def sampling_coverage(
                         index,
                         output_slot,
                     )
-                    for index, cell in enumerate(output_calendar.cells)
+                    for index, cell in enumerate(
+                        output_calendar.cells
+                        if isinstance(output_calendar, CalendarCoordinate)
+                        else (
+                            (
+                                output_calendar.start,
+                                output_calendar.end,
+                                output_calendar.start,
+                                output_calendar.end,
+                            ),
+                        )
+                    )
                 )
             else:
                 result.append(

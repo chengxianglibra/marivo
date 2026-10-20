@@ -19,6 +19,7 @@ from marivo._definition.types import (
     ExactRef,
     FieldRead,
     IdentityRead,
+    IntervalCoordinate,
 )
 from marivo._temporal import InstantAnchor
 
@@ -67,10 +68,10 @@ class ContributionBinding:
     logical_occurrence: tuple[int, ...] | None = None
     window_key: int | None = None
     window_calendar_digest: str | None = None
-    sample_axes: tuple[AxisBinding | CalendarCoordinate, ...] = ()
+    sample_axes: tuple[AxisBinding | CalendarCoordinate | IntervalCoordinate, ...] = ()
     memberships: tuple[MembershipBinding, ...] = ()
     output_axis_count: int = 0
-    calendars: tuple[tuple[str, CalendarCoordinate], ...] = ()
+    calendars: tuple[tuple[str, CalendarCoordinate | IntervalCoordinate], ...] = ()
     coverage: tuple[SampleCoverage, ...] = ()
     population_conditions: tuple[PopulationCondition, ...] = ()
     population_reads: tuple[tuple[AxisBinding, FieldRead | IdentityRead], ...] = ()
@@ -84,8 +85,7 @@ class ObservationBinding:
     condition: FieldPredicate | None
     coordinates: CoordinateBinding
     contributions: tuple[ContributionBinding, ...]
-    members: PopulationDependency | None = None
-    member_population: PopulationDependency | None = None
+    count_populations: tuple[tuple[PopulationDependency, PopulationDependency], ...] = ()
 
     @property
     def fingerprint(self) -> str:

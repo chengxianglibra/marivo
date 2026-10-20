@@ -93,7 +93,7 @@ def verify(frame: pd.DataFrame, mode: str, profile: dict[str, object]) -> None:
             member_index = next(
                 index
                 for index, axis in enumerate(frame.attrs["axes"])
-                if axis["role"] != "calendar"
+                if axis["role"] == "identity"
             )
             assert frame[f"key_{member_index}"].drop_duplicates().tolist() == expected_keys
         if mode == "category":
@@ -139,10 +139,8 @@ def run(root: Path, phase: str, mode: str) -> dict[str, object]:
             create(root, "parquet")
         profile_path = root / "deviation-profile.json"
         profile = json.loads(profile_path.read_text()) if profile_path.exists() else {}
-        session = mv.session.get_or_create(
-            "pandas-" + mode, report_timezone=profile.get("zone", "UTC")
-        )
-        members = session.members(ms.ref.entity("sales.order"))
+        session = mv.session.create("pandas-" + mode, timezone=profile.get("zone", "UTC"))
+        members = session.members(session.catalog.require(ms.ref.entity("sales.order")))
         field = session.catalog.fields.get(
             f"sales.order.profile_{profile['profiles'][0]}" if profile else "sales.order.amount"
         )
@@ -177,12 +175,11 @@ def run(root: Path, phase: str, mode: str) -> dict[str, object]:
                 )
             query = session.observe(
                 quantities,
-                during=grid,
-                by=members
+                by=mv.product(grid, members)
                 if mode == "entity_time"
-                else (session.catalog.fields.get("sales.order.channel"),)
+                else (grid, session.catalog.fields.get("sales.order.channel"))
                 if mode == "category_time"
-                else (),
+                else (grid,),
             )
         elif mode == "category":
             query = session.observe(
@@ -208,7 +205,7 @@ def run(root: Path, phase: str, mode: str) -> dict[str, object]:
             member_index = next(
                 index
                 for index, axis in enumerate(frame.attrs["axes"])
-                if axis["role"] != "calendar"
+                if axis["role"] == "identity"
             )
             fitted = deviation(frame, "zscore")
             keys = tuple(fitted.loc[fitted.score > 0, f"key_{member_index}"].drop_duplicates())
@@ -216,12 +213,10 @@ def run(root: Path, phase: str, mode: str) -> dict[str, object]:
             selected = mv.identities(session.catalog.entities.get("sales.order"), keys=keys)
             following = session.observe(
                 {"value": field.sum(time=session.catalog.fields.get("sales.order.ordered_at"))},
-                during=session.time_scope(start="2026-08-01", end="2026-08-07"),
-                by=selected,
-                members=selected,
+                by=mv.product(session.time_scope(start="2026-08-01", end="2026-08-07"), selected),
             ).persist()
             followup = plain(following)
-            assert followup.key_0.tolist() == [("c", 13)]
+            assert followup.key_1.tolist() == [("c", 13)]
             index = profile["profiles"][0]
             expected_value = (
                 7
@@ -249,7 +244,7 @@ def run(root: Path, phase: str, mode: str) -> dict[str, object]:
             patch.object(duckdb, "connect", forbidden),
             patch.object(ibis.duckdb, "connect", forbidden),
         ):
-            session = mv.session.resume(state["session"], by="id")
+            session = mv.session.resume(state["session"])
             before = run_ids(session)
             saved = session.persisted_frame(state["artifact"])
             frame = plain(saved)

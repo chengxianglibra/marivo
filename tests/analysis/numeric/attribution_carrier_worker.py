@@ -32,7 +32,7 @@ def run(root: Path, phase: str, output: Path) -> None:
         patch.object(SourceSession, "__enter__", forbidden),
         patch.object(SourceSession, "execute", forbidden),
     ):
-        session = mv.session.resume(session_id, by="id")
+        session = mv.session.resume(session_id)
         before = len(session.runs().items)
         inputs: list[mv.AnalysisFrame] = []
         for saved in arr(state["inputs"]):

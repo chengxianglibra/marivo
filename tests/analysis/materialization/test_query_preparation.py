@@ -140,7 +140,7 @@ def prepared_session(
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.get_or_create("preparation", report_timezone="Asia/Shanghai")
+    return mv.session.create("preparation", timezone="Asia/Shanghai")
 
 
 def _source_graph(frame: mv.AnalysisFrame) -> BoundGraph:
@@ -158,7 +158,9 @@ def compute(
     by: tuple[Deferred, ...] = (),
     where: Deferred | None = None,
 ) -> StageOutput:
-    graph = _source_graph(session.observe(metrics, during=during, by=by, where=where))
+    graph = _source_graph(
+        session.observe(metrics, by=by if during is None else (during, *by), where=where)
+    )
     with open_query_sources(
         session._runtime.connection_service(), graph, session.catalog._state
     ) as prepared:
@@ -289,7 +291,7 @@ elapsed=ms.measure_column(name="elapsed",entity=facts,column="elapsed",additivit
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("duration", report_timezone="UTC")
+    session = mv.session.create("duration", timezone="UTC")
     elapsed = session.catalog.fields.get("sales.facts.elapsed")
     assert isinstance(elapsed, Deferred)
     metrics = {
@@ -336,7 +338,7 @@ def test_independent_roots_across_datasources(
     files["sales/models.py"] = model
     semantic_project_factory(files, load=False)
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("cross-source", report_timezone="UTC")
+    session = mv.session.create("cross-source", timezone="UTC")
     one = session.catalog.fields.get("sales.one.amount")
     two = session.catalog.fields.get("sales.two.amount")
     assert isinstance(one, Deferred) and isinstance(two, Deferred)

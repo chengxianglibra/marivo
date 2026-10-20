@@ -28,6 +28,7 @@ from marivo.analysis.core.data_schema import (
     DataAxis,
     DataColumn,
     DataSchema,
+    IntervalDataAxis,
     PairedDataAxis,
 )
 from marivo.analysis.core.data_types import (
@@ -493,14 +494,16 @@ def _paired_axis(
     partner: int,
 ) -> PairedDataAxis:
     a, b = left.axes[index], right.axes[partner]
-    assert isinstance(a, CalendarDataAxis) and isinstance(b, CalendarDataAxis)
+    assert isinstance(a, (CalendarDataAxis, IntervalDataAxis)) and isinstance(
+        b, (CalendarDataAxis, IntervalDataAxis)
+    )
     assert a.frozen is not None and b.frozen is not None
     token, key = _paired_layout(left, right, index)
     used = {
         axis.frozen.directory_name
         for schema in (left, right)
         for axis in schema.axes
-        if isinstance(axis, CalendarDataAxis) and axis.frozen is not None
+        if isinstance(axis, (CalendarDataAxis, IntervalDataAxis)) and axis.frozen is not None
     }
 
     def name(base: str) -> str:
@@ -511,19 +514,24 @@ def _paired_axis(
         used.add(candidate)
         return candidate
 
+    def endpoint(
+        axis: CalendarDataAxis | IntervalDataAxis, side: str
+    ) -> CalendarDataAxis | IntervalDataAxis:
+        assert axis.frozen is not None
+        directory = name(f"{axis_role(axis)}.{token}.{side}")
+        if isinstance(axis, CalendarDataAxis):
+            return replace(
+                axis, token=f"{token}.{side}", frozen=replace(axis.frozen, directory_name=directory)
+            )
+        return replace(
+            axis, token=f"{token}.{side}", frozen=replace(axis.frozen, directory_name=directory)
+        )
+
     return PairedDataAxis(
         token,
         (key,),
-        replace(
-            a,
-            token=f"{token}.left",
-            frozen=replace(a.frozen, directory_name=name(f"calendar.{token}.left")),
-        ),
-        replace(
-            b,
-            token=f"{token}.right",
-            frozen=replace(b.frozen, directory_name=name(f"calendar.{token}.right")),
-        ),
+        endpoint(a, "left"),
+        endpoint(b, "right"),
         name(f"mapping.{token}"),
         name=a.name,
     )
@@ -655,8 +663,19 @@ def infer_frame_combine_schema(
             require_compatible_calendar_axes(axis, other)
             if operation.match is not None:
                 require_calendar_match_rule(axis, operation.match)
+        if (
+            isinstance(axis, IntervalDataAxis)
+            and operation.match is not None
+            and operation.match.kind != "ordinal"
+        ):
+            reject(
+                "ordinal for interval coordinates",
+                repr(operation.match),
+                "Use ordinal for one declared interval on each side.",
+                "frame.combine",
+            )
         axis_columns.append(tuple(columns))
-    calendars = tuple(i for i, role in enumerate(left_roles) if role == "calendar")
+    calendars = tuple(i for i, role in enumerate(left_roles) if role in ("calendar", "interval"))
     matched = calendars[0] if operation.match is not None and len(calendars) == 1 else None
     if operation.match is not None and matched is None:
         reject(
@@ -746,7 +765,7 @@ def infer_frame_combine_schema(
         for i, axis in enumerate(left_axes):
             if i == matched:
                 pending_axes.append(_paired_axis(left, right, i, partners[i]))
-            elif isinstance(axis, CalendarDataAxis):
+            elif isinstance(axis, (CalendarDataAxis, IntervalDataAxis)):
                 pending_axes.append(
                     replace(
                         axis, columns=tuple(c for c in axis_columns[i] if isinstance(c, DataColumn))

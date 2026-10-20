@@ -20,7 +20,6 @@ from tests.shared_fixtures import DslCaseFactory, rendered_help
 @pytest.mark.parametrize(
     ("target", "absence"),
     [
-        ("analysis.session.current", "return None when the current-generation Store is absent"),
         ("analysis.session.recent", "return an empty page when its Store is absent"),
     ],
 )
@@ -42,7 +41,7 @@ def test_session_discovery_help_describes_absence_without_creating_store(
     assert absence in text
     assert "No creation" in text
     assert old.read_bytes() == b"preserve-old-store"
-    assert not (old.parent.parent / "v11").exists()
+    assert not (old.parent.parent / "v13").exists()
 
 
 def test_observe_help_distinguishes_field_axes_from_session_identity(
@@ -50,15 +49,16 @@ def test_observe_help_distinguishes_field_axes_from_session_identity(
 ) -> None:
     show_help("analysis.session.observe")
     text = capsys.readouterr().out
-    assert "Input by: Empty () computes overall Metrics within each time bucket" in text
-    assert "field, identity, calendar or membership Grouping rules" in text
-    assert "A matching identity grouping with members=P" in text
-    assert "single-valued on P" in text
-    assert "CalendarAxis" in text
-    assert "None adds no time filter" in text
-    assert "Choose name or id" not in text
+    assert "Input by: Empty () is one zero-axis cell" in text
+    assert "TimeScope contributes an interval axis" in text
+    assert "Population selecting complete output keys" in text
+    assert "CalendarAxis contributes calendar buckets" in text
+    assert "Input during:" not in text and "Input members:" not in text
+    show_help("analysis.population.count")
+    assert "declared identities without facts still count" in capsys.readouterr().out
     show_help("analysis.session.resume")
-    assert "Choose name or id" in capsys.readouterr().out
+    resume = capsys.readouterr().out
+    assert "Input session_id:" in resume and "Input by:" not in resume
 
 
 def test_time_scope_help_routes_to_calendar_capable_producer(
@@ -74,7 +74,7 @@ def test_time_scope_help_routes_to_calendar_capable_producer(
     show_help("analysis.session.time_scope")
     assert "start=" in capsys.readouterr().out
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("calendar-help", report_timezone="UTC")
+    session = mv.session.create("calendar-help", timezone="UTC")
     scope = session.time_scope(start="2026-01-01", end="2026-02-01")
     assert len(scope.by(mv.grain("day")).grid.cells) == 31
     from marivo._temporal import time_scope
@@ -127,7 +127,7 @@ def test_catalog_discovery_separates_definitions_from_execution_values(
     assert isinstance(field, Deferred) and isinstance(catalog.require(field_ref), Deferred)
     assert isinstance(entity, Entity) and isinstance(catalog.require(entity_ref), Entity)
     query = case.session.observe({"revenue": metric}, by=(field,))
-    population = case.session.members(entity_ref)
+    population = case.session.members(entity)
     assert isinstance(query, mv.AnalysisFrame) and query.output_names
     assert population.axes
     assert case.session.runs().items == ()

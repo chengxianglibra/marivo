@@ -9,7 +9,6 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.dsl.population import population_keys
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import DslCaseFactory
@@ -63,7 +62,7 @@ def _session(
         load=False,
     )
     monkeypatch.chdir(root)
-    return mv.session.get_or_create("population", report_timezone="UTC")
+    return mv.session.create("population", timezone="UTC")
 
 
 @pytest.mark.parametrize("consumer_window", (False, True))
@@ -77,16 +76,15 @@ def test_named_metric_population_dependency_owns_its_window_scope(
     channel = session.catalog.fields.get("sales.order.channel")
     producer = session.observe(
         {"total": revenue.window(mv.all_history())},
-        by=(channel,),
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
+        by=(session.time_scope(start="2026-08-01", end="2026-09-01"), channel),
     )
     chosen = producer.where(producer["total"] > 900)
-    selected = session.population_from(chosen, on=((chosen.axes[0], channel),))
+    selected = session.population_from(chosen, on=((chosen.axes[1], channel),))
     condition = mv.in_population(selected)
     observed = session.observe(
         {"rows": count.where(condition).window(mv.all_history()) if consumer_window else count},
+        by=(session.time_scope(start="2026-07-31", end="2026-08-01"),),
         where=None if consumer_window else condition,
-        during=session.time_scope(start="2026-07-31", end="2026-08-01"),
     )
     # The upstream all-history endpoint selects web (927). The consumer's
     # July endpoint includes only the earlier web fact under either rule.
@@ -101,15 +99,17 @@ def test_members_scalar_predicate_retains_its_relationship_sources(
     session = case.session
     region = session.catalog.fields.get("sales.customer.region")
     buyer = session.catalog.relationships.get("sales.order_buyer")
-    orders = session.members(ms.ref.entity("sales.order"), where=region.via((buyer,)) == "east")
+    orders = session.members(
+        session.catalog.require(ms.ref.entity("sales.order")), where=region.via((buyer,)) == "east"
+    )
     keys = session.frame(orders).compute().to_pandas()
     assert keys.iloc[:, 0].tolist() == ["j1_a", "j1_b", "j1_july", "j1_september"]
     revenue = session.catalog.metrics.get("sales.revenue")
     result = (
         session.observe(
             {"revenue": revenue},
-            during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-            members=orders,
+            by=(session.time_scope(start="2026-08-01", end="2026-09-01"),),
+            where=mv.in_population(orders),
         )
         .compute()
         .to_pandas()
@@ -127,11 +127,16 @@ def test_members_scalar_predicate_retains_intermediate_relationship_sources(
         session.catalog.relationships.get("sales.line_order"),
         session.catalog.relationships.get("sales.order_buyer"),
     )
-    lines = session.members(ms.ref.entity("sales.order_line"), where=customer_id.via(path) == "A")
+    lines = session.members(
+        session.catalog.require(ms.ref.entity("sales.order_line")),
+        where=customer_id.via(path) == "A",
+    )
     keys = session.frame(lines).compute().to_pandas()
     assert keys.iloc[:, 0].tolist() == ["j3_l1", "j3_l2"]
     revenue = session.catalog.metrics.get("sales.line_revenue")
-    result = session.observe({"revenue": revenue}, members=lines).compute().to_pandas()
+    result = (
+        session.observe({"revenue": revenue}, where=mv.in_population(lines)).compute().to_pandas()
+    )
     assert result[("value", "revenue")].tolist() == [100]
 
 
@@ -165,10 +170,9 @@ def test_per_completes_ratio_per_sample_and_retains_empty_samples(
     omitted = mv.coordinates(by=(customer,), keys=((1,),))
     observed = session.observe({"revenue": revenue}, by=omitted)
     captured = session.population_from(observed, on=((observed.axes[0], customer),))
-    with pytest.raises(MaterializationError) as failure:
-        session.frame(captured).compute()
-    assert failure.value.expected is not None
-    assert "covering every observed coordinate" in failure.value.expected
+    keys = session.frame(captured).compute().to_pandas()
+    assert keys.iloc[:, 0].tolist() == [1]
+    assert observed.compute().to_pandas()[("value", "revenue")].tolist() == [40]
 
 
 def test_membership_deduplicates_root_bucket_and_complete_domain(
@@ -194,7 +198,9 @@ def test_membership_deduplicates_root_bucket_and_complete_domain(
     assert sorted(with_null[("value", "revenue")].tolist()) == [10, 20, 100]
     samples = session.observe({"mean": revenue.per(full).mean()}).compute().to_pandas()
     assert samples[("value", "mean")].tolist() == [10]
-    classified = session.members(ms.ref.entity("sales.tags")).classify(by=(buckets,))
+    classified = session.members(session.catalog.require(ms.ref.entity("sales.tags"))).classify(
+        by=(buckets,)
+    )
     result = session.observe({"revenue": revenue}, by=classified).compute().to_pandas()
     assert result[("value", "revenue")].tolist() == [20, 10, 0]
 
@@ -228,8 +234,8 @@ def test_population_filters_and_relationship_images_preserve_typed_keys(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = _session(semantic_project_factory, tmp_path, monkeypatch)
-    orders = session.members(ms.ref.entity("sales.orders"))
-    tags = session.members(ms.ref.entity("sales.tags"))
+    orders = session.members(session.catalog.require(ms.ref.entity("sales.orders")))
+    tags = session.members(session.catalog.require(ms.ref.entity("sales.tags")))
     tag_entity = session.catalog.entities.get("sales.tags")
     allowed = mv.identities(tag_entity, keys=((1,), (3,)))
     selected = tags.where(
@@ -294,10 +300,12 @@ def test_zero_axis_population_preserves_the_unit_tuple(
         observed = session.observe({"revenue": revenue}, by=(customer,))
         domain = session.population_from(observed, on=((observed.axes[0], customer),))
     else:
-        domain = session.members(ms.ref.entity("sales.orders"))
+        domain = session.members(session.catalog.require(ms.ref.entity("sales.orders")))
     unit = domain.project(by=())
     if source == "product":
-        unit = mv.product(unit, session.members(ms.ref.entity("sales.tags"))).project(by=())
+        unit = mv.product(
+            unit, session.members(session.catalog.require(ms.ref.entity("sales.tags")))
+        ).project(by=())
     result = session.frame(unit).compute().to_pandas()
     assert result.shape == (0 if empty else 1, 0)
 
@@ -318,7 +326,11 @@ def test_medium_complete_identity_domain_materializes_and_filters_preimage(
         session.catalog.relationships.get("sales.order_links"),
         session.catalog.relationships.get("sales.link_tags"),
     )
-    selected = session.members(ms.ref.entity("sales.orders")).preimage(targets, via=path)
+    selected = session.members(session.catalog.require(ms.ref.entity("sales.orders"))).preimage(
+        targets, via=path
+    )
     revenue = session.catalog.metrics.get("sales.revenue")
-    result = session.observe({"value": revenue}, members=selected).compute().to_pandas()
+    result = (
+        session.observe({"value": revenue}, where=mv.in_population(selected)).compute().to_pandas()
+    )
     assert result[("value", "value")].tolist() == [40]

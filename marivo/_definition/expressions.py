@@ -243,7 +243,9 @@ class PerWeightedMean:
 
 @dataclass(frozen=True, slots=True)
 class MemberCount:
-    """Count the explicitly bound member identities, without capturing a domain."""
+    """Count distinct complete identities in one explicitly captured domain."""
+
+    population: LiteralPopulation | PopulationProgram
 
 
 @dataclass(frozen=True, slots=True)

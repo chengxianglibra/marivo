@@ -57,7 +57,7 @@ amount=ms.measure_column(name='amount',entity=facts,column='amount',unit='USD',a
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.get_or_create("temporal-bridge", report_timezone="UTC")
+    return mv.session.create("temporal-bridge", timezone="UTC")
 
 
 def _series(ticks: list[int | None], physical: pa.DataType) -> pd.Series:
@@ -299,7 +299,7 @@ os.environ['MARIVO_PROJECT_ROOT'] = sys.argv[1]
 def forbidden(*args, **kwargs):
     raise AssertionError('cold FrameKeys projection attempted source access')
 with patch.object(SourceSession, '__init__', forbidden), patch.object(frame_evaluation, 'open_query_sources', forbidden):
-    session = mv.session.resume(sys.argv[2], by='id')
+    session = mv.session.resume(sys.argv[2])
     saved = session.persisted_frame(sys.argv[3])
     before = session.runs().items
     target = session.catalog.fields.get('sales.facts.t')

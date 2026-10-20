@@ -15,7 +15,6 @@ from marivo.analysis._capabilities.dataset_model import (
 from marivo.analysis.dsl.column import Column, row_count
 from marivo.analysis.dsl.correspondence import period_offset, previous_year
 from marivo.analysis.dsl.frame import AnalysisFrame
-from marivo.analysis.dsl.metrics import member_count
 
 
 def provider() -> DisclosureProvider:
@@ -33,16 +32,6 @@ def provider() -> DisclosureProvider:
             "result = row_count()",
             ("row_count",),
             "methods.metric.summary",
-        ),
-        (
-            "member_count",
-            member_count,
-            (),
-            "Deferred",
-            "Count the explicit observe(members=...) identity domain, including declared absent identities.",
-            "result = member_count()",
-            ("member_count",),
-            "methods.metric",
         ),
         (
             "period_offset",
@@ -76,7 +65,7 @@ def provider() -> DisclosureProvider:
                 constraints=(
                     "Construction reads no rows. period_offset supports builtin day/week/month/quarter/year only; previous_year supports builtin day/month/quarter/year and leap days have no counterpart. Matching rejects partial buckets and incompatible frozen interpretations."
                     if target in ("period_offset", "previous_year")
-                    else "row_count is input-independent and counts current rows, including value NA. member_count is a source Metric over explicit observe(members=...), not a completed-data statistic.",
+                    else "row_count is input-independent and counts current rows, including value NA. Population.count() captures an explicit identity domain as a source Metric.",
                 ),
                 effects="Capture an immutable definition without executing it.",
                 failures=(
@@ -197,7 +186,7 @@ def provider() -> DisclosureProvider:
                 P("other", "Another AnalysisFrame owned by this Session."),
                 P(
                     "on",
-                    "None only for zero axes or one calendar axis per input; otherwise a complete tuple of exact FrameAxis pairs.",
+                    "None only for zero axes or one calendar or interval axis per input; otherwise a complete tuple of exact FrameAxis pairs.",
                 ),
                 P(
                     "match",
@@ -221,7 +210,7 @@ def provider() -> DisclosureProvider:
                 ),
                 P(
                     "on",
-                    "None only for zero axes or one calendar axis per input; explicit mapping pairs every complete axis exactly once.",
+                    "None only for zero axes or one calendar or interval axis per input; explicit mapping pairs every complete axis exactly once.",
                 ),
                 P("match", "Explicit supported CalendarCorrespondence or None; never inferred."),
                 P("how", "exact or outer."),
@@ -304,7 +293,7 @@ def provider() -> DisclosureProvider:
                 parameters=parameters,
                 output=output,
                 constraints=(
-                    "Validate parameter shape and Session ownership, reject paired inputs, then require equal axis counts before inferring or validating a complete on mapping. on/outer cannot repair ownership, paired axes, axis count or incompatible key/time types. exact checks actual complete row domains; outer keeps the ordered union. Calendar matching requires complete nominal/actual buckets."
+                    "Validate parameter shape and Session ownership, reject paired inputs, then require equal axis counts before inferring or validating a complete on mapping. on/outer cannot repair ownership, paired axes, axis count or incompatible key/time types. exact checks actual complete row domains; outer keeps the ordered union. Calendar matching requires complete nominal/actual buckets. Interval ordinal requires one declared record per side with the same boundary timezone; equality uses exact start/end/timezone."
                     if name in ("align", "compare")
                     else "Columns and statistics retain one exact Frame input; Artifact cannot enter computation. Current-row statistics do not acquire original Metric authority.",
                 ),

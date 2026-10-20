@@ -305,7 +305,7 @@ def test_observe_source_materialization_failure_redacts_credentials(
     )
     resolver = HostResolver()
     with md.credential_scope(resolver=resolver):
-        session = mv.session.get_or_create("credential-materialization-failure")
+        session = mv.session.create("credential-materialization-failure")
     original_table = Backend.table
 
     def fail_table(self: Backend, name: str, **kwargs: object) -> object:
@@ -320,7 +320,7 @@ def test_observe_source_materialization_failure_redacts_credentials(
         with pytest.raises(DatasourceConnectionError) as captured:
             session.observe(
                 {"revenue": session.catalog.metrics.get("sales.revenue")},
-                during=session.time_scope(start="2026-07-01", end="2026-08-01"),
+                by=(session.time_scope(start="2026-07-01", end="2026-08-01"),),
             ).compute()
         assert "<redacted>" in str(captured.value)
         assert session.runs().items == before_runs and publication_counts(session) == before
@@ -486,7 +486,7 @@ def test_public_semantic_analysis_and_resume(
     resolver = HostResolver()
     with md.credential_scope(resolver=resolver):
         catalog = ms.load(workspace_dir=project)
-        session = mv.session.get_or_create("credentials-e2e")
+        session = mv.session.create("credentials-e2e")
         inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
         inspection.sample(scope=md.unpruned(max_rows=10, timeout_seconds=10), columns=("amount",))
     try:
@@ -497,8 +497,9 @@ def test_public_semantic_analysis_and_resume(
         assert catalog.source_health([ms.ref.entity("sales.orders")]).status == "current"
         query = session.observe(
             {"revenue": catalog.metrics.get("sales.revenue")},
-            members=session.members(ms.ref.entity("sales.orders")),
-            during=None,
+            where=mv.in_population(
+                session.members(session.catalog.require(ms.ref.entity("sales.orders")))
+            ),
         )
         frame = query.compute()
         assert not frame.to_pandas().empty
@@ -510,8 +511,9 @@ def test_public_semantic_analysis_and_resume(
         ):
             session.observe(
                 {"revenue": catalog.metrics.get("sales.revenue")},
-                members=session.members(ms.ref.entity("sales.orders")),
-                during=None,
+                where=mv.in_population(
+                    session.members(session.catalog.require(ms.ref.entity("sales.orders")))
+                ),
             ).compute()
         assert (
             scope_failure.value.expected == "the runtime's captured resolver or no explicit scope"
@@ -534,8 +536,9 @@ def test_public_semantic_analysis_and_resume(
             with pytest.raises(DatasourceConnectionError) as failed:
                 session.observe(
                     {"revenue": catalog.metrics.get("sales.revenue")},
-                    members=session.members(ms.ref.entity("sales.orders")),
-                    during=None,
+                    where=mv.in_population(
+                        session.members(session.catalog.require(ms.ref.entity("sales.orders")))
+                    ),
                 ).compute()
             assert resolver.value not in "".join(traceback.format_exception(failed.value))
     finally:
@@ -547,8 +550,9 @@ def test_public_semantic_analysis_and_resume(
         assert (
             not resumed.observe(
                 {"revenue": resumed.catalog.metrics.get("sales.revenue")},
-                members=resumed.members(ms.ref.entity("sales.orders")),
-                during=None,
+                where=mv.in_population(
+                    resumed.members(resumed.catalog.require(ms.ref.entity("sales.orders")))
+                ),
             )
             .compute()
             .to_pandas()

@@ -82,7 +82,7 @@ def _create(project: Path, scenario: DslScenario, source: str) -> mv.Session:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content.replace("unit='CNY'", "unit='kWh'"))
     catalog = ms.load(workspace_dir=project)
-    session = mv.session.get_or_create("installed", report_timezone="UTC")
+    session = mv.session.create("installed", timezone="UTC")
     if source == "parquet":
         export_dsl_parquet_models(
             DslCase(scenario, NAMES, project, database, catalog, session), project
@@ -112,6 +112,15 @@ def _frame(result: mv.AnalysisFrame, *, frame: pd.DataFrame | None = None) -> pd
             key += 1
     exported.columns = labels
     return exported
+
+
+def _ordinary_keys(frame: pd.DataFrame) -> tuple[str, ...]:
+    """Locate ordinary coordinate columns without dropping the exported time keys."""
+    return tuple(
+        f"key_{index}"
+        for index, axis in enumerate(frame.attrs["axes"])
+        if axis["role"] in ("field", "identity", "data")
+    )
 
 
 def _remove_sources(project: Path) -> None:
@@ -146,25 +155,19 @@ def _offline(project: Path) -> Iterator[None]:
 def _observations(
     session: mv.Session,
 ) -> tuple[mv.Population, mv.AnalysisFrame, mv.AnalysisFrame, mv.AnalysisFrame]:
-    members = session.members(ms.ref.entity("operations.device"))
+    members = session.members(session.catalog.require(ms.ref.entity("operations.device")))
     metric = session.catalog.metrics.get("operations.energy_total")
     current = session.observe(
         {"value": metric},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=members,
-        members=members,
+        by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), members),
     )
     baseline = session.observe(
         {"value": metric},
-        during=session.time_scope(start="2026-07-01", end="2026-08-01"),
-        by=members,
-        members=members,
+        by=mv.product(session.time_scope(start="2026-07-01", end="2026-08-01"), members),
     )
     count = session.observe(
         {"value": session.catalog.metrics.get("operations.reading_count")},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=members,
-        members=members,
+        by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), members),
     )
     return members, current, baseline, count
 
@@ -198,9 +201,7 @@ def _produce(session: mv.Session, scenario: DslScenario) -> dict[str, mv.Analysi
             time = session.catalog.fields.get("operations.reading.recorded_at")
             current = session.observe(
                 {"value": amount.sum(time=time, empty="null")},
-                during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-                by=members,
-                members=members,
+                by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), members),
             ).compute()
             queries = {
                 "value": current,
@@ -209,12 +210,21 @@ def _produce(session: mv.Session, scenario: DslScenario) -> dict[str, mv.Analysi
             }
         elif scenario == "j2":
             current, baseline = current.compute(), baseline.compute()
-            comparison = current.compare(baseline, on=((current.axes[0], baseline.axes[0]),))
+            comparison = current.compare(
+                baseline,
+                on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                match=mv.ordinal(),
+            )
             difference = comparison.select({"value": comparison["absolute.value"]}).compute()
             selected = difference.where(difference["value"] < 0).compute()
             chosen = session.population_from(
                 selected,
-                on=((selected.axes[0], session.catalog.entities.get("operations.device")),),
+                on=(
+                    (
+                        next(axis for axis in selected.axes if axis.role == "identity"),
+                        session.catalog.entities.get("operations.device"),
+                    ),
+                ),
             )
             queries = {
                 "value": difference,
@@ -231,13 +241,15 @@ def _produce(session: mv.Session, scenario: DslScenario) -> dict[str, mv.Analysi
             metric = session.catalog.metrics.get("operations.energy_per_reading")
             scope = session.time_scope(start="2026-08-01", end="2026-09-01")
             ratio = session.observe(
-                {"value": metric}, during=scope, by=(device, sensor), members=members
+                {"value": metric}, by=(scope, device, sensor), where=mv.in_population(members)
             ).compute()
             queries = {
                 "value": ratio,
-                "rollup": session.observe({"value": metric}, during=scope, members=members),
+                "rollup": session.observe(
+                    {"value": metric}, by=(scope,), where=mv.in_population(members)
+                ),
                 "group_by": session.observe(
-                    {"value": metric}, during=scope, by=(sensor,), members=members
+                    {"value": metric}, by=(scope, sensor), where=mv.in_population(members)
                 ),
                 "mean": ratio.reduce({"value": ratio["value"].mean()}),
             }
@@ -332,7 +344,8 @@ def _verify(
     oracle = _oracle(scenario)
     derived: dict[str, Json]
     if scenario in ("j1", "j2"):
-        indexed = frame.set_index("key_0")
+        (member_key,) = _ordinary_keys(frame)
+        indexed = frame.set_index(member_key)
         assert set(indexed.index) == {key for key, _ in facts.customers}
         for key, _ in facts.customers:
             assert isinstance(key, str)
@@ -361,8 +374,8 @@ def _verify(
             assert frames["count"].value.tolist() == [oracle["count"]]
         else:
             left, right = (
-                frames["current"].set_index("key_0"),
-                frames["baseline"].set_index("key_0"),
+                frames["current"].set_index(_ordinary_keys(frames["current"])[0]),
+                frames["baseline"].set_index(_ordinary_keys(frames["baseline"])[0]),
             )
             pd.testing.assert_series_equal(
                 indexed.value, left.value - right.value, check_names=False
@@ -378,7 +391,7 @@ def _verify(
             assert len(frames["members"]) == oracle["selected_count"]
             pd.testing.assert_frame_equal(frames["where"], selected.reset_index(drop=True))
     elif scenario == "j3":
-        indexed = frame.set_index(["key_0", "key_1"])
+        indexed = frame.set_index(list(_ordinary_keys(frame)))
         keys = {(row[1], row[2]) for row in facts.orders}
         assert set(indexed.index) == keys
         for coordinate in keys:
@@ -406,7 +419,10 @@ def _verify(
                 sum((Fraction(row[2]) for row in facts.lines if row[1] in order_ids), Fraction())
                 / len(order_ids)
             )
-        assert frames["group_by"].set_index("key_0").value.to_dict() == sensor_values
+        assert (
+            frames["group_by"].set_index(_ordinary_keys(frames["group_by"])[0]).value.to_dict()
+            == sensor_values
+        )
     else:
         derived = _association(frames["left"], frames["right"])
         assert derived["coefficient"] == pytest.approx(oracle["coefficient"], abs=1e-15, rel=0)
@@ -453,7 +469,7 @@ def journey(phase: str, project: Path, scenario_name: str, source: str) -> dict[
             with _offline(project):
                 identity = state["session"]
                 assert isinstance(identity, str)
-                session = mv.session.resume(identity, by="id")
+                session = mv.session.resume(identity)
                 before = len(session.runs().items)
                 artifacts = {}
                 for name, reference in obj(state["artifacts"]).items():

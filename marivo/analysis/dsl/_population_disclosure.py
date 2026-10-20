@@ -148,7 +148,7 @@ def provider() -> DisclosureProvider:
         "entity": "Pass a resolved Entity from session.catalog.entities or a finalized scope; bare EntityRef inputs are rejected.",
         "via": "Pass a nonempty ordered tuple of declared relationships; membership takes a tuple of paths, one per contribution root.",
         "unmatched": "Choose exclude or null explicitly; null retains a source Null bucket.",
-        "factors": "Pass at least two Populations or CalendarAxis values with disjoint axes and compatible owners.",
+        "factors": "Pass at least two Populations, CalendarAxis or TimeScope values with disjoint axes and compatible owners.",
         "population": "Pass a literal domain or a Population captured in the same Session.",
         "duration": "Pass a positive datetime.timedelta; duration is elapsed time, not a civil period count.",
         "count": "Pass a positive integer; evaluating this rule requires a CalendarAxis.",
@@ -184,7 +184,7 @@ def provider() -> DisclosureProvider:
                         "binds complete primary keys through single-valued routes and validates version anchors."
                     )
                     if function is identity
-                    else "Construction captures immutable definitions without schema or business reads. Window evaluation requires an explicit observation period; complete output domains must cover observed coordinates.",
+                    else "Construction captures immutable definitions without schema or business reads. Window evaluation requires an explicit observation period; explicit Population domains select only their complete keys.",
                 ),
                 effects="Capture an immutable domain, allocation descriptor, predicate or window rule.",
                 failures=(
@@ -196,6 +196,14 @@ def provider() -> DisclosureProvider:
         )
         exports.append(ExportInput(name, function, name))
     methods: tuple[tuple[type[object], str, str, str, str, tuple[str, ...]], ...] = (
+        (
+            Population,
+            "count",
+            "Deferred",
+            "Capture the distinct complete identities in this Population as a lazy Metric; declared identities without facts still count.",
+            "result = population.count()",
+            ("population",),
+        ),
         (
             Population,
             "project",
@@ -312,7 +320,9 @@ def provider() -> DisclosureProvider:
                 ),
                 output=output,
                 constraints=(
-                    "One Session owner; complete typed keys and explicit version/path bindings remain authoritative.",
+                    "One complete Entity identity domain; declared absent identities count, empty is zero. Fact conditions/windows do not reselect it; count-only conditions/windows reject."
+                    if owner is Population and name == "count"
+                    else "One Session owner; complete typed keys and explicit version/path bindings remain authoritative.",
                 ),
                 effects="Return a new immutable definition or bounded source-free disclosure.",
                 failures=("AnalysisError: follow its exact axis, owner, path or version repair.",),
@@ -334,7 +344,7 @@ def provider() -> DisclosureProvider:
                 value.__name__,
                 value,
                 summary=(
-                    "A field, complete identity, calendar or correlated membership grouping rule."
+                    "A field, complete identity, interval, calendar or correlated membership grouping rule."
                     if value is Grouping
                     else f"Immutable {value.__name__} definition."
                 ),

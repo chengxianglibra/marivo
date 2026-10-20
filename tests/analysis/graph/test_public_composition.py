@@ -16,6 +16,7 @@ import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import terminal_store
 from marivo.analysis.materialization.terminal_protocol import InvocationInput
+from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.shared_fixtures import (
     DslCase,
     DslCaseFactory,
@@ -27,32 +28,30 @@ from tests.support.paths import PROJECT_ROOT
 
 def _ratio(case: DslCase, *, coordinates: tuple[str, ...] = ()) -> mv.AnalysisFrame:
     session = case.session
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     domain = (
         members
         if not coordinates
         else mv.product(
             members,
-            session.members(ms.ref.entity("sales.order")).classify(
+            session.members(session.catalog.require(ms.ref.entity("sales.order"))).classify(
                 by=tuple(session.catalog.fields.get("sales.order." + name) for name in coordinates)
             ),
         )
     )
     return session.observe(
         {"value": session.catalog.metrics.get("sales.aov_from_lines")},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=domain,
+        by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), domain),
     )
 
 
 def _observations(case: DslCase) -> tuple[mv.AnalysisFrame, mv.AnalysisFrame]:
     session = case.session
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     current, baseline = tuple(
         session.observe(
             {"value": session.catalog.metrics.get("sales.revenue")},
-            during=session.time_scope(start=start, end=end),
-            by=members,
+            by=mv.product(session.time_scope(start=start, end=end), members),
         )
         for start, end in (("2026-08-01", "2026-09-01"), ("2026-07-01", "2026-08-01"))
     )
@@ -65,7 +64,7 @@ def test_ratio_complete_coordinate_tuple_and_original_components(
     case = analysis_dsl_case_factory("tuple_union")
     observed = _ratio(case, coordinates=(case.names.channel, case.names.status))
     frame = observed.persist().to_pandas()
-    assert frame.set_index(list(frame.columns[:3]))[("value", "value")].to_dict() == {
+    assert frame.set_index(list(ordinary_columns(frame)))[("value", "value")].to_dict() == {
         ("A", "mobile", "cancelled"): 0.0,
         ("A", "web", "paid"): 40.0,
     }
@@ -73,13 +72,12 @@ def test_ratio_complete_coordinate_tuple_and_original_components(
     rolled = (
         case.session.observe(
             {"value": case.session.catalog.metrics.get("sales.aov_from_lines")},
-            during=case.session.time_scope(start="2026-08-01", end="2026-09-01"),
-            by=(channel,),
+            by=(case.session.time_scope(start="2026-08-01", end="2026-09-01"), channel),
         )
         .persist()
         .to_pandas()
     )
-    assert rolled.set_index(rolled.columns[0])[("value", "value")].to_dict() == {
+    assert rolled.set_index(ordinary_columns(rolled)[0])[("value", "value")].to_dict() == {
         "web": 40.0,
         "mobile": 0.0,
     }
@@ -104,7 +102,9 @@ def test_empty_numeric_selection_has_distinct_row_policies(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     current, baseline = _observations(analysis_dsl_case_factory("j2"))
-    comparison = current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))
+    comparison = current.compare(
+        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+    )
     empty = comparison.where(comparison["absolute.value"] < -1000)
     assert empty.persist().to_pandas().empty
     result = (
@@ -176,20 +176,20 @@ def test_public_history_and_guarded_abandonment_use_query_runs(
     run = session.get_run(saved.artifact._manifest.run_id)
     assert run.lifecycle == "succeeded"
     assert isinstance(run.dataset_input, InvocationInput)
-    active = mv.session.current()
-    assert active is not None and active.id == session.id
-    assert mv.session.resume(session.id, by="id").id == session.id
-    assert mv.session.inspect(session.name).runs.items[0].run_id == run.run_id
-    assert session.graph().artifacts[0].artifact_ref.ref == saved.artifact.id
+    assert mv.session.resume(session.id).id == session.id
+    assert mv.session.inspect(session.id).runs.items[0].run_id == run.run_id
+    latest = session.runs().items[0]
+    assert isinstance(latest, mv.SucceededRun)
+    assert latest.output_artifact_ref.ref == saved.artifact.id
     session.show()
     run.show()
     with pytest.raises(AnalysisError):
-        mv.session.abandon_run(session_id=session.id, run_id=run.run_id)
+        mv.session.reconcile_run(session_id=session.id, run_id=run.run_id)
     terminal_store.admit(store, session.id, "pending", run.dataset_input.result_id)
-    mv.session.abandon_run(session_id=session.id, run_id="pending")
+    mv.session.reconcile_run(session_id=session.id, run_id="pending")
     assert session.get_run("pending").lifecycle == "failed"
     terminal_store.admit(store, session.id, "other", run.dataset_input.result_id)
-    mv.session.abandon_run(session_id=session.id, run_id="pending")
+    mv.session.reconcile_run(session_id=session.id, run_id="pending")
 
     def unavailable(*args: object, **kwargs: object) -> None:
         raise RuntimeError("proof unavailable")
@@ -198,7 +198,7 @@ def test_public_history_and_guarded_abandonment_use_query_runs(
         "marivo.analysis.materialization.terminal_publication.discharge_resources", unavailable
     )
     with pytest.raises(RuntimeError, match="proof unavailable"):
-        mv.session.abandon_run(session_id=session.id, run_id="other")
+        mv.session.reconcile_run(session_id=session.id, run_id="other")
     assert session.get_run("other").lifecycle == "incomplete"
 
 
@@ -209,8 +209,10 @@ def _correlation_input(case: DslCase) -> mv.AnalysisFrame:
             "revenue": session.catalog.metrics.get("sales.revenue"),
             "count": session.catalog.metrics.get("sales.order_count"),
         },
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=session.members(ms.ref.entity("sales.customer")),
+        by=mv.product(
+            session.time_scope(start="2026-08-01", end="2026-09-01"),
+            session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
+        ),
     )
 
 
@@ -230,6 +232,7 @@ def test_public_exact_cold_output_after_source_and_models_are_deleted(
 import sys
 import ibis
 import marivo.analysis as mv
+from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 import marivo.semantic as ms
 from marivo.datasource.runtime import DatasourceConnectionService
 from tests.shared_fixtures import run_ids
@@ -239,7 +242,7 @@ def forbidden(*args, **kwargs):
 ibis.duckdb.connect = forbidden
 ms.load = forbidden
 DatasourceConnectionService.use_backend = forbidden
-session = mv.session.resume(sys.argv[1], by='id')
+session = mv.session.resume(sys.argv[1])
 before = run_ids(session)
 saved = session.persisted_frame(sys.argv[2])
 values = saved.to_pandas()['value']
@@ -269,7 +272,7 @@ def test_incompatible_inputs_reject_before_business_or_artifact_reads(
     case = analysis_dsl_case_factory("j2")
     current, baseline = _observations(case)
     fixed = current.persist()
-    other_session = mv.session.get_or_create("foreign", report_timezone="UTC")
+    other_session = mv.session.create("foreign", timezone="UTC")
     foreign = other_session.observe({"value": other_session.catalog.metrics.get("sales.revenue")})
     before = case.session.runs().items
 
@@ -310,7 +313,9 @@ def test_invalid_threshold_rejects_without_another_run(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     current, baseline = _observations(case)
-    difference = current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)))
+    difference = current.compare(
+        baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+    )
     with pytest.raises(AnalysisError):
         predicate = difference["absolute.value"] < threshold
         difference.where(predicate).persist()
@@ -339,7 +344,7 @@ def test_public_parquet_spearman_has_separate_source_evidence(
     case = replace(
         case,
         catalog=ms.load(workspace_dir=case.root),
-        session=mv.session.get_or_create("parquet", report_timezone="UTC"),
+        session=mv.session.create("parquet", timezone="UTC"),
     )
     saved = _correlation_input(case).persist()
     values = saved.to_pandas()["value"]
@@ -351,4 +356,4 @@ def test_public_parquet_spearman_has_separate_source_evidence(
     oracle = pd.Series(amounts).rank().corr(pd.Series(counts).rank())
     assert values["revenue"].corr(values["count"], method="spearman") == pytest.approx(oracle)
     assert saved.artifact.evidence_digest().evidence_count > 0
-    assert case.session._runtime.store.layout.generation == 12
+    assert case.session._runtime.store.layout.generation == 13

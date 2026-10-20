@@ -53,7 +53,7 @@ from tests.shared_fixtures import DslCaseFactory
 
 @pytest.fixture
 def local(tmp_path: Path) -> LocalFrameServices:
-    return DatasetRuntime.create(tmp_path, "frame-calendars", report_timezone="UTC").local
+    return DatasetRuntime.create(tmp_path, "frame-calendars", timezone="UTC").local
 
 
 def _memory_backing(frame: AnalysisFrame) -> MemoryFrameBacking:
@@ -429,7 +429,7 @@ def test_source_plus_fixed_calendar_match_runs_one_existing_schedule(
         session.catalog._state,
         session._runtime.connection_config,
         {"amount": session.catalog.metrics.get("sales.revenue")},
-        during=calendar,
+        by=(calendar,),
     )
     source = source.where(source["amount"] > 0)
     fixed = source.compute()
@@ -645,7 +645,7 @@ def test_source_completion_rejects_unused_corrupt_directory_before_top_zero(
         session.catalog._state,
         session._runtime.connection_config,
         {"amount": session.catalog.metrics.get("sales.revenue")},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01").by(mv.grain("day")),
+        by=(session.time_scope(start="2026-08-01", end="2026-09-01").by(mv.grain("day")),),
     )
     assert isinstance(source._backing, ExpressionFrameBacking)
     binding = source._backing.root
@@ -696,11 +696,13 @@ def test_captured_source_calendar_errors_precede_values_for_every_carrier(
             session.catalog._state,
             session._runtime.connection_config,
             {"amount": metric},
-            during=session.time_scope(
-                start="2026-08-01",
-                end="2026-08-01T02:00:00+00:00" if fault == "hour_rule" else "2026-09-01",
-                timezone=zone,
-            ).by(mv.grain(grain)),
+            by=(
+                session.time_scope(
+                    start="2026-08-01",
+                    end="2026-08-01T02:00:00+00:00" if fault == "hour_rule" else "2026-09-01",
+                    timezone=zone,
+                ).by(mv.grain(grain)),
+            ),
         )
 
     left = source("hour" if fault == "hour_rule" else "day", "UTC")
@@ -751,7 +753,7 @@ def test_pending_unary_shared_and_paired_axes_retain_exact_frozen_facts(
         session.catalog._state,
         session._runtime.connection_config,
         {"amount": session.catalog.metrics.get("sales.revenue")},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01").by(mv.grain("day")),
+        by=(session.time_scope(start="2026-08-01", end="2026-09-01").by(mv.grain("day")),),
     )
     assert isinstance(source._schema, PendingDataSchema)
     captured = source._schema.axes[0]
@@ -825,10 +827,12 @@ def test_named_source_pending_interpretation_is_checked_before_value_names(
             session.catalog._state,
             session._runtime.connection_config,
             {"amount": metric},
-            during=session.time_scope(start=start, end=end).by(
-                semantic_grain(calendar=calendar, level=level, snapshot=captured)
-            ),
             calendar_snapshots=(captured,),
+            by=(
+                session.time_scope(start=start, end=end).by(
+                    semantic_grain(calendar=calendar, level=level, snapshot=captured)
+                ),
+            ),
         )
 
     left = source("short" if fault == "level" else "long", first)

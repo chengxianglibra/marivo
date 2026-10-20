@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from marivo._definition.relations import MembershipBinding
-    from marivo._definition.types import AxisBinding, CalendarCoordinate
+    from marivo._definition.types import AxisBinding, CalendarCoordinate, IntervalCoordinate
 
 
 class Grouping(ABC):
@@ -23,20 +23,20 @@ class Grouping(ABC):
 
     @property
     @abstractmethod
-    def kind(self) -> Literal["field", "identity", "calendar", "membership"]:
+    def kind(self) -> Literal["field", "identity", "calendar", "interval", "membership"]:
         """Return the captured grouping kind without source access."""
 
     @property
     @abstractmethod
-    def _binding(self) -> AxisBinding | CalendarCoordinate | MembershipBinding:
+    def _binding(self) -> AxisBinding | CalendarCoordinate | IntervalCoordinate | MembershipBinding:
         """Return the canonical inert definition consumed by source capture."""
 
     def __repr__(self) -> str:
         from marivo._definition.relations import MembershipBinding
-        from marivo._definition.types import CalendarCoordinate
+        from marivo._definition.types import CalendarCoordinate, IntervalCoordinate
 
         binding = self._binding
-        if isinstance(binding, CalendarCoordinate):
+        if isinstance(binding, (CalendarCoordinate, IntervalCoordinate)):
             identity = binding.identity[:48]
         elif isinstance(binding, MembershipBinding):
             identity = f"fields={len(binding.fields)} paths={len(binding.paths)}"
@@ -53,12 +53,14 @@ class Grouping(ABC):
         Constraints: Reads frozen metadata only; never enumerates domain keys.
         """
         from marivo._definition.relations import MembershipBinding
-        from marivo._definition.types import CalendarCoordinate
+        from marivo._definition.types import CalendarCoordinate, IntervalCoordinate
 
         binding = self._binding
         print(repr(self))
         if isinstance(binding, CalendarCoordinate):
             print(f"grain={binding.grain} timezone={binding.timezone} cells={len(binding.cells)}")
+        elif isinstance(binding, IntervalCoordinate):
+            print(f"start={binding.start} end={binding.end} timezone={binding.timezone}")
         elif isinstance(binding, MembershipBinding):
             print(f"unmatched={binding.unmatched}")
             for read in binding.fields[:8]:

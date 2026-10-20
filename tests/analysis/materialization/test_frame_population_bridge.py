@@ -78,7 +78,7 @@ denominator = ms.measure_column(name='denominator', entity=facts, column='denomi
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.get_or_create("frame-bridge", report_timezone="UTC")
+    return mv.session.create("frame-bridge", timezone="UTC")
 
 
 def _memory_backing(frame: AnalysisFrame) -> MemoryFrameBacking:
@@ -230,8 +230,7 @@ def test_complete_identity_read_and_members_use_the_retained_keys(session: Sessi
             session._runtime.local,
             session.catalog._state,
             session._runtime.connection_config,
-            {"members": mv.member_count()},
-            members=population,
+            {"members": population.count()},
         )
         .compute()
         .to_pandas()
@@ -325,14 +324,19 @@ def test_null_field_empty_domain_and_explicit_output_domain_keep_distinct_meanin
         .empty
     )
     selected = _population(session, _memory(session))
-    with pytest.raises(MaterializationError, match="covering every observed coordinate"):
+    exact = (
         frame_sources.observe(
             session._runtime.local,
             session.catalog._state,
             session._runtime.connection_config,
             {"amount": session.catalog.fields.get("sales.facts.amount").sum()},
             by=selected,
-        ).compute()
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert exact.iloc[:, :2].values.tolist() == [["east", "A"], ["west", "B"]]
+    assert exact[("value", "amount")].tolist() == [101, 50]
 
 
 def test_producer_checks_survive_top_zero_before_dependent_source_read(
@@ -624,7 +628,7 @@ def test_source_relationship_preimage_retains_frame_target_keys(
         fixed,
         on=((fixed.axes[0], session.catalog.entities.get("sales.tags")),),
     )
-    orders = session.members(ms.ref.entity("sales.orders"))
+    orders = session.members(session.catalog.require(ms.ref.entity("sales.orders")))
     path = (
         session.catalog.relationships.get("sales.order_links"),
         session.catalog.relationships.get("sales.link_tags"),
@@ -636,7 +640,7 @@ def test_source_relationship_preimage_retains_frame_target_keys(
             session.catalog._state,
             session._runtime.connection_config,
             {"amount": session.catalog.fields.get("sales.orders.amount").sum()},
-            members=selected,
+            where=mv.in_population(selected),
         )
         .compute()
         .to_pandas()
@@ -681,7 +685,7 @@ def test_remote_frame_keys_feed_checked_tuple_null_empty_and_zero_axis_routes(
             },
             load=False,
         )
-        remote = mv.session.get_or_create("remote-frame-bridge", report_timezone="UTC")
+        remote = mv.session.create("remote-frame-bridge", timezone="UTC")
         trace = capture_source(monkeypatch)
         selected = _memory(remote)
         joint_frame = _observe(remote, _population(remote, selected)).compute()

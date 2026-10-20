@@ -35,9 +35,9 @@ def test_public_observation_resolves_once_and_retains_components(
             "consume_metric_in_state",
             wraps=consume_metric_in_state,
         ) as resolve:
-            observed = case.session.observe({"value": metric}, during=window)
+            observed = case.session.observe({"value": metric}, by=(window,))
             assert resolve.call_count == 1
-            again = case.session.observe({"value": metric}, during=window)
+            again = case.session.observe({"value": metric}, by=(window,))
             assert resolve.call_count == 2
         assert len(case.session.runs().items) == runs_before
         assert source_graph(again).fingerprint == source_graph(observed).fingerprint
@@ -56,7 +56,7 @@ def test_business_completeness_uses_the_complete_calendar_domain(
     revenue = case.session.catalog.metrics.get("sales.revenue")
     scope = case.session.time_scope(start="2026-08-01", end="2026-09-01")
     grid = scope.by(mv.grain("day"))
-    observed = case.session.observe({"revenue": revenue}, during=grid)
+    observed = case.session.observe({"revenue": revenue}, by=(grid,))
     assert case.session.runs().items == ()
     frame = observed.persist().to_pandas()
     assert len(frame) == 31

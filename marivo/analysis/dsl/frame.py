@@ -29,6 +29,7 @@ from marivo._definition.query import (
 )
 from marivo._definition.relations import ReadQuery
 from marivo._definition.types import DefinitionGraphError, LiteralValue, check_literal
+from marivo.analysis._scope import scope_summary
 from marivo.analysis.core.artifact_data import ArtifactData, DataSchema
 from marivo.analysis.core.frame_audit import FrameResultMetadata
 from marivo.analysis.core.frame_data import (
@@ -48,7 +49,6 @@ from marivo.analysis.core.frame_expression import (
     infer_frame_combine_schema,
     infer_frame_schema,
 )
-from marivo.analysis.core.frame_source_facts import captured_source_scopes
 from marivo.analysis.core.frame_structure import (
     PendingDataSchema,
     axis_role,
@@ -534,7 +534,11 @@ class AnalysisFrame:
                 "frame.combine",
             )
         if on is None:
-            if len(left_axes) == 1 and left_axes[0].role == right_axes[0].role == "calendar":
+            if (
+                len(left_axes) == 1
+                and left_axes[0].role == right_axes[0].role
+                and left_axes[0].role in ("calendar", "interval")
+            ):
                 on = ((left_axes[0], right_axes[0]),)
             elif left_axes:
                 reject(
@@ -809,7 +813,10 @@ class AnalysisFrame:
             sources = _pending_source_inputs(self)
             if sources:
                 scopes = tuple(
-                    scope for _, source in sources for scope in captured_source_scopes(source.graph)
+                    dict.fromkeys(
+                        scope_summary(source.graph.root, source.graph.signature.observation)
+                        for _, source in sources
+                    )
                 )
                 card.field(
                     "scope",
@@ -817,14 +824,6 @@ class AnalysisFrame:
                     if scopes
                     else "no captured filter or member restriction",
                 )
-                periods = tuple(
-                    (frame._input_id, observation.period)
-                    for frame, source in sources
-                    if (observation := source.graph.signature.observation) is not None
-                    and observation.period is not None
-                )
-                if periods:
-                    card.field("period", _bounded(repr(periods)))
                 anchors = tuple(
                     (frame._input_id, axis.token, axis.at.isoformat())
                     for frame, _ in sources

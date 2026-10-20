@@ -47,12 +47,12 @@ baseline = ms.measure_column(name='baseline', entity=orders, column='baseline', 
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.get_or_create("source-query", report_timezone="UTC")
+    return mv.session.create("source-query", timezone="UTC")
 
 
 def _attributes(session: Session) -> mv.AnalysisFrame:
     return session.read(
-        session.members(ms.ref.entity("sales.orders")),
+        session.members(session.catalog.require(ms.ref.entity("sales.orders"))),
         {
             "amount": session.catalog.fields.get("sales.orders.amount"),
             "region": session.catalog.fields.get("sales.orders.region"),
@@ -229,11 +229,14 @@ def test_fixed_top_identity_bridge_reads_explicit_source(
     source = _attributes(session)
     fixed = source.top(1, by=source["amount"]).compute()
     keys = _identities(session, fixed)
-    members = session.members(ms.ref.entity("sales.orders"), where=mv.in_population(keys))
+    members = session.members(
+        session.catalog.require(ms.ref.entity("sales.orders")), where=mv.in_population(keys)
+    )
     trace = capture_source(monkeypatch)
     rows = (
         session.observe(
-            {"total": session.catalog.fields.get("sales.orders.amount").sum()}, members=members
+            {"total": session.catalog.fields.get("sales.orders.amount").sum()},
+            where=mv.in_population(members),
         )
         .compute()
         .to_pandas()
@@ -411,7 +414,7 @@ def test_source_compare_keeps_large_integer_and_na_zero_policy(
     with duckdb.connect(str(tmp_path / "query.duckdb")) as db:
         db.execute("UPDATE orders SET amount=9007199254740993, baseline=9007199254740992")
     source = session.read(
-        session.members(ms.ref.entity("sales.orders")),
+        session.members(session.catalog.require(ms.ref.entity("sales.orders"))),
         {
             "amount": session.catalog.fields.get("sales.orders.amount"),
             "baseline": session.catalog.fields.get("sales.orders.baseline"),
@@ -456,11 +459,13 @@ def test_population_set_algebra_keeps_complete_frame_keys(
 ) -> None:
     session = source_query_session
     members = session.members(
-        ms.ref.entity("sales.orders"), where=mv.in_population(_sets(session, operation))
+        session.catalog.require(ms.ref.entity("sales.orders")),
+        where=mv.in_population(_sets(session, operation)),
     )
     rows = (
         session.observe(
-            {"total": session.catalog.fields.get("sales.orders.amount").sum()}, members=members
+            {"total": session.catalog.fields.get("sales.orders.amount").sum()},
+            where=mv.in_population(members),
         )
         .compute()
         .to_pandas()
@@ -521,7 +526,9 @@ def test_frame_key_product_projection_and_filter_preserve_domain(
     source = _attributes(session)
     selected = _identities(session, source.where(source["amount"] >= 20).compute())
     region = session.catalog.fields.get("sales.orders.region")
-    classifications = session.members(ms.ref.entity("sales.orders")).classify(by=(region,))
+    classifications = session.members(
+        session.catalog.require(ms.ref.entity("sales.orders"))
+    ).classify(by=(region,))
     product = mv.product(selected, classifications)
     population = (
         product.project(by=(region,))
@@ -547,15 +554,14 @@ def test_public_frame_bridge_evidence_keeps_producer_and_consumer_scopes(
     ordered = session.catalog.fields.get("sales.order.ordered_at")
     producer = session.observe(
         {"count": amount.count(time=ordered).where(status == "paid")},
-        by=(customer,),
-        during=session.time_scope(start="2026-09-01", end="2026-10-01"),
+        by=(session.time_scope(start="2026-09-01", end="2026-10-01"), customer),
     )
     chosen = producer.where(producer["count"] > 0)
-    selected = session.population_from(chosen, on=((chosen.axes[0], customer),))
+    selected = session.population_from(chosen, on=((chosen.axes[1], customer),))
     query = session.observe(
         {"count": amount.count(time=ordered)},
+        by=(session.time_scope(start="2026-10-01", end="2026-11-01"),),
         where=mv.in_population(selected),
-        during=session.time_scope(start="2026-10-01", end="2026-11-01"),
     )
     trace = capture_source(monkeypatch)
     saved = query.persist()

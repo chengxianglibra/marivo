@@ -8,8 +8,8 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 
 if TYPE_CHECKING:
-    session = mv.session.get_or_create("recovery-typing")
-    members = session.members(ms.ref.entity("sales.orders"))
+    session = mv.session.create("recovery-typing")
+    members = session.members(session.catalog.require(ms.ref.entity("sales.orders")))
     assert_type(members, mv.Population)
     assert_type(session.frame(members), mv.AnalysisFrame)
     recovered = session.persisted_frame("artifact_current")

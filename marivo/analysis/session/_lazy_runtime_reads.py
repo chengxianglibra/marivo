@@ -8,7 +8,6 @@ from datetime import datetime
 from typing import Literal
 
 from marivo.analysis._pages import decode_keyset_cursor, encode_keyset_cursor
-from marivo.analysis.core.artifact_data import ArtifactManifest
 from marivo.analysis.errors import (
     AnalysisError,
     AnalysisRepair,
@@ -16,19 +15,15 @@ from marivo.analysis.errors import (
     SessionNotFoundError,
     SessionStateError,
 )
-from marivo.analysis.evidence._dataset_types import ArtifactEvidenceSummary, ArtifactIssueCounts
 from marivo.analysis.materialization import terminal_store
 from marivo.analysis.materialization.contracts import (
     SessionRecord,
-    digest,
     invalid,
     parse_timestamp,
 )
 from marivo.analysis.materialization.store import SessionStore, _one, _rows, _text
-from marivo.analysis.materialization.terminal_protocol import encode
 from marivo.analysis.refs import ArtifactRef
 from marivo.analysis.session._lazy_read_model import (
-    ArtifactSummary,
     FailedRun,
     IncompleteRun,
     RunLifecycle,
@@ -36,11 +31,8 @@ from marivo.analysis.session._lazy_read_model import (
     RunRecord,
     SessionRuntimeRecap,
     SucceededRun,
-    _exact_byte_count,
 )
 from marivo.introspection.live.model import LiveHelpTarget
-
-OVERALL_GRAPH_SCAN_LIMIT = 5_000
 
 
 def aware_datetime(value: str) -> datetime:
@@ -313,40 +305,6 @@ def get_run(store: SessionStore, session_ref: str, run_id: str) -> RunRecord:
         return run_in_snapshot(store, conn, session_ref, run_id)
 
 
-def summary_in_snapshot(
-    store: SessionStore, conn: sqlite3.Connection, record: ArtifactManifest
-) -> ArtifactSummary:
-    producer = terminal_store.run(store, conn, record.run_id)
-    if producer is None or producer.terminal_at is None or producer.lifecycle != "succeeded":
-        raise invalid("Artifact summary has no succeeded producer")
-    saved = terminal_store.collection(conn, record.artifact_id)
-    handles = (record.data.rows, *(part.rows for part in record.data.attachments))
-    return ArtifactSummary(
-        artifact_ref=ArtifactRef(ref=record.artifact_id),
-        artifact_session_ref=record.session_id,
-        run_admitted_at=aware_datetime(producer.admitted_at),
-        run_finished_at=aware_datetime(producer.terminal_at),
-        family_id="terminal_output",
-        shape_id="scalar" if not record.data.schema.axes else "table",
-        committed_at=aware_datetime(producer.terminal_at),
-        producing_run_ref=record.run_id,
-        realized_row_count=record.data.rows.receipt.realized_row_count,
-        realized_byte_count=_exact_byte_count(
-            sum(part.receipt.realized_byte_count for part in handles)
-        ),
-        storage_kind_id="parquet",
-        content_authority_digest=digest(encode(record)),
-        evidence=ArtifactEvidenceSummary(
-            quality_summary_digest=saved.evidence_digest,
-            typed_issue_digest=digest(()),
-            evidence_digest=saved.evidence_digest,
-            finding_count=saved.finding_count,
-            finding_set_digest=saved.finding_set_digest,
-        ),
-        issue_counts=ArtifactIssueCounts(warning=0, blocking=0),
-    )
-
-
 def recap(store: SessionStore, session_ref: str) -> SessionRuntimeRecap:
     with store._read() as conn:
         require_session(store, conn, session_ref)
@@ -387,7 +345,6 @@ def recap(store: SessionStore, session_ref: str) -> SessionRuntimeRecap:
             failed_run_count=counts.get("failed", 0),
             incomplete_run_count=counts.get("incomplete", 0),
             attention_run_ids=tuple(_text(row, "run_ref") for row in attention),
-            overall_graph_available=run_count + artifact_count <= OVERALL_GRAPH_SCAN_LIMIT,
         )
 
 

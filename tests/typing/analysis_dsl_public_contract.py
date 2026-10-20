@@ -10,7 +10,7 @@ import marivo.semantic as ms
 from marivo.semantic.expressions import Entity, Relationship
 
 if TYPE_CHECKING:
-    session = mv.session.get_or_create("typing-public", report_timezone="UTC")
+    session = mv.session.create("typing-public", timezone="UTC")
 
     def ordinary_observation(metric: Deferred, region: Deferred) -> mv.AnalysisFrame:
         scope = session.time_scope(start="2026-01-01", end="2026-02-01")
@@ -18,19 +18,19 @@ if TYPE_CHECKING:
         assert_type(scope.end, mv.InstantAnchor)
         assert_type(session.instant(scope.end), mv.InstantAnchor)
         assert_type(scope.by(mv.grain("day")), mv.CalendarAxis)
-        query = session.observe(
-            {"value": metric}, during=scope, by=(region,), where=region == "APAC"
-        )
+        query = session.observe({"value": metric}, by=(scope, region), where=region == "APAC")
         assert_type(query, mv.AnalysisFrame)
         return query
 
     def population_contract(
         entity: Entity, region: Deferred, relation: Relationship
     ) -> mv.AnalysisFrame:
-        members = session.members(ms.ref.entity("sales.customer"))
+        members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
         assert_type(members, mv.Population)
         assert_type(members.axes, tuple[mv.Grouping, ...])
-        assert_type(members.axes[0].kind, Literal["field", "identity", "calendar", "membership"])
+        assert_type(
+            members.axes[0].kind, Literal["field", "identity", "calendar", "interval", "membership"]
+        )
         assert_type(session.frame(members), mv.AnalysisFrame)
         fixed = mv.identities(entity, keys=(("C1",), ("C2",)))
         assert_type(fixed, mv.Population)
@@ -79,7 +79,7 @@ if TYPE_CHECKING:
         assert_type(query.presence_names, tuple[str, ...])
         assert_type(query.axis(axis.name), mv.FrameAxis)
         assert_type(axis.token, str)
-        assert_type(axis.role, Literal["field", "identity", "calendar", "paired"])
+        assert_type(axis.role, Literal["field", "identity", "calendar", "interval", "paired"])
         assert_type(axis.key_names, tuple[str, ...])
         assert_type(axis.show(), None)
         assert_type(query.show(n=0), None)
@@ -105,20 +105,25 @@ if TYPE_CHECKING:
     def explicit_identity(
         metric: Deferred, field: Deferred, relation: Relationship
     ) -> mv.AnalysisFrame:
-        people = session.members(ms.ref.entity("sales.customer"))
+        people = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
         assert_type(mv.identity(session.catalog.entities.get("sales.customer")), mv.Grouping)
         assert_type(people.classify(by=(people.axes[0], field)), mv.Population)
         assert_type(people.project(by=(people.axes[0],)), mv.Population)
         assert_type(session.read(people, {"category": field}), mv.AnalysisFrame)
         assert_type(
-            session.members(ms.ref.entity("sales.customer"), where=mv.in_population(people)),
+            session.members(
+                session.catalog.require(ms.ref.entity("sales.customer")),
+                where=mv.in_population(people),
+            ),
             mv.Population,
         )
         assert_type(
             session.observe({"value": metric}, where=mv.in_population(people)), mv.AnalysisFrame
         )
         assert_type(
-            session.observe({"value": mv.member_count()}, members=people, by=(people.axes[0],)),
+            session.observe(
+                {"value": people.count()}, by=(people.axes[0],), where=mv.in_population(people)
+            ),
             mv.AnalysisFrame,
         )
         assert_type(mv.ordinal(), mv.CalendarCorrespondence)

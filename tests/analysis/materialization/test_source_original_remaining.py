@@ -23,9 +23,9 @@ def test_dynamic_sample_domain_is_transported_with_actual_leaf_batches(
     amount = session.catalog.fields.get("sales.order.amount")
     customer = session.catalog.fields.get("sales.customer.customer_id")
     channel = session.catalog.fields.get("sales.order.channel")
-    samples = session.members(ms.ref.entity("sales.customer"), where=customer != "D").classify(
-        by=(customer,)
-    )
+    samples = session.members(
+        session.catalog.require(ms.ref.entity("sales.customer")), where=customer != "D"
+    ).classify(by=(customer,))
     metric = amount.sum(empty=empty).per(samples).mean()
     trace = capture_source(monkeypatch)
     result = session.observe({"value": metric}).compute().to_pandas()
@@ -126,21 +126,18 @@ def test_dynamic_sample_producer_retains_its_own_period(
     ordered = session.catalog.fields.get("sales.order.ordered_at")
     producer = session.observe(
         {"n": amount.count(time=ordered)},
-        by=(customer,),
-        during=session.time_scope(start="2026-09-01", end="2026-10-01"),
+        by=(session.time_scope(start="2026-09-01", end="2026-10-01"), customer),
     )
     fixed = producer.where(producer["n"] > 0).compute()
-    samples = session.population_from(fixed, on=((fixed.axes[0], customer),))
+    samples = session.population_from(fixed, on=((fixed.axes[1], customer),))
     metric = amount.sum(time=ordered, empty=empty).per(samples).mean()
     fine = session.observe(
-        {"value": metric},
-        by=(channel,),
-        during=session.time_scope(start="2026-10-01", end="2026-11-01"),
+        {"value": metric}, by=(session.time_scope(start="2026-10-01", end="2026-11-01"), channel)
     )
     trace = capture_source(monkeypatch)
     result = (
         session.observe(
-            {"value": metric}, during=session.time_scope(start="2026-10-01", end="2026-11-01")
+            {"value": metric}, by=(session.time_scope(start="2026-10-01", end="2026-11-01"),)
         )
         .compute()
         .to_pandas()["value", "value"]
@@ -214,7 +211,9 @@ def test_dynamic_sample_domain_transports_distinct_complete_coordinates(
     amount = session.catalog.fields.get("sales.order.amount")
     customer = session.catalog.fields.get("sales.order.customer_id")
     channel = session.catalog.fields.get("sales.order.channel")
-    samples = session.members(ms.ref.entity("sales.order")).classify(by=(customer,))
+    samples = session.members(session.catalog.require(ms.ref.entity("sales.order"))).classify(
+        by=(customer,)
+    )
     metric = amount.sum(empty="zero").per(samples).mean()
     trace = capture_source(monkeypatch)
     result = session.observe({"value": metric}).compute().to_pandas()

@@ -87,7 +87,7 @@ def test_source_spatial_rollup_preserves_lookback_and_endpoint_occurrences(
     total = amount.sum(time=ordered_at)
     metric = (total / amount.count(time=ordered_at) if ratio else total).window(mv.all_history())
     trace = capture_source(monkeypatch)
-    frame = session.observe({"value": metric}, during=calendar).compute().to_pandas()
+    frame = session.observe({"value": metric}, by=(calendar,)).compute().to_pandas()
     assert frame["value", "value"].tolist() == ([1.0, 1.0] if ratio else [1000, 1000])
 
 

@@ -133,8 +133,8 @@ def test_mysql_direct_declared_utc_time_preserves_instants(
         table = case.session.bind(case.source, source_identity="utc-native-oracle").relation
         native = case.session._backend.execute(table.order_by("id"))
         assert isinstance(native, pd.DataFrame)
-        session = mv.session.get_or_create("mysql_utc_read", report_timezone="America/New_York")
-        members = session.members(ms.ref.entity("sales.facts"))
+        session = mv.session.create("mysql_utc_read", timezone="America/New_York")
+        members = session.members(session.catalog.require(ms.ref.entity("sales.facts")))
         artifact = session.read(
             members, {"happened": session.catalog.fields.get("sales.facts.happened")}
         ).persist()
@@ -201,7 +201,7 @@ def test_clickhouse_dst_fold_preserves_instants_and_half_open_boundaries(
         assert isinstance(native, pd.DataFrame)
         assert native.total.tolist() == [31]
         assert native["count"].tolist() == [3]
-        session = mv.session.get_or_create("clickhouse_dst", report_timezone="UTC")
+        session = mv.session.create("clickhouse_dst", timezone="UTC")
         amount = session.catalog.fields.get("sales.facts.amount")
         happened = session.catalog.fields.get("sales.facts.happened")
         scope = session.time_scope(
@@ -210,17 +210,13 @@ def test_clickhouse_dst_fold_preserves_instants_and_half_open_boundaries(
             timezone="America/New_York",
         )
         artifact = session.observe(
-            {"total": amount.sum(), "count": amount.count()}, during=scope
+            {"total": amount.sum(), "count": amount.count()}, by=(scope,)
         ).persist()
         scalar = artifact.to_pandas()
         assert scalar[("value", "total")].tolist() == native.total.tolist()
         assert scalar[("value", "count")].tolist() == native["count"].tolist()
-        fine = (
-            session.observe({"total": amount.sum()}, by=(happened,), during=scope)
-            .compute()
-            .to_pandas()
-        )
-        assert fine[("coordinate", "axis.0")].tolist() == [point[1] for point in points[:-1]]
+        fine = session.observe({"total": amount.sum()}, by=(scope, happened)).compute().to_pandas()
+        assert fine[("coordinate", "axis.1")].tolist() == [point[1] for point in points[:-1]]
         assert fine[("value", "total")].tolist() == [1, 10, 20]
         assert artifact.to_pandas().equals(
             session.persisted_frame(artifact.artifact.id).to_pandas()
@@ -238,7 +234,7 @@ def test_public_native_numeric_query(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, DATA) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.get_or_create("remote_numeric", report_timezone="UTC")
+        session = mv.session.create("remote_numeric", timezone="UTC")
         category = session.catalog.fields.get("sales.facts.category")
         query = session.observe(
             {
@@ -257,7 +253,7 @@ def test_public_native_numeric_query(
         assert len(frame) == 2
         assert frame.loc[frame[("coordinate", "axis.0")].isna(), ("value", "total")].isna().all()
         assert frame.equals(session.persisted_frame(artifact.artifact.id).to_pandas())
-        members = session.members(ms.ref.entity("sales.facts"))
+        members = session.members(session.catalog.require(ms.ref.entity("sales.facts")))
         direct_query = session.read(members, {"big": session.catalog.fields.get("sales.facts.big")})
         if profile == "distributed":
             from marivo.analysis.errors import AnalysisStageUnavailableError
@@ -287,7 +283,7 @@ def test_public_native_numeric_methods(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, DATA) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.get_or_create("remote_methods", report_timezone="UTC")
+        session = mv.session.create("remote_methods", timezone="UTC")
         query = session.observe(
             {
                 name: session.catalog.metrics.get("sales." + name)
@@ -345,12 +341,12 @@ def test_native_time_dependencies_and_drill(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, DATA) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.get_or_create("remote_dependencies", report_timezone="UTC")
+        session = mv.session.create("remote_dependencies", timezone="UTC")
         category = session.catalog.fields.get("sales.facts.category")
         tenant = session.catalog.fields.get("sales.facts.tenant")
         weight = session.catalog.fields.get("sales.facts.weight")
         amount = session.catalog.fields.get("sales.facts.amount")
-        members = session.members(ms.ref.entity("sales.facts"))
+        members = session.members(session.catalog.require(ms.ref.entity("sales.facts")))
         identity_axis = members.axes[0]
         assert identity_axis.kind == "identity"
         chosen_values = session.values(
@@ -377,7 +373,7 @@ def test_native_time_dependencies_and_drill(
         assert [float(value) for value in drilled[("value", "total")]] == [1.25, 2.75]
         scope = session.time_scope(start="2026-07-01", end="2026-07-03").by(mv.grain("day"))
         window = session.catalog.metrics.get("sales.total").window(mv.all_history())
-        cumulative = session.observe({"total": window}, during=scope).compute().to_pandas()
+        cumulative = session.observe({"total": window}, by=(scope,)).compute().to_pandas()
         assert [float(value) for value in cumulative[("value", "total")]] == [4.0, 4.0]
         empty = session.observe({"empty": session.catalog.metrics.get("sales.empty")}).compute()
         assert empty.to_pandas()[("value", "empty")].isna().all()
@@ -451,10 +447,10 @@ def test_same_source_read_filter_population_consumer(
             assert isinstance(denied, (list, tuple))
             assert len(denied) >= 2
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.get_or_create("same_source_population", report_timezone="UTC")
+        session = mv.session.create("same_source_population", timezone="UTC")
         category = session.catalog.fields.get("sales.facts.category")
         weight = session.catalog.fields.get("sales.facts.weight")
-        members = session.members(ms.ref.entity("sales.facts"))
+        members = session.members(session.catalog.require(ms.ref.entity("sales.facts")))
         attributes = session.read(members, {"category": category})
         predicate = (
             attributes["category"].is_null()
@@ -469,7 +465,7 @@ def test_same_source_read_filter_population_consumer(
         consumer = session.observe(
             {"weight": weight.sum(empty="zero")},
             by=() if selection == "nul" else (category,),
-            members=selected,
+            where=mv.in_population(selected),
         )
         statements: list[str] = []
         uploads: list[int] = []
@@ -555,10 +551,10 @@ def test_mysql_source_selection_preserves_fetched_char_and_charset_values(
         assert isinstance(denied, (list, tuple))
         assert len(denied) >= 2
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.get_or_create("source_char_selection", report_timezone="UTC")
+        session = mv.session.create("source_char_selection", timezone="UTC")
         category = session.catalog.fields.get("sales.facts.category")
         weight = session.catalog.fields.get("sales.facts.weight")
-        members = session.members(ms.ref.entity("sales.facts"))
+        members = session.members(session.catalog.require(ms.ref.entity("sales.facts")))
         attributes = session.read(members, {"category": category})
         selected_values = attributes.where(attributes["category"] == "e").compute()
         selected = session.population_from(
@@ -573,7 +569,11 @@ def test_mysql_source_selection_preserves_fetched_char_and_charset_values(
             return execute(owner, read)
 
         monkeypatch.setattr(SourceSession, "execute", record)
-        result = session.observe({"weight": weight.sum()}, members=selected).compute().to_pandas()
+        result = (
+            session.observe({"weight": weight.sum()}, where=mv.in_population(selected))
+            .compute()
+            .to_pandas()
+        )
         assert result[("value", "weight")].tolist() == [1]
         assert statements
         assert statements[0].lstrip().startswith(("SELECT", "WITH"))
@@ -607,10 +607,10 @@ def test_empty_source_selection_retains_original_identity_check(
             assert isinstance(denied, (list, tuple))
             assert len(denied) >= 2
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.get_or_create("source_check_selection", report_timezone="UTC")
+        session = mv.session.create("source_check_selection", timezone="UTC")
         category = session.catalog.fields.get("sales.facts.category")
         weight = session.catalog.fields.get("sales.facts.weight")
-        members = session.members(ms.ref.entity("sales.facts"))
+        members = session.members(session.catalog.require(ms.ref.entity("sales.facts")))
         attributes = session.read(members, {"category": category})
         selected_values = attributes.where(attributes["category"] == "absent")
         selected = session.population_from(
@@ -630,7 +630,7 @@ def test_empty_source_selection_retains_original_identity_check(
         monkeypatch.setattr(SourceSession, "execute", record)
         monkeypatch.setattr(SourceSession, "_bind_key_relation", no_key_upload)
         with pytest.raises(AnalysisError, match="non-null complete identity keys"):
-            session.observe({"weight": weight.sum()}, members=selected).compute()
+            session.observe({"weight": weight.sum()}, where=mv.in_population(selected)).compute()
         assert statements
         assert statements[0].lstrip().startswith(("SELECT", "WITH"))
         # The invalid original read must fail before any key upload or new source aggregate.
@@ -650,7 +650,7 @@ def test_remote_saved_values_cold_read_without_sources(
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, DATA) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.get_or_create("remote_cold", report_timezone="UTC")
+        session = mv.session.create("remote_cold", timezone="UTC")
         category = session.catalog.fields.get("sales.facts.category")
         saved = session.observe(
             {"total": session.catalog.metrics.get("sales.total")}, by=(category,)
@@ -671,7 +671,7 @@ def forbidden(*args, **kwargs):
     raise AssertionError('cold Artifact reading must not open a source or Catalog')
 
 with patch.object(SourceSession, '__init__', forbidden), patch.object(Session, 'catalog', property(forbidden)):
-    session = mv.session.resume('remote_cold', by='name')
+    session = mv.session.resume(sys.argv[2])
     artifact = session.persisted_frame(sys.argv[1])
     actual = artifact.to_pandas()
     expected = pd.read_pickle('saved-oracle.pkl')
@@ -682,7 +682,7 @@ with patch.object(SourceSession, '__init__', forbidden), patch.object(Session, '
     assert artifact.artifact.evidence_digest().items
 """
     completed = subprocess.run(
-        [sys.executable, "-c", code, artifact_id],
+        [sys.executable, "-c", code, artifact_id, session.id],
         cwd=tmp_path,
         text=True,
         capture_output=True,

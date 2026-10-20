@@ -7,14 +7,16 @@ window and correspondence targets are owned by
 
 ## Three independent authorities
 
-The persisted Session report timezone owns builtin observation boundary
+The persisted Session timezone owns builtin observation boundary
 interpretation. A semantic parser may declare a source read timezone; a certified
 calendar owns its boundary timezone. These remain distinct throughout binding
 and execution. Saved output preserves the actual boundary timezone and absolute
 UTC instants rather than executable source or calendar objects.
 
-A Session's explicit report_timezone is persisted; a conflicting reopen rejects.
-Omitted report_timezone resolves the system timezone once and persists it. A
+`mv.session.create(..., timezone=None)` resolves the system timezone once and
+persists the normalized name and resolution facts. An explicit timezone takes
+precedence; an invalid value fails. Exact-ID resume uses the saved timezone even
+when TZ or the host changes. `session.timezone` exposes that frozen name. A
 per-call timezone on instant/time_scope
 chooses that new boundary interpretation without mutating the saved Session.
 Fixed offsets keep their fixed meaning and do not invent IANA DST rules.
@@ -41,6 +43,25 @@ Field.at(anchor) chooses an exact attribute version with valid_from <= anchor <
 valid_to. Versioned source identities have their own explicit at. Observation
 periods do not choose attribute versions, and an exact end boundary is not a left
 limit. The current API has no before_end anchor or automatic prior-version fallback.
+
+## Output time domains
+
+`observe(metrics, *, by=(), where=None)` takes time in by. A TimeScope contributes
+one interval coordinate with exact start/end and boundary timezone; a CalendarAxis
+contributes its finite buckets. One bucket is still an axis. At most one output
+time axis is allowed. `by=()` has no endpoints; a hard time predicate does not
+supply them. Interval output permits all_history, trailing_duration, since and
+endpoint to_date; trailing_periods requires a calendar axis. A count-only Metric
+can repeat a captured Population count over a time domain, but conditions/windows
+with no fact effect reject.
+
+An interval directory records all declared intervals separately from actual row
+keys. Equality unions directories by exact boundaries and boundary timezone; outer
+adds only actual keys. where/top/select preserve the full directory, even when
+one row remains. Interval ordinal still requires one declared record per side;
+filtering a multi-interval directory does not qualify it. Interval and calendar
+axes are distinct, cannot bridge back to source, and are never implicitly squeezed
+or broadcast. Time plus ordinary axes requires complete explicit on in comparison.
 
 ## Grain, nominal buckets and actual intervals
 
@@ -84,7 +105,7 @@ window, endpoint or evaluation grain requires a new observe.
 Time is subtracted in instant space for a fixed duration, then presented in the
 boundary zone. Seven civil periods need not equal 168 elapsed hours. Period
 lookback requires complete nominal periods and the same certified authority.
-Scalar to-date selects the unique reset period left < e <= right, using the
+Interval to-date selects the unique reset period left < e <= right, using the
 just-ended period at an exact boundary. It does not inspect the display start.
 With calendar output, every nominal output bucket must also be contained in one
 reset period; a cross-month week cannot become a month-to-date day.
@@ -92,7 +113,7 @@ reset period; a cross-month week cannot become a month-to-date day.
 Each endpoint evaluates the whole Metric formula over its full W(t). Independent
 windows are completed before corresponding the endpoints. Overlap retains the
 (output key, component, contribution occurrence); it is not a global deduplication.
-A window never expands explicit member selection or a child intrinsic filter.
+A window never expands explicit Population contribution selection or a child intrinsic filter.
 Time sampling checks apply to the actual demanded child samples. Completed Frame
 operations do not change that source window or retain its internal samples. A
 new window/calendar or original target observation requires explicit source
@@ -101,8 +122,10 @@ construction; summing represented window values is a different current-row quest
 ## Period correspondence
 
 Frame align/compare uses full explicit on, except zero axes and exactly one sole
-calendar axis on each input. Match is always an explicit choice. It requires
-exactly one compatible calendar pair and rejects already paired inputs. All
+interval axis or one sole calendar axis on each input. Match is always an explicit
+choice. Interval ordinal requires exactly one declared interval record per side
+and equal boundary timezones; it does not require equal boundaries. A calendar
+match requires exactly one compatible calendar pair. Already paired inputs reject. All
 matching consumes finite frozen directories and versioned pure rules, without
 current CalendarAxis, model, certification or timezone-rule reconstruction.
 

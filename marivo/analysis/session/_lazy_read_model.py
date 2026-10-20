@@ -2,64 +2,17 @@
 
 from __future__ import annotations
 
-from dataclasses import InitVar, dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, TypeAlias
 
-from marivo._compat import Never
 from marivo.analysis._pages import _BoundedPage
-from marivo.analysis.datasets.errors import DatasetConstructionError
-from marivo.analysis.evidence._dataset_types import ArtifactEvidenceSummary, ArtifactIssueCounts
 from marivo.analysis.materialization.contracts import RunFailure, invalid
 from marivo.analysis.materialization.terminal_protocol import InvocationInput
 from marivo.analysis.refs import ArtifactRef
 from marivo.render import Card, RenderableResult
 
 RunLifecycle: TypeAlias = Literal["incomplete", "succeeded", "failed"]
-GraphDirection: TypeAlias = Literal["ancestors", "descendants"]
-_BYTE_COUNT_TOKEN = object()
-
-
-def _byte_count_error(expected: str, received: str, location: str) -> Never:
-    raise DatasetConstructionError(
-        expected=expected,
-        received=received,
-        repair="Reconstruct this exact runtime count through the Session read model.",
-        location=location,
-    )
-
-
-class DatasetByteCount:
-    """Exact byte count retained on a current Session Artifact summary."""
-
-    __slots__ = ()
-    kind: Literal["exact"]
-    byte_count: int
-
-    def __init__(self, *, _token: object) -> None:
-        _byte_count_error("a helper-produced exact byte count", "direct construction", "byte_count")
-
-    def __repr__(self) -> str:
-        return f"<{type(self).__name__.lstrip('_')} kind={self.kind}>"
-
-
-@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class _ExactByteCount(DatasetByteCount):
-    _token: InitVar[object]
-    byte_count: int
-    kind: Literal["exact"] = field(default="exact", init=False)
-
-    def __post_init__(self, _token: object) -> None:
-        if _token is not _BYTE_COUNT_TOKEN:
-            _byte_count_error(
-                "a helper-produced exact byte count", "direct construction", type(self).__name__
-            )
-        if type(self.byte_count) is not int or self.byte_count < 0:
-            _byte_count_error("a non-negative integer", str(self.byte_count), "byte_count")
-
-
-def _exact_byte_count(byte_count: int) -> DatasetByteCount:
-    return _ExactByteCount(_token=_BYTE_COUNT_TOKEN, byte_count=byte_count)
 
 
 def _identity(value: str) -> None:
@@ -210,159 +163,6 @@ class RunPage(_BoundedPage[RunRecord]):
 
 
 @dataclass(frozen=True, repr=False, slots=True, kw_only=True)
-class ArtifactSummary(RenderableResult):
-    artifact_ref: ArtifactRef
-    artifact_session_ref: str
-    run_admitted_at: datetime
-    run_finished_at: datetime
-    family_id: str
-    shape_id: str
-    committed_at: datetime
-    producing_run_ref: str
-    realized_row_count: int
-    realized_byte_count: DatasetByteCount
-    storage_kind_id: str
-    content_authority_digest: str
-    evidence: ArtifactEvidenceSummary
-    issue_counts: ArtifactIssueCounts
-
-    def __post_init__(self) -> None:
-        _refs((self.artifact_ref,))
-        for identity in (
-            self.artifact_session_ref,
-            self.family_id,
-            self.shape_id,
-            self.producing_run_ref,
-            self.storage_kind_id,
-            self.content_authority_digest,
-        ):
-            _identity(identity)
-        for value in (self.run_admitted_at, self.run_finished_at, self.committed_at):
-            _aware(value)
-        _count(self.realized_row_count)
-        if self.run_finished_at < self.run_admitted_at or self.committed_at < self.run_admitted_at:
-            raise invalid("Artifact timing precedes producer admission")
-
-    def _repr_identity(self) -> str:
-        return f"ArtifactSummary ref={self.artifact_ref} family={self.family_id} rows={self.realized_row_count}"[
-            :256
-        ]
-
-    def _card(self) -> Card:
-        return (
-            Card(
-                identity=self._repr_identity(), available=(".show()", ".evidence", ".issue_counts")
-            )
-            .field("owner", self.artifact_session_ref)
-            .field("producer", self.producing_run_ref)
-            .field("shape", self.shape_id)
-            .field("committed_at", self.committed_at.isoformat())
-            .field("storage", self.storage_kind_id)
-            .field("findings", str(self.evidence.finding_count))
-            .field(
-                "issues",
-                f"warning={self.issue_counts.warning} blocking={self.issue_counts.blocking}",
-            )
-        )
-
-
-@dataclass(frozen=True, slots=True, kw_only=True, repr=False)
-class SessionGraphEdge(RenderableResult):
-    kind: Literal["produces"]
-    run_id: str
-    artifact_ref: ArtifactRef
-
-    def __post_init__(self) -> None:
-        if self.kind != "produces":
-            raise invalid("unregistered graph edge kind")
-        _identity(self.run_id)
-        _refs((self.artifact_ref,))
-
-    def _repr_identity(self) -> str:
-        return f"SessionGraphEdge kind={self.kind} run={self.run_id} artifact={self.artifact_ref}"[
-            :256
-        ]
-
-    def _card(self) -> Card:
-        return Card(identity=self._repr_identity(), available=(".show()",))
-
-
-@dataclass(frozen=True, repr=False, slots=True, kw_only=True)
-class SessionGraph(RenderableResult):
-    """Selected production records; roots/heads contain every selected Run/Artifact.
-
-    Boundaries identify selected nodes whose requested neighbor was omitted.
-    """
-
-    session_id: str
-    artifacts: tuple[ArtifactSummary, ...]
-    runs: tuple[RunRecord, ...]
-    edges: tuple[SessionGraphEdge, ...]
-    root_run_ids: tuple[str, ...]
-    head_artifact_refs: tuple[ArtifactRef, ...]
-    failed_run_ids: tuple[str, ...]
-    incomplete_run_ids: tuple[str, ...]
-    boundary_artifact_refs: tuple[ArtifactRef, ...]
-    boundary_run_ids: tuple[str, ...]
-    truncated: bool
-
-    def __post_init__(self) -> None:
-        _identity(self.session_id)
-        if (
-            type(self.artifacts) is not tuple
-            or type(self.runs) is not tuple
-            or type(self.edges) is not tuple
-        ):
-            raise invalid("graph collections must be immutable tuples")
-        if len(self.artifacts) + len(self.runs) > 500 or type(self.truncated) is not bool:
-            raise invalid("invalid bounded Session graph")
-        artifact_ids = {item.artifact_ref for item in self.artifacts}
-        run_ids = {run.run_id for run in self.runs}
-        if len(artifact_ids) != len(self.artifacts) or len(run_ids) != len(self.runs):
-            raise invalid("duplicate selected graph identity")
-        for refs in (self.head_artifact_refs, self.boundary_artifact_refs):
-            _refs(refs)
-            if not set(refs) <= artifact_ids:
-                raise invalid("graph Artifact set escapes selected records")
-        for run_refs in (
-            self.root_run_ids,
-            self.failed_run_ids,
-            self.incomplete_run_ids,
-            self.boundary_run_ids,
-        ):
-            if (
-                type(run_refs) is not tuple
-                or len(set(run_refs)) != len(run_refs)
-                or not set(run_refs) <= run_ids
-            ):
-                raise invalid("graph Run set escapes selected records")
-        if any(
-            edge.run_id not in run_ids or edge.artifact_ref not in artifact_ids
-            for edge in self.edges
-        ):
-            raise invalid("graph edge escapes selected records")
-
-    def _repr_identity(self) -> str:
-        return f"SessionGraph session={self.session_id} artifacts={len(self.artifacts)} runs={len(self.runs)} edges={len(self.edges)}"[
-            :256
-        ]
-
-    def _card(self) -> Card:
-        return (
-            Card(
-                identity=self._repr_identity(),
-                available=(".artifacts", ".runs", ".edges", ".show()"),
-            )
-            .field("truncated", str(self.truncated))
-            .listing("artifacts", (repr(value) for value in self.artifacts))
-            .listing("runs", (repr(value) for value in self.runs))
-            .listing("heads", (str(ref) for ref in self.head_artifact_refs))
-            .listing("boundaries", (*map(str, self.boundary_artifact_refs), *self.boundary_run_ids))
-            .field("source freshness", "not checked by SessionGraph")
-        )
-
-
-@dataclass(frozen=True, repr=False, slots=True, kw_only=True)
 class SessionRuntimeRecap(RenderableResult):
     session_id: str
     run_count: int
@@ -373,7 +173,6 @@ class SessionRuntimeRecap(RenderableResult):
     failed_run_count: int
     incomplete_run_count: int
     attention_run_ids: tuple[str, ...]
-    overall_graph_available: bool
 
     def __post_init__(self) -> None:
         _identity(self.session_id)
@@ -387,13 +186,8 @@ class SessionRuntimeRecap(RenderableResult):
         ):
             _count(value)
         _refs(self.head_artifact_refs)
-        if (
-            type(self.attention_run_ids) is not tuple
-            or type(self.overall_graph_available) is not bool
-        ):
-            raise invalid(
-                "runtime recap requires an immutable attention tuple and exact availability boolean"
-            )
+        if type(self.attention_run_ids) is not tuple:
+            raise invalid("runtime recap requires an immutable attention tuple")
         for run_id in self.attention_run_ids:
             _identity(run_id)
         if len(set(self.attention_run_ids)) != len(self.attention_run_ids):
@@ -418,8 +212,6 @@ class SessionRuntimeRecap(RenderableResult):
         available.extend(
             f".persisted_frame({ref.ref!r}).artifact" for ref in self.head_artifact_refs
         )
-        if self.overall_graph_available:
-            available.append(".graph()")
         return (
             Card(identity=self._repr_identity(), available=available)
             .field(

@@ -39,7 +39,7 @@ TimeUnit = Literal["s", "ms", "us", "ns"]
 @pytest.fixture
 def session(tmp_path: Path) -> Session:
     return Session._from_runtime(
-        DatasetRuntime.create(tmp_path, "temporal-expressions", report_timezone="UTC")
+        DatasetRuntime.create(tmp_path, "temporal-expressions", timezone="UTC")
     )
 
 
@@ -357,7 +357,7 @@ os.environ['MARIVO_PROJECT_ROOT'] = sys.argv[1]
 def forbidden(*args, **kwargs):
     raise AssertionError('cold temporal continuation attempted source reconstruction')
 with patch.object(Session, 'catalog', property(forbidden)), patch.object(SourceSession, '__init__', forbidden), patch.object(frame_evaluation, 'open_query_sources', forbidden):
-    session = mv.session.resume(sys.argv[2], by='id')
+    session = mv.session.resume(sys.argv[2])
     before = session.runs().items
     for artifact in json.loads(sys.argv[3]):
         frame = session.persisted_frame(artifact)

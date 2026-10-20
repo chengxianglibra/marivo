@@ -74,7 +74,7 @@ def _session(
                 + "amount=ms.measure_column(name='amount',entity=facts,column='amount',additivity=ms.additive_all())\n",
             }
         )
-        yield (mv.session.get_or_create("remote-samples", report_timezone="UTC"), case)
+        yield (mv.session.create("remote-samples", timezone="UTC"), case)
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
@@ -130,7 +130,7 @@ def test_remote_window_spatial_rollup_retains_lookback_and_each_endpoint(
             if method == "mean"
             else total
         ).window(mv.all_history())
-        query = session.observe({"value": metric}, during=calendar)
+        query = session.observe({"value": metric}, by=(calendar,))
         trace = capture_source(monkeypatch)
         frame = query.compute().to_pandas()
         assert frame["value", "value"].tolist() == ([1000, 1000] if method == "sum" else [1.0, 1.0])
@@ -214,7 +214,7 @@ def test_remote_selected_window_rollup_keeps_correlated_endpoint_and_parent_keys
         day = session.catalog.fields.get("sales.facts.day")
         calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))
         metric = amount.sum(time=day).window(mv.all_history())
-        fine = session.observe({"value": metric}, during=calendar, by=(customer,))
+        fine = session.observe({"value": metric}, by=(calendar, customer))
         fixed = fine.top(3, by=fine["value"]).compute()
         frame = fixed.to_pandas()
         assert frame["value", "value"].tolist() == [500, 500, 500]

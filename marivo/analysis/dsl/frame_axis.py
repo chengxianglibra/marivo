@@ -31,7 +31,7 @@ class FrameAxis:
     _input_id: str
     token: str
     name: str
-    role: Literal["field", "identity", "calendar", "paired"]
+    role: Literal["field", "identity", "calendar", "interval", "paired"]
     key_names: tuple[str, ...]
 
     def __init__(self) -> None:

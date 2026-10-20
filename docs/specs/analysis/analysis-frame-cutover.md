@@ -17,7 +17,7 @@ create a Run. Use returned compute/persist Frames to retain exact values and key
 ```python
 import marivo.analysis as mv
 
-session = mv.session.get_or_create("cutover-example", report_timezone="UTC")
+session = mv.session.create("cutover-example", timezone="UTC")
 pending = session.values(by=(), columns={"amount": "CNY"}, rows=(((), {"amount": 100}),))
 fixed = pending.compute()
 saved = fixed.select({"adjusted": fixed["amount"] + 10}).persist()
@@ -25,7 +25,7 @@ saved.show(n=5)
 saved.artifact.show()
 saved_session_id = session.id
 saved_artifact_id = saved.artifact.id
-resumed = mv.session.resume(saved_session_id, by="id")
+resumed = mv.session.resume(saved_session_id)
 reopened = resumed.persisted_frame(saved_artifact_id)
 continued = reopened.where(reopened["adjusted"] > 0).compute()
 continued.show()
@@ -57,7 +57,7 @@ remain one axis in by/on, not one scalar value.
 
 Column/FrameAxis handles belong to exact inputs, not names/fingerprints or a
 reconstructed source. Ordinary axes require complete explicit on; zero axes and
-one sole calendar axis per input permit only the stated inference. Match is
+one sole interval or calendar axis per input permit only the stated inference. Match is
 chosen explicitly. Align preserves left/right values, compare generates four
 groups; relative is (left-right)/abs(right). Missing endpoints and NA differ,
 with independent presence. Outer keeps left row order then right-only rows.
@@ -68,13 +68,10 @@ Given a Session, resolved revenue Metric and region/city Fields, and explicit
 current_period, fix a parent selection before asking for a new breakdown:
 
 ```python
-regional = session.observe({"revenue": revenue}, during=current_period, by=(region,))
+regional = session.observe({'revenue': revenue}, by=(current_period, region))
 chosen = regional.top(5, by=regional["revenue"]).compute()
-parents = session.population_from(chosen, on=((chosen.axes[0], region),))
-cities = session.observe(
-    {"revenue": revenue}, during=current_period, by=(region, city),
-    where=mv.in_population(parents),
-).compute()
+parents = session.population_from(chosen, on=((chosen.axes[1], region),))
+cities = session.observe({'revenue': revenue}, by=(current_period, region, city), where=mv.in_population(parents)).compute()
 cities.show()
 ```
 
@@ -96,10 +93,10 @@ keys_only.show()
 ```
 
 Only ordinary field or complete identity axes bridge onto explicit resolved
-Field/Entity inputs. No calendar/paired/value-column bridge, automatic source
+Field/Entity inputs. No interval/calendar/paired/value-column bridge, automatic source
 object recovery, Field-to-Entity promotion or per-axis Cartesian reconstruction
-is provided. by=Population is complete output coverage; use in_population for
-contribution filtering, qualified identity members for membership.
+is provided. by=Population is the selected complete output domain; use in_population for
+contribution filtering. Population.count captures a complete identity domain independently.
 
 ## Removed and postponed capabilities
 
@@ -114,7 +111,8 @@ union distinct 3. Reduce is not an equivalent replacement for original rollup.
 Unsupported intents without a valid explicit source route remain unsupported;
 external arithmetic must state its own fixed input, denominator and limitations.
 
-Ordinal and supported builtin previous_year/period_offset consume frozen finite
+Interval ordinal requires one declared record per side with the same boundary
+timezone. Calendar ordinal and supported builtin previous_year/period_offset consume frozen finite
 calendar data. Named calendars support ordinal only. Named offsets, subday/DST
 offsets, multiple matched calendars and time_axis=current projection are postponed.
 Match requires compatible complete nominal partitions and actual bounds equal to
@@ -142,18 +140,33 @@ producer graph, original semantic object, connection or hidden aggregate state.
 One audit contains inherited source facts (exact-value dedup only) plus current
 evaluation. It does not accumulate all intermediate history. Source read,
 evaluation and commit times remain distinct; a recent commit is not refreshed
-data. SessionGraph is a publishing graph, not complete data lineage or a latest
-answer selector. RawSqlResult stays on its independent datasource reader and
+data. Use runs/get_run and output references for publishing history; there is no
+public Session graph or latest-answer selector. RawSqlResult stays on its independent datasource reader and
 does not enter Frame Store, typed operands or a new importer.
 
-## Store 11 to Store 12
+## Session and observe inputs
 
-Store 12 refuses every older generation's Session/result and owned Finding/Evidence
+Use strict `mv.session.create(name, timezone=None)` for a new name. Omission freezes
+the creation-time system zone; exact-ID `resume` restores that value, regardless of
+later TZ changes. `recent` discovers names/IDs, `inspect(session_id)` reads bounded
+metadata, and `reconcile_run(session_id=..., run_id=...)` checks an original publish
+transaction. There is no implicit current Session, graph or Session source_bindings.
+
+TimeScope/CalendarAxis belong in observe.by. An interval is a real output axis,
+including single-bucket results. P.count() captures a complete Entity identity
+Population, including absent identities; counts of P/Q are independent lazy
+Metrics. by=P selects output keys rather than asserting coverage of all source
+coordinates. Time plus ordinary axes requires complete on; use explicit ordinal
+for a two-period comparison. Ordinary bridges select only ordinary axes.
+
+## Older Stores to Store 13
+
+Store 13 refuses every older generation's Session/result and owned Finding/Evidence
 data reads without changing any old database/WAL/SHM/payload bytes. There is no
 migration, dual read or downgrade. The restriction covers data access beyond
 persisted_frame; renaming a Session or selecting an old descriptor cannot bypass
-it. create/get_or_create cannot initialize a new generation around an old-only
-project. Documented absent-current discovery current/recent may return None/empty
+it. create cannot initialize a new generation around an old-only
+project. Read-only recent discovery may return an empty page
 without exposing old state; that does not grant an older-data read exception.
 
 Before switching, export required results with the version that wrote them.

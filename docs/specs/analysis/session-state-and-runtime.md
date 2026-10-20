@@ -6,7 +6,7 @@ progress record owns acceptance. This page is not a provider/release certificate
 
 ## Session and invocation ownership
 
-Session binds project Store identity, report timezone, Catalog/source construction
+Session binds project Store identity, frozen timezone, Catalog/source construction
 and invocation-local services. Frames retain exact local ownership without
 capturing the producer Session/Catalog, source connection or bound callback.
 Frame/Column/FrameAxis dependencies stay alive while consumers need them; no
@@ -22,6 +22,29 @@ evaluation may precede admission; commit time belongs to the publishing Run.
 Memory persist never rereads sources. Stored persist checks commit metadata and
 returns itself without another Run. Reusing a pending source expression can
 read changed data; use the returned fixed root when exact prior values matter.
+
+## Explicit lifecycle and frozen context
+
+Use `mv.session.create(name, *, question=None, timezone=None, domains=None)` to
+create a new project-unique name. Empty names, surrounding whitespace and duplicate
+names fail; the duplicate error reports the existing exact Session ID. Creation
+freezes the normalized domains and timezone. `timezone=None` resolves the system
+zone once at creation, retaining its resolution facts; an explicit invalid zone
+fails. `session.timezone` returns the saved normalized name.
+
+`mv.session.resume(session_id)` opens only that exact existing identity and performs
+necessary recovery under the writer guard. `recent()` is bounded read-only
+name/ID discovery; `inspect(session_id)` is exact-ID read-only inspection, including
+bounded Run pages. Neither discovery nor inspection recovers a Run. There is no
+implicit current Session or activation. A resume with no recovery work, an inspect,
+or compute does not refresh updated_at; it records committed state changes.
+
+`mv.session.reconcile_run(session_id=..., run_id=...)` checks the original publishing
+transaction and owned resources without source recomputation. It checks Run
+ownership and refuses an active writer. `session.members(entity, ...)` accepts a
+resolved Entity with the existing identity/version/at contract. `values` defaults
+to `by=()`. Source-free typed literal frames and `population_from(..., on=())` need
+no unrelated Catalog load. Session has no source_bindings or graph method.
 
 ## One prepared stage schedule
 
@@ -46,9 +69,9 @@ is separate from fixed Frame inputs and local combination.
 
 ## Store generation and data layout
 
-Store 12 is under `<project_root>/.marivo/analysis/generations/v12/`. One closed
-Frame output protocol stores values, complete axes, independent presence, typed
-frozen calendar/map attachments, receipts and one audit. It stores no executable
+Store 13 is under `<project_root>/.marivo/analysis/generations/v13/`. One closed
+`marivo.frame_output/v2` protocol stores values, complete axes, independent presence, typed
+frozen interval/calendar/map attachments, receipts and one audit. It stores no executable
 Python class path, source/Metric graph or hidden components. All analysis
 Artifacts are Frame commits; Artifact and stored Frame share one commit authority.
 
@@ -60,7 +83,7 @@ row-group setting or codec extension registry is added.
 
 Older generations' Session/result/Findings/Evidence data refuse unchanged. There
 is no migration, dual read or new Store initialization around an old-only project.
-Documented current/recent discovery can return None/empty for an absent current
+Documented recent discovery returns an empty page for an absent current
 generation without exposing old state. Export required old results with their
 original version or retain a compatible environment. See [cutover](analysis-frame-cutover.md).
 
@@ -76,9 +99,8 @@ Retain the existing Store writer guard, resource journal and success transaction
 Failures clean only their Run's resources. Unknown commit acknowledgement is
 reconciled against that same transaction and identity; never reevaluate to settle
 it. Stored persist is idempotent only for that stored commit; publishing a memory
-root again may create a new commit without new evaluation. SessionGraph retains
-Run-to-Artifact publishing edges and does not claim complete data lineage or
-choose a latest answer.
+root again may create a new commit without new evaluation. Use runs/get_run
+and output references for publication history; there is no public Session graph.
 
 ## Resource lifetime and native cancellation
 

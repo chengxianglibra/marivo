@@ -14,6 +14,7 @@ from marivo._definition.relations import (
     CalendarKeys,
     FrameKeyAxis,
     FrameKeys,
+    IntervalKeys,
     LiteralPopulation,
     MembershipBinding,
     PopulationAnd,
@@ -38,6 +39,7 @@ from marivo._definition.types import (
     ExactRef,
     FieldRead,
     IdentityRead,
+    IntervalCoordinate,
     Owner,
     literal_token,
 )
@@ -72,6 +74,7 @@ _SCOPE_RECORDS = (
     PopulationPreimage,
     SourceIdentities,
     CalendarKeys,
+    IntervalKeys,
     PopulationContains,
     PopulationAnd,
     PopulationOr,
@@ -142,6 +145,13 @@ def _scope(value: object) -> object:
             "inputs": tuple(_scope(item) for item in value.inputs),
             "special_scopes": _special_scopes(value.recipe),
         }
+    if isinstance(value, IntervalCoordinate):
+        return {
+            "scope": "interval",
+            "start": _scope(value.start),
+            "end": _scope(value.end),
+            "timezone": value.timezone,
+        }
     if isinstance(value, CalendarCoordinate):
         return {
             "scope": "calendar",
@@ -195,8 +205,7 @@ def captured_source_scopes(graph: BoundGraph) -> tuple[str, ...]:
         return ()
     scopes = (
         observation.condition,
-        observation.members,
-        observation.member_population,
+        *(domain for pair in observation.count_populations for domain in pair),
         observation.coordinates.population,
         *(
             condition

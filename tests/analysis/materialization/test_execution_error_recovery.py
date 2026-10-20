@@ -21,7 +21,11 @@ from tests.support.execution_logs import execution_records
 
 def _members(case: DslCase) -> mv.AnalysisFrame:
     return case.session.frame(
-        case.session.members(ms.ref.entity(f"{case.names.domain}.{case.names.customer}"))
+        case.session.members(
+            case.session.catalog.require(
+                ms.ref.entity(f"{case.names.domain}.{case.names.customer}")
+            )
+        )
     )
 
 
@@ -92,7 +96,7 @@ def test_source_failure_retries_have_no_publication_runs(
             assert caught.value.expected and caught.value.received and caught.value.repair
             assert case.session.runs().items == ()
             assert _result_files(case) == files_before
-            assert case.session.graph().artifacts == ()
+            assert case.session.runs(status="succeeded").items == ()
             assert case.session._runtime.store.resources(case.session.id) == ()
 
     original = MaterializationError(
@@ -144,11 +148,11 @@ def test_publication_failure_retries_keep_exact_readable_runs(
         assert error.run_ref in str(error)
         case.session.get_run(error.run_ref).show()
         assert error.run_ref in capsys.readouterr().out
-        assert case.session.graph().artifacts == ()
+        assert case.session.runs(status="succeeded").items == ()
         assert case.session._runtime.store.resources(case.session.id) == ()
         assert _result_files(case) == before
     assert len(set(run_ids)) == 2
-    mv.session.abandon_run(session_id=case.session.id, run_id=run_ids[0])
+    mv.session.reconcile_run(session_id=case.session.id, run_id=run_ids[0])
     assert {run.run_id for run in case.session.runs(status="failed").items} == set(run_ids)
 
 
@@ -156,7 +160,7 @@ def test_real_pairing_check_failure_has_no_publication_run(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     session = analysis_dsl_case_factory("j2").session
-    members = session.members(ms.ref.entity("sales.customer"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.customer")))
     region = session.read(members, {"region": session.catalog.fields.get("sales.customer.region")})
     chosen = region.where(region["region"] == "east")
     selected = session.population_from(
@@ -164,13 +168,13 @@ def test_real_pairing_check_failure_has_no_publication_run(
     )
     scope = session.time_scope(start="2026-08-01", end="2026-09-01")
     metric = session.catalog.metrics.get("sales.revenue")
-    current = session.observe({"value": metric}, during=scope, members=selected, by=selected)
-    baseline = session.observe({"value": metric}, during=scope, by=members)
+    current = session.observe({"value": metric}, by=mv.product(scope, selected))
+    baseline = session.observe({"value": metric}, by=mv.product(scope, members))
     with pytest.raises(AnalysisError) as caught:
         current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True))).persist()
     assert caught.value.expected and caught.value.received
     assert caught.value.run_ref is None
-    assert session.runs().items == () and session.graph().artifacts == ()
+    assert session.runs().items == () and session.runs(status="succeeded").items == ()
     assert session._runtime.store.resources(session.id) == ()
 
 
@@ -251,5 +255,5 @@ def test_control_exception_keeps_type_and_closes_source_without_run(
     with pytest.raises(KeyboardInterrupt) as caught:
         logical.persist()
     assert caught.value is original
-    assert case.session.runs().items == () and case.session.graph().artifacts == ()
+    assert case.session.runs().items == () and case.session.runs(status="succeeded").items == ()
     assert case.session._runtime.store.resources(case.session.id) == ()

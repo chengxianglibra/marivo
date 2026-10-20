@@ -129,20 +129,57 @@ class CalendarDataAxis(DataAxis):
 
 
 @dataclass(frozen=True, slots=True)
-class PairedDataAxis(DataAxis):
-    """A single-level paired key with explicit calendar endpoint descriptors."""
+class FrozenIntervalData:
+    """A closed finite interval directory reference, without executable rules."""
 
-    left: CalendarDataAxis
-    right: CalendarDataAxis
+    directory_name: str
+    rule_version: Literal["interval.v1"] = "interval.v1"
+
+    def __post_init__(self) -> None:
+        _text(self.directory_name, "data.interval.directory")
+        if self.rule_version != "interval.v1":
+            reject(
+                "the interval.v1 descriptor",
+                repr(self),
+                "Freeze the interval directory.",
+                "data.interval",
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class IntervalDataAxis(DataAxis):
+    """Saved interval keys whose exact bounds and zones belong to the directory."""
+
+    frozen: FrozenIntervalData
+
+    def __post_init__(self) -> None:
+        DataAxis.__post_init__(self)
+        if type(self.frozen) is not FrozenIntervalData:
+            reject(
+                "a frozen interval descriptor",
+                repr(self.frozen),
+                "Freeze the interval.",
+                "data.interval",
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class PairedDataAxis(DataAxis):
+    """A single-level paired key with explicit time endpoint descriptors."""
+
+    left: CalendarDataAxis | IntervalDataAxis
+    right: CalendarDataAxis | IntervalDataAxis
     mapping_name: str
 
     def __post_init__(self) -> None:
         DataAxis.__post_init__(self)
-        if type(self.left) is not CalendarDataAxis or type(self.right) is not CalendarDataAxis:
+        if type(self.left) not in (CalendarDataAxis, IntervalDataAxis) or type(
+            self.left
+        ) is not type(self.right):
             reject(
-                "two nonpaired calendar endpoint descriptors",
+                "two nonpaired time endpoint descriptors of the same kind",
                 repr((self.left, self.right)),
-                "Retain the two complete calendar endpoints.",
+                "Retain the two complete time endpoints.",
                 "data.paired",
             )
         _text(self.mapping_name, "data.paired.mapping")
@@ -157,7 +194,7 @@ class PairedDataAxis(DataAxis):
 
 @dataclass(frozen=True, slots=True)
 class DataSchema:
-    axes: tuple[DataAxis | CalendarDataAxis | PairedDataAxis, ...]
+    axes: tuple[DataAxis | CalendarDataAxis | IntervalDataAxis | PairedDataAxis, ...]
     values: tuple[DataColumn, ...]
     presence: tuple[DataColumn, ...] = ()
     projection_columns: tuple[DataColumn, ...] = ()
@@ -167,7 +204,10 @@ class DataSchema:
     def __post_init__(self) -> None:
         if (
             type(self.axes) is not tuple
-            or any(type(a) not in (DataAxis, CalendarDataAxis, PairedDataAxis) for a in self.axes)
+            or any(
+                type(a) not in (DataAxis, CalendarDataAxis, IntervalDataAxis, PairedDataAxis)
+                for a in self.axes
+            )
             or any(
                 type(columns) is not tuple or any(type(c) is not DataColumn for c in columns)
                 for columns in (self.values, self.presence, self.projection_columns)

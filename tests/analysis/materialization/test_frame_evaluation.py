@@ -70,7 +70,7 @@ denominator = ms.measure_column(name='denominator', entity=facts, column='denomi
         load=False,
     )
     monkeypatch.chdir(tmp_path)
-    return mv.session.get_or_create("frame-evaluation", report_timezone="UTC")
+    return mv.session.create("frame-evaluation", timezone="UTC")
 
 
 def _fact_scopes(facts: tuple[OutputEvidence, ...]) -> list[object]:
@@ -287,6 +287,98 @@ def test_pending_source_show_discloses_captured_scope_without_execution(
     assert _inventory(session) == before and session.runs().items == ()
 
 
+def test_pending_scope_summary_keeps_interval_count_domains_and_joint_keys_without_reads(
+    session: Session, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    entity = session.catalog.entities.get("sales.facts")
+    first = mv.identities(entity, keys=(("t1", 1), ("missing", 999)))
+    second = mv.identities(entity, keys=(("t2", 2),))
+    scope = session.time_scope(start="2026-08-01", end="2026-09-01", timezone="Asia/Shanghai")
+    domain = mv.product(scope, first)
+    counted = session.observe({"first": first.count(), "second": second.count()}, by=domain)
+    keys = session.frame(domain)
+    before = _inventory(session)
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("captured scope display must not prepare, evaluate or read")
+
+    monkeypatch.setattr(
+        "marivo.analysis.materialization.frame_evaluation.evaluate_frame", forbidden
+    )
+    monkeypatch.setattr(
+        "marivo.analysis.materialization.frame_evaluation.open_query_sources", forbidden
+    )
+    monkeypatch.setattr("marivo.datasource.runtime.DatasourceConnectionConfig.operation", forbidden)
+    for value in (counted, keys):
+        value.show(n=0)
+        text = capsys.readouterr().out
+        assert "PopulationProduct factors=2; joint tuples preserved" in text
+        assert "('missing', 999)" in text and "('t1', 1)" in text
+        assert "2026-07-31T16:00:00+00:00" in text and "2026-08-31T16:00:00+00:00" in text
+        assert "Asia/Shanghai" in text and "interval" in text and "identity" in text
+        assert "owner_id" not in text and "sha256:" not in text
+        if value is counted:
+            assert "count[0].domain" in text and "count[1].domain" in text
+            assert "('t2', 2)" in text
+    assert _inventory(session) == before and session.runs().items == ()
+
+
+def test_pending_count_scope_distinguishes_literal_entities_with_the_same_keys(
+    analysis_dsl_case_factory: DslCaseFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    case = analysis_dsl_case_factory("j2")
+    customers = mv.identities(case.catalog.entities.get("sales.customer"), keys=(("same",),))
+    orders = mv.identities(case.catalog.entities.get("sales.order"), keys=(("same",),))
+    pending = case.session.observe({"customers": customers.count(), "orders": orders.count()})
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("count scope display consulted a source")
+
+    monkeypatch.setattr(
+        "marivo.analysis.materialization.frame_evaluation.evaluate_frame", forbidden
+    )
+    monkeypatch.setattr("marivo.datasource.runtime.DatasourceConnectionConfig.operation", forbidden)
+    pending.show(n=0)
+    text = capsys.readouterr().out
+    assert "count[0].domain" in text and "count[1].domain" in text
+    assert "identity:sales.customer" in text and "identity:sales.order" in text
+    assert "('same',)" in text
+    assert case.session.runs().items == ()
+
+
+def test_pending_count_scope_distinguishes_fixed_frame_inputs_without_reading_rows(
+    analysis_dsl_case_factory: DslCaseFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    case = analysis_dsl_case_factory("j2")
+    entity = case.catalog.entities.get("sales.customer")
+    first = case.session.frame(mv.identities(entity, keys=(("first",),))).compute()
+    second = case.session.frame(mv.identities(entity, keys=(("second",),))).compute()
+    domains = tuple(
+        case.session.population_from(frame, on=((frame.axes[0], entity),))
+        for frame in (first, second)
+    )
+    pending = case.session.observe({"first": domains[0].count(), "second": domains[1].count()})
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("count scope display read captured fixed rows")
+
+    monkeypatch.setattr(
+        "marivo.analysis.materialization.frame_evaluation.evaluate_frame", forbidden
+    )
+    monkeypatch.setattr("marivo.analysis.core.frame_data.CompletedFrameData.copy_rows", forbidden)
+    pending.show(n=0)
+    text = capsys.readouterr().out
+    assert "count[0].domain" in text and "count[1].domain" in text
+    assert first._input_id in text and second._input_id in text
+    assert "FrameKeys input=" in text and "identity:sales.customer" in text
+    assert "axis.0" in text and "customer_id" in text
+    assert case.session.runs().items == ()
+
+
 def test_source_fact_filters_and_special_complete_keys_are_lossless(
     session: Session, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -297,7 +389,7 @@ def test_source_fact_filters_and_special_complete_keys_are_lossless(
     source = _observe(session, where=channel.isin(candidates))
     source.show(n=0)
     card = capsys.readouterr().out
-    assert "omitted (display budget" in card and len(card.encode("utf-8")) <= 8192
+    assert "omitted" in card and len(card.encode("utf-8")) <= 8192
     fixed = source.compute()
     facts = _memory(fixed).metadata.audit.source_facts
     serialized = str(tuple(fact.values for fact in facts))
@@ -356,7 +448,9 @@ def test_general_population_zero_axis_preserves_empty_or_singleton(
     if empty:
         with duckdb.connect(str(session.project_root / "frame-source.duckdb")) as connection:
             connection.execute("DELETE FROM facts")
-    population = session.members(ms.ref.entity("sales.facts")).project(by=())
+    population = session.members(session.catalog.require(ms.ref.entity("sales.facts"))).project(
+        by=()
+    )
     result = frame_sources.frame(
         session._runtime.local,
         session.catalog._state,
@@ -370,9 +464,7 @@ def test_general_population_zero_axis_preserves_empty_or_singleton(
 def test_complete_memory_releases_source_scope_and_runtime(session: Session) -> None:
     from marivo.analysis.materialization.admission import DatasetRuntime
 
-    runtime = DatasetRuntime.create(
-        session.project_root, "independent-runtime", report_timezone="UTC"
-    )
+    runtime = DatasetRuntime.create(session.project_root, "independent-runtime", timezone="UTC")
     reference = weakref.ref(runtime)
     numerator = session.catalog.fields.get("sales.facts.numerator")
     source = frame_sources.observe(
@@ -391,7 +483,7 @@ def test_source_identity_rows_cannot_hide_null_complete_key(session: Session) ->
     import marivo.semantic as ms
     from marivo.analysis.errors import AnalysisError
 
-    population = session.members(ms.ref.entity("sales.facts"))
+    population = session.members(session.catalog.require(ms.ref.entity("sales.facts")))
     source = frame_sources.frame(
         session._runtime.local,
         session.catalog._state,
@@ -477,7 +569,7 @@ def test_source_top_keeps_entire_frozen_calendar_directory(
         session.catalog._state,
         session._runtime.connection_config,
         {"sales": session.catalog.metrics.get("sales.revenue")},
-        during=calendar,
+        by=(calendar,),
     )
 
     def forbidden(*args: object, **kwargs: object) -> None:

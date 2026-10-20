@@ -29,7 +29,7 @@ from tests.shared_fixtures import DslCaseFactory, run_ids
 from tests.support.paths import PROJECT_ROOT
 
 
-def test_calendar_products_keep_each_axis_descriptor_receipt_and_cold_metadata(
+def test_calendar_products_keep_single_time_axis_descriptors_and_cold_metadata(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
@@ -42,11 +42,15 @@ def test_calendar_products_keep_each_axis_descriptor_receipt_and_cold_metadata(
     february = session.time_scope(start="2026-02-01", end="2026-02-03", timezone="Asia/Tokyo").by(
         mv.grain("day")
     )
+    with pytest.raises(AnalysisError, match="at most one output time axis"):
+        mv.product(march, february)
     outputs = {
         "field_calendar": session.frame(mv.product(regions, march)).persist(),
-        "two_calendars": session.frame(mv.product(march, february)).persist(),
+        "tokyo_calendar": session.frame(
+            mv.product(february, mv.coordinates(by=(), keys=((),)))
+        ).persist(),
         "source_calendar": session.observe(
-            {"value": session.catalog.metrics.get("sales.revenue")}, during=march
+            {"value": session.catalog.metrics.get("sales.revenue")}, by=(march,)
         ).persist(),
     }
     march_starts = [
@@ -60,13 +64,9 @@ def test_calendar_products_keep_each_axis_descriptor_receipt_and_cold_metadata(
     assert field.iloc[:, 0].tolist() == ["A"] * 3 + ["B"] * 3
     assert field.iloc[:, 1].tolist() == [0, 1, 2] * 2
     assert [axis["role"] for axis in field.attrs["axes"]] == ["field", "calendar"]
-    paired = frames["two_calendars"]
-    assert paired.iloc[:, 0].tolist() == [0, 0, 1, 1, 2, 2]
-    assert paired.iloc[:, 1].tolist() == [0, 1] * 3
-    assert [axis["descriptor"]["timezone"] for axis in paired.attrs["axes"]] == [
-        "Europe/Paris",
-        "Asia/Tokyo",
-    ]
+    tokyo = frames["tokyo_calendar"]
+    assert tokyo.iloc[:, 0].tolist() == [0, 1]
+    assert [axis["descriptor"]["timezone"] for axis in tokyo.attrs["axes"]] == ["Asia/Tokyo"]
     assert frames["source_calendar"].iloc[:, 0].tolist() == [0, 1, 2]
     assert frames["source_calendar"][("value", "value")].tolist() == [0, 0, 0]
     saved: dict[str, object] = {}
@@ -128,7 +128,7 @@ with pytest.MonkeyPatch.context() as patch:
     for owner, name in ((duckdb,'connect'), (ibis.duckdb,'connect'), (SourceSession,'__init__'), (SourceSession,'execute'), (SemanticProject,'load')):
         patch.setattr(owner,name,forbidden)
     patch.setattr(mv.Session,'catalog',property(forbidden))
-    session=mv.session.resume(state['session'],by='id'); before=run_ids(session)
+    session=mv.session.resume(state['session']); before=run_ids(session)
     for receipt in state['outputs'].values():
         artifact=session.persisted_frame(receipt['artifact']); frame=artifact.to_pandas()
         assert snapshot(artifact,frame=frame)==receipt['snapshot']
@@ -152,13 +152,20 @@ def test_calendar_descriptor_and_boundary_receipt_are_validated(
     case = analysis_dsl_case_factory("j1")
     session = case.session
     first = session.time_scope(start="2026-01-01", end="2026-01-03").by(mv.grain("day"))
-    second = session.time_scope(start="2026-02-01", end="2026-02-03").by(mv.grain("day"))
-    artifact = session.frame(mv.product(first, second)).persist()
+    unit = mv.coordinates(by=(), keys=((),))
+    artifact = session.frame(mv.product(first, unit)).persist()
     manifest = artifact.artifact._manifest
-    part0, part1 = manifest.data.attachments
+    (part0,) = manifest.data.attachments
     for broken in (
         replace(part0, name="calendar_bounds"),
-        replace(part0, schema=part1.schema),
+        replace(
+            part0,
+            schema=replace(
+                part0.schema,
+                values=part0.schema.values[1:],
+                value_paths=part0.schema.value_paths[1:],
+            ),
+        ),
         replace(
             part0,
             schema=replace(
@@ -171,7 +178,7 @@ def test_calendar_descriptor_and_boundary_receipt_are_validated(
         ),
     ):
         with pytest.raises(AnalysisError):
-            changed = replace(manifest, data=replace(manifest.data, attachments=(broken, part1)))
+            changed = replace(manifest, data=replace(manifest.data, attachments=(broken,)))
             value = mv.AnalysisFrame._from_stored(
                 artifact._local,
                 changed.data,
@@ -183,7 +190,7 @@ def test_calendar_descriptor_and_boundary_receipt_are_validated(
     envelope["format"] = "marivo.terminal_output/v0"
     with pytest.raises(MaterializationError, match="format"):
         decode(canonical_json(envelope), type(manifest))
-    boundary_file = case.root / part1.rows.receipt.project_relative_path / "data.parquet"
+    boundary_file = case.root / part0.rows.receipt.project_relative_path / "data.parquet"
     boundary_file.write_bytes(boundary_file.read_bytes() + b"corrupt")
     with pytest.raises(MaterializationError, match="digest"):
         artifact.to_pandas()

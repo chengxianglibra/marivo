@@ -1,4 +1,4 @@
-"""The sole Store12 protocol closes every field and refuses historical v1 bytes."""
+"""The sole Store13 protocol closes every field and refuses historical v1 bytes."""
 
 from dataclasses import fields
 from datetime import datetime, timezone
@@ -48,7 +48,7 @@ def manifest() -> ArtifactManifest:
 
 def test_historical_output_envelope_is_rejected_without_rewrite() -> None:
     before = FROZEN
-    with pytest.raises(IntegrityError, match="expected Frame output v1"):
+    with pytest.raises(IntegrityError, match="expected Frame output v2"):
         protocol.decode(FROZEN, ArtifactManifest)
     assert before == FROZEN
 

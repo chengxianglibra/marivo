@@ -18,6 +18,7 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.distribution_fixtures import Carrier, distribution_data
+from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.datasource.source_cases import Case, datasource, source_case, source_params
 from tests.shared_fixtures import run_ids
 from tests.support.source_trace import SourceTrace
@@ -158,8 +159,8 @@ def test_native_distribution(
 
             monkeypatch.setattr(type(subject.session._backend), "create_table", forbid_staging)
             monkeypatch.setattr(type(subject.session._backend), "drop_table", forbid_staging)
-        session = mv.session.get_or_create("r93-distribution", report_timezone="UTC")
-        members = session.members(ms.ref.entity("sales.subjects"))
+        session = mv.session.create("r93-distribution", timezone="UTC")
+        members = session.members(session.catalog.require(ms.ref.entity("sales.subjects")))
         field = session.catalog.fields.get(
             "sales.facts.identity" if kind == "identity" else "sales.facts.amount"
         )
@@ -175,8 +176,7 @@ def test_native_distribution(
         )
         observed = session.observe(
             {"value": metric},
-            during=session.time_scope(start="2026-08-01", end="2026-08-02"),
-            by=members,
+            by=mv.product(session.time_scope(start="2026-08-01", end="2026-08-02"), members),
         )
         submissions: list[dict[str, str]] = []
         source_execute = SourceSession.execute
@@ -228,7 +228,7 @@ def test_native_distribution(
         fixed = observed.persist()
         source_trace.record(fixed)
         exported = fixed.to_pandas()
-        frame = exported.set_index(exported.columns[0])
+        frame = exported.set_index(ordinary_columns(exported)[0])
         values = frame[("value", "value")]
         assert frame.index.tolist() == ["a", "b", "c"]
         expected = (

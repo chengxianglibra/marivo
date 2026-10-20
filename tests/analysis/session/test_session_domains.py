@@ -36,23 +36,21 @@ def test_scope_is_canonical_immutable_and_recovers_in_a_cold_process(
     author_domains(tmp_path)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
-    scoped = mv.session.get_or_create("scoped", domains="sales")
+    scoped = mv.session.create("scoped", domains="sales")
     assert scoped.domains == ("sales",)
     assert scoped.catalog.require(ms.ref.entity("sales.rows")).ref.ref.path == "sales.rows"
     with pytest.raises(ms.errors.SemanticRuntimeError):
         scoped.catalog.require(ms.ref.entity("finance.rows"))
-    assert mv.session.get_or_create("scoped").domains == ("sales",)
-    assert mv.session.get_or_create("scoped", domains=["sales", "sales"]).id == scoped.id
-    other = mv.session.get_or_create("other", domains=["sales", "finance", "sales"])
+    assert mv.session.resume(scoped.id).domains == ("sales",)
+    assert mv.session.resume(scoped.id).id == scoped.id
+    other = mv.session.create("other", domains=["sales", "finance", "sales"])
     assert other.domains == ("finance", "sales")
-    with pytest.raises(SessionStateError, match="domain"):
-        mv.session.get_or_create("scoped", domains="finance")
-    current = mv.session.current()
-    assert current is not None and current.id == other.id
+    with pytest.raises(SessionStateError, match="already exists"):
+        mv.session.create("scoped", domains="finance")
     code = """import sys
 import marivo.analysis as mv
 import marivo.semantic as ms
-session = mv.session.resume(sys.argv[1], by='id')
+session = mv.session.resume(sys.argv[1])
 assert session.domains == ('sales',)
 assert session.catalog.require(ms.ref.entity('sales.rows')).ref.ref.path == 'sales.rows'
 """
@@ -75,7 +73,7 @@ def test_new_generation_preserves_old_store_bytes(
     old.write_bytes(b"existing-generation-bytes")
     monkeypatch.chdir(tmp_path)
     with pytest.raises(IntegrityError):
-        mv.session.get_or_create("new")
+        mv.session.create("new")
     assert not (old.parent.parent / "v11").exists()
     assert old.read_bytes() == b"existing-generation-bytes"
 
@@ -86,5 +84,5 @@ def test_invalid_domain_scope_fails_before_store_creation(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     with pytest.raises(SessionStateError):
-        mv.session.get_or_create("invalid", domains=domains)
+        mv.session.create("invalid", domains=domains)
     assert not (tmp_path / ".marivo" / "analysis").exists()

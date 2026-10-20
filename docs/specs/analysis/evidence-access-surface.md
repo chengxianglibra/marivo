@@ -38,7 +38,7 @@ Ordinary observe produces an empty Finding set. The result still owns one audit:
 inherited non-secret source facts plus this result's current evaluation record.
 Source facts retain the actual read identity, contribution role, requested scope,
 read time, checks and applicability. Only exactly equal facts deduplicate;
-different times or scopes remain distinct. Omitted during adds no time condition.
+different times or scopes remain distinct. by=() adds no output time axis or time condition.
 Source scope is not relabeled as the current filtered output domain.
 
 Each new evaluation writes its own completion time, input kinds/identities,
@@ -60,8 +60,8 @@ attachments. Metadata or preview success does not certify unread payload.
 
 Typed decoding preserves record identity, ownership and format. Missing data,
 corrupt required records, incompatible generations and foreign cursors fail.
-Store 12 refuses every older generation's data without changing old bytes;
-absent-current discovery may still return None/empty without exposing old state.
+Store 13 refuses every older generation's data without changing old bytes;
+read-only recent discovery may return an empty page without exposing old state.
 An old-only project cannot initialize a new Store as a bypass. See the
 [cutover note](analysis-frame-cutover.md). Reconciliation resolves the original
 publication transaction; it never reevaluates values to resolve uncertainty.

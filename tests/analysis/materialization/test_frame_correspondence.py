@@ -38,7 +38,7 @@ from tests.shared_fixtures import DslCaseFactory
 
 @pytest.fixture
 def local(tmp_path: Path) -> LocalFrameServices:
-    return DatasetRuntime.create(tmp_path, "frame-correspondence", report_timezone="UTC").local
+    return DatasetRuntime.create(tmp_path, "frame-correspondence", timezone="UTC").local
 
 
 def _memory(
@@ -202,9 +202,7 @@ def test_no_ordinary_inference_and_complete_mapping_before_values(
 
 
 def test_ownership_precedes_axis_mapping(local: LocalFrameServices, tmp_path: Path) -> None:
-    other_local = DatasetRuntime.create(
-        tmp_path / "other", "different", report_timezone="UTC"
-    ).local
+    other_local = DatasetRuntime.create(tmp_path / "other", "different", timezone="UTC").local
     left, right = _memory(local, ["A"], [1]), _memory(other_local, ["A"], [2])
     with pytest.raises(AnalysisError, match="same Store and Session"):
         left.compare(right, on=())
@@ -717,3 +715,94 @@ def test_date_field_keys_use_exact_day_components(local: LocalFrameServices) -> 
     output = frame.align(frame, on=((frame.axes[0], frame.axes[0]),)).compute()
     rows = output._backing.data.copy_rows()
     assert pa.array(rows["k"]).cast(pa.int32()).to_pylist() == expected
+
+
+def _interval(
+    local: LocalFrameServices,
+    start_day: int,
+    end_day: int,
+    *,
+    zone: str = "UTC",
+    amount: int | None = 5,
+) -> AnalysisFrame:
+    from marivo._definition.types import IntervalCoordinate
+    from marivo._temporal import anchor_from_datetime
+    from marivo.analysis.core.frame_calendar import freeze_interval
+
+    frozen = freeze_interval(
+        IntervalCoordinate(
+            "manual",
+            anchor_from_datetime(datetime(2024, 1, start_day, tzinfo=timezone.utc)),
+            anchor_from_datetime(datetime(2024, 1, end_day, tzinfo=timezone.utc)),
+            zone,
+        ),
+        token="interval",
+        name="interval",
+        key=DataColumn("key", "interval", ScalarDataType("int64"), False),
+    )
+    schema = DataSchema(
+        (frozen.axis,),
+        (DataColumn("amount", "amount", ScalarDataType("int64"), True),),
+        value_paths=(("amount",),),
+    )
+    data = CompletedFrameData(
+        schema,
+        pd.DataFrame(
+            {
+                "key": pd.Series([0], dtype="int64[pyarrow]"),
+                "amount": pd.Series([amount], dtype="int64[pyarrow]"),
+            }
+        ),
+        (frozen.directory,),
+    )
+    metadata = FrameResultMetadata(
+        "interval-manual",
+        FrameAudit((), EvaluationRecord(datetime(2026, 10, 19, tzinfo=timezone.utc), (), ())),
+    )
+    return AnalysisFrame._from_memory(local, CompletedFrameResult(data, metadata))
+
+
+def test_interval_exact_identity_outer_and_ordinal(local: LocalFrameServices) -> None:
+    from marivo.analysis.dsl.correspondence import ordinal
+
+    left, equal, other = (
+        _interval(local, 1, 4),
+        _interval(local, 1, 4, amount=None),
+        _interval(local, 2, 5),
+    )
+    assert left.axes[0].role == "interval"
+    same = left.compare(equal).compute()
+    assert _values(same, "absolute.amount") == [pd.NA]
+    assert same.to_pandas()[("presence", "right_present")].tolist() == [True]
+    with pytest.raises(AnalysisError, match="actual complete row-key domains"):
+        left.align(other).compute()
+    outer = left.compare(other, how="outer").compute()
+    assert len(outer.to_pandas()) == 2
+    assert outer.to_pandas()[("presence", "right_present")].tolist() == [False, True]
+    paired = left.compare(other, match=ordinal()).compute()
+    assert paired.axes[0].role == "paired"
+    assert _values(paired, "absolute.amount") == [0]
+    with pytest.raises(AnalysisError):
+        left.align(_interval(local, 1, 4, zone="Asia/Shanghai"), match=ordinal()).compute()
+    different_zone = left.align(_interval(local, 1, 4, zone="Asia/Shanghai"), how="outer").compute()
+    assert len(different_zone.to_pandas()) == 2
+    assert len(different_zone._backing.data.copy_attachments()[0].rows) == 2
+
+
+def test_interval_declared_directory_survives_filter_reduce_and_matching(
+    local: LocalFrameServices,
+) -> None:
+    from marivo.analysis.dsl.correspondence import ordinal
+
+    left, right = _interval(local, 1, 4, amount=2), _interval(local, 2, 5, amount=3)
+    merged = left.align(right, how="outer").compute()
+    selected = merged.where(merged["left.amount"] > 0)
+    sparse = selected.select({"amount": selected["left.amount"]}).compute()
+    assert len(sparse.to_pandas()) == 1
+    assert len(sparse._backing.data.copy_attachments()[0].rows) == 2
+    assert len(sparse.align(left).compute().to_pandas()) == 1
+    with pytest.raises(AnalysisError, match="one declared interval"):
+        sparse.align(left, match=ordinal()).compute()
+    reduced = sparse.reduce({"n": row_count()}, by=(sparse.axes[0],)).compute()
+    assert len(reduced._backing.data.copy_attachments()[0].rows) == 2
+    assert reduced.reduce({"n": row_count()}).compute().axes == ()

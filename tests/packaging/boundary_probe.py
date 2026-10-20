@@ -212,7 +212,7 @@ def saved_read(project: Path) -> dict[str, object]:
     state = read(project / "journey.json")
     session_id, artifact_ref = state["session"], obj(state["artifacts"])["value"]
     assert isinstance(session_id, str) and isinstance(artifact_ref, str)
-    session = mv.session.resume(session_id, by="id")
+    session = mv.session.resume(session_id)
     artifact = session.persisted_frame(artifact_ref)
     assert isinstance(artifact, mv.AnalysisFrame)
     before = len(session.runs().items)

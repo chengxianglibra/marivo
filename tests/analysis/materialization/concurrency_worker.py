@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.errors import SessionAlreadyExistsError
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import SessionRecord
 from marivo.analysis.materialization.errors import SessionBusyError
@@ -37,8 +38,10 @@ def snapshot(runtime: DatasetRuntime) -> dict[str, int]:
 def observation(session: Session, metric: str) -> mv.AnalysisFrame:
     return session.observe(
         {"value": session.catalog.metrics.get(metric)},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=session.members(ms.ref.entity("sales.customer")),
+        by=mv.product(
+            session.time_scope(start="2026-08-01", end="2026-09-01"),
+            session.members(session.catalog.require(ms.ref.entity("sales.customer"))),
+        ),
     )
 
 
@@ -80,8 +83,12 @@ def create_race(project: Path) -> dict[str, object]:
         try:
             runtime = DatasetRuntime.create(project, "raced")
             return {"pid": os.getpid(), "session": runtime.session_ref, "status": "created"}
-        except SessionBusyError as error:
-            return {"pid": os.getpid(), "session": error.session_ref, "status": "busy"}
+        except SessionAlreadyExistsError as error:
+            return {
+                "pid": os.getpid(),
+                "session": error._context["session_id"],
+                "status": "duplicate",
+            }
 
 
 if __name__ == "__main__":

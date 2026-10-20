@@ -41,7 +41,7 @@ def test_direct_score_runs_and_next_business_round(
     field = session.catalog.fields.get("sales.order.profile_0")
     time = session.catalog.fields.get("sales.order.ordered_at")
     grid = session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
-    artifact = session.observe({"value": field.sum(time=time, empty="zero")}, during=grid).compute()
+    artifact = session.observe({"value": field.sum(time=time, empty="zero")}, by=(grid,)).compute()
     exported = artifact.to_pandas()
     assert exported[("value", "value")].tolist() == [-2, 2, -2]
     absolute = exported.copy(deep=True)
@@ -70,20 +70,18 @@ def test_direct_score_runs_and_next_business_round(
     domain = mv.coordinates(by=(axis,), keys=(("a",), ("b",), ("c",)))
     previous = session.observe(
         {"value": field.sum(time=time, empty="zero")},
-        during=session.time_scope(start="2026-08-01", end="2026-08-04"),
-        by=domain,
+        by=mv.product(session.time_scope(start="2026-08-01", end="2026-08-04"), domain),
     )
     following = session.observe(
         {"value": field.sum(time=time, empty="zero")},
-        during=session.time_scope(start="2026-08-04", end="2026-08-07"),
-        by=domain,
+        by=mv.product(session.time_scope(start="2026-08-04", end="2026-08-07"), domain),
     )
     changes = plain(
         following.compare(
-            previous, on=tuple(zip(following.axes, previous.axes, strict=True))
+            previous, on=tuple(zip(following.axes, previous.axes, strict=True)), match=mv.ordinal()
         ).compute()
     )
-    assert changes.set_index("key_0")["absolute.value"].to_dict() == {"a": 2, "b": -2, "c": 2}
+    assert changes.set_index("key_1")["absolute.value"].to_dict() == {"a": 2, "b": -2, "c": 2}
     assert changes["absolute.value"].sum() == 2
     assert session._runtime.store.resources(session.id) == ()
 
@@ -95,7 +93,7 @@ def test_shared_method_and_transport_are_distinct_from_new_kernels(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = prepare(case, "table")
-    members = session.members(ms.ref.entity("sales.order"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.order")))
     query = session.read(members, {"value": session.catalog.fields.get("sales.order.profile_0")})
     artifact = query.persist()
     frame = plain(artifact)
@@ -127,16 +125,16 @@ def test_two_separate_axes_and_joint_keep_the_original_target(
     )
     current = session.observe(
         {"value": session.catalog.metrics.get("sales.order_count")},
-        during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=axes,
+        by=(session.time_scope(start="2026-08-01", end="2026-09-01"), *axes),
     )
     baseline = session.observe(
         {"value": session.catalog.metrics.get("sales.order_count")},
-        during=session.time_scope(start="2026-07-01", end="2026-08-01"),
-        by=axes,
+        by=(session.time_scope(start="2026-07-01", end="2026-08-01"), *axes),
     )
     frame = plain(
-        current.compare(baseline, on=tuple(zip(current.axes, baseline.axes, strict=True))).compute()
+        current.compare(
+            baseline, on=tuple(zip(current.axes, baseline.axes, strict=True)), match=mv.ordinal()
+        ).compute()
     )
     facts = analysis_dsl_rows("j2")
     target = sum(
@@ -145,9 +143,9 @@ def test_two_separate_axes_and_joint_keep_the_original_target(
     )
     assert frame["absolute.value"].sum() == target
     before = run_ids(session)
-    for axis in ("key_0", "key_1"):
+    for axis in ("key_1", "key_2"):
         assert frame.groupby(axis, dropna=False)["absolute.value"].sum().sum() == target
-    joint = frame.groupby(["key_0", "key_1"], dropna=False)["absolute.value"].sum()
+    joint = frame.groupby(["key_1", "key_2"], dropna=False)["absolute.value"].sum()
     assert joint.sum() == target
     assert run_ids(session) == before
 
@@ -183,7 +181,7 @@ def test_pandas_score_selection_starts_an_explicit_followup_query(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = prepare(case, "parquet")
-    members = session.members(ms.ref.entity("sales.order"))
+    members = session.members(session.catalog.require(ms.ref.entity("sales.order")))
     field = session.catalog.fields.get("sales.order.profile_0")
     captured = session.read(members, {"value": field}).persist()
     frame = deviation(plain(captured), method)
@@ -194,12 +192,10 @@ def test_pandas_score_selection_starts_an_explicit_followup_query(
     population = mv.identities(session.catalog.entities.get("sales.order"), keys=tuple(selected))
     followup = session.observe(
         {"value": field.sum(time=session.catalog.fields.get("sales.order.ordered_at"))},
-        during=session.time_scope(start="2026-08-03", end="2026-08-04"),
-        by=population,
-        members=population,
+        by=mv.product(session.time_scope(start="2026-08-03", end="2026-08-04"), population),
     )
     output = plain(followup.persist())
-    assert output.key_0.tolist() == [("c", 13)] and output.value.tolist() == [7]
+    assert output.key_1.tolist() == [("c", 13)] and output.value.tolist() == [7]
     assert len(run_ids(session)) == len(before) + 1
 
 

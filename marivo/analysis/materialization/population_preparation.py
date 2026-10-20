@@ -35,6 +35,7 @@ from marivo._definition.types import (
     CalendarCoordinate,
     CoordinateValue,
     FieldRead,
+    IntervalCoordinate,
     LiteralValue,
 )
 from marivo.analysis.compiler.member_version import version_predicate
@@ -134,7 +135,6 @@ def _identity_condition(
     binding = bind_observation(
         (("identity", ContributionFilter(EntityCount(node.entity, None), node.predicate)),),
         {},
-        during=None,
         by=(),
         where=None,
         timezone="UTC",
@@ -208,7 +208,7 @@ def prepare_population(
                 frame_types[binding.target] = captured_types
     group: tuple[str, ...]
     for index, axis in enumerate(definition.axes):
-        if isinstance(axis, CalendarCoordinate):
+        if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)):
             group = (f"__population_{index}_0",)
             types[group[0]] = dt.int64
             groups.append(group)
