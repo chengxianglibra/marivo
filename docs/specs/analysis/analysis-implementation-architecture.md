@@ -119,6 +119,70 @@ population_from 的必填 on 将普通完整轴映射到调用方提供的 Field
 属性时点、身份与期间不能从 Frame 显示名猜测。Source-free fixed operands 走本地组合；
 不把固定数据上传远端或把旧来源融合资格直接推广到 Frame。
 
+### 6.4 compare/attribute：基础能力组合的高级 API
+
+2026-10-20 设计补充。compare 是现有数据侧高级 API；attribute 是尚未实现的显式来源
+高级 API。两者通过组合基础能力、执行必要检查和组装规范结果提供短入口，不拥有独立执行体系。
+这不表示当前 compare 已逐字展开为公开 align/select 调用，也不表示 attribute 已可执行。
+数学规则、具体组合示例及贡献验收由 [Attribute 设计](attribute-design.md) 拥有。
+
+```text
+compare: explicit Frame operands
+    -> complete-key/calendar alignment -> nullable difference/relative arithmetic
+    -> standard value paths and presence -> ordinary Frame
+attribute: explicit Metric/scopes/classification
+    -> source binding and joint groups -> endpoint alignment and differences
+    -> optional proven components, parent totals and contribution arithmetic
+    -> canonical complete-key ordering as output shaping
+    -> ordinary Frame plus non-executable method facts
+both -> the same compiler, stage scheduler, compute and persist lifecycle
+```
+
+#### 6.4.1 各层职责
+
+| 层 | 拥有的责任 | 不承担的责任 |
+| --- | --- | --- |
+| Semantic 定义与规则 | 原公式、单位、贡献根、样本/空值政策；可加性和 N/D 等组件角色的规则依据 | 不从完成结果列反推原公式，不按数值拟合分解 |
+| 来源与坐标绑定 | 显式范围、完整父键、新分类、两端对应；已有 Population 桥接及覆盖检查 | 不恢复历史来源，不把候选输出域偷换成过滤 |
+| 高级 API | compare 的量名/类型/单位准入与规范输出；attribute 的规则选择、贡献开关、规范排序输出要求、解释事实和结构化错误上下文 | 不递归调用 compute/persist、不直接管理连接或另建数值政策 |
+| 基础计算与编译 | 完整键配对、nullable 算术、规约；按已证明的角色获取组件和传递检查义务，选择合格物理路线 | 不因最终贡献和正确就跳过分区/样本证明 |
+| 统一执行与发布 | 调度共享输入、资源释放、完整结果提取、compute/persist、冻结附件及原子发布 | 不为高级 API 新建 runner、缓存、Store 或结果子类型 |
+
+#### 6.4.2 所需能力与当前缺口
+
+以下是当前公开面和内部职责的核对，不是新增 API 签名。公开组合只覆盖其声明的范围；
+内部复用能力也不自动成为用户可调用能力。
+
+| 基础能力 | 当前状态 | 组合设计的处理 |
+| --- | --- | --- |
+| 显式来源分类和筛选 | observe/read、Population、population_from 已有明确合同 | attribute.by 复用分类元组或单个 Population；多个完整域由调用方显式组合，来源绑定层检查覆盖与所有权，不增加混合块语法 |
+| 完整键/日历配对、presence、行序 | align/compare 共用 frame_comparison 的配对内核 | 保持一套对应与缺侧规则；不再匹配一遍已配对的轴 |
+| 差值与受控除法 | Column 算术/divide 与底层 nullable/Duration 数值内核可复用 | 缺侧/NA 优先于零分母政策，保持单位、精度和溢出合同 |
+| 相对变化的绝对值分母 | compare 内部已处理负数、Decimal 和 Duration；Column 无公开 abs | 属公开表达缺口，不是 compare 功能缺失；是否公开 abs 单独决定，不用平方/开方替代 |
+| 名称路径和批量比较检查 | compare 生成规范路径并检查全量量名/单位；用户 select 仅声明单段名 | 复用内部 schema/path 构造；不为手写等价放宽用户命名合同 |
+| 规范排序输出整形 | 已有完整键规范次序；align 保持左侧优先顺序，select 不排序 | attribute 在完整结果提取前复用键排序并同步重排行值/presence；不更改 align 合同，不新增公开排序入口或存储排序补偿 |
+| 组件角色与精确分解证明 | 来源计算持有必要内部状态；没有通用公开的归因组件/证明入口 | 在现有定义/准备事实中补齐 additive、ratio_component、linear 所需证明；不从结果 lineage 恢复 |
+| 父域及联合组的共同输入 | 已有调度和共享输入基础；尚无 attribute 的完整合格路线 | 每端从同一实际贡献输入产生所需组件；不能以同一图中的两次独立扫描充当证明 |
+| 分组聚合值映射回组 | reduce 可按已有父轴规约；全轴 align 不支持父到细组或标量广播 | 以完整父分组键关联已计算总量，保持细组完整键/行序，检查父键唯一及覆盖；单总体使用零父键，不新增专属父域协议 |
+| 精确贡献公式与解释事实 | nullable 算术可用；分解派发、整体失败及方法摘要尚未实现 | 组合现有数值核；摘要的类型/传播/codec 在扩展中闭合，完成数据不保存执行组件 |
+
+“可组合”要求计算步骤、检查义务和数据依赖可以由共享基础能力表达，不要求每个内部步骤
+都公开为方法，也不强求运行时逐个实例化公开 Frame。compare 可保留薄逻辑节点，编译时
+复用或融合基础步骤；attribute 同样使用一套计划。融合不得改变 NA、presence、错误、
+行序、共同输入或保存合同。关闭贡献不构建仅用于归因的证明和组件路线。
+
+组件及其样本/分区证明由显式来源准备产生，完成均值等数据列不能反推必要组件。
+组件准备之后，贡献计算组合分组聚合、聚合值映射、对齐和算术；分组聚合值映射
+是可复用的数据计算能力，是否公开为方法另行判断，不扩展成任意 join/broadcast 框架。
+父域只是已有分组键，不新增树节点或专属父域协议。默认调查只复用比较所需步骤，
+不因可组合而额外计算未请求的 relative 列或触发其除法检查。
+
+高级 API 的产物仍是普通 AnalysisFrame，可继续现有 DSL，再 compute/persist。
+贡献和占比是普通带类型/单位的列；非执行方法事实解释原总体，不为后续任意算术
+自动认证归因。固定结果续算只消费显式数据，遵守原有所有权、轴及数值限制。
+缺口按实际消费者补齐，不预建通用高级算子注册表、方法插件协议或第二表达式语言。
+实现是否已完成及 provider 是否合格仍须各自验证，不能由分层图或算式见证推断。
+
 ## 7. Observe 与内部样本的求值组织
 
 ### 7.1 普通多量观察

@@ -152,6 +152,23 @@ rebind handles. Complete explicit on is required except zero axes or one sole
 calendar axis per side. Match is an explicit rule, never inferred from periods.
 Paired inputs cannot be aligned again in this first surface.
 
+Compare is a high-level data API combining full-key alignment, nullable arithmetic,
+validation and standard output construction. The proposed attribute operation is
+a high-level explicit-source API combining observation, classification, alignment
+and optional proven contribution decomposition. Both belong to the same compiler,
+evaluation and publication lifecycle. This architectural direction does not claim
+that every step is currently expressible through public methods or that attribute
+is implemented. The [composition layers and capability gaps](analysis-implementation-architecture.md#64-compareattribute基础能力组合的高级-api)
+own that distinction; [composition examples](attribute-design.md#24-compare-的基础组合示例)
+state their numerical and API limits. No public signature changes follow from this
+design clarification.
+The proposed attribute result is an ordinary AnalysisFrame: its value columns
+remain available to select/arithmetic, where/top, reduce and eligible align/compare,
+including after persistence and cold recovery. These operations neither recover
+source definitions nor automatically certify a new contribution decomposition.
+Filtering preserves the original contribution denominator; aggregation across
+different analysis totals does not establish a combined share interpretation.
+
 ## Definition graph and compiler
 
 Expression construction captures immutable explicit dependencies. Finalization

@@ -1,9 +1,12 @@
 # Attribute：显式来源调查与可选贡献分解
 
-Status: proposal，2026-10-19；数学与场景合同保留，来源请求 API 待定稿，尚未实现。
-核对基线 `acfc03617a`。对象和生命周期以 [AnalysisFrame 设计](query-result-reuse.md) 为前置合同。
-旧 Query.attribute、依赖比较生产图的来源资格以及 execute/drill 示例撤回，不能继续作为实施规格。
-当前实现仍由 [Python Analysis Design](python-analysis-design.md) 和 [Lazy DSL](lazy-analysis-dsl-redesign.md) 拥有。
+Status: proposal，2026-10-20；attribute 的来源请求 API 待定稿，尚未实现。
+本次核对基线 `6c2800bfa7`。依据 [AnalysisFrame 实施方案](analysis-frame-implementation-plan.md)
+及其 [最终数据合同](query-result-reuse.md) 修订；基础切换的完成记录见
+[实施进度](analysis-frame-implementation-progress.md)，不将历史计划的 planned 状态当作当前状态。
+当前公开对象已是 AnalysisFrame，rollup/drill 接口已退役，本提案不再保留或重新引入它们。
+当前 API 由 [Python Analysis Design](python-analysis-design.md) 和 [Lazy DSL](lazy-analysis-dsl-redesign.md) 拥有；
+本文只定义后续显式来源调查与精确贡献的扩展合同。
 
 ## 1. 用户问题与范围
 
@@ -19,6 +22,15 @@ AnalysisFrame 只提供其自包含数据结构上的方法。
 因此 attribute 不再是 Frame 方法，也不通过扫描比较图、直接列 rename 或一般 lineage 恢复资格。
 调查请求必须显式携带来源定义和范围；待执行请求可以持有新的来源图，完成后的结果不持有它。
 
+compare/attribute 均定位为基础能力组合的高级 API：compare 组合数据对齐、差值/相对变化
+和规范输出；attribute 组合显式来源观察、联合分类、两端对齐及可选精确贡献。
+高级 API 负责简化请求、选择有定义的规则并保留必要验证，不建立新的计算或执行体系。
+基础能力、公开表达缺口和各层职责统一见 [架构 §6.4](analysis-implementation-architecture.md#64-compareattribute基础能力组合的高级-api)。
+本文不要求所有内部能力公开，也不把仅在限定数据上成立的手写算式称为完整 API 等价实现。
+入口保持薄封装：默认路径是显式观察加分组比较；贡献路径增加组件准备、分组聚合、
+聚合值映射回组及算术。两条路径均返回普通 AnalysisFrame，可继续 Analysis DSL 计算。
+“不支持连续 attribute”只限制隐式来源调查，不限制结果上的数据运算。
+
 ## 2. 显式来源请求边界
 
 方向确定为 Session 拥有的显式来源操作，但本轮不冻结函数名、公开参数类或完整签名。
@@ -31,16 +43,19 @@ AnalysisFrame 只提供其自包含数据结构上的方法。
 | 两端 Metric 定义及量名 | 调用方显式提供已解析定义；检查单位、贡献根、配方、规约及样本政策相容性 |
 | 两端观察范围 | 各自期间、条件、成员与属性时点；不能从旧 frame 的审计文字猜测 |
 | 父域及双端对应 | 明确每个调查总体的两侧完整键、对应和 exact/outer 政策；若来自筛选结果，作为固定数据输入 |
-| 新增 by 块 | 第 3 节的字段或 Population 联合分类，不作为隐藏过滤器 |
+| 新增 by 分类 | 复用 observe 的分类元组或单个 Population 输入形状，见第 3 节；不作为隐藏过滤器 |
 | contribution | 明确 bool 请求，默认关闭；不能把数值列存在当作分解证明 |
 
 同路径定义版本变化不单独拒绝；仍需检查所消费定义的实际类型、单位、根、粒度与政策。
 父域数据与来源定义分别拥有事实：复用历史键不等于复用历史来源值。
 已物化父域的筛选与 Top 不在调查时重跑；新的来源观察可以看到变化后的事实。
 
-基础 Frame 首版方案中的 session.population_from 覆盖普通字段/身份轴到来源的显式桥接，
-足以完成“选 Top 地区，再按城市 observe”。本提案需要的配对/日历父域双端投影、
-多父域来源约束及精确共同输入仍是后续扩展，不能声称普通桥接已经覆盖。
+现有 session.population_from 覆盖普通字段/身份轴到来源的显式桥接，
+足以完成“选异常地区，再按渠道 observe”，包括从普通轴 compare 结果选择完整父键。
+桥接接收待执行选择时每次会重新求值；只有消费 compute/persist 返回的 Frame 才固定选择。
+同一组选定普通键可以显式用于两端来源，但不自动建立各父域的贡献总体或共同输入证明。
+配对/日历父域双端投影、各父域的共同输入重算及精确贡献仍是后续扩展，
+不能声称普通桥接已经覆盖，也不扩展基础桥接的轴资格。
 两端来源定义、父域映射和异常筛选必须各有唯一权威，避免重复参数互相矛盾。
 
 ### 2.1 显式贡献请求与规则判断
@@ -74,6 +89,8 @@ undefined_input、root_denominator_zero、unqualified_contribution_route。
 
 请求显式提供或绑定两端父坐标和对应，不继承一个 compare 节点中的隐藏定义。
 数据侧日历匹配遵守 Frame 的自包含规则；新的来源范围、关系和分类仍必须显式提供。
+普通轴对应须完整显式绑定；零轴或双方唯一日历轴才使用 Frame 已允许的推导。
+基础桥接不接收日历/配对轴，也不允许配对轴再次 compare；本提案不绕过这些限制。
 固定父域的每个完整键是独立总体，启用贡献时其本次重算变化拥有该父域的占比分母。
 选择时的 presence 不是本次来源的缺侧掩码；实际重算按各端本次输入及原输出域政策决定。
 原请求明确排除的范围仍不消费，不能与历史读取暂未出现的组混淆。
@@ -87,11 +104,21 @@ undefined_input、root_denominator_zero、unqualified_contribution_route。
 
 ### 2.3 当前可复用的基础流程
 
-以下是前置 Frame 提案中的普通数据/来源流程，不是已经定稿的 attribute API：
+以下使用现有 Frame API 表达“发现异常 → 固定普通父键 → 显式新来源调查”。
+假定同一 Session 中已取得 revenue Metric、region/channel Field 和两个 TimeScope，
+轴显示名分别为 region/channel。这里没有日历轴或配对轴，也不是 attribute 的调用签名：
 
 ```python
+import marivo.analysis as mv
+
 current_regions = session.observe({"revenue": revenue}, during=current_period, by=(region,))
-selected = current_regions.top(5, by=current_regions["revenue"]).compute()
+previous_regions = session.observe({"revenue": revenue}, during=previous_period, by=(region,))
+regional_change = current_regions.compare(
+    previous_regions,
+    on=((current_regions.axis("region"), previous_regions.axis("region")),),
+    how="outer",
+).compute()
+selected = regional_change.where(regional_change["absolute.revenue"] < 0).compute()
 parents = session.population_from(selected, on=((selected.axis("region"), region),))
 current_groups = session.observe(
     {"revenue": revenue}, during=current_period, by=(region, channel),
@@ -101,39 +128,128 @@ previous_groups = session.observe(
     {"revenue": revenue}, during=previous_period, by=(region, channel),
     where=mv.in_population(parents),
 )
-comparison = current_groups.compare(
+aligned = current_groups.align(
     previous_groups,
     on=((current_groups.axis("region"), previous_groups.axis("region")),
         (current_groups.axis("channel"), previous_groups.axis("channel"))),
     how="outer",
 )
+comparison = aligned.select({
+    "current": aligned["left.revenue"],
+    "baseline": aligned["right.revenue"],
+    "change": aligned["left.revenue"] - aligned["right.revenue"],
+})
 saved = comparison.persist()
 saved.show(n=20)
 artifact = saved.artifact
 ```
 
-示例假定轴显示名为 region/channel，显式复用选中的地区键并重新读取两期数据，不依赖 drill 或原 Frame 图。
-它展示各组变化，不构成精确贡献分解；后者还需要本次同输入的父域总体及第 6 节证明。
-按比较异常筛选的双端父域调查须等本提案的来源请求/配对域交接定稿，不以手抄键冒充支持。
+筛选使用固定比较数据，只选择差值已定义且为负的地区；缺侧/NA 不被解释为下降。
+population_from 只传递选中地区的完整键，不传递历史比较值、presence 掩码或 Metric 配方。
+两端显式复用该域并重新读取；空选择仍是空筛选，Null 字段键仍是合法类别。
+若需要按 Top 地区选择，可在固定父域前使用普通 top；后续来源读取不重跑已固定的排名。
+每次 compute/persist 或派生后从返回对象重取 Column/FrameAxis，不能复用旧接收者的句柄。
+
+细组阶段使用 observe + align + select，展示两期值和变化，并保留独立 presence；不计算
+相对变化。这里用普通单段量名，未来 attribute 按第 7 节生成规范路径。该流程不构成精确贡献分解。
+align + select 保留对齐行序；attribute 还需执行第 7 节的规范排序输出整形，不能据此假定两者行序相同。
+不能把上一步 regional_change 的历史差值当作新组贡献的分母，也不能单独再 observe
+总体后假定与组数据共享实际输入。贡献请求仍需第 6、8 节的共同输入路线。
+需要配对/日历父域的调查须等相应显式来源交接定稿，不能剥除时间轴后声称保留了原范围。
+
+只改变来源观察粒度时，直接重新声明 by，不经过结果接收者接口：
+
+```python
+east_total = session.observe(
+    {"revenue": revenue}, during=current_period, where=region == "East",
+)
+east_channels = session.observe(
+    {"revenue": revenue}, during=current_period, by=(channel,), where=region == "East",
+)
+```
+
+两者分别是 East 整体与按渠道的原指标观察；不会从已有组值推算原整体，
+也不承诺独立求值间的共同快照。归因时仍由单个显式来源请求负责总体和细组的一致输入。
+
+### 2.4 compare 的基础组合示例
+
+以下复用第 2.3 节的两个地区来源 Frame。假定 revenue 为普通数值且合法基准非负，
+示例表达 compare 的数值核心；不覆盖任意数值类型、负基准或完整公开输出合同：
+
+```python
+aligned_regions = current_regions.align(
+    previous_regions,
+    on=((current_regions.axis("region"), previous_regions.axis("region")),),
+    how="outer",
+)
+left = aligned_regions["left.revenue"]
+right = aligned_regions["right.revenue"]
+comparison_values = aligned_regions.select({
+    "current": left,
+    "baseline": right,
+    "change": left - right,
+    "relative": (left - right).divide(right, zero_denominator="null"),
+}).compute()
+```
+
+当期 160、基期 100 得到 change=60、relative=0.6；零基准返回 null，缺侧或值 NA
+继续传播 NA。align 负责完整键、日历匹配和 presence；select 保留其坐标和 presence。
+完整 compare 还检查非空且相同的量名集合、类型及单位，生成 left.q/right.q/absolute.q/relative.q，
+并使用 abs(right)：当期 160、基期 −100 的 relative 是 2.6，不是 −2.6。
+Column 当前没有公开 abs；用户 select 不能声明这些点分路径，因此此示例不冒充完整替代。
+Decimal、Duration、负零、缺侧优先于零分母等行为仍由已有数值合同负责。
+可继续保留 compare 作为短入口，不以“可组合”为由取消其验证或复制一个配对内核。
 
 ## 3. 字段、Population 与分区
 
-`by` 为非空有序元组，每项是一个下钻块：
+`by` 复用 observe 的输入形状：分类绑定的有序元组，或单个完整 Population。
+元组元素类型沿用 observe 的 `Deferred | MembershipAxis | MemberAxis | ComparisonAxis`，
+不包含 Population，也不接收结果 FrameAxis。attribute 仍要求至少一个新增业务轴：
+空元组、零轴 Population、重复轴和与父坐标重复的轴拒绝；第 2.2 节的时间限制不变。
 
-| 项 | 含义 |
+| 输入形状 | 含义 |
 | --- | --- |
-| Field Deferred / AxisBinding | 一个具有合法贡献归属路径的新单值分类 |
-| Population | 其有序轴与完整元组构成一个分类块，并声明该块的完整候选域 |
+| `by=(region, channel)` | 合法分类绑定形成联合分类，普通字段只产生两端实际出现的联合键；成员分类等沿用 observe 的域政策 |
+| `by=population` | 直接采用一个 Population 的有序轴和完整联合元组，声明完整候选输出域 |
 
 Population 不是一个名为“人群”的值列。同一个多轴 Population 保留真实联合元组，
 不把每个字段拆开再补笛卡尔积；其轴直接加入本次联合坐标，不代表一个树层级。
-多个 Population 块只能按已绑定的分类路径消费；同名字段、相似值或现存键本身
-不能证明来源可以映射到这些轴。重复轴、与父坐标重复的轴、无轴块和块间冲突拒绝。
+`by=(population,)`、`by=(population, field)`、`by=(population_a, population_b)`
+均拒绝，不自动展开、合并或推断域。调用方先用已有 Population 操作构造一个完整域，再传给 by。
+同名字段、相似值或现存键本身不能证明来源可以映射到这些轴，仍须满足原来源绑定资格。
 
 Population 候选域必须覆盖两端当前作用域中实际消费的分类键，不能通过漏键过滤
-贡献。限定研究对象使用已有的 members/Population 选择；声明输出域不能代替它。
-只有调用方显式请求完整域时才保留合法空组合，遵守既有覆盖和空输入政策。
-普通字段组合只生成实际出现的联合键，不枚举不存在的交叉组合。
+贡献。限定研究对象使用来源 where/members；声明输出域不能代替它。
+传入完整 Population 时，合法的无事实候选按 observe 的输出域、empty/NA 和 presence 政策处理，
+不能因没有事实就退回实际键域，也不能把无事实视为未知输入的零贡献。
+空 Population 仍是显式空输出域，覆盖检查不取消；作用域内有未覆盖贡献时必须失败。
+
+例如调用方已取得 region/channel Field，并明确要求两地区与两渠道的全部交叉组合，
+可使用现有 API 构造域；下面仍是基础来源示例，不是尚待定稿的 attribute 调用签名：
+
+```python
+regions = mv.coordinates(by=(region,), keys=(("East",), ("West",)))
+channels = mv.coordinates(by=(channel,), keys=(("Online",), ("Store",)))
+joint_domain = mv.product(regions, channels)
+current_complete = session.observe(
+    {"revenue": revenue}, during=current_period, by=joint_domain,
+)
+```
+
+product 明确产生四个候选组合。即使来源只有 East/Online，其余组合也按声明完整域的
+政策处理；这与 `by=(region, channel)` 只生成实际分类组合不同。此例要求两期输入均被
+该域覆盖；需要限制研究范围时另行声明来源过滤。
+若业务域只有 East/Online 与 West/Store 两个相关组合，应直接传入保留相关元组的域：
+
+```python
+correlated_domain = mv.coordinates(
+    by=(region, channel), keys=(("East", "Online"), ("West", "Store")),
+)
+```
+
+多个完整域只有在业务明确要求跨域笛卡尔积、轴互不重复且所有权相容时使用 mv.product。
+每个因子内部的相关元组保持不变；不按单列拆分求积。需要相关联合域时，由调用方通过
+已有 Population 构造/投影等操作提供该域，attribute 不增加混合域合并规则。
 
 若要比较“高价值客户”“活跃客户”等命名人群，需要先用现有语义分类/分桶能力
 提供组归属；不能把一组任意 Population 当成自动互斥的命名分区。
@@ -149,8 +265,8 @@ Population 候选域必须覆盖两端当前作用域中实际消费的分类键
 
 ## 4. 固定 joint 语义与输入范围
 
-所有 by 块在一次调用中共同形成联合分区。例如 by=(region, channel, category)
-返回每个父域下全部合法的地区/渠道/品类组合；by 的顺序决定坐标布局和规范排序，
+by 的全部业务轴在一次调用中共同形成联合分区。例如 by=(region, channel, category)
+返回每个父域下全部合法的地区/渠道/品类组合；分类元组或 Population 的轴顺序决定坐标布局和规范排序，
 不构成逐层展开顺序，也不改变同一联合分区的数学含义。
 普通字段只生成两端实际出现的联合键，显式 Population 完整域遵守第 3 节。
 不返回中间小计、树节点或合成分组。空候选不虚构全 Null 行，父域摘要仍可保存。
@@ -331,9 +447,78 @@ Q_M(S)=aQ_A(S)+bQ_B(S),\qquad C_M(S)=aC_A(S)+bC_B(S).
 占比分母为零只影响 contribution_share，不影响 contribution，也不触发错误。
 这与原指标的比率分母为零不同：后者可能使指标或贡献本身未定义。
 
+### 6.7 贡献分解的基础组合示例
+
+以下是基础计算的数学组合，不是新增公开方法。执行计划中的处理顺序为：
+
+```text
+explicit endpoint source bindings
+    -> shared actual contribution inputs and required partition checks
+    -> complete joint-group values and proven components
+    -> per-parent totals from those same inputs or sufficient additive components
+    -> explicit complete-parent-key mapping to each group
+    -> contribution and contribution_share arithmetic
+    -> canonical output shaping -> AnalysisFrame and non-executable method facts
+```
+
+来源准备根据 Metric 定义取得组件并完成资格检查：sum/count 使用合格可加量，
+mean 使用有效值和/有效计数，weighted_mean 使用同一有效配对的乘积和/权重和，
+ratio 使用已确定角色的 N/D，线性式递归消费子式组件。只有完成均值等数值时无法反推这些信息。
+组件角色和样本证明归现有语义绑定及编译层；后续差值、规约与归一化复用基础数值能力。
+
+本文“父域”仅表示已有完整分组键所确定的分析总体，不引入父节点对象、专属坐标或新的绑定协议。
+按这些键计算总量再映射回细组，就是分组聚合值映射；单一总体是零个父分组键的特例。
+其数值作用类似分组 transform/窗口聚合，但不改变 Metric.window 的来源时间窗口含义，
+也不在本提案中冻结新的公开方法签名。映射保持完整键和原行数，不执行任意关系 join。
+
+只有证明分组完整、不交且组件可加，才可从分组组件规约父域；不能把所有 Metric 的组值
+直接 sum，也不能使用忽略未知 NA 的普通 reduce.sum 冒充完整证明。多根分别检查输入与
+分类，不通过事实 join 放大贡献。父域没有细组时仍按源 empty/NA 政策处理，不能丢掉父域检查。
+
+可加例子：线上/线下基期 100/100、当期 160/80，组贡献 60/−20；总体变化 40，
+占比 1.5/−0.5。相同固定输入上的分组差值、父域规约和除法已经给出全部数值步骤。
+当前公开 Frame.reduce 可以求父域统计，但不能把所得父域列直接作为细组 Column 使用；
+它们属于不同精确输入，全轴 align 也不提供所需的父域广播。
+
+比率例子使用每端已验证的完整组件。下面的 Fraction 代码可独立执行，仅作为算式见证，
+不替代来源证明、运行数值类型或 Marivo 的计划执行：
+
+```python
+from fractions import Fraction
+
+# group, baseline numerator/denominator, current numerator/denominator
+rows = [
+    ("A", 1, 10, 2, 10),
+    ("B", 9, 90, 8, 190),
+]
+d0 = sum(row[2] for row in rows)
+d1 = sum(row[4] for row in rows)
+delta = (
+    Fraction(sum(row[3] for row in rows), d1)
+    - Fraction(sum(row[1] for row in rows), d0)
+)
+result = []
+for group, n0, _, n1, _ in rows:
+    contribution = Fraction(n1, d1) - Fraction(n0, d0)
+    share = contribution / delta if delta != 0 else None
+    result.append((group, contribution, share))
+
+assert result == [("A", Fraction(0), Fraction(0)), ("B", Fraction(-1, 20), Fraction(1))]
+assert sum(row[1] for row in result) == delta
+```
+
+此例 d0=100、d1=200，根比率从 0.10 到 0.05；组贡献为 0/−0.05。
+mean 换成有效值和/有效计数；weighted_mean 换成共同有效配对的乘积和/权重和，
+不能重新独立扫描两个 sum 后假定样本一致。线性组合在各子式完成相同父域映射后
+复用加减/缩放；无规则的复杂子式按第 6.5 节报错。
+
+因此贡献开关增加的是组件需求、证明义务、父域归一化和解释输出；不需要新的 runner。
+基础能力可在内部共用，公开组件或父域映射方法是否有独立用户价值另行判断，
+不为了让示例能够全部手写而暴露临时聚合状态或放宽固定 Frame 的来源边界。
+
 ## 7. 输出、顺序与继续分析
 
-未来 attribute 请求返回普通 AnalysisFrame，轴为“显式父坐标 + by 各块业务轴”，
+未来 attribute 请求返回普通 AnalysisFrame，轴为“显式父坐标 + by 的有序业务轴”，
 每行一个完整联合组合，无根行、节点轴、depth、父子树结构或合成 Others。
 Frame 生命周期、类型化键、名称段、presence_names、show 和物化合同由前置设计拥有。
 这里的 left/right 分别代表当前/基准端点；沿用前置设计的名称段路径和 presence 规则，
@@ -346,15 +531,64 @@ absolute.q 是本文数学段落的 change，不自动附带 relative.q。
 denominator_left.q/denominator_right.q 及各自单位，不以隐藏内部组件提供续算资格。
 这些是未来方法生成的路径，不能作为用户自定义量名绕过单段命名合同。
 
-按完整父键定位的方法摘要保存本次总体两期值、change、归一化根分母、分解规则及参数。
+开启贡献时，按完整父键定位的方法摘要保存本次总体两期值、change、归一化根分母、分解规则及参数。
 它是不可执行的方法事实，不是额外数据行；无联合候选仍保留必要父域摘要与原 empty/NA 语义。
 linear 子式及 mean/weighted_mean 的配对支持作为可解释事实保存，不保存可执行原配方。
 该方法摘要的 codec 和传播必须在扩展实施时单独闭合，不能假设基础 Frame 已经实现。
 
-算子自身按完整父键与联合组合键产生确定顺序，物化和读取保序，不新增 display_order 附件。
+规范排序属于 attribute 的输出整形：计算及必要检查完成后、形成完整结果前，按完整父键
+与联合组合键的既有规范次序统一排列所有行值和 presence。它不改变分组、贡献或分母。
+高级 API 声明该输出要求，编译层复用已有完整键排序能力，在统一执行计划内完成；
+不新增公开 sort API、独立执行器或 display_order 附件，物化和读取只保留已产生的行序。
+align 的 outer 顺序仍是左行优先再右侧独有行，select 保持输入顺序；规范排序不是这两个
+基础操作的隐含效果。例如左端键 B/A、右端键 C/A，裸组合得到 B/A/C，attribute 输出 A/B/C。
 where/top 只选择已计算行，不重新分配贡献或改变占比分母；筛选后的占比和可以不为 1。
 select/reduce 遵守普通 Frame 规则，不因仍保留 change 或 contribution 列获得来源重计算方法。
 不会提供连续 frame.attribute；新问题必须显式构造新的来源请求。
+
+### 7.1 作为普通 AnalysisFrame 继续计算
+
+attribute 的值列、坐标和 presence 直接进入现有 DSL，无 AttributionFrame 子类型或
+专属后续计算协议。贡献列是指标单位的普通数值列，占比列无量纲；select/算术、
+where/top、reduce、align/compare 均按各自普通合同消费它们。
+align/compare 仍要求相容的完整轴及键类型，并保留配对轴不能再次对齐的限制；
+compare 另检查量名集合、数值类型和单位，align 允许双方保留各自的量名与单位。
+后续操作产生普通派生 Frame，不因来自 attribute 而增加或减少数据运算权限。
+
+下面假定 result 是已启用贡献、单一分析总体、量名为 revenue 的 attribute 返回值。
+它可以是待执行、memory 或 stored Frame；例子只使用现有数据操作，不声明归因入口签名：
+
+```python
+result = result.compute()
+positive = result.where(result["contribution.revenue"] > 0)
+ranked = positive.top(10, by=positive["contribution.revenue"])
+
+summary = result.reduce({
+    "total_contribution": result["contribution.revenue"].sum(),
+})
+summary_values = summary.compute()
+
+saved = ranked.persist()
+reopened = session.persisted_frame(saved.artifact.id)
+continued = reopened.select({
+    "contribution": reopened["contribution.revenue"],
+    "share": reopened["contribution_share.revenue"],
+}).compute()
+```
+
+示例先固定 result，使多个计算分支消费同一批数据；若直接复用待执行来源表达式，
+各分支独立求值仍可读取新数据，不能把表达式复用当作结果固定。
+summary 规约完整 result，因此 +60/−20 的例子得到 40；positive/ranked 只保留 +60，
+其占比仍为 150%。如果改为规约筛选后的行，得到的是已选贡献小计，不是原总体变化。
+存在多个父域时，应保留各父分组键分别规约，例如 `by=(result.axis("region"),)`；
+跨父域的占比和不能解释成一个总体占比。DSL 不为普通求和附加特殊禁令，也不认证这种业务解释。
+reduce 仍删除行级 presence；null 占比及空/all-NA 统计保持普通算子政策。
+
+算术、重命名或规约后的列不会自动取得新的精确归因证明。原方法摘要只解释原结果及其总体；
+后续筛选不改写原分母，派生统计不把旧摘要冒充自己的分解结论。解释事实的保存与传播
+沿第 7 节所述扩展 codec 定稿，不成为执行依赖或来源配方。
+
+### 7.2 求值、保存与冷恢复
 
 show(n=20) 在待执行时只展示已捕获信息，物化后预览已有结果；n=0 只展示元数据。
 终态 Artifact 仅通过 frame.artifact 访问提交和审计，数据读取归 Frame；其 show() 不预览数据。
@@ -364,6 +598,9 @@ compute 不创建持久 Run，persist 发布并返回持久 AnalysisFrame，fram
 ## 8. 执行一致性与实施边界
 
 复用现有绑定、编译、来源能力判定、数值内核和 Frame 的求值/持久发布路径，不创建归因执行器。
+高级入口只构造显式依赖与检查需求，交给统一 compiler/scheduler；不能在方法内部逐个
+compute 中间结果、再导出 pandas 重建执行流程。第 6.7 节独立算式只用于解释和验收。
+编译可以融合共享步骤，但不以两次独立 observe 使用相同参数作为共同实际输入证明。
 来源计划由显式请求构造，不从比较结果追溯。原量内部组件可在本次调用中存在，
 调用结束释放；显式输出的解释值是普通数据，不能与隐藏续算组件混同。
 
@@ -376,15 +613,32 @@ contribution=True 要求每端总体与全部联合组来自同一实际贡献�
 本次多个父域或组中任一必要条件失败时，不返回部分成功结果；compute 不返回部分内存根，
 persist 不发布部分产物。后置 where/top/show 限行不能掩盖未展示分组中的必要错误。
 
-## 9. 依赖顺序与撤回范围
+## 9. 接口退役与后续实施边界
 
-1. 先实施 [AnalysisFrame 数据对象、来源边界及生命周期](query-result-reuse.md)。
-2. 再定稿显式来源请求：两端 Metric/范围、固定父域双端绑定、by 分类以及共同实际输入。
-3. 确定完整结果 schema/方法摘要 codec、输出传播与冷恢复，之后才能发布归因入口。
+### 9.1 移除 rollup/drill，不提供兼容入口
 
-本文撤回旧 Query.attribute 唯一入口、按 compare 图追溯原量资格、select/rename 保留来源资格、
-原结果 drill/rollup/share 和 execute 示例，不再与 Frame 前置合同同时作为目标规格。
-现有已实现 Query API 仍由当前文档拥有；本轮只是提案取舍，不意味着代码已退役。
+| 分析需要 | 本方案的表达方式 |
+| --- | --- |
+| 原指标在更粗粒度或整体上重算 | 显式 observe 原 Metric、期间和筛选，以所需 by 重新观察 |
+| 查看新维度或更细分组 | 显式 observe 新分类；已有选中父键通过 population_from 和来源 where 传入 |
+| 对已完成行求统计 | 普通 Frame.reduce，只统计当前值，不恢复原 Metric |
+| 两期联合分组及可选精确贡献 | 本文的显式来源扩展；不能从 compare 结果反推原定义 |
+
+rollup/drill 不作为 AnalysisFrame 方法、Session 别名或 attribute 的前置步骤保留。
+不保留按 compare 图追溯原量、select/rename 传播来源资格或物化前专用接收者。
+连续来源下钻协议一并移除：新问题重新提供来源，结果只可作为显式选择域。
+原整体 mean/distinct 等仍按原公式计算；不能将 reduce 当作上述接口的等价替换。
+
+share 遵从 Frame 切换合同，已退役，不恢复此前“暂时保留”的决定。
+普通数值除法只表达调用方指定的值比例；attribute 的 contribution_share
+表示对本次总体变化的贡献比例，两者不冒充旧 share 的原贡献份额证明。
+
+### 9.2 attribute 独立扩展
+
+1. 复用已切换的 [AnalysisFrame 数据对象、来源边界及生命周期](query-result-reuse.md)，不重建 Query。
+2. 定稿显式来源请求：两端 Metric/范围、父域双端绑定、by 分类以及共同实际输入。
+3. 按架构 §6.4 复用基础能力、补齐贡献证明和父域映射缺口；不要求全部公开为新方法。
+4. 确定完整结果 schema/方法摘要 codec、输出传播与冷恢复，之后才能发布归因入口。
 
 第 6 节数学合同不依赖旧入口，继续作为后续实现的依据。
 不得仅因本文有公式和示例，就声称基础 Frame 首版已包含双端来源调查或精确贡献。
@@ -400,9 +654,22 @@ persist 不发布部分产物。后置 where/top/show 限行不能掩盖未展�
 | --- | --- |
 | 默认调查 | contribution=False 不执行分解资格判断，返回两期值/change/presence；无贡献与解释组件 |
 | 参数边界 | contribution=0/1/None 拒绝；无 mode/topk/自动方法回退 |
+| compare 组合 | 非负普通数值场景下，align + select 的值/presence/键序与 compare 对应列相同；别名差异显式处理，不宣称规范路径相同 |
+| compare 完整合同 | 负基准 160/−100 的 relative=2.6；缺侧/NA 优先于零分母；保持 Decimal/Duration 政策，不用简化示例替代这些检查 |
+| 默认调查组合 | 同一固定细组输入上的 align + select 与贡献关闭结果按完整键对应的原值/差值/presence 相同；先处理规范排序差异，不读取归因专用组件 |
+| 规范排序 | 左端 B/A、右端 C/A，裸 outer align + select 保持 B/A/C，attribute 输出 A/B/C；所有值/presence 随行一致重排，compute/persist/冷读保序 |
+| 父域归一化 | 只按完整父键映射总量，复合键不拆分，缺父/重复父拒绝；不增加细组或改变其键序，不允许跨输入 Column 混用 |
+| 共享执行 | 同一输入及检查义务进入统一调度；来源读取计数和计划证明确保总体/细组共享实际输入，而非两次 observe 后对账；无嵌套 compute/persist 或独立 runner |
 | 完整联合结果 | A 下 +100/−100，B 下 +10；返回三个联合组，无地区小计或根行 |
-| 块与顺序 | 多轴 Population 保留联合元组，不补笛卡尔积；交换相容 by 块不改变按键对应的贡献 |
+| by 输入形状 | 接受非空分类元组或有新增轴的单个 Population；含 Population 的元组一律拒绝，不自动展开；空元组、零轴/重复/父域重复轴拒绝 |
+| 完整域组合 | mv.product 的两个两元素单轴因子形成四个候选；传入 by=该 Population 后保留合法空组合，域外贡献触发覆盖错误，不充当过滤 |
+| 相关联合域 | 单个 Population 仅含 East/Online、West/Store 时不增加交叉组合；多轴因子参加显式 product 时保持因子内部相关性 |
+| 域与顺序 | 调整分类轴顺序或显式 product 的因子顺序只改变布局及规范排序；同一联合分区按完整键对应的贡献不变 |
+| 空完整域 | 空 Population 不取消检查；有未覆盖输入时失败，无输入时依原 empty/NA 和贡献资格处理，不退化成无筛选或实际键域 |
 | 输入端筛选 | 固定 East 父域后显式构造两端新来源请求；只调查 East，以其本次变化为总体，不重跑原选择 |
+| 普通比较父域桥接 | 用 absolute.q 筛选普通地区轴 compare，compute 后以当前 FrameAxis 显式绑定到 region；两端 observe 只读取选中地区，无历史生产图恢复 |
+| 固定与惰性选择 | 固定后来源排名变化不改变父键；直接桥接待执行选择则重新求值；新来源值允许变化，不以历史差值作为本次贡献分母 |
+| 选择域边界 | 空选择保持空筛选，字段 Null 保留，多轴父键联合投影去重；日历/配对/值列不进入普通桥接，错误句柄拒绝 |
 | 多父域 | 相同渠道在不同父域独立分行，各父域占比分母独立 |
 | 可加变化 | 基期线上/线下 100/100，当期 160/80；贡献 +60/−20，总体 +40，占比 150%/−50% |
 | 零总体变化 | 子贡献 +100/−100，总体 0；贡献保留，占比 null，注明 zero_total_change |
@@ -413,6 +680,7 @@ persist 不发布部分产物。后置 where/top/show 限行不能掩盖未展�
 | 不支持贡献 | max、精确 P95、一般非线性开启贡献失败；默认保持原公式，不近似或返回伪成功的全 null |
 | 重叠 | {1,2} 与 {2,3} 默认可各组计数 2；总体 3；贡献请求因非不交分区失败，不删除重叠组 |
 | 来源边界 | 任意结果变换不产生 attribute 方法或来源资格；新请求必须显式提供定义与范围 |
+| 退役接口 | 不提供 rollup/drill/share 及兼容别名；粗细粒度均显式 observe，reduce 的行均值 55 不替代原整体 1000/91 |
 | 多父域失败 | 任一必要父域缺少分解证明就整体失败，不混合有效与 null 贡献 |
 | 比率根分母为零 | 原政策为 null 时默认保留 NA，开启贡献报 root_denominator_zero；原 error 政策不被覆盖 |
 | 局部比率 NA | 局部 N=D=0、总体分母非零且组件完整；原政策为 null 时组原值可 NA，贡献仍可有效 |
@@ -420,6 +688,9 @@ persist 不发布部分产物。后置 where/top/show 限行不能掩盖未展�
 | 单侧空贡献 | 已证明空集可用内部加法单位元，原 sum 仍可显示 NA；未知输入不能补零 |
 | 配对 NA | value=[10,NA]、weight=[1,9]；使用共同有效配对，不能用全权重分母得到 1 |
 | 筛选/预览 | top 留 +60 一组时占比仍 150%；show 限行不裁剪保存结果或重算分母 |
+| DSL 继续计算 | attribute 返回普通 AnalysisFrame；where/top/select/算术可组合，完整单总体贡献求和为 40，筛选后的求和为 60，占比仍 150%，reduce 删除行级 presence |
+| 多总体规约 | 分别按完整父键汇总贡献；跨父域占比相加仅是普通统计，不自动成为有效总体占比或产生新的归因证明 |
+| 固定结果续算 | 相同固定输入在 memory、stored 和新进程冷恢复后继续 select/where/reduce/合法 align/compare，保持对应数据合同且不加载原 Metric 或读取原来源 |
 | 空候选/冷读 | 无组时零行，保留必要父域摘要和 empty/NA 政策；冷读保留完整结构而不加载定义 |
 
 后续验收需覆盖显式来源输入与所有权、父域双端映射、贡献默认关闭、规则派发、复杂 per、
