@@ -177,7 +177,11 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
             if len(routes) > ANALYSIS_HELP_RENDER_BUDGETS["public_type"].max_outgoing_routes:
                 grouped_routes: list[str] = []
                 for route in routes:
-                    leaf = registry.by_canonical_id(route)
+                    leaf = (
+                        None
+                        if registry.is_type_attribute(route)
+                        else registry.by_canonical_id(route)
+                    )
                     group = leaf.discovery_group if isinstance(leaf, CallableInput) else None
                     grouped_routes.append(group or route)
                 routes = tuple(dict.fromkeys(grouped_routes))

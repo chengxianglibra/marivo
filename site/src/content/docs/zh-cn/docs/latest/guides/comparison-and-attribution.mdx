@@ -1,6 +1,6 @@
 ---
-title: 比较并检查变化
-description: 使用完整坐标映射与显式新来源输入。
+title: 比较并调查变化
+description: 比较固定数据，或显式请求新来源调查与合格贡献分解。
 ---
 
 本指南继续[本地教程](/zh-cn/docs/latest/guides/python-quick-start/)。
@@ -38,6 +38,91 @@ difference.show()
 
 ## 显式请求新来源事实
 
+`session.attribute` 接收显式当前端与基准端。继续教程的物理 DuckDB 表与已解析输入，
+默认调查不需要贡献证明：
+
+{/* example: attribute-default-investigation */}
+
+```python
+pending = session.attribute(
+    mv.AttributeEndpoint({"revenue": revenue}, during=august),
+    mv.AttributeEndpoint({"revenue": revenue}, during=july),
+    by=(region,),
+)
+pending.show(n=0)
+investigation = pending.compute()
+assert investigation.to_pandas()[("value", "absolute.revenue")].tolist() == [-100, -100]
+```
+
+left 为当前端，right 为基准端。值分 left/right/absolute 三组，左右 presence 独立；
+Attribute 不像 compare 那样增加 relative 列。细组按完整键 outer 并集规范排序，缺侧或
+NA 值保持 NA。省略 parents 表示一个总体，显式空父选择保持为空。普通父轴必须完整
+双向 `parent_on` 绑定；`parent_how` exact/outer 管父对应，不自动补零。
+
+当前支持普通轴、日历和配对日历父域的显式绑定。interval 和 paired-interval Frame
+父轴在读取前拒绝；先 reduce 移除 interval 轴再选父域，或使用显式 CalendarAxis 父域
+及端点范围。端点 `during=TimeScope`
+仍受支持。
+
+`AttributeEndpoint` 复制具名 Metric 映射；可选 `where` 为原生 Deferred 谓词，
+`memberships` 提供显式 Grouping 分配规则，`during` 保留端点独立时间范围。
+
+## 显式请求精确贡献
+
+教程采用已合格的物理 DuckDB 表路线。同一对端点可显式请求贡献；仅能访问 datasource
+不授予文件或远端路线资格。不支持的规则或缺少组件证明直接失败，不静默回退；原观察合法时，
+默认调查仍是另一个显式请求。
+
+{/* example: attribute-contribution-facts */}
+
+```python
+explained = session.attribute(
+    mv.AttributeEndpoint({"revenue": revenue}, during=august),
+    mv.AttributeEndpoint({"revenue": revenue}, during=july),
+    by=(region,),
+    contribution=True,
+).compute()
+assert explained.to_pandas()[("value", "contribution.revenue")].tolist() == [-100, -100]
+facts = explained.method_facts
+facts[0].show(n=0)
+declines = explained.where(explained["contribution.revenue"] < 0).compute()
+saved_declines = declines.persist()
+reopened_declines = session.persisted_frame(saved_declines.artifact.id)
+decline_rows = reopened_declines.to_pandas()
+original_explanation = reopened_declines.method_facts
+```
+
+总体变化为 -200，两地区贡献各 -100，份额各 0.5。份额使用原父总体变化；筛选不改变分母，
+也不认证新分解。父变化为零时贡献仍有定义，仅份额未定义。直接比率还暴露分子/分母的
+左右端点列组。数值保留实际完成类型、单位与 NA，不承诺统一 Decimal 精度或来源读取次数。
+
+`method_facts` 显式读取完整原解释。存储 getter 校验自己拥有的方法文件，不读主表、Catalog
+或来源；随后事实 show 只操作内存。pending 访问需先 compute/persist。Frame 卡片只给数量、
+有界 origin 和读取指针。`to_pandas()` 只读当前数据，stored compute 与派生求值消费当前数据
+和方法事实。保存派生结果拥有自己的载荷，原 Artifact 删除后仍可读取。事实不恢复 Metric 或
+来源权限。精确字段与读取效果见 `marivo.help("analysis.analysis_frame.method_facts")` 和
+`marivo.help("analysis.frame_method_facts")`。
+
+`revenue * revenue` 这样的非线性公式在请求 `contribution=True` 时以
+`unsupported_expression` 拒绝，不表示原观察非法。显式请求默认调查，不改写公式，
+也不依赖自动回退：
+
+{/* example: attribute-explicit-default-after-refusal */}
+
+```python
+nonlinear = revenue * revenue
+nonlinear_investigation = session.attribute(
+    mv.AttributeEndpoint({"squared": nonlinear}, during=august),
+    mv.AttributeEndpoint({"squared": nonlinear}, during=july),
+    by=(region,),
+    contribution=False,
+).compute()
+```
+
+这是分组非线性观察，不声称把这些组相加就能重建原整体公式或得到精确贡献。
+
+## 先固定父选择，再发起新请求
+
 {/* example: comparison-endpoint-followup */}
 
 ```python
@@ -51,7 +136,7 @@ followup.show()
 ```
 
 固定 Top 选中 west；新的来源观察调查该地区 7 月的数据，不重新排名，也不从结果恢复历史。
-新增细分时，显式取得受治理字段并放入新 observe。来源贡献可能在选择后变化，不承诺共同快照。
+新增细分时，显式取得受治理字段并放入新来源请求。来源贡献可能在选择后变化，不承诺共同快照。
 Frame 当前行 reduce 不能替代原 Metric 整体计算；没有 Frame drill/rollup/share 接收者。
 
 ## 对齐明确覆盖完整域的参照
@@ -74,7 +159,7 @@ vs_budget.show()
 ```
 
 先将单期间收入的当前行按地区求和，显式移除 interval 轴后再对齐预算；这不恢复任意非可加 Metric 的原量。预算显式覆盖同一地区域。这是普通全轴对齐与算术，不会广播标量、推断关系或证明贡献包含。
-自动广播与原贡献份额不在本版范围内，不能声称有等价替代。
+自动广播与 Frame share 接收者不在本版范围内；可选来源贡献份额属于上面的显式 Attribute 请求。
 
 ## 主动选择日历对应
 

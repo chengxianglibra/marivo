@@ -55,16 +55,31 @@ sum/count components, Python objects and executable source definitions are not s
 Session. `reopened.artifact` opens that same result's audit. Neither loads a
 Catalog, source schema, connection or model. Audit reads and Frame.show(n=0)
 consume no result payload. Positive preview reads the result prefix and required
-coordinate records; complete compute/export validates all consumed data and
-attachments. Metadata or preview success does not certify unread payload.
+coordinate records. `to_pandas()` validates complete current data and required
+coordinate attachments; `method_facts` reads only complete owned explanation
+payloads. Stored compute and evaluated derivatives consume both. Metadata or
+preview success does not certify unread payload, and a bad method file can leave
+current rows exportable while full consumption fails.
+
+All Frames use `marivo.frame_output/v3`, `frame.v3` and `frame-output-v3` in
+Store14's `generations/v14` directory. Manifest method descriptors are bounded;
+full parents, supports and independent coordinates live in owned method tables.
+Their receipts share the same publication transaction and reconciliation.
+The public getter validates these complete immutable facts without primary-row,
+Catalog, model or source reads. A saved derivative copies its own payload, so
+inherited origin does not require the original Artifact to remain available.
+Cards show count, bounded origins and a getter pointer; fact show(n=0) happens
+after the getter's explicit read. Pending getter access requires compute/persist.
 
 Typed decoding preserves record identity, ownership and format. Missing data,
 corrupt required records, incompatible generations and foreign cursors fail.
-Store 13 refuses every older generation's data without changing old bytes;
+Store 14 refuses every older generation's data without changing old bytes;
 read-only recent discovery may return an empty page without exposing old state.
 An old-only project cannot initialize a new Store as a bypass. See the
 [cutover note](analysis-frame-cutover.md). Reconciliation resolves the original
 publication transaction; it never reevaluates values to resolve uncertainty.
+Preserve the old Store and use a new named Session in a fresh project for current
+work. Compatible-version export is a separate workflow, not automatic migration.
 
 ## Interpretation and disclosure
 
@@ -78,3 +93,10 @@ Use `marivo.help("analysis.evidence")` and focused type Help for static contract
 Population/Frame.show describe their captured structure. Artifact.show owns
 submission/audit facts; errors own concrete repairs. The analysis skill owns
 investigation judgment and introduces no additional evidence store.
+
+Method facts explain the original successful Attribute contribution result.
+Default creates no new method facts or contribution proof. Filtering/ranking or
+reducing current values preserves inherited explanations without changing their
+denominators or certifying new arithmetic. Facts carry no Metric, producer graph,
+source authority or general lineage query; the typed full getter is separate from
+Artifact audit and pandas export.

@@ -84,6 +84,75 @@ class SavedAttachment:
             )
 
 
+METHOD_PAYLOAD_SCHEMA = DataSchema(
+    (DataAxis("method.entry", (DataColumn("entry", "entry", ScalarDataType("int64"), False),)),),
+    (
+        DataColumn("kind", "kind", ScalarDataType("string"), False),
+        DataColumn("record", "record", ScalarDataType("string"), False),
+    ),
+    (),
+    value_paths=(("kind",), ("record",)),
+)
+
+
+@dataclass(frozen=True, slots=True)
+class SavedFrameMethodFacts:
+    """Bounded owned method descriptor; construction never opens payload files."""
+
+    kind: Literal["attribute"]
+    origin_result_id: str
+    output_schema: DataSchema
+    parent_axis_count: int
+    parent_count: int
+    coordinate_count: int
+    coordinate_row_count: int
+    facts_digest: str
+    payload: SavedAttachment
+
+    def __post_init__(self) -> None:
+        _text(self.origin_result_id, "artifact.method.origin")
+        counts = (
+            self.parent_axis_count,
+            self.parent_count,
+            self.coordinate_count,
+            self.coordinate_row_count,
+        )
+        if (
+            type(self.kind) is not str
+            or self.kind != "attribute"
+            or type(self.output_schema) is not DataSchema
+            or any(type(value) is not int or value < 0 for value in counts)
+            or type(self.payload) is not SavedAttachment
+            or type(self.facts_digest) is not str
+            or len(self.facts_digest) != 64
+            or any(c not in "0123456789abcdef" for c in self.facts_digest)
+        ):
+            reject(
+                "a closed method descriptor with exact nonnegative counts and digest",
+                type(self).__name__,
+                "Retain the exact owned method attachment and descriptor.",
+                "artifact.method",
+            )
+        require_complete_structure(self.output_schema)
+        from marivo.analysis.core.frozen_calendar import coordinate_attachment_schemas
+
+        if (
+            self.parent_axis_count > len(self.output_schema.axes)
+            or (self.parent_axis_count == 0 and self.parent_count > 1)
+            or self.coordinate_count != len(coordinate_attachment_schemas(self.output_schema))
+            or (self.coordinate_count == 0 and self.coordinate_row_count != 0)
+            or self.payload.schema != METHOD_PAYLOAD_SCHEMA
+            or self.payload.rows.receipt.realized_row_count
+            != self.parent_count + self.coordinate_count
+        ):
+            reject(
+                "method counts and fixed attachment schema matching the original output",
+                self.origin_result_id,
+                "Preserve the complete descriptor without embedding parent or coordinate rows.",
+                "artifact.method",
+            )
+
+
 @dataclass(frozen=True, slots=True)
 class ArtifactData:
     schema: DataSchema
@@ -124,7 +193,8 @@ class ArtifactManifest:
     run_id: str
     data: ArtifactData
     metadata: FrameResultMetadata
-    semantics_version: Literal["frame.v1"] = "frame.v1"
+    method_facts: tuple[SavedFrameMethodFacts, ...] = ()
+    semantics_version: Literal["frame.v3"] = "frame.v3"
 
     @property
     def result_id(self) -> str:
@@ -136,13 +206,22 @@ class ArtifactManifest:
         if (
             type(self.data) is not ArtifactData
             or type(self.metadata) is not FrameResultMetadata
-            or self.semantics_version != "frame.v1"
+            or self.semantics_version != "frame.v3"
+            or type(self.method_facts) is not tuple
+            or any(type(item) is not SavedFrameMethodFacts for item in self.method_facts)
         ):
             reject(
                 "committed output data",
                 type(self.data).__name__,
                 "Use the committed manifest.",
                 "artifact.manifest",
+            )
+        if len({item.origin_result_id for item in self.method_facts}) != len(self.method_facts):
+            reject(
+                "unique method origins",
+                self.artifact_id,
+                "Deduplicate equal origins before publication.",
+                "artifact.methods",
             )
         require_complete_structure(self.data.schema)
         from marivo.analysis.core.frozen_calendar import coordinate_attachment_schemas

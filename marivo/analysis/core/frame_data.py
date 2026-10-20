@@ -11,11 +11,13 @@ from marivo.analysis.core.artifact_data import (
     ArtifactData,
     DataSchema,
     OutputAttachment,
+    SavedFrameMethodFacts,
 )
 from marivo.analysis.core.frame_audit import FrameResultMetadata
 from marivo.analysis.core.frame_calendar import FrozenSourceTime
 from marivo.analysis.core.frame_expression import FrameOperationKind
 from marivo.analysis.core.frame_key_inputs import FrameKeyInput
+from marivo.analysis.core.frame_method_facts import FrameMethodFacts
 from marivo.analysis.core.frame_structure import coordinate_attachments, require_complete_structure
 from marivo.analysis.core.frozen_calendar import FrozenAttachment, validate_frozen_coordinates
 from marivo.analysis.core.graph import BoundGraph
@@ -158,11 +160,15 @@ class ExpressionFrameBacking:
 class CompletedFrameResult:
     data: CompletedFrameData
     metadata: FrameResultMetadata
+    method_facts: tuple[FrameMethodFacts, ...] = ()
 
     def __post_init__(self) -> None:
         if (
             type(self.data) is not CompletedFrameData
             or type(self.metadata) is not FrameResultMetadata
+            or type(self.method_facts) is not tuple
+            or any(type(item) is not FrameMethodFacts for item in self.method_facts)
+            or len({item.origin_result_id for item in self.method_facts}) != len(self.method_facts)
         ):
             reject(
                 "complete independent data and result metadata",
@@ -184,6 +190,10 @@ class MemoryFrameBacking:
     def metadata(self) -> FrameResultMetadata:
         return self.result.metadata
 
+    @property
+    def method_facts(self) -> tuple[FrameMethodFacts, ...]:
+        return self.result.method_facts
+
 
 @dataclass(frozen=True, slots=True)
 class StoredFrameBacking:
@@ -192,6 +202,7 @@ class StoredFrameBacking:
     artifact_id: str
     data: ArtifactData
     metadata: FrameResultMetadata
+    method_facts: tuple[SavedFrameMethodFacts, ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -199,6 +210,9 @@ class StoredFrameBacking:
             or not self.artifact_id
             or type(self.data) is not ArtifactData
             or type(self.metadata) is not FrameResultMetadata
+            or type(self.method_facts) is not tuple
+            or any(type(item) is not SavedFrameMethodFacts for item in self.method_facts)
+            or len({item.origin_result_id for item in self.method_facts}) != len(self.method_facts)
         ):
             reject(
                 "an exact committed Artifact and result descriptor",

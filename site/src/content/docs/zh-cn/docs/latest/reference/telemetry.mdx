@@ -22,7 +22,7 @@ Marivo 自己拥有的 SQL 提交始终记录到项目本地文件：
 
 `query.submitted` 在来源执行前保存完整 SQL 和独立 `query_id`；受治理读取记录绑定 Ibis
 表达式编译出的 SQL，以及对应的用途和来源身份。`query.completed`
-记录耗时、结果状态及 Ibis `execute()` 返回的行数。受治理读取在完成 pandas DataFrame
+记录耗时、结果状态及已完成的受治理原生 Ibis 读取返回的行数。受治理读取在完成 pandas DataFrame
 物化后记录结束；Marivo 不再记录自有 Arrow 消费字节数、流耗尽状态或游标关闭字段。
 后续连接拥有者的释放事实可以记录为 `query.cleanup`。执行拥有者未确认远端终止时，日志仍保留未知状态。
 

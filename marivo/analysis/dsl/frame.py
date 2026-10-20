@@ -32,7 +32,7 @@ from marivo._definition.query import (
 from marivo._definition.relations import ReadQuery
 from marivo._definition.types import DefinitionGraphError, LiteralValue, check_literal
 from marivo.analysis._scope import scope_summary
-from marivo.analysis.core.artifact_data import ArtifactData, DataSchema
+from marivo.analysis.core.artifact_data import ArtifactData, DataSchema, SavedFrameMethodFacts
 from marivo.analysis.core.frame_audit import FrameResultMetadata
 from marivo.analysis.core.frame_data import (
     CompletedFrameResult,
@@ -46,11 +46,16 @@ from marivo.analysis.core.frame_data import (
 )
 from marivo.analysis.core.frame_expression import (
     AlignFrameValues,
+    AttributeContributionValues,
+    AttributeFrameValues,
+    AttributeInputsValues,
+    AttributeProjectValues,
     CompareFrameValues,
     FrameUnaryOperationKind,
     infer_frame_combine_schema,
     infer_frame_schema,
 )
+from marivo.analysis.core.frame_method_facts import FrameMethodFacts
 from marivo.analysis.core.frame_structure import (
     PendingDataSchema,
     axis_role,
@@ -125,8 +130,9 @@ class AnalysisFrame:
         *,
         artifact_id: str,
         metadata: FrameResultMetadata,
+        method_facts: tuple[SavedFrameMethodFacts, ...] = (),
     ) -> AnalysisFrame:
-        backing = StoredFrameBacking(artifact_id, data, metadata)
+        backing = StoredFrameBacking(artifact_id, data, metadata, method_facts)
         identity = dumps(
             (local.store.store_id, local.session_ref, artifact_id), separators=(",", ":")
         )
@@ -744,6 +750,28 @@ class AnalysisFrame:
 
         return self._from_memory(self._local, evaluate_frame(self))
 
+    @property
+    def method_facts(self) -> tuple[FrameMethodFacts, ...]:
+        """Read the complete immutable facts explaining original decompositions.
+
+        Returns: An ordered tuple of self-contained FrameMethodFacts.
+        Example: ``facts = fixed.method_facts``.
+        Read static type details with marivo.help("analysis.frame_method_facts").
+        Constraints: Pending expressions require compute/persist. Stored reads validate
+        all owned method payloads, without reading current data or loading sources/models.
+        Inherited facts explain their original result identities, not derived values.
+        """
+        if isinstance(self._backing, ExpressionFrameBacking):
+            reject(
+                "an evaluated memory or stored Frame",
+                "pending expression",
+                "Call compute() or persist() before reading method_facts.",
+                "frame.method_facts",
+            )
+        if isinstance(self._backing, MemoryFrameBacking):
+            return self._backing.method_facts
+        return self._local.read_method_facts(self._backing)
+
     def persist(self) -> AnalysisFrame:
         """Publish a completed result; exact stored roots return themselves.
 
@@ -767,7 +795,11 @@ class AnalysisFrame:
         assert isinstance(completed._backing, MemoryFrameBacking)
         backing = self._local.publish(completed._backing.result)
         return self._from_stored(
-            self._local, backing.data, artifact_id=backing.artifact_id, metadata=backing.metadata
+            self._local,
+            backing.data,
+            artifact_id=backing.artifact_id,
+            metadata=backing.metadata,
+            method_facts=backing.method_facts,
         )
 
     @property
@@ -812,14 +844,12 @@ class AnalysisFrame:
                 "Call compute() or persist() before exporting.",
                 "frame.to_pandas",
             )
-        result = (
-            self._local.read_complete(self._backing)
+        data = (
+            self._local.read_data(self._backing)
             if isinstance(self._backing, StoredFrameBacking)
-            else self._backing.result
+            else self._backing.data
         )
-        return export_frame(
-            result.data.schema, result.data.copy_rows(), result.data.copy_attachments()
-        )
+        return export_frame(data.schema, data.copy_rows(), data.copy_attachments())
 
     def show(self, *, n: int = 20) -> None:
         """Display current metadata and a bounded fixed-data prefix without evaluation.
@@ -835,7 +865,8 @@ class AnalysisFrame:
 
         Constraints: Pending display never prepares schema; positive stored previews bound
         decoded output, not receipt hashing or Parquet IO. No Run, full-export/head, ancestor
-        rows, complete-result cache or fallback after a read error.
+        rows, complete-result cache or fallback after a read error. Method facts
+        show only counts/origins and a .method_facts pointer; no method payload read.
         """
         if type(n) is not int or n < 0:
             reject(
@@ -939,6 +970,15 @@ class AnalysisFrame:
                     )
                 total = self._backing.data.rows.receipt.realized_row_count
             card.field("result_id", self._backing.metadata.result_id)
+            facts = self._backing.method_facts
+            card.field("method_facts", str(len(facts)))
+            if facts:
+                card.field(
+                    "method_origins", _bounded(repr(tuple(item.origin_result_id for item in facts)))
+                )
+                card.field(
+                    "method_facts_read", "use .method_facts for complete original explanation facts"
+                )
             card.field("evaluated_at", self._backing.metadata.evaluated_at.isoformat())
             if isinstance(self._backing, StoredFrameBacking):
                 card.field("artifact", self._backing.artifact_id)
@@ -1048,6 +1088,13 @@ def _operation_summary(binding: OperationFrameBinding) -> str:
         )
         match = f", match={operation.match!r}" if operation.match is not None else ""
         return f"{name}(on={operation.pairs!r}, how={operation.how!r}{match}{policy})"
+    if isinstance(operation, AttributeContributionValues):
+        return f"attribute(parent_how={operation.mapping.how!r}, contribution=True)"
+    if isinstance(operation, AttributeInputsValues):
+        return "private Attribute input preparation"
+    if isinstance(operation, AttributeFrameValues):
+        return f"attribute(parent_how={operation.how!r}, contribution=False)"
+    assert not isinstance(operation, AttributeProjectValues)
     statistics = tuple(
         (
             name,

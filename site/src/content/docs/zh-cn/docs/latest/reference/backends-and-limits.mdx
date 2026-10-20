@@ -56,9 +56,11 @@ def total():
 
 来源 Ibis 在所选声明 datasource 执行并返回 pandas；字面量/参照和本地域/值阶段使用 pandas，PyArrow 负责编码与读取终端输出。完整固定 Frame 与本地数据操作使用同一调度器。Artifact 只读审计；没有 Artifact 操作数、固定数据远端上传或隐藏本地 SQL 引擎。
 
-来源计算接受 Ibis/provider 原生数值精度损失。Ibis lowering 不为统一后端返回类型或传输保真添加 cast，业务语义必需的转换仍保留。pandas 交接为直接字段、规约值和内部组件确定有效数值类型，供后续本地计算和发布使用，保留完整键、空值政策、单位和时间语义。cast 不能恢复来源精度；产物往返保真针对实际已提交值。
+来源计算遵循 Ibis/provider 原生数值精度限制，整数传输保证见下文。Ibis lowering 不为统一后端返回类型或传输保真添加 cast，业务语义必需的转换仍保留。pandas 交接为直接字段、规约值和内部组件确定有效数值类型，供后续本地计算和发布使用，保留完整键、空值政策、单位和时间语义。cast 不能恢复来源精度；产物往返保真针对实际已提交值。
 
-DuckDB 读取通过 Ibis Arrow 结果构造采用 nullable Arrow extension dtype 的 pandas 整数列。大整数与 null 共存时保持精确，不经过 float64 中间转换。本地计算仍使用 pandas；这项转换保证不推广到其他后端。
+DuckDB 的受治理 `SourceSession` 读取与合格的 typed PostgreSQL Analysis 读取先取原生 Ibis Arrow 结果，再构造采用 nullable Arrow extension dtype 的 pandas 整数列。能由原生 Arrow 结果类型表示的整数与 null 共存时保持精确，不经过 float64 中间转换。非整数保留原生 Ibis Arrow 类型、可表示性与精度限制；pandas 表示可以与原生 Ibis `execute()` 结果不同，包括 DATE 使用 Python date 值，以及保留同一时刻的不同 timestamp 单位。本地计算仍使用 pandas。
+
+普通 PostgreSQL authoring、basic 读取与有界检查（`collect_bounded`）保留原生 Ibis pandas 转换，包括 JSON 对象/数组值及原有精度与表示限制。其他后端保留原生 Ibis pandas 路线。不承诺统一 Decimal 精度或所有来源值保真。直接 Ibis 调用和原始 SQL 结果 API 保留各自原生合同。
 
 时间准备和 temporal rewrite 使用实际所选 engine。远端来源块在获得自身等价证据前采用未融合路线。本地计算是 eager，可能保留全部所需向量；失败不换路线或截断输入。
 
@@ -68,8 +70,25 @@ PostgreSQL、MySQL、Trino 和 ClickHouse 的普通模板按真实类型和表�
 
 ClickHouse Distributed 准入合格的普通分组聚合。需要 Distributed IN/JOIN 的来源路线（包括按键交接的 `Session.read`）因尚未具备 `distributed_product_mode` 下的 join 资格而在 Run 前拒绝。MergeTree join 单独准入，不隐式扩展到 view 或其它 engine 拓扑。Marivo 不修改服务器设置或替换为本地表。
 
+## 显式 Attribute 资格
+
+默认 `session.attribute` 通过合法原观察路线调查显式两端 Metric 与范围，不收集贡献证明，
+不生成新方法事实。可选 `contribution=True` 当前要求合格的物理 DuckDB 表 root/fiber
+statement 路线，在同一实际输入中保留完整父/细组组件和原公式检查。文件和非 DuckDB provider
+即使支持普通观察，也不具备贡献资格；provider 名或共享计划本身不是证明。
+
+精确规则包括合格的可加、比率和捕获线性组合。没有完整证明的 per/样本、嵌套窗口和非可加
+窗口子式以缺少组件证明拒绝；已验收的本地 AllHistory 可加回看不表示所有窗口均合格。
+不支持的请求直接失败，不自动降级；默认调查是另一个显式请求。原式保留实际完成类型与单位，
+包括实际返回的非整数 Decimal，不承诺统一精度或执行次数。完整方法事实是不可执行解释，
+不是来源权限。
+
 ## 资源和保存边界
 
 datasource 原生 timeout 保留后端含义，没有默认图 deadline 或替代执行器。取消与 close 由驱动拥有，远端终止未知时保持未知。原子发布和 journal reconciliation 保留已提交成功及精确资源归属。
 
-Store 13 保存完整项目本地 Frame 数据与审计。新 Frame 与重开 Frame 读取相同已提交数据，无需当前 Catalog/来源。旧 generation 数据原样拒绝，不迁移或双读；完整导出保留 int64/Decimal、NA、presence、完整键、行序与冻结日历/配对解释。聚焦本地检查、远端 Runtime 与发布验收是不同证据。具体修复见[故障排查](/zh-cn/docs/latest/reference/troubleshooting/)。
+Store 14 保存完整项目本地 Frame 数据与审计。新 Frame 与重开 Frame 读取相同已提交数据，无需当前 Catalog/来源。旧 generation 数据原样拒绝，不迁移或双读；完整导出保留 int64/Decimal、NA、presence、完整键、行序与冻结日历/配对解释。聚焦本地检查、远端 Runtime 与发布验收是不同证据。具体修复见[故障排查](/zh-cn/docs/latest/reference/troubleshooting/)。
+
+所有 Frame 使用 `marivo.frame_output/v3`、`frame.v3` 和 `frame-output-v3`。
+`to_pandas()` 只验证当前数据，`method_facts` 只验证 owned 解释载荷，stored compute 与
+派生求值消费两者。元数据卡片和预览不打开方法文件；保存派生结果自己的载荷不依赖原 Artifact。

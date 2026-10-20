@@ -17,6 +17,14 @@ from marivo.analysis.compiler.query_program import (
     ResultProgram,
     SourceParameter,
 )
+from marivo.analysis.core.attribute import (
+    AttributeContributionProgram,
+    AttributeFormulaBinding,
+    AttributeInputProgram,
+    AttributeProgram,
+    AttributeProjectProgram,
+    AttributeSourceParentBinding,
+)
 from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import DataColumn, DataType, DurationDataType, ScalarDataType
 from marivo.analysis.core.graph import BoundGraph
@@ -24,6 +32,7 @@ from marivo.analysis.core.model import Obligation, reject
 from marivo.analysis.methods.physical import QUERY_COMBINE_KERNEL
 
 if TYPE_CHECKING:
+    from marivo.analysis.compiler.attribute_inputs import AttributeRootLayout
     from marivo.analysis.compiler.native_query import NativeQueryFinish
     from marivo.analysis.compiler.observation import FormulaProgram, ReductionInput
     from marivo.analysis.compiler.optimization import (
@@ -103,6 +112,8 @@ class SourceRead:
     inputs: tuple[str, ...] = ()
     parameters: tuple[SourceParameter, ...] = ()
     component_layout: ComponentLayout | None = None
+    attribute_layout: AttributeRootLayout | None = None
+    attribute_parent: AttributeSourceParentBinding | None = None
     binding_id: str = ""
     common_reads: tuple[SourceRead, ...] = ()
     native_reductions: tuple[ReductionInput, ...] = ()
@@ -122,6 +133,7 @@ class LocalCompute:
     program: FormulaProgram | None = None
     result: ResultProgram | None = None
     fused_steps: tuple[LocalCompute, ...] = ()
+    attribute: AttributeFormulaBinding | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,7 +160,14 @@ class FrameCompute:
 
     stage_id: str
     inputs: tuple[str, ...]
-    program: FrameProgram | FrameCombineProgram
+    program: (
+        FrameProgram
+        | FrameCombineProgram
+        | AttributeProgram
+        | AttributeProjectProgram
+        | AttributeInputProgram
+        | AttributeContributionProgram
+    )
 
     @property
     def columns(self) -> tuple[DataColumn, ...]:
@@ -681,6 +700,7 @@ def _plan_query(
     population_inputs: list[PopulationInput] = []
     population_stages: list[SourceRead | LocalCompute] = []
     output_population = observation.coordinates.population if observation is not None else None
+    parent_scope = observation.coordinates.parent_scope if observation is not None else None
     closure = walk(
         (
             graph.root,
@@ -690,6 +710,7 @@ def _plan_query(
                 if observation is not None and observation.condition is not None
                 else ()
             ),
+            *((parent_scope,) if parent_scope is not None else ()),
         ),
         resolve=dict(graph.signature.declared_metrics).get,
     )
@@ -785,6 +806,9 @@ def _plan_query(
         output_population=observation.coordinates.population if observation is not None else None,
         calendar_key=calendar_key,
         axes=graph.signature.axes,
+        complete_calendar=observation.coordinates.complete_calendar
+        if observation is not None
+        else True,
     )
     count_inputs = []
     for definition, member_population in (
@@ -834,6 +858,21 @@ def _plan_query(
                 member_slots,
                 tuple(zip(member_population.axes, member_groups, strict=True)),
             )
+        )
+    if parent_scope is not None:
+        from marivo.analysis.compiler.queries import key_groups as output_key_groups
+
+        parent_groups = output_key_groups(
+            graph, keys, tuple(column.slot_id for column in keys), counts=tuple(count_inputs)
+        )
+        program = replace(
+            program,
+            parent_scope=parent_scope,
+            parent_slots=tuple(
+                slot
+                for axis in parent_scope.axes
+                for slot in parent_groups[graph.signature.axes.index(axis)]
+            ),
         )
     program = replace(program, counts=tuple(count_inputs), calendar_key=calendar_key)
     columns = tuple(

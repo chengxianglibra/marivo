@@ -16,7 +16,12 @@ from marivo.analysis.session._lazy_read_model import (
 )
 
 if TYPE_CHECKING:
-    from marivo.analysis.core.frame_data import CompletedFrameResult, StoredFrameBacking
+    from marivo.analysis.core.frame_data import (
+        CompletedFrameData,
+        CompletedFrameResult,
+        StoredFrameBacking,
+    )
+    from marivo.analysis.core.frame_method_facts import FrameMethodFacts
     from marivo.analysis.dsl.artifact import Artifact
     from marivo.analysis.materialization.graph_reading import FramePreview
 
@@ -57,7 +62,19 @@ class LocalFrameServices:
         from marivo.analysis.materialization.graph_reading import open_manifest
 
         value = open_manifest(self.store, self.session_ref, artifact_id)
-        return StoredFrameBacking(value.artifact_id, value.data, value.metadata)
+        return StoredFrameBacking(value.artifact_id, value.data, value.metadata, value.method_facts)
+
+    def read_method_facts(self, backing: StoredFrameBacking) -> tuple[FrameMethodFacts, ...]:
+        """Consume checked owned method payloads without reading current rows."""
+        from marivo.analysis.materialization.graph_reading import FrameReader
+
+        return FrameReader(self.store, self.session_ref).method_facts(backing)
+
+    def read_data(self, backing: StoredFrameBacking) -> CompletedFrameData:
+        """Consume current rows and coordinates without historical method payloads."""
+        from marivo.analysis.materialization.graph_reading import FrameReader
+
+        return FrameReader(self.store, self.session_ref).data(backing)
 
     def read_complete(self, backing: StoredFrameBacking) -> CompletedFrameResult:
         """Load and fully validate independent saved data, preserving result facts."""

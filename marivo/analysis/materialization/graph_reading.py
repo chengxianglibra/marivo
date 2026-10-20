@@ -25,6 +25,7 @@ from marivo.analysis.core.frame_data import (
     CompletedFrameResult,
     StoredFrameBacking,
 )
+from marivo.analysis.core.frame_method_facts import FrameMethodFacts
 from marivo.analysis.core.frozen_calendar import (
     FrozenCalendarBucket,
     FrozenIntervalBucket,
@@ -44,6 +45,7 @@ from marivo.analysis.evidence._dataset_types import ArtifactDigest, Finding, Fin
 from marivo.analysis.materialization import terminal_store
 from marivo.analysis.materialization.contracts import digest, parse_timestamp
 from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.materialization.frame_method_facts import decode_method_payload
 from marivo.analysis.materialization.graph_exchange import normalize_complete_frame
 from marivo.analysis.materialization.storage import (
     _checked_path,
@@ -54,6 +56,7 @@ from marivo.analysis.materialization.storage import (
 from marivo.analysis.materialization.store import SessionStore, _one, _text
 from marivo.analysis.materialization.terminal_protocol import invalid
 from marivo.analysis.materialization.terminal_storage import POLICY, arrow_schema, physical_schema
+from marivo.analysis.methods.frame_method_facts import validate_method_facts
 from marivo.analysis.refs import ArtifactRef
 from marivo.render import Card
 
@@ -269,11 +272,33 @@ class FrameReader:
 
     def manifest(self, backing: StoredFrameBacking) -> ArtifactManifest:
         value = open_manifest(self.store, self.session_id, backing.artifact_id)
-        if value.data != backing.data or value.metadata != backing.metadata:
+        if (
+            value.data != backing.data
+            or value.metadata != backing.metadata
+            or value.method_facts != backing.method_facts
+        ):
             raise invalid("stored Frame descriptor differs from its exact commit")
         return value
 
     def complete(self, backing: StoredFrameBacking) -> CompletedFrameResult:
+        return CompletedFrameResult(
+            self.data(backing), backing.metadata, self.method_facts(backing)
+        )
+
+    def method_facts(self, backing: StoredFrameBacking) -> tuple[FrameMethodFacts, ...]:
+        value = self.manifest(backing)
+        reader = OutputRead(self.store.project_root)
+        with _frame_read_boundary():
+            result: list[FrameMethodFacts] = []
+            for saved in value.method_facts:
+                part = saved.payload
+                rows = reader.read(ReadLayout(part.schema, part.rows), ExportRead())
+                facts = decode_method_payload(saved, rows)
+                validate_method_facts(facts)
+                result.append(facts)
+            return tuple(result)
+
+    def data(self, backing: StoredFrameBacking) -> CompletedFrameData:
         value = self.manifest(backing)
         reader = OutputRead(self.store.project_root)
         with _frame_read_boundary():
@@ -286,9 +311,7 @@ class FrameReader:
                 )
                 for part in value.data.attachments
             )
-            return CompletedFrameResult(
-                CompletedFrameData(value.data.schema, rows, parts), value.metadata
-            )
+            return CompletedFrameData(value.data.schema, rows, parts)
 
     def preview(self, backing: StoredFrameBacking, n: int) -> FramePreview:
         request = PreviewRead(n)

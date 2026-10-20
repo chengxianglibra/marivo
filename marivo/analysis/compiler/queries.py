@@ -42,6 +42,7 @@ from marivo.analysis.core.graph import BoundGraph, read_input_graph
 from marivo.analysis.core.model import reject
 
 if TYPE_CHECKING:
+    from marivo.analysis.compiler.observation import MemberInput
     from marivo.analysis.compiler.optimization import InvocationMemo
 
 
@@ -57,7 +58,13 @@ def endpoint(graph: BoundGraph, plan: QueryPlan) -> ComparisonEndpoint:
         stage.columns,
         stage.keys,
         graph.signature.axes,
-        plan.output_groups or key_groups(graph, stage.columns, stage.keys),
+        plan.output_groups
+        or key_groups(
+            graph,
+            stage.columns,
+            stage.keys,
+            counts=plan.original.counts if plan.original is not None else (),
+        ),
     )
 
 
@@ -164,7 +171,11 @@ def expression_value(
 
 
 def key_groups(
-    graph: BoundGraph, columns: tuple[DataColumn, ...], keys: tuple[str, ...]
+    graph: BoundGraph,
+    columns: tuple[DataColumn, ...],
+    keys: tuple[str, ...],
+    *,
+    counts: tuple[MemberInput, ...] = (),
 ) -> tuple[tuple[str, ...], ...]:
     """Keep composite identities within their original coordinate boundary."""
     axes = graph.signature.axes
@@ -189,6 +200,28 @@ def key_groups(
             result.append(keys[offset : offset + width])
             offset += width
         return tuple(result)
+    if counts:
+        from marivo._definition.correspondence import coordinate_matches
+        from marivo._definition.types import CalendarCoordinate, IntervalCoordinate
+
+        prepared = counts[-1].axis_mapping
+        grouped = []
+        offset = 0
+        for axis in axes:
+            width = (
+                1
+                if isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
+                else len(
+                    next(
+                        group
+                        for candidate, group in prepared
+                        if coordinate_matches(axis, candidate)
+                    )
+                )
+            )
+            grouped.append(keys[offset : offset + width])
+            offset += width
+        return tuple(grouped)
     if len(axes) != len(keys):
         reject(
             "complete coordinate group metadata",

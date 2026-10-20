@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import TypeAlias
 
 from ibis.common.deferred import Deferred
@@ -13,6 +14,7 @@ from marivo._definition.query import (
 )
 from marivo._definition.relations import (
     ObserveQuery,
+    PopulationContains,
     PopulationProgram,
     ReadQuery,
     condition_populations,
@@ -254,6 +256,9 @@ def capture_metrics(
     timezone: str = "UTC",
     state: CompiledSemanticState | None = None,
     calendar_snapshots: tuple[PeriodCalendarSnapshotV1, ...] = (),
+    _parent_filter: Deferred | None = None,
+    _complete_calendar: bool = True,
+    _endpoint_scope: TimeScope | None = None,
 ) -> BoundGraph:
     if not isinstance(metrics, Mapping) or not metrics:
         reject(
@@ -343,6 +348,18 @@ def capture_metrics(
         else IdentityRead(axis.entity, axis.path, axis.at)
         for axis in source_axes
     )
+    if _parent_filter is not None:
+        from marivo._definition.expressions import EntityCount, SourceAggregate, SourceWeightedMean
+        from marivo._definition.graph import walk
+
+        has_facts = any(
+            isinstance(node, (EntityCount, SourceAggregate, SourceWeightedMean))
+            for node in walk(
+                tuple(quantity.definition for quantity in quantities), resolve=definitions.get
+            ).order
+        )
+        if has_facts:
+            where = _parent_filter if where is None else where & _parent_filter
     condition = consume_predicate(where).node if where is not None else None
     if condition is not None:
         for dependency in condition_populations(condition):
@@ -358,16 +375,50 @@ def capture_metrics(
     )
     root = ObserveQuery(tuple((q.name, q.definition) for q in quantities), (), owner)
     BoundGraph(root, signature)
+    parent_scope = None
+    if _parent_filter is not None:
+        parent_condition = consume_predicate(_parent_filter).node
+        assert len(parent_condition.inputs) == 1
+        parent_leaf = parent_condition.inputs[0]
+        assert isinstance(parent_leaf, PopulationContains)
+        parent_scope = parent_leaf.population
+    private_interval = None
+    if _endpoint_scope is not None:
+        from marivo.analysis.dsl.temporal import freeze_scope
+
+        private_interval = _axes((freeze_scope(_endpoint_scope, timezone),))[0]
     binding = bind_observation(
         root.metrics,
         definitions,
-        by=reads,
+        by=(*reads, *((private_interval,) if private_interval is not None else ())),
         where=condition,
         timezone=timezone,
         state=state,
         calendar_snapshots=calendar_snapshots,
         memberships=bindings,
         population=population,
+    )
+    if private_interval is not None:
+        binding = replace(
+            binding,
+            coordinates=replace(binding.coordinates, axes=axes),
+            contributions=tuple(
+                replace(
+                    contribution,
+                    calendars=tuple(
+                        (slot, axis)
+                        for slot, axis in contribution.calendars
+                        if axis != private_interval
+                    ),
+                )
+                for contribution in binding.contributions
+            ),
+        )
+    binding = replace(
+        binding,
+        coordinates=replace(
+            binding.coordinates, complete_calendar=_complete_calendar, parent_scope=parent_scope
+        ),
     )
     signature = BoundSignature(
         owner,

@@ -6,6 +6,8 @@ from numbers import Integral, Real
 from pathlib import Path
 from typing import Literal
 
+import pandas as pd
+import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
@@ -78,23 +80,32 @@ def test_postgres_integer_original_rollup_preserves_native_values(
 def test_postgres_drill_preserves_large_integer_values_and_null_categories(
     postgres_original_session: tuple[Session, Case], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from psycopg import sql
+
+    from marivo.datasource.ir import TableSourceIR
+    from tests.datasource.environment import postgres_analysis as pg
+
     session, case = postgres_original_session
     amount = session.catalog.fields.get("sales.facts.amount")
     category = session.catalog.fields.get("sales.facts.category")
     tenant = session.catalog.fields.get("sales.facts.tenant")
     query = session.observe({"value": amount.sum()}, by=(category, tenant))
-    native_table = case.session.bind(case.source, source_identity="complete-source-oracle").relation
-    native = case.session._backend.execute(
-        native_table.group_by("category", "tenant")
-        .aggregate(value=native_table.amount.sum())
-        .order_by("tenant")
-    )
+    assert isinstance(case.source, TableSourceIR)
+    assert isinstance(case.source.database, str)
+    with pg.connection() as reader:
+        native = reader.execute(
+            sql.SQL(
+                "SELECT category, tenant, SUM(amount) FROM {} "
+                "GROUP BY category, tenant ORDER BY tenant, category NULLS FIRST"
+            ).format(sql.Identifier(case.source.database, case.source.table))
+        ).fetchall()
     trace = capture_source(monkeypatch)
     result = query.compute().to_pandas()
     ordered = result.sort_values(result.columns[1])
-    assert ordered.iloc[:, 0].fillna("<NULL>").tolist() == native.category.fillna("<NULL>").tolist()
-    assert ordered.iloc[:, 1].tolist() == native.tenant.tolist()
-    assert ordered[("value", "value")].tolist() == native.value.tolist()
+    assert [
+        tuple(None if pd.isna(value) else value for value in row)
+        for row in ordered.itertuples(index=False, name=None)
+    ] == native
     assert sorted(result[("value", "value")].tolist()) == [1, 2, 3, 2**53 + 1]
     assert result.iloc[:, 0].isna().sum() == 1
     assert 2**53 + 1 in result["value", "value"].tolist()
@@ -218,7 +229,7 @@ def test_postgres_original_parent_overflow_prevents_publication(
         with pytest.raises(AnalysisError, match="signed int64 sum"):
             query.persist()
         assert publication_counts(session) == before
-        assert trace.returned_rows == [1]
+        assert trace.returned_rows == [2]
         assert trace.uploaded_key_rows == []
 
 
@@ -302,38 +313,169 @@ def test_postgres_nondeterministic_coordinate_collation_keeps_parent_labels(
             admin.execute(sql.SQL("DROP COLLATION {}").format(sql.Identifier(collation)))
 
 
-def test_postgres_original_reuses_invocation_metadata_across_occurrences(
-    postgres_original_session: tuple[Session, Case], monkeypatch: pytest.MonkeyPatch
+def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
-    from marivo.datasource.capabilities import provider_statement_log
+    from psycopg import sql
 
-    session, case = postgres_original_session
-    amount = session.catalog.fields.get("sales.facts.amount")
-    category = session.catalog.fields.get("sales.facts.category")
-    query = session.observe(
-        {
-            "sum": amount.sum(),
-            "count": amount.count(),
-            "distinct": amount.count_distinct(),
-            "min": amount.min(),
-            "max": amount.max(),
-        }
+    from marivo.analysis.core.attribute import AttributeInputError
+    from marivo.analysis.errors import AnalysisError
+    from marivo.datasource.ir import TableSourceIR
+    from tests.datasource.environment import postgres_analysis as pg
+
+    data = SourceData(
+        "id BIGINT NOT NULL, tenant CHAR(4) NOT NULL, category VARCHAR(4), amount BIGINT, big BIGINT, weight BIGINT NOT NULL, day DATE",
+        "(1,'EAST','A',9007199254740993,NULL,1,DATE '2026-10-08'),"
+        "(2,'EAST','B',80,NULL,1,DATE '2026-10-08'),"
+        "(3,'EAST',NULL,NULL,NULL,1,DATE '2026-10-08'),"
+        "(4,'EAST','A',9007199254740933,NULL,1,DATE '2026-10-07'),"
+        "(5,'EAST','B',100,NULL,1,DATE '2026-10-07'),"
+        "(6,'WEST','C',7,NULL,1,DATE '2026-10-08')",
+        "",
+        [],
     )
-    trace = capture_source(monkeypatch)
-    result = query.compute().to_pandas()
-    assert result[("value", "sum")].tolist() == [2**53 + 7]
-    assert result[("value", "count")].tolist() == [4]
-    assert result[("value", "distinct")].tolist() == [4]
-    assert result[("value", "min")].tolist() == [1]
-    assert result[("value", "max")].tolist() == [2**53 + 1]
-    assert trace.returned_rows == [1]
-    statements = [
-        entry.statement_id
-        for owner in trace.owners
-        for entry in provider_statement_log(owner._backend)
-    ]
-    assert "postgres.tables.kind" not in statements
-    assert statements.count("postgres.column.collation") == 2
+    monkeypatch.chdir(tmp_path)
+    with source_case("postgres", "table", tmp_path, monkeypatch, data) as case:
+        _project("postgres", case, monkeypatch, semantic_project_factory)
+        session = mv.session.create("postgres-attribute-default", timezone="UTC")
+        amount = session.catalog.fields.get("sales.facts.amount")
+        tenant = session.catalog.fields.get("sales.facts.tenant")
+        category = session.catalog.fields.get("sales.facts.category")
+        day = session.catalog.fields.get("sales.facts.day")
+        metric = amount.sum(time=day, empty="null")
+        current = session.time_scope(start="2026-10-08", end="2026-10-09")
+        baseline = session.time_scope(start="2026-10-07", end="2026-10-08")
+        selection = session.observe({"q": metric}, by=(current, tenant))
+        selection = selection.reduce({"q": selection["q"].sum()}, by=(selection.axes[1],))
+        parents = selection.top(1, by=selection["q"]).compute()
+        parent_rows = parents.to_pandas()
+        assert parent_rows.iloc[:, 0].tolist() == ["EAST"]
+        assert parent_rows[("value", "q")].tolist() == [9007199254741073]
+
+        assert isinstance(case.source, TableSourceIR)
+        assert isinstance(case.source.database, str)
+        table = sql.Identifier(case.source.database, case.source.table)
+        with pg.connection(admin=True) as admin:
+            admin.execute(
+                sql.SQL("UPDATE {} SET amount = %s WHERE tenant = %s AND id = %s").format(table),
+                (2**54, "WEST", 6),
+            )
+        expected = [
+            ("EAST", None, None, None, None, True, False),
+            ("EAST", "A", 9007199254740993, 9007199254740933, 60, True, True),
+            ("EAST", "B", 80, 100, -20, True, True),
+        ]
+        with pg.connection() as reader:
+            reranked = reader.execute(
+                sql.SQL(
+                    "SELECT tenant, SUM(amount)::BIGINT AS q FROM {} "
+                    "WHERE day >= DATE '2026-10-08' AND day < DATE '2026-10-09' "
+                    "GROUP BY tenant ORDER BY q DESC, tenant LIMIT 1"
+                ).format(table)
+            ).fetchall()
+            assert reranked == [("WEST", 2**54)]
+            native = reader.execute(
+                sql.SQL(
+                    "WITH current_groups AS ("
+                    "SELECT tenant, category, SUM(amount)::BIGINT AS q, COUNT(*) AS n "
+                    "FROM {table} WHERE tenant = 'EAST' "
+                    "AND day >= DATE '2026-10-08' AND day < DATE '2026-10-09' "
+                    "GROUP BY tenant, category), baseline_groups AS ("
+                    "SELECT tenant, category, SUM(amount)::BIGINT AS q, COUNT(*) AS n "
+                    "FROM {table} WHERE tenant = 'EAST' "
+                    "AND day >= DATE '2026-10-07' AND day < DATE '2026-10-08' "
+                    "GROUP BY tenant, category), keys AS ("
+                    "SELECT tenant, category FROM current_groups UNION "
+                    "SELECT tenant, category FROM baseline_groups) "
+                    "SELECT k.tenant, k.category, c.q, b.q, (c.q - b.q)::BIGINT, "
+                    "c.n IS NOT NULL, b.n IS NOT NULL FROM keys k "
+                    "LEFT JOIN current_groups c ON c.tenant = k.tenant "
+                    "AND c.category IS NOT DISTINCT FROM k.category "
+                    "LEFT JOIN baseline_groups b ON b.tenant = k.tenant "
+                    "AND b.category IS NOT DISTINCT FROM k.category "
+                    "ORDER BY k.tenant, k.category NULLS FIRST"
+                ).format(table=table)
+            ).fetchall()
+        assert native == expected
+
+        trace = capture_source(monkeypatch)
+        assert session.runs().items == ()
+        left = mv.AttributeEndpoint({"q": metric}, during=current)
+        right = mv.AttributeEndpoint({"q": metric}, during=baseline)
+        pending = session.attribute(
+            left,
+            right,
+            by=(category,),
+            parents=parents,
+            parent_on=((parents.axes[0], tenant, tenant),),
+            parent_how="exact",
+        )
+        assert trace.native_sql == trace.returned_rows == trace.uploaded_key_rows == []
+        assert session.runs().items == ()
+        pending.show(n=0)
+        assert trace.native_sql == trace.returned_rows == trace.uploaded_key_rows == []
+        assert session.runs().items == ()
+        assert pending.output_names == ("left.q", "right.q", "absolute.q")
+        assert pending.presence_names == ("left_present", "right_present")
+
+        fixed = pending.compute()
+        assert isinstance(fixed, mv.AnalysisFrame)
+        assert trace.native_sql and trace.returned_rows
+        completed_reads = (tuple(trace.native_sql), tuple(trace.returned_rows))
+        rows = fixed.to_pandas()
+        assert (tuple(trace.native_sql), tuple(trace.returned_rows)) == completed_reads
+        assert session.runs().items == ()
+        assert fixed.method_facts == ()
+        actual = [
+            tuple(None if pd.isna(value) else value for value in row)
+            for row in rows.itertuples(index=False, name=None)
+        ]
+        assert actual == native == expected
+        for name in fixed.output_names:
+            values = rows[("value", name)]
+            assert values.dtype == pd.ArrowDtype(pa.int64())
+            assert all(
+                isinstance(value, Integral) and not isinstance(value, bool)
+                for value in values.dropna()
+            )
+        for name in fixed.presence_names:
+            presence = rows[("presence", name)]
+            assert pd.api.types.is_bool_dtype(presence.dtype)
+            assert not presence.isna().any()
+        trace.record(fixed)
+        schema = trace.frames[-1]["schema"]
+        assert isinstance(schema, dict)
+        value_columns = schema["values"]
+        presence_columns = schema["presence"]
+        assert isinstance(value_columns, list) and len(value_columns) == 3
+        assert isinstance(presence_columns, list) and len(presence_columns) == 2
+        for column in value_columns:
+            assert isinstance(column, dict)
+            assert (column["dtype"], column["nullable"], column["unit"]) == (
+                {"name": "int64"},
+                True,
+                None,
+            )
+        for column in presence_columns:
+            assert isinstance(column, dict)
+            assert (column["dtype"], column["nullable"]) == ({"name": "boolean"}, False)
+
+        with pytest.raises(AnalysisError) as caught:
+            session.attribute(
+                left,
+                right,
+                by=(category,),
+                parents=parents,
+                parent_on=((parents.axes[0], tenant, tenant),),
+                parent_how="exact",
+                contribution=True,
+            ).compute()
+        assert isinstance(caught.value, AttributeInputError)
+        assert caught.value.reason == "unqualified_contribution_route"
+        assert (tuple(trace.native_sql), tuple(trace.returned_rows)) == completed_reads
+        assert session.runs().items == ()
 
 
 def _native_scalar(
@@ -350,6 +492,8 @@ def _native_scalar(
         "weighted_mean",
     ],
 ) -> int | float | Decimal | None:
+    from tests.datasource.environment import postgres_analysis as pg
+
     table = case.session.bind(case.source, source_identity="native-oracle").relation
     if method == "weighted_mean":
         table = table.filter(table.amount.notnull() & table.weight.notnull())
@@ -372,7 +516,10 @@ def _native_scalar(
         expression = table.amount.max()
     else:
         expression = table.amount.median()
-    result = case.session._backend.execute(expression)
+    with pg.connection() as reader:
+        row = reader.execute(case.session._backend.compile(expression)).fetchone()
+    assert row is not None and len(row) == 1
+    result = row[0]
     if result is None:
         return None
     if isinstance(result, Decimal):

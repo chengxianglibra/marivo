@@ -82,7 +82,7 @@ def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery
             raise compilation_error(f"a bound relation for {stage.source_id}", "unbound source")
         columns = dict(stage.field_columns)
         conditions: list[ir.BooleanValue] = []
-        if stage.period is not None:
+        if stage.period is not None and stage.attribute_layout is None:
             from marivo.analysis.compiler.observation import temporal_bound
 
             time = table[stage.period.column]
@@ -92,6 +92,63 @@ def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery
                 )
             conditions.append(time < temporal_bound(time, stage.period.end, stage.period.timezone))
         filtered = table.filter(*conditions) if conditions else table
+        if stage.attribute_layout is not None:
+            from marivo.analysis.compiler.attribute_inputs import (
+                attribute_preparation_key,
+                lower_attribute_inputs,
+            )
+
+            selected = tuple(_query_predicate(node, filtered, columns) for node in stage.predicates)
+            scoped = filtered.filter(*selected) if selected else filtered
+            expression, checks, check_scopes = lower_attribute_inputs(
+                stage.attribute_layout,
+                scoped,
+                columns,
+                relations[attribute_preparation_key(stage.stage_id)],
+                stage.preparation_checks,
+            )
+            from dataclasses import replace
+
+            from marivo.analysis.compiler.observation import data_type
+            from marivo.analysis.core.data_types import DurationDataType
+
+            effective = {
+                column.slot_id: replace(
+                    column,
+                    nullable=column.nullable
+                    or len({leaf.fiber for leaf in stage.attribute_layout.leaves}) > 1,
+                    dtype=column.dtype
+                    if isinstance(column.dtype, DurationDataType)
+                    and column.slot_id
+                    in {
+                        leaf.read.reduction.value_slot
+                        for leaf in stage.attribute_layout.leaves
+                        if leaf.read.reduction is not None
+                    }
+                    else data_type(expression[column.slot_id].type()),
+                )
+                for column in stage.columns
+            }
+            layout = stage.attribute_layout
+            layout = replace(
+                layout,
+                columns=tuple(effective.values()),
+                checks=check_scopes,
+                leaves=tuple(
+                    replace(
+                        leaf,
+                        roles=tuple(
+                            (role, effective[column.slot_id]) for role, column in leaf.roles
+                        ),
+                        support=effective[leaf.support.slot_id],
+                        effective=effective[leaf.effective.slot_id],
+                    )
+                    for leaf in layout.leaves
+                ),
+            )
+            stage = replace(stage, columns=layout.columns, attribute_layout=layout)
+            lowered.append(LoweredRead(stage, expression, checks))
+            continue
         if stage.common_reads:
             from marivo.analysis.compiler.original import lower_common_components
 

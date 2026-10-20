@@ -414,7 +414,7 @@ def _session_creation_attributes(
     name = arguments.get("name")
     if not isinstance(name, str):
         return attrs
-    db_path = root / STATE_DIR / "analysis" / "generations" / "v13" / "session_store.db"
+    db_path = root / STATE_DIR / "analysis" / "generations" / "v14" / "session_store.db"
     if not db_path.is_file():
         attrs["marivo.session.created"] = True
         return attrs

@@ -84,7 +84,7 @@ def test_window_attribute_identifies_its_public_constructor() -> None:
         (
             mv.AnalysisFrame,
             "analysis_frame",
-            ("artifact", "output_names", "axes", "presence_names"),
+            ("artifact", "output_names", "axes", "presence_names", "method_facts"),
         ),
         (mv.FrameAxis, "frame_axis", ("token", "name", "role", "key_names")),
     ),
@@ -114,3 +114,43 @@ def test_frame_axis_role_help_discloses_its_closed_public_values() -> None:
     for role in ("field", "identity", "calendar", "paired"):
         assert role in text
     assert "Value type: AxisRole\n" not in text
+
+
+@pytest.mark.parametrize(
+    "owner,target",
+    (
+        (mv.AttributeEndpoint, "attribute_endpoint"),
+        (mv.FrameMethodValue, "frame_method_value"),
+        (mv.FrameMethodCoordinate, "frame_method_coordinate"),
+        (mv.FrameMethodSupport, "frame_method_support"),
+        (mv.FrameAdditiveMethod, "frame_additive_method"),
+        (mv.FrameRatioMethod, "frame_ratio_method"),
+        (mv.FrameLinearTerm, "frame_linear_term"),
+        (mv.FrameLinearMethod, "frame_linear_method"),
+        (mv.FrameMethodMetric, "frame_method_metric"),
+        (mv.FrameMethodParent, "frame_method_parent"),
+        (mv.FrameMethodFacts, "frame_method_facts"),
+    ),
+)
+def test_attribute_record_fields_have_exact_static_public_help(
+    owner: type[object],
+    target: str,
+) -> None:
+    from dataclasses import fields
+
+    assert render_help_text(owner)[0] == render_help_text("analysis." + target)[0]
+    for field in fields(owner):
+        canonical = f"analysis.{target}.{field.name}"
+        text, _, resolved = render_help_text(canonical)
+        assert text.startswith(f"Target: {canonical}\nKind: attribute")
+        assert resolved == f"{target}.{field.name}"
+        assert "read-only" in text and str(field.type) in text
+        assert "_MethodScalar" not in text and "_Method" not in text
+
+
+def test_method_facts_property_owns_full_read_and_exact_type_continuation() -> None:
+    text, _, _ = render_help_text("analysis.analysis_frame.method_facts")
+    assert "tuple[FrameMethodFacts, ...]" in text
+    assert 'marivo.help("analysis.frame_method_facts")' in text
+    assert "all owned method payloads" in text and "without reading current data" in text
+    assert "compute/persist" in text and "not derived values" in text

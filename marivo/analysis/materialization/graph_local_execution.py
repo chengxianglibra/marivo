@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TypeAlias
+from typing import TYPE_CHECKING, TypeAlias
 
 import pandas as pd
 
 from marivo.analysis.compiler.graph_plan import FrameCompute, LocalCompute
 from marivo.analysis.compiler.query_program import FrameCombineProgram
+from marivo.analysis.core.artifact_data import OutputAttachment
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
     StageOutput,
 )
+
+if TYPE_CHECKING:
+    from marivo.analysis.materialization.query_components import AttributeRootInputs
 
 LocalKernel: TypeAlias = Callable[[LocalCompute, tuple[pd.DataFrame, ...]], pd.DataFrame]
 
@@ -23,6 +27,7 @@ def run_local(
     kernel: LocalKernel | None = None,
 ) -> StageOutput:
     """Run one checked Query kernel without mutating its shared inputs."""
+    attribute_inputs: tuple[AttributeRootInputs, ...] = ()
     if isinstance(stage, FrameCompute):
         from marivo.analysis.core.frame_data import required_attachments
         from marivo.analysis.core.frozen_calendar import (
@@ -35,7 +40,68 @@ def run_local(
 
         stage = effective_frame(stage, inputs)
         required = required_attachments(stage.program.output_schema)
-        if isinstance(stage.program, FrameCombineProgram):
+        from marivo.analysis.core.attribute import (
+            AttributeContributionProgram,
+            AttributeInputProgram,
+            AttributeMethodPayload,
+            AttributeProgram,
+            AttributeProjectProgram,
+        )
+        from marivo.analysis.methods.frame_attribute import (
+            attribute_frame_data,
+            attribute_input_frame_data,
+            project_attribute_parents,
+        )
+
+        attribute_methods: tuple[AttributeMethodPayload, ...] = ()
+        attachments: tuple[OutputAttachment, ...]
+        if isinstance(stage.program, AttributeContributionProgram):
+            from marivo.analysis.methods.frame_attribute_contribution import (
+                attribute_contribution_data,
+            )
+
+            frame, payload = attribute_contribution_data(stage.program, inputs)
+            attachments = inputs[0].frame_attachments
+            attribute_methods = (payload,)
+        elif isinstance(stage.program, AttributeProjectProgram):
+            frame = project_attribute_parents(
+                stage.program, inputs[0].table, inputs[0].frame_attachments
+            )
+            attachments = ()
+        elif isinstance(stage.program, AttributeInputProgram):
+            from dataclasses import replace
+
+            from marivo.analysis.materialization.query_components import (
+                complete_attribute_parent_domain,
+            )
+
+            parent, left, right, left_projection, right_projection = inputs
+            left = replace(
+                left,
+                attribute_inputs=tuple(
+                    complete_attribute_parent_domain(root, left_projection)
+                    for root in left.attribute_inputs
+                ),
+            )
+            right = replace(
+                right,
+                attribute_inputs=tuple(
+                    complete_attribute_parent_domain(root, right_projection)
+                    for root in right.attribute_inputs
+                ),
+            )
+            inputs = (parent, left, right, left_projection, right_projection)
+            frame, attachments = attribute_input_frame_data(stage.program, inputs)
+            attribute_inputs = tuple(
+                {
+                    root.stage_id: root
+                    for endpoint in (left, right)
+                    for root in endpoint.attribute_inputs
+                }.values()
+            )
+        elif isinstance(stage.program, AttributeProgram):
+            frame, attachments = attribute_frame_data(stage.program, inputs)
+        elif isinstance(stage.program, FrameCombineProgram):
             frame, attachments = combine_frame_data(
                 stage.program,
                 tuple(item.table for item in inputs),
@@ -66,6 +132,8 @@ def run_local(
                 tuple(c.slot_id for c in a.columns) for a in stage.program.output_schema.axes
             ),
             frame_attachments=attachments,
+            attribute_methods=attribute_methods,
+            attribute_inputs=attribute_inputs,
         )
         validate_frozen_coordinates(
             stage.program.output_schema,
@@ -114,7 +182,80 @@ def run_local(
             kernel = query_combine
     with pd.option_context("mode.copy_on_write", True):
         views = tuple(item.table.copy(deep=False) for item in inputs)
-        frame = kernel(stage, views)
+        if stage.program is not None and stage.attribute is not None:
+            selected_views = list(views)
+            for index, binding in enumerate(stage.program.values):
+                native = next(
+                    (
+                        native
+                        for root in inputs[index].attribute_inputs
+                        for native in root.layout.native_formulas
+                        if native.column.slot_id == binding.column.slot_id
+                    ),
+                    None,
+                )
+                leaf = next(
+                    leaf
+                    for root in inputs[index].attribute_inputs
+                    for leaf in root.layout.leaves
+                    if (native is not None and leaf.use == native.use)
+                    or (
+                        leaf.read.reduction is not None
+                        and leaf.read.reduction.value_slot == binding.column.slot_id
+                    )
+                )
+                reduction = leaf.read.reduction
+                assert reduction is not None
+                view = views[index]
+                if reduction.window_key is not None:
+                    slot = next(
+                        slot
+                        for slot, calendar in reduction.calendars
+                        if calendar == reduction.calendar
+                    )
+                    view = view.loc[view[slot] == reduction.window_key]
+                names = tuple(
+                    dict.fromkeys(
+                        (
+                            *binding.keys,
+                            binding.column.slot_id,
+                            *(name for name, _, _ in binding.checks),
+                            *(
+                                name
+                                for name in ("__numeric_present", "__sample_present")
+                                if name in view.columns
+                            ),
+                        )
+                    )
+                )
+                selected_views[index] = view.loc[:, list(names)].copy(deep=False)
+            views = tuple(selected_views)
+        if stage.attribute is not None:
+            from marivo.analysis.core.attribute import AttributeFormulaContext
+            from marivo.analysis.methods.frame_attribute import attribute_parent_mapping
+            from marivo.analysis.methods.local import query_combine
+
+            formula_binding = stage.attribute
+            context = AttributeFormulaContext(
+                formula_binding.uses,
+                tuple(c for c in stage.columns if c.slot_id in stage.keys),
+                formula_binding.source_parent_columns,
+                tuple(c for a in formula_binding.parent_schema.axes for c in a.columns),
+                tuple(
+                    c
+                    for c in stage.columns
+                    if c.slot_id in stage.keys
+                    and c.slot_id not in {p.slot_id for p in formula_binding.source_parent_columns}
+                ),
+                attribute_parent_mapping(
+                    formula_binding.parent_schema,
+                    inputs[formula_binding.projection_input_index],
+                    formula_binding.source_parent_columns,
+                ),
+            )
+            frame = query_combine(stage, views, attribute=context)
+        else:
+            frame = kernel(stage, views)
     if not isinstance(frame, pd.DataFrame) or any(
         frame is item.table or frame is view for item, view in zip(inputs, views, strict=True)
     ):
@@ -127,6 +268,16 @@ def run_local(
             stage="local_compute",
             help_target="analysis_frame.compute",
         )
+    if stage.program is not None:
+        # Formula values occupy the ordered input prefix, including repeated
+        # aliases of one bundled root. Domain/projection dependencies own no mass.
+        attribute_inputs = tuple(
+            {
+                root.stage_id: root
+                for source in inputs[: len(stage.program.values)]
+                for root in source.attribute_inputs
+            }.values()
+        )
     return StageOutput.from_frame(
         frame,
         stage.columns,
@@ -134,4 +285,5 @@ def run_local(
         layout=stage.result.output_layout if stage.result is not None else None,
         components=components if stage.program is not None else (),
         population_frames=population_frames if stage.program is not None else (),
+        attribute_inputs=attribute_inputs,
     )

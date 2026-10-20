@@ -280,12 +280,20 @@ unknown; it is not filled from a user assertion. Unsupported necessary types fai
 when the execution closure consumes them. Unused columns do not add execution
 type restrictions.
 
-Governed analysis reads run through the selected Ibis backend and return a
-pandas DataFrame. Value conversion follows Ibis/provider behavior and may be
+Governed `SourceSession` reads, including `collect_bounded`, run through the
+selected Ibis backend and return a pandas DataFrame. Value conversion follows
+Ibis/provider behavior and may be
 lossy; for example, a provider may turn an invalid date into a null value.
-DuckDB reads consume Ibis Arrow results and map integer columns directly to
-pandas Arrow extension dtypes, preserving integers alongside nulls without a
-float64 intermediate. Other backends retain their native Ibis pandas path.
+DuckDB `SourceSession` reads and qualified typed PostgreSQL Analysis reads consume
+native Ibis Arrow results before pandas inference and map integer columns directly
+to pandas Arrow extension dtypes.
+Integer values that fit the native Arrow result type remain exact alongside
+nulls without a float64 intermediate. Noninteger values retain native Ibis Arrow
+type, representability and precision limits; their pandas representations need
+not match the backend's `execute()` results. Ordinary PostgreSQL authoring, basic
+reads and bounded inspection (`collect_bounded`) retain native Ibis pandas
+conversion, including JSON object/array values and its existing precision and
+representation limits. Other backends retain their native Ibis pandas path.
 Marivo does not add a per-value Arrow round-trip audit. Source schema and
 projection admission, requested row/time bounds, and downstream key, Cell,
 time, and persistence-schema checks remain in force.
@@ -629,9 +637,15 @@ The selected engine provider registry is lazy. `SourceSession` binds table and
 view relations on DuckDB, PostgreSQL, MySQL, Trino, and ClickHouse, and DuckDB
 CSV, Parquet, local JSON, and uncredentialed HTTP JSON. It checks exact source
 identity, runtime JSON parameters, relation ancestry, additional physical
-inputs, and the bound relation schema before execution. It calls the selected
-Ibis backend's `execute()` and returns the resulting pandas DataFrame; Ibis and
-the provider own driver fetching and value conversion. There is no Marivo-owned
+inputs, and the bound relation schema before execution. DuckDB reads and qualified
+typed PostgreSQL Analysis `query.source_read` v1 reads call the native Ibis
+backend's `to_pyarrow()` and convert its result to pandas with the integer-only
+dtype mapping above. The PostgreSQL route is selected from the actual
+`PhysicalRequirement` captured in the private issued-read proof at compilation;
+diagnostic purpose strings do not select transport. Ordinary PostgreSQL
+authoring/basic/`collect_bounded` reads and other providers call native `execute()`
+and return its pandas DataFrame. Ibis and the provider own driver
+fetching and native value conversion. There is no Marivo-owned
 row cursor/batch protocol or strict source Arrow round-trip decoder. Column
 order, source binding, requested row/time bounds, and downstream key, Cell,
 time, and persisted-schema checks remain governed. A completed DataFrame read
@@ -783,11 +797,15 @@ After an entity is registered, semantic authoring reuses the entity ref rather
 than re-supplying `(datasource, source)` tuples. The full write loop is defined
 in [authoring-workflow.md](authoring-workflow.md).
 
-SourceSession returns the pandas DataFrame produced by Ibis, so nullable value
-representations follow that provider's conversion behavior; Marivo does not
-require an exact source-value round trip. Typed inspection still does not
-normalize PostgreSQL/MySQL/Trino fixed CHAR to logical string, because its
-padding semantics differ. Bind a variable-length text column instead.
+SourceSession returns a pandas DataFrame through the native Ibis result paths
+above. DuckDB reads and qualified typed PostgreSQL Analysis reads retain nullable
+integers that fit their native Arrow result types. Ordinary PostgreSQL inspection
+and other nullable representations follow the selected native conversion behavior
+and its precision/representation limits. Marivo does not require a universal exact
+source-value round trip.
+Typed inspection still does not normalize PostgreSQL/MySQL/Trino fixed CHAR to
+logical string, because its padding semantics differ. Bind a variable-length text
+column instead.
 
 
 ## Execution logging side effects

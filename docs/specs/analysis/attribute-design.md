@@ -1,12 +1,13 @@
 # Attribute：显式来源调查与可选贡献分解
 
-Status: proposal，2026-10-20；attribute 的来源请求 API 待定稿，尚未实现。
-本次核对基线 `6c2800bfa7`。依据 [AnalysisFrame 实施方案](analysis-frame-implementation-plan.md)
-及其 [最终数据合同](query-result-reuse.md) 修订；基础切换的完成记录见
-[实施进度](analysis-frame-implementation-progress.md)，不将历史计划的 planned 状态当作当前状态。
-当前公开对象已是 AnalysisFrame，rollup/drill 接口已退役，本提案不再保留或重新引入它们。
+Status: frozen implementation contract，2026-10-20；P0 来源请求、父域交接及保存合同正文保持冻结。
+当前实施、审查及验收状态见 [Attribute 实施进度](attribute-implementation-progress.md)。
 当前 API 由 [Python Analysis Design](python-analysis-design.md) 和 [Lazy DSL](lazy-analysis-dsl-redesign.md) 拥有；
-本文只定义后续显式来源调查与精确贡献的扩展合同。
+本文定义显式来源调查与精确贡献的合同，实际支持边界由当前 API 文档和实施证据说明。
+P0 核对基线为 `6c2800bfa7`；[AnalysisFrame 实施方案](analysis-frame-implementation-plan.md)
+及其 [最终数据合同](query-result-reuse.md) 是修订依据，基础切换的历史记录见
+[AnalysisFrame 实施进度](analysis-frame-implementation-progress.md)。
+当前公开对象已是 AnalysisFrame，rollup/drill 接口已退役，不重新引入。
 
 ## 1. 用户问题与范围
 
@@ -33,35 +34,85 @@ compare/attribute 均定位为基础能力组合的高级 API：compare 组合�
 
 ## 2. 显式来源请求边界
 
-方向确定为 Session 拥有的显式来源操作，但本轮不冻结函数名、公开参数类或完整签名。
-不能把旧 selected.attribute(...) 机械替换为 session.attribute(selected, ...)，
-再从 selected 的内部表达式提取原 Metric；这仍违反前置合同。
-最终 API 必须完整表达以下事实，并与既有 observe/read 的绑定方式统一后才能实施：
+唯一入口为 `Session.attribute`；不新增 `AnalysisFrame.attribute`、接收历史结果后恢复来源的
+重载或兼容别名。新增不可变输入记录 `AttributeEndpoint` 只封装已有 observe 的四项端点输入，
+构造时复制 metrics 的有序映射，后续调用方修改原映射不影响请求。它不是来源句柄或执行器。
+两端独立范围无法由一个 Metric 映射无歧义表达，因此该记录是必要的最小新增请求类型；
+父域直接复用 Population/AnalysisFrame，不新增父节点、专属坐标或运行时父域对象。
 
-| 必需输入 | 责任 |
+下面是本扩展的完整目标签名。`Deferred`、`Entity`、`TimeScope`、`CalendarAxis` 和分类类型
+沿已有 observe/桥接定义；公开类型从各自 owning 模块取得，示例中的 `mv.AttributeEndpoint`
+由 `marivo.analysis` 导出。下面的类型别名只缩写签名，不新增公开导出或顶层 Help 索引项。
+
+```python
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Literal, TypeAlias
+
+Classification: TypeAlias = Deferred | Grouping
+ParentTarget: TypeAlias = Deferred | Entity
+
+@dataclass(frozen=True)
+class AttributeEndpoint:
+    metrics: Mapping[str, Deferred]
+    during: TimeScope | CalendarAxis | None = None
+    where: Deferred | None = None
+    memberships: tuple[Grouping, ...] = ()
+
+class Session:
+    def attribute(
+        self,
+        left: AttributeEndpoint,
+        right: AttributeEndpoint,
+        *,
+        by: tuple[Classification, ...] | Population,
+        parents: Population | AnalysisFrame | None = None,
+        parent_on: tuple[tuple[FrameAxis, ParentTarget, ParentTarget], ...] = (),
+        parent_how: Literal["exact", "outer"] = "exact",
+        contribution: bool = False,
+    ) -> AnalysisFrame: ...
+```
+
+| 唯一输入权威 | 责任 |
 | --- | --- |
-| 两端 Metric 定义及量名 | 调用方显式提供已解析定义；检查单位、贡献根、配方、规约及样本政策相容性 |
-| 两端观察范围 | 各自期间、条件、成员与属性时点；不能从旧 frame 的审计文字猜测 |
-| 父域及双端对应 | 明确每个调查总体的两侧完整键、对应和 exact/outer 政策；若来自筛选结果，作为固定数据输入 |
-| 新增 by 分类 | 复用 observe 的分类元组或单个 Population 输入形状，见第 3 节；不作为隐藏过滤器 |
-| contribution | 明确 bool 请求，默认关闭；不能把数值列存在当作分解证明 |
+| left/right.metrics | 显式已解析 Metric；两端非空量名集合相同，左端声明顺序决定输出量顺序 |
+| left/right.during、where、memberships | 各端时间、原生 Deferred 条件和显式 Grouping 分配规则；沿当前时间与 observe 绑定权威，没有重复的顶层同名参数 |
+| parents | 唯一父选择域；None 是单一零轴总体 `{()}`，空 Population/Frame 是零个总体 |
+| parent_on | 仅在 parents 为 Frame 时，将其中每个普通字段/完整身份轴显式绑定到两端新来源目标 |
+| parent_how | 本次父域对应的 exact/outer 政策；不控制新增细组的 outer 并集 |
+| by | 两端共同的非空新增联合分类，复用第 3 节 tuple 或单个 Population 形状 |
+| contribution | 严格 bool，默认 False |
 
-同路径定义版本变化不单独拒绝；仍需检查所消费定义的实际类型、单位、根、粒度与政策。
-父域数据与来源定义分别拥有事实：复用历史键不等于复用历史来源值。
-已物化父域的筛选与 Top 不在调查时重跑；新的来源观察可以看到变化后的事实。
+每对同名量均检查 Metric 种类、可比较数值类型、相同单位、时间角色及相容的根、粒度、
+规约和 null/empty/有效样本政策。这里的根/配方检查验证两端消费的结构角色相容，
+不要求原定义版本相同，不以同路径版本或 fingerprint 变化拒绝请求。
+原量的非线性结构合法时默认调查仍合法；仅贡献路径额外检查第 6 节规则。
+contribution=True 还要求同名量两端实际消费的贡献规则树逐项相容：对应的 additive/
+ratio_component/linear 节点拓扑、线性加减/取负/缩放算子、子式顺序和固定系数必须相同。
+比较已消费结构与常数的实际数值/数值类型；不根据定义路径、版本或 fingerprint 判定。
+不交换子式、分配乘法或用代数等价重写来修复不相容规则；两端沿相同配方但来源事实变化合法。
+因此 left=A−2B、right=A−3B 请求贡献必须在构造/准备时以 unsupported_expression 拒绝，
+携带量名、规则树子式路径、两端实际算子/系数和预期的相同结构；修复为显式提供相同系数
+的两端定义，或另发 contribution=False 调查原公式。默认调查不要求线性系数相同。
+第 6 节的单一固定系数及第 7.3 节单一系数事实均建立在此准入条件上。
+所有输入必须归当前 Session/Store，FrameAxis 必须来自 parents 的精确当前输入；
+复合身份必须完整。绑定失败报告预期、实际输入及具体修复，不按名称猜测或静默重绑。
+构造、待执行 show 和 n=0 不读取业务行、不创建 Run；动态选择只在统一求值时完成。
 
-现有 session.population_from 覆盖普通字段/身份轴到来源的显式桥接，
-足以完成“选异常地区，再按渠道 observe”，包括从普通轴 compare 结果选择完整父键。
-桥接接收待执行选择时每次会重新求值；只有消费 compute/persist 返回的 Frame 才固定选择。
-同一组选定普通键可以显式用于两端来源，但不自动建立各父域的贡献总体或共同输入证明。
-配对/日历父域双端投影、各父域的共同输入重算及精确贡献仍是后续扩展，
-不能声称普通桥接已经覆盖，也不扩展基础桥接的轴资格。
-两端来源定义、父域映射和异常筛选必须各有唯一权威，避免重复参数互相矛盾。
+普通父域可先通过 `session.population_from` 显式桥接，再把返回的 Population 作为 parents。
+该情形 `parent_on` 必须为空；Population 的绑定同时用于两端，不接受第二份重复映射。
+需要两端不同语义目标时，直接传一个 Frame，并逐普通轴提供 `(axis, left_target, right_target)`。
+parent_on 必须恰好覆盖所有普通轴，各轴一次，不包含日历/配对轴；Population/None 下非空映射拒绝。
+已有桥接的普通字段/完整身份资格不变，日历/配对转交仅在本入口内按第 2.2 节消费冻结数据。
+
+父域数据与来源定义分别拥有事实：历史值、差值、presence 和生产图均不进入新来源绑定。
+已 compute/persist 的选择只复用固定完整键；来源变化可改变新值，不能重跑旧筛选/Top。
+待执行选择在每次新求值时重新执行，并在本次端点观察前固定其完整键。
 
 ### 2.1 显式贡献请求与规则判断
 
 contribution 只接受 bool，不接受 0/1/None；没有 mode、topk、method 或自动回退。
-这是未来请求合同，不表示本轮已经发布可调用函数。
+这是定稿的目标合同，不表示实现或公开披露已经完成。
 
 | 请求 | 计算与返回 | 无精确分解规则时 |
 | --- | --- | --- |
@@ -87,6 +138,10 @@ undefined_input、root_denominator_zero、unqualified_contribution_route。
 
 ### 2.2 父域、对应与实际输入
 
+当前集成保留普通轴、日历及配对日历父域的显式绑定合同。main 新增的 interval
+和 paired-interval Frame 父轴在读取前拒绝；选择普通父轴或受支持的显式日历父域。
+端点 during=TimeScope 仍由现有时间权威私有降级，不因此新增 interval 父域投影或传输架构。
+
 请求显式提供或绑定两端父坐标和对应，不继承一个 compare 节点中的隐藏定义。
 数据侧日历匹配遵守 Frame 的自包含规则；新的来源范围、关系和分类仍必须显式提供。
 普通轴对应须完整显式绑定；零轴或双方唯一日历轴才使用 Frame 已允许的推导。
@@ -94,13 +149,101 @@ undefined_input、root_denominator_zero、unqualified_contribution_route。
 固定父域的每个完整键是独立总体，启用贡献时其本次重算变化拥有该父域的占比分母。
 选择时的 presence 不是本次来源的缺侧掩码；实际重算按各端本次输入及原输出域政策决定。
 原请求明确排除的范围仍不消费，不能与历史读取暂未出现的组混淆。
+父域选择先完成自身全部检查，再将完整键投影到两个显式端点。字段 Null 是类型化合法键，
+身份复合键不能逐分量拆开；投影后的重复完整键去重，保留联合相关性。
+零父轴时，None 的 `{()}` 与显式空选择不同；空 Frame 的零轴投影仍为空。
+父域只给出请求选择范围，不把历史行有无当成本次读取有无。
 
-父域 exact 不意味着细组 exact。新增字段的完整细组按两端联合键并集处理，保留新增/消失组。
-分类使用各端显式角色及属性时点，角色不相容就拒绝，不能根据标签拼接。
-新增日历细化仍不在 attribute 首版范围；不丢弃必需双端投影来假装已经得到单一当期轴。
+| parents 的结构 | 新来源绑定及输出父轴 | 必须拒绝的形状 |
+| --- | --- | --- |
+| None 或纯普通轴 Population | None 为单总体；Population 使用自身显式绑定和完整键，两端同一域 | 非空 parent_on；无父日历时任一端 during=CalendarAxis |
+| 普通轴 Frame | 每个普通轴由 parent_on 双端绑定；父键等值对应，输出保留选中父轴 | 漏轴、重复轴、部分身份、错输入句柄或不相容类型/时间锚点 |
+| 含一个非配对日历轴的 Population/Frame | 两端 during 均为 CalendarAxis，与保存的同一有限目录完全相容；按同一桶键等值投影，输出普通日历父轴 | 缺少一端 CalendarAxis、只给 TimeScope、目录/名义或实际边界不符、把等值暗改 ordinal |
+| 含一个配对日历轴的 Frame | 两端 during 各自匹配保存的左/右端完整有限目录；只消费原配对键→双端桶键附件，输出保留该配对轴 | 新 match、再次 align/compare、缺失/损坏附件、按标签重配对、用当前规则补造缺桶 |
+| 普通轴加一个日历/配对轴的 Frame | 普通轴仍全部显式 parent_on；日历轴按上一行对应规则投影 | 多于一个日历承载轴，或新增 by 再引入日历细化 |
 
-本次贡献解释本次新读取的两期指标，不承诺复现过去异常值，不要求跨读相等检查或自动重试。
-两个端点可以独立读取；每个端点内部的总体和全部联合组必须使用同一实际贡献输入。
+“完全相容”比较 builtin grain/step 或 named identity/snapshot/level、timezone、规则版本、
+完整有限桶目录、唯一名义标签/原 ordinal 和逐桶名义/实际边界；不比较不同输入的局部 token、
+附件名或显示名。新的 CalendarAxis 是调用方显式来源权限，不从旧 Frame 重建；
+冻结目录仅验证和定位新范围。配对父域保留当初 full-bucket 准入，不因 where/top 只保留
+完整桶而放宽原目录中的部分桶。普通等值日历父域沿原合同，不额外要求 full-bucket。
+首版一个端点只有一个 during，所以拒绝多个日历承载父轴；需要新日历配对应先显式 observe
+并按 Frame 合同形成父选择，再发起新请求。没有日历父域时只接受 TimeScope/None，
+不另外提供 standalone CalendarAxis 输出、match 参数或日历细化。
+
+parent_how 默认为 exact，错误值拒绝，不回退 outer。对应按完整父键进行，不能只检查
+日历桶而遗漏地区等其他键。求值先确认请求键的双端结构投影，再按各端原父域输出政策
+确定本次父行域：exact 要求两个本次父行域完整一一对应；outer 取其完整并集。
+两个端点都无实际父行的请求键不虚构输出细行，但仍完成该请求父域的 empty/NA 与贡献检查，
+贡献开启时保留其摘要。完整 Population 的输出域政策可能为无事实父键保留空行；
+该已知空行按原 empty/NA 政策求值，不能仅因没有事实或没有细组令 exact 失败。
+
+三种缺侧必须区分：
+
+- 历史父行 presence=False，但冻结映射具有合法端点桶键：该端仍按本次新范围读取，
+  新数据可以出现；历史 presence 不作 mask，历史差值不作本次占比分母。
+- 本次有合法完整键/范围、已读完且无贡献事实：这是已知空输入，沿原域和 empty/NA 政策，
+  不等于结构缺侧；符合第 6.6 节证明时内部可用空集单位元。
+- 已保存 outer 配对中的端点桶键本就不存在于该端冻结目录：结构上无可投影范围。
+  exact 拒绝；outer 默认调查保留另一端，缺端 presence=False、原量/change 为 NA。
+  不读取另一期间、扩充目录或把缺少范围说成已知空输入；贡献请求报 undefined_input。
+
+plain 日历目录的完整相容条件不允许结构缺桶；需要不同有限目录或单侧桶时，先按普通
+Frame 规则构造显式 paired 父域。一个结构存在但当前没有父行的端点也不能从旧 presence
+推定为空或改用别的桶，必须由本次原量域/empty 政策决定。原请求明确排除的范围仍不消费。
+父 exact 不要求细组 exact：新增完整细键始终取两端并集，保留新增/消失组及独立 presence。
+分类使用各端显式角色及属性时点，角色不相容拒绝，不能按标签拼接。
+
+每个选中完整父键是独立总体，其本次重算变化拥有该父域的贡献占比分母。
+本次贡献解释新读取的两期指标，不承诺复现过去异常值，也不要求跨读相等或自动重试。
+两个端点可独立读取；每端内部总体和全部联合组必须使用第 8 节同一实际贡献输入。
+
+以下是目标入口的最小调用。revenue、region、channel 和期间均为已解析的同 Session 输入：
+
+```python
+# One overall parent; left is current and right is baseline.
+overall = session.attribute(
+    mv.AttributeEndpoint({"revenue": revenue}, during=current_period),
+    mv.AttributeEndpoint({"revenue": revenue}, during=previous_period),
+    by=(region, channel),
+    contribution=True,
+)
+
+# selected is a fixed ordinary-axis comparison selection.
+selected_parents = session.population_from(
+    selected, on=((selected.axis("region"), region),),
+)
+regional = session.attribute(
+    mv.AttributeEndpoint({"revenue": revenue}, during=current_period),
+    mv.AttributeEndpoint({"revenue": revenue}, during=previous_period),
+    parents=selected_parents,
+    by=(channel,),
+)
+
+# selected_months has one plain frozen calendar axis and no ordinary axes.
+# shared_months is an explicit CalendarAxis matching that complete directory.
+monthly = session.attribute(
+    mv.AttributeEndpoint({"revenue": revenue}, during=shared_months),
+    mv.AttributeEndpoint({"revenue": revenue}, during=shared_months),
+    parents=selected_months,
+    by=(channel,),
+)
+
+# selected_pairs has one paired calendar axis plus the ordinary region axis.
+# Each explicit CalendarAxis matches its stored endpoint directory in full.
+paired = session.attribute(
+    mv.AttributeEndpoint({"revenue": revenue}, during=current_months),
+    mv.AttributeEndpoint({"revenue": revenue}, during=previous_months),
+    parents=selected_pairs,
+    parent_on=((selected_pairs.axis("region"), region, region),),
+    parent_how="outer",
+    by=(channel,),
+)
+```
+
+paired 例子的 outer 允许结构单侧桶作默认调查，不承诺其可贡献分解；若启用贡献，任一
+结构缺侧或必要总体变化未定义都使整个请求失败。plain 日历例子通过同一坐标在两端重新观察，
+可使用不同显式 `where` 谓词和 `memberships` Grouping 分配规则；它不隐含两期间的偏移匹配。
 
 ### 2.3 当前可复用的基础流程
 
@@ -147,11 +290,11 @@ population_from 只传递选中地区的完整键，不传递历史比较值、p
 每次 compute/persist 或派生后从返回对象重取 Column/FrameAxis，不能复用旧接收者的句柄。
 
 细组阶段使用 observe + align + select，展示两期值和变化，并保留独立 presence；不计算
-相对变化。这里用普通单段量名，未来 attribute 按第 7 节生成规范路径。该流程不构成精确贡献分解。
+相对变化。这里用普通单段量名，attribute 按第 7 节生成规范路径。该流程不构成精确贡献分解。
 align + select 保留对齐行序；attribute 还需执行第 7 节的规范排序输出整形，不能据此假定两者行序相同。
 不能把上一步 regional_change 的历史差值当作新组贡献的分母，也不能单独再 observe
 总体后假定与组数据共享实际输入。贡献请求仍需第 6、8 节的共同输入路线。
-需要配对/日历父域的调查须等相应显式来源交接定稿，不能剥除时间轴后声称保留了原范围。
+配对/日历父域的调查使用第 2.2 节专门转交；不能剥除时间轴后声称保留了原范围。
 
 只改变来源观察粒度时，直接重新声明 by，不经过结果接收者接口：
 
@@ -219,7 +362,7 @@ Population 候选域选择指定完整输出键，不要求覆盖域外来源坐
 Attribute 的父域共同输入、精确贡献完整不交分区和守恒证明仍是本提案自己的要求，不能从 observe 的域选择推断。
 
 例如调用方已取得 region/channel Field，并明确要求两地区与两渠道的全部交叉组合，
-可使用现有 API 构造域；下面仍是基础来源示例，不是尚待定稿的 attribute 调用签名：
+可使用现有 API 构造域；下面仍是基础来源示例，不替代第 2 节已定稿的 attribute 调用签名：
 
 ```python
 regions = mv.coordinates(by=(region,), keys=(("East",), ("West",)))
@@ -509,23 +652,29 @@ mean 换成有效值和/有效计数；weighted_mean 换成共同有效配对的
 
 ## 7. 输出、顺序与继续分析
 
-未来 attribute 请求返回普通 AnalysisFrame，轴为“显式父坐标 + by 的有序业务轴”，
+attribute 请求返回普通 AnalysisFrame，轴为“显式父坐标 + by 的有序业务轴”，
 每行一个完整联合组合，无根行、节点轴、depth、父子树结构或合成 Others。
 Frame 生命周期、类型化键、名称段、presence_names、show 和物化合同由前置设计拥有。
 这里的 left/right 分别代表当前/基准端点；沿用前置设计的名称段路径和 presence 规则，
 不增加结果子类型或第二套端点命名。
 
-关闭贡献时，对声明量 q 输出 left.q、right.q、absolute.q 及独立 left_present/right_present；
-absolute.q 是本文数学段落的 change，不自动附带 relative.q。
-开启贡献成功时再输出 contribution.q、contribution_share.q；原值、差值和贡献具有指标单位，
-占比无量纲。ratio_component 还显式输出 numerator_left.q/numerator_right.q、
-denominator_left.q/denominator_right.q 及各自单位，不以隐藏内部组件提供续算资格。
-这些是未来方法生成的路径，不能作为用户自定义量名绕过单段命名合同。
+量按 left.metrics 声明顺序排列，每个 q 的值列顺序如下；presence 是独立非空 bool 目录，
+固定为 left_present/right_present，不混入 output_names。
 
-开启贡献时，按完整父键定位的方法摘要保存本次总体两期值、change、归一化根分母、分解规则及参数。
-它是不可执行的方法事实，不是额外数据行；无联合候选仍保留必要父域摘要与原 empty/NA 语义。
-linear 子式及 mean/weighted_mean 的配对支持作为可解释事实保存，不保存可执行原配方。
-该方法摘要的 codec 和传播必须在扩展实施时单独闭合，不能假设基础 Frame 已经实现。
+| 请求/规则 | q 的有序值路径 | 类型与单位 |
+| --- | --- | --- |
+| 默认 | left.q、right.q、absolute.q | 两端按原可比较数值类型输出，absolute 用原减法提升政策；均为 q 单位 |
+| additive/linear 贡献 | 以上三列，随后 contribution.q、contribution_share.q | contribution 用合法组件算术的结果类型及 q 单位；share 用既有除法类型、无量纲 |
+| 直接 ratio_component 贡献 | 上述五列，随后 numerator_left.q、numerator_right.q、denominator_left.q、denominator_right.q | 组件各保留原始 N/D 类型和单位，符合 N/D=q；这些是该组的 N_t(S)/D_t(S)，不是广播的父分母 |
+
+所有原值/差值及解释组件遵守各自 nullable/empty 政策；缺侧为 NA，不进行强制 float 转换。
+父分母 D_t(parent) 只在第 7.3 节父域事实中保存，避免把重复总体值伪装成组组件。
+linear 的 ratio 子式用第 7.3 节递归事实解释，不新增不稳定的临时子式值路径。
+这些是操作生成的名称段路径，不能作为用户自定义单段量名绕过命名合同；不会生成 relative.q。
+
+开启贡献时保存不可执行方法事实，不是额外结果行；关闭贡献时不生成本次 Attribute 方法事实或贡献专用解释组件/认证；
+显式 Frame 输入已有的历史方法事实仍按第 7.3 节继承。零细组父域的必要事实仍保留。typed schema、身份关联、传播及
+保存版本由第 7.3–7.4 节闭合，不存 Metric、Deferred、来源图、连接或可执行配方。
 
 规范排序属于 attribute 的输出整形：计算及必要检查完成后、形成完整结果前，按完整父键
 与联合组合键的既有规范次序统一排列所有行值和 presence。它不改变分组、贡献或分母。
@@ -577,7 +726,7 @@ reduce 仍删除行级 presence；null 占比及空/all-NA 统计保持普通算
 
 算术、重命名或规约后的列不会自动取得新的精确归因证明。原方法摘要只解释原结果及其总体；
 后续筛选不改写原分母，派生统计不把旧摘要冒充自己的分解结论。解释事实的保存与传播
-沿第 7 节所述扩展 codec 定稿，不成为执行依赖或来源配方。
+遵守第 7.3–7.4 节，不成为执行依赖或来源配方。
 
 ### 7.2 求值、保存与冷恢复
 
@@ -585,6 +734,197 @@ show(n=20) 在待执行时只展示已捕获信息，物化后预览已有结果
 终态 Artifact 仅通过 frame.artifact 访问提交和审计，数据读取归 Frame；其 show() 不预览数据。
 compute 不创建持久 Run，persist 发布并返回持久 AnalysisFrame，frame.artifact 才是终态视图。
 已保存结果和审计事实均不恢复来源定义。冷恢复、命名冲突与原始数值错误遵守 Frame 合同。
+
+### 7.3 不可执行方法事实及传播
+
+唯一完整读取位置为 `AnalysisFrame.method_facts -> tuple[FrameMethodFacts, ...]`。
+内存 Frame 的属性返回已拥有的完整不可变事实；持久 Frame 的属性是显式完整事实读取，
+可以读取并验证第 7.4 节保存的方法载荷，不读当前主结果行或原业务来源、不加载 Catalog/模型。
+待执行 Frame 读取该属性报“尚未求值”，修复为先 compute/persist，不隐式求值。
+来源请求 show 只展示已捕获的请求形状；固定 Frame.show 只展示方法事实数量、origin_result_id
+和指向该属性的继续读取提示，不把事实内容当成第二套数据预览。Artifact 仍只拥有终态审计，
+不新增 Artifact→Frame 导入或方法事实专用 Artifact 查询入口。
+
+`FrameMethodFacts` 属于既有 Frame* 不可执行结果事实家族；下面的嵌套记录也使用该家族命名，
+均为 frozen/slots 只读记录，不能由记录重新构造来源操作。公开导出这些具体结果类型及
+AttributeEndpoint；缩写的 union/type alias 不导出，也不新增通用方法注册表。
+各具体类型、method_facts 属性和嵌套字段有独立小写 snake_case Help 目标；
+`analysis.analysis_frame` 仅导航到 `analysis.analysis_frame.method_facts`，
+其类型页导航到 `analysis.frame_method_facts` 及必要子类型，不扩展顶层 Help 索引。
+每种记录使用有界单行 repr（kind、origin/局部身份、`.show()` 指针），不使用默认 dataclass repr。
+`.show(n=20)` 仅渲染记录中已保存的事实，按父键/量/子式规范顺序限行；n=0 只显示字段目录和计数，
+合法 n 的规则与 Frame.show 一致。完整字段始终通过只读 typed 属性取得，show 不裁剪其载体。
+
+以下是闭合 schema；类型 `DataSchema`、`DataColumn`、`DataType` 复用现有纯数据目录的
+具体类型，不引入语义 Ref。为记录 typed 值，定义内部缩写
+`MethodScalar = bool | int | float | str | date | Decimal | None`；这里没有 Any/object/dict。
+时间戳和 Duration 使用其 DataType 单位的整数 ticks，避免通过 datetime/timedelta 损失 ns，
+date 保留 date，Decimal 保留原精度/scale，不转为 float。每个 FrameMethodValue 按 DataColumn
+校验精确 scalar 类型、nullable、单位和有限值；bool 不作为 int，NA 规范为 None。
+
+| 具体记录 | 全部字段（除此之外无自由扩展字段） |
+| --- | --- |
+| FrameMethodValue | column: DataColumn；value: MethodScalar |
+| FrameMethodCoordinate | name: str；schema: DataSchema；rows: tuple[tuple[MethodScalar, ...], ...] |
+| FrameMethodSupport | root_id: str；policy: Literal["rows", "non_null_value", "co_valid_value_weight", "identity", "preserved_sample"]；left_input_count: int；right_input_count: int；left_effective_count: int；right_effective_count: int |
+| FrameAdditiveMethod | kind: Literal["additive"]；left: FrameMethodValue；right: FrameMethodValue；change: FrameMethodValue；support: tuple[FrameMethodSupport, ...] |
+| FrameRatioMethod | kind: Literal["ratio_component"]；left: FrameMethodValue；right: FrameMethodValue；change: FrameMethodValue；numerator_left: FrameMethodValue；numerator_right: FrameMethodValue；denominator_left: FrameMethodValue；denominator_right: FrameMethodValue；support: tuple[FrameMethodSupport, ...] |
+| FrameLinearTerm | coefficient: int \| float \| Decimal；method: FrameAdditiveMethod \| FrameRatioMethod \| FrameLinearMethod |
+| FrameLinearMethod | kind: Literal["linear"]；left: FrameMethodValue；right: FrameMethodValue；change: FrameMethodValue；terms: tuple[FrameLinearTerm, ...] |
+| FrameMethodMetric | name: str；method: FrameAdditiveMethod \| FrameRatioMethod \| FrameLinearMethod；share_state: Literal["defined", "zero_total_change"] |
+| FrameMethodParent | key: tuple[FrameMethodValue, ...]；metrics: tuple[FrameMethodMetric, ...] |
+| FrameMethodFacts | kind: Literal["attribute"]；origin_result_id: str；output_schema: DataSchema；coordinates: tuple[FrameMethodCoordinate, ...]；parent_axis_count: int；parents: tuple[FrameMethodParent, ...] |
+
+output_schema 为原 Attribute 完成结果的完整纯数据目录，记录原值路径、类型、单位和轴；
+parent_axis_count 指其前 N 个完整父轴，不能负数或超过原轴数。parent.key 恰好按这 N 个轴的
+完整列次序存值，column 必须与原目录一致；不是显示标签、散列或单个复合键分量。
+零父轴单总体用唯一 key=()；零个请求父域为 parents=()，无细组父域仍有父记录。
+父记录按规范完整父键排序且唯一，metrics 按左端声明顺序恰好覆盖原 q 集合。
+父事实中的 left/right/change 均是本次同输入重算总体；贡献成功时非 NA、change 按原数值政策
+等于 left−right。share_state 由该量的 change 是否为零确定，不以显示舍入判断。
+FrameRatioMethod 的 N/D 均是该父总体组件，D 不得为零，与第 7 节组组件列有明确区别。
+
+support 记录实际有效样本数和样本政策，不存原始行或成员身份。input_count 是端点/父范围
+限定后、该样本政策剔除无效值前的样本数，effective_count 是剔除后的样本数；
+计数为非负精确 int，
+每端 effective_count 不超过 input_count。root_id 是本次规则树中稳定的局部组件编号，
+只标识事实的共享/区分关系，不是可解引用的来源地址、执行 token 或授权。
+直接 weighted_mean 必须为 co_valid_value_weight，直接 mean 为 non_null_value；复杂 per 使用
+preserved_sample 并保持原样本单位，不能仅填普通行数声称证明成立。
+证明本身在执行阶段完成；这些事实说明成功采用的样本，不以计数相同充当共同输入证明。
+additive 保存必要根支持；ratio 保存 N/D 各根支持，共同有效配对的同根只存一次；
+linear 按已消费子式次序递归保存实际系数和全部子式总体/规则事实，不保存表达式字符串或树执行指令。
+每个 term 的 coefficient 是第 2 节已验证双端相同的有限、无量纲、非 bool 原数值常数；
+负号用 −1，减法保存带符号系数，不做常数偏移、代数相消或其它改写。
+
+coordinates 恰好保存 output_schema 所需的原冻结日历目录/配对附件，名称唯一、结构和行均
+通过已有 typed 目录/对应验证；没有这些轴时为空。它们是有限惰性数据的独立只读快照，
+不是原结果行、CalendarAxis 或连接。这样 reduce 去掉日历轴后，历史方法事实仍能解释其
+原父键，不能悬空指向已被普通操作删除的当前坐标附件。完整公开记录只存在于完成/内存载体
+或显式事实读取的结果中；持久载体的父记录及坐标行进入第 7.4 节独立的 owned 方法载荷，
+manifest 只存小型描述及精确收据引用。方法载荷沿用同一 Artifact 的附件发布，不混入
+CompletedFrameData 仅允许当前坐标所需附件的清单，不需重新加载原 Artifact。
+
+origin_result_id 为生成此精确分解的完成结果身份；只有元数据的当前 result_id 与它相同，
+该记录才解释当前原 Attribute 结果。此比较只是显示原结果关联，不赋予来源资格。
+compute/persist/冷恢复转换同一固定结果保持原身份和全部事实；任意 DSL 数据操作生成新
+result_id，继承的事实仍只解释 origin。即使恒等 select、top(0) 或算术偶然得到相同值，
+也不会生成新的精确分解认证。原输出目录用于解释旧路径，不要求派生结果继续保留这些路径。
+
+| 操作/边界 | method_facts 的确切传播与关联 |
+| --- | --- |
+| Attribute contribution=False、普通新 source/literal | 本次不生成方法事实；无显式 Frame 依赖时为空 |
+| Attribute contribution=True 成功 | 生成一条当前结果事实；若父选择本身消费有事实的 Frame，再保留该输入的历史事实 |
+| compute/persist 固定结果、memory→stored、冷恢复、再次保存 | 保留相同 origin、完整结构/父事实/坐标快照和顺序；persist 不重算固定结果 |
+| where/top，包括零行、top(0) | 完整继承原事实，不按保留行裁剪父摘要、不改总体分母；仅作 origin 的历史解释 |
+| select、重命名、剪列、Column 算术 | 完整继承输入事实；原路径仅归 origin，不能移接到新列或声明新值可分解 |
+| reduce，含删除全部父轴/日历轴 | 完整继承原事实和其独立坐标快照；无当前行级关联，不认证新聚合值；普通 presence 仍删除 |
+| align/compare | 按显式左输入再右输入次序继承双方历史事实，既不配对/合并父摘要，也不认证新变化 |
+| population_from/其他显式 Frame 选择依赖→新来源结果 | 按实际 Frame 输入顺序继承其历史事实，不从事实恢复 Metric/范围；新贡献结果另有自己的 origin |
+
+单输入保持原顺序；多输入按确定的输入遍历顺序合并，以 origin_result_id 去重。
+新的 Attribute 事实先于继承事实；继承部分按上述输入顺序。
+同 origin 的载荷必须完全相同，否则报完整性错误，不“取第一条”；不能依 origin 查询旧结果。
+不做一般 lineage 展开，只携带已消费 Frame 自包含事实。纯数据派生无需原定义，
+不增加新的业务求和禁令，后置筛选、剪列及预览不得剪掉当前请求必须完成的检查。
+
+```python
+fixed = overall.compute()
+facts = fixed.method_facts
+facts[0].show(n=20)
+first_parent = facts[0].parents[0]
+first_metric = first_parent.metrics[0]
+assert first_metric.name == "revenue"
+
+selected_values = fixed.where(fixed["contribution.revenue"] > 0).compute()
+assert selected_values.method_facts == facts
+```
+
+上述单一总体示例没有历史父输入，故 facts[0] 是本次 origin；一般多输入通过
+origin_result_id 选择记录，不能假定最新记录总在第一个位置。空结果同样可读取必要事实。
+
+### 7.4 同一 Frame 协议的闭合版本
+
+完整 `FrameMethodFacts` 是公开读取/内存表示，不是 ArtifactManifest 的内嵌元数据。
+每个 origin 的父域数或日历目录行数可以任意增长；manifest 大小仅随原输出 schema 和
+实际继承 origin 的描述数增长，不能随这些事实行数增长。
+
+| 私有载体 | 确切责任 |
+| --- | --- |
+| CompletedFrameResult / MemoryFrameBacking | 在现有完成结果中另持有 method_facts: tuple[FrameMethodFacts, ...]，已完整验证、独立不可变；不把大 tuple 放入共享 FrameResultMetadata |
+| ArtifactManifest / StoredFrameBacking | 新增 method_facts: tuple[SavedFrameMethodFacts, ...]，只持有下述小型描述；FrameResultMetadata 保持 result_id/audit/findings，没有完整父域或坐标值 |
+| SavedFrameMethodFacts（私有闭合记录） | kind: Literal["attribute"]；origin_result_id: str；output_schema: DataSchema；parent_axis_count: int；parent_count: int；coordinate_count: int；coordinate_row_count: int；facts_digest: str；payload: SavedAttachment |
+
+SavedFrameMethodFacts 的 output_schema/parent_axis_count 与公开记录相同；其余计数为非负
+精确 int。payload 是同一 Artifact 拥有的现有 SavedAttachment，不是原 Artifact ID、来源地址
+或 lineage 查找。每个 origin 恰有一份方法附件；无事实的普通结果使用空 tuple。
+当前数据坐标附件仍由 ArtifactData.attachments 保存；方法附件由上述显式独立清单保存，
+各自验证声明的精确清单，避免把历史坐标冒充当前 Frame 坐标。两者复用现有 write_output、
+ParquetHandle、LocalReceipt、文件/集合收据、暂存资源和同一个原子 publish/readback，
+方法附件不是新的 Store、发布事务或通用 metadata 框架。
+
+每份方法附件使用固定 typed 表布局：一个非 nullable int64 普通键列 entry，两个非 nullable
+string 值列 kind/record；slot 和路径固定为 entry/kind/record，无 presence 或坐标附件。
+entry 从 0 连续递增；前 parent_count 行 kind="parent"，record 为对应 FrameMethodParent 的
+严格 output/v3 canonical JSON 记录；随后 coordinate_count 行 kind="coordinate"，record 为
+对应 FrameMethodCoordinate 的同一闭合编码。父行按规范完整父键排序，坐标行按附件名称排序。
+record 只能解码为该 kind 的具体白名单记录，不接收自由 JSON、表达式或任意类型。
+方法载荷的行数恰为 parent_count+coordinate_count，coordinate_row_count 是全部坐标记录
+内部 rows 的总数；空父域且无坐标时保存合法零行附件，不虚构父行。facts_digest 是描述头
+(kind/origin_result_id/output_schema/parent_axis_count) 加这些有序闭合记录的 canonical JSON SHA-256，
+与文件收据共同验证；它用于同 origin 逻辑载荷比较，不能解析为执行或历史读取资格。
+这样普通高基数父域和大日历目录都只增长载荷，不增长 manifest 中的值清单。
+
+打开持久 Frame、构造待执行派生式、Frame.show(n=0) 和 Artifact 元数据卡片只读取/校验
+manifest 中的描述、声明 schema、计数及收据结构，不读取方法附件行、校验载荷文件或解码
+父域/坐标值。普通 Frame 预览同样只按原合同读取当前行/坐标，不隐式展开历史方法载荷。
+显式读取 frame.method_facts 时，才按本 Frame 的精确 SavedAttachment 引用读取方法载荷，
+验证实际文件/集合收据、物理 schema、entry/kind/计数、facts_digest 和完整闭合事实/坐标关联，
+然后重建并返回公开 tuple；元数据可用不表示载荷完整，丢失/损坏附件必须在该消费边界报错。
+已取得的 FrameMethodFacts.show(n=0) 仅展示内存事实目录；调用 getter 获取事实本身是完整读取，
+不能用随后的 n=0 声称 getter 没有读载荷。manifest 打开不能提前执行这种完整读取。
+
+真正 compute 派生结果时，为继承事实消费已保存输入的方法载荷并完成上述验证，生成独立
+完整内存事实；不要求用户先调用 getter。persist 已完成的 memory 结果只编码这些已有事实，
+不重算来源。若从持久输入直接发布新的派生 Artifact，同样验证并将其事实写成新 Artifact
+自己的方法附件，引用新收据；不得悬空指向原 Artifact 的文件。直接复用同一已存固定结果
+可沿既有合同返回原持久句柄，不为复制而新增发布。reduce 即使删除全部原轴，新产物仍拥有
+其继承父域/坐标载荷；关闭/移除原 Artifact 或来源不影响新产物完整事实读取及后续数据运算。
+相同 origin 的逻辑描述/facts_digest 不同即拒绝；相同时可描述去重，但每次实际消费仍验证
+所用载荷，不以 digest 相同跳过收据或闭合结构检查。
+
+这是实际格式变更，不是在 Store13/v2 下添加可被旧 reader 忽略的字段。
+第 7.3 节公开事实和本节私有描述加入精确 record/field 白名单，codec 只允许公开事实在
+方法载荷中出现，ArtifactManifest.method_facts 的类型严格限定为 SavedFrameMethodFacts；
+直接把 FrameMethodFacts/parents/coordinate rows 放进 manifest 必须拒绝。
+EvaluationRecord.operations 的闭合字面量集合新增 attribute。既有 ArtifactManifest、数据文件及
+坐标保存路径继续使用同一 Frame publish/readback/receipt 体系，原子成功规则不变。
+
+| owning 位置 | 本扩展实施时的精确版本变更及原因 |
+| --- | --- |
+| terminal_protocol.py FORMAT 与精确字段目录 | marivo.frame_output/v2 → marivo.frame_output/v3；新结果字段和记录不能由旧闭合 codec 表达 |
+| ArtifactManifest.semantics_version | frame.v2 → frame.v3；方法事实的结果身份/传播成为当前结果语义的一部分 |
+| layout.py/store.py 当前 Store generation/user_version | 13 → 14，目录 generations/v14；新 manifest 和集合协议不能混入 Store13 |
+| evidence collection descriptor/digest 与 terminal_store | frame-output-v2 → frame-output-v3；收据和集合验证必须描述实际写入的 v3 字节 |
+
+没有方法事实的普通结果也统一写 v3，method_facts=()；有显式事实输入则按第 7.3 节继承，
+manifest 始终只写描述。不同时维护 v2/v3 写入或按结果种类选 Store。
+Store14 opener 明确拒绝旧 user_version=13，Store13 reader 也不能接受 v3；保留旧目录原样，
+不迁移、不重放、不双读、不从旧产物自动复制数据。用户可在独立新 Store 显式重建需要的分析，
+错误必须说明实际/预期版本及此修复，不删除旧状态。其他不受本次新增记录影响的协议不任意 bump。
+
+v3 manifest 解码只验证闭合描述与元数据关联；完整事实验证发生在求值完成、写出或实际
+读取方法载荷时。相应消费边界拒绝未知/缺失/多余字段、非法记录/版本、错误 scalar
+类型/单位/nullable、重复父键、错误父轴数、量集合不完整、错误零变化标记、N/D 或 linear
+结构/类型不符，以及不完整或矛盾的冻结坐标快照。相同 origin 不同载荷也拒绝。
+只验证有限 typed 结构与关联，不重新读取来源、重新证明分区或以浮点逐位守恒替代执行证明。
+元数据和所有数据附件一同受原文件/集合收据验证；writer 不补排序或修复坏事实。
+冷读保留既有规范行序、零行结果及完整父摘要。固定结果继续 DSL 时，所有事实已自包含，
+没有原模型、Catalog、CalendarAxis、来源或原 Artifact 在线的要求。
+
+本节描述集成后的 Store14/v3 目标协议；原 Attribute 验收中的 Store13/v2 记录
+仅证明其当时源版本，不覆盖当前 main 的 Store13/v2 闭合 schema。集成验收必须同步
+上述 owning 常量、codec、错误/文档及冷读边界后才能声称当前候选完成。
 
 ## 8. 执行一致性与实施边界
 
@@ -599,6 +939,8 @@ contribution=False 不收集仅用于分解的证明；原 Metric 的覆盖、�
 contribution=True 要求每端总体与全部联合组来自同一实际贡献输入，
 不能用独立读取的总体分母配合组数据，再通过跨读对账/重试伪造同输入资格。
 无法提供该路线时报告 unqualified_contribution_route，不自动降级。
+已有 original-input 路线对 provider、身份、日历/window/per/样本等形状的资格限制仍生效；
+本合同不表示任意 provider/形状已支持，新增路线必须取得实际输入及原规约/check 的独立资格证据。
 
 先完成显式父域选择及必要检查，再固定完整键并在各端新范围内读取。
 本次多个父域或组中任一必要条件失败时，不返回部分成功结果；compute 不返回部分内存根，
@@ -627,13 +969,13 @@ share 遵从 Frame 切换合同，已退役，不恢复此前“暂时保留”�
 ### 9.2 attribute 独立扩展
 
 1. 复用已切换的 [AnalysisFrame 数据对象、来源边界及生命周期](query-result-reuse.md)，不重建 Query。
-2. 定稿显式来源请求：两端 Metric/范围、父域双端绑定、by 分类以及共同实际输入。
+2. 实现第 2 节显式来源请求：两端 Metric/范围、父域双端绑定、by 分类以及共同实际输入。
 3. 按架构 §6.4 复用基础能力、补齐贡献证明和父域映射缺口；不要求全部公开为新方法。
-4. 确定完整结果 schema/方法摘要 codec、输出传播与冷恢复，之后才能发布归因入口。
+4. 实现第 7 节完整结果 schema/方法事实 codec、输出传播与冷恢复，之后才能发布归因入口。
 
 第 6 节数学合同不依赖旧入口，继续作为后续实现的依据。
 不得仅因本文有公式和示例，就声称基础 Frame 首版已包含双端来源调查或精确贡献。
-配对/日历父域交接、显式来源请求签名和方法摘要传播仍是公开接口定稿前的剩余工作。
+配对/日历父域交接、显式来源请求签名和方法事实传播已在本文定稿，仍需实现与独立验收。
 这些内容不通过 origin、历史自动匹配、Artifact→Frame 导入或隐式回源补齐。
 
 ## 10. 数学例子与可验证成功标准
@@ -667,6 +1009,8 @@ share 遵从 Frame 切换合同，已退役，不恢复此前“暂时保留”�
 | 比率分解 | 基期 A=1/10、B=9/90，当期 A=2/10、B=8/190；总体由 1/10 到 1/20，贡献 A=0、B=−1/20；A 自身 change=1/10 |
 | 全局/局部差异 | B 细分基期 4/40、5/50，当期 3/90、5/100；相对原总体两个子组各 −1/40；以 B 为总体使用 90/190，贡献 −49/1710、−5/171，合计 −11/190，占比 49/99、50/99 |
 | 线性规则 | A/B 总变化 10/−4，组贡献 (6,4)/(−1,−3)；A−2B 的组贡献为 (8,10)，合计 18 |
+| 双端相同线性系数 | 两端实际均为 A−2B，使用上行输入，贡献为 (8,10)、总体 18；同路径版本/fingerprint 变化本身不拒绝，保存一个共同系数 −2 |
+| 双端不同线性系数 | left=A−2B、right=A−3B，A/B 两期均为 10/4；默认调查仍返回总体变化 4；请求贡献以 unsupported_expression 指明系数 −2/−3 和子式位置，修复为相同显式系数或 contribution=False；不得套共同系数返回零贡献 |
 | 非线性调查 | max 基期组样本 [0]/[4]/[5]，当期 [100]/[6]/[7]；组 change=100/2/2，总体 change=95，不能求和替代总体 |
 | 不支持贡献 | max、精确 P95、一般非线性开启贡献失败；默认保持原公式，不近似或返回伪成功的全 null |
 | 重叠 | {1,2} 与 {2,3} 默认可各组计数 2；总体 3；贡献请求因非不交分区失败，不删除重叠组 |
@@ -683,8 +1027,10 @@ share 遵从 Frame 切换合同，已退役，不恢复此前“暂时保留”�
 | 多总体规约 | 分别按完整父键汇总贡献；跨父域占比相加仅是普通统计，不自动成为有效总体占比或产生新的归因证明 |
 | 固定结果续算 | 相同固定输入在 memory、stored 和新进程冷恢复后继续 select/where/reduce/合法 align/compare，保持对应数据合同且不加载原 Metric 或读取原来源 |
 | 空候选/冷读 | 无组时零行，保留必要父域摘要和 empty/NA 政策；冷读保留完整结构而不加载定义 |
+| 方法事实读取边界 | 分别扩大普通父域数和冻结日历目录：打开 stored、show(n=0)、Artifact 卡片只解码小型描述，方法载荷零读取；显式 method_facts 验证全部消费载荷，损坏/缺失文件此时失败 |
+| 方法事实自包含 | reduce 删除全部父轴/日历轴后保存新产物，关闭/移除原 Artifact 与来源，仍可完整读取父事实/坐标；新 manifest 不嵌入父键/坐标行、不引用原产物文件，普通 DSL 保持原义 |
 
 后续验收需覆盖显式来源输入与所有权、父域双端映射、贡献默认关闭、规则派发、复杂 per、
-合法空贡献/未知输入、共同输入证明以及结构 codec；先定稿接口，再同步 Help、签名、
+合法空贡献/未知输入、共同输入证明以及结构 codec；按本文定稿接口同步 Help、签名、
 导出快照、示例和测试。AGENTS/packaged skills 的修改遵守明确授权要求。
 本轮只验证文档、算式、示例语法和链接，不改实现，不宣称本地/Runtime/release 验收通过。

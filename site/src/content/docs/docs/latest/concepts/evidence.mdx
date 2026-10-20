@@ -3,11 +3,14 @@ title: Evidence and recovery
 description: Read exact fixed data and audit without current sources.
 ---
 
-Store 13 saves Frame data under `.marivo/analysis/generations/v13/`. One
+Store 14 saves Frame data under `.marivo/analysis/generations/v14/`. One
 SQLite publication transaction commits manifest, receipts, Findings, Evidence
 and Run success after durable data. Compute creates no Run; persist evaluates
 before admission, then publishes an existing result ID. Memory persist never
 reevaluates; stored persist validates commit metadata and returns itself.
+All Frames use `marivo.frame_output/v3`, `frame.v3` and `frame-output-v3`.
+Complete method tables, when present, and their receipts share this same atomic
+transaction; the manifest contains only bounded method descriptors.
 
 ## Read data and audit
 
@@ -38,9 +41,24 @@ refresh it. A saved input identity is not an executable lineage dependency.
 Opening/repr, show(n=0), Artifact.show/findings/evidence_digest consume metadata
 or audit, not data payload. Positive show decodes the ordered prefix and selected
 frozen coordinate records; receipt hashing/decompression may read more bytes.
-Preview success does not certify unread data. Full compute/to_pandas validates
-required values/keys/presence and interval/calendar/map attachments, without Catalog,
+Preview success does not certify unread data. `to_pandas()` validates complete
+current values/keys/presence and interval/calendar/map attachments, without Catalog,
 source schema, connection, model or timezone-rule reconstruction.
+
+`reopened.method_facts` explicitly validates complete owned method payloads,
+without reading the current primary rows or original source. Pending access
+requires compute/persist. Stored compute and evaluated derivatives consume both
+current data and method facts; damaged method files can leave metadata and row
+export usable while these full consumers fail. Cards show only count, bounded
+origins and a getter pointer. A fact's show(n=0) is in-memory after that getter,
+so it does not avoid the prior payload read.
+
+Contribution facts retain original schemas, full parents and independent frozen
+coordinates. Filtering or reducing current rows does not change their original
+denominators or certify a new decomposition. A saved derivative owns its exact
+copied payload; the original Artifact need not remain available. Default
+investigation creates no new method facts or contribution proof. Exact access is
+documented by `marivo.help("analysis.analysis_frame.method_facts")`.
 
 Export returns isolated RangeIndex data with raw-key `(kind, name)` MultiIndex
 columns and isolated typed attrs: axes, units and frozen_coordinates tables.
@@ -59,11 +77,13 @@ are removed; reading the old stored handle still fails if its data is gone.
 
 ## Older data and evidence limits
 
-Store 13 refuses older-generation Session/result/Findings/Evidence access without
+Store 14 refuses older-generation Session/result/Findings/Evidence access without
 changing bytes or migrating/dual-reading. Absent-current discovery may return
 None/empty without exposing old data; create cannot initialize a
 bypass around an old-only project. Export with the original version before
-switching, or retain a compatible reading environment. See
+switching, or retain a compatible reading environment. Preserve the old Store;
+use a new named Session in a fresh project for current work. This is not an
+automatic export/import migration. See
 [troubleshooting](/docs/latest/reference/troubleshooting/).
 
 Saved facts do not certify source completeness, current semantic authority,

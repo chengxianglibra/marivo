@@ -122,7 +122,11 @@ def manifest(store: SessionStore, conn: sqlite3.Connection, ref: str) -> Artifac
     ):
         raise invalid("terminal Artifact and succeeded producer differ")
     prefix = store.layout.relative_path(store.layout.artifact_dir(value.session_id, ref))
-    handles = (value.data.rows, *(item.rows for item in value.data.attachments))
+    handles = (
+        value.data.rows,
+        *(item.rows for item in value.data.attachments),
+        *(item.payload.rows for item in value.method_facts),
+    )
     locators = tuple(handle.receipt.project_relative_path for handle in handles)
     if len(set(locators)) != len(locators):
         raise invalid("terminal tables must have distinct receipt locations")
@@ -199,7 +203,7 @@ def publish(
                 len(evidence),
                 len(findings),
                 digest(finding_payloads),
-                "frame-output-v2",
+                "frame-output-v3",
             ),
         )
         conn.executemany(
@@ -256,7 +260,7 @@ def records_page(
         if manifest(store, conn, ref) is None:
             raise invalid("exact terminal Artifact is absent")
         collection = _one(conn, "SELECT * FROM dataset_evidence WHERE artifact_ref=?", (ref,))
-        if collection is None or _text(collection, "evidence_format") != "frame-output-v2":
+        if collection is None or _text(collection, "evidence_format") != "frame-output-v3":
             raise invalid("terminal output collection is absent or obsolete")
         owner = digest(
             (
@@ -321,7 +325,7 @@ class OutputCollection:
 
 def collection(conn: sqlite3.Connection, ref: str) -> OutputCollection:
     row = _one(conn, "SELECT * FROM dataset_evidence WHERE artifact_ref=?", (ref,))
-    if row is None or _text(row, "evidence_format") != "frame-output-v2":
+    if row is None or _text(row, "evidence_format") != "frame-output-v3":
         raise invalid("terminal output collection is absent or obsolete")
     evidence_count, finding_count = row["evidence_count"], row["finding_count"]
     if (
@@ -377,7 +381,7 @@ def confirm_records(
         or collection["evidence_count"] != len(evidence)
         or _text(collection, "finding_set_digest") != digest(finding_payloads)
         or _text(collection, "evidence_digest") != digest(evidence_payloads)
-        or _text(collection, "evidence_format") != "frame-output-v2"
+        or _text(collection, "evidence_format") != "frame-output-v3"
     ):
         raise invalid("original terminal record collection differs from publication")
     rows = _rows(

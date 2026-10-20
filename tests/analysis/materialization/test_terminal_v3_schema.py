@@ -1,4 +1,4 @@
-"""The sole Store13 protocol closes every field and refuses historical v1 bytes."""
+"""The sole Store14 protocol closes every field and refuses historical v1 bytes."""
 
 from dataclasses import fields
 from datetime import datetime, timezone
@@ -46,10 +46,14 @@ def manifest() -> ArtifactManifest:
     return ArtifactManifest("store", "artifact", "session", "run", data, metadata)
 
 
-def test_historical_output_envelope_is_rejected_without_rewrite() -> None:
+@pytest.mark.parametrize("historical_format", ["marivo.frame_output/v1", "marivo.frame_output/v2"])
+def test_historical_output_envelope_is_rejected_without_rewrite(historical_format: str) -> None:
     before = FROZEN
-    with pytest.raises(IntegrityError, match="expected Frame output v2"):
-        protocol.decode(FROZEN, ArtifactManifest)
+    historical = parse_json(FROZEN)
+    assert isinstance(historical, dict)
+    historical["format"] = historical_format
+    with pytest.raises(IntegrityError, match="expected Frame output v3"):
+        protocol.decode(canonical_json(historical), ArtifactManifest)
     assert before == FROZEN
 
 
@@ -67,6 +71,7 @@ def test_one_explicit_closed_type_and_field_inventory() -> None:
         "run_id",
         "data",
         "metadata",
+        "method_facts",
         "semantics_version",
     )
     saved = manifest()

@@ -10,6 +10,7 @@ import pytest
 import marivo.analysis as mv
 from marivo._help.model import MarivoHelpTargetError
 from marivo._help.render import render_help_text
+from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.errors import (
     AnalysisError,
     ArtifactNotFoundError,
@@ -78,6 +79,29 @@ def test_actual_failure_type_advertises_a_queryable_static_page(
     # Concrete repair and received input stay on the failure, not static Help.
     assert captured.value.received == "missing"
     assert "missing" not in text
+
+
+def test_attribute_fact_read_repairs_are_exact_and_unrelated_errors_stay_at_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    session = mv.session.create("attribute-fact-repair")
+    pending = session.values(by=(), columns={"q": None}, rows=(((), {"q": 1}),))
+    with pytest.raises(AnalysisError) as captured:
+        _ = pending.method_facts
+    assert captured.value.repair.help_target.display == "analysis.analysis_frame.method_facts"
+    assert "Call compute() or persist()" in str(captured.value)
+    assert "Kind: attribute" in render_help_text(captured.value.repair.help_target.display)[0]
+    support = mv.FrameMethodSupport("root", "rows", 1, 1, 1, 1)
+    with pytest.raises(AnalysisError) as captured:
+        support.show(n=-1)
+    assert captured.value.repair.help_target.display == "analysis.frame_method_facts.show"
+    assert "Kind: callable" in render_help_text(captured.value.repair.help_target.display)[0]
+    unrelated = CoreRuleError(
+        expected="a valid value", received="invalid", repair="Repair it.", location="frame.show"
+    )
+    assert unrelated.repair.help_target.display == "analysis"
 
 
 def test_cli_cross_surface_repair_can_be_followed(capsys: pytest.CaptureFixture[str]) -> None:

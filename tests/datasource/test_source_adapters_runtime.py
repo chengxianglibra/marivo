@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable, Mapping
-from datetime import date
+from datetime import date, datetime, timezone
+from decimal import Decimal
+from pathlib import Path
 from uuid import uuid4
 
+import ibis
 import pandas as pd
+import pyarrow as pa
 import pytest
 
 from marivo.datasource.adapters import PhysicalRequirement, SourceSession, provider_for
@@ -19,6 +23,7 @@ from marivo.datasource.ir import (
     TableSourceIR,
 )
 from marivo.datasource.metadata import TableMetadata
+from tests.datasource.source_cases import SourceData, source_case
 
 pytestmark = pytest.mark.runtime
 
@@ -213,6 +218,111 @@ def test_postgres_table_view_namespace_and_decimal_values(
         finally:
             admin.execute(sql.SQL("DROP VIEW IF EXISTS {}").format(sql.Identifier(view)))
             admin.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(name)))
+
+
+def test_postgres_arrow_integer_transport_preserves_mixed_values_and_bounds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from psycopg import sql
+
+    from tests.datasource.environment import postgres_analysis as pg
+
+    data = SourceData(
+        "id BIGINT NOT NULL, exact BIGINT, amount NUMERIC(18,2), fraction DOUBLE PRECISION, enabled BOOLEAN, label TEXT, day DATE, instant TIMESTAMPTZ, payload BYTEA, document JSONB",
+        "(1,9007199254740993,12.34,0.5,TRUE,'alpha',DATE '2026-10-08',"
+        "TIMESTAMPTZ '2026-10-08 12:34:56.123456+00',decode('00ff','hex'),'{\"kind\":\"object\"}'::jsonb),"
+        "(2,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'[1,2]'::jsonb)",
+        "",
+        [],
+    )
+    expected = [
+        (
+            1,
+            9007199254740993,
+            Decimal("12.34"),
+            0.5,
+            True,
+            "alpha",
+            date(2026, 10, 8),
+            datetime(2026, 10, 8, 12, 34, 56, 123456, tzinfo=timezone.utc),
+            b"\x00\xff",
+        ),
+        (2, None, None, None, None, None, None, None, None),
+    ]
+    with source_case("postgres", "table", tmp_path, monkeypatch, data) as case:
+        assert isinstance(case.source, TableSourceIR)
+        assert isinstance(case.source.database, str)
+        with pg.connection() as reader:
+            native = reader.execute(
+                sql.SQL("SELECT * FROM {} ORDER BY id").format(
+                    sql.Identifier(case.source.database, case.source.table)
+                )
+            ).fetchall()
+        assert [row[:-1] for row in native] == expected
+        assert [row[-1] for row in native] == [{"kind": "object"}, [1, 2]]
+        owner = case.session
+        bound = owner.bind(case.source, source_identity="postgres-arrow-mixed")
+        qualified = owner.qualify(
+            bound,
+            PhysicalRequirement("query.source_read", 1, frozenset({"scan", "filter", "project"})),
+        )
+        table = bound.relation
+        projection = table.select(*table.columns[:-1])
+        parameter = ibis.param("int64")
+        expression = projection.filter(projection.id >= parameter).order_by("id")
+        read = owner.compile(
+            qualified,
+            expression,
+            params={parameter: 1},
+            purpose="datasource.transport_sample",
+            expected_schema=expression.schema().to_pyarrow(),
+        )
+        rows = owner.execute(read)
+        assert tuple(rows.columns) == tuple(expression.columns)
+        assert [
+            tuple(None if pd.isna(value) else value for value in row)
+            for row in rows.itertuples(index=False, name=None)
+        ] == expected
+        assert rows.exact.dtype == pd.ArrowDtype(pa.int64())
+        assert rows.id.dtype == pd.ArrowDtype(pa.int64())
+        assert isinstance(rows.amount.iloc[0], Decimal)
+        assert type(rows.day.iloc[0]) is date
+        assert rows.instant.dtype == pd.DatetimeTZDtype(unit="us", tz="UTC")
+        assert rows.payload.iloc[0] == b"\x00\xff"
+        basic = owner.qualify(
+            bound,
+            PhysicalRequirement(
+                "source_adapter.basic", 1, frozenset({"scan", "filter", "project"})
+            ),
+        )
+        basic_expression = table.order_by("id")
+        basic_read = owner.compile(
+            basic,
+            basic_expression,
+            purpose="query.source_read",
+            expected_schema=basic_expression.schema().to_pyarrow(),
+        )
+        basic_rows = owner.execute(basic_read)
+        assert tuple(basic_rows.columns) == tuple(table.columns)
+        assert basic_rows.document.tolist() == [{"kind": "object"}, [1, 2]]
+        bounded = owner.collect_bounded(basic_expression, purpose="query.source_read", max_rows=1)
+        assert tuple(bounded.columns) == tuple(table.columns)
+        assert len(bounded) == 1
+        assert bounded.document.iloc[0] == {"kind": "object"}
+        empty_expression = projection.filter(projection.id < 0).order_by("id")
+        empty_read = owner.compile(
+            qualified,
+            empty_expression,
+            purpose="source_adapter.empty",
+            expected_schema=empty_expression.schema().to_pyarrow(),
+        )
+        empty = owner.execute(empty_read)
+        assert empty.empty
+        assert tuple(empty.columns) == tuple(rows.columns)
+        assert empty.exact.dtype == pd.ArrowDtype(pa.int64())
+        assert len(owner.submissions) == 4
+        assert all(item.state == "succeeded" for item in owner.submissions)
+    assert all(item.connection_disconnected for item in owner.submissions)
 
 
 @pytest.mark.skipif(

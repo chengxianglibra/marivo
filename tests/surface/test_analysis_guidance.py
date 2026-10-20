@@ -40,6 +40,33 @@ def test_metric_intent_reaches_observation_without_restarting_discovery() -> Non
     assert rendered_help(mv.Session.observe) == rendered_help(path[-1])
 
 
+def test_attribute_intent_and_complete_fact_navigation_have_exact_owners() -> None:
+    path = (
+        "analysis",
+        "analysis.methods",
+        "analysis.methods.attribute",
+        "analysis.session.attribute",
+    )
+    for current, following in pairwise(path):
+        assert following in rendered_help(current)
+    descriptor = REGISTRY.by_canonical_id("session.attribute")
+    assert (
+        isinstance(descriptor, CallableInput) and descriptor.discovery_group == "methods.attribute"
+    )
+    owners = [
+        value.canonical_id
+        for value in REGISTRY.descriptors
+        if isinstance(value, NavigationInput) and "session.attribute" in value.members
+    ]
+    assert owners == ["methods.attribute"]
+    assert "analysis.analysis_frame.method_facts" in rendered_help("analysis.analysis_frame")
+    assert "analysis.frame_method_facts" in rendered_help("analysis.analysis_frame.method_facts")
+    assert "analysis.frame_method_parent" in rendered_help("analysis.frame_method_facts")
+    assert "analysis.frame_method_metric" in rendered_help("analysis.frame_method_parent")
+    assert "analysis.frame_ratio_method" in rendered_help("analysis.frame_method_metric")
+    assert "analysis.frame_method_value" in rendered_help("analysis.frame_ratio_method")
+
+
 def test_rendered_callable_examples_have_no_duplicate_imports() -> None:
     for descriptor in REGISTRY.descriptors:
         if not isinstance(descriptor, CallableInput):
@@ -137,9 +164,16 @@ def test_first_round_help_targets_are_reachable_and_bounded() -> None:
     seen = {""}
     pending = deque([""])
     while pending:
-        page = render(REGISTRY, pending.popleft())
+        current = pending.popleft()
+        page = (
+            render(REGISTRY, current)
+            if current in REGISTRY.canonical_ids()
+            else rendered_help("analysis." + current)
+        )
         for target in re.findall(r"marivo\.help\(['\"]analysis\.([^'\"]+)['\"]\)", page):
-            assert target in REGISTRY.canonical_ids()
+            text = rendered_help("analysis." + target)
+            if target not in REGISTRY.canonical_ids():
+                assert text.startswith(f"Target: analysis.{target}\nKind: attribute")
             if target not in seen:
                 seen.add(target)
                 pending.append(target)
@@ -151,6 +185,8 @@ def test_first_round_help_targets_are_reachable_and_bounded() -> None:
     }
     assert first_round <= seen
     assert "session.members" in seen
+    assert "session.attribute" in seen and "frame_method_facts" in seen
+    assert "frame_method_facts.show" in seen
     for target in (*sorted(first_round), "session.members"):
         route = route_help_target("analysis." + target)
         assert isinstance(route, NativeHelpRoute)

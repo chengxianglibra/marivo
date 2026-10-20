@@ -223,3 +223,59 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
         sum(m["characters"] for m in measured.values())
         <= sum(m["characters"] for m in reference.values()) * 0.85
     ), measured
+
+
+@pytest.mark.slow
+def test_attribute_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
+    """Charge the new source-to-facts journey separately from historical savings."""
+    case = analysis_dsl_case_factory("j2")
+    session = case.session
+    revenue = session.catalog.metrics.get("sales.revenue")
+    region = session.catalog.fields.get("sales.customer.region")
+    august = session.time_scope(start="2026-08-01", end="2026-09-01")
+    july = session.time_scope(start="2026-07-01", end="2026-08-01")
+    trace = Trace(case.root)
+    for target in (
+        "analysis",
+        "analysis.methods",
+        "analysis.methods.attribute",
+        "analysis.session.attribute",
+        "analysis.attribute_endpoint",
+    ):
+        trace.help(target)
+    request = session.attribute(
+        mv.AttributeEndpoint({"revenue": revenue}, during=august),
+        mv.AttributeEndpoint({"revenue": revenue}, during=july),
+        by=(region,),
+        contribution=True,
+    )
+    trace.read("attribute captured request", lambda: request.show(n=0))
+    fixed = request.compute()
+    trace.read("attribute fixed values", fixed.show)
+    trace.help("analysis.analysis_frame.method_facts")
+    trace.help("analysis.frame_method_facts")
+    facts = fixed.method_facts
+    trace.identities[facts[0].origin_result_id] = "<attribute-origin>"
+    trace.help("analysis.frame_method_facts.show")
+    trace.read("original explanation facts", lambda: facts[0].show(n=3))
+    assert fixed.to_pandas()[("value", "contribution.revenue")].tolist() == [-20, -50, 0]
+    assert facts[0].parents[0].metrics[0].method.change.value == -70
+    measured = trace.metrics()
+    recording = os.environ.get("MARIVO_ATTRIBUTE_HELP_BUDGET_RECORD")
+    if recording is not None:
+        Path(recording).write_text(
+            json.dumps(
+                {
+                    "metrics": measured,
+                    "outputs": trace.pages,
+                    "normalized_outputs": trace.normalized_outputs(),
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+        return  # Raw collection is not budget acceptance.
+    limits = json.loads(BASELINE.read_text())["attribute_budget_reference"]
+    assert measured["characters"] <= limits["characters"], measured
+    assert measured["pages"] <= limits["pages"], measured
+    assert measured["repeated_pages"] <= limits["repeated_pages"], measured

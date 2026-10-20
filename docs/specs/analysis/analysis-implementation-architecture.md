@@ -33,7 +33,7 @@ explicit completed memory/stored Frame
 both -> one graph plan and one prepared stage schedule
      -> complete immutable data + frozen coordinate attachments + one audit
      -> compute returns memory root
-     -> persist publishes existing result through Store 13
+     -> persist publishes existing result through Store 14
      -> persisted Frame reads data; frame.artifact reads audit
 ```
 
@@ -121,9 +121,9 @@ population_from 的必填 on 将普通完整轴映射到调用方提供的 Field
 
 ### 6.4 compare/attribute：基础能力组合的高级 API
 
-2026-10-20 设计补充。compare 是现有数据侧高级 API；attribute 是尚未实现的显式来源
+2026-10-20 当前合同。compare 是数据侧高级 API；Session.attribute 是显式来源
 高级 API。两者通过组合基础能力、执行必要检查和组装规范结果提供短入口，不拥有独立执行体系。
-这不表示当前 compare 已逐字展开为公开 align/select 调用，也不表示 attribute 已可执行。
+内部组合不要求逐字展开为公开 align/select 调用，也不将内部能力全部公开为方法。
 数学规则、具体组合示例及贡献验收由 [Attribute 设计](attribute-design.md) 拥有。
 
 ```text
@@ -161,10 +161,10 @@ both -> the same compiler, stage scheduler, compute and persist lifecycle
 | 相对变化的绝对值分母 | compare 内部已处理负数、Decimal 和 Duration；Column 无公开 abs | 属公开表达缺口，不是 compare 功能缺失；是否公开 abs 单独决定，不用平方/开方替代 |
 | 名称路径和批量比较检查 | compare 生成规范路径并检查全量量名/单位；用户 select 仅声明单段名 | 复用内部 schema/path 构造；不为手写等价放宽用户命名合同 |
 | 规范排序输出整形 | 已有完整键规范次序；align 保持左侧优先顺序，select 不排序 | attribute 在完整结果提取前复用键排序并同步重排行值/presence；不更改 align 合同，不新增公开排序入口或存储排序补偿 |
-| 组件角色与精确分解证明 | 来源计算持有必要内部状态；没有通用公开的归因组件/证明入口 | 在现有定义/准备事实中补齐 additive、ratio_component、linear 所需证明；不从结果 lineage 恢复 |
-| 父域及联合组的共同输入 | 已有调度和共享输入基础；尚无 attribute 的完整合格路线 | 每端从同一实际贡献输入产生所需组件；不能以同一图中的两次独立扫描充当证明 |
+| 组件角色与精确分解证明 | 显式来源准备保留 additive、ratio_component、linear 所需角色；没有通用公开组件/证明入口 | 在现有定义与准备事实中检查完整分区、样本及原公式；不从结果 lineage 恢复 |
+| 父域及联合组的共同输入 | 合格 physical DuckDB TableSourceIR root/fiber statement 路线提供实际共同输入 | 每端从同一实际贡献输入产生父/细组组件与原式；不能以两次独立扫描或一般 provider 名充当证明 |
 | 分组聚合值映射回组 | reduce 可按已有父轴规约；全轴 align 不支持父到细组或标量广播 | 以完整父分组键关联已计算总量，保持细组完整键/行序，检查父键唯一及覆盖；单总体使用零父键，不新增专属父域协议 |
-| 精确贡献公式与解释事实 | nullable 算术可用；分解派发、整体失败及方法摘要尚未实现 | 组合现有数值核；摘要的类型/传播/codec 在扩展中闭合，完成数据不保存执行组件 |
+| 精确贡献公式与解释事实 | 现有数值 owner 支持闭合规则、整体失败与完整不可执行事实 | 复用原数值核和实际完成 carrier；事实按表达式传播并用闭合 codec 保存，完成数据不保存执行组件 |
 
 “可组合”要求计算步骤、检查义务和数据依赖可以由共享基础能力表达，不要求每个内部步骤
 都公开为方法，也不强求运行时逐个实例化公开 Frame。compare 可保留薄逻辑节点，编译时
@@ -182,6 +182,11 @@ both -> the same compiler, stage scheduler, compute and persist lifecycle
 自动认证归因。固定结果续算只消费显式数据，遵守原有所有权、轴及数值限制。
 缺口按实际消费者补齐，不预建通用高级算子注册表、方法插件协议或第二表达式语言。
 实现是否已完成及 provider 是否合格仍须各自验证，不能由分层图或算式见证推断。
+
+当前贡献资格不包含文件、非 DuckDB provider 或任意 per/window。已验收的局部 additive
+AllHistory lookback 保留其具体形态边界；其他缺完整组件证明的请求明确拒绝。默认调查
+不收集贡献证明，也不因原 Metric 无精确分解规则而拒绝合法观察。原 source/numeric 检查
+仍由其 owner 拥有，不通过投影隐藏，不自动降级请求。
 
 ## 7. Observe 与内部样本的求值组织
 
@@ -324,8 +329,10 @@ exact/outer 覆盖；未用目录桶不产生行。损坏附件不是无对应�
 
 ### 12.1 一次提交的内容
 
-Store 13 保存 `marivo.frame_output/v2` 一种 Frame 协议，含独立 interval 目录：精确所有权/result ID、闭合结构、类型附件/收据和一份
-来源事实+当前求值审计。Run 只发布已有结果，不再次保存求值副本或 producer graph。
+Store 14 保存 `marivo.frame_output/v3` 一种 Frame 协议，含独立 interval 目录：精确所有权/result ID、闭合结构、类型附件/收据和一份
+来源事实+当前求值审计，以及有界方法描述符。完整方法表为结果自己拥有的附件，与数据共享
+既有 receipt/readback、原子提交和未知结果协调。Run 只发布已有结果，不保存 producer graph。
+所有 Frame 使用 `marivo.frame_output/v3`、`frame.v3`、`frame-output-v3`。
 
 ### 12.2 重开只读取产物
 
@@ -345,8 +352,11 @@ persisted_frame(str ID) 打开同 Session 提交元数据；完整读取验证�
 
 ### 12.5 统一读取：先打开描述，再按需扫描
 
-n=0 与审计只读元数据；正 n 解码有序前缀和所需目录记录；full compute/export 验证完整
-必要消费数据。hash/解压 I/O 不受 n 字节上限保证，预览成功不认证未读部分。
+n=0 与审计只读元数据；正 n 解码有序前缀和所需目录记录。to_pandas 验证完整当前数据及
+必要坐标附件；method_facts 单独校验完整 owned 方法载荷而不打开当前主表。stored compute
+和派生求值消费两者；坏方法文件可使完整消费失败而元数据与导出仍可用。卡片只给数量、
+有界 origin 和 getter 指针；完整父/坐标不放入 manifest。hash/解压 I/O 不受 n 字节上限
+保证，预览成功不认证未读部分。保存派生结果拥有自己的事实，不按 origin 查原 Artifact。
 
 ### 12.6 Parquet 布局、顺序与写入参数
 

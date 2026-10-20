@@ -42,6 +42,7 @@ from marivo._definition.query import (
     ValueUnary,
 )
 from marivo._definition.relations import (
+    AttributeKeys,
     PopulationContains,
     PopulationDependency,
     PopulationFilter,
@@ -63,10 +64,10 @@ from marivo.analysis.compiler.graph_plan import (
     SourceRead,
 )
 from marivo.analysis.compiler.native_query import NativeQueryFinish
-from marivo.analysis.compiler.observation import ReductionInput, ibis_type
+from marivo.analysis.compiler.observation import PopulationInput, ReductionInput, ibis_type
 from marivo.analysis.compiler.optimization import RuleDecision, required_slots
 from marivo.analysis.compiler.queries import expression_value
-from marivo.analysis.compiler.query_program import ResultProgram
+from marivo.analysis.compiler.query_program import ResultProgram, SourceParameter
 from marivo.analysis.compiler.source_predicates import (
     query_numeric_value,
     source_parameter_comparisons,
@@ -214,6 +215,7 @@ class NativeQueryRelation:
     stages: frozenset[str]
     sources: tuple[LoweredRead, ...]
     checks: tuple[NumericCheck, ...] = ()
+    parameters: tuple[SourceParameter, ...] = ()
 
     @property
     def reductions(self) -> tuple[ReductionInput, ...]:
@@ -558,6 +560,52 @@ def native_query_relation(
     include(producer)
     allowed_consumers = frozenset(internal)
     checked = {check.stage_id for check in plan.checks}
+    attribute_parent: PopulationInput | None = None
+    attribute_leaf: FrameKeysInput | None = None
+    endpoint = by_id[producer]
+    if terminal and isinstance(endpoint, LocalCompute) and endpoint.program is not None:
+        formula = endpoint.program
+        scope = formula.parent_scope
+        if (
+            formula.values
+            and formula.calendar is None
+            and not formula.counts
+            and formula.output_population is None
+            and isinstance(scope, PopulationProgram)
+            and isinstance(scope.root, AttributeKeys)
+            and scope.root.calendar_token is None
+            and len(formula.populations) == 1
+            and formula.populations[0].definition == scope
+        ):
+            binding = formula.populations[0]
+            projected = by_id[binding.stage_id]
+            if (
+                isinstance(projected, LocalCompute)
+                and projected.result is not None
+                and len(projected.inputs) == 1
+                and isinstance(leaf := by_id[projected.inputs[0]], FrameKeysInput)
+                and leaf.parameter.definition == scope
+                and projected.keys == binding.keys
+                and tuple(column.slot_id for column in projected.columns) == binding.keys
+            ):
+                result = projected.result
+                direct_image = (
+                    isinstance(result.operation, KeyImage)
+                    and result.keys == leaf.keys
+                    and result.columns == leaf.columns
+                )
+                direct_population = (
+                    isinstance(result.operation, PopulationValues)
+                    and result.operation.definition == scope
+                    and result.population_inputs == (scope,)
+                    and len(result.population_layouts) == 1
+                    and tuple(key for group in result.population_layouts[0] for key in group)
+                    == leaf.keys
+                    and tuple(key for group in result.output_groups for key in group)
+                    == binding.keys
+                )
+                if direct_image or direct_population:
+                    attribute_parent, attribute_leaf = binding, leaf
     field_inputs: set[str] = set()
     for item in plan.stages:
         if (
@@ -598,13 +646,82 @@ def native_query_relation(
             return "producer has shared consumers or a publication boundary"
         if identifier in checked:
             return "producer has a pending planned check"
+        if (
+            attribute_parent is not None
+            and attribute_leaf is not None
+            and identifier == attribute_parent.stage_id
+        ):
+            frame_parameter = attribute_leaf.parameter
+            relation = prepared.entities.get(
+                "population-parameter:" + computation_fingerprint(frame_parameter.definition)
+            )
+            if (
+                relation is None
+                or tuple(relation.columns)
+                != (
+                    tuple(column.slot_id for column in frame_parameter.columns)
+                    if frame_parameter.columns
+                    else ("__population_unit",)
+                )
+                or any(
+                    relation[column.slot_id].type() != ibis_type(column.dtype)
+                    for column in frame_parameter.columns
+                )
+            ):
+                return "Attribute parent has no exact prepared parameter relation"
+            expression = (
+                relation.select(
+                    **dict(
+                        zip(
+                            attribute_parent.keys,
+                            (relation[key] for key in attribute_leaf.keys),
+                            strict=True,
+                        )
+                    )
+                )
+                if attribute_parent.keys
+                else relation.select("__population_unit")
+            )
+            return NativeQueryRelation(
+                expression,
+                frozenset({identifier}),
+                (),
+                parameters=(
+                    SourceParameter(
+                        attribute_leaf.stage_id,
+                        frame_parameter.placeholder,
+                        frame_parameter.columns,
+                    ),
+                ),
+            )
         if not stage.columns:
             return "zero-column unit domains retain their checked presence/cardinality boundary"
         if isinstance(stage, SourceRead):
             read = lowered.read(identifier)
+            allowed_parameters: frozenset[ops.Node] = frozenset()
+            if stage.parameters:
+                if attribute_leaf is None or any(
+                    parameter
+                    != SourceParameter(
+                        attribute_leaf.stage_id,
+                        attribute_leaf.parameter.placeholder,
+                        attribute_leaf.parameter.columns,
+                    )
+                    for parameter in stage.parameters
+                ):
+                    return "source retains a parameter outside its exact Attribute parent"
+                relation = prepared.entities.get(
+                    "population-parameter:"
+                    + computation_fingerprint(attribute_leaf.parameter.definition)
+                )
+                if relation is None:
+                    return "Attribute parent parameter is unavailable"
+                allowed_parameters = frozenset(relation.op().find(ops.UnboundTable))
             if prepared.sources.get(
                 stage.source_id, prepared.source
-            ) is not owner or not _physical_owner(read.expression, owner, prepared):
+            ) is not owner or not _physical_owner(
+                read.expression, owner, prepared, allowed_parameters=allowed_parameters
+            ):
                 return "producer physical inputs do not belong to the consumer SourceSession"
             if stage.native_query_finish is not None:
                 return "producer retains a governed host finish"
@@ -705,8 +822,7 @@ def native_query_relation(
             ):
                 return "aggregate producer retains an unqualified source finish"
             if (
-                stage.inputs
-                or stage.parameters
+                set(stage.inputs) != {parameter.stage_id for parameter in stage.parameters}
                 or stage.component_layout is not None
                 or any(name not in admitted for name, _, _ in stage.preparation_checks)
             ):
@@ -724,7 +840,9 @@ def native_query_relation(
                     for column in stage.columns
                 }
             )
-            return NativeQueryRelation(expression, frozenset({identifier}), (read,))
+            return NativeQueryRelation(
+                expression, frozenset({identifier}), (read,), parameters=stage.parameters
+            )
         if not isinstance(stage, LocalCompute):
             return "fixed Frame data is outside source fusion"
         if stage.fused_steps:
@@ -744,6 +862,14 @@ def native_query_relation(
         )
         members = frozenset({identifier}).union(*(value.stages for value in inputs))
         checks = tuple(check for value in inputs for check in value.checks)
+        parameter_map: dict[str, SourceParameter] = {}
+        for native_input in inputs:
+            for parameter in native_input.parameters:
+                previous = parameter_map.get(parameter.placeholder)
+                if previous is not None and previous != parameter:
+                    return "native inputs retain conflicting Attribute parent parameters"
+                parameter_map[parameter.placeholder] = parameter
+        parameters = tuple(parameter_map.values())
         if stage.program is not None:
             formula = stage.program
             if formula.values:
@@ -789,7 +915,7 @@ def native_query_relation(
                     ),
                 )
                 expression = expression.select(*(column.slot_id for column in stage.columns))
-                return NativeQueryRelation(expression, members, sources, checks)
+                return NativeQueryRelation(expression, members, sources, checks, parameters)
             if (
                 formula.values
                 or formula.outputs
@@ -816,13 +942,13 @@ def native_query_relation(
                 ),
                 owner.provider.name,
             )
-            return NativeQueryRelation(expression, members, sources, checks)
+            return NativeQueryRelation(expression, members, sources, checks, parameters)
         program = stage.result
         if program is not None and isinstance(program.operation, PopulationValues):
             expression = _population_relation(program, tuple(inputs), owner.provider.name)
             if isinstance(expression, str):
                 return expression
-            return NativeQueryRelation(expression, members, sources, checks)
+            return NativeQueryRelation(expression, members, sources, checks, parameters)
         if program is None or len(inputs) != 1 or program.duration_operations:
             return "producer is outside the admitted field relation grammar"
         expression = inputs[0].expression
@@ -1080,7 +1206,7 @@ def native_query_relation(
                     )
         else:
             return "producer operation is outside the admitted field relation grammar"
-        return NativeQueryRelation(expression, members, sources, checks)
+        return NativeQueryRelation(expression, members, sources, checks, parameters)
 
     consumers = plan.consumers_of(producer)
     if not (terminal or shared) and len(consumers) != 1:
@@ -1270,6 +1396,8 @@ def fuse_query_terminal(prepared: PreparedSources, lowered: LoweredQuery) -> Low
             native_reductions=native.reductions,
             native_reads=_logical_reads(tuple(read.stage for read in native.sources)),
             native_query_finish=finish,
+            inputs=tuple(dict.fromkeys(parameter.stage_id for parameter in native.parameters)),
+            parameters=native.parameters,
         )
         replacement = replace(endpoint, inputs=(identifier,)) if keep_top else stage
         removed = native.stages - {endpoint.stage_id}

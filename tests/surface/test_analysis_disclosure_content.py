@@ -228,3 +228,53 @@ def test_correlation_help_contract_and_executable_examples(
     assert "nonnullable int64" in high and "nullable float64" in high
     count = render_help_text("analysis.column.pair_count")[0]
     assert "Self pair_count counts non-NA" in count and "without ranking" in count
+
+
+def test_fact_show_has_one_canonical_owner_for_every_concrete_record() -> None:
+    registry = prepare()
+    types = (
+        mv.FrameMethodValue,
+        mv.FrameMethodCoordinate,
+        mv.FrameMethodSupport,
+        mv.FrameAdditiveMethod,
+        mv.FrameRatioMethod,
+        mv.FrameLinearTerm,
+        mv.FrameLinearMethod,
+        mv.FrameMethodMetric,
+        mv.FrameMethodParent,
+        mv.FrameMethodFacts,
+    )
+    assert len({owner.show for owner in types}) == 1
+    expected = render_help_text("analysis.frame_method_facts.show")[0]
+    for owner in types:
+        assert registry.by_callable(owner.show).canonical_id == "frame_method_facts.show"
+        assert render_help_text(owner.show)[0] == expected
+        assert "analysis.frame_method_facts.show" in render_help_text(owner)[0]
+    owners = [
+        descriptor
+        for descriptor in registry.descriptors
+        if isinstance(descriptor, CallableInput)
+        and any(
+            binding.implementation is mv.FrameMethodFacts.show for binding in descriptor.bindings
+        )
+    ]
+    assert len(owners) == 1
+
+
+def test_attribute_help_distinguishes_actual_qualification_and_inert_facts() -> None:
+    text = render_help_text("analysis.session.attribute")[0]
+    assert text == render_help_text(mv.Session.attribute)[0]
+    for expected in (
+        "Strict bool",
+        "default False",
+        "native DuckDB physical tables",
+        "files/remote providers refuse",
+        "unqualified_contribution_route",
+        "missing_component_proof",
+        "never auto-falls back",
+        "canonical",
+    ):
+        assert expected.lower() in text.lower()
+    assert "analysis.attribute_endpoint" in text and "analysis.analysis_frame.method_facts" in text
+    for target in ("attribute_endpoint", "frame_method_facts", "frame_ratio_method"):
+        assert target not in prepare().discovery_ids()

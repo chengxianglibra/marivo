@@ -13,6 +13,7 @@ from marivo._definition.correspondence import coordinate_position
 from marivo._definition.expressions import ContributionFilter, EntityCount
 from marivo._definition.observations import ContributionBinding
 from marivo._definition.relations import (
+    AttributeKeys,
     FrameKeys,
     PopulationClassify,
     PopulationDependency,
@@ -178,7 +179,7 @@ def prepare_population(
     frame_types: dict[AxisBinding, tuple[dt.DataType, ...]] = {}
     for captured_domain in walk((definition,), resolve=lambda _: None).order:
         if isinstance(captured_domain, PopulationProgram) and isinstance(
-            captured_domain.root, FrameKeys
+            captured_domain.root, (FrameKeys, AttributeKeys)
         ):
             relation = entities.get(
                 "population-parameter:" + computation_fingerprint(captured_domain)
@@ -188,7 +189,9 @@ def prepare_population(
             from marivo.analysis.compiler.populations import frame_key_groups
 
             for binding, names in zip(
-                captured_domain.root.bindings, frame_key_groups(captured_domain.root), strict=True
+                captured_domain.root.bindings,
+                frame_key_groups(captured_domain.root)[: len(captured_domain.root.bindings)],
+                strict=True,
             ):
                 captured_types = tuple(relation[name].type() for name in names)
                 previous = frame_types.get(binding.target)

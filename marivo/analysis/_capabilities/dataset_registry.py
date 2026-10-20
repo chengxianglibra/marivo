@@ -61,6 +61,18 @@ class DatasetDisclosureRegistry:
     def canonical_ids(self) -> tuple[str, ...]:
         return tuple(d.canonical_id for d in self.descriptors)
 
+    def is_type_attribute(self, target: str) -> bool:
+        """Recognize exact declared fields of registered types without getters."""
+        owner, separator, member = target.rpartition(".")
+        return bool(separator) and any(
+            isinstance(descriptor, TypeInput)
+            and descriptor.canonical_id == owner
+            and any(
+                member == field.name for binding in descriptor.bindings for field in binding.fields
+            )
+            for descriptor in self.descriptors
+        )
+
     def discovery_ids(self) -> tuple[str, ...]:
         """Return intentional discovery members, not every resolvable leaf."""
         members = {m for d in self.descriptors if isinstance(d, NavigationInput) for m in d.members}
@@ -354,7 +366,7 @@ class DatasetDisclosureRegistry:
             elif isinstance(descriptor, ReadCapability):
                 targets = descriptor.related
             for target in targets:
-                if target not in ids:
+                if target not in ids and not self.is_type_attribute(target):
                     raise invalid("independently resolvable linked target", target)
         for descriptor in self.descriptors:
             if isinstance(descriptor, CallableInput):

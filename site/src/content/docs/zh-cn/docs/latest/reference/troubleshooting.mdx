@@ -41,6 +41,23 @@ on 必填，零轴允许 on=()。
 除零政策只作用新算子，不覆盖严格子式。非有限值、溢出与必要覆盖失败阻止完成。
 缺少执行路线不授权改算法、来源或精度。
 
+## 显式 Attribute 与完整解释读取
+
+AttributeEndpoint 要求已解析来源 Metric 和显式范围；Frame/Column/Artifact 不能恢复来源
+权限。普通父轴必须从精确接收者完整双向 `parent_on` 绑定；`by` 必须增加业务分类。
+`contribution` 严格要求 boolean，不接受仅具有真值的标记。
+
+`unsupported_expression` 表示所需精确分解没有准入规则，`missing_component_proof` 表示
+所需样本/分区/组件未被证明；`unqualified_contribution_route` 表示来源超出合格物理 DuckDB
+表路线。原来源与数值失败仍按其自身错误修复。不改精度、不虚构证明、不静默降级；原观察
+合法时，显式请求 `contribution=False` 做调查。精确调用见
+`marivo.help("analysis.session.attribute")`。
+
+pending `method_facts` 访问需先 compute/persist。存储 getter 校验完整 owned 方法文件，
+不读主表或来源。卡片、打开、预览和 `to_pandas()` 不验证方法载荷，stored compute 与
+派生求值会消费它；坏方法文件可使当前行仍可导出而完整消费失败。保留原文件，按错误修复
+报告的 owned 载荷，不用当前来源重建。见 `marivo.help("analysis.analysis_frame.method_facts")`。
+
 ## 精确数据恢复与发布 Run
 
 保留 Session ID 与 frame.artifact.id，恢复该 Session 后用字符串调用
@@ -49,8 +66,10 @@ Artifact/ID 对象及 RawSqlResult 不是计算操作数。compute 失败不创�
 run_ref 指向精确 Run，reconciliation 解决原提交而不重算。
 缺失或损坏的消费数据不是 cache miss，不能回放来源修复。
 
-Store 13 拒绝所有旧 generation 数据且保持字节不变，不迁移或双读。缺少当前 generation 的
+Store 14 拒绝所有旧 generation 数据且保持字节不变，不迁移或双读。缺少当前 generation 的
 发现可返回 None/空而不暴露旧状态；create 不能绕过仅有旧 Store 的项目。
 切换前用原版本导出必要结果，或保留兼容读取环境。预览限制只影响显示，不截断完整执行。
+保留旧 Store，当前工作在新项目创建新的命名 Session。Store14 的 generation13/output-v2
+适用于所有 Frame，不提供自动导出/导入迁移或同项目旁路。
 [AnalysisFrame 切换说明](https://github.com/chengxianglibra/marivo/blob/main/docs/specs/analysis/analysis-frame-cutover.md)
 列明破坏性 API、量名、延期能力与恢复选择。

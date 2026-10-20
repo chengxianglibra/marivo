@@ -159,9 +159,9 @@ Metrics. by=P selects output keys rather than asserting coverage of all source
 coordinates. Time plus ordinary axes requires complete on; use explicit ordinal
 for a two-period comparison. Ordinary bridges select only ordinary axes.
 
-## Older Stores to Store 13
+## Older Stores to Store 14
 
-Store 13 refuses every older generation's Session/result and owned Finding/Evidence
+Store 14 refuses every older generation's Session/result and owned Finding/Evidence
 data reads without changing any old database/WAL/SHM/payload bytes. There is no
 migration, dual read or downgrade. The restriction covers data access beyond
 persisted_frame; renaming a Session or selecting an old descriptor cannot bypass
@@ -175,3 +175,45 @@ Keep the original files and environment information; this note invents no comman
 for an unknown historical version. Exported tables do not become new typed
 semantic authority. A separately prepared fresh project can run an explicit new
 analysis, but that produces new source facts rather than recovering old state.
+
+
+## Store 13 to Store 14: explicit Attribute and method facts
+
+The current Store is generation 14 under `.marivo/analysis/generations/v14/`.
+All Frames use `marivo.frame_output/v3`, `frame.v3` semantics and the
+`frame-output-v3` collection, including Frames with no method facts. The generation-13 baseline used its own closed v2 schema; adding required
+method descriptors therefore advances the shared protocol rather than reusing v2.
+
+`session.attribute` is the sole explicit-source entry. Two immutable
+`AttributeEndpoint` inputs supply Metric mappings and endpoint scopes; `by`
+supplies new classifications. Default investigation returns ordinary left/right/
+absolute values and independent presence without contribution proof or new
+method facts. Optional contribution requires the qualified physical DuckDB table
+root/fiber statement route, with complete component and sample proof. Files,
+remote providers and arbitrary window/per shapes are not thereby qualified.
+An unsupported contribution fails; a valid default investigation is a separate
+explicit request. No Frame attribute/drill/rollup/share receiver is restored.
+
+Contribution results are ordinary Frames with complete immutable `method_facts`.
+The facts explain original totals, schemas, parents and coordinates; filtering,
+ranking or reducing rows does not change original denominators or recertify a
+new decomposition. Current numerical results retain actual completed native
+types and units; no universal Decimal precision or read count is promised.
+
+Stored manifests retain bounded method descriptors. Full owned method tables
+and their receipts join the existing single atomic publication/readback and
+unknown-commit reconciliation. Saved derivatives own copied payloads; the
+original Artifact, Catalog, source and calendar reconstruction are unnecessary.
+Metadata opening, repr, preview, Artifact cards and idempotent stored persist do
+not read method files. `to_pandas()` validates current data and required current
+attachments only. The explicit `method_facts` getter validates complete method
+payloads without primary rows; stored compute and evaluated derivatives consume
+both. Method-file damage can leave metadata/export usable while full consumers
+fail. Pending fact access requires compute/persist first.
+
+Store14 refuses Store13 and all older data without changing old bytes, migration
+or dual reading. An old-only project cannot initialize a bypass. Preserve that
+Store and create a new named Session in a fresh project. Reading/exporting with
+the original compatible environment is a separate deliberate workflow, not a
+Store14 migration. This local implementation boundary does not establish new
+provider Runtime, installed-package or release qualification.

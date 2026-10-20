@@ -471,6 +471,13 @@ def test_doctor_command_fix_snapshot_takes_precedence_over_json(
         "analysis.session.frame",
         "analysis.session.persisted_frame",
         "analysis.session.population_from",
+        "analysis.session.attribute",
+        "analysis.attribute_endpoint",
+        "analysis.attribute_endpoint.metrics",
+        "analysis.analysis_frame.method_facts",
+        "analysis.frame_method_facts",
+        "analysis.frame_method_facts.show",
+        "analysis.frame_linear_term.method",
     ],
 )
 def test_cli_and_python_help_have_identical_facts_and_targets(

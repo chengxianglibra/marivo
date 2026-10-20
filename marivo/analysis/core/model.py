@@ -27,7 +27,14 @@ class CoreRuleError(AnalysisError):
             repair=AnalysisRepair(
                 kind="retry",
                 action=repair,
-                help_target=LiveHelpTarget(surface="analysis"),
+                help_target=LiveHelpTarget(
+                    surface="analysis",
+                    canonical_id={
+                        "session.attribute": "session.attribute",
+                        "frame.method_facts": "analysis_frame.method_facts",
+                        "frame.method_facts.show": "frame_method_facts.show",
+                    }.get(location),
+                ),
             ),
         )
 

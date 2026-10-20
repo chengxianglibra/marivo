@@ -19,13 +19,20 @@ release acceptance; native Help and the owning analysis contract describe curren
 At `405bd006f8`, the agreed R3–R8 local implementation gate and independent business
 acceptance are complete. Numerical source routes now qualify the actual selected
 backend, expression, physical types and method. Native Ibis/provider numerical
-precision loss is accepted; the pandas handoff supplies effective numerical types
-to local consumers and publication without relaxing keys, units, time or null
+precision limits apply, with the nullable-integer transport guarantee below; the
+pandas handoff supplies effective numerical types to local consumers and
+publication without relaxing keys, units, time or null
 policies. This code-route scope does not itself establish remote Runtime
 qualification. The complete slow suite and release acceptance remain incomplete;
 current remote evidence belongs to the [Runtime coverage guide](../../testing/runtime-coverage.md#remote-numerical-query-extension).
-DuckDB's pandas handoff preserves nullable integers through Ibis Arrow results;
-this does not establish the same conversion guarantee for other providers.
+DuckDB governed `SourceSession` reads and qualified typed PostgreSQL Analysis
+reads use native Ibis Arrow results before pandas inference.
+Integer values that fit the native Arrow result type remain exact beside nulls
+through nullable Arrow integer dtypes. Noninteger values retain native Ibis Arrow
+type, representability and precision limits. Ordinary PostgreSQL authoring and
+bounded inspection retain native Ibis pandas conversion and its existing
+precision/representation limits, as do the remaining providers. This does not
+establish universal source-value fidelity.
 
 This is the entry point for the design of Marivo's
 datasource and semantic layers (`marivo.datasource` and `marivo.semantic`). It
@@ -50,7 +57,7 @@ time-scope, and alignment contract, see
 [`../temporal-semantics.md`](../temporal-semantics.md).
 For the analysis layer, see [`../analysis/python-analysis-design.md`](../analysis/python-analysis-design.md).
 Start at [Analysis Architecture](../analysis/README.md) for the current graph,
-algebra, method-registry, Runtime and Store 12 Frame data/audit ownership chain.
+algebra, method-registry, Runtime and Store 14 Frame data/audit ownership chain.
 
 ## Audience and intent
 
@@ -137,7 +144,7 @@ marivo.semantic     domain / entity / dimension / metric / relationship
         ↓ normalized business contracts + typed refs + Ibis construction
 marivo.analysis     Population / AnalysisFrame / Column + bound algebraic methods
         ↓ qualified graph plan + explicit Runtime execution
-Store 12            complete Frame data + self-contained audit records
+Store 14            complete Frame data + self-contained audit records
 ```
 
 - The **datasource** layer owns *how to reach the data and what it physically

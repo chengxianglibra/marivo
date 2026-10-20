@@ -58,9 +58,11 @@ This declares fields and a named Metric. A declaration or successful preview doe
 
 Source Ibis executes through the selected declared datasource and returns pandas. Literal/reference and local domain/value stages use pandas. PyArrow encodes and reads terminal output. Fixed complete Frame inputs and local data operations use the same scheduler. Artifact is audit only; no Artifact operand, fixed-data remote upload or hidden local SQL engine exists.
 
-Source computation accepts native Ibis/provider numerical precision loss. Ibis lowering adds no casts solely to standardize backend result types or preserve transport precision; business-required conversions remain. The pandas handoff resolves the effective numerical types of direct fields, reductions and internal components for subsequent local operations and publication, retaining complete keys, null policies, units and time semantics. Casting cannot recover lost source precision; saved-output fidelity concerns the values actually committed.
+Source computation follows native Ibis/provider numerical precision limits, with the nullable-integer transport guarantee below. Ibis lowering adds no casts solely to standardize backend result types or preserve transport precision; business-required conversions remain. The pandas handoff resolves the effective numerical types of direct fields, reductions and internal components for subsequent local operations and publication, retaining complete keys, null policies, units and time semantics. Casting cannot recover lost source precision; saved-output fidelity concerns the values actually committed.
 
-DuckDB reads use Ibis Arrow results to construct pandas integer columns with nullable Arrow extension dtypes. Large integers remain exact beside null values without an intermediate float64 conversion. Local computation still uses pandas; this conversion guarantee does not extend to other backends.
+DuckDB governed `SourceSession` reads and qualified typed PostgreSQL Analysis reads use native Ibis Arrow results before pandas inference and construct integer columns with nullable Arrow extension dtypes. Integer values that fit the native Arrow result type remain exact beside null values without an intermediate float64 conversion. Noninteger values retain native Ibis Arrow type, representability and precision limits; pandas representations can differ from native Ibis `execute()` results, including Python date values for DATE and different timestamp units that preserve the instant. Local computation still uses pandas.
+
+Ordinary PostgreSQL authoring, basic reads and bounded inspection (`collect_bounded`) retain native Ibis pandas conversion, including JSON object/array values and its existing precision and representation limits. Other backends retain their native Ibis pandas path. No universal Decimal precision or source-value fidelity is promised. Direct Ibis calls and raw SQL result APIs retain their own native contracts.
 
 Time preparation and temporal rewrites use the actual selected engine. Remote source blocks use the unfused route until their own equivalence is established. Local execution is eager and may retain full required vectors in memory. Failure never switches route or truncates input.
 
@@ -70,8 +72,33 @@ Ordinary PostgreSQL, MySQL, Trino and ClickHouse templates admit count, count_di
 
 ClickHouse Distributed admits qualified ordinary grouped aggregation. Source routes requiring a Distributed IN/JOIN, including keyed `Session.read`, reject before Run admission because that join route is not qualified under `distributed_product_mode`. MergeTree joins have separate qualification; views and other engine topologies are not implicitly admitted. Marivo does not change server settings or substitute local tables.
 
+## Explicit Attribute qualification
+
+Default `session.attribute` investigates explicit endpoint Metrics and scopes
+through their valid original observation routes. It collects no contribution
+proof and creates no new method facts. Optional `contribution=True` currently
+requires the qualified physical DuckDB table root/fiber statement route, with
+complete parent/fine components and original formula checks in that input.
+File sources and non-DuckDB providers remain unqualified for contribution even
+when ordinary observation is valid. A provider name or shared plan is not proof.
+
+Supported exact rules include qualified additive, ratio and captured linear
+compositions. Unproved per/sample shapes, nested windows and nonadditive window
+children reject with missing component proof. The accepted local AllHistory
+additive lookback shape is not blanket window qualification. Unsupported requests
+fail without an automatic downgrade; an explicit default request is separate.
+Native originals retain actual completed types and units, including fractional
+Decimal results where returned; no universal Decimal precision or execution count
+is promised. Complete method facts are inert explanations, not source authority.
+
 ## Resource and saved-output boundaries
 
 Datasource native timeouts retain their backend meanings. There is no default graph deadline or automatic alternative executor. Cancellation and close remain driver-owned; unknown remote termination stays unknown. Atomic publication and journal reconciliation preserve committed success and exactly owned resources.
 
-Store 13 records complete project-local Frame data and audit. New and reopened Frames read the same committed data without current Catalog/source access. Older-generation data refuses unchanged, with no migration or dual read. Complete export preserves int64/Decimal, NA, presence, keys, order and frozen calendar/paired interpretation. Focused local checks, remote Runtime tests and release acceptance remain different evidence. Follow [troubleshooting](/docs/latest/reference/troubleshooting/) for the concrete repair.
+Store 14 records complete project-local Frame data and audit. New and reopened Frames read the same committed data without current Catalog/source access. Older-generation data refuses unchanged, with no migration or dual read. Complete export preserves int64/Decimal, NA, presence, keys, order and frozen calendar/paired interpretation. Focused local checks, remote Runtime tests and release acceptance remain different evidence. Follow [troubleshooting](/docs/latest/reference/troubleshooting/) for the concrete repair.
+
+All Frames use `marivo.frame_output/v3`, `frame.v3` and `frame-output-v3`.
+`to_pandas()` validates current data only; `method_facts` validates owned
+explanation payloads only; stored compute and evaluated derivatives consume both.
+Metadata cards and preview do not open method files. Saved derivatives own their
+payloads independently of the original Artifact.

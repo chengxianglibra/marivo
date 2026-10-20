@@ -6,7 +6,12 @@ import os
 from collections.abc import Callable
 from uuid import uuid4
 
-from marivo.analysis.core.artifact_data import ArtifactData, ArtifactManifest, SavedAttachment
+from marivo.analysis.core.artifact_data import (
+    ArtifactData,
+    ArtifactManifest,
+    SavedAttachment,
+    SavedFrameMethodFacts,
+)
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
@@ -17,6 +22,7 @@ from marivo.analysis.errors import AnalysisError, AnalysisRepair
 from marivo.analysis.materialization import terminal_store
 from marivo.analysis.materialization.contracts import RunFailure, RunFailurePhase
 from marivo.analysis.materialization.errors import MaterializationError, RecoveryPendingError
+from marivo.analysis.materialization.frame_method_facts import method_payload, saved_method_facts
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization.resources import discharge_resources, reserve_output
 from marivo.analysis.materialization.storage import _fsync_directory
@@ -24,6 +30,7 @@ from marivo.analysis.materialization.store import SessionStore, _new_run_ref, _o
 from marivo.analysis.materialization.terminal_protocol import invalid
 from marivo.analysis.materialization.terminal_storage import write_output
 from marivo.analysis.materialization.writer_guard import session_writer_guard
+from marivo.analysis.methods.frame_method_facts import validate_method_facts
 from marivo.introspection.live.model import LiveHelpTarget
 
 
@@ -129,6 +136,9 @@ def publish_completed(
         result.data.schema, result.data.copy_rows(), result.data.copy_attachments()
     )
     terminal_store.validate_result_records(data.schema, result.metadata)
+    for facts in result.method_facts:
+        validate_method_facts(facts)
+    method_tables = tuple(method_payload(facts) for facts in result.method_facts)
     store, session = local.store, local.session_ref
     run_ref: str | None = None
     value: ArtifactManifest | None = None
@@ -166,6 +176,21 @@ def publish_completed(
                 )
                 attachments.append(SavedAttachment(attachment.name, attachment.schema, handle))
                 _event("terminal_attachment_written")
+            saved_methods: list[SavedFrameMethodFacts] = []
+            for index, (facts, attachment) in enumerate(
+                zip(result.method_facts, method_tables, strict=True)
+            ):
+                locator = f"method-{index}"
+                handle = write_output(
+                    store.project_root,
+                    staging / locator,
+                    final / locator,
+                    attachment.schema,
+                    attachment.rows,
+                )
+                method_attachment = SavedAttachment(attachment.name, attachment.schema, handle)
+                saved_methods.append(saved_method_facts(facts, method_attachment))
+                _event("terminal_method_written")
             value = ArtifactManifest(
                 store.store_id,
                 artifact,
@@ -173,6 +198,7 @@ def publish_completed(
                 run_ref,
                 ArtifactData(data.schema, primary, tuple(attachments)),
                 result.metadata,
+                tuple(saved_methods),
             )
             _fsync_directory(staging)
             final.parent.mkdir(parents=True, exist_ok=True)
@@ -184,7 +210,9 @@ def publish_completed(
             phase = "publication"
             committing = True
             terminal_store.publish(store, value, resources, _event)
-            return StoredFrameBacking(value.artifact_id, value.data, value.metadata)
+            return StoredFrameBacking(
+                value.artifact_id, value.data, value.metadata, value.method_facts
+            )
         except BaseException as failure:
             if committing:
                 try:
@@ -199,7 +227,9 @@ def publish_completed(
                             if saved is None or saved != value:
                                 raise invalid("original publication read-back differs")
                             # manifest validates exact metadata and record projections.
-                            return StoredFrameBacking(saved.artifact_id, saved.data, saved.metadata)
+                            return StoredFrameBacking(
+                                saved.artifact_id, saved.data, saved.metadata, saved.method_facts
+                            )
                         if (
                             value is not None
                             and _one(

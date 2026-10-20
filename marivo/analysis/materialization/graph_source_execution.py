@@ -14,9 +14,15 @@ import pandas as pd
 import pyarrow as pa
 from ibis.common.exceptions import IbisError
 
+from marivo._definition.types import IntervalCoordinate
+
 if TYPE_CHECKING:
+    from marivo._definition.observations import ObservationPeriod
+    from marivo._definition.types import CalendarCoordinate
+    from marivo.analysis.compiler.attribute_inputs import AttributeRootLayout
     from marivo.analysis.compiler.frame_plan import CompiledFramePlan
     from marivo.analysis.compiler.optimization import InvocationMemo
+    from marivo.analysis.core.attribute import AttributeFailureContext
 
 from marivo._definition.relations import LiteralPopulation, PopulationDependency, PopulationProgram
 from marivo.analysis.compiler.graph_lowering import (
@@ -49,6 +55,7 @@ from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
     StageOutput,
     normalize_complete_frame,
+    source_columns,
 )
 from marivo.analysis.materialization.graph_preflight import bind_entity_output, relation_operations
 from marivo.datasource.adapters import (
@@ -482,7 +489,7 @@ def _population_field(
 def _query_populations(graph: BoundGraph) -> tuple[PopulationDependency, ...]:
     from marivo._definition.expressions import DeclaredMetricRef
     from marivo._definition.graph import DefinitionNode, children, computation_fingerprint
-    from marivo._definition.relations import FrameKeys
+    from marivo._definition.relations import AttributeKeys, FrameKeys
 
     populations: dict[str, PopulationDependency] = {}
     seen: set[int] = set()
@@ -493,7 +500,9 @@ def _query_populations(graph: BoundGraph) -> tuple[PopulationDependency, ...]:
         seen.add(id(node))
         if isinstance(node, (PopulationProgram, LiteralPopulation)):
             populations[computation_fingerprint(node)] = node
-            if isinstance(node, PopulationProgram) and isinstance(node.root, FrameKeys):
+            if isinstance(node, PopulationProgram) and isinstance(
+                node.root, (FrameKeys, AttributeKeys)
+            ):
                 return
         if isinstance(node, DeclaredMetricRef):
             visit(dict(graph.signature.declared_metrics)[node.ref])
@@ -507,6 +516,8 @@ def _query_populations(graph: BoundGraph) -> tuple[PopulationDependency, ...]:
             visit(observation.coordinates.population)
         if observation.condition is not None:
             visit(observation.condition)
+        if observation.coordinates.parent_scope is not None:
+            visit(observation.coordinates.parent_scope)
     return tuple(populations.values())
 
 
@@ -627,7 +638,7 @@ def prepare_query_sources(
     parameters, dependency_inputs = prepare_parameters(
         graph, state, source, available, entities, memo, frame_schemas
     )
-    from marivo._definition.relations import FrameKeys
+    from marivo._definition.relations import AttributeKeys, FrameKeys
     from marivo._definition.types import FieldRead
     from marivo.analysis.compiler.populations import frame_key_groups
     from marivo.analysis.compiler.query_program import FrameParameter
@@ -637,10 +648,12 @@ def prepare_query_sources(
         if not isinstance(parameter, FrameParameter):
             continue
         key_definition = parameter.definition.root
-        assert isinstance(key_definition, FrameKeys)
+        assert isinstance(key_definition, (FrameKeys, AttributeKeys))
         columns = {column.slot_id: column for column in parameter.columns}
         for axis, group in zip(
-            key_definition.bindings, frame_key_groups(key_definition), strict=True
+            key_definition.bindings,
+            frame_key_groups(key_definition)[: len(key_definition.bindings)],
+            strict=True,
         ):
             target = axis.target
             target_table = entities.get(target.entity.ref.path)
@@ -894,7 +907,7 @@ def prepare_source_free_populations(
 ) -> tuple[SourceSchema, ...]:
     """Admit intrinsic calendar/unit key types without opening a datasource."""
     from marivo._definition.graph import computation_fingerprint
-    from marivo._definition.relations import FrameKeys
+    from marivo._definition.relations import AttributeKeys, FrameKeys
     from marivo._definition.types import AxisBinding
     from marivo.analysis.compiler.populations import frame_key_groups
     from marivo.analysis.materialization.population_preparation import prepare_population
@@ -905,7 +918,7 @@ def prepare_source_free_populations(
     frame_types: dict[AxisBinding, tuple[DataColumn, ...]] = {}
     for parameter in parameters:
         definition = parameter.definition.root
-        assert isinstance(definition, FrameKeys)
+        assert isinstance(definition, (FrameKeys, AttributeKeys))
         columns = {column.slot_id: column for column in parameter.columns}
         for binding, group in zip(definition.bindings, frame_key_groups(definition), strict=True):
             current = tuple(columns[name] for name in group)
@@ -1220,11 +1233,28 @@ def _native_query_expression(prepared: PreparedSources, read: LoweredRead) -> ir
     return expression
 
 
+def _actual_attribute_layout(
+    layout: AttributeRootLayout, frame: pd.DataFrame
+) -> AttributeRootLayout:
+    """Capture returned native physical columns before Attribute normalization."""
+    return replace(
+        layout,
+        columns=source_columns(frame.loc[frame[layout.kind] == 0], layout.columns, layout.keys),
+    )
+
+
 def read_stage(
     prepared: PreparedSources, lowered: LoweredRead, *, value_keys: tuple[str, ...] = ()
 ) -> StageOutput:
     """Submit one lowered SourceRead and normalize its pandas result."""
     stage = lowered.stage
+    if stage.attribute_layout is not None and stage.attribute_layout.parent_context is None:
+        from marivo.analysis.compiler.attribute_inputs import input_failure
+
+        input_failure(
+            "missing_component_proof",
+            "the source read lacks its checked original-parent association",
+        )
     expression = _native_query_expression(prepared, lowered)
     lowered = replace(lowered, expression=expression)
     source = prepared.sources.get(stage.source_id, prepared.source)
@@ -1247,9 +1277,197 @@ def read_stage(
             stage="source_conversion",
             help_target="analysis_frame.compute",
         ) from error
+    if stage.attribute_layout is not None:
+        from marivo.analysis.materialization.query_components import complete_attribute_inputs
+
+        _validate_source_checks(stage, frame, lowered.numeric_checks)
+        from marivo.analysis.compiler.attribute_inputs import original_input_slot
+
+        layout = stage.attribute_layout
+        originals: dict[tuple[int, str], pd.DataFrame] = {}
+        for kind, keys in ((0, layout.keys), (1, layout.parent_keys)):
+            selected = frame.loc[frame[layout.kind] == kind].reset_index(drop=True)
+            for leaf in layout.leaves:
+                selected = frame.loc[
+                    (frame[layout.kind] == kind) & (frame[layout.fiber] == leaf.fiber)
+                ].reset_index(drop=True)
+                reduction = leaf.read.reduction
+                assert reduction is not None
+                prefix = original_input_slot(kind, leaf.read.occurrence, "")
+                names = {
+                    name: name.removeprefix(prefix)
+                    for name in selected.columns
+                    if name.startswith(prefix)
+                }
+                names.update({name: name for name in (*keys, reduction.value_slot)})
+                raw = selected.loc[:, list(names)].rename(columns=names)
+                original_stage = replace(
+                    leaf.read,
+                    keys=keys,
+                    component_layout=None,
+                    columns=tuple(
+                        column
+                        for column in leaf.read.columns
+                        if column.slot_id not in leaf.read.keys or column.slot_id in keys
+                    ),
+                )
+                checks = tuple(
+                    (name.removeprefix(prefix), check)
+                    for name, check in lowered.numeric_checks
+                    if name.startswith(prefix)
+                )
+                completed = _complete_source_frame(original_stage, raw, checks)
+                originals[(kind, reduction.value_slot)] = completed.table
+        # Formula originals are actual native outputs of this same statement.
+        # Capture their physical carriers before the root normalizer consumes
+        # any conservative compiler metadata.
+        layout = _actual_attribute_layout(layout, frame)
+        fine, inputs = complete_attribute_inputs(layout, stage.stage_id, frame, originals)
+        from marivo.analysis.materialization.graph_exchange import CheckReceipt
+
+        inputs = replace(
+            inputs,
+            receipts=(
+                *(CheckReceipt(name, stage.stage_id) for name, _ in lowered.numeric_checks),
+                *inputs.receipts,
+            ),
+        )
+        return StageOutput.from_frame(
+            fine,
+            source_columns(fine, stage.columns, stage.keys),
+            stage.keys,
+            receipts=inputs.receipts,
+            attribute_inputs=(inputs,),
+            source_rows=len(frame),
+        )
     if stage.common_reads:
         return _complete_common_read(stage, frame, lowered.numeric_checks)
     return _complete_source_frame(stage, frame, lowered.numeric_checks, value_keys=value_keys)
+
+
+def _validate_source_checks(
+    stage: SourceRead,
+    frame: pd.DataFrame,
+    numeric_checks: tuple[tuple[str, NumericCheck], ...],
+) -> None:
+    """Dispatch source checks with their original owner, coordinates and repair."""
+    retained_checks = {column.slot_id for column in stage.columns}
+    for name in (
+        "__numeric_present",
+        "__sample_present",
+        *(name for name, _ in numeric_checks),
+    ):
+        if name in retained_checks and name in frame.columns:
+            frame[name] = frame[name].astype("boolean").fillna(False)
+    for name, check in numeric_checks:
+        if name in retained_checks:
+            continue
+        layout = stage.attribute_layout
+        if layout is not None:
+            from marivo.analysis.core.attribute import AttributeCheckWitness
+            from marivo.analysis.core.frozen_calendar import frozen_key_rows
+            from marivo.analysis.materialization.graph_exchange import normalize_stage_frame
+            from marivo.analysis.materialization.query_components import (
+                attribute_failure_context,
+                attribute_witness_order,
+            )
+
+            for descriptor in (item for item in layout.checks if item.name == name):
+                kind = (
+                    4
+                    if descriptor.scope == "preparation"
+                    else 1
+                    if descriptor.scope == "parent"
+                    else 0
+                )
+                scoped = frame.loc[
+                    (frame[layout.kind] == kind)
+                    & (frame[layout.fiber] == descriptor.leaves[0].fiber)
+                ]
+                failing = scoped.loc[scoped[name].astype("boolean").fillna(False)]
+                if len(failing):
+                    columns = descriptor.columns
+                    coordinates = normalize_stage_frame(
+                        failing.loc[:, [column.slot_id for column in columns]], columns, ()
+                    )
+                    coordinates = coordinates.iloc[
+                        list(attribute_witness_order(coordinates, columns))[:6]
+                    ].reset_index(drop=True)
+                    witness = AttributeCheckWitness(
+                        name, stage.source_id, tuple(frozen_key_rows(coordinates, columns)), columns
+                    )
+                    context = attribute_failure_context(
+                        layout,
+                        coordinates,
+                        descriptor.leaves,
+                        columns,
+                        witness,
+                        fine=descriptor.scope == "fine",
+                    )
+                    _attribute_source_check_failure(
+                        stage, name, check.expected, check.received, coordinates, context
+                    )
+            continue
+        violation = frame[name].astype("boolean").fillna(False)
+        if violation.any():
+            _source_check_failure(
+                stage,
+                name,
+                check.expected,
+                check.received,
+                frame.loc[violation, list(stage.keys)].head(6),
+            )
+
+
+def _source_check_failure(
+    stage: SourceRead,
+    name: str,
+    expected: str,
+    received: str,
+    coordinates: pd.DataFrame,
+) -> NoReturn:
+    """Keep the owning preparation/numeric failure for actual or known-empty input."""
+    from marivo.semantic._numeric_lowering import numeric_failure
+
+    received = (
+        f"{received}; source={stage.source_id}; coordinates={coordinates.to_dict(orient='records')}"
+    )
+    if any(name == column for column, _, _ in stage.preparation_checks):
+        raise MaterializationError(
+            expected=expected,
+            received=received,
+            repair=(
+                "Include every observed output coordinate in by=Population, or explicitly filter contributions before choosing that output domain."
+                if name == "__query_population_uncovered"
+                else "Inspect the relationship keys and exact snapshot/validity selection. Correct missing matches or overlapping rows so each selected contribution has exactly one matching field row, then retry."
+            ),
+            stage="population_coverage"
+            if name == "__query_population_uncovered"
+            else "scalar_field_lookup",
+            help_target="analysis_frame.compute",
+        )
+    numeric_failure(expected, received)
+
+
+def _attribute_source_check_failure(
+    stage: SourceRead,
+    name: str,
+    expected: str,
+    received: str,
+    coordinates: pd.DataFrame,
+    context: AttributeFailureContext,
+) -> NoReturn:
+    """Attach typed evidence without replacing the original source failure owner."""
+    from marivo.semantic.errors import SemanticExpressionError
+
+    try:
+        _source_check_failure(stage, name, expected, received, coordinates)
+    except MaterializationError as error:
+        error.attribute_context = context
+        raise
+    except SemanticExpressionError as error:
+        error.details["attribute_context"] = context
+        raise
 
 
 def _complete_source_frame(
@@ -1269,6 +1487,7 @@ def _complete_source_frame(
 
         frame, component = complete_components(stage.component_layout, frame)
         components = (component,)
+    _validate_source_checks(stage, frame, numeric_checks)
     from marivo.semantic._numeric_lowering import numeric_failure
 
     retained_checks = {column.slot_id for column in stage.columns}
@@ -1631,6 +1850,34 @@ def execute_numeric_query(
                     "Reduce the explicit domain or use a datasource/type with an admitted native expression route.",
                 ) from error
         request = replace(request, expression=expression)
+        if request.stage.attribute_layout is not None:
+            from marivo.analysis.compiler.attribute_inputs import input_failure
+            from marivo.analysis.core.attribute import AttributeParentContext
+            from marivo.analysis.methods.frame_attribute import attribute_parent_mapping
+
+            binding = stage.attribute_parent
+            if binding is None:
+                input_failure(
+                    "missing_component_proof",
+                    "the Attribute source lacks its exact parent projection dependency",
+                )
+            layout = request.stage.attribute_layout
+            parent_columns = {column.slot_id: column for column in layout.columns}
+            projection = inputs[binding.projection_input_index]
+            parent_context = AttributeParentContext(
+                tuple(column for axis in binding.parent_schema.axes for column in axis.columns),
+                attribute_parent_mapping(
+                    binding.parent_schema,
+                    projection,
+                    tuple(parent_columns[name] for name in layout.parent_keys),
+                ),
+            )
+            request = replace(
+                request,
+                stage=replace(
+                    request.stage, attribute_layout=replace(layout, parent_context=parent_context)
+                ),
+            )
         output = read_stage(selected, request, value_keys=value_keys.get(stage.stage_id, ()))
         if observe_read is not None:
             observe_read(request, output)
@@ -1734,3 +1981,324 @@ def run_frame_plan(
         source_outputs=dict(compiled.source_outputs),
         observe_frame=observe_local,
     )
+
+
+def _attribute_calendar_value(
+    table: ir.Table,
+    columns: dict[str, str],
+    time_column: str,
+    calendar: CalendarCoordinate | IntervalCoordinate,
+    window_key: int | None,
+) -> ir.Value:
+    import ibis
+
+    from marivo.analysis.compiler.observation import temporal_bound
+
+    if window_key is not None:
+        return ibis.literal(window_key).cast("int64")
+    time = table[columns[time_column]]
+    if isinstance(calendar, IntervalCoordinate):
+        return ibis.ifelse(
+            (time >= temporal_bound(time, calendar.start, calendar.timezone))
+            & (time < temporal_bound(time, calendar.end, calendar.timezone)),
+            ibis.literal(0),
+            ibis.null().cast("int64"),
+        )
+    return ibis.cases(
+        *(
+            (
+                (time >= temporal_bound(time, cell[2], calendar.timezone))
+                & (time < temporal_bound(time, cell[3], calendar.timezone)),
+                index,
+            )
+            for index, cell in enumerate(calendar.cells)
+        ),
+        else_=ibis.null().cast("int64"),
+    )
+
+
+def prepare_attribute_sources(
+    prepared: PreparedSources,
+    graph: BoundGraph,
+    state: CompiledSemanticState,
+    parent_count: int,
+) -> tuple[PreparedSources, dict[str, tuple[tuple[str, str], ...]]]:
+    """Prepare one snapshot-qualified root stream and its scoped parent columns.
+
+    This Attribute route currently qualifies native DuckDB physical tables.
+    Ordinary original-input or Query admission does not qualify this bundle.
+    """
+    import ibis
+
+    from marivo._definition.types import AxisBinding, coordinate_read_keys, field_read_key
+    from marivo.analysis.binding.membership import membership_reads
+    from marivo.analysis.compiler.attribute_inputs import attribute_preparation_key, input_failure
+    from marivo.analysis.materialization.query_preparation import prepare_fields
+    from marivo.datasource.ir import TableSourceIR
+    from marivo.datasource.timezone import probe_engine_timezone
+
+    observation = graph.signature.observation
+    assert observation is not None
+    if any(not isinstance(bound.source, TableSourceIR) for bound in prepared.bound.values()):
+        input_failure(
+            "unqualified_contribution_route",
+            "Attribute requires snapshot-qualified physical tables",
+        )
+    # ContributionBinding remains the only source scope authority.
+    from marivo._definition.observations import ContributionBinding
+
+    contributions: dict[str, list[ContributionBinding]] = {}
+    for contribution in observation.contributions:
+        contributions.setdefault(contribution.root.ref.path, []).append(contribution)
+    relations = dict(prepared.relations)
+    schemas = list(prepared.schemas)
+    scoped_columns: dict[str, tuple[tuple[str, str], ...]] = {}
+    for root, leaves in contributions.items():
+        owner = prepared.sources.get(root, prepared.source)
+        if owner.provider.name != "duckdb" or owner._backend.name != "duckdb":
+            input_failure(
+                "unqualified_contribution_route",
+                f"{root}: no qualified Attribute statement snapshot",
+            )
+        scope_groups: dict[
+            tuple[ObservationPeriod | None, int | None], list[ContributionBinding]
+        ] = {}
+        for leaf in leaves:
+            scope_groups.setdefault((leaf.period, leaf.window_key), []).append(leaf)
+        first_root = leaves[0]
+        if any(
+            (
+                leaf.time,
+                leaf.intrinsic_conditions,
+                leaf.common_condition,
+                leaf.coordinates,
+                leaf.memberships,
+                leaf.population_reads,
+                leaf.calendars,
+                leaf.sample_axes,
+            )
+            != (
+                first_root.time,
+                first_root.intrinsic_conditions,
+                first_root.common_condition,
+                first_root.coordinates,
+                first_root.memberships,
+                first_root.population_reads,
+                first_root.calendars,
+                first_root.sample_axes,
+            )
+            for leaf in leaves
+        ):
+            input_failure(
+                "unqualified_contribution_route", f"{root}: incompatible non-temporal source scopes"
+            )
+        raw_fibers: list[ir.Table] = []
+        check_fibers: list[ir.Table] = []
+        all_leaves = leaves
+        for fiber, leaves in enumerate(scope_groups.values()):
+            first = leaves[0]
+
+            if first.sample_axes:
+                input_failure(
+                    "missing_component_proof", f"{root}: unproved calendar/window/sample sequence"
+                )
+            merged = replace(
+                first, reads=tuple(dict.fromkeys(read for leaf in leaves for read in leaf.reads))
+            )
+            parent_axes = (
+                ()
+                if observation.coordinates.parent_scope is None
+                else observation.coordinates.parent_scope.axes
+            )
+            parent_memberships = tuple(
+                rule
+                for rule in first.memberships
+                if all(
+                    AxisBinding(read.entity, read.field, read.path, "field", read.at) in parent_axes
+                    for read in rule.fields
+                )
+            )
+            new_memberships = tuple(
+                binding for binding in first.memberships if binding not in parent_memberships
+            )
+            member_reads = {
+                read
+                for binding in new_memberships
+                for read in membership_reads(binding, first.root)
+            }
+            if any(read in member_reads for read in merged.reads):
+                input_failure(
+                    "unqualified_contribution_route",
+                    f"{root}: a new membership field is also an input/filter value",
+                )
+            parent_reads = first.coordinates[: parent_count - len(first.calendars)]
+            baseline = replace(
+                merged,
+                reads=tuple(read for read in merged.reads if read not in member_reads),
+                coordinates=tuple(read for read in merged.coordinates if read not in member_reads),
+                memberships=parent_memberships,
+            )
+            reader = probe_engine_timezone(owner._backend)
+            scoped = prepare_fields(baseline, prepared.entities, state, reader)
+            classified = prepare_fields(merged, prepared.entities, state, reader)
+            scoped_map, assigned_map = dict(scoped.columns), dict(classified.columns)
+            parent_paths = tuple(
+                path for read in parent_reads for path in coordinate_read_keys(read)
+            )
+            from marivo.analysis.compiler.observation import reduction_input
+
+            reduction = reduction_input(
+                first, "attribute.value", first.calendars[0][1] if first.calendars else None
+            )
+            parent_slots = tuple(
+                (slot, scoped_map[path]) for slot, path in reduction.axes if path in parent_paths
+            )
+            for slot, calendar in first.calendars:
+                assert reduction.time_column is not None
+                name = "__attribute_calendar_" + slot.replace(".", "_")
+
+                scoped = replace(
+                    scoped,
+                    table=scoped.table.mutate(
+                        **{
+                            name: _attribute_calendar_value(
+                                scoped.table,
+                                scoped_map,
+                                reduction.time_column,
+                                calendar,
+                                first.window_key,
+                            )
+                        }
+                    ),
+                )
+                classified = replace(
+                    classified,
+                    table=classified.table.mutate(
+                        **{
+                            name: _attribute_calendar_value(
+                                classified.table,
+                                assigned_map,
+                                reduction.time_column,
+                                calendar,
+                                first.window_key,
+                            )
+                        }
+                    ),
+                )
+                parent_slots = (*parent_slots, (slot, name))
+            parent_slots = tuple(sorted(parent_slots, key=lambda item: int(item[0].split(".")[1])))
+            scoped_columns[root] = parent_slots
+            base = scoped.table
+            from marivo.analysis.compiler.predicate import lower_condition
+
+            base_fields = {path: base[column] for path, column in scoped.columns}
+            source_predicates = (
+                *first.intrinsic_conditions,
+                *((first.common_condition,) if first.common_condition is not None else ()),
+            )
+            if source_predicates:
+                base = base.filter(
+                    *(
+                        lower_condition(predicate, base_fields).value
+                        for predicate in source_predicates
+                    )
+                )
+            identity = (
+                normalize_target_entity(state.registry, root).version_row_key
+                or normalize_target_entity(state.registry, root).primary_key
+            )
+            root_fiber = tuple(dict.fromkeys((*identity, *(column for _, column in parent_slots))))
+            base = base.mutate(
+                __attribute_root_duplicate=base.count().over(
+                    ibis.window(group_by=[base[column] for column in root_fiber])
+                )
+                > 1
+            )
+            fine = classified.table.mutate(__attribute_assigned=ibis.literal(True))
+            renamed = {name: f"__attribute_fine_{index}" for index, name in enumerate(fine.columns)}
+            fine = fine.rename(**{new: old for old, new in renamed.items()})
+            identity = (
+                normalize_target_entity(state.registry, root).version_row_key
+                or normalize_target_entity(state.registry, root).primary_key
+            )
+            predicates = [base[name].identical_to(fine[renamed[name]]) for name in identity]
+            predicates.extend(
+                base[column].identical_to(fine[renamed[column]]) for _, column in parent_slots
+            )
+            joined = base.left_join(fine, predicates)
+            mapping = dict(scoped_map)
+            projections = {name: base[name] for name in base.columns}
+            for read in member_reads:
+                path = field_read_key(read)
+                name = f"__attribute_member_{len(mapping)}"
+                projections[name] = fine[renamed[assigned_map[path]]]
+                mapping[path] = name
+            projections["__attribute_assigned"] = fine[renamed["__attribute_assigned"]].fill_null(
+                False
+            )
+            raw = joined.select(**projections).mutate(__attribute_fiber=ibis.literal(fiber))
+            from marivo._definition.graph import computation_fingerprint
+            from marivo.analysis.compiler.query_program import FrameParameter
+
+            physical = (ops.DatabaseTable, ops.UnboundTable, ops.InMemoryTable, ops.SQLQueryResult)
+            allowed = {
+                id(leaf)
+                for bound in prepared.bound.values()
+                for leaf in bound.relation.op().find(physical)
+            }
+            parameters = tuple(
+                parameter
+                for schema in prepared.schemas
+                for parameter in schema.parameters
+                if isinstance(parameter, FrameParameter)
+            )
+            for parameter in parameters:
+                relation = prepared.entities.get(
+                    "population-parameter:" + computation_fingerprint(parameter.definition)
+                )
+                if relation is not None:
+                    allowed.add(id(relation.op()))
+            if any(id(leaf) not in allowed for leaf in raw.op().find(physical)):
+                input_failure(
+                    "unqualified_contribution_route",
+                    f"{root}: an unprepared physical or parameter leaf",
+                )
+            schema = raw.schema().to_pyarrow()
+            original_types = {
+                field.field: field.dtype
+                for item in prepared.schemas
+                if item.source_id == root
+                for field in item.fields
+            }
+            fields = tuple(
+                replace(_admitted(schema, path, name), dtype=original_types[path])
+                if isinstance(original_types.get(path), DurationDataType)
+                else _admitted(schema, path, name)
+                for path, name in mapping.items()
+            )
+            raw_fibers.append(raw)
+            check_fibers.append(scoped.table.mutate(__attribute_fiber=ibis.literal(fiber)))
+            for leaf in leaves:
+                stage_id = "read:" + ".".join(map(str, leaf.occurrence))
+                relations[stage_id] = raw
+                relations[attribute_preparation_key(stage_id)] = scoped.table
+                for index, item in enumerate(schemas):
+                    if item.source_id == root and item.occurrence == leaf.occurrence:
+                        schemas[index] = replace(
+                            item, fields=fields, preparation_checks=scoped.checks
+                        )
+        raw = (
+            raw_fibers[0].union(*raw_fibers[1:], distinct=False)
+            if len(raw_fibers) > 1
+            else raw_fibers[0]
+        )
+        checks = (
+            check_fibers[0].union(*check_fibers[1:], distinct=False)
+            if len(check_fibers) > 1
+            else check_fibers[0]
+        )
+        for leaf in all_leaves:
+            stage_id = "read:" + ".".join(map(str, leaf.occurrence))
+            relations[stage_id] = raw
+            relations[attribute_preparation_key(stage_id)] = checks
+    return replace(prepared, schemas=tuple(schemas), relations=relations), scoped_columns

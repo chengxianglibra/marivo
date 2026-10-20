@@ -14,6 +14,8 @@ immutable data type with expression, complete memory and exact stored carriers.
 ``Column`` and ``FrameAxis`` bind to the exact input. ``observe`` binds Metrics,
 ``read`` binds nonempty fields to one Entity identity domain, ``values`` declares
 literal rows, and ``frame`` binds general Population keys, including zero axes.
+``attribute`` binds two explicit ``AttributeEndpoint`` inputs and new business
+classifications; optional contribution requires a separately qualified source route.
 Construction and inspection perform no business read or publication.
 
 Source grouping accepts ordered fields or ``Grouping`` rules, or a complete
@@ -112,16 +114,59 @@ remain specifically qualified; exact and approximate algorithms never substitute
 ``show(n=0)`` and Artifact audit read metadata only. Positive show decodes the
 saved prefix plus needed frozen coordinate records, without full export/head.
 Receipt verification or Parquet decompression can read more than that prefix.
-Full stored compute/export validates complete required payload and attachments.
+``to_pandas()`` validates complete current data and its required attachments.
+``method_facts`` explicitly reads complete immutable original explanation facts;
+on stored Frames it validates only the owned method payloads, without primary
+rows, Catalog or source access. Pending access requires compute/persist first.
+Stored ``compute()`` and evaluated derivatives consume both current data and
+method facts. Damaged method payloads can therefore leave metadata and export
+usable while full consumers fail. Cards show only count, bounded origins and a
+getter pointer. Calling a fact's ``show(n=0)`` follows the explicit payload read.
 Export preserves exact row order, raw-key MultiIndex, nullable types and isolated
 typed frozen-interpretation attrs. Exported attrs cannot reenter computation.
+
+Explicit source investigation and contribution
+----------------------------------------------
+
+``session.attribute(left, right, *, by, parents=None, parent_on=(),
+parent_how="exact", contribution=False)`` returns an ordinary AnalysisFrame.
+``AttributeEndpoint(metrics, during=None, where=None, memberships=())`` copies its
+ordered Metric mapping. ``where`` is a native Deferred predicate; ``memberships``
+holds explicit Grouping allocation rules independently of selected output keys.
+The endpoint retains its own TimeScope/CalendarAxis through ``during``.
+Left is current and right is baseline. Default values are ``left.q``, ``right.q``
+and ``absolute.q``; presence is separate. Contribution adds ``contribution.q``
+and ``contribution_share.q``; direct ratios also expose ``numerator_left.q``,
+``numerator_right.q``, ``denominator_left.q`` and ``denominator_right.q``.
+There is no relative-change output or synthetic root row. Empty explicit parents
+stay empty; omitted parents mean one overall parent. Full ordinary parent axes
+require explicit dual binding. Exact/outer parent correspondence does not change
+the outer fine-key union or restore missing values as zero. Calendar and
+paired-calendar Frame parents retain their explicit binding contracts; interval
+and paired-interval parent axes refuse before reads. Reduce the interval axis before
+selecting parents, or use an explicit CalendarAxis parent and endpoint scopes.
+
+Default investigation collects no contribution proof and creates no new method
+facts. Contribution currently requires the qualified physical DuckDB table
+root/fiber statement route; files and remote providers are not qualified by their
+datasource access. Unsupported rules or missing component proof fail rather than
+downgrade. An explicit default request remains available when its observation is
+valid. Native results retain their actual completed types, units and NA; no
+universal Decimal precision or source-read count is promised.
+
+Successful contribution facts are inert original explanations. Filtering or
+reducing data preserves that history without changing original denominators or
+certifying a new decomposition. Saved derivatives own their copied payloads;
+the original Artifact and source are not needed. Read the exact getter contract
+with ``marivo.help("analysis.analysis_frame.method_facts")`` and the concrete
+family with ``marivo.help("analysis.frame_method_facts")``.
 
 Evaluation, publication and recovery
 ------------------------------------
 
 Compute creates no Run, Artifact or temporary saved result. Expression persist
 completes evaluation first, then publishes that existing result ID through the
-single Store 12 writer transaction. Run means publication; evaluation can precede
+single Store 14 writer transaction. Run means publication; evaluation can precede
 admission. Memory persist never reevaluates. Stored persist validates commit
 metadata and returns itself without another Run. A derived Frame never exposes
 an ancestor Artifact. Unknown publication outcome is reconciled, not recomputed.
@@ -129,19 +174,58 @@ an ancestor Artifact. Unknown publication outcome is reconciled, not recomputed.
 Completed data owns source-free values, coordinates, presence and one audit:
 inherited source facts plus the current evaluation. It retains no producer,
 semantic graph, connection or hidden aggregate components. Read, evaluation and
-commit times remain separate. Session graphs retain Run-to-Artifact publishing
-edges and do not promise complete data lineage.
+commit times remain separate. Session Run records retain publication references
+without promising complete data lineage.
 
-Store 12 refuses older-generation Session/result/audit data unchanged, without
+Store 14 uses ``marivo.frame_output/v3``, ``frame.v3`` and ``frame-output-v3`` for
+all Frames, under ``.marivo/analysis/generations/v14/``. Owned method files share
+the existing atomic publication, receipt and unknown-commit reconciliation.
+Store 14 refuses older-generation Session/result/audit data unchanged, without
 migration or dual reads. Documented absent-current discovery may return None or
-empty; create/get_or_create cannot bypass an old-only project. Preserve required
+empty; create cannot bypass an old-only project. Preserve required
 old results by exporting with their original version or retaining a compatible
-environment. RawSqlResult keeps its independent datasource reader and does not
-enter Frame Store. Static Help, actual local evidence, provider Runtime and
+environment. Create a new named Session in a fresh project for current work;
+there is no same-project bypass. RawSqlResult keeps its independent datasource
+reader and does not enter Frame Store. Static Help, actual local evidence, provider Runtime and
 release acceptance are separate contracts.
 
 Canonical public exports
 -------------------------
+
+.. autoclass:: AttributeEndpoint
+   :members:
+
+.. autoclass:: FrameMethodValue
+   :members:
+
+.. autoclass:: FrameMethodCoordinate
+   :members:
+
+.. autoclass:: FrameMethodSupport
+   :members:
+
+.. autoclass:: FrameAdditiveMethod
+   :members:
+
+.. autoclass:: FrameRatioMethod
+   :members:
+
+.. autoclass:: FrameLinearTerm
+   :members:
+
+.. autoclass:: FrameLinearMethod
+   :members:
+
+.. autoclass:: FrameMethodMetric
+   :members:
+
+.. autoclass:: FrameMethodParent
+   :members:
+
+.. autoclass:: FrameMethodFacts
+   :members:
+
+.. automethod:: FrameMethodFacts.show
 
 .. autoclass:: AnalysisFrame
    :members:

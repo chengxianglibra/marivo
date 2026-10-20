@@ -1,5 +1,6 @@
 """Smoke tests that the analysis package and its subpackages import cleanly."""
 
+import os
 import subprocess
 import sys
 
@@ -13,7 +14,10 @@ import marivo.analysis as mv
 import sys
 assert 'scipy.stats' not in sys.modules
 from marivo.analysis._capabilities.registry import REGISTRY
-names = ('Population', 'AnalysisFrame', 'FrameAxis', 'Column', 'Artifact')
+names = ('Population', 'AnalysisFrame', 'FrameAxis', 'Column', 'Artifact',
+         'AttributeEndpoint', 'FrameMethodValue', 'FrameMethodCoordinate', 'FrameMethodSupport',
+         'FrameAdditiveMethod', 'FrameRatioMethod', 'FrameLinearTerm', 'FrameLinearMethod',
+         'FrameMethodMetric', 'FrameMethodParent', 'FrameMethodFacts')
 bindings = tuple(getattr(mv, name) for name in names)
 assert 'marivo.analysis.public_dsl' not in sys.modules
 assert 'marivo.analysis.forecast_models' not in sys.modules
@@ -31,20 +35,24 @@ from marivo.analysis.session.core import Session
 exports = tuple(mv.__all__)
 help_targets = REGISTRY.canonical_ids()
 members = Session.members
-members = Session.members
 assert not hasattr(Session, "source_bindings")
 for module in ('source_bindings', 'relationship_binding', 'contracts', 'errors'):
     importlib.import_module('marivo.analysis.observation.' + module)
 importlib.import_module('marivo.analysis.session._lazy_sources')
-assert Session.members is members
 assert Session.members is members
 assert not hasattr(Session, "source_bindings")
 assert tuple(mv.__all__) == exports
 assert REGISTRY.canonical_ids() == help_targets
 """
     result = subprocess.run(
-        [sys.executable, "-c", script],
+        [
+            sys.executable,
+            "-c",
+            "from pathlib import Path; import marivo; assert Path(marivo.__file__).resolve() == Path.cwd() / 'marivo/__init__.py'\n"
+            + script,
+        ],
         cwd=PROJECT_ROOT,
+        env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
         capture_output=True,
         text=True,
         timeout=30,
@@ -107,8 +115,14 @@ result = contract.check(candidate, verbose=False)
 assert not result.kept, result.metadata
 """
     result = subprocess.run(
-        [sys.executable, "-c", script],
+        [
+            sys.executable,
+            "-c",
+            "from pathlib import Path; import marivo; assert Path(marivo.__file__).resolve() == Path.cwd() / 'marivo/__init__.py'\n"
+            + script,
+        ],
         cwd=PROJECT_ROOT,
+        env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
         capture_output=True,
         text=True,
         timeout=30,
@@ -136,6 +150,7 @@ def test_session_class_exposes_sources_and_frame_owned_operators() -> None:
         "members",
         "read",
         "observe",
+        "attribute",
         "frame",
         "values",
         "persisted_frame",
@@ -158,10 +173,12 @@ def test_session_class_exposes_sources_and_frame_owned_operators() -> None:
     ):
         assert callable(getattr(mv.AnalysisFrame, name))
     assert not hasattr(mv.Session, "correlate")
-    for name in ("forecast", "deviation", "runs", "attribute"):
+    for name in ("forecast", "deviation", "runs"):
         if name != "runs":
             assert not hasattr(mv.Session, name)
         assert not hasattr(mv.AnalysisFrame, name)
+    assert not hasattr(mv.Session, "_attribute")
+    assert not hasattr(mv.AnalysisFrame, "attribute")
 
 
 def test_analysis_keeps_subdomain_dtos_out_of_top_level() -> None:
@@ -195,8 +212,14 @@ assert sorted(mv.__all__) == dir(mv)
 assert mv.grain('day').unit == 'day'
 """
     result = subprocess.run(
-        [sys.executable, "-c", script],
+        [
+            sys.executable,
+            "-c",
+            "from pathlib import Path; import marivo; assert Path(marivo.__file__).resolve() == Path.cwd() / 'marivo/__init__.py'\n"
+            + script,
+        ],
         cwd=PROJECT_ROOT,
+        env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
         capture_output=True,
         text=True,
         timeout=30,

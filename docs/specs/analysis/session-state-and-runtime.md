@@ -69,8 +69,8 @@ is separate from fixed Frame inputs and local combination.
 
 ## Store generation and data layout
 
-Store 13 is under `<project_root>/.marivo/analysis/generations/v13/`. One closed
-`marivo.frame_output/v2` protocol stores values, complete axes, independent presence, typed
+Store 14 is under `<project_root>/.marivo/analysis/generations/v14/`. One closed
+`marivo.frame_output/v3` protocol stores values, complete axes, independent presence, typed
 frozen interval/calendar/map attachments, receipts and one audit. It stores no executable
 Python class path, source/Metric graph or hidden components. All analysis
 Artifacts are Frame commits; Artifact and stored Frame share one commit authority.
@@ -85,7 +85,9 @@ Older generations' Session/result/Findings/Evidence data refuse unchanged. There
 is no migration, dual read or new Store initialization around an old-only project.
 Documented recent discovery returns an empty page for an absent current
 generation without exposing old state. Export required old results with their
-original version or retain a compatible environment. See [cutover](analysis-frame-cutover.md).
+original version or retain a compatible environment. Preserve the old Store and
+create a new named Session in a fresh project for current work; there is no
+same-project bypass. See [cutover](analysis-frame-cutover.md).
 
 ## Concurrent writers and atomic publication
 
@@ -146,7 +148,7 @@ export/head, sample, silently fall back on metadata, or cache a prefix as comple
 data. Receipt hashing or Parquet decompression may consume more bytes than n;
 preview success says nothing about unread payload integrity.
 
-Stored compute/to_pandas validates complete required values/keys/presence and
+Stored to_pandas validates complete current values/keys/presence and
 attachments: receipts, types, nullability, finite values, uniqueness, directory
 references and paired maps. Missing/corrupt records never become legitimate
 unmatched endpoints. Full export is isolated and retains raw coordinate keys in
@@ -154,6 +156,22 @@ unmatched endpoints. Full export is isolated and retains raw coordinate keys in
 attrs contain axis descriptions, units and isolated frozen coordinate tables;
 no reader, Frame, Store, semantic object or executable calendar is retained.
 Attrs cannot be reimported as computation authority.
+
+`method_facts` explicitly consumes complete immutable explanation payloads only,
+validating the owned descriptors, structure, digest and numerical consistency;
+it does not read primary rows, Catalog, model or source. Pending access requires
+compute/persist first. A fact's bounded show/repr operates in memory after that
+read. Stored compute and evaluated derivatives consume current data and complete
+method facts. A missing/corrupt method payload can leave metadata, previews and
+current-data export usable while full consumers fail. Cards show only count,
+bounded origins and the getter pointer, never full parents/coordinate rows.
+
+All Frames use `marivo.frame_output/v3`, `frame.v3` and `frame-output-v3` under
+`.marivo/analysis/generations/v14/`. Method files share the existing data receipt,
+atomic publication/readback and unknown-commit reconciliation. A saved derivative
+owns its exact inherited payloads; deleting the original Artifact does not force
+an origin lookup or source/calendar rebuild. Origin explains the original total,
+not a freshly filtered or aggregated decomposition.
 
 ## Execution diagnostics and usage telemetry
 

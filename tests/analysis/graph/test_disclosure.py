@@ -24,6 +24,10 @@ REQUIRED_TARGETS = {
     "session.persisted_frame",
     "session.population_from",
     "session.observe",
+    "session.attribute",
+    "attribute_endpoint",
+    "frame_method_facts",
+    "frame_method_facts.show",
     "session.read",
     "session.values",
     "analysis_frame",
@@ -119,6 +123,31 @@ def test_incomplete_or_duplicate_owner_is_rejected() -> None:
     for providers in (registry.providers[:-1], registry.providers + registry.providers[:1]):
         with pytest.raises(DatasetRegistrationError):
             assemble(providers)
+
+
+@pytest.mark.parametrize(
+    "target", ("analysis_frame.no_such_field", "unknown.method_facts", "analysis_frame._backing")
+)
+def test_type_attribute_navigation_rejects_unknown_or_private_links(target: str) -> None:
+    registry = prepare()
+    providers = list(registry.providers)
+    index, provider = next(
+        (i, provider)
+        for i, provider in enumerate(providers)
+        if any(
+            isinstance(value, TypeInput) and value.canonical_id == "analysis_frame"
+            for value in provider.descriptors
+        )
+    )
+    descriptors = tuple(
+        replace(value, consumers=(*value.consumers, target))
+        if isinstance(value, TypeInput) and value.canonical_id == "analysis_frame"
+        else value
+        for value in provider.descriptors
+    )
+    providers[index] = replace(provider, descriptors=descriptors)
+    with pytest.raises(DatasetRegistrationError):
+        assemble(tuple(providers))
 
 
 @pytest.mark.parametrize(

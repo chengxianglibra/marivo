@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from decimal import Decimal
+from typing import TYPE_CHECKING, NoReturn
 
 import pandas as pd
 import pyarrow as pa
@@ -12,14 +13,67 @@ from marivo.analysis.compiler.graph_plan import LocalCompute
 from marivo.analysis.compiler.observation import FormulaProgram
 from marivo.analysis.core.data_types import DataColumn, DecimalDataType, ScalarDataType
 
+if TYPE_CHECKING:
+    from marivo.analysis.core.attribute import AttributeFormulaContext
 
-def query_combine(stage: LocalCompute, inputs: tuple[pd.DataFrame, ...]) -> pd.DataFrame:
+
+def _attribute_formula_failure(
+    context: AttributeFormulaContext,
+    metric: str,
+    path: tuple[int, ...],
+    coordinates: pd.DataFrame,
+    expected: str,
+    received: str,
+) -> NoReturn:
+    """Annotate the existing numeric failure from its actual check coordinates."""
+    from marivo.analysis.core.attribute import (
+        AttributeFailureContext,
+        AttributeFineFiber,
+        AttributeNumericWitness,
+        AttributeParentFiber,
+    )
+    from marivo.analysis.core.frozen_calendar import frozen_key_rows
+    from marivo.semantic._numeric_lowering import numeric_failure
+    from marivo.semantic.errors import SemanticExpressionError
+
+    source_parent = frozen_key_rows(coordinates, context.source_parent_columns)[0]
+    parent = dict(context.parent_mapping)[source_parent]
+    fiber: AttributeParentFiber | AttributeFineFiber = (
+        AttributeFineFiber(
+            parent,
+            context.parent_columns,
+            frozen_key_rows(coordinates, context.fine_columns)[0],
+            context.fine_columns,
+        )
+        if context.fine_columns
+        else AttributeParentFiber(parent, context.parent_columns)
+    )
+    captured = AttributeFailureContext(
+        tuple(use for use in context.uses if use.metric == metric),
+        fiber,
+        AttributeNumericWitness(path, "original", ()),
+    )
+    try:
+        numeric_failure(expected, received)
+    except SemanticExpressionError as error:
+        error.details["attribute_context"] = captured
+        raise
+
+
+def query_combine(
+    stage: LocalCompute,
+    inputs: tuple[pd.DataFrame, ...],
+    *,
+    attribute: AttributeFormulaContext | None = None,
+) -> pd.DataFrame:
     """Combine completed Metric samples and check only demanded numeric values."""
     from marivo.semantic._numeric_lowering import numeric_failure
 
     program = stage.program
     assert program is not None
-    frame, checks = _combine_program(program, inputs, stage.keys, stage.columns[len(stage.keys) :])
+    frame, checks = _combine_program(
+        program, inputs, stage.keys, stage.columns[len(stage.keys) :], attribute=attribute
+    )
     for name, expected, received in checks:
         violation = frame[name].astype("boolean").fillna(False)
         if violation.any():
@@ -34,6 +88,7 @@ def _combine_program(
     key_slots: tuple[str, ...],
     outputs: tuple[DataColumn, ...],
     forced_domain: pd.DataFrame | None = None,
+    attribute: AttributeFormulaContext | None = None,
 ) -> tuple[pd.DataFrame, tuple[tuple[str, str, str], ...]]:
     """Keep sample checks as data until the enclosing formula demands them."""
 
@@ -119,7 +174,11 @@ def _combine_program(
             if inputs
             else pd.DataFrame(columns=keys)
         )
-        if program.calendar is not None and program.output_population is None:
+        if (
+            program.calendar is not None
+            and program.output_population is None
+            and program.complete_calendar
+        ):
             buckets = pd.DataFrame(
                 {
                     program.calendar_key: pd.Series(
@@ -204,7 +263,15 @@ def _combine_program(
             )
             for row in finite
         ]
-        return pd.DataFrame(records, columns=slots)
+        return pd.DataFrame(records, columns=slots, dtype=object)
+
+    def parent_scoped(rows: pd.DataFrame) -> pd.DataFrame:
+        if program.parent_scope is None:
+            return rows
+        allowed = population_domain(program.parent_scope, program.parent_slots)
+        if not program.parent_slots:
+            return rows if len(allowed) else rows.iloc[:0].copy()
+        return rows.merge(allowed.drop_duplicates(), on=list(program.parent_slots), how="inner")
 
     def count_coordinates(count: MemberInput, members: pd.DataFrame) -> pd.DataFrame:
         classified = dict(count.axis_mapping)
@@ -250,8 +317,9 @@ def _combine_program(
                 .reset_index(drop=True)
             )
 
+    domain = parent_scoped(domain)
     if program.output_population is not None:
-        complete_domain = population_domain(program.output_population, key_slots)
+        complete_domain = parent_scoped(population_domain(program.output_population, key_slots))
         domain = complete_domain.drop_duplicates().reset_index(drop=True)
     declarations = dict(program.declared)
     type_values = {
@@ -265,11 +333,12 @@ def _combine_program(
                 return
             count, member_data = count_data[node.population]
             selected = count_coordinates(count, member_data)
+            selected = parent_scoped(selected)
             slot = "members:" + ".".join(str(part) for part in occurrence)
             counted = (
                 selected.groupby(keys, dropna=False, sort=True).size().rename(slot).reset_index()
                 if keys
-                else pd.DataFrame({slot: [len(member_data)]})
+                else pd.DataFrame({slot: [len(selected)]})
             )
             bindings.append(
                 FormulaInput(
@@ -351,6 +420,9 @@ def _combine_program(
                     count for count in program.counts if count.definition in relevant_counts
                 ),
                 axes=(*program.axes, *sample_axes),
+                parent_scope=program.parent_scope,
+                parent_slots=program.parent_slots,
+                complete_calendar=program.complete_calendar,
             )
             complete_domain = None
             sample_population_definition = sample_population(node.samples)
@@ -510,7 +582,7 @@ def _combine_program(
 
     result = domain.copy()
     retained: list[tuple[str, str, str]] = []
-    for i, (_, node) in enumerate(program.outputs):
+    for i, (metric_name, node) in enumerate(program.outputs):
         column = outputs[i]
         expression = lower_metric_formula(node, (i,), values, declarations)
         for check in expression.checks:
@@ -523,6 +595,16 @@ def _combine_program(
             check_name = f"formula.check.{len(retained)}"
             result[check_name] = violation
             retained.append((check_name, check.expected, check.received))
+            if attribute is not None and violation.any():
+                coordinates = domain.loc[violation, keys].head(6)
+                _attribute_formula_failure(
+                    attribute,
+                    metric_name,
+                    (i,),
+                    coordinates,
+                    check.expected,
+                    f"{check.received}; coordinates={coordinates.to_dict(orient='records')}",
+                )
         series = evaluate_numeric(
             expression.value.op(),
             physical,
@@ -543,5 +625,20 @@ def _combine_program(
                 )
             )
         except (pa.ArrowException, OverflowError, ValueError, TypeError) as error:
+            if attribute is not None:
+                # Reuse the same exact output conversion to identify its failing
+                # coordinate; no numeric expression or source is re-evaluated.
+                for position, value in enumerate(series):
+                    try:
+                        pa.array([value], type=stage_arrow_type(column.dtype), from_pandas=True)
+                    except (pa.ArrowException, OverflowError, ValueError, TypeError):
+                        _attribute_formula_failure(
+                            attribute,
+                            metric_name,
+                            (i,),
+                            domain.iloc[[position]],
+                            f"{column.name}: {column.dtype}",
+                            f"numeric output conversion: {error}",
+                        )
             numeric_failure(f"{column.name}: {column.dtype}", f"numeric output conversion: {error}")
     return result, tuple(retained)

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from marivo.analysis.datasets.errors import DatasetConstructionError
+
+if TYPE_CHECKING:
+    from marivo.analysis.core.attribute import AttributeFailureContext
 
 
 class MaterializationError(DatasetConstructionError):
@@ -19,8 +22,10 @@ class MaterializationError(DatasetConstructionError):
         stage: str = "materialization",
         run_ref: str | None = None,
         help_target: str = "analysis_frame.compute",
+        attribute_context: AttributeFailureContext | None = None,
     ) -> None:
         self.stage = stage
+        self.attribute_context = attribute_context
         super().__init__(
             expected=expected,
             received=received,

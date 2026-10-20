@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import timedelta
-from typing import Literal, TypeAlias, overload
+from typing import TYPE_CHECKING, Literal, TypeAlias, overload
 
 import ibis
 
@@ -24,6 +24,7 @@ from marivo._definition.query import (
     ValueSlot,
     ValueUnary,
 )
+from marivo._definition.types import CalendarCoordinate
 from marivo.analysis.core.data_schema import (
     CalendarDataAxis,
     DataAxis,
@@ -58,6 +59,9 @@ from marivo.analysis.core.model import reject
 
 FrameUnaryOperationKind: TypeAlias = SelectValues | FilterValues | TopValues | ReduceValues
 
+if TYPE_CHECKING:
+    from marivo.analysis.binding.attribute_rules import AttributeRule
+
 
 @dataclass(frozen=True, slots=True)
 class AlignFrameValues:
@@ -74,8 +78,52 @@ class CompareFrameValues:
     match: CalendarCorrespondence | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class AttributeFrameValues:
+    """Endpoint parent positions refer to complete source axis groups."""
+
+    left_parents: tuple[int, ...]
+    right_parents: tuple[int, ...]
+    how: Literal["exact", "outer"]
+    left_projection: str
+    right_projection: str
+
+
+@dataclass(frozen=True, slots=True)
+class AttributeInputsValues:
+    """Private preparation matrix, never a successful contribution result."""
+
+    mapping: AttributeFrameValues
+
+
+@dataclass(frozen=True, slots=True)
+class AttributeContributionValues:
+    """Explicit contribution consumer in the ordinary Frame expression."""
+
+    mapping: AttributeFrameValues
+    rules: tuple[tuple[tuple[str, AttributeRule], ...], tuple[tuple[str, AttributeRule], ...]]
+
+
+@dataclass(frozen=True, slots=True)
+class AttributeProjectValues:
+    """One side of the selected frozen parent domain, with original keys retained."""
+
+    side: Literal["left", "right"]
+    ordinary: tuple[int, ...]
+    calendar: int | None
+    target_calendar: CalendarCoordinate | None = None
+    how: Literal["exact", "outer"] = "exact"
+
+
 FrameBinaryOperationKind: TypeAlias = AlignFrameValues | CompareFrameValues
-FrameOperationKind: TypeAlias = FrameUnaryOperationKind | FrameBinaryOperationKind
+FrameOperationKind: TypeAlias = (
+    FrameUnaryOperationKind
+    | FrameBinaryOperationKind
+    | AttributeFrameValues
+    | AttributeInputsValues
+    | AttributeContributionValues
+    | AttributeProjectValues
+)
 
 
 @dataclass(frozen=True, slots=True)

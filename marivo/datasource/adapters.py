@@ -158,6 +158,7 @@ class _IssuedRead:
     purpose: str
     schema: pa.Schema
     source_identity: str
+    requirements: tuple[PhysicalRequirement, ...]
 
 
 @dataclass(slots=True)
@@ -525,6 +526,7 @@ class SourceSession:
                 purpose,
                 expected_schema,
                 source_identity,
+                tuple(item.requirement for item in sources),
             ),
         )
         return issued
@@ -566,7 +568,13 @@ class SourceSession:
         try:
             with cr.backend_errors(self._backend):
                 table = proof.expression.as_table()
-                if self.provider.name == "duckdb":
+                if self.provider.name == "duckdb" or (
+                    self.provider.name == "postgres"
+                    and all(
+                        requirement.method_id == "query.source_read" and requirement.version == 1
+                        for requirement in proof.requirements
+                    )
+                ):
                     # Preserve integer values and nulls before pandas can infer float64.
                     arrow = self._backend.to_pyarrow(table, params=dict(proof.params), limit=None)
                     result = arrow.to_pandas(
@@ -617,7 +625,9 @@ class SourceSession:
             self.qualify(
                 self.binding_for(identity),
                 PhysicalRequirement(
-                    purpose, 1, frozenset({"scan", "filter", "project", "group", "count"})
+                    "source_adapter.basic",
+                    1,
+                    frozenset({"scan", "filter", "project", "group", "count"}),
                 ),
             )
             for identity in source_identities

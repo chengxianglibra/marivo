@@ -288,5 +288,10 @@
       "pages": 5,
       "repeated_pages": 0
     }
+  },
+  "attribute_budget_reference": {
+    "characters": 14000,
+    "pages": 11,
+    "repeated_pages": 0
   }
 }

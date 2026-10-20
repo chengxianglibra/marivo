@@ -242,6 +242,18 @@ class FrameKeys:
 
 
 @dataclass(frozen=True, slots=True)
+class AttributeKeys:
+    """Private endpoint projection of one complete selected parent domain."""
+
+    input_id: str
+    bindings: tuple[FrameKeyAxis, ...]
+    calendar_token: str | None = None
+    calendar: CalendarCoordinate | None = None
+    side: Literal["left", "right"] = "left"
+    how: Literal["exact", "outer"] = "exact"
+
+
+@dataclass(frozen=True, slots=True)
 class PopulationSet:
     left: PopulationDependency
     right: PopulationDependency
@@ -303,6 +315,7 @@ class CalendarKeys:
 PopulationNode: TypeAlias = (
     SourceIdentities
     | FrameKeys
+    | AttributeKeys
     | PopulationSet
     | PopulationProject
     | PopulationProduct

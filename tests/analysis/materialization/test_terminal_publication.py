@@ -47,6 +47,7 @@ from marivo.analysis.core.frame_data import (
 )
 from marivo.analysis.core.frozen_calendar import FrozenKey
 from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.analysis.errors import AnalysisError
 from marivo.analysis.evidence._dataset_types import AssociationFindingValueV1, NoAssociationLagV1
 from marivo.analysis.materialization import terminal_publication, terminal_store
 from marivo.analysis.materialization.admission import DatasetRuntime
@@ -62,6 +63,7 @@ from marivo.analysis.materialization.terminal_publication import reconcile
 from marivo.analysis.materialization.terminal_storage import POLICY, read_output, write_output
 from marivo.analysis.session._lazy_read_model import SucceededRun
 from marivo.analysis.session.core import Session
+from tests.analysis.materialization.terminal_recovery_worker import method_result
 
 if TYPE_CHECKING:
     from tests.conftest import _SemanticProjectFactory
@@ -195,7 +197,9 @@ def test_public_constant_executes_each_invocation_and_reads_committed_output(
         assert artifact.to_pandas()[("value", "answer")].tolist() == [7]
         artifact.show()
         assert artifact.artifact.findings().items == ()
-        assert not any(item.kind == "read" for item in artifact.artifact.evidence_digest().items)
+        digest = artifact.artifact.evidence_digest()
+        assert digest.digest_version == "frame-output-v3"
+        assert not any(item.kind == "read" for item in digest.items)
     published = session.runs(status="succeeded").items
     assert all(isinstance(run, SucceededRun) for run in published)
     assert {run.output_artifact_ref.ref for run in published if isinstance(run, SucceededRun)} == {
@@ -409,6 +413,7 @@ def test_records_codec_and_transaction_are_self_contained(session: Session) -> N
     (
         "publication_admitted",
         "terminal_primary_written",
+        "terminal_method_written",
         "terminal_files_published",
         "insert_artifact",
         "insert_evidence",
@@ -428,7 +433,7 @@ def test_faults_never_expose_partial_output_or_delete_prior_commit(
 
     monkeypatch.setattr(terminal_publication, "_event", fail)
     with pytest.raises(MaterializationError):
-        constant(session, 8).persist()
+        AnalysisFrame._from_memory(session._runtime.local, method_result()).persist()
     monkeypatch.setattr(terminal_publication, "_event", lambda event: None)
     assert stored_frame(session, saved)["value.0"].tolist() == [7]
     assert {run.lifecycle for run in session.runs().items} == {"succeeded", "failed"}
@@ -450,10 +455,11 @@ def test_lost_commit_ack_returns_original_without_reexecution(
             raise OSError("lost acknowledgement")
 
     monkeypatch.setattr(terminal_publication, "_event", fail)
-    artifact = constant(session).persist()
+    artifact = AnalysisFrame._from_memory(session._runtime.local, method_result()).persist()
+    assert artifact.method_facts == method_result().method_facts
     assert calls.count("publication_admitted") == 1 and calls.count("terminal_primary_written") == 1
     assert len(session.runs().items) == 1
-    assert stored_frame(session, artifact)["value.0"].tolist() == [7]
+    assert stored_frame(session, artifact)["contribution"].tolist() == [60]
 
 
 @pytest.fixture
@@ -666,18 +672,18 @@ def test_read_evidence_preserves_nested_predicate_groups(source_session: Session
 
 
 def test_old_store_rejection_preserves_bytes_and_name_cannot_bypass(tmp_path: Path) -> None:
-    old = tmp_path / ".marivo/analysis/generations/v9/session_store.db"
+    old = tmp_path / ".marivo/analysis/generations/v12/session_store.db"
     old.parent.mkdir(parents=True)
     with sqlite3.connect(old) as conn:
-        conn.execute("PRAGMA user_version=9")
+        conn.execute("PRAGMA user_version=12")
     before = old.read_bytes()
     for name in ("original", "renamed"):
-        with pytest.raises(IntegrityError, match="user_version=9"):
+        with pytest.raises(IntegrityError, match="user_version=12"):
             DatasetRuntime.create(tmp_path, name)
-        with pytest.raises(IntegrityError, match="user_version=9"):
+        with pytest.raises(IntegrityError, match="user_version=12"):
             SessionStore.open_existing(tmp_path)
     assert old.read_bytes() == before
-    assert not (old.parent.parent / "v12").exists()
+    assert not (old.parent.parent / "v14").exists()
 
 
 def test_private_cold_roundtrip_does_not_need_producer_or_catalog(
@@ -710,6 +716,7 @@ assert terminal_store.records_page(store,sys.argv[2],kind="evidence")[0]
     (
         "publication_admitted",
         "terminal_primary_written",
+        "terminal_method_written",
         "terminal_files_published",
         "insert_evidence",
         "before_commit",
@@ -1078,7 +1085,7 @@ def test_preview_decodes_only_requested_rows_and_skips_unused_parts(
     assert artifact.artifact.findings().items == ()
     artifact.artifact.evidence_digest()
     # Unused attachments are no longer legal: exact attachment closure is tested
-    # by Store12 protocol/frozen-coordinate tests, rather than retaining a bypass.
+    # by Store14 protocol/frozen-coordinate tests, rather than retaining a bypass.
 
 
 def test_wide_artifact_truncation_routes_to_callable_reads(
@@ -1267,3 +1274,107 @@ print('cold-reducer-exact')
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "cold-reducer-exact" in result.stdout
+
+
+@pytest.mark.parametrize("empty", (False, True))
+def test_method_payload_is_owned_by_same_commit_and_zero_rows_are_checked(
+    session: Session, empty: bool
+) -> None:
+    from marivo.analysis.materialization.frame_method_facts import (
+        decode_method_payload,
+        method_payload,
+    )
+    from marivo.analysis.materialization.graph_reading import ExportRead, OutputRead, ReadLayout
+
+    result = method_result(empty=empty)
+    saved = AnalysisFrame._from_memory(session._runtime.local, result).persist()
+    value = committed(saved)
+    assert value.method_facts == saved._backing.method_facts
+    assert value.semantics_version == "frame.v3"
+    descriptor = value.method_facts[0]
+    assert descriptor.parent_count == (0 if empty else 1)
+    assert descriptor.coordinate_count == descriptor.coordinate_row_count == 0
+    assert descriptor.payload.rows.receipt.realized_row_count == (0 if empty else 1)
+    assert descriptor.payload.rows.receipt.project_relative_path.startswith(
+        session._runtime.store.layout.relative_path(
+            session._runtime.store.layout.artifact_dir(session.id, saved.artifact.id)
+        )
+        + "/method-0"
+    )
+    rows = OutputRead(session._runtime.store.project_root).read(
+        ReadLayout(descriptor.payload.schema, descriptor.payload.rows), ExportRead()
+    )
+    assert decode_method_payload(descriptor, rows) == result.method_facts[0]
+    pd.testing.assert_frame_equal(
+        rows, method_payload(result.method_facts[0]).rows, check_dtype=False
+    )
+    assert saved.method_facts == result.method_facts
+    payload = json.loads(encode(value))
+    method = payload["value"]["fields"]["method_facts"][0]["fields"]
+    assert set(method) == {
+        "kind",
+        "origin_result_id",
+        "output_schema",
+        "parent_axis_count",
+        "parent_count",
+        "coordinate_count",
+        "coordinate_row_count",
+        "facts_digest",
+        "payload",
+    }
+    assert "parents" not in method and "coordinates" not in method
+    # ExportRead validates even the legitimate zero-row method file.
+    path = (
+        session._runtime.store.project_root / descriptor.payload.rows.receipt.project_relative_path
+    )
+    (path / "data.parquet").unlink()
+    assert saved.to_pandas().shape[0] == (0 if empty else 1)
+    with pytest.raises((IntegrityError, MaterializationError)):
+        _ = saved.method_facts
+
+
+@pytest.mark.parametrize("damage", ("entry", "kind", "record", "digest", "counts"))
+def test_owned_method_codec_rejects_exact_table_damage(session: Session, damage: str) -> None:
+    from marivo.analysis.materialization.frame_method_facts import (
+        decode_method_payload,
+        method_payload,
+    )
+
+    result = method_result()
+    saved = AnalysisFrame._from_memory(session._runtime.local, result).persist()
+    descriptor = committed(saved).method_facts[0]
+    rows = method_payload(result.method_facts[0]).rows.copy()
+    if damage == "entry":
+        rows.loc[0, "entry"] = 1
+    elif damage == "kind":
+        rows.loc[0, "kind"] = "coordinate"
+    elif damage == "record":
+        wire = json.loads(str(rows.loc[0, "record"]))
+        wire["value"]["fields"]["unknown"] = None
+        from marivo.analysis.materialization.contracts import canonical_json
+
+        rows.loc[0, "record"] = canonical_json(wire)
+    elif damage == "digest":
+        descriptor = replace(descriptor, facts_digest="0" * 64)
+    else:
+        rows = rows.iloc[:0]
+    with pytest.raises(IntegrityError):
+        decode_method_payload(descriptor, rows)
+
+
+def test_malformed_method_numeric_facts_fail_before_admission(session: Session) -> None:
+    result = method_result()
+    facts = result.method_facts[0]
+    parent = facts.parents[0]
+    metric = parent.metrics[0]
+    wrong = replace(metric.method, change=replace(metric.method.change, value=59))
+    invalid_facts = replace(
+        facts, parents=(replace(parent, metrics=(replace(metric, method=wrong),)),)
+    )
+    frame = AnalysisFrame._from_memory(
+        session._runtime.local, replace(result, method_facts=(invalid_facts,))
+    )
+    with pytest.raises(AnalysisError, match="saved method totals"):
+        frame.persist()
+    assert session.runs().items == ()
+    assert session._runtime.store.resources(session.id) == ()

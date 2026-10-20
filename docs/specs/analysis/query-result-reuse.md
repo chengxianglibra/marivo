@@ -1,13 +1,12 @@
 # AnalysisFrame 数据对象与执行架构设计
 
-Status: proposal，2026-10-19，核对基线 `acfc03617a`。尚未实现；本轮仅调整设计文档及相互引用。
-本文替代此前 Query/origin、自动历史复用及 Analysis 按物化状态限制续算的提案。
-当前实现仍由 [Python Analysis Design](python-analysis-design.md) 和
-[Session State and Runtime](session-state-and-runtime.md) 描述；本文不宣称现有 API 已切换。
-沿用本文件路径以保持其他提案的链接有效。
-本文是 [attribute 数学与场景提案](attribute-design.md) 的对象与生命周期前置合同。
-两者按本文先实施、显式来源归因扩展后设计的顺序推进；旧 Query.attribute/execute/drill
-组合方案撤回，不能把未改写的生产图资格要求并入 Frame 实现。
+Status: current AnalysisFrame data contract，2026-10-20。
+本文替代此前 Query/origin、自动历史复用及按物化状态限制续算的提案。
+当前 API 与执行边界由 [Python Analysis Design](python-analysis-design.md) 和
+[Session State and Runtime](session-state-and-runtime.md) 共同维护；后文实施步骤与验收场景
+保留原始设计记录，不作为新执行或发布证据。
+[Attribute 合同](attribute-design.md) 的显式来源入口返回同一种 AnalysisFrame，增加不可执行
+方法事实而不恢复原来源。旧 Query.attribute/execute/drill 组合方案不重新引入。
 
 ## 1. 核心决策：结构决定运算，载体决定求值
 
@@ -34,7 +33,7 @@ LogicalPlan 只负责表达显式依赖与惰性求值；对象的方法、字�
 - 只有 compute/persist 触发求值；persist 是唯一计算并持久发布入口，移除 execute。
 - 持久 frame.artifact 返回同一保存结果的终态只读 Artifact，不求值、不重复发布。
 - 原对象不变；必须使用返回的物化对象才固定输入，不自动匹配历史计算结果。
-- 完整物化不保存生产图、语义对象、origin、连接或内部聚合组件，不隐式回源。
+- 完整物化不保存生产图、语义对象、可执行 origin、连接或内部聚合组件，不隐式回源。
 - 持久恢复保留完整数据结构，不能丢弃必要信息后继续执行。
 
 这里 persist 指项目内持久保存。Artifact 是提交和审计视图，不提供数据预览、导出或运算，
@@ -45,7 +44,7 @@ LogicalPlan 只负责表达显式依赖与惰性求值；对象的方法、字�
 ### 2.1 AnalysisFrame 的结构
 
 首版只有一个公开数据类型 AnalysisFrame，包含所有权、载体、有序完整坐标轴、
-命名值、presence 及必要附件。observe/read/values/frame、align 和 compare 都返回它。
+命名值、presence、必要附件及不可执行方法事实。observe/read/values/frame/attribute、align 和 compare 都返回它。
 标量是零轴 frame；不设 ComparisonFrame、CoordinateFrame、ScalarFrame 或抽象基类。
 内存/持久状态、单位、列类型和日历轴不产生公开子类，也不开放用户 codec 注册。
 对象由 Session/算子构造，不开放原始载体构造器。
@@ -95,9 +94,29 @@ presence 通过 __getitem__ 取非 nullable boolean Column，传播与缺端点�
 需要只比较某个派生值时先 select 显式命名。名称只是重复加前缀，没有独立嵌套比较类型。
 第 5.2 节对已含配对轴的输入有首版限制；无配对轴的普通结果可继续组合。
 
+### 2.4 完整方法事实与当前数据分离
+
+`method_facts: tuple[FrameMethodFacts, ...]` 是完整不可变解释记录，不是来源定义或执行资格。
+成功的 `contribution=True` 请求生成本次 Attribute 事实；默认调查不生成新事实或贡献证明。
+显式消费的 Frame 历史仍按实际表达式输入顺序继承：每个 Attribute 节点先本次事实再继承，
+外层 binary 完整保留左侧再右侧，按 origin_result_id 稳定去重。例如 A(B) 与 C(D) 组合为
+A,B,C,D，而非把所有本次 producer 提前。固定输入是自包含叶，不展开一般 lineage。
+
+事实保留原结果的 output_schema、完整父记录和独立冻结坐标，原 origin 不随 where/top/select/
+reduce 改写。它只解释原总体；筛选不改变原贡献分母，派生算术不自动获得新分解认证。
+只读完整字段使用 `frame.method_facts`；pending 访问要求先 compute/persist。具体记录与嵌套字段
+由 `marivo.help("analysis.frame_method_facts")` 静态披露，不导出内部别名或保存描述符。
+
+内存根保存完整记录；存储根与 manifest 只保存计数、schema、origin、digest 和 owned payload
+描述符。repr/show/open/idempotent persist 不读取完整方法文件，卡片只给数量、有界 origin 和
+getter 指针。getter 单独校验完整方法载荷，不读当前主表、Catalog、模型或来源；调用记录的
+show(n=0) 发生在该显式读取之后。to_pandas 只读当前数据及必要坐标附件，stored compute 与
+派生求值消费当前数据和完整事实。坏方法文件可使后者失败而不阻断元数据/当前行导出。
+保存派生结果复制自己的 owned 方法载荷，原产物删除后仍能读取，不按 origin 查找原结果。
+
 ## 3. 公共 API 与使用方式
 
-以下签名是提案；现有数值表达式、Statistic、单位和错误类型沿用其所属合同。
+以下列出核心当前签名；现有数值表达式、Statistic、单位和错误类型沿用其所属合同。
 FrameAxis 是从 frame.axes 或 frame.axis(name) 获得的只读完整轴句柄，绑定精确输入和局部轴 token，
 不能用字符串、列值或语义 Ref 脱离所属 frame 直接构造。它使冷恢复后的坐标操作不依赖语义轴对象。
 
@@ -122,6 +141,9 @@ class AnalysisFrame:
 
     @property
     def presence_names(self) -> tuple[str, ...]: ...
+
+    @property
+    def method_facts(self) -> tuple[FrameMethodFacts, ...]: ...
 
     def __getitem__(self, name: str) -> Column: ...
     def axis(self, name: str) -> FrameAxis: ...
@@ -463,7 +485,7 @@ interval 对 interval 的 mv.ordinal() 要求两侧冻结目录各恰有一条�
 不同期间 exact 默认等值不匹配；显式 ordinal 配对，outer 保留缺侧 presence。
 只有单一 interval 轴时可推导 on，time×分类必须显式覆盖全部轴。
 interval/calendar/零轴不隐式互转或广播；配对结果仍不能再次匹配。
-目录、实际键引用与配对端点以 Store 13 / marivo.frame_output/v2 保存，冷恢复不重建 TimeScope。
+目录、实际键引用与配对端点以 Store 14 / marivo.frame_output/v3 保存，冷恢复不重建 TimeScope。
 
 ### 5.3 首版日历对应的自包含信息
 
@@ -712,14 +734,20 @@ compute 的纯载体加载、persist 和冷恢复均原样保留摘要，不新�
 
 ## 9. 保存格式与跨进程恢复
 
-所有 persist 结果使用一种 Frame 输出协议；Artifact 审计视图与 Frame 共享同一提交权威。
+所有 persist 结果使用 Store14 的 `marivo.frame_output/v3`、`frame.v3` 和 `frame-output-v3`，
+目录为 `.marivo/analysis/generations/v14/`；没有方法事实的 Frame 也使用同一当前协议。
+Artifact 审计视图与 Frame 共享同一提交权威。
 描述包含协议/消费语义版本、Store/Session/Artifact/result_id、值与坐标目录、附件引用、
-收据和一份审计摘要；提交时间、发布 Run 和文件位置复用现有字段。
+收据、一份审计摘要和有界方法描述符；完整事实保存为自己的闭合方法表附件。
+数据及所有方法文件在同一既有事务中发布并回读收据，未知提交沿原事务协调，不重复求值。
+提交时间、发布 Run 和文件位置复用现有字段。
 
 没有 coordinate/comparison 两种 frame kind，不保存可导入 Python 类路径。
 坐标目录自身仍使用普通/日历/配对闭合变体及其版本；恢复统一构造 AnalysisFrame，
 验证版本、所有权、提交状态及目录闭合。实际读取验证所消费数据，元数据打开不扫描全部行。
 旧格式按 Store generation 拒绝，不迁移、不双读、不从 Evidence 猜测缺失合同。
+仅有旧 Store 的项目不能初始化旁路；保留旧字节，在新项目创建新命名 Session。
+用原兼容版本导出是独立工作流。
 
 persisted_frame 只接受本 Session 内有效的 analysis Artifact ID 字符串。
 首版所有 analysis Artifact 都是 Frame，不增加不存在的非 Frame kind 或相应错误分支。
@@ -816,7 +844,7 @@ StageOutput 的公开物化提取需要逐项处理 layout/components/population
 行序下推/SQL finish/本地 merge/codec 审计同属交付范围，不能仅在 writer 去掉 sort 后宣称完成。
 
 核对当前消费者后，Artifact.findings/evidence_digest 经 TerminalReader 只读取提交、Finding/Evidence
-记录，不调用表格预览或导出；Session graph 同样只读提交摘要。因此保留这些审计路线，
+记录，不调用表格预览或导出；Session Run 记录保留发布引用。因此保留这些审计路线，
 将 TerminalReader 的数据读取实现移交 Frame reader。移除 session.artifact/Artifact.to_pandas、
 修改 Artifact.show 时同步更新 ArtifactRef、SucceededRun、FindingPage 等动态引导及相关示例，
 不能留下“获得 ID 后恢复 Artifact 读表”的旧指引。RawSqlResult 不进入这次保存协议。

@@ -13,6 +13,18 @@ from marivo.analysis._capabilities.dataset_model import (
 from marivo.analysis._capabilities.dataset_model import (
     ParameterInput as P,
 )
+from marivo.analysis.core.frame_method_facts import (
+    FrameAdditiveMethod,
+    FrameLinearMethod,
+    FrameLinearTerm,
+    FrameMethodCoordinate,
+    FrameMethodFacts,
+    FrameMethodMetric,
+    FrameMethodParent,
+    FrameMethodSupport,
+    FrameMethodValue,
+    FrameRatioMethod,
+)
 from marivo.analysis.dsl.artifact import Artifact
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.frame_axis import FrameAxis
@@ -25,9 +37,10 @@ def provider() -> DisclosureProvider:
             "analysis_frame",
             AnalysisFrame,
             summary="One immutable data object with complete coordinates, ordered values and presence; its carrier is expression, memory or stored.",
-            acquisition="Call session.observe, session.read, session.values or session.frame; reopen an exact stored root with session.persisted_frame(id).",
+            acquisition="Call session.observe, session.attribute, session.read, session.values or session.frame; reopen an exact stored root with session.persisted_frame(id).",
             producers=(
                 "session.observe",
+                "session.attribute",
                 "session.read",
                 "session.values",
                 "session.frame",
@@ -40,6 +53,7 @@ def provider() -> DisclosureProvider:
                 "analysis_frame.persist",
                 "analysis_frame.show",
                 "analysis_frame.to_pandas",
+                "analysis_frame.method_facts",
             ),
             constraints=(
                 "Operations consume current data only; a completed result has no original Metric, new-attribute or production-history authority.",
@@ -74,6 +88,109 @@ def provider() -> DisclosureProvider:
             ),
         ),
     ]
+    fact_types = (
+        (
+            FrameMethodFacts,
+            "frame_method_facts",
+            "Read a fixed Frame's method_facts tuple; each item explains its origin_result_id.",
+            ("frame_method_parent", "frame_method_coordinate"),
+        ),
+        (
+            FrameMethodParent,
+            "frame_method_parent",
+            "Read facts.parents in complete original parent-key order, including parents with no fine rows.",
+            ("frame_method_value", "frame_method_metric"),
+        ),
+        (
+            FrameMethodMetric,
+            "frame_method_metric",
+            "Read parent.metrics in original metric declaration order.",
+            ("frame_additive_method", "frame_ratio_method", "frame_linear_method"),
+        ),
+        (
+            FrameMethodValue,
+            "frame_method_value",
+            "Read a parent key or method total/component value; column owns its exact physical type and unit.",
+            (),
+        ),
+        (
+            FrameMethodCoordinate,
+            "frame_method_coordinate",
+            "Read facts.coordinates for complete independent original frozen interval/calendar/paired snapshots.",
+            (),
+        ),
+        (
+            FrameMethodSupport,
+            "frame_method_support",
+            "Read method.support for local root/sample policy and exact input/effective counts.",
+            (),
+        ),
+        (
+            FrameAdditiveMethod,
+            "frame_additive_method",
+            "Read metric.method or a linear term's method when kind is additive.",
+            ("frame_method_value", "frame_method_support"),
+        ),
+        (
+            FrameRatioMethod,
+            "frame_ratio_method",
+            "Read metric.method or a linear term's method when kind is ratio_component; components are parent totals.",
+            ("frame_method_value", "frame_method_support"),
+        ),
+        (
+            FrameLinearTerm,
+            "frame_linear_term",
+            "Read linear_method.terms in captured subexpression order; coefficient preserves its finite numeric type.",
+            ("frame_additive_method", "frame_ratio_method", "frame_linear_method"),
+        ),
+        (
+            FrameLinearMethod,
+            "frame_linear_method",
+            "Read metric.method or a linear term's method when kind is linear.",
+            ("frame_method_value", "frame_linear_term"),
+        ),
+    )
+    for fact_owner, target, acquisition, nested in fact_types:
+        descriptors.append(
+            value_type(
+                target,
+                fact_owner,
+                summary=f"Immutable {fact_owner.__name__} original explanation facts.",
+                acquisition=acquisition,
+                producers=("analysis_frame.method_facts",)
+                if fact_owner is FrameMethodFacts
+                else (),
+                consumers=("frame_method_facts.show", *nested),
+                constraints=(
+                    "Read-only typed data; no Metric, source address, executable recipe or new computation authority. Inherited facts explain their origin, not derived values.",
+                    "Complete fields remain available independently of bounded show output. Numeric values retain actual physical types, Decimal precision and integer time ticks; counts do not prove source qualification.",
+                ),
+            )
+        )
+    descriptors.append(
+        operation(
+            "frame_method_facts.show",
+            "facts.show",
+            FrameMethodFacts.show,
+            bindings=tuple(bind(FrameMethodFacts.show, owner) for owner, _, _, _ in fact_types),
+            summary="Print a bounded view of any concrete Frame method-fact record already in memory.",
+            parameters=(
+                P(
+                    "n",
+                    "Exact nonnegative int excluding bool; default 20; zero prints fields and counts only.",
+                ),
+            ),
+            output="None",
+            constraints=(
+                "Shared by FrameMethodFacts and its nine concrete nested record types. At most n detail lines; no field or record truncation in the immutable carrier.",
+                "No file/source/model reads. Obtaining stored_frame.method_facts beforehand is a separate full method-payload read, even when this show uses n=0.",
+            ),
+            effects="Print already-owned immutable facts only.",
+            failures=("AnalysisError: provide a nonnegative exact integer n, excluding bool.",),
+            example=ExampleInput("result = facts.show(n=0)", ("facts",), "result", "None"),
+            related=("frame_method_facts",),
+        )
+    )
     operations = (
         (
             TimeScope,
@@ -122,7 +239,7 @@ def provider() -> DisclosureProvider:
             ("frame",),
             "entry",
             (
-                "No Run or Artifact is created. Stored loading validates all consumed data; use handles from the returned Frame. Explicit source leaves may read changing sources.",
+                "No Run or Artifact is created. Stored loading validates current data and all owned method facts; use handles from the returned Frame. Explicit source leaves may read changing sources.",
             ),
         ),
         (
@@ -150,7 +267,7 @@ def provider() -> DisclosureProvider:
             ("frame",),
             "methods.rows",
             (
-                "Validate n before reads. Pending cards show captured scopes and operations, with unresolved facts marked. n=0 reads no rows or attachments. Positive previews preserve result order and resolve only displayed frozen coordinates; receipt hashing may read a whole consumed file. Success does not certify unread data.",
+                "Validate n before reads. Pending cards show captured scopes and operations, with unresolved facts marked. n=0 reads no rows or attachments. Fixed cards show only method-fact counts, bounded origins and a .method_facts pointer; previews never read method payloads. Positive previews resolve displayed frozen coordinates; receipt hashing may read a whole consumed file. Success does not certify unread data.",
             ),
         ),
         (
@@ -164,7 +281,7 @@ def provider() -> DisclosureProvider:
             ("frame",),
             "artifacts.reads",
             (
-                "Pending expressions must first compute or persist; this method never executes them. Stored reads need no model, Catalog or source. Exported values and attrs are isolated; pandas attrs cannot be imported as computation authority.",
+                "Pending expressions must first compute or persist; this method never executes them. Stored export reads current rows/coordinates, not method payloads, and needs no model, Catalog or source. Exported values and attrs are isolated; pandas attrs cannot be imported as computation authority.",
             ),
         ),
         (
@@ -306,6 +423,7 @@ def provider() -> DisclosureProvider:
             ExportInput("Artifact", Artifact, "Artifact"),
             ExportInput("InstantAnchor", InstantAnchor, "InstantAnchor"),
             ExportInput("CalendarAxis", CalendarAxis, "CalendarAxis"),
+            *(ExportInput(owner.__name__, owner, target) for owner, target, _, _ in fact_types),
             *populations.exports,
             *results.exports,
         ),

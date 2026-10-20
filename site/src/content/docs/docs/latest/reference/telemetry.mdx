@@ -27,8 +27,8 @@ SQL and the Store's own SQLite persistence statements are outside this coverage.
 source execution. For governed reads, that SQL is the compiled bound Ibis
 expression; the record also retains its purpose and source identity.
 `query.completed` records elapsed time, outcome and the row count
-returned by the Ibis `execute()` call. Governed reads materialize a pandas
-DataFrame before completion is recorded; Marivo does not report custom
+returned by the completed governed native Ibis read. Governed reads materialize
+a pandas DataFrame before completion is recorded; Marivo does not report custom
 Arrow-consumed bytes, stream exhaustion or cursor-close fields. Later owner-release
 facts can appear as `query.cleanup`; remote termination remains unknown unless
 the execution owner has confirmed it.

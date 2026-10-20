@@ -1,8 +1,9 @@
-"""Store13 Frame protocol, source-free lifecycle, sequence and atomic publication."""
+"""Store14 Frame protocol, source-free lifecycle, sequence and atomic publication."""
 
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Callable
 from dataclasses import fields, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -40,6 +41,7 @@ from marivo.analysis.core.frozen_calendar import (
     read_calendar_records,
 )
 from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.analysis.dsl.population import Population
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import terminal_publication
 from marivo.analysis.materialization.admission import DatasetRuntime
@@ -63,6 +65,8 @@ from marivo.analysis.materialization.terminal_protocol import (
     encode,
 )
 from marivo.analysis.materialization.terminal_storage import POLICY
+from marivo.analysis.session.core import Session
+from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import DslCaseFactory
 
 
@@ -261,8 +265,8 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
 def test_sole_protocol_and_exact_closed_fields(local: LocalFrameServices) -> None:
     saved = ordinary(local).persist()
     value = manifest(saved)
-    assert FORMAT == "marivo.frame_output/v2"
-    assert local.store.layout.generation == 13
+    assert FORMAT == "marivo.frame_output/v3"
+    assert local.store.layout.generation == 14
     assert decode(encode(value), ArtifactManifest) == value
     assert value.result_id == value.metadata.result_id
     assert value.metadata == metadata()
@@ -558,11 +562,12 @@ def test_sequence_spans_batches_and_row_groups(
         assert parquet.num_row_groups == 4
 
 
-def test_old_only_store_rejected_without_any_byte_changes(tmp_path: Path) -> None:
-    old = tmp_path / ".marivo/analysis/generations/v12/session_store.db"
+@pytest.mark.parametrize("generation", [11, 12, 13])
+def test_old_only_store_rejected_without_any_byte_changes(tmp_path: Path, generation: int) -> None:
+    old = tmp_path / f".marivo/analysis/generations/v{generation}/session_store.db"
     old.parent.mkdir(parents=True)
     with sqlite3.connect(old) as conn:
-        conn.execute("PRAGMA user_version=12")
+        conn.execute(f"PRAGMA user_version={generation}")
     before = old.read_bytes()
     for constructor in (
         lambda: SessionStore(tmp_path),
@@ -571,7 +576,7 @@ def test_old_only_store_rejected_without_any_byte_changes(tmp_path: Path) -> Non
         with pytest.raises(IntegrityError, match="generation"):
             constructor()
     assert old.read_bytes() == before
-    assert not (old.parent.parent / "v13").exists()
+    assert not (old.parent.parent / "v14").exists()
 
 
 def test_missing_unconsumed_endpoint_is_not_a_preview_read(local: LocalFrameServices) -> None:
@@ -765,16 +770,17 @@ def test_full_read_rejects_duplicate_keys_beyond_a_valid_prefix(local: LocalFram
         local.read_complete(backing)
 
 
+@pytest.mark.parametrize("generation", [11, 12, 13])
 def test_every_old_generation_entry_preserves_old_tree(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, generation: int
 ) -> None:
     import marivo.analysis as mv
 
     monkeypatch.chdir(tmp_path)
-    old = tmp_path / ".marivo/analysis/generations/v12/session_store.db"
+    old = tmp_path / f".marivo/analysis/generations/v{generation}/session_store.db"
     old.parent.mkdir(parents=True)
     with sqlite3.connect(old) as conn:
-        conn.execute("PRAGMA user_version=12")
+        conn.execute(f"PRAGMA user_version={generation}")
     payload = old.parent / "sessions/original/artifacts/original/primary/data.parquet"
     payload.parent.mkdir(parents=True)
     payload.write_bytes(b"immutable old-generation payload")
@@ -802,7 +808,7 @@ def test_every_old_generation_entry_preserves_old_tree(
         if path.is_file()
     }
     assert after == before
-    assert not (old.parent.parent / "v13").exists()
+    assert not (old.parent.parent / "v14").exists()
 
 
 def test_old_manifest_cannot_enter_any_current_read(local: LocalFrameServices) -> None:
@@ -1837,3 +1843,432 @@ def test_stored_interval_reads_and_matches_without_current_timezone_rules(
     paired = first.compare(second, match=CalendarCorrespondence("ordinal")).compute()
     assert paired.to_pandas()[("value", "absolute.amount")].tolist() == [0]
     assert paired.to_pandas()[("presence", "right_present")].tolist() == [True]
+
+
+@pytest.fixture
+def attribute_session(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Session:
+    import duckdb
+
+    import marivo.analysis as mv
+
+    database = tmp_path / "method-facts.duckdb"
+    with duckdb.connect(str(database)) as connection:
+        connection.execute(
+            "CREATE TABLE facts(id BIGINT, phase VARCHAR, region VARCHAR, channel VARCHAR, amount BIGINT)"
+        )
+        connection.execute(
+            "INSERT INTO facts VALUES (1,'base','east','A',100),(2,'base','east','B',100),(3,'current','east','A',160),(4,'current','east','B',80)"
+        )
+    semantic_project_factory(
+        {
+            "datasources/warehouse.py": "import marivo.datasource as md\n"
+            + f"md.duckdb(name='warehouse', path={str(database)!r})\n",
+            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Analytics', default=True)\n",
+            "sales/model.py": """import marivo.datasource as md
+import marivo.semantic as ms
+facts = ms.entity(name='facts', datasource=ms.ref.datasource('warehouse'), source=md.table('facts'), primary_key=['id'])
+phase = ms.dimension_column(name='phase', entity=facts, column='phase')
+region = ms.dimension_column(name='region', entity=facts, column='region')
+channel = ms.dimension_column(name='channel', entity=facts, column='channel')
+amount = ms.measure_column(name='amount', entity=facts, column='amount', unit='USD', additivity=ms.additive_all())
+""",
+        },
+        load=False,
+    )
+    monkeypatch.chdir(tmp_path)
+    return mv.session.create("method-facts", timezone="UTC")
+
+
+def attribute_request(
+    session: Session, *, axis: str = "channel", parents: Population | None = None
+) -> AnalysisFrame:
+    from marivo.analysis.dsl.attribute import AttributeEndpoint
+
+    amount = session.catalog.fields.get("sales.facts.amount")
+    phase = session.catalog.fields.get("sales.facts.phase")
+    return session.attribute(
+        AttributeEndpoint({"q": amount.sum()}, where=phase == "current"),
+        AttributeEndpoint({"q": amount.sum()}, where=phase == "base"),
+        by=(session.catalog.fields.get("sales.facts." + axis),),
+        parents=parents,
+        contribution=True,
+    )
+
+
+def test_real_method_facts_propagate_through_fixed_and_pending_inputs(
+    attribute_session: Session,
+) -> None:
+    pending = attribute_request(attribute_session)
+    with pytest.raises(AnalysisError, match="compute"):
+        _ = pending.method_facts
+    memory = pending.compute()
+    original = memory.method_facts
+    assert len(original) == 1
+    assert original[0].origin_result_id == memory._backing.metadata.result_id
+    assert original[0].parents[0].metrics[0].method.change.value == 40
+    saved = memory.persist()
+    assert saved.method_facts == original
+    assert saved.compute().method_facts == original
+    assert saved._backing.metadata == memory._backing.metadata
+    before = counts(memory._local)
+    for fixed in (memory, saved):
+        assert fixed.to_pandas()[("value", "contribution.q")].tolist() == [60, -20]
+        total = fixed.reduce({"total": fixed["contribution.q"].sum()}).compute()
+        positive = fixed.where(fixed["contribution.q"] > 0).compute()
+        subtotal = positive.reduce({"total": positive["contribution.q"].sum()}).compute()
+        assert total.to_pandas()[("value", "total")].tolist() == [40]
+        assert subtotal.to_pandas()[("value", "total")].tolist() == [60]
+        assert positive.to_pandas()[("value", "contribution_share.q")].tolist() == [1.5]
+        renamed = fixed.select({"doubled": fixed["contribution.q"] * 2})
+        empty = renamed.top(0, by=renamed["doubled"]).compute()
+        combined = fixed.align(fixed, on=((fixed.axes[0], fixed.axes[0]),)).compute()
+        compared = renamed.compare(renamed, on=((renamed.axes[0], renamed.axes[0]),)).compute()
+        for derived in (total, positive, subtotal, empty, combined, compared):
+            assert derived.method_facts == original
+            assert derived._backing.metadata.result_id != original[0].origin_result_id
+        assert total.axes == () and total.presence_names == ()
+        assert empty.to_pandas().empty
+    assert counts(memory._local) == before
+    derived_pending = pending.select({"kept": pending["contribution.q"]}).compute()
+    assert (
+        derived_pending.method_facts[0].origin_result_id
+        != derived_pending._backing.metadata.result_id
+    )
+    shared = pending.align(pending, on=((pending.axes[0], pending.axes[0]),)).compute()
+    assert len(shared.method_facts) == 1
+
+
+def test_expression_history_is_folded_at_each_producer_and_source_parameter(
+    attribute_session: Session,
+) -> None:
+    session = attribute_session
+    region = session.catalog.fields.get("sales.facts.region")
+    b = attribute_request(session, axis="region").compute()
+    d = attribute_request(session, axis="region").compute()
+
+    def next_request(fixed: AnalysisFrame) -> AnalysisFrame:
+        selected = fixed.where(fixed["contribution.q"] > 0)
+        parents = session.population_from(selected, on=((selected.axes[0], region),))
+        return attribute_request(session, parents=parents)
+
+    a, c = next_request(b), next_request(d)
+    joined = a.align(c, on=tuple(zip(a.axes, c.axes, strict=True))).compute()
+    facts = joined.method_facts
+    assert len(facts) == 4
+    assert facts[1] == b.method_facts[0]
+    assert facts[3] == d.method_facts[0]
+    assert len({item.origin_result_id for item in facts}) == 4
+    assert all(item.origin_result_id != joined._backing.metadata.result_id for item in facts)
+    shared = a.align(a, on=tuple(zip(a.axes, a.axes, strict=True))).compute()
+    assert len(shared.method_facts) == 2 and shared.method_facts[1] == b.method_facts[0]
+    ancestor = attribute_request(session, axis="region")
+    selected = ancestor.where(ancestor["contribution.q"] > 0)
+    domain = session.population_from(selected, on=((selected.axes[0], region),))
+    observed = session.observe(
+        {"q": session.catalog.fields.get("sales.facts.amount").sum()}, by=domain
+    ).compute()
+    assert len(observed.method_facts) == 1
+    assert observed.method_facts[0].origin_result_id != observed._backing.metadata.result_id
+    # A pending producer may itself consume a pending ancestor; collection order is not execution order.
+    nested = next_request(ancestor).compute()
+    assert len(nested.method_facts) == 2
+    assert nested.method_facts[0].origin_result_id == nested._backing.metadata.result_id
+
+
+def test_method_only_reads_and_lazy_data_paths_have_independent_damage_boundaries(
+    attribute_session: Session, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    saved = attribute_request(attribute_session).persist()
+    local = saved._local
+    full = saved.method_facts
+    descriptor = manifest(saved).method_facts[0]
+    original = OutputRead.read
+
+    def forbid_method(self, layout, request):
+        if layout.handle == descriptor.payload.rows:
+            raise AssertionError("unexpected historical method payload read")
+        return original(self, layout, request)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(OutputRead, "read", forbid_method)
+        saved.show(n=0)
+        saved.show(n=1)
+        saved.artifact.show()
+        assert local.open_frame(saved.artifact.id) == saved._backing
+        assert saved.persist() is saved
+        assert len(saved.to_pandas()) == 2
+        _ = saved.select({"q": saved["contribution.q"]})
+    assert ".method_facts" in capsys.readouterr().out
+    primary = manifest(saved).data.rows
+
+    def forbid_primary(self, layout, request):
+        if layout.handle == primary:
+            raise AssertionError("method-only getter read current rows")
+        return original(self, layout, request)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(OutputRead, "read", forbid_primary)
+        assert saved.method_facts == full
+    target = (
+        local.store.project_root
+        / descriptor.payload.rows.receipt.project_relative_path
+        / "data.parquet"
+    )
+    target.unlink()
+    assert len(saved.to_pandas()) == 2
+    saved.show(n=0)
+    assert saved.persist() is saved
+    for consume in (
+        lambda: saved.method_facts,
+        saved.compute,
+        lambda: saved.top(0, by=saved["contribution.q"]).compute(),
+    ):
+        with pytest.raises(AnalysisError):
+            consume()
+
+
+def test_equal_origin_requires_full_typed_payload_equality(attribute_session: Session) -> None:
+    from marivo.analysis.core.frame_method_facts import FrameLinearMethod, FrameLinearTerm
+
+    memory = attribute_request(attribute_session).compute()
+    facts = memory.method_facts[0]
+    parent = facts.parents[0]
+    metric = parent.metrics[0]
+    method = metric.method
+    # This is structurally and numerically valid but conflicts with the same completed origin.
+    changed = replace(
+        facts,
+        parents=(
+            replace(
+                parent,
+                metrics=(
+                    replace(
+                        metric,
+                        method=FrameLinearMethod(
+                            "linear",
+                            method.left,
+                            method.right,
+                            method.change,
+                            (FrameLinearTerm(1, method),),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    )
+    other = AnalysisFrame._from_memory(
+        memory._local,
+        CompletedFrameResult(memory._backing.data, memory._backing.metadata, (changed,)),
+    )
+    with pytest.raises(AnalysisError, match="identical complete"):
+        memory.align(other, on=((memory.axes[0], other.axes[0]),)).compute()
+
+
+def explained_calendar(
+    local: LocalFrameServices, count: int, *, interval_axis: bool = False
+) -> AnalysisFrame:
+    """Seed only the downstream historical-coordinate storage contract."""
+    from marivo.analysis.core.frame_method_facts import (
+        FrameAdditiveMethod,
+        FrameMethodCoordinate,
+        FrameMethodFacts,
+        FrameMethodMetric,
+        FrameMethodParent,
+        FrameMethodSupport,
+        FrameMethodValue,
+    )
+
+    current = interval(local, 1, 4) if interval_axis else calendar(local, count)
+    columns = tuple(
+        DataColumn(
+            role,
+            role + ".q",
+            ScalarDataType("int64") if role != "contribution_share" else ScalarDataType("float64"),
+            False,
+            "1" if role == "contribution_share" else "USD",
+        )
+        for role in ("left", "right", "absolute", "contribution", "contribution_share")
+    )
+    presence = tuple(
+        DataColumn(role, role, ScalarDataType("boolean"), False)
+        for role in ("left_present", "right_present")
+    )
+    schema = DataSchema(
+        current._schema.axes,
+        columns,
+        presence,
+        value_paths=tuple(
+            (role, "q")
+            for role in ("left", "right", "absolute", "contribution", "contribution_share")
+        ),
+        presence_paths=(("left_present",), ("right_present",)),
+    )
+    rows = current._backing.data.copy_rows().drop(columns=["amount"])
+    for column, value in zip(columns, (240, 200, 40, 40, 1.0), strict=True):
+        rows[column.slot_id] = pd.Series(
+            [value] * count,
+            dtype="double[pyarrow]" if column.slot_id == "contribution_share" else "int64[pyarrow]",
+        )
+    for column in presence:
+        rows[column.slot_id] = pd.Series([True] * count, dtype="bool[pyarrow]")
+    part = current._backing.data.copy_attachments()[0]
+    arrays = []
+    for column in part.schema.columns:
+        array = pa.array(part.rows[column.slot_id])
+        if isinstance(column.dtype, (TimestampDataType, DurationDataType)):
+            array = array.cast(pa.int64())
+        arrays.append(array.to_pylist())
+    snapshot = FrameMethodCoordinate(part.name, part.schema, tuple(zip(*arrays, strict=True)))
+    method = FrameAdditiveMethod(
+        "additive",
+        FrameMethodValue(columns[0], 240),
+        FrameMethodValue(columns[1], 200),
+        FrameMethodValue(columns[2], 40),
+        (FrameMethodSupport("r", "rows", 2, 2, 2, 2),),
+    )
+    key_column = schema.axes[0].columns[0]
+    parents = tuple(
+        FrameMethodParent(
+            (FrameMethodValue(key_column, key),), (FrameMethodMetric("q", method, "defined"),)
+        )
+        for key in sorted(rows[key_column.slot_id].tolist())
+    )
+    facts = FrameMethodFacts("attribute", "calendar-original", schema, (snapshot,), 1, parents)
+    return AnalysisFrame._from_memory(
+        local,
+        CompletedFrameResult(
+            CompletedFrameData(schema, rows, (part,)),
+            replace(metadata(), result_id="calendar-original"),
+            (facts,),
+        ),
+    )
+
+
+def test_method_manifest_is_bounded_and_zero_parent_payload_is_valid(
+    local: LocalFrameServices,
+) -> None:
+    from marivo.analysis.core.frame_method_facts import FrameMethodFacts
+
+    small = explained_calendar(local, 2).persist()
+    large = explained_calendar(local, 128).persist()
+    for saved, size in ((small, 2), (large, 128)):
+        value = manifest(saved)
+        description = value.method_facts[0]
+        assert description.parent_count == description.coordinate_row_count == size
+        assert not hasattr(description, "parents") and not hasattr(description, "coordinates")
+        assert description.payload.rows.receipt.realized_row_count == size + 1
+        encoded = encode(value)
+        assert "FrameMethodParent" not in encoded and "FrameMethodCoordinate" not in encoded
+        assert saved.method_facts[0].coordinates[0].rows
+    assert abs(len(encode(manifest(large))) - len(encode(manifest(small)))) < 1024
+    original = explained_calendar(local, 0)
+    # No selected parents is not the singleton key=() overall-parent case.
+    assert original.method_facts[0].parents == ()
+    saved = original.persist()
+    assert saved.method_facts == original.method_facts
+    assert saved.method_facts[0].coordinates[0].rows == ()
+    with pytest.raises(AnalysisError):
+        replace(saved._backing, method_facts=(original.method_facts[0],))
+    with pytest.raises(AnalysisError):
+        replace(original._backing.result, method_facts=[original.method_facts[0]])
+    assert type(original.method_facts[0]) is FrameMethodFacts
+
+
+@pytest.mark.parametrize("interval_axis", [False, True])
+def test_reduced_saved_method_payload_is_owned_after_detached_cold_reopen(
+    local: LocalFrameServices,
+    interval_axis: bool,
+) -> None:
+    import os
+    import subprocess
+    import sys
+
+    size = 1 if interval_axis else 3
+    original = explained_calendar(local, size, interval_axis=interval_axis).persist()
+    facts = original.method_facts
+    reduced = original.reduce({"total": original["contribution.q"].sum()}).persist()
+    assert reduced.axes == () and reduced.presence_names == ()
+    assert reduced.method_facts == facts
+    assert reduced.to_pandas()[("value", "total")].tolist() == [40 * size]
+    old, new = manifest(original), manifest(reduced)
+    assert (
+        old.method_facts[0].payload.rows.receipt.project_relative_path
+        != new.method_facts[0].payload.rows.receipt.project_relative_path
+    )
+    for handle in (
+        old.data.rows,
+        *(part.rows for part in old.data.attachments),
+        *(fact.payload.rows for fact in old.method_facts),
+    ):
+        (local.store.project_root / handle.receipt.project_relative_path / "data.parquet").unlink()
+    script = """
+import sys
+from pathlib import Path
+from unittest.mock import patch
+import marivo
+import marivo.analysis as mv
+from marivo.analysis.core import frame_calendar
+from marivo.analysis.materialization import frame_evaluation
+from marivo.analysis.session.core import Session
+from marivo.datasource.adapters import SourceSession
+assert Path(marivo.__file__).resolve().parents[1] == Path(sys.argv[4])
+def forbidden(*args, **kwargs):
+    raise AssertionError('cold facts continuation attempted source/model/calendar rebuild')
+with patch.object(Session, 'catalog', property(forbidden)), patch.object(SourceSession, '__init__', forbidden), patch.object(frame_calendar, 'freeze_calendar', forbidden), patch.object(frame_calendar, 'freeze_interval', forbidden), patch.object(frame_evaluation, 'open_query_sources', forbidden):
+    session = mv.session.resume(sys.argv[2])
+    saved = session.persisted_frame(sys.argv[3])
+    facts = saved.method_facts
+    assert len(facts[0].parents) == int(sys.argv[5]) and len(facts[0].coordinates[0].rows) == int(sys.argv[5])
+    assert saved.axes == () and saved.presence_names == ()
+    assert saved.to_pandas()[('value','total')].tolist() == [40 * int(sys.argv[5])]
+    derived = saved.select({'twice': saved['total'] * 2}).compute()
+    assert derived.method_facts == facts
+    copied = derived.persist()
+    assert copied.method_facts == facts
+    assert copied.to_pandas()[('value','twice')].tolist() == [80 * int(sys.argv[5])]
+print('cold-method-facts-owned')
+"""
+    worktree = Path(__file__).resolve().parents[3]
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            script,
+            str(local.store.project_root),
+            local.session_ref,
+            reduced.artifact.id,
+            str(worktree),
+            str(size),
+        ],
+        cwd=worktree,
+        env={
+            **os.environ,
+            "PYTHONPATH": str(worktree),
+            "MARIVO_PROJECT_ROOT": str(local.store.project_root),
+        },
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "cold-method-facts-owned" in result.stdout
+
+
+def test_equal_origin_digest_does_not_skip_consumed_input_receipts(
+    attribute_session: Session,
+) -> None:
+    memory = attribute_request(attribute_session).compute()
+    first, second = memory.persist(), memory.persist()
+    first_saved, second_saved = manifest(first), manifest(second)
+    assert first_saved.method_facts[0].facts_digest == second_saved.method_facts[0].facts_digest
+    part = second_saved.method_facts[0].payload
+    (
+        memory._local.store.project_root / part.rows.receipt.project_relative_path / "data.parquet"
+    ).unlink()
+    assert first.method_facts == memory.method_facts
+    assert len(second.to_pandas()) == 2
+    with pytest.raises(AnalysisError):
+        first.align(second, on=((first.axes[0], second.axes[0]),)).compute()

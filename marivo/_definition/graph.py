@@ -42,6 +42,7 @@ from marivo._definition.query import (
     ResultQuery,
 )
 from marivo._definition.relations import (
+    AttributeKeys,
     CalendarKeys,
     FrameKeys,
     IntervalKeys,
@@ -200,6 +201,7 @@ def children(node: DefinitionNode) -> tuple[Edge, ...]:
             | CalendarKeys()
             | IntervalKeys()
             | FrameKeys()
+            | AttributeKeys()
         ):
             return ()
         case SourceIdentities():

@@ -170,11 +170,15 @@ def observe(
     memberships: tuple[Grouping, ...] = (),
     timezone: str = "UTC",
     calendar_snapshots: tuple[PeriodCalendarSnapshotV1, ...] = (),
+    _parent_filter: Deferred | None = None,
+    _complete_calendar: bool = True,
+    _endpoint_scope: TimeScope | None = None,
 ) -> AnalysisFrame:
     for name in metrics:
         value_name(name, location="frame.observe")
     frame_inputs = collect_frame_key_inputs(
         *metrics.values(),
+        _parent_filter,
         where,
         by if isinstance(by, Population) else None,
         owner=local.owner,
@@ -188,6 +192,9 @@ def observe(
         timezone=timezone,
         state=state,
         calendar_snapshots=calendar_snapshots,
+        _parent_filter=_parent_filter,
+        _complete_calendar=_complete_calendar,
+        _endpoint_scope=_endpoint_scope,
     )
     return _capture(local, graph, state, connection, frame_inputs)
 

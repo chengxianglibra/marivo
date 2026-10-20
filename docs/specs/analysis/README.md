@@ -11,7 +11,7 @@ See the implementation progress record for the accepted source and remaining wor
 | [AnalysisFrame](query-result-reuse.md) | Final data, coordinate, carrier and source-boundary contract |
 | [Python Analysis Design](python-analysis-design.md) | Population, AnalysisFrame, FrameAxis, Column, audit Artifact and binding/compiler boundaries |
 | [Operators and Frames](operators-and-frames.md) | Nullable values, complete keys, contribution occurrences and current-row operator meaning |
-| [Session State and Runtime](session-state-and-runtime.md) | Evaluation, publishing Runs, stage scheduling, resource ownership, Store 12 and reading |
+| [Session State and Runtime](session-state-and-runtime.md) | Evaluation, publishing Runs, stage scheduling, resource ownership, Store 14 and reading |
 | [Timezones and Calendars](timezone-and-calendar-design.md) | Exact time authorities, windows, frozen calendar directories and paired coordinates |
 | [Analysis Evidence Access](evidence-access-surface.md) | Saved source facts, current evaluation, Findings and their interpretation limits |
 | [AnalysisFrame cutover](analysis-frame-cutover.md) | Breaking API/value-name changes, older Store refusal and explicit source reconstruction |
@@ -35,7 +35,12 @@ Static API facts, captured instance state and errors follow
 | [Algebra Methods](algebra-methods.md) | Separate model-method proposals beyond the current surface |
 | [Implementation plan](analysis-frame-implementation-plan.md) | Historical S0-S8 task authority; not implementation evidence |
 
-[Attribute design](attribute-design.md) remains a future explicit-source extension.
+[Attribute design](attribute-design.md) owns the frozen explicit-source contract;
+`session.attribute` binds two `AttributeEndpoint` inputs for investigation and
+optional qualified contribution. The [Attribute implementation progress](attribute-implementation-progress.md)
+records accepted execution/storage and public-disclosure status. Completed Frames
+retain inert `method_facts`, never original Metric authority or a producer graph.
+
 [Correlation statistics](correlation-statistics-design.md) defines current-row
 Pearson/Spearman through AnalysisFrame.correlate with fixed coefficient/n_pairs
 outputs, retaining corr/pair_count composition through reduce; its candidate and
@@ -55,12 +60,13 @@ datasource: qualified Ibis execution returning pandas
     -> analysis: Population / AnalysisFrame / Column / exact FrameAxis handles
     -> compiler: explicit source and fixed inputs, complete checks and one schedule
     -> compute: complete immutable memory data, frozen coordinates and one audit
-    -> persist: publish that existing result through the Store 12 transaction
+    -> persist: publish that existing result through the Store 14 transaction
     -> persisted Frame: source-free data operations and isolated pandas export
     -> frame.artifact: submission, Findings and Evidence audit
 ```
 
-`session.observe` binds Metrics; `read` binds nonempty fields to one Entity
+`session.observe` binds Metrics; `attribute` binds explicit endpoints and new
+classifications; `read` binds nonempty fields to one Entity
 identity domain; `values` declares literal rows; `frame` binds a general Population
 key domain. All return AnalysisFrame. Construction and `.show()` do not evaluate.
 Use the returned `compute()` or `persist()` Frame to fix values and keys. Reopen
@@ -68,3 +74,10 @@ with an exact Session and `session.persisted_frame(frame.artifact.id)`.
 New source questions require explicit source inputs; an ordinary-axis
 `session.population_from(frame, on=...)` bridge can constrain that new question.
 Static Help owns operation discovery; `.show()` owns captured facts and errors own repairs.
+
+All Frames use Store14, `marivo.frame_output/v3`, `frame.v3` and `frame-output-v3`.
+Cards/reopen read bounded descriptors; `to_pandas()` reads current data only;
+`method_facts` reads complete owned explanation payloads. Stored compute and
+evaluated derivatives consume both. Saved derivatives remain self-contained.
+Contribution requires the qualified physical DuckDB table route; default
+investigation has its own valid observation boundary and no contribution proof.

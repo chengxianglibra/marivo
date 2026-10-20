@@ -42,6 +42,11 @@ _GROUPS = (
         "Compute current-row statistics with independent NA masks.",
     ),
     ("methods.compare", "methods", "Align complete endpoints and compare numeric values."),
+    (
+        "methods.attribute",
+        "methods",
+        "Investigate explicit source endpoints by joint groups; optionally request exact contribution.",
+    ),
     ("methods.rows", "methods", "Filter result rows, rank them or retain an ordered prefix."),
     ("methods.rows.expressions", "methods.rows", "Compose nullable pointwise result expressions."),
     ("runtime.sessions", "runtime", "Find, inspect or activate an existing Session."),
@@ -70,7 +75,7 @@ _HUBS = (
         (),
         "decision_hub",
         guidance=(
-            "Frame: inspect captured facts with show(), then use exact type Help for current-data operations. Source Metric questions require explicit observe/read construction.",
+            "Frame: inspect captured facts with show(), then use exact type Help for current-data operations. Source Metric questions require explicit observe/read/attribute construction.",
         ),
     ),
     NavigationInput(

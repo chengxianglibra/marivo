@@ -16,6 +16,7 @@ from marivo._definition.expressions import (
     RowField,
 )
 from marivo._definition.relations import (
+    AttributeKeys,
     CalendarKeys,
     FrameKeyAxis,
     FrameKeys,
@@ -64,6 +65,7 @@ _SCOPE_RECORDS = (
     TimestampDataType,
     FrameKeyAxis,
     FrameKeys,
+    AttributeKeys,
     LiteralPopulation,
     PopulationProgram,
     PopulationSet,

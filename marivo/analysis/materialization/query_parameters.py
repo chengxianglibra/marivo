@@ -12,7 +12,7 @@ import ibis.expr.types as ir
 import pyarrow as pa
 
 from marivo._definition.graph import computation_fingerprint
-from marivo._definition.relations import FrameKeys
+from marivo._definition.relations import AttributeKeys, FrameKeys
 from marivo.analysis.compiler.observation import ibis_type
 from marivo.analysis.compiler.parameters import parameter_domains
 from marivo.analysis.compiler.query_program import (
@@ -43,7 +43,7 @@ def prepare_frame_parameters(
 
     result = []
     for domain in parameter_domains(graph):
-        if not isinstance(domain.root, FrameKeys):
+        if not isinstance(domain.root, (FrameKeys, AttributeKeys)):
             continue
         schema = frame_schemas.get(domain.root.input_id)
         if schema is None:

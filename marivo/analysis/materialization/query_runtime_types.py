@@ -70,6 +70,89 @@ def effective_frame_schema(schema: DataSchema, columns: tuple[DataColumn, ...]) 
 def effective_frame(stage: FrameCompute, inputs: tuple[StageOutput, ...]) -> FrameCompute:
     """Infer this invocation's local Frame program from consumed value types."""
     program = stage.program
+    from marivo.analysis.core.attribute import (
+        AttributeContributionProgram,
+        AttributeInputProgram,
+        AttributeProgram,
+        AttributeProjectProgram,
+        attribute_schema,
+    )
+
+    def attribute_program(
+        program: AttributeInputProgram, columns: Mapping[str, DataColumn]
+    ) -> AttributeInputProgram:
+        matrix = tuple(
+            replace(item, target=replace(item.target, dtype=columns[item.target.slot_id].dtype))
+            if item.target.slot_id in columns
+            else item
+            for item in program.matrix
+        )
+        sides: list[DataSchema] = []
+        for side, schema in (("left", program.left_schema), ("right", program.right_schema)):
+            values = list(schema.values)
+            for item in matrix:
+                if (
+                    item.side == side
+                    and item.role == "native_value"
+                    and item.scope == "fine"
+                    and len(item.occurrence) == 1
+                ):
+                    index = item.occurrence[0]
+                    values[index] = replace(values[index], dtype=item.target.dtype)
+            sides.append(replace(schema, values=tuple(values)))
+        return replace(
+            program,
+            matrix=matrix,
+            left_schema=sides[0],
+            right_schema=sides[1],
+            output_schema=replace(
+                program.output_schema, values=tuple(item.target for item in matrix)
+            ),
+        )
+
+    if isinstance(program, AttributeContributionProgram):
+        from marivo.analysis.core.attribute import contribution_schema
+
+        updated = attribute_program(
+            program.input_program, {column.slot_id: column for column in inputs[0].columns}
+        )
+        return replace(
+            stage,
+            program=replace(
+                program,
+                input_program=updated,
+                output_schema=contribution_schema(updated, program.operation),
+            ),
+        )
+    if isinstance(program, AttributeInputProgram):
+        actual = {
+            column.slot_id: column
+            for source in inputs[1:3]
+            for root in source.attribute_inputs
+            for column in root.layout.columns
+        }
+        columns = {
+            item.target.slot_id: actual[item.sources[0].source]
+            for item in program.matrix
+            if item.sources[0].source in actual
+        }
+        return replace(stage, program=attribute_program(program, columns))
+    if isinstance(program, AttributeProjectProgram):
+        return stage
+    if isinstance(program, AttributeProgram):
+        left = effective_frame_schema(program.left_schema, inputs[3].columns)
+        right = effective_frame_schema(program.right_schema, inputs[4].columns)
+        return replace(
+            stage,
+            program=replace(
+                program,
+                left_schema=left,
+                right_schema=right,
+                output_schema=attribute_schema(
+                    left, right, program.parent_schema, program.operation
+                ),
+            ),
+        )
     if isinstance(program, FrameCombineProgram):
         left = effective_frame_schema(program.left_schema, inputs[0].columns)
         right = effective_frame_schema(program.right_schema, inputs[1].columns)

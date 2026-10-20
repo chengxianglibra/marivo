@@ -29,6 +29,8 @@ All data constructors return immutable AnalysisFrame. observe binds resolved
 Metrics and explicit by/where. TimeScope and CalendarAxis belong in by. read binds nonempty fields to one
 complete Entity identity domain. values declares literal coordinates/values;
 frame binds a general Population key domain, including zero axes/no named values.
+attribute binds explicit current/baseline `AttributeEndpoint` inputs, parent
+correspondence and new classifications; optional contribution is an explicit choice.
 Construction and inspection read no business rows/schema and create no Run.
 Resolve unknown inputs through bounded Catalog discovery; known names use exact
 lookup. There is no top-level execution Session alias.
@@ -133,6 +135,13 @@ cannot bridge. by=Population selects output keys; in_population selects fact con
 Original overall mean/distinct, new attributes, windows or grain need explicit
 source construction. Frame reduce over current rows is not original rollup.
 
+For two-endpoint investigation, use `session.attribute` with those explicit
+Metric/scopes. Default returns left/right/absolute values without contribution
+proof or new method facts. `contribution=True` adds contribution/share only on a
+qualified source/rule route; it does not fall back automatically. The current
+contribution route is a qualified physical DuckDB table, not files or remote
+providers. See the runnable [comparison and investigation guide](/docs/latest/guides/comparison-and-attribution/).
+
 ## Keep source contribution and time meaning
 
 Metric.per evaluates the full child formula per sample before reducing. Explicit
@@ -155,8 +164,14 @@ Session authority. Complete Frame interpretation does not reload model/TZ rules.
 ## Read data and audit within their boundaries
 
 Frame.show(n=0) gives metadata only; positive show reads the ordered prefix and
-needed frozen labels/bounds/paired endpoints. Full compute/export validates all
-required consumed data. Artifact.show(), findings and evidence_digest read audit
+needed frozen labels/bounds/paired endpoints. Cards show only method-fact count,
+bounded origins and a getter pointer. `to_pandas()` validates complete current
+data and its required coordinate attachments. `method_facts` explicitly reads
+complete immutable original explanations; the stored getter validates owned
+method files without current primary rows, Catalog or source access. Pending
+access requires compute/persist. Stored compute and evaluated derivatives consume
+both data and method facts. A bad method file may leave export/metadata usable
+while full consumers fail. Artifact.show(), findings and evidence_digest read audit
 only, with no n or to_pandas on Artifact. Source read, evaluation and commit times
 differ. Run means publication of an existing result ID after evaluation; compute
 failure creates no Run. Reconciliation never recomputes an unknown commit.
@@ -164,6 +179,11 @@ failure creates no Run. Reconciliation never recomputes an unknown commit.
 Typed data operations can continue after recovery. Unsupported external methods
 need explicit fixed input, assumptions and rerunnable arithmetic. Export attrs
 cannot reenter computation. New original-source questions remain explicit.
+Inherited facts retain their original totals/coordinates; filtering and reduction
+do not change original denominators or certify new decompositions. Saved
+derivatives own their payloads independently of the original Artifact. Exact
+reading effects are in `marivo.help("analysis.analysis_frame.method_facts")`;
+complete types are in `marivo.help("analysis.frame_method_facts")`.
 See [statistics](/docs/latest/guides/statistics/),
 [time and cohorts](/docs/latest/guides/time-and-cohorts/) and
 [evidence](/docs/latest/concepts/evidence/).

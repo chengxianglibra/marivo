@@ -310,7 +310,9 @@ def evaluate_result(stage: LocalCompute, inputs: tuple[pd.DataFrame, ...]) -> pd
             )
             for row in population_rows
         ]
-        return pd.DataFrame(flattened, columns=[column.slot_id for column in stage.columns])
+        return pd.DataFrame(
+            flattened, columns=[column.slot_id for column in stage.columns], dtype=object
+        )
     frame = inputs[0].reset_index(drop=True).copy()
     if isinstance(operation, ReadFields):
         columns = [

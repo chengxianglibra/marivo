@@ -1,6 +1,6 @@
 ---
-title: Compare and inspect changes
-description: Use complete coordinate maps and explicit new source inputs.
+title: Compare and investigate changes
+description: Compare fixed data or request new source investigation and qualified contribution.
 ---
 
 This guide continues the [local tutorial](/docs/latest/guides/python-quick-start/).
@@ -39,6 +39,102 @@ difference.show()
 
 ## Ask for new source facts explicitly
 
+`session.attribute` takes explicit current and baseline endpoints. Continuing the
+tutorial's physical DuckDB table and resolved inputs, the default request needs
+no contribution proof. Each `AttributeEndpoint` copies its named Metric mapping;
+optional `where` is a native Deferred predicate and `memberships` supplies explicit
+Grouping allocation rules. Endpoint `during` retains its independent time scope:
+
+{/* example: attribute-default-investigation */}
+
+```python
+pending = session.attribute(
+    mv.AttributeEndpoint({"revenue": revenue}, during=august),
+    mv.AttributeEndpoint({"revenue": revenue}, during=july),
+    by=(region,),
+)
+pending.show(n=0)
+investigation = pending.compute()
+assert investigation.to_pandas()[("value", "absolute.revenue")].tolist() == [-100, -100]
+```
+
+Left is current and right is baseline. Values are left/right/absolute groups,
+with independent left/right presence. Unlike compare, Attribute adds no relative
+column. Fine keys use the complete outer union and canonical order; missing or
+NA values stay NA. Omitted parents mean one overall parent; an explicitly empty
+parent selection stays empty. Ordinary parent axes need complete dual `parent_on`
+bindings; `parent_how` exact/outer controls parents, not zero filling. Calendar and
+paired-calendar parent axes retain their explicit binding rules. Interval and
+paired-interval Frame parent axes refuse before reads; reduce the interval axis before
+selecting parents, or use an explicit CalendarAxis parent and endpoint scopes. Endpoint `during=TimeScope` remains
+supported.
+
+## Request exact contribution explicitly
+
+The tutorial uses the qualified physical DuckDB table route. The same endpoints
+can explicitly request contribution; datasource access alone does not qualify
+file or remote routes. Unsupported rules or missing component proof fail rather
+than silently falling back. An explicit default investigation remains a separate
+request when the original observation is valid.
+
+{/* example: attribute-contribution-facts */}
+
+```python
+explained = session.attribute(
+    mv.AttributeEndpoint({"revenue": revenue}, during=august),
+    mv.AttributeEndpoint({"revenue": revenue}, during=july),
+    by=(region,),
+    contribution=True,
+).compute()
+assert explained.to_pandas()[("value", "contribution.revenue")].tolist() == [-100, -100]
+facts = explained.method_facts
+facts[0].show(n=0)
+declines = explained.where(explained["contribution.revenue"] < 0).compute()
+saved_declines = declines.persist()
+reopened_declines = session.persisted_frame(saved_declines.artifact.id)
+decline_rows = reopened_declines.to_pandas()
+original_explanation = reopened_declines.method_facts
+```
+
+The overall change is -200, with contribution -100 and share 0.5 for each region.
+Share uses the original parent change; selecting rows does not change that
+denominator or certify a new decomposition. Zero parent change leaves contributions
+defined and only share undefined. Direct ratio results also expose their numerator/
+denominator endpoint groups. Actual completed numeric types, units and NA are
+preserved; no universal Decimal precision or source-read count is promised.
+
+`method_facts` explicitly reads complete original explanations. On stored Frames
+it validates owned method files without primary rows, Catalog or source access;
+the subsequent fact show is in-memory. Pending access requires compute/persist.
+Frame cards show count, bounded origins and this read pointer. `to_pandas()` reads
+current data only; stored compute and evaluated derivatives consume current data
+and method facts. The saved derivative owns its payload even if the original
+Artifact is removed. Facts never recover a Metric or source authority. Use
+`marivo.help("analysis.analysis_frame.method_facts")` and
+`marivo.help("analysis.frame_method_facts")` for exact fields and reading effects.
+
+A nonlinear formula such as `revenue * revenue` rejects
+`contribution=True` with `unsupported_expression`. This does not invalidate its
+ordinary observation. Request default investigation explicitly instead of
+changing the formula or relying on a fallback:
+
+{/* example: attribute-explicit-default-after-refusal */}
+
+```python
+nonlinear = revenue * revenue
+nonlinear_investigation = session.attribute(
+    mv.AttributeEndpoint({"squared": nonlinear}, during=august),
+    mv.AttributeEndpoint({"squared": nonlinear}, during=july),
+    by=(region,),
+    contribution=False,
+).compute()
+```
+
+These are grouped nonlinear observations, not an assertion that summing them
+reconstructs the original overall formula or provides exact contributions.
+
+## Fix a parent selection before a new request
+
 {/* example: comparison-endpoint-followup */}
 
 ```python
@@ -53,8 +149,8 @@ followup.show()
 
 The fixed Top selects west; a new source observation investigates that selected
 region in July. It does not rerank the parent or recover history from the result.
-For a new breakdown, explicitly obtain its governed field and include it in the
-new observe. New contributions may have changed since selection; no shared source
+For a new breakdown, explicitly obtain its governed field and include it in a
+new source request. New contributions may have changed since selection; no shared source
 snapshot is promised. Frame current-row reduce never substitutes an original
 Metric overall, and there is no Frame drill/rollup/share receiver.
 
@@ -79,8 +175,9 @@ vs_budget.show()
 
 The one-period revenue rows are explicitly summed by region to remove the interval axis before alignment. This current-row sum does not reconstruct arbitrary non-additive Metrics. The budget covers the same region domain. This is ordinary full-axis
 alignment and arithmetic; it does not broadcast a scalar, infer a relationship,
-or establish contribution inclusion. Automatic broadcast and original contribution
-share are outside this surface, without an equivalent replacement claim.
+or establish contribution inclusion. Automatic broadcast and a Frame share
+receiver are outside this surface; optional source contribution share
+belongs to the explicit Attribute request above.
 
 ## Choose calendar correspondence deliberately
 

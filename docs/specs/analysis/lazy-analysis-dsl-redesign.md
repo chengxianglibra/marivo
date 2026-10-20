@@ -13,6 +13,14 @@ Status: AnalysisFrame cutover contract, 2026-10-19.
 没有 Query/execute、session.query/session.artifact 或新旧接口并存。
 RawSqlResult 保持独立 datasource reader，不进入 Frame Store。
 
+`session.attribute(left, right, *, by, parents=None, parent_on=(), parent_how="exact",
+contribution=False)` 是显式来源调查入口。AttributeEndpoint 复制有序 metrics 并捕获 during/
+where/members；左端为当前、右端为基准。默认输出 left/right/absolute 与独立 presence，
+可选贡献增加 contribution/contribution_share 和直接比率组件列，不增加 relative 或合成根行。
+贡献需已证明的 physical DuckDB table 路线；合法默认观察与贡献资格分开，拒绝不自动降级。
+新增业务分类、完整普通父轴双向绑定和空父选择沿 [Attribute 合同](attribute-design.md)，
+不从旧结果重建 Metric；端点不是执行器，也不新增 Frame.attribute。
+
 ### 语义定义更新原则（2026-10-15 批准）
 
 不要仅因同路径定义变化要求原版本或拒绝已解析输入；用户接受业务后果。
@@ -225,10 +233,17 @@ timestamp/Duration 保留实际 qualified 类型。源精度损失与保存值�
 
 ## 6. 求值、保存与披露
 
-完整求值先于 Run，Run 仅发布已有 result ID。Store 13 保存一种闭合 Frame 协议，
+完整求值先于 Run，Run 仅发布已有 result ID。Store 14 保存一种闭合 Frame 协议，
 来源事实按值继承并精确去重，本次求值记录不累计中间历史。show(n=0)/Artifact 审计不消费载荷，
-正 n 只解码前缀及必要坐标记录；full compute/export 验证必要全部数据。
+正 n 只解码前缀及必要坐标记录。to_pandas 验证完整当前数据与必要附件，不读方法事实；
+stored compute 与派生求值消费当前数据和完整方法事实。
 固定内存/存储操作无需模型、来源、语义对象或时区规则；读取失败不隐式回源。
+
+所有 Frame 使用 `marivo.frame_output/v3`、`frame.v3`、`frame-output-v3`。
+`method_facts` 返回不可执行的完整原解释，pending 访问需先 compute/persist；存储 getter
+只读 owned 方法文件，不读主表或来源。卡片只给数量、有界 origin 与 getter 指针，原父记录/
+坐标不在 manifest 中展开。原事实按输入传播、相同 origin 稳定去重；筛选或规约不改变原分母，
+也不认证新贡献。保存派生结果拥有自己的完整载荷，方法文件损坏不阻断仅当前数据的导出。
 
 静态 Help/捕获 show/真实错误/工作流技能各守一处权威。exact ID recovery、旧 generation
 拒读和兼容环境选择见[切换说明](analysis-frame-cutover.md)；完整顺序与检查见

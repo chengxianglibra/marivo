@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from marivo._definition.graph import DefinitionNode, children, computation_fingerprint
 from marivo._definition.query import KeyImage, PopulationValues
-from marivo._definition.relations import FrameKeys, PopulationProgram
+from marivo._definition.relations import AttributeKeys, FrameKeys, PopulationProgram
 from marivo.analysis.compiler.graph_plan import (
     FrameKeysInput,
     LocalCompute,
@@ -36,7 +36,9 @@ def parameter_domains(graph: BoundGraph) -> tuple[PopulationProgram, ...]:
         if id(node) in seen:
             return
         seen.add(id(node))
-        if isinstance(node, PopulationProgram) and isinstance(node.root, FrameKeys):
+        if isinstance(node, PopulationProgram) and isinstance(
+            node.root, (FrameKeys, AttributeKeys)
+        ):
             result[computation_fingerprint(node)] = node
             return
         for edge in children(node):
@@ -49,6 +51,8 @@ def parameter_domains(graph: BoundGraph) -> tuple[PopulationProgram, ...]:
             visit(observation.coordinates.population)
         if observation.condition is not None:
             visit(observation.condition)
+        if observation.coordinates.parent_scope is not None:
+            visit(observation.coordinates.parent_scope)
     return tuple(result.values())
 
 
@@ -83,7 +87,12 @@ def plan_parameters(
     else:
         from marivo.analysis.compiler.queries import key_groups
 
-        groups = key_groups(graph, output.columns, output.keys)
+        groups = key_groups(
+            graph,
+            output.columns,
+            output.keys,
+            counts=base.original.counts if base.original is not None else (),
+        )
     base = replace(base, output_groups=groups)
     if not parameters:
         return base
@@ -91,7 +100,7 @@ def plan_parameters(
     for name, parameter in parameters.items():
         from marivo.analysis.compiler.populations import frame_key_groups
 
-        assert isinstance(parameter.definition.root, FrameKeys)
+        assert isinstance(parameter.definition.root, (FrameKeys, AttributeKeys))
         leaf = FrameKeysInput(
             "framekeys:" + computation_fingerprint(parameter.definition), parameter
         )

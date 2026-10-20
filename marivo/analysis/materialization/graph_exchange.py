@@ -22,7 +22,8 @@ from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.methods.physical import stage_arrow_type
 
 if TYPE_CHECKING:
-    from marivo.analysis.materialization.query_components import ComponentFrame
+    from marivo.analysis.core.attribute import AttributeMethodPayload
+    from marivo.analysis.materialization.query_components import AttributeRootInputs, ComponentFrame
 
 
 _NORMALIZED = object()
@@ -249,6 +250,8 @@ class StageOutput:
     population_frames: tuple[pd.DataFrame, ...] = ()
     source_rows: int | None = None
     frame_attachments: tuple[OutputAttachment, ...] = ()
+    attribute_inputs: tuple[AttributeRootInputs, ...] = ()
+    attribute_methods: tuple[AttributeMethodPayload, ...] = ()
 
     def __post_init__(self) -> None:
         if self._token is not _NORMALIZED:
@@ -270,6 +273,8 @@ class StageOutput:
         population_frames: tuple[pd.DataFrame, ...] = (),
         source_rows: int | None = None,
         frame_attachments: tuple[OutputAttachment, ...] = (),
+        attribute_inputs: tuple[AttributeRootInputs, ...] = (),
+        attribute_methods: tuple[AttributeMethodPayload, ...] = (),
     ) -> StageOutput:
         return cls(
             columns,
@@ -283,6 +288,8 @@ class StageOutput:
             population_frames,
             source_rows,
             frame_attachments,
+            attribute_inputs,
+            attribute_methods,
         )
 
     @classmethod

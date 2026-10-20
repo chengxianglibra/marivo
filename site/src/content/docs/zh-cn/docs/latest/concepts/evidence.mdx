@@ -3,10 +3,12 @@ title: 证据与恢复
 description: 无需当前来源读取精确固定数据与审计。
 ---
 
-Store 13 在 `.marivo/analysis/generations/v13/` 保存 Frame 数据。数据持久后，一个
+Store 14 在 `.marivo/analysis/generations/v14/` 保存 Frame 数据。数据持久后，一个
 SQLite 发布事务同时提交 manifest、收据、Findings、Evidence 与 Run 成功。
 compute 不创建 Run；persist 在准入前完成求值，再发布已有 result ID。
 内存 persist 不重新求值，存储根 persist 验证提交元数据并返回自身。
+所有 Frame 使用 `marivo.frame_output/v3`、`frame.v3` 和 `frame-output-v3`。
+存在完整方法表时，其文件和收据共享这一个原子事务；manifest 只保存有界方法描述符。
 
 ## 读取数据与审计
 
@@ -34,8 +36,18 @@ for run in session.runs(limit=5).items:
 
 打开/repr、show(n=0)、Artifact.show/findings/evidence_digest 只读元数据或审计，不消费载荷。
 正 n show 解码有序前缀和所选冻结坐标记录；收据散列或解压可能读取更多字节，预览成功不证明
-未读部分完整。完整 compute/to_pandas 验证必要值、键、presence 与日历/映射附件，不加载
+未读部分完整。`to_pandas()` 验证完整当前值、键、presence 与日历/映射附件，不加载
 Catalog、来源 schema、连接、模型或时区规则。
+
+`reopened.method_facts` 显式校验完整 owned 方法载荷，不读取当前主表或原来源。
+pending 访问需先 compute/persist。stored compute 与派生求值消费当前数据和方法事实；
+坏方法文件可使这些完整消费者失败，而元数据和当前行导出仍可用。卡片只给数量、
+有界 origin 和 getter 指针。事实的 show(n=0) 只在 getter 后操作内存，不能免去此前载荷读取。
+
+贡献事实保留原 schema、完整父记录和独立冻结坐标。筛选或规约当前行不改变原分母，
+也不认证新分解。保存派生结果拥有自己复制的完整载荷，原 Artifact 不必继续存在。
+默认调查不生成新方法事实或贡献证明。精确访问合同见
+`marivo.help("analysis.analysis_frame.method_facts")`。
 
 导出返回隔离 RangeIndex 数据，列为原始键 `(kind, name)` MultiIndex；隔离的类型化 attrs
 包含 axes、units 与 frozen_coordinates 表。日历标签/边界和配对端点自包含，最简单的解释入口
@@ -51,9 +63,10 @@ reconciliation 解决原事务，不重新求值。完整内存结果在旧文�
 
 ## 旧数据与证据限度
 
-Store 13 拒绝旧 generation 的 Session/result/Findings/Evidence 访问，不改写旧字节，
+Store 14 拒绝旧 generation 的 Session/result/Findings/Evidence 访问，不改写旧字节，
 不迁移或双读。缺少当前 generation 的发现可返回 None/空而不暴露旧数据；create
 不能在仅有旧 Store 的项目初始化旁路。切换前用原版本导出，或保留兼容读取环境。
+保留旧 Store；当前工作在新项目创建新的命名 Session，不提供自动导出/导入迁移。
 参见[故障排查](/zh-cn/docs/latest/reference/troubleshooting/)。
 
 保存事实不认证来源完整、当前语义权威、跨源快照、新鲜度或因果。

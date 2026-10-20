@@ -79,6 +79,20 @@ def _predicate_reads(
     )
 
 
+def _attribute_calendar(
+    axis: AxisBinding | CalendarCoordinate | IntervalCoordinate, domain: PopulationDependency
+) -> bool:
+    """Keep calendar predicates confined to the explicit Attribute projection."""
+    from marivo._definition.relations import AttributeKeys, PopulationProgram
+
+    return (
+        isinstance(axis, CalendarCoordinate)
+        and isinstance(domain, PopulationProgram)
+        and isinstance(domain.root, AttributeKeys)
+        and axis == domain.root.calendar
+    )
+
+
 def bind_observation(
     metrics: tuple[tuple[str, MetricNode], ...],
     declared: dict[ExactRef, MetricNode],
@@ -309,6 +323,8 @@ def bind_observation(
             for predicate in predicates:
                 for domain in condition_populations(predicate):
                     for axis in domain.axes:
+                        if _attribute_calendar(axis, domain):
+                            continue
                         if not isinstance(axis, AxisBinding):
                             reject(
                                 "entity or field coordinates for a source predicate",
@@ -321,10 +337,30 @@ def bind_observation(
                             if axis.field is not None
                             else IdentityRead(axis.entity, axis.path, axis.at)
                         )
+                        parent_read = next(
+                            (
+                                allocated
+                                for membership in memberships
+                                for original, allocated in zip(
+                                    membership.fields,
+                                    membership_reads(membership, root),
+                                    strict=True,
+                                )
+                                if axis.field is not None
+                                and original.field.ref == axis.field.ref
+                                and original.entity.ref == axis.entity.ref
+                                and original.at == axis.at
+                            ),
+                            None,
+                        )
                         population_reads[axis] = (
-                            bind_read(read, root, state.registry, resolver, paths)
-                            if isinstance(read, FieldRead)
-                            else bind_identity(read, root, state.registry, resolver, paths)
+                            parent_read
+                            if parent_read is not None
+                            else (
+                                bind_read(read, root, state.registry, resolver, paths)
+                                if isinstance(read, FieldRead)
+                                else bind_identity(read, root, state.registry, resolver, paths)
+                            )
                         )
             bound = tuple(bind_read(read, root, state.registry, resolver, paths) for read in reads)
             if node.time is not None:

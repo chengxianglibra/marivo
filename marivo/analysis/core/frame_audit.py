@@ -10,7 +10,7 @@ from marivo.analysis.core.model import reject
 from marivo.analysis.core.output_records import OutputEvidence, OutputFinding
 
 FrameOperationName: TypeAlias = Literal[
-    "source", "literal", "select", "where", "top", "reduce", "align", "compare"
+    "source", "literal", "select", "where", "top", "reduce", "align", "compare", "attribute"
 ]
 
 
@@ -96,7 +96,17 @@ class EvaluationRecord:
             )
         if type(self.operations) is not tuple or any(
             value
-            not in ("source", "literal", "select", "where", "top", "reduce", "align", "compare")
+            not in (
+                "source",
+                "literal",
+                "select",
+                "where",
+                "top",
+                "reduce",
+                "align",
+                "compare",
+                "attribute",
+            )
             for value in self.operations
         ):
             reject(

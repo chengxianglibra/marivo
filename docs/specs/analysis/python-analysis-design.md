@@ -36,6 +36,7 @@ no generic analysis action contract or capability matrix inferred from history.
 | Entry | Meaning |
 | --- | --- |
 | `session.observe(metrics, ...)` | Bind named resolved Deferred Metrics and explicit observation inputs |
+| `session.attribute(left, right, *, by, ...)` | Bind explicit AttributeEndpoint inputs, parent correspondence and new classifications; request contribution explicitly |
 | `session.read(population, fields)` | Bind nonempty named scalar Fields to one complete Entity identity domain |
 | `session.values(by=..., columns=..., rows=...)` | Declare literal rows on explicit complete coordinates; empty by is scalar |
 | `session.frame(population)` | Bind a general Population key domain, including multi-axis/zero-axis domains and no named values |
@@ -54,7 +55,7 @@ One type has three carriers:
 | --- | --- | --- | --- |
 | Expression | Evaluate to complete memory Frame | Evaluate, then publish existing result | show describes pending facts; to_pandas/artifact require completion/persistence |
 | Complete memory | Return self | Publish existing output without evaluation | show/to_pandas use isolated complete data; artifact requires persistence |
-| Exact stored root | Validate/load complete data into memory Frame | Validate commit metadata and return self | show/export read stored data; artifact opens this result's audit |
+| Exact stored root | Validate/load current data and method facts into memory Frame | Validate commit metadata and return self | show/export read current data; method_facts reads explanation payloads; artifact opens this result's audit |
 
 Use returned Frames: `fixed = pending.compute()` or `saved = pending.persist()`.
 The original expression stays unchanged and can evaluate changing sources again.
@@ -104,7 +105,7 @@ restrictions. Membership rules belong only to the consumer's explicit
 `memberships=(rule, ...)` parameter on observe or per; they are not coordinates.
 FrameAxis remains a result-owned handle requiring population_from.
 Public grouping wrappers are lowered to existing axis/allocation records before
-fingerprinting, source audit or persistence; Store 13 uses `marivo.frame_output/v2`, including inert interval directories.
+fingerprinting, source audit or persistence; Store 14 uses `marivo.frame_output/v3`, including inert interval directories.
 
 Population preserves ordered complete tuples, ownership and its own selection
 context. Projection/sets operate on its existing axes; classify and directed
@@ -227,21 +228,42 @@ interval axis or one sole calendar axis per side. Match is an explicit rule, nev
 Paired inputs cannot be aligned again in this first surface.
 
 Compare is a high-level data API combining full-key alignment, nullable arithmetic,
-validation and standard output construction. The proposed attribute operation is
-a high-level explicit-source API combining observation, classification, alignment
-and optional proven contribution decomposition. Both belong to the same compiler,
-evaluation and publication lifecycle. This architectural direction does not claim
-that every step is currently expressible through public methods or that attribute
-is implemented. The [composition layers and capability gaps](analysis-implementation-architecture.md#64-compareattribute基础能力组合的高级-api)
+validation and standard output construction. `session.attribute` is the explicit-source
+entry combining observation, classification, alignment and optional proven contribution.
+Both use the same compiler, evaluation and publication lifecycle; internal steps
+need not all be public methods. The [composition layers](analysis-implementation-architecture.md#64-compareattribute基础能力组合的高级-api)
 own that distinction; [composition examples](attribute-design.md#24-compare-的基础组合示例)
-state their numerical and API limits. No public signature changes follow from this
-design clarification.
-The proposed attribute result is an ordinary AnalysisFrame: its value columns
+state their numerical and API limits.
+The Attribute result is an ordinary AnalysisFrame: its value columns
 remain available to select/arithmetic, where/top, reduce and eligible align/compare,
 including after persistence and cold recovery. These operations neither recover
 source definitions nor automatically certify a new contribution decomposition.
 Filtering preserves the original contribution denominator; aggregation across
 different analysis totals does not establish a combined share interpretation.
+
+`AttributeEndpoint` copies ordered `metrics` and captures `during`, `where` and
+`memberships`. The latter supplies consumer-owned Grouping allocation rules; a
+counted Population domain belongs to the Metric constructed with `Population.count()`.
+Left is current and right is baseline. Default emits left/right/absolute
+value groups and independent presence; optional contribution adds contribution/share
+and direct-ratio component groups. It emits no relative column or synthetic root.
+Parents default to one overall total; an explicit empty parent selection stays
+empty. Ordinary parent axes require complete dual `parent_on` bindings; exact/outer
+parent correspondence is separate from the outer union of fine endpoint keys.
+
+Default does not collect contribution proof or create new method facts. Contribution
+requires the qualified physical DuckDB table root/fiber statement route; files and
+remote providers are unqualified. The accepted local additive lookback witness
+does not qualify arbitrary windows/per shapes. Unsupported rules, overlap, missing
+proof and original source/numeric failures retain their errors; there is no automatic
+downgrade. An explicit default request can investigate a valid original observation.
+
+`frame.method_facts` returns the complete immutable concrete fact family; pending
+access requires compute/persist first. New Attribute facts precede inherited facts
+at that expression; binary inputs retain complete left then right facts with stable
+origin deduplication. A fixed input is self-contained, not a lineage lookup. Facts
+retain original output schema, full parent records and independent coordinates;
+transforming current rows does not recertify the explanation.
 
 ## Definition graph and compiler
 
@@ -269,18 +291,29 @@ See [Runtime coverage](../../testing/runtime-coverage.md).
 ## Terminal publication, reading and acceptance
 
 Evaluate before Run admission. A Run publishes an existing result ID through the
-single Store 13 transaction. Memory persist does not evaluate; stored persist
+single Store 14 transaction. Memory persist does not evaluate; stored persist
 is metadata-idempotent. One result audit retains inherited source facts and its
 current evaluation, not producer history. Use runs/get_run and output references for publishing history. Unknown outcome uses original transaction reconciliation.
 
 Complete data has no model, producer graph, connection or aggregate components.
-Reopen and fixed operations need no source. Full export/compute validates required
-data and attachments. show(n=0) and Artifact audit read no payload; positive show
+Reopen and fixed operations need no source. Export validates current rows and their
+required attachments. The method getter validates only owned explanation payloads,
+without primary rows or Catalog. Stored compute and evaluated derivatives validate
+both current data and method facts. A corrupt method file may leave export usable
+while full consumers fail. Saved derivatives own copied payloads independently of
+the original Artifact. show(n=0) and Artifact audit read no payload; positive show
 resolves a saved prefix without claiming unread integrity. Raw-key MultiIndex
 export and isolated typed attrs preserve labels/bounds/paired interpretation.
 Exact order and presence/NA remain independent.
 
-Store 13 refuses older data unchanged without migration/dual read. Absent-current
+Store 14 uses `marivo.frame_output/v3`, `frame.v3` and `frame-output-v3` for all
+Frames, including those without method facts. Method files share the existing atomic
+publication/receipt/reconciliation boundary. Cards show only count, bounded origins
+and a getter pointer. Actual completed native result types are preserved; a Decimal
+witness is not a universal precision guarantee.
+
+Store 14 refuses older data unchanged without migration/dual read. Absent-current
 discovery may return None/empty without exposing old data; old-only projects
-cannot initialize a bypass. See [cutover](analysis-frame-cutover.md). Static,
+cannot initialize a bypass. Preserve the old Store and use a new named Session in
+a fresh project; compatible-version export is a separate workflow. See [cutover](analysis-frame-cutover.md). Static,
 local, process/slow, provider Runtime and release evidence remain distinct.

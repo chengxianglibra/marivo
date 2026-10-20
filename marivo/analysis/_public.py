@@ -8,7 +8,18 @@ from marivo._temporal import Grain as Grain
 from marivo._temporal import InstantAnchor as InstantAnchor
 from marivo._temporal import TimeScope as TimeScope
 from marivo.analysis import grain as grain
+from marivo.analysis.core.frame_method_facts import FrameAdditiveMethod as FrameAdditiveMethod
+from marivo.analysis.core.frame_method_facts import FrameLinearMethod as FrameLinearMethod
+from marivo.analysis.core.frame_method_facts import FrameLinearTerm as FrameLinearTerm
+from marivo.analysis.core.frame_method_facts import FrameMethodCoordinate as FrameMethodCoordinate
+from marivo.analysis.core.frame_method_facts import FrameMethodFacts as FrameMethodFacts
+from marivo.analysis.core.frame_method_facts import FrameMethodMetric as FrameMethodMetric
+from marivo.analysis.core.frame_method_facts import FrameMethodParent as FrameMethodParent
+from marivo.analysis.core.frame_method_facts import FrameMethodSupport as FrameMethodSupport
+from marivo.analysis.core.frame_method_facts import FrameMethodValue as FrameMethodValue
+from marivo.analysis.core.frame_method_facts import FrameRatioMethod as FrameRatioMethod
 from marivo.analysis.dsl.artifact import Artifact as Artifact
+from marivo.analysis.dsl.attribute import AttributeEndpoint as AttributeEndpoint
 from marivo.analysis.dsl.column import Column as Column
 from marivo.analysis.dsl.column import row_count as row_count
 from marivo.analysis.dsl.correspondence import ordinal as ordinal
@@ -41,6 +52,17 @@ from marivo.analysis.session.core import Session as Session
 __all__ = [  # noqa: RUF022 - public order is contractual
     "AnalysisFrame",
     "FrameAxis",
+    "AttributeEndpoint",
+    "FrameMethodValue",
+    "FrameMethodCoordinate",
+    "FrameMethodSupport",
+    "FrameAdditiveMethod",
+    "FrameRatioMethod",
+    "FrameLinearTerm",
+    "FrameLinearMethod",
+    "FrameMethodMetric",
+    "FrameMethodParent",
+    "FrameMethodFacts",
     "Column",
     "Grouping",
     "identity",
