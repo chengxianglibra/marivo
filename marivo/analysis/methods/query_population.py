@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime, timedelta
+
 import pandas as pd
+import pyarrow as pa
 
 from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.relations import (
@@ -21,6 +24,8 @@ from marivo._definition.relations import (
 from marivo._definition.types import AxisBinding
 from marivo.analysis.core.model import reject
 
+_TICK_SCALES = {"s": 10**9, "ms": 10**6, "us": 10**3, "ns": 1}
+
 
 def _token(value: object) -> object:
     if isinstance(value, tuple):
@@ -31,7 +36,59 @@ def _token(value: object) -> object:
         return None
     if isinstance(value, float) and math.isnan(value):
         return None
+    if isinstance(value, pd.Timestamp):
+        return (
+            "timestamp",
+            value.tzinfo is not None,
+            int(value.asm8.view("i8")) * _TICK_SCALES[value.unit],
+        )
+    if isinstance(value, pd.Timedelta):
+        return ("duration", int(value.asm8.view("i8")) * _TICK_SCALES[value.unit])
+    if isinstance(value, (date, datetime, timedelta)):
+        return _token(pa.scalar(value))
+    if isinstance(value, pa.Scalar):
+        if not value.is_valid:
+            return None
+        physical = value.type
+        if pa.types.is_timestamp(physical) or pa.types.is_duration(physical):
+            scale = _TICK_SCALES[physical.unit]
+            kind = (
+                ("timestamp", physical.tz is not None)
+                if pa.types.is_timestamp(physical)
+                else ("duration",)
+            )
+            return (*kind, int(value.cast(pa.int64()).as_py()) * scale)
+        if pa.types.is_date32(physical):
+            return ("date", int(value.cast(pa.int32()).as_py()))
+        return _token(value.as_py())
     return value
+
+
+def _coordinate_rows(
+    frame: pd.DataFrame,
+    axes: tuple[ComparisonAxis, ...],
+    groups: tuple[tuple[str, ...], ...],
+) -> tuple[tuple[object, ...], ...]:
+    """Extract complete joint keys with Arrow temporal values and null validity."""
+    arrays = {
+        column: pa.array(frame[column], from_pandas=True) for group in groups for column in group
+    }
+
+    def scalar(column: str, index: int) -> object:
+        value = arrays[column][index]
+        if not value.is_valid:
+            return None
+        return value if pa.types.is_temporal(value.type) else value.as_py()
+
+    return tuple(
+        tuple(
+            tuple(scalar(column, index) for column in group)
+            if len(group) > 1 or (isinstance(axis, AxisBinding) and axis.field is None)
+            else scalar(group[0], index)
+            for axis, group in zip(axes, groups, strict=True)
+        )
+        for index in range(len(frame))
+    )
 
 
 def condition_mask(
@@ -52,15 +109,7 @@ def condition_mask(
         )
         members = {_token(key) for key in keys}
         selected = tuple(groups[axes.index(axis)] for axis in condition.population.axes)
-        values = [
-            tuple(
-                tuple(row[column] for column in group)
-                if len(group) > 1 or (isinstance(axis, AxisBinding) and axis.field is None)
-                else row[group[0]]
-                for axis, group in zip(condition.population.axes, selected, strict=True)
-            )
-            for row in frame.to_dict(orient="records")
-        ]
+        values = _coordinate_rows(frame, condition.population.axes, selected)
         return pd.Series([_token(key) in members for key in values], dtype="boolean")
     if isinstance(condition, PopulationNot):
         return ~condition_mask(condition.operand, frame, axes, groups, atoms, frames, layouts)
@@ -93,17 +142,7 @@ def evaluate_population(
             frame, groups = found
             if not groups:
                 return ((),) if len(frame) else ()
-            return unique(
-                tuple(
-                    tuple(
-                        tuple(row[column] for column in group)
-                        if len(group) > 1 or (isinstance(axis, AxisBinding) and axis.field is None)
-                        else row[group[0]]
-                        for axis, group in zip(domain.axes, groups, strict=True)
-                    )
-                    for row in frame.to_dict(orient="records")
-                )
-            )
+            return unique(_coordinate_rows(frame, domain.axes, groups))
         finite = population_keys(domain)
         if finite is not None:
             return tuple(finite)

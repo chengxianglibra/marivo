@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import operator
+from datetime import datetime
 from decimal import Decimal, localcontext
 
 import pandas as pd
@@ -61,6 +62,59 @@ def _binary(operation: str, left: object, right: object) -> object:
     return result
 
 
+def _temporal_comparison_values(values: pd.Series) -> pd.Series:
+    """Read temporal validity and comparable ticks without Python date conversion."""
+    literal = values.iloc[0] if values.dtype == object and len(values) else None
+    if isinstance(literal, (pd.Timestamp, pd.Timedelta)):
+        # Arrow's Python-object conversion can truncate out-of-range pandas
+        # years or submicrosecond values, even with an explicit Arrow type.
+        native: list[int | None] = []
+        for value in values:
+            if value is None or value is pd.NA or value is pd.NaT:
+                native.append(None)
+            elif isinstance(value, (pd.Timestamp, pd.Timedelta)):
+                native.append(
+                    int(value.asm8.view("i8"))
+                    * {"s": 10**9, "ms": 10**6, "us": 10**3, "ns": 1}[value.unit]
+                )
+            else:
+                numeric_failure("a compatible temporal literal", type(value).__name__)
+        return pd.Series(native, dtype=object, index=values.index)
+    array = pa.array(values, from_pandas=True)
+    physical = array.type
+    if pa.types.is_date32(physical):
+        ticks, scale = array.cast(pa.int32()), 1
+    elif pa.types.is_timestamp(physical) or pa.types.is_duration(physical):
+        ticks = array.cast(pa.int64())
+        scale = {"s": 10**9, "ms": 10**6, "us": 10**3, "ns": 1}[physical.unit]
+    else:
+        return values
+    return pd.Series(
+        [None if tick is None else int(tick) * scale for tick in ticks.to_pylist()],
+        dtype=object,
+        index=values.index,
+    )
+
+
+def _has_temporal_dtype(values: pd.Series) -> bool:
+    dtype = values.dtype
+    return isinstance(dtype, pd.ArrowDtype) and bool(pa.types.is_temporal(dtype.pyarrow_dtype))
+
+
+def _timestamp_awareness(values: pd.Series) -> bool | None:
+    dtype = values.dtype
+    if isinstance(dtype, pd.ArrowDtype):
+        return (
+            dtype.pyarrow_dtype.tz is not None
+            if pa.types.is_timestamp(dtype.pyarrow_dtype)
+            else None
+        )
+    literal: object = values.iloc[0] if len(values) else None
+    if isinstance(literal, datetime):
+        return literal.tzinfo is not None and literal.utcoffset() is not None
+    return None
+
+
 def expression_series(
     expression: ValueExpression, frame: pd.DataFrame, program: ResultProgram | FrameProgram
 ) -> pd.Series:
@@ -106,6 +160,29 @@ def expression_series(
             return values.isna().astype("boolean")
         if expression.operation == "not":
             return ~values.astype("boolean")
+        if isinstance(values.dtype, pd.ArrowDtype) and pa.types.is_duration(
+            values.dtype.pyarrow_dtype
+        ):
+            array = pa.array(values, from_pandas=True)
+            output: list[int | None] = []
+            for tick in array.cast(pa.int64()).to_pylist():
+                computed_tick = (
+                    None
+                    if tick is None
+                    else -int(tick)
+                    if expression.operation == "neg"
+                    else abs(int(tick))
+                )
+                if computed_tick is not None and not -(2**63) <= computed_tick < 2**63:
+                    numeric_failure(
+                        "exact signed int64 Duration arithmetic",
+                        f"{expression.operation}: Duration tick overflow",
+                    )
+                output.append(computed_tick)
+            return pd.Series(
+                pd.arrays.ArrowExtensionArray(pa.array(output, type=pa.int64()).cast(array.type)),
+                index=values.index,
+            )
         return pd.Series(
             [
                 None
@@ -153,6 +230,14 @@ def expression_series(
     if expression.operation in ("and", "or"):
         a, b = left.astype("boolean"), right.astype("boolean")
         return a & b if expression.operation == "and" else a | b
+    left_awareness, right_awareness = _timestamp_awareness(left), _timestamp_awareness(right)
+    different_awareness = (
+        left_awareness is not None
+        and right_awareness is not None
+        and left_awareness != right_awareness
+    )
+    if _has_temporal_dtype(left) or _has_temporal_dtype(right):
+        left, right = _temporal_comparison_values(left), _temporal_comparison_values(right)
     result: list[object] = []
     with localcontext() as context:
         context.prec = 120
@@ -160,6 +245,14 @@ def expression_series(
             if pd.isna(a) or pd.isna(b):
                 result.append(None)
                 continue
+            if different_awareness:
+                if expression.operation in ("eq", "ne"):
+                    result.append(expression.operation == "ne")
+                    continue
+                numeric_failure(
+                    "matching timestamp timezone awareness for ordered comparisons",
+                    "a timezone-aware timestamp and a timezone-free timestamp",
+                )
             if expression.operation == "div" and b == 0:
                 if expression.zero_denominator == "error":
                     numeric_failure(

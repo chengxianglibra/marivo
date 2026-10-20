@@ -35,6 +35,7 @@ from marivo.analysis.compiler.graph_plan import (
 )
 from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import (
+    DataColumn,
     DataType,
     DecimalDataType,
     DurationDataType,
@@ -893,20 +894,57 @@ def prepare_source_free_populations(
 ) -> tuple[SourceSchema, ...]:
     """Admit intrinsic calendar/unit key types without opening a datasource."""
     from marivo._definition.graph import computation_fingerprint
+    from marivo._definition.relations import FrameKeys
+    from marivo._definition.types import AxisBinding
+    from marivo.analysis.compiler.populations import frame_key_groups
     from marivo.analysis.materialization.population_preparation import prepare_population
     from marivo.analysis.materialization.query_parameters import prepare_frame_parameters
 
     entities: dict[str, ir.Table] = {}
     parameters = prepare_frame_parameters(graph, frame_schemas or {}, entities)
+    frame_types: dict[AxisBinding, tuple[DataColumn, ...]] = {}
+    for parameter in parameters:
+        definition = parameter.definition.root
+        assert isinstance(definition, FrameKeys)
+        columns = {column.slot_id: column for column in parameter.columns}
+        for binding, group in zip(definition.bindings, frame_key_groups(definition), strict=True):
+            current = tuple(columns[name] for name in group)
+            previous = frame_types.get(binding.target)
+            if previous is not None:
+                if tuple(column.dtype for column in previous) != tuple(
+                    column.dtype for column in current
+                ):
+                    reject(
+                        "compatible complete types for a shared Population target axis",
+                        repr((previous, current)),
+                        "Map compatible complete Frame key types before combining their domains.",
+                        "frame.population",
+                    )
+                current = tuple(
+                    replace(column, nullable=column.nullable or other.nullable)
+                    for column, other in zip(current, previous, strict=True)
+                )
+            frame_types[binding.target] = current
     schemas: list[SourceSchema] = []
     for population in _query_populations(graph):
         prepared = prepare_population(population, entities, state)
         schema = prepared.table.schema().to_pyarrow()
         names = {node.name for node in prepared.table.op().find(ops.UnboundTable)}
+        fields: list[SourceField] = []
+        for axis, group in zip(population.axes, prepared.key_groups, strict=True):
+            exact = frame_types.get(axis) if isinstance(axis, AxisBinding) else None
+            fields.extend(
+                tuple(
+                    SourceField(name, name, column.dtype, column.nullable)
+                    for name, column in zip(group, exact, strict=True)
+                )
+                if exact is not None
+                else tuple(_admitted(schema, name, name) for name in group)
+            )
         schemas.append(
             SourceSchema(
                 "population:" + computation_fingerprint(population),
-                tuple(_admitted(schema, name, name) for name in prepared.key_columns),
+                tuple(fields),
                 (),
                 key_groups=prepared.key_groups,
                 presence=prepared.presence,

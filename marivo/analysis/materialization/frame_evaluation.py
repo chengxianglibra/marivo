@@ -9,6 +9,8 @@ from types import TracebackType
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+import pyarrow as pa
+
 from marivo._definition.graph import computation_fingerprint
 from marivo._definition.query import FilterValues, PopulationValues, SelectValues, TopValues
 from marivo._definition.relations import FrameKeys, PopulationProgram
@@ -438,12 +440,24 @@ def evaluate_frame(frame: AnalysisFrame) -> CompletedFrameResult:
                     if isinstance(backing, ExpressionFrameBacking)
                     else backing.metadata.result_id
                 )
+                # Exact types are recorded in output.columns. Temporal cells
+                # use physical ticks so audit cannot alias valid minima to NaT
+                # or narrow the accepted range to Python datetime/date.
+                arrays = tuple(
+                    pa.array(output.table[column.slot_id], from_pandas=True)
+                    for column in output.columns
+                )
+                values = tuple(
+                    array.cast(pa.int32()).to_pylist()
+                    if pa.types.is_date32(array.type)
+                    else array.cast(pa.int64()).to_pylist()
+                    if pa.types.is_timestamp(array.type) or pa.types.is_duration(array.type)
+                    else array.to_pylist()
+                    for array in arrays
+                )
                 rows = (
-                    tuple(
-                        tuple(row[column.slot_id] for column in output.columns)
-                        for row in output.table.to_dict(orient="records")
-                    )
-                    if output.columns
+                    tuple(zip(*values, strict=True))
+                    if values
                     else (((),) if len(output.table) else ())
                 )
                 evaluated_keys[computation_fingerprint(definition)] = source_scope(
