@@ -15,7 +15,6 @@ from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo._definition.types import AxisBinding
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
@@ -159,7 +158,7 @@ def test_member_axis_retains_ordered_composite_identity(members_session: Session
     )
     grouped = session.observe({"value": metric}, by=fields)
     assert all(
-        isinstance(axis, AxisBinding) and axis.field is not None
+        axis.kind == "field"
         for axis in session.population_from(
             grouped, on=tuple(zip(grouped.axes, fields, strict=True))
         ).axes
@@ -564,3 +563,34 @@ def test_composite_subject_predicates(members_session: Session) -> None:
         & (frame[("value", "amount")] > 0)
     )
     assert frame.loc[mask].iloc[:, 0].tolist() == [(1, "A")]
+
+
+def test_identity_grouping_binds_an_explicit_versioned_path(members_session: Session) -> None:
+    session = members_session
+    prefix = _domain(session)
+    route = session.catalog.relationships.get(f"{prefix}.to_snapshot")
+    target = session.catalog.entities.get(f"{prefix}.snapshot")
+    instant = session.instant("2026-08-01")
+    metric = session.catalog.metrics.get(f"{prefix}.observed_total")
+    path = mv.identity((route,), at=instant)
+    automatic = mv.identity(target, at=instant)
+    from tests.analysis.graph.execution_fixtures import source_graph
+
+    explicit_frame = session.observe({"value": metric}, by=(path,))
+    inferred_frame = session.observe({"value": metric}, by=(automatic,))
+    explicit_binding = source_graph(explicit_frame).signature.observation
+    inferred_binding = source_graph(inferred_frame).signature.observation
+    assert explicit_binding is not None and inferred_binding is not None
+    assert explicit_binding.contributions == inferred_binding.contributions
+    rows = explicit_frame.compute().to_pandas()
+    assert rows.set_index(rows.columns[0])[("value", "value")].to_dict() == {
+        (1, "A"): 10,
+        (1, "B"): 20,
+    }
+    with pytest.raises(AnalysisError, match="exact attribute anchor"):
+        session.observe({"value": metric}, by=(mv.identity((route,)),))
+    with pytest.raises(AnalysisError):
+        mv.identity((route, route), at=instant)
+    many = session.catalog.relationships.get(f"{prefix}.many_snapshot")
+    with pytest.raises(AnalysisError):
+        session.observe({"value": metric}, by=(mv.identity((many,), at=instant),))

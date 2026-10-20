@@ -15,7 +15,6 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo._definition.types import AxisBinding
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import Case, SourceData, source_case, source_params
@@ -353,7 +352,7 @@ def test_native_time_dependencies_and_drill(
         amount = session.catalog.fields.get("sales.facts.amount")
         members = session.members(ms.ref.entity("sales.facts"))
         identity_axis = members.axes[0]
-        assert isinstance(identity_axis, AxisBinding)
+        assert identity_axis.kind == "identity"
         chosen_values = session.values(
             by=(identity_axis, category),
             columns={"flag": None},

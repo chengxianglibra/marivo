@@ -507,7 +507,7 @@ def test_bounded_varchar_target_uses_admitted_frame_string_type(
     parameters = prepare_frame_parameters(
         pending._backing.root.graph, {selected._input_id: selected._schema}, entities
     )
-    prepared = prepare_population(domain.definition, entities, session.catalog._state)
+    prepared = prepare_population(domain._definition, entities, session.catalog._state)
     assert prepared.key_groups == (("__population_0_0",), ("__population_1_0",))
     assert tuple(column.dtype for column in parameters[0].columns) == (
         ScalarDataType("string"),

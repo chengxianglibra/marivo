@@ -15,6 +15,7 @@ from marivo._temporal import TimeScope as TimeScope
 if TYPE_CHECKING:
     __all__: list[str]
     from marivo._definition.correspondence import CalendarCorrespondence as CalendarCorrespondence
+    from marivo._grouping import Grouping as Grouping
     from marivo._temporal import InstantAnchor as InstantAnchor
     from marivo.analysis import session as session
     from marivo.analysis.dsl.artifact import Artifact as Artifact
@@ -26,14 +27,12 @@ if TYPE_CHECKING:
     from marivo.analysis.dsl.frame import AnalysisFrame as AnalysisFrame
     from marivo.analysis.dsl.frame_axis import FrameAxis as FrameAxis
     from marivo.analysis.dsl.metrics import member_count as member_count
-    from marivo.analysis.dsl.population import MemberAxis as MemberAxis
-    from marivo.analysis.dsl.population import MembershipAxis as MembershipAxis
     from marivo.analysis.dsl.population import Population as Population
     from marivo.analysis.dsl.population import PopulationPredicate as PopulationPredicate
     from marivo.analysis.dsl.population import coordinates as coordinates
     from marivo.analysis.dsl.population import identities as identities
+    from marivo.analysis.dsl.population import identity as identity
     from marivo.analysis.dsl.population import in_population as in_population
-    from marivo.analysis.dsl.population import member as member
     from marivo.analysis.dsl.population import membership as membership
     from marivo.analysis.dsl.population import product as product
     from marivo.analysis.dsl.temporal import CalendarAxis as CalendarAxis

@@ -43,5 +43,5 @@ def test_selection_discloses_explicit_source_bridge_for_complete_identity(
     statistic = values.reduce({"count": mv.row_count()})
     scalar_domain = session.population_from(statistic, on=())
     with pytest.raises(AnalysisError) as refusal:
-        scalar_domain.project(by=(mv.member(),))
+        scalar_domain.project(by=(mv.identity(entity),))
     assert refusal.value.expected and refusal.value.received and refusal.value.repair

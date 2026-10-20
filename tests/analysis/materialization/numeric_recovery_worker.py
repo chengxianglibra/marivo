@@ -30,7 +30,7 @@ def run_process(project: str, session_id: str, phase: str) -> None:
         observed = session.observe(
             {"value": session.catalog.metrics.get("sales.revenue")},
             during=scope,
-            by=(mv.member(), region),
+            by=(members.axes[0], region),
             members=members,
         )
         results = {

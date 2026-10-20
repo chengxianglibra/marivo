@@ -53,21 +53,37 @@ def test_rendered_callable_examples_have_no_duplicate_imports() -> None:
         assert len(imports) == len(set(imports)), descriptor.canonical_id
 
 
-def test_member_axis_is_a_pure_immutable_observation_argument() -> None:
-    axis = mv.member()
-    assert type(axis) is mv.MemberAxis
-    assert axis == mv.member() and not inspect.signature(mv.member).parameters
-    assert str(inspect.signature(mv.member).return_annotation) == "MemberAxis"
-    assert "MemberAxis" in repr(axis) and "analysis.member" in repr(axis)
-    assert "\n" not in repr(axis)
-    with pytest.raises((AttributeError, TypeError)):
-        attribute = "entity"
-        setattr(axis, attribute, "sales.customer")
+def test_grouping_is_the_public_observation_family() -> None:
     annotation = str(inspect.signature(mv.Session.observe).parameters["by"].annotation)
-    assert "MemberAxis" in annotation and "Population" in annotation
-    for name in ("LogicalSelectedCategoryRelation", "MaterializedSelectedCategoryRelation"):
+    assert "Grouping" in annotation and "Population" in annotation
+    for name in ("member", "MemberAxis", "MembershipAxis"):
         assert not hasattr(mv, name)
-        assert not any(name in target for target in REGISTRY.canonical_ids())
+        assert name not in mv.__all__
+    with pytest.raises(TypeError):
+        mv.Grouping()
+
+
+@pytest.mark.parametrize(
+    ("target", "required"),
+    (
+        ("coordinates", ("field or membership Grouping", "identity and calendar", "mv.identities")),
+        ("membership", ("resolved fields", "one member Entity")),
+        ("population.project", ("existing coordinates", "receiver", "membership")),
+        ("population.classify", ("same-Entity", "existing identity", "calendar", "routed fields")),
+        ("session.values", ("field or identity Grouping", "calendar and membership")),
+        (
+            "session.observe",
+            ("field, identity, calendar or membership", "population.axes", "by=population"),
+        ),
+    ),
+)
+def test_grouping_help_discloses_each_consumers_admitted_inputs(
+    target: str, required: tuple[str, ...]
+) -> None:
+    page = rendered_help("analysis." + target)
+    by = next(line for line in page.splitlines() if line.startswith("Input by:"))
+    for text in required:
+        assert text in by
 
 
 def test_time_binding_has_one_public_entry_per_operation() -> None:

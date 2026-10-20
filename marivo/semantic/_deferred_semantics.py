@@ -72,6 +72,7 @@ from marivo._definition.types import (
     SumNone,
     SumPermission,
 )
+from marivo._grouping import Grouping
 from marivo.refs import SemanticKind
 from marivo.refs import ref as ref_factory
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
@@ -997,7 +998,7 @@ def _consume(recipe: Resolver) -> _Facts:
                 domain = _constant(axes_recipe)
                 if isinstance(domain, PopulationParameter):
                     assert isinstance(receiver, MetricFacts)
-                    return _Samples(receiver, domain.definition)
+                    return _Samples(receiver, domain._definition)
 
                 members = (
                     axes_recipe.values if isinstance(axes_recipe, Sequence) else (axes_recipe,)
@@ -1006,12 +1007,29 @@ def _consume(recipe: Resolver) -> _Facts:
                 memberships: list[MembershipBinding] = []
                 for member in members:
                     membership = _constant(member)
-                    if isinstance(membership, MembershipBinding):
-                        memberships.append(membership)
-                        axes.extend(
-                            AxisBinding(read.entity, read.field, read.path, "field", read.at)
-                            for read in membership.fields
-                        )
+                    if isinstance(membership, Grouping):
+                        binding = membership._binding
+                        if isinstance(binding, MembershipBinding):
+                            memberships.append(binding)
+                            axes.extend(
+                                AxisBinding(read.entity, read.field, read.path, "field", read.at)
+                                for read in binding.fields
+                            )
+                        elif (
+                            isinstance(binding, AxisBinding)
+                            and binding.role == "field"
+                            and not binding.path
+                            and binding.field is not None
+                            and binding.field.ref.kind
+                            in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}
+                        ):
+                            axes.append(binding)
+                        else:
+                            _fail(
+                                "Internal samples require native Dimension, TimeField or membership groupings.",
+                                expected="native field or explicit Population",
+                                received=membership.kind,
+                            )
                         continue
                     axis = _consume(member)
                     if (
@@ -1100,7 +1118,7 @@ def _consume(recipe: Resolver) -> _Facts:
                     predicate.value, PopulationPredicateParameter
                 ):
                     return replace(
-                        receiver, node=ContributionFilter(receiver.node, predicate.value.condition)
+                        receiver, node=ContributionFilter(receiver.node, predicate.value._condition)
                     )
                 if (
                     not isinstance(predicate, RowFacts)

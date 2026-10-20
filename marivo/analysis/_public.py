@@ -2,6 +2,7 @@
 
 import marivo.analysis.session as session
 from marivo._definition.correspondence import CalendarCorrespondence as CalendarCorrespondence
+from marivo._grouping import Grouping as Grouping
 from marivo._temporal import BeforeEndBoundary as BeforeEndBoundary
 from marivo._temporal import Grain as Grain
 from marivo._temporal import InstantAnchor as InstantAnchor
@@ -16,14 +17,12 @@ from marivo.analysis.dsl.correspondence import previous_year as previous_year
 from marivo.analysis.dsl.frame import AnalysisFrame as AnalysisFrame
 from marivo.analysis.dsl.frame_axis import FrameAxis as FrameAxis
 from marivo.analysis.dsl.metrics import member_count as member_count
-from marivo.analysis.dsl.population import MemberAxis as MemberAxis
-from marivo.analysis.dsl.population import MembershipAxis as MembershipAxis
 from marivo.analysis.dsl.population import Population as Population
 from marivo.analysis.dsl.population import PopulationPredicate as PopulationPredicate
 from marivo.analysis.dsl.population import coordinates as coordinates
 from marivo.analysis.dsl.population import identities as identities
+from marivo.analysis.dsl.population import identity as identity
 from marivo.analysis.dsl.population import in_population as in_population
-from marivo.analysis.dsl.population import member as member
 from marivo.analysis.dsl.population import membership as membership
 from marivo.analysis.dsl.population import product as product
 from marivo.analysis.dsl.temporal import CalendarAxis as CalendarAxis
@@ -48,17 +47,16 @@ __all__ = [  # noqa: RUF022 - public order is contractual
     "AnalysisFrame",
     "FrameAxis",
     "Column",
+    "Grouping",
+    "identity",
     "Population",
     "PopulationPredicate",
-    "MembershipAxis",
-    "MemberAxis",
     "CalendarCorrespondence",
     "identities",
     "coordinates",
     "membership",
     "product",
     "in_population",
-    "member",
     "member_count",
     "row_count",
     "ordinal",

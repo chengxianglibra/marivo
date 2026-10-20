@@ -158,9 +158,9 @@ def test_per_completes_ratio_per_sample_and_retains_empty_samples(
     assert result[("value", "aov_mean")].tolist() == [60.0]
     assert result[("value", "fixed_revenue_mean")].tolist() == [pytest.approx(140 / 3)]
     assert population_keys(
-        full.difference(mv.coordinates(by=(customer,), keys=((2,),))).definition
+        full.difference(mv.coordinates(by=(customer,), keys=((2,),)))._definition
     ) == ((1,), (3,))
-    assert population_keys(full.project(by=()).definition) == ((),)
+    assert population_keys(full.project(by=())._definition) == ((),)
     assert len(session.frame(full).compute().to_pandas()) == 3
     omitted = mv.coordinates(by=(customer,), keys=((1,),))
     observed = session.observe({"revenue": revenue}, by=omitted)

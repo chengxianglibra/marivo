@@ -203,7 +203,7 @@ Decimal、Duration、负零、缺侧优先于零分母等行为仍由已有数�
 ## 3. 字段、Population 与分区
 
 `by` 复用 observe 的输入形状：分类绑定的有序元组，或单个完整 Population。
-元组元素类型沿用 observe 的 `Deferred | MembershipAxis | MemberAxis | ComparisonAxis`，
+元组元素类型沿用 observe 的 `Deferred | Grouping`，
 不包含 Population，也不接收结果 FrameAxis。attribute 仍要求至少一个新增业务轴：
 空元组、零轴 Population、重复轴和与父坐标重复的轴拒绝；第 2.2 节的时间限制不变。
 

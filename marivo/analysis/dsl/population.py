@@ -11,6 +11,7 @@ from ibis.common.deferred import Deferred
 from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.deferred import RelationshipParameter
 from marivo._definition.graph import computation_fingerprint
+from marivo._definition.grouping import _CoordinateGrouping, _MembershipGrouping
 from marivo._definition.relations import (
     CalendarKeys,
     LiteralPopulation,
@@ -42,47 +43,18 @@ from marivo._definition.types import (
     CalendarCoordinate,
     CoordinateValue,
     DefinitionGraphError,
+    ExactRef,
     FieldRead,
     LiteralValue,
     Owner,
 )
-from marivo._temporal import CalendarAxis, InstantAnchor, anchor_from_datetime
+from marivo._grouping import Grouping
+from marivo._temporal import CalendarAxis, InstantAnchor
 from marivo.analysis._scope import scope_summary
 from marivo.analysis.core.frame_key_inputs import FrameKeyInput, merge_frame_key_inputs
 from marivo.analysis.core.model import reject
 from marivo.semantic._deferred_semantics import consume_field
-from marivo.semantic.expressions import Entity
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class MemberAxis:
-    """Locate the unique compatible complete identity axis on a receiver."""
-
-    def __repr__(self) -> str:
-        return "<MemberAxis kind=member; use marivo.help('analysis.member')>"
-
-
-def member() -> MemberAxis:
-    """Locate a complete identity already provided by the receiving domain.
-
-    Args: None.
-    Returns: An immutable MemberAxis marker.
-    Example: ``session.observe({'sales':sales},members=people,by=(mv.member(),))``.
-    Constraints: Requires one compatible bound identity; it never guesses an Entity.
-    """
-    return MemberAxis()
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class MembershipAxis(MembershipBinding):
-    """A correlated member bucket binding; construct with ``mv.membership``."""
-
-    def __repr__(self) -> str:
-        return f"<MembershipAxis fields={len(self.fields)} paths={len(self.paths)} unmatched={self.unmatched}; use .show()>"
-
-    def show(self) -> str:
-        """Return bounded source-free member fields, paths and unmatched policy."""
-        return "\n".join((repr(self), *(field.field.ref.key for field in self.fields[:8])))
+from marivo.semantic.expressions import Entity, Relationship
 
 
 def _axis(read: FieldRead) -> AxisBinding:
@@ -90,33 +62,28 @@ def _axis(read: FieldRead) -> AxisBinding:
 
 
 def _axes(
-    by: tuple[Deferred | MembershipAxis | MemberAxis | ComparisonAxis, ...],
-    *,
-    available: tuple[ComparisonAxis, ...] = (),
+    by: tuple[Deferred | Grouping, ...],
 ) -> tuple[tuple[ComparisonAxis, ...], tuple[MembershipBinding, ...]]:
     axes: list[ComparisonAxis] = []
     memberships: list[MembershipBinding] = []
     for item in by:
-        if isinstance(item, MemberAxis):
-            candidates = tuple(
-                axis for axis in available if isinstance(axis, AxisBinding) and axis.field is None
-            )
-            if len(candidates) != 1:
-                reject(
-                    "one compatible bound identity axis",
-                    repr(available),
-                    "Provide explicit members=population or select one exact identity binding.",
-                    "analysis.member",
-                )
-            axes.append(candidates[0])
-        elif isinstance(item, MembershipAxis):
-            memberships.append(item)
-            axes.extend(_axis(read) for read in item.fields)
-        elif isinstance(item, (AxisBinding, CalendarCoordinate)):
-            axes.append(item)
-        else:
+        if isinstance(item, Grouping):
+            binding = item._binding
+            if isinstance(binding, MembershipBinding):
+                memberships.append(binding)
+                axes.extend(_axis(read) for read in binding.fields)
+            else:
+                axes.append(binding)
+        elif isinstance(item, Deferred):
             field = consume_field(item)
             axes.append(_axis(field.field_read or FieldRead(field.reference, field.root)))
+        else:
+            reject(
+                "a semantic field or Grouping",
+                type(item).__name__,
+                "Use a resolved field, mv.identity(entity), mv.membership(...), or population.axes.",
+                "population",
+            )
     identities = tuple(
         ("calendar", axis.identity)
         if isinstance(axis, CalendarCoordinate)
@@ -131,6 +98,57 @@ def _axes(
             "population",
         )
     return tuple(axes), tuple(memberships)
+
+
+def identity(
+    target: Entity | tuple[Relationship, ...],
+    *,
+    at: InstantAnchor | None = None,
+) -> Grouping:
+    """Capture grouping by one complete Entity identity, without selecting members.
+
+    Args:
+        target: A resolved Entity or nonempty connected directed relationship path.
+        at: Exact version selection instant for a versioned target.
+
+    Returns:
+        An immutable identity Grouping; no source keys are enumerated.
+
+    Example:
+        ``session.observe({'sales': sales}, by=(mv.identity(customer),))``.
+
+    Constraints: Explicit paths infer their target Entity. Observation binds every
+        primary-key component through a single-valued route. Use mv.identities
+        for a finite requested key domain, or session.members for source members.
+    """
+    if at is not None and not isinstance(at, InstantAnchor):
+        reject(
+            "an exact InstantAnchor", type(at).__name__, "Use session.instant(...).", "identity.at"
+        )
+    path: tuple[ExactRef, ...]
+    if isinstance(target, Entity):
+        entity, path = target.ref, ()
+    elif (
+        isinstance(target, tuple)
+        and target
+        and all(isinstance(step, Relationship) for step in target)
+    ):
+        if any(left.to_entity.ref != right.from_entity.ref for left, right in pairwise(target)):
+            reject(
+                "a connected directed relationship path",
+                repr(target),
+                "Pass relationships in source-to-target order.",
+                "identity",
+            )
+        entity, path = target[-1].to_entity, tuple(step.ref for step in target)
+    else:
+        reject(
+            "a resolved Entity or nonempty relationship path",
+            type(target).__name__,
+            "Use mv.identity(entity) or mv.identity((relationship, ...)).",
+            "identity",
+        )
+    return _CoordinateGrouping(AxisBinding(entity, None, path, "identity", at))
 
 
 def _owner(definition: PopulationDependency) -> Owner | None:
@@ -156,21 +174,21 @@ class Population(PopulationParameter):
     _frame_inputs: tuple[FrameKeyInput, ...] = field(default=(), compare=False, repr=False)
 
     @property
-    def axes(self) -> tuple[ComparisonAxis, ...]:
+    def axes(self) -> tuple[Grouping, ...]:
         """Return all complete coordinate axes in definition order.
 
-        Returns: The captured axis tuple; reading is source/schema free.
+        Returns: Ordered single-coordinate Grouping descriptors; reading is source/schema free.
         Example: ``population.project(by=population.axes)``.
-        Constraints: Read-only metadata; never enumerates the population keys.
+        Constraints: Does not import keys, selection or membership allocation bindings.
         """
-        return self.definition.axes
+        return tuple(_CoordinateGrouping(axis) for axis in self._definition.axes)
 
     @property
     def memberships(self) -> tuple[MembershipBinding, ...]:
-        return self.definition.memberships
+        return self._definition.memberships
 
     def __repr__(self) -> str:
-        return f"<Population id={computation_fingerprint(self.definition)[:16]} axes={len(self.axes)}; use .show()>"
+        return f"<Population id={computation_fingerprint(self._definition)[:16]} axes={len(self._definition.axes)}; use .show()>"
 
     def show(self) -> None:
         """Print bounded captured domain facts without enumerating source keys.
@@ -179,16 +197,16 @@ class Population(PopulationParameter):
         Example: ``population.show()``.
         Constraints: No schema/source reads or evaluation; full axes remain in axes.
         """
-        owner = _owner(self.definition)
+        owner = _owner(self._definition)
         facts = (
-            ("axes", str(len(self.axes))),
-            ("definition", computation_fingerprint(self.definition)),
-            ("scope", scope_summary(self.definition)),
+            ("axes", str(len(self._definition.axes))),
+            ("definition", computation_fingerprint(self._definition)),
+            ("scope", scope_summary(self._definition)),
             ("owner", owner.session_id if owner is not None else "unbound"),
             (
                 "keys",
-                f"{len(self.definition.keys)} captured complete literal coordinates"
-                if isinstance(self.definition, LiteralPopulation)
+                f"{len(self._definition.keys)} captured complete literal coordinates"
+                if isinstance(self._definition, LiteralPopulation)
                 else "unevaluated program; show does not enumerate keys",
             ),
             *(
@@ -198,7 +216,7 @@ class Population(PopulationParameter):
                     if isinstance(axis, CalendarCoordinate)
                     else f"{axis.field.ref.key if axis.field else axis.entity.ref.key}; path={axis.path}; at={axis.at}",
                 )
-                for index, axis in enumerate(self.axes[:6])
+                for index, axis in enumerate(self._definition.axes[:6])
             ),
         )
         print("logical Population")
@@ -211,13 +229,11 @@ class Population(PopulationParameter):
                 print(f"{name}={value}")
         if omitted:
             print(f"facts_omitted={omitted}; complete coordinates: population.axes")
-        if len(self.axes) > 6:
-            print(f"axes_omitted={len(self.axes) - 6}; complete axes: population.axes")
+        if len(self._definition.axes) > 6:
+            print(f"axes_omitted={len(self._definition.axes) - 6}; complete axes: population.axes")
         print("Help: analysis.population")
 
-    def project(
-        self, *, by: tuple[Deferred | MembershipAxis | MemberAxis | ComparisonAxis, ...]
-    ) -> Population:
+    def project(self, *, by: tuple[Deferred | Grouping, ...]) -> Population:
         """Select/reorder existing axes, preserving membership bindings.
 
         Args: by: Existing bound axes or their captured fields.
@@ -225,15 +241,15 @@ class Population(PopulationParameter):
         Example: ``population.project(by=(population.axes[0],))``.
         Constraints: Projection cannot read new attributes.
         """
-        axes, _ = _axes(by, available=self.axes)
-        if any(axis not in self.axes for axis in axes):
+        axes, _ = _axes(by)
+        if any(axis not in self._definition.axes for axis in axes):
             reject(
                 "complete axes already present in this Population",
                 repr(axes),
                 "Select existing complete axes; use explicit source relationships for new coordinates.",
                 "Population.project",
             )
-        positions = tuple(self.axes.index(axis) for axis in axes)
+        positions = tuple(self._definition.axes.index(axis) for axis in axes)
         memberships = tuple(
             MembershipBinding(
                 tuple(read for read in binding.fields if _axis(read) in axes),
@@ -245,8 +261,8 @@ class Population(PopulationParameter):
         )
         return Population(
             PopulationProgram(
-                PopulationProject(self.definition, positions),
-                _owner(self.definition),
+                PopulationProject(self._definition, positions),
+                _owner(self._definition),
                 axes,
                 memberships,
             ),
@@ -254,22 +270,22 @@ class Population(PopulationParameter):
         )
 
     def _set(self, other: Population, operation: str) -> Population:
-        if self.axes != other.axes or self.memberships != other.memberships:
+        if self._definition.axes != other._definition.axes or self.memberships != other.memberships:
             reject(
                 "identical ordered axes and membership bindings",
                 "incompatible domains",
                 "Project to matching axes and bindings before combining.",
                 f"population.{operation}",
             )
-        owner = _combined_owner((self.definition, other.definition))
+        owner = _combined_owner((self._definition, other._definition))
         if operation == "union":
-            node = PopulationSet(self.definition, other.definition, "union")
+            node = PopulationSet(self._definition, other._definition, "union")
         elif operation == "intersection":
-            node = PopulationSet(self.definition, other.definition, "intersection")
+            node = PopulationSet(self._definition, other._definition, "intersection")
         else:
-            node = PopulationSet(self.definition, other.definition, "difference")
+            node = PopulationSet(self._definition, other._definition, "difference")
         return Population(
-            PopulationProgram(node, owner, self.axes, self.memberships),
+            PopulationProgram(node, owner, self._definition.axes, self.memberships),
             merge_frame_key_inputs(self._frame_inputs, other._frame_inputs, owner=owner),
         )
 
@@ -285,9 +301,7 @@ class Population(PopulationParameter):
         """Subtract matching complete domain keys from this domain."""
         return self._set(other, "difference")
 
-    def classify(
-        self, *, by: tuple[Deferred | MembershipAxis | MemberAxis | ComparisonAxis, ...]
-    ) -> Population:
+    def classify(self, *, by: tuple[Deferred | Grouping, ...]) -> Population:
         """Read member classifications directly and retain allocation bindings.
 
         Args: by: Fields or membership descriptors owned by this identity Entity.
@@ -296,18 +310,18 @@ class Population(PopulationParameter):
         Constraints: Requires one identity axis; membership paths are not traversed.
         """
         if (
-            len(self.axes) != 1
-            or not isinstance(self.axes[0], AxisBinding)
-            or self.axes[0].role != "identity"
+            len(self._definition.axes) != 1
+            or not isinstance(self._definition.axes[0], AxisBinding)
+            or self._definition.axes[0].role != "identity"
         ):
             reject(
                 "one Entity identity axis",
-                str(len(self.axes)),
+                str(len(self._definition.axes)),
                 "Project a single identity axis first.",
                 "population.classify",
             )
-        axes, memberships = _axes(by, available=self.axes)
-        entity = self.axes[0].entity
+        axes, memberships = _axes(by)
+        entity = self._definition.axes[0].entity
         if any(isinstance(axis, CalendarCoordinate) for axis in axes):
             reject(
                 "member fields",
@@ -328,7 +342,9 @@ class Population(PopulationParameter):
             for axis in member_axes
             if axis.field is not None
         )
-        if any(axis.role == "identity" and axis != self.axes[0] for axis in member_axes):
+        if any(
+            axis.role == "identity" and axis != self._definition.axes[0] for axis in member_axes
+        ):
             reject(
                 "the existing member identity axis",
                 "a different identity binding",
@@ -337,8 +353,8 @@ class Population(PopulationParameter):
             )
         return Population(
             PopulationProgram(
-                PopulationClassify(self.definition, reads),
-                _owner(self.definition),
+                PopulationClassify(self._definition, reads),
+                _owner(self._definition),
                 axes,
                 memberships,
             ),
@@ -353,21 +369,21 @@ class Population(PopulationParameter):
         Example: ``domain.where(mv.in_population(allowed))``.
         Constraints: Every predicate domain must project from the receiver axes.
         """
-        dependencies = condition_populations(predicate.condition)
+        dependencies = condition_populations(predicate._condition)
         for item in dependencies:
-            if any(axis not in self.axes for axis in item.axes):
+            if any(axis not in self._definition.axes for axis in item.axes):
                 reject(
                     "a subset of receiver axes",
                     "incompatible predicate domain",
                     "Project the predicate onto matching bound axes.",
                     "population.where",
                 )
-        owner = _combined_owner((self.definition, *dependencies))
+        owner = _combined_owner((self._definition, *dependencies))
         return Population(
             PopulationProgram(
-                PopulationFilter(self.definition, predicate.condition),
+                PopulationFilter(self._definition, predicate._condition),
                 owner,
-                self.axes,
+                self._definition.axes,
                 self.memberships,
             ),
             merge_frame_key_inputs(self._frame_inputs, predicate._frame_inputs, owner=owner),
@@ -394,7 +410,7 @@ class Population(PopulationParameter):
         axis = AxisBinding(via[-1].to_entity, None, (), "identity", at)
         return Population(
             PopulationProgram(
-                PopulationImage(self.definition, via, at), _owner(self.definition), (axis,)
+                PopulationImage(self._definition, via, at), _owner(self._definition), (axis,)
             ),
             self._frame_inputs,
         )
@@ -411,10 +427,10 @@ class Population(PopulationParameter):
         """
         _identity_path(self, via)
         if (
-            len(targets.axes) != 1
-            or not isinstance(targets.axes[0], AxisBinding)
-            or targets.axes[0].role != "identity"
-            or targets.axes[0].entity.ref != via[-1].to_entity.ref
+            len(targets._definition.axes) != 1
+            or not isinstance(targets._definition.axes[0], AxisBinding)
+            or targets._definition.axes[0].role != "identity"
+            or targets._definition.axes[0].entity.ref != via[-1].to_entity.ref
         ):
             reject(
                 "the path target identity axis",
@@ -424,27 +440,27 @@ class Population(PopulationParameter):
             )
         return Population(
             PopulationProgram(
-                PopulationPreimage(self.definition, targets.definition, via),
-                _combined_owner((self.definition, targets.definition)),
-                self.axes,
+                PopulationPreimage(self._definition, targets._definition, via),
+                _combined_owner((self._definition, targets._definition)),
+                self._definition.axes,
                 self.memberships,
             ),
             merge_frame_key_inputs(
                 self._frame_inputs,
                 targets._frame_inputs,
-                owner=_combined_owner((self.definition, targets.definition)),
+                owner=_combined_owner((self._definition, targets._definition)),
             ),
         )
 
 
 def _identity_path(population: Population, path: tuple[RelationshipParameter, ...]) -> None:
     if (
-        len(population.axes) != 1
-        or not isinstance(population.axes[0], AxisBinding)
-        or population.axes[0].role != "identity"
+        len(population._definition.axes) != 1
+        or not isinstance(population._definition.axes[0], AxisBinding)
+        or population._definition.axes[0].role != "identity"
         or type(path) is not tuple
         or not path
-        or path[0].from_entity.ref != population.axes[0].entity.ref
+        or path[0].from_entity.ref != population._definition.axes[0].entity.ref
         or any(left.to_entity.ref != right.from_entity.ref for left, right in pairwise(path))
     ):
         reject(
@@ -463,18 +479,18 @@ class PopulationPredicate(PopulationPredicateParameter):
 
     def __and__(self, other: PopulationPredicate) -> PopulationPredicate:
         return PopulationPredicate(
-            PopulationAnd(self.condition, other.condition),
+            PopulationAnd(self._condition, other._condition),
             merge_frame_key_inputs(self._frame_inputs, other._frame_inputs),
         )
 
     def __or__(self, other: PopulationPredicate) -> PopulationPredicate:
         return PopulationPredicate(
-            PopulationOr(self.condition, other.condition),
+            PopulationOr(self._condition, other._condition),
             merge_frame_key_inputs(self._frame_inputs, other._frame_inputs),
         )
 
     def __invert__(self) -> PopulationPredicate:
-        return PopulationPredicate(PopulationNot(self.condition), self._frame_inputs)
+        return PopulationPredicate(PopulationNot(self._condition), self._frame_inputs)
 
     def __bool__(self) -> bool:
         reject(
@@ -485,7 +501,7 @@ class PopulationPredicate(PopulationPredicateParameter):
         )
 
     def __repr__(self) -> str:
-        return f"<PopulationPredicate domains={len(condition_populations(self.condition))}; use .show()>"
+        return f"<PopulationPredicate domains={len(condition_populations(self._condition))}; use .show()>"
 
     def show(self) -> str:
         """Return the closed predicate kind without enumerating domain keys."""
@@ -500,27 +516,11 @@ def in_population(population: Population) -> PopulationPredicate:
     Example: ``domain.where(mv.in_population(allowed))``.
     Constraints: This captures a domain definition and performs no source access.
     """
-    return PopulationPredicate(PopulationContains(population.definition), population._frame_inputs)
+    return PopulationPredicate(PopulationContains(population._definition), population._frame_inputs)
 
 
 def _calendar_population(calendar: CalendarAxis) -> Population:
-    grid = calendar.grid
-    coordinate = CalendarCoordinate(
-        grid.identity,
-        grid.grain_spec,
-        grid.boundary_timezone,
-        grid.snapshot_digest,
-        tuple(
-            (
-                anchor_from_datetime(cell.original_start),
-                anchor_from_datetime(cell.original_end),
-                anchor_from_datetime(cell.start),
-                anchor_from_datetime(cell.end),
-            )
-            for cell in grid.cells
-        ),
-        grid.calendar_snapshot,
-    )
+    coordinate = calendar._binding
     return Population(PopulationProgram(CalendarKeys(coordinate), None, (coordinate,)))
 
 
@@ -529,13 +529,13 @@ def membership(
     *,
     via: tuple[tuple[RelationshipParameter, ...], ...],
     unmatched: Literal["exclude", "null"],
-) -> MembershipAxis:
+) -> Grouping:
     """Capture correlated member fields and explicit allocation paths.
 
     Args: by: One field or nonempty tuple from one member Entity. via: Ordered
         directed paths, possibly empty. unmatched: ``exclude`` or ``null``.
 
-    Returns: An immutable MembershipAxis for observe or Metric.per.
+    Returns: An immutable membership Grouping for observe or Metric.per.
     Example: ``mv.membership(tag, via=((order_tags,),), unmatched='exclude')``.
     Constraints: Captures metadata only; no source or Session is opened.
     """
@@ -587,7 +587,7 @@ def membership(
                 "membership",
             )
         starts.add(path[0].from_entity.ref)
-    result = MembershipAxis(reads, via, "exclude" if unmatched == "exclude" else "null")
+    result = _MembershipGrouping(MembershipBinding(reads, via, unmatched))
     _axes((result,))
     return result
 
@@ -622,7 +622,7 @@ def identities(entity: Entity, *, keys: tuple[tuple[LiteralValue, ...], ...]) ->
 
 
 def coordinates(
-    *, by: tuple[Deferred | MembershipAxis, ...], keys: tuple[tuple[LiteralValue, ...], ...]
+    *, by: tuple[Deferred | Grouping, ...], keys: tuple[tuple[LiteralValue, ...], ...]
 ) -> Population:
     """Capture a complete finite field domain with optional membership bindings.
 
@@ -632,6 +632,13 @@ def coordinates(
     Constraints: The external observe domain must cover consumed contributions.
     """
     axes, memberships = _axes(by)
+    if any(not isinstance(axis, AxisBinding) or axis.role != "field" for axis in axes):
+        reject(
+            "field or membership groupings",
+            repr(by),
+            "Use mv.identities for identity keys and product for calendar domains.",
+            "coordinates",
+        )
     try:
         return Population(
             LiteralPopulation(
@@ -669,9 +676,9 @@ def product(*factors: Population | CalendarAxis) -> Population:
         _calendar_population(factor) if isinstance(factor, CalendarAxis) else factor
         for factor in factors
     )
-    axes = tuple(axis for factor in populations for axis in factor.axes)
-    _axes(axes)
-    definitions = tuple(factor.definition for factor in populations)
+    axes = tuple(axis for factor in populations for axis in factor._definition.axes)
+    _axes(tuple(_CoordinateGrouping(axis) for axis in axes))
+    definitions = tuple(factor._definition for factor in populations)
     return Population(
         PopulationProgram(
             PopulationProduct(definitions),

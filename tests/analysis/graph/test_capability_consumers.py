@@ -220,7 +220,7 @@ def test_source_coordinates_statistics_and_original_state(
         )
         values = session.observe(
             {"value": session.catalog.metrics.get("sales.total")},
-            by=(mv.member(), bucket, revision),
+            by=(selected.axes[0], bucket, revision),
             members=selected,
         )
         counted = values.reduce({"value": mv.row_count()}, by=(values.axes[1],)).persist()

@@ -217,15 +217,15 @@ def test_frame_keys_match_ordinary_python_temporal_literals(
         (selected.where(mv.in_population(finite)), (literal, None)),
     ):
         actual = evaluate_population(
-            operation.definition, (selected.definition,), (rows,), ((("t",),),)
+            operation._definition, (selected._definition,), (rows,), ((("t",),),)
         )
         assert tuple(_token(key) for key in actual) == tuple(_token((key,)) for key in expected)
     # Exercise the generic complete-row predicate consumer as well as PopulationFilter.
-    condition = mv.in_population(finite).condition
+    condition = mv.in_population(finite)._condition
     assert condition_mask(
         condition,
         rows,
-        selected.axes,
+        selected._definition.axes,
         (("t",),),
     ).tolist() == [False, True, True]
 

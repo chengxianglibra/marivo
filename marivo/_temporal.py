@@ -32,10 +32,12 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_core import core_schema
 
+from marivo._grouping import Grouping
 from marivo.refs import PeriodCalendarKind, Ref, TemporalSetKind, WorkScheduleKind
 from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, Card, result_repr
 
 if TYPE_CHECKING:
+    from marivo._definition.types import CalendarCoordinate
     from marivo._temporal_grid import BoundTimeGrid
 
 _DATE_TYPE = date
@@ -3448,11 +3450,38 @@ def ref_factory_work_schedule(path: str) -> Ref[WorkScheduleKind]:
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class CalendarAxis:
+class CalendarAxis(Grouping):
     """Complete finite calendar obtained from TimeScope.by(Grain)."""
 
     scope: TimeScope
     grid: BoundTimeGrid
+
+    @property
+    def kind(self) -> Literal["calendar"]:
+        """Return the calendar grouping kind without source access."""
+        return "calendar"
+
+    @property
+    def _binding(self) -> CalendarCoordinate:
+        from marivo._definition.types import CalendarCoordinate
+
+        grid = self.grid
+        return CalendarCoordinate(
+            grid.identity,
+            grid.grain_spec,
+            grid.boundary_timezone,
+            grid.snapshot_digest,
+            tuple(
+                (
+                    anchor_from_datetime(c.original_start),
+                    anchor_from_datetime(c.original_end),
+                    anchor_from_datetime(c.start),
+                    anchor_from_datetime(c.end),
+                )
+                for c in grid.cells
+            ),
+            grid.calendar_snapshot,
+        )
 
     def __repr__(self) -> str:
         return f"<CalendarAxis id={self.grid.identity[:16]} buckets={len(self.grid.cells)}; use .show()>"

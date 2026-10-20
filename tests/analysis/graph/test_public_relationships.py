@@ -78,7 +78,7 @@ def test_membership_ref_and_members_entity_have_typed_repairs(relationship_proje
     assert error.repair is not None
     assert "session.catalog.relationships.get(relationship_ref)" in error.repair.action
     relationship = session.catalog.relationships.get(relationship_ref)
-    assert mv.membership(region, via=((relationship,),), unmatched="exclude").paths
+    assert mv.membership(region, via=((relationship,),), unmatched="exclude").kind == "membership"
 
     entity = session.catalog.entities.get("sales.events")
     with pytest.raises(CoreRuleError) as invalid_entity:
@@ -87,5 +87,5 @@ def test_membership_ref_and_members_entity_have_typed_repairs(relationship_proje
     assert invalid_entity.value.received == "Entity"
     assert invalid_entity.value.repair is not None
     assert invalid_entity.value.repair.action == "Pass ms.ref.entity('sales.events')."
-    assert session.members(ms.ref.entity("sales.events")).definition
+    assert isinstance(session.members(ms.ref.entity("sales.events")), mv.Population)
     assert session.runs().items == ()

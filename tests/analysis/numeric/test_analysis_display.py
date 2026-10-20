@@ -39,7 +39,13 @@ def _values(
     return session.observe(
         {"value": session.catalog.metrics.get("sales." + metric)},
         during=session.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=() if overall else (field,) if grouped else (mv.member(), field) if region else members,
+        by=()
+        if overall
+        else (field,)
+        if grouped
+        else (members.axes[0], field)
+        if region
+        else members,
         members=members if region or grouped or overall else None,
     )
 
@@ -573,7 +579,7 @@ def test_group_and_entity_time_display_domains(analysis_dsl_case_factory: DslCas
     values = session.observe(
         {"value": session.catalog.metrics.get("sales.order_count")},
         during=period,
-        by=(mv.member(), region),
+        by=(members.axes[0], region),
         members=members,
     )
     frame = plain(values.compute())

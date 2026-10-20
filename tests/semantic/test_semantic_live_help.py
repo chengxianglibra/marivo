@@ -691,7 +691,7 @@ def test_per_help_covers_observed_and_complete_sample_domains(
 ) -> None:
     marivo.help("semantic.metric.per")
     text = capsys.readouterr().out
-    for family in ("Dimension", "TimeField", "MembershipAxis", "tuple[", "Population"):
+    for family in ("Dimension", "TimeField", "Grouping", "tuple[", "Population"):
         assert family in text
     assert "Field samples use observed keys" in text
     assert "Population binds every compatible member, including empty samples" in text

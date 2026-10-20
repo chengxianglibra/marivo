@@ -305,7 +305,7 @@ def test_source_fact_filters_and_special_complete_keys_are_lossless(
     assert "... omitted" not in serialized
     entity = session.catalog.entities.get("sales.facts")
     selected = mv.identities(entity, keys=(("t1", 1), ("t2", 1)))
-    key_fact = source_scope(selected.definition)
+    key_fact = source_scope(selected._definition)
     assert '"t1"' in key_fact and '"t2"' in key_fact and '"0x1"' in key_fact
     restricted = _observe(session, where=mv.in_population(selected)).compute()
     key_scope = json.loads(key_fact)
@@ -342,7 +342,7 @@ def test_read_retains_complete_population_scope_without_producer_formula(session
     assert result.to_pandas()[("value", "channel")].tolist() == ["Web", "Store"]
     facts = _memory(result).metadata.audit.source_facts
     assert any(
-        _contains_scope(scope, json.loads(source_scope(population.definition)))
+        _contains_scope(scope, json.loads(source_scope(population._definition)))
         for scope in _fact_scopes(facts)
     )
 
@@ -407,7 +407,7 @@ def test_source_identity_rows_cannot_hide_null_complete_key(session: Session) ->
 
 def test_calendar_freeze_preserves_dst_fold_and_partial_nominal_bounds() -> None:
     fold = exact_scope("2024-11-03", "2024-11-04", "America/New_York").by(mv.grain("hour"))
-    coordinate = _calendar_population(fold).definition.axes[0]
+    coordinate = _calendar_population(fold)._definition.axes[0]
     assert isinstance(coordinate, CalendarCoordinate)
     assert coordinate.grain_spec is fold.grid.grain_spec
     assert coordinate.grain == fold.grid.grain_token == "hour"
@@ -423,7 +423,7 @@ def test_calendar_freeze_preserves_dst_fold_and_partial_nominal_bounds() -> None
     assert all(not column.nullable for column in frozen.directory.schema.columns)
 
     partial = exact_scope("2026-08-15", "2026-09-01", "UTC").by(mv.grain("month"))
-    coordinate = _calendar_population(partial).definition.axes[0]
+    coordinate = _calendar_population(partial)._definition.axes[0]
     assert isinstance(coordinate, CalendarCoordinate)
     rows = freeze_calendar(coordinate, token="axis.0", name="month", key=key).directory.rows
     assert rows["nominal_label"].tolist() == ["2026-08-01"]
@@ -448,7 +448,7 @@ def test_named_calendar_freeze_captures_exact_level_and_canonical_labels() -> No
     for level, labels in (("short", ["0", "1", "2", "3"]), ("long", ['"P0"', '"P1"'])):
         grain = semantic_grain(calendar=calendar, level=level, snapshot=snapshot)
         axis = exact_scope(start, end, "UTC").by(grain)
-        coordinate = _calendar_population(axis).definition.axes[0]
+        coordinate = _calendar_population(axis)._definition.axes[0]
         assert isinstance(coordinate, CalendarCoordinate)
         frozen = freeze_calendar(coordinate, token="axis.0", name=level, key=key)
         assert frozen.axis.frozen is not None
@@ -460,7 +460,7 @@ def test_named_calendar_freeze_captures_exact_level_and_canonical_labels() -> No
     day = exact_scope(start, start + timedelta(days=1), "UTC").by(
         semantic_grain(calendar=calendar, level="day", snapshot=snapshot)
     )
-    coordinate = _calendar_population(day).definition.axes[0]
+    coordinate = _calendar_population(day)._definition.axes[0]
     assert isinstance(coordinate, CalendarCoordinate)
     frozen = freeze_calendar(coordinate, token="axis.0", name="day", key=key)
     assert frozen.directory.rows["nominal_label"].tolist() == ['"2026-01-01"']
@@ -511,19 +511,20 @@ def test_membership_scope_encodes_only_the_complete_closed_binding(
         session.catalog.relationships.get("sales.link_tags"),
     )
     public = mv.membership((label, channel), via=(path,), unmatched=unmatched)
-    base = MembershipBinding(public.fields, public.paths, public.unmatched)
+    base = public._binding
+    assert isinstance(base, MembershipBinding)
     encoded = source_scope(public)
     assert encoded == source_scope(base)
     assert json.loads(encoded) == {
         "scope": "MembershipBinding",
-        "fields": json.loads(source_scope(public.fields)),
-        "paths": json.loads(source_scope(public.paths)),
+        "fields": json.loads(source_scope(base.fields)),
+        "paths": json.loads(source_scope(base.paths)),
         "unmatched": json.loads(source_scope(unmatched)),
     }
-    assert len(public.fields) == 2 and tuple(map(len, public.paths)) == (2,)
+    assert len(base.fields) == 2 and tuple(map(len, base.paths)) == (2,)
     for key in ("sales.tags.label", "sales.tags.channel", "sales.order_links", "sales.link_tags"):
         assert key in encoded
-    ordinary = public.fields[0]
+    ordinary = base.fields[0]
     assert json.loads(source_scope(ordinary)) == {
         "scope": "FieldRead",
         "field": ["reference", ordinary.field.ref.key, ordinary.field.version],

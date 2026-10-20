@@ -40,7 +40,7 @@ def _observe(
         if overall
         else population.classify(by=(region,))
         if grouped
-        else (mv.member(), region)
+        else (population.axes[0], region)
         if classified
         else population,
         members=population,

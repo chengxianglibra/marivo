@@ -41,6 +41,7 @@ from marivo._definition.types import (
     Owner,
     literal_token,
 )
+from marivo._grouping import Grouping
 from marivo.analysis.core.data_types import (
     DataColumn,
     DecimalDataType,
@@ -84,7 +85,8 @@ _SCOPE_RECORDS = (
     RelationshipParameter,
     Owner,
 )
-_SPECIAL = (MembershipBinding, PopulationParameter, PopulationPredicateParameter)
+
+_SPECIAL = (Grouping, MembershipBinding, PopulationParameter, PopulationPredicateParameter)
 
 
 def _special_scopes(recipe: Resolver) -> tuple[object, ...]:
@@ -108,6 +110,8 @@ def _special_scopes(recipe: Resolver) -> tuple[object, ...]:
 
 
 def _scope(value: object) -> object:
+    if isinstance(value, Grouping):
+        return _scope(value._binding)
     if value is None or isinstance(
         value, (str, int, float, bool, Decimal, date, datetime, timedelta)
     ):
@@ -148,9 +152,9 @@ def _scope(value: object) -> object:
             "cells": _scope(value.cells),
         }
     if isinstance(value, PopulationParameter):
-        return {"scope": "PopulationParameter", "definition": _scope(value.definition)}
+        return {"scope": "PopulationParameter", "definition": _scope(value._definition)}
     if isinstance(value, PopulationPredicateParameter):
-        return {"scope": "PopulationPredicateParameter", "condition": _scope(value.condition)}
+        return {"scope": "PopulationPredicateParameter", "condition": _scope(value._condition)}
     if isinstance(value, MembershipBinding):
         return {
             "scope": "MembershipBinding",

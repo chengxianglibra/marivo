@@ -176,8 +176,8 @@ mrr = catalog.fields.get("saas.recurring_lines.mrr_amount").sum(
     time=catalog.fields.get("saas.recurring_lines.month_at"), empty="zero",
 )
 cohort = mv.identities(Accounts, keys=(("t1", "A"), ("t1", "B"), ("t2", "A")))
-baseline = s.observe({"mrr": mrr}, members=cohort, during=august, by=(mv.member(),)).compute()
-current = s.observe({"mrr": mrr}, members=cohort, during=september, by=(mv.member(),)).compute()
+baseline = s.observe({"mrr": mrr}, members=cohort, during=august, by=(cohort.axes[0],)).compute()
+current = s.observe({"mrr": mrr}, members=cohort, during=september, by=(cohort.axes[0],)).compute()
 change = current.compare(baseline, on=((current.axes[0], baseline.axes[0]),)).compute()
 churned = change.where(change["left.mrr"] == 0).compute()
 churned_accounts = s.population_from(churned, on=((churned.axes[0], Accounts),))
@@ -525,7 +525,7 @@ sessions = catalog.entities.get("experiment.sessions").count(
     time=catalog.fields.get("experiment.sessions.started_at"),
 )
 units = s.observe({"revenue": revenue, "sessions": sessions}, members=cohort,
-                  during=september, by=(arm, preperiod, mv.member())).compute()
+                  during=september, by=(arm, preperiod, cohort.axes[0])).compute()
 a_units = units.where(units.coord(units.axes[0]) == "A")
 b_units = units.where(units.coord(units.axes[0]) == "B")
 a_mean = a_units.reduce({"mean_workspace_revenue": a_units["revenue"].mean()})

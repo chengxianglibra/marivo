@@ -12,7 +12,6 @@ from ibis.common.deferred import Deferred
 
 import marivo
 import marivo.analysis as mv
-from marivo._definition.types import AxisBinding
 from marivo.analysis.dsl.column import row_count
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
@@ -449,22 +448,22 @@ def test_explicit_members_and_member_count(result_session: Session) -> None:
     assert result[("value", "people")].tolist() == [3]
     assert result[("value", "per_person")].tolist() == [10.0]
     complete = (
-        session.observe({"total": amount.sum()}, members=requested, by=(mv.member(),))
+        session.observe({"total": amount.sum()}, members=requested, by=(requested.axes[0],))
         .compute()
         .to_pandas()
     )
     assert complete.iloc[:, 0].tolist() == [1, 3, 999]
     assert complete[("value", "total")].to_dict() == {0: 10, 1: 20, 2: None}
-    assert isinstance(requested.axes[0], AxisBinding)
-    assert requested.axes[0].role == "identity"
-    assert requested.classify(by=(mv.member(),)).axes == requested.axes
-    assert session.frame(requested.project(by=(mv.member(),))).compute().to_pandas().iloc[
+    assert isinstance(requested.axes[0], mv.Grouping)
+    assert requested.axes[0].kind == "identity"
+    assert requested.classify(by=(requested.axes[0],)).axes == requested.axes
+    assert session.frame(requested.project(by=(requested.axes[0],))).compute().to_pandas().iloc[
         :, 0
     ].tolist() == [1, 3, 999]
     with pytest.raises(AnalysisError):
-        session.observe({"total": amount.sum()}, by=(mv.member(),))
+        session.observe({"total": amount.sum()}, by=(mv.identity(()),))
     other_channel = session.catalog.fields.get("sales.other_orders.channel")
-    for identity in (mv.member(), requested.axes[0]):
+    for identity in (mv.identity(orders), requested.axes[0]):
         with pytest.raises(AnalysisError, match="direct classification fields"):
             session.observe(
                 {"total": amount.sum()}, members=requested, by=(identity, other_channel)

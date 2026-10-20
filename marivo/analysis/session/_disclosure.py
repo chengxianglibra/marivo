@@ -380,8 +380,10 @@ def provider() -> DisclosureProvider:
                         n,
                         "Use an exact incomplete or failed Run id; committed success cannot be abandoned."
                         if n == "run_id" and name == "abandon_run"
-                        else "Empty () computes overall Metrics within each time bucket, or one scalar without a CalendarAxis. Nonempty fields/membership descriptors add output axes. A Population or member() with members=P includes identities without facts; classifications must be single-valued on P."
+                        else "Empty () computes overall Metrics within each time bucket, or one scalar without a CalendarAxis. Pass fields or field, identity, calendar or membership Grouping rules. population.axes reuses coordinates without keys or allocation bindings; by=population requests complete output coverage. A matching identity grouping with members=P includes identities without facts; classifications must be single-valued on P."
                         if name == "observe" and n == "by"
+                        else "Pass resolved fields or field or identity Grouping values; calendar and membership groupings are rejected. Use () for scalar literal rows."
+                        if name == "values" and n == "by"
                         else "TimeScope filters without grouping; CalendarAxis adds time buckets and must match an existing output calendar; None adds no time filter."
                         if name == "observe" and n == "during"
                         else "Pass a Field predicate or closed PopulationPredicate; member_count requires single-valued conditions on the explicit members without reselecting them."
@@ -578,11 +580,7 @@ def provider() -> DisclosureProvider:
             discovery_group="inputs",
         )
     )
-    from marivo.analysis.session._public_disclosure import inputs as public_inputs
 
-    public_descriptors, public_exports = public_inputs()
-    descriptors.extend(public_descriptors)
-    exports.extend(public_exports)
     from marivo.analysis.dsl._disclosure import provider as terminal_provider
 
     terminal = terminal_provider()

@@ -7,8 +7,8 @@ from typing import TypeAlias
 
 from ibis.common.deferred import Deferred
 
-from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.expressions import ContributionFilter, MetricNode
+from marivo._definition.grouping import _CoordinateGrouping
 from marivo._definition.query import (
     ResultQuery,
 )
@@ -27,14 +27,13 @@ from marivo._definition.types import (
     LiteralValue,
     Owner,
 )
+from marivo._grouping import Grouping
 from marivo._temporal import PeriodCalendarSnapshotV1, TimeScope
 from marivo.analysis.binding.observe import bind_observation
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import BoundQuantity, BoundSignature, ResultQuantity, reject
 from marivo.analysis.dsl.column import literal_kind
 from marivo.analysis.dsl.population import (
-    MemberAxis,
-    MembershipAxis,
     Population,
     PopulationPredicate,
     _axes,
@@ -64,7 +63,7 @@ def capture_read(
     from marivo.semantic._deferred_semantics import consume_field
     from marivo.semantic.expressions import _Resolver
 
-    if _owner(population.definition) not in (None, owner):
+    if _owner(population._definition) not in (None, owner):
         reject(
             "a Population from this Session",
             "another Session owner",
@@ -72,13 +71,13 @@ def capture_read(
             "Session.read",
         )
     if (
-        len(population.axes) != 1
-        or not isinstance(population.axes[0], AxisBinding)
-        or population.axes[0].field is not None
+        len(population._definition.axes) != 1
+        or not isinstance(population._definition.axes[0], AxisBinding)
+        or population._definition.axes[0].field is not None
     ):
         reject(
             "one Entity identity axis",
-            repr(population.axes),
+            repr(population._definition.axes),
             "Project one complete identity axis before reading attributes.",
             "Session.read",
         )
@@ -89,7 +88,7 @@ def capture_read(
             "Pass session.read(people, {'region': region}).",
             "Session.read",
         )
-    identity = population.axes[0]
+    identity = population._definition.axes[0]
     resolver = _Resolver(state)
     paths = RelationshipResolver.build(state.registry)
     reads = []
@@ -114,7 +113,7 @@ def capture_read(
         identity,
         *(AxisBinding(read.entity, read.field, read.path, "field", read.at) for read in unique),
     )
-    definition = PopulationProgram(PopulationClassify(population.definition, unique), owner, axes)
+    definition = PopulationProgram(PopulationClassify(population._definition, unique), owner, axes)
     binding = ObservationBinding(None, None, CoordinateBinding(axes, "grouped", definition), ())
     return BoundGraph(
         ReadQuery(definition, tuple(unique.index(read) + 1 for read in reads), (identity,), owner),
@@ -124,7 +123,7 @@ def capture_read(
 
 def capture_values(
     *,
-    by: tuple[Deferred | AxisBinding, ...],
+    by: tuple[Deferred | Grouping, ...],
     columns: Mapping[str, str | None],
     rows: tuple[ValueRow, ...],
     owner: Owner,
@@ -251,7 +250,7 @@ def capture_metrics(
     owner: Owner,
     *,
     during: TimeScope | CalendarAxis | None = None,
-    by: tuple[Deferred | MembershipAxis | MemberAxis | ComparisonAxis, ...] | Population = (),
+    by: tuple[Deferred | Grouping, ...] | Population = (),
     where: Deferred | PopulationPredicate | None = None,
     members: Population | None = None,
     timezone: str = "UTC",
@@ -279,7 +278,7 @@ def capture_metrics(
             consume_metric_in_state(metric, state) if state is not None else consume_metric(metric)
         )
         definition = (
-            ContributionFilter(facts.node, where.condition)
+            ContributionFilter(facts.node, where._condition)
             if isinstance(where, PopulationPredicate)
             else facts.node
         )
@@ -293,21 +292,23 @@ def capture_metrics(
             "session.observe",
         )
     if isinstance(by, Population):
-        if _owner(by.definition) not in (None, owner):
+        if _owner(by._definition) not in (None, owner):
             reject(
                 "a Population from this Session",
                 "different Session owner",
                 "Rebuild the domain in this Session.",
                 "session.observe",
             )
-        axes, memberships = by.axes, by.memberships
-        population = by.definition
+        axes, memberships = by._definition.axes, by.memberships
+        population = by._definition
     else:
-        axes, memberships = _axes(by, available=members.axes if members is not None else ())
+        axes, memberships = _axes(by)
         population = None
-        if members is not None and any(axis in members.axes for axis in axes):
+        if members is not None and any(axis in members._definition.axes for axis in axes):
             population = (
-                members.classify(by=axes).definition if axes != members.axes else members.definition
+                members.classify(by=tuple(_CoordinateGrouping(axis) for axis in axes))._definition
+                if axes != members._definition.axes
+                else members._definition
             )
 
     source_axes = tuple(
@@ -338,7 +339,7 @@ def capture_metrics(
         calendar_snapshots=calendar_snapshots,
         memberships=memberships,
         population=population,
-        members=members.definition if members is not None else None,
+        members=members._definition if members is not None else None,
     )
     signature = BoundSignature(
         owner,
@@ -359,7 +360,7 @@ def capture_metrics(
 def capture_population(population: Population, owner: Owner) -> BoundGraph:
     from marivo._definition.observations import CoordinateBinding, ObservationBinding
 
-    existing_owner = _owner(population.definition)
+    existing_owner = _owner(population._definition)
     if existing_owner is not None and existing_owner != owner:
         reject(
             "a Population from this Session",
@@ -367,13 +368,13 @@ def capture_population(population: Population, owner: Owner) -> BoundGraph:
             "Rebuild the Population in this Session.",
             "session.frame",
         )
-    axes = population.definition.axes
+    axes = population._definition.axes
     binding = ObservationBinding(
         None,
         None,
-        CoordinateBinding(axes, "grouped", population.definition, population.memberships),
+        CoordinateBinding(axes, "grouped", population._definition, population.memberships),
         (),
     )
     signature = BoundSignature(owner, (), axes, observation=binding)
-    root = ObserveQuery((), axes, owner, population.definition)
+    root = ObserveQuery((), axes, owner, population._definition)
     return BoundGraph(root, signature)

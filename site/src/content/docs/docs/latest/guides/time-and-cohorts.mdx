@@ -17,7 +17,7 @@ chosen_orders = attributes.where(attributes["region"] == "east").compute()
 east = session.population_from(chosen_orders, on=((chosen_orders.axes[0], Orders),))
 selected = session.observe(
     {"revenue": revenue}, during=august,
-    members=east, by=(mv.member(),),
+    members=east, by=(east.axes[0],),
 ).compute()
 selected.show()
 session.frame(east).compute().show()

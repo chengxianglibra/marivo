@@ -26,16 +26,10 @@ from marivo.semantic.catalog import SemanticCatalog
 if TYPE_CHECKING:
     from ibis.common.deferred import Deferred
 
-    from marivo._definition.correspondence import ComparisonAxis
-    from marivo._definition.types import AxisBinding
+    from marivo._grouping import Grouping
     from marivo.analysis.dsl.frame import AnalysisFrame
     from marivo.analysis.dsl.frame_axis import FrameAxis
-    from marivo.analysis.dsl.population import (
-        MemberAxis,
-        MembershipAxis,
-        Population,
-        PopulationPredicate,
-    )
+    from marivo.analysis.dsl.population import Population, PopulationPredicate
     from marivo.analysis.dsl.source_capture import ValueRow
     from marivo.analysis.dsl.temporal import CalendarAxis
     from marivo.analysis.materialization.admission import DatasetRuntime
@@ -236,7 +230,7 @@ class Session:
         axis = AxisBinding(resolved.ref, None, (), "identity", at)
         if isinstance(where, PopulationPredicate) and any(
             _owner(domain) not in (None, Owner(self.id, self._runtime.store.store_id))
-            for domain in condition_populations(where.condition)
+            for domain in condition_populations(where._condition)
         ):
             reject(
                 "a predicate domain owned by this Session",
@@ -247,7 +241,7 @@ class Session:
         node = SourceIdentities(
             resolved.ref,
             at,
-            where.condition
+            where._condition
             if isinstance(where, PopulationPredicate)
             else predicate.node
             if predicate is not None
@@ -310,7 +304,7 @@ class Session:
         metrics: Mapping[str, Deferred],
         *,
         during: TimeScope | CalendarAxis | None = None,
-        by: tuple[Deferred | MembershipAxis | MemberAxis | ComparisonAxis, ...] | Population = (),
+        by: tuple[Deferred | Grouping, ...] | Population = (),
         where: Deferred | PopulationPredicate | None = None,
         members: Population | None = None,
     ) -> AnalysisFrame:
@@ -319,7 +313,7 @@ class Session:
         Args:
             metrics: Nonempty ordered mapping of names to resolved Metric expressions.
             during: TimeScope filters only; CalendarAxis also adds frozen calendar buckets.
-            by: Complete output classifications or a Population output domain. Empty ()
+            by: Ordered semantic fields or Grouping rules, or a complete Population output domain. Empty ()
                 evaluates overall Metrics per time bucket, or one scalar without a calendar.
             where: Field condition appended to each contribution occurrence, or an explicit
                 PopulationPredicate restricting contributions. For member_count, conditions
@@ -398,7 +392,7 @@ class Session:
                 "Construct a Population with members, identities, coordinates or population_from.",
                 "session.frame",
             )
-        owner = _owner(population.definition)
+        owner = _owner(population._definition)
         if owner not in (None, self._runtime.local.owner):
             reject(
                 "a Population from this Store and Session",
@@ -443,7 +437,7 @@ class Session:
     def values(
         self,
         *,
-        by: tuple[Deferred | AxisBinding, ...],
+        by: tuple[Deferred | Grouping, ...],
         columns: Mapping[str, str | None],
         rows: tuple[ValueRow, ...],
     ) -> AnalysisFrame:

@@ -399,7 +399,7 @@ class _DeclarationExpressionBuilder:
 
     def dependency(self, value: object, node: ast.Name) -> object:
         from marivo._definition.deferred import inspect_deferred
-        from marivo._definition.relations import MembershipBinding, PopulationParameter
+        from marivo._definition.relations import PopulationParameter
         from marivo._definition.windows import (
             AllHistory,
             Since,
@@ -407,12 +407,13 @@ class _DeclarationExpressionBuilder:
             TrailingDuration,
             TrailingPeriods,
         )
+        from marivo._grouping import Grouping
         from marivo._temporal import Grain, InstantAnchor, TimeScope
         from marivo.semantic.expressions import Entity, Relationship
 
         if type(value) is tuple:
             return tuple(self.dependency(item, node) for item in value)
-        if isinstance(value, (MembershipBinding, PopulationParameter)):
+        if isinstance(value, (Grouping, PopulationParameter)):
             return value
         if isinstance(value, Deferred):
             inspect_deferred(value)

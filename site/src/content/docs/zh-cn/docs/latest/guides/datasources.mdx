@@ -230,7 +230,7 @@ with session.source_bindings(
     events = session.members(ms.ref.entity("monitoring.api_events"))
     pending = session.catalog.metrics.get("monitoring.pending_containers")
     query = session.observe(
-        {"pending": pending}, members=events, by=(mv.member(),)
+        {"pending": pending}, members=events, by=(events.axes[0],)
     )
 ```
 

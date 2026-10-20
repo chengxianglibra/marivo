@@ -7,6 +7,7 @@ import ibis
 import pytest
 from ibis.common.deferred import Deferred
 
+import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._definition.deferred import inspect_deferred, root_declaration
 from marivo._definition.expressions import MetricExpression, PerReduce, SourceAggregate
@@ -76,6 +77,52 @@ def test_deferred_capture_declaration_collection_and_native_composition(
     index = (revenue / amount.sum()).sqrt()
     assert isinstance(consume_metric(index).node, MetricExpression)
     assert consume_metric(index).unit == "1"
+
+
+@pytest.mark.parametrize("kind", ("field", "membership"))
+@pytest.mark.parametrize("as_tuple", (False, True))
+def test_declared_metric_accepts_public_grouping_samples(
+    semantic_project_factory: ProjectFactory, kind: str, as_tuple: bool
+) -> None:
+    grouping = (
+        'mv.coordinates(by=(status,), keys=(("paid",),)).axes[0]'
+        if kind == "field"
+        else 'mv.membership(status, via=(), unmatched="exclude")'
+    )
+    argument = "(samples,)" if as_tuple else "samples"
+    source = (
+        _MODEL
+        + f"""
+import marivo.analysis as mv
+samples = {grouping}
+@ms.metric()
+def average_sample():
+    return revenue.per({argument}).mean()
+"""
+    )
+    catalog = _catalog(semantic_project_factory, source)
+    amount = catalog.fields.get("sales.orders.amount")
+    status = catalog.fields.get("sales.orders.status")
+    samples = (
+        mv.coordinates(by=(status,), keys=(("paid",),)).axes[0]
+        if kind == "field"
+        else mv.membership(status, via=(), unmatched="exclude")
+    )
+    expected = amount.sum().per((samples,) if as_tuple else samples).mean()
+    declared = catalog.metrics.get("sales.average_sample")
+    body = next(
+        body
+        for reference, body in consume_metric(declared)._declared
+        if reference.ref.path == "sales.average_sample"
+    )
+    assert body == consume_metric(expected).node
+    assert inspect_deferred(declared).fingerprint == inspect_deferred(expected).fingerprint
+    declaration = root_declaration(declared)
+    assert declaration is not None and declaration.reference is not None
+    assert set(inspect_deferred(declared).dependencies) == {
+        *inspect_deferred(expected).dependencies,
+        declaration.reference,
+    }
 
 
 def test_native_branches_retain_dependencies_and_require_sum_authorization(

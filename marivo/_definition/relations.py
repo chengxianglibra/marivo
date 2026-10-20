@@ -310,16 +310,16 @@ PopulationDependency: TypeAlias = LiteralPopulation | PopulationProgram
 
 @dataclass(frozen=True, slots=True)
 class PopulationParameter:
-    """Immutable population capture shared with semantic deferred consumers."""
+    """Private immutable population capture shared with semantic deferred consumers."""
 
-    definition: PopulationDependency
+    _definition: PopulationDependency
 
 
 @dataclass(frozen=True, slots=True)
 class PopulationPredicateParameter:
-    """Closed coordinate membership predicate shared with semantic consumers."""
+    """Private closed coordinate membership predicate shared with semantic consumers."""
 
-    condition: PopulationCondition
+    _condition: PopulationCondition
 
 
 def condition_populations(condition: PopulationCondition) -> tuple[PopulationDependency, ...]:

@@ -22,7 +22,7 @@ The preserved source signatures, with only their return type changed, are:
 ```python
 observe(metrics: Mapping[str, Deferred], *,
         during: TimeScope | CalendarAxis | None = None,
-        by: tuple[Deferred | MembershipAxis | MemberAxis | ComparisonAxis, ...] | Population = (),
+        by: tuple[Deferred | Grouping, ...] | Population = (),
         where: Deferred | PopulationPredicate | None = None,
         members: Population | None = None) -> AnalysisFrame
 read(population: Population, fields: Mapping[str, Deferred]) -> AnalysisFrame

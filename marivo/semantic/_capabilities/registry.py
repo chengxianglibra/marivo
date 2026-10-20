@@ -165,7 +165,7 @@ INPUT_FAMILIES = frozenset(
         "SourceHealthCheckResult",
         "ReadinessInputSummary",
         "ReadinessIssue",
-        "Dimension | TimeField | MembershipAxis | tuple[Dimension | TimeField | MembershipAxis, ...] | Population",
+        "Dimension | TimeField | Grouping | tuple[Dimension | TimeField | Grouping, ...] | Population",
         "CatalogEntry | Ref",
         "CatalogCollection",
         "CatalogLookupKey | Ref",
@@ -2467,7 +2467,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     "where": ("predicate", "Predicate", "revenue.where(status == 'paid')"),
                     "per": (
                         "samples",
-                        "Dimension | TimeField | MembershipAxis | tuple[Dimension | TimeField | MembershipAxis, ...] | Population",
+                        "Dimension | TimeField | Grouping | tuple[Dimension | TimeField | Grouping, ...] | Population",
                         "revenue.per(customer_id)",
                     ),
                     "divide": ("other", "Deferred", "revenue.divide(order_count)"),
@@ -2512,7 +2512,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             summary = "Construct a native Deferred recipe at this receiver's stage without business source reads. "
             if prefix == "Metric" and method == "per":
                 summary += (
-                    "per accepts a Dimension, TimeField, membership descriptor, a nonempty tuple of these, "
+                    "per accepts a Dimension, TimeField, native field or membership Grouping, a nonempty tuple of these, "
                     "or a complete Population; finish with a sample reducer. Field samples use observed "
                     "keys; Population binds every compatible member, including empty samples."
                 )

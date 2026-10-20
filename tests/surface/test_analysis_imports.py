@@ -121,7 +121,7 @@ def test_analysis_keeps_typed_correspondence_and_member_values() -> None:
     assert isinstance(mv.ordinal(), mv.CalendarCorrespondence)
     assert isinstance(mv.period_offset(1), mv.CalendarCorrespondence)
     assert isinstance(mv.previous_year(), mv.CalendarCorrespondence)
-    assert isinstance(mv.member(), mv.MemberAxis)
+    assert callable(mv.identity) and isinstance(mv.Grouping, type)
     assert callable(mv.member_count)
     assert callable(mv.row_count)
 

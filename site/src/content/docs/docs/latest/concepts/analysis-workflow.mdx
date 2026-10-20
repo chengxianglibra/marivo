@@ -109,3 +109,19 @@ cannot reenter computation. New original-source questions remain explicit.
 See [statistics](/docs/latest/guides/statistics/),
 [time and cohorts](/docs/latest/guides/time-and-cohorts/) and
 [evidence](/docs/latest/concepts/evidence/).
+
+
+Grouping rules use `by=(field_or_grouping, ...)`. Obtain complete identity rules
+with `mv.identity(entity)`, membership rules with `mv.membership(...)`, and calendar
+rules with `scope.by(grain)`. `population.axes` reuses coordinate definitions;
+`by=population` also requests its complete output domain, including empty buckets
+and coverage checks. `mv.identities(entity, keys=...)` constructs a finite identity
+domain, whereas `mv.identity(entity)` only declares how to group contributions.
+
+Inspect a captured domain with `show()` and reuse its ordered axes:
+
+```python
+domain = mv.identities(entity, keys=(("C1",), ("C2",)))
+domain.show()
+axes = domain.axes
+```

@@ -16,6 +16,13 @@ immutable data type with expression, complete memory and exact stored carriers.
 literal rows, and ``frame`` binds general Population keys, including zero axes.
 Construction and inspection perform no business read or publication.
 
+Source grouping accepts ordered fields or ``Grouping`` rules, or a complete
+``Population`` domain. ``identity(entity)`` declares one complete identity rule;
+``identities(entity, keys=...)`` declares a finite requested identity domain.
+``population.axes`` reuses grouping definitions without selected keys or allocation
+bindings. ``by=population`` retains the complete output domain and coverage checks.
+CalendarAxis is a calendar Grouping; membership retains correlated coordinate tuples.
+
 Use the returned ``compute()`` Frame for complete fixed memory data and the
 returned ``persist()`` Frame for committed data. Derived operations remain lazy.
 Reopen with ``session.persisted_frame(artifact_id)`` in the exact Session; the ID
@@ -118,10 +125,7 @@ Canonical public exports
 .. autoclass:: PopulationPredicate
    :members:
 
-.. autoclass:: MembershipAxis
-   :members:
-
-.. autoclass:: MemberAxis
+.. autoclass:: Grouping
    :members:
 
 .. autoclass:: CalendarCorrespondence
@@ -137,7 +141,7 @@ Canonical public exports
 
 .. autofunction:: in_population
 
-.. autofunction:: member
+.. autofunction:: identity
 
 .. autofunction:: member_count
 

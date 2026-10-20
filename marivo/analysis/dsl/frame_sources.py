@@ -8,8 +8,8 @@ from typing import Literal
 
 from ibis.common.deferred import Deferred
 
-from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.types import AxisBinding, CalendarCoordinate
+from marivo._grouping import Grouping
 from marivo._temporal import PeriodCalendarSnapshotV1, TimeScope
 from marivo.analysis.core.artifact_data import DataColumn
 from marivo.analysis.core.data_types import ScalarDataType
@@ -31,8 +31,6 @@ from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import ResultQuantity, reject
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.population import (
-    MemberAxis,
-    MembershipAxis,
     Population,
     PopulationPredicate,
 )
@@ -158,7 +156,7 @@ def observe(
     metrics: Mapping[str, Deferred],
     *,
     during: TimeScope | CalendarAxis | None = None,
-    by: tuple[Deferred | MembershipAxis | MemberAxis | ComparisonAxis, ...] | Population = (),
+    by: tuple[Deferred | Grouping, ...] | Population = (),
     where: Deferred | PopulationPredicate | None = None,
     members: Population | None = None,
     timezone: str = "UTC",
@@ -244,7 +242,7 @@ def coordinate_values(
     state: CompiledSemanticState,
     connection: DatasourceConnectionConfig,
     *,
-    by: tuple[Deferred | AxisBinding, ...],
+    by: tuple[Deferred | Grouping, ...],
     columns: Mapping[str, str | None],
     rows: tuple[ValueRow, ...],
 ) -> AnalysisFrame:

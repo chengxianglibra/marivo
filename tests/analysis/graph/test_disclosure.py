@@ -38,8 +38,7 @@ REQUIRED_TARGETS = {
     "analysis_frame.to_pandas",
     "population",
     "column",
-    "membership_axis",
-    "member_axis",
+    "grouping",
     "population_predicate",
     "coordinates",
     "identities",
@@ -72,6 +71,22 @@ def test_exact_export_bindings_and_required_native_targets() -> None:
             entry.implementation if callable(entry.implementation) else entry.target
         )
         assert (resolved.canonical_id or resolved.type_name) == entry.target
+
+
+def test_population_ir_fields_are_private_help_targets() -> None:
+    registry = prepare()
+    for target in ("population.definition", "population_predicate.condition"):
+        with pytest.raises(HelpTargetError):
+            registry.resolve(target)
+    population = registry.resolve("population").descriptor
+    predicate = registry.resolve("population_predicate").descriptor
+    assert isinstance(population, TypeInput) and isinstance(predicate, TypeInput)
+    assert tuple(field.name for field in population.bindings[0].fields) == (
+        "axes",
+        "memberships",
+    )
+    assert predicate.bindings[0].fields == ()
+    assert registry.resolve("population.memberships").kind == "attribute"
 
 
 def test_shapes_methods_and_admission_links_are_derived_from_real_owners() -> None:

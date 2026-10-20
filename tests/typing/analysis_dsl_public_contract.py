@@ -29,6 +29,8 @@ if TYPE_CHECKING:
     ) -> mv.AnalysisFrame:
         members = session.members(ms.ref.entity("sales.customer"))
         assert_type(members, mv.Population)
+        assert_type(members.axes, tuple[mv.Grouping, ...])
+        assert_type(members.axes[0].kind, Literal["field", "identity", "calendar", "membership"])
         assert_type(session.frame(members), mv.AnalysisFrame)
         fixed = mv.identities(entity, keys=(("C1",), ("C2",)))
         assert_type(fixed, mv.Population)
@@ -44,7 +46,7 @@ if TYPE_CHECKING:
         assert_type(fixed.image(via=(relation,)), mv.Population)
         assert_type(fixed.preimage(members, via=(relation,)), mv.Population)
         descriptor = mv.membership(region, via=((relation,),), unmatched="exclude")
-        assert_type(descriptor, mv.MembershipAxis)
+        assert_type(descriptor, mv.Grouping)
         scope = session.time_scope(start="2026-01-01", end="2026-02-01")
         assert_type(mv.product(complete, scope.by(mv.grain("day"))), mv.Population)
         revenue = session.catalog.metrics.get("sales.revenue")
@@ -104,9 +106,9 @@ if TYPE_CHECKING:
         metric: Deferred, field: Deferred, relation: Relationship
     ) -> mv.AnalysisFrame:
         people = session.members(ms.ref.entity("sales.customer"))
-        assert_type(mv.member(), mv.MemberAxis)
-        assert_type(people.classify(by=(mv.member(), field)), mv.Population)
-        assert_type(people.project(by=(mv.member(),)), mv.Population)
+        assert_type(mv.identity(session.catalog.entities.get("sales.customer")), mv.Grouping)
+        assert_type(people.classify(by=(people.axes[0], field)), mv.Population)
+        assert_type(people.project(by=(people.axes[0],)), mv.Population)
         assert_type(session.read(people, {"category": field}), mv.AnalysisFrame)
         assert_type(
             session.members(ms.ref.entity("sales.customer"), where=mv.in_population(people)),
@@ -116,7 +118,7 @@ if TYPE_CHECKING:
             session.observe({"value": metric}, where=mv.in_population(people)), mv.AnalysisFrame
         )
         assert_type(
-            session.observe({"value": mv.member_count()}, members=people, by=(mv.member(),)),
+            session.observe({"value": mv.member_count()}, members=people, by=(people.axes[0],)),
             mv.AnalysisFrame,
         )
         assert_type(mv.ordinal(), mv.CalendarCorrespondence)

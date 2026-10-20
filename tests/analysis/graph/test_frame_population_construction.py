@@ -13,7 +13,12 @@ import pytest
 from ibis.common.deferred import Deferred, Just, Sequence
 
 import marivo.analysis as mv
-from marivo._definition.deferred import canonical_recipe, resolver_of, semantic_input
+from marivo._definition.deferred import (
+    canonical_recipe,
+    recipe_fingerprint,
+    resolver_of,
+    semantic_input,
+)
 from marivo._definition.expressions import ContributionFilter
 from marivo._definition.graph import (
     _encode_fields,
@@ -180,21 +185,21 @@ def test_factory_is_metadata_only_and_definition_is_inert(
     population = population_from(
         session._runtime.local, state, frame, on=((frame.axes[0], region),)
     )
-    assert isinstance(population.definition, PopulationProgram)
-    leaf = population.definition.root
+    assert isinstance(population._definition, PopulationProgram)
+    leaf = population._definition.root
     assert isinstance(leaf, FrameKeys)
     assert leaf.input_id == frame._input_id
     assert leaf.bindings[0].key_names == ("first",)
     assert leaf.bindings[0].target.field == consume_field(region).reference
     assert population._frame_inputs[0].frame is frame
-    closure = walk((population.definition,), resolve=lambda _: None)
-    assert closure.order == (leaf, population.definition)
-    assert consume_field(region).reference in direct_refs(population.definition)
+    closure = walk((population._definition,), resolve=lambda _: None)
+    assert closure.order == (leaf, population._definition)
+    assert consume_field(region).reference in direct_refs(population._definition)
     encoded = canonical_bytes(_encode_fields(leaf, {})).decode()
     assert frame._input_id in encoded and "FrameKeys" in encoded
     assert all(word not in encoded for word in ("AnalysisFrame", "Session", "_rows", "connection"))
-    assert source_scope(population) == source_scope(Population(population.definition))
-    assert "FrameKeys" in source_scope(population.definition)
+    assert source_scope(population) == source_scope(Population(population._definition))
+    assert "FrameKeys" in source_scope(population._definition)
     population.show()
     assert "FrameKeys" in capsys.readouterr().out
 
@@ -206,9 +211,9 @@ def test_explicit_empty_mapping_keeps_the_input_dependency(session: Session, emp
         assert isinstance(source._schema, DataSchema)
         source = _memory(session, source._schema.axes, ())
     population = population_from(session._runtime.local, session.catalog._state, source, on=())
-    assert isinstance(population.definition, PopulationProgram)
-    assert population.definition.root == FrameKeys(source._input_id, ())
-    assert population.axes == () and _ids(population) == (source._input_id,)
+    assert isinstance(population._definition, PopulationProgram)
+    assert population._definition.root == FrameKeys(source._input_id, ())
+    assert population._definition.axes == () and _ids(population) == (source._input_id,)
     # Construction cannot decide whether the projected empty tuple exists.
     assert population._frame_inputs[0].frame is source
 
@@ -223,15 +228,15 @@ def test_mapping_order_and_fingerprints_capture_exact_input_and_targets(session:
         frame,
         on=((frame.axes[1], channel), (frame.axes[0], region)),
     )
-    assert isinstance(first.definition, PopulationProgram)
-    assert isinstance(first.definition.root, FrameKeys)
-    assert tuple(binding.token for binding in first.definition.root.bindings) == ("b", "a")
+    assert isinstance(first._definition, PopulationProgram)
+    assert isinstance(first._definition.root, FrameKeys)
+    assert tuple(binding.token for binding in first._definition.root.bindings) == ("b", "a")
     other = _fields(session)
-    assert computation_fingerprint(_bridge(session, frame).definition) != computation_fingerprint(
-        _bridge(session, other).definition
+    assert computation_fingerprint(_bridge(session, frame)._definition) != computation_fingerprint(
+        _bridge(session, other)._definition
     )
-    assert hash(first) == hash(Population(first.definition))
-    assert first == Population(first.definition)
+    assert hash(first) == hash(Population(first._definition))
+    assert first == Population(first._definition)
 
 
 @pytest.mark.parametrize("operation", ("project", "union", "intersection", "difference", "where"))
@@ -290,10 +295,22 @@ def test_predicates_and_deferred_recipes_preserve_inputs_before_consumption(
     assert collect_frame_key_inputs(sequence) == expected
     consumed = consume_metric(amount.sum().where(condition))
     assert isinstance(consumed.node, ContributionFilter)
-    assert consumed.node.predicate == condition.condition
+    assert consumed.node.predicate == condition._condition
     tokens = canonical_recipe(resolver_of(metric))
     assert tokens and "FrameKeyInput" not in repr(tokens)
-    assert source_scope(condition) == source_scope(type(condition)(condition.condition))
+    assert source_scope(condition) == source_scope(type(condition)(condition._condition))
+
+
+def test_private_population_capture_fields_preserve_deferred_fingerprint() -> None:
+    population = mv.coordinates(by=(), keys=((),))
+    predicate = mv.in_population(population)
+    expression = Deferred(Sequence((Just(population), Just(predicate))))
+    assert not hasattr(population, "definition")
+    assert not hasattr(predicate, "condition")
+    assert (
+        recipe_fingerprint(resolver_of(expression))
+        == "7568133cc15b29e7c5b9b0a7973f7bfef6de7cfdcd0a051103c2e567aab34db5"
+    )
 
 
 def test_factory_rejects_wrong_handles_roles_duplicates_and_identity_width(
@@ -370,8 +387,8 @@ def test_current_catalog_rebinds_versions_and_validates_field_owner(session: Ses
     mapped = population_from(
         session._runtime.local, session.catalog._state, frame, on=((frame.axes[0], old),)
     )
-    assert isinstance(mapped.axes[0], AxisBinding)
-    assert mapped.axes[0].field == facts.reference
+    assert isinstance(mapped._definition.axes[0], AxisBinding)
+    assert mapped._definition.axes[0].field == facts.reference
     assert facts.field_read is not None
     bad = semantic_input(
         replace(
@@ -405,9 +422,9 @@ def test_explicit_field_path_is_retained_and_rebound(session: Session) -> None:
     population = population_from(
         session._runtime.local, session.catalog._state, frame, on=((frame.axes[0], segment),)
     )
-    assert isinstance(population.axes[0], AxisBinding)
-    assert population.axes[0].path == (relationship.ref,)
-    assert population.axes[0].entity == relationship.to_entity
+    assert isinstance(population._definition.axes[0], AxisBinding)
+    assert population._definition.axes[0].path == (relationship.ref,)
+    assert population._definition.axes[0].entity == relationship.to_entity
 
 
 def test_known_axis_unit_must_match_the_current_target_contract(session: Session) -> None:

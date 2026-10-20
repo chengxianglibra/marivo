@@ -93,7 +93,7 @@ def test_native_weighted_and_mean(
     with_coordinates = session.observe(
         {"value": session.catalog.metrics.get("sales.weighted")},
         during=scope,
-        by=(mv.member(), coordinate),
+        by=(members.axes[0], coordinate),
         members=members,
     )
     result = session.observe(
@@ -122,7 +122,7 @@ def test_native_weighted_and_mean(
         represented = session.observe(
             {"value": session.catalog.metrics.get("sales.mean")},
             during=scope,
-            by=(mv.member(), coordinate),
+            by=(members.axes[0], coordinate),
             members=members,
         ).compute()
         row_means = represented.reduce(

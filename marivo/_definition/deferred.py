@@ -429,17 +429,30 @@ class _Inspector:
             PopulationParameter,
             PopulationPredicateParameter,
         )
+        from marivo._grouping import Grouping
+
+        if isinstance(value, Grouping):
+            from marivo._definition.types import AxisBinding, CalendarCoordinate
+
+            value = value._binding
+            if isinstance(value, (AxisBinding, CalendarCoordinate)):
+                self.token("grouping", fingerprint(_encode(value, {})))
+                grouping_refs: set[ExactRef] = set()
+                _collect_refs(value, grouping_refs)
+                for reference in grouping_refs:
+                    self.dependency(reference)
+                return
 
         if isinstance(
             value, (MembershipBinding, PopulationParameter, PopulationPredicateParameter)
         ):
             refs: set[ExactRef] = set()
             if isinstance(value, PopulationParameter):
-                self.token("population", computation_fingerprint(value.definition))
-                refs.update(direct_refs(value.definition))
+                self.token("population", computation_fingerprint(value._definition))
+                refs.update(direct_refs(value._definition))
             elif isinstance(value, PopulationPredicateParameter):
-                self.token("population_predicate", fingerprint(_encode(value.condition, {})))
-                _collect_refs(value.condition, refs)
+                self.token("population_predicate", fingerprint(_encode(value._condition, {})))
+                _collect_refs(value._condition, refs)
             else:
                 self.token("membership", fingerprint(_encode(value, {})))
                 _collect_refs(value, refs)

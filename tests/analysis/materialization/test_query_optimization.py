@@ -1181,7 +1181,7 @@ def test_identities_requires_resolved_entity_without_source_lookup(
     with monkeypatch.context() as guarded:
         guarded.setattr(SourceSession, "__enter__", forbidden)
         domain = mv.identities(entity, keys=((1, "x"), (999, "unconfirmed")))
-        axis = domain.axes[0]
+        axis = domain._definition.axes[0]
         assert isinstance(axis, AxisBinding) and axis.entity == entity.ref
         with pytest.raises(AnalysisError) as error:
             mv.identities(ms.ref.entity("sales.composite_orders"), keys=())  # type: ignore[arg-type]  # Exercise the runtime unresolved-Ref refusal.

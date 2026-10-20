@@ -2,6 +2,7 @@
 
 from inspect import signature
 
+from marivo._definition.grouping import _CoordinateGrouping, _MembershipGrouping
 from marivo._definition.windows import (
     AllHistory,
     Since,
@@ -10,6 +11,7 @@ from marivo._definition.windows import (
     TrailingPeriods,
     _Window,
 )
+from marivo._grouping import Grouping
 from marivo.analysis._capabilities.dataset_model import (
     Descriptor,
     DisclosureProvider,
@@ -22,11 +24,11 @@ from marivo.analysis._capabilities.dataset_model import (
     with_sealed_variants,
 )
 from marivo.analysis.dsl.population import (
-    MembershipAxis,
     Population,
     PopulationPredicate,
     coordinates,
     identities,
+    identity,
     in_population,
     membership,
     product,
@@ -46,6 +48,14 @@ def provider() -> DisclosureProvider:
     exports: list[ExportInput] = []
     constructors = (
         (
+            identity,
+            "Grouping",
+            "Capture a complete identity grouping without selecting keys.",
+            "result = mv.identity(entity)",
+            ("entity",),
+            "inputs.population",
+        ),
+        (
             coordinates,
             "Population",
             "Capture complete field coordinate tuples; None is a source Null category.",
@@ -63,7 +73,7 @@ def provider() -> DisclosureProvider:
         ),
         (
             membership,
-            "MembershipAxis",
+            "Grouping",
             "Capture one correlated member-field tuple and explicit directed allocation paths.",
             "result = mv.membership(tag, via=((order_tags,),), unmatched='exclude')",
             ("tag", "order_tags"),
@@ -126,8 +136,14 @@ def provider() -> DisclosureProvider:
             "windows",
         ),
     )
+    grouping_inputs = {
+        "coordinates": "Pass resolved fields or field or membership Grouping values. Rejects identity and calendar groupings; use mv.identities for identity keys and product for calendar domains.",
+        "membership": "Pass one resolved field or a nonempty tuple of resolved fields from one member Entity; put allocation paths in via, not in routed fields.",
+        "Population.project": "Select or reorder existing coordinates using population.axes, matching fields or membership groupings. Membership allocation comes from the receiver; projection cannot read new fields.",
+        "Population.classify": "Pass direct same-Entity fields, field groupings, the receiver's existing identity or membership classifications. Rejects calendar groupings and routed fields; requires one identity-axis Population.",
+    }
     parameter_facts = {
-        "by": "Pass resolved fields, existing identity axes or correlated membership descriptors as documented by this receiver.",
+        "target": "Pass a resolved Entity or a nonempty connected directed relationship path; its endpoint determines the Entity.",
         "keys": "Give complete typed tuples in declared axis or primary-key order; duplicate tuples collapse.",
         "entity": "Pass a resolved Entity from session.catalog.entities or a finalized scope; bare EntityRef inputs are rejected.",
         "via": "Pass a nonempty ordered tuple of declared relationships; membership takes a tuple of paths, one per contribution root.",
@@ -152,12 +168,23 @@ def provider() -> DisclosureProvider:
                 function,
                 summary=summary,
                 parameters=tuple(
-                    ParameterInput(name, parameter_facts[name])
+                    ParameterInput(
+                        name,
+                        grouping_inputs[function.__name__]
+                        if name == "by"
+                        else parameter_facts[name],
+                    )
                     for name in signature(function).parameters
                 ),
                 output=output,
                 constraints=(
-                    "Construction captures immutable definitions without schema or business reads. Window evaluation requires an explicit observation period; complete output domains must cover observed coordinates.",
+                    (
+                        "Pass by=(grouping,) to observe. Identity grouping does not select keys; "
+                        "mv.identities(entity, keys=...) constructs a complete domain. Observation "
+                        "binds complete primary keys through single-valued routes and validates version anchors."
+                    )
+                    if function is identity
+                    else "Construction captures immutable definitions without schema or business reads. Window evaluation requires an explicit observation period; complete output domains must cover observed coordinates.",
                 ),
                 effects="Capture an immutable domain, allocation descriptor, predicate or window rule.",
                 failures=(
@@ -242,12 +269,12 @@ def provider() -> DisclosureProvider:
             ("population",),
         ),
         (
-            MembershipAxis,
+            Grouping,
             "show",
-            "str",
-            "Return bounded member fields and allocation path facts.",
-            "result = membership_axis.show()",
-            ("membership_axis",),
+            "None",
+            "Print bounded captured grouping facts.",
+            "result = grouping.show()",
+            ("grouping",),
         ),
         (
             PopulationPredicate,
@@ -277,7 +304,9 @@ def provider() -> DisclosureProvider:
                 bindings=(bind(function, owner),),
                 summary=summary,
                 parameters=tuple(
-                    ParameterInput(name, parameter_facts[name])
+                    ParameterInput(
+                        name, grouping_inputs[target] if name == "by" else parameter_facts[name]
+                    )
                     for name in signature(function).parameters
                     if name != "self"
                 ),
@@ -297,15 +326,23 @@ def provider() -> DisclosureProvider:
             ("coordinates", "identities", "product", "session.members", "session.population_from"),
             ("session.frame", "Population.project", "Population.classify", "Population.where"),
         ),
-        (MembershipAxis, ("membership",), ("session.observe", "MembershipAxis.show")),
+        (Grouping, ("identity", "membership"), ("session.observe", "Grouping.show")),
         (PopulationPredicate, ("in_population",), ("Population.where", "PopulationPredicate.show")),
     ):
         descriptors.append(
             value_type(
                 value.__name__,
                 value,
-                summary=f"Immutable {value.__name__} definition.",
-                acquisition="Use its owning constructor or producer.",
+                summary=(
+                    "A field, complete identity, calendar or correlated membership grouping rule."
+                    if value is Grouping
+                    else f"Immutable {value.__name__} definition."
+                ),
+                acquisition=(
+                    "Use identity(entity), membership(...), scope.by(grain), or population.axes."
+                    if value is Grouping
+                    else "Use its owning constructor or producer."
+                ),
                 producers=producers,
                 consumers=consumers,
                 constraints=("Construction and inspection perform no schema or business reads.",),
@@ -329,8 +366,13 @@ def provider() -> DisclosureProvider:
         "analysis.population",
         with_sealed_variants(
             descriptors,
-            {"ObservationWindow": (AllHistory, TrailingDuration, TrailingPeriods, Since, ToDate)},
+            {
+                "Grouping": (_CoordinateGrouping, _MembershipGrouping),
+                "ObservationWindow": (AllHistory, TrailingDuration, TrailingPeriods, Since, ToDate),
+            },
             applicability={
+                _CoordinateGrouping: "grouping was obtained from identity(...) or population.axes",
+                _MembershipGrouping: "grouping was returned by membership(...)",
                 AllHistory: "observation_window was returned by mv.all_history()",
                 TrailingDuration: "observation_window was returned by mv.trailing_duration(...)",
                 TrailingPeriods: "observation_window was returned by mv.trailing_periods(...)",

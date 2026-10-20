@@ -122,23 +122,7 @@ def bind_observation(
         )
     axes: list[AxisBinding | CalendarCoordinate] = []
     if calendar is not None:
-        grid = calendar.grid
-        calendar_coordinate = CalendarCoordinate(
-            grid.identity,
-            grid.grain_spec,
-            grid.boundary_timezone,
-            grid.snapshot_digest,
-            tuple(
-                (
-                    anchor_from_datetime(c.original_start),
-                    anchor_from_datetime(c.original_end),
-                    anchor_from_datetime(c.start),
-                    anchor_from_datetime(c.end),
-                )
-                for c in grid.cells
-            ),
-            grid.calendar_snapshot,
-        )
+        calendar_coordinate = calendar._binding
         if any(isinstance(axis, CalendarCoordinate) and axis != calendar_coordinate for axis in by):
             reject(
                 "an output Population compatible with the during calendar",

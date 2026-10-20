@@ -81,7 +81,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
         classified = session.observe(
             {"value": metric},
             during=scope,
-            by=members.classify(by=(mv.member(), category)),
+            by=members.classify(by=(members.axes[0], category)),
             members=members,
         )
         selected = category_query.where(category_query["value"] == "east")

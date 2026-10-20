@@ -32,7 +32,7 @@ def _query(
     case: DslCase,
     *,
     metric: Deferred | None = None,
-    by: tuple[Deferred | mv.MemberAxis, ...] | mv.Population = (),
+    by: tuple[Deferred | mv.Grouping, ...] | mv.Population = (),
     members: mv.Population | None = None,
     during: mv.TimeScope | mv.CalendarAxis | None = None,
 ) -> mv.AnalysisFrame:
@@ -83,7 +83,7 @@ def test_overall_and_member_observations(analysis_dsl_case_factory: DslCaseFacto
         case.session.population_from(total, on=())
     ).persist().to_pandas().shape == (1, 0)
     with pytest.raises(AnalysisError):
-        case.session.population_from(total, on=()).project(by=(mv.member(),))
+        case.session.population_from(total, on=()).project(by=(members.axes[0],))
     individual = _query(case, by=members, members=members, during=_august(case))
     fixed = individual.persist()
     assert _keyed(fixed.to_pandas()) == {("A",): 450, ("B",): 150, ("C",): 400, ("D",): 0}
@@ -197,7 +197,7 @@ def test_member_classification_survives_rollup_for_additive_comparison(
     def endpoint(month: int) -> mv.AnalysisFrame:
         query = _query(
             case,
-            by=(mv.member(), region) if keep_member else members.classify(by=(region,)),
+            by=(members.axes[0], region) if keep_member else members.classify(by=(region,)),
             members=members,
             during=session.time_scope(start=f"2026-{month:02}-01", end=f"2026-{month + 1:02}-01"),
         )
@@ -274,13 +274,13 @@ def test_invalid_axes_and_removed_entries(analysis_dsl_case_factory: DslCaseFact
     metric = session.catalog.metrics.get("sales.revenue")
     members = session.members(ms.ref.entity("sales.order"))
     with pytest.raises(AnalysisError):
-        session.observe({"value": metric}, members=members, by=(mv.member(), mv.member()))
+        session.observe({"value": metric}, members=members, by=(members.axes[0], members.axes[0]))
     with pytest.raises(AnalysisError):
-        session.observe({"value": metric}, by=(mv.member(),))
+        session.observe({"value": metric}, by=(mv.identity(()),))
     for invalid in (ms.ref.entity("sales.order"), ms.ref.entity("sales.customer")):
         with pytest.raises((AnalysisError, SemanticError)):
             session.observe({"value": metric}, by=(invalid,))  # type: ignore[arg-type]  # Exercise an Entity where a Field is required.
-    observed = session.observe({"value": metric}, members=members, by=(mv.member(),))
+    observed = session.observe({"value": metric}, members=members, by=(members.axes[0],))
     assert len(observed.persist().to_pandas()) == 5
     assert not hasattr(members, "group_by")
 

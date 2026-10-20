@@ -65,6 +65,37 @@ handles use the same exact stored input identity. Cross-Session operands reject.
 
 ## Population and observation binding
 
+Source grouping uses `tuple[Deferred | Grouping, ...] | Population`. A native
+Field Deferred is shorthand for a field grouping. Grouping is a closed immutable
+family with field, identity, calendar and membership kinds, a bounded repr and
+source-free `.show()`. `mv.identity(entity)` captures a complete identity without
+selecting keys; `mv.identity((relationship, ...), at=instant)` captures a nonempty
+connected directed path and infers its target. Single-valued paths and version
+anchors retain their existing binding checks. `mv.identities(entity, keys=...)`
+instead declares a finite complete identity domain.
+
+`Population.axes` returns ordered single-coordinate Grouping values. Reusing these
+values imports neither selected keys nor membership allocation groups. `by=P`
+retains the complete domain, allocation bindings and dependencies. CalendarAxis
+is a calendar Grouping: in `by` it defines output buckets independently of an
+ordinary `during=TimeScope`; `during=CalendarAxis` retains its filtering and
+calendar-insertion behavior. Matching an identity grouping to explicit `members`
+retains existing member-domain completion. `member()` and MemberAxis are retired.
+
+Population and PopulationPredicate retain their raw definition and predicate IR
+as private capture details. Callers inspect the captured domain with `.show()`
+and reuse its ordered coordinates through `Population.axes`; raw IR fields are not
+public attributes or Help targets.
+
+Projection selects existing coordinates. Classify accepts direct same-Entity
+fields, its existing identity and membership classifications; it rejects calendar
+and routed field reads. Coordinates accepts field/membership groupings; values
+accepts field/identity groupings. Metric.per accepts native Dimension/TimeField
+and membership groupings or a complete Population, retaining existing sample
+restrictions. FrameAxis remains a result-owned handle requiring population_from.
+Public grouping wrappers are lowered to existing axis/allocation records before
+fingerprinting, source audit or persistence; storage format is unchanged.
+
 Population preserves ordered complete tuples, ownership and its own selection
 context. Projection/sets operate on its existing axes; classify and directed
 image/preimage use explicit governed source dependencies. A Field Null is a valid
