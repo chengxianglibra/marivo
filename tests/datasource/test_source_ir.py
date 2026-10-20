@@ -54,7 +54,6 @@ def test_json_source_ir_has_minimal_json_shape() -> None:
     assert source.kind == "json"
     assert source.path == "data/events/*.json"
     assert source.format == "newline_delimited"
-    assert source.to_ir() is source
     assert source.to_dict() == {
         "kind": "json",
         "path": "data/events/*.json",

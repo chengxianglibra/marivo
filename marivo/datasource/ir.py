@@ -435,9 +435,6 @@ class TableSourceIR:
             result["columns"] = dict(self.columns)
         return result
 
-    def to_ir(self) -> TableSourceIR:
-        return self
-
 
 @dataclass(frozen=True)
 class ParquetSourceIR:
@@ -465,9 +462,6 @@ class ParquetSourceIR:
             "hive_partitioning": self.hive_partitioning,
             "columns": list(self.columns) if self.columns is not None else None,
         }
-
-    def to_ir(self) -> ParquetSourceIR:
-        return self
 
 
 @dataclass(frozen=True)
@@ -498,9 +492,6 @@ class CsvSourceIR:
             "header": self.header,
             "delimiter": self.delimiter,
         }
-
-    def to_ir(self) -> CsvSourceIR:
-        return self
 
 
 @dataclass(frozen=True)
@@ -606,9 +597,6 @@ class JsonSourceIR:
             ],
         }
         return result
-
-    def to_ir(self) -> JsonSourceIR:
-        return self
 
 
 def _iter_source_param_names(value: object) -> Iterator[str]:

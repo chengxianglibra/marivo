@@ -733,6 +733,18 @@ def test_semantic_concept_outputs_follow_each_actual_construction_mode() -> None
     assert 'marivo.help("semantic.measure.define"); returns Deferred' in measure
 
 
+def test_removed_join_key_tuple_method_is_not_a_help_target() -> None:
+    with pytest.raises(MarivoHelpTargetError):
+        marivo.help("semantic.join_key.to_tuple")
+
+
+def test_join_key_help_discloses_its_ordered_fields(capsys: pytest.CaptureFixture[str]) -> None:
+    marivo.help(ms.JoinKey)
+    text = capsys.readouterr().out
+    assert "Public fields: from_key, to_key" in text
+    assert "to_tuple" not in text
+
+
 def test_scalar_field_role_links_governed_acquisition_and_existing_grammar() -> None:
     from marivo._help.render import render_help_text
 

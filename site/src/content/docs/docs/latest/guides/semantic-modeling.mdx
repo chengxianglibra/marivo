@@ -5,6 +5,8 @@ description: Author expressions with explicit stages, units and business authori
 
 Physical Entity/Field constructors capture typed Ref lookup keys. After all dependencies are declared, call `ms.finalize()` and resolve the needed values from its frozen result before composition. Named and local expressions share one graph; finalization never replays module or import effects.
 
+Browse entries expose semantic identity through `.ref`, such as `entry.ref.path`; use `catalog.describe(entry.ref).show()` for definition facts.
+
 Semantic objects need not remain bound to their original definition versions. A same-path definition change alone does not reject an input; the agent/user accepts the consequences of semantic changes during analysis. Resolving consumers use their completed scope. Immutable expressions keep their stored definitions and facts without live refresh. Kind, root, grain, unit, time-role, null and permission checks still apply. Fingerprints and cache keys describe actual consumed definitions; persisted provenance and records retain their own contracts.
 
 Numerical and conditional Field inputs, Measures and Metrics use native Ibis Deferred. Named declarations attach immutable metadata to the same recipe. Loading collects exported root declarations once; anonymous derived expressions remain local. Physical dtypes are prepared automatically at execution.

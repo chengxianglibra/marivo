@@ -162,7 +162,7 @@ def save_one(spec: DatasourceSpec, project_root: Path | None = None) -> Datasour
         spec=spec,
         project_root=root,
     )
-    return spec.to_ir(location=location)
+    return spec._to_ir(location=location)
 
 
 def delete_one(name: str, project_root: Path | None = None) -> bool:

@@ -401,8 +401,8 @@ def test_catalog_require_returns_entries_for_containers_and_values_for_members(
         assert obj.ref == ref
         assert obj.ref.path == typed_id.partition(".")[2]
         assert obj.ref.name == expected_name
-        assert obj.key == typed_id.replace(".", ":", 1)
-        assert obj.name == expected_name
+        assert obj.ref.key == typed_id.replace(".", ":", 1)
+        assert not any(hasattr(obj, alias) for alias in ("kind", "path", "key", "name"))
         assert obj.ref.kind.value == typed_id.partition(".")[0]
 
     value_cases: tuple[tuple[str, type[object]], ...] = (

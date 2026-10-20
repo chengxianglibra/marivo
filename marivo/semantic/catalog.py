@@ -661,22 +661,6 @@ class CatalogEntry(RenderableResult, Generic[CatalogEntryKindT]):
 
     _navigation_names: ClassVar[tuple[str, ...]] = ()
 
-    @property
-    def kind(self) -> SemanticKind:
-        return self.ref.kind
-
-    @property
-    def path(self) -> str:
-        return self.ref.path
-
-    @property
-    def key(self) -> str:
-        return self.ref.key
-
-    @property
-    def name(self) -> str:
-        return self.ref.name
-
     def details(self) -> _CatalogObjectDetails:
         return self._details
 
@@ -702,8 +686,8 @@ class CatalogEntry(RenderableResult, Generic[CatalogEntryKindT]):
         )
         card = (
             Card(identity=self._repr_identity(), available=available)
-            .field(label="kind", value=self.kind.value)
-            .field(label="path", value=self.path)
+            .field(label="kind", value=self.ref.kind.value)
+            .field(label="path", value=self.ref.path)
             .field(label="ref", value=self.ref.key)
             .field(
                 label="business_definition",
@@ -1065,8 +1049,8 @@ class TemporalSetEntry(CatalogEntry[TemporalSetKind]):
                     ".show()",
                 ),
             )
-            .field(label="kind", value=self.kind.value)
-            .field(label="path", value=self.path)
+            .field(label="kind", value=self.ref.kind.value)
+            .field(label="path", value=self.ref.path)
             .field(label="boundary_timezone", value=details.boundary_timezone)
             .field(
                 label="coverage",
@@ -1252,8 +1236,8 @@ class WorkScheduleEntry(CatalogEntry[WorkScheduleKind]):
                     ".show()",
                 ),
             )
-            .field(label="kind", value=self.kind.value)
-            .field(label="path", value=self.path)
+            .field(label="kind", value=self.ref.kind.value)
+            .field(label="path", value=self.ref.path)
             .field(label="boundary_timezone", value=details.boundary_timezone)
             .field(
                 label="coverage",
@@ -1676,7 +1660,11 @@ ItemT = TypeVar("ItemT")
 
 
 class CatalogCollection(RenderableResult, Generic[ItemT]):
-    """Read-only collection of one catalog member, optionally scoped by an owner."""
+    """Read-only collection returned by a SemanticCatalog property.
+
+    A collection may be scoped by an owning ref internally; obtain collections
+    from the catalog rather than constructing them directly.
+    """
 
     def __init__(
         self,
@@ -1987,7 +1975,7 @@ def _normalize_semantic_input(
             if (
                 same_semantic_root
                 and current is not None
-                and current.kind in allowed_kinds
+                and current.ref.kind in allowed_kinds
                 and type(current) is expected_entry_type
             ):
                 collection = CATALOG_COLLECTION_BY_KIND[exact_ref.kind]
@@ -4074,7 +4062,7 @@ class SemanticCatalog(RenderableResult):
                 left_values = []
                 right_values = []
                 for index, key in enumerate(relationship.keys, start=1):
-                    from_key, to_key = key.to_tuple()
+                    from_key, to_key = key.from_key, key.to_key
                     from_kind = (
                         SemanticKind.TIME_DIMENSION
                         if reg.dimensions[from_key].is_time_dimension

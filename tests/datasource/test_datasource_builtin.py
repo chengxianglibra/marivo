@@ -83,8 +83,8 @@ def test_layered_loading_injects_default_once(project_root: Path) -> None:
     assert result.errors == ()
     assert [item.name for item in result.datasource_irs].count("default") == 1
     catalog = ms.load(workspace_dir=project_root)
-    assert catalog.require(ms.ref.datasource("default")).name == "default"
-    assert catalog.require(ms.ref.datasource("warehouse")).name == "warehouse"
+    assert catalog.require(ms.ref.datasource("default")).ref.name == "default"
+    assert catalog.require(ms.ref.datasource("warehouse")).ref.name == "warehouse"
 
 
 def test_reserved_registration_fails_before_writes(project_root: Path) -> None:

@@ -13,34 +13,14 @@ from marivo.semantic.dtos import (
     TableSource,
     derive_status,
 )
-from marivo.semantic.ir import (
-    TableSourceIR,
-)
-
-
-def test_table_source_round_trips_through_ir():
-    src = TableSource(table="orders", database="sales_mart")
-    ir = src.to_ir()
-    assert isinstance(ir, TableSourceIR)
-    assert ir.table == "orders"
-    assert ir.database == "sales_mart"
-
-
-def test_file_source_round_trips_through_ir():
-    src = ParquetSourceIR(path="/data/orders.parquet")
-    ir = src.to_ir()
-    assert isinstance(ir, ParquetSourceIR)
-    assert ir.path == "/data/orders.parquet"
 
 
 def test_table_source_is_shared_datasource_ir_type():
     from marivo.datasource.ir import TableSourceIR
-    from marivo.semantic.dtos import TableSource
 
     source = TableSource(table="orders", database="warehouse")
 
     assert isinstance(source, TableSourceIR)
-    assert source.to_ir() is source
     assert source.to_dict() == {
         "kind": "table",
         "table": "orders",
@@ -54,7 +34,6 @@ def test_parquet_source_is_shared_datasource_ir_type():
     source = ParquetSourceIR(path="orders.parquet")
 
     assert isinstance(source, ParquetSourceIR)
-    assert source.to_ir() is source
     assert source.to_dict() == {
         "kind": "parquet",
         "path": "orders.parquet",
@@ -73,7 +52,6 @@ def test_csv_source_is_shared_datasource_ir_type():
     )
 
     assert isinstance(source, CsvSourceIR)
-    assert source.to_ir() is source
     assert source.to_dict() == {
         "kind": "csv",
         "path": "orders.csv",

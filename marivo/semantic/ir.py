@@ -597,9 +597,6 @@ class JoinKey:
         _require_non_empty_str(self.from_key, "JoinKey.from_key")
         _require_non_empty_str(self.to_key, "JoinKey.to_key")
 
-    def to_tuple(self) -> tuple[str, str]:
-        return (self.from_key, self.to_key)
-
 
 @dataclass(frozen=True)
 class TimeFoldIR:

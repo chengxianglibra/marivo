@@ -91,10 +91,10 @@ def test_time_parse_value_objects_reject_invalid_payloads() -> None:
 
 
 def test_join_key_value_object() -> None:
-    assert JoinKey(from_key="sales.orders.customer_id", to_key="sales.customers.id").to_tuple() == (
-        "sales.orders.customer_id",
-        "sales.customers.id",
-    )
+    key = JoinKey(from_key="sales.orders.customer_id", to_key="sales.customers.id")
+    assert key.from_key == "sales.orders.customer_id"
+    assert key.to_key == "sales.customers.id"
+    assert not hasattr(key, "to_tuple")
 
 
 def test_join_key_rejects_invalid_payloads() -> None:
@@ -260,7 +260,8 @@ def test_relationship_uses_join_key_pairs() -> None:
         if pending.ref.path == "sales.orders_to_customers"
     )
     assert ref.path == "sales.orders_to_customers"
-    assert relationship_ir.keys[0].to_tuple() == ("sales.orders.customer_id", "sales.customers.id")
+    assert relationship_ir.keys[0].from_key == "sales.orders.customer_id"
+    assert relationship_ir.keys[0].to_key == "sales.customers.id"
 
 
 # ---------------------------------------------------------------------------

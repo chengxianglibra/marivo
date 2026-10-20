@@ -2651,18 +2651,6 @@ def _result_method_capabilities() -> tuple[AuthoringCapability, ...]:
                 public_entrypoint="result.to_dict",
             )
         )
-    rows.append(
-        _capability(
-            "JoinKey.to_tuple",
-            "marivo.semantic.ir.JoinKey.to_tuple",
-            "Return the relationship key's ordered (left column, right column) pair without data reads.",
-            kind="method",
-            output="tuple[str, str]",
-            inputs=(AuthoringInputRequirement(role="receiver", family="JoinKey"),),
-            example="columns = key.to_tuple()",
-            public_entrypoint="key.to_tuple",
-        )
-    )
     return tuple(rows)
 
 
@@ -3912,7 +3900,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         JoinKey,
         "JoinKey",
         ("join_on",),
-        methods=("to_tuple",),
+        properties=("from_key", "to_key"),
     )
     # Enum and value types
     add(

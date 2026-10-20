@@ -353,7 +353,7 @@ class _SpecBase(RenderableResult):
                 literal_fields[key] = _validate_jsonable_field(self.name, key, value)
         return literal_fields, env_refs
 
-    def to_ir(self, *, location: DatasourceSourceLocation) -> DatasourceIR:
+    def _to_ir(self, *, location: DatasourceSourceLocation) -> DatasourceIR:
         return DatasourceIR(
             semantic_id=self.name,
             name=self.name,
@@ -635,7 +635,7 @@ def validate_datasource_name(name: Any) -> None:
 
 
 def _ir_from_spec(spec: DatasourceSpec, *, location: DatasourceSourceLocation) -> DatasourceIR:
-    return spec.to_ir(location=location)
+    return spec._to_ir(location=location)
 
 
 def _declare_if_loading(spec: DatasourceSpec) -> None:

@@ -986,7 +986,7 @@ def _relationship_frames(
     left_values = []
     right_values = []
     for index, key in enumerate(relationship.keys):
-        from_key, to_key = key.to_tuple()
+        from_key, to_key = key.from_key, key.to_key
         from_ir = registry.dimensions[from_key]
         to_ir = registry.dimensions[to_key]
         from_ref = (
