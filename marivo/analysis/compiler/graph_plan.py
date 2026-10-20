@@ -244,9 +244,9 @@ def _plan_source_reads(
     if not contributions:
         raise AnalysisStageUnavailableError(
             stage="query_execution",
-            expected="at least one source contribution for a Query execution plan",
+            expected="at least one source contribution for an AnalysisFrame compute plan",
             received="source-free Metric outputs",
-            repair="Bind a source-backed Metric through session.observe before executing the Query.",
+            repair="Bind a source-backed Metric with session.observe(...) before computing the AnalysisFrame.",
             target="analysis_frame.compute",
         )
     by_source = {schema.source_id: schema for schema in schemas}
@@ -359,9 +359,9 @@ def _plan_source_reads(
             or route.occurrence not in by_occurrence
         ):
             reject(
-                "a Query obligation and its exact source contribution occurrence",
+                "a source-check obligation and its exact source contribution occurrence",
                 repr(route),
-                "Bind the implemented check to a contribution in this Query before planning.",
+                "Bind the implemented check to its exact source contribution before planning.",
                 "analysis.query_plan.check",
             )
     for obligation in graph.signature.obligations:
@@ -370,7 +370,7 @@ def _plan_source_reads(
             raise AnalysisStageUnavailableError(
                 stage="query_execution",
                 expected=f"an implemented {obligation.check_id} check bound to its source occurrence",
-                received=f"{obligation.fact.kind} premise without a Query check route",
+                received=f"{obligation.fact.kind} premise without a current source-check route",
                 repair="This check route is not delivered yet; no business row was read.",
                 target="analysis_frame.compute",
             )

@@ -298,14 +298,18 @@ def test_data_schema_preserves_composite_keys_types_and_output_order() -> None:
     )
     money = DataColumn("v0", "money", DecimalDataType(28, 6), True, "CNY")
     time = DataColumn("v1", "time", TimestampDataType("ns", "Asia/Shanghai"), True)
-    schema = DataSchema((DataAxis("customer", keys),), (money, time))
+    schema = DataSchema(
+        (DataAxis("customer", keys),),
+        (money, time),
+        value_paths=(("money",), ("time",)),
+    )
     assert schema.key_fields == ("k0", "k1")
     assert schema.columns == (*keys, money, time)
     assert DataSchema((), ()).key_fields == ()
     with pytest.raises(CoreRuleError):
-        DataSchema(schema.axes, (money, money))
+        DataSchema(schema.axes, (money, money), value_paths=(("money",), ("money",)))
     with pytest.raises(CoreRuleError):
-        DataSchema((), (), (money,))
+        DataSchema((), (), (money,), presence_paths=(("money",),))
 
 
 def test_session_reopen_remains_same_generation(

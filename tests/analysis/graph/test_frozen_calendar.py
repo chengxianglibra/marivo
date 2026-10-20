@@ -290,9 +290,8 @@ def test_invalid_bounds_are_rejected_on_read(column: str) -> None:
 def test_exact_directory_layout_and_types_are_not_silently_coerced() -> None:
     endpoint = axis()
     attachment = directory(endpoint, ("2026-08-01",))
-    bad = replace(attachment.schema, value_paths=())
-    with pytest.raises(CoreRuleError, match=r"exact calendar\.v1"):
-        read_calendar_directory(endpoint, bad, attachment.rows)
+    with pytest.raises(CoreRuleError, match="one exact ordered path for each named column"):
+        replace(attachment.schema, value_paths=())
     with pytest.raises(CoreRuleError, match="exact slot order"):
         read_calendar_directory(endpoint, attachment.schema, attachment.rows.iloc[:, ::-1])
     attachment.rows["ordinal"] = pd.Series([0.0], dtype="float64[pyarrow]")

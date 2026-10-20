@@ -472,7 +472,11 @@ def test_terminal_schema_version_and_binding_mismatch_reject(
     with pytest.raises(AnalysisError):
         forged.to_pandas()
     with pytest.raises(AnalysisError):
-        DataSchema(schema.axes, schema.values + schema.values)
+        DataSchema(
+            schema.axes,
+            schema.values + schema.values,
+            value_paths=schema.value_paths + schema.value_paths,
+        )
     assert case.session.persisted_frame(result.artifact.id).to_pandas().equals(frame)
 
 

@@ -1,1 +1,1 @@
-"""Independent lazy Query and terminal Artifact wrappers."""
+"""AnalysisFrame construction and terminal Artifact types."""

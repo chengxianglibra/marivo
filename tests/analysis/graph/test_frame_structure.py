@@ -165,12 +165,7 @@ def test_user_names_require_one_nonreserved_segment(name: str) -> None:
     assert value_name("revenue", location="test") == ("revenue",)
 
 
-def test_new_roots_require_current_directories_and_concrete_schema(
-    local: LocalFrameServices,
-) -> None:
-    legacy = replace(schema(), value_paths=())
-    with pytest.raises(CoreRuleError, match="explicit exact ordered path"):
-        data(legacy)
+def test_new_roots_require_concrete_schema_and_named_axes(local: LocalFrameServices) -> None:
     pending = PendingDataSchema(
         (
             PendingDataAxis(
@@ -193,6 +188,15 @@ def test_new_roots_require_current_directories_and_concrete_schema(
     assert not hasattr(pending.values[0], "dtype")
     with pytest.raises(CoreRuleError, match="explicit display name"):
         data(replace(schema(), axes=(replace(schema().axes[0], name=""),)))
+
+
+def test_concrete_schema_requires_complete_value_and_presence_directories() -> None:
+    value = DataColumn("value.0", "value", ScalarDataType("float64"), True)
+    presence = DataColumn("presence.0", "left_present", ScalarDataType("boolean"), False)
+    with pytest.raises(CoreRuleError, match="one exact ordered path for each named column"):
+        DataSchema((), (value,))
+    with pytest.raises(CoreRuleError, match="one exact ordered path for each named column"):
+        DataSchema((), (), (presence,))
 
 
 def test_paths_own_lookup_and_order_without_graph_scans(local: LocalFrameServices) -> None:

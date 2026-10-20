@@ -469,6 +469,6 @@ def evaluate_result(stage: LocalCompute, inputs: tuple[pd.DataFrame, ...]) -> pd
     reject(
         "a planned result kernel",
         type(operation).__name__,
-        "Compile a qualified Query operation.",
-        "Query.execute",
+        "Compile an operation supported by AnalysisFrame.compute().",
+        "analysis_frame.compute",
     )

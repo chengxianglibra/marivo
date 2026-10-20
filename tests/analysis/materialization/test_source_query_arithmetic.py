@@ -212,6 +212,7 @@ def test_unary_float_selection_preserves_infinite_scores_without_new_checks(
         schema = DataSchema(
             (DataAxis("id", (DataColumn("id", "id", ScalarDataType("int64"), False),), name="id"),),
             (DataColumn("amount", "amount", ScalarDataType("float64"), True),),
+            value_paths=(("amount",),),
         )
         score_expression = ValueUnary("neg", ValueSlot(0))
         kernel = (
@@ -262,10 +263,14 @@ def test_float_select_rejects_nonfinite_output_before_empty_top(
         from marivo.analysis.methods.frame_values import evaluate_frame
 
         input_schema = DataSchema(
-            (), (DataColumn("amount", "amount", ScalarDataType("float64"), True),)
+            (),
+            (DataColumn("amount", "amount", ScalarDataType("float64"), True),),
+            value_paths=(("amount",),),
         )
         output_schema = DataSchema(
-            (), (DataColumn("value", "value", ScalarDataType("float64"), True),)
+            (),
+            (DataColumn("value", "value", ScalarDataType("float64"), True),),
+            value_paths=(("value",),),
         )
         expression = ValueUnary("neg", ValueSlot(0)) if negated else ValueSlot(0)
         program = FrameProgram(SelectValues((("value", expression),)), input_schema, output_schema)

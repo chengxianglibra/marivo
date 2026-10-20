@@ -202,8 +202,6 @@ class DataSchema:
                 "Store coordinate presence separately from nullable values.",
                 "data.presence",
             )
-        # Existing Query/Store 11 callers omit paths until the public cutover.
-        # New Frame construction requires explicit complete directories.
         from marivo.analysis.core.frame_structure import validate_paths
 
         for paths, columns, role in (
@@ -211,9 +209,8 @@ class DataSchema:
             (self.presence_paths, self.presence, "presence"),
         ):
             validate_paths(paths, location=f"data.{role}")
-            if paths and (
-                len(paths) != len(columns)
-                or tuple(".".join(path) for path in paths) != tuple(c.name for c in columns)
+            if len(paths) != len(columns) or tuple(".".join(path) for path in paths) != tuple(
+                c.name for c in columns
             ):
                 reject(
                     "one exact ordered path for each named column",

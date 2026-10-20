@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 
 class CoreRuleError(AnalysisError):
-    """A private Query construction has invalid input or lacks a premise."""
+    """A private analysis structure has invalid input or lacks a premise."""
 
     def __init__(self, *, expected: str, received: str, repair: str, location: str) -> None:
         super().__init__(
@@ -109,7 +109,7 @@ class BoundSignature:
             reject(
                 "an immutable tuple of named Metric outputs",
                 type(self.quantities).__name__,
-                "Construct the Query through session.observe(metrics).",
+                "Construct an AnalysisFrame through session.observe(metrics).",
                 "query.signature",
             )
         names = tuple(item.name for item in self.quantities)
