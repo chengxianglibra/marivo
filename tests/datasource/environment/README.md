@@ -208,4 +208,4 @@ make installed-multisource-test
 Installed-origin and wheel-hash checks own package isolation. Native source
 matrices own broader decoding, shape, streaming, fault, and cancellation coverage.
 Historical qualification plans and local evidence retain their original scope;
-current gate ownership is listed in [the Runtime coverage map](../../../docs/testing/runtime-coverage.md).
+current gate ownership is recorded in the local-only `docs/测试文档/` directory.

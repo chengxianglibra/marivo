@@ -97,16 +97,16 @@ release-check:
 
 docs-api: ## Build the Sphinx Python API reference into site/public/api/
 	@./scripts/require-venv.sh sphinx-build
-	@rm -rf docs/api/api
+	@rm -rf docs/api文档/api
 	@rm -rf site/public/api
-	@$(VENV_BIN)/sphinx-build$(EXE_SUFFIX) -W --keep-going -b html docs/api site/public/api
+	@$(VENV_BIN)/sphinx-build$(EXE_SUFFIX) -W --keep-going -b html docs/api文档 site/public/api
 	@echo "API docs built in site/public/api"
 
 docs-api-agent: ## Build the Sphinx Python API reference with compact output.
 	@./scripts/require-venv.sh sphinx-build
-	@rm -rf docs/api/api
+	@rm -rf docs/api文档/api
 	@rm -rf site/public/api
-	@$(VENV_BIN)/sphinx-build$(EXE_SUFFIX) -q -N -W --keep-going -b html docs/api site/public/api
+	@$(VENV_BIN)/sphinx-build$(EXE_SUFFIX) -q -N -W --keep-going -b html docs/api文档 site/public/api
 	@echo "API docs built in site/public/api"
 
 pypi-build: ## Build PyPI sdist and wheel into dist/pypi/

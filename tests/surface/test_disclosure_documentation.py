@@ -23,7 +23,7 @@ from tests.shared_fixtures import DslCaseFactory
     ("filename", "receivers"),
     (
         (
-            "docs/specs/analysis/lazy-analysis-dsl-examples.md",
+            "docs/架构文档/analysis/lazy-analysis-dsl-examples.md",
             {
                 "parents": mv.Population,
                 "attributes": mv.AnalysisFrame,
@@ -32,17 +32,8 @@ from tests.shared_fixtures import DslCaseFactory
                 "change.artifact": mv.Artifact,
             },
         ),
-        (
-            "docs/specs/analysis/lazy-analysis-dsl-scenario-validation.md",
-            {
-                "focus": mv.Population,
-                "detail": mv.AnalysisFrame,
-                "rolling": mv.AnalysisFrame,
-                "saved.artifact": mv.Artifact,
-            },
-        ),
-        ("docs/specs/semantic/datasource-layer.md", {"snapshot": md.DiscoverySnapshot}),
-        ("docs/api/datasource.rst", {"snapshot": md.DiscoverySnapshot}),
+        ("docs/架构文档/semantic/datasource-layer.md", {"snapshot": md.DiscoverySnapshot}),
+        ("docs/api文档/datasource.rst", {"snapshot": md.DiscoverySnapshot}),
     ),
 )
 def test_documented_disclosure_calls_resolve_to_live_members(

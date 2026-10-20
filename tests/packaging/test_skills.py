@@ -16,9 +16,9 @@ def test_temporal_semantics_is_registered_as_a_current_runtime_contract() -> Non
     assert "Status: implemented current contract." in text
     assert "does not describe the current runtime" not in text
     for relative_path in (
-        "docs/README.md",
-        "docs/specs/semantic/overview.md",
-        "docs/specs/analysis/python-analysis-design.md",
+        "docs/架构文档/README.md",
+        "docs/架构文档/semantic/overview.md",
+        "docs/架构文档/analysis/README.md",
     ):
         current_text = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
         assert "proposed cross-layer" not in current_text

@@ -168,7 +168,7 @@ containing `::` run serially. Account for other concurrent test tasks on the hos
 
 `make check` 和 `make check-agent` 执行快速日常检查。发布准备与发布 CI 通过
 `make release-check` 加上 slow、Runtime、安装和打包检查。Runtime 不重复全部日常
-分析验收矩阵。See [Runtime test coverage](docs/testing/runtime-coverage.md).
+分析验收矩阵。Runtime coverage notes and local acceptance records are kept in the local-only `docs/测试文档/` directory.
 
 For test performance investigations, measure the same suite with
 `.venv/bin/pytest -m runtime -n 2 --durations=40 <selected-tests>`, then compare

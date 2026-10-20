@@ -90,17 +90,6 @@ models/
 # Plan
 plan/
 
-# Archive
-docs/archive/
-
-# Superpowers working plans
-docs/superpowers/plans/
-docs/superpowers/discussions/
-docs/superpowers/specs/archive/
-docs/superpowers/specs/evidence/
-docs/superpowers/specs/*-qualification.json
-docs/superpowers/specs/*-qualification-cells-*.json
-docs/superpowers/specs/*-qualification.md
 .superpowers/
 .gitnexus
 .worktrees/
@@ -108,13 +97,8 @@ docs/superpowers/specs/*-qualification.md
 .mimocode/
 /evidence/
 
-# Local ecommerce acceptance records
-/docs/testing/codex-ecommerce-e2e-acceptance-plan.zh-CN.md
-/docs/testing/codex-ecommerce-e2e-results-2026-10-18.zh-CN.md
-/docs/testing/codex-ecommerce-fixes-reacceptance-2026-10-18.zh-CN.md
-
 # Sphinx autosummary-generated stub pages (build artifact)
-docs/api/api/
+/docs/api文档/api/
 
 # Shared documentation copies generated from site/shared-docs.json.
 /site/src/content/docs/docs/latest/contributing.mdx
@@ -156,3 +140,8 @@ docs/api/api/
 /site/src/content/docs/zh-cn/docs/latest/release-notes/0.4.1.mdx
 /site/src/content/docs/zh-cn/docs/v0.2/contributing.mdx
 /site/src/content/docs/zh-cn/docs/v0.5/contributing.mdx
+
+# Local-only documentation categories
+/docs/设计文档/
+/docs/实施文档/
+/docs/测试文档/
