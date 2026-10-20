@@ -75,6 +75,7 @@ def provider() -> DisclosureProvider:
             ),
             constraints=(
                 "token and name are local metadata, not proof of equality between independent inputs. key_names lists every physical component; complete composite axes remain indivisible in by/on.",
+                "Data axes retain key types, roles and time interpretation without original Entity/Field nominal bindings. Explicit on declares caller business correspondence; validation does not prove semantic identity.",
             ),
         ),
         value_type(

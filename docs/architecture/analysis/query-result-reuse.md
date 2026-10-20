@@ -1,11 +1,11 @@
 # AnalysisFrame 数据对象与执行架构设计
 
-Status: current AnalysisFrame data contract，2026-10-20。
+Status: current AnalysisFrame data contract，2026-10-21；澄清轴绑定与当前行规约，不改变 DSL 行为。
 本文替代此前 Query/origin、自动历史复用及按物化状态限制续算的提案。
-当前 API 与执行边界由 [Python Analysis Design](../../%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3/analysis/python-analysis-design.md) 和
+当前 API 与执行边界由[分析架构](README.md)和
 [Session State and Runtime](session-state-and-runtime.md) 共同维护；后文实施步骤与验收场景
 保留原始设计记录，不作为新执行或发布证据。
-[Attribute 合同](../../%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3/analysis/attribute-design.md) 的显式来源入口返回同一种 AnalysisFrame，增加不可执行
+[Attribute 合同](../../design/analysis/attribute-design.md) 的显式来源入口返回同一种 AnalysisFrame，增加不可执行
 方法事实而不恢复原来源。旧 Query.attribute/execute/drill 组合方案不重新引入。
 
 ## 1. 核心决策：结构决定运算，载体决定求值
@@ -119,6 +119,8 @@ show(n=0) 发生在该显式读取之后。to_pandas 只读当前数据及必要
 以下列出核心当前签名；现有数值表达式、Statistic、单位和错误类型沿用其所属合同。
 FrameAxis 是从 frame.axes 或 frame.axis(name) 获得的只读完整轴句柄，绑定精确输入和局部轴 token，
 不能用字符串、列值或语义 Ref 脱离所属 frame 直接构造。它使冷恢复后的坐标操作不依赖语义轴对象。
+数据轴保存角色、完整键类型与时间解释，不保存原 Entity/Field 的名义绑定；显示名即使是语义路径也不证明该绑定。
+待执行、内存和持久 Frame 均使用此边界；identity 角色表示完整身份键形状，不证明来自某个特定 Entity。
 
 ```python
 from __future__ import annotations
@@ -350,7 +352,7 @@ Top-0、空结果或列裁剪不能消除必要的上游检查。逻辑优化既
 
 ### 4.2 原量问题重构归显式来源计算
 
-现有 Query.rollup/drill 依赖原 Metric、贡献和语义分类，可重新读取来源。
+已退役的 Query.rollup/drill 依赖原 Metric、贡献和语义分类，可重新读取来源。
 它们不搬到 AnalysisFrame 上；物化前也不通过特殊来源子类保留这些方法。
 更改观察粒度、期间、贡献筛选或读取新属性，应显式通过 observe/read 等来源入口构造新分析，
 由调用方提供 Metric、Field、范围和必要的完整选择域，不能从 frame 找回原定义。
@@ -363,6 +365,8 @@ Top-0、空结果或列裁剪不能消除必要的上游检查。逻辑优化既
 客单价 `100/1`、`900/90` 的行均值为 55，原整体均值为 `1000/91`；
 distinct 桶 `{1,2}`、`{2,3}` 的计数和为 4，合并 distinct 为 3。
 保存均值或计数不自动取得原量能力。首版不保存隐藏 sum/count、贡献明细或原公式。
+sum/mean 按当前值表达式保留单位；单位描述量纲，不认证原 Metric 的可加性或允许沿被移除轴上卷。
+每日库存之和仍可标为件，比率之和仍可无量纲；这不使它们成为月库存或整体比率。
 
 `frame.correlate(x, y, method="pearson" | "spearman", by=())` 是当前行成对相关的
 常规入口：x、y 及完整 by 轴均绑定该精确 Frame/Session 输入，返回惰性普通 Frame，
@@ -373,7 +377,7 @@ distinct 桶 `{1,2}`、`{2,3}` 的计数和为 4，合并 distinct 为 3。
 Spearman 在各组有效配对内使用平均秩。`Column.corr` / `Column.pair_count` 可由 reduce
 显式命名组合其它统计；每项仅一列，名称不会推断配对关系，其它统计仍用独立掩码。
 保存的分组系数/计数不能恢复总体相关；从原样本重新规约。详见
-[Correlation Statistics](../../%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3/analysis/correlation-statistics-design.md)。
+[Correlation Statistics](../../design/analysis/correlation-statistics-design.md)。
 
 当前 share 所要求的贡献可加性和共同实际输入不能改成普通数值列的隐含权限。
 显式算术只能产生调用方定义的当前值比例，不自动带有原贡献份额保证。
@@ -391,6 +395,9 @@ frame 的坐标投影只产生当前域，不包含丢失的身份、贡献出�
 由 Session 校验目标 Catalog 绑定，不是 frame 恢复原语义对象；原 frame 不变。
 on 只能选普通字段轴或完整身份轴，轴属于该 frame、目标角色与完整键类型必须相容，
 目标绑定按现有语义规则验证，不靠同名查找。首版不绑定interval 轴、日历轴、配对轴或任意值列。
+该入口是坐标投影后建立新绑定，不是恢复原 Entity/Field。目标与原轴的业务对应由调用方声明；
+系统不检查二者语义身份相同。结构相容的 Customer 轴可以绑定 Product，收货城市键也可以绑定开票城市，
+但不能据此声称身份或维度等价。目标 Catalog、角色、完整键类型、单位及时间约束仍须通过检查。
 
 桥接按所选轴的完整联合键投影并去重，不能逐轴拆开再做笛卡尔积。
 字段 Null 是合法类别；Entity 身份要求完整非空主键，不能把普通字段升级成身份。
@@ -441,6 +448,9 @@ align 接收另一 Frame；compare 始终接收非空有序命名 Frame 映射�
 零轴或双方唯一同种 interval/calendar 轴可唯一推导；含普通轴时必须显式完整双射。
 compare 的 on/match 按基期别名分别提供；未知别名拒绝，部分 on 不自动补足。
 FrameAxis 的显示名、token、dtype 或相同值不证明跨输入身份，不依此猜映射。
+普通轴显式 on 声明本次业务对应；检查只保证结构相容以及所选政策下的实际键域，
+不验证原 Entity/Field 相同。Customer/Product 的同类型身份键可以显式配对；exact 成功不证明业务身份等价。
+compare 的同名量配对同样是调用方组织输入的方式，兼容类型与单位不证明相同 Metric 或业务可比性。
 
 compare 的时间关系按每个已绑定基期独立选择：显式 match 优先表达意图，但须与存在的直接
 shift 关系一致；省略时仅消费锚点与本期完整冻结域相符的直接关系，否则拒绝错误锚点。

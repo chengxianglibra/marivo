@@ -41,6 +41,13 @@ alias-keyed ordinal rule explicitly pairs periods. Display names do not bind
 inputs. Single and multiple baselines use the same named mapping; a name such
 as `yoy` never infers a rule or source computation.
 
+Ordinary Frame axes retain complete key types, roles and time interpretation
+without original Entity/Field nominal bindings. Explicit on declares your business
+correspondence; validation does not check original Entity/Field equality. Even
+compatible Customer/Product identity keys can be explicitly paired. Equal value
+names select comparison pairs; names, types and units do not prove Metric identity
+or business comparability. exact validates the declared key correspondence.
+
 {/* example: aligned-absolute-only */}
 
 ```python

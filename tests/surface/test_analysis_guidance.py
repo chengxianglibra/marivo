@@ -226,6 +226,27 @@ def test_current_row_aggregation_has_one_public_entry() -> None:
         assert not hasattr(mv.AnalysisFrame, alias) and not hasattr(mv.Artifact, alias)
     assert not any(target.endswith(".aggregate") for target in REGISTRY.canonical_ids())
 
+    page = rendered_help("analysis.analysis_frame.reduce")
+    assert page == rendered_help(mv.AnalysisFrame.reduce)
+    assert "Sum/mean retain the current expression's unit" in page
+    assert "does not certify original Metric additivity or permit rollup over removed axes" in page
+    for target in ("analysis.column.sum", "analysis.column.mean"):
+        assert "Retain the expression's unit without certifying" in rendered_help(target)
+
+
+@pytest.mark.parametrize("method", ("align", "compare"))
+def test_frame_correspondence_help_separates_caller_intent_from_identity(method: str) -> None:
+    page = rendered_help("analysis.analysis_frame." + method)
+    assert page == rendered_help(getattr(mv.AnalysisFrame, method))
+    assert "declaring caller business correspondence" in page
+    assert "without checking original Entity/Field equality" in page
+    if method == "compare":
+        assert "without proving Metric identity or business comparability" in page
+    axis = rendered_help("analysis.frame_axis")
+    assert axis == rendered_help(mv.FrameAxis)
+    assert "without original Entity/Field nominal bindings" in axis
+    assert "validation does not prove semantic identity" in axis
+
 
 def test_population_bridge_help_uses_actual_static_method_without_catalog_reads(
     monkeypatch: pytest.MonkeyPatch,
@@ -240,5 +261,10 @@ def test_population_bridge_help_uses_actual_static_method_without_catalog_reads(
     assert "on:" in page and "FrameAxis" in page and "Entity" in page
     assert "Required immutable tuple" in page
     assert "construction reads no rows" in page
+    assert "new semantic bindings after joint key projection" in page
+    assert "not original Entity/Field equality" in page
+    assert "Compatible Customer keys may bind Product" in page
+    assert "shipping-city keys may bind billing-city" in page
+    assert "Ordinary fields cannot become identities" in page
     assert "analysis.session.population_from" in rendered_help("analysis.population_tasks")
     assert "analysis.session.population_from" in rendered_help("analysis.population")

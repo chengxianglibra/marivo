@@ -1,19 +1,22 @@
 # Operators and Frames
 
-Status: AnalysisFrame cutover value contract, 2026-10-19.
-The complete target surface is defined by [Lazy DSL](../../%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3/analysis/lazy-analysis-dsl-redesign.md).
+Status: current AnalysisFrame value contract, clarified 2026-10-21 without changing DSL behavior.
+The current data surface is defined by [AnalysisFrame](query-result-reuse.md) and focused Live Help.
 Native expressions and existing source/local numerical kernels are implemented;
 AnalysisFrame supplies one data contract across expression, memory and stored carriers. Focused local checks do
 not by themselves establish full independent acceptance or remote Runtime qualification.
-[Analysis Design](../../%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3/analysis/python-analysis-design.md) owns objects and compilation;
+[Analysis Architecture](README.md) owns objects and compilation;
 [Runtime](session-state-and-runtime.md) owns invocation and publication.
 
 ## Immutable coordinates and values
 
 Population describes finite complete coordinate tuples. AnalysisFrame binds named values
 to those coordinates; Column locates an expression on that exact input. Output
-axes remain ordered. An Entity identity includes every primary-key component in
-declared order; roles, paths and version anchors remain part of its binding.
+axes remain ordered. A semantic Entity identity includes every primary-key component in
+declared order; roles, paths and version anchors remain part of its semantic binding.
+Frame data axes retain complete physical key types, roles and captured time interpretation,
+without the original Entity/Field nominal binding. A display name derived from a semantic
+path does not restore that binding. This holds for expression, memory and stored carriers.
 A Field Null is a valid category and must not be lost by default grouping behavior.
 
 Complete Frame data owns final typed values, actual coordinates and presence.
@@ -132,6 +135,10 @@ reconstructs original contributions nor changes a calendar's grain. Row mean 55
 can differ from original overall 1000/91; distinct counts 2+2=4 do not prove a
 union distinct count of 4 when the actual union has 3 members. Request original
 overall formulas with an explicit new observe and their governed source inputs.
+Sum/mean retain the current value expression's unit. A retained unit describes
+physical dimension, not original Metric additivity or permission to roll up removed
+axes. Summed daily inventory may still have unit items, and summed ratios may
+remain dimensionless; neither certifies monthly inventory or an overall ratio.
 
 AnalysisFrame.correlate is the ordinary Pearson/Spearman entry, with explicit
 method and fixed coefficient/n_pairs outputs from one input evaluation.
@@ -148,7 +155,7 @@ Correlation tests constants and ties on actual input values, then uses exact
 integer/Decimal differences or binary float scaling before two-pass centered
 stable sums and residual scaling. Nonfinite intermediates or a lost nonconstant
 scale fail before clipping a finite coefficient to [-1, 1]. The numeric and
-empty-domain contract is owned by [Correlation Statistics](../../%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3/analysis/correlation-statistics-design.md).
+empty-domain contract is owned by [Correlation Statistics](../../design/analysis/correlation-statistics-design.md).
 Group coefficients and counts cannot reconstruct pooled correlation.
 
 Source Metric/per/window execution may retain internal sufficient state during
@@ -168,6 +175,10 @@ names do not rebind them. Exact checks complete actual joint keys. Compare outer
 starts with current rows and appends mapped baseline-only keys by alias order;
 actual baseline time rows outside the current declared time domain reject. Align
 retains its general two-ended union and paired output.
+For ordinary axes, explicit on declares the caller's business correspondence.
+Validation checks ownership, roles, complete key types and time interpretation;
+it does not check original Entity/Field equality. Compatible Customer/Product
+identity keys can be explicitly paired without establishing business identity.
 
 Align preserves left/right values. Compare requires equal nonempty value paths
 and compatible numeric types/units. It keeps current axes/unqualified values and
@@ -176,6 +187,8 @@ current value order. Absolute is current-baseline and relative divides by the
 absolute baseline. Missing rows/NA yield NA differences before zero policy.
 Duration baseline/absolute retain ticks; relative is dimensionless. Child strict
 policies stay required even after select or Top-0.
+Equal value names select comparison pairs; they do not establish Metric identity
+or business comparability, even when numeric types and units are compatible.
 
 Compare row flags are nonnullable `current.present` / `<alias>.present`, distinct
 from value NA; inherited flags use `current.presence.*` / `<alias>.presence.*`.

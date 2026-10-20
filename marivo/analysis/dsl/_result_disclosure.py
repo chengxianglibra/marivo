@@ -203,7 +203,7 @@ def provider() -> DisclosureProvider:
                 P("other", "Another AnalysisFrame owned by this Session."),
                 P(
                     "on",
-                    "None only for zero axes or one calendar or interval axis per input; otherwise a complete tuple of exact FrameAxis pairs.",
+                    "None only for zero axes or one calendar or interval axis per input; otherwise complete FrameAxis pairs declaring caller business correspondence, without checking original Entity/Field equality.",
                 ),
                 P(
                     "match",
@@ -223,11 +223,11 @@ def provider() -> DisclosureProvider:
             (
                 P(
                     "baselines",
-                    "Nonempty ordered named same-Session Frame mapping with matching nonempty value paths and units: compatible numeric or matching-tick exact Duration endpoints. current is reserved.",
+                    "Nonempty ordered named same-Session Frame mapping with matching nonempty value paths and units: compatible numeric or matching-tick exact Duration endpoints. Equal names select pairs without proving Metric identity or business comparability. current is reserved.",
                 ),
                 P(
                     "on",
-                    "Per-alias complete axis bijections; omitted aliases infer only zero axes or one time axis.",
+                    "Per-alias complete axis bijections declaring caller business correspondence, without checking original Entity/Field equality; omitted aliases infer only zero axes or one time axis.",
                 ),
                 P(
                     "match",
@@ -286,7 +286,7 @@ def provider() -> DisclosureProvider:
             "sum",
             (),
             "_Statistic",
-            "Request ignore-NA sum; empty/all-NA is NA. Complete with AnalysisFrame.reduce.",
+            "Request ignore-NA current-row sum; empty/all-NA is NA. Retain the expression's unit without certifying original Metric additivity. Complete with AnalysisFrame.reduce.",
             "result = column.sum()",
             ("column",),
             "methods.metric.summary",
@@ -327,7 +327,7 @@ def provider() -> DisclosureProvider:
             "mean",
             (),
             "_Statistic",
-            "Request ignore-NA mean; empty/all-NA is NA. Complete with AnalysisFrame.reduce.",
+            "Request ignore-NA current-row mean; empty/all-NA is NA. Retain the expression's unit without certifying an original overall Metric. Complete with AnalysisFrame.reduce.",
             "result = column.mean()",
             ("column",),
             "methods.metric.summary",
@@ -352,6 +352,8 @@ def provider() -> DisclosureProvider:
                     if name == "correlate"
                     else "Only same-input numeric Columns (int64/finite float64/Decimal), including self-pairs; Duration rejects during capture or physical preparation. Use a defined numeric source expression or external computation for Duration. Different units are allowed without conversion. Check both expressions, then use a common non-NA mask per group; zero and repeated values count. Self pair_count counts non-NA values. Retain zero-pair groups and counts for constant inputs; coefficient is NA for n<2 or a constant endpoint. corr returns only nullable float64/unit '1'; pair_count returns only nonnullable int64/no unit. No direct execution, arithmetic, automatic count expansion or inferred pair relationship. Use analysis.analysis_frame.reduce to finish; analysis.analysis_frame.correlate supplies the matched two-column result."
                     if name in ("corr", "pair_count")
+                    else "Columns and statistics retain one exact Frame input; Artifact cannot enter computation. Sum/mean retain the current expression's unit; this does not certify original Metric additivity or permit rollup over removed axes. Summed inventory or ratios remain current-row statistics, not monthly inventory or an overall ratio."
+                    if name == "reduce"
                     else "Columns and statistics retain one exact Frame input; Artifact cannot enter computation. Current-row statistics do not acquire original Metric authority.",
                 ),
                 effects="Capture a lazy result operation; no source or schema read.",

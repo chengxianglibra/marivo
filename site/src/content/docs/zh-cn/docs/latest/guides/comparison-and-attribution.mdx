@@ -35,6 +35,10 @@ exact 检查实际完整联合键；outer 先保留本期行序，再添加映�
 和 region 轴：按别名提供的 on 覆盖全部轴，按别名提供的 ordinal 显式对应两期。
 显示名相同不证明身份。单、多基期使用同一命名映射；`yoy` 等名称不推断规则或来源计算。
 
+普通 Frame 轴保留完整键类型、角色和时间解释，不保留原 Entity/Field 名义绑定。
+显式 on 声明你的业务对应；系统不检查原 Entity/Field 相同，结构相容的 Customer/Product 身份键也可以显式配对。
+同名值用于选择比较对；名称、类型和单位不证明相同 Metric 或业务可比性。exact 验证声明下的键对应。
+
 {/* example: aligned-absolute-only */}
 
 ```python

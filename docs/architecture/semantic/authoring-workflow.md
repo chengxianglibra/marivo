@@ -7,7 +7,7 @@ Their concrete result types remain discoverable through native type Help;
 Temporal kind markers remain root exports for specific `Ref[K]` annotations.
 
 Native expression authoring (2026-10-17):
-[Expression redesign v0.37](../../%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3/semantic/expression-model-redesign.md#26-原生-ibis-与自动延迟绑定)
+[Expression redesign v0.37](../../design/semantic/expression-model-redesign.md#26-原生-ibis-与自动延迟绑定)
 now uses controlled native Ibis Deferred for every numerical or conditional Field,
 Measure and Metric input. Physical capture/finalize still freezes semantic facts without
 source reads. Named declarations attach immutable metadata to the same Deferred recipe;
@@ -18,12 +18,12 @@ Use `catalog.describe(ref).show()` for definition facts and `AnalysisFrame.show(
 facts. Native Deferred values have no Marivo `.show()` or `.contract()` methods. Real physical
 dtypes are checked during automatic execution preparation; no manual schema or conversion API
 is required. Implementation and execution acceptance for the additional capabilities below
-are tracked separately by the [implementation plan](../../%E5%AE%9E%E6%96%BD%E6%96%87%E6%A1%A3/semantic/expression-model-implementation-plan.md).
+are tracked separately by the [implementation plan](../../implementation/semantic/expression-model-implementation-plan.md).
 
 The current native surface includes source reductions, ordered internal-sample reductions,
 explicit membership buckets, local empty-input policies, and reusable window Metrics.
 Each expression keeps its contribution roots, permissions, units, time role and dependencies.
-The [expression model](../../%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3/semantic/expression-model-redesign.md) owns these rules; execution preparation
+The [expression model](../../design/semantic/expression-model-redesign.md) owns these rules; execution preparation
 checks physical types and backend support. A declaration or successful load is not execution evidence.
 
 Status: current authoring workflow, 2026-10-17. This document defines agent-native

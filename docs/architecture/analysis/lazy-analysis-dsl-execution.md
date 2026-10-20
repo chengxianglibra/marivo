@@ -1,6 +1,6 @@
 # Lazy Analysis DSL：执行、保存与结果交接
 
-Status: AnalysisFrame cutover execution contract, 2026-10-19.
+Status: current AnalysisFrame execution contract, clarified 2026-10-21 without new rewrite qualification.
 [AnalysisFrame](query-result-reuse.md) 是最终数据合同；实际接受源码与剩余 gate 由实施进度拥有。
 历史 Query/provider 记录保留原范围，不等于新 Frame pipeline 的 Runtime/发布资格。
 
@@ -72,6 +72,13 @@ Session 引用，不根据路径重新接入 Session。跨 Session 运算始终�
 行均值 55 与来源整体 1000/91、distinct 4 与并集 3 是独立验收反例。
 Frame 原量 rollup/drill/share、广播/任意关系对应、日历粗化、分区 Top 与再次对齐配对轴延期。
 原公式与新事实问题显式重新 observe；不能伪装为 reduce 或从历史来源图恢复。
+sum/mean 沿用当前值表达式单位，不检查原 Metric 在被移除轴上的可加性，也不因此授予原量上卷能力。
+
+数学定律不自动授权编译器消除中间节点。当前 L1 仅融合同实际输入、同布局、单消费者、
+无待完成检查的闭合 int64 比较过滤，并保持 nullable True-only 选择政策。
+相邻 ReduceValues 的 L8 候选始终记录 refused；中间掩码、数值边界与原完成检查尚无固定状态证明。
+通用映射复合与完整原像限制没有注册改写。编号和实际入口见[理论覆盖表](algebra-theory.md#实现编号与理论定律的对应)。
+这些边界不限制合法显式算子组合，也不承诺实数等式在浮点重排、溢出或不同检查范围下保持等价。
 
 ### 1.5 单一执行路线与终端读写
 

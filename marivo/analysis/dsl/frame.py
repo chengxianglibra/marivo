@@ -465,7 +465,8 @@ class AnalysisFrame:
         Constraints: Each named statistic produces one column with its independent
         NA mask. Use correlate for a coefficient and its matching pair count;
         corr/pair_count compose with sum/mean/row_count without inferred pairing.
-        No original Metric regrouping or calendar coarsening.
+        Sum/mean retain the current expression's unit without certifying original Metric
+        additivity or rollup over removed axes. No original Metric regrouping or calendar coarsening.
         """
         if not isinstance(values, Mapping) or not values or type(by) is not tuple:
             reject(
@@ -670,7 +671,8 @@ class AnalysisFrame:
             ``paired = a.align(b, on=((a.axes[0], b.axes[0]),))``.
 
         Constraints: Only zero axes or a sole calendar axis per side infer on; ordinary axes
-        require explicit mapping. Paired inputs reject. No Catalog or row reads.
+        require explicit mapping. This declares caller business correspondence; validation
+        does not check original Entity/Field equality. Paired inputs reject. No Catalog or row reads.
         """
         pairs = self._axis_pairs(other, on=on, match=match)
         operation = AlignFrameValues(pairs, how, match)
@@ -705,6 +707,8 @@ class AnalysisFrame:
 
         Constraints: Equal nonempty numeric value paths and units; no paired inputs. Relative
         change is (current-baseline)/abs(baseline). Missing rows and NA precede zero policy.
+        Ordinary-axis on declares caller business correspondence without checking original
+        Entity/Field equality. Equal value names select pairs, not Metric identity or business comparability.
         No source replay or date inference from alias names.
         """
         from marivo.analysis.core.frame_structure import validate_paths

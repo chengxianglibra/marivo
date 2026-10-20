@@ -24,6 +24,10 @@ ranked.show()
 Each statistic has its own effective non-NA sample. Sum is NA for empty/all-NA
 input, mean is NA without a sample, and row_count counts all represented rows.
 Reduce can retain existing complete Frame axes; it cannot coarsen a calendar.
+Sum/mean retain the current expression's unit. The unit does not certify original
+Metric additivity or permission to roll up removed axes: summed daily inventory
+may still have unit items, and summed ratios may remain dimensionless, without
+becoming monthly inventory or an overall ratio.
 Top is global, uses this exact input's Column and preserves its deterministic
 order through persistence. There is no partition_by receiver.
 

@@ -132,7 +132,7 @@ prefixes. Exact requires equal aligned-key sets; outer keep admits unequal key
 images. Empty finish rejects unobserved time keys. Output has no time_grid; both
 original times remain frozen correspondence projections. Real-time operations run
 on original endpoints before comparison, including after selection when aligned
-coordinates survive. The [Period correspondence owner](../%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3/analysis/timezone-and-calendar-design.md#period-correspondence)
+coordinates survive. The [Period correspondence owner](../design/analysis/timezone-and-calendar-design.md#period-correspondence)
 defines the four mappings, daily/whole-day/timezone admission, coverage, frozen
 captures and continuation admission.
 A catalog's correspondence or work-schedule object is not itself an analysis
@@ -872,8 +872,8 @@ exact registered keys for its full graph before its numerical oracle can run.
 Current registrations and independent passing witnesses govern support;
 a named timezone or an old suite result cannot grant it.
 
-See [timezone and calendar design](../%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3/analysis/timezone-and-calendar-design.md),
-[observation contract](../%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3/analysis/python-analysis-design.md#population-and-observation-binding)
+See [timezone and calendar design](../design/analysis/timezone-and-calendar-design.md),
+[observation contract](../design/analysis/python-analysis-design.md#population-and-observation-binding)
 and [Runtime contract](analysis/session-state-and-runtime.md)
 for detailed owning rules.
 
@@ -887,7 +887,7 @@ from query execution; source values that violate the declaration can affect resu
 
 ## Certified time dependency handoff
 
-The [Analysis temporal owner](../%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3/analysis/timezone-and-calendar-design.md#exact-boundary-construction)
+The [Analysis temporal owner](../design/analysis/timezone-and-calendar-design.md#exact-boundary-construction)
 owns grid, endpoint and consumer contracts. This document owns certification and
 normalized calendar/set snapshots. Analysis does not create another calendar
 store or public period/occurrence factory; certification is distinct from

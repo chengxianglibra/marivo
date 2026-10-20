@@ -573,6 +573,10 @@ class Session:
         Construction reads no data rows or source schema. Select only ordinary field or
         complete identity axes; targets declare new source bindings. Fixed input choices stay
         fixed; pending choices evaluate anew.
+        Caller targets establish new semantic bindings after joint key projection; validation
+        checks target Catalog, role, complete key types, units and time constraints, not original
+        Entity/Field equality. Compatible Customer keys may bind Product, or shipping-city keys
+        may bind billing-city; neither proves semantic identity. Ordinary fields cannot become identities.
         """
         from marivo.analysis.core.model import reject
         from marivo.analysis.dsl.frame import AnalysisFrame

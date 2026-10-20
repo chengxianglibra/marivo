@@ -1,7 +1,7 @@
 # Semantic Object Model
 
 Native expression authoring (2026-10-17):
-[Expression redesign v0.37](../../%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3/semantic/expression-model-redesign.md#26-原生-ibis-与自动延迟绑定)
+[Expression redesign v0.37](../../design/semantic/expression-model-redesign.md#26-原生-ibis-与自动延迟绑定)
 now uses controlled native Ibis Deferred for every numerical or conditional Field,
 Measure and Metric input. Physical capture/finalize still freezes semantic facts without
 source reads. Named declarations attach immutable metadata to the same Deferred recipe;
@@ -12,12 +12,12 @@ Use `catalog.describe(ref).show()` for definition facts and `Query.show()` for e
 facts. Native Deferred values have no Marivo `.show()` or `.contract()` methods. Real physical
 dtypes are checked during automatic execution preparation; no manual schema or conversion API
 is required. Implementation and execution acceptance for the additional capabilities below
-are tracked separately by the [implementation plan](../../%E5%AE%9E%E6%96%BD%E6%96%87%E6%A1%A3/semantic/expression-model-implementation-plan.md).
+are tracked separately by the [implementation plan](../../implementation/semantic/expression-model-implementation-plan.md).
 
 The current native surface includes source reductions, ordered internal-sample reductions,
 explicit membership buckets, local empty-input policies, and reusable window Metrics.
 Each expression keeps its contribution roots, permissions, units, time role and dependencies.
-The [expression model](../../%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3/semantic/expression-model-redesign.md) owns these rules; execution preparation
+The [expression model](../../design/semantic/expression-model-redesign.md) owns these rules; execution preparation
 checks physical types and backend support. A declaration or successful load is not execution evidence.
 
 Status: native Deferred authoring and publication contract, 2026-10-17.
@@ -685,7 +685,7 @@ explicitly when acceptable. Passing physical readiness grants no operation-speci
 
 ## Analysis Semantic handoff
 
-The [Analysis contract](../../%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3/analysis/python-analysis-design.md#population-and-observation-binding)
+The [Analysis contract](../../design/analysis/python-analysis-design.md#population-and-observation-binding)
 owns consuming input shapes; [method contracts](../analysis/operators-and-frames.md)
 own sufficient state, numerical policies and conditional continuations.
 
@@ -779,7 +779,7 @@ completeness or physical execution qualification. Cache correctness and retained
 record integrity remain required under their existing owners.
 
 Analysis owns the closed time-key alignment family and its output coordinates;
-see the [comparison contract](../../%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3/analysis/timezone-and-calendar-design.md#period-correspondence).
+see the [comparison contract](../../design/analysis/timezone-and-calendar-design.md#period-correspondence).
 Semantic TemporalSet occurrences already carry the exact Ref, key, bounds,
 timezone and snapshot digest needed by analysis. Compare fixes checked
 correspondence and publishes both absolute and relative Cells. Metric empty finish

@@ -1,7 +1,7 @@
 # AnalysisFrame cutover
 
 Status: cutover contract, 2026-10-19. Implementation acceptance is recorded in
-[the progress ledger](../../%E5%AE%9E%E6%96%BD%E6%96%87%E6%A1%A3/analysis/analysis-frame-implementation-progress.md); this note does
+[the progress ledger](../../implementation/analysis/analysis-frame-implementation-progress.md); this note does
 not announce a package version, release or new provider Runtime qualification.
 The [AnalysisFrame design](query-result-reuse.md) owns the final behavior.
 

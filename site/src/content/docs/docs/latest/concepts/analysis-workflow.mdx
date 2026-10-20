@@ -129,7 +129,12 @@ new_source.show()
 
 The bridge projects complete joint ordinary keys and explicitly binds source
 Field/Entity inputs; on is required and may be empty. It neither reconstructs
-semantic history nor promotes fields to identities. Fixed parent keys do not
+semantic history nor promotes fields to identities. Targets establish new semantic
+bindings after joint key projection. You declare the business correspondence;
+validation checks the target Catalog, role, complete key types, units and time
+constraints, not equality with the original Entity/Field. Compatible Customer
+keys may bind Product, or shipping-city keys may bind billing-city; neither
+proves semantic identity. Fixed parent keys do not
 rerank; newly read facts can change. Calendar/paired axes and arbitrary values
 cannot bridge. by=Population selects output keys; in_population selects fact contributions.
 Original overall mean/distinct, new attributes, windows or grain need explicit

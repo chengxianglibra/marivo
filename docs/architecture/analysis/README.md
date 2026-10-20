@@ -9,6 +9,7 @@ acceptance, provider Runtime qualification and release gates are separate.
 | --- | --- |
 | [AnalysisFrame](query-result-reuse.md) | Final data, coordinate, carrier and source-boundary contract |
 | [Operators and Frames](operators-and-frames.md) | Nullable values, complete keys, contribution occurrences and current-row operator meaning |
+| [Core Algebra](algebra-theory.md) | Mathematical definitions and conditional laws, with separate current DSL and optimizer coverage |
 | [Session State and Runtime](session-state-and-runtime.md) | Evaluation, publishing Runs, stage scheduling, resource ownership, Store 14 and reading |
 | [Analysis Evidence Access](evidence-access-surface.md) | Saved source facts, current evaluation, Findings and their interpretation limits |
 | [AnalysisFrame cutover](analysis-frame-cutover.md) | Breaking API/value-name changes, older Store refusal and explicit source reconstruction |
@@ -19,8 +20,8 @@ Static API facts, captured instance state and errors follow
 [Agent-Facing Public Surface](../agent-friendly-public-surface.md).
 
 Design proposals, implementation plans and progress records, and test evidence
-are kept in the local-only `docs/设计文档/`, `docs/实施文档/`, and
-`docs/测试文档/` directories. They are not part of the tracked architecture
+are kept in the local-only `docs/design/`, `docs/implementation/`, and
+`docs/testing/` directories. They are not part of the tracked architecture
 reference.
 
 ## Execution and output boundary
@@ -44,6 +45,10 @@ Use the returned `compute()` or `persist()` Frame to fix values and keys. Reopen
 with an exact Session and `session.persisted_frame(frame.artifact.id)`.
 New source questions require explicit source inputs; an ordinary-axis
 `session.population_from(frame, on=...)` bridge can constrain that new question.
+Frame axes retain data types, roles and time interpretation without original
+Entity/Field nominal bindings. Explicit ordinary-axis correspondence and bridge
+targets declare caller business intent; validation does not prove original
+semantic identity. Current-row sum/mean retain units without certifying Metric additivity.
 Static Help owns operation discovery; `.show()` owns captured facts and errors own repairs.
 
 All Frames use Store14, `marivo.frame_output/v3`, `frame.v3` and `frame-output-v3`.

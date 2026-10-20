@@ -1,4 +1,4 @@
-"""Explicit, bounded transformations for current Query planning."""
+"""Explicit, bounded transformations for current AnalysisFrame planning."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ def query_selection_fusion_issue(
     pending_checks: bool,
     original_boundary: bool,
 ) -> tuple[str, str] | None:
-    """L1 adapter for the current Query's same-mask nullable int64 comparisons.
+    """L1 adapter for AnalysisFrame's same-mask nullable int64 comparisons.
 
     Both filters retain only True, so a common nullable comparison mask has
     exactly the same selected keys under sequential application and Kleene

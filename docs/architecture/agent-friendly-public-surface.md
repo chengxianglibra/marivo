@@ -175,7 +175,7 @@ checks, executable examples, skills and current EN/ZH documentation together.
 Keep one canonical path per capability, concrete public types, immutable results,
 and no legacy migration or alias unless its owning contract explicitly requires it.
 
-See [analysis design](../%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3/analysis/python-analysis-design.md),
+See [analysis design](../design/analysis/python-analysis-design.md),
 [semantic overview](semantic/overview.md), and the packaged workflow skills for
 their respective contracts.
 

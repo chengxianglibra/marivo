@@ -98,7 +98,7 @@ plan/
 /evidence/
 
 # Sphinx autosummary-generated stub pages (build artifact)
-/docs/api文档/api/
+/docs/api/api/
 
 # Shared documentation copies generated from site/shared-docs.json.
 /site/src/content/docs/docs/latest/contributing.mdx
@@ -142,6 +142,6 @@ plan/
 /site/src/content/docs/zh-cn/docs/v0.5/contributing.mdx
 
 # Local-only documentation categories
-/docs/设计文档/
-/docs/实施文档/
-/docs/测试文档/
+/docs/design/
+/docs/implementation/
+/docs/testing/

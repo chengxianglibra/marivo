@@ -2,7 +2,7 @@
 
 Date: 2026-10-11
 
-Updated: 2026-10-14
+Updated: 2026-10-21；同步当前 Frame 边界，扩展范围不变。
 
 Status: proposed v0.17；项目设计提案，不代表实现完成或已获机器形式化验证。
 Scope update, 2026-10-13: dedicated Event, journey, lifecycle, funnel, Anchor and retention extensions are deferred. This proposal does not authorize their implementation or expand the current library surface.
@@ -15,7 +15,9 @@ Scope update, 2026-10-13: dedicated Event, journey, lifecycle, funnel, Anchor an
 本文的结果编号为 S1–S6。
 
 本文的数学结果复合描述定义和求值，不授予终端 Artifact 的 DSL 续算能力。
-目标 DSL 在 Query 内完成组合，execute 后只读产物或 to_pandas；本篇扩展方法仍按原范围延期。
+当前 DSL 使用 AnalysisFrame 在待执行、内存和持久载体上继续受支持的数据操作；compute 固定数据，persist 发布已有结果。
+Frame 不保留原 Entity/Field 名义绑定；投影键进入 Population 需要显式目标，不能据此恢复本文的主体绑定。
+Artifact 继续是提交/审计视图。本篇扩展方法仍按原范围延期，不因 Frame 可续算而获得实现资格。
 
 ## 1. 范围
 
@@ -94,7 +96,7 @@ $$
 转移无定义时折叠失败。序列连接满足结合律，通常不交换；与核心的交换幺半群归约使用不同前提。
 每段序列也可表示为状态转移函数，连接对应函数复合，但该表示不承诺有限大小或高效计算。
 本文的 fold 专指这种带初态的有序状态折叠。semantic/DSL 的
-[时间样本规约](../../%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3/semantic/expression-model-redesign.md#32-时间角色和时间样本规约)
+[时间样本规约](../../design/semantic/expression-model-redesign.md#32-时间角色和时间样本规约)
 以 per(采样轴) 后的 reducer 规约已完成子指标，不提供初态、状态转移或序列回放。
 
 ### S2 忽略顺序的信息不足（T1 的推论）

@@ -283,7 +283,7 @@ week/month/year 完整桶或桶首前缀；ordinal 不放宽部分桶。named/�
 
 ## 3. 时间锚点与版本选择
 
-规则见 [DSL §4.1.1](../../%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3/analysis/lazy-analysis-dsl-redesign.md#411-精确时刻与版本选择)。
+规则见 [DSL §4.1.1](../../design/analysis/lazy-analysis-dsl-redesign.md#411-精确时刻与版本选择)。
 
 ```python
 anchor_s = mv.session.create("anchor-example", timezone="Asia/Shanghai")
@@ -297,7 +297,7 @@ new_york_scope = anchor_s.time_scope(
 ```
 
 launch 与 absolute_launch 表示同一绝对时刻；since_launch 表达非日历起点，不能由 to_date 猜成月初。
-使用[场景 §3.4](../../%E6%B5%8B%E8%AF%95%E6%96%87%E6%A1%A3/analysis/lazy-analysis-dsl-scenario-validation.md#34-固定名单读取属性与精确版本选择)的独立 crm.customers 声明和数据，
+使用[场景 §3.4](../../testing/analysis/lazy-analysis-dsl-scenario-validation.md#34-固定名单读取属性与精确版本选择)的独立 crm.customers 声明和数据，
 C1 在 11 月 1 日零点从 Silver 换成 Gold，C2 保持 Bronze，新增 C3 也是 Gold。
 
 ```python
@@ -322,7 +322,7 @@ Session.members 的 at 与关系像所需的版本选择遵守同一种边界解
 
 ## 4. 关系像与有界逆像
 
-规则见 [DSL §4.2.1](../../%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3/analysis/lazy-analysis-dsl-redesign.md#421-像逆像与已有坐标投影)。
+规则见 [DSL §4.2.1](../../design/analysis/lazy-analysis-dsl-redesign.md#421-像逆像与已有坐标投影)。
 
 下面假设已声明非版本化的 Orders、Customers 和 Orders → Customers 的 buyer 关系，
 固定模拟来源只有 O1→A、O2→A、O3→B；customer_id 是订单上的普通字段。
@@ -382,11 +382,11 @@ buyer_region 的路径定位单值字段读取，贡献对客户身份域的归�
 
 关系像和身份对应的消费者不同：image 可以使用合法多对一关系；corresponding 需要两侧身份轴与一对一结构。
 不同 Entity 的完整复合主键对应、align/compare 和 exact/outer 的完整代码见
-[场景 §3.5](../../%E6%B5%8B%E8%AF%95%E6%96%87%E6%A1%A3/analysis/lazy-analysis-dsl-scenario-validation.md#35-不同-entity-的声明身份对应)，不能用上面的多对一 buyer 路径替代。
+[场景 §3.5](../../testing/analysis/lazy-analysis-dsl-scenario-validation.md#35-不同-entity-的声明身份对应)，不能用上面的多对一 buyer 路径替代。
 
 ## 5. 省略观察期间的合法边界
 
-规则由 [DSL §4.1](../../%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3/analysis/lazy-analysis-dsl-redesign.md#41-session字段时间与路径) 拥有。
+规则由 [DSL §4.1](../../design/analysis/lazy-analysis-dsl-redesign.md#41-session字段时间与路径) 拥有。
 继续使用上节显式客户身份域；计该名单的身份数不需要订单时间范围：
 
 ```python
@@ -603,7 +603,7 @@ positive_total = positive_margin.sum()
 mean 不授予求和权限；直接 positive.sum() 仍缺业务授权。这里 mean/sum 是归一后的语义规约，
 继承已冻结的唯一默认时间；显式 time= 等参数按语义接收者合同处理，不能直接传给已绑定裸 Ibis 方法。
 类型不合法（例如物理 amount 为字符串）、不相容单位、跨根或无本地内核分别在拥有该信息的边界失败。
-具体机制由[语义提案 §2.6](../../%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3/semantic/expression-model-redesign.md#26-原生-ibis-与自动延迟绑定)拥有。
+具体机制由[语义提案 §2.6](../../design/semantic/expression-model-redesign.md#26-原生-ibis-与自动延迟绑定)拥有。
 
 即使已有可信 schema，amount/revenue 等数值作者值和这些中间结果也始终是原生 Deferred；命名信息存在内部声明 Resolver。
 不接收裸后端 Ibis Value 来替换作者值，不调用作者表达式自身的 `.resolve()`/`.show()`；通过 Catalog 条目或 AnalysisFrame.show 披露。
@@ -701,7 +701,7 @@ closing_inventory 的 last 保留末次 NA；改成 include_null=False 是选择
 第一步 sum(empty="null") 同样重要：若显式改成 empty="zero"，末次全 NA 会成为有效零，后续跳 NA 的含义随之改变。
 tag_mean 是标签桶统计；一笔收入可进入多个标签，不能把它解释成去重客户均额或总体收入。
 elapsed_week 的七天恒为168小时；calendar_week 是七个输出日历期间，两者在 DST 周可能不同。
-原 first-seen、固定时长、空集和成员集合的迁移条件见[语义附录 A.1.1](../../%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3/semantic/expression-model-redesign.md#a11-等价迁移的判定条件)。
+原 first-seen、固定时长、空集和成员集合的迁移条件见[语义附录 A.1.1](../../design/semantic/expression-model-redesign.md#a11-等价迁移的判定条件)。
 
 
 完整域例：仅 A 有100收入时，子指标为 sum(empty="zero") 时，full_tag_query 为 A=100/B=0，full_tag_mean 为50；
@@ -764,7 +764,7 @@ cell_sum 仅统计当前格子。两个七日完成值都为 7 时，格子和 1
 ## 7. 五个核心 Metric 场景
 
 每项都先明确输入与计算，再说明模型声明、临时用法和反例；不另立 factory 或装饰器计算语言。
-以下五项的独立数值见证在 [场景验证附录 H](../../%E6%B5%8B%E8%AF%95%E6%96%87%E6%A1%A3/analysis/lazy-analysis-dsl-scenario-validation.md#附录-h统一行指标表达式的五个核心见证)。
+以下五项的独立数值见证在 [场景验证附录 H](../../testing/analysis/lazy-analysis-dsl-scenario-validation.md#附录-h统一行指标表达式的五个核心见证)。
 
 ### 7.1 收入：来源规约与局部政策
 
@@ -915,7 +915,7 @@ def scored_mean():
 显式新来源观察的原式为 410；当前行相加是 420，不能据此声称原量上卷或贡献份额。
 `(Amount + 10).sum()` 则每条贡献加10；若各地区各一条，合计420，和前一表达式有不同含义。
 给它们加装饰器或换函数名不会改变这一区别。复审数值反例见
-[场景验证附录 I](../../%E6%B5%8B%E8%AF%95%E6%96%87%E6%A1%A3/analysis/lazy-analysis-dsl-scenario-validation.md#附录-i第一性原理复审反例)。
+[场景验证附录 I](../../testing/analysis/lazy-analysis-dsl-scenario-validation.md#附录-i第一性原理复审反例)。
 
 ### 7.7 多根与 fanout：先声明贡献含义
 
@@ -953,4 +953,4 @@ membership 下收入 A/B 各100，退款各20，净额各80；原指标的贡献
 达成率例中 A/B 的收入为100/0、预算为10/90，客户比率均值为5，总收入/总预算则为1。
 不能先压到最终展示粒度再恢复客户比率；有 per 时保留完整 (外部格子, 客户) 样本。
 分配记录的权重和等于1是该模型的业务前提，不由本片段自动验证。完整分类、充分状态和执行边界由
-[语义 §3.7.1–§3.7.2](../../%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3/semantic/expression-model-redesign.md#371-fanout-的表达方式与能力边界)拥有。
+[语义 §3.7.1–§3.7.2](../../design/semantic/expression-model-redesign.md#371-fanout-的表达方式与能力边界)拥有。

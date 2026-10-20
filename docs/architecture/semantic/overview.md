@@ -7,8 +7,8 @@ recipes. Physical field types bind automatically during execution preparation. S
 identities, root/unit checks, additivity, contribution ownership, time and null policies remain
 Marivo responsibilities. There is no `ms.ibis`, `ms.require`, or extra preparation step.
 
-The [expression redesign](../../%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3/semantic/expression-model-redesign.md) is the design source;
-[the S0–S6 implementation plan](../../%E5%AE%9E%E6%96%BD%E6%96%87%E6%A1%A3/semantic/expression-model-implementation-plan.md) scopes this cutover.
+The [expression redesign](../../design/semantic/expression-model-redesign.md) is the design source;
+[the S0–S6 implementation plan](../../implementation/semantic/expression-model-implementation-plan.md) scopes this cutover.
 Current implementation includes source and sample reductions, ordered time samples, approximate
 reductions, membership domains, operator-local empty policies, and reusable Metric windows.
 Analysis preparation and execution still enforce their supported source and shape boundaries.
@@ -24,7 +24,7 @@ pandas handoff supplies effective numerical types to local consumers and
 publication without relaxing keys, units, time or null
 policies. This code-route scope does not itself establish remote Runtime
 qualification. The complete slow suite and release acceptance remain incomplete;
-current remote evidence belongs to the [Runtime coverage guide](../../%E6%B5%8B%E8%AF%95%E6%96%87%E6%A1%A3/runtime-coverage.md#remote-numerical-query-extension).
+current remote evidence belongs to the [Runtime coverage guide](../../testing/runtime-coverage.md#remote-numerical-query-extension).
 DuckDB governed `SourceSession` reads and qualified typed PostgreSQL Analysis
 reads use native Ibis Arrow results before pandas inference.
 Integer values that fit the native Arrow result type remain exact beside nulls
@@ -48,14 +48,14 @@ matches your task.
 | [datasource-layer.md](datasource-layer.md) | `marivo.datasource` — connections, typed specs, file sources, secrets, discovery/evidence. |
 | [semantic-object-model.md](semantic-object-model.md) | `marivo.semantic` object contracts — identity/versioning, dimensions, measures, Metric graphs and intrinsic aggregation, Relationships, provenance, `ai_context`. |
 | [authoring-workflow.md](authoring-workflow.md) | Agent-native exploration, coherent-slice authoring, scoped readiness, and targeted runtime/source-health probes. |
-| [loading-validation-introspection.md](../../%E6%B5%8B%E8%AF%95%E6%96%87%E6%A1%A3/semantic/loading-validation-introspection.md) | The runtime — loader/registry, catalog reader, result contract, materialization, multi-stage validation, readiness and source health. |
+| [loading-validation-introspection.md](../../testing/semantic/loading-validation-introspection.md) | The runtime — loader/registry, catalog reader, result contract, materialization, multi-stage validation, readiness and source health. |
 
 For the cross-module (datasource + semantic + analysis) result and guidance
 protocol, see [`../agent-friendly-public-surface.md`](../agent-friendly-public-surface.md).
 For the current cross-layer period-calendar, temporal-set, work-schedule,
 time-scope, and alignment contract, see
 [`../temporal-semantics.md`](../temporal-semantics.md).
-For the analysis layer, see [`../analysis/python-analysis-design.md`](../../%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3/analysis/python-analysis-design.md).
+For the analysis layer, see [`../analysis/python-analysis-design.md`](../../design/analysis/python-analysis-design.md).
 Start at [Analysis Architecture](../analysis/README.md) for the current graph,
 algebra, method-registry, Runtime and Store 14 Frame data/audit ownership chain.
 
