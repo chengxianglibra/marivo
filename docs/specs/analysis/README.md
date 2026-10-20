@@ -51,7 +51,12 @@ does not imply package, provider Runtime or release acceptance.
 Pearson/Spearman through AnalysisFrame.correlate with fixed coefficient/n_pairs
 outputs, retaining corr/pair_count composition through reduce; its candidate and
 acceptance evidence are tracked in the [implementation plan](correlation-statistics-implementation-plan.md).
-[The Population refactor design and plan](population-refactor-design-and-plan.md)
+[Session and observe redesign](session-observe-redesign.md) records the explicit
+domain/time/count design. Current owning contracts above use time axes in `by`,
+Population-bound counts, strict Session creation and Store 14 / frame_output v3;
+the [Session/observe progress](session-observe-implementation-progress.md) records
+actual implementation checks and remaining acceptance.
+The [Population refactor design and plan](population-refactor-design-and-plan.md)
 records unified literal domains, consumer-owned membership rules and general
 tuple counts; the [implementation record](population-refactor-implementation-progress.md)
 tracks the current candidate and its validation separately.
