@@ -183,7 +183,7 @@ def main(argv: list[str] | None = None) -> None:
         epilog=(
             "Live Help:\n"
             "  marivo help\n"
-            "  marivo help analysis.query.select\n\n"
+            "  marivo help analysis.analysis_frame.select\n\n"
             "Common diagnostics:\n"
             "  marivo doctor\n"
             "  marivo doctor --semantic\n"

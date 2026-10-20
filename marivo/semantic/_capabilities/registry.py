@@ -905,7 +905,8 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
             checks=("readiness",),
             check_guidance=(
                 "Readiness checks physical dependencies, not Metrics. Inspect the definition "
-                "with catalog.describe(ref).show(); Query execution qualifies the selected computation."
+                "with catalog.describe(ref).show(); AnalysisFrame.compute()/persist() "
+                "qualifies the selected computation."
             ),
         ),
         _object_contract(
@@ -1687,10 +1688,10 @@ def _validate_registry(registry: SemanticCapabilityRegistry) -> None:
         try:
             if target.surface == "datasource":
                 DATASOURCE_REGISTRY.by_canonical_id(target_id)
-            elif target.surface == "ontology":
+            elif target.surface in {"analysis", "ontology"}:
                 # Unified route tests validate cross-surface existence. Importing the
-                # ontology registry here would create ontology -> semantic -> ontology
-                # during an ontology-first cold start.
+                # analysis or ontology registry here would create a cycle during
+                # an analysis-first or ontology-first cold start.
                 return
             else:
                 raise ValueError(f"unsupported semantic Help route surface: {target.surface}")
@@ -2314,26 +2315,32 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
         _capability(
             "Entity.show",
             "marivo.semantic.expressions._ExpressionDisplay.show",
-            "Print bounded Entity or Relationship metadata. Native numerical Deferred inputs have no show method; inspect Catalog definitions and Query.show() instead. No source reads.",
+            "Print bounded Entity or Relationship metadata without source reads. Native numerical Deferred inputs have no show method; inspect Catalog definitions and AnalysisFrame.show() for captured analysis facts. Pending Frame display does not evaluate or prepare schema.",
             kind="method",
             output="None",
             inputs=(AuthoringInputRequirement(role="receiver", family="Expression"),),
             effects=_NONE,
             example="orders.show()",
             public_entrypoint="orders.show",
-            see_also=(_target("expressions"),),
+            see_also=(
+                _target("expressions"),
+                LiveHelpTarget(surface="analysis", canonical_id="analysis_frame.show"),
+            ),
         ),
         _capability(
             "Entity.contract",
             "marivo.semantic.expressions._ExpressionDisplay.contract",
-            "Return bounded Entity or Relationship definition metadata without source reads. Native numerical Deferred inputs carry no contract method; the consuming Query owns execution disclosure.",
+            "Return bounded Entity or Relationship definition metadata without source reads. Native numerical Deferred inputs carry no contract method; the consuming AnalysisFrame.show() discloses captured analysis facts without evaluating pending inputs.",
             kind="method",
             output="ExpressionContract",
             inputs=(AuthoringInputRequirement(role="receiver", family="Expression"),),
             effects=_NONE,
             example="orders.contract().show()",
             public_entrypoint="orders.contract",
-            see_also=(_target("expressions"),),
+            see_also=(
+                _target("expressions"),
+                LiveHelpTarget(surface="analysis", canonical_id="analysis_frame.show"),
+            ),
         ),
         _capability(
             "FinalizedDeclarations.show",
@@ -2513,7 +2520,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                 summary += (
                     "Filter source contributions before reduction using a resolved field predicate, "
                     "for example status == 'paid'. Row quantities must first become Metrics through "
-                    "an authorized reducer. This is distinct from Query.where on result coordinates."
+                    "an authorized reducer. This is distinct from AnalysisFrame.where on current rows."
                 )
             elif method in {"first", "last"}:
                 summary += (
@@ -2538,7 +2545,11 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     effects=_NONE,
                     example=example,
                     public_entrypoint=f"{'amount' if prefix == 'row' else 'samples' if prefix == 'MetricSamples' else 'revenue' if prefix == 'Metric' else 'orders' if prefix == 'Entity' else 'payment_time'}.{method}",
-                    see_also=(_target("field"), _target("expressions"))
+                    see_also=(
+                        _target("field"),
+                        _target("expressions"),
+                        LiveHelpTarget(surface="analysis", canonical_id="analysis_frame.where"),
+                    )
                     if prefix == "Metric" and method == "where"
                     else (_target("expressions"),),
                 )
@@ -3288,7 +3299,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "readiness",
             "marivo.semantic.catalog.SemanticCatalog.readiness",
-            "Check current physical semantic inputs, their compiled dependency closures and certified temporal artifacts without connecting or querying. Unrelated load warnings are excluded. Published expressions are inspected with catalog.describe(); Query preparation owns physical types and execution support.",
+            "Check current physical semantic inputs, their compiled dependency closures and certified temporal artifacts without connecting or querying. Unrelated load warnings are excluded. Published expressions are inspected with catalog.describe(); computing or persisting a source AnalysisFrame qualifies physical types and execution support.",
             kind="method",
             output="ReadinessReport",
             inputs=(
@@ -3299,6 +3310,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
             example="catalog.readiness(refs=[ms.ref.measure('sales.orders.amount')])",
             preconditions=("a current loaded SemanticCatalog",),
             public_entrypoint="catalog.readiness",
+            see_also=(
+                LiveHelpTarget(surface="analysis", canonical_id="analysis_frame.compute"),
+                LiveHelpTarget(surface="analysis", canonical_id="analysis_frame.persist"),
+            ),
         ),
         # ------------------------------------------------------------------
         # diagnostics_boundaries
@@ -3309,7 +3324,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "SemanticCatalog.describe",
             "marivo.semantic.catalog.SemanticCatalog.describe",
-            "Describe one compiled Entity, field, Metric or Relationship without source reads. Native Deferred inputs have no business attributes; definition facts live here and execution facts live on Query.show().",
+            "Describe one compiled Entity, field, Metric or Relationship without source reads. Native Deferred inputs have no business attributes; definition facts live here and captured analysis facts live on AnalysisFrame.show(). Pending Frame display does not evaluate or prepare schema.",
             kind="method",
             output="ExpressionContract",
             inputs=(
@@ -3319,6 +3334,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             effects=_LOCAL,
             example="catalog.describe(ms.ref.metric('sales.revenue')).show()",
             public_entrypoint="catalog.describe",
+            see_also=(LiveHelpTarget(surface="analysis", canonical_id="analysis_frame.show"),),
         ),
         _capability(
             "SemanticCatalog.require",
@@ -3829,7 +3845,9 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         "ExpressionContract",
         ("SemanticCatalog.describe",),
         methods=("show",),
-        notes=("Bounded source-free definition facts; execution belongs to Query.",),
+        notes=(
+            "Bounded source-free definition facts; analysis computation belongs to AnalysisFrame.compute()/persist().",
+        ),
     )
     add(
         FinalizedDeclarations,

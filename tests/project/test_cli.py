@@ -186,6 +186,27 @@ def test_rejects_invalid_toml_without_force(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("arguments", ((), ("--help",)))
+def test_top_level_help_advertised_live_help_commands_resolve(
+    arguments: tuple[str, ...],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main(list(arguments))
+    assert exc_info.value.code == 0
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    commands = re.findall(r"^  marivo (help(?: [^\n]*)?)$", captured.out, re.MULTILINE)
+    assert "help" in commands
+    assert "help analysis.analysis_frame.select" in commands
+    for command in commands:
+        main(command.split())
+        output = capsys.readouterr()
+        target = command.removeprefix("help ") if command != "help" else "root"
+        assert output.out.startswith(f"Target: {target}\n")
+        assert output.err == ""
+
+
 @pytest.mark.parametrize(
     "arguments",
     (("observe",), ("analysis", "observe"), ("semantic", "load"), ("datasource", "inspect")),

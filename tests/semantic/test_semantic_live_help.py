@@ -408,6 +408,119 @@ def test_expression_display_has_one_owner_for_all_receiver_forms(
     assert "catalog.describe(" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize(
+    ("target", "facts"),
+    (
+        (
+            "semantic.metric",
+            (
+                "Readiness checks physical dependencies, not Metrics",
+                "catalog.describe(ref).show()",
+                "AnalysisFrame.compute()/persist()",
+            ),
+        ),
+        (
+            "semantic.entity.show",
+            (
+                "Entity or Relationship metadata without source reads",
+                "Deferred inputs have no show method",
+                "AnalysisFrame.show()",
+                "Pending Frame display does not evaluate or prepare schema",
+            ),
+        ),
+        (
+            "semantic.entity.contract",
+            (
+                "definition metadata without source reads",
+                "Deferred inputs carry no contract method",
+                "AnalysisFrame.show()",
+                "without evaluating pending inputs",
+            ),
+        ),
+        (
+            "semantic.metric.where",
+            (
+                "Filter source contributions before reduction",
+                "AnalysisFrame.where on current rows",
+            ),
+        ),
+        (
+            "semantic.readiness",
+            (
+                "without connecting or querying",
+                "Unrelated load warnings are excluded",
+                "computing or persisting a source AnalysisFrame",
+                "physical types and execution support",
+            ),
+        ),
+        (
+            "semantic.semantic_catalog.describe",
+            (
+                "Describe one compiled Entity, field, Metric or Relationship without source reads",
+                "definition facts live here",
+                "captured analysis facts live on AnalysisFrame.show()",
+                "Pending Frame display does not evaluate or prepare schema",
+            ),
+        ),
+        (
+            "semantic.expression_contract",
+            (
+                "Bounded source-free definition facts",
+                "AnalysisFrame.compute()/persist()",
+            ),
+        ),
+    ),
+)
+def test_semantic_analysis_guidance_keeps_frame_ownership_and_source_boundaries(
+    target: str,
+    facts: tuple[str, ...],
+) -> None:
+    from marivo._help.render import render_help_text
+
+    page = render_help_text(target)[0]
+    assert "Query" not in page
+    for fact in facts:
+        assert fact in page
+
+
+def test_semantic_frame_continuations_resolve_to_exact_reflected_receivers(
+    authoring_evidence_project: object,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from marivo._help.render import render_help_text
+    from marivo.semantic.expressions import Entity, ExpressionContract, Relationship
+
+    catalog = ms.load()
+    orders = catalog.require(ms.ref.entity("sales.orders"))
+    contract = catalog.describe(ms.ref.metric("sales.revenue"))
+    for target, receivers in (
+        ("semantic.entity.show", (Entity.show, Relationship.show, orders.show)),
+        ("semantic.entity.contract", (Entity.contract, Relationship.contract, orders.contract)),
+        ("semantic.readiness", (ms.SemanticCatalog.readiness, catalog.readiness)),
+        ("semantic.semantic_catalog.describe", (ms.SemanticCatalog.describe, catalog.describe)),
+        ("semantic.expression_contract", (ExpressionContract, contract.show)),
+    ):
+        expected = render_help_text(target)[0]
+        for receiver in receivers:
+            marivo.help(receiver)
+            assert capsys.readouterr().out == expected + "\n"
+
+    for source, method_name in (
+        ("semantic.entity.show", "show"),
+        ("semantic.entity.contract", "show"),
+        ("semantic.semantic_catalog.describe", "show"),
+        ("semantic.metric.where", "where"),
+        ("semantic.readiness", "compute"),
+        ("semantic.readiness", "persist"),
+    ):
+        target = f"analysis.analysis_frame.{method_name}"
+        assert f'marivo.help("{target}")' in render_help_text(source)[0]
+        assert (
+            render_help_text(target)[0]
+            == render_help_text(getattr(mv.AnalysisFrame, method_name))[0]
+        )
+
+
 def test_frozen_declaration_display_resolves_and_display_routes_are_reachable(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
