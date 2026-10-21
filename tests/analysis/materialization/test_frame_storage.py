@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import fields, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import cast
 
 import pandas as pd
 import pyarrow as pa
@@ -25,6 +26,8 @@ from marivo.analysis.core.artifact_data import (
     FrozenCalendarData,
     OutputAttachment,
     OutputEvidence,
+    PairedDataAxis,
+    SavedFrameMethodFacts,
     ScalarDataType,
     TimestampDataType,
 )
@@ -32,11 +35,15 @@ from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, Frame
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
+    ExpressionFrameBacking,
     MemoryFrameBacking,
+    SourceFrameBinding,
     StoredFrameBacking,
 )
 from marivo.analysis.core.frozen_calendar import (
+    FrozenKey,
     calendar_directory_schema,
+    frozen_key_rows,
     read_calendar_directory,
     read_calendar_records,
 )
@@ -52,8 +59,11 @@ from marivo.analysis.materialization.errors import (
 )
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization.graph_reading import (
+    ExportRead,
     FrameReader,
     OutputRead,
+    PreviewRead,
+    ReadLayout,
     TerminalReader,
     open_manifest,
 )
@@ -175,8 +185,25 @@ def calendar(local: LocalFrameServices, count: int = 128, *, offset: int = 0) ->
     )
 
 
+def _memory_backing(frame: AnalysisFrame) -> MemoryFrameBacking:
+    assert isinstance(frame._backing, MemoryFrameBacking)
+    return frame._backing
+
+
+def _stored_backing(frame: AnalysisFrame) -> StoredFrameBacking:
+    assert isinstance(frame._backing, StoredFrameBacking)
+    return frame._backing
+
+
+def _complete_schema(frame: AnalysisFrame) -> DataSchema:
+    assert isinstance(frame._schema, DataSchema)
+    return frame._schema
+
+
 def manifest(frame: AnalysisFrame) -> ArtifactManifest:
-    return open_manifest(frame._local.store, frame._local.session_ref, frame._backing.artifact_id)
+    return open_manifest(
+        frame._local.store, frame._local.session_ref, _stored_backing(frame).artifact_id
+    )
 
 
 def period_endpoints(local: LocalFrameServices) -> tuple[AnalysisFrame, AnalysisFrame]:
@@ -232,7 +259,7 @@ def test_comparison_preview_closes_direct_and_fact_references(
         saved = memory.persist()
         value = manifest(saved)
         assert decode(encode(value), ArtifactManifest) == value
-        prefix = local.preview(saved._backing, 1)
+        prefix = local.preview(_stored_backing(saved), 1)
         assert len(prefix.rows) == 1
         assert {part.name for part in prefix.attachments} == set(
             coordinate_attachments(saved._schema)
@@ -249,7 +276,7 @@ def test_comparison_preview_closes_direct_and_fact_references(
 
     with monkeypatch.context() as patch:
         patch.setattr(OutputRead, "_open", forbidden)
-        assert local.preview(saved._backing, 0).attachments == ()
+        assert local.preview(_stored_backing(saved), 0).attachments == ()
         saved.show(n=0)
 
 
@@ -355,7 +382,7 @@ def test_correlation_is_ordinary_typed_frame_after_cold_recovery(local: LocalFra
     saved = result.persist()
     assert saved.output_names == ("coefficient", "n_pairs")
     assert saved.presence_names == ()
-    assert tuple(column.dtype for column in saved._schema.values) == (
+    assert tuple(column.dtype for column in _complete_schema(saved).values) == (
         ScalarDataType("float64"),
         ScalarDataType("int64"),
     )
@@ -367,13 +394,13 @@ import pandas as pd
 import pyarrow as pa
 import marivo.analysis as mv
 from tests.shared_fixtures import terminal_runs
-from marivo.analysis.materialization import frame_evaluation
+from marivo.analysis.materialization import frame_source_preparation
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 os.environ["MARIVO_PROJECT_ROOT"] = sys.argv[1]
 def forbidden(*args, **kwargs):
     raise AssertionError("cold correlation result attempted a source/model read")
-with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceSession, "__init__", forbidden), patch.object(frame_evaluation, "open_query_sources", forbidden):
+with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceSession, "__init__", forbidden), patch.object(frame_source_preparation, "open_query_sources", forbidden):
     session = mv.session.resume(sys.argv[2])
     saved = session.persisted_frame(sys.argv[3])
     assert saved.output_names == ("coefficient", "n_pairs")
@@ -431,20 +458,24 @@ def test_memory_stored_lifecycle_and_detached_copy(local: LocalFrameServices) ->
     assert memory.compute() is memory
     saved = memory.persist()
     second = memory.persist()
-    assert saved._backing.artifact_id != second._backing.artifact_id
-    assert saved._backing.metadata == second._backing.metadata == memory._backing.metadata
+    assert _stored_backing(saved).artifact_id != _stored_backing(second).artifact_id
+    assert (
+        _stored_backing(saved).metadata
+        == _stored_backing(second).metadata
+        == _memory_backing(memory).metadata
+    )
     assert saved.persist() is saved
     reopened = AnalysisFrame._from_stored(
         local,
-        saved._backing.data,
-        artifact_id=saved._backing.artifact_id,
-        metadata=saved._backing.metadata,
+        _stored_backing(saved).data,
+        artifact_id=_stored_backing(saved).artifact_id,
+        metadata=_stored_backing(saved).metadata,
     )
     assert reopened._input_id == saved._input_id
     loaded = saved.compute()
     assert loaded._input_id != saved._input_id
     assert isinstance(loaded._backing, MemoryFrameBacking)
-    assert loaded._backing.metadata == saved._backing.metadata
+    assert _memory_backing(loaded).metadata == _stored_backing(saved).metadata
     pd.testing.assert_frame_equal(saved.to_pandas(), loaded.to_pandas())
     old = manifest(saved)
     target = local.store.project_root / old.data.rows.receipt.project_relative_path / "data.parquet"
@@ -480,7 +511,8 @@ def test_invalid_preview_precedes_any_metadata(
 
     monkeypatch.setattr(FrameReader, "manifest", forbidden)
     with pytest.raises(AnalysisError):
-        saved.show(n=n)
+        # The runtime preview value intentionally violates the declared int contract.
+        saved.show(n=cast("int", n))
 
 
 def test_zero_preview_and_audit_do_not_open_payloads(
@@ -507,13 +539,13 @@ def test_prefix_resolves_sparse_original_keys_and_only_selected_records(
     calls: list[int] = []
     original = OutputRead.select
 
-    def selected(self: OutputRead, *args: object, **kwargs: object) -> pd.DataFrame:
-        result = original(self, *args, **kwargs)
+    def selected(self: OutputRead, layout: ReadLayout, keys: set[FrozenKey]) -> pd.DataFrame:
+        result = original(self, layout, keys)
         calls.append(len(result))
         return result
 
     monkeypatch.setattr(OutputRead, "select", selected)
-    prefix = local.preview(saved._backing, 2)
+    prefix = local.preview(_stored_backing(saved), 2)
     assert prefix.rows["bucket"].tolist() == [902159, 902142]
     assert prefix.attachments[0].rows["ordinal"].tolist() == [126, 127]
     assert calls == [2]
@@ -525,7 +557,8 @@ def test_prefix_resolves_sparse_original_keys_and_only_selected_records(
 def test_sparse_records_are_not_complete_directories(local: LocalFrameServices) -> None:
     frame = calendar(local, 128)
     axis = frame._schema.axes[0]
-    part = frame._backing.data.copy_attachments()[0]
+    assert isinstance(axis, CalendarDataAxis)
+    part = _memory_backing(frame).data.copy_attachments()[0]
     subset = part.rows.iloc[-1:]
     records = read_calendar_records(axis, part.schema, subset)
     assert records[0].ordinal == 127
@@ -547,9 +580,9 @@ def test_paired_codec_and_prefix_keep_complete_mapping(local: LocalFrameServices
     value = manifest(saved)
     assert decode(encode(value), ArtifactManifest) == value
     pd.testing.assert_frame_equal(
-        paired._backing.data.copy_rows(), saved.compute()._backing.data.copy_rows()
+        _memory_backing(paired).data.copy_rows(), _memory_backing(saved.compute()).data.copy_rows()
     )
-    prefix = local.preview(saved._backing, 1)
+    prefix = local.preview(_stored_backing(saved), 1)
     assert len(prefix.rows) == 1
     assert all(len(part.rows) <= 1 for part in prefix.attachments)
     saved.show(n=1)
@@ -559,8 +592,8 @@ def test_paired_codec_and_prefix_keep_complete_mapping(local: LocalFrameServices
 @pytest.mark.parametrize(
     "dtype",
     [
-        kind(unit, "UTC") if kind is TimestampDataType else kind(unit)
-        for kind in (TimestampDataType, DurationDataType)
+        TimestampDataType(unit, "UTC") if timestamp else DurationDataType(unit)
+        for timestamp in (True, False)
         for unit in ("s", "ms", "us", "ns")
     ],
 )
@@ -603,7 +636,10 @@ def test_valid_minimum_temporal_ticks_survive_export_and_restore(
     for frame in (memory, saved, saved.compute()):
         exported = frame.to_pandas()
         if composite:
-            scalar = exported.iloc[0, 0][0]
+            coordinate = exported.iloc[0, 0]
+            assert isinstance(coordinate, tuple)
+            scalar = coordinate[0]
+            assert isinstance(scalar, pa.Scalar)
             assert scalar.is_valid
             assert scalar.cast(pa.int64()).as_py() == -(2**63)
         else:
@@ -662,7 +698,7 @@ def test_lost_commit_ack_returns_original_without_evaluation(
     monkeypatch.setattr(terminal_publication, "_event", fault)
     saved = memory.persist()
     assert counts(local) == (1, 1)
-    assert saved._backing.metadata == memory._backing.metadata
+    assert _stored_backing(saved).metadata == _memory_backing(memory).metadata
     assert local.store.resources(local.session_ref) == ()
 
 
@@ -735,10 +771,11 @@ def test_old_only_store_rejected_without_any_byte_changes(tmp_path: Path, genera
     with sqlite3.connect(old) as conn:
         conn.execute(f"PRAGMA user_version={generation}")
     before = old.read_bytes()
-    for constructor in (
+    constructors: tuple[Callable[[], SessionStore], ...] = (
         lambda: SessionStore(tmp_path),
         lambda: SessionStore.open_existing(tmp_path),
-    ):
+    )
+    for constructor in constructors:
         with pytest.raises(IntegrityError, match="generation"):
             constructor()
     assert old.read_bytes() == before
@@ -753,13 +790,15 @@ def test_missing_unconsumed_endpoint_is_not_a_preview_read(local: LocalFrameServ
         .persist()
     )
     axis = paired._schema.axes[0]
+    assert isinstance(axis, PairedDataAxis)
+    assert axis.right.frozen is not None
     right_name = axis.right.frozen.directory_name
     right_part = next(part for part in manifest(paired).data.attachments if part.name == right_name)
     (
         local.store.project_root / right_part.rows.receipt.project_relative_path / "data.parquet"
     ).unlink()
     # Left rows are reversed: the first row is the unmatched original ordinal 2.
-    prefix = local.preview(paired._backing, 1)
+    prefix = local.preview(_stored_backing(paired), 1)
     assert len(prefix.rows) == 1
     assert not next(part for part in prefix.attachments if part.name == right_name).rows.shape[0]
     paired.show(n=0)
@@ -781,8 +820,11 @@ def test_paired_partial_records_reject_missing_and_false_presence(
         .align(calendar(local, 2), match=CalendarCorrespondence("ordinal"), how="outer")
         .compute()
     )
-    prefix = local.preview(memory.persist()._backing, 1)
+    prefix = local.preview(_stored_backing(memory.persist()), 1)
     axis = prefix.schema.axes[0]
+    assert isinstance(axis, PairedDataAxis)
+    assert isinstance(axis.left, CalendarDataAxis) and axis.left.frozen is not None
+    assert isinstance(axis.right, CalendarDataAxis) and axis.right.frozen is not None
     parts = {part.name: part for part in prefix.attachments}
     mapping = parts[axis.mapping_name]
     left = parts[axis.left.frozen.directory_name]
@@ -805,10 +847,11 @@ def test_inherited_coordinates_fail_before_run(local: LocalFrameServices) -> Non
     frame = ordinary(local)
     fact = OutputEvidence("read", "Invalid source scope", coordinates=(OutputCoordinate("key", 1),))
     invalid = replace(
-        frame._backing.metadata, audit=replace(frame._backing.metadata.audit, source_facts=(fact,))
+        _memory_backing(frame).metadata,
+        audit=replace(_memory_backing(frame).metadata.audit, source_facts=(fact,)),
     )
     with pytest.raises(IntegrityError, match="source facts"):
-        local.publish(CompletedFrameResult(frame._backing.data, invalid))
+        local.publish(CompletedFrameResult(_memory_backing(frame).data, invalid))
     assert counts(local) == (0, 0)
     assert local.store.resources(local.session_ref) == ()
 
@@ -821,10 +864,10 @@ def test_temporal_cold_reader_keeps_physical_ticks_nulls_and_detaches(
     import sys
 
     saved_ids = []
-    for kind in (TimestampDataType, DurationDataType):
+    for timestamp in (True, False):
         for unit in ("s", "ms", "us", "ns"):
-            dtype = kind(unit, "UTC") if kind is TimestampDataType else kind(unit)
-            physical = pa.timestamp(unit, "UTC") if kind is TimestampDataType else pa.duration(unit)
+            dtype = TimestampDataType(unit, "UTC") if timestamp else DurationDataType(unit)
+            physical = pa.timestamp(unit, "UTC") if timestamp else pa.duration(unit)
             key = DataColumn("key", "key", ScalarDataType("string"), False)
             value = DataColumn("value", "value", dtype, True)
             schema = DataSchema(
@@ -928,7 +971,7 @@ def rewrite_primary(saved: AnalysisFrame, rows: pd.DataFrame) -> StoredFrameBack
 
 def test_full_read_rejects_duplicate_keys_beyond_a_valid_prefix(local: LocalFrameServices) -> None:
     saved = ordinary(local).persist()
-    rows = saved.compute()._backing.data.copy_rows()
+    rows = _memory_backing(saved.compute()).data.copy_rows()
     rows["key"] = pd.Series([2, 2, 0], dtype="int64[pyarrow]")
     backing = rewrite_primary(saved, rows)
     assert len(local.preview(backing, 1).rows) == 1
@@ -990,8 +1033,8 @@ def test_old_manifest_cannot_enter_any_current_read(local: LocalFrameServices) -
         )
     operations = (
         lambda: local.open_frame(current.artifact_id),
-        lambda: local.read_complete(saved._backing),
-        lambda: local.preview(saved._backing, 0),
+        lambda: local.read_complete(_stored_backing(saved)),
+        lambda: local.preview(_stored_backing(saved), 0),
         lambda: saved.persist(),
         lambda: local.artifact(current.artifact_id),
         lambda: TerminalReader(local.store).show(current),
@@ -1020,14 +1063,15 @@ def test_named_calendar_snapshot_and_level_roundtrip(local: LocalFrameServices) 
 
     original = calendar(local, 3)
     axis = original._schema.axes[0]
+    assert isinstance(axis, CalendarDataAxis) and axis.frozen is not None
     named = replace(
         axis,
         frozen=replace(
             axis.frozen, definition=NamedCalendarData("business", "snapshot-exact", "period")
         ),
     )
-    schema = replace(original._schema, axes=(named,))
-    part = original._backing.data.copy_attachments()[0]
+    schema = replace(_complete_schema(original), axes=(named,))
+    part = _memory_backing(original).data.copy_attachments()[0]
     directory = part.rows.copy()
     directory["nominal_label"] = pd.Series(['"P1"', '"P2"', '"P3"'], dtype="string[pyarrow]")
     fixed = AnalysisFrame._from_memory(
@@ -1035,7 +1079,7 @@ def test_named_calendar_snapshot_and_level_roundtrip(local: LocalFrameServices) 
         CompletedFrameResult(
             CompletedFrameData(
                 schema,
-                original._backing.data.copy_rows(),
+                _memory_backing(original).data.copy_rows(),
                 (OutputAttachment(part.name, calendar_directory_schema(named), directory),),
             ),
             metadata(),
@@ -1043,18 +1087,18 @@ def test_named_calendar_snapshot_and_level_roundtrip(local: LocalFrameServices) 
     )
     saved = fixed.persist()
     value = decode(encode(manifest(saved)), ArtifactManifest)
-    assert value.data.schema.axes[0].frozen.definition == NamedCalendarData(
-        "business", "snapshot-exact", "period"
-    )
+    saved_axis = value.data.schema.axes[0]
+    assert isinstance(saved_axis, CalendarDataAxis) and saved_axis.frozen is not None
+    assert saved_axis.frozen.definition == NamedCalendarData("business", "snapshot-exact", "period")
     loaded = saved.compute()
     pd.testing.assert_frame_equal(
-        loaded._backing.data.copy_attachments()[0].rows,
-        fixed._backing.data.copy_attachments()[0].rows,
+        _memory_backing(loaded).data.copy_attachments()[0].rows,
+        _memory_backing(fixed).data.copy_attachments()[0].rows,
     )
-    assert loaded._backing.metadata == fixed._backing.metadata
-    assert local.preview(saved._backing, 1).attachments[0].rows["nominal_label"].tolist() == [
-        '"P3"'
-    ]
+    assert _memory_backing(loaded).metadata == _memory_backing(fixed).metadata
+    assert local.preview(_stored_backing(saved), 1).attachments[0].rows[
+        "nominal_label"
+    ].tolist() == ['"P3"']
 
 
 def test_storage_error_help_targets_resolve(capsys: pytest.CaptureFixture[str]) -> None:
@@ -1077,8 +1121,10 @@ def test_storage_error_help_targets_resolve(capsys: pytest.CaptureFixture[str]) 
         "session.resume",
     )
     for error, canonical in zip(errors, expected, strict=True):
+        assert error.repair is not None
         target = error.repair.help_target
         assert target.canonical_id == canonical
+        assert callable(marivo.help)
         marivo.help(f"{target.surface}.{target.canonical_id}")
         assert f"Target: analysis.{canonical}" in capsys.readouterr().out
 
@@ -1087,7 +1133,7 @@ def test_inherited_presence_rejects_full_and_consumed_prefix_only(
     local: LocalFrameServices,
 ) -> None:
     original = ordinary(local)
-    schema = original._schema
+    schema = _complete_schema(original)
     flags = tuple(
         DataColumn(name, name, ScalarDataType("boolean"), False)
         for name in ("left_present", "left.left_present")
@@ -1095,7 +1141,7 @@ def test_inherited_presence_rejects_full_and_consumed_prefix_only(
     schema = replace(
         schema, presence=flags, presence_paths=(("left_present",), ("left", "left_present"))
     )
-    rows = original._backing.data.copy_rows()
+    rows = _memory_backing(original).data.copy_rows()
     rows["left_present"] = pd.Series([True, False, True], dtype="bool[pyarrow]")
     rows["left.left_present"] = pd.Series([True, False, False], dtype="bool[pyarrow]")
     # Row0's value is NA but its row and inherited row both exist.
@@ -1103,7 +1149,7 @@ def test_inherited_presence_rejects_full_and_consumed_prefix_only(
         local, CompletedFrameResult(CompletedFrameData(schema, rows), metadata())
     )
     saved = valid.persist()
-    assert len(local.read_complete(saved._backing).data.copy_rows()) == 3
+    assert len(local.read_complete(_stored_backing(saved)).data.copy_rows()) == 3
     corrupt = rows.copy()
     corrupt.loc[1, "left.left_present"] = True
     backing = rewrite_primary(saved, corrupt)
@@ -1114,7 +1160,7 @@ def test_inherited_presence_rejects_full_and_consumed_prefix_only(
         local.read_complete(backing)
     # Removing presence, as reduce does, leaves no inferred hidden obligations.
     reduced_schema = replace(schema, presence=(), presence_paths=())
-    CompletedFrameData(reduced_schema, original._backing.data.copy_rows())
+    CompletedFrameData(reduced_schema, _memory_backing(original).data.copy_rows())
 
 
 def test_date32_extreme_composite_coordinate_preserves_exact_value(
@@ -1138,7 +1184,10 @@ def test_date32_extreme_composite_coordinate_preserves_exact_value(
     )
     saved = memory.persist()
     for frame in (memory, saved, saved.compute()):
-        scalar = frame.to_pandas().iloc[0, 0][0]
+        coordinate = frame.to_pandas().iloc[0, 0]
+        assert isinstance(coordinate, tuple)
+        scalar = coordinate[0]
+        assert isinstance(scalar, pa.Scalar)
         assert scalar.is_valid and scalar.cast(pa.int32()).as_py() == -(2**31)
         frame.show(n=1)
 
@@ -1212,7 +1261,7 @@ def test_reduce_retains_exact_extreme_and_null_complete_keys(
     ).compute()
     saved = reduced.persist()
     for frame in (reduced, saved, saved.compute()):
-        data = frame.compute()._backing.data.copy_rows()
+        data = _memory_backing(frame.compute()).data.copy_rows()
         values = pa.array(data["key"])
         assert values.type == physical
         assert values.cast(integer).to_pylist() == [None, minimum]
@@ -1317,14 +1366,14 @@ def test_top_orders_exact_extreme_null_composite_keys_and_scores(
         saved = top.persist()
         stored_top = stored_input.top(6, by=stored_input["amount"], descending=descending).compute()
         for frame in (top, stored_top, saved, saved.compute()):
-            data = frame.compute()._backing.data.copy_rows()
+            data = _memory_backing(frame.compute()).data.copy_rows()
             actual = pa.array(data["key"])
             assert actual.type == physical
             assert actual.cast(integer).to_pylist() == keys
             assert data["other"].tolist() == others
             assert pa.array(data["amount"]).to_pylist() == scores
         cutoff = memory.top(2, by=memory["amount"], descending=descending).compute()
-        cutoff_rows = cutoff._backing.data.copy_rows()
+        cutoff_rows = _memory_backing(cutoff).data.copy_rows()
         assert pa.array(cutoff_rows["key"]).cast(integer).to_pylist() == keys[:2]
         assert cutoff_rows["other"].tolist() == others[:2]
         saved_cases.append((saved.artifact.id, keys, others, scores))
@@ -1370,28 +1419,29 @@ def test_actual_stored_inputs_derive_without_sources_and_republish_detached(
     from marivo.analysis.core import frame_calendar
     from marivo.analysis.core.artifact_data import NamedCalendarData
     from marivo.analysis.core.frame_audit import StoredInput
-    from marivo.analysis.materialization import frame_evaluation
+    from marivo.analysis.materialization import frame_source_preparation
     from marivo.analysis.session.core import Session
     from marivo.datasource.adapters import SourceSession
 
     memory = ordinary(local) if kind == "ordinary" else calendar(local, 3)
     if kind == "named_calendar":
         axis = memory._schema.axes[0]
+        assert isinstance(axis, CalendarDataAxis) and axis.frozen is not None
         named = replace(
             axis,
             frozen=replace(
                 axis.frozen, definition=NamedCalendarData("business", "snapshot-exact", "period")
             ),
         )
-        part = memory._backing.data.copy_attachments()[0]
+        part = _memory_backing(memory).data.copy_attachments()[0]
         directory = part.rows.copy()
         directory["nominal_label"] = pd.Series(['"P1"', '"P2"', '"P3"'], dtype="string[pyarrow]")
         memory = AnalysisFrame._from_memory(
             local,
             CompletedFrameResult(
                 CompletedFrameData(
-                    replace(memory._schema, axes=(named,)),
-                    memory._backing.data.copy_rows(),
+                    replace(_complete_schema(memory), axes=(named,)),
+                    _memory_backing(memory).data.copy_rows(),
                     (OutputAttachment(part.name, calendar_directory_schema(named), directory),),
                 ),
                 metadata(),
@@ -1404,27 +1454,27 @@ def test_actual_stored_inputs_derive_without_sources_and_republish_detached(
             "fixed-only stored evaluation attempted source/model/calendar reconstruction"
         )
 
-    monkeypatch.setattr(frame_evaluation, "open_query_sources", forbidden)
+    monkeypatch.setattr(frame_source_preparation, "open_query_sources", forbidden)
     monkeypatch.setattr(Session, "catalog", property(forbidden))
     monkeypatch.setattr(SourceSession, "__init__", forbidden)
     monkeypatch.setattr(frame_calendar, "freeze_calendar", forbidden)
     before = counts(local)
     loaded = saved.compute()
-    assert loaded._backing.metadata == saved._backing.metadata
+    assert _memory_backing(loaded).metadata == _stored_backing(saved).metadata
     derived = saved.select({"twice": saved["amount"] * 2})
     result = derived.top(2, by=derived["twice"]).compute()
     assert result.to_pandas()[("value", "twice")].tolist() == [4, 2]
-    captured = result._backing.metadata.audit.evaluation.inputs
+    captured = _memory_backing(result).metadata.audit.evaluation.inputs
     assert captured == (
         StoredInput(
             saved._input_id,
-            saved._backing.metadata.result_id,
+            _stored_backing(saved).metadata.result_id,
             local.store.store_id,
             local.session_ref,
             saved.artifact.id,
         ),
     )
-    assert result._backing.metadata.result_id != saved._backing.metadata.result_id
+    assert _memory_backing(result).metadata.result_id != _stored_backing(saved).metadata.result_id
     positive = saved.where(saved["amount"] > 0).compute()
     assert positive.to_pandas()[("value", "amount")].tolist() == [1, 2]
     compared = (
@@ -1446,13 +1496,13 @@ import marivo.analysis as mv
 from tests.shared_fixtures import terminal_runs
 from marivo.analysis.core import frame_calendar
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization import frame_evaluation
+from marivo.analysis.materialization import frame_source_preparation
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 os.environ["MARIVO_PROJECT_ROOT"] = sys.argv[1]
 def forbidden(*args, **kwargs):
     raise AssertionError("cold stored derive attempted source/model/calendar reconstruction")
-with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceSession, "__init__", forbidden), patch.object(frame_calendar, "freeze_calendar", forbidden), patch.object(frame_evaluation, "open_query_sources", forbidden):
+with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceSession, "__init__", forbidden), patch.object(frame_calendar, "freeze_calendar", forbidden), patch.object(frame_source_preparation, "open_query_sources", forbidden):
     session = mv.session.resume(sys.argv[2])
     saved = session.persisted_frame(sys.argv[3])
     before = len(terminal_runs(session))
@@ -1486,14 +1536,14 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
     after_cold = counts(local)
     assert after_cold == (before[0] + 1, before[1] + 1)
     copied = result.persist()
-    assert copied._backing.metadata == result._backing.metadata
+    assert _stored_backing(copied).metadata == _memory_backing(result).metadata
     pd.testing.assert_frame_equal(copied.to_pandas(), result.to_pandas())
     old = manifest(saved)
     (
         local.store.project_root / old.data.rows.receipt.project_relative_path / "data.parquet"
     ).unlink()
     assert saved.persist() is saved
-    assert result.persist()._backing.metadata == result._backing.metadata
+    assert _stored_backing(result.persist()).metadata == _memory_backing(result).metadata
     with pytest.raises(AnalysisError):
         saved.where(saved["amount"] > 0).compute()
     assert counts(local) == (after_cold[0] + 2, after_cold[1] + 2)
@@ -1507,9 +1557,10 @@ def test_pending_show_keeps_deep_shared_scope_and_stops_at_fixed_inputs(
     import marivo.analysis as mv
     from marivo._definition.graph import DefinitionNode
     from marivo._definition.observations import ObservationBinding
+    from marivo.analysis._scope import scope_summary
     from marivo.analysis.core.frame_source_facts import captured_source_scopes
     from marivo.analysis.dsl import frame as frame_module
-    from marivo.analysis.materialization import frame_evaluation
+    from marivo.analysis.materialization import frame_evaluation, frame_source_preparation
     from marivo.analysis.session.core import Session
     from marivo.datasource.adapters import SourceSession
 
@@ -1523,6 +1574,8 @@ def test_pending_show_keeps_deep_shared_scope_and_stops_at_fixed_inputs(
             mv.coordinates(by=(region,), keys=(("east",), ("south",), ("west",))),
         ),
     )
+    assert isinstance(source._backing, ExpressionFrameBacking)
+    assert isinstance(source._backing.root, SourceFrameBinding)
     raw_scopes = captured_source_scopes(source._backing.root.graph)
     assert all(
         value in " ".join(raw_scopes)
@@ -1536,7 +1589,7 @@ def test_pending_show_keeps_deep_shared_scope_and_stops_at_fixed_inputs(
         deep = deep.select({"sales": deep["sales"]})
     shared = deep.align(deep, on=tuple((axis, axis) for axis in deep.axes))
     calls: list[int] = []
-    capture = frame_module.scope_summary
+    capture = scope_summary
 
     def observed(root: DefinitionNode, observation: ObservationBinding | None = None) -> str:
         calls.append(id(root))
@@ -1550,7 +1603,7 @@ def test_pending_show_keeps_deep_shared_scope_and_stops_at_fixed_inputs(
     monkeypatch.setattr(SourceSession, "__enter__", forbidden)
     monkeypatch.setattr(SourceSession, "execute", forbidden)
     monkeypatch.setattr(frame_evaluation, "evaluate_frame", forbidden)
-    monkeypatch.setattr(frame_evaluation, "open_query_sources", forbidden)
+    monkeypatch.setattr(frame_source_preparation, "open_query_sources", forbidden)
     for name in ("copy_rows", "preview_rows", "copy_attachments"):
         monkeypatch.setattr(CompletedFrameData, name, forbidden)
     for name in ("open_frame", "read_complete", "preview"):
@@ -1587,9 +1640,10 @@ def test_pending_read_label_and_derived_anchor_are_captured_without_execution(
     import marivo.analysis as mv
     from marivo._definition.graph import DefinitionNode
     from marivo._definition.observations import ObservationBinding
+    from marivo.analysis._scope import scope_summary
     from marivo.analysis.core.frame_source_facts import captured_source_scopes
     from marivo.analysis.dsl import frame as frame_module
-    from marivo.analysis.materialization import frame_evaluation
+    from marivo.analysis.materialization import frame_evaluation, frame_source_preparation
     from marivo.analysis.session.core import Session
     from marivo.datasource.adapters import SourceSession
 
@@ -1605,7 +1659,9 @@ def test_pending_read_label_and_derived_anchor_are_captured_without_execution(
         case.session.members(case.catalog.entities.get("sales.customer"), at=instant)
     ).reduce({"rows": mv.row_count()})
 
-    capture = frame_module.scope_summary
+    capture = scope_summary
+    assert isinstance(read._backing, ExpressionFrameBacking)
+    assert isinstance(read._backing.root, SourceFrameBinding)
     graph = read._backing.root.graph
     raw_scopes = captured_source_scopes(graph)
     read_scope = capture(graph.root, graph.signature.observation)
@@ -1624,7 +1680,7 @@ def test_pending_read_label_and_derived_anchor_are_captured_without_execution(
     monkeypatch.setattr(SourceSession, "__enter__", forbidden)
     monkeypatch.setattr(SourceSession, "execute", forbidden)
     monkeypatch.setattr(frame_evaluation, "evaluate_frame", forbidden)
-    monkeypatch.setattr(frame_evaluation, "open_query_sources", forbidden)
+    monkeypatch.setattr(frame_source_preparation, "open_query_sources", forbidden)
     monkeypatch.setattr(LocalFrameServices, "read_complete", forbidden)
     monkeypatch.setattr(CompletedFrameData, "copy_rows", forbidden)
     read.show(n=0)
@@ -1656,11 +1712,11 @@ def test_attachment_preview_filters_arrow_before_python_key_materialization(
     from marivo.analysis.materialization import graph_reading
 
     saved = calendar(local, 128).persist()
-    attachment = saved._backing.data.attachments[0]
+    attachment = _stored_backing(saved).data.attachments[0]
     converted: list[int] = []
     decoded: list[int] = []
     original_open = OutputRead._open
-    original_keys = graph_reading.frozen_key_rows
+    original_keys = frozen_key_rows
 
     class ObservedTable:
         def __init__(self, table: pa.Table) -> None:
@@ -1668,7 +1724,8 @@ def test_attachment_preview_filters_arrow_before_python_key_materialization(
 
         @property
         def num_rows(self) -> int:
-            return self.table.num_rows
+            row_count: int = self.table.num_rows
+            return row_count
 
         def cast(self, schema: pa.Schema, *, safe: bool) -> ObservedTable:
             return ObservedTable(self.table.cast(schema, safe=safe))
@@ -1684,7 +1741,8 @@ def test_attachment_preview_filters_arrow_before_python_key_materialization(
 
         def to_pandas(self, **kwargs: object) -> pd.DataFrame:
             converted.append(self.table.num_rows)
-            return self.table.to_pandas(**kwargs)
+            rows: pd.DataFrame = self.table.to_pandas(**kwargs)
+            return rows
 
     class ObservedParquet:
         def __init__(self, parquet: pq.ParquetFile) -> None:
@@ -1692,7 +1750,8 @@ def test_attachment_preview_filters_arrow_before_python_key_materialization(
 
         @property
         def num_row_groups(self) -> int:
-            return self.parquet.num_row_groups
+            group_count: int = self.parquet.num_row_groups
+            return group_count
 
         def read_row_group(self, index: int, columns: list[str] | None = None) -> ObservedTable:
             return ObservedTable(self.parquet.read_row_group(index, columns=columns))
@@ -1713,7 +1772,7 @@ def test_attachment_preview_filters_arrow_before_python_key_materialization(
 
     monkeypatch.setattr(OutputRead, "_open", observed_open)
     monkeypatch.setattr(graph_reading, "frozen_key_rows", observed_keys)
-    prefix = local.preview(saved._backing, 1)
+    prefix = local.preview(_stored_backing(saved), 1)
     assert prefix.attachments[0].rows["ordinal"].tolist() == [127]
     assert converted == [1]
     assert decoded and max(decoded) == 1
@@ -1764,7 +1823,7 @@ def test_arrow_attachment_selection_keeps_exact_nullable_composite_keys(
     ).persist()
     keys = set(frozen_key_rows(rows.take([3, 1]), columns))
     selected = OutputRead(local.store.project_root).select(
-        ReadLayout(schema, saved._backing.data.rows), keys
+        ReadLayout(schema, _stored_backing(saved).data.rows), keys
     )
     assert pa.array(selected["key"]).type == physical
     assert pa.array(selected["key"]).cast(integer).to_pylist() == [None, minimum]
@@ -1779,8 +1838,8 @@ def test_arrow_selection_rejects_missing_and_duplicate_requested_keys(
     from marivo.analysis.materialization.graph_reading import ReadLayout
 
     saved = ordinary(local).persist()
-    rows = saved.compute()._backing.data.copy_rows()
-    schema = saved._backing.data.schema
+    rows = _memory_backing(saved.compute()).data.copy_rows()
+    schema = _stored_backing(saved).data.schema
     columns = schema.axes[0].columns
     rows["key"] = pd.Series([2, 2, 0], dtype="int64[pyarrow]")
     backing = rewrite_primary(saved, rows)
@@ -1800,7 +1859,7 @@ def test_missing_preview_payload_has_typed_cause_and_never_affects_memory_or_aud
 ) -> None:
     memory = calendar(local, 128)
     saved = memory.persist()
-    backing = saved._backing.data
+    backing = _stored_backing(saved).data
     handle = backing.rows if missing == "primary" else backing.attachments[0].rows
     (local.store.project_root / handle.receipt.project_relative_path / "data.parquet").unlink()
     before = counts(local)
@@ -1809,6 +1868,7 @@ def test_missing_preview_payload_has_typed_cause_and_never_affects_memory_or_aud
             read()
         assert isinstance(caught.value.__cause__, FileNotFoundError)
         assert caught.value.stage == "frame.read"
+        assert caught.value.repair is not None
         assert caught.value.repair.help_target.canonical_id == "analysis_frame.compute"
         assert "original data files and exact receipts" in caught.value.repair.action
     saved.show(n=0)
@@ -1868,8 +1928,8 @@ def test_interval_directory_presence_and_pairing_cold_recovery(local: LocalFrame
     sparse = selected.select({"amount": selected["left.amount"]}).compute().persist()
     saved = first.persist()
     paired = first.align(second, match=CalendarCorrespondence("ordinal")).compute().persist()
-    assert len(sparse._backing.data.attachments) == 1
-    assert len(paired._backing.data.attachments) == 3
+    assert len(_stored_backing(sparse).data.attachments) == 1
+    assert len(_stored_backing(paired).data.attachments) == 3
     script = """
 import os, sys
 from unittest.mock import patch
@@ -1877,13 +1937,13 @@ import marivo.analysis as mv
 from tests.shared_fixtures import terminal_runs
 from marivo.analysis.core import frame_calendar
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization import frame_evaluation
+from marivo.analysis.materialization import frame_source_preparation
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 os.environ["MARIVO_PROJECT_ROOT"] = sys.argv[1]
 def forbidden(*args, **kwargs):
     raise AssertionError("cold interval recovery attempted source/model reconstruction")
-with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceSession, "__init__", forbidden), patch.object(frame_calendar, "freeze_interval", forbidden), patch.object(frame_evaluation, "open_query_sources", forbidden):
+with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceSession, "__init__", forbidden), patch.object(frame_calendar, "freeze_interval", forbidden), patch.object(frame_source_preparation, "open_query_sources", forbidden):
     session = mv.session.resume(sys.argv[2])
     sparse, original, paired = (session.persisted_frame(value) for value in sys.argv[3:])
     before = len(terminal_runs(session))
@@ -2076,12 +2136,12 @@ def test_real_method_facts_propagate_through_fixed_and_pending_inputs(
     memory = pending.compute()
     original = memory.method_facts
     assert len(original) == 1
-    assert original[0].origin_result_id == memory._backing.metadata.result_id
+    assert original[0].origin_result_id == _memory_backing(memory).metadata.result_id
     assert original[0].parents[0].metrics[0].method.change.value == 40
     saved = memory.persist()
     assert saved.method_facts == original
     assert saved.compute().method_facts == original
-    assert saved._backing.metadata == memory._backing.metadata
+    assert _stored_backing(saved).metadata == _memory_backing(memory).metadata
     before = counts(memory._local)
     for fixed in (memory, saved):
         assert fixed.to_pandas()[("value", "contribution.q")].tolist() == [60, -20]
@@ -2099,14 +2159,14 @@ def test_real_method_facts_propagate_through_fixed_and_pending_inputs(
         ).compute()
         for derived in (total, positive, subtotal, empty, combined, compared):
             assert derived.method_facts == original
-            assert derived._backing.metadata.result_id != original[0].origin_result_id
+            assert _memory_backing(derived).metadata.result_id != original[0].origin_result_id
         assert total.axes == () and total.presence_names == ()
         assert empty.to_pandas().empty
     assert counts(memory._local) == before
     derived_pending = pending.select({"kept": pending["contribution.q"]}).compute()
     assert (
         derived_pending.method_facts[0].origin_result_id
-        != derived_pending._backing.metadata.result_id
+        != _memory_backing(derived_pending).metadata.result_id
     )
     shared = pending.align(pending, on=((pending.axes[0], pending.axes[0]),)).compute()
     assert len(shared.method_facts) == 1
@@ -2132,7 +2192,9 @@ def test_expression_history_is_folded_at_each_producer_and_source_parameter(
     assert facts[1] == b.method_facts[0]
     assert facts[3] == d.method_facts[0]
     assert len({item.origin_result_id for item in facts}) == 4
-    assert all(item.origin_result_id != joined._backing.metadata.result_id for item in facts)
+    assert all(
+        item.origin_result_id != _memory_backing(joined).metadata.result_id for item in facts
+    )
     shared = a.align(a, on=tuple(zip(a.axes, a.axes, strict=True))).compute()
     assert len(shared.method_facts) == 2 and shared.method_facts[1] == b.method_facts[0]
     ancestor = attribute_request(session, axis="region")
@@ -2142,11 +2204,11 @@ def test_expression_history_is_folded_at_each_producer_and_source_parameter(
         {"q": session.catalog.fields.get("sales.facts.amount").sum()}, by=domain
     ).compute()
     assert len(observed.method_facts) == 1
-    assert observed.method_facts[0].origin_result_id != observed._backing.metadata.result_id
+    assert observed.method_facts[0].origin_result_id != _memory_backing(observed).metadata.result_id
     # A pending producer may itself consume a pending ancestor; collection order is not execution order.
     nested = next_request(ancestor).compute()
     assert len(nested.method_facts) == 2
-    assert nested.method_facts[0].origin_result_id == nested._backing.metadata.result_id
+    assert nested.method_facts[0].origin_result_id == _memory_backing(nested).metadata.result_id
 
 
 def test_method_only_reads_and_lazy_data_paths_have_independent_damage_boundaries(
@@ -2158,7 +2220,9 @@ def test_method_only_reads_and_lazy_data_paths_have_independent_damage_boundarie
     descriptor = manifest(saved).method_facts[0]
     original = OutputRead.read
 
-    def forbid_method(self, layout, request):
+    def forbid_method(
+        self: OutputRead, layout: ReadLayout, request: PreviewRead | ExportRead
+    ) -> pd.DataFrame:
         if layout.handle == descriptor.payload.rows:
             raise AssertionError("unexpected historical method payload read")
         return original(self, layout, request)
@@ -2168,14 +2232,16 @@ def test_method_only_reads_and_lazy_data_paths_have_independent_damage_boundarie
         saved.show(n=0)
         saved.show(n=1)
         saved.artifact.show()
-        assert local.open_frame(saved.artifact.id) == saved._backing
+        assert local.open_frame(saved.artifact.id) == _stored_backing(saved)
         assert saved.persist() is saved
         assert len(saved.to_pandas()) == 2
         _ = saved.select({"q": saved["contribution.q"]})
     assert ".method_facts" in capsys.readouterr().out
     primary = manifest(saved).data.rows
 
-    def forbid_primary(self, layout, request):
+    def forbid_primary(
+        self: OutputRead, layout: ReadLayout, request: PreviewRead | ExportRead
+    ) -> pd.DataFrame:
         if layout.handle == primary:
             raise AssertionError("method-only getter read current rows")
         return original(self, layout, request)
@@ -2232,7 +2298,9 @@ def test_equal_origin_requires_full_typed_payload_equality(attribute_session: Se
     )
     other = AnalysisFrame._from_memory(
         memory._local,
-        CompletedFrameResult(memory._backing.data, memory._backing.metadata, (changed,)),
+        CompletedFrameResult(
+            _memory_backing(memory).data, _memory_backing(memory).metadata, (changed,)
+        ),
     )
     with pytest.raises(AnalysisError, match="identical complete"):
         memory.align(other, on=((memory.axes[0], other.axes[0]),)).compute()
@@ -2268,7 +2336,7 @@ def explained_calendar(
         for role in ("left_present", "right_present")
     )
     schema = DataSchema(
-        current._schema.axes,
+        _complete_schema(current).axes,
         columns,
         presence,
         value_paths=tuple(
@@ -2277,7 +2345,7 @@ def explained_calendar(
         ),
         presence_paths=(("left_present",), ("right_present",)),
     )
-    rows = current._backing.data.copy_rows().drop(columns=["amount"])
+    rows = _memory_backing(current).data.copy_rows().drop(columns=["amount"])
     for column, value in zip(columns, (240, 200, 40, 40, 1.0), strict=True):
         rows[column.slot_id] = pd.Series(
             [value] * count,
@@ -2285,7 +2353,7 @@ def explained_calendar(
         )
     for column in presence:
         rows[column.slot_id] = pd.Series([True] * count, dtype="bool[pyarrow]")
-    part = current._backing.data.copy_attachments()[0]
+    part = _memory_backing(current).data.copy_attachments()[0]
     arrays = []
     for column in part.schema.columns:
         array = pa.array(part.rows[column.slot_id])
@@ -2342,9 +2410,17 @@ def test_method_manifest_is_bounded_and_zero_parent_payload_is_valid(
     assert saved.method_facts == original.method_facts
     assert saved.method_facts[0].coordinates[0].rows == ()
     with pytest.raises(AnalysisError):
-        replace(saved._backing, method_facts=(original.method_facts[0],))
+        # A complete method payload intentionally violates the stored descriptor type.
+        replace(
+            _stored_backing(saved),
+            method_facts=(cast("SavedFrameMethodFacts", original.method_facts[0]),),
+        )
     with pytest.raises(AnalysisError):
-        replace(original._backing.result, method_facts=[original.method_facts[0]])
+        # A mutable list intentionally violates the immutable tuple payload contract.
+        replace(
+            _memory_backing(original).result,
+            method_facts=cast("tuple[FrameMethodFacts, ...]", [original.method_facts[0]]),
+        )
     assert type(original.method_facts[0]) is FrameMethodFacts
 
 
@@ -2382,13 +2458,13 @@ from unittest.mock import patch
 import marivo
 import marivo.analysis as mv
 from marivo.analysis.core import frame_calendar
-from marivo.analysis.materialization import frame_evaluation
+from marivo.analysis.materialization import frame_source_preparation
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 assert Path(marivo.__file__).resolve().parents[1] == Path(sys.argv[4])
 def forbidden(*args, **kwargs):
     raise AssertionError('cold facts continuation attempted source/model/calendar rebuild')
-with patch.object(Session, 'catalog', property(forbidden)), patch.object(SourceSession, '__init__', forbidden), patch.object(frame_calendar, 'freeze_calendar', forbidden), patch.object(frame_calendar, 'freeze_interval', forbidden), patch.object(frame_evaluation, 'open_query_sources', forbidden):
+with patch.object(Session, 'catalog', property(forbidden)), patch.object(SourceSession, '__init__', forbidden), patch.object(frame_calendar, 'freeze_calendar', forbidden), patch.object(frame_calendar, 'freeze_interval', forbidden), patch.object(frame_source_preparation, 'open_query_sources', forbidden):
     session = mv.session.resume(sys.argv[2])
     saved = session.persisted_frame(sys.argv[3])
     facts = saved.method_facts

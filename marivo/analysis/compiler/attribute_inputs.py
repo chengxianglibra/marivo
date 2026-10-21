@@ -48,6 +48,7 @@ from marivo.semantic._numeric_lowering import (
 
 if TYPE_CHECKING:
     from marivo._definition.expressions import RowNode
+    from marivo.analysis.binding.attribute_rules import AttributeRule
     from marivo.analysis.compiler.graph_plan import QueryPlan, QueryStage, SourceRead
     from marivo.analysis.compiler.query_program import SourceParameter
     from marivo.analysis.core.attribute import (
@@ -247,16 +248,21 @@ def _component_unit(
 
 def bundle_attribute_plan(
     plan: QueryPlan,
-    requests: tuple[AttributeSourceRequest, ...],
-    parent_keys: tuple[str, ...],
+    rules: tuple[tuple[str, AttributeRule], ...],
+    parent_positions: tuple[int, ...],
     scoped_columns: dict[str, tuple[tuple[str, str], ...]],
     parent_projection: str,
     side: Literal["left", "right"],
-    metrics: tuple[str, ...],
 ) -> QueryPlan:
     """Replace each root's ordered occurrences by one governed physical read."""
+    from marivo.analysis.binding.attribute_rules import component_requests
     from marivo.analysis.compiler.graph_plan import LocalCompute, SourceRead
 
+    parent_keys = tuple(
+        key for position in parent_positions for key in plan.output_groups[position]
+    )
+    requests = tuple(item for _, rule in rules for item in component_requests(rule))
+    metrics = tuple(name for name, _ in rules)
     by_occurrence = {request.binding.occurrence: request for request in requests}
     roots: dict[str, list[SourceRead]] = {}
     for stage in plan.stages:

@@ -109,7 +109,7 @@ def _source_graph(frame: AnalysisFrame) -> BoundGraph:
 def _execute(
     session: Session, query: AnalysisFrame, *, optimized: bool
 ) -> tuple[StageOutput, QueryPlan, tuple[str, ...], dict[str, tuple[str, ...]]]:
-    from marivo.analysis.materialization import frame_evaluation
+    from marivo.analysis.materialization import frame_evaluation, frame_source_preparation
 
     if (
         isinstance(query._backing, ExpressionFrameBacking)
@@ -185,7 +185,7 @@ def _execute(
         if optimized:
             query.compute()
         else:
-            with patch.object(frame_evaluation, "optimize_query", lambda plan: plan):
+            with patch.object(frame_source_preparation, "optimize_query", lambda plan: plan):
                 query.compute()
     assert len(captured) == 1
     output, plan = captured[0]
@@ -579,7 +579,7 @@ def test_each_public_compute_owns_a_fresh_compilation_memo(
             memos.append(self)
 
     monkeypatch.setattr(
-        "marivo.analysis.materialization.frame_evaluation.InvocationMemo", CapturingMemo
+        "marivo.analysis.materialization.frame_source_preparation.InvocationMemo", CapturingMemo
     )
     session = optimization_session
     amount = session.catalog.fields.get("sales.orders.amount")

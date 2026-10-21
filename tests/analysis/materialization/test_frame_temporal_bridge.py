@@ -8,12 +8,14 @@ import sys
 from collections.abc import Callable
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Literal
 
 import duckdb
 import ibis.expr.types as ir
 import pandas as pd
 import pyarrow as pa
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 from marivo.analysis.core.data_schema import DataAxis, DataSchema
@@ -25,13 +27,20 @@ from marivo.analysis.core.data_types import (
     TimestampDataType,
 )
 from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, FrameResultMetadata
-from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
+from marivo.analysis.core.frame_data import (
+    CompletedFrameData,
+    CompletedFrameResult,
+    MemoryFrameBacking,
+    StoredFrameBacking,
+)
 from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.analysis.dsl.frame_axis import FrameAxis
 from marivo.analysis.dsl.population import Population
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.methods.query_population import _token, evaluate_population
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
+from marivo.semantic.expressions import Entity
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import terminal_runs
 
@@ -120,7 +129,7 @@ def _population(
         if identity
         else session.catalog.fields.get("sales.facts.t")
     )
-    on = ((frame.axes[0], target),)
+    on: tuple[tuple[FrameAxis, Entity | Deferred], ...] = ((frame.axes[0], target),)
     if joint:
         on = (*on, (frame.axes[1], session.catalog.fields.get("sales.facts.channel")))
     return session.population_from(frame, on=on)
@@ -130,7 +139,10 @@ def _ticks(
     session: Session, population: Population, integer: pa.DataType | None = None
 ) -> list[int | None]:
     result = session.frame(population).compute().to_pandas()
-    return pa.array(result.iloc[:, 0]).cast(pa.int64() if integer is None else integer).to_pylist()
+    ticks: list[int | None] = (
+        pa.array(result.iloc[:, 0]).cast(pa.int64() if integer is None else integer).to_pylist()
+    )
+    return ticks
 
 
 TEMPORAL_TYPES: tuple[tuple[DataType, pa.DataType], ...] = (
@@ -159,7 +171,7 @@ def test_frame_keys_keep_extrema_nulls_joint_dedup_and_order(
         raise AssertionError("fixed temporal key projection attempted a source read")
 
     monkeypatch.setattr(
-        "marivo.analysis.materialization.frame_evaluation.open_query_sources", forbidden
+        "marivo.analysis.materialization.frame_source_preparation.open_query_sources", forbidden
     )
     monkeypatch.setattr(SourceSession, "__init__", forbidden)
     integer = pa.int32() if physical == pa.date32() else pa.int64()
@@ -224,7 +236,9 @@ def test_frame_keys_match_ordinary_python_temporal_literals(
 
 
 @pytest.mark.parametrize("unit", ["s", "ms", "us", "ns"])
-def test_temporal_tokens_equate_pandas_python_and_arrow_without_nanosecond_loss(unit: str) -> None:
+def test_temporal_tokens_equate_pandas_python_and_arrow_without_nanosecond_loss(
+    unit: Literal["s", "ms", "us", "ns"],
+) -> None:
     timestamp = pd.Timestamp(1, unit=unit, tz="UTC")
     duration = pd.Timedelta(1, unit=unit)
     assert _token(timestamp) == _token(pa.scalar(1, type=pa.timestamp(unit, "UTC")))
@@ -287,12 +301,12 @@ from unittest.mock import patch
 import pyarrow as pa
 import marivo.analysis as mv
 from tests.shared_fixtures import terminal_runs
-from marivo.analysis.materialization import frame_evaluation
+from marivo.analysis.materialization import frame_source_preparation
 from marivo.datasource.adapters import SourceSession
 os.environ['MARIVO_PROJECT_ROOT'] = sys.argv[1]
 def forbidden(*args, **kwargs):
     raise AssertionError('cold FrameKeys projection attempted source access')
-with patch.object(SourceSession, '__init__', forbidden), patch.object(frame_evaluation, 'open_query_sources', forbidden):
+with patch.object(SourceSession, '__init__', forbidden), patch.object(frame_source_preparation, 'open_query_sources', forbidden):
     session = mv.session.resume(sys.argv[2])
     saved = session.persisted_frame(sys.argv[3])
     before = terminal_runs(session)
@@ -349,12 +363,18 @@ def test_explicit_source_key_transport_preserves_minimum_tick_and_null(
     assert transported[0].column(1).to_pylist() == ["A", "B", "C"]
     assert computed.to_pandas()["value", "amount"].tolist() == [50]
     assert terminal_runs(session) == ()
+    assert isinstance(computed._backing, MemoryFrameBacking)
     facts = computed._backing.metadata.audit.source_facts
+    scopes_by_fact: list[str] = []
+    for fact in facts:
+        if fact.kind == "read":
+            scopes = dict(fact.values)["source_scopes"]
+            assert isinstance(scopes, str)
+            scopes_by_fact.append(scopes)
     selections = [
         json.loads(item[1])
-        for fact in facts
-        if fact.kind == "read"
-        for item in json.loads(dict(fact.values)["source_scopes"])
+        for scopes in scopes_by_fact
+        for item in json.loads(scopes)
         if "frame_key_selection" in item[1]
     ]
     assert len(selections) == 1
@@ -371,4 +391,5 @@ def test_explicit_source_key_transport_preserves_minimum_tick_and_null(
     }
     saved = computed.persist()
     reopened = session.persisted_frame(saved.artifact.id)
+    assert isinstance(reopened._backing, StoredFrameBacking)
     assert reopened._backing.metadata.audit.source_facts == facts

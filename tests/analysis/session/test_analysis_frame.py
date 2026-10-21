@@ -53,7 +53,7 @@ def _memory(local: LocalFrameServices) -> AnalysisFrame:
 def test_literal_compute_is_runless_and_memory_compute_returns_self(
     local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    import marivo.analysis.materialization.frame_evaluation as evaluator
+    import marivo.analysis.materialization.frame_source_preparation as evaluator
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("source preparation is forbidden")
@@ -83,6 +83,7 @@ def test_literal_compute_is_runless_and_memory_compute_returns_self(
         for path in tmp_path.rglob("*")
         if path.is_file()
     } == before_files
+    assert isinstance(second._backing, MemoryFrameBacking)
     assert second._backing.metadata.result_id != memory._backing.metadata.result_id
     with pytest.raises(CoreRuleError, match="exact Frame input"):
         memory._bind_statistic(pending["value"].sum())
@@ -103,7 +104,9 @@ def test_current_rows_select_where_top_reduce_and_presence(local: LocalFrameServ
     assert selected.output_names == ("net",) and selected.presence_names == ("right_present",)
     grouped = root.reduce({"rows": row_count()}, by=root.axes).compute()
     assert grouped.presence_names == () and grouped.axes[0].name == "region"
-    assert root.top(0, by=root["value"]).compute()._backing.data.row_count == 0
+    top_zero = root.top(0, by=root["value"]).compute()
+    assert isinstance(top_zero._backing, MemoryFrameBacking)
+    assert top_zero._backing.data.row_count == 0
     empty = root.top(0, by=root["value"])
     count = empty.reduce({"rows": row_count()}).compute()
     assert count.to_pandas()[("value", "rows")].tolist() == [0]

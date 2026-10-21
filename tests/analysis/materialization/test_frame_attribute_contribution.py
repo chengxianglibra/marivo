@@ -9,9 +9,34 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.dsl.attribute import attribute_endpoint
+from marivo.analysis.core.attribute import (
+    AttributeFineFiber,
+    AttributeNumericWitness,
+    AttributeParentFiber,
+)
+from marivo.analysis.core.data_schema import DataSchema
+from marivo.analysis.core.frame_data import (
+    ExpressionFrameBacking,
+    MemoryFrameBacking,
+    OperationFrameBinding,
+)
+from marivo.analysis.core.frame_expression import AttributeContributionValues
+from marivo.analysis.dsl.attribute import AttributeEndpoint
+from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.session.core import Session
+from marivo.datasource.adapters import CompiledRead
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import terminal_runs
+
+
+def _memory(frame: AnalysisFrame) -> MemoryFrameBacking:
+    assert isinstance(frame._backing, MemoryFrameBacking)
+    return frame._backing
+
+
+def _schema(frame: AnalysisFrame) -> DataSchema:
+    assert isinstance(frame._schema, DataSchema)
+    return frame._schema
 
 
 @pytest.fixture
@@ -58,10 +83,10 @@ def test_additive_exact_values_and_one_read_per_endpoint(
     amount = session.catalog.fields.get("sales.facts.amount")
     phase = session.catalog.fields.get("sales.facts.phase")
     channel = session.catalog.fields.get("sales.facts.channel")
-    reads: list[object] = []
+    reads: list[CompiledRead] = []
     execute_original = SourceSession.execute
 
-    def execute(self: SourceSession, issued: object) -> pd.DataFrame:
+    def execute(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
         reads.append(issued)
         return execute_original(self, issued)
 
@@ -224,10 +249,10 @@ def test_original_formula_error_keeps_owner_context_and_atomicity(
         pending = pending.select({"only": pending["left.safe"]})
     elif derive == "where":
         pending = pending.where(pending.coord(pending.axes[0]) != "B")
-        reads: list[object] = []
+        reads: list[CompiledRead] = []
         execute = SourceSession.execute
 
-        def read(self: SourceSession, issued: object) -> pd.DataFrame:
+        def read(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
             reads.append(issued)
             return execute(self, issued)
 
@@ -255,9 +280,7 @@ def test_original_formula_error_keeps_owner_context_and_atomicity(
 def test_real_producer_association_and_inert_parent_payload(
     session: Session, monkeypatch: pytest.MonkeyPatch, shape: str
 ) -> None:
-    from marivo.analysis.compiler.frame_plan import CompiledFramePlan
     from marivo.analysis.core.attribute import AttributeMethodPayload, AttributeMethodProduction
-    from marivo.analysis.core.frame_expression import FrameExpression
     from marivo.analysis.materialization import frame_evaluation
 
     amount = session.catalog.fields.get("sales.facts.amount")
@@ -287,11 +310,11 @@ def test_real_producer_association_and_inert_parent_payload(
     original = frame_evaluation._attribute_productions
 
     def productions(
-        compiled: CompiledFramePlan,
-        explicit_inputs: tuple[tuple[str, FrameExpression], ...],
+        associations: tuple[tuple[str, str, int, bool], ...],
+        reachable: frozenset[str],
         observed: tuple[tuple[str, AttributeMethodPayload], ...],
     ) -> tuple[AttributeMethodProduction, ...]:
-        values = original(compiled, explicit_inputs, observed)
+        values = original(associations, reachable, observed)
         captured.extend(values)
         return values
 
@@ -317,7 +340,7 @@ def test_real_producer_association_and_inert_parent_payload(
 
             FrameMethodFacts(
                 kind="attribute",
-                origin_result_id=fixed._backing.metadata.result_id,
+                origin_result_id=_memory(fixed).metadata.result_id,
                 output_schema=payload.output_schema,
                 coordinates=payload.coordinates,
                 parent_axis_count=payload.parent_axis_count,
@@ -407,6 +430,9 @@ def test_parent_difference_overflow_has_exact_context_even_under_top0(
         pending.top(0, by=pending["left.q"]).compute()
     assert caught.value.stage == "numeric_value"
     assert caught.value.attribute_context is not None
+    assert isinstance(
+        caught.value.attribute_context.fiber, (AttributeParentFiber, AttributeFineFiber)
+    )
     assert caught.value.attribute_context.fiber.parent == ()
     assert {use.endpoint for use in caught.value.attribute_context.uses} == {"left", "right"}
 
@@ -448,6 +474,7 @@ def test_zero_root_denominator_keeps_specific_reason(session: Session, tmp_path:
         ).compute()
     assert caught.value.reason == "root_denominator_zero"
     assert caught.value.attribute_context is not None
+    assert isinstance(caught.value.attribute_context.witness, AttributeNumericWitness)
     assert caught.value.attribute_context.witness.values[0].value == 0
 
 
@@ -455,9 +482,7 @@ def test_zero_root_denominator_keeps_specific_reason(session: Session, tmp_path:
 def test_empty_parent_domain_and_no_fine_rows_keep_complete_payload(
     session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, selected_empty: bool
 ) -> None:
-    from marivo.analysis.compiler.frame_plan import CompiledFramePlan
     from marivo.analysis.core.attribute import AttributeMethodPayload, AttributeMethodProduction
-    from marivo.analysis.core.frame_expression import FrameExpression
     from marivo.analysis.materialization import frame_evaluation
 
     amount = session.catalog.fields.get("sales.facts.amount")
@@ -471,11 +496,11 @@ def test_empty_parent_domain_and_no_fine_rows_keep_complete_payload(
     original = frame_evaluation._attribute_productions
 
     def productions(
-        compiled: CompiledFramePlan,
-        explicit_inputs: tuple[tuple[str, FrameExpression], ...],
+        associations: tuple[tuple[str, str, int, bool], ...],
+        reachable: frozenset[str],
         observed: tuple[tuple[str, AttributeMethodPayload], ...],
     ) -> tuple[AttributeMethodProduction, ...]:
-        values = original(compiled, explicit_inputs, observed)
+        values = original(associations, reachable, observed)
         captured.extend(values)
         return values
 
@@ -588,9 +613,7 @@ def test_mean_uses_full_parent_count_in_unequal_groups(session: Session, tmp_pat
 def test_payload_satisfies_existing_fact_model(
     session: Session, monkeypatch: pytest.MonkeyPatch, kind: str
 ) -> None:
-    from marivo.analysis.compiler.frame_plan import CompiledFramePlan
     from marivo.analysis.core.attribute import AttributeMethodPayload, AttributeMethodProduction
-    from marivo.analysis.core.frame_expression import FrameExpression
     from marivo.analysis.core.frame_method_facts import FrameMethodFacts
     from marivo.analysis.materialization import frame_evaluation
 
@@ -606,11 +629,11 @@ def test_payload_satisfies_existing_fact_model(
     original = frame_evaluation._attribute_productions
 
     def productions(
-        compiled: CompiledFramePlan,
-        explicit_inputs: tuple[tuple[str, FrameExpression], ...],
+        associations: tuple[tuple[str, str, int, bool], ...],
+        reachable: frozenset[str],
         observed: tuple[tuple[str, AttributeMethodPayload], ...],
     ) -> tuple[AttributeMethodProduction, ...]:
-        values = original(compiled, explicit_inputs, observed)
+        values = original(associations, reachable, observed)
         captured.extend(values)
         return values
 
@@ -625,7 +648,7 @@ def test_payload_satisfies_existing_fact_model(
     payload = captured[0].payload
     facts = FrameMethodFacts(
         kind="attribute",
-        origin_result_id=fixed._backing.metadata.result_id,
+        origin_result_id=_memory(fixed).metadata.result_id,
         output_schema=payload.output_schema,
         coordinates=payload.coordinates,
         parent_axis_count=payload.parent_axis_count,
@@ -638,7 +661,6 @@ def test_payload_satisfies_existing_fact_model(
 def test_new_attribute_uses_only_its_own_live_components(
     session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shape: str
 ) -> None:
-    from marivo.analysis.compiler.frame_plan import CompiledFramePlan
     from marivo.analysis.compiler.graph_plan import FrameCompute, LocalCompute
     from marivo.analysis.core.attribute import (
         AttributeContributionProgram,
@@ -647,7 +669,6 @@ def test_new_attribute_uses_only_its_own_live_components(
         AttributeMethodProduction,
         AttributeProjectProgram,
     )
-    from marivo.analysis.core.frame_expression import FrameExpression
     from marivo.analysis.materialization import frame_evaluation, graph_local_execution
     from marivo.analysis.materialization.graph_exchange import StageOutput
     from marivo.analysis.materialization.graph_local_execution import LocalKernel
@@ -693,22 +714,22 @@ def test_new_attribute_uses_only_its_own_live_components(
     productions_original = frame_evaluation._attribute_productions
     local_original = graph_local_execution.run_local
 
-    def execute(self: SourceSession, issued: object) -> pd.DataFrame:
+    def execute(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
         sources.append(self)
         return execute_original(self, issued)
 
     def productions(
-        compiled: CompiledFramePlan,
-        explicit_inputs: tuple[tuple[str, FrameExpression], ...],
+        associations: tuple[tuple[str, str, int, bool], ...],
+        reachable: frozenset[str],
         observed: tuple[tuple[str, AttributeMethodPayload], ...],
     ) -> tuple[AttributeMethodProduction, ...]:
         assert sources and all(source._closed for source in sources)
         expected_order.extend(
             input_id
-            for input_id, _ in explicit_inputs
+            for _, input_id, _, _ in associations
             if input_id == final._input_id or (shape != "fixed" and input_id == first._input_id)
         )
-        values = productions_original(compiled, explicit_inputs, observed)
+        values = productions_original(associations, reachable, observed)
         captured.extend(values)
         return values
 
@@ -810,10 +831,10 @@ def test_fractional_decimal_scalar_keeps_actual_native_originals_and_facts(
     current = session.observe({"q": metric}, where=phase == "current", by=(channel,)).compute()
     base = session.observe({"q": metric}, where=phase == "base", by=(channel,)).compute()
     expected_dtype = ScalarDataType("float64") if mean else DecimalDataType(38, 9)
-    assert current._schema.values[0].dtype == base._schema.values[0].dtype == expected_dtype
+    assert _schema(current).values[0].dtype == _schema(base).values[0].dtype == expected_dtype
     assert (
-        current_parent._schema.values[0].dtype
-        == base_parent._schema.values[0].dtype
+        _schema(current_parent).values[0].dtype
+        == _schema(base_parent).values[0].dtype
         == expected_dtype
     )
     endpoints = (
@@ -822,14 +843,18 @@ def test_fractional_decimal_scalar_keeps_actual_native_originals_and_facts(
     )
     ordinary_attribute = session.attribute(*endpoints, by=(channel,)).compute()
     pending = session.attribute(*endpoints, by=(channel,), contribution=True)
-    rule = pending._backing.root.operation.rules[0][0][1]
+    assert isinstance(pending._backing, ExpressionFrameBacking)
+    binding = pending._backing.root
+    assert isinstance(binding, OperationFrameBinding)
+    assert isinstance(binding.operation, AttributeContributionValues)
+    rule = binding.operation.rules[0][0][1]
     assert isinstance(rule.operation, RuleScale)
     captured = rule.operation.scalar
     assert type(captured.value) is Decimal
-    reads = []
+    reads: list[CompiledRead] = []
     execute = SourceSession.execute
 
-    def counted(self, issued):
+    def counted(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
         reads.append(issued)
         return execute(self, issued)
 
@@ -850,11 +875,13 @@ def test_fractional_decimal_scalar_keeps_actual_native_originals_and_facts(
             == default[("value", role + ".q")].tolist()
             == values
         )
-        column = next(column for column in fixed._schema.values if column.name == role + ".q")
+        column = next(column for column in _schema(fixed).values if column.name == role + ".q")
         assert column.dtype == expected_dtype and column.unit == "USD"
         assert (
             next(
-                column for column in ordinary_attribute._schema.values if column.name == role + ".q"
+                column
+                for column in _schema(ordinary_attribute).values
+                if column.name == role + ".q"
             ).dtype
             == expected_dtype
         )
@@ -870,7 +897,9 @@ def test_fractional_decimal_scalar_keeps_actual_native_originals_and_facts(
     method = facts[0].parents[0].metrics[0].method
     if mean:
         assert isinstance(method, FrameLinearMethod)
-        assert method.terms[0].coefficient.as_tuple() == captured.value.as_tuple()
+        coefficient = method.terms[0].coefficient
+        assert isinstance(coefficient, Decimal)
+        assert coefficient.as_tuple() == captured.value.as_tuple()
     else:
         from marivo.analysis.core.frame_method_facts import FrameAdditiveMethod
 

@@ -170,6 +170,7 @@ def test_duration_negation_checks_original_unit_overflow_and_preserves_nulls(
         None,
     ]
     # The internal absolute-value expression shares the same exact unary kernel.
+    assert isinstance(frame._schema, DataSchema)
     program = FrameProgram(SelectValues(()), frame._schema, frame._schema)
     with pytest.raises(SemanticExpressionError, match="Duration tick overflow"):
         expression_series(
@@ -352,13 +353,13 @@ from unittest.mock import patch
 import pyarrow as pa
 import marivo.analysis as mv
 from tests.shared_fixtures import terminal_runs
-from marivo.analysis.materialization import frame_evaluation
+from marivo.analysis.materialization import frame_source_preparation
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 os.environ['MARIVO_PROJECT_ROOT'] = sys.argv[1]
 def forbidden(*args, **kwargs):
     raise AssertionError('cold temporal continuation attempted source reconstruction')
-with patch.object(Session, 'catalog', property(forbidden)), patch.object(SourceSession, '__init__', forbidden), patch.object(frame_evaluation, 'open_query_sources', forbidden):
+with patch.object(Session, 'catalog', property(forbidden)), patch.object(SourceSession, '__init__', forbidden), patch.object(frame_source_preparation, 'open_query_sources', forbidden):
     session = mv.session.resume(sys.argv[2])
     before = terminal_runs(session)
     for artifact in json.loads(sys.argv[3]):

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from contextlib import ExitStack
-from dataclasses import replace
 from datetime import datetime, timezone
 from types import TracebackType
 from typing import TYPE_CHECKING
@@ -12,84 +12,50 @@ from uuid import uuid4
 import pyarrow as pa
 
 from marivo._definition.graph import computation_fingerprint
-from marivo._definition.query import FilterValues, PopulationValues, SelectValues, TopValues
+from marivo._definition.query import PopulationValues
 from marivo._definition.relations import AttributeKeys, FrameKeys, PopulationProgram
 from marivo._errors import MarivoError
 from marivo.analysis.compiler.frame_plan import (
     CompiledFramePlan,
-    CompiledSourceFrame,
-    frame_expression_schema,
     plan_frame,
 )
-from marivo.analysis.compiler.graph_lowering import LoweredRead, lower_query
+from marivo.analysis.compiler.graph_lowering import LoweredRead
 from marivo.analysis.compiler.graph_plan import (
     FrameCompute,
     FrameInput,
     LocalCompute,
-    QueryPlan,
     SourceRead,
-    SourceSchema,
-    plan_query,
-    read_components,
 )
-from marivo.analysis.compiler.optimization import InvocationMemo, optimize_query
 from marivo.analysis.compiler.parameters import parameter_domains
-from marivo.analysis.compiler.queries import endpoint
 from marivo.analysis.compiler.query_program import ResultProgram
 from marivo.analysis.core.artifact_data import (
-    CalendarDataAxis,
-    DataAxis,
-    DataColumn,
-    DataSchema,
-    IntervalDataAxis,
     OutputEvidence,
 )
 from marivo.analysis.core.frame_audit import (
-    EvaluationInput,
     EvaluationRecord,
     FrameAudit,
-    FrameOperationName,
     FrameResultMetadata,
-    LiteralInput,
-    MemoryInput,
-    SourceInput,
-    StoredInput,
 )
 from marivo.analysis.core.frame_calendar import FrozenSourceCalendar
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
     ExpressionFrameBacking,
-    LiteralFrameBinding,
     MemoryFrameBacking,
-    OperationFrameBinding,
     SourceFrameBinding,
     StoredFrameBacking,
 )
 from marivo.analysis.core.frame_expression import (
-    AlignFrameValues,
-    AttributeContributionValues,
-    AttributeFrameValues,
-    AttributeInputsValues,
-    CompareFrameValues,
-    FixedFrameInput,
     FrameExpression,
-    FrameOperation,
-    SourceFrameInput,
 )
 from marivo.analysis.core.frame_method_facts import FrameMethodFacts, same_method_facts
-from marivo.analysis.core.frame_source_facts import captured_source_scopes, source_scope
-from marivo.analysis.core.frame_structure import PendingDataColumn, PendingDataSchema, axis_role
+from marivo.analysis.core.frame_source_facts import source_scope
 from marivo.analysis.core.model import reject
-from marivo.analysis.dsl._frame_inputs import FrameKeyInput, merge_frame_key_inputs
 from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.materialization.frame_inputs import capture_frame_inputs
+from marivo.analysis.materialization.frame_source_preparation import prepare_frame_sources
 from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_source_execution import (
-    PreparedSources,
-    _query_entities,
-    open_query_sources,
-    prepare_source_free_populations,
-    qualify_query_sources,
     run_frame_plan,
 )
 from marivo.analysis.materialization.query_runtime_types import effective_frame_schema
@@ -102,14 +68,11 @@ if TYPE_CHECKING:
     from marivo.analysis.dsl.frame import AnalysisFrame
 
 
-def _attribute_productions(
+def _attribute_associations(
     compiled: CompiledFramePlan,
     explicit_inputs: tuple[tuple[str, FrameExpression], ...],
-    observed: tuple[tuple[str, AttributeMethodPayload], ...],
-) -> tuple[AttributeMethodProduction, ...]:
-    """Retain actual reachable producers in explicit Frame operand order."""
-    from marivo.analysis.core.attribute import AttributeMethodProduction
-
+) -> tuple[tuple[tuple[str, str, int, bool], ...], frozenset[str]]:
+    """Detach stage/input/index/final associations and reachability from the plan."""
     stages = {stage.stage_id: stage for stage in compiled.lowered.plan.stages}
     reachable: set[str] = set()
 
@@ -122,27 +85,31 @@ def _attribute_productions(
 
     visit(compiled.lowered.plan.publish)
     by_expression = {id(expression): stage for stage, expression in compiled.frame_operations}
+    associations = tuple(
+        (identifier, input_id, index, identifier == compiled.lowered.plan.publish)
+        for index, (input_id, expression) in enumerate(explicit_inputs)
+        if (identifier := by_expression.get(id(expression))) is not None
+    )
+    return associations, frozenset(reachable)
+
+
+def _attribute_productions(
+    associations: tuple[tuple[str, str, int, bool], ...],
+    reachable: frozenset[str],
+    observed: tuple[tuple[str, AttributeMethodPayload], ...],
+) -> tuple[AttributeMethodProduction, ...]:
+    """After cleanup, retain reachable payloads in explicit Frame operand order."""
+    from marivo.analysis.core.attribute import AttributeMethodProduction
+
     payloads = dict(observed)
     result: list[AttributeMethodProduction] = []
     seen: set[str] = set()
-    for index, (input_id, expression) in enumerate(explicit_inputs):
-        identifier = by_expression.get(id(expression))
-        if (
-            identifier is None
-            or identifier not in payloads
-            or identifier not in reachable
-            or identifier in seen
-        ):
+    for identifier, input_id, index, is_final in associations:
+        if identifier not in payloads or identifier not in reachable or identifier in seen:
             continue
         seen.add(identifier)
         result.append(
-            AttributeMethodProduction(
-                identifier,
-                input_id,
-                index,
-                identifier == compiled.lowered.plan.publish,
-                payloads[identifier],
-            )
+            AttributeMethodProduction(identifier, input_id, index, is_final, payloads[identifier])
         )
     assert seen == set(payloads) & reachable
     return tuple(result)
@@ -150,70 +117,6 @@ def _attribute_productions(
 
 def _plain(value: datetime) -> datetime:
     return datetime.fromisoformat(value.astimezone(timezone.utc).isoformat())
-
-
-def _schema(frame: AnalysisFrame, plan: QueryPlan) -> DataSchema:
-    graph = (
-        frame._backing.root.graph
-        if isinstance(frame._backing, ExpressionFrameBacking)
-        and isinstance(frame._backing.root, (SourceFrameBinding, LiteralFrameBinding))
-        else None
-    )
-    if graph is None or not isinstance(frame._schema, PendingDataSchema):
-        reject(
-            "a captured pending source structure",
-            frame._input_id,
-            "Capture the explicit source before preparing it.",
-            "frame.prepare",
-        )
-    layout = endpoint(graph, plan)
-    columns = {column.slot_id: column for column in layout.columns}
-    axes: list[DataAxis] = []
-    if len(layout.key_groups) != len(frame._schema.axes):
-        reject(
-            "one complete prepared key group per captured axis",
-            repr(layout.key_groups),
-            "Preserve complete source coordinate groups.",
-            "frame.prepare",
-        )
-    for captured, keys in zip(frame._schema.axes, layout.key_groups, strict=True):
-        role = axis_role(captured)
-        constraints: tuple[DataColumn | PendingDataColumn, ...] = captured.columns
-        if len(keys) != len(captured.columns):
-            reject(
-                "every captured complete key component",
-                repr(keys),
-                "Preserve the full source identity.",
-                "frame.prepare",
-            )
-        physical = tuple(
-            replace(
-                columns[key],
-                name=constraint.name,
-                nullable=False
-                if role in ("identity", "calendar", "interval")
-                else columns[key].nullable,
-            )
-            for key, constraint in zip(keys, constraints, strict=True)
-        )
-        if isinstance(captured, (CalendarDataAxis, IntervalDataAxis)):
-            axes.append(replace(captured, columns=physical))
-        else:
-            axes.append(
-                DataAxis(
-                    captured.token,
-                    physical,
-                    kind="member" if role == "identity" else "field",
-                    name=captured.name,
-                    at=captured.at,
-                )
-            )
-    values = tuple(
-        replace(column, name=constraint.name, unit=constraint.unit)
-        for column, constraint in zip(layout.values, frame._schema.values, strict=True)
-    )
-    schema = DataSchema(tuple(axes), values, value_paths=frame._schema.value_paths)
-    return frame._schema.complete(schema)
 
 
 class _SourceContexts(ExitStack):
@@ -237,24 +140,71 @@ class _SourceContexts(ExitStack):
             ) from error
 
 
+def _fold_method_facts(
+    publish: str,
+    dependencies: Mapping[str, tuple[str, ...]],
+    fixed_inputs: frozenset[str],
+    productions: tuple[AttributeMethodProduction, ...],
+    result_id: str,
+    fixed_facts: Callable[[str], tuple[FrameMethodFacts, ...]],
+) -> tuple[FrameMethodFacts, ...]:
+    """Fold inert producer facts in original operand and source-sidecar order."""
+    own_facts: dict[str, FrameMethodFacts] = {}
+    for production in productions:
+        payload = production.payload
+        facts = FrameMethodFacts(
+            kind="attribute",
+            origin_result_id=result_id if production.is_final else "result_" + uuid4().hex,
+            output_schema=payload.output_schema,
+            coordinates=payload.coordinates,
+            parent_axis_count=payload.parent_axis_count,
+            parents=payload.parents,
+        )
+        validate_method_facts(facts)
+        own_facts[production.input_id] = facts
+
+    histories: dict[str, tuple[FrameMethodFacts, ...]] = {}
+
+    def history(identifier: str) -> tuple[FrameMethodFacts, ...]:
+        previous = histories.get(identifier)
+        if previous is not None:
+            return previous
+        if identifier in fixed_inputs:
+            result = fixed_facts(identifier)
+        else:
+            merged: dict[str, FrameMethodFacts] = {}
+            own = own_facts.get(identifier)
+            values = (() if own is None else (own,)) + tuple(
+                facts for child in dependencies[identifier] for facts in history(child)
+            )
+            for facts in values:
+                known = merged.get(facts.origin_result_id)
+                if known is not None and not same_method_facts(known, facts):
+                    reject(
+                        "identical complete method payloads for one origin",
+                        facts.origin_result_id,
+                        "Preserve the exact original method facts on every explicit input.",
+                        "frame.method_facts",
+                    )
+                merged.setdefault(facts.origin_result_id, facts)
+            result = tuple(merged.values())
+        histories[identifier] = result
+        return result
+
+    return history(publish)
+
+
 def _evaluate_frame(
     frame: AnalysisFrame, request: AttributeInputRequest | None = None
 ) -> CompletedFrameResult | StageOutput:
     """Evaluate once, close all sources, then return independent data and facts."""
-    source_frames: dict[str, AnalysisFrame] = {}
-    fixed_frames: dict[str, AnalysisFrame] = {}
+    captured = capture_frame_inputs(frame, request)
+    source_frames = captured.source_frames
+    fixed_frames = captured.fixed_frames
+    expressions = captured.expressions
+    collected = captured.collected
     completed_inputs: dict[str, CompletedFrameResult] = {}
-    expressions: dict[str, FrameExpression] = {}
-    inherited: list[OutputEvidence] = []
-    operations: list[FrameOperationName] = []
-
     method_productions: list[tuple[str, AttributeMethodPayload]] = []
-    collected: dict[str, FrameKeyInput] = {}
-    from marivo.analysis.binding.attribute_rules import AttributeRule
-
-    contribution_requests: dict[
-        str, tuple[int, tuple[tuple[str, AttributeRule], ...], AttributeFrameValues]
-    ] = {}
 
     def complete_input(input_id: str) -> CompletedFrameResult:
         previous = completed_inputs.get(input_id)
@@ -272,218 +222,18 @@ def _evaluate_frame(
         completed_inputs[input_id] = result
         return result
 
-    def collect(current: AnalysisFrame) -> FrameExpression:
-        if current._local.owner != frame._local.owner:
-            reject(
-                "explicit inputs from one Store and Session",
-                current._input_id,
-                "Use inputs owned by this Frame's Session.",
-                "frame.compute",
-            )
-        previous = collected.get(current._input_id)
-        carrier = FrameKeyInput(current._input_id, current)
-        merge_frame_key_inputs(
-            () if previous is None else (previous,), (carrier,), owner=frame._local.owner
-        )
-        collected.setdefault(current._input_id, carrier)
-        existing = expressions.get(current._input_id)
-        if existing is not None:
-            return existing
-        backing = current._backing
-        if isinstance(backing, ExpressionFrameBacking):
-            root = backing.root
-            if isinstance(root, OperationFrameBinding):
-                inputs = tuple(collect(child) for child in root.inputs)
-                expression: FrameExpression = FrameOperation(inputs, root.operation)
-                operation: FrameOperationName = (
-                    "attribute"
-                    if isinstance(root.operation, AttributeFrameValues)
-                    else "align"
-                    if isinstance(root.operation, AlignFrameValues)
-                    else "compare"
-                    if isinstance(root.operation, CompareFrameValues)
-                    else "select"
-                    if isinstance(root.operation, SelectValues)
-                    else "where"
-                    if isinstance(root.operation, FilterValues)
-                    else "top"
-                    if isinstance(root.operation, TopValues)
-                    else "reduce"
-                )
-                if isinstance(root.operation, AttributeContributionValues):
-                    operation = "attribute"
-                    for side, endpoint_frame in enumerate(root.inputs[1:]):
-                        contribution_requests[endpoint_frame._input_id] = (
-                            side,
-                            root.operation.rules[side],
-                            root.operation.mapping,
-                        )
-                operations.append(operation)
-            else:
-                if isinstance(root, SourceFrameBinding):
-                    for dependency in root.frame_key_inputs:
-                        collect(dependency.frame)
-                source_frames[current._input_id] = current
-                expression = SourceFrameInput(current._input_id, root.graph)
-        else:
-            assert isinstance(current._schema, DataSchema)
-            fixed_frames[current._input_id] = current
-            inherited.extend(backing.metadata.audit.source_facts)
-            expression = FixedFrameInput(current._input_id, current._schema)
-        expressions[current._input_id] = expression
-        return expression
-
-    if request is None:
-        root_expression = collect(frame)
-    else:
-        root_expression = FrameOperation(
-            tuple(collect(item) for item in (request.parent, *request.endpoints)),
-            AttributeInputsValues(request.operation),
-        )
-    requested = (
-        {}
-        if request is None
-        else {
-            endpoint._input_id: (side, rules)
-            for side, (endpoint, rules) in enumerate(
-                zip(request.endpoints, request.rules, strict=True)
-            )
-        }
-    )
-    for input_id, (side, rules, _) in contribution_requests.items():
-        requested[input_id] = (side, rules)
-    prepared_by_input: dict[str, PreparedSources] = {}
-    source_plans: dict[str, CompiledSourceFrame] = {}
-    source_schemas: dict[str, DataSchema] = {}
-    key_schema_cache: dict[int, DataSchema] = {}
-    inputs: list[EvaluationInput] = []
-    source_facts: list[OutputEvidence] = list(inherited)
+    source_facts: list[OutputEvidence] = list(captured.inherited)
     checks: list[OutputEvidence] = []
-    scopes: dict[str, tuple[str, ...]] = {}
     evaluated_keys: dict[str, str] = {}
     with _SourceContexts() as stack:
-        for input_id, current in source_frames.items():
-            backing = current._backing
-            assert isinstance(backing, ExpressionFrameBacking)
-            binding = backing.root
-            assert isinstance(binding, (SourceFrameBinding, LiteralFrameBinding))
-            memo = InvocationMemo()
-            prepared = None
-            schemas: tuple[SourceSchema, ...] = ()
-            if isinstance(binding, SourceFrameBinding):
-                key_schemas = {
-                    item.input_id: frame_expression_schema(
-                        expressions[item.input_id], source_schemas, memo=key_schema_cache
-                    )
-                    for item in binding.frame_key_inputs
-                }
-                if _query_entities(binding.graph, binding.state):
-                    service = stack.enter_context(binding.connection.operation())
-                    prepared = stack.enter_context(
-                        open_query_sources(
-                            service,
-                            binding.graph,
-                            binding.state,
-                            memo=memo,
-                            frame_schemas=key_schemas,
-                        )
-                    )
-                    prepared_by_input[input_id] = prepared
-                    schemas = prepared.schemas
-                else:
-                    schemas = prepare_source_free_populations(
-                        binding.graph, binding.state, frame_schemas=key_schemas
-                    )
-                scopes[input_id] = captured_source_scopes(binding.graph)
-            if input_id in requested:
-                from marivo.analysis.binding.attribute_rules import component_requests
-                from marivo.analysis.compiler.attribute_inputs import (
-                    bundle_attribute_plan,
-                    input_failure,
-                )
-                from marivo.analysis.materialization.graph_source_execution import (
-                    prepare_attribute_sources,
-                    qualify_original_source,
-                )
-
-                assert prepared is not None and isinstance(binding, SourceFrameBinding)
-                side, rules = requested[input_id]
-                mapping = (
-                    request.operation if request is not None else contribution_requests[input_id][2]
-                )
-                positions = mapping.left_parents if side == 0 else mapping.right_parents
-                prepared, scope_columns = prepare_attribute_sources(
-                    prepared, binding.graph, binding.state, len(positions)
-                )
-                prepared_by_input[input_id] = prepared
-                schemas = prepared.schemas
-                original_plan = plan_query(binding.graph, schemas, memo=memo, require_original=True)
-                original_reads = tuple(
-                    stage
-                    for stage in original_plan.stages
-                    if isinstance(stage, SourceRead) and read_components(stage) is not None
-                )
-                for root in dict.fromkeys(stage.source_id for stage in original_reads):
-                    group = tuple(stage for stage in original_reads if stage.source_id == root)
-                    for bound in prepared.bound.values():
-                        issue = qualify_original_source(prepared, group, bound.relation)
-                        if issue is not None:
-                            input_failure("unqualified_contribution_route", issue)
-                parent_keys = tuple(
-                    key for position in positions for key in original_plan.output_groups[position]
-                )
-                plan = bundle_attribute_plan(
-                    original_plan,
-                    tuple(item for _, rule in rules for item in component_requests(rule)),
-                    parent_keys,
-                    scope_columns,
-                    mapping.left_projection if side == 0 else mapping.right_projection,
-                    "left" if side == 0 else "right",
-                    tuple(name for name, _ in rules),
-                )
-            else:
-                plan = optimize_query(plan_query(binding.graph, schemas, memo=memo))
-            lowered = lower_query(plan, {} if prepared is None else prepared.relations)
-            if prepared is not None and input_id not in requested:
-                from marivo.analysis.materialization.query_key_fusion import (
-                    fuse_query_keys,
-                    fuse_query_terminal,
-                )
-
-                lowered = fuse_query_keys(prepared, lowered)
-                lowered = fuse_query_terminal(prepared, lowered)
-            if prepared is not None:
-                try:
-                    qualify_query_sources(prepared, lowered)
-                except MaterializationError as error:
-                    if input_id not in requested:
-                        raise
-                    from marivo.analysis.compiler.attribute_inputs import input_failure
-
-                    input_failure(
-                        "unqualified_contribution_route", f"{error.expected}; {error.received}"
-                    )
-            schema = _schema(current, lowered.plan)
-            source_schemas[input_id] = schema
-            source_plans[input_id] = CompiledSourceFrame(lowered, schema)
-            has_reads = any(isinstance(stage, SourceRead) for stage in lowered.plan.stages)
-            inputs.append(SourceInput(input_id) if has_reads else LiteralInput(input_id))
-            operations.insert(0, "source" if has_reads else "literal")
-        for input_id, current in fixed_frames.items():
-            backing = current._backing
-            if isinstance(backing, MemoryFrameBacking):
-                inputs.append(MemoryInput(input_id, backing.metadata.result_id))
-            elif isinstance(backing, StoredFrameBacking):
-                inputs.append(
-                    StoredInput(
-                        input_id,
-                        backing.metadata.result_id,
-                        current._local.store.store_id,
-                        current._local.session_ref,
-                        backing.artifact_id,
-                    )
-                )
-        compiled = plan_frame(root_expression, source_plans, frame_inputs=expressions)
+        prepared = prepare_frame_sources(captured, stack)
+        prepared_by_input = prepared.prepared
+        source_plans = prepared.plans
+        source_schemas = prepared.schemas
+        scopes = prepared.scopes
+        inputs = prepared.inputs
+        operations = prepared.operations
+        compiled = plan_frame(captured.root, source_plans, frame_inputs=expressions)
         source_stage_ids = dict(compiled.source_stages)
         applicable: dict[str, tuple[str, ...]] = {}
         for stage in compiled.lowered.plan.stages:
@@ -727,12 +477,11 @@ def _evaluate_frame(
             output.table,
             output.frame_attachments,
         )
-    # Inert producer associations survive source cleanup. P4 attaches origins here,
-    # preserving distinct ancestor producers before constructing the final result.
+        associations, reachable = _attribute_associations(
+            compiled, tuple((identifier, expressions[identifier]) for identifier in collected)
+        )
     completed_method_productions = _attribute_productions(
-        compiled,
-        tuple((identifier, expressions[identifier]) for identifier in collected),
-        tuple(method_productions),
+        associations, reachable, tuple(method_productions)
     )
     assert len({production.stage_id for production in completed_method_productions}) == len(
         method_productions
@@ -747,58 +496,15 @@ def _evaluate_frame(
             ),
         ),
     )
-    own_facts: dict[str, FrameMethodFacts] = {}
-    for production in completed_method_productions:
-        payload = production.payload
-        facts = FrameMethodFacts(
-            kind="attribute",
-            origin_result_id=metadata.result_id if production.is_final else "result_" + uuid4().hex,
-            output_schema=payload.output_schema,
-            coordinates=payload.coordinates,
-            parent_axis_count=payload.parent_axis_count,
-            parents=payload.parents,
-        )
-        validate_method_facts(facts)
-        own_facts[production.input_id] = facts
-
-    histories: dict[str, tuple[FrameMethodFacts, ...]] = {}
-
-    def history(current: AnalysisFrame) -> tuple[FrameMethodFacts, ...]:
-        previous = histories.get(current._input_id)
-        if previous is not None:
-            return previous
-        backing = current._backing
-        if not isinstance(backing, ExpressionFrameBacking):
-            result = complete_input(current._input_id).method_facts
-        else:
-            binding = backing.root
-            dependencies = (
-                binding.inputs
-                if isinstance(binding, OperationFrameBinding)
-                else tuple(item.frame for item in binding.frame_key_inputs)
-                if isinstance(binding, SourceFrameBinding)
-                else ()
-            )
-            merged: dict[str, FrameMethodFacts] = {}
-            own = own_facts.get(current._input_id)
-            values = (() if own is None else (own,)) + tuple(
-                facts for child in dependencies for facts in history(child)
-            )
-            for facts in values:
-                known = merged.get(facts.origin_result_id)
-                if known is not None and not same_method_facts(known, facts):
-                    reject(
-                        "identical complete method payloads for one origin",
-                        facts.origin_result_id,
-                        "Preserve the exact original method facts on every explicit input.",
-                        "frame.method_facts",
-                    )
-                merged.setdefault(facts.origin_result_id, facts)
-            result = tuple(merged.values())
-        histories[current._input_id] = result
-        return result
-
-    return CompletedFrameResult(data, metadata, history(frame))
+    method_facts = _fold_method_facts(
+        frame._input_id,
+        captured.dependencies,
+        frozenset(fixed_frames),
+        completed_method_productions,
+        metadata.result_id,
+        lambda identifier: complete_input(identifier).method_facts,
+    )
+    return CompletedFrameResult(data, metadata, method_facts)
 
 
 def evaluate_frame(frame: AnalysisFrame) -> CompletedFrameResult:

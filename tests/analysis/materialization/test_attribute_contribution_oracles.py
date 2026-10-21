@@ -10,11 +10,9 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.compiler.frame_plan import CompiledFramePlan
 from marivo.analysis.core.attribute import AttributeMethodPayload, AttributeMethodProduction
 from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import DataColumn, DecimalDataType, ScalarDataType
-from marivo.analysis.core.frame_expression import FrameExpression
 from marivo.analysis.core.frame_method_facts import FrameRatioMethod
 from marivo.analysis.dsl.attribute import attribute_endpoint
 from marivo.analysis.dsl.frame import AnalysisFrame
@@ -76,11 +74,11 @@ def productions(monkeypatch: pytest.MonkeyPatch) -> list[AttributeMethodProducti
     original = frame_evaluation._attribute_productions
 
     def capture(
-        compiled: CompiledFramePlan,
-        explicit_inputs: tuple[tuple[str, FrameExpression], ...],
+        associations: tuple[tuple[str, str, int, bool], ...],
+        reachable: frozenset[str],
         observed: tuple[tuple[str, AttributeMethodPayload], ...],
     ) -> tuple[AttributeMethodProduction, ...]:
-        values = original(compiled, explicit_inputs, observed)
+        values = original(associations, reachable, observed)
         captured.extend(values)
         return values
 

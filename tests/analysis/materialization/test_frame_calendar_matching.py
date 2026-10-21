@@ -410,10 +410,10 @@ def test_calendar_metadata_show_and_completed_match_need_no_source_or_timezone(
         raise AssertionError("completed calendar operation consulted source or timezone")
 
     monkeypatch.setattr(
-        "marivo.analysis.materialization.frame_evaluation.open_query_sources", forbidden
+        "marivo.analysis.materialization.frame_source_preparation.open_query_sources", forbidden
     )
     monkeypatch.setattr(
-        "marivo.analysis.materialization.frame_evaluation.prepare_source_free_populations",
+        "marivo.analysis.materialization.frame_source_preparation.prepare_source_free_populations",
         forbidden,
     )
     monkeypatch.setattr("marivo.analysis.session.core.Session.catalog", property(forbidden))
@@ -782,10 +782,10 @@ def test_captured_source_calendar_errors_precede_values_for_every_carrier(
 
     monkeypatch.setattr(frame_sources, "freeze_calendar", forbidden)
     monkeypatch.setattr(
-        "marivo.analysis.materialization.frame_evaluation.open_query_sources", forbidden
+        "marivo.analysis.materialization.frame_source_preparation.open_query_sources", forbidden
     )
     monkeypatch.setattr(
-        "marivo.analysis.materialization.frame_evaluation.prepare_source_free_populations",
+        "marivo.analysis.materialization.frame_source_preparation.prepare_source_free_populations",
         forbidden,
     )
     monkeypatch.setattr("marivo.analysis.session.core.Session.catalog", property(forbidden))
@@ -941,7 +941,7 @@ def test_named_source_pending_interpretation_is_checked_before_value_names(
 
     monkeypatch.setattr(frame_sources, "freeze_calendar", forbidden)
     monkeypatch.setattr(
-        "marivo.analysis.materialization.frame_evaluation.open_query_sources", forbidden
+        "marivo.analysis.materialization.frame_source_preparation.open_query_sources", forbidden
     )
     monkeypatch.setattr("marivo.analysis.session.core.Session.catalog", property(forbidden))
     monkeypatch.setattr(CompletedFrameData, "copy_rows", forbidden)

@@ -530,7 +530,7 @@ def test_bounded_varchar_target_uses_admitted_frame_string_type(
 def test_fixed_key_projection_avoids_source_preparation(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.analysis.materialization.frame_evaluation as evaluator
+    import marivo.analysis.materialization.frame_source_preparation as evaluator
 
     population = _population(session, _memory(session))
     pending = frame_sources.frame(

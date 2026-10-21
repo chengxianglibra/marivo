@@ -228,6 +228,7 @@ def test_time_product_observation_keeps_empty_cells_and_window_binding(
     case = analysis_dsl_case_factory("j1")
     session = case.session
     calendar = session.time_scope(start="2026-08-01", end="2026-10-01").by(mv.grain("month"))
+    assert calendar.scope is not None
     members = session.members(session.catalog.entities.get("sales.customer"))
     metric = session.catalog.metrics.get("sales.revenue")
     query = session.observe({"value": metric}, by=mv.product(calendar, members))
@@ -441,6 +442,7 @@ def test_fold_reaggregates_aligned_samples_before_time(
     _seed_two_sample_amounts(case)
     session = case.session
     calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
+    assert calendar.scope is not None
     revenue = session.catalog.metrics.get("sales.revenue")
     members = session.members(session.catalog.entities.get("sales.customer"))
     expected = {"first": [10, 0], "last": [0, 10], "mean": [5, 5], "min": [0, 0], "max": [10, 10]}
@@ -472,6 +474,7 @@ def test_fold_rejects_float64_overflow_before_source_spatial_reduction(
     _seed_two_sample_amounts(case, overflow=True)
     session = case.session
     calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
+    assert calendar.scope is not None
     metric = (
         session.catalog.metrics.get("sales.revenue")
         .per(session.catalog.fields.get("sales.order.ordered_at"))
@@ -810,7 +813,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo import _temporal
 from marivo.analysis.core import frame_calendar
-from marivo.analysis.materialization import frame_evaluation
+from marivo.analysis.materialization import frame_source_preparation
 from marivo.analysis.session.core import Session
 from marivo.datasource import timezone as source_timezone
 from marivo.datasource.adapters import SourceSession
@@ -829,7 +832,7 @@ with ExitStack() as guards:
         (SourceSession,'bind',forbidden), (SourceSession,'compile',forbidden),
         (SourceSession,'execute',forbidden), (duckdb,'connect',forbidden),
         (ibis.duckdb,'connect',forbidden), (frame_calendar,'freeze_calendar',forbidden),
-        (frame_evaluation,'open_query_sources',forbidden),
+        (frame_source_preparation,'open_query_sources',forbidden),
         (source_timezone,'probe_engine_timezone',forbidden),
         (source_timezone,'_resolve_system_timezone',forbidden),
         (_temporal,'ZoneInfo',forbidden),
@@ -998,7 +1001,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo import _temporal
 from marivo.analysis.core import frame_calendar
-from marivo.analysis.materialization import frame_evaluation
+from marivo.analysis.materialization import frame_source_preparation
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
@@ -1007,7 +1010,7 @@ from tests.support.json import obj, read
 root=Path(sys.argv[1]); os.chdir(root); os.environ['MARIVO_PROJECT_ROOT']=str(root)
 state=obj(read(root/'calendar-rules.json'))
 with ExitStack() as guards:
-    for target,name,replacement in ((ms,'load',forbidden),(Session,'catalog',property(forbidden)),(SourceSession,'__init__',forbidden),(duckdb,'connect',forbidden),(ibis.duckdb,'connect',forbidden),(frame_evaluation,'open_query_sources',forbidden),(frame_calendar,'freeze_calendar',forbidden),(_temporal,'ZoneInfo',forbidden)):
+    for target,name,replacement in ((ms,'load',forbidden),(Session,'catalog',property(forbidden)),(SourceSession,'__init__',forbidden),(duckdb,'connect',forbidden),(ibis.duckdb,'connect',forbidden),(frame_source_preparation,'open_query_sources',forbidden),(frame_calendar,'freeze_calendar',forbidden),(_temporal,'ZoneInfo',forbidden)):
         guards.enter_context(patch.object(target,name,replacement))
     session=mv.session.resume(state['session']); before=run_ids(session)
     left=session.persisted_frame(state['left']); right=session.persisted_frame(state['right'])

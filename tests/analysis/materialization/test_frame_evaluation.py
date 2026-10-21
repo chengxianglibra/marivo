@@ -3,11 +3,13 @@
 import gc
 import json
 import weakref
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import date, timedelta
 from hashlib import sha256
 from pathlib import Path
 from typing import Literal
+from unittest.mock import DEFAULT, Mock, patch
 
 import duckdb
 import pandas as pd
@@ -18,6 +20,7 @@ import marivo.analysis as mv
 from marivo._definition.relations import MembershipBinding
 from marivo._definition.types import CalendarCoordinate
 from marivo._temporal import certify_period_calendar, semantic_grain
+from marivo.analysis.compiler.graph_lowering import LoweredQuery
 from marivo.analysis.core.artifact_data import DataColumn, NamedCalendarData
 from marivo.analysis.core.data_types import ScalarDataType, TimestampDataType
 from marivo.analysis.core.frame_calendar import freeze_calendar
@@ -29,11 +32,18 @@ from marivo.analysis.dsl import frame_sources
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.population import _calendar_population
 from marivo.analysis.dsl.temporal import exact_scope
+from marivo.analysis.materialization import (
+    frame_source_preparation,
+    graph_execution,
+    graph_source_execution,
+)
 from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.materialization.graph_source_execution import PreparedSources
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.adapters import CompiledRead, SourceSession
+from marivo.datasource.runtime import DatasourceConnectionConfig, DatasourceConnectionService
 from marivo.refs import ref
-from marivo.semantic.errors import SemanticExpressionError
+from marivo.semantic.errors import SemanticExpressionError, SemanticRuntimeError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.test_population_membership import _session as membership_session
 from tests.shared_fixtures import DslCaseFactory, terminal_runs
@@ -161,6 +171,183 @@ def _contains_scope(value: object, target: object) -> bool:
     return False
 
 
+@pytest.mark.parametrize(
+    "entry", ("observe", "read", "values", "population", "compare", "attribute", "contribution")
+)
+def test_public_entries_delegate_once_to_the_same_scheduler(session: Session, entry: str) -> None:
+    numerator = session.catalog.fields.get("sales.facts.numerator")
+    channel = session.catalog.fields.get("sales.facts.channel")
+    item = session.catalog.fields.get("sales.facts.item")
+    members = session.members(session.catalog.entities.get("sales.facts"))
+    if entry == "observe":
+        pending = session.observe({"q": numerator.sum()})
+    elif entry == "read":
+        pending = session.read(members, {"q": numerator})
+    elif entry == "values":
+        pending = session.values(columns={"q": "USD"}, rows=(((), {"q": 7}),))
+    elif entry == "population":
+        pending = session.frame(members)
+    elif entry == "compare":
+        current = session.observe({"q": numerator.sum()}, by=(channel,))
+        base = session.observe({"q": 2 * numerator.sum()}, by=(channel,))
+        pending = current.compare({"base": base}, on={"base": ((current.axes[0], base.axes[0]),)})
+    else:
+        pending = session.attribute(
+            mv.AttributeEndpoint({"q": numerator.sum()}, where=item <= 2),
+            mv.AttributeEndpoint({"q": numerator.sum()}, where=item >= 2),
+            by=(channel,),
+            contribution=entry == "contribution",
+        )
+    before = _inventory(session)
+    with patch.object(
+        graph_execution, "run_query_plan", wraps=graph_execution.run_query_plan
+    ) as run:
+        result = pending.compute()
+    assert run.call_count == 1
+    rows = result.to_pandas()
+    if entry in ("observe", "read", "values"):
+        assert (
+            rows[("value", "q")].tolist()
+            == {
+                "observe": [1000],
+                "read": [450, 450, 50, 50],
+                "values": [7],
+            }[entry]
+        )
+    elif entry == "population":
+        assert rows.iloc[:, 0].tolist() == [("t1", 1), ("t1", 2), ("t2", 1), ("t2", 2)]
+    elif entry == "compare":
+        assert rows[("value", "q")].tolist() == [100, 900]
+        assert rows[("value", "base.absolute.q")].tolist() == [-100, -900]
+    else:
+        assert rows[("value", "left.q")].tolist() == [50, 900]
+        assert rows[("value", "right.q")].tolist() == [100, 450]
+        assert rows[("value", "absolute.q")].tolist() == [-50, 450]
+        if entry == "contribution":
+            assert rows[("value", "contribution.q")].tolist() == [-50, 450]
+            assert rows[("value", "contribution_share.q")].tolist() == [-0.125, 1.125]
+    assert _inventory(session) == before
+    assert session.runs().items == ()
+
+
+def _source_lifecycle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[list[tuple[str, int]], list[SourceSession]]:
+    events: list[tuple[str, int]] = []
+    owners: list[SourceSession] = []
+    connections: list[DatasourceConnectionService] = []
+    operation = DatasourceConnectionConfig.operation
+    enter = SourceSession.__enter__
+    close = SourceSession.close
+    execute = SourceSession.execute
+    qualify = graph_source_execution.qualify_query_sources
+
+    @contextmanager
+    def connection(config: DatasourceConnectionConfig) -> Iterator[DatasourceConnectionService]:
+        index = len(connections)
+        try:
+            with operation(config) as service:
+                connections.append(service)
+                events.append(("connection_open", index))
+                yield service
+        finally:
+            events.append(("connection_close", index))
+
+    def source_enter(owner: SourceSession) -> SourceSession:
+        result = enter(owner)
+        owners.append(owner)
+        events.append(("source_open", len(owners) - 1))
+        return result
+
+    def source_close(owner: SourceSession) -> None:
+        close(owner)
+        events.append(("source_close", owners.index(owner)))
+
+    def prepare(*args: object, **kwargs: object) -> object:
+        owner = args[2]
+        assert isinstance(owner, SourceSession)
+        events.append(("prepare", owners.index(owner)))
+        return DEFAULT
+
+    def qualified(prepared: PreparedSources, lowered: LoweredQuery) -> None:
+        qualify(prepared, lowered)
+        events.append(("qualified", owners.index(prepared.source)))
+
+    def read(owner: SourceSession, issued: CompiledRead) -> pd.DataFrame:
+        events.append(("read", owners.index(owner)))
+        return execute(owner, issued)
+
+    monkeypatch.setattr(DatasourceConnectionConfig, "operation", connection)
+    monkeypatch.setattr(SourceSession, "__enter__", source_enter)
+    monkeypatch.setattr(SourceSession, "close", source_close)
+    monkeypatch.setattr(SourceSession, "execute", read)
+    monkeypatch.setattr(
+        graph_source_execution,
+        "prepare_query_sources",
+        Mock(wraps=graph_source_execution.prepare_query_sources, side_effect=prepare),
+    )
+    monkeypatch.setattr(frame_source_preparation, "qualify_query_sources", qualified)
+    return events, owners
+
+
+@pytest.mark.parametrize("missing_field", (False, True))
+def test_source_preparation_precedes_reads_and_unwinds_in_reverse(
+    session: Session, monkeypatch: pytest.MonkeyPatch, missing_field: bool
+) -> None:
+    numerator = session.catalog.fields.get("sales.facts.numerator")
+    denominator = session.catalog.fields.get("sales.facts.denominator")
+    current = session.observe({"q": numerator.sum()})
+    base = session.observe({"q": numerator.sum() / denominator.sum()})
+    pending = current.compare({"base": base}, on={"base": ()})
+    if missing_field:
+        with duckdb.connect(str(session.project_root / "frame-source.duckdb")) as connection:
+            connection.execute("ALTER TABLE facts DROP COLUMN denominator")
+    before = _inventory(session)
+    events, owners = _source_lifecycle(monkeypatch)
+    if missing_field:
+        with pytest.raises(SemanticRuntimeError, match="denominator") as caught:
+            pending.compute()
+        assert caught.value.received == "IbisTypeError"
+        assert caught.value.semantic_refs == (ref.measure("sales.facts.denominator").key,)
+        assert caught.value.kind == "materialize_failed"
+        assert events == [
+            ("connection_open", 0),
+            ("source_open", 0),
+            ("prepare", 0),
+            ("qualified", 0),
+            ("connection_open", 1),
+            ("source_open", 1),
+            ("prepare", 1),
+            ("source_close", 1),
+            ("connection_close", 1),
+            ("source_close", 0),
+            ("connection_close", 0),
+        ]
+    else:
+        rows = pending.compute().to_pandas()
+        assert rows[("value", "q")].tolist() == [1000]
+        assert rows[("value", "base.absolute.q")].tolist() == pytest.approx([1000 - 1000 / 91])
+        assert events == [
+            ("connection_open", 0),
+            ("source_open", 0),
+            ("prepare", 0),
+            ("qualified", 0),
+            ("connection_open", 1),
+            ("source_open", 1),
+            ("prepare", 1),
+            ("qualified", 1),
+            ("read", 0),
+            ("read", 1),
+            ("source_close", 1),
+            ("connection_close", 1),
+            ("source_close", 0),
+            ("connection_close", 0),
+        ]
+    assert len(owners) == 2 and all(owner._closed for owner in owners)
+    assert _inventory(session) == before
+    assert session.runs().items == ()
+
+
 def test_source_recompute_sees_mutation_and_fixed_data_does_not(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -179,7 +366,7 @@ def test_source_recompute_sees_mutation_and_fixed_data_does_not(
         raise AssertionError("fixed data must not prepare sources")
 
     monkeypatch.setattr(
-        "marivo.analysis.materialization.frame_evaluation.open_query_sources", forbidden
+        "marivo.analysis.materialization.frame_source_preparation.open_query_sources", forbidden
     )
     reduced = fixed.reduce({"mean": fixed["ratio"].mean()}).compute()
     assert reduced.to_pandas()[("value", "mean")].tolist() == [55.0]
@@ -275,7 +462,7 @@ def test_pending_source_show_discloses_captured_scope_without_execution(
         "marivo.analysis.materialization.frame_evaluation.evaluate_frame", forbidden
     )
     monkeypatch.setattr(
-        "marivo.analysis.materialization.frame_evaluation.open_query_sources", forbidden
+        "marivo.analysis.materialization.frame_source_preparation.open_query_sources", forbidden
     )
     monkeypatch.setattr("marivo.datasource.runtime.DatasourceConnectionConfig.operation", forbidden)
     web.show(n=0)
@@ -307,7 +494,7 @@ def test_pending_scope_summary_keeps_interval_count_domains_and_joint_keys_witho
         "marivo.analysis.materialization.frame_evaluation.evaluate_frame", forbidden
     )
     monkeypatch.setattr(
-        "marivo.analysis.materialization.frame_evaluation.open_query_sources", forbidden
+        "marivo.analysis.materialization.frame_source_preparation.open_query_sources", forbidden
     )
     monkeypatch.setattr("marivo.datasource.runtime.DatasourceConnectionConfig.operation", forbidden)
     for value in (counted, keys):
@@ -663,7 +850,7 @@ def test_membership_source_audit_survives_fixed_and_persisted_results_without_re
     with monkeypatch.context() as guard:
         guard.setattr("marivo.analysis.materialization.frame_evaluation.evaluate_frame", forbidden)
         guard.setattr(
-            "marivo.analysis.materialization.frame_evaluation.open_query_sources", forbidden
+            "marivo.analysis.materialization.frame_source_preparation.open_query_sources", forbidden
         )
         guard.setattr("marivo.datasource.runtime.DatasourceConnectionConfig.operation", forbidden)
         pending.show(n=0)
@@ -683,7 +870,7 @@ def test_membership_source_audit_survives_fixed_and_persisted_results_without_re
     assert all(not callable(value) for fact in facts for _, value in fact.values)
 
     monkeypatch.setattr(
-        "marivo.analysis.materialization.frame_evaluation.open_query_sources", forbidden
+        "marivo.analysis.materialization.frame_source_preparation.open_query_sources", forbidden
     )
     monkeypatch.setattr("marivo.datasource.runtime.DatasourceConnectionConfig.operation", forbidden)
     aligned = fixed.align(fixed, on=((fixed.axes[0], fixed.axes[0]),)).compute()

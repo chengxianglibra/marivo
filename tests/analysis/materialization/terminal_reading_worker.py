@@ -64,14 +64,14 @@ def period_produce(root: Path, name: str) -> None:
 def period_read(name: str, identities: list[str]) -> None:
     from marivo import _timezones
     from marivo.analysis.core import frame_calendar
-    from marivo.analysis.materialization import frame_evaluation
+    from marivo.analysis.materialization import frame_source_preparation
 
     with ExitStack() as patches:
         for owner, attribute, replacement in (
             (Session, "catalog", property(forbidden)),
             (SourceSession, "__init__", forbidden),
             (SourceSession, "execute", forbidden),
-            (frame_evaluation, "open_query_sources", forbidden),
+            (frame_source_preparation, "open_query_sources", forbidden),
             (frame_calendar, "freeze_calendar", forbidden),
         ):
             patches.enter_context(patch.object(owner, attribute, replacement))

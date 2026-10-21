@@ -33,10 +33,13 @@ from marivo.analysis.compiler.graph_plan import (
 if TYPE_CHECKING:
     from marivo._definition.observations import ObservationPeriod
     from marivo._definition.types import CalendarCoordinate
+    from marivo.analysis.binding.attribute_rules import AttributeRule
     from marivo.analysis.compiler.attribute_inputs import AttributeRootLayout
     from marivo.analysis.compiler.frame_plan import CompiledFramePlan
+    from marivo.analysis.compiler.graph_plan import QueryPlan
     from marivo.analysis.compiler.optimization import InvocationMemo
     from marivo.analysis.core.attribute import AttributeFailureContext
+    from marivo.analysis.core.frame_expression import AttributeFrameValues
 
 from marivo._definition.relations import LiteralPopulation, PopulationDependency, PopulationProgram
 from marivo.analysis.compiler.graph_lowering import (
@@ -2019,6 +2022,45 @@ def _attribute_calendar_value(
         ),
         else_=ibis.null().cast("int64"),
     )
+
+
+def prepare_attribute_endpoint(
+    prepared: PreparedSources,
+    graph: BoundGraph,
+    state: CompiledSemanticState,
+    mapping: AttributeFrameValues,
+    side: int,
+    rules: tuple[tuple[str, AttributeRule], ...],
+    *,
+    memo: InvocationMemo,
+) -> tuple[PreparedSources, QueryPlan]:
+    """Prepare and qualify this captured endpoint's original contribution inputs."""
+    from marivo.analysis.compiler.attribute_inputs import bundle_attribute_plan, input_failure
+    from marivo.analysis.compiler.graph_plan import plan_query
+
+    positions = mapping.left_parents if side == 0 else mapping.right_parents
+    prepared, scope_columns = prepare_attribute_sources(prepared, graph, state, len(positions))
+    original = plan_query(graph, prepared.schemas, memo=memo, require_original=True)
+    reads = tuple(
+        stage
+        for stage in original.stages
+        if isinstance(stage, SourceRead) and read_components(stage) is not None
+    )
+    for root in dict.fromkeys(stage.source_id for stage in reads):
+        group = tuple(stage for stage in reads if stage.source_id == root)
+        for bound in prepared.bound.values():
+            issue = qualify_original_source(prepared, group, bound.relation)
+            if issue is not None:
+                input_failure("unqualified_contribution_route", issue)
+    plan = bundle_attribute_plan(
+        original,
+        rules,
+        positions,
+        scope_columns,
+        mapping.left_projection if side == 0 else mapping.right_projection,
+        "left" if side == 0 else "right",
+    )
+    return prepared, plan
 
 
 def prepare_attribute_sources(

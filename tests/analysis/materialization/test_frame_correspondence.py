@@ -1,16 +1,19 @@
 """Ordinary Frame correspondence uses complete keys and independent manual oracles."""
 
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
+from typing import Literal, TypedDict
 
 import pandas as pd
 import pyarrow as pa
 import pytest
 
 from marivo.analysis.compiler.frame_plan import CompiledFramePlan
-from marivo.analysis.compiler.graph_plan import FrameCompute, FrameInput
+from marivo.analysis.compiler.graph_lowering import LoweredRead
+from marivo.analysis.compiler.graph_plan import FrameCompute, FrameInput, LocalCompute, SourceRead
 from marivo.analysis.core.data_schema import DataAxis, DataSchema
 from marivo.analysis.core.data_types import (
     DataColumn,
@@ -30,12 +33,14 @@ from marivo.analysis.core.frame_structure import PendingDataSchema
 from marivo.analysis.dsl import frame_sources
 from marivo.analysis.dsl.column import row_count
 from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.analysis.dsl.frame_axis import FrameAxis
 from marivo.analysis.dsl.frame_sources import values as frame_values
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization.graph_exchange import StageOutput
+from marivo.analysis.materialization.graph_source_execution import PreparedSources, run_frame_plan
 from marivo.semantic.errors import SemanticExpressionError
 from tests.shared_fixtures import DslCaseFactory, terminal_runs
 
@@ -43,6 +48,16 @@ from tests.shared_fixtures import DslCaseFactory, terminal_runs
 @pytest.fixture
 def local(tmp_path: Path) -> LocalFrameServices:
     return DatasetRuntime.create(tmp_path, "frame-correspondence", timezone="UTC").local
+
+
+def _memory_backing(frame: AnalysisFrame) -> MemoryFrameBacking:
+    assert isinstance(frame._backing, MemoryFrameBacking)
+    return frame._backing
+
+
+def _complete_schema(frame: AnalysisFrame) -> DataSchema:
+    assert isinstance(frame._schema, DataSchema)
+    return frame._schema
 
 
 def _memory(
@@ -75,7 +90,7 @@ def test_outer_compare_manual_order_presence_and_negative_baseline(
     combined = left.compare(
         {"reference": right}, on={"reference": ((left.axes[0], right.axes[0]),)}, how="outer"
     ).compute()
-    rows = combined._backing.data.copy_rows()
+    rows = _memory_backing(combined).data.copy_rows()
     assert rows["key"].tolist() == ["C", "A", pd.NA, "B"]
     assert combined.output_names == (
         "amount",
@@ -98,8 +113,8 @@ def test_self_compare_reads_shared_input_and_records_binary_operation(
     output = frame.compare(
         {"reference": frame}, on={"reference": ((frame.axes[0], frame.axes[0]),)}
     ).compute()
-    assert len(output._backing.metadata.audit.evaluation.inputs) == 1
-    assert output._backing.metadata.audit.evaluation.operations == ("compare",)
+    assert len(_memory_backing(output).metadata.audit.evaluation.inputs) == 1
+    assert _memory_backing(output).metadata.audit.evaluation.operations == ("compare",)
     assert output.to_pandas()[("value", "reference.absolute.amount")].tolist() == [0, 0]
 
 
@@ -170,7 +185,7 @@ def test_composite_identity_and_field_domains_are_full_tuples(local: LocalFrameS
     with pytest.raises(AnalysisError, match="actual complete row-key domains"):
         left.align(right, on=on).compute()
     output = left.compare({"reference": right}, on={"reference": on}, how="outer").compute()
-    rows = output._backing.data.copy_rows()
+    rows = _memory_backing(output).data.copy_rows()
     assert rows["tenant"].tolist() == ["t2", "t1", "t1", "t2"]
     assert rows["region"].isna().tolist() == [True, False, True, False]
     assert _values(output, "reference.absolute.amount") == [pd.NA] * 4
@@ -184,15 +199,24 @@ def test_zero_axis_empty_and_singleton_domains(local: LocalFrameServices, explic
     )
     empty = _data_frame(local, schema, {"v": pd.Series([], dtype="int64[pyarrow]")})
     singleton = _data_frame(local, schema, {"v": [8]})
-    kwargs = {"on": ()} if explicit else {}
-    assert len(empty.align(empty, **kwargs).compute().to_pandas()) == 0
-    kwargs = {"on": {"reference": ()}} if explicit else {}
+
+    class AlignOptions(TypedDict, total=False):
+        on: tuple[tuple[FrameAxis, FrameAxis], ...]
+
+    class CompareOptions(TypedDict, total=False):
+        on: dict[str, tuple[tuple[FrameAxis, FrameAxis], ...]]
+
+    align_options: AlignOptions = {"on": ()} if explicit else {}
+    assert len(empty.align(empty, **align_options).compute().to_pandas()) == 0
+    compare_options: CompareOptions = {"on": {"reference": ()}} if explicit else {}
     with pytest.raises(AnalysisError, match="actual complete row-key domains"):
-        singleton.compare({"reference": empty}, **kwargs).compute()
-    result = singleton.compare({"reference": empty}, how="outer", **kwargs).compute()
+        singleton.compare({"reference": empty}, **compare_options).compute()
+    result = singleton.compare({"reference": empty}, how="outer", **compare_options).compute()
     assert _values(result, "amount") == [8]
     assert _values(result, "reference.absolute.amount") == [pd.NA]
-    assert singleton.compare({"reference": singleton}, **kwargs).compute()._schema.axes == ()
+    assert (
+        singleton.compare({"reference": singleton}, **compare_options).compute()._schema.axes == ()
+    )
 
 
 def test_no_ordinary_inference_and_complete_mapping_before_values(
@@ -224,7 +248,9 @@ def test_ownership_precedes_axis_mapping(local: LocalFrameServices, tmp_path: Pa
 @pytest.mark.parametrize("change", ["role", "key_type", "at", "unit", "value_type"])
 def test_key_role_time_and_value_compatibility(local: LocalFrameServices, change: str) -> None:
     left = _memory(local, ["A"], [1])
-    axis, value = left._schema.axes[0], left._schema.values[0]
+    schema = _complete_schema(left)
+    axis, value = schema.axes[0], schema.values[0]
+    assert isinstance(axis, DataAxis)
     key: object = "A"
     amount: object = 2
     if change == "role":
@@ -261,15 +287,15 @@ def test_full_path_pairing_right_reordering_and_nested_presence(local: LocalFram
     other = outer.where(outer["current.present"]).compute()
     # Compare all four current values; right values deliberately use a different order.
     reordered_schema = replace(
-        other._schema,
-        values=tuple(reversed(other._schema.values)),
+        _complete_schema(other),
+        values=tuple(reversed(_complete_schema(other).values)),
         value_paths=tuple(reversed(other._schema.value_paths)),
     )
     reordered = _data_frame(
         local,
         reordered_schema,
         {
-            column: other._backing.data.copy_rows()[column]
+            column: _memory_backing(other).data.copy_rows()[column]
             for column in [c.slot_id for c in reordered_schema.columns]
         },
     )
@@ -371,7 +397,9 @@ def test_numeric_carriers(
 
 
 @pytest.mark.parametrize("unit", ["s", "ms", "us", "ns"])
-def test_duration_uses_exact_original_ticks(local: LocalFrameServices, unit: str) -> None:
+def test_duration_uses_exact_original_ticks(
+    local: LocalFrameServices, unit: Literal["s", "ms", "us", "ns"]
+) -> None:
     dtype = DurationDataType(unit)
     schema = DataSchema((), (DataColumn("v", "elapsed", dtype, True),), value_paths=(("elapsed",),))
 
@@ -385,9 +413,9 @@ def test_duration_uses_exact_original_ticks(local: LocalFrameServices, unit: str
     left = _data_frame(local, schema, {"v": ticks(9)})
     right = _data_frame(local, schema, {"v": ticks(-3)})
     output = left.compare({"reference": right}).compute()
-    rows = output._backing.data.copy_rows()
+    rows = _memory_backing(output).data.copy_rows()
     assert pa.array(rows[output._schema.values[2].slot_id]).cast(pa.int64()).to_pylist() == [12]
-    assert output._schema.values[2].dtype == dtype
+    assert _complete_schema(output).values[2].dtype == dtype
     assert _values(output, "reference.relative.elapsed") == [4.0]
 
 
@@ -400,7 +428,7 @@ def test_pending_and_mixed_inference_completes_identical_directories(
         pending = left.compare({"reference": baseline})
         assert isinstance(pending._schema, PendingDataSchema)
         result = pending.compute()
-        pending._schema.complete(result._schema)
+        pending._schema.complete(_complete_schema(result))
         assert _values(result, "reference.absolute.amount") == [6]
         assert _values(result, "reference.relative.amount") == [3.0]
 
@@ -408,7 +436,7 @@ def test_pending_and_mixed_inference_completes_identical_directories(
 def test_fixed_combine_never_prepares_sources_or_catalog(
     local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import marivo.analysis.materialization.frame_evaluation as evaluator
+    import marivo.analysis.materialization.frame_source_preparation as evaluator
 
     left, right = _memory(local, ["A"], [8]), _memory(local, ["A"], [2])
 
@@ -439,12 +467,27 @@ def test_actual_source_plus_fixed_uses_one_binary_plan(
         {"amount": amount.sum()},
     )
     fixed = source.compute()
-    original = evaluator.run_frame_plan
+    original = run_frame_plan
     schedules: list[tuple[type[object], ...]] = []
 
-    def run(compiled: CompiledFramePlan, **kwargs: object) -> StageOutput:
+    def run(
+        compiled: CompiledFramePlan,
+        *,
+        source_prepared: Mapping[str, PreparedSources],
+        read_fixed: Callable[[FrameInput], CompletedFrameData],
+        adapt_source: Callable[[str, StageOutput], StageOutput],
+        observe_read: Callable[[SourceRead, LoweredRead, StageOutput], None] | None = None,
+        observe_local: Callable[[LocalCompute | FrameCompute, StageOutput], None] | None = None,
+    ) -> StageOutput:
         schedules.append(tuple(type(s) for s in compiled.lowered.plan.stages))
-        return original(compiled, **kwargs)
+        return original(
+            compiled,
+            source_prepared=source_prepared,
+            read_fixed=read_fixed,
+            adapt_source=adapt_source,
+            observe_read=observe_read,
+            observe_local=observe_local,
+        )
 
     monkeypatch.setattr(evaluator, "run_frame_plan", run)
     result = source.compare({"reference": fixed}).compute()
@@ -483,7 +526,7 @@ def test_paired_axis_rejection_precedes_count_and_mapping(local: LocalFrameServi
         (PendingDataColumn("v", "amount", "numeric", True, "USD"),),
         (("amount",),),
     )
-    paired = AnalysisFrame._bind(local, schema, frame._backing, "paired-input")
+    paired = AnalysisFrame._bind(local, schema, _memory_backing(frame), "paired-input")
     scalar = frame.reduce({"rows": row_count()})
     with pytest.raises(AnalysisError, match="without paired axes"):
         paired.compare({"reference": scalar}, on={"reference": ()})
@@ -522,20 +565,18 @@ def test_multiaxis_mapping_never_supplements_or_retries(
 
 def test_nullable_field_union_and_null_is_not_a_string_sentinel(local: LocalFrameServices) -> None:
     left = _memory(local, ["null"], [8])
+    schema = _complete_schema(left)
+    axis = schema.axes[0]
+    assert isinstance(axis, DataAxis)
     schema = replace(
-        left._schema,
-        axes=(
-            replace(
-                left._schema.axes[0],
-                columns=(replace(left._schema.axes[0].columns[0], nullable=False),),
-            ),
-        ),
+        schema,
+        axes=(replace(axis, columns=(replace(axis.columns[0], nullable=False),)),),
     )
     left = _data_frame(local, schema, {"key": ["null"], "amount": [8]})
     right = _memory(local, [None], [2])
     result = left.align(right, on=((left.axes[0], right.axes[0]),), how="outer").compute()
     assert result._schema.axes[0].columns[0].nullable is True
-    assert result._backing.data.copy_rows()["key"].tolist() == ["null", pd.NA]
+    assert _memory_backing(result).data.copy_rows()["key"].tolist() == ["null", pd.NA]
     assert result.to_pandas()[("presence", "left_present")].tolist() == [True, False]
 
 
@@ -543,6 +584,10 @@ def test_nullable_field_union_and_null_is_not_a_string_sentinel(local: LocalFram
 def test_exact_carrier_failure_is_checked_before_projection(
     local: LocalFrameServices, invalid: str
 ) -> None:
+    left_type: DurationDataType | DecimalDataType
+    right_type: DurationDataType | DecimalDataType
+    left_value: pd.Series | list[Decimal]
+    right_value: pd.Series | list[Decimal]
     if invalid.startswith("duration"):
         left_type = DurationDataType("s")
         right_type = DurationDataType("ms") if invalid == "duration_unit" else left_type
@@ -640,7 +685,8 @@ def test_source_binary_failure_still_closes_and_publishes_nothing(
     zero = source.compute().select({"amount": 0}).compute()
     # Preserve the source's unit rather than infer it from a numeric literal.
     zero_schema = replace(
-        zero._schema, values=(replace(zero._schema.values[0], unit=source._schema.values[0].unit),)
+        _complete_schema(zero),
+        values=(replace(_complete_schema(zero).values[0], unit=source._schema.values[0].unit),),
     )
     zero = _data_frame(session._runtime.local, zero_schema, {zero_schema.values[0].slot_id: [0]})
     close = SourceSession.close
@@ -666,7 +712,7 @@ def test_empty_ordinary_domain_preserves_typed_schema(local: LocalFrameServices)
     result = empty.compare(
         {"reference": one}, on={"reference": ((empty.axes[0], one.axes[0]),)}, how="outer"
     ).compute()
-    assert result._backing.data.copy_rows()["key"].tolist() == ["A"]
+    assert _memory_backing(result).data.copy_rows()["key"].tolist() == ["A"]
     assert _values(result, "reference.baseline.amount") == [1]
 
 
@@ -679,7 +725,10 @@ def test_empty_ordinary_domain_preserves_typed_schema(local: LocalFrameServices)
 )
 @pytest.mark.parametrize("how", ["exact", "outer"])
 def test_minimum_nanosecond_field_key_is_not_null(
-    local: LocalFrameServices, dtype: DataType, physical: pa.DataType, how: str
+    local: LocalFrameServices,
+    dtype: DataType,
+    physical: pa.DataType,
+    how: Literal["exact", "outer"],
 ) -> None:
     schema = DataSchema(
         (DataAxis("axis.0", (DataColumn("k", "time", dtype, True),), name="time"),),
@@ -702,7 +751,7 @@ def test_minimum_nanosecond_field_key_is_not_null(
             expression.compute()
     else:
         output = expression.compute()
-        rows = output._backing.data.copy_rows()
+        rows = _memory_backing(output).data.copy_rows()
         assert pa.array(rows["k"]).cast(pa.int64()).to_pylist() == [-(2**63), None]
         assert rows[output._schema.presence[0].slot_id].tolist() == [True, False]
         assert rows[output._schema.presence[1].slot_id].tolist() == [False, True]
@@ -712,7 +761,7 @@ def test_minimum_nanosecond_field_key_is_not_null(
 @pytest.mark.parametrize("unit", ["s", "ms", "us", "ns"])
 @pytest.mark.parametrize("kind", ["duration", "timestamp"])
 def test_temporal_extreme_field_keys_self_align_exactly(
-    local: LocalFrameServices, unit: str, kind: str
+    local: LocalFrameServices, unit: Literal["s", "ms", "us", "ns"], kind: str
 ) -> None:
     dtype = DurationDataType(unit) if kind == "duration" else TimestampDataType(unit, "UTC")
     physical = pa.duration(unit) if kind == "duration" else pa.timestamp(unit, "UTC")
@@ -727,7 +776,7 @@ def test_temporal_extreme_field_keys_self_align_exactly(
     )
     frame = _data_frame(local, schema, {"k": keys, "v": [10, 3, 7]})
     output = frame.align(frame, on=((frame.axes[0], frame.axes[0]),)).compute()
-    rows = output._backing.data.copy_rows()
+    rows = _memory_backing(output).data.copy_rows()
     assert pa.array(rows["k"]).cast(pa.int64()).to_pylist() == expected
     assert rows[output._schema.presence[0].slot_id].tolist() == [True, True, True]
     assert rows[output._schema.presence[1].slot_id].tolist() == [True, True, True]
@@ -745,7 +794,7 @@ def test_date_field_keys_use_exact_day_components(local: LocalFrameServices) -> 
     )
     frame = _data_frame(local, schema, {"k": keys, "v": [10, 3, 7]})
     output = frame.align(frame, on=((frame.axes[0], frame.axes[0]),)).compute()
-    rows = output._backing.data.copy_rows()
+    rows = _memory_backing(output).data.copy_rows()
     assert pa.array(rows["k"]).cast(pa.int32()).to_pylist() == expected
 
 
@@ -817,7 +866,7 @@ def test_interval_exact_identity_outer_and_ordinal(local: LocalFrameServices) ->
         left.align(_interval(local, 1, 4, zone="Asia/Shanghai"), match=ordinal()).compute()
     different_zone = left.align(_interval(local, 1, 4, zone="Asia/Shanghai"), how="outer").compute()
     assert len(different_zone.to_pandas()) == 2
-    assert len(different_zone._backing.data.copy_attachments()[0].rows) == 2
+    assert len(_memory_backing(different_zone).data.copy_attachments()[0].rows) == 2
 
 
 def test_interval_declared_directory_survives_filter_reduce_and_matching(
@@ -830,12 +879,12 @@ def test_interval_declared_directory_survives_filter_reduce_and_matching(
     selected = merged.where(merged["left.amount"] > 0)
     sparse = selected.select({"amount": selected["left.amount"]}).compute()
     assert len(sparse.to_pandas()) == 1
-    assert len(sparse._backing.data.copy_attachments()[0].rows) == 2
+    assert len(_memory_backing(sparse).data.copy_attachments()[0].rows) == 2
     assert len(sparse.align(left).compute().to_pandas()) == 1
     with pytest.raises(AnalysisError, match="one declared interval"):
         sparse.align(left, match=ordinal()).compute()
     reduced = sparse.reduce({"n": row_count()}, by=(sparse.axes[0],)).compute()
-    assert len(reduced._backing.data.copy_attachments()[0].rows) == 2
+    assert len(_memory_backing(reduced).data.copy_attachments()[0].rows) == 2
     assert reduced.reduce({"n": row_count()}).compute().axes == ()
 
 
@@ -850,7 +899,7 @@ def test_named_baselines_share_current_values_and_preserve_ordered_union(
         for name, baseline in (("yoy", yoy), ("mom", mom))
     }
     combined = current.compare({"yoy": yoy, "mom": mom}, on=on, how="outer").compute()
-    assert combined._backing.data.copy_rows()["key"].tolist() == ["C", "A", pd.NA, "B", "D"]
+    assert _memory_backing(combined).data.copy_rows()["key"].tolist() == ["C", "A", pd.NA, "B", "D"]
     assert combined.output_names == (
         "amount",
         "yoy.baseline.amount",
@@ -941,7 +990,7 @@ def test_comparison_select_retains_only_direct_bindings_and_exact_presence(
     assert reduced._schema.comparisons == () and reduced.presence_names == ()
 
     assert isinstance(second._backing, MemoryFrameBacking)
-    data = second._backing.data
+    data = _memory_backing(second).data
     original = CompletedFrameData.copy_rows
 
     def corrupt(value: CompletedFrameData) -> pd.DataFrame:
@@ -971,7 +1020,7 @@ def test_interval_comparison_alignment_transports_explicit_maps(local: LocalFram
         isinstance(fact.binding, IntervalComparisonBinding) for fact in aligned._schema.comparisons
     )
     assert isinstance(aligned._backing, MemoryFrameBacking)
-    assert len(aligned._backing.data.copy_attachments()) == 5
+    assert len(_memory_backing(aligned).data.copy_attachments()) == 5
     assert _values(aligned, "left.delta") == [0]
 
 
@@ -980,7 +1029,7 @@ def test_stage_completed_schema_requires_exact_columns_and_keys(local: LocalFram
     assert isinstance(frame._schema, DataSchema)
     schema = frame._schema
     assert isinstance(frame._backing, MemoryFrameBacking)
-    rows = frame._backing.data.copy_rows()
+    rows = _memory_backing(frame).data.copy_rows()
     stage = StageOutput.from_frame(rows, schema.columns, schema.key_fields, frame_schema=schema)
     assert stage.frame_schema is schema
     with pytest.raises(MaterializationError, match="matching exact stage columns and keys"):
