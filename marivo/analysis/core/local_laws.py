@@ -15,7 +15,6 @@ def query_selection_fusion_issue(
     *,
     single_consumer: bool,
     same_layout: bool,
-    pending_checks: bool,
     original_boundary: bool,
 ) -> tuple[str, str] | None:
     """L1 adapter for AnalysisFrame's same-mask nullable int64 comparisons.
@@ -35,8 +34,6 @@ def query_selection_fusion_issue(
 
     if not single_consumer:
         return "one consumer of the intermediate selection", "multiple consumers"
-    if pending_checks:
-        return "completed checks before selection fusion", "a pending check boundary"
     if original_boundary:
         return "an unchanged original fine-grid completion boundary", "original completion"
     if not same_layout:

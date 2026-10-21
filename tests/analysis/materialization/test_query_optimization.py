@@ -23,9 +23,7 @@ from marivo.analysis.compiler.graph_plan import (
     FrameCompute,
     FrameInput,
     LocalCompute,
-    PlannedCheck,
     QueryPlan,
-    SourceCheckRoute,
     SourceRead,
     plan_query,
     read_members,
@@ -44,12 +42,9 @@ from marivo.analysis.core.frame_data import (
     SourceFrameBinding,
 )
 from marivo.analysis.core.graph import BoundGraph
-from marivo.analysis.core.model import Binding, Fact, Obligation
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.graph_exchange import StageOutput
-from marivo.analysis.materialization.graph_execution import run_query_plan
-from marivo.analysis.materialization.graph_local_execution import run_local
 from marivo.analysis.materialization.graph_source_execution import (
     PreparedSources,
     execute_numeric_query,
@@ -369,66 +364,34 @@ def test_dynamic_predicate_checks_before_empty_filter(optimization_session: Sess
     assert query.compute().to_pandas()[("value", "a")].tolist() == [10, 20, 30]
 
 
-@pytest.mark.parametrize("fail_check", (False, True))
-def test_pending_check_is_kept_on_its_exact_fine_stage(
-    optimization_session: Session, fail_check: bool
+def test_completed_strict_projection_cannot_be_pruned(
+    optimization_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    graph = _source_graph(_wide(optimization_session))
-    owner = graph.signature.owner
-    obligation = Obligation(
-        Fact(
-            "finite_numeric",
-            Binding(owner.session_id, owner.owner_id, graph.fingerprint, graph.fingerprint),
-            "literal.a",
-            "v1",
-        ),
-        "source.finite_numeric@v1",
-        "consume",
-    )
-    with open_query_sources(
-        optimization_session._runtime.connection_service(),
-        graph,
-        optimization_session.catalog._state,
-    ) as prepared:
-        base = plan_query(graph, prepared.schemas)
-    for optimized in (False, True):
-        fine = base.stages[-1]
-        assert isinstance(fine, LocalCompute)
-        plan = replace(base, checks=(PlannedCheck(obligation, fine.stage_id),))
-        if optimized:
-            plan = optimize_query(plan)
-        events: list[str] = []
+    from marivo.analysis.materialization import graph_local_execution
 
-        def read(stage: SourceRead) -> StageOutput:
-            raise AssertionError(stage.stage_id)
+    events: list[tuple[str, tuple[str, ...], tuple[int, ...]]] = []
+    submissions: list[CompiledRead] = []
+    run = graph_local_execution.run_local
+    execute = SourceSession.execute
 
-        def local(
-            stage: LocalCompute, inputs: tuple[StageOutput, ...], events: list[str] = events
-        ) -> StageOutput:
-            events.append(stage.stage_id)
-            return run_local(stage, inputs)
+    def checked(stage: LocalCompute | FrameCompute, inputs: tuple[StageOutput, ...]) -> StageOutput:
+        columns = tuple(column.name for column in stage.columns)
+        rows = tuple(len(output.table) for output in inputs)
+        events.append(("start", columns, rows))
+        try:
+            output = run(stage, inputs)
+        except (AnalysisError, SemanticExpressionError):
+            events.append(("failed", columns, rows))
+            raise
+        events.append(("complete", columns, rows))
+        return output
 
-        def check(
-            requirement: PlannedCheck,
-            output: StageOutput,
-            fine: LocalCompute = fine,
-            events: list[str] = events,
-        ) -> None:
-            assert requirement.stage_id == fine.stage_id
-            assert len(output.table) == 3
-            events.append("check")
-            if fail_check:
-                raise ValueError("fine cell rejected")
+    def submitted(self: SourceSession, read: CompiledRead) -> pd.DataFrame:
+        submissions.append(read)
+        return execute(self, read)
 
-        if fail_check:
-            with pytest.raises(ValueError, match="fine cell rejected"):
-                run_query_plan(plan, read, local, check)
-        else:
-            assert len(run_query_plan(plan, read, local, check).table) == 3
-        assert events[-1] == "check"
-
-
-def test_completed_strict_projection_cannot_be_pruned(optimization_session: Session) -> None:
+    monkeypatch.setattr(graph_local_execution, "run_local", checked)
+    monkeypatch.setattr(SourceSession, "execute", submitted)
     source = _wide(optimization_session)
     completed = source.select(
         {"kept": source["a"], "bad": source["b"].divide(0, zero_denominator="error")}
@@ -436,11 +399,16 @@ def test_completed_strict_projection_cannot_be_pruned(optimization_session: Sess
     query = completed.select({"kept": completed["kept"]})
     errors: list[tuple[type[BaseException], str]] = []
     for optimized in (False, True):
+        events.clear()
         with pytest.raises(
             (AnalysisError, SemanticExpressionError), match="nonzero denominator"
         ) as caught:
             _execute(optimization_session, query, optimized=optimized)
         errors.append((type(caught.value), str(caught.value)))
+        assert events[-1][0] == "failed" and "bad" in events[-1][1]
+        assert events[-1][2] == (3,)
+        assert sum(event[0] == "failed" for event in events) == 1
+        assert submissions == [] and optimization_session.runs().items == ()
     assert errors[0] == errors[1]
     selection = optimization_session.population_from(
         completed,
@@ -449,11 +417,16 @@ def test_completed_strict_projection_cannot_be_pruned(optimization_session: Sess
     query = optimization_session.frame(selection)
     errors.clear()
     for optimized in (False, True):
+        events.clear()
         with pytest.raises(
             (AnalysisError, SemanticExpressionError), match="nonzero denominator"
         ) as caught:
             _execute(optimization_session, query, optimized=optimized)
         errors.append((type(caught.value), str(caught.value)))
+        assert events[-1][0] == "failed" and "bad" in events[-1][1]
+        assert events[-1][2] == (3,)
+        assert sum(event[0] == "failed" for event in events) == 1
+        assert submissions == [] and optimization_session.runs().items == ()
     assert errors[0] == errors[1]
 
 
@@ -567,56 +540,31 @@ def test_memo_node_identity_does_not_serialize_the_definition_subgraph(
     assert compilation_key(changed, schemas).node_id != first.node_id
 
 
-def test_actual_plan_memo_keeps_full_check_scope(
+def test_actual_plan_memo_keeps_consumed_policy_and_relation_scope(
     optimization_session: Session,
 ) -> None:
     session = optimization_session
     amount = session.catalog.fields.get("sales.orders.amount")
-    total = amount.sum()
-    query = session.observe({"sales": total + total})
-    graph = _source_graph(query)
-    owner = graph.signature.owner
-    obligation = Obligation(
-        Fact(
-            "finite_numeric",
-            Binding(owner.session_id, owner.owner_id, graph.fingerprint, graph.fingerprint),
-            "sales.orders.amount",
-            "v1",
-        ),
-        "source.finite_numeric@v1",
-        "consume",
-    )
-    observation = graph.signature.observation
-    assert observation is not None
-    route = SourceCheckRoute(obligation, observation.contributions[0].occurrence)
-    other_scope = replace(
-        route,
-        obligation=replace(obligation, fact=replace(obligation.fact, version="v2")),
-        occurrence=observation.contributions[1].occurrence,
-    )
-    graph = replace(
-        graph, signature=replace(graph.signature, obligations=(obligation, other_scope.obligation))
-    )
+    graph = _source_graph(session.observe({"sales": amount.sum()}))
+    strict = _source_graph(session.observe({"sales": amount.sum(nulls="error")}))
     with open_query_sources(
         session._runtime.connection_service(), graph, session.catalog._state
     ) as prepared:
         memo = InvocationMemo()
-        checks = (route, other_scope)
-        first = plan_query(graph, prepared.schemas, checks=checks, memo=memo)
-        assert plan_query(graph, prepared.schemas, checks=checks, memo=memo) is first
-        second = plan_query(
-            graph,
-            prepared.schemas,
-            checks=(
-                replace(route, occurrence=other_scope.occurrence),
-                replace(other_scope, occurrence=route.occurrence),
-            ),
-            memo=memo,
-        )
-        assert second is not first
-        assert first.checks[0].obligation.fact.version == "v1"
-        assert first.checks[0].stage_id != second.checks[0].stage_id
-        assert second.checks[1].obligation.fact.version == "v2"
+        first = plan_query(graph, prepared.schemas, memo=memo)
+        assert plan_query(graph, prepared.schemas, memo=memo) is first
+        original = compilation_key(graph, prepared.schemas, relations=prepared.relations)
+        assert compilation_key(graph, prepared.schemas, relations=prepared.relations) == original
+        rebound = {name: table.view() for name, table in prepared.relations.items()}
+        assert compilation_key(graph, prepared.schemas, relations=rebound) != original
+        with open_query_sources(
+            session._runtime.connection_service(), strict, session.catalog._state
+        ) as scoped_sources:
+            second = plan_query(strict, scoped_sources.schemas, memo=memo)
+            assert second is not first
+            assert plan_query(strict, scoped_sources.schemas, memo=memo) is second
+            assert strict.fingerprint != graph.fingerprint
+            assert scoped_sources.schemas != prepared.schemas
 
 
 def test_each_public_compute_owns_a_fresh_compilation_memo(

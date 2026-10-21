@@ -38,7 +38,6 @@ from marivo.analysis.compiler.graph_plan import (
     QueryPlan,
     QueryStage,
     ReductionRead,
-    SourceCheckRoute,
     SourceRead,
     SourceSchema,
     common_program,
@@ -74,7 +73,6 @@ class RequiredSlots:
     stage_id: str
     columns: tuple[str, ...]
     components: tuple[str, ...] = ()
-    checks: tuple[str, ...] = ()
     retain_populations: bool = False
 
 
@@ -83,7 +81,6 @@ class FusionGroup:
     law: Literal["L1", "L8", "source_block"]
     members: tuple[str, ...]
     output: str
-    checks: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,22 +205,12 @@ def required_slots(plan: QueryPlan) -> tuple[RequiredSlots, ...]:
     populations = dict.fromkeys(stages, False)
     wanted[plan.publish].update(column.slot_id for column in stages[plan.publish].columns)
     completed: dict[str, RequiredSlots] = {}
-    stage_checks: dict[str, set[str]] = {}
-    for check in plan.checks:
-        stage_checks.setdefault(check.stage_id, set()).add(check.check_id)
     for stage in reversed(plan.stages):
         columns = wanted[stage.stage_id] | _support(stage)
-        checks = stage_checks.get(stage.stage_id, set()).copy()
-        if isinstance(stage, SourceRead):
-            checks.update(name for name, _, _ in stage.preparation_checks)
-            checks.update(
-                name for name in columns if name.startswith(("numeric_check.", "predicate_check."))
-            )
         completed[stage.stage_id] = RequiredSlots(
             stage.stage_id,
             tuple(column.slot_id for column in stage.columns if column.slot_id in columns),
             tuple(sorted(components[stage.stage_id])),
-            tuple(sorted(checks)),
             populations[stage.stage_id],
         )
         if not stage.inputs:
@@ -270,7 +257,6 @@ def _fuse(plan: QueryPlan) -> QueryPlan:
     decisions: list[RuleDecision] = []
     consumers = {stage_id: set(values) for stage_id, values in _consumers(plan.stages)}
     source_roots: dict[str, SourceRead] = {}
-    check_stages = {check.stage_id for check in plan.checks}
     for original in plan.stages:
         stage = stages[original.stage_id]
         if isinstance(stage, SourceRead):
@@ -322,7 +308,6 @@ def _fuse(plan: QueryPlan) -> QueryPlan:
                 single_consumer=consumers[inner.stage_id] == {stage.stage_id}
                 and inner.stage_id != plan.publish,
                 same_layout=same,
-                pending_checks=bool(check_stages & set(pair)),
                 original_boundary=False,
             )
             if issue is None:
@@ -380,7 +365,6 @@ def _common_sources(plan: QueryPlan) -> QueryPlan:
     """Share one actual bound aggregate input while retaining each occurrence."""
     groups: dict[tuple[str, str, str, str, tuple[str, ...], bool], list[SourceRead]] = {}
     consumers = dict(plan.consumers)
-    check_stages = {check.stage_id for check in plan.checks}
     for stage in plan.stages:
         if not isinstance(stage, SourceRead) or read_reduction(stage) is None:
             continue
@@ -392,7 +376,6 @@ def _common_sources(plan: QueryPlan) -> QueryPlan:
             and not stage.inputs
             and not stage.parameters
             and not stage.preparation_checks
-            and stage.stage_id not in check_stages
             and not reduction.calendar
             and not reduction.calendars
             and reduction.window_key is None
@@ -602,7 +585,6 @@ class CompilationKey:
     owner: Owner
     schemas: tuple[SourceSchema, ...]
     definition: BoundGraph = field(compare=False, repr=False)
-    checks: tuple[SourceCheckRoute, ...] = ()
     required: tuple[str, ...] = ()
     require_original: bool = False
     policy_version: int = RULE_VERSION
@@ -624,7 +606,6 @@ def compilation_key(
     required: tuple[str, ...] = (),
     require_original: bool = False,
     relations: Mapping[str, ir.Table] | None = None,
-    checks: tuple[SourceCheckRoute, ...] = (),
 ) -> CompilationKey:
     signature = graph.signature
     # These immutable source records are invocation-owned. Holding
@@ -636,8 +617,6 @@ def compilation_key(
             id(signature.axes),
             id(signature.observation),
             id(signature.declared_metrics),
-            id(signature.evidence),
-            id(signature.obligations),
             tuple(
                 (
                     quantity.name,
@@ -654,7 +633,6 @@ def compilation_key(
         graph.signature.owner,
         schemas,
         graph,
-        checks,
         required,
         require_original,
         relations=tuple((name, id(table.op())) for name, table in bindings),
@@ -669,7 +647,6 @@ MemoSlot: TypeAlias = tuple[
     int,
     tuple[str, ...],
     tuple[tuple[str, int], ...],
-    tuple[SourceCheckRoute, ...],
 ]
 
 
@@ -684,7 +661,6 @@ def _memo_slot(key: CompilationKey) -> MemoSlot:
         key.policy_version,
         key.implementations,
         key.relations,
-        key.checks,
     )
 
 

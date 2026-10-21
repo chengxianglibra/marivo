@@ -12,7 +12,6 @@ from marivo.analysis.compiler.graph_plan import (
     FrameKeysInput,
     LocalCompute,
     QueryPlan,
-    SourceCheckRoute,
     SourceRead,
     SourceSchema,
     _plan_query,
@@ -59,7 +58,6 @@ def parameter_domains(graph: BoundGraph) -> tuple[PopulationProgram, ...]:
 def plan_parameters(
     graph: BoundGraph,
     schemas: tuple[SourceSchema, ...],
-    checks: tuple[SourceCheckRoute, ...],
     *,
     memo: InvocationMemo | None = None,
 ) -> QueryPlan:
@@ -70,7 +68,7 @@ def plan_parameters(
     parameters = {
         parameter.placeholder: parameter for schema in own for parameter in schema.parameters
     }
-    base = _plan_query(graph, own, checks=checks)
+    base = _plan_query(graph, own)
     output = next(stage for stage in base.stages if stage.stage_id == base.publish)
     if graph.root.population is not None:
         schema = next(
@@ -106,7 +104,6 @@ def plan_parameters(
         )
         producers[name] = QueryPlan(
             (leaf,),
-            (),
             ((leaf.stage_id, ()),),
             leaf.stage_id,
             frame_key_groups(parameter.definition.root),
@@ -200,7 +197,6 @@ def plan_parameters(
     )
     return QueryPlan(
         ordered,
-        (*tuple(check for plan in producers.values() for check in plan.checks), *base.checks),
         consumers,
         base.publish,
         base.output_groups,

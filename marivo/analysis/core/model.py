@@ -1,9 +1,9 @@
-"""Bound Query signatures and the source checks attached to their plans."""
+"""Bound Query output signatures and their owning validation errors."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias
+from typing import TYPE_CHECKING, Literal, NoReturn
 
 from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.expressions import MetricNode
@@ -106,8 +106,6 @@ class BoundSignature:
     quantities: tuple[BoundQuantity | ResultQuantity, ...]
     axes: tuple[ComparisonAxis, ...] = ()
     declared_metrics: tuple[tuple[ExactRef, MetricNode], ...] = ()
-    evidence: tuple[Evidence, ...] = ()
-    obligations: tuple[Obligation, ...] = ()
     observation: ObservationBinding | None = None
 
     def __post_init__(self) -> None:
@@ -124,99 +122,3 @@ class BoundSignature:
         _unique(names, "query.metrics")
         _nonempty(self.owner.session_id, "query.session_id")
         _nonempty(self.owner.owner_id, "query.owner_id")
-
-
-@dataclass(frozen=True, slots=True)
-class Binding:
-    """Session, owner, input and scope of one conditional source check."""
-
-    session_id: str
-    owner_id: str
-    input_id: str
-    scope_id: str
-
-    def __post_init__(self) -> None:
-        for name in ("session_id", "owner_id", "input_id", "scope_id"):
-            _nonempty(getattr(self, name), f"core.binding.{name}")
-
-
-FactKind: TypeAlias = Literal["finite_numeric"]
-
-
-@dataclass(frozen=True, slots=True)
-class Fact:
-    """One source premise bound to its exact Query input and scope."""
-
-    kind: FactKind
-    binding: Binding
-    subject_id: str
-    version: str
-
-    def __post_init__(self) -> None:
-        if self.kind != "finite_numeric":
-            reject(
-                "a finite-numeric premise",
-                str(self.kind),
-                "Use the current source check.",
-                "core.fact.kind",
-            )
-        _nonempty(self.subject_id, "core.fact.subject")
-        _nonempty(self.version, "core.fact.version")
-
-
-@dataclass(frozen=True, slots=True)
-class Evidence:
-    """A source check result attached to a Query signature."""
-
-    fact: Fact
-    basis: Literal["check"]
-    source_id: str
-    dependencies: tuple[Fact, ...] = ()
-
-    def __post_init__(self) -> None:
-        if type(self.fact) is not Fact or self.basis != "check":
-            reject(
-                "a checked finite-numeric fact",
-                repr(self.fact),
-                "Use the owning source check.",
-                "core.evidence",
-            )
-        _nonempty(self.source_id, "core.evidence.source")
-        if type(self.dependencies) is not tuple or any(
-            type(fact) is not Fact for fact in self.dependencies
-        ):
-            reject(
-                "bound fact dependencies",
-                type(self.dependencies).__name__,
-                "Bind each premise.",
-                "core.evidence",
-            )
-
-
-CheckId: TypeAlias = Literal["source.finite_numeric@v1"]
-
-
-@dataclass(frozen=True, slots=True)
-class Obligation:
-    """A finite-value source check due before consumption or publication."""
-
-    fact: Fact
-    check_id: CheckId
-    before: Literal["consume", "publish"]
-
-    def __post_init__(self) -> None:
-        if (
-            type(self.fact) is not Fact
-            or self.check_id != "source.finite_numeric@v1"
-            or self.fact.kind != "finite_numeric"
-        ):
-            reject(
-                "the registered finite-numeric source check",
-                f"{self.check_id}: {self.fact.kind}",
-                "Use the check owned by this fact or reject the operation.",
-                "core.obligation.check",
-            )
-        if self.before not in ("consume", "publish"):
-            reject(
-                "consume or publish", str(self.before), "Name the check stage.", "core.obligation"
-            )

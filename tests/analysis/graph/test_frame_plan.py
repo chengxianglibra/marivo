@@ -24,14 +24,13 @@ from marivo._definition.query import (
     ValueSlot,
 )
 from marivo.analysis.compiler.frame_plan import CompiledSourceFrame, plan_frame
-from marivo.analysis.compiler.graph_lowering import LoweredQuery, lower_query
+from marivo.analysis.compiler.graph_lowering import LoweredQuery, LoweredRead, lower_query
 from marivo.analysis.compiler.graph_plan import (
     FrameCompute,
     FrameInput,
     FusedLocalProgram,
     LocalCompute,
     NativeRead,
-    PlannedCheck,
     ProjectionRead,
     QueryPlan,
     SourceRead,
@@ -66,7 +65,6 @@ from marivo.analysis.core.frame_structure import (
     PendingDataSchema,
 )
 from marivo.analysis.core.graph import BoundGraph
-from marivo.analysis.core.model import Binding, Fact, Obligation
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.graph_exchange import StageOutput
@@ -154,7 +152,6 @@ def test_two_fused_children_keep_disjoint_live_and_historical_namespaces(
     child = optimize_query(
         QueryPlan(
             stages,
-            (),
             tuple(
                 (stage.stage_id, tuple(c.stage_id for c in stages if stage.stage_id in c.inputs))
                 for stage in stages
@@ -364,7 +361,6 @@ def test_shared_fixed_stage_is_read_once_and_released_after_last_consumer() -> N
     )
     plan = QueryPlan(
         (leaf, left, right),
-        (),
         (("input", ("left", "right")), ("left", ()), ("right", ())),
         "right",
     )
@@ -388,44 +384,10 @@ def test_shared_fixed_stage_is_read_once_and_released_after_last_consumer() -> N
     def forbidden(*args: object) -> StageOutput:
         raise AssertionError("fixed plan called a source reader")
 
-    result = run_query_plan(
-        plan, forbidden, forbidden, lambda *args: None, fixed=fixed, frame=frame
-    )
+    result = run_query_plan(plan, forbidden, forbidden, fixed=fixed, frame=frame)
     gc.collect()
     assert reads == 1 and table_reference is not None and table_reference() is None
     assert result.table.iloc[0, 1] == 7
-
-
-def test_stage_checks_precede_source_state_stripping_and_transport() -> None:
-    schema = _schema()
-    leaf = FrameInput("input", "exact", schema)
-    obligation = Obligation(
-        Fact("finite_numeric", Binding("session", "store", "input", "scope"), "value", "v1"),
-        "source.finite_numeric@v1",
-        "consume",
-    )
-    plan = QueryPlan((leaf,), (PlannedCheck(obligation, "input"),), (("input", ()),), "input")
-    order: list[str] = []
-
-    def fixed(stage: FrameInput) -> StageOutput:
-        order.append("full-validation")
-        return StageOutput.from_frame(
-            pd.DataFrame({"key": [1], "amount": [7]}), schema.columns, schema.key_fields
-        )
-
-    def check(requirement: PlannedCheck, output: StageOutput) -> None:
-        assert tuple(output.table.columns) == ("key", "amount")
-        order.append("check")
-
-    def finish(stage: object, output: StageOutput) -> StageOutput:
-        order.append("adapt-and-transport")
-        return output
-
-    def forbidden(*args: object) -> StageOutput:
-        raise AssertionError("fixed schedule reached legacy source/local callback")
-
-    run_query_plan(plan, forbidden, forbidden, check, fixed=fixed, finish=finish)
-    assert order == ["full-validation", "check", "adapt-and-transport"]
 
 
 def test_literal_graph_is_prefixed_and_uses_same_schedule_without_source_prepare(
@@ -489,7 +451,7 @@ def test_source_adapter_complete_boundary_rejects_unused_infinity(
         run_frame_plan(compiled, source_prepared={}, read_fixed=no_fixed, adapt_source=adapt)
 
 
-def test_source_prefix_covers_native_fused_parameter_and_check_references(
+def test_source_prefix_covers_native_fused_parameter_and_numeric_payload_references(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
@@ -521,21 +483,24 @@ def test_source_prefix_covers_native_fused_parameter_and_check_references(
         "removed-local", ("consumer",), schema.columns, schema.key_fields, formula
     )
     final = replace(removed, stage_id="final", program=FusedLocalProgram((removed,)))
-    obligation = Obligation(
-        Fact("finite_numeric", Binding("session", "store", "input", "scope"), "value", "v1"),
-        "source.finite_numeric@v1",
-        "publish",
-    )
     child = QueryPlan(
         (producer, consumer, final),
-        (PlannedCheck(obligation, "consumer"),),
         (("producer", ("consumer",)), ("consumer", ("final",)), ("final", ())),
         "final",
     )
+    from marivo.semantic._numeric_lowering import NumericCheck
+
+    payload = LoweredRead(
+        "consumer",
+        ibis.table({"flag": "boolean"}, name="checks"),
+        (("flag", NumericCheck(ibis.literal(False), "valid value", "invalid value")),),
+    )
     compiled = plan_frame(
         SourceFrameInput("exact", _captured_graph(query)),
-        {"exact": CompiledSourceFrame(LoweredQuery(child, ()), schema)},
+        {"exact": CompiledSourceFrame(LoweredQuery(child, (payload,)), schema)},
     )
+    assert compiled.lowered.reads[0].stage_id == "source:0/consumer"
+    assert compiled.lowered.reads[0].numeric_checks is payload.numeric_checks
     stages = compiled.lowered.plan.stages
     read = stages[1]
     assert isinstance(read, SourceRead)
@@ -551,8 +516,6 @@ def test_source_prefix_covers_native_fused_parameter_and_check_references(
     assert isinstance(local.program, FusedLocalProgram)
     assert isinstance(local.program.steps[0].program, FormulaProgram)
     assert local.program.steps[0].program.values[0].stage_id == "source:0/removed-read"
-    assert compiled.lowered.plan.checks[0].stage_id == "source:0/consumer"
-    assert compiled.lowered.plan.checks[0].deadline == "publish"
 
 
 def test_native_source_child_keeps_one_prefixed_schedule(
@@ -710,9 +673,7 @@ def test_binary_self_input_has_one_read_and_two_consumer_occurrences(compare: bo
     def forbidden(*args: object) -> StageOutput:
         raise AssertionError("fixed schedule reached a source or local reader")
 
-    output = run_query_plan(
-        plan, forbidden, forbidden, lambda c, o: None, fixed=fixed, frame=binary
-    )
+    output = run_query_plan(plan, forbidden, forbidden, fixed=fixed, frame=binary)
     assert output is not None and len(output.table) == 2 and reads == 1
     gc.collect()
     assert captured[0]() is None
@@ -797,8 +758,6 @@ def test_named_compare_has_one_stage_and_one_read_for_three_shared_occurrences()
         assert inputs[0] is inputs[1] is inputs[2]
         return run_local(stage, inputs)
 
-    output = run_query_plan(
-        plan, forbidden, forbidden, lambda c, o: None, fixed=fixed, frame=compare_inputs
-    )
+    output = run_query_plan(plan, forbidden, forbidden, fixed=fixed, frame=compare_inputs)
     assert output is not None and len(output.table) == 2 and reads == 1
     assert plan.required_slots[0].columns == tuple(column.slot_id for column in schema.columns)

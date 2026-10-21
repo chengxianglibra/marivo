@@ -433,7 +433,6 @@ def _prune_transport(plan: QueryPlan, producer: str) -> tuple[QueryPlan, tuple[s
             and isinstance(stage.program.operation, PopulationValues)
             and producer in stage.inputs
             and plan.consumers_of(stage.stage_id) == (original.stage_id,)
-            and not any(check.stage_id == stage.stage_id for check in plan.checks)
         )
         if not redundant:
             continue
@@ -571,7 +570,6 @@ def native_query_relation(
 
     include(producer)
     allowed_consumers = frozenset(internal)
-    checked = {check.stage_id for check in plan.checks}
     attribute_parent: PopulationInput | None = None
     attribute_leaf: FrameKeysInput | None = None
     endpoint = by_id[producer]
@@ -660,8 +658,6 @@ def native_query_relation(
             and not set(plan.consumers_of(identifier)) <= allowed_consumers
         ) or (identifier == plan.publish and not terminal):
             return "producer has shared consumers or a publication boundary"
-        if identifier in checked:
-            return "producer has a pending planned check"
         if (
             attribute_parent is not None
             and attribute_leaf is not None
@@ -1914,8 +1910,6 @@ def _fuse_parameter_blocks(prepared: PreparedSources, lowered: LoweredQuery) -> 
 
 def _fold_population_checks(prepared: PreparedSources, lowered: LoweredQuery) -> LoweredQuery:
     """Retain relationship-domain checks without transporting unused identity sets."""
-    if lowered.plan.checks:
-        return lowered
     for candidate in tuple(lowered.plan.stages):
         if (
             not isinstance(candidate, LocalCompute)

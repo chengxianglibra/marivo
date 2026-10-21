@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import datetime
-from typing import TYPE_CHECKING, Literal, TypeAlias
+from typing import TYPE_CHECKING, TypeAlias
 
 from marivo._definition.correspondence import coordinate_position
 from marivo._definition.expressions import PredicateExpression
@@ -29,7 +29,7 @@ from marivo.analysis.core.attribute import (
 from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import DataColumn, DataType, DurationDataType, ScalarDataType
 from marivo.analysis.core.graph import BoundGraph
-from marivo.analysis.core.model import Obligation, reject
+from marivo.analysis.core.model import reject
 from marivo.analysis.methods.physical import QUERY_COMBINE_KERNEL
 
 if TYPE_CHECKING:
@@ -330,35 +330,10 @@ QueryStage: TypeAlias = SourceRead | LocalCompute | FrameInput | FrameCompute | 
 
 
 @dataclass(frozen=True, slots=True)
-class SourceCheckRoute:
-    """An implemented check bound to one exact contribution occurrence."""
-
-    obligation: Obligation
-    occurrence: tuple[int, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class PlannedCheck:
-    """A check with its fixed stage and consume/publish deadline."""
-
-    obligation: Obligation
-    stage_id: str
-
-    @property
-    def check_id(self) -> str:
-        return self.obligation.check_id
-
-    @property
-    def deadline(self) -> Literal["consume", "publish"]:
-        return self.obligation.before
-
-
-@dataclass(frozen=True, slots=True)
 class QueryPlan:
-    """Topologically ordered stages, consumers, checks and the published stage."""
+    """Topologically ordered stages, consumers and the published stage."""
 
     stages: tuple[QueryStage, ...]
-    checks: tuple[PlannedCheck, ...]
     consumers: tuple[tuple[str, tuple[str, ...]], ...]
     publish: str
     output_groups: tuple[tuple[str, ...], ...] = ()
@@ -389,15 +364,12 @@ def _stage_id(occurrence: tuple[int, ...]) -> str:
 def _plan_source_reads(
     graph: BoundGraph,
     schemas: tuple[SourceSchema, ...],
-    *,
-    checks: tuple[SourceCheckRoute, ...] = (),
 ) -> QueryPlan:
-    """Fix stages, slots, consumers and check deadlines without any I/O.
+    """Fix source stages and output slots without any I/O.
 
     Each contribution occurrence becomes one SourceRead. A single contribution
-    publishes its read directly; several are combined by one LocalCompute whose
-    output slots the registered kernel declares. Implemented source checks must
-    identify their exact occurrence; a check ID alone does not establish scope.
+    publishes its read directly; several are combined by the later Query
+    planner with the exact slots its local program declares.
     """
     from marivo.analysis.errors import AnalysisStageUnavailableError
 
@@ -520,40 +492,13 @@ def _plan_source_reads(
     stages: tuple[QueryStage, ...] = tuple(reads)
     consumers: tuple[tuple[str, tuple[str, ...]], ...] = ()
     publish = reads[0].stage_id
-    planned: list[PlannedCheck] = []
-    by_occurrence = {read.occurrence: read for read in reads}
-    for route in checks:
-        if (
-            route.obligation not in graph.signature.obligations
-            or route.occurrence not in by_occurrence
-        ):
-            reject(
-                "a source-check obligation and its exact source contribution occurrence",
-                repr(route),
-                "Bind the implemented check to its exact source contribution before planning.",
-                "analysis.query_plan.check",
-            )
-    for obligation in graph.signature.obligations:
-        routes = tuple(route for route in checks if route.obligation == obligation)
-        if not routes:
-            raise AnalysisStageUnavailableError(
-                stage="query_execution",
-                expected=f"an implemented {obligation.check_id} check bound to its source occurrence",
-                received=f"{obligation.fact.kind} premise without a current source-check route",
-                repair="This check route is not delivered yet; no business row was read.",
-                target="analysis_frame.compute",
-            )
-        planned.extend(
-            PlannedCheck(obligation, by_occurrence[route.occurrence].stage_id) for route in routes
-        )
-    return QueryPlan(stages, tuple(planned), consumers, publish)
+    return QueryPlan(stages, consumers, publish)
 
 
 def plan_query(
     graph: BoundGraph,
     schemas: tuple[SourceSchema, ...],
     *,
-    checks: tuple[SourceCheckRoute, ...] = (),
     require_original: bool = False,
     memo: InvocationMemo | None = None,
     prefix: tuple[int, ...] = (),
@@ -568,12 +513,10 @@ def plan_query(
                 schemas,
                 required=("prefix:" + repr(prefix),),
                 require_original=require_original,
-                checks=checks,
             ),
             lambda: _plan_bound_query(
                 graph,
                 schemas,
-                checks=checks,
                 require_original=require_original,
                 memo=memo,
                 prefix=prefix,
@@ -582,7 +525,6 @@ def plan_query(
     return _plan_bound_query(
         graph,
         schemas,
-        checks=checks,
         require_original=require_original,
         memo=None,
         prefix=prefix,
@@ -593,7 +535,6 @@ def _plan_bound_query(
     graph: BoundGraph,
     schemas: tuple[SourceSchema, ...],
     *,
-    checks: tuple[SourceCheckRoute, ...],
     require_original: bool,
     memo: InvocationMemo | None,
     prefix: tuple[int, ...],
@@ -612,7 +553,7 @@ def _plan_bound_query(
 
     from marivo.analysis.compiler.parameters import plan_parameters
 
-    planned = plan_parameters(graph, schemas, checks, memo=memo)
+    planned = plan_parameters(graph, schemas, memo=memo)
     if require_original:
         from marivo.analysis.compiler.optimization import retain_components
 
@@ -623,8 +564,6 @@ def _plan_bound_query(
 def _plan_query(
     graph: BoundGraph,
     schemas: tuple[SourceSchema, ...],
-    *,
-    checks: tuple[SourceCheckRoute, ...] = (),
 ) -> QueryPlan:
     """Fix ordinary numeric source and local routes before any business read."""
     import ibis
@@ -663,11 +602,7 @@ def _plan_query(
 
     observation = graph.signature.observation
     contributions = () if observation is None else observation.contributions
-    base = (
-        _plan_source_reads(graph, schemas, checks=checks)
-        if contributions
-        else QueryPlan((), (), (), "")
-    )
+    base = _plan_source_reads(graph, schemas) if contributions else QueryPlan((), (), "")
     calendar = next(
         (
             axis
@@ -1058,7 +993,6 @@ def _plan_query(
     )
     return QueryPlan(
         (*reads, *population_stages, combine),
-        base.checks,
         tuple(
             (
                 stage.stage_id,

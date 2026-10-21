@@ -168,7 +168,6 @@ def plan_read(
     stages = (*plan.stages, stage)
     return QueryPlan(
         stages,
-        plan.checks,
         tuple(
             (
                 item.stage_id,
@@ -361,4 +360,4 @@ def plan_literal(
         keys,
         ResultProgram(operation, (), (), (), (), tuple(groups)),
     )
-    return QueryPlan((stage,), (), (), stage.stage_id, tuple(groups))
+    return QueryPlan((stage,), (), stage.stage_id, tuple(groups))

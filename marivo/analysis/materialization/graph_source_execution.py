@@ -47,7 +47,6 @@ from marivo.analysis.compiler.graph_plan import (
     FrameCompute,
     FrameInput,
     LocalCompute,
-    PlannedCheck,
     QueryStage,
     SourceField,
     SourceRead,
@@ -1755,22 +1754,6 @@ def execute_numeric_query(
     from marivo.analysis.materialization.graph_execution import run_query_plan
     from marivo.analysis.materialization.graph_local_execution import run_local
 
-    def check(requirement: PlannedCheck, output: StageOutput) -> None:
-        reject(
-            "an implemented Query check algorithm",
-            requirement.check_id,
-            "Bind a qualified check route before executing this plan.",
-            "analysis.query_check",
-        )
-
-    if lowered.plan.checks:
-        reject(
-            "implemented Query check algorithms",
-            repr(tuple(item.check_id for item in lowered.plan.checks)),
-            "Use the qualified numeric checks emitted by lowering; no business row was read.",
-            "analysis.query_check",
-        )
-
     required_by_stage = {required.stage_id: required for required in lowered.plan.required_slots}
     from marivo.analysis.materialization.query_runtime_types import source_value_keys
 
@@ -1965,7 +1948,7 @@ def execute_numeric_query(
         return transport(stage.stage_id, output)
 
     result = run_query_plan(
-        lowered.plan, read, local, check, dependent, fixed=fixed, frame=frame, finish=finish
+        lowered.plan, read, local, dependent, fixed=fixed, frame=frame, finish=finish
     )
     from marivo.analysis.materialization.graph_exchange import source_columns
 

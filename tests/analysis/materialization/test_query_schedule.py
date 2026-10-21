@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
-from typing import Literal
 
 import duckdb
 import pandas as pd
@@ -19,8 +18,6 @@ from marivo._temporal import TimeScope
 from marivo.analysis.compiler.graph_lowering import lower_query
 from marivo.analysis.compiler.graph_plan import (
     LocalCompute,
-    PlannedCheck,
-    SourceCheckRoute,
     SourceRead,
     plan_query,
 )
@@ -31,9 +28,8 @@ from marivo.analysis.core.frame_data import (
     SourceFrameBinding,
 )
 from marivo.analysis.core.graph import BoundGraph
-from marivo.analysis.core.model import Binding, CoreRuleError, Fact, Obligation
+from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.dsl.temporal import CalendarAxis
-from marivo.analysis.errors import AnalysisStageUnavailableError
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_execution import run_query_plan
@@ -245,7 +241,6 @@ def test_multi_root_plan_combines_locally_without_mutating_shared_reads(
             plan,
             read,
             lambda stage, inputs: run_local(replace(stage, columns=rows), inputs, kernel),
-            lambda requirement, output: None,
         )
     assert published.table["n.0"].tolist() == [2]
     assert all((output.table.iloc[:, 0] != -1).all() for output in outputs.values())
@@ -309,78 +304,114 @@ def test_planning_is_pure_over_prepared_schema_facts(warehouse_session: Session)
         plan_query(graph, schemas[:1])
 
 
-@pytest.mark.parametrize("deadline", ("consume", "publish"))
 @pytest.mark.parametrize("fail_check", (False, True))
 @pytest.mark.parametrize("same_root", (False, True))
-def test_source_check_runs_on_its_exact_output_before_consumption(
+def test_real_source_checks_and_strict_formula_keep_occurrence_order(
     warehouse_session: Session,
-    deadline: Literal["consume", "publish"],
+    monkeypatch: pytest.MonkeyPatch,
     fail_check: bool,
     same_root: bool,
 ) -> None:
+    from marivo.analysis.materialization import graph_source_execution as execution
+    from marivo.semantic._numeric_lowering import NumericCheck
+
     session = warehouse_session
-    graph = _query(session, "net")
-    if same_root:
-        revenue = session.catalog.metrics.get("sales.revenue")
-        assert isinstance(revenue, Deferred)
-        graph = _source_graph(session.observe({"first": revenue, "second": revenue}))
-    owner = graph.signature.owner
-    obligation = Obligation(
-        Fact(
-            "finite_numeric",
-            Binding(owner.session_id, owner.owner_id, graph.fingerprint, graph.fingerprint),
-            "sales.orders.amount",
-            "v1",
-        ),
-        "source.finite_numeric@v1",
-        deadline,
+    amount = session.catalog.fields.get("sales.orders.amount")
+    strict = amount.sum(nulls="error")
+    if not fail_check:
+        strict = amount.sum(nulls="error").where(~amount.isnull())
+    metrics = (
+        {"first": amount.sum(), "second": strict}
+        if same_root
+        else {"first": strict, "second": session.catalog.fields.get("sales.refunds.amount").sum()}
     )
-    graph = replace(graph, signature=replace(graph.signature, obligations=(obligation,)))
-    observation = graph.signature.observation
-    assert observation is not None
-    occurrence = observation.contributions[1 if same_root else 0].occurrence
-    route = SourceCheckRoute(obligation, occurrence)
-    events: list[str] = []
+    graph = _source_graph(session.observe(metrics))
+    events: list[tuple[str, str]] = []
+    completed_reads: dict[str, StageOutput] = {}
+    validate = execution._validate_source_checks
+
+    def checked(
+        stage: SourceRead,
+        frame: pd.DataFrame,
+        numeric_checks: tuple[tuple[str, NumericCheck], ...],
+    ) -> None:
+        events.append(("check-start", stage.stage_id))
+        validate(stage, frame, numeric_checks)
+        events.append(("check-complete", stage.stage_id))
+
+    def adapt(identifier: str, output: StageOutput) -> StageOutput:
+        assert events[-1] == ("check-complete", identifier)
+        events.append(("adapt-and-transport", identifier))
+        completed_reads[identifier] = output
+        return output
+
+    def local(stage: LocalCompute, output: StageOutput) -> None:
+        events.append(("local-complete", stage.stage_id))
+
+    monkeypatch.setattr(execution, "_validate_source_checks", checked)
     with open_query_sources(
         session._runtime.connection_service(), graph, session.catalog._state
     ) as prepared:
-        with pytest.raises(AnalysisStageUnavailableError, match="bound to its source occurrence"):
-            plan_query(graph, prepared.schemas)
-        with pytest.raises(CoreRuleError, match="exact source contribution occurrence"):
-            plan_query(graph, prepared.schemas, checks=(replace(route, occurrence=(999,)),))
-        assert prepared.source.submissions == []
-        plan = plan_query(graph, prepared.schemas, checks=(route,))
+        plan = plan_query(graph, prepared.schemas)
+        reads = tuple(stage for stage in plan.stages if isinstance(stage, SourceRead))
+        assert len(reads) == 2 and reads[0].occurrence != reads[1].occurrence
+        if same_root:
+            assert reads[0].source_id == reads[1].source_id == "sales.orders"
         lowered = lower_query(plan, prepared.relations)
-
-        def read(stage: SourceRead) -> StageOutput:
-            events.append(stage.source_id)
-            return read_stage(prepared, stage, lowered.read(stage.stage_id))
-
-        def check(requirement: PlannedCheck, output: StageOutput) -> None:
-            assert requirement.obligation == obligation
-            assert requirement.deadline == deadline
-            assert output.table.shape[0] == 1
-            events.append("check")
-            if fail_check:
-                raise ValueError("source check rejected")
-
-        def local(stage: LocalCompute, inputs: tuple[StageOutput, ...]) -> StageOutput:
-            assert events.count("check") == 1
-            events.append("local")
-            # Isolate check scheduling from the numeric combine kernel.
-            return inputs[0]
-
         if fail_check:
-            with pytest.raises(ValueError, match="source check rejected"):
-                run_query_plan(plan, read, local, check)
-            assert events == (["sales.orders"] * (2 if same_root else 1)) + ["check"]
-        else:
-            run_query_plan(plan, read, local, check)
-            assert events == (
-                ["sales.orders", "sales.orders", "check", "local"]
-                if same_root
-                else ["sales.orders", "check", "sales.refunds", "local"]
+            with pytest.raises(SemanticExpressionError, match="non-NA source values") as caught:
+                execute_numeric_query(
+                    prepared,
+                    lowered,
+                    observe_local=local,
+                    source_outputs={read.stage_id: read.stage_id for read in reads},
+                    adapt_source=adapt,
+                )
+            assert caught.value.expected == "non-NA source values"
+            assert caught.value.received == "sum(nulls='error'); coordinates=[]"
+            strict_read = reads[1 if same_root else 0]
+            flags = tuple(
+                name
+                for name, check in lowered.read(strict_read.stage_id).numeric_checks
+                if check.expected == "non-NA source values"
             )
+            assert flags
+            # Ordinary formula demand owns these retained flags. Raising them
+            # during source adaptation would make conditional branches eager.
+            assert any(completed_reads[strict_read.stage_id].table[name].any() for name in flags)
+            assert events == [
+                event
+                for read in reads
+                for event in (
+                    ("check-start", read.stage_id),
+                    ("check-complete", read.stage_id),
+                    ("adapt-and-transport", read.stage_id),
+                )
+            ]
+            assert len(prepared.source.submissions) == 2
+        else:
+            output = execute_numeric_query(
+                prepared,
+                lowered,
+                observe_local=local,
+                source_outputs={read.stage_id: read.stage_id for read in reads},
+                adapt_source=adapt,
+            )
+            assert len(output.table) == 1
+            assert events == [
+                *(
+                    event
+                    for read in reads
+                    for event in (
+                        ("check-start", read.stage_id),
+                        ("check-complete", read.stage_id),
+                        ("adapt-and-transport", read.stage_id),
+                    )
+                ),
+                ("local-complete", plan.publish),
+            ]
+            assert len(prepared.source.submissions) == 2
+    assert session.runs().items == ()
 
 
 @pytest.mark.parametrize("renamed", (False, True))
@@ -735,7 +766,9 @@ def test_source_free_numeric_plan_never_reads(warehouse_session: Session) -> Non
         raise AssertionError("source-free formula submitted a read")
 
     output = run_query_plan(
-        plan, forbidden, lambda stage, inputs: run_local(stage, inputs), lambda check, output: None
+        plan,
+        forbidden,
+        lambda stage, inputs: run_local(stage, inputs),
     )
     assert output.table["value.0"].tolist() == [7]
     assert terminal_runs(session) == ()
@@ -826,7 +859,6 @@ def test_source_free_constant_keeps_calendar(warehouse_session: Session) -> None
         plan_query(graph, ()),
         lambda _: pytest.fail("unexpected read"),
         lambda stage, inputs: run_local(stage, inputs),
-        lambda *_: None,
     )
     assert output.keys == ("key.0",)
     assert output.table["key.0"].tolist() == [0, 1, 2, 3]

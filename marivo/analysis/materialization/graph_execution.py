@@ -10,7 +10,6 @@ from marivo.analysis.compiler.graph_plan import (
     FrameInput,
     FrameKeysInput,
     LocalCompute,
-    PlannedCheck,
     QueryPlan,
     QueryStage,
     SourceRead,
@@ -24,14 +23,13 @@ def run_query_plan(
     plan: QueryPlan,
     read: Callable[[SourceRead], StageValue],
     local: Callable[[LocalCompute, tuple[StageValue, ...]], StageValue],
-    check: Callable[[PlannedCheck, StageValue], None],
     dependent_read: Callable[[SourceRead, tuple[StageValue, ...]], StageValue] | None = None,
     *,
     fixed: Callable[[FrameInput], StageValue] | None = None,
     frame: Callable[[FrameCompute, tuple[StageValue, ...]], StageValue] | None = None,
     finish: Callable[[QueryStage, StageValue], StageValue] | None = None,
 ) -> StageValue:
-    """Run each planned stage once, fulfilling its checks before releasing inputs."""
+    """Run each owner to completion before finishing and releasing its inputs."""
     outputs: dict[str, StageValue] = {}
     remaining = {stage_id: len(consumers) for stage_id, consumers in plan.consumers}
     for stage in plan.stages:
@@ -82,9 +80,6 @@ def run_query_plan(
             output = frame(stage, tuple(outputs[item] for item in stage.inputs))
         else:
             output = local(stage, tuple(outputs[item] for item in stage.inputs))
-        for requirement in plan.checks:
-            if requirement.stage_id == stage.stage_id:
-                check(requirement, output)
         if finish is not None:
             output = finish(stage, output)
         for item in stage.inputs:

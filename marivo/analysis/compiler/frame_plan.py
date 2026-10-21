@@ -25,7 +25,6 @@ from marivo.analysis.compiler.graph_plan import (
     FrameKeysInput,
     FusedLocalProgram,
     LocalCompute,
-    PlannedCheck,
     QueryPlan,
     QueryStage,
     SourceRead,
@@ -206,7 +205,6 @@ def plan_frame(
 ) -> CompiledFramePlan:
     stages: list[QueryStage] = []
     reads: list[LoweredRead] = []
-    checks: list[PlannedCheck] = []
     groups: list[FusionGroup] = []
     decisions: list[RuleDecision] = []
     owners: list[tuple[str, str]] = []
@@ -292,16 +290,11 @@ def plan_frame(
             stages.extend(prefixed)
             for item in child.lowered.reads:
                 reads.append(replace(item, stage_id=names[item.stage_id]))
-            checks.extend(replace(c, stage_id=names[c.stage_id]) for c in child.lowered.plan.checks)
             groups.extend(
                 replace(
                     group,
                     members=tuple(namespace + "/" + member for member in group.members),
                     output=_name(names, group.output, namespace),
-                    checks=tuple(
-                        (_name(names, stage_id, namespace), check_id)
-                        for stage_id, check_id in group.checks
-                    ),
                 )
                 for group in child.lowered.plan.fusion_groups
             )
@@ -569,7 +562,6 @@ def plan_frame(
     )
     plan = QueryPlan(
         tuple(stages),
-        tuple(checks),
         consumers,
         output,
         tuple(tuple(c.slot_id for c in axis.columns) for axis in schema.axes),
