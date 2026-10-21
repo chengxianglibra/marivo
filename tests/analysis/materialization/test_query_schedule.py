@@ -562,13 +562,17 @@ def test_empty_all_na_and_strict_policies(warehouse_session: Session) -> None:
     session = warehouse_session
     amount, _ = _numeric_inputs(session)
     region = _dimension(session, "sales.orders.region")
-    for predicate in (region == "missing", amount.isnull()):
+    for predicate, is_empty in ((region == "missing", True), (amount.isnull(), False)):
         output = _compute(
             session,
             {"sum": amount.sum(), "count": amount.count(), "mean": amount.mean()},
             where=predicate,
         )
-        assert pd.isna(output.table["value.0"].iloc[0])
+        assert (
+            output.table["value.0"].iloc[0] == 0
+            if is_empty
+            else pd.isna(output.table["value.0"].iloc[0])
+        )
         assert output.table["value.1"].iloc[0] == 0
         assert pd.isna(output.table["value.2"].iloc[0])
     with pytest.raises(SemanticExpressionError, match="non-NA source values"):
@@ -618,8 +622,8 @@ def test_complete_keys_and_null_classification(warehouse_session: Session) -> No
     session = warehouse_session
     amount, _ = _numeric_inputs(session)
     region = _dimension(session, "sales.orders.region")
-    left = amount.sum(empty="zero").where(region == "APAC")
-    right = amount.sum(empty="zero").where(region == "EMEA")
+    left = amount.sum().where(region == "APAC")
+    right = amount.sum().where(region == "EMEA")
     output = _compute(session, {"difference": left - right}, by=(region,))
     table = output.table.set_index("key.0")
     assert table.loc["APAC", "value.0"] == 30
@@ -629,9 +633,7 @@ def test_complete_keys_and_null_classification(warehouse_session: Session) -> No
         connection.execute("UPDATE orders SET region = NULL WHERE id = 1")
     finally:
         connection.close()
-    output = _compute(
-        session, {"sum": amount.sum(empty="zero"), "mean": amount.mean()}, by=(region,)
-    )
+    output = _compute(session, {"sum": amount.sum(), "mean": amount.mean()}, by=(region,))
     assert len(output.table) == 3
     assert output.table.loc[output.table["key.0"].isna(), "value.0"].tolist() == [10]
 
@@ -642,7 +644,7 @@ def test_calendar_fills_only_empty_reductions(warehouse_session: Session) -> Non
     calendar = session.time_scope(start="2026-01-05", end="2026-01-09").by(mv.grain("day"))
     output = _compute(session, {"sum": amount.sum(), "mean": amount.mean()}, during=calendar)
     assert output.table["key.0"].tolist() == [0, 1, 2, 3]
-    assert output.table["value.0"].to_dict() == {0: 10, 1: None, 2: 30, 3: None}
+    assert output.table["value.0"].to_dict() == {0: 10, 1: None, 2: 30, 3: 0}
     assert pd.isna(output.table["value.1"].iloc[1]) and pd.isna(output.table["value.1"].iloc[3])
 
 
@@ -799,10 +801,7 @@ def test_local_combination_uses_every_coordinate(warehouse_session: Session) -> 
         connection.close()
     output = _compute(
         session,
-        {
-            "difference": amount.sum(empty="zero").where(customer == 1)
-            - amount.sum(empty="zero").where(customer == 2)
-        },
+        {"difference": amount.sum().where(customer == 1) - amount.sum().where(customer == 2)},
         by=(region, customer),
     )
     assert output.keys == ("key.0", "key.1")

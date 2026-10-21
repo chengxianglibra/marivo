@@ -212,7 +212,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
                 time = session.catalog.fields.get(
                     "sales.readings." + ("recorded_at" if clock == "recorded" else "settled_at")
                 )
-                metric = energy.sum(time=time, empty="zero")
+                metric = energy.sum(time=time)
                 queries[kind + "_" + clock] = session.observe(
                     {"value": metric},
                     by=mv.product(session.time_scope(start=start, end=end), chosen),

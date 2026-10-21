@@ -490,7 +490,7 @@ def test_empty_parent_domain_and_no_fine_rows_keep_complete_payload(
     with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
         connection.execute("DELETE FROM facts")
     parents = mv.coordinates(by=(region,), keys=()) if selected_empty else None
-    endpoint = attribute_endpoint({"q": amount.sum(empty="zero")})
+    endpoint = attribute_endpoint({"q": amount.sum()})
     captured: list[AttributeMethodProduction] = []
     original = frame_evaluation._attribute_productions
 
@@ -527,8 +527,8 @@ def test_exact_large_value_beside_known_empty_parent(session: Session, tmp_path:
     parents = mv.coordinates(by=(region,), keys=(("east",), ("west",)))
     rows = (
         session.attribute(
-            attribute_endpoint({"q": amount.sum(empty="zero")}, where=phase == "current"),
-            attribute_endpoint({"q": amount.sum(empty="zero")}, where=phase == "base"),
+            attribute_endpoint({"q": amount.sum()}, where=phase == "current"),
+            attribute_endpoint({"q": amount.sum()}, where=phase == "base"),
             parents=parents,
             by=(channel,),
             contribution=True,

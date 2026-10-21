@@ -86,7 +86,7 @@ def test_calendar_dependency_closure_keeps_explicit_certification(
 
 @pytest.mark.parametrize(
     ("end", "expected"),
-    [("2026-02-01", 120), ("2026-02-02", None), ("2026-02-04", 7), ("2026-03-01", 7)],
+    [("2026-02-01", 120), ("2026-02-02", 0), ("2026-02-04", 7), ("2026-03-01", 7)],
 )
 def test_named_and_anonymous_scalar_windows_preserve_reset_and_null_semantics(
     calendar_window_project: SemanticCatalog, end: str, expected: int | None
@@ -136,8 +136,7 @@ def test_named_calendar_window_freezes_snapshot_before_execution(
     monkeypatch.setattr(TemporalSnapshotStore, "inspect_current", forbidden)
     assert _source_graph(query).fingerprint == original
     data = query.compute().to_pandas()
-    assert data[("value", "total")].isna().tolist() == [False, True, True, False]
-    assert data[("value", "total")].dropna().tolist() == [120, 7]
+    assert data[("value", "total")].tolist() == [120, 0, 0, 7]
 
 
 @pytest.mark.parametrize("bucketed", [False, True])

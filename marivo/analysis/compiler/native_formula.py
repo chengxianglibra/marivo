@@ -22,6 +22,17 @@ def align_native_inputs(
     alignment: Literal["outer", "domain"] = "outer",
 ) -> ir.Table:
     """Align completed root results; never combine their raw contribution rows."""
+    markers = {name: f"__formula_present_{index}" for index, name in enumerate(zeros)}
+    tables = tuple(
+        table.mutate(
+            **{
+                marker: ibis.literal(True)
+                for name, marker in markers.items()
+                if name in table.columns
+            }
+        )
+        for table in tables
+    )
     combined = tables[0]
     remaining = tables[1:]
     if alignment == "domain" and keys and remaining:
@@ -45,11 +56,16 @@ def align_native_inputs(
                 **{name: table[name] for name in table.columns if name not in keys},
             }
         )
-    return (
-        combined.mutate(**{name: combined[name].fill_null(0) for name in zeros})
-        if zeros
-        else combined
-    )
+    if markers:
+        combined = combined.mutate(
+            **{
+                name: combined[marker]
+                .fill_null(False)
+                .ifelse(combined[name], ibis.literal(0).cast(combined[name].type()))
+                for name, marker in markers.items()
+            }
+        ).drop(*markers.values())
+    return combined
 
 
 def lower_native_formula(
@@ -100,7 +116,7 @@ def lower_native_formula(
     combined = align_native_inputs(
         tuple(tables),
         keys,
-        tuple(binding.column.slot_id for binding in program.values if binding.empty_zero),
+        tuple(binding.column.slot_id for binding in program.values if binding.zero_when_absent),
         alignment=alignment,
     )
     if parent is not None:

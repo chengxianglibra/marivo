@@ -112,6 +112,6 @@ Entity/Source、Dimension/TimeDimension 保留受限 Ibis 能力。上面的 nor
 
 ## 旧声明的人工改写
 
-旧 aggregate/count/where/ratio/weighted_mean/linear/cumulative 工厂、默认 fold、time_via、fanout_policy、approx_* 和全局值政策不再被接受。结构化错误保留原输入并指出改写位置。来源和内部样本 sum 默认 empty="null"；无有效贡献需要返回 0 时显式使用 empty="zero"。迁移还须保持贡献集和输出域；重叠标签分桶也不能冒充存在筛选。
+旧 aggregate/count/where/ratio/weighted_mean/linear/cumulative 工厂、默认 fold、time_via、fanout_policy、approx_* 和全局值政策不再被接受。结构化错误保留原输入并指出改写位置。来源和内部样本 sum 使用固定规则：空输入返回 0，有输入但全 NULL 返回 NULL，混合输入累加有效值；不再接受 empty 参数。字段读取和数值计算一致拒绝真正的 NaN/Infinity。迁移还须保持贡献集和输出域；重叠标签分桶也不能冒充存在筛选。
 
 从 marivo.help("authoring") 进入，再查 semantic.measure、semantic.metric、semantic.expressions 和实际接收者的 focused Help。构造成功、物理叶子 load/readiness、Catalog 发布和真实执行是不同证据。

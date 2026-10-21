@@ -571,7 +571,7 @@ def _source_signature(request: AttributeSourceRequest) -> tuple[object, ...]:
         None if request.window is None else request.window.rule,
     )
     if isinstance(node, SourceAggregate):
-        return (*identity, node.reducer, node.nulls, node.empty, node.q, node.rule_version)
+        return (*identity, node.reducer, node.nulls, node.q, node.rule_version)
     if isinstance(node, SourceWeightedMean):
         return (*identity, "weighted_mean", node.nulls, node.zero_denominator, node.rule_version)
     return (*identity, "entity_count")

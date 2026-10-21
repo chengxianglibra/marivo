@@ -398,7 +398,7 @@ def test_sparse_calendar_joint_groups_and_fixed_populations(
         (1, "north", "web"),
         (1, "south", "shop"),
     ]
-    assert explicit[("value", "total")].to_dict() == {0: 10, 1: 30, 2: 50, 3: None}
+    assert explicit[("value", "total")].to_dict() == {0: 10, 1: 30, 2: 50, 3: 0}
     orders = session.catalog.entities.get("sales.orders")
     selected = mv.coordinates(by=(mv.identity(orders),), keys=(((2,),), ((5,),)))
     filtered = (
@@ -422,7 +422,7 @@ def test_sparse_calendar_joint_groups_and_fixed_populations(
         .compute()
         .to_pandas()
     )
-    assert hard[("value", "history")].to_dict() == {0: None, 1: 150}
+    assert hard[("value", "history")].to_dict() == {0: 0, 1: 150}
 
 
 def test_window_recomputes_history_ratio_and_distinct(
@@ -557,7 +557,7 @@ def test_hour_reset_preserves_both_aware_fold_buckets(
         .compute()
         .to_pandas()
     )
-    assert values[("value", "hourly")].isna().tolist() == [True, False, False]
+    assert values[("value", "hourly")].tolist() == [0, 10, 30]
     assert values[("value", "hourly")].iloc[1:].tolist() == [10, 30]
 
 
@@ -571,7 +571,7 @@ def test_calendar_population_axis_order(window_session: Session, calendar_first:
     domain = mv.product(calendar, customers) if calendar_first else mv.product(customers, calendar)
     completed = session.observe({"revenue": revenue}, by=domain).compute()
     result = completed.to_pandas()
-    assert result[("value", "revenue")].to_dict() == {0: 20, 1: None, 2: None, 3: None}
+    assert result[("value", "revenue")].to_dict() == {0: 20, 1: 0, 2: 0, 3: 0}
     assert len(result) == 4
     days = [datetime(2026, 10, 7, tzinfo=timezone.utc), datetime(2026, 10, 8, tzinfo=timezone.utc)]
     assert result.iloc[:, 0].tolist() == ([0, 0, 1, 1] if calendar_first else [7, 7, 8, 8])
@@ -606,8 +606,8 @@ def test_per_calendar_population_retains_empty_samples(window_session: Session) 
         .compute()
         .to_pandas()
     )
-    assert result[("value", "mean")].tolist() == [20.0]
-    assert result[("value", "reverse_mean")].tolist() == [20.0]
+    assert result[("value", "mean")].tolist() == [5.0]
+    assert result[("value", "reverse_mean")].tolist() == [5.0]
 
 
 def test_source_population_calendar_product(window_session: Session) -> None:
@@ -620,9 +620,9 @@ def test_source_population_calendar_product(window_session: Session) -> None:
     calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))
     samples = mv.product(customers, calendar)
     result = session.observe({"revenue": revenue}, by=samples).compute().to_pandas()
-    assert result[("value", "revenue")].to_dict() == {0: 20, 1: None}
+    assert result[("value", "revenue")].to_dict() == {0: 20, 1: 0}
     average = session.observe({"mean": revenue.per(samples).mean()}).compute().to_pandas()
-    assert average[("value", "mean")].tolist() == [20.0]
+    assert average[("value", "mean")].tolist() == [10.0]
 
 
 def test_population_calendar_supplies_explicit_window_endpoints(window_session: Session) -> None:
@@ -659,8 +659,8 @@ def test_interval_selection_keeps_window_history_and_hard_fact_filter(
         .compute()
         .to_pandas()
     )
-    assert rows[("value", "ordinary")].to_dict() == {0: 20, 1: None}
-    assert rows[("value", "history")].to_dict() == {0: 120, 1: None}
+    assert rows[("value", "ordinary")].to_dict() == {0: 20, 1: 0}
+    assert rows[("value", "history")].to_dict() == {0: 120, 1: 0}
     restricted = (
         session.observe(
             {"history": amount.sum().window(mv.all_history())},
@@ -699,7 +699,7 @@ def test_interval_internal_sample_domain_keeps_its_own_time(window_session: Sess
         .compute()
         .to_pandas()
     )
-    assert rows[("value", "mean")].tolist() == [20.0]
+    assert rows[("value", "mean")].tolist() == [10.0]
     assert len(rows.columns) == 1
 
 
@@ -732,7 +732,7 @@ def test_time_product_reuses_checked_domain_with_direct_count(
 
     monkeypatch.setattr(SourceSession, "execute", record)
     rows = frame.compute().to_pandas()
-    assert rows[("value", "value")].to_dict() == {0: None, 1: 20}
+    assert rows[("value", "value")].to_dict() == {0: 0, 1: 20}
     assert rows[("value", "people")].tolist() == [1, 1]
     assert len([purpose for purpose in reads if purpose.startswith("query.")]) == 2
     with duckdb.connect(str(session.project_root / "windows.duckdb")) as connection:

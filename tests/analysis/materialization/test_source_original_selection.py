@@ -169,7 +169,7 @@ def _selected_original_case(
         category = session.catalog.fields.get("sales.facts.category")
         tenant = session.catalog.fields.get("sales.facts.tenant")
         axes = (tenant, category) if operation == "rollup" else (category,)
-        fine = session.observe({"value": amount.sum(empty="zero")}, by=axes)
+        fine = session.observe({"value": amount.sum()}, by=axes)
         fixed = fine.top(0 if operation == "empty" else 1, by=fine["value"]).compute()
         initial = fixed.to_pandas()
         if operation != "empty":
@@ -181,20 +181,18 @@ def _selected_original_case(
         _mutate(backend, case, mutation)
         if operation == "rollup":
             query = session.observe(
-                {"value": amount.sum(empty="zero")},
+                {"value": amount.sum()},
                 by=keys.project(by=(tenant,)),
                 where=mv.in_population(keys),
             )
         elif operation == "drill":
             query = session.observe(
-                {"value": amount.sum(empty="zero")},
+                {"value": amount.sum()},
                 by=(category, tenant),
                 where=mv.in_population(keys),
             )
         else:
-            query = session.observe(
-                {"value": amount.sum(empty="zero")}, where=mv.in_population(keys)
-            )
+            query = session.observe({"value": amount.sum()}, where=mv.in_population(keys))
         trace = capture_source(monkeypatch)
         frame = query.compute().to_pandas()
         if operation == "rollup":
@@ -405,7 +403,7 @@ def test_parquet_selected_original_rereads_file_without_reselecting_parent(
     amount = session.catalog.fields.get("sales.facts.amount")
     tenant = session.catalog.fields.get("sales.facts.tenant")
     category = session.catalog.fields.get("sales.facts.category")
-    fine = session.observe({"value": amount.sum(empty="zero")}, by=(tenant, category))
+    fine = session.observe({"value": amount.sum()}, by=(tenant, category))
     fixed = fine.top(1, by=fine["value"]).compute()
     initial = fixed.to_pandas()
     assert initial.iloc[:, 0].tolist() == ["t1"]
@@ -424,7 +422,7 @@ def test_parquet_selected_original_rereads_file_without_reselecting_parent(
     trace = capture_source(monkeypatch)
     frame = (
         session.observe(
-            {"value": amount.sum(empty="zero")},
+            {"value": amount.sum()},
             by=keys.project(by=(tenant,)),
             where=mv.in_population(keys),
         )

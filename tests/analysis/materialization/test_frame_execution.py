@@ -486,3 +486,15 @@ def test_complete_float_validation_preserves_na() -> None:
         output = constructor(rows, schema.columns, schema.key_fields)
         checked = normalize_complete_frame(output.table, output.columns, output.keys)
         assert checked.iloc[[1]][["a", "b"]].isna().all().all()
+
+
+@pytest.mark.parametrize("invalid", [float("nan"), float("inf"), -float("inf")])
+def test_arrow_valid_nonfinite_is_not_a_missing_value(invalid: float) -> None:
+    import pyarrow as pa
+
+    schema, rows = _float_rows()
+    rows["b"] = pd.Series(
+        pd.arrays.ArrowExtensionArray(pa.array([invalid], type=pa.float64(), from_pandas=False))
+    )
+    with pytest.raises(AnalysisError, match="finite"):
+        CompletedFrameData(schema, rows)

@@ -761,10 +761,7 @@ def _plan_query(
                 isinstance(node, EntityCount)
                 or (
                     isinstance(node, SourceAggregate)
-                    and (
-                        node.reducer in ("count", "count_distinct", "approx_nunique")
-                        or (node.reducer == "sum" and node.empty == "zero")
-                    )
+                    and (node.reducer in ("sum", "count", "count_distinct", "approx_nunique"))
                 ),
                 tuple((name, check.expected, check.received) for name, check in numeric_checks),
                 keys=tuple(c.slot_id for c in stage_keys),

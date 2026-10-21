@@ -345,7 +345,7 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
         tenant = session.catalog.fields.get("sales.facts.tenant")
         category = session.catalog.fields.get("sales.facts.category")
         day = session.catalog.fields.get("sales.facts.day")
-        metric = amount.sum(time=day, empty="null")
+        metric = amount.sum(time=day)
         current = session.time_scope(start="2026-10-08", end="2026-10-09")
         baseline = session.time_scope(start="2026-10-07", end="2026-10-08")
         selection = session.observe({"q": metric}, by=(current, tenant))

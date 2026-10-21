@@ -210,7 +210,7 @@ def test_selected_empty_parent_retains_known_empty_without_fine_rows(
         if not empty:
             leaf = root.layout.leaves[0]
             assert root.parent.loc[0, leaf.support.slot_id] == 0
-            assert pd.isna(root.parent.loc[0, require_reduction(leaf.read).value_slot])
+            assert root.parent.loc[0, require_reduction(leaf.read).value_slot] == 0
             assert root.parent.loc[0, leaf.roles[0][1].slot_id] == 0
 
 
@@ -801,7 +801,7 @@ def test_mixed_known_empty_parent_preserves_exact_nullable_integer(
             root.parent, root.layout.parent_keys, require_reduction(leaf.read).value_slot
         )
         assert original[("east",)] == exact
-        assert pd.isna([original[("absent",)]])[0]
+        assert original[("absent",)] == 0
         assert _keyed_values(root.parent, root.layout.parent_keys, leaf.support.slot_id) == {
             ("east",): 2,
             ("absent",): 0,

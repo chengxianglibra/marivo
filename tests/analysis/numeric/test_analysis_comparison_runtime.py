@@ -179,12 +179,14 @@ def test_public_numeric_difference_source_and_fixed(
         amount = session.catalog.fields.get("sales.order.amount")
         time = session.catalog.fields.get("sales.order.ordered_at")
         nullable = session.observe(
-            {"value": amount.sum(time=time, empty="null")},
+            {"value": amount.sum(time=time)},
             by=mv.product(
                 session.time_scope(start="2026-09-01", end="2026-10-01"),
                 session.members(session.catalog.entities.get("sales.customer")),
             ),
         )
+        # A missing Duration expression remains NULL, unlike an empty sum.
+        nullable = nullable.select({"value": nullable["value"].divide(0)})
         null_saved = nullable.compare(
             {"reference": current},
             on={"reference": tuple(zip(nullable.axes, current.axes, strict=True))},
@@ -368,7 +370,7 @@ def test_cohort_group_metric_empty_preserves_metric_null_policy(
         session.catalog.fields.get("sales.order." + name) for name in ("amount", "ordered_at")
     )
     metrics = {
-        "revenue": amount.sum(time=time, empty="null"),
+        "revenue": amount.sum(time=time),
         "order_count": session.catalog.metrics.get("sales.order_count"),
     }
     metrics["count_ratio"] = metrics["order_count"] / metrics["order_count"]
@@ -684,9 +686,9 @@ def test_union_keeps_present_nondefined_cell_separate_from_absence(
     amount, time = (
         session.catalog.fields.get("sales.order." + name) for name in ("amount", "ordered_at")
     )
-    for metric in (
-        amount.sum(time=time, empty="null"),
-        session.catalog.metrics.get("sales.order_count") / amount.sum(time=time),
+    for metric, empty_value in (
+        (amount.sum(time=time), 0),
+        (session.catalog.metrics.get("sales.order_count") / amount.sum(time=time), None),
     ):
 
         def observe(population: mv.Population, metric: Deferred = metric) -> mv.AnalysisFrame:
@@ -710,7 +712,8 @@ def test_union_keeps_present_nondefined_cell_separate_from_absence(
         assert frame.loc[["south", "west"], "reference.absolute.value"].isna().all()
         assert not frame.loc[["south", "west"], "presence.current.present"].any()
         assert frame.loc[["south", "west"], "presence.reference.present"].all()
-        assert pd.isna(frame.loc["west", "reference.baseline.value"])
+        baseline_value = frame.loc["west", "reference.baseline.value"]
+        assert pd.isna(baseline_value) if empty_value is None else baseline_value == empty_value
         pd.testing.assert_frame_equal(
             result.to_pandas(), session.persisted_frame(result.artifact.id).to_pandas()
         )

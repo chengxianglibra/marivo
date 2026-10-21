@@ -94,17 +94,11 @@ def test_nullable_selection_keeps_positive_values_and_offline_export(
     import duckdb
 
     case = analysis_dsl_case_factory("j2")
-    model = case.root / "models/semantic/sales/models.py"
-    model.write_text(
-        model.read_text().replace(
-            'return amount_value.sum(time=time_value, empty="zero")',
-            "return amount_value.sum(time=time_value)",
-            1,
-        )
-    )
     with duckdb.connect(str(case.database_path)) as connection:
+        connection.execute('DELETE FROM "order" WHERE customer_id=?', ["D"])
         connection.execute(
-            f'DELETE FROM "{case.names.order}" WHERE "{case.names.customer_id}" = ?', ["D"]
+            'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?)',
+            ["unknown-D", "D", "web", "paid", "2026-08-15T12:00:00+00:00", None],
         )
     values = _amounts(case)
     original = values.persist()

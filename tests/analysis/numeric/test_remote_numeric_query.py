@@ -90,7 +90,7 @@ def _project(
             + "big=ms.measure_column(name='big',entity=facts,column='big',additivity=ms.additive_all())\n"
             + "weight=ms.measure_column(name='weight',entity=facts,column='weight',additivity=ms.additive_all())\n"
             + "frozen=ms.finalize()\na=frozen.resolve(amount)\nb=frozen.resolve(big)\nw=frozen.resolve(weight)\n"
-            + "@ms.metric()\ndef total():\n    return a.sum(empty='null')\n"
+            + "@ms.metric()\ndef total():\n    return a.sum()\n"
             + "@ms.metric()\ndef minimum():\n    return a.min()\n"
             + "@ms.metric()\ndef maximum():\n    return a.max()\n"
             + "@ms.metric()\ndef count():\n    return a.count()\n"
@@ -98,7 +98,7 @@ def _project(
             + "@ms.metric()\ndef weighted():\n    return a.weighted_mean(weight=w)\n"
             + "@ms.metric()\ndef distinct():\n    return a.count_distinct()\n"
             + "@ms.metric()\ndef quantile():\n    return a.quantile(q=0.5)\n"
-            + "@ms.metric()\ndef empty():\n    return a.sum(empty='null').where(a>100)\n"
+            + "@ms.metric()\ndef empty():\n    return a.sum().where(a>100)\n"
             + "@ms.metric()\ndef zero_error():\n    return a.weighted_mean(weight=w-w,zero_denominator='error')\n",
         }
     )
@@ -419,7 +419,7 @@ def test_native_time_dependencies_and_drill(
         cumulative = session.observe({"total": window}, by=(scope,)).compute().to_pandas()
         assert [float(value) for value in cumulative[("value", "total")]] == [4.0, 4.0]
         empty = session.observe({"empty": session.catalog.metrics.get("sales.empty")}).compute()
-        assert empty.to_pandas()[("value", "empty")].isna().all()
+        assert empty.to_pandas()[("value", "empty")].tolist() == [Decimal("0.00")]
         from marivo.analysis.errors import AnalysisError
         from tests.analysis.materialization.publication_fixtures import publication_counts
 
@@ -459,9 +459,9 @@ def test_mixed_predicate_keeps_null_rows_and_complete_identity_membership(
             (member & field, 0, set()),
             (~(field | member), 0, set()),
         ):
-            observed = session.observe({"weight": weight.sum(empty="zero")}, where=condition)
+            observed = session.observe({"weight": weight.sum()}, where=condition)
             assert observed.compute().to_pandas()[("value", "weight")].tolist() == [total]
-            scoped = session.observe({"weight": weight.sum(empty="zero").where(condition)})
+            scoped = session.observe({"weight": weight.sum().where(condition)})
             assert scoped.compute().to_pandas()[("value", "weight")].tolist() == [total]
             selected = session.frame(session.members(entity, where=condition)).compute().to_pandas()
             assert set(selected.iloc[:, 0].tolist()) == identities
@@ -544,7 +544,7 @@ def test_same_source_read_filter_population_consumer(
             on=((selection_values.axes[0], session.catalog.entities.get("sales.facts")),),
         )
         consumer = session.observe(
-            {"weight": weight.sum(empty="zero")},
+            {"weight": weight.sum()},
             by=() if selection == "nul" else (category,),
             where=mv.in_population(selected),
         )
@@ -596,9 +596,7 @@ def test_same_source_read_filter_population_consumer(
                 statements.clear()
                 uploads.clear()
                 result = (
-                    session.observe({"weight": weight.sum(empty="zero")}, where=condition)
-                    .compute()
-                    .to_pandas()
+                    session.observe({"weight": weight.sum()}, where=condition).compute().to_pandas()
                 )
                 assert result[("value", "weight")].tolist() == [expected]
                 assert_source_read()

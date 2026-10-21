@@ -78,7 +78,6 @@ from marivo.analysis.compiler.observation import FormulaProgram, PopulationInput
 from marivo.analysis.compiler.optimization import RuleDecision, required_slots
 from marivo.analysis.compiler.query_program import ResultProgram, SourceParameter
 from marivo.analysis.compiler.source_predicates import (
-    query_numeric_value,
     source_parameter_comparisons,
     string_without_collation,
 )
@@ -788,8 +787,13 @@ def native_query_relation(
                     column.dtype == ScalarDataType("float64") for column in stage.columns
                 ):
                     return "floating producer slots retain pandas missing-value semantics"
-                if any(name not in admitted for name, _ in read.numeric_checks) or {
-                    name for name, _ in read.numeric_checks
+                if any(
+                    name not in admitted and not name.startswith("__field_nonfinite_")
+                    for name, _ in read.numeric_checks
+                ) or {
+                    name
+                    for name, _ in read.numeric_checks
+                    if not name.startswith("__field_nonfinite_")
                 } != {name for name, _, _ in stage.preparation_checks}:
                     return "field producer retains an unsupported check"
             elif (
@@ -847,7 +851,7 @@ def native_query_relation(
                         expression[column.slot_id], owner.provider.name
                     )
                     if expression[column.slot_id].type().is_string()
-                    else query_numeric_value(expression[column.slot_id], owner.provider.name)
+                    else expression[column.slot_id]
                     for column in stage.columns
                 }
             )
@@ -1098,7 +1102,6 @@ def native_query_relation(
                     "clickhouse",
                 ):
                     return "Top-N retains pandas floating missing-score semantics"
-                score = query_numeric_value(score, owner.provider.name)
                 score = (
                     _string_bytes(score, owner.provider.name) if score.type().is_string() else score
                 )
@@ -1136,16 +1139,18 @@ def native_query_relation(
                     elif statistic.method == "sum" and isinstance(statistic.value, ValueSlot):
                         value = values[statistic.value.index]
                         if value.type().is_integer():
-                            aggregates[slot] = value.cast("decimal(38,0)").sum()
+                            total = value.cast("decimal(38,0)").sum()
+                            aggregates[slot] = (expression.count() == 0).ifelse(
+                                ibis.literal(0).cast(total.type()), total
+                            )
                             checked_sums.append(slot)
                         elif value.type().is_floating() or value.type().is_decimal():
-                            value = query_numeric_value(value, owner.provider.name)
                             if value.type().is_floating():
                                 floating_sums.append(slot)
                                 checks = (
                                     *checks,
                                     NumericCheck(
-                                        value.notnull() & value.isinf(),
+                                        value.notnull() & (value.isnan() | value.isinf()),
                                         "a qualified finite value statistic",
                                         "float64 state has a nonfinite component",
                                     ),
@@ -1155,8 +1160,8 @@ def native_query_relation(
                                 assert isinstance(dtype, DecimalDataType)
                                 decimal_sums[slot] = dtype
                             total = value.sum()
-                            aggregates[slot] = (value.count() > 0).ifelse(
-                                total, ibis.null().cast(total.type().copy(nullable=True))
+                            aggregates[slot] = (expression.count() == 0).ifelse(
+                                ibis.literal(0).cast(total.type()), total
                             )
                         else:
                             return "cell sum retains its exact Duration finisher"

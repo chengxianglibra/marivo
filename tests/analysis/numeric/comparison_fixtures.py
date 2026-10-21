@@ -10,7 +10,7 @@ from marivo.analysis.core.data_types import ScalarDataType
 
 Operation = Literal["nested", "union", "ratio"]
 COMPLETE = {("a", 2**53, 1), ("a", 2**53 + 1, 2), ("b", 2**53 + 1, 1)}
-DEFINED = {("a", 2**53, 1): 2, ("a", 2**53 + 1, 2): 0, ("b", 2**53 + 1, 1): 4}
+DEFINED = {("a", 2**53, 1): 2, ("a", 2**53 + 1, 2): None, ("b", 2**53 + 1, 1): 4}
 
 
 def comparison_queries(session: mv.Session) -> dict[Operation, mv.AnalysisFrame]:
@@ -78,9 +78,12 @@ def assert_comparison(result: mv.AnalysisFrame, operation: Operation) -> None:
         ScalarDataType("int64"),
     ]
     if operation == "nested":
-        assert values == DEFINED and set(values) == COMPLETE
+        assert {key: None if pd.isna(value) else value for key, value in values.items()} == DEFINED
+        assert set(values) == COMPLETE
     elif operation == "union":
-        assert set(values) == {key for key, value in DEFINED.items() if value > 0}
+        assert set(values) == {
+            key for key, value in DEFINED.items() if value is not None and value > 0
+        }
         assert frame[("value", "value")].isna().all()
         assert frame[("presence", "current.present")].all()
         assert not frame[("presence", "reference.present")].any()

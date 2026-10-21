@@ -9,7 +9,9 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.compiler.source_predicates import query_numeric_value
+from marivo.analysis.compiler.graph_lowering import lower_query
+from marivo.analysis.compiler.graph_plan import ProjectionRead, QueryPlan, SourceRead
+from marivo.analysis.core.data_types import DataColumn, ScalarDataType
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project
@@ -20,7 +22,9 @@ CASES = [("trino", "iceberg"), ("clickhouse", "mergetree")]
 
 
 def _data(boundary: str = "ordinary") -> SourceData:
-    amounts = (2.5, None, float("nan"), 2.5, -1.0, 0.0)
+    amounts = (2.5, None, None, 2.5, -1.0, 0.0)
+    if boundary == "nan":
+        amounts = (2.5, None, float("nan"), 2.5, -1.0, 0.0)
     integers: tuple[int | None, ...] = (10, 20, 30, 40, 50, 60)
     if boundary == "strict":
         amounts = (2.5, None, 1.0, 2.5, -1.0, 0.0)
@@ -63,25 +67,22 @@ def _data(boundary: str = "ordinary") -> SourceData:
 
 
 @pytest.mark.parametrize("provider", ("trino", "clickhouse"))
-def test_numeric_missing_value_compiles_before_filter_and_order(provider: str) -> None:
-    table = ibis.table(
-        {"id": "int64", "value": ibis.dtype("float64").copy(nullable=False)}, name="facts"
+def test_source_field_finite_checks_compile_nan_and_infinity(provider: str) -> None:
+    table = ibis.table({"value": "float64"}, name="facts")
+    column = DataColumn("value", "value", ScalarDataType("float64"), True)
+    stage = SourceRead(
+        "read", "facts", (), (column,), (), ProjectionRead((("value", "value"),)), (), (), None
     )
-    value = query_numeric_value(table.value, provider)
-    result = (
-        table.mutate(value=value)
-        .filter(value > 0.5)
-        .order_by(value.desc(nulls_first=False), table.id.asc())
-    )
-    sql = ibis.to_sql(result, dialect=provider).upper()
+    plan = QueryPlan((stage,), (), "read", ())
+    read = lower_query(plan, {"facts": table}).reads[0]
+    sql = ibis.to_sql(read.expression, dialect=provider).upper()
     assert ("IS_NAN" if provider == "trino" else "ISNAN") in sql
-    assert "NULL" in sql
-    if provider == "clickhouse":
-        assert "NULLABLE(FLOAT64)" in sql
+    assert ("IS_INFINITE" if provider == "trino" else "ISINFINITE") in sql
+    assert len(read.numeric_checks) == 1
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
-def test_native_numeric_field_filters_and_top_keep_nan_as_missing(
+def test_native_numeric_field_filters_and_top_preserve_nulls(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -295,14 +296,14 @@ def test_numeric_attribute_cardinality_failure_survives_empty_top(
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
-def test_nonnullable_float_source_uses_nullable_nan_branch(
+def test_nonnullable_float_source_rejects_nan_before_filter_and_top(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     backend: str,
     profile: str,
 ) -> None:
-    data = _data()
+    data = _data("nan")
     data = SourceData(
         data.columns.replace("amount DOUBLE,", "amount DOUBLE NOT NULL,"),
         data.values.replace(",'A',NULL,", ",'A',0.0,"),
@@ -318,7 +319,7 @@ def test_nonnullable_float_source_uses_nullable_nan_branch(
             {"amount": session.catalog.fields.get("sales.facts.amount")},
         )
         trace = capture_source(monkeypatch)
-        frame = source.where(source["amount"].is_null()).compute().to_pandas()
-        assert frame[("coordinate", "axis.0")].tolist() == [("t3", 3)]
-        top = source.top(2, by=source["amount"]).compute().to_pandas()
-        assert top[("coordinate", "axis.0")].tolist() == [("t1", 1), ("t4", 4)]
+        for frame in (source.where(source["amount"].is_null()), source.top(0, by=source["amount"])):
+            with pytest.raises(MaterializationError, match="finite"):
+                frame.compute()
+        assert trace.uploaded_key_rows == []

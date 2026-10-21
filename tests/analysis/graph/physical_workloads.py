@@ -419,8 +419,12 @@ def _author(
     code += "frozen=ms.finalize()\n"
     for name in ("facts", "other"):
         code += f"{name}_value=frozen.resolve({name}_amount)\n{name}_yvalue=frozen.resolve({name}_y)\n{name}_clock=frozen.resolve({name}_time)\n"
-        code += f"@ms.metric()\ndef {name}_total():\n    return {name}_value.sum(empty='zero', time={name}_clock)\n"
-        code += f"@ms.metric()\ndef {name}_ysum():\n    return {name}_yvalue.sum(empty='zero', time={name}_clock)\n"
+        code += (
+            f"@ms.metric()\ndef {name}_total():\n    return {name}_value.sum(time={name}_clock)\n"
+        )
+        code += (
+            f"@ms.metric()\ndef {name}_ysum():\n    return {name}_yvalue.sum(time={name}_clock)\n"
+        )
     code += "@ms.metric()\ndef average():\n    return facts_value.mean(time=facts_clock)\n"
     code += (
         "@ms.metric()\ndef distinct():\n    return facts_value.count_distinct(time=facts_clock)\n"
@@ -461,10 +465,12 @@ class Workload:
         )
 
     def validate(self, result: mv.AnalysisFrame) -> dict[str, bool]:
-        expected = sum(_integer(row["amount"]) for row in self.rows if row["amount"] is not None)
+        valid = [_integer(row["amount"]) for row in self.rows if row["amount"] is not None]
+        expected = sum(valid) if valid or not self.rows else None
         assert isinstance(result._backing, (MemoryFrameBacking, StoredFrameBacking))
         frame = result.to_pandas()
-        assert frame[("value", "value")].tolist() == [expected]
+        values = frame[("value", "value")]
+        assert values.isna().all() if expected is None else values.tolist() == [expected]
         assert len(frame) == 1
         assert tuple(axis.role for axis in result.axes) in ((), ("interval",))
         attachments = (

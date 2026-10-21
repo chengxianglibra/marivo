@@ -145,7 +145,7 @@ def test_empty_numeric_row_state(analysis_dsl_case_factory: DslCaseFactory) -> N
         {"sum": observed["value"].sum(), "mean": observed["value"].mean(), "count": mv.row_count()}
     ).persist()
     row = result.to_pandas().iloc[0]
-    assert pd.isna(row[("value", "sum")]) and row[("value", "count")] == 0
+    assert row[("value", "sum")] == 0 and row[("value", "count")] == 0
     assert pd.isna(row[("value", "mean")])
     assert case.session.persisted_frame(result.artifact.id).to_pandas().equals(result.to_pandas())
 

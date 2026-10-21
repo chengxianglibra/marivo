@@ -86,7 +86,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
         device = session.catalog.fields.get("operations.reading.device_id")
         sensor = session.catalog.fields.get("operations.reading.sensor")
         scope = session.time_scope(start="2026-08-01", end="2026-09-01")
-        metric = amount.sum(time=time, empty="null")
+        metric = amount.sum(time=time)
         base = session.observe({"value": metric}, by=mv.product(scope, members))
         category_query = session.read(members, {"value": category})
         coordinates = session.observe(

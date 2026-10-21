@@ -2440,8 +2440,6 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                         "weight",
                     )
                 )
-            if method == "sum":
-                inputs.append(_parameter_input("dependency", "Text", "empty", optional=True))
             if method in {"first", "last"}:
                 inputs.extend(
                     (
@@ -2485,8 +2483,9 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                 )
             else:
                 summary += (
-                    "sum requires business permission, defaults empty/all-NA to null, and supports explicit "
-                    "empty=zero. window accepts a source-free rule and rejects nested windows. "
+                    "sum requires business permission; empty input returns zero and nonempty all-NA input returns null. "
+                    "Numeric inputs must be finite or NULL; actual NaN/Infinity are errors. "
+                    "window accepts a source-free rule and rejects nested windows. "
                     "Divide defaults to null for a zero denominator; error stays on this operation."
                 )
             rows.append(

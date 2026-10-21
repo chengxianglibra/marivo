@@ -78,14 +78,12 @@ def _session(
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
-@pytest.mark.parametrize("empty", ("zero", "null"))
 def test_remote_per_rollup_combines_shared_sample_before_empty_domain_mean(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     backend: str,
     profile: str,
-    empty: str,
 ) -> None:
     with _session(backend, profile, tmp_path, monkeypatch, semantic_project_factory) as (
         session,
@@ -95,11 +93,11 @@ def test_remote_per_rollup_combines_shared_sample_before_empty_domain_mean(
         customer = session.catalog.fields.get("sales.facts.customer")
         channel = session.catalog.fields.get("sales.facts.channel")
         samples = mv.coordinates(by=(customer,), keys=(("A",), ("B",), ("C",)))
-        metric = amount.sum(empty=empty).per(samples).mean()
+        metric = amount.sum().per(samples).mean()
         query = session.observe({"value": metric})
         trace = capture_source(monkeypatch)
         frame = query.compute().to_pandas()
-        assert frame["value", "value"].tolist() == [400 / 3 if empty == "zero" else 400]
+        assert frame["value", "value"].tolist() == [400 / 3]
         assert not any(
             "__original_value" in name for names in trace.returned_columns for name in names
         )
@@ -175,9 +173,7 @@ def test_remote_selected_per_rollup_recomputes_complete_shared_sample_union(
         customer = session.catalog.fields.get("sales.facts.customer")
         channel = session.catalog.fields.get("sales.facts.channel")
         samples = mv.coordinates(by=(customer,), keys=(("A",), ("B",), ("C",)))
-        fine = session.observe(
-            {"value": amount.sum(empty="zero").per(samples).mean()}, by=(channel,)
-        )
+        fine = session.observe({"value": amount.sum().per(samples).mean()}, by=(channel,))
         selected = (
             fine.where(fine["value"] > 0)
             if selection == "where"
@@ -188,7 +184,7 @@ def test_remote_selected_per_rollup_recomputes_complete_shared_sample_union(
         trace = capture_source(monkeypatch)
         frame = (
             session.observe(
-                {"value": amount.sum(empty="zero").per(samples).mean()},
+                {"value": amount.sum().per(samples).mean()},
                 where=mv.in_population(keys),
             )
             .compute()
@@ -301,9 +297,7 @@ def test_remote_selected_sample_target_uses_current_contributions_without_rerank
         customer = session.catalog.fields.get("sales.facts.customer")
         channel = session.catalog.fields.get("sales.facts.channel")
         samples = mv.coordinates(by=(customer,), keys=(("A",), ("B",), ("C",)))
-        fine = session.observe(
-            {"value": amount.sum(empty="zero").per(samples).mean()}, by=(channel,)
-        )
+        fine = session.observe({"value": amount.sum().per(samples).mean()}, by=(channel,))
         fixed = fine.top(1, by=fine["value"]).compute()
         assert fixed.to_pandas().iloc[:, 0].tolist() == ["store"]
         assert isinstance(case.source, TableSourceIR)
@@ -330,7 +324,7 @@ def test_remote_selected_sample_target_uses_current_contributions_without_rerank
         trace = capture_source(monkeypatch)
         result = (
             session.observe(
-                {"value": amount.sum(empty="zero").per(samples).mean()},
+                {"value": amount.sum().per(samples).mean()},
                 where=mv.in_population(keys),
             )
             .compute()

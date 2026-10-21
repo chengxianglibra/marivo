@@ -96,7 +96,7 @@ def running_energy():
     return energy_total.window(history)
 @ms.metric()
 def folded_energy():
-    return status_value.sum(time=time_value, empty="null").per(time_value).max()
+    return status_value.sum(time=time_value).per(time_value).max()
 """
         path = (
             project

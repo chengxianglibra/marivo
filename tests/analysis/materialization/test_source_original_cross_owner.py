@@ -108,12 +108,10 @@ def test_calendar_parent_formula_failure_precedes_valid_target_totals(
     assert trace.uploaded_key_rows == []
 
 
-@pytest.mark.parametrize("empty", ("zero", "null"))
-def test_cross_owner_calendar_missing_days_keep_independent_empty_policies(
+def test_cross_owner_calendar_missing_days_use_additive_zero(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
-    empty: str,
 ) -> None:
     session = _session(tmp_path, monkeypatch, semantic_project_factory, boundary="disjoint")
     one = session.catalog.fields.get("sales.one.amount")
@@ -121,16 +119,11 @@ def test_cross_owner_calendar_missing_days_keep_independent_empty_policies(
     one_day = session.catalog.fields.get("sales.one.day")
     two_day = session.catalog.fields.get("sales.two.day")
     days = session.time_scope(start="2026-10-01", end="2026-10-03").by(mv.grain("day"))
-    metric = one.sum(time=one_day, empty=empty).where(one > 0) - two.sum(
-        time=two_day, empty=empty
-    ).where(two > 0)
+    metric = one.sum(time=one_day).where(one > 0) - two.sum(time=two_day).where(two > 0)
     query = session.observe({"net": metric}, by=(days.scope,))
     daily = session.observe({"net": metric}, by=(days,)).compute().to_pandas()
     assert len(daily) == 2
-    if empty == "zero":
-        assert daily["value", "net"].tolist() == [60, -120]
-    else:
-        assert daily["value", "net"].isna().all()
+    assert daily["value", "net"].tolist() == [60, -120]
     trace = capture_source(monkeypatch)
     result = query.compute().to_pandas()
     assert result["value", "net"].tolist() == [-60]

@@ -13,12 +13,10 @@ from tests.support.source_trace import capture_source
 
 
 @pytest.mark.parametrize("explicit", [False, True])
-@pytest.mark.parametrize("empty", ["zero", "null"])
 def test_source_rollup_keeps_internal_identity_and_empty_samples(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
     explicit: bool,
-    empty: str,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as connection:
@@ -33,11 +31,11 @@ def test_source_rollup_keeps_internal_identity_and_empty_samples(
     samples = (
         mv.coordinates(by=(customer,), keys=(("A",), ("B",), ("C",))) if explicit else customer
     )
-    metric = amount.sum(empty=empty).per(samples).mean()
+    metric = amount.sum().per(samples).mean()
     trace = capture_source(monkeypatch)
     artifact = session.observe({"mean": metric}).persist()
     frame = artifact.to_pandas()
-    expected = 1000 / 3 if explicit and empty == "zero" else 1000
+    expected = 1000 / 3 if explicit else 1000
     assert frame["value", "mean"].tolist() == [expected]
     assert not any("__original_value" in names for names in trace.returned_columns)
     reads = [
@@ -200,4 +198,4 @@ def test_collated_original_keeps_its_existing_fine_grouping_boundary(
         .compute()
         .to_pandas()
     )
-    assert result["value", "total"].isna().tolist() == [True]
+    assert result["value", "total"].tolist() == [0]

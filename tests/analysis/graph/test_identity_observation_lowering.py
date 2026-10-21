@@ -34,7 +34,7 @@ def test_public_identity_observation_executes_and_retains_outside_window_members
         session.catalog.entities.get(f"{case.names.domain}.{case.names.order}")
     )
     observed = session.observe(
-        {"value": amount.sum(time=time, empty="null")},
+        {"value": amount.sum(time=time)},
         by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), members),
     )
     result = observed.persist()
@@ -44,8 +44,8 @@ def test_public_identity_observation_executes_and_retains_outside_window_members
         "j1_a": 450,
         "j1_b": 150,
         "j1_c": 400,
-        "j1_july": None,
-        "j1_september": None,
+        "j1_july": 0,
+        "j1_september": 0,
     }
     assert reads
     assert not {"subject", "original_state", "coverage"}.intersection(

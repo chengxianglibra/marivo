@@ -588,8 +588,8 @@ def test_shared_frame_key_constraint_keeps_complement_masks(
     result = (
         session.observe(
             {
-                "selected": amount.sum(empty="zero").where(condition),
-                "other": amount.sum(empty="zero").where(~condition),
+                "selected": amount.sum().where(condition),
+                "other": amount.sum().where(~condition),
             }
         )
         .compute()
@@ -667,12 +667,12 @@ def test_top_ties_use_complete_identity_and_missing_scores_last(
     ]
 
 
-def test_cell_sum_empty_input_stays_null(source_query_session: Session) -> None:
+def test_cell_sum_empty_input_returns_zero(source_query_session: Session) -> None:
     source = _attributes(source_query_session)
     selected = source.where(source["amount"] > 100)
     rows = selected.reduce({"sum": selected["amount"].sum()}).compute().to_pandas()
     assert len(rows) == 1
-    assert rows["value", "sum"].isna().all()
+    assert rows["value", "sum"].tolist() == [0]
 
 
 @pytest.mark.parametrize("operation", ("align", "compare"))
@@ -800,9 +800,8 @@ def test_population_set_algebra_keeps_complete_frame_keys(
     ]
 
 
-@pytest.mark.parametrize("empty", ("zero", "null"))
 def test_grouped_shared_population_consumers_keep_independent_grids(
-    source_query_session: Session, monkeypatch: pytest.MonkeyPatch, empty: str
+    source_query_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = source_query_session
     source = _attributes(session)
@@ -813,9 +812,9 @@ def test_grouped_shared_population_consumers_keep_independent_grids(
     rows = (
         session.observe(
             {
-                "selected": amount.sum(empty=empty).where(condition).where(region == "A"),
-                "other": amount.sum(empty=empty).where(~condition).where(region == "B"),
-                "nullable": amount.sum(empty="null").where(~condition),
+                "selected": amount.sum().where(condition).where(region == "A"),
+                "other": amount.sum().where(~condition).where(region == "B"),
+                "nullable": amount.sum().where(~condition),
             },
             by=(region,),
         )
@@ -829,7 +828,7 @@ def test_grouped_shared_population_consumers_keep_independent_grids(
     assert pd.isna(rows["value", "nullable"].iloc[2])
     for name, index in (("selected", 1), ("other", 0)):
         value = rows["value", name].iloc[index]
-        assert value == 0 if empty == "zero" else pd.isna(value)
+        assert value == 0
 
 
 @pytest.mark.parametrize("operation", ("union", "intersection", "difference"))

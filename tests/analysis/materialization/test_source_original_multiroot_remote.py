@@ -116,7 +116,7 @@ w=frozen.resolve(weight)
 s=frozen.resolve(subset_weight)
 @ms.metric()
 def combined():
-    return a.sum(empty='zero')+s.sum(empty='zero')
+    return a.sum()+s.sum()
 @ms.measure(additivity=ms.additive_all())
 def adjusted():
     return a+w
@@ -128,13 +128,13 @@ def guarded():
     return a.divide(w,zero_denominator='error')
 @ms.metric()
 def adjusted_total():
-    return adjusted.sum(empty='zero')
+    return adjusted.sum()
 @ms.metric()
 def fractional_total():
-    return fractional.sum(empty='zero')
+    return fractional.sum()
 @ms.metric()
 def guarded_total():
-    return guarded.sum(empty='zero')
+    return guarded.sum()
 """
         factory(
             {

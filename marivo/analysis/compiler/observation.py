@@ -87,7 +87,7 @@ class FormulaInput:
     occurrence: tuple[int, ...]
     stage_id: str
     column: DataColumn
-    empty_zero: bool
+    zero_when_absent: bool
     checks: tuple[tuple[str, str, str], ...] = ()
     keys: tuple[str, ...] = ()
     coverage: tuple[SampleCoverage, ...] = ()

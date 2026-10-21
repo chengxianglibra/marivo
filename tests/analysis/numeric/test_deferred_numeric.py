@@ -1,6 +1,5 @@
 """Native Deferred numeric DAGs share source and local demand semantics."""
 
-from dataclasses import replace
 from decimal import Decimal
 
 import ibis
@@ -133,7 +132,7 @@ def test_coalesce_and_cases_preserve_nullable_integer_and_decimal_values() -> No
         Decimal("5.00"),
         Decimal("1.00"),
     ]
-    strict = resolver(ibis.coalesce(x, x.divide(0, zero_denominator="error")))
+    strict = resolver(ibis.coalesce(x, ibis.coalesce(x, 1).divide(0, zero_denominator="error")))
     expression = lower_recipe(strict, (NumericValue(table.x),))
     violations = [
         evaluate_numeric(check.violation.op(), values, values["x"].index)
@@ -147,7 +146,7 @@ def test_coalesce_and_cases_preserve_nullable_integer_and_decimal_values() -> No
 @pytest.mark.parametrize(
     "values,expected",
     [
-        ([], None),
+        ([], 0.0),
         ([None, None], None),
         ([None, 2.0, 3.0], 5.0),
         ([-10.0, 10.0], 0.0),
@@ -166,17 +165,11 @@ def test_nullable_source_sum(values: list[float | None], expected: float | None)
             None,
             SumAll(),
         )
-        zero = lower_source_reduction(
-            SourceAggregate(literal, "sum", None, empty="zero"), table, {"sales.facts.x": table.x}
-        )
         null = lower_source_reduction(
             SourceAggregate(literal, "sum", None), table, {"sales.facts.x": table.x}
         )
         actual = connection.execute(table.aggregate(value=null.value)).value.iloc[0]
         assert pd.isna(actual) if expected is None else actual == expected
-        assert connection.execute(table.aggregate(value=zero.value)).value.iloc[0] == (
-            expected or 0
-        )
         count = lower_source_reduction(
             SourceAggregate(literal, "count", None), table, {"sales.facts.x": table.x}
         )
@@ -422,7 +415,7 @@ def test_sample_coverage_respects_calendar_axis_position(
 
 @pytest.mark.parametrize(
     "values,expected",
-    [([], None), ([None, None], None), ([None, 2, 3], 5), ([-10, 10], 0), ([2, 3], 5)],
+    [([], 0), ([None, None], None), ([None, 2, 3], 5), ([-10, 10], 0), ([2, 3], 5)],
 )
 def test_internal_sum_empty_policy(values: list[int | None], expected: int | None) -> None:
     from marivo._definition.expressions import PerReduce
@@ -436,23 +429,17 @@ def test_internal_sum_empty_policy(values: list[int | None], expected: int | Non
         (),
         "field",
     )
-    for empty in ("null", "zero"):
-        node = PerReduce(source, (axis,), "sum")
-        if empty == "zero":
-            node = replace(node, empty="zero")
-        result, _ = reduce_samples(
-            node,
-            pd.DataFrame({"value": pd.Series(values, dtype=object)}),
-            (),
-            pd.DataFrame(index=pd.RangeIndex(1)),
-            ("value",),
-            (),
-            output_type=ScalarDataType("int64"),
-        )
-        actual = result.value.iloc[0]
-        assert (
-            pd.isna(actual) if expected is None and empty == "null" else actual == (expected or 0)
-        )
+    result, _ = reduce_samples(
+        PerReduce(source, (axis,), "sum"),
+        pd.DataFrame({"value": pd.Series(values, dtype=object)}),
+        (),
+        pd.DataFrame(index=pd.RangeIndex(1)),
+        ("value",),
+        (),
+        output_type=ScalarDataType("int64"),
+    )
+    actual = result.value.iloc[0]
+    assert pd.isna(actual) if expected is None else actual == expected
 
 
 def test_internal_sum_keeps_large_integer_beside_null_group() -> None:

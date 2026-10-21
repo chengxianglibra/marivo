@@ -447,7 +447,8 @@ class Session:
 
         Constraints: Checks Session ownership, scalar paths and captured time anchors; missing
         attribute mappings fail at evaluation. Source construction does not read schema or
-        business rows. Value names follow the Frame name rules.
+        business rows. Numeric inputs retain NULL and reject actual NaN/Infinity before
+        Frame selection. Value names follow the Frame name rules.
         """
         from marivo.analysis.dsl import frame_sources
 

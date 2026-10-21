@@ -130,7 +130,7 @@ def test_shared_predicate_keeps_plain_and_per_grids_independent(
     keys = session.population_from(
         chosen, on=((chosen.axes[0], session.catalog.entities.get("sales.facts")),)
     )
-    total = amount.sum(empty="zero").where(mv.in_population(keys))
+    total = amount.sum().where(mv.in_population(keys))
     query = session.observe(
         {
             "total": total.per(category).sum() if same_grid else total,
@@ -145,10 +145,9 @@ def test_shared_predicate_keeps_plain_and_per_grids_independent(
 
 
 @pytest.mark.parametrize("backend,profile", source_params([("duckdb", "table")]))
-@pytest.mark.parametrize("empty", ("zero", "null"))
 @pytest.mark.parametrize("selected", (False, True), ids=("unselected", "where-selected"))
 def test_shared_query_population_remains_a_real_host_sample_domain(
-    shared_session: Session, monkeypatch: pytest.MonkeyPatch, empty: str, selected: bool
+    shared_session: Session, monkeypatch: pytest.MonkeyPatch, selected: bool
 ) -> None:
     session = shared_session
     amount = session.catalog.fields.get("sales.facts.amount")
@@ -159,14 +158,14 @@ def test_shared_query_population_remains_a_real_host_sample_domain(
     query = session.observe(
         {
             "direct": amount.count().where(mv.in_population(samples)),
-            "sample": amount.sum(empty=empty).where(amount >= 20).per(samples).mean(),
+            "sample": amount.sum().where(amount >= 20).per(samples).mean(),
         }
     )
     plans = _plans(monkeypatch)
     trace = capture_source(monkeypatch)
     rows = query.compute().to_pandas()
     assert rows["value", "direct"].tolist() == [3]
-    assert rows["value", "sample"].tolist() == [12.5 if empty == "zero" else 25.0]
+    assert rows["value", "sample"].tolist() == [12.5]
     assert len(plans) == 1
     assert trace.uploaded_key_rows == [4]
     # The same four-key sample input is retained for both source consumers and
@@ -221,7 +220,7 @@ def test_shared_selected_host_domain_stays_fixed_when_source_ranking_changes(
     query = session.observe(
         {
             "direct": amount.sum().where(mv.in_population(selected)),
-            "sample": amount.sum(empty="zero").per(selected).mean(),
+            "sample": amount.sum().per(selected).mean(),
         }
     )
     trace = capture_source(monkeypatch)
@@ -244,7 +243,7 @@ def test_shared_empty_selection_cannot_erase_parent_strict_error(
     query = session.observe(
         {
             "direct": amount.count().where(mv.in_population(samples)),
-            "sample": amount.sum(empty="zero").per(samples).mean(),
+            "sample": amount.sum().per(samples).mean(),
         }
     )
     trace = capture_source(monkeypatch)

@@ -175,7 +175,7 @@ def test_empty_unit_relative_complements_and_output_domain(predicate_session: mv
         session.observe(
             {
                 "none": amount.sum().where(mv.in_population(empty)),
-                "zero": amount.sum(empty="zero").where(mv.in_population(empty)),
+                "zero": amount.sum().where(mv.in_population(empty)),
                 "count": amount.count().where(mv.in_population(empty)),
                 "unit": amount.sum().where(mv.in_population(unit)),
                 "complement": amount.sum().where(~mv.in_population(empty_unit)),
@@ -184,7 +184,7 @@ def test_empty_unit_relative_complements_and_output_domain(predicate_session: mv
         .compute()
         .to_pandas()
     )
-    assert result[("value", "none")].isna().all()
+    assert result[("value", "none")].tolist() == [0]
     assert result.iloc[0, 1:].tolist() == [0, 0, 165, 165]
     assert session.frame(empty.where(~mv.in_population(empty))).compute().to_pandas().empty
     output = mv.coordinates(by=(region,), keys=(("east",), ("missing",)))
@@ -194,7 +194,7 @@ def test_empty_unit_relative_complements_and_output_domain(predicate_session: mv
     values = retained.compute().to_pandas()
     assert values.iloc[:, 0].tolist() == ["east", "missing"]
     assert values[("value", "amount")].iloc[0] == 60
-    assert values[("value", "amount")].isna().tolist() == [False, True]
+    assert values[("value", "amount")].tolist() == [60, 0]
 
 
 @pytest.mark.parametrize("boolean_operator", ("and", "or"))

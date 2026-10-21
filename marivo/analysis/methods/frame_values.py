@@ -176,7 +176,13 @@ def evaluate_frame(program: FrameProgram, inputs: tuple[pd.DataFrame, ...]) -> p
                 active = evaluated[name].take(positions).dropna()
                 (dtype,) = program.statistic_types[index]
                 try:
-                    if isinstance(dtype, DurationDataType):
+                    if not positions and statistic.method == "sum":
+                        value = (
+                            checked_sum((), stage_arrow_type(dtype))
+                            if not isinstance(dtype, DurationDataType)
+                            else 0
+                        )
+                    elif isinstance(dtype, DurationDataType):
                         ticks = tuple(
                             int(tick)
                             for tick in (

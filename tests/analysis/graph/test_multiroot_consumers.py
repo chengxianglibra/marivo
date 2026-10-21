@@ -262,7 +262,9 @@ def test_independent_roots_and_temporal_fold(
         models += "frozen=ms.finalize()\n"
         for name in ("left", "right"):
             models += f"{name}_row=frozen.resolve({name}_amount)\n{name}_clock=frozen.resolve({name}_time)\n"
-            models += f"@ms.metric()\ndef {name}_total():\n    return {name}_row.sum(time={name}_clock, empty='zero')\n"
+            models += (
+                f"@ms.metric()\ndef {name}_total():\n    return {name}_row.sum(time={name}_clock)\n"
+            )
             if not runtime_mode:
                 models += f"@ms.metric()\ndef {name}_folded():\n    return {name}_total.per({name}_clock).{fold}()\n"
         files = {

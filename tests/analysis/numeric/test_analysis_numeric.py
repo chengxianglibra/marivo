@@ -916,21 +916,21 @@ def test_current_row_counts_keep_numeric_null_policy(
     value = session.catalog.fields.get("sales.order.amount")
     time = session.catalog.fields.get("sales.order.ordered_at")
     logical = session.observe(
-        {"value": value.sum(time=time, empty="null")},
+        {"value": value.sum(time=time)},
         by=mv.product(
             session.time_scope(start="2026-08-01", end="2026-09-01"),
             session.members(session.catalog.entities.get("sales.customer")),
         ),
     )
     frame = logical.compute().to_pandas()
-    assert len(frame) == 4 and frame[("value", "value")].notna().sum() == 3
+    assert len(frame) == 4 and frame[("value", "value")].notna().sum() == 4
     assert logical.reduce({"count": mv.row_count()}).compute().to_pandas()[
         ("value", "count")
     ].tolist() == [4]
     defined = logical.where(~logical["value"].is_null())
     assert defined.reduce({"count": mv.row_count()}).compute().to_pandas()[
         ("value", "count")
-    ].tolist() == [3]
+    ].tolist() == [4]
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("Invalid statistic read business rows")

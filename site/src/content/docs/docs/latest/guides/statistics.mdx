@@ -21,15 +21,30 @@ ranked = current.top(1, by=current["revenue"], descending=True).compute()
 ranked.show()
 ```
 
-Each statistic has its own effective non-NA sample. Sum is NA for empty/all-NA
-input, mean is NA without a sample, and row_count counts all represented rows.
+Each statistic has its own effective non-NA sample. Sum returns typed zero for empty input and NA for nonempty all-NA
+input; mean is NA without a valid sample, and row_count counts all represented rows.
 Reduce can retain existing complete Frame axes; it cannot coarsen a calendar.
 Sum/mean retain the current expression's unit. The unit does not certify original
 Metric additivity or permission to roll up removed axes: summed daily inventory
 may still have unit items, and summed ratios may remain dimensionless, without
 becoming monthly inventory or an overall ratio.
+An explicit Population retains members without facts. Their source sum is zero;
+existing facts whose values are all NULL still produce NULL. For members A/B/C
+with revenue 100/no facts/no facts, the completed member values are 100/0/0 and
+their mean is 100/3. If C instead has facts with unknown revenue, its value is
+NULL: an ignore-NA mean skips C and is not a complete-Population average. Request
+strict internal sample checks when unknown members must reject the computation.
+A missing alignment endpoint remains separate from a present member with no facts.
+SQL SUM returns NULL on empty input; pandas sum defaults all-NA input to zero.
+Neither default exactly matches Marivo's fixed distinction. Actual NaN/Infinity
+are errors; source failures cannot be treated as an empty input.
+
 Top is global, uses this exact input's Column and preserves its deterministic
 order through persistence. There is no partition_by receiver.
+
+Completed member cells also cannot reconstruct every original sum: cells [0, NA]
+from an empty member and an unknown member sum to 0, while the original all-NULL
+facts sum to NULL. Use a new source observation for the original overall question.
 
 A row mean is not an original overall Metric. For example, values 10 and 100
 have row mean 55; source totals 1000 over 91 contributions have mean 1000/91.

@@ -306,7 +306,7 @@ def provider() -> DisclosureProvider:
             "sum",
             (),
             "_Statistic",
-            "Request ignore-NA current-row sum; empty/all-NA is NA. Retain the expression's unit without certifying original Metric additivity. Complete with AnalysisFrame.reduce.",
+            "Request ignore-NA current-row sum; empty input is zero and nonempty all-NA is NA. Retain the expression's unit without certifying original Metric additivity. Complete with AnalysisFrame.reduce.",
             "result = column.sum()",
             ("column",),
             "methods.metric.summary",

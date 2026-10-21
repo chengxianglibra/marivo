@@ -158,7 +158,7 @@ def test_long_path_sum_and_count(
         models += (
             "closed=ms.finalize()\namount_value=closed.resolve(amount)\n"
             "time_value=closed.resolve(instant)\nfacts_value=closed.resolve(facts)\n"
-            "@ms.metric()\ndef total():\n    return amount_value.sum(time=time_value, empty='zero')\n"
+            "@ms.metric()\ndef total():\n    return amount_value.sum(time=time_value)\n"
             "@ms.metric()\ndef number():\n    return facts_value.count(time=time_value)\n"
         )
         semantic_project_factory(

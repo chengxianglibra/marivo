@@ -159,17 +159,13 @@ def run(root: Path, phase: str, mode: str) -> dict[str, object]:
             ).by(grain)
             time = session.catalog.fields.get("sales.order.ordered_at")
             quantities = {
-                "value": field.sum(time=time, empty="zero")
-                if mode == "category_time"
-                else field.max(time=time)
+                "value": field.sum(time=time) if mode == "category_time" else field.max(time=time)
             }
             if mode == "category_time":
                 quantities.update(
                     (
                         f"profile_{index}",
-                        session.catalog.fields.get(f"sales.order.profile_{index}").sum(
-                            time=time, empty="zero"
-                        ),
+                        session.catalog.fields.get(f"sales.order.profile_{index}").sum(time=time),
                     )
                     for index in profile["profiles"][1:]
                 )

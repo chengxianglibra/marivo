@@ -155,12 +155,10 @@ def test_select_where_top_and_independent_statistics(result_session: Session) ->
     session = result_session
     region = session.catalog.fields.get("sales.orders.region")
     amount = session.catalog.fields.get("sales.orders.amount")
-    q = session.observe({"sum": amount.sum(empty="zero"), "mean": amount.mean()}, by=(region,))
-    assert q.select({"net": q["sum"] - 10}).compute().to_pandas()[("value", "net")].tolist() == [
-        30,
-        10,
-        -10,
-    ]
+    q = session.observe({"sum": amount.sum(), "mean": amount.mean()}, by=(region,))
+    net = q.select({"net": q["sum"] - 10}).compute().to_pandas()[("value", "net")]
+    assert net.iloc[:2].tolist() == [30, 10]
+    assert pd.isna(net.iloc[2])
     selected = q.where(q["sum"] >= 20)
     result = selected.top(1, by=selected["sum"]).compute().to_pandas()
     assert result.iloc[:, 0].tolist() == ["A"]
@@ -343,7 +341,7 @@ def test_empty_reduction_keeps_scalar_and_checks(result_session: Session) -> Non
         .compute()
         .to_pandas()
     )
-    assert result[("value", "sum")].isna().all()
+    assert result[("value", "sum")].tolist() == [0]
     assert result[("value", "mean")].isna().all()
     assert result[("value", "rows")].tolist() == [0]
 
@@ -461,7 +459,7 @@ def test_explicit_members_and_member_count(result_session: Session) -> None:
     assert result[("value", "per_person")].tolist() == [10.0]
     complete = session.observe({"total": amount.sum()}, by=requested).compute().to_pandas()
     assert complete.iloc[:, 0].tolist() == [1, 3, 999]
-    assert complete[("value", "total")].to_dict() == {0: 10, 1: 20, 2: None}
+    assert complete[("value", "total")].to_dict() == {0: 10, 1: 20, 2: 0}
     assert isinstance(requested.axes[0], mv.Grouping)
     assert requested.axes[0].kind == "identity"
     assert requested.classify(by=(requested.axes[0],)).axes == requested.axes
@@ -485,7 +483,7 @@ def test_explicit_members_and_member_count(result_session: Session) -> None:
         .to_pandas()
     )
     assert result[("value", "people")].tolist() == [0]
-    assert result[("value", "sum")].isna().all()
+    assert result[("value", "sum")].tolist() == [0]
 
 
 def test_population_count_counts_full_tuples_and_empty_cells(result_session: Session) -> None:
@@ -732,11 +730,7 @@ amount = ms.measure_column(name='amount',entity=accounts,column='amount',additiv
         (mv.in_population(empty), 0),
     ):
         statements.clear()
-        result = (
-            session.observe({"total": amount.sum(empty="zero")}, where=condition)
-            .compute()
-            .to_pandas()
-        )
+        result = session.observe({"total": amount.sum()}, where=condition).compute().to_pandas()
         assert result[("value", "total")].tolist() == [expected]
         assert len(statements) == 2
         assert "IS NOT DISTINCT FROM" in statements[-1]
@@ -820,7 +814,7 @@ def test_top_selected_frame_bridge_keeps_source_checks(
     assert "_marivo_keys_" in statements[-1]
 
 
-def test_float_nan_attribute_selection_keeps_pandas_missing_value_semantics(
+def test_float_nan_attribute_selection_rejects_before_membership_transport(
     result_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from marivo.datasource.adapters import CompiledRead, SourceSession
@@ -847,14 +841,9 @@ def test_float_nan_attribute_selection_keeps_pandas_missing_value_semantics(
         return original(owner, read)
 
     monkeypatch.setattr(SourceSession, "execute", record)
-    result = (
-        session.observe({"rows": entity.count()}, where=mv.in_population(selected))
-        .compute()
-        .to_pandas()
-    )
-    assert result[("value", "rows")].tolist() == [1]
-    assert len(statements) == 2
-    assert "_marivo_keys_" in statements[-1]
+    with pytest.raises(AnalysisError, match="finite"):
+        session.observe({"rows": entity.count()}, where=mv.in_population(selected)).compute()
+    assert len(statements) == 1
 
 
 def test_submicrosecond_timestamp_selection_keeps_exact_pandas_literal(
@@ -891,7 +880,7 @@ def test_submicrosecond_timestamp_selection_keeps_exact_pandas_literal(
     monkeypatch.setattr(SourceSession, "execute", record)
     result = (
         session.observe(
-            {"total": amount.sum(empty="zero")},
+            {"total": amount.sum()},
             where=mv.in_population(
                 _population(session, selected, session.catalog.entities.get("sales.orders"))
             ),
@@ -925,8 +914,8 @@ def test_shared_frame_selection_transports_once_for_checked_source_consumers(
     condition = mv.in_population(selected)
     consumer = session.observe(
         {
-            "selected": amount.sum(empty="zero").where(condition),
-            "other": amount.sum(empty="zero").where(~condition),
+            "selected": amount.sum().where(condition),
+            "other": amount.sum().where(~condition),
         }
     )
     statements: list[str] = []
@@ -1016,10 +1005,6 @@ def test_explicit_source_aggregation_and_current_row_statistics(result_session: 
     assert shares.where(shares["sales"] > 20).compute().to_pandas()[
         ("value", "share")
     ].tolist() == pytest.approx([2 / 3])
-    zeroed = session.observe({"sales": amount.sum(empty="zero")}, by=(region,)).compute()
-    assert zeroed.select({"ratio": zeroed["sales"] / denominator}).compute().to_pandas()[
-        ("value", "ratio")
-    ].tolist() == pytest.approx([2 / 3, 1 / 3, 0])
     assert session.observe(
         {"sales": amount.sum()}, by=(region,), where=mv.in_population(domain)
     ).compute().to_pandas()[("value", "sales")].tolist() == [40, 20]
@@ -1136,10 +1121,10 @@ amount = ms.measure_column(name='amount',entity=orders,column='amount',additivit
     day = session.catalog.fields.get("sales.orders.day")
     region = session.catalog.fields.get("sales.orders.region")
     grid = session.time_scope(start="2026-01-30", end="2026-02-03").by(mv.grain("day"))
-    daily = session.observe({"sales": amount.sum(time=day, empty="zero")}, by=(grid, region))
+    daily = session.observe({"sales": amount.sum(time=day)}, by=(grid, region))
     assert daily.compute().to_pandas()[("value", "sales")].tolist() == [10, 30, 60, 0, 20, 0, 40, 0]
     monthly = session.time_scope(start="2026-01-30", end="2026-02-03").by(mv.grain("month"))
-    coarse = session.observe({"sales": amount.sum(time=day, empty="zero")}, by=(monthly,))
+    coarse = session.observe({"sales": amount.sum(time=day)}, by=(monthly,))
     assert coarse.compute().to_pandas()[("value", "sales")].tolist() == [60, 100]
 
 
@@ -1170,7 +1155,7 @@ def test_column_sum_distinguishes_missing_samples_from_valid_zero(
         ),
     )
     for selected, expected, count in (
-        (base.where(base["group"] < 0), None, 0),
+        (base.where(base["group"] < 0), values[0] * 0, 0),
         (base.where(base["group"] == 0), None, 1),
         (base, values[3], 4),
         (base.where(base["group"] == 1), values[0] * 0, 2),

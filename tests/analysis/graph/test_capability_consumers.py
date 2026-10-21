@@ -128,14 +128,14 @@ def test_declared_string_time_uses_owned_execution_functions(
         frame = frame.set_index(ordinary_columns(frame)[0])
         expected_values = {
             ("a", 9007199254740992, 1): 2,
-            ("a", 9007199254740993, 2): 0,
+            ("a", 9007199254740993, 2): None,
             ("a", 9007199254740994, 1): 0,
             ("a", 9007199254740995, 1): 0,
         }
         if time_case == "dst":
             expected_values["a", 9007199254740996, 1] = 5
         assert frame["value", "value"].to_dict() == expected_values
-        assert not frame["value", "value"].isna().any()
+        assert frame["value", "value"].isna().sum() == 1
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
         source_trace.save(
             f"c06-source-{backend}-{('dst' if time_case == 'dst' else 'string-time')}",

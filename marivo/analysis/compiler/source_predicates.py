@@ -136,10 +136,3 @@ def source_parameter_comparisons(expression: ir.Table, name: str, provider: str)
         if provider == "postgres"
         else expression
     )
-
-
-def query_numeric_value(value: ir.Value, provider: str) -> ir.Value:
-    """Treat native floating NaN as missing before Query predicates and ordering."""
-    if provider in ("duckdb", "trino", "clickhouse") and isinstance(value, ir.FloatingValue):
-        return value.isnan().ifelse(ibis.null().cast(value.type().copy(nullable=True)), value)
-    return value

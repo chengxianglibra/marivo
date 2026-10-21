@@ -363,7 +363,7 @@ def _fuse(plan: QueryPlan) -> QueryPlan:
 
 def _common_sources(plan: QueryPlan) -> QueryPlan:
     """Share one actual bound aggregate input while retaining each occurrence."""
-    groups: dict[tuple[str, str, str, str, tuple[str, ...], bool], list[SourceRead]] = {}
+    groups: dict[tuple[str, str, str, tuple[str, ...], bool], list[SourceRead]] = {}
     consumers = dict(plan.consumers)
     for stage in plan.stages:
         if not isinstance(stage, SourceRead) or read_reduction(stage) is None:
@@ -391,13 +391,11 @@ def _common_sources(plan: QueryPlan) -> QueryPlan:
         )
         if not eligible:
             continue
-        policy = (
-            (node.nulls, node.empty) if isinstance(node, SourceAggregate) else ("ignore", "zero")
-        )
+        policy = node.nulls if isinstance(node, SourceAggregate) else "ignore"
         identity = (
             stage.binding_id,
             stage.source_id,
-            *policy,
+            policy,
             consumers[stage.stage_id],
             read_components(stage) is not None,
         )

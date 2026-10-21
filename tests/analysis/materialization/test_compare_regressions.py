@@ -43,8 +43,7 @@ def test_decimal_compare_ignores_caller_precision_and_keeps_zero_policy(
         )
         if value is not None:
             return source
-        empty = source.where(source["v"] > Decimal("100"))
-        return empty.reduce({"v": empty["v"].sum()})
+        return source.select({"v": source["v"].divide(0)})
 
     left, right = endpoint(current), endpoint(baseline)
     with localcontext() as context:

@@ -60,7 +60,8 @@ def test_file_cost_original_sum_executes_exact_real_file_route(
         assert set(frame[ordinary_columns(frame)[0]]) == {
             ("a", 2**53 + index, 1) for index in range(len(facts))
         }
-        assert frame[("value", "value")].tolist() == [0, 2, 3, 4]
+        assert pd.isna(frame[("value", "value")].iloc[0])
+        assert frame[("value", "value")].iloc[1:].tolist() == [2, 3, 4]
         raw = work.session.read(
             work.session.members(work.session.catalog.entities.get("cost.facts")),
             {"amount": work.session.catalog.fields.get("cost.facts.amount")},

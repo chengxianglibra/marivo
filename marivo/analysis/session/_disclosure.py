@@ -264,7 +264,7 @@ def provider() -> DisclosureProvider:
             "read",
             "AnalysisFrame",
             "result = session.read(population, fields)",
-            "Bind this Session explicitly and read named scalar attributes while retaining every complete identity.",
+            "Bind this Session explicitly and read named scalar attributes while retaining every complete identity. Numeric reads preserve NULL and reject actual NaN/Infinity before Frame selection.",
         ),
         (
             Session,

@@ -32,7 +32,7 @@ _REPAIRS = {
         "as a separately keyed Entity and define the row measure and any allocation weight; "
         "preserve each source root."
     ),
-    "empty": "Set empty='null' (default) or 'zero' on each actual source/internal sum, preserving the selected contributions and output domain.",
+    "empty": "Use sum() without an empty policy: empty contributions return zero, nonempty all-NULL contributions return NULL. Preserve the selected contributions and output domain.",
     "nulls": "Set nulls='ignore' or 'error' on the actual reducer in the expression.",
     "zero_denominator": "Set zero_denominator='null' or 'error' on the actual divide or weighted_mean operation.",
 }

@@ -63,6 +63,15 @@ Grouping rules, TimeScope intervals and CalendarAxis buckets. A Population in by
 selects exactly its complete output keys, including those without facts.
 Population.axes carries coordinate rules, without the selected keys or allocation.
 
+A member without fact contributions has sum zero and count zero; a member with
+facts whose values are all NULL has sum NULL and a positive contribution count.
+Use a contribution count, not count(value) or the completed Frame row count,
+to distinguish them. Mean/min/max remain NULL without valid samples. Empty
+Population output has no rows. Lookup and source failures are errors, not empty
+contributions. In per(P).mean(), zero-valued no-fact members participate; unknown
+member values are skipped unless strict sample NULL checks are requested. Thus
+an ignore-NULL mean is not a complete-Population mean when any member is unknown.
+
 where constrains fact contributions; it is independent from by's output keys.
 A selected output domain does not silently filter or renormalize contributions;
 consumed contribution keys must satisfy the external domain's coverage contract.

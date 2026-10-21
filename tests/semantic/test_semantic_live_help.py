@@ -644,6 +644,18 @@ def test_native_deferred_grammar_keeps_expression_kind_and_syntax(
     assert "Signature:" not in page
 
 
+@pytest.mark.parametrize("target", ("semantic.row.sum", "semantic.metric_samples.sum"))
+def test_sum_help_discloses_fixed_empty_and_nonfinite_rules(
+    target: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    marivo.help(target)
+    page = capsys.readouterr().out
+    assert "empty input returns zero" in page
+    assert "nonempty all-NA input returns null" in page
+    assert "actual NaN/Infinity are errors" in page
+    assert "parameters: empty" not in page
+
+
 def test_entity_help_preserves_the_supported_table_decorator(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

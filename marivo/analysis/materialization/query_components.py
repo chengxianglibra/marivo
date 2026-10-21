@@ -510,10 +510,7 @@ def complete_attribute_parent_domain(
                 )
             zero = isinstance(node, EntityCount) or (
                 isinstance(node, SourceAggregate)
-                and (
-                    node.reducer in ("count", "count_distinct")
-                    or (node.reducer == "sum" and node.empty == "zero")
-                )
+                and (node.reducer in ("sum", "count", "count_distinct"))
             )
             record[reduction.value_slot] = 0 if zero else None
             record[leaf.support.slot_id] = 0

@@ -4,6 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import NoReturn
 
+import pandas as pd
 import pytest
 
 import marivo.analysis as mv
@@ -27,9 +28,12 @@ def _values(session: mv.Session) -> mv.AnalysisFrame:
 
 def _assert_values(result: mv.AnalysisFrame) -> None:
     frame = result.to_pandas()
-    assert dict(zip(frame.iloc[:, 0], frame[("value", "value")], strict=True)) == {
+    assert {
+        key: None if pd.isna(value) else value
+        for key, value in zip(frame.iloc[:, 0], frame[("value", "value")], strict=True)
+    } == {
         ("a", 9007199254740992, 1): 2,
-        ("a", 9007199254740993, 2): 0,
+        ("a", 9007199254740993, 2): None,
         ("b", 9007199254740993, 1): 4,
     }
     assert [column.dtype for column in result.artifact._manifest.data.schema.axes[0].columns] == [

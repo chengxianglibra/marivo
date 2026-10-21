@@ -35,7 +35,7 @@ paid_at = finalized.resolve(paid_at_ref)
 
 @ms.metric()
 def revenue():
-    return amount.sum(time=paid_at, empty="zero").where(status == "paid")
+    return amount.sum(time=paid_at).where(status == "paid")
 ```
 
 This fragment requires a declared warehouse and a domain when collected into a
@@ -166,10 +166,13 @@ its formula over each window rather than summing completed output cells.
 
 ## Numeric policies and physical admission
 
-Policies attach to the actual operation. Sum defaults to NA for empty/all-NA
-input; empty="zero" explicitly chooses zero. Count/distinct count returns zero.
+Policies attach to the actual operation. Sum has no empty parameter: an empty
+contribution input returns typed zero; a nonempty all-NULL input returns NULL.
+Mixed inputs sum their valid values. Count/distinct count returns zero.
 Other admitted sample reducers return NA without valid samples. Strict
-nulls="error" is checked on its demanded source/sample domain.
+nulls="error" is checked on its demanded source/sample domain. Actual source
+NaN and Infinity are rejected before pandas conversion can conflate NaN with
+NULL; raw reads and numeric reductions retain the same checks.
 Division and weighted mean default to zero_denominator="null"; explicit "error"
 changes only that operation. An outer formula cannot overwrite a strict child.
 Demand-aware native ifelse evaluates its selected branch while retaining static

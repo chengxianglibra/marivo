@@ -83,7 +83,7 @@ def _metric_roles(facts: MetricFacts) -> tuple[object, ...]:
                 )
             )
         if isinstance(node, SourceAggregate):
-            roles.append((node.reducer, node.nulls, node.empty, node.q, node.rule_version))
+            roles.append((node.reducer, node.nulls, node.q, node.rule_version))
         elif isinstance(node, SourceWeightedMean):
             roles.append((node.nulls, node.zero_denominator, node.rule_version))
         elif isinstance(node, (PerReduce, PerWeightedMean)):
@@ -108,7 +108,7 @@ def _metric_roles(facts: MetricFacts) -> tuple[object, ...]:
             )
             roles.append((node.nulls, node.rule_version))
             if isinstance(node, PerReduce):
-                roles.append((node.reducer, node.q, node.empty, node.include_null))
+                roles.append((node.reducer, node.q, node.include_null))
         elif isinstance(node, MemberCount):
             roles.append(
                 (

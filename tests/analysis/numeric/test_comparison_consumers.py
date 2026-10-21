@@ -47,7 +47,9 @@ def test_complete_keys_source_and_fixed(
                 on=((selected_values.axes[0], session.catalog.entities.get("sales.facts")),),
             )
             keys = session.frame(selected).compute().to_pandas().iloc[:, 0]
-            assert set(keys) == {key for key, value in DEFINED.items() if value > 0}
+            assert set(keys) == {
+                key for key, value in DEFINED.items() if value is not None and value > 0
+            }
         if operation == "ratio":
             assert not hasattr(query, "rollup")
         native = len(source_trace.native_sql)

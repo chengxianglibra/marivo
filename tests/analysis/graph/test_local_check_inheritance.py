@@ -61,7 +61,7 @@ def test_period_comparison_coverage_finishes_before_inherited_reduction(
     frame = reduced.compute().to_pandas()
     assert len(consumed) == 1
     if prune in ("where", "top"):
-        assert frame[("value", "total")].isna().all()
+        assert frame[("value", "total")].tolist() == [0]
         assert frame[("value", "rows")].tolist() == [0]
     else:
         assert frame[("value", "total")].tolist() == [1]

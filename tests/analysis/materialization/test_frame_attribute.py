@@ -270,20 +270,20 @@ def test_joint_product_and_correlated_population_preserve_complete_keys(
             "(VALUES ('east','A'),('east','B'),('west','A'),('west','B')),"
             "actual AS (SELECT region,channel,SUM(amount) AS q FROM facts "
             "WHERE channel IN ('A','B') GROUP BY region,channel) "
-            "SELECT d.region,d.channel,a.q FROM domain d LEFT JOIN actual a "
+            "SELECT d.region,d.channel,CASE WHEN a.region IS NULL THEN 0 ELSE a.q END FROM domain d LEFT JOIN actual a "
             "USING(region,channel) ORDER BY d.region,d.channel"
         ).fetchall()
         correlated_sql = connection.execute(
             "WITH domain(region,channel) AS (VALUES ('east','A'),('west','B')),"
             "actual AS (SELECT region,channel,SUM(amount) AS q FROM facts "
             "WHERE channel IN ('A','B') GROUP BY region,channel) "
-            "SELECT d.region,d.channel,a.q FROM domain d LEFT JOIN actual a "
+            "SELECT d.region,d.channel,CASE WHEN a.region IS NULL THEN 0 ELSE a.q END FROM domain d LEFT JOIN actual a "
             "USING(region,channel) ORDER BY d.region,d.channel"
         ).fetchall()
     assert product_sql == [
         ("east", "A", 2),
-        ("east", "B", None),
-        ("west", "A", None),
+        ("east", "B", 0),
+        ("west", "A", 0),
         ("west", "B", 2),
     ]
     assert correlated_sql == [("east", "A", 2), ("west", "B", 2)]
@@ -665,7 +665,7 @@ def test_compound_identity_parent_and_member_candidate_policy(
     members = session.attribute(endpoint, endpoint, by=keys).compute()
     assert members.to_pandas().iloc[:, 0].tolist() == [("t", 1), ("t", 3), ("t", 999)]
     assert members.to_pandas()[("value", "left.q")].tolist()[:2] == [100, 2]
-    assert pd.isna(members.to_pandas()[("value", "left.q")].iloc[2])
+    assert members.to_pandas()[("value", "left.q")].iloc[2] == 0
 
 
 def test_original_checks_survive_select_top_and_explicit_empty_candidates(session: Session) -> None:

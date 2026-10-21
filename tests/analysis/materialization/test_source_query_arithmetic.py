@@ -56,9 +56,9 @@ def test_query_arithmetic_keeps_selected_completed_values(
         if operation == "formula":
             source = session.observe(
                 {
-                    "total": big.sum(empty="zero"),
+                    "total": big.sum(),
                     "n": big.count(),
-                    "sparse": big.sum(empty="zero") + big.count().where(category == "A"),
+                    "sparse": big.sum() + big.count().where(category == "A"),
                 },
                 by=(category,),
             )

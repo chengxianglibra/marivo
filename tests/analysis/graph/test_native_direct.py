@@ -22,8 +22,9 @@ from tests.datasource.source_cases import source_case
 from tests.shared_fixtures import terminal_runs
 
 
-def _scalar_output(result: mv.AnalysisFrame, total: int) -> None:
-    assert result.to_pandas()[("value", "value")].tolist() == [total]
+def _scalar_output(result: mv.AnalysisFrame, total: int | None) -> None:
+    values = result.to_pandas()[("value", "value")]
+    assert values.isna().all() if total is None else values.tolist() == [total]
     assert tuple(axis.role for axis in result.axes) in ((), ("interval",))
     assert result.artifact._manifest.data.schema.values[0].dtype == ScalarDataType("int64")
     assert all(item.name != "original_state" for item in result.artifact._manifest.data.attachments)
@@ -75,27 +76,25 @@ def test_native_sum_reads_only_terminal_exchange_with_all_checks_and_fresh_runs(
             ScalarDataType("int64"),
             ScalarDataType("int64"),
         ]
-        actual = dict(
-            zip(frame[ordinary_columns(frame)[0]], frame[("value", "value")], strict=True)
-        )
-        expected = {
-            (row["tenant"], row["id"], row["revision"]): row["amount"]
-            if row["amount"] is not None
-            else 0
-            for row in work.rows
+        actual = {
+            key: None if pd.isna(value) else value
+            for key, value in zip(
+                frame[ordinary_columns(frame)[0]], frame[("value", "value")], strict=True
+            )
         }
+        expected = {(row["tenant"], row["id"], row["revision"]): row["amount"] for row in work.rows}
         assert actual == expected and len(actual) == 64
         assert work.session._runtime.store.resources(work.session.id) == ()
 
 
-def test_native_sum_preserves_known_zero_for_null_and_empty_inputs(
+def test_native_sum_distinguishes_all_null_and_empty_inputs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     for scenario in ("all_null", "empty"):
         with workload(
             "duckdb", "ordinary-table", 64, scenario, tmp_path / scenario, monkeypatch
         ) as work:
-            _scalar_output(work.total().persist(), 0)
+            _scalar_output(work.total().persist(), None if scenario == "all_null" else 0)
             assert _support(work).persist().to_pandas()[("value", "count")].tolist() == [0]
             assert work.session._runtime.store.resources(work.session.id) == ()
 

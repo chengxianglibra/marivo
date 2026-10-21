@@ -264,7 +264,7 @@ def test_published_metric_rebinds_in_the_consumers_frozen_scope(
     assert root_declaration(current).reference != old_reference
 
 
-def test_sum_defaults_are_normalized_at_each_reduction(
+def test_sum_has_one_fixed_rule_and_rejects_removed_empty_parameter(
     semantic_project_factory: ProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
@@ -272,9 +272,10 @@ def test_sum_defaults_are_normalized_at_each_reduction(
     status = catalog.fields.get("sales.orders.status")
     for expression in (amount.sum(), amount.sum().per(status).sum()):
         node = consume_metric(expression).node
-        assert isinstance(node, (SourceAggregate, PerReduce)) and node.empty == "null"
-    for expression in (amount.sum(empty="zero"), amount.sum().per(status).sum(empty="zero")):
-        node = consume_metric(expression).node
-        assert isinstance(node, (SourceAggregate, PerReduce)) and node.empty == "zero"
+        assert isinstance(node, (SourceAggregate, PerReduce))
+        assert not hasattr(node, "empty")
+    for expression in (amount.sum(empty="zero"), amount.sum().per(status).sum(empty="null")):
+        with pytest.raises(SemanticExpressionError, match="unsupported arguments"):
+            consume_metric(expression)
     count = consume_metric(amount.count()).node
-    assert isinstance(count, SourceAggregate) and count.empty == "zero"
+    assert isinstance(count, SourceAggregate)

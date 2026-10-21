@@ -180,7 +180,6 @@ class SourceAggregate:
     q: float | None = None
     nulls: NullPolicy = "ignore"
     rule_version: int = RULE_VERSION
-    empty: Literal["zero", "null"] = "null"
 
     def __post_init__(self) -> None:
         _check_quantile(self.reducer, self.q)
@@ -222,7 +221,6 @@ class PerReduce:
     q: float | None = None
     nulls: NullPolicy = "ignore"
     rule_version: int = RULE_VERSION
-    empty: Literal["zero", "null"] = "null"
     order_by: ExactRef | None = None
     include_null: bool = False
 

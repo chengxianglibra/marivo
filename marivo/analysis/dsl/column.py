@@ -426,7 +426,7 @@ class Column:
     def sum(self) -> _Statistic:
         """Request an ignore-NA sum, completed only by AnalysisFrame.reduce.
 
-        Args: None. Returns: An unfinished statistic; empty/all-NA samples return NA.
+        Args: None. Returns: An unfinished statistic; empty input returns zero, all-NA returns NA.
         Constraints: Numeric or Duration values; evaluation belongs to AnalysisFrame.reduce.
         Example: ``q.reduce({'total': q['value'].sum()})``.
         """

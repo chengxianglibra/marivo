@@ -175,7 +175,7 @@ def test_observe_two_branches_of_one_root_over_a_single_route(
     amount = session.catalog.fields.get("sales.order.amount")
     time = session.catalog.fields.get("sales.order.ordered_at")
     channel = session.catalog.fields.get("sales.order.channel")
-    web = amount.sum(time=time, empty="null").where(channel == "web")
+    web = amount.sum(time=time).where(channel == "web")
     count = session.catalog.metrics.get("sales.order_count")
     observed = _observe(case, web / count)
     binding = _source_binding(observed).graph.signature.observation
@@ -183,7 +183,7 @@ def test_observe_two_branches_of_one_root_over_a_single_route(
     assert {item.root.ref.path for item in binding.contributions} == {"sales.order"}
     rows = _by_member(observed.compute().to_pandas())
     assert rows.loc[["A", "C"]].tolist() == [450.0, 400.0]
-    assert pd.isna(rows.loc["B"]) and pd.isna(rows.loc["D"])
+    assert rows.loc["B"] == 0 and pd.isna(rows.loc["D"])
 
 
 def test_observe_without_a_window_keeps_every_admitted_contribution(
@@ -233,7 +233,7 @@ def test_linear_executes_more_than_two_occurrences(
     ]
 
 
-def test_linear_preserves_each_empty_branch_policy(
+def test_linear_preserves_each_empty_branch_value(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1", revenue_unit="1")
@@ -242,19 +242,12 @@ def test_linear_preserves_each_empty_branch_policy(
     time = session.catalog.fields.get("sales.order.ordered_at")
     channel = session.catalog.fields.get("sales.order.channel")
     count = session.catalog.metrics.get("sales.order_count")
-    for expression, counted, nullable in (
-        (count, True, False),
-        (amount.sum(time=time, empty="zero"), False, False),
-        (amount.sum(time=time), False, True),
-    ):
+    for expression, counted in ((count, True), (amount.sum(time=time), False)):
         rows = _by_member(
             _observe(case, expression.where(channel == "web") + count).compute().to_pandas()
         )
         assert rows.loc[["A", "C"]].tolist() == ([2, 2] if counted else [451, 401])
-        if nullable:
-            assert rows.loc[["B", "D"]].isna().all()
-        else:
-            assert rows.loc[["B", "D"]].tolist() == [1, 0]
+        assert rows.loc[["B", "D"]].tolist() == [1, 0]
 
 
 def test_anonymous_aggregate_resolves_the_declared_default_axis(
@@ -268,11 +261,9 @@ def test_anonymous_aggregate_resolves_the_declared_default_axis(
     ms.load(workspace_dir=case.root)
     amount = case.session.catalog.fields.get("sales.order.amount")
     for windowed in (False, True):
-        rows = _by_member(
-            _observe(case, amount.sum(empty="null"), windowed=windowed).compute().to_pandas()
-        )
+        rows = _by_member(_observe(case, amount.sum(), windowed=windowed).compute().to_pandas())
         assert rows.loc[["A", "B", "C"]].tolist() == [450 if windowed else 626, 150, 400]
-        assert pd.isna(rows.loc["D"])
+        assert rows.loc["D"] == 0
 
 
 def test_linear_executes_three_independently_reduced_roots(
@@ -321,9 +312,7 @@ def test_ratio_accepts_a_negative_sum_denominator(
     session = case.session
     time = session.catalog.fields.get("sales.order.ordered_at")
     amount = session.catalog.fields.get("sales.order.amount")
-    expression = session.catalog.metrics.get("sales.order_count") / amount.sum(
-        time=time, empty="null"
-    )
+    expression = session.catalog.metrics.get("sales.order_count") / amount.sum(time=time)
     observed = _observe(case, expression)
     rows = _by_member(observed.compute().to_pandas())
     assert rows.loc[["A", "B", "C"]].tolist() == pytest.approx([-1 / 450, -1 / 150, -1 / 400])
@@ -418,13 +407,13 @@ def test_nested_linear_keeps_each_original_component(
     case = analysis_dsl_case_factory("j1", revenue_unit="1")
     session = case.session
     time = session.catalog.fields.get("sales.order.ordered_at")
-    revenue = session.catalog.fields.get("sales.order.amount").sum(time=time, empty="null")
+    revenue = session.catalog.fields.get("sales.order.amount").sum(time=time)
     count = session.catalog.metrics.get("sales.order_count")
     expression = revenue - (revenue - count)
     observed = _observe(case, expression)
     rows = _by_member(observed.compute().to_pandas())
     assert rows.loc[["A", "B", "C"]].tolist() == [1, 1, 1]
-    assert pd.isna(rows.loc["D"])
+    assert rows.loc["D"] == 0
     assert _observe(case, expression, overall=True).compute().to_pandas()[
         ("value", "value")
     ].tolist() == [3]
@@ -466,7 +455,7 @@ def test_common_condition_reaches_each_leaf_before_reduction(
     case = analysis_dsl_case_factory("j1")
     session = case.session
     time = session.catalog.fields.get("sales.order.ordered_at")
-    revenue = session.catalog.fields.get("sales.order.amount").sum(time=time, empty="null")
+    revenue = session.catalog.fields.get("sales.order.amount").sum(time=time)
     channel = session.catalog.fields.get("sales.order.channel")
     composite = revenue / session.catalog.metrics.get("sales.order_count")
     observed = session.observe(

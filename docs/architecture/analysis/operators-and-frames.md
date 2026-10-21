@@ -11,13 +11,13 @@ Values use normal nullable carriers. There are no per-cell Defined/Null/Undefine
 Unknown tags or reason columns. Missing correspondence endpoints are represented
 by independent nonnullable boolean presence, never inferred from value NA.
 
-| Operation | Effective samples | Empty/all-NA result |
+| Operation | Effective samples | Empty / nonempty all-NA result |
 | --- | --- | --- |
-| Source or internal sum | Non-NA child values, subject to nulls policy | NA by default; 0 for explicit `empty="zero"` |
+| Source or internal sum | Non-NA child values, subject to nulls policy | 0 / NA |
 | count / count_distinct | Method's declared complete occurrences or non-NA values | 0 |
 | min/max/mean/median/quantile | Effective non-NA samples | NA |
 | weighted_mean | One common non-NA value/weight pair mask for both sums | The operator's denominator policy |
-| Frame Column sum | Current non-NA represented cells | NA |
+| Frame Column sum | Current non-NA represented cells | 0 / NA |
 | Frame Column mean | Current non-NA represented cells | NA |
 | Frame corr / correlate coefficient | Common non-NA pairs within each current group | NA for fewer than two pairs or an exactly constant endpoint |
 | Frame pair_count / correlate n_pairs | The same common non-NA pairs, including zero and duplicates | 0; retain groups even without pairs |
@@ -31,7 +31,10 @@ Division uses `zero_denominator="null"` by default and masks zero before dividin
 Explicit `"error"` fails only the demanded non-NA division. The parameter belongs
 to that new operation; a parent comparison or formula cannot overwrite a child's
 strict policy. Nonfinite values, invalid arithmetic and overflow are errors,
-not additional missing states or a reason to retry another algorithm.
+not additional missing states or a reason to retry another algorithm. Source
+field reads check actual NaN/Infinity before selection, ordering or a pandas
+carrier can hide them. A pandas missing-value encoding remains NULL; an Arrow
+valid NaN is a nonfinite value, not NULL.
 
 ## Physical numeric and temporal carriers
 
@@ -76,11 +79,15 @@ per-sample keys and ordered sampling checks survive any legal optimization.
 ## Current cells, original Metrics and windows
 
 Frame.reduce computes statistics over represented rows using independent valid
-masks. Empty/all-NA sum is NA; row_count counts all current rows. It neither
+masks. Empty sum is typed zero; a nonempty all-NA sum is NA. row_count counts all current rows. It neither
 reconstructs original contributions nor changes a calendar's grain. Row mean 55
 can differ from original overall 1000/91; distinct counts 2+2=4 do not prove a
 union distinct count of 4 when the actual union has 3 members. Request original
 overall formulas with an explicit new observe and their governed source inputs.
+An empty member sum may be zero while another member's all-NULL fact sum is NA.
+Summing those completed cells [0, NA] returns zero; a new overall source sum over
+only the all-NULL facts returns NA. Original contribution summaries retain input
+and valid counts during evaluation; completed Frame values cannot reconstruct them.
 Sum/mean retain the current value expression's unit. A retained unit describes
 physical dimension, not original Metric additivity or permission to roll up removed
 axes. Summed daily inventory may still have unit items, and summed ratios may

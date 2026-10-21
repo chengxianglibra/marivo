@@ -70,7 +70,7 @@ def author_source_project(
             + "frozen = ms.finalize()\n"
             + "amount_value = frozen.resolve(amount)\n"
             + "happened_value = frozen.resolve(happened)\n"
-            + "@ms.metric()\ndef total():\n    return amount_value.sum(time=happened_value, empty='zero')\n"
+            + "@ms.metric()\ndef total():\n    return amount_value.sum(time=happened_value)\n"
             + "@ms.metric()\ndef average():\n    return amount_value.mean(time=happened_value)\n"
             + (
                 "import marivo.analysis as mv\nfrom datetime import timedelta\n"

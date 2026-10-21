@@ -403,7 +403,13 @@ def evaluate_result(stage: LocalCompute, inputs: tuple[pd.DataFrame, ...]) -> pd
                     column = stage.columns[len(stage.keys) + index]
                     try:
                         input_type = program.statistic_types[index]
-                        if isinstance(input_type, DurationDataType):
+                        if subset.empty and statistic.method == "sum":
+                            value = (
+                                checked_sum((), stage_arrow_type(input_type))
+                                if not isinstance(input_type, DurationDataType)
+                                else 0
+                            )
+                        elif isinstance(input_type, DurationDataType):
                             ticks = tuple(
                                 int(tick)
                                 for tick in pa.array(

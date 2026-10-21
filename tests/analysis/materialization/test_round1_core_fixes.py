@@ -82,7 +82,7 @@ def test_nullable_integer_axis_preserves_explicit_source_and_reduction(
     code = core_session.catalog.fields.get("sales.orders.code")
     metrics = {"total": amount.sum()}
     if small_first is not None:
-        small = {"small": amount.sum(empty="zero").where(amount < 20)}
+        small = {"small": amount.sum().where(amount < 20)}
         metrics = {**small, **metrics} if small_first else {**metrics, **small}
 
     direct = core_session.observe(metrics, by=(region, code)).compute().to_pandas()
@@ -221,13 +221,16 @@ def test_duration_empty_and_na_statistics_and_checked_middle_sum(core_session: S
     population = core_session.members(core_session.catalog.entities.get("sales.durations"))
     elapsed = core_session.catalog.fields.get("sales.durations.elapsed")
     query = core_session.read(population, {"elapsed": elapsed})
-    for selected in (query.where(query["elapsed"].is_null()), query.top(0, by=query["elapsed"])):
+    for selected, expected_sum in (
+        (query.where(query["elapsed"].is_null()), None),
+        (query.top(0, by=query["elapsed"]), 0),
+    ):
         result = (
             selected.reduce({"sum": selected["elapsed"].sum(), "mean": selected["elapsed"].mean()})
             .compute()
             .to_pandas()
         )
-        assert pa.array(result[("value", "sum")]).cast(pa.int64()).to_pylist() == [None]
+        assert pa.array(result[("value", "sum")]).cast(pa.int64()).to_pylist() == [expected_sum]
         assert result[("value", "mean")].isna().all()
     path = core_session.catalog.workspace_dir / "durations.parquet"
     pq.write_table(

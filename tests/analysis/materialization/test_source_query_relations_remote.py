@@ -91,10 +91,10 @@ def test_remote_source_frames_keep_independent_endpoint_presence(
         tenant = session.catalog.fields.get("sales.facts.tenant")
         amount = session.catalog.fields.get("sales.facts.amount")
         left = session.observe(
-            {"v": amount.sum(empty="null").where(tenant == "left")}, by=(category,)
+            {"v": amount.sum().where(tenant == "left")}, by=(category,)
         ).compute()
         right = session.observe(
-            {"v": amount.sum(empty="null").where(tenant == "right")}, by=(category,)
+            {"v": amount.sum().where(tenant == "right")}, by=(category,)
         ).compute()
         left_rows, right_rows = left.to_pandas(), right.to_pandas()
         on = ((left.axes[0], right.axes[0]),)
@@ -143,14 +143,12 @@ def test_remote_source_frames_keep_independent_endpoint_presence(
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
-@pytest.mark.parametrize("empty", ("zero", "null"))
 def test_remote_shared_consumers_keep_separate_group_images_and_parent_checks(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     backend: str,
     profile: str,
-    empty: str,
 ) -> None:
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, _data()) as case:
@@ -164,9 +162,9 @@ def test_remote_shared_consumers_keep_separate_group_images_and_parent_checks(
         condition = mv.in_population(selected)
         query = session.observe(
             {
-                "a": amount.sum(empty=empty).where(condition).where(category == "A"),
-                "c": amount.sum(empty=empty).where(~condition).where(category == "C"),
-                "null_key": amount.sum(empty="null").where(condition).where(category.isnull()),
+                "a": amount.sum().where(condition).where(category == "A"),
+                "c": amount.sum().where(~condition).where(category == "C"),
+                "null_key": amount.sum().where(condition).where(category.isnull()),
             },
             by=(category,),
         )
@@ -181,13 +179,13 @@ def test_remote_shared_consumers_keep_separate_group_images_and_parent_checks(
             else:
                 assert key == "C"
                 value = rows["value", "c"].iloc[index]
-                assert value == 0 if empty == "zero" else pd.isna(value)
-        # Every consumer keeps its own source scope. Missing groups use that
-        # Metric's empty policy, including cells outside its own category.
-        missing = 0 if empty == "zero" else None
+                assert value == 0
+        # Each consumer retains its source scope. Absent groups have sum zero;
+        # present all-NULL groups retain their unknown value.
+        missing = 0
         expected_values = {
-            "A": (0, missing, None),
-            "C": (missing, missing, None),
+            "A": (0, missing, 0),
+            "C": (missing, missing, 0),
             None: (missing, missing, 5),
         }
         actual_keys = [None if pd.isna(key) else key for key in rows.iloc[:, 0]]
@@ -209,19 +207,18 @@ def test_remote_shared_consumers_keep_separate_group_images_and_parent_checks(
         pd.testing.assert_frame_equal(
             rows.reset_index(drop=True), expected_rows, check_dtype=False, check_exact=True
         )
-        if empty == "zero":
-            parent = session.observe({"n": amount.sum(nulls="error")}, by=(category,))
-            empty_frame = parent.top(0, by=parent["n"])
-            checked = session.population_from(empty_frame, on=((empty_frame.axes[0], category),))
-            failed = session.observe(
-                {
-                    "a": amount.count().where(mv.in_population(checked)),
-                    "b": amount.count().where(~mv.in_population(checked)),
-                },
-                by=(category,),
-            )
-            with pytest.raises(MaterializationError, match="non-NA"):
-                failed.compute()
+        parent = session.observe({"n": amount.sum(nulls="error")}, by=(category,))
+        empty_frame = parent.top(0, by=parent["n"])
+        checked = session.population_from(empty_frame, on=((empty_frame.axes[0], category),))
+        failed = session.observe(
+            {
+                "a": amount.count().where(mv.in_population(checked)),
+                "b": amount.count().where(~mv.in_population(checked)),
+            },
+            by=(category,),
+        )
+        with pytest.raises(MaterializationError, match="non-NA"):
+            failed.compute()
         assert trace.uploaded_key_rows
 
 

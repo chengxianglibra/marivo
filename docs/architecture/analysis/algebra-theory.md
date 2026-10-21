@@ -300,8 +300,7 @@ $$
 
 | 方法 | S 与合并 | η | φ、定义域与空输入 |
 | --- | --- | --- | --- |
-| sum(empty="zero") | ℝ，加法 | `t` | `s`；全域；空为 0 |
-| sum(empty="null") | ℝ×ℕ，分量相加 | `(t,1)` | `n>0` 时取 s，否则 NA；见 §4.3 |
+| sum | ℝ×ℕ×ℕ，分量相加 | 有效值 `(t,1,1)`，NA `(0,1,0)` | 无输入时 0；有输入而无有效值时 NA，否则 s；见 §4.3 |
 | count | ℕ，加法 | `1` | `n`；全域；空为 0 |
 | mean | ℝ×ℕ，分量相加 | `(t,1)` | `s/n`；仅 `n>0`；空时无实数值 |
 | min / max | `Empty + T`，Empty 为单位，非空值取 min / max | `Present(t)` | `Present(t)↦t`；空时无 T 值 |
@@ -325,16 +324,16 @@ first/last 的内部时间样本可表示为带唯一有序时间键的 bag，�
 
 ### 4.3 Nullable 规约的摘要
 
-对 `T=ℝ+{NA}` 的有限 bag，定义 `η(v)=(v,1)`、`η(NA)=(0,0)`，
-摘要 `(sum,valid_count)` 分量相加，单位为 `(0,0)`，仍构成交换幺半群。
-目标默认 sum(empty="null") 在 valid_count>0 时取 sum，否则返回 NA；有效值抵消为零仍输出零。
-显式 sum(empty="zero") 直接取 sum，因此空输入与全 NA 都为 0，只需保存和。
-前者需有效值支持来完成默认值，但同样不区分空输入与全 NA，也不保存缺失原因。
+对 `T=ℝ+{NA}` 的有限 bag，定义 `η(v)=(v,1,1)`、`η(NA)=(0,1,0)`，
+摘要 `(sum,input_count,valid_count)` 分量相加，单位为 `(0,0,0)`，构成交换幺半群。
+固定 sum 在 input_count=0 时取有类型的零，input_count>0 且 valid_count=0 时返回 NA，
+否则取 sum；有效值抵消仍输出零。没有 empty 参数，也不把全 NA 偷换成空输入。
+这些计数是求值内部摘要，不作为完成 Frame 的隐藏事实或每格缺失原因保存。
 mean 在 valid_count>0 时取商，否则返回 NA；count/row_count 仍分别按其声明的样本单位计数。
 空值政策是方法定义的一部分；严格 nulls="error" 另保留其定义域检查，不被 ignore 摘要消去。
 
 这保证同一量的合法分区合并，不保证不同量之间的运算重排。
-例如 `x=(1,NA), y=(NA,2)`，nullable 加法后默认 sum 为 NA（显式 empty="zero" 时为 0），分别求和再相加为 3。
+例如 `x=(1,NA), y=(NA,2)`，nullable 加法后 sum 为 NA，分别求和再相加为 3。
 第 5.4 节线性结论只在共同固定有效域及原数值前提满足时适用。
 加权均值的分子/分母必须使用同一有效配对；普通 NA 不携带覆盖事实，原输入的必要检查不能省略。
 来源业务完整性不由这些代数前提证明；实际检查范围由[来源观察](populations-and-observation.md)和[加载验证](../semantic/loading-validation-introspection.md)拥有。

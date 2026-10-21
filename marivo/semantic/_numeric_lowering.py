@@ -91,7 +91,11 @@ def numeric_binary(
         if zero_denominator == "error":
             checks = (
                 *checks,
-                NumericCheck(zero, "a nonzero denominator", "divide(zero_denominator='error')"),
+                NumericCheck(
+                    a.notnull() & zero,
+                    "a nonzero denominator",
+                    "divide(zero_denominator='error')",
+                ),
             )
         safe = zero.ifelse(ibis.null().cast(b.type().copy(nullable=True)), b)
         value = a / safe
@@ -253,12 +257,13 @@ def lower_source_reduction(
                 NumericCheck(overflow, "signed int64 sum", "sum: integer overflow"),
             )
             result = overflow.ifelse(ibis.null().cast("int64"), wide.cast("int64"))
-        if node.empty == "zero":
-            result = result.fill_null(ibis.literal(0).cast(result.type()))
-        else:
-            result = (value.count() == 0).ifelse(
+        # An absent contribution is additive zero; existing unknown values are not.
+        result = (table.count() == 0).ifelse(
+            ibis.literal(0).cast(result.type()),
+            (value.count() == 0).ifelse(
                 ibis.null().cast(result.type().copy(nullable=True)), result
-            )
+            ),
+        )
         return NumericValue(
             result,
             (

@@ -529,7 +529,7 @@ def _combine_program(
             marked = frame.assign(**{"__present": True})
             merged = domain.merge(marked, on=keys, how="left", validate="one_to_one", sort=False)
             value = merged[slot].astype(object)
-            if binding.empty_zero:
+            if binding.zero_when_absent:
                 value = value.mask(
                     merged["__numeric_present"].astype("boolean").fillna(False).eq(False)
                     if "__numeric_present" in merged.columns

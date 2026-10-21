@@ -531,11 +531,7 @@ def _reduce(
 ) -> MetricFacts:
     from marivo.semantic.expressions import _nulls, _quantile, _zero_denominator
 
-    allowed = (
-        {"time", "nulls", "where", "empty"}
-        if isinstance(receiver, RowFacts)
-        else {"nulls", "empty"}
-    )
+    allowed = {"time", "nulls", "where"} if isinstance(receiver, RowFacts) else {"nulls"}
     if name in {"quantile", "approx_quantile"}:
         allowed.add("q")
     if isinstance(receiver, _Samples) and name in {"first", "last"}:
@@ -555,14 +551,6 @@ def _reduce(
         if name in {"quantile", "approx_quantile"}
         else None
     )
-    empty_value = _constant(kwargs.get("empty", Just("null" if name == "sum" else "zero")))
-    if empty_value not in ("zero", "null") or ("empty" in kwargs and name != "sum"):
-        _fail(
-            "empty is a sum policy.",
-            expected="sum(empty='zero' or 'null')",
-            received=str(empty_value),
-        )
-    empty: Literal["zero", "null"] = empty_value
     reducer = cast("Reducer", name)
     if isinstance(receiver, _Samples):
         metric = receiver.metric
@@ -637,7 +625,6 @@ def _reduce(
             reducer,
             q=q,
             nulls=policy,
-            empty=empty,
             order_by=order_by,
             include_null=include_null,
         )
@@ -709,7 +696,7 @@ def _reduce(
             ),
         )
     else:
-        node = SourceAggregate(row.node, reducer, time, q=q, nulls=policy, empty=empty)
+        node = SourceAggregate(row.node, reducer, time, q=q, nulls=policy)
     if "where" in kwargs:
         predicate = _consume_predicate_recipe(kwargs["where"])
         if any(isinstance(item, PopulationContains) for item in predicate.node.inputs):

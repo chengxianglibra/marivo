@@ -107,7 +107,7 @@ def reduce_samples(
                         else:
                             result = numerator / denominator
                 elif node.reducer == "sum":
-                    result = total(present) if present or node.empty == "zero" else None
+                    result = total(present) if present or group.empty else None
                 elif node.reducer in ("count", "count_distinct"):
                     result = len(present) if node.reducer == "count" else len(set(present))
                 elif node.reducer == "approx_nunique":

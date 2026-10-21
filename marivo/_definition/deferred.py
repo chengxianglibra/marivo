@@ -609,8 +609,6 @@ class _Inspector:
             self.visit(arg, (*path, role))
         if symbol == "divide":
             kwargs.setdefault("zero_denominator", Just("null"))
-        if symbol == "sum":
-            kwargs.setdefault("empty", Just("zero"))
         for key, value in sorted(kwargs.items()):
             self.token("parameter", key)
             self.visit(value, (*path, f"parameter:{key}"))

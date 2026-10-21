@@ -8,9 +8,8 @@ from tests.shared_fixtures import DslCaseFactory
 from tests.support.source_trace import capture_source
 
 
-@pytest.mark.parametrize("empty", ["zero", "null"])
 def test_dynamic_sample_domain_is_transported_with_actual_leaf_batches(
-    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch, empty: str
+    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as connection:
@@ -25,10 +24,10 @@ def test_dynamic_sample_domain_is_transported_with_actual_leaf_batches(
     samples = session.members(
         session.catalog.entities.get("sales.customer"), where=customer != "D"
     ).classify(by=(customer,))
-    metric = amount.sum(empty=empty).per(samples).mean()
+    metric = amount.sum().per(samples).mean()
     trace = capture_source(monkeypatch)
     result = session.observe({"value": metric}).compute().to_pandas()
-    assert result["value", "value"].tolist() == [1000 / 3 if empty == "zero" else 1000]
+    assert result["value", "value"].tolist() == [1000 / 3]
 
 
 @pytest.mark.parametrize("selection", ["top", "where", "empty"])
@@ -108,9 +107,8 @@ def test_nested_complex_rollups_finish_every_intermediate_formula(
     assert result["value", "value"].tolist() == [1000.0]
 
 
-@pytest.mark.parametrize("empty", ["zero", "null"])
 def test_dynamic_sample_producer_retains_its_own_period(
-    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch, empty: str
+    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as connection:
@@ -129,7 +127,7 @@ def test_dynamic_sample_producer_retains_its_own_period(
     )
     fixed = producer.where(producer["n"] > 0).compute()
     samples = session.population_from(fixed, on=((fixed.axes[1], customer),))
-    metric = amount.sum(time=ordered, empty=empty).per(samples).mean()
+    metric = amount.sum(time=ordered).per(samples).mean()
     fine = session.observe(
         {"value": metric}, by=(session.time_scope(start="2026-10-01", end="2026-11-01"), channel)
     )
@@ -141,7 +139,7 @@ def test_dynamic_sample_producer_retains_its_own_period(
         .compute()
         .to_pandas()["value", "value"]
     )
-    assert result.tolist() == [0.0] if empty == "zero" else result.isna().all()
+    assert result.tolist() == [0.0]
 
 
 def test_complex_top_uses_the_exact_completed_parent_score(
@@ -211,7 +209,7 @@ def test_dynamic_sample_domain_transports_distinct_complete_coordinates(
     customer = session.catalog.fields.get("sales.order.customer_id")
     channel = session.catalog.fields.get("sales.order.channel")
     samples = session.members(session.catalog.entities.get("sales.order")).classify(by=(customer,))
-    metric = amount.sum(empty="zero").per(samples).mean()
+    metric = amount.sum().per(samples).mean()
     trace = capture_source(monkeypatch)
     result = session.observe({"value": metric}).compute().to_pandas()
     assert result["value", "value"].tolist() == [1000.0]

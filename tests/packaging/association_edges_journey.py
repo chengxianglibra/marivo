@@ -54,7 +54,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
         amount = session.catalog.fields.get("operations.reading.energy")
         time = session.catalog.fields.get("operations.reading.recorded_at")
         left = session.observe(
-            {"value": amount.sum(time=time, empty="null")}, by=mv.product(window, population)
+            {"value": amount.sum(time=time)}, by=mv.product(window, population)
         ).persist()
         right = session.observe(
             {"value": session.catalog.metrics.get("operations.reading_count")},

@@ -660,7 +660,7 @@ def test_read_evidence_preserves_nested_predicate_groups(source_session: Session
         ),
     )
     for predicate, expected, total in zip(predicates, expected_shapes, (5, 15, 0), strict=True):
-        artifact = session.observe({"total": amount.sum(empty="zero")}, where=predicate).persist()
+        artifact = session.observe({"total": amount.sum()}, where=predicate).persist()
         assert stored_frame(session, artifact)["value.0"].tolist() == [total]
         facts = records(session, artifact)
         (scope,) = [dict(item.values)["filters"] for item in facts if item.kind == "read"]

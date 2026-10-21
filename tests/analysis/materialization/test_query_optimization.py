@@ -436,7 +436,7 @@ def test_unselected_native_branch_keeps_its_dynamic_checks_masked(
     session = optimization_session
     amount = session.catalog.fields.get("sales.orders.amount")
     region = session.catalog.fields.get("sales.orders.region")
-    total = amount.sum(empty="zero")
+    total = amount.sum()
     guarded = ibis.ifelse(total >= 0, total, total.divide(0, zero_denominator="error"))
     query = session.observe({"safe": guarded}, by=(region,))
     _same(session, query)
@@ -591,19 +591,18 @@ def test_each_public_compute_owns_a_fresh_compilation_memo(
     assert len(memos) == 2 and memos[0] is not memos[1]
 
 
-@pytest.mark.parametrize("zero", (False, True))
 def test_explicit_empty_source_sum_and_ratio_keep_one_nullable_cell(
-    optimization_session: Session, zero: bool
+    optimization_session: Session,
 ) -> None:
     amount = optimization_session.catalog.fields.get("sales.orders.amount")
-    total = amount.sum(empty="zero") if zero else amount.sum()
+    total = amount.sum()
     query = optimization_session.observe(
         {"sum": total, "ratio": total / amount.count()}, where=amount > 1000
     )
     _same(optimization_session, query)
     frame = query.compute().to_pandas()
     assert len(frame) == 1
-    assert frame[("value", "sum")].tolist() == [0] if zero else frame[("value", "sum")].isna().all()
+    assert frame[("value", "sum")].tolist() == [0]
     assert frame[("value", "ratio")].isna().all()
 
 
@@ -613,7 +612,7 @@ def test_exact_source_common_block_preserves_values_and_occurrences(
 ) -> None:
     session = optimization_session
     value = session.catalog.fields.get("sales.orders." + field)
-    query = session.observe({"sum": value.sum(empty="zero"), "count": value.count()})
+    query = session.observe({"sum": value.sum(), "count": value.count()})
     calls: list[CompiledRead] = []
     execute = SourceSession.execute
 
@@ -695,7 +694,7 @@ def test_null_empty_policy_and_different_source_fibers_remain_independent(
     amount = session.catalog.fields.get("sales.orders.amount")
     region = session.catalog.fields.get("sales.orders.region")
     detail = session.catalog.fields.get("sales.orders.detail")
-    query = session.observe({"sum": amount.sum(empty="null")})
+    query = session.observe({"sum": amount.sum()})
     plan, _, _ = _same(session, query)
     assert not any(group.law == "L8" for group in plan.fusion_groups)
     entity = session.catalog.entities.get("sales.orders")
@@ -746,7 +745,7 @@ def test_common_block_keeps_same_period_filter_and_exact_checks(
     region = session.catalog.fields.get("sales.orders.region")
     scope = session.time_scope(start="2026-01-01", end="2026-01-02")
     query = session.observe(
-        {"a": amount.sum(time=time, empty="zero"), "b": amount.count(time=time)},
+        {"a": amount.sum(time=time), "b": amount.count(time=time)},
         by=(region,),
         where=(amount > 0) & time.within(scope),
     )

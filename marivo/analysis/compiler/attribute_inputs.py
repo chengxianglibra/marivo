@@ -708,10 +708,9 @@ def _lower_attribute_fiber(
                     component = replace(
                         node,
                         reducer="count" if role == "valid_value_count" else "sum",
-                        empty="zero",
                     )
                     reduced = lower_source_reduction(component, source, local_fields)
-                    value = reduced.value
+                    value = reduced.value.fill_null(0)
                     component_checks: tuple[NumericCheck, ...]
                     if node.reducer == "mean" and role == "valid_value_sum":
                         item = lower_row(node.operand, local_fields).value

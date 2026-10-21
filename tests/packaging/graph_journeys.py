@@ -201,7 +201,7 @@ def _produce(session: mv.Session, scenario: DslScenario) -> dict[str, mv.Analysi
             amount = session.catalog.fields.get("operations.reading.energy")
             time = session.catalog.fields.get("operations.reading.recorded_at")
             current = session.observe(
-                {"value": amount.sum(time=time, empty="null")},
+                {"value": amount.sum(time=time)},
                 by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), members),
             ).compute()
             queries = {

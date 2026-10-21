@@ -93,8 +93,8 @@ def test_selected_member_scope_survives_contract_transform_and_saved_evidence(
     saved = selected.persist()
     artifact = saved.artifact
     output = saved.to_pandas()
-    # This fixture explicitly declares empty="zero"; the complete output
-    # coordinates retain the two groups outside the selected member domain.
+    # Complete output coordinates retain the two groups without selected facts;
+    # their fixed sum is additive zero.
     assert output[("value", "revenue")].tolist() == [180, 0, 0]
     reads = tuple(item for item in artifact.evidence_digest().items if item.kind == "read")
     assert reads

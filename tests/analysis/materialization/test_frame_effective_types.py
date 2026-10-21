@@ -203,7 +203,8 @@ def test_native_types_empty_all_null_persist_and_reopen(
         fixed = pending.compute()
         assert _schema(fixed) == (ScalarDataType("float64"),)
         reduced = pending.reduce({"sum": pending["big"].sum()}).compute()
-        assert reduced.to_pandas()["value", "sum"].isna().tolist() == [True]
+        actual = reduced.to_pandas()["value", "sum"].iloc[0]
+        assert actual == 0 if len(fixed.to_pandas()) == 0 else pd.isna(actual)
         assert _schema(reduced) == (ScalarDataType("float64"),)
     saved = source.persist()
     read_count = len(calls)
@@ -263,7 +264,8 @@ def test_native_all_null_and_empty_source_carriers(
         expected = ScalarDataType("float64")
         assert _schema(fixed) == (expected,)
         reduced = source.reduce({"sum": source["big"].sum()}).compute()
-        assert reduced.to_pandas()["value", "sum"].isna().tolist() == [True]
+        actual = reduced.to_pandas()["value", "sum"].iloc[0]
+        assert actual == 0 if len(fixed.to_pandas()) == 0 else pd.isna(actual)
         assert _schema(reduced) == (expected,)
 
 

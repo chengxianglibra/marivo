@@ -15,9 +15,28 @@ from tests.shared_fixtures import DslCase, DslCaseFactory, export_dsl_parquet_mo
 
 def _case(factory: DslCaseFactory, *, double: bool = False) -> DslCase:
     case = factory("j2")
-    if double:
-        with duckdb.connect(str(case.database_path)) as connection:
+    with duckdb.connect(str(case.database_path)) as connection:
+        if double:
             connection.execute('ALTER TABLE "order" ALTER amount TYPE DOUBLE')
+        # Unknown observations must be represented by actual NULL-valued facts;
+        # an absent contribution now has the distinct value zero.
+        days = ("2026-07-09", "2026-07-10", "2026-07-11", "2026-08-14", "2026-08-15", "2026-08-16")
+        connection.executemany(
+            'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?)',
+            [
+                (
+                    f"unknown-{day}-{customer}",
+                    customer,
+                    "web",
+                    "paid",
+                    day + "T12:00:00+00:00",
+                    None,
+                )
+                for day in days
+                for customer in "ABCD"
+            ]
+            + [("unknown-september-D", "D", "web", "paid", "2026-09-10", None)],
+        )
     export_dsl_parquet_models(case, case.root)
     ms.load(workspace_dir=case.root)
     return case
@@ -29,7 +48,7 @@ def _observe(case: DslCase, start: str, end: str, *, daily: bool = False) -> mv.
     time = session.catalog.fields.get("sales.order.ordered_at")
     during = session.time_scope(start=start, end=end)
     return session.observe(
-        {"value": amount.sum(time=time, empty="null")},
+        {"value": amount.sum(time=time)},
         by=mv.product(
             during.by(mv.grain("day")) if daily else during,
             session.members(session.catalog.entities.get("sales.customer")),
@@ -115,8 +134,8 @@ def test_null_and_zero_denominator_both_remain_nullable_in_both_directions(
     time = session.catalog.fields.get("sales.order.ordered_at")
     q = session.observe(
         {
-            "revenue": amount.sum(time=time, empty="null"),
-            "count": session.catalog.metrics.get("sales.order_count"),
+            "revenue": amount.sum(time=time),
+            "count": amount.count(time=time),
         },
         by=mv.product(
             session.time_scope(start="2026-09-01", end="2026-10-01"),
