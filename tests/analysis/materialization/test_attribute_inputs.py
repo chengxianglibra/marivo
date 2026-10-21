@@ -12,12 +12,11 @@ from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 from marivo.analysis.binding.attribute import attribute_input_request
-from marivo.analysis.dsl.attribute import attribute_endpoint
 from marivo.analysis.binding.observe import ContributionBinding
 from marivo.analysis.compiler.frame_plan import CompiledFramePlan, CompiledSourceFrame, plan_frame
 from marivo.analysis.compiler.graph_plan import SourceRead, read_attribute, require_reduction
 from marivo.analysis.core.frame_expression import FrameExpression
-from marivo.analysis.dsl.attribute import AttributeEndpoint
+from marivo.analysis.dsl.attribute import attribute_endpoint
 from marivo.analysis.materialization.frame_evaluation import evaluate_attribute_inputs
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead
@@ -1106,5 +1105,6 @@ def test_endpoint_factory_preserves_capture_without_execution(
     assert endpoint.memberships is memberships
     assert default.during is None and default.where is None and default.memberships == ()
     with pytest.raises(TypeError):
-        endpoint.metrics["new"] = first
+        # Exercise the runtime read-only guard despite the public Mapping annotation.
+        endpoint.metrics["new"] = first  # type: ignore[index]
     assert terminal_runs(session) == before

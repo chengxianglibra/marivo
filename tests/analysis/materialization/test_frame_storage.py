@@ -761,7 +761,7 @@ def test_unknown_outcome_requires_recovery_then_explicit_resubmission(
     assert store.resources(local.session_ref) == ()
     saved = memory.persist()
     assert counts(local) == (2, committed_before + 1)
-    assert saved._backing.metadata == memory._backing.metadata
+    assert _stored_backing(saved).metadata == _memory_backing(memory).metadata
     pd.testing.assert_frame_equal(saved.to_pandas(), memory.to_pandas())
 
 
