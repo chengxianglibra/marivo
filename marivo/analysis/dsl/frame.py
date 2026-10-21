@@ -35,6 +35,7 @@ from marivo.analysis._scope import scope_summary
 from marivo.analysis.core.artifact_data import ArtifactData, DataSchema, SavedFrameMethodFacts
 from marivo.analysis.core.frame_audit import FrameResultMetadata
 from marivo.analysis.core.frame_data import (
+    CompletedFrameData,
     CompletedFrameResult,
     ExpressionFrameBacking,
     FrameExpressionRoot,
@@ -43,6 +44,11 @@ from marivo.analysis.core.frame_data import (
     OperationFrameBinding,
     SourceFrameBinding,
     StoredFrameBacking,
+)
+from marivo.analysis.core.frame_derivation import (
+    FrameDerivation,
+    complete_declaration,
+    derive_declaration,
 )
 from marivo.analysis.core.frame_expression import (
     AlignFrameValues,
@@ -86,6 +92,7 @@ class AnalysisFrame:
     _input_id: str
     _schema: FrameSchema
     _backing: FrameBacking
+    _derivation: FrameDerivation | None
 
     def __init__(self) -> None:
         raise TypeError("Use Session methods or Frame operations.")
@@ -113,16 +120,23 @@ class AnalysisFrame:
                 "Capture the current structure.",
                 "frame.expression",
             )
-        return cls._bind(local, schema, ExpressionFrameBacking(root), "frame_" + uuid4().hex)
+        return cls._bind(
+            local,
+            schema,
+            ExpressionFrameBacking(root),
+            "frame_" + uuid4().hex,
+            derive_declaration(schema, root),
+        )
 
     @classmethod
     def _from_memory(
         cls,
         local: LocalFrameServices,
         result: CompletedFrameResult,
+        derivation: FrameDerivation | None = None,
     ) -> AnalysisFrame:
         backing = MemoryFrameBacking(result)
-        return cls._bind(local, result.data.schema, backing, "frame_" + uuid4().hex)
+        return cls._bind(local, result.data.schema, backing, "frame_" + uuid4().hex, derivation)
 
     @classmethod
     def _from_stored(
@@ -133,23 +147,30 @@ class AnalysisFrame:
         artifact_id: str,
         metadata: FrameResultMetadata,
         method_facts: tuple[SavedFrameMethodFacts, ...] = (),
+        derivation: FrameDerivation | None = None,
     ) -> AnalysisFrame:
         backing = StoredFrameBacking(artifact_id, data, metadata, method_facts)
         identity = dumps(
             (local.store.store_id, local.session_ref, artifact_id), separators=(",", ":")
         )
         input_id = "stored_" + sha256(identity.encode()).hexdigest()
-        return cls._bind(local, data.schema, backing, input_id)
+        return cls._bind(local, data.schema, backing, input_id, derivation)
 
     @classmethod
     def _bind(
-        cls, local: LocalFrameServices, schema: FrameSchema, backing: FrameBacking, input_id: str
+        cls,
+        local: LocalFrameServices,
+        schema: FrameSchema,
+        backing: FrameBacking,
+        input_id: str,
+        derivation: FrameDerivation | None = None,
     ) -> AnalysisFrame:
         result = object.__new__(cls)
         object.__setattr__(result, "_local", local)
         object.__setattr__(result, "_input_id", input_id)
         object.__setattr__(result, "_schema", schema)
         object.__setattr__(result, "_backing", backing)
+        object.__setattr__(result, "_derivation", derivation)
         return result
 
     def __repr__(self) -> str:
@@ -839,10 +860,16 @@ class AnalysisFrame:
         if isinstance(self._backing, MemoryFrameBacking):
             return self
         if isinstance(self._backing, StoredFrameBacking):
-            return self._from_memory(self._local, self._local.read_complete(self._backing))
+            return self._from_memory(
+                self._local, self._local.read_complete(self._backing), self._derivation
+            )
         from marivo.analysis.materialization.frame_evaluation import evaluate_frame
 
-        return self._from_memory(self._local, evaluate_frame(self))
+        keys: dict[str, CompletedFrameData] = {}
+        result = evaluate_frame(self, declaration_keys=keys)
+        return self._from_memory(
+            self._local, result, complete_declaration(self._derivation, keys, result.metadata)
+        )
 
     @property
     def method_facts(self) -> tuple[FrameMethodFacts, ...]:
@@ -896,6 +923,7 @@ class AnalysisFrame:
             artifact_id=backing.artifact_id,
             metadata=backing.metadata,
             method_facts=backing.method_facts,
+            derivation=completed._derivation,
         )
 
     @property

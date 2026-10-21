@@ -195,7 +195,9 @@ def _fold_method_facts(
 
 
 def _evaluate_frame(
-    frame: AnalysisFrame, request: AttributeInputRequest | None = None
+    frame: AnalysisFrame,
+    request: AttributeInputRequest | None = None,
+    declaration_keys: dict[str, CompletedFrameData] | None = None,
 ) -> CompletedFrameResult | StageOutput:
     """Evaluate once, close all sources, then return independent data and facts."""
     captured = capture_frame_inputs(frame, request)
@@ -216,6 +218,10 @@ def _evaluate_frame(
             result = current._local.read_complete(backing)
         for facts in result.method_facts:
             validate_method_facts(facts)
+        if declaration_keys is not None:
+            from marivo.analysis.core.frame_derivation import key_checkpoint
+
+            declaration_keys[input_id] = key_checkpoint(result.data)
         fixed_method_facts[input_id] = result.method_facts
         return result
 
@@ -240,6 +246,14 @@ def _evaluate_frame(
         operations = prepared.operations
         compiled = plan_frame(captured.root, source_plans, frame_inputs=expressions)
         source_stage_ids = dict(compiled.source_stages)
+        operation_inputs = {
+            id(expression): identifier for identifier, expression in expressions.items()
+        }
+        operation_stages = {
+            stage: operation_inputs[id(expression)]
+            for stage, expression in compiled.frame_operations
+            if id(expression) in operation_inputs
+        }
         applicable: dict[str, tuple[str, ...]] = {}
         for stage in compiled.lowered.plan.stages:
             if isinstance(stage, FrameInput):
@@ -278,6 +292,10 @@ def _evaluate_frame(
             completed = CompletedFrameData(
                 schema, output.table.loc[:, [c.slot_id for c in schema.columns]], attachments
             )
+            if declaration_keys is not None:
+                from marivo.analysis.core.frame_derivation import key_checkpoint
+
+                declaration_keys[input_id] = key_checkpoint(completed)
             return StageOutput.from_frame(
                 completed.copy_rows(),
                 schema.columns,
@@ -348,6 +366,16 @@ def _evaluate_frame(
                     checks.append(fact)
 
         def observe_local(stage: LocalCompute | FrameCompute, output: StageOutput) -> None:
+            if (
+                declaration_keys is not None
+                and stage.stage_id in operation_stages
+                and output.frame_schema is not None
+            ):
+                from marivo.analysis.core.frame_derivation import key_checkpoint
+
+                declaration_keys[operation_stages[stage.stage_id]] = key_checkpoint(
+                    CompletedFrameData(output.frame_schema, output.table, output.frame_attachments)
+                )
             method_productions.extend(
                 (stage.stage_id, payload) for payload in output.attribute_methods
             )
@@ -512,8 +540,10 @@ def _evaluate_frame(
     return CompletedFrameResult(data, metadata, method_facts)
 
 
-def evaluate_frame(frame: AnalysisFrame) -> CompletedFrameResult:
-    result = _evaluate_frame(frame)
+def evaluate_frame(
+    frame: AnalysisFrame, *, declaration_keys: dict[str, CompletedFrameData] | None = None
+) -> CompletedFrameResult:
+    result = _evaluate_frame(frame, declaration_keys=declaration_keys)
     assert isinstance(result, CompletedFrameResult)
     return result
 
