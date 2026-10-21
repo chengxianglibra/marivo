@@ -25,7 +25,7 @@ amount_ref = ms.measure_column(
 )
 status_ref = ms.dimension_column(name="status", entity=orders_ref, column="status")
 paid_at_ref = ms.time_dimension_column(
-    name="paid_at", entity=orders_ref, column="paid_at", granularity="second",
+    name="paid_at", entity=orders_ref, column="paid_at",
 )
 finalized = ms.finalize()
 orders = finalized.resolve(orders_ref)
@@ -141,6 +141,17 @@ Ordered first/last preserves the declared unique sample time order and explicit
 include_null policy. For a sampled status quantity, spatial reduction precedes
 temporal reduction, for example bandwidth.sum(time=sample_at).per(sample_at).quantile(0.95).
 Per-device P95 values cannot reconstruct the P95 of the combined time series.
+
+Field `sample_interval` supplies optional source coverage, independently of parse.
+Preparation freezes the sampling clock: naive values use parser timezone or
+reader authority; aware values use UTC. Output timezone only clips these points
+to the actual contribution intervals. The clock is never inferred from the first
+row. Missing expected points fail coverage; present points whose completed Metric
+is NULL retain the reducer's null policy. Same-time facts finish spatial
+reduction first. Without cadence, only represented samples are evaluated.
+Local DST gaps create no imaginary points and repeated hours retain distinct
+instants; ambiguous source encodings reject. Complete sampling requires a bounded
+contribution interval. An aware non-UTC civil sampling plan is not supported.
 
 Membership allocation rules are explicit in the memberships parameter of each
 observe/per consumer; they are independent at inner and outer levels. Correlated

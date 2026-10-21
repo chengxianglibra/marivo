@@ -139,6 +139,7 @@ class ErrorKind(StrEnum):
     INVALID_MEASURE_AGGREGATION = "invalid_measure_aggregation"
     INCOMMENSURABLE_LINEAR_UNITS = "incommensurable_linear_units"
     INVALID_ENTITY_VERSIONING = "invalid_entity_versioning"
+    INVALID_TARGET_SEMANTICS = "invalid_target_semantics"
     DUPLICATE_IDENTITY_KEY = "duplicate_identity_key"
     MISSING_IDENTITY_KEY_COLUMN = "missing_identity_key_column"
     IDENTITY_VERSION_OVERLAP = "identity_version_overlap"

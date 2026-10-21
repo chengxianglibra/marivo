@@ -40,10 +40,10 @@ def test_clickhouse_physical_utc_window_is_independent_of_session_timezone(
             "timestamp",
             False,
             True,
-            "second",
+            None,
             True,
             "UTC",
-            TimestampParse(timezone="UTC"),
+            TimestampParse(),
         )
         value, authority = source_time(
             bound.relation.happened,

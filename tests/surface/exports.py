@@ -25,15 +25,11 @@ SEMANTIC_PUBLIC = {
     "TemporalSetDetails",
     "TemporalSetEntry",
     "TemporalSetKind",
-    "WorkScheduleDetails",
-    "WorkScheduleEntry",
-    "WorkScheduleKind",
     "additive",
     "additive_all",
     "ai_context",
     "bind",
     "calendar_grain",
-    "datetime",
     "dimension",
     "dimension_column",
     "domain",
@@ -48,7 +44,6 @@ SEMANTIC_PUBLIC = {
     "metric",
     "non_additive",
     "period_calendar",
-    "period_correspondence",
     "ref",
     "relationship",
     "snapshot",
@@ -60,7 +55,6 @@ SEMANTIC_PUBLIC = {
     "timestamp",
     "typing",
     "validity",
-    "work_schedule",
 }
 
 ANALYSIS_PUBLIC = (

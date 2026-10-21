@@ -21,7 +21,7 @@ from marivo.semantic._capabilities.registry import (
 from marivo.semantic.constraints import CONSTRAINTS
 
 _RETURN_FAMILY_ALIASES = {
-    "_CatalogObjectDetails": "DatasourceDetails | DomainDetails | PeriodCalendarDetails | TemporalSetDetails | WorkScheduleDetails",
+    "_CatalogObjectDetails": "DatasourceDetails | DomainDetails | PeriodCalendarDetails | TemporalSetDetails",
     "Self": "Dimension | TimeField | Measure",
     "str": "Text",
     "DeclaredMeasure": "Measure",
@@ -41,7 +41,6 @@ _RETURN_FAMILY_ALIASES = {
     "Ref[RelationshipKind]": "Ref[relationship]",
     "Ref[PeriodCalendarKind]": "Ref[period_calendar]",
     "Ref[TemporalSetKind]": "Ref[temporal_set]",
-    "Ref[WorkScheduleKind]": "Ref[work_schedule]",
     "ir.BooleanValue": "IbisValue",
     "ir.Value": "IbisValue",
     "ibis_ir.Value": "IbisValue",
@@ -54,7 +53,6 @@ _RETURN_FAMILY_ALIASES = {
     "NullInputPolicyV1": "ValuePolicy",
     "EmptyContributionPolicyV1": "ValuePolicy",
     "ZeroDenominatorPolicyV1": "ValuePolicy",
-    "DatetimeParse": "DateTimeSpec",
     "TimestampParse": "TimestampSpec",
     "StrptimeParse": "StrptimeSpec",
     "HourPrefixParse": "HourPrefixSpec",

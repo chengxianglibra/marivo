@@ -50,7 +50,6 @@ def publish_calendar(catalog: ms.SemanticCatalog, zone: str, *, baseline: bool =
             boundary_timezone=zone,
             coverage=calendar.coverage,
             levels=calendar.levels,
-            correspondences=calendar.correspondences,
             dependency_digest=dependency,
         ),
     )

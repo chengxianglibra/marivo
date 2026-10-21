@@ -59,11 +59,10 @@ OUTPUT_FAMILIES = frozenset(
         "Entity | Deferred | Relationship",
         "SemanticCatalog",
         "CatalogEntry",
-        "DatasourceDetails | DomainDetails | PeriodCalendarDetails | TemporalSetDetails | WorkScheduleDetails",
+        "DatasourceDetails | DomainDetails | PeriodCalendarDetails | TemporalSetDetails",
         "DomainDetails",
         "DatasourceDetails",
         "TemporalSetDetails",
-        "WorkScheduleDetails",
         "dict[str, object]",
         "tuple[str, str]",
         "CatalogEntry | Entity | Deferred | Relationship",
@@ -90,7 +89,6 @@ OUTPUT_FAMILIES = frozenset(
         "Ref[relationship]",
         "Ref[period_calendar]",
         "Ref[temporal_set]",
-        "Ref[work_schedule]",
         "Ref[dimension | time_dimension]",
         "Ref[dimension | time_dimension | measure]",
         "JoinKey",
@@ -98,7 +96,6 @@ OUTPUT_FAMILIES = frozenset(
         "Additivity",
         "ValuePolicy",
         "ValiditySpec",
-        "DateTimeSpec",
         "TimestampSpec",
         "StrptimeSpec",
         "HourPrefixSpec",
@@ -116,7 +113,6 @@ OUTPUT_FAMILIES = frozenset(
         "Text",
         "IbisTable",
         "IbisValue",
-        "PeriodCorrespondence",
         "Grain",
         "CalendarPeriodPage",
         "CalendarLevelDetails",
@@ -150,7 +146,6 @@ INPUT_FAMILIES = frozenset(
         "ZeroDenominatorPolicyV1",
         "Ref[period_calendar]",
         "Ref[temporal_set]",
-        "Ref[work_schedule]",
         "Ref[dimension | time_dimension]",
         "Ref[dimension | time_dimension | measure]",
         "CatalogEntry",
@@ -158,7 +153,6 @@ INPUT_FAMILIES = frozenset(
         "DatasourceEntry",
         "PeriodCalendarEntry",
         "TemporalSetEntry",
-        "WorkScheduleEntry",
         "ReadinessReport",
         "SourceHealthReport",
         "SourceHealthCheckResult",
@@ -199,6 +193,7 @@ INPUT_FAMILIES = frozenset(
         "Granularity",
         "Granularity | Grain",
         "ParseVariant",
+        "tuple[int, minute | hour]",
         "PositiveInt",
         "TimeFold",
         "JoinKey",
@@ -215,7 +210,6 @@ INPUT_FAMILIES = frozenset(
         "AnchorSpec",
         "WeightSpec",
         "ValiditySpec",
-        "DateTimeSpec",
         "TimestampSpec",
         "StrptimeSpec",
         "HourPrefixSpec",
@@ -223,7 +217,6 @@ INPUT_FAMILIES = frozenset(
         "EntityAlias",
         "SequenceOrder",
         "LifecycleStateName",
-        "PeriodCorrespondence",
         "Grain",
         "Entity",
         "Dimension",
@@ -705,7 +698,7 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
         ),
         _object_contract(
             SemanticKind.TIME_DIMENSION,
-            "Explicit business time axis with grain and parse semantics.",
+            "Explicit business time field with parse semantics and optional source sampling.",
             decisions=(
                 _business_decision(
                     "owning_entity",
@@ -719,8 +712,8 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                     "ai_context",
                 ),
                 _source_business_decision(
-                    "granularity",
-                    "What is the finest meaningful business grain?",
+                    "logical_time_kind",
+                    "Does the source represent civil dates or exact timestamps?",
                     "time_dimension_column",
                     "time_dimension",
                 ),
@@ -729,7 +722,6 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                     "How are physical values encoded, parsed, and localized?",
                     "time_dimension_column",
                     "time_dimension",
-                    "datetime",
                     "timestamp",
                     "strptime",
                     "hour_prefix",
@@ -743,8 +735,8 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                 _source_business_decision(
                     "sampled_cadence",
                     "Does the source represent a fixed-cadence sampled series?",
-                    "datetime",
-                    "timestamp",
+                    "time_dimension_column",
+                    "time_dimension",
                 ),
             ),
             construction_modes=(
@@ -762,7 +754,7 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                     "owned_by", "objects.entity", "The Entity ref fixes time-axis ownership."
                 ),
             ),
-            supporting=("datetime", "timestamp", "strptime", "hour_prefix", "ai_context", "bind"),
+            supporting=("timestamp", "strptime", "hour_prefix", "ai_context", "bind"),
             checks=(
                 "load",
                 "readiness",
@@ -997,12 +989,6 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                     "period_calendar",
                     "preview",
                 ),
-                _business_decision(
-                    "correspondence_conventions",
-                    "Which named same-level baseline correspondences are authorized?",
-                    "period_correspondence",
-                    "period_calendar",
-                ),
             ),
             construction_modes=(
                 _mode("Declare one finite governed calendar.", "default", "period_calendar"),
@@ -1014,10 +1000,10 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                 _relationship(
                     "requires",
                     "objects.dimension",
-                    "Period levels and correspondence keys are Dimensions.",
+                    "Period levels are Dimensions.",
                 ),
             ),
-            supporting=("period_correspondence", "ai_context"),
+            supporting=("ai_context",),
             checks=("load", "readiness", "preview", "source_health"),
         ),
         _object_contract(
@@ -1083,47 +1069,6 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
             supporting=("ai_context",),
             checks=("load", "readiness", "preview", "source_health"),
         ),
-        _object_contract(
-            SemanticKind.WORK_SCHEDULE,
-            "Governed final daily working-status schedule.",
-            decisions=(
-                _business_decision(
-                    "working_status_authority",
-                    "Which business source owns final working status?",
-                    "work_schedule",
-                    "ai_context",
-                ),
-                _source_business_decision(
-                    "date_boolean_meaning",
-                    "Which civil-date and boolean fields encode final status?",
-                    "work_schedule",
-                ),
-                _business_decision(
-                    "boundary_timezone", "Which timezone owns workday boundaries?", "work_schedule"
-                ),
-                _source_business_decision(
-                    "finite_coverage", "Which finite date coverage is exhaustive?", "work_schedule"
-                ),
-                _business_decision(
-                    "rule_precedence",
-                    "Which business rule precedence has already been resolved by the source?",
-                    "ai_context",
-                ),
-            ),
-            construction_modes=(
-                _mode("Declare one final daily status schedule.", "default", "work_schedule"),
-            ),
-            relationships=(
-                _relationship(
-                    "requires", "objects.time_dimension", "The schedule date is a TimeDimension."
-                ),
-                _relationship(
-                    "requires", "objects.dimension", "Final working status is a Dimension."
-                ),
-            ),
-            supporting=("ai_context",),
-            checks=("load", "readiness", "preview", "source_health"),
-        ),
     )
 
 
@@ -1141,7 +1086,7 @@ def _builder_topics() -> tuple[SemanticBuilderTopic, ...]:
             "builders.temporal_parsing",
             "Temporal parsing",
             "Parse physical date, datetime, timestamp, or hour-prefix values.",
-            ("datetime", "timestamp", "strptime", "hour_prefix"),
+            ("timestamp", "strptime", "hour_prefix"),
         ),
         (
             "builders.field_metric_support",
@@ -1163,8 +1108,8 @@ def _builder_topics() -> tuple[SemanticBuilderTopic, ...]:
         (
             "builders.governed_temporal",
             "Governed temporal support",
-            "Build period correspondences and governed calendar grains.",
-            ("period_correspondence", "calendar_grain"),
+            "Build governed calendar grains.",
+            ("calendar_grain",),
         ),
     )
     return tuple(
@@ -1228,8 +1173,8 @@ def _check_topic() -> SemanticCheckTopic:
             route(
                 "What does this entry produce under one explicit authoring scope?",
                 (_target("preview"), _target("preview_many")),
-                "A bounded current runtime observation; period calendars, temporal sets, and "
-                "work schedules can also publish dedicated certified artifacts.",
+                "A bounded current runtime observation; period calendars and temporal sets "
+                "can also publish dedicated certified artifacts.",
                 "Ordinary previews do not persist certification or change readiness; "
                 "certified artifacts are inputs to a subsequent readiness check.",
             ),
@@ -2619,13 +2564,12 @@ def _result_method_capabilities() -> tuple[AuthoringCapability, ...]:
     for owner, output in (
         (
             "CatalogEntry",
-            "DatasourceDetails | DomainDetails | PeriodCalendarDetails | TemporalSetDetails | WorkScheduleDetails",
+            "DatasourceDetails | DomainDetails | PeriodCalendarDetails | TemporalSetDetails",
         ),
         ("DomainEntry", "DomainDetails"),
         ("DatasourceEntry", "DatasourceDetails"),
         ("PeriodCalendarEntry", "PeriodCalendarDetails"),
         ("TemporalSetEntry", "TemporalSetDetails"),
-        ("WorkScheduleEntry", "WorkScheduleDetails"),
     ):
         rows.append(
             _capability(
@@ -2635,9 +2579,7 @@ def _result_method_capabilities() -> tuple[AuthoringCapability, ...]:
                 kind="method",
                 output=output,
                 inputs=(AuthoringInputRequirement(role="receiver", family=owner),),
-                effects=_LOCAL
-                if owner in {"PeriodCalendarEntry", "TemporalSetEntry", "WorkScheduleEntry"}
-                else _NONE,
+                effects=_LOCAL if owner in {"PeriodCalendarEntry", "TemporalSetEntry"} else _NONE,
                 example="details = entry.details()",
                 public_entrypoint="entry.details",
             )
@@ -2784,17 +2726,20 @@ def _build_registry() -> SemanticCapabilityRegistry:
             inputs=(
                 _parameter_input("mapping_key", "TimeDimensionName", "name", optional=True),
                 _parameter_input("subject", "Ref[entity]", "entity"),
-                _parameter_input("dependency", "Granularity", "granularity"),
+                _parameter_input("dependency", "ParseVariant", "parse", optional=True),
+                _parameter_input(
+                    "dependency", "tuple[int, minute | hour]", "sample_interval", optional=True
+                ),
             ),
             effects=_AUTHOR,
             constraints=(
                 "active_loader_context",
                 "ast_single_return",
                 "time_dimension_dtype_compat",
-                "time_granularity_parse_compatible",
+                "sample_interval_valid",
             ),
             example=(
-                "@ms.time_dimension(name='log_date', entity=orders, granularity='day')\n"
+                "@ms.time_dimension(name='log_date', entity=orders)\n"
                 "def log_date(rows):\n"
                 "    return rows.log_date"
             ),
@@ -2809,34 +2754,21 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 _parameter_input("mapping_key", "TimeDimensionName", "name"),
                 _parameter_input("subject", "Ref[entity]", "entity"),
                 _parameter_input("dependency", "ColumnName", "column"),
-                _parameter_input("dependency", "Granularity", "granularity"),
+                _parameter_input("dependency", "ParseVariant", "parse", optional=True),
+                _parameter_input(
+                    "dependency", "tuple[int, minute | hour]", "sample_interval", optional=True
+                ),
             ),
             effects=_AUTHOR,
             constraints=(
                 "active_loader_context",
                 "ref_shape",
                 "time_dimension_dtype_compat",
-                "time_granularity_parse_compatible",
+                "sample_interval_valid",
             ),
             example=(
                 "log_date = ms.time_dimension_column(name='log_date', entity=orders, "
-                "column='log_date', granularity='day', parse=ms.strptime('%Y%m%d'))"
-            ),
-        ),
-        _capability(
-            "period_correspondence",
-            "marivo.semantic._authoring_temporal.period_correspondence",
-            "Declare one named same-level baseline-key correspondence for a period calendar.",
-            output="PeriodCorrespondence",
-            inputs=(
-                _parameter_input("mapping_key", "Text", "level"),
-                _parameter_input("dependency", "Ref[dimension]", "baseline_key"),
-            ),
-            effects=_NONE,
-            constraints=("ref_shape",),
-            example=(
-                "ms.period_correspondence(level='week', "
-                "baseline_key=ms.ref.dimension('sales.calendar.prior_week'))"
+                "column='log_date', parse=ms.strptime('%Y%m%d'))"
             ),
         ),
         _capability(
@@ -2848,9 +2780,6 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 _parameter_input("mapping_key", "Text", "name"),
                 _parameter_input("subject", "Ref[time_dimension]", "date"),
                 _parameter_input("dependency", "Ref[dimension]", "levels"),
-                _parameter_input(
-                    "dependency", "PeriodCorrespondence", "correspondences", optional=True
-                ),
             ),
             effects=_AUTHOR,
             constraints=("active_loader_context", "ref_shape"),
@@ -2881,27 +2810,6 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "ms.temporal_set(name='campaigns', occurrence_id=ms.ref.dimension('sales.events.id'), "
                 "start=ms.ref.time_dimension('sales.events.start'), end=ms.ref.time_dimension('sales.events.end'), "
                 "boundary_timezone='UTC', coverage=(__import__('datetime').date(2026, 1, 1), __import__('datetime').date(2027, 1, 1)))"
-            ),
-        ),
-        _capability(
-            "work_schedule",
-            "marivo.semantic._authoring_temporal.work_schedule",
-            "Declare a finite governed final daily working-status schedule.",
-            output="Ref[work_schedule]",
-            inputs=(
-                _parameter_input("mapping_key", "Text", "name"),
-                _parameter_input("subject", "Ref[time_dimension]", "date"),
-                _parameter_input("dependency", "Ref[dimension]", "is_working"),
-            ),
-            effects=_AUTHOR,
-            constraints=("active_loader_context", "ref_shape"),
-            example=(
-                "ms.work_schedule(name='cn_sales_schedule', "
-                "date=ms.ref.time_dimension('sales.calendar.date'), "
-                "is_working=ms.ref.dimension('sales.calendar.is_working'), "
-                "boundary_timezone='Asia/Shanghai', "
-                "coverage=(__import__('datetime').date(2026, 1, 1), "
-                "__import__('datetime').date(2027, 1, 1)))"
             ),
         ),
         _capability(
@@ -3050,17 +2958,17 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "snapshot",
             "marivo.semantic._authoring_values.snapshot",
-            "Build a snapshot versioning specification for an entity.",
+            "Declare daily Entity snapshots with required partition_field and business timezone. The field owns encoding; date D applies from D midnight and exact missing days remain absent.",
             output="ValiditySpec",
             inputs=(_parameter_input("dependency", "ColumnName", "partition_field"),),
             effects=_AUTHOR,
             constraints=("entity_versioning_valid",),
-            example="ms.snapshot(partition_field=snapshot_date, grain='day')",
+            example="ms.snapshot(partition_field=snapshot_date, timezone='Asia/Shanghai')",
         ),
         _capability(
             "validity",
             "marivo.semantic._authoring_values.validity",
-            "Build a validity window specification for an entity.",
+            "Declare validity bounds with required valid_from, valid_to, interval and open_end. DATE bounds require business timezone; timestamp bounds reject version timezone and use field parser/source authority.",
             output="ValiditySpec",
             inputs=(_parameter_input("dependency", "ColumnName", "valid_from", "valid_to"),),
             effects=_AUTHOR,
@@ -3100,8 +3008,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             example=(
                 "sample_time = ms.time_dimension_column(\n"
                 "    name='sample_time', entity=inventory, column='sample_time',\n"
-                "    granularity='minute',\n"
-                "    parse=ms.timestamp(timezone='UTC', sample_interval=(5, 'minute')),\n"
+                "    parse=ms.timestamp(timezone='UTC'), sample_interval=(5, 'minute'),\n"
                 ")\n"
                 "quantity = ms.measure_column(\n"
                 "    name='quantity', entity=inventory, column='quantity',\n"
@@ -3120,30 +3027,20 @@ def _build_registry() -> SemanticCapabilityRegistry:
             example="ms.non_additive()",
         ),
         _capability(
-            "datetime",
-            "marivo.semantic._authoring_values.datetime",
-            "Build a datetime parse variant for time dimensions.",
-            output="DateTimeSpec",
-            effects=_AUTHOR,
-            constraints=("time_granularity_parse_compatible",),
-            example="ms.datetime(timezone='UTC')",
-        ),
-        _capability(
             "timestamp",
             "marivo.semantic._authoring_values.timestamp",
-            "Build a timestamp parse variant for time dimensions.",
+            "Interpret a native timestamp. timezone localizes naive values; every parser timezone is rejected for an aware source. Sampling belongs to the time field.",
             output="TimestampSpec",
             effects=_AUTHOR,
-            constraints=("time_granularity_parse_compatible",),
             example="ms.timestamp(timezone='UTC')",
         ),
         _capability(
             "strptime",
             "marivo.semantic._authoring_values.strptime",
-            "Declare a canonical source encoding and strptime parse for time dimensions.",
+            "Declare canonical source encoding. Date-only formats reject timezone; time-bearing values localize using parser or reader authority. Sampling belongs to the time field.",
             output="StrptimeSpec",
             effects=_AUTHOR,
-            constraints=("time_granularity_parse_compatible", "time_dimension_partition_pushdown"),
+            constraints=("time_dimension_partition_pushdown",),
             example="ms.strptime('%Y%m%d')",
         ),
         _capability(
@@ -3152,7 +3049,6 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "Build an hour-prefix parse variant for time dimensions.",
             output="HourPrefixSpec",
             effects=_AUTHOR,
-            constraints=("time_granularity_parse_compatible",),
             example="ms.hour_prefix(log_date)",
         ),
         # ------------------------------------------------------------------
@@ -3164,8 +3060,8 @@ def _build_registry() -> SemanticCapabilityRegistry:
             (
                 "Run one scoped data preview for a current catalog entry or exact ref. "
                 "Ordinary Metric reductions/formulas reuse the nullable Row/Metric kernel; Population/sample preparation rejects. Metric previews aggregate at most 10,000 Entity output rows and report "
-                "an approximate result; period calendars, temporal sets, and work "
-                "schedules publish their dedicated certified artifacts. Build scopes with "
+                "an approximate result; period calendars and temporal sets "
+                "publish their dedicated certified artifacts. Build scopes with "
                 "md.unpruned (no pruning predicate), md.time_range (physical time range), or "
                 "md.partition (physical partition values), all with positive row/time guards. "
                 "For multiple dependency Entities, supply an exact Entity-ref-to-scope mapping."
@@ -3204,7 +3100,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             (
                 "Run scoped data previews for a non-empty entry/ref sequence. Metric "
                 "previews aggregate at most 10,000 Entity output rows and report an "
-                "approximate result; period calendars, temporal sets, and work schedules "
+                "approximate result; period calendars and temporal sets "
                 "publish their dedicated certified artifacts."
             ),
             kind="method",
@@ -3507,10 +3403,8 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         PeriodCalendarKind,
         Ref,
         SemanticKind,
-        WorkScheduleKind,
     )
     from marivo.refs import ref as ref_factory
-    from marivo.semantic._authoring_temporal import PeriodCorrespondence
     from marivo.semantic.catalog import (
         CalendarLevelDetails,
         CalendarPeriodPage,
@@ -3526,8 +3420,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         TemporalOccurrencePage,
         TemporalSetDetails,
         TemporalSetEntry,
-        WorkScheduleDetails,
-        WorkScheduleEntry,
     )
     from marivo.semantic.dtos import PreviewBatchResult
     from marivo.semantic.ir import JoinKey
@@ -3649,7 +3541,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             "coverage",
             "source_date",
             "levels",
-            "correspondences",
             "snapshot_status",
             "parents",
             "children",
@@ -3710,30 +3601,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         "TemporalOccurrencePage",
         (LiveHelpTarget(surface="analysis", canonical_id="temporal_set.occurrences"),),
         properties=("items", "next_cursor"),
-        methods=show_render,
-    )
-    add(
-        WorkScheduleEntry,
-        "WorkScheduleEntry",
-        (),
-        properties=("ref",),
-        methods=("details", "show", "render"),
-    )
-    add(
-        WorkScheduleDetails,
-        "WorkScheduleDetails",
-        (),
-        properties=(
-            "ref",
-            "boundary_timezone",
-            "coverage",
-            "date",
-            "is_working",
-            "snapshot_status",
-            "parents",
-            "children",
-            "dependents",
-        ),
         methods=show_render,
     )
     add(
@@ -3906,7 +3773,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             "domain",
             "period_calendar",
             "temporal_set",
-            "work_schedule",
         ),
         properties=("kind", "path", "key", "name"),
         consumers=(
@@ -3933,18 +3799,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         TemporalSetKind,
         "TemporalSetKind",
         ("temporal_set",),
-    )
-    add(
-        WorkScheduleKind,
-        "WorkScheduleKind",
-        ("work_schedule",),
-    )
-    add(
-        PeriodCorrespondence,
-        "PeriodCorrespondence",
-        ("period_correspondence",),
-        properties=("level", "baseline_key"),
-        consumers=("period_calendar",),
     )
     # IR types
     add(

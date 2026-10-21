@@ -57,7 +57,6 @@ _DATASETS_PY = textwrap.dedent("""\
         name="created_at",
         entity=orders,
         column="created_at",
-        granularity="day",
         parse=ms.timestamp(timezone="UTC"),
         is_default=True,
     )

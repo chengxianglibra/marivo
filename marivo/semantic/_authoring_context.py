@@ -35,7 +35,6 @@ from marivo.semantic.ir import (
     RelationshipIR,
     SourceLocation,
     TemporalSetIR,
-    WorkScheduleIR,
 )
 from marivo.semantic.loader import _LOADER_CTX, LoaderContext
 
@@ -80,7 +79,6 @@ DefinitionIR: TypeAlias = (
     | RelationshipIR
     | PeriodCalendarIR
     | TemporalSetIR
-    | WorkScheduleIR
 )
 
 
@@ -159,8 +157,6 @@ def _ir_kind(ir: Any) -> str:
         return "period calendar"
     if isinstance(ir, TemporalSetIR):
         return "temporal set"
-    if isinstance(ir, WorkScheduleIR):
-        return "work schedule"
     return type(ir).__name__
 
 
@@ -168,13 +164,7 @@ def _check_duplicate(
     ctx: LoaderContext,
     semantic_id: str,
     ir_type: type[
-        EntityIR
-        | DimensionIR
-        | MeasureIR
-        | RelationshipIR
-        | PeriodCalendarIR
-        | TemporalSetIR
-        | WorkScheduleIR
+        EntityIR | DimensionIR | MeasureIR | RelationshipIR | PeriodCalendarIR | TemporalSetIR
     ],
 ) -> None:
     """Raise DUPLICATE_NAME if semantic_id already in pending_objects of the same kind.
@@ -194,7 +184,6 @@ def _check_duplicate(
                 RelationshipIR,
                 PeriodCalendarIR,
                 TemporalSetIR,
-                WorkScheduleIR,
             ),
         ):
             continue

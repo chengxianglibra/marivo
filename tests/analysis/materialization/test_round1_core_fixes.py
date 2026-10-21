@@ -53,7 +53,7 @@ def core_session(
             "sales/model.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
             + "orders=ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'), primary_key=['id'])\n"
             + "region=ms.dimension_column(name='region', entity=orders, column='region')\n"
-            + "day=ms.time_dimension_column(name='day', entity=orders, column='day', granularity='day')\n"
+            + "day=ms.time_dimension_column(name='day', entity=orders, column='day')\n"
             + "amount=ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
             + f"durations=ms.entity(name='durations', datasource=ms.ref.datasource('warehouse'), source=md.parquet({str(duration_file)!r}), primary_key=['id'])\n"
             + "elapsed=ms.measure_column(name='elapsed', entity=durations, column='elapsed', additivity=ms.additive_all(), unit='s')\n",

@@ -7,8 +7,8 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo._temporal import time_scope
 from marivo._temporal_grid import bind_grid
+from marivo.analysis.dsl.temporal import exact_scope
 from tests.analysis.statistics.pandas_workflows import daily, forecast, monthly, plain
 from tests.shared_fixtures import DslCaseFactory, run_ids
 
@@ -28,13 +28,13 @@ def test_future_grid_uses_actual_dst_boundaries(
     finish = datetime.fromisoformat(end)
     step = timedelta(hours=1) if unit == "hour" else timedelta(minutes=1)
     history = bind_grid(
-        time_scope(start=finish - 2 * step, end=finish),
+        exact_scope(finish - 2 * step, finish, "America/New_York"),
         mv.grain(unit),
         report_timezone="America/New_York",
     )
     expected_start = history.cells[-1].end
     future = bind_grid(
-        time_scope(start=expected_start, end=expected_start + count * step),
+        exact_scope(expected_start, expected_start + count * step, "America/New_York"),
         mv.grain(unit),
         report_timezone="America/New_York",
     )

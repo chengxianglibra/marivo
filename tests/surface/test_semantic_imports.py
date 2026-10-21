@@ -130,7 +130,7 @@ def test_semantic_error_normalizes_target_dimension_refs() -> None:
         logical_type="string",
         nullable=False,
         is_time_dimension=False,
-        granularity=None,
+        sample_interval=None,
         is_default=False,
         timezone=None,
     )
@@ -215,6 +215,7 @@ _EXPECTED_DECORATOR_KINDS = {
     "missing_sum_permission",
     "invalid_where_scope",
     "invalid_time_path",
+    "invalid_target_semantics",
 }
 
 _EXPECTED_ASSEMBLY_KINDS = {
@@ -356,7 +357,6 @@ def test_symbol_kind_values() -> None:
         "relationship",
         "period_calendar",
         "temporal_set",
-        "work_schedule",
     }
     actual = {k.value for k in SemanticKind}
     assert actual == expected
@@ -536,3 +536,43 @@ def test_reader_project_init() -> None:
     project = SemanticProject(root="/tmp/test")
     assert not project.is_ready()
     assert project.errors() == ()
+
+
+def test_removed_temporal_models_have_no_direct_entry_or_ref_factory() -> None:
+    import marivo._temporal as temporal
+    import marivo.refs as refs
+    import marivo.semantic._authoring_temporal as authoring
+    import marivo.semantic.catalog as catalog
+
+    for owner, names in (
+        (
+            ms,
+            (
+                "datetime",
+                "period_correspondence",
+                "work_schedule",
+                "cumulative",
+                "grain_to_date",
+                "trailing",
+            ),
+        ),
+        (authoring, ("PeriodCorrespondence", "period_correspondence", "work_schedule")),
+        (refs, ("WorkScheduleKind",)),
+        (ms.ref, ("work_schedule",)),
+        (catalog, ("WorkScheduleEntry", "WorkScheduleDetails")),
+        (
+            temporal,
+            (
+                "WorkScheduleBindingV1",
+                "WorkScheduleSnapshotV1",
+                "WorkScheduleSnapshotStore",
+                "CorrespondenceRecord",
+            ),
+        ),
+    ):
+        for name in names:
+            assert not hasattr(owner, name), (owner, name)
+    with pytest.raises(ValueError, match="work_schedule"):
+        refs._decode_ref_payload(
+            {"schema": "marivo.semantic_ref/v1", "kind": "work_schedule", "path": "sales.schedule"}
+        )

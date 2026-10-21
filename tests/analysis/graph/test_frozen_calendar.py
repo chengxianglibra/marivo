@@ -635,11 +635,12 @@ def test_sparse_directory_keeps_nominal_distance_separate_from_selection_order()
 
 
 def test_two_hour_fold_writer_and_reader_preserve_distinct_nominal_starts() -> None:
-    from marivo._temporal import CalendarAxis, _BuiltinGrain, time_scope
+    from marivo._temporal import CalendarAxis, _BuiltinGrain
     from marivo._temporal_grid import bind_grid
     from marivo.analysis.core.frame_calendar import freeze_calendar
+    from marivo.analysis.dsl.temporal import exact_scope
 
-    scope = time_scope(start="2026-10-25", end="2026-10-26")
+    scope = exact_scope("2026-10-25", "2026-10-26", "Europe/Berlin")
     grid = bind_grid(scope, _BuiltinGrain(unit="hour", count=2), report_timezone="Europe/Berlin")
     captured = freeze_calendar(
         CalendarAxis(scope, grid)._binding,

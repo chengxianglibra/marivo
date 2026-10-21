@@ -12,7 +12,6 @@ from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.errors import SemanticDecoratorError, SemanticExpressionError
 from marivo.semantic.ir import (
     DateParse,
-    DatetimeParse,
     DimensionKind,
     HourPrefixParse,
     JoinKey,
@@ -40,11 +39,8 @@ def test_measure_ref_and_kind_are_first_class() -> None:
 
 def test_time_parse_value_objects_are_closed_variants() -> None:
     assert isinstance(DateParse(), SemanticParse)
-    assert DatetimeParse(timezone="Asia/Shanghai").kind == "datetime"
-    assert (
-        TimestampParse(timezone="UTC", sample_interval=SampleIntervalIR(5, "minute")).kind
-        == "timestamp"
-    )
+    assert TimestampParse(timezone="Asia/Shanghai").kind == "timestamp"
+    assert TimestampParse(timezone="UTC").kind == "timestamp"
     assert StrptimeParse(format="%Y%m%d").kind == "strptime"
     assert HourPrefixParse(prefix="dt").kind == "hour_prefix"
 
@@ -54,11 +50,11 @@ def test_time_parse_value_objects_reject_invalid_payloads() -> None:
         SampleIntervalIR(0, "minute")
     with pytest.raises(ValueError, match=r"SampleIntervalIR\.unit"):
         SampleIntervalIR(1, "day")  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match=r"DatetimeParse\.timezone"):
-        DatetimeParse(timezone=42)  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match=r"DatetimeParse\.timezone"):
-        DatetimeParse(timezone="not/a-zone")
-    with pytest.raises(TypeError, match=r"TimestampParse\.sample_interval"):
+    with pytest.raises(TypeError, match=r"TimestampParse\.timezone"):
+        TimestampParse(timezone=42)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match=r"TimestampParse\.timezone"):
+        TimestampParse(timezone="not/a-zone")
+    with pytest.raises(TypeError, match="sample_interval"):
         TimestampParse(sample_interval=(1, "hour"))  # type: ignore[arg-type]
     with pytest.raises(ValueError, match=r"StrptimeParse\.format"):
         StrptimeParse(format="yyyymmdd")
@@ -251,7 +247,7 @@ def test_time_dimension_uses_parse_value_object() -> None:
             domain=sales,
         )
 
-        @ms.time_dimension(entity=orders, granularity="day", parse=ms.strptime("%Y%m%d"))
+        @ms.time_dimension(entity=orders, parse=ms.strptime("%Y%m%d"))
         def dt(orders_table):
             return orders_table.dt
 
@@ -265,13 +261,13 @@ def test_time_dimension_uses_parse_value_object() -> None:
 
 
 def test_datetime_and_timestamp_accept_optional_timezone() -> None:
-    assert ms.datetime().timezone is None
     assert ms.timestamp().timezone is None
-    assert ms.datetime(timezone="UTC").timezone == "UTC"
+    assert ms.timestamp().timezone is None
+    assert ms.timestamp(timezone="UTC").timezone == "UTC"
     assert ms.timestamp(timezone="UTC").timezone == "UTC"
 
 
-def test_hour_prefix_requires_hour_granularity_at_decorator_time() -> None:
+def test_hour_prefix_rejects_unrepresentable_minute_sampling() -> None:
     ctx = LoaderContext(
         model_name="sales",
         file_path="/tmp/_domain.py",
@@ -286,13 +282,15 @@ def test_hour_prefix_requires_hour_granularity_at_decorator_time() -> None:
             domain=sales,
         )
 
-        @ms.time_dimension(entity=orders, granularity="day")
+        @ms.time_dimension(entity=orders)
         def dt(orders_table):
             return orders_table.dt
 
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
-            @ms.time_dimension(entity=orders, granularity="day", parse=ms.hour_prefix(dt))
+            @ms.time_dimension(
+                entity=orders, parse=ms.hour_prefix(dt), sample_interval=(5, "minute")
+            )
             def hh(orders_table):
                 return orders_table.hh
 

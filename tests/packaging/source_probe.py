@@ -122,8 +122,7 @@ customer_key = ms.dimension_column(name="customer_key", entity=customers, column
 order_customer = ms.dimension_column(name="customer_key", entity=orders, column="customer_id")
 region = ms.dimension_column(name="region", entity=customers, column="region")
 channel = ms.dimension_column(name="channel", entity=orders, column="channel")
-order_day = ms.time_dimension_column(name="order_day", entity=orders, column="day",
-    granularity="day", is_default=True)
+order_day = ms.time_dimension_column(name="order_day", entity=orders, column="day", is_default=True)
 customer = ms.relationship(name="customer", from_entity=orders, to_entity=customers,
     keys=[ms.join_on(order_customer, customer_key)])
 amount = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all())

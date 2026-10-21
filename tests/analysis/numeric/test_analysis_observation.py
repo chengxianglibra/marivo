@@ -263,7 +263,7 @@ def test_anonymous_aggregate_resolves_the_declared_default_axis(
     case = analysis_dsl_case_factory("j1")
     model = case.root / "models/semantic/sales/models.py"
     model.write_text(
-        model.read_text().replace("granularity='second',", "granularity='second', is_default=True,")
+        model.read_text().replace("parse=ms.timestamp(", "is_default=True, parse=ms.timestamp(", 1)
     )
     ms.load(workspace_dir=case.root)
     amount = case.session.catalog.fields.get("sales.order.amount")
@@ -284,7 +284,7 @@ def test_linear_executes_three_independently_reduced_roots(
         physical="""
 shipments = ms.entity(name='shipment', datasource=warehouse, source=md.table('order'), primary_key=['order_id'])
 shipment_customer = ms.dimension_column(name='customer_id', entity=shipments, column='customer_id')
-shipment_time = ms.time_dimension_column(name='ordered_at', entity=shipments, column='ordered_at', granularity='second', parse=ms.timestamp(timezone='UTC'))
+shipment_time = ms.time_dimension_column(name='ordered_at', entity=shipments, column='ordered_at', parse=ms.timestamp())
 shipment_buyer = ms.relationship(name='shipment_buyer', from_entity=shipments, to_entity=customer, keys=[ms.join_on(shipment_customer, customer_id)])
 """,
         definitions="""

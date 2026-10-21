@@ -13,7 +13,7 @@ def axis(fmt: str, zone: str = "UTC") -> TargetDimensionContract:
         "timestamp" if clock else "date",
         True,
         True,
-        "second" if clock else "day",
+        None,
         False,
         zone if clock else None,
         StrptimeParse(fmt, timezone=zone if clock else None),

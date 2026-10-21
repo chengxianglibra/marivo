@@ -43,12 +43,12 @@ def members_session(analysis_dsl_case_factory: DslCaseFactory) -> Session:
         (
             "snapshot",
             "r52",
-            f", versioning=ms.snapshot(partition_field=ms.ref.time_dimension('{domain}.snapshot.day'), grain='day', timezone='UTC')",
+            f", versioning=ms.snapshot(partition_field=ms.ref.time_dimension('{domain}.snapshot.day'), timezone='UTC')",
         ),
         (
             "valid",
             "r52",
-            f", versioning=ms.validity(valid_from=ms.ref.time_dimension('{domain}.valid.day'), valid_to=ms.ref.time_dimension('{domain}.valid.finish'), interval='closed_open', open_end=(None,))",
+            f", versioning=ms.validity(valid_from=ms.ref.time_dimension('{domain}.valid.day'), valid_to=ms.ref.time_dimension('{domain}.valid.finish'), interval='closed_open', open_end=(None,), timezone='UTC')",
         ),
     ):
         definitions.append(
@@ -60,10 +60,10 @@ def members_session(analysis_dsl_case_factory: DslCaseFactory) -> Session:
             )
         for field in ("day", "finish"):
             definitions.append(
-                f"{name}_{field} = ms.time_dimension_column(name='{field}', entity={name}, column='{field}', granularity='day')\n"
+                f"{name}_{field} = ms.time_dimension_column(name='{field}', entity={name}, column='{field}')\n"
             )
         definitions.append(
-            f"{name}_moment = ms.time_dimension_column(name='moment', entity={name}, column='moment', granularity='second', parse=ms.timestamp(timezone='UTC'))\n"
+            f"{name}_moment = ms.time_dimension_column(name='moment', entity={name}, column='moment', parse=ms.timestamp())\n"
         )
         definitions.append(
             f"{name}_amount = ms.measure_column(name='amount', entity={name}, column='amount', additivity=ms.additive_all())\n"

@@ -215,7 +215,7 @@ def test_public_cross_datasource_observation_refuses_before_business_read(
                 models += f"{name}_{column} = ms.dimension_column(name={name + '_' + column!r}, entity={name}, column={column!r})\n"
             models += f"{name}_amount = ms.measure_column(name={name + '_amount'!r}, entity={name}, column='amount', additivity=ms.additive_all())\n"
         models += "event_subject = ms.relationship(name='event_subject', from_entity=events, to_entity=subjects, keys=[ms.join_on(events_tenant,subjects_tenant),ms.join_on(events_id,subjects_id),ms.join_on(events_revision,subjects_revision)])\n"
-        models += "event_time = ms.time_dimension_column(name='happened', entity=events, column='happened', granularity='second', parse=ms.timestamp(timezone='UTC'), is_default=True)\n"
+        models += "event_time = ms.time_dimension_column(name='happened', entity=events, column='happened', parse=ms.timestamp(timezone='UTC'), is_default=True)\n"
         models += "frozen = ms.finalize()\namount_value = frozen.resolve(events_amount)\ntime_value = frozen.resolve(event_time)\n@ms.metric()\ndef total():\n    return amount_value.sum(time=time_value)\n"
         semantic_project_factory(
             {

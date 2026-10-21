@@ -10,7 +10,6 @@ from marivo._temporal import (
 )
 from marivo._temporal import (
     InstantAnchor,
-    TimeScope,
     _SessionTimeScope,
     anchor_from_datetime,
     session_time_scope,
@@ -83,10 +82,3 @@ def exact_scope(start: TimeBoundary, end: TimeBoundary, timezone: str) -> _Sessi
             "session.time_scope",
         )
     return session_time_scope(left, right, parse_timezone(timezone)[0])
-
-
-def freeze_scope(scope: TimeScope, timezone: str) -> TimeScope:
-    """Bind legacy civil scopes once at the new observation boundary."""
-    if isinstance(scope, _SessionTimeScope) or scope.kind != "absolute":
-        return scope
-    return exact_scope(scope.start, scope.end, timezone)

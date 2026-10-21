@@ -163,9 +163,7 @@ def test_decimal_boundary_fixed_rollup_does_not_round_range_check(
         )
     models = case.root / "models/semantic/sales/models.py"
     models.write_text(
-        models.read_text().replace(
-            "granularity='second',", "granularity='second', is_default=True,"
-        )
+        models.read_text().replace("parse=ms.timestamp(", "is_default=True, parse=ms.timestamp(", 1)
     )
     ms.load(workspace_dir=case.root)
     session = case.session
@@ -228,9 +226,7 @@ def test_numeric_raw_order_and_exchange_batches(
             )
     models = case.root / "models/semantic/sales/models.py"
     models.write_text(
-        models.read_text().replace(
-            "granularity='second',", "granularity='second', is_default=True,"
-        )
+        models.read_text().replace("parse=ms.timestamp(", "is_default=True, parse=ms.timestamp(", 1)
     )
     ms.load(workspace_dir=case.root)
     session = case.session

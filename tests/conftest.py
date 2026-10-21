@@ -202,7 +202,7 @@ def authoring_evidence_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
         "    ai_context=ms.ai_context(business_definition='UTC log hour component.'),\n"
         ")\n"
         "log_date = ms.time_dimension_column(\n"
-        "    name='log_date', entity=orders, column='log_date', granularity='day',\n"
+        "    name='log_date', entity=orders, column='log_date', \n"
         "    parse=ms.strptime('%Y%m%d'), is_default=True,\n"
         "    ai_context=ms.ai_context(business_definition='UTC order log date.'),\n"
         ")\n"
@@ -312,7 +312,7 @@ def bootstrap_sales_project(tmp_path: Path, *, with_time: bool = True) -> None:
         "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
     )
     time_dimension = (
-        "@ms.time_dimension(entity=orders, granularity='day', is_default=True)\n"
+        "@ms.time_dimension(entity=orders, is_default=True)\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n\n"
         if with_time
@@ -327,7 +327,7 @@ def bootstrap_sales_project(tmp_path: Path, *, with_time: bool = True) -> None:
         "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
         "\n"
         f"{time_dimension}"
-        "@ms.time_dimension(entity=orders, granularity='day')\n"
+        "@ms.time_dimension(entity=orders, )\n"
         "def status_at(orders):\n"
         "    return orders.status_at\n"
         "\n"

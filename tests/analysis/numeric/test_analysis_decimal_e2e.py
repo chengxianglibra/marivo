@@ -32,7 +32,7 @@ def decimal_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.Sessi
         "'day': 'day', "
         "'amount': 'amount', "
         "'fee': 'fee', 'decimal_fee': 'decimal_fee'}), primary_key=['id'])\n"
-        "day = ms.time_dimension_column(name='day', entity=orders, column='day', granularity='day', is_default=True)\n"
+        "day = ms.time_dimension_column(name='day', entity=orders, column='day', is_default=True)\n"
         "amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
         "fee_value = ms.measure_column(name='fee_value', entity=orders, column='fee', additivity=ms.additive_all())\n"
         "decimal_fee = ms.measure_column(name='decimal_fee', entity=orders, column='decimal_fee', additivity=ms.additive_all())\n"

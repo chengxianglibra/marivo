@@ -69,9 +69,7 @@ def test_direct_distribution(
             db.execute('ALTER TABLE "order" ALTER amount TYPE DOUBLE')
     models = case.root / "models/semantic/sales/models.py"
     models.write_text(
-        models.read_text().replace(
-            "granularity='second',", "granularity='second', is_default=True,"
-        )
+        models.read_text().replace("parse=ms.timestamp(", "is_default=True, parse=ms.timestamp(", 1)
     )
     if parquet:
         export_dsl_parquet_models(case, case.root)

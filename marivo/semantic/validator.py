@@ -46,7 +46,6 @@ from marivo.semantic.errors import (
 )
 from marivo.semantic.ir import (
     DateParse,
-    DatetimeParse,
     DimensionIR,
     DomainIR,
     EntityIR,
@@ -67,7 +66,6 @@ from marivo.semantic.ir import (
     TemporalSetIR,
     TimestampParse,
     ValidityVersioningIR,
-    WorkScheduleIR,
     is_time_bearing_format,
 )
 
@@ -99,7 +97,6 @@ class Registry:
     relationships: dict[str, RelationshipIR] = field(default_factory=dict)
     period_calendars: dict[str, PeriodCalendarIR] = field(default_factory=dict)
     temporal_sets: dict[str, TemporalSetIR] = field(default_factory=dict)
-    work_schedules: dict[str, WorkScheduleIR] = field(default_factory=dict)
     # Published pure declarations, keyed by their qualified full name.
     declared_measures: dict[str, Deferred] = field(default_factory=dict)
     declared_metrics: dict[str, Deferred] = field(default_factory=dict)
@@ -118,7 +115,6 @@ class Registry:
             "relationships",
             "period_calendars",
             "temporal_sets",
-            "work_schedules",
             "declared_measures",
             "declared_metrics",
         ):
@@ -138,7 +134,7 @@ def _target_error(
     expected: str,
     received: str,
     action: str,
-    kind: ErrorKind | str = "invalid_target_semantics",
+    kind: ErrorKind | str = ErrorKind.INVALID_TARGET_SEMANTICS,
     constraint_id: ConstraintId | None = None,
     location: SourceLocation | None = None,
 ) -> NoReturn:
@@ -232,7 +228,9 @@ def normalize_target_dimension(
         isinstance(parse, StrptimeParse) and not is_time_bearing_format(parse.format)
     ):
         logical_type = "date"
-    elif dimension.is_time_dimension:
+    elif isinstance(parse, (TimestampParse, HourPrefixParse)) or (
+        isinstance(parse, StrptimeParse) and is_time_bearing_format(parse.format)
+    ):
         logical_type = "timestamp"
     else:
         logical_type = "unknown"
@@ -243,14 +241,10 @@ def normalize_target_dimension(
         logical_type=logical_type,
         nullable=True,
         is_time_dimension=dimension.is_time_dimension,
-        granularity=dimension.granularity,
+        sample_interval=dimension.sample_interval,
         parse=parse,
         is_default=dimension.is_default,
-        timezone=(
-            parse.timezone
-            if isinstance(parse, DatetimeParse | TimestampParse | StrptimeParse)
-            else None
-        ),
+        timezone=(parse.timezone if isinstance(parse, TimestampParse | StrptimeParse) else None),
     )
 
 
@@ -330,8 +324,7 @@ def normalize_target_entity(registry: Registry, entity_id: str) -> TargetEntityC
             axis.ref,
             axis.source_column,
             axis.logical_type,
-            authored.timezone or axis.timezone,
-            authored.format,
+            authored.timezone,
         )
         row_key = (*key, axis.source_column) if key else ()
     elif isinstance(authored, ValidityVersioningIR):
@@ -357,6 +350,31 @@ def normalize_target_entity(registry: Registry, entity_id: str) -> TargetEntityC
                 constraint_id=ConstraintId.ENTITY_VERSION_KEY_SEPARATE,
                 location=entity.location,
             )
+        if (
+            start.logical_type != "unknown"
+            and end.logical_type != "unknown"
+            and start.logical_type != end.logical_type
+        ):
+            _target_error(
+                ref=entity_id,
+                expected="matching DATE or timestamp validity bounds",
+                received=f"{start.logical_type}/{end.logical_type}",
+                action="Declare validity endpoints with the same logical temporal kind.",
+            )
+        if "timestamp" in (start.logical_type, end.logical_type) and authored.timezone is not None:
+            _target_error(
+                ref=entity_id,
+                expected="timestamp validity without business timezone",
+                received=authored.timezone,
+                action="Remove timezone from ms.validity; declare a naive source timezone on its parser, and omit parser timezone for aware sources.",
+            )
+        if "date" in (start.logical_type, end.logical_type) and authored.timezone is None:
+            _target_error(
+                ref=entity_id,
+                expected="an explicit business timezone for DATE validity",
+                received="timezone=None",
+                action="Set timezone on ms.validity to the business day timezone.",
+            )
         version = TargetValidityVersion(
             start.ref,
             end.ref,
@@ -364,7 +382,7 @@ def normalize_target_entity(registry: Registry, entity_id: str) -> TargetEntityC
             end.source_column,
             authored.interval,
             authored.open_end,
-            authored.timezone or start.timezone,
+            authored.timezone,
         )
         row_key = (*key, start.source_column) if key else ()
     datasource = registry.datasources.get(entity.datasource)
@@ -554,7 +572,7 @@ def _temporal_set_encoding(field: DimensionIR | None) -> Literal["date", "timest
     parse = field.parse
     if isinstance(parse, DateParse):
         return "date"
-    if isinstance(parse, (DatetimeParse, TimestampParse)):
+    if isinstance(parse, (TimestampParse)):
         return "timestamp"
     if isinstance(parse, StrptimeParse):
         return "timestamp" if is_time_bearing_format(parse.format) else "date"
@@ -623,7 +641,7 @@ def _time_dimension_pushdown_advisory(
     if not field_ir.is_time_dimension:
         return False
     parse = field_ir.parse
-    _temporal_parse_kinds = (DateParse, DatetimeParse, TimestampParse)
+    _temporal_parse_kinds = (DateParse, TimestampParse)
     if not isinstance(parse, _temporal_parse_kinds):
         return False
         return False
@@ -678,7 +696,7 @@ def _time_dimension_dtype_advisory(
     if not field_ir.is_time_dimension:
         return None
     parse = field_ir.parse
-    _temporal_parse_kinds = (DateParse, DatetimeParse, TimestampParse)
+    _temporal_parse_kinds = (DateParse, TimestampParse)
     if not isinstance(parse, _temporal_parse_kinds):
         return None
     if fn is None:
@@ -699,8 +717,6 @@ def _time_dimension_dtype_advisory(
         return None  # deferred parse — cannot validate at this stage
     if isinstance(parse, DateParse):
         data_type_val = "date"
-    elif isinstance(parse, DatetimeParse):
-        data_type_val = "datetime"
     elif isinstance(parse, TimestampParse):
         data_type_val = "timestamp"
     elif isinstance(parse, StrptimeParse):
@@ -1825,23 +1841,19 @@ def assembly_validate(
     # -- Validate period-calendar source-field ownership --------------------
     for calendar_id, calendar in registry.period_calendars.items():
         date_field = registry.dimensions.get(calendar.date)
-        if (
-            date_field is None
-            or not date_field.is_time_dimension
-            or date_field.granularity != "day"
-        ):
+        if date_field is None or not date_field.is_time_dimension:
             errors.append(
                 SemanticLoadError(
                     kind=ErrorKind.INVALID_REF,
                     message=(
                         f"Period calendar {calendar_id!r} date ref {calendar.date!r} must "
-                        "resolve to a day-grain time dimension."
+                        "resolve to a civil-date time dimension."
                     ),
                     refs=(calendar_id, calendar.date),
                 )
             )
             continue
-        if isinstance(date_field.parse, (DatetimeParse, TimestampParse, HourPrefixParse)) or (
+        if isinstance(date_field.parse, (TimestampParse, HourPrefixParse)) or (
             isinstance(date_field.parse, StrptimeParse)
             and is_time_bearing_format(date_field.parse.format)
         ):
@@ -1850,7 +1862,7 @@ def assembly_validate(
                     kind=ErrorKind.INVALID_REF,
                     message=f"Period calendar {calendar_id!r} date axis declares timestamp meaning.",
                     refs=(calendar_id, calendar.date),
-                    expected="civil-date TimeDimension at day grain",
+                    expected="civil-date TimeDimension",
                     received=type(date_field.parse).__name__,
                     hint="Declare a civil-date axis; native untyped axes must prove date values during complete certification.",
                     repair=repair(
@@ -1874,35 +1886,6 @@ def assembly_validate(
                         refs=(calendar_id, level_ref),
                     )
                 )
-        for correspondence_name, level, baseline_ref in calendar.correspondences:
-            baseline = registry.dimensions.get(baseline_ref)
-            if level not in {name for name, _field in calendar.levels}:
-                errors.append(
-                    SemanticLoadError(
-                        kind=ErrorKind.INVALID_REF,
-                        message=(
-                            f"Period calendar {calendar_id!r} correspondence {correspondence_name!r} "
-                            f"names undeclared level {level!r}."
-                        ),
-                        refs=(calendar_id, baseline_ref),
-                    )
-                )
-            elif (
-                baseline is None
-                or baseline.is_time_dimension
-                or baseline.entity != date_field.entity
-            ):
-                errors.append(
-                    SemanticLoadError(
-                        kind=ErrorKind.INVALID_REF,
-                        message=(
-                            f"Period calendar {calendar_id!r} correspondence {correspondence_name!r} "
-                            "must reference a categorical dimension on the calendar date entity."
-                        ),
-                        refs=(calendar_id, baseline_ref),
-                    )
-                )
-
     # -- Validate temporal-set source-field ownership -----------------------
     for set_id, temporal_set in registry.temporal_sets.items():
         occurrence = registry.dimensions.get(temporal_set.occurrence_id)
@@ -1973,33 +1956,6 @@ def assembly_validate(
                     refs=(set_id, temporal_set.start, temporal_set.end),
                     expected="matching date/date or timestamp/timestamp time encodings",
                     received=f"start={start_encoding}, end={end_encoding}",
-                )
-            )
-
-    # -- Validate work-schedule source-field ownership ----------------------
-    for schedule_id, schedule in registry.work_schedules.items():
-        date_field = registry.dimensions.get(schedule.date)
-        working_field = registry.dimensions.get(schedule.is_working)
-        valid_date = (
-            date_field is not None
-            and date_field.is_time_dimension
-            and date_field.granularity == "day"
-            and _temporal_set_encoding(date_field) in {None, "date"}
-        )
-        valid_working = (
-            working_field is not None
-            and not working_field.is_time_dimension
-            and working_field.entity == getattr(date_field, "entity", None)
-        )
-        if not valid_date or not valid_working:
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.INVALID_REF,
-                    message=(
-                        f"Work schedule {schedule_id!r} date must be a day-grain civil-date "
-                        "time dimension and is_working must be a categorical field on the same entity."
-                    ),
-                    refs=(schedule_id, schedule.date, schedule.is_working),
                 )
             )
 
@@ -2180,8 +2136,6 @@ def assembly_validate(
                 continue  # deferred parse — skip dtype advisory
             elif isinstance(parse, DateParse):
                 declared_kind = "date"
-            elif isinstance(parse, DatetimeParse):
-                declared_kind = "datetime"
             elif isinstance(parse, TimestampParse):
                 declared_kind = "timestamp"
             elif isinstance(parse, StrptimeParse):

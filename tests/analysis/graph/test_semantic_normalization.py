@@ -100,7 +100,6 @@ def _registry() -> Registry:
                 DimensionKind.TIME,
                 column,
                 _LOCATION,
-                granularity="day",
                 parse=DateParse(),
                 is_default=column == "day",
                 source_column=column,
@@ -140,7 +139,7 @@ def test_normalized_time_dimension_preserves_declared_type_and_role() -> None:
 
     assert normalized.logical_type == "date"
     assert normalized.is_default
-    assert normalized.granularity == "day"
+    assert normalized.sample_interval is None
 
 
 def test_entity_identity_is_ordered_and_independent_of_version_row_key() -> None:
@@ -202,7 +201,7 @@ def test_snapshot_normalization_preserves_exact_left_limit() -> None:
     registry = _registry()
     registry.entities["sales.orders"] = _entity(
         "orders",
-        version=SnapshotVersioningIR("snapshot", "sales.orders.day", "day", "Asia/Shanghai"),
+        version=SnapshotVersioningIR("snapshot", "sales.orders.day", "Asia/Shanghai"),
     )
     normalized = normalize_target_entity(registry, "sales.orders")
     assert normalized.primary_key == ("id",)
@@ -276,14 +275,14 @@ def test_invalid_identity_and_version_axes_fail_without_guessing_columns() -> No
     assert "id" in (caught.value.received or "")
     registry.entities["sales.orders"] = _entity(
         "orders",
-        version=SnapshotVersioningIR("snapshot", "sales.customers.day", "day"),
+        version=SnapshotVersioningIR("snapshot", "sales.customers.day", "UTC"),
     )
     with pytest.raises(SemanticLoadError, match="same Entity"):
         normalize_target_entity(registry, "sales.orders")
     registry.entities["sales.orders"] = _entity(
         "orders",
         key=("id", "day"),
-        version=SnapshotVersioningIR("snapshot", "sales.orders.day", "day"),
+        version=SnapshotVersioningIR("snapshot", "sales.orders.day", "UTC"),
     )
     with pytest.raises(SemanticLoadError, match="separate from snapshot") as caught:
         normalize_target_entity(registry, "sales.orders")
@@ -292,7 +291,7 @@ def test_invalid_identity_and_version_axes_fail_without_guessing_columns() -> No
 
 def test_identity_diagnostics_prioritize_duplicates_projection_then_snapshot_overlap() -> None:
     registry = _registry()
-    version = SnapshotVersioningIR("snapshot", "sales.orders.day", "day")
+    version = SnapshotVersioningIR("snapshot", "sales.orders.day", "UTC")
     untyped = TableSourceIR("orders")
     entity = replace(_entity("orders", key=("id", "id", "day"), version=version), source=untyped)
     registry.entities[entity.semantic_id] = entity

@@ -409,7 +409,12 @@ def _author(
             code += f"{name}_{dimension}=ms.dimension_column(name={dimension!r}, entity={name}, column={dimension!r})\n"
         code += f"{name}_amount=ms.measure_column(name='amount', entity={name}, column={'amount' if name == 'facts' else 'y'!r}, additivity=ms.additive_all())\n"
         code += f"{name}_y=ms.measure_column(name='y', entity={name}, column='y', additivity=ms.additive_all())\n"
-        code += f"{name}_time=ms.time_dimension_column(name='happened', entity={name}, column='happened', granularity='second', parse=ms.timestamp(timezone='UTC'), is_default=True)\n"
+        aware = backend == "clickhouse"
+        if name == "facts" and isinstance(case.source, ParquetSourceIR):
+            physical = pq.read_schema(case.source.path).field("happened").type
+            aware = isinstance(physical, pa.TimestampType) and physical.tz is not None
+        parser = "ms.timestamp()" if aware else "ms.timestamp(timezone='UTC')"
+        code += f"{name}_time=ms.time_dimension_column(name='happened', entity={name}, column='happened', parse={parser}, is_default=True)\n"
         code += f"{name}_subject=ms.relationship(name={name + '_subject'!r}, from_entity={name}, to_entity=subjects, keys=[ms.join_on({name}_tenant, subject_tenant),ms.join_on({name}_owner,subject_id)])\n"
     code += "frozen=ms.finalize()\n"
     for name in ("facts", "other"):

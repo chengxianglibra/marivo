@@ -176,7 +176,7 @@ def test_slice3_activates_native_navigation_and_object_descriptors() -> None:
         "checks",
         *(contract.canonical_id for contract in REGISTRY.object_contracts),
     } <= set(REGISTRY.canonical_ids())
-    assert len(REGISTRY.object_contracts) == 10
+    assert len(REGISTRY.object_contracts) == 9
     assert all(contract in REGISTRY.help_descriptors for contract in REGISTRY.object_contracts)
 
 
@@ -207,7 +207,7 @@ REQUIRED_DECISION_IDS = MappingProxyType(
             {
                 "owning_entity",
                 "business_time_role",
-                "granularity",
+                "logical_time_kind",
                 "physical_time_encoding",
                 "default_axis",
                 "sampled_cadence",
@@ -252,7 +252,6 @@ REQUIRED_DECISION_IDS = MappingProxyType(
                 "finite_coverage",
                 "level_key_meaning",
                 "containment_expectations",
-                "correspondence_conventions",
             }
         ),
         SemanticKind.TEMPORAL_SET: frozenset(
@@ -265,15 +264,6 @@ REQUIRED_DECISION_IDS = MappingProxyType(
                 "finite_coverage",
                 "category",
                 "overlap_gap_semantics",
-            }
-        ),
-        SemanticKind.WORK_SCHEDULE: frozenset(
-            {
-                "working_status_authority",
-                "date_boolean_meaning",
-                "boundary_timezone",
-                "finite_coverage",
-                "rule_precedence",
             }
         ),
     }
@@ -859,3 +849,13 @@ def test_preview_capability_is_one_entry_or_exact_ref() -> None:
     assert preview_many.effects is not None
     assert "may_publish_certified_artifact" not in preview_many.effects.flags
     assert ms.PreviewBatchResult in TYPE_CONTRACTS
+
+
+@pytest.mark.parametrize("target", ("semantic.checks", "semantic.preview", "semantic.preview_many"))
+def test_temporal_certification_help_names_only_retained_models(target: str) -> None:
+    from marivo._help.render import render_help_text
+
+    text, _, _ = render_help_text(target)
+    assert "period calendars" in text.lower()
+    assert "temporal sets" in text.lower()
+    assert "work schedule" not in text.lower()

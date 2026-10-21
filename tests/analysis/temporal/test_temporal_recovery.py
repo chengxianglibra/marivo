@@ -200,7 +200,7 @@ with patch.object(ms,'load',forbidden), patch.object(SemanticProject,'load',forb
         frame=saved.to_pandas()
         assert snapshot(saved,frame=frame)==selected['snapshot']
         frames[name]=frame
-    assert frames['subjects'].iloc[:,0].tolist()==state['subject_keys']
+    assert frames['subjects'].iloc[:,1].tolist()==state['subject_keys']
     assert frames['subjects'][('value','value')].tolist()==[18.0,150.0]
     assert frames['spatial'][('value','value')].tolist()==[168.0]
     assert frames['represented'][('value','value')].tolist()==[84.0]

@@ -33,7 +33,6 @@ from marivo.refs import (
     Ref,
     SemanticKind,
     TemporalSetKind,
-    WorkScheduleKind,
     ref,
 )
 from marivo.semantic import errors as errors
@@ -44,7 +43,6 @@ from marivo.semantic.authoring import (
     ai_context,
     bind,
     calendar_grain,
-    datetime,
     dimension,
     dimension_column,
     domain,
@@ -57,7 +55,6 @@ from marivo.semantic.authoring import (
     metric,
     non_additive,
     period_calendar,
-    period_correspondence,
     relationship,
     snapshot,
     strptime,
@@ -66,7 +63,6 @@ from marivo.semantic.authoring import (
     time_dimension_column,
     timestamp,
     validity,
-    work_schedule,
 )
 from marivo.semantic.authoring import (
     aggregate as aggregate,
@@ -75,13 +71,7 @@ from marivo.semantic.authoring import (
     count as count,
 )
 from marivo.semantic.authoring import (
-    cumulative as cumulative,
-)
-from marivo.semantic.authoring import (
     empty as empty,
-)
-from marivo.semantic.authoring import (
-    grain_to_date as grain_to_date,
 )
 from marivo.semantic.authoring import (
     linear as linear,
@@ -91,9 +81,6 @@ from marivo.semantic.authoring import (
 )
 from marivo.semantic.authoring import (
     ratio as ratio,
-)
-from marivo.semantic.authoring import (
-    trailing as trailing,
 )
 from marivo.semantic.authoring import (
     weighted_mean as weighted_mean,
@@ -119,8 +106,6 @@ from marivo.semantic.catalog import (
     TemporalOccurrencePage,
     TemporalSetDetails,
     TemporalSetEntry,
-    WorkScheduleDetails,
-    WorkScheduleEntry,
     load,
 )
 from marivo.semantic.dtos import PreviewBatchResult
@@ -162,15 +147,11 @@ __all__ = [
     "TemporalSetDetails",
     "TemporalSetEntry",
     "TemporalSetKind",
-    "WorkScheduleDetails",
-    "WorkScheduleEntry",
-    "WorkScheduleKind",
     "additive",
     "additive_all",
     "ai_context",
     "bind",
     "calendar_grain",
-    "datetime",
     "dimension",
     "dimension_column",
     "domain",
@@ -185,7 +166,6 @@ __all__ = [
     "metric",
     "non_additive",
     "period_calendar",
-    "period_correspondence",
     "ref",
     "relationship",
     "snapshot",
@@ -197,7 +177,6 @@ __all__ = [
     "timestamp",
     "typing",
     "validity",
-    "work_schedule",
 ]
 
 

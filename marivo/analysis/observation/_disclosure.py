@@ -33,7 +33,7 @@ def provider() -> DisclosureProvider:
             grain,
             "Grain",
             "grain('day')",
-            "Choose a built-in unit/count or exact governed period calendar and level.",
+            "Choose a built-in unit/count; subday width must tile and remain shorter than a nominal day, with one spelling. 60second/120second/60minute/24hour reject; 90second/90minute are legal. Grains have no ordering.",
         ),
     )
     for target, value, output, call, guidance in constructors:
@@ -83,7 +83,7 @@ def provider() -> DisclosureProvider:
                 if type_value is TimeScope
                 else ("grain.define", "catalog.period_calendars.grain"),
                 constraints=(
-                    "The source-free lookup factory is marivo.help('semantic.calendar_grain').",
+                    "The source-free lookup factory is marivo.help('semantic.calendar_grain'). Equality/hash include captured snapshot identity; an unbound lookup differs from a captured Grain. Scope.by requires calendar.grain(level).",
                 )
                 if type_value is Grain
                 else (
@@ -129,7 +129,6 @@ def provider() -> DisclosureProvider:
     sealed_variants = {
         "Grain": (_temporal._BuiltinGrain, _temporal._SemanticGrain),
         "TimeScope": (
-            _temporal._AbsoluteTimeScope,
             _temporal._SessionTimeScope,
             _temporal._CalendarPeriodTimeScope,
             _temporal._TemporalOccurrenceTimeScope,
@@ -143,7 +142,6 @@ def provider() -> DisclosureProvider:
             applicability={
                 _temporal._BuiltinGrain: "grain.kind == 'builtin'",
                 _temporal._SemanticGrain: "grain.kind == 'semantic'",
-                _temporal._AbsoluteTimeScope: "time_scope.kind == 'absolute' without a frozen session timezone",
                 _temporal._SessionTimeScope: "time_scope.kind == 'absolute' constructed by session.time_scope(...)",
                 _temporal._CalendarPeriodTimeScope: "time_scope.kind == 'calendar_period'",
                 _temporal._TemporalOccurrenceTimeScope: "time_scope.kind == 'temporal_occurrence'",

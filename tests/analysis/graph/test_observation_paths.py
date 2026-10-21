@@ -150,7 +150,7 @@ def test_long_path_sum_and_count(
             )
             if compound:
                 models += f"{name}_segment=ms.dimension_column(name='segment',entity={name},column='segment')\n"
-        models += "instant=ms.time_dimension_column(name='instant',entity=facts,column='happened',granularity='second',parse=ms.timestamp(timezone='UTC'),is_default=True)\n"
+        models += "instant=ms.time_dimension_column(name='instant',entity=facts,column='happened',parse=ms.timestamp(timezone='UTC'),is_default=True)\n"
         models += "amount=ms.measure_column(name='amount',entity=facts,column='amount',additivity=ms.additive_all())\n"
         for index, (left, right) in enumerate(pairwise(names)):
             extra = f",ms.join_on({left}_segment,{right}_segment)" if compound else ""

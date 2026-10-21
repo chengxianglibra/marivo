@@ -24,7 +24,6 @@ from marivo.refs import (
     Ref,
     SemanticKindTag,
     TemporalSetKind,
-    WorkScheduleKind,
 )
 from marivo.refs import (
     ref as ref_factory,
@@ -42,7 +41,6 @@ from marivo.semantic.catalog import (
     SemanticCatalog,
     SemanticKind,
     TemporalSetEntry,
-    WorkScheduleEntry,
 )
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from marivo.semantic.expressions import Entity
@@ -181,7 +179,6 @@ _DATASETS_PY = textwrap.dedent("""\
         name="created_at",
         entity=orders,
         column="created_at",
-        granularity="day",
         parse=ms.timestamp(timezone="UTC"),
     )
     amount = ms.measure_column(
@@ -234,7 +231,6 @@ _RICH_DETAILS_DATASETS_PY = textwrap.dedent("""\
         name="created_at",
         entity=orders,
         column="created_at",
-        granularity="day",
         parse=ms.timestamp(timezone="UTC"),
         ai_context=ms.ai_context(
             business_definition="Order creation timestamp.",
@@ -462,7 +458,6 @@ def test_catalog_entries_publish_exact_ref_annotations() -> None:
         (DatasourceEntry, DatasourceKind),
         (PeriodCalendarEntry, PeriodCalendarKind),
         (TemporalSetEntry, TemporalSetKind),
-        (WorkScheduleEntry, WorkScheduleKind),
     )
     for entry_type, marker in expectations:
         annotation = get_type_hints(entry_type)["ref"]
@@ -735,17 +730,14 @@ def test_catalog_timestamp_and_strptime_fields_disclose_sample_interval(
                     name="timestamp_sampled_at",
                     entity=orders,
                     column="created_at",
-                    granularity="minute",
-                    parse=ms.timestamp(timezone="UTC", sample_interval=(5, "minute")),
+                    sample_interval=(5, "minute"), parse=ms.timestamp(timezone="UTC"),
                 )
                 strptime_sampled_at = ms.time_dimension_column(
                     name="strptime_sampled_at",
                     entity=orders,
                     column="created_at_key",
-                    granularity="minute",
-                    parse=ms.strptime(
-                        "%Y%m%d%H%M%S", timezone="UTC", sample_interval=(5, "minute")
-                    ),
+                    sample_interval=(5, "minute"), parse=ms.strptime(
+                        "%Y%m%d%H%M%S", timezone="UTC"),
                 )
             """),
         }
@@ -759,15 +751,15 @@ def test_catalog_timestamp_and_strptime_fields_disclose_sample_interval(
     timestamp_facts = dict(
         catalog.describe(ms.ref.time_dimension("sales.orders.timestamp_sampled_at")).facts
     )
-    assert timestamp_facts["granularity"] == "minute"
+    assert "granularity" not in timestamp_facts
     assert "kind='timestamp'" in timestamp_facts["parse"]
-    assert "sample_interval=SampleIntervalIR(count=5, unit='minute')" in timestamp_facts["parse"]
+    assert timestamp_facts["sample_interval"] == "5minute"
     assert isinstance(strptime_field, Deferred)
     strptime_facts = dict(
         catalog.describe(ms.ref.time_dimension("sales.orders.strptime_sampled_at")).facts
     )
     assert "kind='strptime'" in strptime_facts["parse"]
-    assert "sample_interval=SampleIntervalIR(count=5, unit='minute')" in strptime_facts["parse"]
+    assert strptime_facts["sample_interval"] == "5minute"
 
 
 def test_catalog_domain_details_include_children(

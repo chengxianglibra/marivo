@@ -45,10 +45,9 @@ from marivo.semantic._authoring_retired import reject_parameters
 from marivo.semantic._authoring_validation import (
     _compute_column_hash,
     _normalize_additivity,
+    _normalize_sample_interval_value,
     _validate_relationship_keys,
-    _validate_sample_interval_granularity,
     _validate_time_parse,
-    _validate_time_parse_granularity,
     _validate_unit,
 )
 from marivo.semantic._authoring_values import _build_ai_context
@@ -634,7 +633,7 @@ def time_dimension_column(
     name: str,
     entity: Entity | Ref[EntityKind],
     column: str,
-    granularity: Literal["year", "quarter", "month", "week", "day", "hour", "minute", "second"],
+    sample_interval: tuple[int, Literal["minute", "hour"]] | None = None,
     parse: SemanticParse | None = None,
     is_default: bool = False,
     domain: Ref[DomainKind] | None = None,
@@ -647,7 +646,7 @@ def time_dimension_column(
         entity: Entity ref returned by ``ms.entity(...)``. Strings are rejected
             so agents do not guess raw semantic ids.
         column: Physical source column name to read with bracket access.
-        granularity: Finest grain at which queries are meaningful.
+        sample_interval: Optional canonical minute/hour source sampling cadence.
         parse: Optional parse variant such as ``ms.strptime(...)``.
         is_default: Whether this is the default time axis for the entity.
         domain: Override the active domain namespace with a ``Ref[domain]`` returned
@@ -667,7 +666,7 @@ def time_dimension_column(
         >>> orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
         >>> log_date = ms.time_dimension_column(
         ...     name="log_date", entity=orders, column="dt",
-        ...     granularity="day", parse=ms.strptime("%Y%m%d"),
+        ...     parse=ms.strptime("%Y%m%d"),
         ... )
 
     Capture constraints: The result is a lookup Ref, not an expression value.
@@ -694,9 +693,8 @@ def time_dimension_column(
         )
     _check_duplicate(ctx, semantic_id, DimensionIR)
     _validate_time_parse(parse)
-    _validate_time_parse_granularity(semantic_id=semantic_id, granularity=granularity, parse=parse)
-    _validate_sample_interval_granularity(
-        semantic_id=semantic_id, granularity=granularity, parse=parse
+    cadence = _normalize_sample_interval_value(
+        sample_interval, semantic_id=semantic_id, parse=parse
     )
     ai_ctx = _build_ai_context(ai_context)
     location = _caller_location()
@@ -708,7 +706,7 @@ def time_dimension_column(
         ai_context=ai_ctx,
         is_time_dimension=True,
         kind=DimensionKind.TIME,
-        granularity=granularity,
+        sample_interval=cadence,
         parse=parse,
         is_default=is_default,
         python_symbol=obj_name,
@@ -724,30 +722,27 @@ def time_dimension(
     *,
     name: str | None = None,
     entity: Entity | Ref[EntityKind],
-    granularity: Literal["year", "quarter", "month", "week", "day", "hour", "minute", "second"],
+    sample_interval: tuple[int, Literal["minute", "hour"]] | None = None,
     parse: SemanticParse | None = None,
     is_default: bool = False,
     domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
 ) -> Callable[[Callable[[ibis_ir.Table], ibis_ir.Value]], Ref[TimeDimensionKind]]:
-    """Declare a time-aware dimension that carries grain and parsing metadata.
+    """Declare a time-aware dimension that carries encoding and optional source cadence.
 
     Time dimensions are the only dimensions usable as window axes by ``session.observe``.
     The body may return any ibis expression that represents the intended time
     axis. When ``parse`` is omitted, the parse variant is inferred from the
-    column type at analysis time. Use ``ms.datetime(timezone=...)`` or
-    ``ms.timestamp(timezone=...)`` for a native naive source axis so readiness
+    column type at analysis time. Use ``ms.timestamp(timezone=...)`` for a native naive source axis so readiness
     can block an undeclared datasource-timezone fallback. Use ``ms.strptime(...)``
     or ``ms.hour_prefix(...)`` for string/integer parsing.
 
     Args:
         name: Dimension name. Defaults to the function name.
         entity: Owning entity ref returned by ``ms.entity(...)``.
-        granularity: ``year | quarter | month | week | day | hour | minute | second`` — the
-            finest grain at which queries are meaningful.
+        sample_interval: Optional canonical minute/hour source sampling cadence.
         parse: Optional parse variant. Omit for native temporal columns (the parse
-            is inferred at analysis time). Use ``ms.datetime(timezone=...)``,
-            ``ms.timestamp(timezone=...)``, ``ms.strptime(format)``, or
+            is inferred at analysis time). Use ``ms.timestamp(timezone=...)``, ``ms.strptime(format)``, or
             ``ms.hour_prefix(prefix)`` when explicit configuration is needed.
         is_default: Mark this dimension as the default time axis when multiple time dimensions
             exist on the entity. At most one time dimension per entity may carry
@@ -764,10 +759,10 @@ def time_dimension(
     Raises:
         SemanticDecoratorError: ``entity`` is unknown, ``name`` collides, the
             body violates the AST whitelist, or the parse variant is incompatible
-            with the declared granularity.
+            with its sampled cadence.
 
     Example:
-        >>> @ms.time_dimension(entity=orders, granularity="day")
+        >>> @ms.time_dimension(entity=orders)
         ... def created_at(orders):
         ...     return orders.created_at
 
@@ -808,11 +803,8 @@ def time_dimension(
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()
 
-        _validate_time_parse_granularity(
-            semantic_id=semantic_id, granularity=granularity, parse=parse
-        )
-        _validate_sample_interval_granularity(
-            semantic_id=semantic_id, granularity=granularity, parse=parse
+        cadence = _normalize_sample_interval_value(
+            sample_interval, semantic_id=semantic_id, parse=parse
         )
 
         ir = DimensionIR(
@@ -823,7 +815,7 @@ def time_dimension(
             ai_context=ai_ctx,
             is_time_dimension=True,
             kind=DimensionKind.TIME,
-            granularity=granularity,
+            sample_interval=cadence,
             parse=parse,
             is_default=is_default,
             python_symbol=fn.__name__,

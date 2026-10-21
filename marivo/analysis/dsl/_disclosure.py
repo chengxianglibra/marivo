@@ -224,7 +224,9 @@ def provider() -> DisclosureProvider:
             "result = scope.by(grain)",
             ("scope", "grain"),
             "inputs.time",
-            ("Frozen scope and compatible Grain are required.",),
+            (
+                "Frozen scope and compatible Grain are required; semantic Grain must already capture a certified snapshot through calendar.grain(level).",
+            ),
         ),
         (
             InstantAnchor,

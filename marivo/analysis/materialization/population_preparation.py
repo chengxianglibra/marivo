@@ -36,7 +36,7 @@ from marivo._definition.types import (
     IntervalCoordinate,
     LiteralValue,
 )
-from marivo.analysis.compiler.member_version import version_predicate
+from marivo.analysis.compiler.member_version import prepare_version_filter
 from marivo.analysis.core.model import reject
 from marivo.analysis.core.value_types import data_type
 from marivo.refs import ref
@@ -374,6 +374,7 @@ def prepare_population(
     if isinstance(node, SourceIdentities):
         source = entities[node.entity.ref.path].view()
         contract = normalize_target_entity(state.registry, node.entity.ref.path)
+        version_checks: tuple[tuple[str, str, str], ...] = ()
         if contract.version is not None:
             if node.at is None:
                 reject(
@@ -385,8 +386,10 @@ def prepare_population(
             selection = normalize_target_version_selection(
                 contract, boundary=node.at, interpretation="instant"
             )
-            source = source.filter(version_predicate(source, contract.version, selection))
-        checks: tuple[tuple[str, str, str], ...] = ()
+            source, version_checks = prepare_version_filter(
+                source, contract.version, selection, state=state
+            )
+        checks: tuple[tuple[str, str, str], ...] = version_checks
         summary: ir.Table | None = None
         if node.predicate is not None:
             from marivo.analysis.materialization.query_preparation import prepare_fields
@@ -412,7 +415,7 @@ def prepare_population(
                     "Evaluate the checked quantity before selecting its identity domain.",
                     "population.prepare",
                 )
-            checks = identity_fields.checks
+            checks = (*version_checks, *identity_fields.checks)
             if checks:
                 summary = source.aggregate(
                     **{name: source[name].any().fill_null(False) for name, _, _ in checks}
@@ -423,6 +426,7 @@ def prepare_population(
         output = source.select(
             **{slot: source[key] for slot, key in zip(columns, keys, strict=True)},
             **{null_key: ibis.or_(*(source[key].isnull() for key in keys))},
+            **({name: source[name] for name, _, _ in checks} if summary is None else {}),
         ).distinct()
         presence = None
         if summary is not None:

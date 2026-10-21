@@ -739,7 +739,8 @@ def prepare_query_sources(
             contribution.window_key,
             contribution.sample_axes,
             contribution.calendars,
-            contribution.coverage,
+            prepared.coverage,
+            prepared.time_authorities,
         )
         schema = table.schema().to_pyarrow()
 
@@ -808,6 +809,8 @@ def prepare_query_sources(
                 contribution.occurrence,
                 prepared.checks,
                 binding_id=binding_id,
+                coverage=prepared.coverage,
+                time_authorities=prepared.time_authorities,
                 original_identity=tuple(
                     _admitted(schema, name, name)
                     for name in normalize_target_entity(registry, root).version_row_key
@@ -1451,6 +1454,14 @@ def _source_check_failure(
     received = (
         f"{received}; source={stage.source_id}; coordinates={coordinates.to_dict(orient='records')}"
     )
+    if expected == "an unambiguous existing source civil time":
+        raise MaterializationError(
+            expected=expected,
+            received=received,
+            repair="Use source timestamps carrying an explicit offset or physical timezone for repeated civil times. Correct nonexistent civil values in the source; retry with uniquely interpretable timestamps.",
+            stage="source_time",
+            help_target="analysis_frame.compute",
+        )
     if any(name == column for column, _, _ in stage.preparation_checks):
         raise MaterializationError(
             expected=expected,

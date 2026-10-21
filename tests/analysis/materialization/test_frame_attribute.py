@@ -64,7 +64,7 @@ import marivo.semantic as ms
 facts = ms.entity(name='facts', datasource=ms.ref.datasource('warehouse'), source=md.table('facts'), primary_key=['tenant','id'])
 region = ms.dimension_column(name='region', entity=facts, column='region')
 channel = ms.dimension_column(name='channel', entity=facts, column='channel')
-day = ms.time_dimension_column(name='day', entity=facts, column='day', granularity='day')
+day = ms.time_dimension_column(name='day', entity=facts, column='day')
 amount = ms.measure_column(name='amount', entity=facts, column='amount', unit='USD', additivity=ms.additive_all())
 denominator = ms.measure_column(name='denominator', entity=facts, column='denominator', unit='1', additivity=ms.additive_all())
 fact_id = ms.dimension_column(name='id', entity=facts, column='id')

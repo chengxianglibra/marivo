@@ -177,13 +177,6 @@ def test_registered_preview_string_paths_resolve_to_one_descriptor(target: str) 
             "semantic",
             "preview",
         ),
-        (
-            "_raise_work_schedule_lookup",
-            ms.ref.work_schedule("sales.schedule"),
-            "snapshot",
-            "semantic",
-            "preview",
-        ),
     ),
 )
 def test_temporal_catalog_error_instances_route_to_the_exact_next_help(

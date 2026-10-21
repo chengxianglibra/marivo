@@ -28,15 +28,13 @@ orders = ms.entity(
     }),
     primary_key=['tenant_id', 'order_id'],
     versioning=ms.snapshot(
-        partition_field=ms.ref.time_dimension('sales.orders.snapshot_day'),
-        grain='day', timezone='UTC',
+        partition_field=ms.ref.time_dimension('sales.orders.snapshot_day'), timezone='UTC',
     ),
 )
 order_tenant = ms.dimension_column(name='tenant_id', entity=orders, column='tenant_id')
 order_id = ms.dimension_column(name='order_id', entity=orders, column='order_id')
 snapshot_day = ms.time_dimension_column(
-    name='snapshot_day', entity=orders, column='snapshot_day', granularity='day',
-    parse=ms.strptime('%Y-%m-%d'),
+    name='snapshot_day', entity=orders, column='snapshot_day', parse=ms.strptime('%Y-%m-%d'),
 )
 
 lines = ms.entity(

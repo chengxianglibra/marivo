@@ -480,7 +480,6 @@ class _Inspector:
             return
         from marivo._temporal import (
             TimeScope,
-            _AbsoluteTimeScope,
             _CalendarPeriodTimeScope,
             _SessionTimeScope,
             _TemporalOccurrenceTimeScope,
@@ -488,7 +487,6 @@ class _Inspector:
 
         if type(value) in (
             TimeScope,
-            _AbsoluteTimeScope,
             _SessionTimeScope,
             _CalendarPeriodTimeScope,
             _TemporalOccurrenceTimeScope,
@@ -520,7 +518,13 @@ class _Inspector:
             if isinstance(grain, _BuiltinGrain):
                 self.token("window", "to_date", grain.unit, str(grain.count))
             elif isinstance(grain, _SemanticGrain):
-                self.token("window", "to_date", grain.calendar.key, grain.level)
+                self.token(
+                    "window",
+                    "to_date",
+                    grain.calendar.key,
+                    grain.level,
+                    "unbound" if grain._snapshot is None else grain._snapshot.snapshot_digest,
+                )
             else:
                 invalid("Expected a closed calendar grain for to_date.", path=path)
         elif isinstance(value, RelationshipParameter):

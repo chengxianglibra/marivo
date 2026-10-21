@@ -66,7 +66,7 @@ ms.domain(name="sales", owner="Mina Zhang", default=True)
 orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"),
                    source=md.table("orders"), primary_key=["order_id"])
 order_date = ms.time_dimension_column(name="order_date", entity=orders,
-    column="order_date", granularity="day", is_default=True)
+    column="order_date", is_default=True)
 region = ms.dimension_column(name="region", entity=orders, column="region")
 amount = ms.measure_column(name="amount", entity=orders, column="amount",
     additivity=ms.additive_all(), unit="CNY")

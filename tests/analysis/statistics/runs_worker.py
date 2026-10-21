@@ -100,9 +100,9 @@ import marivo.datasource as md
 import marivo.semantic as ms
 orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.parquet("rows.parquet"), primary_key=["id"])
 amount_ref = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all())
-time_ref = ms.time_dimension_column(name="time", entity=orders, column="time", granularity="day", is_default=True)
+time_ref = ms.time_dimension_column(name="time", entity=orders, column="time", is_default=True)
 calendar = ms.entity(name="calendar", datasource=ms.ref.datasource("warehouse"), source=md.parquet("calendar.parquet"), primary_key=["calendar_date"])
-calendar_date = ms.time_dimension_column(name="calendar_date", entity=calendar, column="calendar_date", granularity="day")
+calendar_date = ms.time_dimension_column(name="calendar_date", entity=calendar, column="calendar_date")
 period = ms.dimension_column(name="period", entity=calendar, column="period")
 unequal = ms.period_calendar(name="unequal", date=calendar_date, boundary_timezone="UTC", coverage=(date(2026, 8, 1), date(2026, 8, 7)), levels={"period": period})
 frozen = ms.finalize()

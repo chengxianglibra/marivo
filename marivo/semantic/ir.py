@@ -46,7 +46,6 @@ __all__ = [
     "DatasourceIR",
     "DatasourceSourceLocation",
     "DateParse",
-    "DatetimeParse",
     "DimensionIR",
     "DimensionKind",
     "DomainIR",
@@ -74,7 +73,6 @@ __all__ = [
     "TimeFoldIR",
     "TimestampParse",
     "ValidityVersioningIR",
-    "WorkScheduleIR",
     "is_time_bearing_format",
     "source_from_dict",
     "source_label",
@@ -132,9 +130,11 @@ class SnapshotVersioningIR:
 
     kind: Literal["snapshot"]
     partition_field: str
-    grain: Literal["day"]
-    timezone: str | None = None
-    format: str | None = None
+    timezone: str
+
+    def __post_init__(self) -> None:
+        _require_non_empty_str(self.timezone, "SnapshotVersioningIR.timezone")
+        _validate_timezone_value(self.timezone, "SnapshotVersioningIR.timezone")
 
 
 @dataclass(frozen=True)
@@ -350,10 +350,8 @@ class TargetSnapshotVersion:
     coordinate_ref: RefPayloadV1
     source_column: str
     logical_type: str
-    timezone: str | None
-    format: str | None
+    timezone: str
     kind: Literal["snapshot"] = "snapshot"
-    grain: Literal["day"] = "day"
 
 
 @dataclass(frozen=True, slots=True)
@@ -396,7 +394,7 @@ class TargetDimensionContract:
     logical_type: str
     nullable: bool
     is_time_dimension: bool
-    granularity: str | None
+    sample_interval: SampleIntervalIR | None
     is_default: bool
     timezone: str | None
     parse: SemanticParse | None = None
@@ -440,7 +438,6 @@ class PeriodCalendarIR:
     ai_context: AiContextIR
     python_symbol: str
     location: SourceLocation
-    correspondences: tuple[tuple[str, str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -456,22 +453,6 @@ class TemporalSetIR:
     boundary_timezone: str
     coverage: tuple[str, str]
     category: str | None
-    ai_context: AiContextIR
-    python_symbol: str
-    location: SourceLocation
-
-
-@dataclass(frozen=True)
-class WorkScheduleIR:
-    """Authored identity and source-field contract for final daily status."""
-
-    semantic_id: str
-    domain: str
-    name: str
-    date: str
-    is_working: str
-    boundary_timezone: str
-    coverage: tuple[str, str]
     ai_context: AiContextIR
     python_symbol: str
     location: SourceLocation
@@ -494,6 +475,10 @@ class SampleIntervalIR:
                 f"SampleIntervalIR.unit must be 'minute' or 'hour', got {self.unit!r}."
             )
 
+        from marivo._temporal import validate_subday_count
+
+        validate_subday_count(self.unit, self.count)
+
     def to_token(self) -> str:
         return f"{self.count}{self.unit}"
 
@@ -514,30 +499,14 @@ class DateParse:
 
 
 @dataclass(frozen=True)
-class DatetimeParse:
-    """Parse a time-dimension column as a datetime, optionally timezone-aware."""
-
-    timezone: str | None = None
-    sample_interval: SampleIntervalIR | None = None
-    kind: Literal["datetime"] = "datetime"
-
-    def __post_init__(self) -> None:
-        _validate_timezone_value(self.timezone, "DatetimeParse.timezone")
-        _validate_sample_interval_value(self.sample_interval, "DatetimeParse.sample_interval")
-        _require_kind(self.kind, field_name="DatetimeParse.kind", expected="datetime")
-
-
-@dataclass(frozen=True)
 class TimestampParse:
     """Parse a time-dimension column as a timestamp, optionally timezone-aware."""
 
     timezone: str | None = None
-    sample_interval: SampleIntervalIR | None = None
     kind: Literal["timestamp"] = "timestamp"
 
     def __post_init__(self) -> None:
         _validate_timezone_value(self.timezone, "TimestampParse.timezone")
-        _validate_sample_interval_value(self.sample_interval, "TimestampParse.sample_interval")
         _require_kind(self.kind, field_name="TimestampParse.kind", expected="timestamp")
 
 
@@ -547,7 +516,6 @@ class StrptimeParse:
 
     format: str
     timezone: str | None = None
-    sample_interval: SampleIntervalIR | None = None
     kind: Literal["strptime"] = "strptime"
 
     def __post_init__(self) -> None:
@@ -560,7 +528,6 @@ class StrptimeParse:
         _validate_timezone_value(self.timezone, "StrptimeParse.timezone")
         if self.timezone is not None and not is_time_bearing_format(normalized):
             raise ValueError("StrptimeParse.timezone is only supported for time-bearing formats.")
-        _validate_sample_interval_value(self.sample_interval, "StrptimeParse.sample_interval")
         _require_kind(self.kind, field_name="StrptimeParse.kind", expected="strptime")
 
 
@@ -569,16 +536,14 @@ class HourPrefixParse:
     """Parse a time-dimension column from an hour-prefixed string."""
 
     prefix: str
-    sample_interval: SampleIntervalIR | None = None
     kind: Literal["hour_prefix"] = "hour_prefix"
 
     def __post_init__(self) -> None:
         _require_non_empty_str(self.prefix, "HourPrefixParse.prefix")
-        _validate_sample_interval_value(self.sample_interval, "HourPrefixParse.sample_interval")
         _require_kind(self.kind, field_name="HourPrefixParse.kind", expected="hour_prefix")
 
 
-SemanticParse = DateParse | DatetimeParse | TimestampParse | StrptimeParse | HourPrefixParse
+SemanticParse = DateParse | TimestampParse | StrptimeParse | HourPrefixParse
 
 
 # ---------------------------------------------------------------------------
@@ -675,7 +640,7 @@ class DimensionIR:
     kind: DimensionKind
     python_symbol: str
     location: SourceLocation
-    granularity: str | None = None
+    sample_interval: SampleIntervalIR | None = None
     parse: SemanticParse | None = None
     is_default: bool = False
     body_ast_hash: str = ""
@@ -687,7 +652,10 @@ class DimensionIR:
                 f"DimensionIR {self.semantic_id!r}: is_time_dimension={self.is_time_dimension} "
                 f"inconsistent with kind={self.kind.value!r}"
             )
-        if self.kind == DimensionKind.CATEGORICAL and self.parse is not None:
+        _validate_sample_interval_value(self.sample_interval, "DimensionIR.sample_interval")
+        if self.kind == DimensionKind.CATEGORICAL and (
+            self.parse is not None or self.sample_interval is not None
+        ):
             raise ValueError(
                 f"DimensionIR {self.semantic_id!r}: categorical dimension must not carry parse"
             )

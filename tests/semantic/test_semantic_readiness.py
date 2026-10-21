@@ -371,8 +371,7 @@ def test_retired_status_fold_requires_explicit_sample_reduction(
                     name="snapshot_date",
                     entity=snapshots,
                     column="snapshot_date",
-                    granularity="day",
-                )
+                    )
                 value = ms.measure_column(
                     name="value",
                     entity=snapshots,
@@ -391,3 +390,32 @@ def test_retired_status_fold_requires_explicit_sample_reduction(
     assert error.received is not None and "status_time_fold" in error.received
     assert error.repair is not None
     assert "per(status_time_field).reducer()" in error.repair.action
+
+
+@pytest.mark.parametrize("parse", ("None", "ms.timestamp()", "ms.timestamp(timezone='UTC')"))
+def test_readiness_defers_native_timestamp_kind_and_authority_without_probing(
+    semantic_project_factory,
+    monkeypatch: pytest.MonkeyPatch,
+    parse: str,
+) -> None:
+    from marivo.datasource.timezone import probe_engine_timezone
+
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN,
+            "sales/models.py": (
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "events=ms.entity(name='events',datasource=ms.ref.datasource('warehouse'),source=md.table('events'))\n"
+                f"point=ms.time_dimension_column(name='point',entity=events,column='point',parse={parse})\n"
+            ),
+        }
+    )
+
+    def reject_probe(*args: object, **kwargs: object) -> None:
+        pytest.fail("static readiness probed physical time authority")
+
+    monkeypatch.setattr(probe_engine_timezone.__module__ + ".probe_engine_timezone", reject_probe)
+    report = project.readiness(refs=(ms.ref.time_dimension("sales.events.point"),))
+    assert report.status == "ready"
+    assert report.blockers == ()
+    assert report.analysis_ready_inputs == (ms.ref.time_dimension("sales.events.point"),)

@@ -1,10 +1,10 @@
 ---
-title: Calendars and work schedules
-description: Certify period boundaries, named occurrences and business-day schedules.
+title: Calendars and temporal occurrences
+description: Certify period boundaries and named temporal occurrences.
 ---
 
 These declarations consume governed time/dimension fields from calendar,
-campaign and schedule Entities. They require their dedicated certified artifacts;
+and campaign Entities. They require their dedicated certified artifacts;
 ordinary preview history does not establish those artifacts.
 
 Import `date` from `datetime`, `marivo.datasource as md`, `marivo.semantic as ms`
@@ -73,33 +73,6 @@ query = session.observe({'revenue': revenue}, by=mv.product(launch, members))
 ```
 
 Keep occurrence identity and interval semantics explicit; a selected occurrence is not a global time filter for every unrelated quantity.
-
-## Define a work schedule
-
-The calendar Entity declares date and is_working, and the datasource contains the exhaustive schedule scope.
-
-{/* example: work-schedule */}
-
-```python
-schedule_ref = ms.work_schedule(
-    name="cn_sales_schedule",
-    date=ms.ref.time_dimension("sales.calendar.date"),
-    is_working=ms.ref.dimension("sales.calendar.is_working"),
-    boundary_timezone="Asia/Shanghai",
-    coverage=(date(2026, 1, 1), date(2027, 1, 1)),
-)
-catalog.preview(
-    schedule_ref,
-    scope=md.unpruned(max_rows=400, timeout_seconds=30),
-)
-schedule = catalog.work_schedules.get("sales.cn_sales_schedule")
-```
-
-Certification reads required columns with a positive bounded scope and only
-publishes when exhaustive input satisfies the declaration. Display limits do not
-bound certification input. Readiness reports missing/stale/invalid artifacts;
-follow its typed repair to preview and recertify. Business authority for working
-and non-working dates remains with the project definition.
 
 `mv.grain` describes builtin units; `ms.calendar_grain` captures a source-free
 lookup, while `calendar.grain(level)` retains the certified snapshot.

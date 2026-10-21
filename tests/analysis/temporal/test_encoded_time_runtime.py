@@ -43,13 +43,7 @@ def _encode_orders(case: DslCase, fmt: str, *, integer: bool = False) -> None:
         )
     path = case.root / "models" / "semantic" / "sales" / "models.py"
     parse = f"ms.strptime({fmt!r}" + (", timezone='UTC')" if "%H" in fmt else ")")
-    path.write_text(
-        path.read_text()
-        .replace("ms.timestamp(timezone='UTC')", parse)
-        .replace(
-            "granularity='second'", "granularity='second'" if "%H" in fmt else "granularity='day'"
-        )
-    )
+    path.write_text(path.read_text().replace("ms.timestamp()", parse))
     ms.load(workspace_dir=case.root)
 
 

@@ -70,7 +70,7 @@ def _session(
                 + f"facts=ms.entity(name='facts',datasource=ms.ref.datasource('warehouse'),source=md.table({case.source.table!r},database={case.source.database!r}),primary_key=['id'])\n"
                 + "customer=ms.dimension_column(name='customer',entity=facts,column='customer')\n"
                 + "channel=ms.dimension_column(name='channel',entity=facts,column='channel')\n"
-                + "day=ms.time_dimension_column(name='day',entity=facts,column='day',granularity='day',is_default=True)\n"
+                + "day=ms.time_dimension_column(name='day',entity=facts,column='day',is_default=True)\n"
                 + "amount=ms.measure_column(name='amount',entity=facts,column='amount',additivity=ms.additive_all())\n",
             }
         )

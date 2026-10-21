@@ -120,15 +120,13 @@ def _catalog(
                     name="created_at",
                     entity=orders,
                     column="created_at",
-                    granularity="second",
                     parse=ms.timestamp(timezone="UTC"),
                 )
                 created_at_naive = ms.time_dimension_column(
                     name="created_at_naive",
                     entity=orders,
                     column="created_at",
-                    granularity="second",
-                    parse=ms.datetime(),
+                    parse=ms.timestamp(),
                 )
                 customer_id = ms.dimension_column(
                     name="customer_id", entity=customers, column="customer_id"

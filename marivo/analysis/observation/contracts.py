@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from marivo._temporal import PeriodCalendarSnapshotV1
+from marivo._temporal import PeriodCalendarSnapshotV2
 from marivo.analysis.core.time_authority import ReportTimeAuthority
 from marivo.analysis.observation.errors import ObservationConstructionError
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
@@ -31,7 +31,7 @@ class ObservationOwner:
     semantic_registry: Registry = field(kw_only=True)
     sidecar: CompiledExpressionSidecar = field(kw_only=True)
     binding_scopes: SourceBindingScopes = field(kw_only=True)
-    period_calendar_snapshots: tuple[PeriodCalendarSnapshotV1, ...] = field(
+    period_calendar_snapshots: tuple[PeriodCalendarSnapshotV2, ...] = field(
         default=(), kw_only=True
     )
 

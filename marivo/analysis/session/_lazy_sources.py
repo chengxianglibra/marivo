@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from marivo._temporal import PeriodCalendarSnapshotV1
+from marivo._temporal import PeriodCalendarSnapshotV2
 from marivo.analysis.core.time_authority import ReportTimeAuthority
 from marivo.analysis.observation.contracts import ObservationOwner, construction_error
 from marivo.analysis.observation.source_bindings import SourceBindingScopes
@@ -19,7 +19,7 @@ def make_source_owner(
     store_id: str,
     catalog: SemanticCatalog | None,
     report_time: ReportTimeAuthority,
-    period_calendar_snapshots: tuple[PeriodCalendarSnapshotV1, ...] = (),
+    period_calendar_snapshots: tuple[PeriodCalendarSnapshotV2, ...] = (),
 ) -> ObservationOwner:
     """Bind immutable semantic authority without a Dataset family or action port."""
     if not semantic_registry._frozen:

@@ -44,7 +44,6 @@ paid_at = ms.time_dimension_column(
     name="paid_at",
     entity=orders,
     column="paid_at",
-    granularity="day",
     parse=ms.timestamp(timezone="UTC"),
 )
 amount = ms.measure_column(
@@ -80,7 +79,6 @@ _EXPECTED_MEMBER_KEYS: dict[str, tuple[str, ...]] = {
     "relationships": ("relationship:sales.orders_self",),
     "period_calendars": (),
     "temporal_sets": (),
-    "work_schedules": (),
 }
 
 

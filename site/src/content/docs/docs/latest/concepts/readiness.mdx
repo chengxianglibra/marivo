@@ -49,8 +49,11 @@ Ordinary preview returns only the current execution result. It creates no
 authoring checkpoint and cannot change readiness. A native timezone-naive
 timestamp without an explicit parse contract is reported directly by preview as
 a `time_parse_risk` warning.
+Static readiness does not infer naive/aware kind from `ms.timestamp()` or probe
+physical schema. Execution preparation resolves the actual type and freezes
+reader authority for naive values; aware values reject parser timezone.
 
-Previewing a period calendar, temporal set, or work schedule is also its
+Previewing a period calendar or temporal set is also its
 certification path. Marivo reads every required column up to the scope's
 `max_rows + 1` boundary and publishes the immutable artifact only when that
 scope is exhaustive and the rows satisfy the declaration. `limit` controls only
@@ -127,7 +130,6 @@ Dedicated temporal artifact blockers use artifact terminology:
 
 - `period_calendar_artifact_missing`, `_stale`, or `_invalid`
 - `temporal_set_artifact_missing`, `_stale`, or `_invalid`
-- `work_schedule_artifact_missing`, `_stale`, or `_invalid`
 
 Their repair points to `catalog.preview(..., scope=...)` with an exhaustive
 bounded scope. Failed or truncated certification does not publish a replacement

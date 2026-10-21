@@ -547,7 +547,6 @@ def in_population(population: Population) -> Deferred:
 def _interval_coordinate(scope: TimeScope) -> IntervalCoordinate:
     from marivo._temporal import _SessionTimeScope, anchor_from_datetime
     from marivo.analysis.core.time_grid import instant
-    from marivo.analysis.dsl.temporal import freeze_scope
 
     if scope.kind == "absolute" and not isinstance(scope, _SessionTimeScope):
         reject(
@@ -556,10 +555,9 @@ def _interval_coordinate(scope: TimeScope) -> IntervalCoordinate:
             "Construct the scope with session.time_scope(...).",
             "population.interval",
         )
-    frozen = freeze_scope(scope, scope.boundary_timezone)
-    zone = frozen.boundary_timezone
-    start = anchor_from_datetime(instant(frozen.start, zone))
-    end = anchor_from_datetime(instant(frozen.end, zone))
+    zone = scope.boundary_timezone
+    start = anchor_from_datetime(instant(scope.start, zone))
+    end = anchor_from_datetime(instant(scope.end, zone))
     return IntervalCoordinate(
         f"interval:{start.isoformat()}:{end.isoformat()}:{zone}", start, end, zone
     )

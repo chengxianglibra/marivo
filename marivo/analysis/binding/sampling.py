@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 from marivo._definition.types import (
@@ -10,10 +11,10 @@ from marivo._definition.types import (
     IntervalCoordinate,
     coordinate_read_keys,
 )
-from marivo._temporal import builtin_grain, time_scope
+from marivo._temporal import builtin_grain, session_time_scope
 from marivo._temporal_grid import bind_grid
 from marivo.analysis.core.model import reject
-from marivo.semantic.ir import DatetimeParse, StrptimeParse, TimestampParse
+from marivo.analysis.core.time_authority import SourceTimeAuthority
 
 if TYPE_CHECKING:
     from marivo.analysis.binding.observe import ContributionBinding
@@ -28,6 +29,7 @@ def sampling_coverage(
     state: CompiledSemanticState,
     *,
     calendar: CalendarCoordinate | None,
+    authorities: Mapping[str, SourceTimeAuthority],
 ) -> tuple[SampleCoverage, ...]:
     result: list[SampleCoverage] = []
     offset = 0
@@ -47,27 +49,31 @@ def sampling_coverage(
             offset += width
             continue
         dimension = state.registry.dimensions.get(read.field.ref.path)
-        parse = dimension.parse if dimension is not None else None
-        sampling = (
-            parse.sample_interval
-            if isinstance(parse, (DatetimeParse, TimestampParse, StrptimeParse))
-            else None
-        )
+        sampling = dimension.sample_interval if dimension is not None else None
         if sampling is not None:
             period = contribution.period
             if period is None or period.start is None:
                 reject(
                     "a finite period for declared sample coverage",
                     read.field.ref.path,
-                    "Use a finite during scope and a finite window rule.",
+                    "Pass by=(scope,) with a finite TimeScope and use a bounded window rule.",
                     "session.observe",
                 )
             grain = builtin_grain(sampling.unit, count=sampling.count)
+            authority = authorities[read.field.ref.path]
+            source_zone = "UTC" if authority.kind == "instant" else authority.read_timezone
+            if source_zone is None:
+                reject(
+                    "a timestamp source clock for subday sampling",
+                    read.field.ref.path,
+                    "Use a real timestamp TimeField with a representable sample_interval.",
+                    "session.observe",
+                )
             grid = bind_grid(
-                time_scope(start=period.start, end=period.end),
+                session_time_scope(period.start, period.end, source_zone),
                 grain,
-                report_timezone=period.timezone,
-                explicit_timezone=period.timezone,
+                report_timezone=source_zone,
+                explicit_timezone=source_zone,
             )
             # A clipped first interval owns its declared original sample instant.
             # Only instants inside the exact consumed half-open period are required.

@@ -82,7 +82,7 @@ def test_public_calendar_snapshot_is_captured_before_pure_construction(
             "source=md.table('events')",
             "source=md.table('events', columns={'user_id': 'user_id', 'amount': 'amount', 'event_date': 'event_date'}), primary_key=['user_id']",
         )
-        .replace("granularity='day')", "granularity='day', is_default=True)")
+        .replace("column='event_date')", "column='event_date', is_default=True)")
     )
     files["sales/calendar.py"] = files["sales/calendar.py"].replace(
         "source=md.table('calendar')",

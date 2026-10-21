@@ -7,6 +7,7 @@ re-exported from ``marivo.semantic.authoring``.
 from __future__ import annotations
 
 import hashlib
+import re
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -22,13 +23,13 @@ from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
 from marivo.semantic.ir import (
     Additivity,
     DateParse,
-    DatetimeParse,
     HourPrefixParse,
     JoinKey,
     SampleIntervalIR,
     SemanticParse,
     StrptimeParse,
     TimestampParse,
+    is_time_bearing_format,
 )
 
 
@@ -37,11 +38,11 @@ def _validate_time_parse(parse: SemanticParse | None) -> None:
         return
     if not isinstance(
         parse,
-        (DateParse, DatetimeParse, TimestampParse, StrptimeParse, HourPrefixParse),
+        (DateParse, TimestampParse, StrptimeParse, HourPrefixParse),
     ):
         _raise(
             ErrorKind.INVALID_REF,
-            "time_dimension(parse=...) accepts ms.datetime(...), ms.timestamp(...), "
+            "time_dimension(parse=...) accepts ms.timestamp(...), "
             "ms.strptime(...), ms.hour_prefix(...), or None.",
             cls=SemanticDecoratorError,
             constraint_id=ConstraintId.REF_SHAPE,
@@ -84,64 +85,43 @@ def _validate_unit(unit: str | None, semantic_id: str, object_kind: str = "metri
         )
 
 
-def _normalize_sample_interval(
-    sample_interval: tuple[int, str] | None,
+def _normalize_sample_interval_value(
+    sample_interval: tuple[int, Literal["minute", "hour"]] | None,
     *,
     semantic_id: str,
-    data_type: str,
-    granularity: str,
+    parse: SemanticParse | None,
 ) -> SampleIntervalIR | None:
+    """Validate field-owned cadence and known encoding precision."""
     if sample_interval is None:
         return None
-    count, unit = sample_interval
-    if unit not in {"minute", "hour"} or count <= 0:
+    try:
+        if not isinstance(sample_interval, tuple) or len(sample_interval) != 2:
+            raise ValueError("sample_interval must be a (count, unit) tuple")
+        count, unit = sample_interval
+        sample = SampleIntervalIR(count=count, unit=unit)
+        if isinstance(parse, StrptimeParse):
+            tokens = set(re.findall(r"%[a-zA-Z]", parse.format))
+            if not tokens & {"%Y", "%y", "%m", "%d", "%j", "%U", "%W"}:
+                raise ValueError("sampled strptime encodings require date context")
+            if not is_time_bearing_format(parse.format):
+                raise ValueError("DATE encodings cannot represent subday samples")
+            if not tokens & {"%H", "%I", "%k", "%l", "%T"}:
+                raise ValueError("sampling requires hour-bearing source encoding")
+            if unit == "minute" and not tokens & {"%M", "%T"}:
+                raise ValueError("minute sampling requires minute-bearing source encoding")
+        if isinstance(parse, DateParse):
+            raise ValueError("DATE encodings cannot represent subday samples")
+        if isinstance(parse, HourPrefixParse) and unit != "hour":
+            raise ValueError("hour_prefix encodings can represent only whole-hour samples")
+        return sample
+    except (TypeError, ValueError) as cause:
         _raise(
             ErrorKind.INVALID_SAMPLE_INTERVAL,
-            "sample_interval must use a positive minute or hour interval.",
+            f"time dimension {semantic_id!r}: {cause}. Declare a representable canonical minute/hour sample_interval on the time field.",
             refs=(semantic_id,),
             cls=SemanticDecoratorError,
             constraint_id=ConstraintId.SAMPLE_INTERVAL_VALID,
         )
-    seconds = count * (60 if unit == "minute" else 3600)
-    if 86400 % seconds != 0:
-        _raise(
-            ErrorKind.INVALID_SAMPLE_INTERVAL,
-            "sample_interval must divide one day evenly.",
-            refs=(semantic_id,),
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.SAMPLE_INTERVAL_VALID,
-        )
-    if data_type not in {"datetime", "timestamp", "string", "integer"}:
-        _raise(
-            ErrorKind.INVALID_SAMPLE_INTERVAL,
-            "sample_interval is only supported on datetime, timestamp, string, or integer time dimensions.",
-            refs=(semantic_id,),
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.SAMPLE_INTERVAL_VALID,
-        )
-    rank = {
-        "second": 0,
-        "minute": 1,
-        "hour": 2,
-        "day": 3,
-        "week": 4,
-        "month": 5,
-        "quarter": 6,
-        "year": 7,
-    }
-    if rank[granularity] > rank[unit]:
-        allowed = [g for g, r in sorted(rank.items(), key=lambda kv: kv[1]) if r <= rank[unit]]
-        allowed_list = ", ".join(repr(g) for g in allowed)
-        _raise(
-            ErrorKind.INVALID_SAMPLE_INTERVAL,
-            f"time dimension {semantic_id!r}: physical granularity {granularity!r} cannot "
-            f"be coarser than sample_interval unit {unit!r}. Set granularity to {unit!r} or "
-            f"finer (one of: {allowed_list}).",
-            refs=(semantic_id,),
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.SAMPLE_INTERVAL_VALID,
-        )
-    return SampleIntervalIR(count=count, unit=unit)  # type: ignore[arg-type]
 
 
 def _validate_timezone(timezone: str) -> None:
@@ -155,21 +135,6 @@ def _validate_timezone(timezone: str) -> None:
             cls=SemanticDecoratorError,
             constraint_id=ConstraintId.REF_SHAPE,
         )
-
-
-def _normalize_sample_interval_value(
-    sample_interval: tuple[int, Literal["minute", "hour"]] | None,
-) -> SampleIntervalIR | None:
-    """Normalize a sample_interval tuple from a parse builder, using a synthetic semantic_id."""
-    if sample_interval is None:
-        return None
-    _count, unit = sample_interval
-    return _normalize_sample_interval(
-        sample_interval,
-        semantic_id="<parse>",
-        data_type="datetime",
-        granularity=unit,
-    )
 
 
 def _normalize_additivity(
@@ -206,116 +171,6 @@ def _normalize_additivity(
     if type(additivity) is AdditiveOverV1:
         return "non_additive"
     return "non_additive"
-
-
-def _validate_time_parse_granularity(
-    *,
-    semantic_id: str,
-    granularity: str,
-    parse: SemanticParse | None,
-) -> None:
-    """Validate that the parse variant is compatible with the declared granularity."""
-    if parse is None:
-        return
-    if isinstance(parse, HourPrefixParse) and granularity != "hour":
-        _raise(
-            ErrorKind.INVALID_REF,
-            f"time dimension {semantic_id!r}: ms.hour_prefix(...) requires granularity='hour'.",
-            refs=(semantic_id,),
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.TIME_GRANULARITY_PARSE_COMPATIBLE,
-        )
-    if isinstance(parse, DateParse) and granularity in {"hour", "minute", "second"}:
-        _raise(
-            ErrorKind.INVALID_REF,
-            f"time dimension {semantic_id!r}: granularity={granularity!r} requires ms.datetime(...) or ms.timestamp(...).",
-            refs=(semantic_id,),
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.TIME_GRANULARITY_PARSE_COMPATIBLE,
-        )
-    if isinstance(parse, HourPrefixParse) and granularity in {"minute", "second"}:
-        _raise(
-            ErrorKind.INVALID_REF,
-            f"time dimension {semantic_id!r}: granularity={granularity!r} requires ms.datetime(...) or ms.timestamp(...).",
-            refs=(semantic_id,),
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.TIME_GRANULARITY_PARSE_COMPATIBLE,
-        )
-    if isinstance(parse, StrptimeParse) and granularity in {"hour", "minute", "second"}:
-        import re as _re
-
-        fmt = parse.format or ""
-        date_directives = {"%Y", "%y", "%m", "%d", "%j", "%U", "%W"}
-        time_directives = {"%H", "%I", "%k", "%l", "%M", "%S", "%T", "%p"}
-        tokens = set(_re.findall(r"%[a-zA-Z]", fmt))
-        if not tokens & time_directives:
-            _raise(
-                ErrorKind.INVALID_REF,
-                f"time dimension {semantic_id!r}: granularity={granularity!r} requires a time-bearing "
-                f"format, but strptime format {fmt!r} has no hour/minute/second directives.",
-                refs=(semantic_id,),
-                cls=SemanticDecoratorError,
-                constraint_id=ConstraintId.TIME_GRANULARITY_PARSE_COMPATIBLE,
-            )
-        if parse.sample_interval is not None and not tokens & date_directives:
-            _raise(
-                ErrorKind.INVALID_SAMPLE_INTERVAL,
-                f"time dimension {semantic_id!r}: sampled strptime format {fmt!r} must include date context.",
-                refs=(semantic_id,),
-                cls=SemanticDecoratorError,
-                constraint_id=ConstraintId.SAMPLE_INTERVAL_VALID,
-            )
-
-
-def _validate_sample_interval_granularity(
-    *,
-    semantic_id: str,
-    granularity: str,
-    parse: SemanticParse | None,
-) -> None:
-    """Validate that sample_interval unit is not coarser than the declared granularity."""
-    if parse is None:
-        return
-    sample_ir: SampleIntervalIR | None = None
-    data_type_str: str | None = None
-    if isinstance(parse, DatetimeParse):
-        sample_ir = parse.sample_interval
-        data_type_str = "datetime"
-    elif isinstance(parse, TimestampParse):
-        sample_ir = parse.sample_interval
-        data_type_str = "timestamp"
-    elif isinstance(parse, StrptimeParse):
-        sample_ir = parse.sample_interval
-        data_type_str = "strptime"
-    elif isinstance(parse, HourPrefixParse):
-        sample_ir = parse.sample_interval
-        data_type_str = "hour_prefix"
-    if sample_ir is None or data_type_str is None:
-        return
-    rank = {
-        "second": 0,
-        "minute": 1,
-        "hour": 2,
-        "day": 3,
-        "week": 4,
-        "month": 5,
-        "quarter": 6,
-        "year": 7,
-    }
-    if rank.get(granularity, 99) > rank.get(sample_ir.unit, 0):
-        allowed = [
-            g for g, r in sorted(rank.items(), key=lambda kv: kv[1]) if r <= rank[sample_ir.unit]
-        ]
-        allowed_list = ", ".join(repr(g) for g in allowed)
-        _raise(
-            ErrorKind.INVALID_SAMPLE_INTERVAL,
-            f"time dimension {semantic_id!r}: physical granularity {granularity!r} cannot "
-            f"be coarser than sample_interval unit {sample_ir.unit!r}. Set granularity to {sample_ir.unit!r} or "
-            f"finer (one of: {allowed_list}).",
-            refs=(semantic_id,),
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.SAMPLE_INTERVAL_VALID,
-        )
 
 
 _register_authoring_file(__file__)

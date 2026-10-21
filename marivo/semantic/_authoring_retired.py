@@ -72,22 +72,9 @@ def retired_factory(name: str, arguments: dict[str, object]) -> NoReturn:
         "where": "Build typed field comparisons and pass the predicate to the single source Metric.where(...).",
         "ratio": "Divide completed Metrics with / or divide(..., zero_denominator='error'); explicitly choose the new zero-denominator policy.",
         "linear": "Combine completed Metrics with + and - in a pure @ms.metric() declaration.",
-        "cumulative": (
-            "In a zero-argument @ms.metric() body, return base.window(rule) using a rule "
-            "that preserves the original cumulative anchor and evaluation boundary; this "
-            "retired declaration is not translated."
-        ),
         "empty": _REPAIRS["empty"],
         "nulls": _REPAIRS["nulls"],
         "zero_denominator": _REPAIRS["zero_denominator"],
-        "grain_to_date": (
-            "Return base.window(mv.to_date(grain=...)) from a zero-argument @ms.metric() "
-            "body, preserving the original reset grain."
-        ),
-        "trailing": (
-            "Return base.window(mv.trailing_duration(duration=...)) from a zero-argument "
-            "@ms.metric() body, preserving the original elapsed duration and evaluation boundary."
-        ),
     }
     action = actions[name]
     for parameter in arguments:

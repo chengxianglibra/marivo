@@ -117,6 +117,7 @@ def canonical_value(value: object) -> object:
             "kind": "semantic",
             "calendar_ref": value.calendar.path,
             "level": value.level,
+            "snapshot_digest": None if value._snapshot is None else value._snapshot.snapshot_digest,
         }
     if value is None or isinstance(value, (str, bool, int)):
         return value

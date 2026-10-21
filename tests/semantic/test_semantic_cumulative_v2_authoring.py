@@ -39,7 +39,7 @@ def _build_event_time_axis() -> Ref[TimeDimensionKind]:
         source=md.table("events"),
     )
 
-    @ms.time_dimension(entity=events, granularity="day")
+    @ms.time_dimension(entity=events)
     def event_time(table: ibis_ir.Table) -> ibis_ir.Value:
         return table["event_time"]
 
@@ -103,7 +103,7 @@ import marivo.semantic as ms
 wh = ms.ref.datasource("wh")
 orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 event_time = ms.time_dimension_column(
-    name="event_time", entity=orders, column="created_at", granularity="day", is_default=True)
+    name="event_time", entity=orders, column="created_at", is_default=True)
 amount = ms.measure_column(
     name="amount", entity=orders, column="amount", additivity=ms.additive_all())
 frozen = ms.finalize()

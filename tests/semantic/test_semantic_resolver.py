@@ -13,15 +13,12 @@ from marivo._temporal import (
     TemporalResolver,
     TemporalSetSnapshotStore,
     TimeScopeContractV1,
-    WorkScheduleSnapshotStore,
     certify_period_calendar,
     certify_period_calendar_rows,
     certify_temporal_set,
     certify_temporal_set_rows,
-    certify_work_schedule,
-    certify_work_schedule_rows,
-    time_scope,
 )
+from marivo.analysis.dsl.temporal import exact_scope
 from marivo.refs import ref
 from marivo.semantic.catalog import SemanticCatalog, SemanticKind
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
@@ -171,53 +168,6 @@ def test_period_snapshot_certifies_one_persisted_snapshot_value_set() -> None:
     assert snapshot.period_scope("week", "W2").start == date(2026, 1, 3)
 
 
-def test_period_snapshot_certifies_functional_named_correspondence() -> None:
-    rows = [
-        {"date": date(2026, 1, 1), "week": "W1", "baseline": None},
-        {"date": date(2026, 1, 2), "week": "W1", "baseline": None},
-        {"date": date(2026, 1, 3), "week": "W2", "baseline": "W1"},
-        {"date": date(2026, 1, 4), "week": "W2", "baseline": "W1"},
-    ]
-    snapshot = certify_period_calendar(
-        calendar_ref=ref.period_calendar("sales.fiscal"),
-        boundary_timezone="UTC",
-        coverage=(date(2026, 1, 1), date(2026, 1, 5)),
-        rows=rows,
-        levels={"week": "week"},
-        correspondences={"prior": ("week", "baseline")},
-    )
-
-    assert TemporalResolver(snapshot).correspondence("prior", "week", "W2") == "W1"
-    rows[-1]["baseline"] = "W2"
-    with pytest.raises(ValueError, match="conflicting baseline"):
-        certify_period_calendar(
-            calendar_ref=ref.period_calendar("sales.fiscal"),
-            boundary_timezone="UTC",
-            coverage=(date(2026, 1, 1), date(2026, 1, 5)),
-            rows=rows,
-            levels={"week": "week"},
-            correspondences={"prior": ("week", "baseline")},
-        )
-
-
-def test_period_snapshot_rejects_mixed_null_and_non_null_correspondence() -> None:
-    rows = [
-        {"date": date(2026, 1, 1), "week": "W1", "baseline": None},
-        {"date": date(2026, 1, 2), "week": "W1", "baseline": "W2"},
-        {"date": date(2026, 1, 3), "week": "W2", "baseline": None},
-        {"date": date(2026, 1, 4), "week": "W2", "baseline": None},
-    ]
-    with pytest.raises(ValueError, match="conflicting baseline"):
-        certify_period_calendar(
-            calendar_ref=ref.period_calendar("sales.fiscal"),
-            boundary_timezone="UTC",
-            coverage=(date(2026, 1, 1), date(2026, 1, 5)),
-            rows=rows,
-            levels={"week": "week"},
-            correspondences={"prior": ("week", "baseline")},
-        )
-
-
 def test_gregorian_iso_resolver_uses_half_open_period_before_without_epsilon() -> None:
     resolver = GregorianIsoResolver()
     week = resolver.period_on("week", date(2026, 1, 1))
@@ -252,40 +202,6 @@ def test_gregorian_iso_resolver_matches_stdlib_across_wide_range() -> None:
         assert quarter.key == f"{value.year}-Q{((value.month - 1) // 3) + 1}"
         year = resolver.period_on("year", value)
         assert year.key == str(value.year)
-
-
-def test_53_week_fixture_requires_explicit_shifted_and_unshifted_correspondence() -> None:
-    start = date(2026, 1, 1)
-    end = start + timedelta(days=53 * 7)
-    rows = []
-    for offset in range((end - start).days):
-        week_number = offset // 7 + 1
-        rows.append(
-            {
-                "date": start + timedelta(days=offset),
-                "week": f"W{week_number:02d}",
-                "shifted": None if week_number == 1 else f"W{week_number - 1:02d}",
-                "unshifted": None if week_number == 53 else f"W{week_number + 1:02d}",
-            }
-        )
-
-    snapshot = certify_period_calendar(
-        calendar_ref=ref.period_calendar("sales.retail"),
-        boundary_timezone="UTC",
-        coverage=(start, end),
-        rows=rows,
-        levels={"week": "week"},
-        correspondences={
-            "shifted": ("week", "shifted"),
-            "unshifted": ("week", "unshifted"),
-        },
-    )
-    resolver = TemporalResolver(snapshot)
-    assert len(tuple(period for period in snapshot.periods if period.level_name == "week")) == 53
-    assert resolver.correspondence("shifted", "week", "W52") == "W51"
-    assert resolver.correspondence("unshifted", "week", "W52") == "W53"
-    assert resolver.correspondence("shifted", "week", "W01") is None
-    assert resolver.correspondence("unshifted", "week", "W53") is None
 
 
 def test_period_snapshot_keeps_day_derived_without_persisting_daily_records() -> None:
@@ -487,92 +403,6 @@ def test_temporal_set_rows_reapply_time_dimension_parse_convention() -> None:
     assert snapshot.occurrences[0].end == date(2026, 1, 3)
 
 
-def test_work_schedule_snapshot_is_order_independent_and_requires_complete_boolean_days() -> None:
-    kwargs = {
-        "work_schedule_ref": ref.work_schedule("sales.cn_schedule"),
-        "boundary_timezone": "Asia/Shanghai",
-        "coverage": (date(2026, 1, 1), date(2026, 1, 5)),
-        "date_column": "date",
-        "is_working": "is_working",
-    }
-    rows = [
-        {"date": date(2026, 1, 1), "is_working": False},
-        {"date": date(2026, 1, 2), "is_working": True},
-        # A makeup Saturday is an authored fact, not a derived weekday rule.
-        {"date": date(2026, 1, 3), "is_working": True},
-        {"date": date(2026, 1, 4), "is_working": False},
-    ]
-    first = certify_work_schedule(rows=rows, **kwargs)
-    second = certify_work_schedule(rows=reversed(rows), **kwargs)
-
-    assert first.snapshot_digest == second.snapshot_digest
-    assert first.working_dates == (date(2026, 1, 2), date(2026, 1, 3))
-    assert first.status_on(date(2026, 1, 3)) is True
-    with pytest.raises(ValueError, match="duplicate"):
-        certify_work_schedule(rows=[*rows, rows[0]], **kwargs)
-    with pytest.raises(ValueError, match="non-null booleans"):
-        certify_work_schedule(
-            rows=[
-                {**row, "is_working": None} if index == 1 else row for index, row in enumerate(rows)
-            ],
-            **kwargs,
-        )
-
-
-def test_work_schedule_rows_reject_timestamp_dates_and_store_exact_history(tmp_path) -> None:
-    common = {
-        "work_schedule_ref": ref.work_schedule("sales.cn_schedule"),
-        "boundary_timezone": "UTC",
-        "coverage": (date(2026, 1, 1), date(2026, 1, 3)),
-        "columns": ("date", "is_working"),
-        "date_column": "date",
-        "is_working": "is_working",
-    }
-    with pytest.raises(ValueError, match="civil dates"):
-        certify_work_schedule_rows(
-            retained_values=(
-                {"date": "2026-01-01T00:00:00Z", "is_working": True},
-                {"date": "2026-01-02", "is_working": False},
-            ),
-            **common,
-        )
-
-    first = certify_work_schedule(
-        work_schedule_ref=common["work_schedule_ref"],
-        boundary_timezone="UTC",
-        coverage=common["coverage"],
-        rows=[
-            {"date": date(2026, 1, 1), "is_working": True},
-            {"date": date(2026, 1, 2), "is_working": False},
-        ],
-        date_column="date",
-        is_working="is_working",
-    )
-    second = certify_work_schedule(
-        work_schedule_ref=common["work_schedule_ref"],
-        boundary_timezone="UTC",
-        coverage=common["coverage"],
-        rows=[
-            {"date": date(2026, 1, 1), "is_working": False},
-            {"date": date(2026, 1, 2), "is_working": True},
-        ],
-        date_column="date",
-        is_working="is_working",
-    )
-    store = WorkScheduleSnapshotStore(tmp_path)
-    store.publish(first, definition_digest="definition-1")
-    store.publish(second, definition_digest="definition-2")
-    status, current = store.inspect_current(
-        common["work_schedule_ref"], definition_digest="definition-2"
-    )
-    assert status == "current"
-    assert current == second
-    assert (
-        store.load_exact(common["work_schedule_ref"], snapshot_digest=first.snapshot_digest)
-        == first
-    )
-
-
 def test_temporal_set_loader_rejects_mixed_start_end_time_encodings(
     semantic_project_factory,
 ) -> None:
@@ -594,12 +424,10 @@ campaigns = ms.entity(
 )
 occurrence_id = ms.dimension_column(name="occurrence_id", entity=campaigns, column="id")
 start = ms.time_dimension_column(
-    name="start", entity=campaigns, column="start", granularity="day",
-    parse=ms.strptime("%Y%m%d"),
+    name="start", entity=campaigns, column="start", parse=ms.strptime("%Y%m%d"),
 )
 end = ms.time_dimension_column(
-    name="end", entity=campaigns, column="end", granularity="day",
-    parse=ms.datetime(timezone="UTC"),
+    name="end", entity=campaigns, column="end", parse=ms.timestamp(timezone="UTC"),
 )
 ms.temporal_set(
     name="campaigns", occurrence_id=occurrence_id, start=start, end=end,
@@ -627,8 +455,8 @@ campaigns = ms.entity(
     source=md.table("campaigns"),
 )
 occurrence_id = ms.dimension_column(name="occurrence_id", entity=campaigns, column="id")
-start = ms.time_dimension_column(name="start", entity=campaigns, column="start", granularity="day")
-end = ms.time_dimension_column(name="end", entity=campaigns, column="end", granularity="day")
+start = ms.time_dimension_column(name="start", entity=campaigns, column="start")
+end = ms.time_dimension_column(name="end", entity=campaigns, column="end")
 ms.temporal_set(
     name="campaigns", occurrence_id=occurrence_id, start=start, end=end,
     category=ms.ref.dimension("sales.campaigns.missing_category"),
@@ -683,11 +511,12 @@ def test_temporal_set_snapshot_store_retains_exact_history(tmp_path) -> None:
 
 
 def test_time_scope_contract_preserves_normalized_bounds_and_provenance() -> None:
-    absolute = time_scope(start="2026-01-01", end="2026-02-01")
+    absolute = exact_scope("2026-01-01", "2026-02-01", "UTC")
     assert isinstance(absolute._contract(), TimeScopeContractV1)
     assert absolute._contract().model_dump() == {
         "schema": "time-scope/v1",
         "kind": "absolute",
-        "start": date(2026, 1, 1),
-        "end": date(2026, 2, 1),
+        "start": datetime(2026, 1, 1, tzinfo=UTC),
+        "end": datetime(2026, 2, 1, tzinfo=UTC),
+        "boundary_timezone": "UTC",
     }

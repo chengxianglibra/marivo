@@ -375,7 +375,7 @@ def test_additivity_help_example_loads_a_sampled_status_axis_and_fold(
     (
         ("status_time_dimension=sample_time,", "", True, ""),
         (
-            "parse=ms.timestamp(timezone='UTC', sample_interval=(5, 'minute'))",
+            "sample_interval=(5, 'minute'), parse=ms.timestamp(timezone='UTC')",
             "parse=ms.timestamp(timezone='UTC')",
             True,
             "",

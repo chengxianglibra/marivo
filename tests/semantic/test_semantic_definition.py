@@ -24,7 +24,7 @@ _MODEL = """
 import marivo.datasource as md
 import marivo.semantic as ms
 rows = ms.entity(name='rows', datasource=ms.ref.datasource('warehouse'), source=md.table('records'), primary_key=['id'])
-day = ms.time_dimension_column(name='day', entity=rows, column='activity_date', granularity='day', parse=ms.timestamp(timezone='UTC'), is_default=True)
+day = ms.time_dimension_column(name='day', entity=rows, column='activity_date', parse=ms.timestamp(timezone='UTC'), is_default=True)
 region = ms.dimension_column(name='region', entity=rows, column='region')
 spend = ms.measure_column(name='spend', entity=rows, column='spend_cny', additivity=ms.additive_all(), unit='CNY')
 

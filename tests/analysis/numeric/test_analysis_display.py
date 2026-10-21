@@ -490,8 +490,8 @@ def test_complete_composite_keys_scalar_columns_and_nulls(
         "display_amount = ms.measure_column(name='amount', entity=display, column='amount', additivity=ms.additive_all())\n"
         "display_region = ms.dimension_column(name='region', entity=display, column='region')\n"
         "display_enabled = ms.dimension_column(name='enabled', entity=display, column='enabled')\n"
-        "display_moment = ms.time_dimension_column(name='moment', entity=display, column='moment', granularity='second', parse=ms.timestamp(timezone='UTC'))\n"
-        "display_day = ms.time_dimension_column(name='day', entity=display, column='day', granularity='day')\n"
+        "display_moment = ms.time_dimension_column(name='moment', entity=display, column='moment', parse=ms.timestamp())\n"
+        "display_day = ms.time_dimension_column(name='day', entity=display, column='day')\n"
     )
     model.write_text(
         model.read_text().replace(

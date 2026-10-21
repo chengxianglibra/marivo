@@ -54,7 +54,7 @@ def computation_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.S
         "'amount': 'amount', "
         "'cost': 'cost', "
         "'quantity': 'quantity'}), primary_key=['id'])\n"
-        "day = ms.time_dimension_column(name='day', entity=orders, column='day', granularity='day', parse=None, is_default=True)\n"
+        "day = ms.time_dimension_column(name='day', entity=orders, column='day', parse=None, is_default=True)\n"
         "amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
         "cost = ms.measure_column(name='cost', entity=orders, column='cost', additivity=ms.additive_all())\n"
         "quantity = ms.measure_column(name='quantity', entity=orders, column='quantity', additivity=ms.additive_all())\n"

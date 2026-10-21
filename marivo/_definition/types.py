@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Final, Literal, NoReturn, TypeAlias
 
-from marivo._temporal import Grain, InstantAnchor, PeriodCalendarSnapshotV1
+from marivo._temporal import Grain, InstantAnchor, PeriodCalendarSnapshotV2
 from marivo.refs import Ref, SemanticKind, SemanticKindTag
 
 if TYPE_CHECKING:
@@ -255,7 +255,7 @@ class CalendarCoordinate:
     timezone: str
     snapshot_digest: str | None
     cells: tuple[tuple[InstantAnchor, InstantAnchor, InstantAnchor, InstantAnchor], ...]
-    snapshot: PeriodCalendarSnapshotV1 | None = None
+    snapshot: PeriodCalendarSnapshotV2 | None = None
     origin: TimeGridOrigin | None = None
     civil_bounds: tuple[CivilBounds, ...] = field(kw_only=True)
 

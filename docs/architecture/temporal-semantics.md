@@ -5,7 +5,7 @@ Status: implemented current contract.
 Civil dates, absolute instants, wall clocks, calendar periods and elapsed
 durations have different meaning. Semantic declarations own source time roles
 and certified authority; Analysis captures exact boundaries and freezes the
-coordinates needed to interpret completed data. Calendar/set/schedule authoring
+coordinates needed to interpret completed data. Calendar/set authoring
 and certification belong to [Temporal authority](semantic/temporal-authority.md).
 
 ## Time authority and exact boundaries
@@ -43,10 +43,14 @@ Civil dates do not shift. Source wall clocks localize before instant comparison;
 physical instants preserve their meaning. Logical temporal kind and physical
 precision are checked independently. Unsupported exact conversion fails without
 truncation. Runtime ZoneInfo supplies named-zone rules; there is no source-wide
-preflight of gap/fold values or engine/runtime rule agreement. Backend conversion
-errors propagate, and source values violating their declaration can affect results.
-Known instants in a repeated reporting hour share its civil bucket. Predicate
-literals must match a field's civil/instant kind.
+preflight of gap/fold values or engine/runtime rule agreement. Existing source
+rows needed by a contribution retain native gap/fold checks and reject clocks
+without one exact instant; a reporting interval cannot silently choose a fold.
+Backend conversion errors propagate. These checks do not certify unrelated
+source rows or source completeness.
+Hourly reporting grids retain both occurrences of a repeated civil hour as
+distinct instant buckets, even when their civil labels match. Predicate literals
+must match a field's civil/instant kind.
 
 ## Output axes and observation time
 
@@ -80,9 +84,15 @@ with latest or last-known rows.
 
 mv.grain(unit, count=1) constructs builtin second/minute/hour/day/week/month/
 quarter/year grains. Count greater than one is a sub-day width and must tile
-one civil day when bucketed; calendar-variable units require one. There are no
+one nominal day at construction; calendar-variable units require one.
+Grain has no ordering operators. Duplicate subday spellings such as 60second,
+120second and 60minute reject; 24hour is outside the subday contract.
+90second and 90minute remain legal. There are no
 string aliases, guessed tuple grains or direct public Grain constructors.
-Named grains come from ms.calendar_grain or a certified calendar entry.
+Named grains come from ms.calendar_grain or a certified calendar entry. Equality
+and hashing include captured snapshot identity; a lookup Grain differs from a
+captured Grain. Scope.by requires a captured calendar Grain because it has no
+Session resolution authority.
 
 TimeScope.by(grain) constructs a CalendarAxis without business reads. It captures
 canonical bucket order, nominal bounds, actual clipped bounds, timezone and
@@ -113,7 +123,10 @@ window. A seven-day duration is exactly 168 hours; seven calendar days can diffe
 across DST. Scalar to_date chooses the unique reset period with left < end <=
 right, so a month boundary endpoint uses the preceding complete month without
 epsilon arithmetic. Calendar output additionally requires compatible reset
-hierarchy. Nested windows and missing required endpoints reject.
+hierarchy. Every endpoint is the actual clipped right boundary, never the nominal
+end of a partial bucket. trailing_periods rejects partial first/last buckets and
+uses complete calendar predecessors rather than positions in a sparse axis.
+Nested windows and missing required endpoints reject.
 
 Output selection, source scope and contribution windows are separate facts.
 Completed daily means, distinct counts, ratios or quantiles cannot generally be

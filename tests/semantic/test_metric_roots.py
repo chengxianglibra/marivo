@@ -35,7 +35,6 @@ paid_at_ref = ms.time_dimension_column(
     name="paid_at",
     entity=orders_ref,
     column="paid_at",
-    granularity="day",
     parse=ms.timestamp(timezone="UTC"),
     is_default=True,
 )
@@ -100,10 +99,10 @@ def test_versioned_entity_load_rejects_identity_version_overlap_without_source_a
                 "daily = ms.entity(name='daily', datasource=ms.ref.datasource('warehouse'), "
                 "source=md.table('daily'), primary_key=['id', 'dt'], "
                 "versioning=ms.snapshot(partition_field="
-                "ms.ref.time_dimension('sales.daily.dt'), grain='day', "
-                "format='%Y%m%d'))\n"
+                "ms.ref.time_dimension('sales.daily.dt'), timezone='UTC', "
+                "))\n"
                 "dt = ms.time_dimension_column(name='dt', entity=daily, column='dt', "
-                "granularity='day', parse=ms.strptime('%Y%m%d'))\n"
+                "parse=ms.strptime('%Y%m%d'))\n"
             ),
         },
         load=False,
@@ -194,12 +193,10 @@ def test_snapshot_versioning_stays_a_valued_representation_on_the_entity(
                 "    primary_key=['user_id'],\n"
                 "    versioning=ms.snapshot(\n"
                 "        partition_field=ms.ref.time_dimension('sales.user_profile_daily.dt'),\n"
-                "        grain='day',\n"
                 "        timezone='Asia/Shanghai',\n"
-                "        format='%Y%m%d',\n"
                 "    ),\n"
                 ")\n"
-                "dt = ms.time_dimension_column(name='dt', entity=user_profile_daily, column='dt', granularity='day', parse=ms.strptime('%Y%m%d'))\n"
+                "dt = ms.time_dimension_column(name='dt', entity=user_profile_daily, column='dt', parse=ms.strptime('%Y%m%d'))\n"
             ),
         }
     )
@@ -213,7 +210,7 @@ def test_snapshot_versioning_stays_a_valued_representation_on_the_entity(
     assert versioning is not None
     assert versioning.kind == "snapshot"
     assert versioning.partition_field == "sales.user_profile_daily.dt"
-    assert versioning.grain == "day"
+    assert not hasattr(versioning, "grain")
     assert versioning.timezone == "Asia/Shanghai"
-    assert versioning.format == "%Y%m%d"
+    assert not hasattr(versioning, "format")
     assert ("versioning", repr(versioning)) in entity.contract().facts

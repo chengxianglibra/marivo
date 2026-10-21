@@ -35,7 +35,6 @@ class SemanticKind(StrEnum):
     RELATIONSHIP = "relationship"
     PERIOD_CALENDAR = "period_calendar"
     TEMPORAL_SET = "temporal_set"
-    WORK_SCHEDULE = "work_schedule"
 
 
 class SemanticKindTag:
@@ -84,10 +83,6 @@ class TemporalSetKind(SemanticKindTag):
     __slots__ = ()
 
 
-class WorkScheduleKind(SemanticKindTag):
-    __slots__ = ()
-
-
 FieldKind: TypeAlias = DimensionKind | TimeDimensionKind | MeasureKind
 
 
@@ -102,7 +97,6 @@ _KIND_BY_MARKER: dict[type[SemanticKindTag], frozenset[SemanticKind]] = {
     RelationshipKind: frozenset({SemanticKind.RELATIONSHIP}),
     PeriodCalendarKind: frozenset({SemanticKind.PERIOD_CALENDAR}),
     TemporalSetKind: frozenset({SemanticKind.TEMPORAL_SET}),
-    WorkScheduleKind: frozenset({SemanticKind.WORK_SCHEDULE}),
 }
 
 _SEGMENT_RE = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -117,7 +111,6 @@ _SEGMENT_COUNT = {
     SemanticKind.RELATIONSHIP: 2,
     SemanticKind.PERIOD_CALENDAR: 2,
     SemanticKind.TEMPORAL_SET: 2,
-    SemanticKind.WORK_SCHEDULE: 2,
 }
 
 
@@ -336,9 +329,6 @@ class _RefFactory:
     def temporal_set(self, path: str) -> Ref[TemporalSetKind]:
         return cast("Ref[TemporalSetKind]", _create_ref(SemanticKind.TEMPORAL_SET, path))
 
-    def work_schedule(self, path: str) -> Ref[WorkScheduleKind]:
-        return cast("Ref[WorkScheduleKind]", _create_ref(SemanticKind.WORK_SCHEDULE, path))
-
 
 ref = _RefFactory()
 
@@ -426,10 +416,6 @@ _FACTORY_BY_KIND: dict[SemanticKind, Callable[[str], Ref[SemanticKindTag]]] = {
     SemanticKind.TEMPORAL_SET: cast(
         "Callable[[str], Ref[SemanticKindTag]]",
         ref.temporal_set,
-    ),
-    SemanticKind.WORK_SCHEDULE: cast(
-        "Callable[[str], Ref[SemanticKindTag]]",
-        ref.work_schedule,
     ),
 }
 

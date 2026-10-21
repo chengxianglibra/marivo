@@ -31,7 +31,7 @@ from marivo._definition.types import (
     Owner,
 )
 from marivo._grouping import Grouping
-from marivo._temporal import PeriodCalendarSnapshotV1, TimeScope
+from marivo._temporal import PeriodCalendarSnapshotV2, TimeScope
 from marivo.analysis.binding.observe import bind_observation
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import BoundQuantity, BoundSignature, ResultQuantity, reject
@@ -255,7 +255,7 @@ def capture_metrics(
     memberships: tuple[Grouping, ...] = (),
     timezone: str = "UTC",
     state: CompiledSemanticState | None = None,
-    calendar_snapshots: tuple[PeriodCalendarSnapshotV1, ...] = (),
+    calendar_snapshots: tuple[PeriodCalendarSnapshotV2, ...] = (),
     _parent_filter: Deferred | None = None,
     _complete_calendar: bool = True,
     _endpoint_scope: TimeScope | None = None,
@@ -300,13 +300,7 @@ def capture_metrics(
         axes = by._definition.axes
         population = by._definition
     else:
-        from marivo.analysis.dsl.temporal import freeze_scope
-
-        axes = _axes(
-            tuple(
-                freeze_scope(item, timezone) if isinstance(item, TimeScope) else item for item in by
-            )
-        )
+        axes = _axes(by)
         population = None
 
     from marivo._definition.relations import MembershipBinding, validate_memberships
@@ -384,9 +378,7 @@ def capture_metrics(
         parent_scope = parent_leaf.population
     private_interval = None
     if _endpoint_scope is not None:
-        from marivo.analysis.dsl.temporal import freeze_scope
-
-        private_interval = _axes((freeze_scope(_endpoint_scope, timezone),))[0]
+        private_interval = _axes((_endpoint_scope,))[0]
     binding = bind_observation(
         root.metrics,
         definitions,

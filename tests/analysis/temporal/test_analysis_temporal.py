@@ -11,10 +11,10 @@ from pydantic import TypeAdapter
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo._temporal import time_scope
 from marivo._temporal_grid import BoundTimeGrid, bind_grid
 from marivo.analysis.core.time_grid import instant
 from marivo.analysis.datasets.errors import DatasetConstructionError
+from marivo.analysis.dsl.temporal import exact_scope
 from marivo.analysis.errors import AnalysisError
 from tests.shared_fixtures import (
     DSL_NAMES,
@@ -36,8 +36,10 @@ from tests.support.paths import PROJECT_ROOT
     ],
 )
 def test_civil_day_retains_actual_dst_instants(day: str, hours: int, start: str, end: str) -> None:
-    scope = time_scope(
-        start=date.fromisoformat(day), end=date.fromisoformat(day) + timedelta(days=1)
+    scope = exact_scope(
+        start=date.fromisoformat(day),
+        end=date.fromisoformat(day) + timedelta(days=1),
+        timezone="America/New_York",
     )
     grid = bind_grid(scope, mv.grain("day"), report_timezone="America/New_York")
     assert len(grid.cells) == 1
@@ -52,7 +54,7 @@ def test_civil_day_retains_actual_dst_instants(day: str, hours: int, start: str,
 
 
 def test_partial_cells_are_retained_by_shared_grid() -> None:
-    scope = time_scope(start="2026-08-01", end="2026-09-01")
+    scope = exact_scope(start="2026-08-01", end="2026-09-01", timezone="UTC")
     week = bind_grid(scope, mv.grain("week"), report_timezone="UTC")
     assert week.cells[0].original_start.isoformat() == "2026-07-27T00:00:00+00:00"
     assert week.cells[0].partial
@@ -90,7 +92,7 @@ def test_naive_gap_and_fold_have_no_implicit_resolution(wall: datetime) -> None:
 
 def test_grid_wire_preserves_authority_and_rejects_changed_identity() -> None:
     grid = bind_grid(
-        time_scope(start="2026-03-08", end="2026-03-09"),
+        exact_scope(start="2026-03-08", end="2026-03-09", timezone="America/New_York"),
         mv.grain("day"),
         report_timezone="America/New_York",
     )
@@ -121,9 +123,10 @@ def test_certified_grid_keeps_calendar_authority_and_coverage() -> None:
         levels={"period": "period"},
     )
     grain = semantic_grain(calendar=calendar, level="period")
-    scope = time_scope(
+    scope = exact_scope(
         start=datetime(2026, 7, 31, 16, tzinfo=timezone.utc),
         end=datetime(2026, 8, 3, 16, tzinfo=timezone.utc),
+        timezone="Asia/Shanghai",
     )
     grid = bind_grid(scope, grain, report_timezone="America/New_York", snapshot=snapshot)
     assert grid.snapshot_digest == snapshot.snapshot_digest
@@ -137,7 +140,7 @@ def test_certified_grid_keeps_calendar_authority_and_coverage() -> None:
         bind_grid(scope, grain, report_timezone="UTC", explicit_timezone="UTC", snapshot=snapshot)
     with pytest.raises(ValueError, match="coverage"):
         bind_grid(
-            time_scope(start="2026-07-30", end="2026-08-04"),
+            exact_scope(start="2026-07-30", end="2026-08-04", timezone="Asia/Shanghai"),
             grain,
             report_timezone="UTC",
             snapshot=snapshot,
@@ -148,7 +151,7 @@ def test_single_second_grid_has_exact_boundaries() -> None:
     start = datetime(2026, 8, 1, tzinfo=timezone.utc)
     end = start + timedelta(seconds=1)
     grid = bind_grid(
-        time_scope(start=start, end=end),
+        exact_scope(start=start, end=end, timezone="UTC"),
         mv.grain("second"),
         report_timezone="UTC",
     )
@@ -160,9 +163,10 @@ def test_single_second_grid_has_exact_boundaries() -> None:
 
 def test_repeated_hour_minute_cells_keep_both_instant_sequences() -> None:
     grid = bind_grid(
-        time_scope(
+        exact_scope(
             start=datetime(2026, 11, 1, 5, 59, tzinfo=timezone.utc),
             end=datetime(2026, 11, 1, 6, 1, tzinfo=timezone.utc),
+            timezone="America/New_York",
         ),
         mv.grain("minute"),
         report_timezone="America/New_York",
@@ -501,7 +505,7 @@ def test_fold_rejects_float64_overflow_before_source_spatial_reduction(
 
 
 @pytest.mark.parametrize("wall", ["2026-03-08 02:30:00", "2026-11-01 01:30:00"])
-def test_source_wall_clock_gap_and_fold_follow_admitted_conversion(
+def test_source_wall_clock_gap_and_fold_reject_ambiguous_interpretation(
     analysis_dsl_case_factory: DslCaseFactory,
     wall: str,
 ) -> None:
@@ -517,16 +521,19 @@ def test_source_wall_clock_gap_and_fold_follow_admitted_conversion(
     path = case.root / "models/semantic/sales/models.py"
     path.write_text(
         path.read_text().replace(
-            "parse=ms.timestamp(timezone='UTC')", "parse=ms.timestamp(timezone='America/New_York')"
+            "parse=ms.timestamp()", "parse=ms.timestamp(timezone='America/New_York')"
         )
     )
     ms.load(workspace_dir=case.root)
     query = _observation(
         case, start=wall[:10], end=(date.fromisoformat(wall[:10]) + timedelta(days=1)).isoformat()
     )
-    frame = query.compute().to_pandas()
-    assert frame.iloc[:, 1].tolist() == ["A", "B", "C", "D"]
-    assert frame[("value", "value")].tolist() == [10, 0, 0, 0]
+    with pytest.raises(AnalysisError) as caught:
+        query.compute()
+    assert caught.value.expected == "an unambiguous existing source civil time"
+    assert caught.value.repair is not None
+    assert "explicit offset or physical timezone" in caught.value.repair.action
+    assert "Correct nonexistent civil values" in caught.value.repair.action
 
 
 def test_cumulative_ratio_binds_every_component_to_the_endpoint(
@@ -589,7 +596,7 @@ def test_fixed_date_windows_keep_authority_on_a_foreign_zone_grid(
             ],
         )
     path = case.root / "models/semantic/sales/models.py"
-    path.write_text(path.read_text().replace("parse=ms.timestamp(timezone='UTC')", "parse=None"))
+    path.write_text(path.read_text().replace("parse=ms.timestamp()", "parse=None"))
     ms.load(workspace_dir=case.root)
     session = mv.session.create("date-window", timezone="Asia/Tokyo")
     grid = session.time_scope(start="2026-08-01", end="2026-08-03", timezone="America/New_York").by(

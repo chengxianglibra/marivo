@@ -120,7 +120,7 @@ def test_native_count_rollup_and_group_state(
                 "counts/_domain.py": "import marivo.semantic as ms\nms.domain(name='counts',owner='Analytics',default=True)\n",
                 "counts/models.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 + f"events=ms.entity(name='events',datasource=ms.ref.datasource('warehouse'),source=md.table({case.source.table!r},database={case.source.database!r}),primary_key=['id'])\n"
-                + "category=ms.dimension_column(name='category',entity=events,column='category')\nhappened=ms.time_dimension_column(name='happened',entity=events,column='happened',granularity='second',parse=ms.timestamp(timezone='UTC'),is_default=True)\nfrozen=ms.finalize()\nevents_value=frozen.resolve(events)\nclock=frozen.resolve(happened)\n@ms.metric()\ndef event_count():\n    return events_value.count(time=clock)\n",
+                + "category=ms.dimension_column(name='category',entity=events,column='category')\nhappened=ms.time_dimension_column(name='happened',entity=events,column='happened',parse=ms.timestamp(timezone='UTC'),is_default=True)\nfrozen=ms.finalize()\nevents_value=frozen.resolve(events)\nclock=frozen.resolve(happened)\n@ms.metric()\ndef event_count():\n    return events_value.count(time=clock)\n",
             }
         )
         session = mv.session.create("native-count", timezone="UTC")

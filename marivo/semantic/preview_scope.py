@@ -76,8 +76,6 @@ def _semantic_kind(ref: str, registry: Registry) -> SemanticKind:
         return SemanticKind.PERIOD_CALENDAR
     if ref in registry.temporal_sets:
         return SemanticKind.TEMPORAL_SET
-    if ref in registry.work_schedules:
-        return SemanticKind.WORK_SCHEDULE
     raise KeyError(ref)
 
 
@@ -91,7 +89,6 @@ def _exact_semantic_ref(ref: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
         SemanticKind.RELATIONSHIP: ref_factory.relationship,
         SemanticKind.PERIOD_CALENDAR: ref_factory.period_calendar,
         SemanticKind.TEMPORAL_SET: ref_factory.temporal_set,
-        SemanticKind.WORK_SCHEDULE: ref_factory.work_schedule,
     }.get(kind)
     if factory is None:
         raise AssertionError(f"unsupported preview ref kind: {kind}")
@@ -114,9 +111,6 @@ def dependency_entities(ref: str, kind: SemanticKind, registry: Registry) -> tup
         return (field.entity,) if field is not None else ()
     if kind == SemanticKind.TEMPORAL_SET:
         field = registry.dimensions.get(registry.temporal_sets[ref].occurrence_id)
-        return (field.entity,) if field is not None else ()
-    if kind == SemanticKind.WORK_SCHEDULE:
-        field = registry.dimensions.get(registry.work_schedules[ref].date)
         return (field.entity,) if field is not None else ()
     if kind != SemanticKind.METRIC:
         return ()

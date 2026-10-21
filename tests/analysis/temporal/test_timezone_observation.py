@@ -78,12 +78,11 @@ def _project(
     )
     parser = (
         "None"
-        if representation == "date"
+        if representation in ("date", "aware")
         else "ms.timestamp()"
         if read_zone is None
         else f"ms.timestamp(timezone={read_zone!r})"
     )
-    granularity = "day" if representation == "date" else "second"
     factory(
         {
             "datasources/warehouse.py": f"import marivo.datasource as md\nmd.{backend}(name='warehouse', path={str(database)!r})\n",
@@ -95,7 +94,7 @@ def _project(
             "order_customer=ms.dimension_column(name='customer', entity=orders, column='customer')\n"
             "buyer=ms.relationship(name='buyer', from_entity=orders, to_entity=customers, keys=[ms.join_on(order_customer, customer_id)])\n"
             "amount=ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
-            f"happened=ms.time_dimension_column(name='happened', entity=orders, column='happened', granularity={granularity!r}, parse={parser}, is_default=True)\n"
+            f"happened=ms.time_dimension_column(name='happened', entity=orders, column='happened', parse={parser}, is_default=True)\n"
             "finalized=ms.finalize()\n"
             "amount_value=finalized.resolve(amount)\n"
             "time_value=finalized.resolve(happened)\n"

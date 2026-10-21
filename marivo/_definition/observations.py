@@ -20,6 +20,7 @@ from marivo._definition.types import (
     IdentityRead,
     IntervalCoordinate,
 )
+from marivo._definition.windows import ObservationWindow
 from marivo._temporal import InstantAnchor
 
 
@@ -75,6 +76,7 @@ class ContributionBinding:
     calendars: tuple[tuple[str, CalendarCoordinate | IntervalCoordinate], ...] = ()
     coverage: tuple[SampleCoverage, ...] = ()
     population_reads: tuple[tuple[AxisBinding, FieldRead | IdentityRead], ...] = ()
+    window_rule: ObservationWindow | None = None
 
 
 @dataclass(frozen=True, slots=True)

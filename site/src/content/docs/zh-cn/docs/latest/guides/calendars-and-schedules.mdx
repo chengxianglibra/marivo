@@ -1,9 +1,9 @@
 ---
-title: 日历与工作计划
-description: 认证周期边界、命名发生项与业务日计划。
+title: 日历与时间发生项
+description: 认证周期边界与命名时间发生项。
 ---
 
-这些声明消费 calendar、campaign、schedule Entity 的已治理时间和维度字段。
+这些声明消费 calendar、campaign Entity 的已治理时间和维度字段。
 它们需要自身专用认证 artifact，普通 preview 历史不能建立这些 artifact。
 
 从 `datetime` 导入 `date`，并导入 `marivo.datasource as md`、
@@ -70,31 +70,6 @@ query = session.observe({'revenue': revenue}, by=mv.product(launch, members))
 ```
 
 明确 occurrence identity 和区间语义；选中的 occurrence 不是所有无关数量的全局时间过滤器。
-
-## 定义工作计划
-
-Calendar Entity 声明了 date、is_working，datasource 包含完整 schedule 范围。
-
-{/* example: work-schedule */}
-
-```python
-schedule_ref = ms.work_schedule(
-    name="cn_sales_schedule",
-    date=ms.ref.time_dimension("sales.calendar.date"),
-    is_working=ms.ref.dimension("sales.calendar.is_working"),
-    boundary_timezone="Asia/Shanghai",
-    coverage=(date(2026, 1, 1), date(2027, 1, 1)),
-)
-catalog.preview(
-    schedule_ref,
-    scope=md.unpruned(max_rows=400, timeout_seconds=30),
-)
-schedule = catalog.work_schedules.get("sales.cn_sales_schedule")
-```
-
-认证在正数有界 scope 下读取所需列，仅在完整输入满足声明时发布。
-展示限制不限制认证输入。Readiness 报告 artifact 缺失、过时或无效；
-跟随 typed repair preview 并重新认证。工作日与非工作日的业务依据仍属于项目定义。
 
 `mv.grain` 描述内置单位；`ms.calendar_grain` 捕获源自由 lookup，
 `calendar.grain(level)` 保留已认证快照。`scope.by(grain).scope` 是原 scope；

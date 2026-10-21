@@ -52,48 +52,35 @@ def test_count_must_be_positive():
         grain("minute", count=0)
 
 
-# -- Grain ordering -----------------------------------------------------------
-# Grain supports __lt__/__gt__/__le__/__ge__ for granularity comparison.
-# Kept as module-level tests: pytest.ini restricts class collection to
-# unittest.TestCase subclasses, so a plain test class would not run.
+@pytest.mark.parametrize("operator", ["lt", "le", "gt", "ge"])
+@pytest.mark.parametrize("units", [("minute", "hour"), ("week", "month"), ("day", "day")])
+def test_grains_have_no_ordering(operator, units):
+    import operator as comparisons
+
+    with pytest.raises(TypeError):
+        getattr(comparisons, operator)(grain(units[0]), grain(units[1]))
 
 
-def test_grain_ordering_subday_same_unit():
-    assert grain("minute", count=5) < grain("minute", count=15)
-    assert grain("minute", count=15) > grain("minute", count=5)
+@pytest.mark.parametrize(
+    "unit,count,repair",
+    [
+        ("minute", 7, "divide"),
+        ("second", 60, "1minute"),
+        ("second", 120, "2minute"),
+        ("minute", 60, "1hour"),
+        ("hour", 24, "timedelta"),
+        ("minute", 1440, "timedelta"),
+        ("second", 86400, "timedelta"),
+    ],
+)
+def test_subday_grain_rejects_invalid_spelling_at_construction(unit, count, repair):
+    with pytest.raises(ValueError, match=repair):
+        grain(unit, count=count)
 
 
-def test_grain_ordering_subday_different_unit():
-    assert grain("minute", count=1) < grain("hour", count=1)
-    assert grain("hour", count=1) > grain("minute", count=1)
-
-
-def test_grain_ordering_subday_vs_calendar():
-    assert grain("hour", count=1) < grain("day", count=1)
-    assert grain("day", count=1) > grain("hour", count=1)
-
-
-def test_grain_ordering_calendar():
-    assert grain("day", count=1) < grain("week", count=1)
-    assert grain("week", count=1) < grain("month", count=1)
-    assert grain("month", count=1) < grain("year", count=1)
-
-
-def test_grain_ordering_le_ge():
-    g5 = grain("minute", count=5)
-    g15 = grain("minute", count=15)
-    assert g5 <= g15
-    assert g15 >= g5
-    assert g5 <= grain("minute", count=5)
-
-
-def test_grain_ordering_same_grain_not_lt_not_gt():
-    g = grain("hour", count=1)
-    assert not (g < g)
-    assert not (g > g)
-
-
-def test_grain_ordering_comparison_with_non_grain_returns_not_implemented():
-    g = grain("hour", count=1)
-    assert g.__lt__("hour") is NotImplemented
-    assert g.__gt__("hour") is NotImplemented
+@pytest.mark.parametrize("unit,count,width", [("second", 90, 90), ("minute", 90, 5400)])
+def test_subday_grain_admits_canonical_non_integral_larger_units(unit, count, width):
+    value = grain(unit, count=count)
+    assert value._width_seconds() == width
+    assert value == grain(unit, count=count)
+    assert hash(value) == hash(grain(unit, count=count))

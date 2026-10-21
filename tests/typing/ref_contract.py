@@ -34,7 +34,6 @@ assert_type(ref_factory.measure("sales.orders.revenue"), Ref[MeasureKind])
 assert_type(ref_factory.metric("sales.revenue"), Ref[MetricKind])
 assert_type(ms.ref.period_calendar("sales.calendar"), ms.Ref[ms.PeriodCalendarKind])
 assert_type(ms.ref.temporal_set("sales.holidays"), ms.Ref[ms.TemporalSetKind])
-assert_type(ms.ref.work_schedule("sales.business_hours"), ms.Ref[ms.WorkScheduleKind])
 assert_type(ms.ai_context(business_definition="Sales context"), ms.typing.AiContextValue)
 
 

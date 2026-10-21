@@ -3,7 +3,7 @@ title: 创作可复用语义
 description: 用明确的阶段、单位与业务授权创作表达式。
 ---
 
-通过 `ms.ai_context(...)` 和 `ms.period_correspondence(...)` 构造上下文与日历对应；
+通过 `ms.ai_context(...)` 构造上下文；
 显式上下文注解使用 `ms.typing.AiContextValue`。从报告字段读取 readiness 问题、
 输入摘要和 source-health 检查记录。这些类不作为根模块构造器导出；仍可通过
 `marivo.help(type(value))` 查询完整类型和字段契约。时间类型标记继续用于具体的
@@ -39,7 +39,7 @@ orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"),
                    source=md.table("orders"), primary_key=["order_id"])
 region = ms.dimension_column(name="region", entity=orders, column="region")
 paid_at = ms.time_dimension_column(name="paid_at", entity=orders, column="paid_at",
-                                   granularity="day", is_default=True)
+                                   is_default=True)
 amount = ms.measure_column(name="amount", entity=orders, column="amount",
                            additivity=ms.additive_all(), unit="CNY")
 cost = ms.measure_column(name="cost", entity=orders, column="cost",

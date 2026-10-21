@@ -87,9 +87,7 @@ Column helpers
    measure_column
    time_dimension_column
    period_calendar
-   period_correspondence
    temporal_set
-   work_schedule
    calendar_grain
 
 Time parsing
@@ -99,7 +97,6 @@ Time parsing
    :toctree: api/
    :nosignatures:
 
-   datetime
    timestamp
    strptime
    hour_prefix
@@ -192,7 +189,6 @@ Details types
    PeriodCalendarDetails
    CalendarLevelDetails
    TemporalSetDetails
-   WorkScheduleDetails
 
 Catalog & objects
 -----------------
@@ -201,7 +197,7 @@ Catalog & objects
 ``catalog.metrics`` and ``catalog.relationships`` hold composable expression
 values, so ``revenue = catalog.metrics.get("sales.revenue")`` and
 ``revenue / catalog.entities.get("sales.orders").count()`` compose directly.
-Domains, datasources, period calendars, temporal sets and work schedules remain
+Domains, datasources, period calendars and temporal sets remain
 navigation entries. ``collection.get(key)`` accepts only a plain string
 containing a local name or full semantic path within the collection's scope.
 Ambiguous names require a full path. Refs and kind-prefixed strings are rejected;
@@ -239,7 +235,6 @@ routing and boundaries only; it does not duplicate these API recipes.
    CalendarPeriodPage
    TemporalSetEntry
    TemporalOccurrencePage
-   WorkScheduleEntry
 
 Readiness & assessment
 ----------------------
@@ -296,8 +291,7 @@ of display omissions. ``PreviewBatchResult`` remains a batch summary.
 Returned authoring and report records
 -------------------------------------
 
-Construct context with ``ms.ai_context(...)`` and calendar correspondences with
-``ms.period_correspondence(...)``. Use ``ms.typing.AiContextValue`` for explicit
+Construct context with ``ms.ai_context(...)``. Use ``ms.typing.AiContextValue`` for explicit
 context annotations. Read readiness issue/input records through the report
 fields and health checks through ``SourceHealthReport.checks``. These returned
 records retain their exact types and field Help without root constructor exports;

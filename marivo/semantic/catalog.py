@@ -34,14 +34,12 @@ from ibis.common.deferred import Deferred
 from marivo._definition.deferred import root_declaration
 from marivo._temporal import (
     Grain,
-    PeriodCalendarSnapshotV1,
+    PeriodCalendarSnapshotV2,
     TemporalOccurrenceRecord,
     TemporalResolver,
     TemporalSetSnapshotStore,
     TemporalSetSnapshotV1,
     TimeScope,
-    WorkScheduleSnapshotStore,
-    WorkScheduleSnapshotV1,
 )
 from marivo.datasource import credentials as cr
 from marivo.datasource._builtin import DEFAULT_DATASOURCE_DESCRIPTION, DEFAULT_DATASOURCE_NAME
@@ -83,7 +81,6 @@ from marivo.refs import (
     SemanticKindTag,
     TemporalSetKind,
     TimeDimensionKind,
-    WorkScheduleKind,
 )
 from marivo.refs import (
     ref as ref_factory,
@@ -130,7 +127,6 @@ from marivo.semantic.ir import (
     SourceLocation,
     TemporalSetIR,
     ValidityVersioningIR,
-    WorkScheduleIR,
 )
 from marivo.semantic.preview_scope import (
     NormalizedPreviewScope,
@@ -171,8 +167,6 @@ __all__ = [
     "TemporalSetDetails",
     "TemporalSetEntry",
     "ValidityVersioning",
-    "WorkScheduleDetails",
-    "WorkScheduleEntry",
     "load",
 ]
 
@@ -287,10 +281,6 @@ def _make_ref(path: str, kind: Literal[SemanticKind.TEMPORAL_SET]) -> Ref[Tempor
 
 
 @overload
-def _make_ref(path: str, kind: Literal[SemanticKind.WORK_SCHEDULE]) -> Ref[WorkScheduleKind]: ...
-
-
-@overload
 def _make_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]: ...
 
 
@@ -306,7 +296,6 @@ def _make_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
         SemanticKind.RELATIONSHIP: ref_factory.relationship,
         SemanticKind.PERIOD_CALENDAR: ref_factory.period_calendar,
         SemanticKind.TEMPORAL_SET: ref_factory.temporal_set,
-        SemanticKind.WORK_SCHEDULE: ref_factory.work_schedule,
     }[kind]
     return factory(path)
 
@@ -499,8 +488,6 @@ class PeriodCalendarDetails(_DetailsBase):
     boundary_timezone: str
     coverage: tuple[CalendarDate, CalendarDate]
     levels: tuple[CalendarLevelDetails, ...]
-    correspondences: Mapping[str, str]
-    _correspondence_fields: tuple[tuple[str, str, str], ...]
     _level_bindings: tuple[tuple[str, Ref[DimensionKind]], ...]
     snapshot_status: Literal["missing", "current", "stale", "invalid"]
     snapshot_digest: str | None = None
@@ -522,10 +509,6 @@ class PeriodCalendarDetails(_DetailsBase):
                     value=f"[{self.coverage[0].isoformat()}, {self.coverage[1].isoformat()})",
                 ),
                 FieldSection(label="levels", value=", ".join(item.name for item in self.levels)),
-                FieldSection(
-                    label="correspondences",
-                    value=", ".join(self.correspondences) or "(none)",
-                ),
                 FieldSection(label="snapshot_status", value=self.snapshot_status),
                 FieldSection(
                     label="snapshot_digest",
@@ -594,33 +577,6 @@ class TemporalSetDetails(_DetailsBase):
 
 
 @dataclass(frozen=True, repr=False)
-class WorkScheduleDetails(_DetailsBase):
-    """Static source contract for one governed final daily work schedule."""
-
-    boundary_timezone: str
-    coverage: tuple[CalendarDate, CalendarDate]
-    date: Ref[TimeDimensionKind]
-    is_working: Ref[DimensionKind]
-    snapshot_status: Literal["missing", "current", "stale", "invalid"]
-
-    def _detail_sections(self) -> list[Section]:
-        sections = super()._detail_sections()
-        sections.extend(
-            (
-                FieldSection(label="boundary_timezone", value=self.boundary_timezone),
-                FieldSection(
-                    label="coverage",
-                    value=f"[{self.coverage[0].isoformat()}, {self.coverage[1].isoformat()})",
-                ),
-                FieldSection(label="date", value=self.date.key),
-                FieldSection(label="is_working", value=self.is_working.key),
-                FieldSection(label="snapshot_status", value=self.snapshot_status),
-            )
-        )
-        return sections
-
-
-@dataclass(frozen=True, repr=False)
 class TemporalOccurrencePage(RenderableResult):
     """Bounded snapshot-bound page of exact occurrence scopes."""
 
@@ -642,11 +598,7 @@ class TemporalOccurrencePage(RenderableResult):
 
 
 _CatalogObjectDetails = (
-    DatasourceDetails
-    | DomainDetails
-    | PeriodCalendarDetails
-    | TemporalSetDetails
-    | WorkScheduleDetails
+    DatasourceDetails | DomainDetails | PeriodCalendarDetails | TemporalSetDetails
 )
 
 
@@ -737,7 +689,6 @@ class DomainEntry(CatalogEntry[DomainKind]):
         "relationships",
         "period_calendars",
         "temporal_sets",
-        "work_schedules",
     )
 
     def details(self) -> DomainDetails:
@@ -772,11 +723,6 @@ class DomainEntry(CatalogEntry[DomainKind]):
     def temporal_sets(self) -> CatalogCollection[TemporalSetEntry]:
         """Temporal sets declared in this domain."""
         return CatalogCollection(self._catalog, "temporal_sets", scope_ref=self.ref)
-
-    @property
-    def work_schedules(self) -> CatalogCollection[WorkScheduleEntry]:
-        """Work schedules declared in this domain."""
-        return CatalogCollection(self._catalog, "work_schedules", scope_ref=self.ref)
 
 
 class DatasourceEntry(CatalogEntry[DatasourceKind]):
@@ -993,7 +939,7 @@ class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
             next_cursor=next_cursor,
         )
 
-    def _snapshot(self) -> PeriodCalendarSnapshotV1:
+    def _snapshot(self) -> PeriodCalendarSnapshotV2:
         status, snapshot = self._snapshot_with_status()
         if status != "current" or snapshot is None:
             _raise_period_lookup(
@@ -1006,7 +952,7 @@ class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
 
     def _snapshot_with_status(
         self,
-    ) -> tuple[Literal["missing", "current", "stale", "invalid"], PeriodCalendarSnapshotV1 | None]:
+    ) -> tuple[Literal["missing", "current", "stale", "invalid"], PeriodCalendarSnapshotV2 | None]:
         from marivo._temporal import TemporalSnapshotStore, period_calendar_definition_digest
         from marivo.semantic._definition_identity import scoped_definition_fingerprint
 
@@ -1016,7 +962,6 @@ class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
             boundary_timezone=details.boundary_timezone,
             coverage=(details.coverage[0], details.coverage[1]),
             levels=tuple((name, value.path) for name, value in details._level_bindings),
-            correspondences=details._correspondence_fields,
             dependency_digest=scoped_definition_fingerprint(
                 root=self.ref,
                 definitions=self._catalog._state.definitions,
@@ -1219,80 +1164,10 @@ class TemporalSetEntry(CatalogEntry[TemporalSetKind]):
         )
 
 
-class WorkScheduleEntry(CatalogEntry[WorkScheduleKind]):
-    """Loaded work-schedule declaration with certified-status navigation."""
-
-    ref: Ref[WorkScheduleKind]
-
-    def _card(self) -> Card:
-        details = self.details()
-        return (
-            Card(
-                identity=self._repr_identity(),
-                available=(
-                    ".ref",
-                    ".details()",
-                    ".show()",
-                ),
-            )
-            .field(label="kind", value=self.ref.kind.value)
-            .field(label="path", value=self.ref.path)
-            .field(label="boundary_timezone", value=details.boundary_timezone)
-            .field(
-                label="coverage",
-                value=f"[{details.coverage[0].isoformat()}, {details.coverage[1].isoformat()})",
-            )
-            .field(label="date", value=details.date.key)
-            .field(label="is_working", value=details.is_working.key)
-            .field(label="snapshot_status", value=details.snapshot_status)
-        )
-
-    def details(self) -> WorkScheduleDetails:
-        details = cast("WorkScheduleDetails", self._details)
-        status, _snapshot = self._snapshot_with_status()
-        return replace(details, snapshot_status=status)
-
-    def _snapshot(self) -> WorkScheduleSnapshotV1:
-        status, snapshot = self._snapshot_with_status()
-        if status != "current" or snapshot is None:
-            _raise_work_schedule_lookup(
-                self.ref,
-                "snapshot",
-                f"{self.ref.key} has no current certified work-schedule snapshot ({status}).",
-                details={"snapshot_status": status},
-            )
-        return snapshot
-
-    def _snapshot_with_status(
-        self,
-    ) -> tuple[Literal["missing", "current", "stale", "invalid"], WorkScheduleSnapshotV1 | None]:
-        from marivo._temporal import work_schedule_definition_digest
-        from marivo.semantic._definition_identity import scoped_definition_fingerprint
-
-        details = cast("WorkScheduleDetails", self._details)
-        definition_digest = work_schedule_definition_digest(
-            work_schedule_ref=self.ref,
-            boundary_timezone=details.boundary_timezone,
-            coverage=(details.coverage[0], details.coverage[1]),
-            date=details.date.path,
-            is_working=details.is_working.path,
-            dependency_digest=scoped_definition_fingerprint(
-                root=self.ref,
-                definitions=self._catalog._state.definitions,
-                dependencies=self._catalog._state.dependencies,
-                sidecar=self._catalog._state.sidecar,
-            ),
-        )
-        return WorkScheduleSnapshotStore(self._catalog.workspace_dir).inspect_current(
-            self.ref,
-            definition_digest=definition_digest,
-        )
-
-
 def _calendar_level_details(
     details: PeriodCalendarDetails,
     *,
-    snapshot: PeriodCalendarSnapshotV1 | None,
+    snapshot: PeriodCalendarSnapshotV2 | None,
 ) -> tuple[CalendarLevelDetails, ...]:
     """Project static level bindings plus certified graph facts."""
     bindings: tuple[tuple[str, Ref[DimensionKind] | Ref[TimeDimensionKind]], ...] = (
@@ -1505,39 +1380,6 @@ def _raise_temporal_set_lookup(
         repair_value=AuthoringRepair(
             kind="retry",
             help_target=help_target,
-            action=action,
-        ),
-    )
-
-
-def _raise_work_schedule_lookup(
-    work_schedule_ref: Ref[WorkScheduleKind],
-    operation: str,
-    message: str,
-    *,
-    details: Mapping[str, object],
-) -> NoReturn:
-    """Raise one structured, bounded-retry work-schedule catalog error."""
-    from marivo._authoring.model import AuthoringRepair
-    from marivo.introspection.live.model import LiveHelpTarget
-
-    if operation != "snapshot":
-        raise RuntimeError(f"unsupported work-schedule lookup operation: {operation}")
-    action = (
-        f"Certify the current work-schedule snapshot with catalog.preview("
-        f"catalog.work_schedules.get({work_schedule_ref.key!r}), scope=...), then retry. "
-        "If certification is blocked, inspect scoped catalog.readiness(...)."
-    )
-    _raise(
-        ErrorKind.NOT_FOUND,
-        message,
-        cls=SemanticRuntimeError,
-        refs=(work_schedule_ref.key,),
-        details={"operation": operation, **dict(details)},
-        hint=action,
-        repair_value=AuthoringRepair(
-            kind="retry",
-            help_target=LiveHelpTarget(surface="semantic", canonical_id="preview"),
             action=action,
         ),
     )
@@ -1781,7 +1623,6 @@ _ENTRY_TYPE_BY_KIND: dict[SemanticKind, type[CatalogEntry[SemanticKindTag]]] = {
     SemanticKind.DATASOURCE: DatasourceEntry,
     SemanticKind.PERIOD_CALENDAR: PeriodCalendarEntry,
     SemanticKind.TEMPORAL_SET: TemporalSetEntry,
-    SemanticKind.WORK_SCHEDULE: WorkScheduleEntry,
 }
 
 
@@ -2204,10 +2045,6 @@ class _CatalogBuildIndex:
             domain_children.setdefault(temporal_set.domain, []).append(
                 ref_factory.temporal_set(temporal_set.semantic_id)
             )
-        for schedule in registry.work_schedules.values():
-            domain_children.setdefault(schedule.domain, []).append(
-                ref_factory.work_schedule(schedule.semantic_id)
-            )
         self.domain_children = MappingProxyType(
             {key: tuple(values) for key, values in domain_children.items()}
         )
@@ -2292,11 +2129,7 @@ def _build_period_calendar_object(
     ref = ref_factory.period_calendar(calendar_ir.semantic_id)
     date_ref = ref_factory.time_dimension(calendar_ir.date)
     levels = tuple((name, ref_factory.dimension(path)) for name, path in calendar_ir.levels)
-    correspondences = {name: level for name, level, _baseline in calendar_ir.correspondences}
-    correspondence_refs = tuple(
-        ref_factory.dimension(baseline) for _name, _level, baseline in calendar_ir.correspondences
-    )
-    parents = (date_ref, *(value for _name, value in levels), *correspondence_refs)
+    parents = (date_ref, *(value for _name, value in levels))
     # Slice 1 has no metric IR edge that can reference a semantic calendar.
     # Do not turn unrelated cumulative anchors into fabricated dependents;
     # reverse edges will be added when Slice 2 persists calendar Grain refs.
@@ -2330,8 +2163,6 @@ def _build_period_calendar_object(
             )
             for name, value in (("day", date_ref), *declared_levels)
         ),
-        correspondences=MappingProxyType(correspondences),
-        _correspondence_fields=calendar_ir.correspondences,
         _level_bindings=declared_levels,
         snapshot_status="missing",
     )
@@ -2380,36 +2211,6 @@ def _build_temporal_set_object(
     return _object_from_details(TemporalSetEntry, details, catalog)
 
 
-def _build_work_schedule_object(
-    work_schedule_ir: WorkScheduleIR,
-    catalog: SemanticCatalog,
-) -> WorkScheduleEntry:
-    ref = ref_factory.work_schedule(work_schedule_ir.semantic_id)
-    date_ref = ref_factory.time_dimension(work_schedule_ir.date)
-    working_ref = ref_factory.dimension(work_schedule_ir.is_working)
-    details = WorkScheduleDetails(
-        ref=ref,
-        kind=SemanticKind.WORK_SCHEDULE,
-        name=work_schedule_ir.name,
-        domain=work_schedule_ir.domain,
-        context=work_schedule_ir.ai_context,
-        source_location=work_schedule_ir.location,
-        parents=(date_ref, working_ref),
-        children=(),
-        dependents=(),
-        python_symbol=work_schedule_ir.python_symbol,
-        boundary_timezone=work_schedule_ir.boundary_timezone,
-        coverage=(
-            date.fromisoformat(work_schedule_ir.coverage[0]),
-            date.fromisoformat(work_schedule_ir.coverage[1]),
-        ),
-        date=date_ref,
-        is_working=working_ref,
-        snapshot_status="missing",
-    )
-    return _object_from_details(WorkScheduleEntry, details, catalog)
-
-
 _PreviewCell: TypeAlias = str | int | float | bool | None
 
 
@@ -2455,7 +2256,6 @@ def _certification_capture(
         field_ids = (
             calendar.date,
             *(field for _name, field in calendar.levels),
-            *(field for _name, _level, field in calendar.correspondences),
         )
     elif kind is SemanticKind.TEMPORAL_SET:
         temporal_set = registry.temporal_sets[ref.path]
@@ -2469,9 +2269,6 @@ def _certification_capture(
             )
             if field is not None
         )
-    elif kind is SemanticKind.WORK_SCHEDULE:
-        work_schedule = registry.work_schedules[ref.path]
-        field_ids = (work_schedule.date, work_schedule.is_working)
     else:
         raise AssertionError(f"unsupported certified artifact kind: {kind}")
     fields = tuple(registry.dimensions[field_id] for field_id in field_ids)
@@ -2498,6 +2295,29 @@ def _certification_capture(
             ),
         ):
             table = resolver.entity(ref_factory.entity(entity_id)).select(*columns)
+            if kind is SemanticKind.PERIOD_CALENDAR:
+                date_field = registry.dimensions[registry.period_calendars[ref.path].date]
+                date_column = date_field.source_column
+                assert date_column is not None
+                if date_field.parse is None and not table.schema()[date_column].is_date():
+                    _raise(
+                        ErrorKind.MATERIALIZE_FAILED,
+                        "Period-calendar certification requires a native civil DATE spine.",
+                        cls=SemanticRuntimeError,
+                        refs=(ref.key, date_field.semantic_id),
+                        expected="a native DATE field or an explicitly encoded civil-date field",
+                        received=str(table.schema()[date_column]),
+                        details={"query_executed": False},
+                        repair_value=repair(
+                            kind="reauthor",
+                            canonical_id="time_dimension_column",
+                            action=(
+                                "Declare a native DATE source field, or explicitly derive the "
+                                "business DATE in the authored source view, then retry "
+                                "catalog.preview(..., scope=...) with complete coverage."
+                            ),
+                        ),
+                    )
             source_owner = connections.source_session(
                 bindings.datasource_id, registry.datasources[bindings.datasource_id]
             )
@@ -2690,91 +2510,6 @@ def _preview_temporal_set(
     )
 
 
-def _preview_work_schedule(
-    *,
-    work_schedule_ref: Ref[WorkScheduleKind],
-    registry: Registry,
-    project_root: Path,
-    capture: _CertificationCapture,
-    limit: int,
-    dependency_digest: str,
-) -> PreviewResult:
-    """Certify a work-schedule artifact from one live exhaustive capture."""
-    preview_limit = validate_preview_limit(limit)
-    schedule = registry.work_schedules.get(work_schedule_ref.path)
-    if schedule is None:
-        raise RuntimeError(f"missing compiled work schedule {work_schedule_ref.path!r}")
-    date_field = registry.dimensions.get(schedule.date)
-    working_field = registry.dimensions.get(schedule.is_working)
-    if (
-        date_field is None
-        or working_field is None
-        or date_field.source_column is None
-        or working_field.source_column is None
-    ):
-        _raise(
-            ErrorKind.MATERIALIZE_FAILED,
-            "Work-schedule fields must be declared with physical source columns.",
-            cls=SemanticRuntimeError,
-            refs=(work_schedule_ref.key,),
-            details={"query_executed": False},
-        )
-    from marivo._temporal import (
-        WorkScheduleSnapshotStore,
-        certify_work_schedule_rows,
-        work_schedule_definition_digest,
-    )
-
-    try:
-        snapshot = certify_work_schedule_rows(
-            work_schedule_ref=work_schedule_ref,
-            boundary_timezone=schedule.boundary_timezone,
-            coverage=(
-                date.fromisoformat(schedule.coverage[0]),
-                date.fromisoformat(schedule.coverage[1]),
-            ),
-            columns=capture.columns,
-            retained_values=capture.retained_values,
-            date_column=date_field.source_column,
-            is_working=working_field.source_column,
-            date_parse=date_field.parse,
-        )
-    except (KeyError, TypeError, ValueError) as exc:
-        _raise(
-            ErrorKind.MATERIALIZE_FAILED,
-            f"Work-schedule certification failed: {exc}",
-            cls=SemanticRuntimeError,
-            refs=(work_schedule_ref.key,),
-            details={"query_executed": False, "certification_error": type(exc).__name__},
-        )
-    definition_digest = work_schedule_definition_digest(
-        work_schedule_ref=work_schedule_ref,
-        boundary_timezone=schedule.boundary_timezone,
-        coverage=schedule.coverage,
-        date=schedule.date,
-        is_working=schedule.is_working,
-        dependency_digest=dependency_digest,
-    )
-    WorkScheduleSnapshotStore(project_root).publish(snapshot, definition_digest=definition_digest)
-    rows: tuple[dict[str, object], ...] = tuple(
-        {"date": item.date.isoformat(), "is_working": item.is_working}
-        for item in snapshot.days[:preview_limit]
-    )
-    return PreviewResult(
-        kind="semantic_dataset",
-        ref=work_schedule_ref.path,
-        columns=("date", "is_working"),
-        types={"date": "date", "is_working": "boolean"},
-        rows=rows,
-        requested_limit=preview_limit,
-        returned_row_count=len(rows),
-        is_truncated=len(snapshot.days) > preview_limit,
-        status="passed",
-        coverage=capture.coverage(date_field.entity),
-        sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=preview_limit),
-    )
-
-
 def _preview_period_calendar(
     *,
     calendar_ref: Ref[PeriodCalendarKind],
@@ -2810,18 +2545,6 @@ def _preview_period_calendar(
                 details={"query_executed": False},
             )
         level_columns[level] = field.source_column
-    correspondence_columns: dict[str, tuple[str, str]] = {}
-    for name, level, field_ref in calendar.correspondences:
-        field = registry.dimensions.get(field_ref)
-        if field is None or field.source_column is None:
-            _raise(
-                ErrorKind.MATERIALIZE_FAILED,
-                f"Period-calendar correspondence {name!r} must use ms.dimension_column(...).",
-                cls=SemanticRuntimeError,
-                refs=(calendar_ref.key, field_ref),
-                details={"query_executed": False},
-            )
-        correspondence_columns[name] = (level, field.source_column)
     from marivo._temporal import (
         TemporalSnapshotStore,
         certify_period_calendar_rows,
@@ -2840,7 +2563,6 @@ def _preview_period_calendar(
             retained_values=capture.retained_values,
             date_column=date_dimension.source_column,
             levels=level_columns,
-            correspondences=correspondence_columns,
         )
     except (KeyError, TypeError, ValueError) as exc:
         _raise(
@@ -2867,7 +2589,6 @@ def _preview_period_calendar(
         boundary_timezone=calendar.boundary_timezone,
         coverage=calendar.coverage,
         levels=calendar.levels,
-        correspondences=calendar.correspondences,
         dependency_digest=dependency_digest,
     )
     TemporalSnapshotStore(project_root).publish(snapshot, definition_digest=definition_digest)
@@ -2929,10 +2650,6 @@ class _CatalogIndex:
             *(
                 _build_temporal_set_object(item, catalog)
                 for item in registry.temporal_sets.values()
-            ),
-            *(
-                _build_work_schedule_object(item, catalog)
-                for item in registry.work_schedules.values()
             ),
         )
         self._entries = MappingProxyType({entry.ref: entry for entry in entries})
@@ -3282,11 +2999,6 @@ class SemanticCatalog(RenderableResult):
     def temporal_sets(self) -> CatalogCollection[TemporalSetEntry]:
         """Temporal sets as navigation entries."""
         return CatalogCollection(self, "temporal_sets")
-
-    @property
-    def work_schedules(self) -> CatalogCollection[WorkScheduleEntry]:
-        """Work schedules as navigation entries."""
-        return CatalogCollection(self, "work_schedules")
 
     def _require_ref(self, ref: Ref[SemanticKindTag]) -> None:
         """Validate exact internal identity in this compiled scope."""
@@ -3698,7 +3410,6 @@ class SemanticCatalog(RenderableResult):
         if kind in {
             SemanticKind.PERIOD_CALENDAR,
             SemanticKind.TEMPORAL_SET,
-            SemanticKind.WORK_SCHEDULE,
         }:
             validate_preview_limit(limit)
         if kind is SemanticKind.PERIOD_CALENDAR:
@@ -3740,34 +3451,6 @@ class SemanticCatalog(RenderableResult):
 
             return _preview_temporal_set(
                 temporal_set_ref=cast("Ref[TemporalSetKind]", ref_obj),
-                registry=reg,
-                project_root=self.workspace_dir,
-                capture=_certification_capture(
-                    ref=ref_obj,
-                    kind=kind,
-                    registry=reg,
-                    bindings=bindings,
-                    resolver=resolver,
-                ),
-                limit=limit,
-                dependency_digest=scoped_definition_fingerprint(
-                    root=ref_obj,
-                    definitions=self._state.definitions,
-                    dependencies=self._state.dependencies,
-                    sidecar=self._state.sidecar,
-                ),
-            )
-        if kind is SemanticKind.WORK_SCHEDULE:
-            from marivo.semantic._definition_identity import scoped_definition_fingerprint
-
-            resolver = self._semantic_resolver(
-                connections=connections,
-                entity_scopes=bindings.entity_scopes,
-                source_bindings=bindings.source_bindings,
-            )
-
-            return _preview_work_schedule(
-                work_schedule_ref=cast("Ref[WorkScheduleKind]", ref_obj),
                 registry=reg,
                 project_root=self.workspace_dir,
                 capture=_certification_capture(

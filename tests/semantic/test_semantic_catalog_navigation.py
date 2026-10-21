@@ -53,7 +53,6 @@ ordered_at = ms.time_dimension_column(
     name="ordered_at",
     entity=orders,
     column="ordered_at",
-    granularity="day",
     parse=ms.timestamp(timezone="UTC"),
     is_default=True,
 )
@@ -189,10 +188,10 @@ def test_empty_collection_show_explains_blocked_selection(
     semantic_project_factory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    collection = catalog.work_schedules
+    collection = catalog.temporal_sets
 
     rendered = collection.render()
-    assert "catalog.work_schedules.get(...): blocked; reason=empty_collection" in rendered
+    assert "catalog.temporal_sets.get(...): blocked; reason=empty_collection" in rendered
 
 
 def test_catalog_output_respects_default_and_small_byte_budgets(
@@ -233,7 +232,6 @@ def test_scoped_navigation_matches_the_declared_matrix(semantic_project_factory)
     ]
     assert sales.period_calendars.refs == ()
     assert sales.temporal_sets.refs == ()
-    assert sales.work_schedules.refs == ()
     assert [ref.key for ref in warehouse.entities.refs] == [
         "entity:ops.events",
         "entity:sales.orders",

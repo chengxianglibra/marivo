@@ -31,7 +31,6 @@ CATALOG_MEMBER_CONTRACTS: tuple[CatalogMemberContract, ...] = (
         "period_calendars", (SemanticKind.PERIOD_CALENDAR,), "PeriodCalendarEntry"
     ),
     CatalogMemberContract("temporal_sets", (SemanticKind.TEMPORAL_SET,), "TemporalSetEntry"),
-    CatalogMemberContract("work_schedules", (SemanticKind.WORK_SCHEDULE,), "WorkScheduleEntry"),
 )
 
 CATALOG_COLLECTION_PROPERTIES: tuple[str, ...] = tuple(

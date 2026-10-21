@@ -40,7 +40,7 @@ facts = ms.entity(name="facts", datasource=ms.ref.datasource("warehouse"),
 amount = ms.measure_column(name="amount", entity=facts, column="amount",
                            additivity=ms.additive_all())
 happened = ms.time_dimension_column(name="happened", entity=facts,
-                                    column="happened", granularity="second",
+                                    column="happened",
                                     parse=ms.timestamp(timezone="UTC"), is_default=True)
 finalized = ms.finalize()
 facts = finalized.resolve(facts)

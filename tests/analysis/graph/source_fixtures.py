@@ -48,7 +48,6 @@ def author_source_project(
         if time_parse == "native"
         else "ms.strptime('%Y-%m-%d %H:%M:%S', timezone='UTC')"
     )
-    granularity = "day" if time_parse == "date" else "second"
     semantic_project_factory(
         {
             "datasources/warehouse.py": "import marivo.datasource as md\n"
@@ -59,10 +58,10 @@ def author_source_project(
             + "bucket = ms.dimension_column(name='bucket', entity=facts, column='tenant')\n"
             + "revision = ms.dimension_column(name='revision', entity=facts, column='revision')\n"
             + "amount = ms.measure_column(name='amount', entity=facts, column='amount', additivity=ms.additive_all())\n"
-            + f"happened = ms.time_dimension_column(name='happened', entity=facts, column='happened', granularity={granularity!r}, parse={parse}, is_default=True)\n"
+            + f"happened = ms.time_dimension_column(name='happened', entity=facts, column='happened', parse={parse}, is_default=True)\n"
             + (
                 "from datetime import date\n"
-                "calendar_day = ms.time_dimension_column(name='calendar_day', entity=facts, column='calendar_day', granularity='day')\n"
+                "calendar_day = ms.time_dimension_column(name='calendar_day', entity=facts, column='calendar_day')\n"
                 "period = ms.dimension_column(name='period', entity=facts, column='period')\n"
                 "fiscal = ms.period_calendar(name='fiscal', date=calendar_day, boundary_timezone='Asia/Shanghai', coverage=(date(2026, 8, 1), date(2026, 8, 6)), levels={'period': period})\n"
                 if certified_calendar

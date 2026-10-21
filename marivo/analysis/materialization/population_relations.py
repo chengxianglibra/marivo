@@ -14,7 +14,7 @@ from marivo._definition.relations import (
     PopulationProgram,
 )
 from marivo._definition.types import AxisBinding
-from marivo.analysis.compiler.member_version import version_predicate
+from marivo.analysis.compiler.member_version import prepare_version_filter
 from marivo.analysis.core.model import reject
 from marivo.analysis.materialization.population_preparation import (
     PreparedPopulation,
@@ -51,6 +51,7 @@ def prepare_member_fields(
     entity = axis.entity.ref.path
     original = entities[entity]
     source = original.view()
+    version_checks: tuple[tuple[str, str, str], ...] = ()
     contract = normalize_target_entity(state.registry, entity)
     fields = tuple(
         replace(read, at=read.at or axis.at) if read.entity.ref == axis.entity.ref else read
@@ -58,14 +59,13 @@ def prepare_member_fields(
     )
     if contract.version is not None:
         if axis.at is not None:
-            source = source.filter(
-                version_predicate(
-                    source,
-                    contract.version,
-                    normalize_target_version_selection(
-                        contract, boundary=axis.at, interpretation="instant"
-                    ),
-                )
+            source, version_checks = prepare_version_filter(
+                source,
+                contract.version,
+                normalize_target_version_selection(
+                    contract, boundary=axis.at, interpretation="instant"
+                ),
+                state=state,
             )
         elif all(
             read.at is not None and not read.path and read.entity.ref == axis.entity.ref
@@ -98,6 +98,7 @@ def prepare_member_fields(
         root_table=source,
     )
     table = prepared.table
+    prepared_checks = (*version_checks, *prepared.checks)
     columns = dict(prepared.columns)
     field_names = tuple(f"__classify_value_{index}" for index in range(len(fields)))
     grouped = table.group_by(*contract.primary_key).aggregate(
@@ -106,7 +107,7 @@ def prepare_member_fields(
             for name, read in zip(field_names, fields, strict=True)
         },
         __classify_count=table.count(),
-        **{name: table[name].any().fill_null(False) for name, _, _ in prepared.checks},
+        **{name: table[name].any().fill_null(False) for name, _, _ in prepared_checks},
     )
     joined = domain.left_join(
         grouped,
@@ -131,7 +132,7 @@ def prepare_member_fields(
     output = joined.select(
         **values,
         **{check: grouped.__classify_count.fill_null(0) != 1},
-        **{name: grouped[name].fill_null(False) for name, _, _ in prepared.checks},
+        **{name: grouped[name].fill_null(False) for name, _, _ in prepared_checks},
     )
     presence = None
     if identities.checks:
@@ -151,7 +152,7 @@ def prepare_member_fields(
         (
             *identities.checks,
             (check, "exactly one attribute row for every requested identity", entity),
-            *prepared.checks,
+            *prepared_checks,
         ),
         presence,
     )
@@ -170,6 +171,7 @@ def prepare_relationship_population(
     assert isinstance(axis, AxisBinding)
     contract = normalize_target_entity(state.registry, axis.entity.ref.path)
     source = entities[axis.entity.ref.path].view()
+    version_checks: tuple[tuple[str, str, str], ...] = ()
     if contract.version is not None:
         if axis.at is None:
             reject(
@@ -178,14 +180,13 @@ def prepare_relationship_population(
                 "Select the identity domain with at=.",
                 "population.image",
             )
-        source = source.filter(
-            version_predicate(
-                source,
-                contract.version,
-                normalize_target_version_selection(
-                    contract, boundary=axis.at, interpretation="instant"
-                ),
-            )
+        source, version_checks = prepare_version_filter(
+            source,
+            contract.version,
+            normalize_target_version_selection(
+                contract, boundary=axis.at, interpretation="instant"
+            ),
+            state=state,
         )
     missing = operand.table.anti_join(
         source,
@@ -206,6 +207,7 @@ def prepare_relationship_population(
     origin = operand.key_groups[0]
     current = {name: name for name in source.columns}
     result_columns: tuple[str, ...] = ()
+    time_checks = list(version_checks)
     for index, step in enumerate(node.path):
         relation = normalize_target_relationship(state.registry, step.ref.ref.path)
         target_contract = normalize_target_entity(state.registry, relation.to_entity_ref.path)
@@ -234,16 +236,20 @@ def prepare_relationship_population(
                     "Provide at= for the target or use a path with fully determined keys.",
                     "population.image",
                 )
-            target = target.filter(
-                version_predicate(
-                    target,
-                    target_contract.version,
-                    normalize_target_version_selection(
-                        target_contract, boundary=anchor, interpretation="instant"
-                    ),
-                )
+            target, target_checks = prepare_version_filter(
+                target,
+                target_contract.version,
+                normalize_target_version_selection(
+                    target_contract, boundary=anchor, interpretation="instant"
+                ),
+                state=state,
             )
+        else:
+            target_checks = ()
         renamed = {name: f"__image_{index}_{name}" for name in target.columns}
+        time_checks.extend(
+            (renamed[name], expected, received) for name, expected, received in target_checks
+        )
         target = target.rename(**{new: old for old, new in renamed.items()})
         allocation = allocation.inner_join(
             target,
@@ -271,16 +277,23 @@ def prepare_relationship_population(
         **{
             slot: allocation[column]
             for slot, column in zip(key_groups[0], result_columns, strict=True)
-        }
+        },
+        **{name: allocation[name] for name, _, _ in time_checks},
     ).distinct()
     check = "__population_image_missing_source"
     invalid_rows = missing.select(
         **{slot: ibis.literal(None, type=output[slot].type()) for slot in key_groups[0]},
         **{check: ibis.literal(True)},
+        **{name: ibis.literal(False) for name, _, _ in time_checks},
     )
-    output = output.mutate(**{check: ibis.literal(False)}).union(invalid_rows)
+    output = output.mutate(**{check: ibis.literal(False)}).union(
+        invalid_rows.select(*output.columns, check)
+    )
     return PreparedPopulation(
         output,
         key_groups,
-        ((check, "a source relationship row for every requested identity", axis.entity.ref.key),),
+        (
+            (check, "a source relationship row for every requested identity", axis.entity.ref.key),
+            *time_checks,
+        ),
     )

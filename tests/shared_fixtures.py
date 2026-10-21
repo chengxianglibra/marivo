@@ -229,8 +229,7 @@ channel = ms.dimension_column(name={n.channel!r}, entity=orders,
 status = ms.dimension_column(name={n.status!r}, entity=orders,
                              column={n.status!r})
 ordered_at = ms.time_dimension_column(name={n.ordered_at!r}, entity=orders,
-                                      column={n.ordered_at!r}, granularity='second',
-                                      parse=ms.timestamp(timezone='UTC'))
+                                      column={n.ordered_at!r}, parse=ms.timestamp())
 amount = ms.measure_column(name={n.amount!r}, entity=orders,
                            column={n.amount!r}, additivity=ms.additive_all(),
                            unit={revenue_unit!r})
@@ -479,7 +478,7 @@ def fiscal_analysis_project_files() -> dict[str, str]:
             "import marivo.datasource as md\n"
             "import marivo.semantic as ms\n"
             "calendar = ms.entity(name='calendar', datasource=ms.ref.datasource('warehouse'), source=md.table('calendar'))\n"
-            "calendar_date = ms.time_dimension_column(name='calendar_date', entity=calendar, column='calendar_date', granularity='day')\n"
+            "calendar_date = ms.time_dimension_column(name='calendar_date', entity=calendar, column='calendar_date')\n"
             "fiscal_week = ms.dimension_column(name='fiscal_week', entity=calendar, column='fiscal_week')\n"
             "fiscal_month = ms.dimension_column(name='fiscal_month', entity=calendar, column='fiscal_month')\n"
             "fiscal = ms.period_calendar(name='fiscal', date=calendar_date, boundary_timezone='UTC', coverage=(__import__('datetime').date(2026, 1, 1), __import__('datetime').date(2026, 3, 1)), levels={'fiscal_week': fiscal_week, 'fiscal_month': fiscal_month})\n"
@@ -488,7 +487,7 @@ def fiscal_analysis_project_files() -> dict[str, str]:
             "import marivo.datasource as md\n"
             "import marivo.semantic as ms\n"
             "events = ms.entity(name='events', datasource=ms.ref.datasource('warehouse'), source=md.table('events'))\n"
-            "event_date = ms.time_dimension_column(name='event_date', entity=events, column='event_date', granularity='day')\n"
+            "event_date = ms.time_dimension_column(name='event_date', entity=events, column='event_date')\n"
             "amount = ms.measure_column(name='amount', entity=events, column='amount', additivity=ms.additive_all(), unit='USD')\n"
             "user_id = ms.measure_column(name='user_id', entity=events, column='user_id', additivity=ms.non_additive())\n"
             "finalized = ms.finalize()\n"
@@ -554,7 +553,6 @@ def publish_fiscal_calendar_artifact(catalog: SemanticCatalog) -> None:
             boundary_timezone=calendar.boundary_timezone,
             coverage=calendar.coverage,
             levels=calendar.levels,
-            correspondences=calendar.correspondences,
             dependency_digest=dependency_digest,
         ),
     )
@@ -682,7 +680,7 @@ def sales_backends(
 # Project directory templates (versioned, cached in /tmp)
 # ---------------------------------------------------------------------------
 
-_SALES_PROJECT_V = "v2"
+_SALES_PROJECT_V = "v3"
 
 
 def sales_project_template(*, with_time: bool = True) -> Path:
@@ -710,7 +708,7 @@ def sales_project_template(*, with_time: bool = True) -> Path:
         "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
     )
     time_dimension = (
-        "@ms.time_dimension(entity=orders, granularity='day')\n"
+        "@ms.time_dimension(entity=orders)\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n\n"
         if with_time
@@ -841,11 +839,11 @@ def bootstrap_multi_metric_sales_project(tmp_path: Path) -> None:
         "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
         "users = ms.entity(name='users', datasource=warehouse, source=md.table('users'))\n"
         "\n"
-        "@ms.time_dimension(entity=orders, granularity='day')\n"
+        "@ms.time_dimension(entity=orders)\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
         "\n"
-        "@ms.time_dimension(entity=users, granularity='day')\n"
+        "@ms.time_dimension(entity=users)\n"
         "def signup_date(users):\n"
         "    return users.signed_up_at.cast('date')\n"
         "\n"

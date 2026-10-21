@@ -240,8 +240,8 @@ def test_explicit_source_read_preserves_snapshot_row_identity(
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='Analytics',default=True)\n",
             "sales/model.py": """import marivo.datasource as md
 import marivo.semantic as ms
-orders=ms.entity(name='orders',datasource=ms.ref.datasource('warehouse'),source=md.table('orders'),primary_key=['id'],versioning=ms.snapshot(partition_field=ms.ref.time_dimension('sales.orders.snapshot_day'),grain='day',timezone='UTC'))
-snapshot_day=ms.time_dimension_column(name='snapshot_day',entity=orders,column='snapshot_day',granularity='day')
+orders=ms.entity(name='orders',datasource=ms.ref.datasource('warehouse'),source=md.table('orders'),primary_key=['id'],versioning=ms.snapshot(partition_field=ms.ref.time_dimension('sales.orders.snapshot_day'),timezone='UTC'))
+snapshot_day=ms.time_dimension_column(name='snapshot_day',entity=orders,column='snapshot_day')
 region=ms.dimension_column(name='region',entity=orders,column='region')
 channel=ms.dimension_column(name='channel',entity=orders,column='channel')
 amount=ms.measure_column(name='amount',entity=orders,column='amount',additivity=ms.additive_all())
@@ -870,7 +870,7 @@ def test_submicrosecond_timestamp_selection_keeps_exact_pandas_literal(
     model.write_text(
         model.read_text()
         + "\nhappened = ms.time_dimension_column(name='happened', entity=orders, "
-        + "column='happened', granularity='second')\n"
+        + "column='happened')\n"
     )
     happened = session.catalog.fields.get("sales.orders.happened")
     amount = session.catalog.fields.get("sales.orders.amount")
@@ -1124,7 +1124,7 @@ def test_explicit_daily_and_monthly_source_observations(
 import marivo.semantic as ms
 orders = ms.entity(name='orders',datasource=ms.ref.datasource('warehouse'),source=md.table('orders'),primary_key=['id'])
 region = ms.dimension_column(name='region',entity=orders,column='region')
-day = ms.time_dimension_column(name='day',entity=orders,column='day',granularity='day')
+day = ms.time_dimension_column(name='day',entity=orders,column='day')
 amount = ms.measure_column(name='amount',entity=orders,column='amount',additivity=ms.additive_all())
 """,
         },

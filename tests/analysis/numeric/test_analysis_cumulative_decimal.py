@@ -36,7 +36,7 @@ def _bootstrap_project(tmp_path: Path) -> None:
         "warehouse = ms.ref.datasource('warehouse')\n"
         "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders', columns={'order_id': 'order_id', 'created_at': 'created_at', 'amount': 'amount', 'user_id': 'user_id', 'decimal_user_id': 'decimal_user_id', 'decimal_amount': 'decimal_amount'}), primary_key=['order_id'])\n"
         "order_date = ms.time_dimension_column("
-        "name='order_date', entity=orders, column='created_at', granularity='day', is_default=True)\n"
+        "name='order_date', entity=orders, column='created_at', is_default=True)\n"
         "amount = ms.measure_column("
         "name='amount', entity=orders, column='amount', additivity=ms.additive_all(), unit='USD')\n"
         "user_id = ms.measure_column("

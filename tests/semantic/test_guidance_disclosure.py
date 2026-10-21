@@ -41,7 +41,7 @@ _REVENUE_MODEL = """\
 import marivo.datasource as md
 import marivo.semantic as ms
 orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'), primary_key=['order_id'])
-paid_at = ms.time_dimension_column(name='paid_at', entity=orders, column='paid_at', granularity='day', parse=ms.timestamp(timezone='UTC'), is_default=True)
+paid_at = ms.time_dimension_column(name='paid_at', entity=orders, column='paid_at', parse=ms.timestamp(timezone='UTC'), is_default=True)
 amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all(), unit='USD')
 finalized = ms.finalize()
 amount_value = finalized.resolve(amount)
@@ -269,7 +269,7 @@ def test_decorator_help_example_loads_the_declared_object(
                 "source=md.table('orders'), primary_key=['event_id'])\n"
                 "event_id = ms.dimension_column(name='event_id', entity=orders, column='event_id')\n"
                 "event_time = ms.time_dimension_column(name='event_time', entity=orders, "
-                "column='event_time', granularity='second', parse=ms.timestamp(timezone='UTC'))\n"
+                "column='event_time', parse=ms.timestamp(timezone='UTC'))\n"
                 + descriptor.minimal_example
                 + "\n"
                 + local_assertions

@@ -33,7 +33,7 @@ def author_http_case(
             "sales/models.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
             + f"facts=ms.entity(name='facts', datasource=ms.ref.datasource('warehouse'), source=md.json({url!r}), primary_key=['tenant','id','revision'])\n"
             + "amount=ms.measure_column(name='amount', entity=facts, column='amount', additivity=ms.additive_all())\n"
-            + "happened=ms.time_dimension_column(name='happened', entity=facts, column='happened', granularity='second', parse=ms.timestamp(timezone='UTC'), is_default=True)\n"
+            + "happened=ms.time_dimension_column(name='happened', entity=facts, column='happened', parse=ms.timestamp(timezone='UTC'), is_default=True)\n"
             + "frozen=ms.finalize()\namount_value=frozen.resolve(amount)\nhappened_value=frozen.resolve(happened)\n"
             + "@ms.metric()\ndef total():\n    return amount_value.sum(time=happened_value)\n",
         }
@@ -49,9 +49,15 @@ def author_file_case(
     assert isinstance(case.source, (CsvSourceIR, JsonSourceIR, ParquetSourceIR))
     path = Path(case.source.path)
     if profile == "parquet":
-        pq.write_table(pa.Table.from_pylist(data.rows), path)
+        physical = pa.Table.from_pylist(data.rows)
+        pq.write_table(physical, path)
         source = f"md.parquet({str(path)!r})"
-        parse = "ms.timestamp(timezone='UTC')"
+        time_type = physical.schema.field("happened").type
+        parse = (
+            "ms.timestamp()"
+            if isinstance(time_type, pa.TimestampType) and time_type.tz is not None
+            else "ms.timestamp(timezone='UTC')"
+        )
     else:
         rows = [
             {
@@ -80,7 +86,7 @@ def author_file_case(
             "sales/models.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
             + f"facts=ms.entity(name='facts', datasource=ms.ref.datasource('warehouse'), source={source}, primary_key=['tenant','id','revision'])\n"
             + "amount=ms.measure_column(name='amount', entity=facts, column='amount', additivity=ms.additive_all())\n"
-            + f"happened=ms.time_dimension_column(name='happened', entity=facts, column='happened', granularity='second', parse={parse}, is_default=True)\n"
+            + f"happened=ms.time_dimension_column(name='happened', entity=facts, column='happened', parse={parse}, is_default=True)\n"
             + "frozen=ms.finalize()\namount_value=frozen.resolve(amount)\nhappened_value=frozen.resolve(happened)\n"
             + "@ms.metric()\ndef total():\n    return amount_value.sum(time=happened_value)\n",
         }

@@ -45,34 +45,21 @@ from marivo.semantic._authoring_decorators import (
     time_dimension_column,
 )
 from marivo.semantic._authoring_metrics import (
-    cumulative as cumulative,
-)
-from marivo.semantic._authoring_metrics import (
-    grain_to_date as grain_to_date,
-)
-from marivo.semantic._authoring_metrics import (
     linear as linear,
 )
 from marivo.semantic._authoring_metrics import (
     ratio as ratio,
 )
-from marivo.semantic._authoring_metrics import (
-    trailing as trailing,
-)
 from marivo.semantic._authoring_temporal import (
-    PeriodCorrespondence,
     calendar_grain,
     period_calendar,
-    period_correspondence,
     temporal_set,
-    work_schedule,
 )
 from marivo.semantic._authoring_values import (
     additive,
     additive_all,
     ai_context,
     bind,
-    datetime,
     hour_prefix,
     join_on,
     snapshot,
@@ -121,13 +108,11 @@ nulls = _RetiredPolicy("nulls")
 zero_denominator = _RetiredPolicy("zero_denominator")
 
 __all__ = [
-    "PeriodCorrespondence",
     "additive",
     "additive_all",
     "ai_context",
     "bind",
     "calendar_grain",
-    "datetime",
     "dimension",
     "dimension_column",
     "domain",
@@ -140,7 +125,6 @@ __all__ = [
     "metric",
     "non_additive",
     "period_calendar",
-    "period_correspondence",
     "relationship",
     "snapshot",
     "strptime",
@@ -149,7 +133,6 @@ __all__ = [
     "time_dimension_column",
     "timestamp",
     "validity",
-    "work_schedule",
 ]
 
 

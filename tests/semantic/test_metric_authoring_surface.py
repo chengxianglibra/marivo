@@ -45,7 +45,6 @@ order_date_ref = ms.time_dimension_column(
     name="order_date",
     entity=orders_ref,
     column="order_date",
-    granularity="day",
     parse=ms.timestamp(timezone="UTC"),
     is_default=True,
 )

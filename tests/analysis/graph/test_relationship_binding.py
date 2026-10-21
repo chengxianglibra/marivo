@@ -409,7 +409,7 @@ def test_timed_classification_cannot_remove_consumed_contributions(
         "valid_to=ms.ref.time_dimension('sales.product.ending'), "
         "interval='closed_open', open_end=(None,), timezone='UTC'))",
     )
-    fields = "product_beginning = ms.time_dimension_column(name='beginning', entity=product, column='beginning', granularity='day')\nproduct_ending = ms.time_dimension_column(name='ending', entity=product, column='ending', granularity='day')\n"
+    fields = "product_beginning = ms.time_dimension_column(name='beginning', entity=product, column='beginning')\nproduct_ending = ms.time_dimension_column(name='ending', entity=product, column='ending')\n"
     model.write_text(
         contents.replace("finalized = ms.finalize()", fields + "finalized = ms.finalize()", 1)
     )

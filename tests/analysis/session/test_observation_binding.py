@@ -71,15 +71,15 @@ warehouse = ms.ref.datasource("warehouse")
 customers = ms.entity(name="customers", datasource=warehouse, source=md.table("customers"), primary_key=["id"])
 customer_id = ms.dimension_column(name="id", entity=customers, column="id")
 region = ms.dimension_column(name="region", entity=customers, column="region")
-customer_time = ms.time_dimension_column(name="created_at", entity=customers, column="created_at", granularity="day")
+customer_time = ms.time_dimension_column(name="created_at", entity=customers, column="created_at")
 orders = ms.entity(name="orders", datasource=warehouse, source=md.table("orders"), primary_key=["id"])
 order_customer = ms.dimension_column(name="customer_id", entity=orders, column="customer_id")
-order_time = ms.time_dimension_column(name="ordered_at", entity=orders, column="ordered_at", granularity="day", is_default=True)
+order_time = ms.time_dimension_column(name="ordered_at", entity=orders, column="ordered_at", is_default=True)
 amount = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="CNY")
 buyer = ms.relationship(name="buyer", from_entity=orders, to_entity=customers, keys=[ms.join_on(order_customer, customer_id)])
 refunds = ms.entity(name="refunds", datasource=warehouse, source=md.table("refunds"), primary_key=["id"])
 refund_customer = ms.dimension_column(name="customer_id", entity=refunds, column="customer_id")
-refund_time = ms.time_dimension_column(name="refunded_at", entity=refunds, column="refunded_at", granularity="day", is_default=True)
+refund_time = ms.time_dimension_column(name="refunded_at", entity=refunds, column="refunded_at", is_default=True)
 refund_amount = ms.measure_column(name="amount", entity=refunds, column="amount", additivity=ms.additive_all(), unit="CNY")
 """
     if versioned:
@@ -87,7 +87,7 @@ refund_amount = ms.measure_column(name="amount", entity=refunds, column="amount"
             'source=md.table("customers"), primary_key=["id"])',
             'source=md.table("customers"), primary_key=["id"], versioning=ms.validity(valid_from=ms.ref.time_dimension("sales.customers.valid_from"), valid_to=ms.ref.time_dimension("sales.customers.valid_to"), interval="closed_open", open_end=(None,), timezone="UTC"))',
         )
-        code += 'valid_from = ms.time_dimension_column(name="valid_from", entity=customers, column="valid_from", granularity="day")\nvalid_to = ms.time_dimension_column(name="valid_to", entity=customers, column="valid_to", granularity="day")\n'
+        code += 'valid_from = ms.time_dimension_column(name="valid_from", entity=customers, column="valid_from")\nvalid_to = ms.time_dimension_column(name="valid_to", entity=customers, column="valid_to")\n'
     if fanout:
         code = code.replace(
             "from_entity=orders, to_entity=customers, keys=[ms.join_on(order_customer, customer_id)]",
@@ -95,8 +95,8 @@ refund_amount = ms.measure_column(name="amount", entity=refunds, column="amount"
         )
     if sampled:
         code = code.replace(
-            'column="ordered_at", granularity="day", is_default=True',
-            'column="ordered_at", granularity="hour", parse=ms.timestamp(timezone="UTC", sample_interval=(1, "hour")), is_default=True',
+            'column="ordered_at", is_default=True',
+            'column="ordered_at", parse=ms.timestamp(timezone="UTC"), sample_interval=(1, "hour"), is_default=True',
         )
     if not missing:
         code += 'refund_buyer = ms.relationship(name="refund_buyer", from_entity=refunds, to_entity=customers, keys=[ms.join_on(refund_customer, customer_id)])\n'

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import datetime as _datetime
 from collections.abc import Mapping
-from dataclasses import dataclass
 
 from ibis.common.deferred import Deferred
 
@@ -17,7 +16,6 @@ from marivo.refs import (
     SemanticKind,
     TemporalSetKind,
     TimeDimensionKind,
-    WorkScheduleKind,
 )
 from marivo.refs import (
     ref as ref_factory,
@@ -33,57 +31,8 @@ from marivo.semantic._authoring_context import (
 from marivo.semantic._authoring_validation import _validate_timezone
 from marivo.semantic._authoring_values import _build_ai_context
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
-from marivo.semantic.ir import PeriodCalendarIR, TemporalSetIR, WorkScheduleIR
+from marivo.semantic.ir import PeriodCalendarIR, TemporalSetIR
 from marivo.semantic.typing import AiContextValue
-
-
-@dataclass(frozen=True, init=False)
-class PeriodCorrespondence:
-    """An authored same-level baseline-key mapping owned by one calendar."""
-
-    level: str
-    baseline_key: Ref[DimensionKind]
-
-    @classmethod
-    def _create(
-        cls,
-        *,
-        level: str,
-        baseline_key: Ref[DimensionKind],
-    ) -> PeriodCorrespondence:
-        value = object.__new__(cls)
-        object.__setattr__(value, "level", level)
-        object.__setattr__(value, "baseline_key", baseline_key)
-        return value
-
-
-def period_correspondence(
-    *, level: str, baseline_key: Deferred | Ref[DimensionKind]
-) -> PeriodCorrespondence:
-    """Declare the baseline-key field for one named calendar correspondence.
-
-    Args:
-        level: Calendar level name.
-        baseline_key: Native Dimension or explicit dimension lookup Ref.
-    Returns: A frozen PeriodCorrespondence with a baseline field lookup key.
-    Example: ``ms.period_correspondence(level="week", baseline_key=previous_week)``.
-    Constraints: The calendar's completed scope checks field kind and ownership; Refs retain lookup semantics.
-    """
-    if type(level) is not str or not level or level == "day":
-        _raise(
-            ErrorKind.INVALID_REF,
-            "correspondence level must be a non-empty declared calendar level.",
-            cls=SemanticDecoratorError,
-        )
-    key = _require_ref_id(
-        baseline_key,
-        parameter="baseline_key",
-        expected=(SemanticKind.DIMENSION,),
-    )
-    return PeriodCorrespondence._create(
-        level=level,
-        baseline_key=ref_factory.dimension(key),
-    )
 
 
 def period_calendar(
@@ -93,7 +42,6 @@ def period_calendar(
     boundary_timezone: str,
     coverage: tuple[_datetime.date, _datetime.date],
     levels: Mapping[str, Deferred | Ref[DimensionKind]],
-    correspondences: Mapping[str, PeriodCorrespondence] | None = None,
     domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
 ) -> Ref[PeriodCalendarKind]:
@@ -109,7 +57,6 @@ def period_calendar(
         boundary_timezone: IANA boundary zone.
         coverage: Half-open civil-date coverage tuple.
         levels: Level names mapped to native Dimensions or lookup Refs.
-        correspondences: Optional named correspondence records.
         domain: Optional domain lookup Ref.
         ai_context: Optional business context.
     Returns: A typed calendar capture Ref, validated with the physical closure.
@@ -156,42 +103,6 @@ def period_calendar(
             value, parameter=f"levels[{level!r}]", expected=(SemanticKind.DIMENSION,)
         )
         normalized.append((level, level_ref))
-    normalized_correspondences: list[tuple[str, str, str]] = []
-    if correspondences is not None:
-        if not isinstance(correspondences, Mapping):
-            _raise(
-                ErrorKind.INVALID_REF,
-                "correspondences= must be a mapping of names to period_correspondence(...).",
-                cls=SemanticDecoratorError,
-            )
-        for correspondence_name, correspondence in correspondences.items():
-            if type(correspondence_name) is not str or not correspondence_name:
-                _raise(
-                    ErrorKind.INVALID_REF,
-                    "correspondence names must be non-empty strings.",
-                    cls=SemanticDecoratorError,
-                )
-            if type(correspondence) is not PeriodCorrespondence:
-                _raise(
-                    ErrorKind.INVALID_REF,
-                    "correspondence values must come from ms.period_correspondence(...).",
-                    cls=SemanticDecoratorError,
-                )
-            if correspondence.level not in dict(normalized):
-                _raise(
-                    ErrorKind.INVALID_REF,
-                    f"correspondence {correspondence_name!r} names undeclared level {correspondence.level!r}.",
-                    cls=SemanticDecoratorError,
-                )
-            baseline_id = _require_ref_id(
-                correspondence.baseline_key,
-                parameter=f"correspondences[{correspondence_name!r}].baseline_key",
-                expected=(SemanticKind.DIMENSION,),
-            )
-            normalized_correspondences.append(
-                (correspondence_name, correspondence.level, baseline_id)
-            )
-
     semantic_id = f"{resolved_domain}.{name}"
     ref = ref_factory.period_calendar(semantic_id)
     _check_duplicate(ctx, semantic_id, PeriodCalendarIR)
@@ -209,7 +120,6 @@ def period_calendar(
             ai_context=_build_ai_context(ai_context),
             python_symbol=name,
             location=_caller_location(),
-            correspondences=tuple(normalized_correspondences),
         ),
         None,
     )
@@ -321,84 +231,6 @@ def temporal_set(
             boundary_timezone=boundary_timezone,
             coverage=(coverage[0].isoformat(), coverage[1].isoformat()),
             category=category_value,
-            ai_context=_build_ai_context(ai_context),
-            python_symbol=name,
-            location=_caller_location(),
-        ),
-        None,
-    )
-    return ref
-
-
-def work_schedule(
-    *,
-    name: str,
-    date: Deferred | Ref[TimeDimensionKind],
-    is_working: Deferred | Ref[DimensionKind],
-    boundary_timezone: str,
-    coverage: tuple[_datetime.date, _datetime.date],
-    domain: Ref[DomainKind] | None = None,
-    ai_context: AiContextValue | None = None,
-) -> Ref[WorkScheduleKind]:
-    """Declare one finite governed daily final working-status schedule.
-
-    Args:
-        name: Schedule name.
-        date: Native day TimeField or lookup Ref.
-        is_working: Native status Dimension or lookup Ref.
-        boundary_timezone: IANA boundary zone.
-        coverage: Half-open civil-date coverage tuple.
-        domain: Optional domain lookup Ref.
-        ai_context: Optional business context.
-    Returns: A typed work-schedule capture Ref.
-    Example: ``ms.work_schedule(name="business", date=day, is_working=working, boundary_timezone="UTC", coverage=coverage)``.
-    Constraints: The completed scope resolves input fields and checks kind, ownership and time roles; Refs retain forward-reference semantics.
-    """
-    ctx = _require_ctx()
-    resolved_domain = _resolve_domain(domain, ctx)
-    if type(name) is not str or not name:
-        _raise(
-            ErrorKind.INVALID_REF,
-            "work schedule name must be a non-empty string.",
-            cls=SemanticDecoratorError,
-        )
-    date_value = _require_ref_id(
-        date,
-        parameter="date",
-        expected=(SemanticKind.TIME_DIMENSION,),
-    )
-    is_working_value = _require_ref_id(
-        is_working,
-        parameter="is_working",
-        expected=(SemanticKind.DIMENSION,),
-    )
-    _validate_timezone(boundary_timezone)
-    if (
-        type(coverage) is not tuple
-        or len(coverage) != 2
-        or type(coverage[0]) is not _datetime.date
-        or type(coverage[1]) is not _datetime.date
-        or coverage[0] >= coverage[1]
-    ):
-        _raise(
-            ErrorKind.INVALID_REF,
-            "coverage= must be a non-empty half-open tuple of exact civil dates.",
-            cls=SemanticDecoratorError,
-        )
-    semantic_id = f"{resolved_domain}.{name}"
-    ref = ref_factory.work_schedule(semantic_id)
-    _check_duplicate(ctx, semantic_id, WorkScheduleIR)
-    _push_ir(
-        ctx,
-        ref,
-        WorkScheduleIR(
-            semantic_id=semantic_id,
-            domain=resolved_domain,
-            name=name,
-            date=date_value,
-            is_working=is_working_value,
-            boundary_timezone=boundary_timezone,
-            coverage=(coverage[0].isoformat(), coverage[1].isoformat()),
             ai_context=_build_ai_context(ai_context),
             python_symbol=name,
             location=_caller_location(),

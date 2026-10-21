@@ -5,7 +5,7 @@ from datetime import date
 import pytest
 
 from marivo._temporal import (
-    PeriodCalendarSnapshotV1,
+    PeriodCalendarSnapshotV2,
     PeriodRecord,
     _require_contiguous_periods,
     _snapshot_digest,
@@ -97,16 +97,14 @@ def test_snapshot_construction_rejects_gap_even_with_valid_digest() -> None:
         levels=levels,
         periods=periods,
         containments=(),
-        correspondences=(),
     )
     with pytest.raises(ValueError, match="gap or overlap"):
-        PeriodCalendarSnapshotV1(
+        PeriodCalendarSnapshotV2(
             calendar_ref=calendar_ref,
             boundary_timezone="UTC",
             coverage=coverage,
             levels=levels,
             periods=periods,
             containments=(),
-            correspondences=(),
             snapshot_digest=digest,
         )

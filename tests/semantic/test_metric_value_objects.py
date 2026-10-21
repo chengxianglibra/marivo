@@ -25,7 +25,7 @@ def test_categorical_dimension_rejects_additivity():
             ai_context=AiContextIR(),
             is_time_dimension=False,
             kind=ir.DimensionKind.CATEGORICAL,
-            granularity=None,
+            sample_interval=None,
             python_symbol="x",
             location=_loc(),
             additivity=ms.additive_all(),

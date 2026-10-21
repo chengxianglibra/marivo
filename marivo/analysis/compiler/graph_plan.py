@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, TypeAlias
 
 from marivo._definition.correspondence import coordinate_position
 from marivo._definition.expressions import PredicateExpression
+from marivo._definition.observations import SampleCoverage
 from marivo._definition.relations import PopulationDependency
 from marivo.analysis.compiler.query_program import (
     FrameCombineProgram,
@@ -30,6 +31,7 @@ from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import DataColumn, DataType, DurationDataType, ScalarDataType
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import reject
+from marivo.analysis.core.time_authority import SourceTimeAuthority
 from marivo.analysis.methods.physical import QUERY_COMBINE_KERNEL
 
 if TYPE_CHECKING:
@@ -71,6 +73,8 @@ class SourceSchema:
     inline_population: PopulationDependency | None = None
     original_identity: tuple[SourceField, ...] = ()
     binding_id: str = ""
+    coverage: tuple[SampleCoverage, ...] = ()
+    time_authorities: tuple[SourceTimeAuthority, ...] = ()
 
     def field(self, path: str) -> SourceField:
         for item in self.fields:
@@ -637,8 +641,10 @@ def _plan_query(
             if item.source_id == stage.source_id
             and (item.occurrence is None or item.occurrence == stage.occurrence)
         )
+        contribution = replace(contribution, coverage=schema.coverage)
         reduction = replace(
             reduction,
+            preserve_sample_presence=bool(schema.coverage),
             duration=duration_type(
                 contribution.definition, {item.field: item.dtype for item in schema.fields}
             ),

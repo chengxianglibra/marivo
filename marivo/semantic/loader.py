@@ -705,7 +705,6 @@ def _defined_kinds(registry: Registry) -> dict[str, SemanticKind]:
         (SemanticKind.RELATIONSHIP, registry.relationships),
         (SemanticKind.PERIOD_CALENDAR, registry.period_calendars),
         (SemanticKind.TEMPORAL_SET, registry.temporal_sets),
-        (SemanticKind.WORK_SCHEDULE, registry.work_schedules),
     ):
         kinds.update(dict.fromkeys(paths, kind))
     for path, dimension in registry.dimensions.items():
@@ -799,7 +798,6 @@ def _build_registry(
         PeriodCalendarIR,
         RelationshipIR,
         TemporalSetIR,
-        WorkScheduleIR,
     )
 
     registry = Registry()
@@ -835,8 +833,6 @@ def _build_registry(
                 registry.period_calendars[sid] = ir
             elif isinstance(ir, TemporalSetIR):
                 registry.temporal_sets[sid] = ir
-            elif isinstance(ir, WorkScheduleIR):
-                registry.work_schedules[sid] = ir
             elif isinstance(ir, RelationshipIR):
                 registry.relationships[sid] = ir
             if expression_body is not None:

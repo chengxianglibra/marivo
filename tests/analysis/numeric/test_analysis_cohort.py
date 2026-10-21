@@ -70,12 +70,12 @@ def test_previous_week_mean_selects_users_for_current_week_spending(
     declarations = """
 usage_sessions = ms.entity(name='usage_sessions', datasource=warehouse, source=md.table('usage_sessions'), primary_key=['id'])
 usage_user = ms.dimension_column(name='customer_id', entity=usage_sessions, column='customer_id')
-usage_time = ms.time_dimension_column(name='happened', entity=usage_sessions, column='happened', granularity='day', parse=ms.timestamp(timezone='UTC'))
+usage_time = ms.time_dimension_column(name='happened', entity=usage_sessions, column='happened', parse=ms.timestamp(timezone='UTC'))
 usage_hours = ms.measure_column(name='hours', entity=usage_sessions, column='hours', additivity=ms.additive_all(), unit='hour')
 usage_to_user = ms.relationship(name='usage_to_user', from_entity=usage_sessions, to_entity=customer, keys=[ms.join_on(usage_user, customer_id)])
 purchases = ms.entity(name='purchases', datasource=warehouse, source=md.table('purchases'), primary_key=['id'])
 purchase_user = ms.dimension_column(name='customer_id', entity=purchases, column='customer_id')
-purchase_time = ms.time_dimension_column(name='happened', entity=purchases, column='happened', granularity='day', parse=ms.timestamp(timezone='UTC'))
+purchase_time = ms.time_dimension_column(name='happened', entity=purchases, column='happened', parse=ms.timestamp(timezone='UTC'))
 purchase_amount = ms.measure_column(name='amount', entity=purchases, column='amount', additivity=ms.additive_all(), unit='CNY')
 purchase_to_user = ms.relationship(name='purchase_to_user', from_entity=purchases, to_entity=customer, keys=[ms.join_on(purchase_user, customer_id)])
 """

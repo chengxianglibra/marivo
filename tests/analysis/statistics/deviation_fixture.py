@@ -118,7 +118,7 @@ def prepare_profiles(
         )
         body += (
             "\ncalendar = ms.entity(name='calendar', datasource=warehouse, source=md.table('calendar', columns={'calendar_date': 'calendar_date', 'period': 'period'}), primary_key=['calendar_date'])\n"
-            "calendar_date = ms.time_dimension_column(name='calendar_date', entity=calendar, column='calendar_date', granularity='day')\n"
+            "calendar_date = ms.time_dimension_column(name='calendar_date', entity=calendar, column='calendar_date')\n"
             "period = ms.dimension_column(name='period', entity=calendar, column='period')\n"
             f"unequal = ms.period_calendar(name='unequal', date=calendar_date, boundary_timezone={zone!r}, coverage=({coverage_start}, __import__('datetime').date(2026, 8, 7)), levels={{'period': period}})\n"
         )

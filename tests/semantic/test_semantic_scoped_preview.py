@@ -20,7 +20,6 @@ from marivo.semantic.catalog import (
     PeriodCalendarEntry,
     SemanticCatalog,
     TemporalSetEntry,
-    WorkScheduleEntry,
 )
 from marivo.semantic.errors import SemanticRuntimeError
 from tests.semantic.preview_helpers import certified_project, default_scope
@@ -65,7 +64,7 @@ def scoped_catalog(
                 region = ms.dimension_column(name="region", entity=orders, column="region")
                 order_id = ms.dimension_column(name="order_id", entity=orders, column="order_id")
                 refund_id = ms.dimension_column(name="refund_id", entity=refunds, column="refund_id")
-                occurred_at = ms.time_dimension_column(name="occurred_at", entity=orders, column="ts", granularity="hour")
+                occurred_at = ms.time_dimension_column(name="occurred_at", entity=orders, column="ts")
                 amount_ref = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="USD")
                 ms.relationship(name="order_refund", from_entity=orders, to_entity=refunds, keys=[ms.join_on(order_id, refund_id)])
 
@@ -407,12 +406,6 @@ def test_temporal_artifact_certification_and_failed_previews(
             "temporal_set_artifact_missing",
             2,
         ),
-        (
-            catalog.work_schedules,
-            ms.ref.work_schedule("sales.schedule"),
-            "work_schedule_artifact_missing",
-            4,
-        ),
     ):
         before = catalog.readiness(refs=[artifact_ref])
         assert missing_kind in {issue.kind for issue in before.blockers}
@@ -439,13 +432,12 @@ def test_scoped_temporal_navigation_does_not_inspect_certified_snapshots(
     def reject_snapshot(_entry: object) -> None:
         pytest.fail("static navigation inspected a certified snapshot")
 
-    for entry_type in (PeriodCalendarEntry, TemporalSetEntry, WorkScheduleEntry):
+    for entry_type in (PeriodCalendarEntry, TemporalSetEntry):
         monkeypatch.setattr(entry_type, "_snapshot_with_status", reject_snapshot)
 
     for collection, ref in (
         (sales.period_calendars, ms.ref.period_calendar("sales.fiscal")),
         (sales.temporal_sets, ms.ref.temporal_set("sales.named_campaigns")),
-        (sales.work_schedules, ms.ref.work_schedule("sales.schedule")),
     ):
         assert len(collection) == 1
         assert collection.refs == (ref,)
@@ -462,7 +454,6 @@ def test_scoped_temporal_navigation_does_not_inspect_certified_snapshots(
     (
         (ms.SemanticKind.PERIOD_CALENDAR, "sales.fiscal", 4),
         (ms.SemanticKind.TEMPORAL_SET, "sales.named_campaigns", 2),
-        (ms.SemanticKind.WORK_SCHEDULE, "sales.schedule", 4),
     ),
 )
 def test_temporal_details_observe_state_changes_after_navigation(
@@ -475,7 +466,6 @@ def test_temporal_details_observe_state_changes_after_navigation(
     collection = {
         ms.SemanticKind.PERIOD_CALENDAR: sales.period_calendars,
         ms.SemanticKind.TEMPORAL_SET: sales.temporal_sets,
-        ms.SemanticKind.WORK_SCHEDULE: sales.work_schedules,
     }[kind]
     entry = collection.get(path)
     assert entry.details().snapshot_status == "missing"
@@ -497,3 +487,34 @@ def test_temporal_details_observe_state_changes_after_navigation(
     assert entry.details().snapshot_status == "missing"
     manifest_path.write_text(current)
     assert entry.details().snapshot_status == "current"
+
+
+@pytest.mark.parametrize("invalid_source", ("timestamp", "empty"))
+def test_native_calendar_certification_requires_date_schema_and_nonempty_coverage(
+    tmp_path: Path,
+    semantic_project_factory,
+    invalid_source: str,
+) -> None:
+    catalog = certified_project(
+        tmp_path=tmp_path, semantic_project_factory=semantic_project_factory
+    )
+    backend = ibis.duckdb.connect(str(tmp_path / "calendar.duckdb"))
+    try:
+        if invalid_source == "timestamp":
+            backend.raw_sql("ALTER TABLE calendar ALTER COLUMN calendar_date TYPE TIMESTAMP")
+        else:
+            backend.raw_sql("DELETE FROM calendar")
+    finally:
+        backend.disconnect()
+    calendar = catalog.period_calendars.get("sales.fiscal")
+    with pytest.raises(SemanticRuntimeError) as caught:
+        catalog.preview(calendar.ref, scope=default_scope(max_rows=4))
+    assert caught.value.kind == "materialize_failed"
+    assert calendar.details().snapshot_status == "missing"
+    if invalid_source == "timestamp":
+        assert (
+            caught.value.expected == "a native DATE field or an explicitly encoded civil-date field"
+        )
+        assert caught.value.details["query_executed"] is False
+    else:
+        assert "completely cover" in caught.value.message

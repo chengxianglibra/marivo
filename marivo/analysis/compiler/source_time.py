@@ -9,11 +9,10 @@ import ibis
 import ibis.expr.datatypes as dt
 import ibis.expr.types as ir
 
-from marivo.analysis.compiler.errors import compilation_error
+from marivo.analysis.compiler.errors import DatasetCompilationError, compilation_error
 from marivo.analysis.core.time_authority import SourceTimeAuthority, time_zone
 from marivo.semantic.ir import (
     DateParse,
-    DatetimeParse,
     HourPrefixParse,
     StrptimeParse,
     TargetDimensionContract,
@@ -323,6 +322,24 @@ def render(zone: str, value: ir.TimestampValue) -> ir.TimestampValue:
     return _render_native(zone, value)
 
 
+def invalid_local_time(value: ir.TimestampValue, zone: str) -> ir.BooleanValue:
+    """Reject naive civil values with no unique instant using native conversions.
+
+    Neighboring civil days supply the offsets on both sides of a transition;
+    candidate instants are checked by rendering them back to the original wall
+    value. This retains non-hour transitions and never guesses a fold.
+    """
+    day = ibis.interval(seconds=86400)
+    instant = localize(zone, value)
+    previous = localize(zone, value - day) + day
+    following = localize(zone, value + day) - day
+    return (
+        (render(zone, instant) != value)
+        | ((previous != instant) & (render(zone, previous) == value))
+        | ((following != instant) & (render(zone, following) == value))
+    ).fill_null(False)
+
+
 def _retain_authority(
     authority: SourceTimeAuthority, frozen: SourceTimeAuthority | None
 ) -> SourceTimeAuthority:
@@ -346,6 +363,8 @@ def source_time(
     read_source: Literal["engine", "system_fallback"] = "engine",
     prefix: ir.Value | None = None,
     frozen: SourceTimeAuthority | None = None,
+    validity_checks: list[ir.BooleanValue] | None = None,
+    alternative_instants: list[ir.TimestampValue] | None = None,
 ) -> tuple[ir.Value, SourceTimeAuthority]:
     """Parse and localize a column without executing it or consulting ambient state."""
     if frozen is not None:
@@ -356,11 +375,7 @@ def source_time(
             read_source = frozen.source
     physical = value.type()
     parse = axis.parse
-    declared = (
-        parse.timezone
-        if isinstance(parse, (DatetimeParse, TimestampParse, StrptimeParse))
-        else None
-    )
+    declared = parse.timezone if isinstance(parse, (TimestampParse, StrptimeParse)) else None
     if isinstance(parse, HourPrefixParse):
         if prefix is None:
             raise compilation_error("a bound civil-date hour prefix", "missing prefix axis")
@@ -378,12 +393,10 @@ def source_time(
             raise compilation_error(
                 "a native civil date", "unsupported temporal source representation"
             )
-    elif parse is not None and not isinstance(parse, (DatetimeParse, TimestampParse)):
+    elif parse is not None and not isinstance(parse, (TimestampParse)):
         raise compilation_error("a bound supported time parser", "unresolved composite parser")
     if isinstance(value, ir.DateValue):
-        if parse is None and axis.logical_type == "timestamp":
-            value = value.cast("timestamp")
-        elif axis.logical_type != "date" or declared is not None:
+        if isinstance(parse, TimestampParse) or declared is not None:
             raise compilation_error(
                 "a civil-date parser without timezone", "unsupported temporal source representation"
             )
@@ -411,8 +424,13 @@ def source_time(
                 "exact native timezone conversion precision",
                 "submicrosecond conversion unsupported",
             )
-        if declared is not None and declared != kind.timezone:
-            raise compilation_error("matching declared and physical timezones", "timezone conflict")
+        if declared is not None:
+            raise DatasetCompilationError(
+                expected="an aware source without parser timezone",
+                received="timezone declared on an already-aware physical source",
+                repair="Remove timezone from ms.timestamp() or ms.strptime(...); the aware physical source already owns its clock.",
+                location="analysis.source_time",
+            )
         adopted, origin = kind.timezone, "physical"
         instant = value
         if engine == "mysql" and adopted == "UTC" and boundary_timezone == "UTC":
@@ -431,6 +449,23 @@ def source_time(
             raise compilation_error(
                 "execution-resolved source read timezone", "missing wall-clock authority"
             )
+        if validity_checks is not None and time_zone(adopted).utcoffset(None) is None:
+            validity_checks.append(invalid_local_time(value, adopted))
+        if alternative_instants is not None and time_zone(adopted).utcoffset(None) is None:
+            day = ibis.interval(seconds=86400)
+            for candidate in (
+                localize(adopted, value - day) + day,
+                localize(adopted, value + day) - day,
+            ):
+                alternative_instants.append(
+                    timestamp(
+                        ibis.ifelse(
+                            render(adopted, candidate) == value,
+                            candidate,
+                            ibis.null().cast(candidate.type()),
+                        )
+                    )
+                )
         if adopted == boundary_timezone and time_zone(adopted).utcoffset(None) is not None:
             instant = None
         else:

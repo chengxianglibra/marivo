@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date, datetime
+from datetime import datetime
 
 import pytest
 
 import marivo.analysis as ma
 from marivo._compat import UTC
-from marivo._temporal import TimeScopeContractV1, time_scope
+from marivo._temporal import TimeScopeContractV1
+from marivo.analysis.dsl.temporal import exact_scope
 from marivo.analysis.evidence._dataset_types import ArtifactDigest
 from marivo.analysis.session._lazy_read_model import SessionSummary
 from marivo.datasource.errors import repair as datasource_repair
@@ -372,8 +373,9 @@ def test_semantic_dto_and_report_results_render_shared_card_shape() -> None:
 def _time_scope_contract() -> TimeScopeContractV1:
     return TimeScopeContractV1(
         kind="absolute",
-        start=date(2026, 7, 1),
-        end=date(2026, 8, 1),
+        start=datetime(2026, 7, 1, tzinfo=UTC),
+        end=datetime(2026, 8, 1, tzinfo=UTC),
+        boundary_timezone="UTC",
     )
 
 
@@ -408,9 +410,12 @@ def test_contract_result_protocol_is_structural_and_side_effect_free(
 
 
 def test_time_scope_render_honors_output_budget(capsys: pytest.CaptureFixture[str]) -> None:
-    scope = time_scope(start="2026-07-01", end="2026-08-01")
+    scope = exact_scope("2026-07-01", "2026-08-01", "UTC")
 
-    assert scope.render() == "TimeScope(kind=absolute, start=2026-07-01, end=2026-08-01)"
+    assert scope.render() == (
+        "TimeScope(kind=absolute, start=2026-07-01T00:00:00+00:00, "
+        "end=2026-08-01T00:00:00+00:00, boundary_timezone=UTC)"
+    )
     assert scope.render(max_output_bytes=None) == scope.render()
     scope.show()
     assert capsys.readouterr().out == scope.render() + "\n"

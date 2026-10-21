@@ -89,7 +89,7 @@ def author(root: Path) -> None:
     for kind in ("snapshot", "validity"):
         name = "subjects_" + kind
         version = (
-            f"ms.snapshot(partition_field=ms.ref.time_dimension('sales.{name}.beginning'),grain='day',timezone='UTC')"
+            f"ms.snapshot(partition_field=ms.ref.time_dimension('sales.{name}.beginning'),timezone='UTC')"
             if kind == "snapshot"
             else f"ms.validity(valid_from=ms.ref.time_dimension('sales.{name}.beginning'),valid_to=ms.ref.time_dimension('sales.{name}.ending'),interval='closed_open',open_end=(None,),timezone='UTC')"
         )
@@ -97,7 +97,7 @@ def author(root: Path) -> None:
         for field in ("id", "tenant", "enabled"):
             code += f"{name}_{field}=ms.dimension_column(name={field!r},entity={name},column={field!r})\n"
         for field in ("beginning", "ending"):
-            code += f"{name}_{field}=ms.time_dimension_column(name={field!r},entity={name},column={field!r},granularity='day')\n"
+            code += f"{name}_{field}=ms.time_dimension_column(name={field!r},entity={name},column={field!r}, )\n"
         code += f"{name}_amount=ms.measure_column(name='amount',entity={name},column='amount',additivity=ms.additive_all())\n"
     code += """subjects=ms.entity(name='subjects',datasource=ms.ref.datasource('warehouse'),source=md.table('subjects'),primary_key=['id','tenant'])
 subject_id=ms.dimension_column(name='id',entity=subjects,column='id')
@@ -108,8 +108,8 @@ reading_id=ms.dimension_column(name='reading_id',entity=readings,column='reading
 reading_subject=ms.dimension_column(name='id',entity=readings,column='id')
 reading_tenant=ms.dimension_column(name='tenant',entity=readings,column='tenant')
 energy=ms.measure_column(name='energy',entity=readings,column='energy',additivity=ms.additive_all(),unit='kWh')
-recorded_at=ms.time_dimension_column(name='recorded_at',entity=readings,column='recorded_at',granularity='day',parse=ms.timestamp(timezone='UTC'))
-settled_at=ms.time_dimension_column(name='settled_at',entity=readings,column='settled_at',granularity='day',parse=ms.timestamp(timezone='UTC'))
+recorded_at=ms.time_dimension_column(name='recorded_at',entity=readings,column='recorded_at', parse=ms.timestamp())
+settled_at=ms.time_dimension_column(name='settled_at',entity=readings,column='settled_at', parse=ms.timestamp())
 reading_subjects=ms.relationship(name='reading_subjects',from_entity=readings,to_entity=subjects,keys=[ms.join_on(reading_subject,subject_id),ms.join_on(reading_tenant,subject_tenant)])
 reading_validity=ms.relationship(name='reading_validity',from_entity=readings,to_entity=subjects_validity,keys=[ms.join_on(reading_subject,subjects_validity_id),ms.join_on(reading_tenant,subjects_validity_tenant)])
 finalized=ms.finalize()

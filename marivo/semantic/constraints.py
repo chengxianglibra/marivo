@@ -86,7 +86,6 @@ class ConstraintId(StrEnum):
     TIME_FOLD_MISSING = "missing_time_fold"
     STATUS_TIME_DIMENSION_REQUIRED = "status_time_dimension_required"
     STATUS_TIME_DIMENSION_INVALID = "invalid_status_time_dimension"
-    TIME_GRANULARITY_PARSE_COMPATIBLE = "time_granularity_parse_compatible"
 
 
 _EXPR_BODY_AST_SPEC = ASTSpec(
@@ -392,7 +391,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Deferred parse resolves only native temporal ibis types; encoded time values need "
         "explicit parse metadata, and naive native timestamps need a declared source timezone.",
         "Use ms.strptime(format, ...) for string/integer columns, ms.hour_prefix(prefix, ...) "
-        "for hour-only columns, and ms.datetime(timezone=...) or ms.timestamp(timezone=...) "
+        "for hour-only columns, and ms.timestamp(timezone=...) "
         "for naive native temporal columns.",
     ),
     ConstraintId.TIME_DIMENSION_DEFAULT_UNIQUE: _constraint(
@@ -684,23 +683,14 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Listing and lookup methods require a loaded registry.",
         "Call ms.load() to load the semantic project, then access metrics, entities, or dimensions.",
     ),
-    ConstraintId.TIME_GRANULARITY_PARSE_COMPATIBLE: _constraint(
-        ConstraintId.TIME_GRANULARITY_PARSE_COMPATIBLE,
-        "invalid_ref",
-        "decorator",
-        ("time_dimension",),
-        "Time granularity must match its parse variant.",
-        "Parse variants make most time combinations unconstructable; the remaining rule is granularity compatibility.",
-        "Use ms.datetime(...) or ms.timestamp(...) for minute/second grains, and use granularity='hour' with ms.hour_prefix(...).",
-    ),
     ConstraintId.SAMPLE_INTERVAL_VALID: _constraint(
         ConstraintId.SAMPLE_INTERVAL_VALID,
         "invalid_sample_interval",
         "decorator",
         ("time_dimension",),
-        "sample_interval must be a positive minute or hour interval that divides one day evenly.",
-        "Sampled time dimensions represent periodic measurements within a day; the interval must evenly divide 24 hours.",
-        "Use sample_interval=(5, 'minute') or another minute/hour interval that divides a day.",
+        "sample_interval must use a canonical positive minute/hour interval and a source encoding that represents every sample.",
+        "The time field owns cadence; its interval must divide 24 hours, with whole-hour intervals spelled in hours.",
+        "Set sample_interval on the time field using a representable interval such as (5, 'minute') or (1, 'hour').",
     ),
     ConstraintId.TIME_FOLD_VALID: _constraint(
         ConstraintId.TIME_FOLD_VALID,

@@ -1,33 +1,31 @@
 # Certified Temporal Authority
 
-PeriodCalendar, TemporalSet and WorkSchedule define finite governed time facts.
+PeriodCalendar and TemporalSet define finite governed time facts.
 Their Python declarations state intent; exhaustive certification freezes the
 source values that execute that intent. Analysis consumes these snapshots
 without querying their sources at business execution time.
 [Temporal semantics](../temporal-semantics.md) owns consuming boundaries, windows,
 report timezones and frozen Frame correspondence.
 
-## Three independent semantic kinds
+## Two independent semantic kinds
 
 | Kind | Source fields | Certified meaning |
 | --- | --- | --- |
-| PeriodCalendar | Civil date plus named level keys and optional baseline keys | Finite exhaustive ordered partition and containment graph |
+| PeriodCalendar | Civil date plus named level keys | Finite exhaustive ordered partition and containment graph |
 | TemporalSet | Unique occurrence ID, start/end and optional category | Exact finite occurrences; overlap and gaps permitted |
-| WorkSchedule | Civil date and non-null boolean is_working | Final working status for every covered day |
 
 All field refs for an object belong to one Entity. Constructors use explicit
 boundary_timezone and half-open civil-date coverage. These declarations do not
 require physical table/column names or redundant author-maintained ordinals.
-The same source Entity may back all three kinds, each with its own ref/digest.
-WorkSchedule does not depend on TemporalSet: holiday labels and final work status
-can represent different company policies.
+The same source Entity may back both kinds, each with its own ref/digest.
 
 ## Period calendars
 
 ms.period_calendar declares name, date, boundary_timezone, coverage and a levels
-mapping. date must be a day-grain civil-date TimeDimension. A timestamp-bearing
-parse is rejected; undeclared native type remains a premise until certification
-proves actual civil-date values.
+mapping. date must be a civil-date TimeDimension. A timestamp-bearing parse is rejected;
+parse=None retains a premise until source schema preparation proves native DATE.
+Midnight timestamp values cannot substitute for a DATE type. Empty coverage does
+not certify a calendar.
 
 Each level maps a local name to a non-null Dimension on that Entity. Keys must
 be globally unique within the level, so FY2026-Q1 can identify a quarter while
@@ -48,12 +46,6 @@ contain multiple A periods. Crossing partitions and coincident boundaries gain
 no edge. The system stores the direct transitive reduction and admissible
 closure; authors do not add manual roll-up overrides. Derived starts, ends,
 ordinals and containment positions come from the validated rows.
-
-Optional correspondences map names to ms.period_correspondence(level=...,
-baseline_key=...). The baseline key is a nullable same-Entity Dimension constant
-within each current period. Non-null targets identify covered periods at the
-declared level and are injective. Null means no authored baseline. This is a
-semantic mapping fact, not an automatically chosen Analysis matching algorithm.
 
 For already declared field Refs and domain, a calendar can be authored as:
 
@@ -90,15 +82,6 @@ without inferring duration from a label. Category is a nonempty canonical string
 or null. Certification stores exact IDs, boundaries, categories and digest;
 there is no runtime recurrence expansion.
 
-## Work schedules
-
-ms.work_schedule declares date, is_working, boundary_timezone and coverage. Date
-is a civil-date day-grain TimeDimension; is_working is a non-null boolean
-Dimension on the same Entity. Certification requires exactly one value for
-each covered date, without gaps or duplicates. The source owns precedence among
-weekends, holidays and makeup days. Marivo consumes the final boolean rather
-than running a competing policy engine.
-
 ## Certification, staleness and storage
 
 catalog.preview(ref, scope=...) reads the current datasource over complete
@@ -122,9 +105,8 @@ plus the level when bound as a Grain; textual keys alone cannot establish equali
 
 | Snapshot | Normalized executable fields |
 | --- | --- |
-| period-calendar-snapshot/v1 | Ref, timezone, coverage, level periods/bounds/ordinals, containments, correspondences |
+| period-calendar-snapshot/v2 | Ref, timezone, coverage, level periods/bounds/ordinals, containments |
 | TemporalSetSnapshotV1 | Ref, timezone, coverage, occurrence IDs/bounds/categories |
-| WorkScheduleSnapshotV1 | Ref, timezone, coverage and normalized daily booleans |
 
 Calendar day rows may be discarded after validation because contiguous bounds
 reproduce membership. The reserved day level derives from coverage. Encoding
@@ -143,8 +125,6 @@ occurrence = campaigns.occurrence("launch-2026")
 occurrences = campaigns.occurrences(
     start=date(2026, 1, 1), end=date(2027, 1, 1), limit=20,
 )
-schedule = catalog.work_schedules.get("commerce.sales_schedule")
-schedule.details().show()
 ```
 
 period(level, key), period_on(level, date) and occurrence(key) return exact
@@ -162,8 +142,7 @@ fails with concrete semantic repairs.
 Entry details expose snapshot_status and definition/dependency facts. Derived
 period counts/graphs or occurrence counts are available only with a current
 certificate; unavailable and an empty certified graph remain distinct.
-WorkSchedule is a leaf entry with details/show, without a separate analysis rule
-constructor. Exact members are discoverable through native type Help.
+Exact members are discoverable through native type Help.
 
 ## Implementation map
 

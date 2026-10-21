@@ -10,7 +10,7 @@ from ibis.common.deferred import Deferred
 
 from marivo._definition.types import AxisBinding, CalendarCoordinate, IntervalCoordinate
 from marivo._grouping import Grouping
-from marivo._temporal import PeriodCalendarSnapshotV1, TimeScope
+from marivo._temporal import PeriodCalendarSnapshotV2, TimeScope
 from marivo.analysis.core.artifact_data import DataColumn
 from marivo.analysis.core.data_types import ScalarDataType
 from marivo.analysis.core.frame_calendar import FrozenSourceTime, freeze_calendar, freeze_interval
@@ -169,7 +169,7 @@ def observe(
     where: Deferred | None = None,
     memberships: tuple[Grouping, ...] = (),
     timezone: str = "UTC",
-    calendar_snapshots: tuple[PeriodCalendarSnapshotV1, ...] = (),
+    calendar_snapshots: tuple[PeriodCalendarSnapshotV2, ...] = (),
     _parent_filter: Deferred | None = None,
     _complete_calendar: bool = True,
     _endpoint_scope: TimeScope | None = None,

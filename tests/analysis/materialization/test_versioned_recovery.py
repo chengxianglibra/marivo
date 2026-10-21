@@ -12,7 +12,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import SourceSession
 from marivo.datasource.ir import TableSourceIR
@@ -77,7 +76,7 @@ def test_native_versioned_members_independent_fixed_and_cold(
         for kind in ("snapshot", "validity"):
             name = "subjects_" + kind
             version = (
-                f"ms.snapshot(partition_field=ms.ref.time_dimension('sales.{name}.beginning'),grain='day',timezone='UTC')"
+                f"ms.snapshot(partition_field=ms.ref.time_dimension('sales.{name}.beginning'),timezone='UTC')"
                 if kind == "snapshot"
                 else f"ms.validity(valid_from=ms.ref.time_dimension('sales.{name}.beginning'),valid_to=ms.ref.time_dimension('sales.{name}.ending'),interval='closed_open',open_end=(None,),timezone='UTC')"
             )
@@ -85,7 +84,7 @@ def test_native_versioned_members_independent_fixed_and_cold(
             for field in ("id", "tenant", "enabled"):
                 models += f"{name}_{field}=ms.dimension_column(name={field!r},entity={name},column={field!r})\n"
             for field in ("beginning", "ending"):
-                models += f"{name}_{field}=ms.time_dimension_column(name={field!r},entity={name},column={field!r},granularity='day')\n"
+                models += f"{name}_{field}=ms.time_dimension_column(name={field!r},entity={name},column={field!r})\n"
             models += f"{name}_amount=ms.measure_column(name='amount',entity={name},column='amount',additivity=ms.additive_all())\n"
             if backend == "mysql":
                 models += f"@ms.dimension(entity={name})\ndef enabled_{kind}({name}):\n    return {name}.enabled == 1\n"
@@ -105,7 +104,7 @@ def test_native_versioned_members_independent_fixed_and_cold(
         september = session.instant(datetime(2026, 9, 1, tzinfo=timezone.utc))
         outputs: dict[str, mv.AnalysisFrame] = {}
         for kind in ("snapshot", "validity"):
-            entity = ms.ref.entity("sales.subjects_" + kind)
+            entity = session.catalog.entities.get("sales.subjects_" + kind)
             before = terminal_runs(session)
             with monkeypatch.context() as construction:
                 construction.setattr(SourceSession, "execute", forbidden)

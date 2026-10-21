@@ -730,8 +730,8 @@ class _Resolver:
             if definition.versioning is not None:
                 details.append(("versioning", repr(definition.versioning)))
         elif isinstance(definition, DimensionIR):
-            if definition.granularity is not None:
-                details.append(("granularity", definition.granularity))
+            if definition.sample_interval is not None:
+                details.append(("sample_interval", definition.sample_interval.to_token()))
             if definition.parse is not None:
                 details.append(("parse", repr(definition.parse)))
             if definition.is_default:

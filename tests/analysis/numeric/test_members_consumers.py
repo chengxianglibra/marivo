@@ -76,7 +76,7 @@ def test_complete_versioned_members(
         if "user" in arguments:
             monkeypatch.setenv("MARIVO_R93_READER", str(arguments.pop("user")))
             arguments["user_env"] = "MARIVO_R93_READER"
-        version = "ms.snapshot(partition_field=ms.ref.time_dimension('sales.subjects.beginning'),grain='day',timezone='UTC')"
+        version = "ms.snapshot(partition_field=ms.ref.time_dimension('sales.subjects.beginning'),timezone='UTC')"
         semantic_project_factory(
             {
                 "datasources/warehouse.py": "import marivo.datasource as md\n"
@@ -87,7 +87,7 @@ def test_complete_versioned_members(
                 "sales/models.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 + f"subjects=ms.entity(name='subjects',datasource=ms.ref.datasource('warehouse'),source=md.table({case.source.table!r},database={case.source.database!r}),primary_key=['id','tenant'],versioning={version})\n"
                 + "subject_id=ms.dimension_column(name='id',entity=subjects,column='id')\ntenant=ms.dimension_column(name='tenant',entity=subjects,column='tenant')\n"
-                + "beginning=ms.time_dimension_column(name='beginning',entity=subjects,column='beginning',granularity='day')\nending=ms.time_dimension_column(name='ending',entity=subjects,column='ending',granularity='day')\n"
+                + "beginning=ms.time_dimension_column(name='beginning',entity=subjects,column='beginning')\nending=ms.time_dimension_column(name='ending',entity=subjects,column='ending')\n"
                 + "amount=ms.measure_column(name='amount',entity=subjects,column='amount',additivity=ms.additive_all())\n"
                 + "enabled=ms.dimension_column(name='enabled',entity=subjects,column='enabled')\n"
                 + (

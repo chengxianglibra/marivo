@@ -41,7 +41,7 @@ from marivo._definition.types import (
     IntervalCoordinate,
 )
 from marivo._temporal import (
-    PeriodCalendarSnapshotV1,
+    PeriodCalendarSnapshotV2,
 )
 from marivo.analysis.binding.coordinates import (
     CoordinateBinding,
@@ -50,7 +50,6 @@ from marivo.analysis.binding.coordinates import (
     native_read,
 )
 from marivo.analysis.binding.membership import membership_reads
-from marivo.analysis.binding.sampling import sampling_coverage
 from marivo.analysis.core.model import reject
 from marivo.analysis.observation.relationship_binding import RelationshipResolver
 from marivo.semantic._compiled_state import CompiledSemanticState
@@ -101,7 +100,7 @@ def bind_observation(
     where: PredicateExpression | None,
     timezone: str,
     state: CompiledSemanticState | None,
-    calendar_snapshots: tuple[PeriodCalendarSnapshotV1, ...] = (),
+    calendar_snapshots: tuple[PeriodCalendarSnapshotV2, ...] = (),
     memberships: tuple[MembershipBinding, ...] = (),
     population: PopulationDependency | None = None,
 ) -> ObservationBinding:
@@ -189,7 +188,7 @@ def bind_observation(
             reject(
                 "an explicit observation period for time samples",
                 f"None at {occurrence}",
-                "Pass during=session.time_scope(...).",
+                "Pass by=(session.time_scope(...),).",
                 "session.observe",
             )
         if isinstance(node, MemberCount):
@@ -300,13 +299,12 @@ def bind_observation(
                 if (
                     contribution_period is None
                     and not coordinate_calendar_axes
-                    and dimension.parse is not None
-                    and getattr(dimension.parse, "sample_interval", None) is not None
+                    and dimension.sample_interval is not None
                 ):
                     reject(
                         "an explicit period for sampled time",
                         f"None for {dimension.semantic_id} at {occurrence}",
-                        "Pass during=session.time_scope(...).",
+                        "Pass by=(session.time_scope(...),).",
                         "session.observe",
                     )
             reads = [
@@ -528,11 +526,6 @@ def bind_observation(
     bound_contributions = bind_windows(
         tuple(contributions), metrics, declared, period, calendar, calendar_snapshots
     )
-    if state is not None and (calendar is None or calendar.cells):
-        bound_contributions = tuple(
-            replace(item, coverage=sampling_coverage(item, state, calendar=calendar))
-            for item in bound_contributions
-        )
     if (
         not contributions
         and count_populations

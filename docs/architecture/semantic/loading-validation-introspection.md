@@ -48,7 +48,7 @@ unknown names and ambiguous short names remain distinct outcomes.
 | metrics | Native Deferred Metric expression |
 | relationships | Immutable resolved Relationship |
 | domains / datasources | Entry with details and narrower collections |
-| period_calendars / temporal_sets / work_schedules | Entry backed by dedicated temporal authority |
+| period_calendars / temporal_sets | Entry backed by dedicated temporal authority |
 
 Use catalog.describe(ref) for captured expression metadata; Deferred has no
 Marivo show/contract method. Entry details and typed fields describe captured

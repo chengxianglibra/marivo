@@ -146,7 +146,7 @@ def test_session_observe_uses_external_layer_datasource(
             rows = ms.entity(name="refunds", datasource=source, source=md.table("refunds", columns={"id": "id", "amount": "amount", "occurred_at": "occurred_at"}), primary_key=["id"])
 
             amount = ms.measure_column(name="amount", entity=rows, column="amount", additivity=ms.additive_all())
-            instant = ms.time_dimension_column(name="instant", entity=rows, column="occurred_at", granularity="day", parse=None, is_default=True)
+            instant = ms.time_dimension_column(name="instant", entity=rows, column="occurred_at", parse=None, is_default=True)
             finalized = ms.finalize()
             amount_value = finalized.resolve(amount)
             @ms.metric()

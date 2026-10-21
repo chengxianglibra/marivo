@@ -861,7 +861,7 @@ def test_named_source_pending_interpretation_is_checked_before_value_names(
     fault: str,
 ) -> None:
     import marivo.semantic as ms
-    from marivo._temporal import PeriodCalendarSnapshotV1, certify_period_calendar, semantic_grain
+    from marivo._temporal import PeriodCalendarSnapshotV2, certify_period_calendar, semantic_grain
     from marivo.analysis.core.frame_data import SourceFrameBinding
     from marivo.analysis.dsl import frame_sources
 
@@ -870,7 +870,7 @@ def test_named_source_pending_interpretation_is_checked_before_value_names(
     start, end = date(2026, 8, 1), date(2026, 8, 9)
     calendar = ms.ref.period_calendar("sales.fiscal")
 
-    def snapshot(prefix: str) -> PeriodCalendarSnapshotV1:
+    def snapshot(prefix: str) -> PeriodCalendarSnapshotV2:
         return certify_period_calendar(
             calendar_ref=calendar,
             boundary_timezone="UTC",
@@ -885,7 +885,7 @@ def test_named_source_pending_interpretation_is_checked_before_value_names(
     first = snapshot("P")
     second = first if fault == "level" else snapshot("Q")
 
-    def source(level: str, captured: PeriodCalendarSnapshotV1) -> AnalysisFrame:
+    def source(level: str, captured: PeriodCalendarSnapshotV2) -> AnalysisFrame:
         return frame_sources.observe(
             session._runtime.local,
             session.catalog._state,

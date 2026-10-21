@@ -20,14 +20,12 @@ from marivo.semantic._authoring_context import (
     _require_ref_id,
 )
 from marivo.semantic._authoring_validation import (
-    _normalize_sample_interval_value,
     _validate_timezone,
 )
 from marivo.semantic._dsl_authoring import AdditiveAllV1, AdditiveOverV1
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
 from marivo.semantic.ir import (
     AiContextIR,
-    DatetimeParse,
     HourPrefixParse,
     JoinKey,
     SnapshotVersioningIR,
@@ -173,33 +171,23 @@ def _build_ai_context(ai_context: AiContextValue | None) -> AiContextIR:
 
 def snapshot(
     *,
-    partition_field: Deferred | Ref[DimensionKind | TimeDimensionKind],
-    grain: Literal["day"],
-    timezone: str | None = None,
-    format: str | None = None,
+    partition_field: Deferred | Ref[TimeDimensionKind],
+    timezone: str,
 ) -> SnapshotVersioningIR:
     """Declare daily snapshot partition versioning for an entity.
 
     Args:
-        partition_field: Native Dimension/TimeField or explicit lookup Ref.
-        grain: Day grain.
-        timezone: Optional IANA zone.
-        format: Optional source encoding.
+        partition_field: Native TimeField or explicit TimeDimension lookup Ref.
+        timezone: Required IANA zone defining the business snapshot day.
     Returns: A frozen SnapshotVersioningIR with the partition lookup key.
-    Example: ``ms.snapshot(partition_field=day_ref, grain="day")``.
+    Example: ``ms.snapshot(partition_field=day_ref, timezone="UTC")``.
     Constraints: The completed Entity scope resolves the partition field; lookup Refs may name forward dependencies.
     """
     partition_ref = _require_ref_id(
         partition_field,
         parameter="partition_field",
-        expected=(SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION),
+        expected=(SemanticKind.TIME_DIMENSION,),
     )
-    if grain != "day":
-        _raise(
-            ErrorKind.INVALID_REF,
-            "snapshot versioning currently supports only grain='day'.",
-            cls=SemanticDecoratorError,
-        )
     if timezone is not None:
         try:
             ZoneInfo(timezone)
@@ -212,16 +200,14 @@ def snapshot(
     return SnapshotVersioningIR(
         kind="snapshot",
         partition_field=partition_ref,
-        grain="day",
         timezone=timezone,
-        format=format,
     )
 
 
 def validity(
     *,
-    valid_from: Deferred | Ref[DimensionKind | TimeDimensionKind],
-    valid_to: Deferred | Ref[DimensionKind | TimeDimensionKind],
+    valid_from: Deferred | Ref[TimeDimensionKind],
+    valid_to: Deferred | Ref[TimeDimensionKind],
     interval: Literal["closed_open", "closed_closed"],
     open_end: tuple[str | None, ...],
     timezone: str | None = None,
@@ -229,14 +215,14 @@ def validity(
     """Declare SCD2 validity interval versioning for an entity.
 
     Args:
-        valid_from: Native Dimension/TimeField or lookup Ref for the interval start.
-        valid_to: Native Dimension/TimeField or lookup Ref for the interval end.
+        valid_from: Native TimeField or lookup Ref for the interval start.
+        valid_to: Native TimeField or lookup Ref for the interval end.
         interval: ``"closed_open"`` (``[valid_from, valid_to)``) or
             ``"closed_closed"`` (``[valid_from, valid_to]``).
         open_end: Non-empty tuple of sentinel values that mean "still current"
             in the ``valid_to`` column. Use ``None`` for SQL NULL, or a string
             sentinel such as ``"9999-12-31"``.
-        timezone: Optional IANA timezone name for anchor date casting.
+        timezone: Business timezone required for DATE bounds; forbidden for timestamp bounds.
 
     Returns:
         A frozen ``ValidityVersioningIR`` with interval field lookup keys.
@@ -282,12 +268,12 @@ def validity(
     valid_from_ref = _require_ref_id(
         valid_from,
         parameter="valid_from",
-        expected=(SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION),
+        expected=(SemanticKind.TIME_DIMENSION,),
     )
     valid_to_ref = _require_ref_id(
         valid_to,
         parameter="valid_to",
-        expected=(SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION),
+        expected=(SemanticKind.TIME_DIMENSION,),
     )
     return ValidityVersioningIR(
         kind="validity",
@@ -337,47 +323,9 @@ def join_on(
     )
 
 
-def datetime(
-    *,
-    timezone: str | None = None,
-    sample_interval: tuple[int, Literal["minute", "hour"]] | None = None,
-) -> DatetimeParse:
-    """Declare an already-temporal datetime column parse.
-
-    Use as the ``parse=`` value on ``@ms.time_dimension(...)`` when the
-    source column is a native datetime type.
-
-    Args:
-        timezone: Optional IANA timezone name. Declare it for naive source
-            columns; otherwise readiness blocks analysis because runtime would
-            interpret values in the datasource read timezone.
-        sample_interval: Optional periodic sampling interval for sampled time
-            dimensions, e.g. ``(5, "minute")`` or ``(1, "hour")``.
-
-    Returns:
-        A ``DatetimeParse`` value object.
-
-    Raises:
-        SemanticDecoratorError: ``timezone`` is not a valid IANA name.
-
-    Example:
-        >>> @ms.time_dimension(entity=events, granularity="minute",
-        ...                    parse=ms.datetime(timezone="UTC"))
-        ... def ts(events):
-        ...     return events.ts
-    """
-    if timezone is not None:
-        _validate_timezone(timezone)
-    return DatetimeParse(
-        timezone=timezone,
-        sample_interval=_normalize_sample_interval_value(sample_interval),
-    )
-
-
 def timestamp(
     *,
     timezone: str | None = None,
-    sample_interval: tuple[int, Literal["minute", "hour"]] | None = None,
 ) -> TimestampParse:
     """Declare an already-temporal timestamp column parse.
 
@@ -385,11 +333,10 @@ def timestamp(
     source column is a native timestamp type.
 
     Args:
-        timezone: Optional IANA timezone name. Declare it for naive source
-            columns; otherwise readiness blocks analysis because runtime would
-            interpret values in the datasource read timezone.
-        sample_interval: Optional periodic sampling interval for sampled time
-            dimensions, e.g. ``(5, "minute")`` or ``(1, "hour")``.
+        timezone: Optional IANA source zone for naive timestamp columns. When
+            omitted, naive values use frozen datasource reader authority. Aware
+            values already identify instants and reject every parser timezone.
+
 
     Returns:
         A ``TimestampParse`` value object.
@@ -398,7 +345,7 @@ def timestamp(
         SemanticDecoratorError: ``timezone`` is not a valid IANA name.
 
     Example:
-        >>> @ms.time_dimension(entity=events, granularity="second",
+        >>> @ms.time_dimension(entity=events,
         ...                    parse=ms.timestamp(timezone="UTC"))
         ... def ts(events):
         ...     return events.ts
@@ -407,7 +354,6 @@ def timestamp(
         _validate_timezone(timezone)
     return TimestampParse(
         timezone=timezone,
-        sample_interval=_normalize_sample_interval_value(sample_interval),
     )
 
 
@@ -416,7 +362,6 @@ def strptime(
     /,
     *,
     timezone: str | None = None,
-    sample_interval: tuple[int, Literal["minute", "hour"]] | None = None,
 ) -> StrptimeParse:
     """Declare a string/integer strptime parse.
 
@@ -438,8 +383,7 @@ def strptime(
         format: Python strptime format and canonical source encoding contract
             (e.g. ``"%Y%m%d"``, ``"%Y-%m-%d %H:%M:%S"``). Must be ``%``-prefixed.
         timezone: Optional IANA timezone for time-bearing formats.
-        sample_interval: Optional periodic sampling interval for sampled time
-            dimensions, e.g. ``(5, "minute")`` or ``(1, "hour")``.
+
 
     Returns:
         A ``StrptimeParse`` value object.
@@ -449,7 +393,7 @@ def strptime(
             ``timezone`` is not a valid IANA name.
 
     Example:
-        >>> @ms.time_dimension(entity=orders, granularity="day",
+        >>> @ms.time_dimension(entity=orders,
         ...                    parse=ms.strptime("%Y%m%d"))
         ... def dt(orders):
         ...     return orders.dt
@@ -467,17 +411,12 @@ def strptime(
     return StrptimeParse(
         format=normalized,
         timezone=timezone,
-        sample_interval=_normalize_sample_interval_value(
-            sample_interval,
-        ),
     )
 
 
 def hour_prefix(
     prefix: Deferred | Ref[TimeDimensionKind],
     /,
-    *,
-    sample_interval: tuple[int, Literal["minute", "hour"]] | None = None,
 ) -> HourPrefixParse:
     """Declare an hour-only partition parse using a day prefix column.
 
@@ -490,33 +429,27 @@ def hour_prefix(
     Args:
         prefix: A native TimeField or ``Ref[time_dimension]`` for a day-level field that
             supplies the date context for this hour column.
-        sample_interval: Optional ``(count, unit)`` declaring the periodic
-            sampling cadence (e.g. ``(1, "hour")`` for hourly samples).
-            When set, the time dimension can serve as a sampled-fold axis.
+
 
     Returns:
         A frozen ``HourPrefixParse`` with a native time-field lookup key.
 
     Example:
-        >>> @ms.time_dimension(entity=logs, granularity="day")
+        >>> @ms.time_dimension(entity=logs)
         ... def dt(logs):
         ...     return logs.dt
-        >>> @ms.time_dimension(entity=logs, granularity="hour",
+        >>> @ms.time_dimension(entity=logs,
         ...                    parse=ms.hour_prefix(dt))
         ... def hh(logs):
         ...     return logs.hh
-        >>> @ms.time_dimension(entity=logs, granularity="hour",
-        ...                    parse=ms.hour_prefix(dt,
-        ...                                        sample_interval=(1, "hour")))
+        >>> @ms.time_dimension(entity=logs,
+        ...                    parse=ms.hour_prefix(dt), sample_interval=(1, "hour"))
         ... def hh(logs):
         ...     return logs.hh
     """
     prefix_id = _require_ref_id(prefix, parameter="prefix", expected=(SemanticKind.TIME_DIMENSION,))
     return HourPrefixParse(
         prefix=prefix_id,
-        sample_interval=_normalize_sample_interval_value(
-            sample_interval,
-        ),
     )
 
 

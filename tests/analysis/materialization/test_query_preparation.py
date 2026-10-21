@@ -18,6 +18,7 @@ from marivo.analysis.core.frame_data import (
     SourceFrameBinding,
 )
 from marivo.analysis.core.graph import BoundGraph
+from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_source_execution import (
@@ -32,10 +33,10 @@ MODEL = """import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._temporal import InstantAnchor
 warehouse = ms.ref.datasource("warehouse")
-customers = ms.entity(name="customers", datasource=warehouse, source=md.table("customers"), primary_key=["id"], versioning=ms.validity(valid_from=ms.ref.time_dimension("sales.customers.since"), valid_to=ms.ref.time_dimension("sales.customers.until"), interval="closed_open", open_end=(None,), timezone="UTC"))
+customers = ms.entity(name="customers", datasource=warehouse, source=md.table("customers"), primary_key=["id"], versioning=ms.validity(valid_from=ms.ref.time_dimension("sales.customers.since"), valid_to=ms.ref.time_dimension("sales.customers.until"), interval="closed_open", open_end=(None,)))
 customer_id = ms.dimension_column(name="id", entity=customers, column="id")
-since = ms.time_dimension_column(name="since", entity=customers, column="since", granularity="day")
-until = ms.time_dimension_column(name="until", entity=customers, column="until", granularity="day")
+since = ms.time_dimension_column(name="since", entity=customers, column="since")
+until = ms.time_dimension_column(name="until", entity=customers, column="until")
 region = ms.dimension_column(name="region", entity=customers, column="region")
 orders = ms.entity(name="orders", datasource=warehouse, source=md.table("orders"), primary_key=["id"])
 buyer_id = ms.dimension_column(name="buyer_id", entity=orders, column="buyer_id")
@@ -44,9 +45,9 @@ amount = ms.measure_column(name="amount", entity=orders, column="amount", additi
 @ms.dimension(entity=orders)
 def doubled(rows):
     return rows.amount * 2
-stamp = ms.time_dimension_column(name="stamp", entity=orders, column="stamp", granularity="day", parse=ms.strptime("%Y-%m-%d %H:%M:%S", timezone="Asia/Shanghai"), is_default=True)
-day = ms.time_dimension_column(name="day", entity=orders, column="day", granularity="day")
-naive = ms.time_dimension_column(name="naive", entity=orders, column="naive", granularity="day", parse=ms.datetime(timezone="Asia/Shanghai"))
+stamp = ms.time_dimension_column(name="stamp", entity=orders, column="stamp", parse=ms.strptime("%Y-%m-%d %H:%M:%S", timezone="Asia/Shanghai"), is_default=True)
+day = ms.time_dimension_column(name="day", entity=orders, column="day")
+naive = ms.time_dimension_column(name="naive", entity=orders, column="naive", parse=ms.timestamp(timezone="Asia/Shanghai"))
 buyer = ms.relationship(name="buyer", from_entity=orders, to_entity=customers, keys=[ms.join_on(buyer_id, customer_id)])
 seller = ms.relationship(name="seller", from_entity=orders, to_entity=customers, keys=[ms.join_on(seller_id, customer_id)])
 finalized = ms.finalize()
@@ -100,17 +101,17 @@ def prepared_session(
     model = MODEL
     if parsed_versions:
         model = model.replace(
-            'column="since", granularity="day")',
-            'column="since", granularity="day", parse=ms.strptime("%Y-%m-%d %H:%M:%S", timezone="UTC"))',
+            'column="since")',
+            'column="since", parse=ms.strptime("%Y-%m-%d %H:%M:%S", timezone="UTC"))',
         )
         model = model.replace(
-            'column="until", granularity="day")',
-            'column="until", granularity="day", parse=ms.strptime("%Y-%m-%d %H:%M:%S", timezone="UTC"))',
+            'column="until")',
+            'column="until", parse=ms.strptime("%Y-%m-%d %H:%M:%S", timezone="UTC"))',
         )
     if getattr(request, "param", None) == "snapshot":
         model = model.replace(
-            'ms.validity(valid_from=ms.ref.time_dimension("sales.customers.since"), valid_to=ms.ref.time_dimension("sales.customers.until"), interval="closed_open", open_end=(None,), timezone="UTC")',
-            'ms.snapshot(partition_field=ms.ref.time_dimension("sales.customers.since"), grain="day", timezone="UTC")',
+            'ms.validity(valid_from=ms.ref.time_dimension("sales.customers.since"), valid_to=ms.ref.time_dimension("sales.customers.until"), interval="closed_open", open_end=(None,))',
+            'ms.snapshot(partition_field=ms.ref.time_dimension("sales.customers.since"), timezone="UTC")',
         )
     if getattr(request, "param", None) == "precision":
         import pyarrow as pa
@@ -346,19 +347,19 @@ def test_independent_roots_across_datasources(
     assert result.table["value.0"].tolist() == [7]
 
 
-def test_civil_date_uses_report_zone_at_partial_boundary(prepared_session: Session) -> None:
+def test_civil_date_rejects_partial_business_day_boundary(prepared_session: Session) -> None:
     session = prepared_session
     amount = session.catalog.fields.get("sales.orders.amount")
     day = session.catalog.fields.get("sales.orders.day")
     assert isinstance(amount, Deferred) and isinstance(day, Deferred)
-    result = compute(
-        session,
-        {"sum": amount.sum(time=day)},
-        during=session.time_scope(
-            start="2026-01-01T02:00:00+08:00", end="2026-01-02T00:00:00+08:00"
-        ),
-    )
-    assert result.table["value.0"].isna().all()
+    with pytest.raises(AnalysisError, match="business-midnight"):
+        compute(
+            session,
+            {"sum": amount.sum(time=day)},
+            during=session.time_scope(
+                start="2026-01-01T02:00:00+08:00", end="2026-01-02T00:00:00+08:00"
+            ),
+        )
 
 
 @pytest.mark.parametrize("prepared_session", ["snapshot"], indirect=True)

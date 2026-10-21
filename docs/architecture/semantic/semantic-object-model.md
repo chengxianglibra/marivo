@@ -7,7 +7,7 @@ backend qualification are checked by their respective consumers.
 [Expressions](expressions.md) owns physical capture, native Deferred grammar,
 Measure authorization and Metric equations. [Loading and validation](loading-validation-introspection.md)
 owns Catalog acquisition and proof boundaries. [Temporal authority](temporal-authority.md)
-owns certified calendars, occurrences and work schedules.
+owns certified calendars and occurrences.
 
 ## Object families
 
@@ -141,12 +141,18 @@ user_profile_daily = ms.entity(
     primary_key=["user_id"],
     versioning=ms.snapshot(
         partition_field=ms.ref.time_dimension("sales.user_profile_daily.dt"),
-        grain="day",  # snapshot cadence
         timezone="Asia/Shanghai",  # defines the exact snapshot-period boundary
-        format="%Y%m%d",  # on-disk partition encoding; omit for native date
     ),
 )
 ```
+
+The partition TimeField owns its encoding; snapshot requires explicit
+`partition_field` and `timezone` and always uses business days. Label D applies
+from D midnight until D+1 midnight in that timezone. For an end-of-day file D
+whose values become effective the following day, derive effective DATE D+1 in
+the authored source view before declaring snapshot; execution never shifts it.
+At Shanghai midnight on October 1, instant selection chooses October 1 while
+before-endpoint selection chooses September 30. At noon both choose October 1.
 
 The source row key is derived as `(K, snapshot_coordinate)`. Within one selected
 snapshot, `K` is unique. A consuming Analysis operation supplies one exact
@@ -154,7 +160,7 @@ temporal boundary value: either an instant or immediately before an excluded
 endpoint. These are closed internal interpretations owned by the consuming
 operation, not new semantic authoring arguments or an arbitrary timestamp-tick
 subtraction. An instant selects the snapshot period containing it under the
-declared grain and timezone. An immediately-before endpoint selects the period
+declared business timezone. An immediately-before endpoint selects the period
 containing its left limit; an endpoint on a period boundary selects the preceding
 period. If that exact snapshot is absent, the operation follows its empty-result
 semantics. It never chooses the latest available
@@ -193,7 +199,7 @@ user_history = ms.entity(
 )
 ```
 
-Both bounds reference declared temporal Dimensions on the same Entity;
+Both bounds reference TimeField values or TimeDimension Refs on the same Entity;
 `open_end` lists the values meaning no declared end. The source row key is
 `(K, valid_from)`. Validity bounds do not join `primary_key` solely because they
 identify a version. Intervals for one `K` must be well-formed and non-overlapping
@@ -204,6 +210,11 @@ instant `at` uses `valid_from <= at < valid_to`; immediately before an excluded
 Other admitted interval closures follow their exact boundary rule. Zero matching
 intervals preserves absence; multiple matches are not preflighted and may affect
 the result or fail an independent output contract.
+DATE validity bounds require explicit business timezone; timestamp validity
+rejects a version timezone. Move naive source localization to each field's
+`ms.timestamp(timezone=...)` parser; for aware sources delete the redundant
+version timezone. Both bounds must have the same logical kind. The four
+`valid_from`, `valid_to`, `interval` and `open_end` arguments remain required.
 `current_flag`-style versioning is not supported.
 
 | Entity source | Declared source row uniqueness | Resolved identity |
@@ -277,28 +288,35 @@ time dimension — plain dimensions are never inferred as temporal from a name l
 
 ```python
 dt = ms.time_dimension_column(
-    name="dt", entity=orders, column="dt", granularity="day", parse=ms.strptime("%Y%m%d")
+    name="dt", entity=orders, column="dt", parse=ms.strptime("%Y%m%d")
 )
 hh = ms.time_dimension_column(
-    name="hh", entity=orders, column="hh", granularity="hour", parse=ms.hour_prefix(dt)
+    name="hh", entity=orders, column="hh", parse=ms.hour_prefix(dt)
 )
 ```
 
-- **`granularity`** is the finest meaningful business grain from year through
-  second. Native temporal columns can omit parse; preparation checks their real
-  physical kind. An explicit date-only parse cannot supply hour/minute/second.
-- **`parse`** interprets native date/datetime/timestamp or encoded values through
-  the supported ms.strptime, ms.datetime, ms.timestamp or ms.hour_prefix form.
-  Clock grains need a compatible time-bearing interpretation. hour_prefix is
-  limited to hour grain; string/integer encodings require an explicit parser.
-- **`is_default`** (default `False`) marks the default time axis when an entity
-  has several. A consumer may use it only within its exact temporal role and
-  compatibility checks; it does not bind membership time, observation time, and
-  version-selection time to one window. At most
-  one per entity — a second raises `SemanticLoadError`
-  (`duplicate_default_time_dimension`).
-- **`sample_interval`** on a parse marks a fixed-cadence sampled series (see
-  [sampled expressions](expressions.md#internal-samples-and-windows)).
+- **`parse`** interprets native temporal values or encoded values through
+  `ms.timestamp`, `ms.strptime` or `ms.hour_prefix`. Native DATE/timestamp may
+  omit parse; strings and integers require an explicit encoding. A date-only
+  strptime format rejects timezone. A naive timestamp uses parser timezone or
+  frozen reader authority; an aware timestamp rejects every parser timezone,
+  including the physical zone, because its instant is already defined.
+- **`is_default`** (default `False`) selects the Entity's default Metric time
+  role. It does not select members, versions, output boundaries or windows.
+  Only one field per Entity may be the default.
+- **`sample_interval`** belongs to the field and optionally declares
+  `(count, "minute" | "hour")`. The positive subday width must tile one nominal
+  day and use a unique spelling: `(60, "minute")` requires `(1, "hour")`;
+  `(24, "hour")` is outside this subday contract. DATE does not accept sampling;
+  hour_prefix requires whole-hour spacing. Unknown native types are checked in
+  preparation. [Sampled expressions](expressions.md#internal-samples-and-windows)
+  own the reduction behavior.
+
+DATE contribution roles require day-or-coarser output/reset and finite boundaries
+at business midnight. Duration windows require positive integer multiples of
+24 hours and still reject non-midnight actual boundaries, including across DST.
+Use complete civil periods or a real timestamp source for other contributions.
+A pure `field.within(scope)` retains its midnight-point predicate meaning.
 
 #### Format specifiers: Python strptime vs MySQL
 

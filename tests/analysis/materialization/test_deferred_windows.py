@@ -23,12 +23,14 @@ def window_session(
     semantic_project_factory: Callable[..., SemanticProject],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    request: pytest.FixtureRequest,
 ) -> Session:
+    physical, parser = getattr(request, "param", ("TIMESTAMPTZ", "ms.timestamp()"))
     database = tmp_path / "windows.duckdb"
     with duckdb.connect(str(database)) as connection:
         connection.execute("SET threads = 1")
         connection.execute(
-            "CREATE TABLE orders (id BIGINT, customer BIGINT, ordered_at TIMESTAMPTZ, amount BIGINT, region VARCHAR, channel VARCHAR)"
+            f"CREATE TABLE orders (id BIGINT, customer BIGINT, ordered_at {physical}, amount BIGINT, region VARCHAR, channel VARCHAR, encoded_at VARCHAR, date_at DATE, hour_at BIGINT)"
         )
         connection.execute(
             "INSERT INTO orders (id, customer, ordered_at, amount) VALUES (1, 7, '2026-09-20 00:00:00+00', 100), (2, 7, '2026-10-07 00:00:00+00', 20)"
@@ -45,8 +47,12 @@ def window_session(
 import marivo.semantic as ms
 orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"), primary_key=["id"])
 amount_ref = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="CNY")
-at_ref = ms.time_dimension_column(name="ordered_at", entity=orders, column="ordered_at", granularity="day", is_default=True)
-sample_ref = ms.time_dimension_column(name="sample_at", entity=orders, column="ordered_at", granularity="hour", parse=ms.datetime(timezone="UTC", sample_interval=(1, "hour")))
+at_ref = ms.time_dimension_column(name="ordered_at", entity=orders, column="ordered_at", is_default=True)
+sample_ref = ms.time_dimension_column(name="sample_at", entity=orders, column="ordered_at", parse=SAMPLING_PARSER, sample_interval=(1, "hour"))
+sample2_ref = ms.time_dimension_column(name="sample_two", entity=orders, column="ordered_at", parse=SAMPLING_PARSER, sample_interval=(2, "hour"))
+encoded_ref = ms.time_dimension_column(name="encoded_at", entity=orders, column="encoded_at", parse=ms.strptime("%Y%m%d%H", timezone="UTC"), sample_interval=(1, "hour"))
+day_ref = ms.time_dimension_column(name="date_at", entity=orders, column="date_at")
+hour_ref = ms.time_dimension_column(name="hour_at", entity=orders, column="hour_at", parse=ms.hour_prefix(day_ref), sample_interval=(1, "hour"))
 customer_ref = ms.dimension_column(name="customer", entity=orders, column="customer")
 region_ref = ms.dimension_column(name="region", entity=orders, column="region")
 channel_ref = ms.dimension_column(name="channel", entity=orders, column="channel")
@@ -56,7 +62,7 @@ customer = frozen.resolve(customer_ref)
 @ms.metric()
 def revenue():
     return amount.sum()
-""",
+""".replace("SAMPLING_PARSER", parser),
         },
         load=False,
     )
@@ -68,7 +74,7 @@ def _weekly_facts(tmp_path: Path) -> None:
     with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
         connection.execute("DELETE FROM orders")
         connection.execute(
-            "INSERT INTO orders VALUES "
+            "INSERT INTO orders (id, customer, ordered_at, amount, region, channel) VALUES "
             "(1,6,'2020-12-15 00:00:00+00',5,'old','web'),"
             "(2,7,'2020-12-22 00:00:00+00',10,'north','web'),"
             "(3,8,'2020-12-23 00:00:00+00',30,'south','shop'),"
@@ -77,6 +83,196 @@ def _weekly_facts(tmp_path: Path) -> None:
             "(6,7,'2021-01-06 00:00:00+00',30,'north','web'),"
             "(7,9,'2021-01-07 00:00:00+00',100,'new','shop')"
         )
+
+
+@pytest.mark.parametrize(
+    "window_session",
+    [
+        ("TIMESTAMPTZ", "ms.timestamp()"),
+        ("TIMESTAMP", "ms.timestamp(timezone='UTC')"),
+        ("TIMESTAMP", "ms.timestamp()"),
+    ],
+    indirect=True,
+)
+def test_sampling_uses_source_clock_across_report_zones(
+    window_session: Session, tmp_path: Path
+) -> None:
+    session = window_session
+    amount = session.catalog.fields.get("sales.orders.amount")
+    sampled = session.catalog.fields.get("sales.orders.sample_at")
+    with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
+        connection.execute("DELETE FROM orders")
+        connection.execute(
+            "INSERT INTO orders (id, ordered_at, amount) VALUES (1, '2026-01-15 00:00:00+00', 10), (2, '2026-01-15 01:00:00+00', 20), (3, '2026-01-15 02:00:00+00', 30)"
+        )
+    metric = amount.sum(time=sampled).per(sampled).mean()
+    for zone in ("UTC", "Asia/Kolkata"):
+        scope = session.time_scope(
+            start="2026-01-15T00:00Z", end="2026-01-15T03:00Z", timezone=zone
+        )
+        assert session.observe({"mean": metric}, by=(scope,)).compute().to_pandas()[
+            ("value", "mean")
+        ].tolist() == [20.0]
+    with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
+        connection.execute("DELETE FROM orders WHERE id=2")
+    for zone in ("UTC", "Asia/Kolkata"):
+        scope = session.time_scope(
+            start="2026-01-15T00:00Z", end="2026-01-15T03:00Z", timezone=zone
+        )
+        with pytest.raises(AnalysisError, match=r"sample|coverage"):
+            session.observe({"mean": metric}, by=(scope,)).compute()
+
+
+@pytest.mark.parametrize("month", [1, 7])
+def test_aware_two_hour_sampling_keeps_utc_phase(
+    window_session: Session, tmp_path: Path, month: int
+) -> None:
+    session = window_session
+    amount = session.catalog.fields.get("sales.orders.amount")
+    sampled = session.catalog.fields.get("sales.orders.sample_two")
+    with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
+        connection.execute("DELETE FROM orders")
+        connection.executemany(
+            "INSERT INTO orders (id, ordered_at, amount) VALUES (?, ?, ?)",
+            [
+                (index, f"2026-{month:02d}-15 {hour:02d}:00:00+00", 10 * (index + 1))
+                for index, hour in enumerate((0, 2, 4))
+            ],
+        )
+    metric = amount.sum(time=sampled).per(sampled).mean()
+    for zone in ("UTC", "Europe/Berlin"):
+        scope = session.time_scope(
+            start=f"2026-{month:02d}-15T00:00Z", end=f"2026-{month:02d}-15T06:00Z", timezone=zone
+        )
+        assert session.observe({"mean": metric}, by=(scope,)).compute().to_pandas()[
+            ("value", "mean")
+        ].tolist() == [20.0]
+    with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
+        connection.execute("DELETE FROM orders WHERE id=1")
+    for zone in ("UTC", "Europe/Berlin"):
+        scope = session.time_scope(
+            start=f"2026-{month:02d}-15T00:00Z", end=f"2026-{month:02d}-15T06:00Z", timezone=zone
+        )
+        with pytest.raises(AnalysisError, match=r"sample|coverage"):
+            session.observe({"mean": metric}, by=(scope,)).compute()
+
+
+def test_sampling_encoding_null_and_duplicate_fact_contract(
+    window_session: Session, tmp_path: Path
+) -> None:
+    session = window_session
+    amount = session.catalog.fields.get("sales.orders.amount")
+    fields = [
+        session.catalog.fields.get(f"sales.orders.{name}")
+        for name in ("sample_at", "encoded_at", "hour_at")
+    ]
+    with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
+        connection.execute("DELETE FROM orders")
+        connection.execute(
+            "INSERT INTO orders (id, ordered_at, amount, encoded_at, date_at, hour_at) VALUES (1,'2026-01-15 00:00:00+00',4,'2026011500','2026-01-15',0), (2,'2026-01-15 00:00:00+00',6,'2026011500','2026-01-15',0), (3,'2026-01-15 01:00:00+00',NULL,'2026011501','2026-01-15',1), (4,'2026-01-15 02:00:00+00',30,'2026011502','2026-01-15',2)"
+        )
+    scope = session.time_scope(
+        start="2026-01-15T00:00Z", end="2026-01-15T03:00Z", timezone="Asia/Kolkata"
+    )
+    for field in fields:
+        values = (
+            session.observe({"mean": amount.sum(time=field).per(field).mean()}, by=(scope,))
+            .compute()
+            .to_pandas()
+        )
+        assert values[("value", "mean")].tolist() == [20.0]
+    with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
+        connection.execute("DELETE FROM orders WHERE id=3")
+    for field in fields:
+        with pytest.raises(AnalysisError, match=r"sample|coverage"):
+            session.observe(
+                {"mean": amount.sum(time=field).per(field).mean()}, by=(scope,)
+            ).compute()
+    unsampled = session.catalog.fields.get("sales.orders.ordered_at")
+    assert session.observe(
+        {"mean": amount.sum(time=unsampled).per(unsampled).mean()}, by=(scope,)
+    ).compute().to_pandas()[("value", "mean")].tolist() == [20.0]
+
+
+@pytest.mark.parametrize("window_session", [("DATE", "None")], indirect=True)
+def test_date_contributions_reject_subday_and_non_midnight_windows(
+    window_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session = window_session
+    amount = session.catalog.fields.get("sales.orders.amount")
+    scope = session.time_scope(start="2026-10-07", end="2026-10-08")
+    assert session.observe(
+        {"revenue": amount.sum()}, by=(scope.by(mv.grain("day")),)
+    ).compute().to_pandas()[("value", "revenue")].tolist() == [20]
+    at = session.catalog.fields.get("sales.orders.ordered_at")
+    assert session.observe({"revenue": amount.sum()}, where=at.within(scope)).compute().to_pandas()[
+        ("value", "revenue")
+    ].tolist() == [20]
+    from marivo.datasource.adapters import SourceSession
+
+    def fail_read(*args: object, **kwargs: object) -> None:
+        pytest.fail("invalid DATE contribution reached a business read")
+
+    monkeypatch.setattr(SourceSession, "execute", fail_read)
+    for metric, axis in (
+        (amount.sum(), scope.by(mv.grain("hour"))),
+        (amount.sum().window(mv.to_date(grain=mv.grain("hour"))), scope),
+        (amount.sum().window(mv.trailing_duration(duration=timedelta(hours=6))), scope),
+        (amount.sum().window(mv.trailing_duration(duration=timedelta(hours=25))), scope),
+        (amount.sum(), session.time_scope(start="2026-10-07", end="2026-10-07T12:00Z")),
+    ):
+        with pytest.raises(AnalysisError, match=r"DATE|midnight"):
+            session.observe({"revenue": metric}, by=(axis,)).compute()
+    for start, end in (("2026-03-08", "2026-03-09"), ("2026-11-01", "2026-11-02")):
+        dst_scope = session.time_scope(start=start, end=end, timezone="America/New_York")
+        with pytest.raises(AnalysisError, match=r"DATE|midnight"):
+            session.observe(
+                {"bad": amount.sum().window(mv.trailing_duration(duration=timedelta(hours=24)))},
+                by=(dst_scope,),
+            ).compute()
+
+
+@pytest.mark.parametrize(
+    "window_session", [("TIMESTAMP", "ms.timestamp(timezone='America/New_York')")], indirect=True
+)
+def test_naive_source_sampling_skips_gap_and_rejects_unrepresented_fold(
+    window_session: Session, tmp_path: Path
+) -> None:
+    session = window_session
+    amount = session.catalog.fields.get("sales.orders.amount")
+    sample = session.catalog.fields.get("sales.orders.sample_at")
+    metric = amount.sum(time=sample).per(sample).mean()
+    with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
+        connection.execute("DELETE FROM orders")
+        connection.execute(
+            "INSERT INTO orders (id, ordered_at, amount) VALUES (1,'2026-03-08 00:00:00',10), (2,'2026-03-08 01:00:00',20), (3,'2026-03-08 03:00:00',30)"
+        )
+    scope = session.time_scope(start="2026-03-08T05:00Z", end="2026-03-08T08:00Z")
+    assert session.observe({"mean": metric}, by=(scope,)).compute().to_pandas()[
+        ("value", "mean")
+    ].tolist() == [20.0]
+    with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
+        connection.execute("DELETE FROM orders")
+        connection.execute(
+            "INSERT INTO orders (id, ordered_at, amount) VALUES (1,'2026-11-01 00:00:00',10), (2,'2026-11-01 01:00:00',20), (3,'2026-11-01 02:00:00',30)"
+        )
+    scope = session.time_scope(start="2026-11-01T04:00Z", end="2026-11-01T08:00Z")
+    with pytest.raises(AnalysisError, match=r"sample|coverage|ambiguous"):
+        session.observe({"mean": metric}, by=(scope,)).compute()
+    with pytest.raises(AnalysisError, match="unambiguous"):
+        session.observe({"mean": amount.mean(time=sample)}, by=(scope,)).compute()
+    first_fold = session.time_scope(start="2026-11-01T05:00Z", end="2026-11-01T06:00Z")
+    for selected in (first_fold, first_fold.by(mv.grain("hour"))):
+        with pytest.raises(AnalysisError, match="unambiguous"):
+            session.observe({"mean": amount.mean(time=sample)}, by=(selected,)).compute()
+    with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
+        connection.execute("DELETE FROM orders")
+        connection.execute(
+            "INSERT INTO orders (id, ordered_at, amount) VALUES (1,'2026-03-08 02:30:00',10)"
+        )
+    scope = session.time_scope(start="2026-03-08T05:00Z", end="2026-03-08T08:00Z")
+    with pytest.raises(AnalysisError, match="unambiguous"):
+        session.observe({"mean": amount.mean(time=sample)}, by=(scope,)).compute()
 
 
 def test_sparse_shift_observes_raw_contributions_and_nominal_windows(
@@ -229,8 +425,15 @@ def test_sparse_calendar_joint_groups_and_fixed_populations(
     assert hard[("value", "history")].to_dict() == {0: None, 1: 150}
 
 
-def test_window_recomputes_history_ratio_and_distinct(window_session: Session) -> None:
+def test_window_recomputes_history_ratio_and_distinct(
+    window_session: Session, tmp_path: Path
+) -> None:
     session = window_session
+    with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
+        connection.execute("DELETE FROM orders")
+        connection.execute(
+            "INSERT INTO orders (id, customer, ordered_at, amount) VALUES (1,7,'2026-09-20 00:00:00+00',100), (2,7,'2026-10-07 00:00:00+00',10), (3,7,'2026-10-07 12:00:00+00',30), (4,7,'2026-10-08 00:00:00+00',60)"
+        )
     revenue = session.catalog.metrics.get("sales.revenue")
     customer = session.catalog.fields.get("sales.orders.customer")
     amount = session.catalog.fields.get("sales.orders.amount")
@@ -241,15 +444,28 @@ def test_window_recomputes_history_ratio_and_distinct(window_session: Session) -
                 "revenue": revenue.window(mv.all_history()),
                 "aov": (revenue / amount.count()).window(mv.all_history()),
                 "customers": customer.count_distinct().window(mv.all_history()),
+                "mean": amount.mean().window(mv.all_history()),
+                "median": amount.quantile(q=0.5).window(mv.all_history()),
+                "filtered": revenue.where(amount >= 20).window(mv.all_history()),
             },
             by=(scope.by(mv.grain("day")),),
         )
         .compute()
         .to_pandas()
     )
-    assert values[("value", "revenue")].tolist() == [120, 120]
-    assert values[("value", "aov")].tolist() == [60.0, 60.0]
+    assert values[("value", "revenue")].tolist() == [140, 200]
+    assert values[("value", "aov")].tolist() == pytest.approx([140 / 3, 50])
+    assert values[("value", "mean")].tolist() == pytest.approx([140 / 3, 50])
+    assert values[("value", "median")].tolist() == [30.0, 45.0]
+    assert values[("value", "filtered")].tolist() == [130, 190]
     assert values[("value", "customers")].tolist() == [1, 1]
+    daily = (
+        session.observe({"daily": customer.count_distinct()}, by=(scope.by(mv.grain("day")),))
+        .compute()
+        .to_pandas()
+    )
+    assert daily[("value", "daily")].tolist() == [1, 1]
+    assert sum(daily[("value", "daily")]) == 2
 
 
 def test_scalar_to_date_uses_endpoint_not_display_start(window_session: Session) -> None:
@@ -267,6 +483,40 @@ def test_scalar_to_date_uses_endpoint_not_display_start(window_session: Session)
         assert result[("value", "mtd")].tolist() == [20]
 
 
+def test_partial_month_windows_stop_at_actual_endpoint(
+    window_session: Session, tmp_path: Path
+) -> None:
+    session = window_session
+    with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
+        connection.execute("DELETE FROM orders")
+        connection.execute(
+            "INSERT INTO orders (id, ordered_at, amount) VALUES (1, '2026-10-01 00:00:00+00', 1), (2, '2026-10-14 11:00:00+00', 10), (3, '2026-10-14 12:00:00+00', 20), (4, '2026-10-15 11:00:00+00', 30), (5, '2026-10-15 12:00:00+00', 1000), (6, '2026-10-31 00:00:00+00', 10000)"
+        )
+    revenue = session.catalog.metrics.get("sales.revenue")
+    scope = session.time_scope(start="2026-10-01", end="2026-10-15T12:00Z")
+    values = (
+        session.observe(
+            {
+                "mtd": revenue.window(mv.to_date(grain=mv.grain("month"))),
+                "elapsed": revenue.window(mv.trailing_duration(duration=timedelta(hours=24))),
+                "since": revenue.window(mv.since(start=session.instant("2026-10-14T11:00Z"))),
+            },
+            by=(scope.by(mv.grain("month")),),
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert values[("value", "mtd")].tolist() == [61]
+    assert values[("value", "elapsed")].tolist() == [50]
+    assert values[("value", "since")].tolist() == [60]
+    for partial in (scope, session.time_scope(start="2026-10-02", end="2026-11-01")):
+        with pytest.raises(AnalysisError, match="complete calendar buckets"):
+            session.observe(
+                {"bad": revenue.window(mv.trailing_periods(count=1))},
+                by=(partial.by(mv.grain("month")),),
+            )
+
+
 def test_exact_reset_boundary_and_elapsed_dst_duration() -> None:
     end = datetime(2026, 10, 1, tzinfo=timezone.utc)
     assert _reset(end, mv.grain("month"), "UTC") == (
@@ -280,6 +530,35 @@ def test_exact_reset_boundary_and_elapsed_dst_duration() -> None:
     duration = mv.trailing_duration(duration=timedelta(hours=24))
     assert isinstance(duration, TrailingDuration)
     assert endpoint - duration.duration != start
+    for hour in (6, 7):
+        endpoint = datetime(2026, 11, 1, hour, tzinfo=timezone.utc)
+        assert _reset(endpoint, mv.grain("hour"), "America/New_York") == (
+            datetime(2026, 11, 1, hour - 1, tzinfo=timezone.utc),
+            endpoint,
+        )
+
+
+def test_hour_reset_preserves_both_aware_fold_buckets(
+    window_session: Session, tmp_path: Path
+) -> None:
+    with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
+        connection.execute("DELETE FROM orders")
+        connection.execute(
+            "INSERT INTO orders (id, ordered_at, amount) VALUES (1,'2026-11-01 05:30:00+00',10), (2,'2026-11-01 06:30:00+00',30)"
+        )
+    revenue = window_session.catalog.metrics.get("sales.revenue")
+    hours = window_session.time_scope(
+        start="2026-11-01T04:00Z", end="2026-11-01T07:00Z", timezone="America/New_York"
+    ).by(mv.grain("hour"))
+    values = (
+        window_session.observe(
+            {"hourly": revenue.window(mv.to_date(grain=mv.grain("hour")))}, by=(hours,)
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert values[("value", "hourly")].isna().tolist() == [True, False, False]
+    assert values[("value", "hourly")].iloc[1:].tolist() == [10, 30]
 
 
 @pytest.mark.parametrize("calendar_first", [False, True])

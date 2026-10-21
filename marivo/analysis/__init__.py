@@ -83,7 +83,7 @@ def grain(
 
     Args:
         unit: One builtin unit from second through year.
-        count: Positive sub-day width; calendar-variable units require one.
+        count: Positive width; units day through year require one.
 
     Returns:
         The immutable public Grain value.
@@ -93,7 +93,12 @@ def grain(
         >>> mv.grain("month")
 
     Constraints:
-        Semantic calendar levels are constructed by ``ms.calendar_grain(...)``.
+        Subday widths must tile a nominal day and remain shorter than one day.
+        Use one spelling: 60second, 120second and 60minute reject in favor of
+        larger units; 24hour rejects. 90second and 90minute remain legal.
+        Grains have equality/hash but no ordering. Semantic calendar lookup
+        comes from ``ms.calendar_grain(...)``; ``calendar.grain(level)`` captures
+        its certified snapshot identity.
     """
     from marivo._temporal import builtin_grain
 

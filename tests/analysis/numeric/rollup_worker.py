@@ -51,7 +51,7 @@ def _author(project: Path, *, mean_measure: str = "quantity") -> None:
         "source=md.table('orders', columns={'id': 'id', 'order_day': 'day', "
         "'amount': 'amount', 'cost': 'cost', 'quantity': 'quantity'}), primary_key=['id'])\n"
         "day = ms.time_dimension_column(name='day', entity=orders, column='order_day', "
-        "granularity='day', parse=None, is_default=True)\n"
+        "parse=None, is_default=True)\n"
         "amount = ms.measure_column(name='amount', entity=orders, column='amount', "
         "additivity=ms.additive_all())\n"
         "cost = ms.measure_column(name='cost', entity=orders, column='cost', "

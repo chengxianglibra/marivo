@@ -124,7 +124,7 @@ def test_native_independent_multiroot_fixed_and_cold(
             models += f"{name}=ms.entity(name={name!r},datasource=ms.ref.datasource('warehouse'),source=md.table({case.source.table!r},database={case.source.database!r}),primary_key={primary!r})\n"
             for field in ("owner", "tenant"):
                 models += f"{name}_{field}=ms.dimension_column(name={field!r},entity={name},column={field!r})\n"
-            models += f"{name}_time=ms.time_dimension_column(name='time',entity={name},column='happened',granularity='second',parse=ms.timestamp(timezone='UTC'),is_default=True)\n"
+            models += f"{name}_time=ms.time_dimension_column(name='time',entity={name},column='happened',parse=ms.timestamp(timezone='UTC'),is_default=True)\n"
             if name != "subjects":
                 models += f"{name}_amount=ms.measure_column(name='amount',entity={name},column='amount',additivity=ms.additive_all())\n"
                 models += f"{name}_subject=ms.relationship(name={name + '_subject'!r},from_entity={name},to_entity=subjects,keys=[ms.join_on({name}_owner,subjects_owner),ms.join_on({name}_tenant,subjects_tenant)])\n"

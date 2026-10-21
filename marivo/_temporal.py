@@ -33,7 +33,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_core import core_schema
 
 from marivo._grouping import Grouping
-from marivo.refs import PeriodCalendarKind, Ref, TemporalSetKind, WorkScheduleKind
+from marivo.refs import PeriodCalendarKind, Ref, TemporalSetKind
 from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, Card, result_repr
 
 if TYPE_CHECKING:
@@ -151,7 +151,7 @@ class Grain:
     kind: Literal["builtin", "semantic"]
 
     @property
-    def _snapshot(self) -> PeriodCalendarSnapshotV1 | None:
+    def _snapshot(self) -> PeriodCalendarSnapshotV2 | None:
         return self._captured_snapshot if isinstance(self, _SemanticGrain) else None
 
     # Variant fields are intentionally type-checker-only on the public base.
@@ -173,27 +173,35 @@ class Grain:
     @classmethod
     def __get_pydantic_core_schema__(cls, _source: Any, _handler: Any) -> Any:
         def _decode_mapping(value: Mapping[str, object]) -> Grain:
+            if value.get("schema") != "grain/v2":
+                raise ValueError("unsupported Grain schema; obtain a current Grain value")
             kind = value.get("kind")
             if kind == "builtin":
-                return builtin_grain(
-                    cast("str", value.get("unit")),
-                    count=cast("int", value.get("count", 1)),
-                )
+                if set(value) != {"schema", "kind", "unit", "count"}:
+                    raise ValueError("builtin Grain payload fields are invalid")
+                return builtin_grain(cast("str", value["unit"]), count=cast("int", value["count"]))
             if kind == "semantic":
-                raw_calendar = value.get("calendar") or value.get("calendar_ref")
-                if type(raw_calendar) is Ref and raw_calendar.kind.value == "period_calendar":
-                    return semantic_grain(
-                        calendar=cast("Ref[PeriodCalendarKind]", raw_calendar),
-                        level=cast("str", value.get("level")),
-                    )
+                if set(value) != {"schema", "kind", "calendar", "level", "snapshot"}:
+                    raise ValueError("semantic Grain payload fields are invalid")
+                raw_calendar = value["calendar"]
                 if isinstance(raw_calendar, Mapping):
-                    raw_calendar = raw_calendar.get("path")
-                if isinstance(raw_calendar, str):
-                    raw_calendar = raw_calendar.removeprefix("period_calendar:")
-                    return semantic_grain(
-                        calendar=ref_factory_period_calendar(raw_calendar),
-                        level=cast("str", value.get("level")),
-                    )
+                    if set(raw_calendar) != {"schema", "kind", "path"} or (
+                        raw_calendar["schema"] != "marivo.semantic_ref/v1"
+                        or raw_calendar["kind"] != "period_calendar"
+                    ):
+                        raise ValueError("semantic Grain requires an exact period-calendar Ref")
+                    raw_calendar = ref_factory_period_calendar(cast("str", raw_calendar["path"]))
+                raw_snapshot = value["snapshot"]
+                snapshot = None
+                if isinstance(raw_snapshot, Mapping):
+                    snapshot = _snapshot_from_json(raw_snapshot)
+                elif raw_snapshot is not None:
+                    raise ValueError("semantic Grain snapshot must be a current snapshot or null")
+                return semantic_grain(
+                    calendar=cast("Ref[PeriodCalendarKind]", raw_calendar),
+                    level=cast("str", value["level"]),
+                    snapshot=snapshot,
+                )
             raise ValueError(f"unknown Grain payload kind {kind!r}")
 
         def _validate(value: Any, info: Any) -> Grain:
@@ -215,17 +223,15 @@ class Grain:
             if value.kind == "builtin":
                 builtin = cast("_BuiltinGrain", value)
                 return {
+                    "schema": "grain/v2",
                     "kind": "builtin",
                     "unit": builtin.unit,
                     "count": builtin.count,
-                    "calendar": None,
-                    "level": None,
                 }
             semantic = cast("_SemanticGrain", value)
             return {
+                "schema": "grain/v2",
                 "kind": "semantic",
-                "unit": None,
-                "count": None,
                 "calendar": (
                     {
                         "schema": "marivo.semantic_ref/v1",
@@ -236,6 +242,9 @@ class Grain:
                     else semantic.calendar
                 ),
                 "level": semantic.level,
+                "snapshot": None
+                if semantic._snapshot is None
+                else _snapshot_json(semantic._snapshot),
             }
 
         return core_schema.with_info_plain_validator_function(
@@ -256,6 +265,14 @@ class Grain:
         return (
             semantic_left.calendar == semantic_right.calendar
             and semantic_left.level == semantic_right.level
+            and (
+                None if semantic_left._snapshot is None else semantic_left._snapshot.snapshot_digest
+            )
+            == (
+                None
+                if semantic_right._snapshot is None
+                else semantic_right._snapshot.snapshot_digest
+            )
         )
 
     def __hash__(self) -> int:
@@ -263,7 +280,16 @@ class Grain:
             value = cast("_BuiltinGrain", self)
             return hash((self.kind, value.unit, value.count))
         semantic_value = cast("_SemanticGrain", self)
-        return hash((self.kind, semantic_value.calendar, semantic_value.level))
+        return hash(
+            (
+                self.kind,
+                semantic_value.calendar,
+                semantic_value.level,
+                None
+                if semantic_value._snapshot is None
+                else semantic_value._snapshot.snapshot_digest,
+            )
+        )
 
     @property
     def _is_subday(self) -> bool:
@@ -305,50 +331,15 @@ class Grain:
         semantic_value = cast("_SemanticGrain", self)
         return f"{semantic_value.calendar.path}::{semantic_value.level}"
 
-    def __lt__(self, other: object) -> bool:
-        if not isinstance(other, Grain):
-            return NotImplemented
-        if self.kind != "builtin" or other.kind != "builtin":
-            raise TypeError("semantic Grain has no fixed rank")
-        left, right = cast("_BuiltinGrain", self), cast("_BuiltinGrain", other)
-        ranks = {
-            "second": 0,
-            "minute": 1,
-            "hour": 2,
-            "day": 3,
-            "week": 4,
-            "month": 5,
-            "quarter": 6,
-            "year": 7,
-        }
-        if self._is_subday and other._is_subday:
-            return self._width_seconds() < other._width_seconds()
-        return ranks[left.unit] < ranks[right.unit]
-
-    def __gt__(self, other: object) -> bool:
-        if not isinstance(other, Grain):
-            return NotImplemented
-        if self.kind != "builtin" or other.kind != "builtin":
-            raise TypeError("semantic Grain has no fixed rank")
-        return other < self
-
-    def __le__(self, other: object) -> bool:
-        if not isinstance(other, Grain):
-            return NotImplemented
-        return not self > other
-
-    def __ge__(self, other: object) -> bool:
-        if not isinstance(other, Grain):
-            return NotImplemented
-        return not self < other
-
     def __repr__(self) -> str:
         if self.kind == "builtin":
             value = cast("_BuiltinGrain", self)
             token = value.unit if value.count == 1 else f"{value.count}{value.unit}"
             return f"Grain({token!r})"
         semantic_value = cast("_SemanticGrain", self)
-        return f"Grain(calendar={semantic_value.calendar.key!r}, level={semantic_value.level!r})"
+        snapshot = semantic_value._snapshot
+        state = "unbound" if snapshot is None else f"snapshot={snapshot.snapshot_digest}"
+        return f"Grain(calendar={semantic_value.calendar.key!r}, level={semantic_value.level!r}, {state})"
 
 
 @dataclass(frozen=True, slots=True, init=False, eq=False, repr=False)
@@ -361,6 +352,8 @@ class _BuiltinGrain(Grain):
             raise ValueError("builtin Grain requires a supported unit and count >= 1")
         if unit not in {"second", "minute", "hour"} and count != 1:
             raise ValueError(f"calendar grain {unit!r} only supports count == 1")
+        if unit in _SUBDAY_UNIT_SECONDS:
+            validate_subday_count(unit, count)
         object.__setattr__(self, "kind", "builtin")
         object.__setattr__(self, "unit", unit)
         object.__setattr__(self, "count", count)
@@ -370,19 +363,25 @@ class _BuiltinGrain(Grain):
 class _SemanticGrain(Grain):
     calendar: Ref[PeriodCalendarKind]
     level: str
-    _captured_snapshot: PeriodCalendarSnapshotV1 | None
+    _captured_snapshot: PeriodCalendarSnapshotV2 | None
 
     def __init__(
         self,
         *,
         calendar: Ref[PeriodCalendarKind],
         level: str,
-        snapshot: PeriodCalendarSnapshotV1 | None = None,
+        snapshot: PeriodCalendarSnapshotV2 | None = None,
     ) -> None:
         if type(calendar) is not Ref or calendar.kind.value != "period_calendar":
             raise TypeError("semantic Grain requires Ref[period_calendar]")
         if type(level) is not str or not level:
             raise ValueError("semantic Grain requires a non-empty level")
+        if snapshot is not None and (
+            snapshot.calendar_ref != calendar or level not in snapshot.levels
+        ):
+            raise ValueError(
+                "semantic Grain requires its own certified calendar and declared level"
+            )
         object.__setattr__(self, "kind", "semantic")
         object.__setattr__(self, "calendar", calendar)
         object.__setattr__(self, "level", level)
@@ -398,7 +397,7 @@ def semantic_grain(
     *,
     calendar: Ref[PeriodCalendarKind],
     level: str,
-    snapshot: PeriodCalendarSnapshotV1 | None = None,
+    snapshot: PeriodCalendarSnapshotV2 | None = None,
 ) -> Grain:
     """Create the semantic Grain variant behind ``ms.calendar_grain``."""
     return _SemanticGrain(calendar=calendar, level=level, snapshot=snapshot)
@@ -408,24 +407,36 @@ _CIVIL_DAY_SECONDS = 86_400
 _SUBDAY_UNIT_SECONDS = {"second": 1, "minute": 60, "hour": 3_600}
 
 
-def civil_midnight_width_seconds(grain: Grain) -> int | None:
-    """Return one sub-day grain's admitted width on the civil-midnight grid.
+def validate_subday_count(unit: str, count: int) -> int:
+    """Validate the unique supported spelling of a civil subday width."""
+    if unit not in _SUBDAY_UNIT_SECONDS or type(count) is not int or count < 1:
+        raise ValueError(
+            "subday width requires second, minute or hour and a positive integer count"
+        )
+    width = _SUBDAY_UNIT_SECONDS[unit] * count
+    if width >= _CIVIL_DAY_SECONDS:
+        raise ValueError(
+            "subday width must be less than one nominal day; choose civil day "
+            "for calendar partitioning or timedelta for elapsed duration"
+        )
+    if unit == "second" and count % 60 == 0:
+        replacement = f"{count // 3600}hour" if count % 3600 == 0 else f"{count // 60}minute"
+        raise ValueError(f"subday width has a duplicate spelling; use {replacement}")
+    if unit == "minute" and count % 60 == 0:
+        raise ValueError(f"subday width has a duplicate spelling; use {count // 60}hour")
+    if _CIVIL_DAY_SECONDS % width:
+        raise ValueError("subday width must divide one civil day; choose a supported subdivision")
+    return width
 
-    A multi-unit sub-day bucket restarts at the local midnight of its own day,
-    which is only well defined when its width divides one civil day.  Widths
-    that do not divide the day have no unique anchor, so they return ``None``
-    and every consumer fails closed instead of choosing an origin.  Divisibility
-    is the only rule: the constructor already rejects a non-positive count, which
-    is a construction error rather than an absent anchor.
-    """
+
+def civil_midnight_width_seconds(grain: Grain) -> int | None:
+    """Return the validated width for a builtin civil subday grain."""
     if grain.kind != "builtin":
         return None
     value = cast("_BuiltinGrain", grain)
-    unit_seconds = _SUBDAY_UNIT_SECONDS.get(value.unit)
-    if unit_seconds is None:
+    if value.unit not in _SUBDAY_UNIT_SECONDS:
         return None
-    width = unit_seconds * value.count
-    return None if _CIVIL_DAY_SECONDS % width != 0 else width
+    return validate_subday_count(value.unit, value.count)
 
 
 def period_calendar_definition_digest(
@@ -434,19 +445,17 @@ def period_calendar_definition_digest(
     boundary_timezone: str,
     coverage: tuple[str | date, str | date],
     levels: tuple[tuple[str, str], ...],
-    correspondences: tuple[tuple[str, str, str], ...] = (),
     dependency_digest: str | None = None,
 ) -> str:
     """Return the declaration identity used to reject stale certified evidence."""
     payload = {
-        "schema": "period-calendar-definition/v1",
+        "schema": "period-calendar-definition/v2",
         "calendar_ref": calendar_ref.key,
         "boundary_timezone": boundary_timezone,
         "coverage": [
             value.isoformat() if isinstance(value, _DATE_TYPE) else value for value in coverage
         ],
         "levels": [list(item) for item in levels],
-        "correspondences": [list(item) for item in correspondences],
         "dependency_digest": dependency_digest,
     }
     return hashlib.sha256(
@@ -477,32 +486,6 @@ def temporal_set_definition_digest(
         "start": start,
         "end": end,
         "category": category,
-        "dependency_digest": dependency_digest,
-    }
-    return hashlib.sha256(
-        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
-
-
-def work_schedule_definition_digest(
-    *,
-    work_schedule_ref: Ref[WorkScheduleKind],
-    boundary_timezone: str,
-    coverage: tuple[str | date, str | date],
-    date: str,
-    is_working: str,
-    dependency_digest: str | None = None,
-) -> str:
-    """Return declaration identity used to reject stale schedule evidence."""
-    payload = {
-        "schema": "work-schedule-definition/v1",
-        "work_schedule_ref": work_schedule_ref.key,
-        "boundary_timezone": boundary_timezone,
-        "coverage": [
-            value.isoformat() if isinstance(value, _DATE_TYPE) else value for value in coverage
-        ],
-        "date": date,
-        "is_working": is_working,
         "dependency_digest": dependency_digest,
     }
     return hashlib.sha256(
@@ -567,12 +550,13 @@ class TimeScopeContractV1(BaseModel):
         if self.kind == "absolute":
             if any(value is not None for index, value in enumerate(provenance) if index != 2):
                 raise ValueError("absolute time-scope contract cannot contain period provenance")
-            if self.boundary_timezone is not None:
-                from marivo._timezones import parse_timezone
+            from marivo._timezones import parse_timezone
 
-                parse_timezone(self.boundary_timezone)
-                if not isinstance(self.start, datetime) or self.start.utcoffset() is None:
-                    raise ValueError("a frozen absolute timezone requires exact instant bounds")
+            if self.boundary_timezone is None:
+                raise ValueError("absolute time-scope contract requires a frozen boundary_timezone")
+            parse_timezone(self.boundary_timezone)
+            if not isinstance(self.start, datetime) or self.start.utcoffset() is None:
+                raise ValueError("a frozen absolute timezone requires exact instant bounds")
             return self
         if self.kind == "calendar_period":
             if self.temporal_set_ref is not None or self.occurrence_category is not None:
@@ -662,14 +646,11 @@ class TimeScopeContractV1(BaseModel):
 class TimeScope(BaseModel):
     """One immutable public selection window shared by semantic and analysis.
 
-    Absolute analysis callers continue to provide strict ISO strings.  Certified
-    calendar lookups provide normalized civil ``date`` bounds and provenance.
-    Keeping both forms on this one value type prevents a catalog result from
-    becoming an unusable private temporal object at the analysis boundary.
+    Session scopes capture exact UTC anchors and a boundary timezone. Certified
+    calendar and occurrence lookups capture their boundary timezone and snapshot
+    provenance, and may retain normalized civil date bounds.
 
     The interval is half-open: ``start`` is inclusive and ``end`` is exclusive.
-    For date-only strings, ``end="2026-08-01"`` includes all of July and
-    excludes August 1.
     """
 
     model_config = ConfigDict(
@@ -786,8 +767,13 @@ class TimeScope(BaseModel):
         )
         if calendar is None:
             if temporal_set is None:
-                if any(value is not None for value in provenance[2:]) and not isinstance(
-                    self, _SessionTimeScope
+                if not isinstance(self, _SessionTimeScope):
+                    raise ValueError("absolute TimeScope requires a frozen boundary timezone")
+                from marivo._timezones import parse_timezone
+
+                parse_timezone(self.boundary_timezone)
+                if any(
+                    value is not None for index, value in enumerate(provenance[2:]) if index != 1
                 ):
                     raise ValueError(
                         "absolute TimeScope cannot contain semantic temporal provenance"
@@ -828,17 +814,9 @@ class TimeScope(BaseModel):
         return self
 
     def _identity(self) -> tuple[object, ...]:
-        """Return the closed value identity independent of concrete class.
-
-        Pydantic rehydrates nested absolute scopes as the public base model,
-        while trusted constructors return the private closed variant.  Both
-        represent the same public value and therefore must compare and hash
-        identically across artifact round-trips.
-        """
+        """Return the closed identity including frozen timezone and provenance."""
         if self.kind == "absolute":
-            if isinstance(self, _SessionTimeScope):
-                return ("absolute", self.start, self.end, self.boundary_timezone)
-            return ("absolute", self.start, self.end)
+            return ("absolute", self.start, self.end, self.boundary_timezone)
         if self.kind == "temporal_occurrence":
             occurrence_scope = cast("_TemporalOccurrenceTimeScope", self)
             return (
@@ -874,9 +852,7 @@ class TimeScope(BaseModel):
 
     def __repr__(self) -> str:
         if self.kind == "absolute":
-            if isinstance(self, _SessionTimeScope):
-                return f"TimeScope([{self.start.isoformat()}, {self.end.isoformat()}), timezone={self.boundary_timezone}; use .show())"
-            return f"TimeScope([{_scope_bound_text(self.start)}, {_scope_bound_text(self.end)}))"
+            return f"TimeScope([{self.start.isoformat()}, {self.end.isoformat()}), timezone={self.boundary_timezone}; use .show())"
         if self.kind == "temporal_occurrence":
             occurrence_scope = cast("_TemporalOccurrenceTimeScope", self)
             return (
@@ -945,9 +921,7 @@ class TimeScope(BaseModel):
                 kind="absolute",
                 start=start,
                 end=end,
-                boundary_timezone=self.boundary_timezone
-                if isinstance(self, _SessionTimeScope)
-                else None,
+                boundary_timezone=self.boundary_timezone,
             )
         if self.kind == "temporal_occurrence":
             occurrence_scope = cast("_TemporalOccurrenceTimeScope", self)
@@ -978,12 +952,6 @@ class TimeScope(BaseModel):
     ) -> dict[str, object]:
         # Keep the ordinary payload distinct from the versioned contract encoding.
         return super().model_dump(mode=mode, exclude_none=exclude_none)
-
-
-class _AbsoluteTimeScope(TimeScope):
-    """Private concrete scope for an unbound absolute interval."""
-
-    pass
 
 
 class _SessionTimeScope(TimeScope):
@@ -1044,7 +1012,7 @@ def _new_time_scope(**data: Any) -> TimeScope:
             anchor_from_datetime(start), anchor_from_datetime(end), data["boundary_timezone"]
         )
     else:
-        scope_type = _AbsoluteTimeScope
+        raise ValueError("absolute TimeScope requires a frozen boundary_timezone")
     with _trusted_time_scope_validation():
         return scope_type(**data)
 
@@ -1063,13 +1031,13 @@ def _time_scope_from_contract_data(data: Mapping[str, Any]) -> TimeScope:
     bridge so cold-start replay can retain exact semantic provenance without
     opening a public dictionary-input path.
     """
+    if data.get("schema") != "time-scope/v1":
+        raise ValueError("unsupported time-scope schema")
     contract = TimeScopeContractV1.model_validate(dict(data))
     if contract.kind == "absolute":
-        if contract.boundary_timezone is not None:
-            return _new_time_scope(
-                start=contract.start, end=contract.end, boundary_timezone=contract.boundary_timezone
-            )
-        return _new_time_scope(start=contract.start, end=contract.end)
+        return _new_time_scope(
+            start=contract.start, end=contract.end, boundary_timezone=contract.boundary_timezone
+        )
     if contract.kind == "calendar_period":
         assert contract.calendar_ref is not None
         assert contract.snapshot_digest is not None
@@ -1131,18 +1099,8 @@ class TemporalSetBindingV1(BaseModel):
     snapshot_digest: str
 
 
-class WorkScheduleBindingV1(BaseModel):
-    """Closed artifact identity for one certified work-schedule snapshot."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    kind: Literal["work_schedule"] = "work_schedule"
-    work_schedule_ref: str
-    snapshot_digest: str
-
-
 PeriodBindingV1 = BuiltinPeriodBindingV1 | SemanticPeriodBindingV1
-TemporalAuthorityBindingV1 = PeriodBindingV1 | TemporalSetBindingV1 | WorkScheduleBindingV1
+TemporalAuthorityBindingV1 = PeriodBindingV1 | TemporalSetBindingV1
 
 
 def _scope_bound_text(value: date | datetime) -> str:
@@ -1187,29 +1145,6 @@ def _validate_time_scope_bounds(
         raise ValueError("TimeScope bounds must be comparable date or datetime values") from exc
 
 
-def time_scope(
-    *,
-    start: date | datetime | str,
-    end: date | datetime | str,
-) -> TimeScope:
-    """Construct one validated absolute public analysis scope.
-
-    Public callers should use this helper instead of constructing ``TimeScope``
-    directly. Calendar-period scopes are returned by certified catalog lookups.
-    """
-
-    if isinstance(start, str) and isinstance(end, str):
-        start, end = _parse_scope_strings(start, end)
-    elif isinstance(start, str) or isinstance(end, str):
-        raise ValueError("TimeScope cannot mix string and normalized bounds")
-    _validate_time_scope_bounds(start, end)
-    return _new_time_scope(start=start, end=end)
-
-
-def absolute_time_scope(*, start: date, end: date) -> TimeScope:
-    return time_scope(start=start, end=end)
-
-
 @dataclass(frozen=True, slots=True)
 class PeriodRecord:
     level_name: str
@@ -1249,28 +1184,6 @@ class ContainmentRecord:
     source_key: _JSON_SCALAR
     target_key: _JSON_SCALAR
     ordinal_in_target: int
-
-
-@dataclass(frozen=True, slots=True)
-class CorrespondenceRecord:
-    """One certified optional same-level period-to-baseline mapping."""
-
-    name: str
-    level_name: str
-    current_key: _JSON_SCALAR
-    baseline_key: _JSON_SCALAR | None
-
-    def __post_init__(self) -> None:
-        if (
-            type(self.name) is not str
-            or not self.name
-            or type(self.level_name) is not str
-            or not self.level_name
-        ):
-            raise ValueError("invalid normalized correspondence record")
-        canonical_key(self.current_key)
-        if self.baseline_key is not None:
-            canonical_key(self.baseline_key)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1341,7 +1254,7 @@ def _require_contiguous_periods(
 
 
 @dataclass(frozen=True, slots=True)
-class PeriodCalendarSnapshotV1:
+class PeriodCalendarSnapshotV2:
     """Certified compact period authority, normalized before identity hashing."""
 
     calendar_ref: Ref[PeriodCalendarKind]
@@ -1351,8 +1264,7 @@ class PeriodCalendarSnapshotV1:
     periods: tuple[PeriodRecord, ...]
     containments: tuple[ContainmentRecord, ...]
     snapshot_digest: str
-    correspondences: tuple[CorrespondenceRecord, ...] = ()
-    schema: Literal["period-calendar-snapshot/v1"] = "period-calendar-snapshot/v1"
+    schema: Literal["period-calendar-snapshot/v2"] = "period-calendar-snapshot/v2"
 
     def __post_init__(self) -> None:
         if type(self.calendar_ref) is not Ref or self.calendar_ref.kind.value != "period_calendar":
@@ -1361,7 +1273,7 @@ class PeriodCalendarSnapshotV1:
         start, end = self.coverage
         if type(start) is not date or type(end) is not date or start >= end:
             raise ValueError("coverage must be a non-empty [start, end) civil-date interval")
-        if self.schema != "period-calendar-snapshot/v1":
+        if self.schema != "period-calendar-snapshot/v2":
             raise ValueError("unsupported period calendar snapshot schema")
         expected = _snapshot_digest(
             calendar_ref=self.calendar_ref,
@@ -1370,7 +1282,6 @@ class PeriodCalendarSnapshotV1:
             levels=self.levels,
             periods=self.periods,
             containments=self.containments,
-            correspondences=self.correspondences,
         )
         if self.snapshot_digest != expected:
             raise ValueError("snapshot_digest does not match normalized period-calendar content")
@@ -1529,183 +1440,6 @@ class TemporalSetSnapshotV1:
         raise KeyError(f"temporal occurrence {key!r} is not in certified temporal set")
 
 
-@dataclass(frozen=True, slots=True)
-class WorkScheduleDayRecord:
-    """One normalized civil date and its final authored working status."""
-
-    date: date
-    is_working: bool
-
-    def __post_init__(self) -> None:
-        if type(self.date) is not date or type(self.is_working) is not bool:
-            raise TypeError("work-schedule rows require an exact civil date and boolean status")
-
-
-@dataclass(frozen=True, slots=True)
-class WorkScheduleSnapshotV1:
-    """Certified exhaustive finite daily working-status authority."""
-
-    work_schedule_ref: Ref[WorkScheduleKind]
-    boundary_timezone: str
-    coverage: tuple[date, date]
-    days: tuple[WorkScheduleDayRecord, ...]
-    snapshot_digest: str
-    schema: Literal["work-schedule-snapshot/v1"] = "work-schedule-snapshot/v1"
-
-    def __post_init__(self) -> None:
-        if self.schema != "work-schedule-snapshot/v1":
-            raise ValueError("unsupported work-schedule snapshot schema")
-        if (
-            type(self.work_schedule_ref) is not Ref
-            or self.work_schedule_ref.kind.value != "work_schedule"
-        ):
-            raise TypeError("work_schedule_ref must be Ref[work_schedule]")
-        _require_timezone(self.boundary_timezone)
-        start, end = self.coverage
-        if type(start) is not date or type(end) is not date or start >= end:
-            raise ValueError("coverage must be a non-empty [start, end) civil-date interval")
-        required = (end - start).days
-        ordered = tuple(sorted(self.days, key=lambda item: item.date))
-        if ordered != self.days:
-            raise ValueError("work-schedule days must be sorted by civil date")
-        if len(self.days) != required:
-            raise ValueError(
-                "work-schedule snapshot must contain exactly one row per coverage date"
-            )
-        for index, item in enumerate(self.days):
-            expected = start + timedelta(days=index)
-            if item.date != expected:
-                raise ValueError(
-                    f"work-schedule snapshot has a coverage gap or duplicate at {expected.isoformat()}"
-                )
-        expected_digest = _work_schedule_snapshot_digest(
-            work_schedule_ref=self.work_schedule_ref,
-            boundary_timezone=self.boundary_timezone,
-            coverage=self.coverage,
-            days=self.days,
-        )
-        if self.snapshot_digest != expected_digest:
-            raise ValueError("snapshot_digest does not match normalized work-schedule content")
-
-    @property
-    def working_dates(self) -> tuple[date, ...]:
-        return tuple(item.date for item in self.days if item.is_working)
-
-    def status_on(self, value: date) -> bool:
-        if type(value) is not date:
-            raise TypeError("work-schedule lookup requires an exact civil date")
-        index = (value - self.coverage[0]).days
-        if index < 0 or index >= len(self.days):
-            raise KeyError(f"date {value!r} is outside certified work-schedule coverage")
-        return self.days[index].is_working
-
-
-def _work_schedule_snapshot_payload(
-    *,
-    work_schedule_ref: Ref[WorkScheduleKind],
-    boundary_timezone: str,
-    coverage: tuple[date, date],
-    days: tuple[WorkScheduleDayRecord, ...],
-) -> dict[str, object]:
-    return {
-        "schema": "work-schedule-snapshot/v1",
-        "work_schedule_ref": work_schedule_ref.key,
-        "boundary_timezone": boundary_timezone,
-        "coverage": [coverage[0].isoformat(), coverage[1].isoformat()],
-        "days": [[item.date.isoformat(), item.is_working] for item in days],
-    }
-
-
-def _work_schedule_snapshot_digest(
-    *,
-    work_schedule_ref: Ref[WorkScheduleKind],
-    boundary_timezone: str,
-    coverage: tuple[date, date],
-    days: tuple[WorkScheduleDayRecord, ...],
-) -> str:
-    return hashlib.sha256(
-        json.dumps(
-            _work_schedule_snapshot_payload(
-                work_schedule_ref=work_schedule_ref,
-                boundary_timezone=boundary_timezone,
-                coverage=coverage,
-                days=days,
-            ),
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode()
-    ).hexdigest()
-
-
-def certify_work_schedule(
-    *,
-    work_schedule_ref: Ref[WorkScheduleKind],
-    boundary_timezone: str,
-    coverage: tuple[date, date],
-    rows: Iterable[Mapping[str, object]],
-    date_column: str,
-    is_working: str,
-) -> WorkScheduleSnapshotV1:
-    """Certify one exhaustive daily status sequence from retained rows."""
-    _require_timezone(boundary_timezone)
-    if type(work_schedule_ref) is not Ref or work_schedule_ref.kind.value != "work_schedule":
-        raise TypeError("work_schedule_ref must be Ref[work_schedule]")
-    start, end = coverage
-    if type(start) is not date or type(end) is not date or start >= end:
-        raise ValueError("coverage must be a non-empty [start, end) civil-date interval")
-    if type(date_column) is not str or not date_column:
-        raise ValueError("date source column must be a non-empty string")
-    if type(is_working) is not str or not is_working:
-        raise ValueError("is_working source column must be a non-empty string")
-    by_date: dict[date, bool] = {}
-    for row in rows:
-        if date_column not in row or is_working not in row:
-            raise ValueError("work-schedule snapshot row is missing a required source column")
-        raw_date = row[date_column]
-        if type(raw_date) is not date:
-            raise TypeError("work-schedule dates must be exact civil dates")
-        if raw_date < start or raw_date >= end:
-            continue
-        raw_status = row[is_working]
-        if type(raw_status) is not bool:
-            raise ValueError("work-schedule is_working values must be non-null booleans")
-        if raw_date in by_date:
-            raise ValueError(
-                f"work-schedule snapshot contains duplicate date {raw_date.isoformat()}"
-            )
-        by_date[raw_date] = raw_status
-    required = (end - start).days
-    if len(by_date) != required:
-        missing = next(
-            (
-                start + timedelta(days=index)
-                for index in range(required)
-                if start + timedelta(days=index) not in by_date
-            ),
-            None,
-        )
-        raise ValueError(
-            f"work-schedule snapshot does not completely cover declared range; first missing date is {missing}"
-        )
-    days = tuple(
-        WorkScheduleDayRecord(start + timedelta(days=index), by_date[start + timedelta(days=index)])
-        for index in range(required)
-    )
-    return WorkScheduleSnapshotV1(
-        work_schedule_ref=work_schedule_ref,
-        boundary_timezone=boundary_timezone,
-        coverage=coverage,
-        days=days,
-        snapshot_digest=_work_schedule_snapshot_digest(
-            work_schedule_ref=work_schedule_ref,
-            boundary_timezone=boundary_timezone,
-            coverage=coverage,
-            days=days,
-        ),
-    )
-
-
 def _named_persisted_row(
     values: object,
     *,
@@ -1717,50 +1451,6 @@ def _named_persisted_row(
     if set(values) != set(columns):
         raise ValueError("persisted snapshot row columns do not match selected columns")
     return {column: values[column] for column in columns}
-
-
-def certify_work_schedule_rows(
-    *,
-    work_schedule_ref: Ref[WorkScheduleKind],
-    boundary_timezone: str,
-    coverage: tuple[date, date],
-    columns: tuple[str, ...],
-    retained_values: tuple[Mapping[str, object], ...],
-    date_column: str,
-    is_working: str,
-    date_parse: object | None = None,
-) -> WorkScheduleSnapshotV1:
-    """Certify rows retained by one persisted datasource acquisition."""
-    missing = tuple(name for name in (date_column, is_working) if name not in columns)
-    if missing:
-        raise ValueError(f"persisted snapshot is missing work-schedule columns {missing!r}")
-    rows: list[dict[str, object]] = []
-    for values in retained_values:
-        row = _named_persisted_row(values, columns=columns)
-        raw = row[date_column]
-        if type(raw) is datetime:
-            raise ValueError("work-schedule date values must be civil dates")
-        parsed = _parse_persisted_temporal_value(
-            raw,
-            parse=date_parse,
-            boundary_timezone=boundary_timezone,
-        )
-        if type(parsed) is datetime:
-            raise ValueError("work-schedule date values must be civil dates")
-        rows.append(
-            {
-                "date": parsed,
-                "is_working": row[is_working],
-            }
-        )
-    return certify_work_schedule(
-        work_schedule_ref=work_schedule_ref,
-        boundary_timezone=boundary_timezone,
-        coverage=coverage,
-        rows=rows,
-        date_column="date",
-        is_working="is_working",
-    )
 
 
 def _temporal_set_snapshot_payload(
@@ -1950,7 +1640,7 @@ def _parse_persisted_temporal_value(
             return date.fromisoformat(value.strip())
         except ValueError as exc:
             raise ValueError(f"invalid persisted temporal date {value!r}") from exc
-    if parse_kind in {"datetime", "timestamp"}:
+    if parse_kind == "timestamp":
         timezone = getattr(parse, "timezone", None) or boundary_timezone
         decoded = _parse_persisted_temporal_value(value, boundary_timezone=boundary_timezone)
         if type(decoded) is date:
@@ -2054,10 +1744,9 @@ def _snapshot_payload(
     levels: tuple[str, ...],
     periods: tuple[PeriodRecord, ...],
     containments: tuple[ContainmentRecord, ...],
-    correspondences: tuple[CorrespondenceRecord, ...],
 ) -> dict[str, object]:
     return {
-        "schema": "period-calendar-snapshot/v1",
+        "schema": "period-calendar-snapshot/v2",
         "calendar_ref": calendar_ref.key,
         "boundary_timezone": boundary_timezone,
         "coverage": [coverage[0].isoformat(), coverage[1].isoformat()],
@@ -2082,15 +1771,6 @@ def _snapshot_payload(
             ]
             for c in containments
         ],
-        "correspondences": [
-            [
-                c.name,
-                c.level_name,
-                _key_token(c.current_key),
-                _key_token(c.baseline_key) if c.baseline_key is not None else None,
-            ]
-            for c in correspondences
-        ],
     }
 
 
@@ -2102,7 +1782,6 @@ def _snapshot_digest(
     levels: tuple[str, ...],
     periods: tuple[PeriodRecord, ...],
     containments: tuple[ContainmentRecord, ...],
-    correspondences: tuple[CorrespondenceRecord, ...],
 ) -> str:
     payload = _snapshot_payload(
         calendar_ref=calendar_ref,
@@ -2111,7 +1790,6 @@ def _snapshot_digest(
         levels=levels,
         periods=periods,
         containments=containments,
-        correspondences=correspondences,
     )
     serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(serialized.encode()).hexdigest()
@@ -2124,9 +1802,8 @@ def certify_period_calendar(
     coverage: tuple[date, date],
     rows: Iterable[Mapping[str, object]],
     levels: Mapping[str, str],
-    correspondences: Mapping[str, tuple[str, str]] | None = None,
-) -> PeriodCalendarSnapshotV1:
-    """Certify exhaustive daily rows into the compact V1 period snapshot.
+) -> PeriodCalendarSnapshotV2:
+    """Certify exhaustive daily rows into the compact V2 period snapshot.
 
     ``rows`` must be the values from exactly one previously acquired snapshot.
     The function performs no reads and is deterministic across input row order.
@@ -2142,20 +1819,6 @@ def certify_period_calendar(
         for name, column in levels.items()
     ):
         raise ValueError("calendar levels must map non-empty names to source columns")
-    correspondence_columns = {} if correspondences is None else dict(correspondences)
-    if any(
-        type(name) is not str
-        or not name
-        or type(level) is not str
-        or level not in levels
-        or type(column) is not str
-        or not column
-        for name, (level, column) in correspondence_columns.items()
-    ):
-        raise ValueError(
-            "calendar correspondences must map names to declared levels and source columns"
-        )
-
     daily: dict[date, Mapping[str, object]] = {}
     for row in rows:
         raw_date = row.get("date")
@@ -2171,13 +1834,6 @@ def certify_period_calendar(
                     f"calendar snapshot date {raw_date.isoformat()} has null/missing level {column!r}"
                 )
             canonical_key(row[column])
-        for name, (_level, column) in correspondence_columns.items():
-            if column not in row:
-                raise ValueError(
-                    f"calendar snapshot date {raw_date.isoformat()} has missing correspondence {name!r}"
-                )
-            if row[column] is not None:
-                canonical_key(row[column])
         daily[raw_date] = row
     required = (end - start).days
     if len(daily) != required:
@@ -2281,57 +1937,6 @@ def certify_period_calendar(
             ),
         )
     )
-    normalized_correspondences: list[CorrespondenceRecord] = []
-    for name, (level, column) in sorted(correspondence_columns.items()):
-        target_keys = {_key_token(period.key): period.key for period in by_level[level]}
-        consumed: set[str] = set()
-        for current in by_level[level]:
-            # ``None`` is a meaningful certified value: it means this current
-            # period has no baseline.  Keep it in the constancy check so a
-            # period containing both null and a key cannot be silently
-            # normalized to the non-null key.
-            baseline_values: set[str | None] = {
-                (
-                    _key_token(canonical_key(daily[value_date][column]))
-                    if daily[value_date].get(column) is not None
-                    else None
-                )
-                for value_date in (
-                    current.start_date + timedelta(days=offset)
-                    for offset in range((current.end_date - current.start_date).days)
-                )
-            }
-            if len(baseline_values) > 1:
-                raise ValueError(
-                    f"calendar correspondence {name!r} has conflicting baseline keys for {level}:{current.key!r}"
-                )
-            baseline_key: _JSON_SCALAR | None = None
-            baseline_token: str | None = next(iter(baseline_values))
-            if baseline_token is not None:
-                baseline_key = target_keys.get(baseline_token)
-                if baseline_key is None:
-                    raise ValueError(
-                        f"calendar correspondence {name!r} baseline key {json.loads(baseline_token)!r} "
-                        f"does not identify a {level!r} period"
-                    )
-                if _key_token(baseline_key) == _key_token(current.key):
-                    raise ValueError(
-                        f"calendar correspondence {name!r} maps {level}:{current.key!r} to itself"
-                    )
-                if baseline_token in consumed:
-                    raise ValueError(
-                        f"calendar correspondence {name!r} maps multiple periods to baseline {baseline_key!r}"
-                    )
-                consumed.add(baseline_token)
-            normalized_correspondences.append(
-                CorrespondenceRecord(name, level, current.key, baseline_key)
-            )
-    ordered_correspondences = tuple(
-        sorted(
-            normalized_correspondences,
-            key=lambda value: (value.name, value.level_name, _key_token(value.current_key)),
-        )
-    )
     ordered_levels = tuple(sorted(by_level))
     digest = _snapshot_digest(
         calendar_ref=calendar_ref,
@@ -2340,9 +1945,8 @@ def certify_period_calendar(
         levels=ordered_levels,
         periods=ordered_periods,
         containments=ordered_containments,
-        correspondences=ordered_correspondences,
     )
-    return PeriodCalendarSnapshotV1(
+    return PeriodCalendarSnapshotV2(
         calendar_ref=calendar_ref,
         boundary_timezone=boundary_timezone,
         coverage=coverage,
@@ -2350,7 +1954,6 @@ def certify_period_calendar(
         periods=ordered_periods,
         containments=ordered_containments,
         snapshot_digest=digest,
-        correspondences=ordered_correspondences,
     )
 
 
@@ -2363,19 +1966,13 @@ def certify_period_calendar_rows(
     retained_values: tuple[Mapping[str, _JSON_SCALAR | None], ...],
     date_column: str,
     levels: Mapping[str, str],
-    correspondences: Mapping[str, tuple[str, str]] | None = None,
-) -> PeriodCalendarSnapshotV1:
+) -> PeriodCalendarSnapshotV2:
     """Certify rows retained by one persisted datasource acquisition.
 
     The caller supplies physical column bindings from the semantic declaration;
     this bridge performs no datasource, pandas, or registry operation.
     """
-    correspondence_columns = (
-        ()
-        if correspondences is None
-        else tuple(column for _level, column in correspondences.values())
-    )
-    required = (date_column, *levels.values(), *correspondence_columns)
+    required = (date_column, *levels.values())
     missing = tuple(name for name in required if name not in columns)
     if missing:
         raise ValueError(f"persisted snapshot is missing calendar columns {missing!r}")
@@ -2394,8 +1991,6 @@ def certify_period_calendar_rows(
         row: dict[str, object] = {"date": civil_date}
         for _level, column in levels.items():
             row[column] = row_values[column]
-        for _name, (_level, column) in ({} if correspondences is None else correspondences).items():
-            row[column] = row_values[column]
         rows.append(row)
     return certify_period_calendar(
         calendar_ref=calendar_ref,
@@ -2403,7 +1998,6 @@ def certify_period_calendar_rows(
         coverage=coverage,
         rows=rows,
         levels=levels,
-        correspondences=correspondences,
     )
 
 
@@ -2429,17 +2023,15 @@ class TemporalResolverAdapter(Protocol):
 
     def scope(self, level: str, key: _JSON_SCALAR) -> TimeScope: ...
 
-    def correspondence(self, name: str, level: str, key: _JSON_SCALAR) -> _JSON_SCALAR | None: ...
-
     def rolls_up_to(self, source_level: str, target_level: str) -> bool: ...
 
 
 class TemporalResolver:
-    """Pure lookup and correspondence adapter over one certified snapshot."""
+    """Pure lookup adapter over one certified snapshot."""
 
-    __slots__ = ("_correspondences", "_periods", "_snapshot")
+    __slots__ = ("_periods", "_snapshot")
 
-    def __init__(self, snapshot: PeriodCalendarSnapshotV1) -> None:
+    def __init__(self, snapshot: PeriodCalendarSnapshotV2) -> None:
         self._snapshot = snapshot
         self._periods = MappingProxyType(
             {
@@ -2447,15 +2039,9 @@ class TemporalResolver:
                 for level in snapshot.levels
             }
         )
-        self._correspondences = MappingProxyType(
-            {
-                (item.name, item.level_name, _key_token(item.current_key)): item.baseline_key
-                for item in snapshot.correspondences
-            }
-        )
 
     @property
-    def snapshot(self) -> PeriodCalendarSnapshotV1:
+    def snapshot(self) -> PeriodCalendarSnapshotV2:
         return self._snapshot
 
     def period(self, level: str, key: _JSON_SCALAR) -> PeriodRecord:
@@ -2556,13 +2142,6 @@ class TemporalResolver:
 
     def scope(self, level: str, key: _JSON_SCALAR) -> TimeScope:
         return self._snapshot.period_scope(level, key)
-
-    def correspondence(self, name: str, level: str, key: _JSON_SCALAR) -> _JSON_SCALAR | None:
-        """Return the certified optional baseline key for one current period."""
-        token = (name, level, _key_token(canonical_key(key)))
-        if token not in self._correspondences:
-            raise KeyError(f"unknown certified correspondence {name!r} for {level}:{key!r}")
-        return self._correspondences[token]
 
     def rolls_up_to(self, source_level: str, target_level: str) -> bool:
         return any(
@@ -2688,10 +2267,13 @@ class GregorianIsoResolver:
 
     def scope(self, level: str, key: _JSON_SCALAR) -> TimeScope:
         period = self.period(level, key)
-        return absolute_time_scope(start=period.start_date, end=period.end_date)
+        from marivo._temporal_grid import instant
 
-    def correspondence(self, name: str, level: str, key: _JSON_SCALAR) -> _JSON_SCALAR | None:
-        raise KeyError(f"built-in Gregorian/ISO authority has no named correspondence {name!r}")
+        return session_time_scope(
+            anchor_from_datetime(instant(period.start_date, self._boundary_timezone)),
+            anchor_from_datetime(instant(period.end_date, self._boundary_timezone)),
+            self._boundary_timezone,
+        )
 
     def rolls_up_to(self, source_level: str, target_level: str) -> bool:
         return (source_level, target_level) in {
@@ -2706,13 +2288,13 @@ class GregorianIsoResolver:
 
 
 @dataclass(frozen=True, slots=True)
-class PeriodCalendarManifestV1:
+class PeriodCalendarManifestV2:
     """Current certified snapshot pointer for one authored calendar definition."""
 
     calendar_ref: Ref[PeriodCalendarKind]
     definition_digest: str
     snapshot_digest: str
-    schema: Literal["period-calendar-manifest/v1"] = "period-calendar-manifest/v1"
+    schema: Literal["period-calendar-manifest/v2"] = "period-calendar-manifest/v2"
 
 
 class TemporalSnapshotStore:
@@ -2725,10 +2307,10 @@ class TemporalSnapshotStore:
 
     def publish(
         self,
-        snapshot: PeriodCalendarSnapshotV1,
+        snapshot: PeriodCalendarSnapshotV2,
         *,
         definition_digest: str,
-    ) -> PeriodCalendarManifestV1:
+    ) -> PeriodCalendarManifestV2:
         """Atomically publish a new current manifest without deleting prior snapshots."""
         if type(definition_digest) is not str or not definition_digest:
             raise ValueError("definition_digest must be a non-empty string")
@@ -2738,7 +2320,7 @@ class TemporalSnapshotStore:
             directory / f"{snapshot.snapshot_digest}.json",
             _snapshot_json(snapshot),
         )
-        manifest = PeriodCalendarManifestV1(
+        manifest = PeriodCalendarManifestV2(
             calendar_ref=snapshot.calendar_ref,
             definition_digest=definition_digest,
             snapshot_digest=snapshot.snapshot_digest,
@@ -2751,7 +2333,7 @@ class TemporalSnapshotStore:
         calendar_ref: Ref[PeriodCalendarKind],
         *,
         definition_digest: str,
-    ) -> PeriodCalendarSnapshotV1 | None:
+    ) -> PeriodCalendarSnapshotV2 | None:
         """Load the current snapshot only when it matches this exact definition."""
         status, snapshot = self.inspect_current(
             calendar_ref,
@@ -2764,7 +2346,7 @@ class TemporalSnapshotStore:
         calendar_ref: Ref[PeriodCalendarKind],
         *,
         snapshot_digest: str,
-    ) -> PeriodCalendarSnapshotV1:
+    ) -> PeriodCalendarSnapshotV2:
         """Load one immutable snapshot by its persisted authority identity."""
         if type(snapshot_digest) is not str or not snapshot_digest:
             raise ValueError("snapshot_digest must be a non-empty string")
@@ -2785,7 +2367,7 @@ class TemporalSnapshotStore:
         calendar_ref: Ref[PeriodCalendarKind],
         *,
         definition_digest: str,
-    ) -> tuple[Literal["missing", "current", "stale", "invalid"], PeriodCalendarSnapshotV1 | None]:
+    ) -> tuple[Literal["missing", "current", "stale", "invalid"], PeriodCalendarSnapshotV2 | None]:
         """Classify project-local current state without leaking parse failures.
 
         Readiness and catalog details need to distinguish a missing authority
@@ -2954,127 +2536,6 @@ class TemporalSetSnapshotStore:
         os.replace(temporary, path)
 
 
-@dataclass(frozen=True, slots=True)
-class WorkScheduleManifestV1:
-    """Current certified snapshot pointer for one work-schedule declaration."""
-
-    work_schedule_ref: Ref[WorkScheduleKind]
-    definition_digest: str
-    snapshot_digest: str
-    schema: Literal["work-schedule-manifest/v1"] = "work-schedule-manifest/v1"
-
-
-class WorkScheduleSnapshotStore:
-    """Project-local atomic persistence for certified work schedules."""
-
-    __slots__ = ("_root",)
-
-    def __init__(self, project_root: Path) -> None:
-        self._root = project_root / ".marivo" / "temporal" / "work-schedules"
-
-    def publish(
-        self,
-        snapshot: WorkScheduleSnapshotV1,
-        *,
-        definition_digest: str,
-    ) -> WorkScheduleManifestV1:
-        if type(definition_digest) is not str or not definition_digest:
-            raise ValueError("definition_digest must be a non-empty string")
-        directory = self._directory(snapshot.work_schedule_ref)
-        directory.mkdir(parents=True, exist_ok=True)
-        self._write_json(
-            directory / f"{snapshot.snapshot_digest}.json",
-            _work_schedule_snapshot_json(snapshot),
-        )
-        manifest = WorkScheduleManifestV1(
-            work_schedule_ref=snapshot.work_schedule_ref,
-            definition_digest=definition_digest,
-            snapshot_digest=snapshot.snapshot_digest,
-        )
-        self._write_json(directory / "current.json", _work_schedule_manifest_json(manifest))
-        return manifest
-
-    def load_current(
-        self,
-        work_schedule_ref: Ref[WorkScheduleKind],
-        *,
-        definition_digest: str,
-    ) -> WorkScheduleSnapshotV1 | None:
-        status, snapshot = self.inspect_current(
-            work_schedule_ref,
-            definition_digest=definition_digest,
-        )
-        return snapshot if status == "current" else None
-
-    def load_exact(
-        self,
-        work_schedule_ref: Ref[WorkScheduleKind],
-        *,
-        snapshot_digest: str,
-    ) -> WorkScheduleSnapshotV1:
-        if type(snapshot_digest) is not str or not snapshot_digest:
-            raise ValueError("snapshot_digest must be a non-empty string")
-        path = self._directory(work_schedule_ref) / f"{snapshot_digest}.json"
-        if not path.is_file():
-            raise KeyError(
-                f"certified snapshot {snapshot_digest!r} for {work_schedule_ref.path!r} is unavailable"
-            )
-        snapshot = _work_schedule_snapshot_from_json(_read_json(path))
-        if (
-            snapshot.work_schedule_ref != work_schedule_ref
-            or snapshot.snapshot_digest != snapshot_digest
-        ):
-            raise ValueError(
-                "persisted work-schedule snapshot identity does not match requested binding"
-            )
-        return snapshot
-
-    def inspect_current(
-        self,
-        work_schedule_ref: Ref[WorkScheduleKind],
-        *,
-        definition_digest: str,
-    ) -> tuple[Literal["missing", "current", "stale", "invalid"], WorkScheduleSnapshotV1 | None]:
-        directory = self._directory(work_schedule_ref)
-        manifest_path = directory / "current.json"
-        if not manifest_path.exists():
-            return "missing", None
-        try:
-            manifest = _work_schedule_manifest_from_json(_read_json(manifest_path))
-        except (OSError, TypeError, ValueError, KeyError, IndexError):
-            return "invalid", None
-        if manifest.work_schedule_ref != work_schedule_ref:
-            return "invalid", None
-        if manifest.definition_digest != definition_digest:
-            return "stale", None
-        snapshot_path = directory / f"{manifest.snapshot_digest}.json"
-        if not snapshot_path.exists():
-            return "invalid", None
-        try:
-            snapshot = _work_schedule_snapshot_from_json(_read_json(snapshot_path))
-        except (OSError, TypeError, ValueError, KeyError, IndexError):
-            return "invalid", None
-        if (
-            snapshot.work_schedule_ref != work_schedule_ref
-            or snapshot.snapshot_digest != manifest.snapshot_digest
-        ):
-            return "invalid", None
-        return "current", snapshot
-
-    def _directory(self, work_schedule_ref: Ref[WorkScheduleKind]) -> Path:
-        token = hashlib.sha256(work_schedule_ref.key.encode()).hexdigest()
-        return self._root / token
-
-    @staticmethod
-    def _write_json(path: Path, payload: Mapping[str, object]) -> None:
-        temporary = path.with_suffix(".tmp")
-        with temporary.open("w", encoding="utf-8") as file:
-            json.dump(payload, file, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-            file.flush()
-            os.fsync(file.fileno())
-        os.replace(temporary, path)
-
-
 def _temporal_set_manifest_json(manifest: TemporalSetManifestV1) -> dict[str, object]:
     return {
         "schema": manifest.schema,
@@ -3175,92 +2636,7 @@ def _temporal_set_snapshot_from_json(payload: Mapping[str, object]) -> TemporalS
     )
 
 
-def _work_schedule_manifest_json(manifest: WorkScheduleManifestV1) -> dict[str, object]:
-    return {
-        "schema": manifest.schema,
-        "work_schedule_ref": manifest.work_schedule_ref.path,
-        "definition_digest": manifest.definition_digest,
-        "snapshot_digest": manifest.snapshot_digest,
-    }
-
-
-def _work_schedule_manifest_from_json(payload: Mapping[str, object]) -> WorkScheduleManifestV1:
-    if payload.get("schema") != "work-schedule-manifest/v1":
-        raise ValueError("unsupported work schedule manifest schema")
-    raw_ref = payload.get("work_schedule_ref")
-    definition_digest = payload.get("definition_digest")
-    snapshot_digest = payload.get("snapshot_digest")
-    if not all(
-        type(value) is str and value for value in (raw_ref, definition_digest, snapshot_digest)
-    ):
-        raise ValueError("work schedule manifest fields are invalid")
-    return WorkScheduleManifestV1(
-        work_schedule_ref=ref_factory_work_schedule(cast("str", raw_ref)),
-        definition_digest=cast("str", definition_digest),
-        snapshot_digest=cast("str", snapshot_digest),
-    )
-
-
-def _work_schedule_snapshot_json(snapshot: WorkScheduleSnapshotV1) -> dict[str, object]:
-    return {
-        **_work_schedule_snapshot_payload(
-            work_schedule_ref=snapshot.work_schedule_ref,
-            boundary_timezone=snapshot.boundary_timezone,
-            coverage=snapshot.coverage,
-            days=snapshot.days,
-        ),
-        "snapshot_digest": snapshot.snapshot_digest,
-    }
-
-
-def _work_schedule_snapshot_from_json(payload: Mapping[str, object]) -> WorkScheduleSnapshotV1:
-    if payload.get("schema") != "work-schedule-snapshot/v1":
-        raise ValueError("unsupported work schedule snapshot schema")
-    raw_ref = payload.get("work_schedule_ref")
-    raw_timezone = payload.get("boundary_timezone")
-    raw_coverage = payload.get("coverage")
-    raw_days = payload.get("days")
-    digest = payload.get("snapshot_digest")
-    if (
-        type(raw_ref) is not str
-        or not raw_ref.startswith("work_schedule:")
-        or type(raw_timezone) is not str
-        or not isinstance(raw_coverage, list)
-        or len(raw_coverage) != 2
-        or not isinstance(raw_days, list)
-        or type(digest) is not str
-        or not digest
-    ):
-        raise ValueError("work schedule snapshot payload fields are invalid")
-    coverage = (
-        date.fromisoformat(cast("str", raw_coverage[0])),
-        date.fromisoformat(cast("str", raw_coverage[1])),
-    )
-    days: list[WorkScheduleDayRecord] = []
-    for raw in raw_days:
-        if (
-            not isinstance(raw, list)
-            or len(raw) != 2
-            or type(raw[0]) is not str
-            or type(raw[1]) is not bool
-        ):
-            raise ValueError("work schedule day payload is invalid")
-        days.append(
-            WorkScheduleDayRecord(
-                date=date.fromisoformat(raw[0]),
-                is_working=raw[1],
-            )
-        )
-    return WorkScheduleSnapshotV1(
-        work_schedule_ref=ref_factory_work_schedule(raw_ref.removeprefix("work_schedule:")),
-        boundary_timezone=raw_timezone,
-        coverage=coverage,
-        days=tuple(days),
-        snapshot_digest=digest,
-    )
-
-
-def _snapshot_json(snapshot: PeriodCalendarSnapshotV1) -> dict[str, object]:
+def _snapshot_json(snapshot: PeriodCalendarSnapshotV2) -> dict[str, object]:
     return {
         **_snapshot_payload(
             calendar_ref=snapshot.calendar_ref,
@@ -3269,13 +2645,12 @@ def _snapshot_json(snapshot: PeriodCalendarSnapshotV1) -> dict[str, object]:
             levels=snapshot.levels,
             periods=snapshot.periods,
             containments=snapshot.containments,
-            correspondences=snapshot.correspondences,
         ),
         "snapshot_digest": snapshot.snapshot_digest,
     }
 
 
-def _manifest_json(manifest: PeriodCalendarManifestV1) -> dict[str, object]:
+def _manifest_json(manifest: PeriodCalendarManifestV2) -> dict[str, object]:
     return {
         "schema": manifest.schema,
         "calendar_ref": manifest.calendar_ref.path,
@@ -3292,8 +2667,10 @@ def _read_json(path: Path) -> Mapping[str, object]:
     return cast("Mapping[str, object]", payload)
 
 
-def _manifest_from_json(payload: Mapping[str, object]) -> PeriodCalendarManifestV1:
-    if payload.get("schema") != "period-calendar-manifest/v1":
+def _manifest_from_json(payload: Mapping[str, object]) -> PeriodCalendarManifestV2:
+    if set(payload) != {"schema", "calendar_ref", "definition_digest", "snapshot_digest"}:
+        raise ValueError("period calendar manifest fields are invalid")
+    if payload.get("schema") != "period-calendar-manifest/v2":
         raise ValueError("unsupported period calendar manifest schema")
     calendar_path = payload.get("calendar_ref")
     definition_digest = payload.get("definition_digest")
@@ -3303,22 +2680,32 @@ def _manifest_from_json(payload: Mapping[str, object]) -> PeriodCalendarManifest
         for value in (calendar_path, definition_digest, snapshot_digest)
     ):
         raise ValueError("period calendar manifest fields are invalid")
-    return PeriodCalendarManifestV1(
+    return PeriodCalendarManifestV2(
         calendar_ref=ref_factory_period_calendar(cast("str", calendar_path)),
         definition_digest=cast("str", definition_digest),
         snapshot_digest=cast("str", snapshot_digest),
     )
 
 
-def _snapshot_from_json(payload: Mapping[str, object]) -> PeriodCalendarSnapshotV1:
-    if payload.get("schema") != "period-calendar-snapshot/v1":
+def _snapshot_from_json(payload: Mapping[str, object]) -> PeriodCalendarSnapshotV2:
+    if set(payload) != {
+        "schema",
+        "calendar_ref",
+        "boundary_timezone",
+        "coverage",
+        "levels",
+        "periods",
+        "containments",
+        "snapshot_digest",
+    }:
+        raise ValueError("period calendar snapshot fields are invalid")
+    if payload.get("schema") != "period-calendar-snapshot/v2":
         raise ValueError("unsupported period calendar snapshot schema")
     raw_ref = payload.get("calendar_ref")
     raw_coverage = payload.get("coverage")
     raw_levels = payload.get("levels")
     raw_periods = payload.get("periods")
     raw_containments = payload.get("containments")
-    raw_correspondences = payload.get("correspondences", [])
     digest = payload.get("snapshot_digest")
     timezone = payload.get("boundary_timezone")
     if (
@@ -3327,7 +2714,6 @@ def _snapshot_from_json(payload: Mapping[str, object]) -> PeriodCalendarSnapshot
         or not isinstance(raw_levels, list)
         or not isinstance(raw_periods, list)
         or not isinstance(raw_containments, list)
-        or not isinstance(raw_correspondences, list)
         or type(digest) is not str
         or type(timezone) is not str
         or len(raw_coverage) != 2
@@ -3354,19 +2740,10 @@ def _snapshot_from_json(payload: Mapping[str, object]) -> PeriodCalendarSnapshot
         )
         for item in cast("list[list[object]]", raw_containments)
     )
-    correspondences = tuple(
-        CorrespondenceRecord(
-            name=cast("str", item[0]),
-            level_name=cast("str", item[1]),
-            current_key=json.loads(cast("str", item[2])),
-            baseline_key=(json.loads(cast("str", item[3])) if item[3] is not None else None),
-        )
-        for item in cast("list[list[object]]", raw_correspondences)
-    )
     calendar_key_prefix = "period_calendar:"
     if not raw_ref.startswith(calendar_key_prefix):
         raise ValueError("period calendar snapshot calendar_ref is invalid")
-    return PeriodCalendarSnapshotV1(
+    return PeriodCalendarSnapshotV2(
         calendar_ref=ref_factory_period_calendar(raw_ref.removeprefix(calendar_key_prefix)),
         boundary_timezone=timezone,
         coverage=cast("tuple[date, date]", coverage),
@@ -3374,7 +2751,6 @@ def _snapshot_from_json(payload: Mapping[str, object]) -> PeriodCalendarSnapshot
         periods=periods,
         containments=containments,
         snapshot_digest=digest,
-        correspondences=correspondences,
     )
 
 
@@ -3390,13 +2766,6 @@ def ref_factory_temporal_set(path: str) -> Ref[TemporalSetKind]:
     from marivo.refs import ref
 
     return ref.temporal_set(path)
-
-
-def ref_factory_work_schedule(path: str) -> Ref[WorkScheduleKind]:
-    """Late import helper for dependency-neutral work-schedule persistence."""
-    from marivo.refs import ref
-
-    return ref.work_schedule(path)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -3512,6 +2881,10 @@ def calendar_axis(scope: TimeScope, grain: Grain) -> CalendarAxis:
     if scope.kind == "absolute" and not isinstance(scope, _SessionTimeScope):
         raise ValueError(
             "Expected a scope with a frozen timezone; construct it with session.time_scope(...)."
+        )
+    if grain.kind == "semantic" and grain._snapshot is None:
+        raise ValueError(
+            "Expected a captured semantic Grain; use calendar.grain(level) from a certified catalog."
         )
     zone = scope.boundary_timezone
     if (

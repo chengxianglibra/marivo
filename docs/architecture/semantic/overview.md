@@ -34,7 +34,7 @@ Help; `marivo.help` is the common public coordinator.
 | Physical capture, Deferred grammar, units and reductions | [Expressions](expressions.md) |
 | Loading, Catalog, readiness, preview and source health | [Loading and validation](loading-validation-introspection.md) |
 | Choosing evidence and completing an authoring task | [Authoring workflow](authoring-workflow.md) |
-| Period calendars, temporal sets and work schedules | [Temporal authority](temporal-authority.md) |
+| Period calendars and temporal sets | [Temporal authority](temporal-authority.md) |
 | Exact boundaries, windows and frozen time coordinates | [Temporal semantics](../temporal-semantics.md) |
 | Analysis source binding, data operations and Runtime | [Analysis](../analysis/README.md) |
 | Help, state display and repair ownership | [Public surface](../agent-friendly-public-surface.md) |

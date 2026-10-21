@@ -26,11 +26,12 @@ from marivo._definition.windows import (
 )
 from marivo._temporal import (
     Grain,
-    PeriodCalendarSnapshotV1,
+    PeriodCalendarSnapshotV2,
     anchor_from_datetime,
     semantic_grain,
+    session_time_scope,
 )
-from marivo._temporal_grid import _floor, _next, instant
+from marivo._temporal_grid import _floor, _next, bind_grid, instant
 from marivo._timezones import parse_timezone
 from marivo.analysis.core.model import reject
 
@@ -88,18 +89,88 @@ def _reset(end: datetime, grain: Grain, zone: str) -> tuple[datetime, datetime]:
                 "Metric.window",
             )
         return matches[0]
+    if grain.unit in ("second", "minute", "hour"):
+        width = timedelta(
+            seconds={"second": 1, "minute": 60, "hour": 3600}[grain.unit] * (grain.count or 1)
+        )
+        grid = bind_grid(
+            session_time_scope(
+                anchor_from_datetime(end - width), anchor_from_datetime(end + width), zone
+            ),
+            grain,
+            report_timezone=zone,
+            explicit_timezone=zone,
+        )
+        return next(
+            (cell.original_start, cell.original_end)
+            for cell in grid.cells
+            if cell.original_start < end <= cell.original_end
+        )
     local = end.astimezone(parse_timezone(zone)[1])
     left = _floor(local, grain)
     if left == local:
         # Boundary ownership is exact: the period just completed owns this endpoint.
-        if grain.unit in ("second", "minute", "hour"):
-            width = {"second": 1, "minute": 60, "hour": 3600}[grain.unit] * (grain.count or 1)
-            left -= timedelta(seconds=width)
-        else:
-            left = _previous(left, grain)
+        left = _previous(left, grain)
     return instant(left.replace(tzinfo=None), zone), instant(
         _next(left, grain).replace(tzinfo=None), zone
     )
+
+
+def validate_date_contribution(contribution: ContributionBinding, path: str) -> None:
+    """Reject fabricated subday DATE contributions before a business read."""
+    from marivo._definition.types import FieldRead
+
+    is_role = contribution.time is not None and contribution.time.field.ref.path == path
+    is_sample = any(
+        isinstance(read, FieldRead) and read.field.ref.path == path
+        for read in contribution.coordinates[contribution.output_axis_count :]
+    )
+    if not is_role and not is_sample:
+        return
+    calendars = tuple(axis for _, axis in contribution.calendars)
+    if any(isinstance(axis, CalendarCoordinate) and not axis.cells for axis in calendars):
+        return
+
+    def fail(received: str) -> None:
+        reject(
+            "civil DATE contributions at complete business-midnight boundaries",
+            received,
+            "Use day-or-larger output and reset Grains with complete civil-date ranges, "
+            "or use a real timestamp TimeField for subday contributions.",
+            "session.observe",
+        )
+
+    rule = contribution.window_rule
+    if isinstance(rule, TrailingDuration) and rule.duration % timedelta(days=1):
+        fail(f"{path}: elapsed duration {rule.duration}")
+    if (
+        isinstance(rule, ToDate)
+        and rule.grain.kind == "builtin"
+        and rule.grain.unit in ("second", "minute", "hour")
+    ):
+        fail(f"{path}: subday reset {rule.grain!r}")
+    for axis in calendars:
+        if isinstance(axis, CalendarCoordinate):
+            if axis.grain_spec.kind == "builtin" and axis.grain_spec.unit in (
+                "second",
+                "minute",
+                "hour",
+            ):
+                fail(f"{path}: subday output {axis.grain}")
+            bounds = tuple(bound for cell in axis.cells for bound in cell[2:])
+        else:
+            bounds = (axis.start, axis.end)
+        zone = parse_timezone(axis.timezone)[1]
+        if any(bound.astimezone(zone).time() != datetime.min.time() for bound in bounds):
+            fail(f"{path}: non-midnight calendar boundary")
+    period = contribution.period
+    if period is not None:
+        zone = parse_timezone(period.timezone)[1]
+        if any(
+            bound is not None and bound.astimezone(zone).time() != datetime.min.time()
+            for bound in (period.start, period.end)
+        ):
+            fail(f"{path}: non-midnight contribution boundary")
 
 
 def bind_windows(
@@ -108,7 +179,7 @@ def bind_windows(
     declared: dict[ExactRef, MetricNode],
     period: ObservationPeriod | None,
     calendar: CalendarCoordinate | None,
-    calendar_snapshots: tuple[PeriodCalendarSnapshotV1, ...] = (),
+    calendar_snapshots: tuple[PeriodCalendarSnapshotV2, ...] = (),
 ) -> tuple[ContributionBinding, ...]:
     """Expand each window usage into independent source reads per output endpoint."""
     from marivo.analysis.binding.observe import ObservationPeriod
@@ -202,8 +273,8 @@ def bind_windows(
     if period is None:
         reject(
             "an explicit window endpoint",
-            "during=None",
-            "Pass a TimeScope or CalendarAxis to observe.",
+            "no output time axis",
+            "Pass by=(scope,) or by=(calendar_axis,) to session.observe(...).",
             "Metric.window",
         )
     result: list[ContributionBinding] = []
@@ -308,6 +379,7 @@ def bind_windows(
                     contribution,
                     occurrence=(*contribution.occurrence, index),
                     logical_occurrence=contribution.occurrence,
+                    window_rule=rule,
                     window_key=index if contribution.calendars else None,
                     window_calendar_digest=(
                         rule.grain._snapshot.snapshot_digest

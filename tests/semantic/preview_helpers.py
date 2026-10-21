@@ -57,16 +57,15 @@ def certified_project(
                 import marivo.datasource as md
                 import marivo.semantic as ms
                 calendar = ms.entity(name="calendar", datasource=ms.ref.datasource("warehouse"), source=md.table("calendar"))
-                calendar_date = ms.time_dimension_column(name="calendar_date", entity=calendar, column="calendar_date", granularity="day")
+                calendar_date = ms.time_dimension_column(name="calendar_date", entity=calendar, column="calendar_date")
                 week = ms.dimension_column(name="week", entity=calendar, column="week")
                 is_working = ms.dimension_column(name="is_working", entity=calendar, column="is_working")
                 fiscal = ms.period_calendar(name="fiscal", date=calendar_date, boundary_timezone="UTC", coverage=(__import__("datetime").date(2026, 1, 1), __import__("datetime").date(2026, 1, 5)), levels={"week": week})
-                schedule = ms.work_schedule(name="schedule", date=calendar_date, is_working=is_working, boundary_timezone="UTC", coverage=(__import__("datetime").date(2026, 1, 1), __import__("datetime").date(2026, 1, 5)))
                 campaigns = ms.entity(name="campaigns", datasource=ms.ref.datasource("warehouse"), source=md.table("campaigns"))
                 campaign_id = ms.dimension_column(name="campaign_id", entity=campaigns, column="campaign_id")
                 category = ms.dimension_column(name="category", entity=campaigns, column="category")
-                starts = ms.time_dimension_column(name="starts", entity=campaigns, column="starts", granularity="day")
-                ends = ms.time_dimension_column(name="ends", entity=campaigns, column="ends", granularity="day")
+                starts = ms.time_dimension_column(name="starts", entity=campaigns, column="starts")
+                ends = ms.time_dimension_column(name="ends", entity=campaigns, column="ends")
                 named_campaigns = ms.temporal_set(name="named_campaigns", occurrence_id=campaign_id, start=starts, end=ends, category=category, boundary_timezone="UTC", coverage=(__import__("datetime").date(2026, 1, 1), __import__("datetime").date(2027, 1, 1)))
                 """
             ),

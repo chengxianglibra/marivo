@@ -5,6 +5,35 @@ description: Bind explicit source populations and interpret frozen calendar data
 
 This guide continues the [local tutorial](/docs/latest/guides/python-quick-start/).
 
+## Declare source time and sampling
+
+A TimeField owns its optional `sample_interval`; parse owns only encoding and
+source clock interpretation. For a native naive timestamp, declare
+`parse=ms.timestamp(timezone="UTC")` and, separately on the field,
+`sample_interval=(1, "hour")`. Aware timestamps already identify instants and
+must omit parser timezone, even when it equals their physical timezone.
+Date-only `ms.strptime("%Y%m%d")` must omit timezone. Native DATE/timestamp
+fields may use `parse=None`; strings and integers need explicit parse.
+
+Sampling uses the frozen source clock: naive parser/reader authority or UTC for
+aware values. Report timezone clips the same source points to actual contribution
+intervals; it never changes their phase. Missing expected samples fail coverage;
+present samples with NULL retain the reducer's null policy. Without cadence,
+only represented samples are evaluated. Same-time facts reduce spatially first.
+
+DATE time roles require day-or-coarser output/reset, whole-24-hour duration
+multiples and actual finite boundaries at business midnight. Across DST, an
+elapsed 24-hour window can fail that boundary check; use complete civil periods.
+A plain `field.within(scope)` keeps its midnight-point predicate meaning.
+
+Snapshots require `ms.snapshot(partition_field=day, timezone="Asia/Shanghai")`.
+The field owns the date encoding; snapshot is always daily. Label D is effective
+from D midnight. An end-of-day file D must be explicitly authored as effective
+D+1 when those values apply only the following day. DATE validity requires its
+business timezone. Timestamp validity rejects that parameter: move naive source
+localization into the field parser, or remove duplicate timezone for aware data.
+`valid_from`, `valid_to`, `interval` and `open_end` remain required.
+
 ## Select complete identities explicitly
 
 {/* example: explicit-identity-read */}
@@ -75,7 +104,11 @@ has equal totals. There is no Frame calendar coarsening or CalendarAxis.coarsen.
 Session instant/time_scope freeze exact boundaries; dates/offset-free strings use
 the chosen zone, aware inputs retain their instant, and naive Python datetimes or
 ambiguous/nonexistent clocks reject. A CalendarAxis keeps original nominal and
-clipped actual buckets; civil days can last 23 or 25 hours.
+clipped actual buckets; civil days can last 23 or 25 hours. Grain has no ordering
+operators. Subday count must tile a nominal day and use one spelling: 60second,
+120second, 60minute and 24hour reject; 90second and 90minute are valid. A calendar
+lookup Grain cannot enter `scope.by`; obtain `calendar.grain(level)` with a
+captured certificate. Equality and hashing retain that snapshot identity.
 
 ## Attach the window to the Metric
 
@@ -95,7 +128,9 @@ uses complete civil/certified periods. since freezes a start; all_history has no
 lower bound; to_date selects the reset period ending at the evaluation boundary.
 A named-calendar rule is a checked semantic dependency; a snapshot-bound Grain
 must match the Session's frozen certified scope. New windows/calendars require
-explicit observe; certification does not prove source completeness.
+explicit observe; certification does not prove source completeness. The endpoint
+is each bucket's actual clipped right boundary. `trailing_periods` rejects
+partial edge buckets and follows full-calendar predecessors for sparse axes.
 
 ## Pair completed endpoints
 
@@ -122,7 +157,7 @@ align owns paired output and a general two-ended time union.
 {/* example: shifted-period-comparison-query */}
 
 ```python
-months = session.time_scope(start="2026-08-01", end="2026-08-20T12:00:00Z").by(mv.grain("month"))
+months = session.time_scope(start="2026-08-01", end="2026-08-20").by(mv.grain("month"))
 current_progress = session.observe({"revenue": revenue}, by=(months,))
 previous_progress = session.observe(
     {"revenue": revenue}, by=(months.shift(mv.offset(periods=-1)),),
@@ -136,7 +171,7 @@ nonadditive formulas. `offset(years=-1)` uses civil years and ISO week-year for
 weeks; `offset(periods=-1)` uses nominal grain distance, never sparse row position.
 Supply exactly one non-boolean integer keyword. Unit-step builtin week/month/year
 shift supports full buckets or prefixes from their bucket starts. The example
-pairs August 1–20 noon with July 1–20 noon; no current range is shortened.
+pairs August 1–20 midnight with July 1–20 midnight; no current range is shortened.
 Missing ISO W53 or civil cutoff dates have no target; selected targets may be
 sparse or empty. No envelope filling, date clamping or ancestor recovery occurs.
 Nonzero target DST gaps/folds reject; zero offsets retain exact captured instants.

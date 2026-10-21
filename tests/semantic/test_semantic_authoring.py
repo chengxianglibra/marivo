@@ -66,7 +66,6 @@ from marivo.semantic.ir import (
     PeriodCalendarIR,
     RelationshipIR,
     TableSourceIR,
-    WorkScheduleIR,
 )
 from marivo.semantic.loader import _LOADER_CTX, LoaderContext, loader_context
 from marivo.semantic.reader import SemanticProject
@@ -171,7 +170,7 @@ def test_field_outside_context_raises() -> None:
 def test_time_field_outside_context_raises() -> None:
     with pytest.raises(SemanticDecoratorError) as exc_info:
 
-        @ms.time_dimension(entity="orders", granularity="day")  # type: ignore[arg-type]  # intentional rejection input
+        @ms.time_dimension(entity="orders")  # type: ignore[arg-type]  # intentional rejection input
         def order_date(table: object) -> object:
             return None
 
@@ -455,7 +454,7 @@ def test_field_name_defaults_to_function_name() -> None:
         assert amount.path == "sales.orders.amount"
         assert ir.name == "amount"
         assert ir.is_time_dimension is False
-        assert ir.granularity is None
+
         assert ir.kind == DimensionKind.CATEGORICAL
     finally:
         _exit_ctx()
@@ -487,7 +486,7 @@ def test_component_decorators_accept_leading_docstrings() -> None:
             """Order region."""
             return table.region
 
-        @ms.time_dimension(entity=ref_factory.entity("sales.orders"), granularity="day")
+        @ms.time_dimension(entity=ref_factory.entity("sales.orders"))
         def order_date(table: ibis_ir.Table) -> ibis_ir.Value:
             """Order date."""
             return table.order_date
@@ -696,7 +695,7 @@ def test_time_dimension_body_error_uses_time_dimension_label() -> None:
     try:
         with pytest.raises(SemanticLoadError) as exc_info:
 
-            @ms.time_dimension(entity=ref_factory.entity("sales.orders"), granularity="day")
+            @ms.time_dimension(entity=ref_factory.entity("sales.orders"))
             def order_date(table: ibis_ir.Table) -> ibis_ir.Value:
                 return table.created_at
                 table.created_at  # noqa: B018
@@ -713,13 +712,12 @@ def test_time_field_ir_has_time_metadata() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
-        @ms.time_dimension(entity=ref_factory.entity("sales.orders"), granularity="day")
+        @ms.time_dimension(entity=ref_factory.entity("sales.orders"))
         def order_date(table: object) -> object:
             return None
 
         @ms.time_dimension(
             entity=ref_factory.entity("sales.orders"),
-            granularity="hour",
             parse=ms.hour_prefix(order_date),
         )
         def order_hour(table: object) -> object:
@@ -734,7 +732,7 @@ def test_time_field_ir_has_time_metadata() -> None:
         assert ir.is_time_dimension is True
         assert isinstance(ir.parse, HourPrefixParse)
         assert ir.parse.prefix == "sales.orders.order_date"
-        assert ir.granularity == "hour"
+
         assert ir.kind == DimensionKind.TIME
     finally:
         _exit_ctx()
@@ -759,7 +757,6 @@ def test_time_dimension_rejects_invalid_parse_value() -> None:
         with pytest.raises(SemanticDecoratorError) as exc_info:
             ms.time_dimension(
                 entity=ref_factory.entity("sales.orders"),
-                granularity="day",
                 parse=object(),  # type: ignore[arg-type]
             )(order_date)
         assert exc_info.value.kind == ErrorKind.INVALID_REF
@@ -768,16 +765,9 @@ def test_time_dimension_rejects_invalid_parse_value() -> None:
         _exit_ctx()
 
 
-def test_time_field_requires_data_type_and_granularity() -> None:
-    _enter_ctx(default_domain="sales")
-    try:
-        with pytest.raises(TypeError):
-
-            @ms.time_dimension(entity=ref_factory.entity("sales.orders"))  # type: ignore[call-arg]
-            def order_date(table: object) -> object:
-                return None
-    finally:
-        _exit_ctx()
+def test_time_field_rejects_removed_granularity() -> None:
+    with pytest.raises(TypeError, match="granularity"):
+        ms.time_dimension(entity=ref_factory.entity("sales.orders"), granularity="day")  # type: ignore[call-arg]
 
 
 def test_time_field_body_rejects_sql_escape_hatch() -> None:
@@ -785,7 +775,7 @@ def test_time_field_body_rejects_sql_escape_hatch() -> None:
     try:
         with pytest.raises(SemanticLoadError) as exc_info:
 
-            @ms.time_dimension(entity=ref_factory.entity("sales.orders"), granularity="day")
+            @ms.time_dimension(entity=ref_factory.entity("sales.orders"))
             def order_date(backend: ibis_ir.Table) -> ibis_ir.Value:
                 return backend.sql("select current_date")
 
@@ -803,7 +793,6 @@ def test_time_field_accepts_timezone_metadata() -> None:
 
         @ms.time_dimension(
             entity=ref_factory.entity("sales.orders"),
-            granularity="hour",
             parse=ms.timestamp(timezone="UTC"),
         )
         def created_at(table: object) -> object:
@@ -819,22 +808,21 @@ def test_time_field_accepts_timezone_metadata() -> None:
 
 
 def test_time_field_accepts_missing_timezone_for_datetime_metadata() -> None:
-    from marivo.semantic.ir import DatetimeParse
+    from marivo.semantic.ir import TimestampParse
 
     ctx = _enter_ctx(default_domain="sales")
     try:
 
         @ms.time_dimension(
             entity=ref_factory.entity("sales.orders"),
-            granularity="hour",
-            parse=ms.datetime(),
+            parse=ms.timestamp(),
         )
         def created_at(table: object) -> object:
             return None
 
         ir, _ = _pending_objects(ctx)[-1]
         assert isinstance(ir, DimensionIR)
-        assert isinstance(ir.parse, DatetimeParse)
+        assert isinstance(ir.parse, TimestampParse)
         assert ir.parse.timezone is None
     finally:
         _exit_ctx()
@@ -848,7 +836,6 @@ def test_time_field_accepts_missing_timezone_for_timestamp_metadata() -> None:
 
         @ms.time_dimension(
             entity=ref_factory.entity("sales.orders"),
-            granularity="hour",
             parse=ms.timestamp(),
         )
         def created_at(table: object) -> object:
@@ -869,7 +856,6 @@ def test_time_field_rejects_invalid_timezone() -> None:
 
             @ms.time_dimension(
                 entity=ref_factory.entity("sales.orders"),
-                granularity="hour",
                 parse=ms.timestamp(timezone="Mars/Olympus"),
             )
             def created_at(table: object) -> object:
@@ -896,8 +882,7 @@ def test_time_field_rejects_date_format_on_temporal_type() -> None:
 
             @ms.time_dimension(
                 entity=ref_factory.entity("sales.orders"),
-                granularity="day",
-                parse=ms.datetime(timezone="UTC"),
+                parse=ms.timestamp(timezone="UTC"),
                 date_format="%Y-%m-%d",  # type: ignore[call-arg]
             )
             def created_at(table: object) -> object:
@@ -913,7 +898,6 @@ def test_time_dimension_without_parse_is_valid() -> None:
 
         @ms.time_dimension(
             entity=ref_factory.entity("sales.orders"),
-            granularity="day",
         )
         def order_date(table: object) -> object:
             return None
@@ -933,7 +917,6 @@ def test_time_field_accepts_canonical_strptime() -> None:
 
         @ms.time_dimension(
             entity=ref_factory.entity("sales.orders"),
-            granularity="day",
             parse=ms.strptime("%Y%m%d"),
         )
         def order_date(table: object) -> object:
@@ -956,7 +939,6 @@ def test_time_field_strips_whitespace_from_strptime() -> None:
 
         @ms.time_dimension(
             entity=ref_factory.entity("sales.orders"),
-            granularity="day",
             parse=ms.strptime("  %Y-%m-%d  "),
         )
         def order_date(table: object) -> object:
@@ -984,8 +966,8 @@ def test_time_dimension_accepts_sample_interval() -> None:
 
         @ms.time_dimension(
             entity=ref_factory.entity("sales.bandwidth_samples"),
-            granularity="second",
-            parse=ms.timestamp(timezone="UTC", sample_interval=(5, "minute")),
+            sample_interval=(5, "minute"),
+            parse=ms.timestamp(timezone="UTC"),
         )
         def sample_ts(table: object) -> object:
             return None
@@ -995,10 +977,10 @@ def test_time_dimension_accepts_sample_interval() -> None:
 
         ir = irs[-1]
         assert isinstance(ir.parse, TimestampParse)
-        assert ir.parse.sample_interval is not None
-        assert ir.granularity == "second"
-        assert ir.parse.sample_interval.count == 5
-        assert ir.parse.sample_interval.unit == "minute"
+        assert ir.sample_interval is not None
+
+        assert ir.sample_interval.count == 5
+        assert ir.sample_interval.unit == "minute"
     finally:
         _exit_ctx()
 
@@ -1009,12 +991,8 @@ def test_strptime_time_dimension_accepts_sample_interval() -> None:
 
         @ms.time_dimension(
             entity=ref_factory.entity("sales.bandwidth_samples"),
-            granularity="second",
-            parse=ms.strptime(
-                "%Y%m%d%H%M%S",
-                timezone="UTC",
-                sample_interval=(5, "minute"),
-            ),
+            sample_interval=(5, "minute"),
+            parse=ms.strptime("%Y%m%d%H%M%S", timezone="UTC"),
         )
         def sample_ts(table: object) -> object:
             return None
@@ -1024,10 +1002,10 @@ def test_strptime_time_dimension_accepts_sample_interval() -> None:
 
         ir = irs[-1]
         assert isinstance(ir.parse, StrptimeParse)
-        assert ir.parse.sample_interval is not None
-        assert ir.granularity == "second"
-        assert ir.parse.sample_interval.count == 5
-        assert ir.parse.sample_interval.unit == "minute"
+        assert ir.sample_interval is not None
+
+        assert ir.sample_interval.count == 5
+        assert ir.sample_interval.unit == "minute"
     finally:
         _exit_ctx()
 
@@ -1039,8 +1017,8 @@ def test_time_dimensions_reject_invalid_sample_interval_units() -> None:
 
             @ms.time_dimension(
                 entity=ref_factory.entity("sales.bandwidth_samples"),
-                granularity="second",
-                parse=ms.timestamp(timezone="UTC", sample_interval=(1, "day")),  # type: ignore[arg-type]
+                sample_interval=(1, "day"),
+                parse=ms.timestamp(timezone="UTC"),  # type: ignore[arg-type]
             )
             def sample_ts(table: object) -> object:
                 return None
@@ -1050,12 +1028,8 @@ def test_time_dimensions_reject_invalid_sample_interval_units() -> None:
 
             @ms.time_dimension(
                 entity=ref_factory.entity("sales.bandwidth_samples"),
-                granularity="second",
-                parse=ms.strptime(
-                    "%Y%m%d%H%M%S",
-                    timezone="UTC",
-                    sample_interval=(1, "day"),  # type: ignore[arg-type]
-                ),
+                sample_interval=(1, "day"),  # type: ignore[arg-type]
+                parse=ms.strptime("%Y%m%d%H%M%S", timezone="UTC"),
             )
             def sample_ts(table: object) -> object:
                 return None
@@ -1072,11 +1046,8 @@ def test_strptime_time_dimension_rejects_sample_interval_without_date_context() 
 
             @ms.time_dimension(
                 entity=ref_factory.entity("sales.bandwidth_samples"),
-                granularity="hour",
-                parse=ms.strptime(
-                    "%H:%M",
-                    sample_interval=(1, "hour"),
-                ),
+                sample_interval=(1, "hour"),
+                parse=ms.strptime("%H:%M"),
             )
             def sample_hour(table: object) -> object:
                 return None
@@ -1087,41 +1058,19 @@ def test_strptime_time_dimension_rejects_sample_interval_without_date_context() 
         _exit_ctx()
 
 
-def test_time_dimensions_coarser_granularity_error_suggests_fix() -> None:
+@pytest.mark.parametrize("cadence", [(7, "minute"), (60, "minute"), (24, "hour"), (0, "hour")])
+def test_time_dimensions_reject_invalid_or_duplicate_cadence(cadence) -> None:
     _enter_ctx(default_domain="sales")
     try:
-        with pytest.raises(SemanticDecoratorError) as exc_info:
-
-            @ms.time_dimension(
-                entity=ref_factory.entity("sales.bandwidth_samples"),
-                granularity="day",
-                parse=ms.timestamp(timezone="UTC", sample_interval=(5, "minute")),
+        with pytest.raises(SemanticDecoratorError) as error:
+            ms.time_dimension_column(
+                name="sample_ts",
+                entity=ref_factory.entity("sales.samples"),
+                column="ts",
+                sample_interval=cadence,
+                parse=ms.timestamp(),
             )
-            def sample_ts(table: object) -> object:
-                return None
-
-        assert exc_info.value.kind == ErrorKind.INVALID_SAMPLE_INTERVAL
-        message = str(exc_info.value)
-        assert "Set granularity to 'minute' or finer" in message
-        assert "'second', 'minute'" in message
-        with pytest.raises(SemanticDecoratorError) as strptime_exc_info:
-
-            @ms.time_dimension(
-                entity=ref_factory.entity("sales.bandwidth_samples"),
-                granularity="day",
-                parse=ms.strptime(
-                    "%Y%m%d%H%M%S",
-                    timezone="UTC",
-                    sample_interval=(5, "minute"),
-                ),
-            )
-            def sample_ts(table: object) -> object:
-                return None
-
-        assert strptime_exc_info.value.kind == ErrorKind.INVALID_SAMPLE_INTERVAL
-        message = str(strptime_exc_info.value)
-        assert "Set granularity to 'minute' or finer" in message
-        assert "'second', 'minute'" in message
+        assert error.value.kind == ErrorKind.INVALID_SAMPLE_INTERVAL
     finally:
         _exit_ctx()
 
@@ -1132,14 +1081,14 @@ def test_hour_prefix_accepts_sample_interval() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
-        @ms.time_dimension(entity=ref_factory.entity("sales.bandwidth_samples"), granularity="day")
+        @ms.time_dimension(entity=ref_factory.entity("sales.bandwidth_samples"))
         def dt(table: object) -> object:
             return None
 
         @ms.time_dimension(
             entity=ref_factory.entity("sales.bandwidth_samples"),
-            granularity="hour",
-            parse=ms.hour_prefix(dt, sample_interval=(1, "hour")),
+            sample_interval=(1, "hour"),
+            parse=ms.hour_prefix(dt),
         )
         def hh(table: object) -> object:
             return None
@@ -1147,9 +1096,9 @@ def test_hour_prefix_accepts_sample_interval() -> None:
         irs = [obj for obj, _ in _pending_objects(ctx) if isinstance(obj, DimensionIR)]
         ir = irs[-1]
         assert isinstance(ir.parse, HourPrefixParse)
-        assert ir.parse.sample_interval is not None
-        assert ir.parse.sample_interval.count == 1
-        assert ir.parse.sample_interval.unit == "hour"
+        assert ir.sample_interval is not None
+        assert ir.sample_interval.count == 1
+        assert ir.sample_interval.unit == "hour"
     finally:
         _exit_ctx()
 
@@ -1163,8 +1112,8 @@ def test_hour_prefix_rejects_sample_interval_day_unit() -> None:
 
             @ms.time_dimension(
                 entity=ref_factory.entity("sales.bandwidth_samples"),
-                granularity="hour",
-                parse=ms.hour_prefix(dt, sample_interval=(1, "day")),  # type: ignore[arg-type]
+                sample_interval=(1, "day"),
+                parse=ms.hour_prefix(dt),  # type: ignore[arg-type]
             )
             def hh(table: object) -> object:
                 return None
@@ -1185,7 +1134,6 @@ def test_time_dimension_column_pushes_ir_sidecar_and_pending_ref() -> None:
             name="log_date",
             entity=orders,
             column="dt",
-            granularity="day",
             parse=ms.strptime("%Y%m%d"),
             is_default=True,
             ai_context=ms.ai_context(
@@ -1204,7 +1152,7 @@ def test_time_dimension_column_pushes_ir_sidecar_and_pending_ref() -> None:
         assert ir.python_symbol == "log_date"
         assert ir.is_time_dimension is True
         assert ir.kind is DimensionKind.TIME
-        assert ir.granularity == "day"
+
         assert ir.parse is not None
         assert ir.is_default is True
         assert ir.ai_context.business_definition == "Default order reporting date."
@@ -1226,7 +1174,6 @@ def test_time_dimension_column_rejects_string_entity() -> None:
                 name="log_date",
                 entity="sales.orders",  # type: ignore[arg-type]  # intentional rejection input
                 column="dt",
-                granularity="day",
             )
     finally:
         _exit_ctx()
@@ -1235,30 +1182,21 @@ def test_time_dimension_column_rejects_string_entity() -> None:
     assert "entity must be Ref[entity]" in str(exc_info.value)
 
 
-def test_time_dimension_column_reuses_parse_granularity_validation() -> None:
+def test_time_dimension_column_rejects_date_sampling() -> None:
     _enter_ctx(default_domain="sales")
     try:
-        orders = ms.entity(
-            name="orders", datasource=ms.ref.datasource("wh"), source=md.table("orders")
-        )
-        with pytest.raises(SemanticDecoratorError) as exc_info:
+        with pytest.raises(SemanticDecoratorError) as error:
             ms.time_dimension_column(
-                name="log_date",
-                entity=orders,
-                column="dt",
-                granularity="hour",
+                name="date",
+                entity=ref_factory.entity("sales.orders"),
+                column="date",
                 parse=ms.strptime("%Y%m%d"),
+                sample_interval=(1, "hour"),
             )
+        assert error.value.kind == ErrorKind.INVALID_SAMPLE_INTERVAL
+        assert "DATE" in error.value.message
     finally:
         _exit_ctx()
-
-    assert exc_info.value.kind == ErrorKind.INVALID_REF
-    assert "requires a time-bearing format" in str(exc_info.value)
-
-
-# ---------------------------------------------------------------------------
-# ms.metric() decorator
-# ---------------------------------------------------------------------------
 
 
 def test_metric_returns_local_declaration() -> None:
@@ -1364,8 +1302,8 @@ def test_metric_accepts_semi_additive() -> None:
             name="sample_ts",
             entity=orders,
             column="sample_ts",
-            granularity="minute",
-            parse=ms.timestamp(timezone="UTC", sample_interval=(5, "minute")),
+            sample_interval=(5, "minute"),
+            parse=ms.timestamp(timezone="UTC"),
         )
         value_ref = ms.measure_column(
             name="value",
@@ -1452,9 +1390,7 @@ def test_status_time_can_be_declared_without_fold() -> None:
         inventory = ms.entity(
             name="inventory", datasource=ms.ref.datasource("wh"), source=md.table("inventory")
         )
-        axis = ms.time_dimension_column(
-            name="snapshot_at", entity=inventory, column="snapshot_at", granularity="day"
-        )
+        axis = ms.time_dimension_column(name="snapshot_at", entity=inventory, column="snapshot_at")
         quantity = ms.measure_column(
             name="quantity",
             entity=inventory,
@@ -1875,7 +1811,7 @@ def test_relationship_rejects_non_join_key_entries() -> None:
             lambda: ms.join_on("sales.orders.path", ref_factory.dimension("sales.items.order_id")),  # type: ignore[arg-type]  # intentional rejection input
             "from_key",
         ),
-        (lambda: ms.snapshot(partition_field="sales.orders.dt", grain="day"), "partition_field"),  # type: ignore[arg-type]  # intentional rejection input
+        (lambda: ms.snapshot(partition_field="sales.orders.dt", timezone="UTC"), "partition_field"),  # type: ignore[arg-type]  # intentional rejection input
         (
             lambda: ms.validity(
                 valid_from="sales.orders.valid_from",  # type: ignore[arg-type]  # intentional rejection input
@@ -1943,7 +1879,9 @@ def test_authoring_reference_parameters_reject_naked_strings(
             "Ref[dimension]",
         ),
         (
-            lambda: ms.snapshot(partition_field=ref_factory.metric("sales.revenue"), grain="day"),  # type: ignore[arg-type]  # intentional rejection input
+            lambda: ms.snapshot(
+                partition_field=ref_factory.metric("sales.revenue"), timezone="UTC"
+            ),  # type: ignore[arg-type]  # intentional rejection input
             "Ref[dimension]",
         ),
         (
@@ -2058,7 +1996,6 @@ def test_field_and_time_field_same_name_same_dataset_collides() -> None:
             @ms.time_dimension(
                 entity=ds,
                 name="log_date",
-                granularity="day",
                 parse=ms.strptime("%Y%m%d"),
             )
             def log_date_tf(table: ibis_ir.Table) -> ibis_ir.Value:
@@ -2319,20 +2256,12 @@ def test_ratio_unit_rejects_whitespace_and_empty(bad: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_retired_cumulative_never_pushes_legacy_ir() -> None:
-    ctx = _enter_ctx(default_domain="sales")
-    try:
-        with pytest.raises(SemanticExpressionError) as caught:
-            ms.cumulative(
-                name="running",
-                base=ref_factory.metric("sales.revenue"),
-                over=ref_factory.time_dimension("sales.orders.ordered_at"),
-            )
-        assert caught.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-        assert caught.value.repair is not None and "base.window(rule)" in caught.value.repair.action
-        assert ctx.pending_definitions == []
-    finally:
-        _exit_ctx()
+def test_retired_window_factories_are_absent() -> None:
+    from marivo.semantic import authoring
+
+    for name in ("cumulative", "grain_to_date", "trailing"):
+        assert not hasattr(ms, name)
+        assert not hasattr(authoring, name)
 
 
 def test_period_calendar_authoring_pushes_typed_declaration() -> None:
@@ -2344,12 +2273,6 @@ def test_period_calendar_authoring_pushes_typed_declaration() -> None:
             boundary_timezone="UTC",
             coverage=(date(2026, 1, 1), date(2027, 1, 1)),
             levels={"week": ref_factory.dimension("sales.calendar.fiscal_week")},
-            correspondences={
-                "prior": ms.period_correspondence(
-                    level="week",
-                    baseline_key=ref_factory.dimension("sales.calendar.prior_week"),
-                )
-            },
         )
 
     assert calendar == ref_factory.period_calendar("sales.fiscal")
@@ -2357,24 +2280,21 @@ def test_period_calendar_authoring_pushes_typed_declaration() -> None:
     assert isinstance(pending, PendingDefinition)
     assert isinstance(pending.definition, PeriodCalendarIR)
     assert pending.definition.levels == (("week", "sales.calendar.fiscal_week"),)
-    assert pending.definition.correspondences == (("prior", "week", "sales.calendar.prior_week"),)
 
 
-def test_work_schedule_authoring_pushes_typed_declaration() -> None:
-    ctx = LoaderContext(default_domain="sales")
-    with loader_context(ctx):
-        schedule = ms.work_schedule(
-            name="sales_schedule",
-            date=ref_factory.time_dimension("sales.calendar.calendar_date"),
-            is_working=ref_factory.dimension("sales.calendar.is_working"),
-            boundary_timezone="Asia/Shanghai",
-            coverage=(date(2026, 1, 1), date(2026, 1, 5)),
-        )
-
-    assert schedule == ref_factory.work_schedule("sales.sales_schedule")
-    pending = ctx.pending_definitions[-1]
-    assert isinstance(pending, PendingDefinition)
-    assert isinstance(pending.definition, WorkScheduleIR)
-    assert pending.definition.date == "sales.calendar.calendar_date"
-    assert pending.definition.is_working == "sales.calendar.is_working"
-    assert pending.definition.coverage == ("2026-01-01", "2026-01-05")
+@pytest.mark.parametrize("fmt", ["%Y-%m-%d %M", "%Y-%m-%d %S"])
+def test_sampled_encoding_requires_an_hour_component(fmt: str) -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as error:
+            ms.time_dimension_column(
+                name="sample_ts",
+                entity=ref_factory.entity("sales.samples"),
+                column="point",
+                parse=ms.strptime(fmt),
+                sample_interval=(1, "hour"),
+            )
+        assert error.value.kind == ErrorKind.INVALID_SAMPLE_INTERVAL
+        assert "hour-bearing" in error.value.message
+    finally:
+        _exit_ctx()

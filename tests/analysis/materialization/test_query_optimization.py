@@ -89,7 +89,7 @@ amount = ms.measure_column(name='amount', entity=orders, column='amount', additi
 detail = ms.dimension_column(name='detail', entity=orders, column='detail')
 exact = ms.measure_column(name='exact', entity=orders, column='exact', additivity=ms.additive_all(), unit='CNY')
 approximate = ms.measure_column(name='approximate', entity=orders, column='approximate', additivity=ms.additive_all(), unit='CNY')
-ordered_at = ms.time_dimension_column(name='ordered_at', entity=orders, column='ordered_at', granularity='day', is_default=True)
+ordered_at = ms.time_dimension_column(name='ordered_at', entity=orders, column='ordered_at', is_default=True)
 other = ms.entity(name='other', datasource=ms.ref.datasource('second'), source=md.table('orders'), primary_key=['id'])
 other_amount = ms.measure_column(name='amount', entity=other, column='amount', additivity=ms.additive_all(), unit='CNY')
 """,
@@ -826,13 +826,11 @@ def test_shared_session_scope_keeps_frozen_fields_and_neutral_roundtrip(
     optimization_session: Session,
     clock: str,
 ) -> None:
-    from datetime import date
 
     from marivo._temporal import (
         TimeScope,
         _SessionTimeScope,
         _time_scope_from_contract_data,
-        time_scope,
     )
 
     scope = optimization_session.time_scope(
@@ -847,10 +845,15 @@ def test_shared_session_scope_keeps_frozen_fields_and_neutral_roundtrip(
     assert restored.start == scope.start and restored.end == scope.end
     assert restored.boundary_timezone == scope.boundary_timezone
     assert restored.by(mv.grain("day")).grid.identity == axis.grid.identity
-    civil = time_scope(start="2026-01-01", end="2026-01-03")
-    civil_restored = _time_scope_from_contract_data(civil._contract().model_dump(mode="json"))
-    assert type(civil_restored.start) is date and type(civil_restored.end) is date
-    assert civil_restored == civil and civil_restored._contract().boundary_timezone is None
+    with pytest.raises(ValueError, match="frozen boundary_timezone"):
+        _time_scope_from_contract_data(
+            {
+                "schema": "time-scope/v1",
+                "kind": "absolute",
+                "start": "2026-01-01",
+                "end": "2026-01-03",
+            }
+        )
     amount = optimization_session.catalog.fields.get("sales.orders.amount")
     time = optimization_session.catalog.fields.get("sales.orders.ordered_at")
     observed = optimization_session.observe({"sum": amount.sum()}, where=time.within(scope))

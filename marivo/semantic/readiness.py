@@ -26,16 +26,12 @@ ReadinessIssueKind = Literal[
     "cross_datasource_unfederated",
     "fragile_string_ref",
     "time_dimension_pushdown_advisory",
-    "undeclared_naive_time_axis",
     "period_calendar_artifact_missing",
     "period_calendar_artifact_stale",
     "period_calendar_artifact_invalid",
     "temporal_set_artifact_missing",
     "temporal_set_artifact_stale",
     "temporal_set_artifact_invalid",
-    "work_schedule_artifact_missing",
-    "work_schedule_artifact_stale",
-    "work_schedule_artifact_invalid",
 ]
 
 
@@ -173,7 +169,6 @@ def _exact_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
         SemanticKind.RELATIONSHIP: ref_factory.relationship,
         SemanticKind.PERIOD_CALENDAR: ref_factory.period_calendar,
         SemanticKind.TEMPORAL_SET: ref_factory.temporal_set,
-        SemanticKind.WORK_SCHEDULE: ref_factory.work_schedule,
     }[kind]
     return factory(path)
 
@@ -274,10 +269,6 @@ def _object_maps(project: SemanticProject) -> tuple[dict[str, SemanticKind], dic
         key = _exact_key(temporal_set.semantic_id, SemanticKind.TEMPORAL_SET)
         kinds[key] = SemanticKind.TEMPORAL_SET
         objects[key] = temporal_set
-    for work_schedule in reg.work_schedules.values():
-        key = _exact_key(work_schedule.semantic_id, SemanticKind.WORK_SCHEDULE)
-        kinds[key] = SemanticKind.WORK_SCHEDULE
-        objects[key] = work_schedule
     for domain_ir in reg.domains.values():
         key = _exact_key(domain_ir.name, SemanticKind.DOMAIN)
         kinds[key] = SemanticKind.DOMAIN
@@ -388,63 +379,6 @@ def _refs_with_issue(issues: Iterable[ReadinessIssue]) -> set[str]:
     return {ref for issue in issues for ref in issue.refs}
 
 
-def _undeclared_naive_time_axis_issues(
-    checked_refs: Iterable[str],
-    kinds: Mapping[str, SemanticKind],
-    objects: Mapping[str, object],
-) -> tuple[list[ReadinessIssue], list[ReadinessIssue]]:
-    """Return blockers/warnings for native temporal axes without a source timezone.
-
-    An explicit ``parse=ms.datetime()``/``parse=ms.timestamp()`` with no timezone is
-    certainly a naive datetime/timestamp, so it blocks. Runtime-observed physical
-    type risks belong to preview and never affect semantic-static readiness.
-    """
-    blockers: list[ReadinessIssue] = []
-    warnings: list[ReadinessIssue] = []
-    for ref in checked_refs:
-        if kinds.get(ref) != SemanticKind.TIME_DIMENSION:
-            continue
-        path = _display_path(ref)
-        time_dimension = objects.get(ref)
-        parse = getattr(time_dimension, "parse", None)
-        data_type = getattr(parse, "kind", None)
-        declared_timezone = getattr(parse, "timezone", None)
-
-        entity_ref = getattr(time_dimension, "entity", None)
-        entity = (
-            objects.get(_exact_key(entity_ref, SemanticKind.ENTITY))
-            if isinstance(entity_ref, str)
-            else None
-        )
-        datasource = getattr(entity, "datasource", None)
-
-        if data_type in {"datetime", "timestamp"} and declared_timezone is None:
-            parse_call = f'ms.{data_type}(timezone="Region/City")'
-            blockers.append(
-                _issue(
-                    "undeclared_naive_time_axis",
-                    "blocker",
-                    (path,),
-                    f"{path} is a native {data_type} time axis with no declared source timezone; "
-                    "analysis will otherwise interpret naive values using the datasource read timezone.",
-                    repair(
-                        kind="reauthor",
-                        canonical_id="time_dimension_column",
-                        action=f"Declare the source timezone on this time dimension with parse={parse_call}.",
-                    ),
-                    details={
-                        "data_type": data_type,
-                        "declared_timezone": None,
-                        "datasource": datasource,
-                        "datasource_read_timezone": "resolved at runtime",
-                        "report_timezone": "resolved by the analysis session",
-                        "window_alignment_risk": "Report-local windows may shift at day or hour boundaries.",
-                    },
-                )
-            )
-    return blockers, warnings
-
-
 def build_readiness_report(
     project: SemanticProject,
     *,
@@ -550,14 +484,6 @@ def build_readiness_report(
             )
         )
 
-    naive_time_axis_blockers, naive_time_axis_warnings = _undeclared_naive_time_axis_issues(
-        checked_refs,
-        kinds,
-        objects,
-    )
-    blockers.extend(naive_time_axis_blockers)
-    warnings.extend(naive_time_axis_warnings)
-
     # Period calendars are executable semantic dependencies. Unlike ordinary
     # preview output, a missing/stale certified artifact is a hard blocker
     # and is checked entirely from project-local state.
@@ -580,7 +506,6 @@ def build_readiness_report(
                 boundary_timezone=calendar.boundary_timezone,
                 coverage=calendar.coverage,
                 levels=calendar.levels,
-                correspondences=calendar.correspondences,
                 dependency_digest=scoped_definition_fingerprint(
                     root=calendar_ref,
                     definitions=compiled_state.definitions,
@@ -615,57 +540,6 @@ def build_readiness_report(
                             action=(
                                 "Run catalog.preview(ref, scope=...) with one exhaustive explicit "
                                 "scope covering the period-calendar declaration."
-                            ),
-                        ),
-                        details={"artifact_status": status},
-                    )
-                )
-
-        from marivo._temporal import WorkScheduleSnapshotStore, work_schedule_definition_digest
-        from marivo.semantic.ir import WorkScheduleIR
-
-        work_schedule_store = WorkScheduleSnapshotStore(project._workspace_dir)
-        for ref in checked_refs:
-            if kinds.get(ref) is not SemanticKind.WORK_SCHEDULE:
-                continue
-            work_schedule = objects.get(ref)
-            if not isinstance(work_schedule, WorkScheduleIR):
-                continue
-            work_schedule_ref = ref_factory.work_schedule(_display_path(ref))
-            definition_digest = work_schedule_definition_digest(
-                work_schedule_ref=work_schedule_ref,
-                boundary_timezone=work_schedule.boundary_timezone,
-                coverage=work_schedule.coverage,
-                date=work_schedule.date,
-                is_working=work_schedule.is_working,
-                dependency_digest=scoped_definition_fingerprint(
-                    root=work_schedule_ref,
-                    definitions=compiled_state.definitions,
-                    dependencies=compiled_state.dependencies,
-                    sidecar=compiled_state.sidecar,
-                ),
-            )
-            status, _schedule_snapshot = work_schedule_store.inspect_current(
-                work_schedule_ref,
-                definition_digest=definition_digest,
-            )
-            if status != "current":
-                path = _display_path(ref)
-                issue_kind = cast("ReadinessIssueKind", f"work_schedule_artifact_{status}")
-                if status == "missing":
-                    issue_kind = "work_schedule_artifact_missing"
-                blockers.append(
-                    _issue(
-                        issue_kind,
-                        "blocker",
-                        (path,),
-                        f"{path} has no current certified work-schedule artifact for its declaration (state={status}).",
-                        repair(
-                            kind="rescope",
-                            canonical_id="preview",
-                            action=(
-                                "Run catalog.preview(ref, scope=...) with one exhaustive explicit "
-                                "scope covering the work-schedule declaration."
                             ),
                         ),
                         details={"artifact_status": status},

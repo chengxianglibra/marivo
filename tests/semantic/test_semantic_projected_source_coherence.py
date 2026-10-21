@@ -30,8 +30,7 @@ event_time = ms.time_dimension_column(
     name="event_time",
     entity=events,
     column="event_time",
-    granularity="second",
-)
+    )
 score = ms.measure_column(
     name="score",
     entity=events,
@@ -77,8 +76,7 @@ event_time = ms.time_dimension_column(
     name="event_time",
     entity=events,
     column="event.timestamp",
-    granularity="second",
-)
+    )
 score = ms.measure_column(
     name="score",
     entity=events,

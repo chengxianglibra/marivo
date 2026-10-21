@@ -62,7 +62,7 @@ def entity_dependency_fingerprint(registry: Registry, entity_id: str) -> str:
         keys.add(key)
         if entity.datasource in registry.datasources:
             keys.add((SemanticKind.DATASOURCE, entity.datasource))
-        for field_name in ("valid_from", "valid_to"):
+        for field_name in ("partition_field", "valid_from", "valid_to"):
             field_path = getattr(entity.versioning, field_name, None)
             if isinstance(field_path, str) and field_path in registry.dimensions:
                 dimension = registry.dimensions[field_path]
@@ -114,7 +114,7 @@ def entity_dependency_fingerprint(registry: Registry, entity_id: str) -> str:
             values = _fields(
                 entity_ref=ref(SemanticKind.ENTITY, dimension.entity),
                 kind=dimension.kind,
-                granularity=dimension.granularity,
+                sample_interval=dimension.sample_interval,
                 parse=dimension.parse,
                 is_default=dimension.is_default,
             )

@@ -91,7 +91,7 @@ def test_native_distributions_independent_fixed_and_cold(
             models += (
                 f"{name}_owner=ms.dimension_column(name='owner',entity={name},column='owner')\n"
             )
-            models += f"{name}_time=ms.time_dimension_column(name='time',entity={name},column='happened',granularity='second',parse=ms.timestamp(timezone='UTC'),is_default=True)\n"
+            models += f"{name}_time=ms.time_dimension_column(name='time',entity={name},column='happened',parse=ms.timestamp(timezone='UTC'),is_default=True)\n"
         models += "identity=ms.measure_column(name='identity',entity=facts,column='id',additivity=ms.additive_all())\n"
         models += "amount=ms.measure_column(name='amount',entity=facts,column='amount',additivity=ms.additive_all())\n"
         models += "facts_subject=ms.relationship(name='facts_subject',from_entity=facts,to_entity=subjects,keys=[ms.join_on(facts_owner,subjects_owner)])\n"

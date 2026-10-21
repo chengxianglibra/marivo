@@ -19,8 +19,8 @@ _DATASET_WITH_VALIDITY = """
 import marivo.datasource as md
 import marivo.semantic as ms
 user_history_ref = ms.ref.entity('sales.user_history')
-valid_from = ms.time_dimension_column(name='valid_from', entity=user_history_ref, column='valid_from', granularity='day')
-valid_to = ms.time_dimension_column(name='valid_to', entity=user_history_ref, column='valid_to', granularity='day')
+valid_from = ms.time_dimension_column(name='valid_from', entity=user_history_ref, column='valid_from')
+valid_to = ms.time_dimension_column(name='valid_to', entity=user_history_ref, column='valid_to')
 user_history = ms.entity(
     name='user_history', datasource=ms.ref.datasource('warehouse'),
     source=md.table('user_history', columns={'user_id': 'user_id', 'valid_from': 'valid_from', 'valid_to': 'valid_to'}),
@@ -74,8 +74,8 @@ def test_validity_empty_open_end_rejected(semantic_project_factory):
                 "    source=md.table('user_history'),\n"
                 "    primary_key=['user_id', 'valid_from'],\n"
                 "    versioning=ms.validity(\n"
-                "        valid_from=ms.ref.dimension('sales.user_history.valid_from'),\n"
-                "        valid_to=ms.ref.dimension('sales.user_history.valid_to'),\n"
+                "        valid_from=ms.ref.time_dimension('sales.user_history.valid_from'),\n"
+                "        valid_to=ms.ref.time_dimension('sales.user_history.valid_to'),\n"
                 "        interval='closed_open',\n"
                 "        open_end=(),\n"
                 "    ),\n"
@@ -114,8 +114,8 @@ def test_validity_invalid_interval_rejected(semantic_project_factory):
                 "    source=md.table('user_history'),\n"
                 "    primary_key=['user_id', 'valid_from'],\n"
                 "    versioning=ms.validity(\n"
-                "        valid_from=ms.ref.dimension('sales.user_history.valid_from'),\n"
-                "        valid_to=ms.ref.dimension('sales.user_history.valid_to'),\n"
+                "        valid_from=ms.ref.time_dimension('sales.user_history.valid_from'),\n"
+                "        valid_to=ms.ref.time_dimension('sales.user_history.valid_to'),\n"
                 "        interval='open_closed',\n"
                 "        open_end=(None,),\n"
                 "    ),\n"
@@ -187,3 +187,34 @@ def test_validity_rejects_unknown_field_ref(semantic_project_factory):
     error = exc_info.value.errors[0]
     assert error.kind == "invalid_target_semantics"
     assert "does_not_exist" in str(error)
+
+
+@pytest.mark.parametrize("sentinel", ["20260802", "OPEN"])
+def test_encoded_validity_open_end_matches_the_authored_source_sentinel(
+    semantic_project_factory, tmp_path, monkeypatch, sentinel
+):
+    import duckdb
+
+    import marivo.analysis as mv
+
+    database = tmp_path / "validity.duckdb"
+    with duckdb.connect(str(database)) as connection:
+        connection.execute("CREATE TABLE history(id BIGINT, beginning VARCHAR, ending VARCHAR)")
+        connection.execute("INSERT INTO history VALUES (1,'20260801',?)", [sentinel])
+    semantic_project_factory(
+        {
+            "datasources/warehouse.py": "import marivo.datasource as md\n"
+            + f"md.duckdb(name='warehouse',path={str(database)!r})\n",
+            "sales/_domain.py": _DOMAIN_FILE,
+            "sales/models.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+            + f"history=ms.entity(name='history',datasource=ms.ref.datasource('warehouse'),source=md.table('history'),primary_key=['id'],versioning=ms.validity(valid_from=ms.ref.time_dimension('sales.history.beginning'),valid_to=ms.ref.time_dimension('sales.history.ending'),interval='closed_open',open_end=({sentinel!r},),timezone='UTC'))\n"
+            + "beginning=ms.time_dimension_column(name='beginning',entity=history,column='beginning',parse=ms.strptime('%Y%m%d'))\n"
+            + "ending=ms.time_dimension_column(name='ending',entity=history,column='ending',parse=ms.strptime('%Y%m%d'))\n",
+        }
+    )
+    monkeypatch.chdir(tmp_path)
+    session = mv.session.create("encoded-open-end", timezone="UTC")
+    members = session.members(
+        session.catalog.entities.get("sales.history"), at=session.instant("2026-08-03")
+    )
+    assert session.frame(members).compute().to_pandas().iloc[:, 0].tolist() == [1]

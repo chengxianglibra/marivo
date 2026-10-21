@@ -27,7 +27,7 @@ discount_ref = ms.measure_column(name="discount", entity=orders, column="discoun
 @ms.dimension(entity=orders)
 def country(rows):
     return rows.country
-@ms.time_dimension(entity=orders, granularity="day", is_default=True)
+@ms.time_dimension(entity=orders, is_default=True)
 def ordered_at(rows):
     return rows.ordered_at
 finalized = ms.finalize()

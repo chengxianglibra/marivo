@@ -9,7 +9,7 @@ from hashlib import sha256
 from itertools import pairwise
 from typing import Literal, TypeAlias
 
-from marivo._temporal import Grain, PeriodCalendarSnapshotV1, TimeScope
+from marivo._temporal import Grain, PeriodCalendarSnapshotV2, TimeScope
 from marivo._timezones import parse_timezone
 
 CivilBounds: TypeAlias = tuple[str, str, str, str]
@@ -117,7 +117,7 @@ class BoundTimeGrid:
     civil_bounds: tuple[CivilBounds, ...] = field(kw_only=True)
     precision: Literal["us"] = "us"
     scope_identity: str | None = None
-    calendar_snapshot: PeriodCalendarSnapshotV1 | None = None
+    calendar_snapshot: PeriodCalendarSnapshotV2 | None = None
     origin: TimeGridOrigin | None = None
 
     @property
@@ -518,7 +518,7 @@ def bind_grid(
     *,
     report_timezone: str,
     explicit_timezone: str | None = None,
-    snapshot: PeriodCalendarSnapshotV1 | None = None,
+    snapshot: PeriodCalendarSnapshotV2 | None = None,
 ) -> BoundTimeGrid:
     """Freeze a finite grid; no source, host clock or calendar store is consulted."""
     if not isinstance(during, TimeScope) or not isinstance(grain, Grain):
@@ -527,6 +527,11 @@ def bind_grid(
     if grain.kind == "semantic":
         if snapshot is None or snapshot.calendar_ref != grain.calendar:
             raise _invalid("missing exact certified calendar snapshot")
+        if (
+            grain._snapshot is not None
+            and grain._snapshot.snapshot_digest != snapshot.snapshot_digest
+        ):
+            raise _invalid("grain and supplied calendar have different snapshot identities")
         boundary = snapshot.boundary_timezone
         if explicit_timezone is not None and explicit_timezone != boundary:
             raise _invalid("explicit calendar timezone conflicts with certification")
@@ -537,8 +542,8 @@ def bind_grid(
     else:
         if snapshot is not None:
             raise _invalid("builtin grain cannot adopt a calendar snapshot")
-        boundary = explicit_timezone or report_timezone
-    scope_zone = report_timezone if during.kind == "absolute" else during.boundary_timezone
+        boundary = explicit_timezone or during.boundary_timezone
+    scope_zone = during.boundary_timezone
     start, end = instant(during.start, scope_zone), instant(during.end, scope_zone)
     if start >= end:
         raise _invalid("grid scope is empty or reversed")

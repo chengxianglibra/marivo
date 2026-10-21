@@ -51,13 +51,10 @@ _CASES = (
     ("validity_to", "sales.validity_orders.end"),
     ("calendar_date", "sales.calendar.day"),
     ("calendar_level", "sales.calendar.week"),
-    ("correspondence", "sales.calendar.previous_week"),
     ("temporal_id", "sales.orders.id"),
     ("temporal_start", "sales.orders.start"),
     ("temporal_end", "sales.orders.end"),
     ("temporal_category", "sales.orders.region"),
-    ("schedule_date", "sales.calendar.day"),
-    ("schedule_working", "sales.calendar.working"),
 )
 
 
@@ -75,7 +72,7 @@ def _dependencies(*, changed: str | None = None, skip_entity: str | None = None)
         source = "replacement" if changed == f"sales.{name}" else name
         versioning = (
             ms.snapshot(
-                partition_field=ms.ref.time_dimension("sales.snapshot_orders.day"), grain="day"
+                partition_field=ms.ref.time_dimension("sales.snapshot_orders.day"), timezone="UTC"
             )
             if name == "snapshot_orders"
             else ms.validity(
@@ -83,6 +80,7 @@ def _dependencies(*, changed: str | None = None, skip_entity: str | None = None)
                 valid_to=ms.ref.time_dimension("sales.validity_orders.end"),
                 interval="closed_open",
                 open_end=(None,),
+                timezone="UTC",
             )
             if name == "validity_orders"
             else None
@@ -125,10 +123,8 @@ def _dependencies(*, changed: str | None = None, skip_entity: str | None = None)
             name=name,
             entity=ms.ref.entity(f"sales.{owner}"),
             column="replacement" if changed == path else name,
-            granularity="hour" if sampled else "day",
-            parse=ms.timestamp(timezone="UTC", sample_interval=(1, "hour"))
-            if sampled
-            else ms.strptime("%Y%m%d"),
+            sample_interval=(1, "hour") if sampled else None,
+            parse=ms.timestamp(timezone="UTC") if sampled else ms.strptime("%Y%m%d"),
         )
 
 
@@ -163,12 +159,10 @@ def _consume(
 
         return calculated
     if family == "time_dimension_column":
-        return ms.time_dimension_column(
-            name="probe", entity=orders, column="probe", granularity="day"
-        )
+        return ms.time_dimension_column(name="probe", entity=orders, column="probe")
     if family == "time_dimension":
 
-        @ms.time_dimension(entity=orders, name="probe", granularity="day")
+        @ms.time_dimension(entity=orders, name="probe")
         def calculated_time(rows: ibis_ir.Table) -> ibis_ir.Value:
             return rows.day
 
@@ -205,11 +199,10 @@ def _consume(
             name="probe",
             entity=orders,
             column="hour",
-            granularity="hour",
             parse=_copy_helper(parse, helper_copy),
         )
     if family == "snapshot":
-        versioning = ms.snapshot(partition_field=time("sales.snapshot_orders.day"), grain="day")
+        versioning = ms.snapshot(partition_field=time("sales.snapshot_orders.day"), timezone="UTC")
         return ms.entity(
             name="snapshot_orders",
             datasource=ms.ref.datasource("warehouse"),
@@ -223,6 +216,7 @@ def _consume(
             valid_to=time("sales.validity_orders.end"),
             interval="closed_open",
             open_end=(None,),
+            timezone="UTC",
         )
         return ms.entity(
             name="validity_orders",
@@ -232,17 +226,13 @@ def _consume(
             versioning=_copy_helper(validity_versioning, helper_copy),
         )
     coverage = (date(2026, 1, 1), date(2027, 1, 1))
-    if family.startswith("calendar_") or family == "correspondence":
-        correspondence = ms.period_correspondence(
-            level="week", baseline_key=dimension("sales.calendar.previous_week")
-        )
+    if family.startswith("calendar_"):
         return ms.period_calendar(
             name="probe",
             date=time("sales.calendar.day"),
             boundary_timezone="UTC",
             coverage=coverage,
             levels={"week": dimension("sales.calendar.week")},
-            correspondences={"previous": _copy_helper(correspondence, helper_copy)},
         )
     if family.startswith("temporal_"):
         return ms.temporal_set(
@@ -254,14 +244,7 @@ def _consume(
             boundary_timezone="UTC",
             coverage=coverage,
         )
-    assert family.startswith("schedule_")
-    return ms.work_schedule(
-        name="probe",
-        date=time("sales.calendar.day"),
-        is_working=dimension("sales.calendar.working"),
-        boundary_timezone="UTC",
-        coverage=coverage,
-    )
+    raise AssertionError(f"unknown input family: {family}")
 
 
 def _version(state: FinalizedDeclarations, ref: Ref[SemanticKindTag]) -> str:

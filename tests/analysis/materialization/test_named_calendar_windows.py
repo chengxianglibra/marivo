@@ -50,7 +50,7 @@ def calendar_window_project(
     files["sales/metrics.py"] = (
         files["sales/metrics.py"]
         .replace("source=md.table('events')", "source=md.table('events'), primary_key=['user_id']")
-        .replace("granularity='day')", "granularity='day', is_default=True)")
+        .replace("column='event_date')", "column='event_date', is_default=True)")
         + """
 import marivo.analysis as mv
 month = ms.calendar_grain(calendar=ms.ref.period_calendar("sales.fiscal"), level="fiscal_month")

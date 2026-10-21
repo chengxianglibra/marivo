@@ -53,7 +53,7 @@ def test_versioned_read_foreign_predicates_refuse_before_read_or_run(
     with source_case("duckdb", "table", tmp_path, monkeypatch, data) as case:
         assert isinstance(case.source, TableSourceIR)
         versioning = (
-            "ms.snapshot(partition_field=ms.ref.time_dimension('sales.subjects.beginning'),grain='day',timezone='UTC')"
+            "ms.snapshot(partition_field=ms.ref.time_dimension('sales.subjects.beginning'),timezone='UTC')"
             if version == "snapshot"
             else "ms.validity(valid_from=ms.ref.time_dimension('sales.subjects.beginning'),valid_to=ms.ref.time_dimension('sales.subjects.ending'),interval='closed_open',open_end=(None,),timezone='UTC')"
         )
@@ -69,8 +69,8 @@ def test_versioned_read_foreign_predicates_refuse_before_read_or_run(
                 + f"subjects=ms.entity(name='subjects',datasource=ms.ref.datasource('warehouse'),source=md.table({case.source.table!r},database={case.source.database!r}),primary_key=['id','tenant'],versioning={versioning})\n"
                 + "tenant=ms.dimension_column(name='tenant',entity=subjects,column='tenant')\n"
                 + "enabled=ms.dimension_column(name='enabled',entity=subjects,column='enabled')\n"
-                + "beginning=ms.time_dimension_column(name='beginning',entity=subjects,column='beginning',granularity='day')\n"
-                + "ending=ms.time_dimension_column(name='ending',entity=subjects,column='ending',granularity='day')\n"
+                + "beginning=ms.time_dimension_column(name='beginning',entity=subjects,column='beginning')\n"
+                + "ending=ms.time_dimension_column(name='ending',entity=subjects,column='ending')\n"
                 + "amount=ms.measure_column(name='amount',entity=subjects,column='amount',additivity=ms.additive_all())\n",
             }
         )

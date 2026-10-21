@@ -131,12 +131,12 @@ def test_native_distribution(
             models += (
                 f"{name}_owner=ms.dimension_column(name='owner',entity={name},column='owner')\n"
             )
-            models += f"{name}_time=ms.time_dimension_column(name='time',entity={name},column='happened',granularity='second',parse=ms.timestamp(timezone='UTC'),is_default=True)\n"
+            models += f"{name}_time=ms.time_dimension_column(name='time',entity={name},column='happened',parse=ms.timestamp(timezone='UTC'),is_default=True)\n"
         models += "identity=ms.measure_column(name='identity',entity=facts,column='id',additivity=ms.additive_all())\n"
         models += (
             "amount=ms.measure_column(name='amount',entity=facts,column='amount',additivity=ms.additive_all())\n"
             if carrier in {"int64", "float64", "decimal"}
-            else "amount=ms.time_dimension_column(name='amount',entity=facts,column='amount',granularity='second',parse=ms.timestamp(timezone='UTC'))\n"
+            else "amount=ms.time_dimension_column(name='amount',entity=facts,column='amount',parse=ms.timestamp(timezone='UTC'))\n"
             if carrier == "timestamp"
             else "amount=ms.dimension_column(name='amount',entity=facts,column='amount')\n"
         )

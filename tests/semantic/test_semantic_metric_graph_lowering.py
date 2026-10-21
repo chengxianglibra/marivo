@@ -35,7 +35,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders", columns={"amount":"amount", "sample_time":"sample_time"}))
 amount_ref = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="CNY")
-sample_time_ref = ms.time_dimension_column(name="sample_time", entity=orders, column="sample_time", granularity="minute", parse=ms.datetime(timezone="UTC", sample_interval=(5,"minute")))
+sample_time_ref = ms.time_dimension_column(name="sample_time", entity=orders, column="sample_time", sample_interval=(5,"minute"), parse=ms.timestamp(timezone="UTC"))
 finalized = ms.finalize()
 amount = finalized.resolve(amount_ref)
 sample_time = finalized.resolve(sample_time_ref)

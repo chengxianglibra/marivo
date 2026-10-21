@@ -255,7 +255,7 @@ def test_independent_roots_and_temporal_fold(
             )
             if composite:
                 models += f"{name}_tenant=ms.dimension_column(name='tenant',entity={name},column='tenant')\n"
-            models += f"{name}_time=ms.time_dimension_column(name='time',entity={name},column='happened',granularity='second',parse=ms.timestamp(timezone='UTC'),is_default=True)\n"
+            models += f"{name}_time=ms.time_dimension_column(name='time',entity={name},column='happened',parse=ms.timestamp(timezone='UTC'),is_default=True)\n"
             if name != "subjects":
                 models += f"{name}_amount=ms.measure_column(name='amount',entity={name},column='amount',additivity=ms.additive_all())\n"
                 models += f"{name}_subject=ms.relationship(name={name + '_subject'!r},from_entity={name},to_entity=subjects,keys=[ms.join_on({name}_owner,subjects_owner)])\n"

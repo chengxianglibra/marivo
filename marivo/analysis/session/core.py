@@ -59,10 +59,10 @@ class Session:
             cr.check_binding(config.resolver)
             with cr.bind_resolver(config.resolver):
                 catalog = load(workspace_dir=self.project_root, domains=self._record().domains)
-            from marivo._temporal import PeriodCalendarSnapshotV1
+            from marivo._temporal import PeriodCalendarSnapshotV2
             from marivo.semantic.catalog import PeriodCalendarEntry
 
-            snapshots: list[PeriodCalendarSnapshotV1] = []
+            snapshots: list[PeriodCalendarSnapshotV2] = []
             for identity in sorted(catalog._state.registry.period_calendars):
                 calendar = catalog.period_calendars.get(identity)
                 assert isinstance(calendar, PeriodCalendarEntry)
