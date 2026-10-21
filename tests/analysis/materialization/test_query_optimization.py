@@ -408,7 +408,7 @@ def test_completed_strict_projection_cannot_be_pruned(
         assert events[-1][0] == "failed" and "bad" in events[-1][1]
         assert events[-1][2] == (3,)
         assert sum(event[0] == "failed" for event in events) == 1
-        assert submissions == [] and optimization_session.runs().items == ()
+        assert submissions == [] and terminal_runs(optimization_session) == ()
     assert errors[0] == errors[1]
     selection = optimization_session.population_from(
         completed,
@@ -426,7 +426,7 @@ def test_completed_strict_projection_cannot_be_pruned(
         assert events[-1][0] == "failed" and "bad" in events[-1][1]
         assert events[-1][2] == (3,)
         assert sum(event[0] == "failed" for event in events) == 1
-        assert submissions == [] and optimization_session.runs().items == ()
+        assert submissions == [] and terminal_runs(optimization_session) == ()
     assert errors[0] == errors[1]
 
 

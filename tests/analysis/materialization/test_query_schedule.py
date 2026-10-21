@@ -411,7 +411,7 @@ def test_real_source_checks_and_strict_formula_keep_occurrence_order(
                 ("local-complete", plan.publish),
             ]
             assert len(prepared.source.submissions) == 2
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 @pytest.mark.parametrize("renamed", (False, True))

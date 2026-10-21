@@ -193,8 +193,8 @@ def test_public_entries_delegate_once_to_the_same_scheduler(session: Session, en
         pending = current.compare({"base": base}, on={"base": ((current.axes[0], base.axes[0]),)})
     else:
         pending = session.attribute(
-            mv.AttributeEndpoint({"q": numerator.sum()}, where=item <= 2),
-            mv.AttributeEndpoint({"q": numerator.sum()}, where=item >= 2),
+            mv.attribute_endpoint({"q": numerator.sum()}, where=item <= 2),
+            mv.attribute_endpoint({"q": numerator.sum()}, where=item >= 2),
             by=(channel,),
             contribution=entry == "contribution",
         )
@@ -227,7 +227,7 @@ def test_public_entries_delegate_once_to_the_same_scheduler(session: Session, en
             assert rows[("value", "contribution.q")].tolist() == [-50, 450]
             assert rows[("value", "contribution_share.q")].tolist() == [-0.125, 1.125]
     assert _inventory(session) == before
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def _source_lifecycle(
@@ -345,7 +345,7 @@ def test_source_preparation_precedes_reads_and_unwinds_in_reverse(
         ]
     assert len(owners) == 2 and all(owner._closed for owner in owners)
     assert _inventory(session) == before
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_source_recompute_sees_mutation_and_fixed_data_does_not(

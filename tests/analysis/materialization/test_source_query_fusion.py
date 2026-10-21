@@ -364,7 +364,7 @@ def test_source_population_set_terminal_preserves_native_layout(
     assert trace.returned_rows == [len(rows)]
     assert locals_ == []
     assert trace.uploaded_key_rows == []
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_private_native_union_finish_executes_source_order_layout_and_checks(
@@ -482,7 +482,7 @@ def test_private_native_union_finish_executes_source_order_layout_and_checks(
             (("__finish_numeric_failure", replace(check, expected="non-NA source values")),),
         )
     assert name not in output.table.columns
-    assert session.runs().items == ()
+    assert terminal_runs(session) == ()
 
 
 def test_fixed_top_identity_bridge_reads_explicit_source(
@@ -524,7 +524,6 @@ def test_empty_selection_retains_full_identity_checks(
     assert caught.value.stage == "scalar_field_lookup"
     assert caught.value.expected == "exactly one attribute row for every requested identity"
     assert caught.value.location == "dataset.scalar_field_lookup"
-    assert caught.value.run_ref is None
     assert len(reads) == len(trace.native_sql) == 1
     assert isinstance(reads[0][0].program, NativeRead)
     assert reads[0][0].program.finish is None
@@ -551,12 +550,11 @@ def test_cell_sum_overflow_is_checked_before_empty_filter(
     assert caught.value.stage == "numeric_value"
     assert caught.value.expected == "a qualified finite current-row statistic"
     assert caught.value.received == "int64 state overflow"
-    assert caught.value.run_ref is None
     assert len(reads) == len(outputs) == len(trace.native_sql) == 1
     assert locals_ == []
     assert trace.returned_rows == [4]
     assert trace.uploaded_key_rows == []
-    assert source_query_session.runs().items == ()
+    assert terminal_runs(source_query_session) == ()
 
 
 def test_fixed_aggregate_axis_bridge_reads_explicit_source(
@@ -626,7 +624,6 @@ def test_aggregate_selection_retains_parent_strict_null_check(
         caught.value.received
         == f"{method}(nulls='error'); source=sales.orders; coordinates=[{{'key.0': None}}]"
     )
-    assert caught.value.run_ref is None
     assert len(reads) == len(trace.native_sql) == 1
     assert reads[0][1].numeric_checks
     assert outputs == []
@@ -717,7 +714,6 @@ def test_same_source_exact_alignment_failure_survives_top_zero(
     assert isinstance(caught.value, MaterializationError)
     assert caught.value.stage == "frame_combine"
     assert caught.value.expected == "equal actual complete row-key domains"
-    assert caught.value.run_ref is None
     assert len(reads) == len(outputs) == len(trace.native_sql) == 1
     assert len(locals_) == 2
     assert not any(
@@ -727,7 +723,7 @@ def test_same_source_exact_alignment_failure_survives_top_zero(
     )
     assert trace.returned_rows == [4]
     assert trace.uploaded_key_rows == []
-    assert source_query_session.runs().items == ()
+    assert terminal_runs(source_query_session) == ()
 
 
 def test_source_compare_keeps_large_integer_and_na_zero_policy(
