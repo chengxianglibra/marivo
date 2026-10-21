@@ -30,10 +30,12 @@ from marivo.analysis.compiler.graph_plan import (
     SourceRead,
     SourceSchema,
     plan_query,
+    read_components,
 )
 from marivo.analysis.compiler.optimization import InvocationMemo, optimize_query
 from marivo.analysis.compiler.parameters import parameter_domains
 from marivo.analysis.compiler.queries import endpoint
+from marivo.analysis.compiler.query_program import ResultProgram
 from marivo.analysis.core.artifact_data import (
     CalendarDataAxis,
     DataAxis,
@@ -419,7 +421,7 @@ def _evaluate_frame(
                 original_reads = tuple(
                     stage
                     for stage in original_plan.stages
-                    if isinstance(stage, SourceRead) and stage.component_layout is not None
+                    if isinstance(stage, SourceRead) and read_components(stage) is not None
                 )
                 for root in dict.fromkeys(stage.source_id for stage in original_reads):
                     group = tuple(stage for stage in original_reads if stage.source_id == root)
@@ -442,18 +444,6 @@ def _evaluate_frame(
             else:
                 plan = optimize_query(plan_query(binding.graph, schemas, memo=memo))
             lowered = lower_query(plan, {} if prepared is None else prepared.relations)
-            if input_id in requested:
-                effective_reads = {item.stage.stage_id: item.stage for item in lowered.reads}
-                lowered = replace(
-                    lowered,
-                    plan=replace(
-                        lowered.plan,
-                        stages=tuple(
-                            effective_reads.get(stage.stage_id, stage)
-                            for stage in lowered.plan.stages
-                        ),
-                    ),
-                )
             if prepared is not None and input_id not in requested:
                 from marivo.analysis.materialization.query_key_fusion import (
                     fuse_query_keys,
@@ -544,8 +534,8 @@ def _evaluate_frame(
                 frame_schema=schema,
             )
 
-        def observe_read(request: LoweredRead, output: StageOutput) -> None:
-            input_id = source_stage_ids[request.stage.stage_id]
+        def observe_read(stage: SourceRead, request: LoweredRead, output: StageOutput) -> None:
+            input_id = source_stage_ids[stage.stage_id]
             binding = source_frames[input_id]._backing
             assert isinstance(binding, ExpressionFrameBacking)
             dynamic = (
@@ -557,7 +547,7 @@ def _evaluate_frame(
                 if isinstance(binding.root, SourceFrameBinding)
                 else ()
             )
-            for logical in request.stage.native_reads or (request.stage,):
+            for logical in stage.native_reads or (stage,):
                 period = logical.period
                 facts = OutputEvidence(
                     "read",
@@ -565,7 +555,7 @@ def _evaluate_frame(
                     (
                         ("input_id", input_id),
                         ("source", logical.source_id),
-                        ("physical_stage", request.stage.stage_id),
+                        ("physical_stage", stage.stage_id),
                         ("read_completed_at", datetime.now(timezone.utc)),
                         (
                             "period_start",
@@ -587,14 +577,14 @@ def _evaluate_frame(
                 )
                 source_facts.append(facts)
             for name, check in request.numeric_checks:
-                if not any(column.slot_id == name for column in request.stage.columns):
+                if not any(column.slot_id == name for column in stage.columns):
                     fact = OutputEvidence(
                         "check",
                         "Actual source numeric check passed.",
                         (
                             ("input_id", input_id),
                             ("check", name),
-                            ("scope", request.stage.stage_id),
+                            ("scope", stage.stage_id),
                             ("expected", check.expected),
                             ("result", "passed"),
                         ),
@@ -629,10 +619,10 @@ def _evaluate_frame(
             if (
                 isinstance(stage, LocalCompute)
                 and stage.stage_id.startswith("bridge:")
-                and stage.result is not None
-                and isinstance(stage.result.operation, PopulationValues)
+                and isinstance(stage.program, ResultProgram)
+                and isinstance(stage.program.operation, PopulationValues)
             ):
-                definition = stage.result.operation.definition
+                definition = stage.program.operation.definition
                 assert isinstance(definition, PopulationProgram) and isinstance(
                     definition.root, FrameKeys
                 )

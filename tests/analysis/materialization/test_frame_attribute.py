@@ -1,16 +1,29 @@
 """Explicit default Attribute requests use the ordinary checked Frame schedule."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
+from typing import cast
 
 import duckdb
 import pandas as pd
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 from marivo.analysis.dsl.attribute import attribute_endpoint
+from marivo.analysis.compiler.frame_plan import CompiledFramePlan
+from marivo.analysis.compiler.graph_lowering import LoweredRead
+from marivo.analysis.compiler.graph_plan import FrameCompute, FrameInput, LocalCompute, SourceRead
+from marivo.analysis.core.data_schema import DataSchema
+from marivo.analysis.core.frame_data import CompletedFrameData, MemoryFrameBacking
+from marivo.analysis.dsl.attribute import AttributeEndpoint
+from marivo.analysis.dsl.frame import AnalysisFrame
+from marivo.analysis.dsl.frame_axis import FrameAxis
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization.graph_exchange import StageOutput
+from marivo.analysis.materialization.graph_source_execution import PreparedSources, run_frame_plan
 from marivo.analysis.session.core import Session
+from marivo.datasource.adapters import CompiledRead
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import terminal_runs
 
@@ -89,9 +102,9 @@ def test_default_q_major_outer_presence_canonical_and_continuation(session: Sess
     assert rows["presence.right_present"].tolist() == [True, True, False, True]
     expected = pd.DataFrame(
         {
-            "left.q": pd.array([2, None, 100, None], dtype="int64[pyarrow]"),
-            "right.q": pd.array([2, 2, None, None], dtype="int64[pyarrow]"),
-            "absolute.q": pd.array([0, None, None, None], dtype="int64[pyarrow]"),
+            "left.q": pd.Series([2, None, 100, None], dtype="int64[pyarrow]").array,
+            "right.q": pd.Series([2, 2, None, None], dtype="int64[pyarrow]").array,
+            "absolute.q": pd.Series([0, None, None, None], dtype="int64[pyarrow]").array,
         }
     )
     pd.testing.assert_frame_equal(rows.loc[:, list(expected)], expected)
@@ -105,7 +118,7 @@ def test_request_copy_and_strict_bool(session: Session, monkeypatch: pytest.Monk
     reads: list[object] = []
     execute = SourceSession.execute
 
-    def read(self: SourceSession, issued: object) -> pd.DataFrame:
+    def read(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
         reads.append(issued)
         return execute(self, issued)
 
@@ -116,9 +129,10 @@ def test_request_copy_and_strict_bool(session: Session, monkeypatch: pytest.Monk
     endpoint = mv.attribute_endpoint(original)
     original["later"] = amount
     assert tuple(endpoint.metrics) == ("q",)
+    # These runtime values intentionally violate the public strict-bool type contract.
     for value in (0, 1, None):
         with pytest.raises(AnalysisError, match="strict boolean"):
-            session.attribute(endpoint, endpoint, by=(channel,), contribution=value)
+            session.attribute(endpoint, endpoint, by=(channel,), contribution=cast("bool", value))
     for metrics in ({}, {"": amount}):
         with pytest.raises(AnalysisError) as caught:
             invalid = mv.attribute_endpoint(metrics)
@@ -283,11 +297,11 @@ def test_joint_product_and_correlated_population_preserve_complete_keys(
         rows = _flat(fixed.to_pandas())
         expected_keys = [(row[1], row[0]) if reverse else row[:2] for row in oracle]
         assert list(rows.iloc[:, :2].itertuples(index=False, name=None)) == expected_keys
-        expected_values = pd.Series(pd.array([row[2] for row in oracle], dtype="int64[pyarrow]"))
+        expected_values = pd.Series([row[2] for row in oracle], dtype="int64[pyarrow]")
         for name in ("left.q", "right.q"):
             pd.testing.assert_series_equal(rows[name], expected_values, check_names=False)
         expected_change = pd.Series(
-            pd.array([None if row[2] is None else 0 for row in oracle], dtype="int64[pyarrow]")
+            [None if row[2] is None else 0 for row in oracle], dtype="int64[pyarrow]"
         )
         pd.testing.assert_series_equal(rows["absolute.q"], expected_change, check_names=False)
         assert rows["presence.left_present"].tolist() == [True] * len(oracle)
@@ -298,7 +312,8 @@ def test_joint_product_and_correlated_population_preserve_complete_keys(
             for column in fixed._schema.values
         )
     with pytest.raises(AnalysisError) as mixed:
-        session.attribute(endpoint, endpoint, by=(correlated, channel))
+        # This Population intentionally violates the declared per-axis input type.
+        session.attribute(endpoint, endpoint, by=(cast("Deferred", correlated), channel))
     assert mixed.value.expected == "a semantic field or Grouping"
     assert mixed.value.received == "Population"
     assert mixed.value.repair is not None
@@ -362,12 +377,16 @@ def test_default_max_and_cancelling_sum_match_native_sql(session: Session, tmp_p
     assert rows.iloc[:, 0].tolist() == [row[0] for row in groups] == ["A", "B", "C"]
     expected = pd.DataFrame(
         {
-            "left.peak": pd.array([row[1] for row in groups], dtype="int64[pyarrow]"),
-            "right.peak": pd.array([row[2] for row in groups], dtype="int64[pyarrow]"),
-            "absolute.peak": pd.array([row[1] - row[2] for row in groups], dtype="int64[pyarrow]"),
-            "left.net": pd.array([row[3] for row in groups], dtype="int64[pyarrow]"),
-            "right.net": pd.array([row[4] for row in groups], dtype="int64[pyarrow]"),
-            "absolute.net": pd.array([row[3] - row[4] for row in groups], dtype="int64[pyarrow]"),
+            "left.peak": pd.Series([row[1] for row in groups], dtype="int64[pyarrow]").array,
+            "right.peak": pd.Series([row[2] for row in groups], dtype="int64[pyarrow]").array,
+            "absolute.peak": pd.Series(
+                [row[1] - row[2] for row in groups], dtype="int64[pyarrow]"
+            ).array,
+            "left.net": pd.Series([row[3] for row in groups], dtype="int64[pyarrow]").array,
+            "right.net": pd.Series([row[4] for row in groups], dtype="int64[pyarrow]").array,
+            "absolute.net": pd.Series(
+                [row[3] - row[4] for row in groups], dtype="int64[pyarrow]"
+            ).array,
         }
     )
     pd.testing.assert_frame_equal(rows.loc[:, list(expected)], expected)
@@ -497,19 +516,30 @@ def test_parent_exact_is_complete_parent_only_and_survives_top_zero(session: Ses
     parents = parents.where(parents.coord(parents.axes[0]) == "east").compute()
     left = attribute_endpoint({"q": amount}, where=channel == "A")
     right = attribute_endpoint({"q": amount}, where=channel == "C")
-    shared = {
-        "parents": parents,
-        "parent_on": ((parents.axes[0], region, region),),
-        "by": (channel,),
-    }
-    rows = _flat(session.attribute(left, right, **shared).compute().to_pandas())
+    parent_on = ((parents.axes[0], region, region),)
+    rows = _flat(
+        session.attribute(left, right, parents=parents, parent_on=parent_on, by=(channel,))
+        .compute()
+        .to_pandas()
+    )
     assert rows.iloc[:, 1].tolist() == ["A", "C"]
     missing = attribute_endpoint({"q": amount}, where=channel == "B")
-    invalid = session.attribute(left, missing, **shared)
+    invalid = session.attribute(left, missing, parents=parents, parent_on=parent_on, by=(channel,))
     with pytest.raises(AnalysisError, match="equal fresh complete parent domains"):
         invalid.top(0, by=invalid["absolute.q"]).compute()
     assert (
-        len(session.attribute(left, missing, parent_how="outer", **shared).compute().to_pandas())
+        len(
+            session.attribute(
+                left,
+                missing,
+                parent_how="outer",
+                parents=parents,
+                parent_on=parent_on,
+                by=(channel,),
+            )
+            .compute()
+            .to_pandas()
+        )
         == 1
     )
 
@@ -528,11 +558,26 @@ def test_fixed_and_pending_parent_selection_use_one_checked_schedule(
     with duckdb.connect(str(tmp_path / "attribute.duckdb")) as connection:
         connection.execute("UPDATE facts SET amount=1000 WHERE region='west'")
     calls = []
-    original = evaluator.run_frame_plan
+    original = run_frame_plan
 
-    def track(compiled, **kwargs):
+    def track(
+        compiled: CompiledFramePlan,
+        *,
+        source_prepared: Mapping[str, PreparedSources],
+        read_fixed: Callable[[FrameInput], CompletedFrameData],
+        adapt_source: Callable[[str, StageOutput], StageOutput],
+        observe_read: Callable[[SourceRead, LoweredRead, StageOutput], None] | None = None,
+        observe_local: Callable[[LocalCompute | FrameCompute, StageOutput], None] | None = None,
+    ) -> StageOutput:
         calls.append(compiled)
-        return original(compiled, **kwargs)
+        return original(
+            compiled,
+            source_prepared=source_prepared,
+            read_fixed=read_fixed,
+            adapt_source=adapt_source,
+            observe_read=observe_read,
+            observe_local=observe_local,
+        )
 
     monkeypatch.setattr(evaluator, "run_frame_plan", track)
     endpoint = attribute_endpoint({"q": amount})
@@ -546,7 +591,6 @@ def test_fixed_and_pending_parent_selection_use_one_checked_schedule(
         ).compute()
         assert set(result.to_pandas().iloc[:, 0]) == {expected}
     assert len(calls) == 2
-    from marivo.analysis.compiler.graph_plan import FrameCompute, SourceRead
     from marivo.analysis.core.attribute import AttributeProjectProgram
 
     for call in calls:
@@ -795,17 +839,31 @@ def test_paired_structural_missing_side_exact_rejects_before_source_and_outer_ke
         attribute_endpoint({"q": metric}, during=july),
     )
     read_calls = []
-    original = evaluator.run_frame_plan
+    original = run_frame_plan
 
-    def track(compiled, **kwargs):
-        observe_read = kwargs["observe_read"]
+    def track(
+        compiled: CompiledFramePlan,
+        *,
+        source_prepared: Mapping[str, PreparedSources],
+        read_fixed: Callable[[FrameInput], CompletedFrameData],
+        adapt_source: Callable[[str, StageOutput], StageOutput],
+        observe_read: Callable[[SourceRead, LoweredRead, StageOutput], None] | None = None,
+        observe_local: Callable[[LocalCompute | FrameCompute, StageOutput], None] | None = None,
+    ) -> StageOutput:
+        assert observe_read is not None
 
-        def observed(request, output):
+        def observed(stage: SourceRead, request: LoweredRead, output: StageOutput) -> None:
             read_calls.append(request)
-            observe_read(request, output)
+            observe_read(stage, request, output)
 
-        kwargs["observe_read"] = observed
-        return original(compiled, **kwargs)
+        return original(
+            compiled,
+            source_prepared=source_prepared,
+            read_fixed=read_fixed,
+            adapt_source=adapt_source,
+            observe_read=observed,
+            observe_local=observe_local,
+        )
 
     monkeypatch.setattr(evaluator, "run_frame_plan", track)
     invalid = session.attribute(left, right, by=(channel,), parents=parent)
@@ -903,7 +961,7 @@ def test_member_count_effective_root_rejects_unrelated_integer_identities(
         ),
     )
 
-    def metric(domain: mv.Population):
+    def metric(domain: mv.Population) -> Deferred:
         return 2 * domain.count() if scaled else domain.count()
 
     with pytest.raises(AnalysisError, match="compatible root roles"):
@@ -943,8 +1001,14 @@ def test_selected_parent_scopes_member_count_before_candidate_selection(
     )
     members = members.classify(by=(members.axes[0], region, channel))
     selected = mv.coordinates(by=(region,), keys=(("east",),))
-    parent = session.frame(selected).compute() if frame_parent else selected
-    mapping = ((parent.axes[0], region, region),) if frame_parent else ()
+    parent: AnalysisFrame | mv.Population
+    mapping: tuple[tuple[FrameAxis, Deferred, Deferred], ...]
+    if frame_parent:
+        parent = session.frame(selected).compute()
+        mapping = ((parent.axes[0], region, region),)
+    else:
+        parent = selected
+        mapping = ()
     fine = mv.coordinates(by=(channel,), keys=(("A",), ("C",))) if complete_fine else (channel,)
     # The classified Population owns counted membership before parent selection.
     endpoint = attribute_endpoint({"q": 2 * members.count()})
@@ -1107,6 +1171,7 @@ def test_default_native_decimal_formula_preserves_actual_carrier_and_parent_scop
     assert parent_left.to_pandas()["value", "q"].tolist() == [Decimal("240.500000000")]
     assert parent_right.to_pandas()["value", "q"].tolist() == [Decimal("200.000000000")]
     for original in originals:
+        assert isinstance(original._schema, DataSchema)
         assert original._schema.values[0].dtype == DecimalDataType(38, 9)
         assert original._schema.values[0].unit == "USD"
     before = len(fused)
@@ -1121,13 +1186,14 @@ def test_default_native_decimal_formula_preserves_actual_carrier_and_parent_scop
         )
         assert stage.native_reads
     assert fixed.method_facts == () and terminal_runs(session) == ()
+    assert isinstance(fixed._schema, DataSchema)
     assert all(
         column.dtype == DecimalDataType(38, 9) and column.unit == "USD" and column.nullable
         for column in fixed._schema.values
     )
-    assert all(
-        str(dtype) == "decimal128(38, 9)[pyarrow]" for dtype in fixed.to_pandas()["value"].dtypes
-    )
+    value_rows = fixed.to_pandas()["value"]
+    assert isinstance(value_rows, pd.DataFrame)
+    assert all(str(dtype) == "decimal128(38, 9)[pyarrow]" for dtype in value_rows.dtypes)
 
     def keyed(frame: pd.DataFrame) -> dict[str | None, pd.Series]:
         rows = _flat(frame)
@@ -1181,4 +1247,5 @@ def test_fixed_attribute_method_facts_survive_named_multi_baseline_compare(
     for alias in ("one", "two"):
         assert rows[("value", alias + ".absolute.left.q")].dropna().eq(0).all()
         assert rows[("presence", alias + ".presence.left_present")].all()
+    assert isinstance(compared._backing, MemoryFrameBacking)
     assert len(compared._backing.metadata.audit.evaluation.inputs) == 1

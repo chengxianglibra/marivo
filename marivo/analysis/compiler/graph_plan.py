@@ -95,46 +95,175 @@ class PeriodFilter:
 
 
 @dataclass(frozen=True, slots=True)
+class ProjectionRead:
+    projections: tuple[tuple[str, str], ...]
+    presence: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ReductionRead:
+    reduction: ReductionInput
+
+
+@dataclass(frozen=True, slots=True)
+class ComponentRead:
+    layout: ComponentLayout
+
+
+@dataclass(frozen=True, slots=True)
+class CommonRead:
+    members: tuple[SourceRead, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class AttributeRead:
+    layout: AttributeRootLayout
+    representative: ReductionInput
+    members: tuple[SourceRead, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class NativeRead:
+    reductions: tuple[ReductionInput, ...]
+    finish: NativeQueryFinish | None = None
+
+
+SourceProgram: TypeAlias = (
+    ProjectionRead | ReductionRead | ComponentRead | CommonRead | AttributeRead | NativeRead
+)
+
+
+@dataclass(frozen=True, slots=True)
 class SourceRead:
-    """One governed source read; its slots are the only columns it returns."""
+    """One governed source read with one closed execution program."""
 
     stage_id: str
     source_id: str
     occurrence: tuple[int, ...]
     columns: tuple[DataColumn, ...]
     keys: tuple[str, ...]
-    projections: tuple[tuple[str, str], ...]
+    program: SourceProgram
     field_columns: tuple[tuple[str, str], ...]
     predicates: tuple[PredicateExpression, ...]
     period: PeriodFilter | None
-    reduction: ReductionInput | None = None
     preparation_checks: tuple[tuple[str, str, str], ...] = ()
-    presence: str | None = None
     inputs: tuple[str, ...] = ()
     parameters: tuple[SourceParameter, ...] = ()
-    component_layout: ComponentLayout | None = None
-    attribute_layout: AttributeRootLayout | None = None
     attribute_parent: AttributeSourceParentBinding | None = None
     binding_id: str = ""
-    common_reads: tuple[SourceRead, ...] = ()
     native_reductions: tuple[ReductionInput, ...] = ()
     native_reads: tuple[SourceRead, ...] = ()
-    native_query_finish: NativeQueryFinish | None = None
+
+
+def read_reduction(stage: SourceRead) -> ReductionInput | None:
+    program = stage.program
+    if isinstance(program, ReductionRead):
+        return program.reduction
+    if isinstance(program, ComponentRead):
+        return program.layout.reduction
+    if isinstance(program, AttributeRead):
+        return program.representative
+    if isinstance(program, CommonRead):
+        return read_reduction(program.members[0])
+    return None
+
+
+def require_reduction(stage: SourceRead) -> ReductionInput:
+    reduction = read_reduction(stage)
+    assert reduction is not None
+    return reduction
+
+
+def read_components(stage: SourceRead) -> ComponentLayout | None:
+    return stage.program.layout if isinstance(stage.program, ComponentRead) else None
+
+
+def read_attribute(stage: SourceRead) -> AttributeRootLayout | None:
+    return stage.program.layout if isinstance(stage.program, AttributeRead) else None
+
+
+def read_members(stage: SourceRead) -> tuple[SourceRead, ...]:
+    return stage.program.members if isinstance(stage.program, (CommonRead, AttributeRead)) else ()
+
+
+def common_program(
+    stage: SourceRead, members: tuple[SourceRead, ...]
+) -> CommonRead | AttributeRead:
+    if isinstance(stage.program, AttributeRead):
+        return replace(stage.program, members=members)
+    return CommonRead(members)
+
+
+def read_finish(stage: SourceRead) -> NativeQueryFinish | None:
+    return stage.program.finish if isinstance(stage.program, NativeRead) else None
+
+
+def require_components(stage: SourceRead) -> ComponentLayout:
+    layout = read_components(stage)
+    assert layout is not None
+    return layout
+
+
+def require_attribute(stage: SourceRead) -> AttributeRootLayout:
+    layout = read_attribute(stage)
+    assert layout is not None
+    return layout
+
+
+def require_finish(stage: SourceRead) -> NativeQueryFinish:
+    finish = read_finish(stage)
+    assert finish is not None
+    return finish
+
+
+def read_native_reductions(stage: SourceRead) -> tuple[ReductionInput, ...]:
+    native = stage.program.reductions if isinstance(stage.program, NativeRead) else ()
+    return (*native, *stage.native_reductions)
+
+
+def read_projections(stage: SourceRead) -> tuple[tuple[str, str], ...]:
+    return stage.program.projections if isinstance(stage.program, ProjectionRead) else ()
+
+
+def read_presence(stage: SourceRead) -> str | None:
+    return stage.program.presence if isinstance(stage.program, ProjectionRead) else None
+
+
+@dataclass(frozen=True, slots=True)
+class FusedLocalProgram:
+    steps: tuple[LocalCompute, ...]
 
 
 @dataclass(frozen=True, slots=True)
 class LocalCompute:
-    """One registered pandas kernel over completed stage outputs."""
+    """One closed local program over completed stage outputs."""
 
     stage_id: str
     inputs: tuple[str, ...]
-    kernel: str
     columns: tuple[DataColumn, ...]
     keys: tuple[str, ...]
-    program: FormulaProgram | None = None
-    result: ResultProgram | None = None
-    fused_steps: tuple[LocalCompute, ...] = ()
+    program: FormulaProgram | ResultProgram | FusedLocalProgram
     attribute: AttributeFormulaBinding | None = None
+
+    @property
+    def kernel(self) -> str:
+        return (
+            "query.result@v1" if isinstance(self.program, ResultProgram) else QUERY_COMBINE_KERNEL
+        )
+
+
+def local_result(stage: LocalCompute) -> ResultProgram | None:
+    return stage.program if isinstance(stage.program, ResultProgram) else None
+
+
+def require_result(stage: LocalCompute) -> ResultProgram:
+    program = local_result(stage)
+    assert program is not None
+    return program
+
+
+def local_steps(stage: LocalCompute) -> tuple[LocalCompute, ...]:
+    return stage.program.steps if isinstance(stage.program, FusedLocalProgram) else ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -240,6 +369,17 @@ class QueryPlan:
 
     def consumers_of(self, stage_id: str) -> tuple[str, ...]:
         return dict(self.consumers).get(stage_id, ())
+
+    def source_read(self, stage_id: str) -> SourceRead:
+        for stage in self.stages:
+            if stage.stage_id == stage_id and isinstance(stage, SourceRead):
+                return stage
+        reject(
+            "a source stage in the current executable plan",
+            stage_id,
+            "Associate the lowered payload with its current source stage.",
+            "analysis.query_plan",
+        )
 
 
 def _stage_id(occurrence: tuple[int, ...]) -> str:
@@ -362,7 +502,7 @@ def _plan_source_reads(
                 contribution.occurrence,
                 columns,
                 key_slots,
-                projections,
+                ProjectionRead(projections, None),
                 tuple((item.field, item.column) for item in fields),
                 (
                     *contribution.intrinsic_conditions,
@@ -380,13 +520,6 @@ def _plan_source_reads(
     stages: tuple[QueryStage, ...] = tuple(reads)
     consumers: tuple[tuple[str, tuple[str, ...]], ...] = ()
     publish = reads[0].stage_id
-    if len(reads) > 1:
-        combine = LocalCompute(
-            "local:combine", tuple(read.stage_id for read in reads), QUERY_COMBINE_KERNEL, (), ()
-        )
-        stages = (*reads, combine)
-        consumers = tuple((read.stage_id, (combine.stage_id,)) for read in reads)
-        publish = combine.stage_id
     planned: list[PlannedCheck] = []
     by_occurrence = {read.occurrence: read for read in reads}
     for route in checks:
@@ -658,7 +791,7 @@ def _plan_query(
                     ),
                 ),
                 keys=tuple(c.slot_id for c in stage_keys),
-                reduction=reduction,
+                program=ReductionRead(reduction),
             )
         )
         node = contribution.definition
@@ -756,10 +889,9 @@ def _plan_query(
                 LocalCompute(
                     identifier,
                     tuple(factor.stage_id for factor in factors),
-                    "query.result@v1",
                     domain_columns,
                     slots,
-                    result=ResultProgram(
+                    ResultProgram(
                         PopulationValues(population),
                         (),
                         (),
@@ -779,15 +911,21 @@ def _plan_query(
                     (),
                     domain_columns,
                     slots,
-                    tuple(
-                        (column.slot_id, key.column)
-                        for column, key in zip(domain_columns, population_schema.keys, strict=True)
+                    ProjectionRead(
+                        tuple(
+                            (
+                                (column.slot_id, key.column)
+                                for column, key in zip(
+                                    domain_columns, population_schema.keys, strict=True
+                                )
+                            )
+                        ),
+                        population_schema.presence,
                     ),
                     (),
                     (),
                     None,
                     preparation_checks=population_schema.preparation_checks,
-                    presence=population_schema.presence,
                 )
             )
         population_inputs.append(
@@ -898,11 +1036,11 @@ def _plan_query(
         and calendar is None
     ):
         stage = reads[0]
-        assert stage.reduction is not None
+        assert read_reduction(stage) is not None
         stage = replace(
             stage,
             columns=(*keys, columns[0]),
-            reduction=replace(stage.reduction, value_slot=columns[0].slot_id),
+            program=ReductionRead(replace(require_reduction(stage), value_slot=columns[0].slot_id)),
         )
         return replace(
             base,
@@ -914,7 +1052,6 @@ def _plan_query(
     combine = LocalCompute(
         "local:combine:" + graph.fingerprint,
         tuple(stage.stage_id for stage in (*reads, *population_stages)),
-        QUERY_COMBINE_KERNEL,
         (*keys, *columns),
         tuple(c.slot_id for c in keys),
         program,

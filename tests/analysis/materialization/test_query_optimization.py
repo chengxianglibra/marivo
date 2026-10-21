@@ -28,12 +28,15 @@ from marivo.analysis.compiler.graph_plan import (
     SourceCheckRoute,
     SourceRead,
     plan_query,
+    read_members,
+    read_projections,
 )
 from marivo.analysis.compiler.optimization import (
     InvocationMemo,
     compilation_key,
     optimize_query,
 )
+from marivo.analysis.compiler.query_program import ResultProgram
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     ExpressionFrameBacking,
@@ -135,8 +138,8 @@ def _execute(
                 events.append(stage.stage_id)
                 actual[stage.stage_id] = tuple(output.table.columns)
 
-            def source(request: LoweredRead, output: StageOutput) -> None:
-                actual[request.stage.stage_id] = tuple(output.table.columns)
+            def source(stage: SourceRead, request: LoweredRead, output: StageOutput) -> None:
+                actual[stage.stage_id] = tuple(output.table.columns)
 
             result = execute_numeric_query(
                 prepared,
@@ -158,7 +161,7 @@ def _execute(
         source_prepared: Mapping[str, PreparedSources],
         read_fixed: Callable[[FrameInput], CompletedFrameData],
         adapt_source: Callable[[str, StageOutput], StageOutput],
-        observe_read: Callable[[LoweredRead, StageOutput], None] | None = None,
+        observe_read: Callable[[SourceRead, LoweredRead, StageOutput], None] | None = None,
         observe_local: Callable[[LocalCompute | FrameCompute, StageOutput], None] | None = None,
     ) -> StageOutput:
         def local(stage: LocalCompute | FrameCompute, output: StageOutput) -> None:
@@ -167,10 +170,10 @@ def _execute(
             if observe_local is not None:
                 observe_local(stage, output)
 
-        def source(request: LoweredRead, output: StageOutput) -> None:
-            frame_actual[request.stage.stage_id] = tuple(output.table.columns)
+        def source(stage: SourceRead, request: LoweredRead, output: StageOutput) -> None:
+            frame_actual[stage.stage_id] = tuple(output.table.columns)
             if observe_read is not None:
-                observe_read(request, output)
+                observe_read(stage, request, output)
 
         output = run(
             compiled,
@@ -231,8 +234,8 @@ def test_complete_literal_input_remains_checked_before_projection(
         stage
         for stage in plan.stages
         if isinstance(stage, LocalCompute)
-        and stage.result is not None
-        and isinstance(stage.result.operation, LiteralValues)
+        and isinstance(stage.program, ResultProgram)
+        and isinstance(stage.program.operation, LiteralValues)
     )
     assert actual[literal.stage_id] == ("key.0", "value.0", "value.1", "value.2")
     result = query.compute().to_pandas()
@@ -254,8 +257,8 @@ def test_repeated_consumers_share_complete_input_without_mutation(
         stage
         for stage in plan.stages
         if isinstance(stage, LocalCompute)
-        and stage.result is not None
-        and isinstance(stage.result.operation, LiteralValues)
+        and isinstance(stage.program, ResultProgram)
+        and isinstance(stage.program.operation, LiteralValues)
     ]
     assert len(literals) == 1
     assert actual[literals[0].stage_id] == ("key.0", "value.0", "value.1", "value.2")
@@ -280,7 +283,7 @@ def test_source_attributes_keep_complete_keys_and_lookup_checks(
     result, after, _, after_actual = _execute(session, source, optimized=True)
     pd.testing.assert_frame_equal(result.table, baseline.table)
     reads = tuple(
-        stage for stage in after.stages if isinstance(stage, SourceRead) and stage.projections
+        stage for stage in after.stages if isinstance(stage, SourceRead) and read_projections(stage)
     )
     assert reads
     for stage in reads:
@@ -289,7 +292,7 @@ def test_source_attributes_keep_complete_keys_and_lookup_checks(
         # Attribute fields belong to this source's complete Population key.
         # They cannot be treated as removable value slots before ReadFields.
         assert stage.keys == original.keys
-        assert stage.projections == original.projections
+        assert read_projections(stage) == read_projections(original)
         assert after_actual[stage.stage_id] == before_actual[stage.stage_id]
         assert stage.preparation_checks == original.preparation_checks
         assert stage.preparation_checks
@@ -477,7 +480,7 @@ def test_explicit_source_occurrences_and_formula_finish_are_never_collapsed(
         item
         for stage in plan.stages
         if isinstance(stage, SourceRead)
-        for item in (stage.common_reads or (stage,))
+        for item in (read_members(stage) or (stage,))
     ]
     assert len(reads) == 3 and len({stage.occurrence for stage in reads}) == 3
     frame = query.compute().to_pandas()
@@ -681,7 +684,7 @@ def test_exact_source_common_block_preserves_values_and_occurrences(
     assert result.table["value.1"].tolist() == [3]
     assert count == 2 and len(calls) - count == 1
     assert any(
-        isinstance(stage, SourceRead) and len(stage.common_reads) == 2 for stage in plan.stages
+        isinstance(stage, SourceRead) and len(read_members(stage)) == 2 for stage in plan.stages
     )
 
 

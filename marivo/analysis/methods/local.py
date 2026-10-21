@@ -70,7 +70,7 @@ def query_combine(
     from marivo.semantic._numeric_lowering import numeric_failure
 
     program = stage.program
-    assert program is not None
+    assert isinstance(program, FormulaProgram)
     frame, checks = _combine_program(
         program, inputs, stage.keys, stage.columns[len(stage.keys) :], attribute=attribute
     )

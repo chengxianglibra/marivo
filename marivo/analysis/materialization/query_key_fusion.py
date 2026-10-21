@@ -59,12 +59,22 @@ from marivo.analysis.compiler.graph_lowering import LoweredQuery, LoweredRead
 from marivo.analysis.compiler.graph_plan import (
     FrameKeysInput,
     LocalCompute,
+    NativeRead,
     QueryPlan,
     QueryStage,
     SourceRead,
+    common_program,
+    local_result,
+    local_steps,
+    read_components,
+    read_finish,
+    read_members,
+    read_native_reductions,
+    read_reduction,
+    require_reduction,
 )
 from marivo.analysis.compiler.native_query import NativeQueryFinish
-from marivo.analysis.compiler.observation import PopulationInput, ReductionInput
+from marivo.analysis.compiler.observation import FormulaProgram, PopulationInput, ReductionInput
 from marivo.analysis.compiler.optimization import RuleDecision, required_slots
 from marivo.analysis.compiler.query_program import ResultProgram, SourceParameter
 from marivo.analysis.compiler.source_predicates import (
@@ -217,18 +227,18 @@ class NativeQueryRelation:
     checks: tuple[NumericCheck, ...] = ()
     parameters: tuple[SourceParameter, ...] = ()
 
-    @property
-    def reductions(self) -> tuple[ReductionInput, ...]:
+    def reductions(self, plan: QueryPlan) -> tuple[ReductionInput, ...]:
         return tuple(
             reduction
             for source in self.sources
             for reduction in (
                 *(
-                    member.reduction
-                    for member in source.stage.common_reads or (source.stage,)
-                    if member.reduction is not None
+                    require_reduction(member)
+                    for member in read_members(plan.source_read(source.stage_id))
+                    or (plan.source_read(source.stage_id),)
+                    if read_reduction(member) is not None
                 ),
-                *source.stage.native_reductions,
+                *read_native_reductions(plan.source_read(source.stage_id)),
             )
         )
 
@@ -237,8 +247,8 @@ def _logical_reads(reads: tuple[SourceRead, ...]) -> tuple[SourceRead, ...]:
     logical: dict[str, SourceRead] = {}
     for read in reads:
         for item in (
-            _logical_reads(read.native_reads or read.common_reads)
-            if (read.native_reads or read.common_reads)
+            _logical_reads(read.native_reads or read_members(read))
+            if (read.native_reads or read_members(read))
             else (read,)
         ):
             logical.setdefault(item.stage_id, item)
@@ -397,7 +407,9 @@ def _prune_transport(plan: QueryPlan, producer: str) -> tuple[QueryPlan, tuple[s
     """Drop formula Population inputs that supply no output, member or sample domain."""
     removed: list[str] = []
     for original in plan.stages:
-        if not isinstance(original, LocalCompute) or original.program is None:
+        if not isinstance(original, LocalCompute) or not isinstance(
+            original.program, FormulaProgram
+        ):
             continue
         program = original.program
         if program.output_population is not None or (bool(program.counts) and original.keys):
@@ -417,8 +429,8 @@ def _prune_transport(plan: QueryPlan, producer: str) -> tuple[QueryPlan, tuple[s
             for binding in program.populations
             if binding.definition not in sample_domains
             and isinstance((stage := by_id[binding.stage_id]), LocalCompute)
-            and stage.result is not None
-            and isinstance(stage.result.operation, PopulationValues)
+            and isinstance(stage.program, ResultProgram)
+            and isinstance(stage.program.operation, PopulationValues)
             and producer in stage.inputs
             and plan.consumers_of(stage.stage_id) == (original.stage_id,)
             and not any(check.stage_id == stage.stage_id for check in plan.checks)
@@ -459,15 +471,15 @@ def _host_domain_selections(plan: QueryPlan) -> frozenset[str]:
         stage = by_id[identifier]
         if (
             isinstance(stage, LocalCompute)
-            and stage.result is not None
-            and isinstance(stage.result.operation, (FilterValues, TopValues))
+            and isinstance(stage.program, ResultProgram)
+            and isinstance(stage.program.operation, (FilterValues, TopValues))
         ):
             selected.add(identifier)
         for dependency in stage.inputs:
             include(dependency)
 
     for stage in plan.stages:
-        if not isinstance(stage, LocalCompute) or stage.program is None:
+        if not isinstance(stage, LocalCompute) or not isinstance(stage.program, FormulaProgram):
             continue
         program = stage.program
         closure = walk((node for _, node in program.outputs), resolve=dict(program.declared).get)
@@ -563,7 +575,11 @@ def native_query_relation(
     attribute_parent: PopulationInput | None = None
     attribute_leaf: FrameKeysInput | None = None
     endpoint = by_id[producer]
-    if terminal and isinstance(endpoint, LocalCompute) and endpoint.program is not None:
+    if (
+        terminal
+        and isinstance(endpoint, LocalCompute)
+        and isinstance(endpoint.program, FormulaProgram)
+    ):
         formula = endpoint.program
         scope = formula.parent_scope
         if (
@@ -581,14 +597,14 @@ def native_query_relation(
             projected = by_id[binding.stage_id]
             if (
                 isinstance(projected, LocalCompute)
-                and projected.result is not None
+                and isinstance(projected.program, ResultProgram)
                 and len(projected.inputs) == 1
                 and isinstance(leaf := by_id[projected.inputs[0]], FrameKeysInput)
                 and leaf.parameter.definition == scope
                 and projected.keys == binding.keys
                 and tuple(column.slot_id for column in projected.columns) == binding.keys
             ):
-                result = projected.result
+                result = projected.program
                 direct_image = (
                     isinstance(result.operation, KeyImage)
                     and result.keys == leaf.keys
@@ -611,8 +627,8 @@ def native_query_relation(
         if (
             item.stage_id not in internal
             or not isinstance(item, LocalCompute)
-            or item.result is None
-            or not isinstance(item.result.operation, ReadFields)
+            or not isinstance(item.program, ResultProgram)
+            or not isinstance(item.program.operation, ReadFields)
         ):
             continue
         pending = list(item.inputs)
@@ -624,7 +640,7 @@ def native_query_relation(
     integer_identities: dict[str, set[str]] = {}
     if owner.provider.name != "duckdb":
         for item in plan.stages:
-            if not isinstance(item, LocalCompute) or item.program is None:
+            if not isinstance(item, LocalCompute) or not isinstance(item.program, FormulaProgram):
                 continue
             for population in item.program.populations:
                 if len(population.definition.axes) != len(population.key_groups):
@@ -723,32 +739,31 @@ def native_query_relation(
                 read.expression, owner, prepared, allowed_parameters=allowed_parameters
             ):
                 return "producer physical inputs do not belong to the consumer SourceSession"
-            if stage.native_query_finish is not None:
+            if read_finish(stage) is not None:
                 return "producer retains a governed host finish"
-            if stage.common_reads:
+            if read_members(stage):
                 if owner.provider.name not in ("duckdb", "trino", "clickhouse") or any(
-                    member.reduction is None
-                    or member.component_layout is not None
-                    or member.native_query_finish is not None
-                    or member.reduction.duration is not None
-                    or member.reduction.calendar is not None
-                    or member.reduction.calendars
-                    or member.reduction.sampled
-                    or member.reduction.window_key is not None
-                    or member.reduction.preserve_sample_presence
-                    for member in stage.common_reads
+                    read_reduction(member) is None
+                    or read_components(member) is not None
+                    or read_finish(member) is not None
+                    or require_reduction(member).duration is not None
+                    or require_reduction(member).calendar is not None
+                    or require_reduction(member).calendars
+                    or require_reduction(member).sampled
+                    or require_reduction(member).window_key is not None
+                    or require_reduction(member).preserve_sample_presence
+                    for member in read_members(stage)
                 ):
                     return "common producer retains its original component or sample finish"
                 if owner.provider.name != "duckdb":
-                    for member in stage.common_reads:
-                        issue = qualify_query_source(
-                            owner, replace(read, stage=member), frozenset()
-                        )
+                    for member in read_members(stage):
+                        issue = qualify_query_source(owner, member, read, frozenset())
                         if issue is not None:
                             return issue
             if owner.provider.name not in ("duckdb", "postgres"):
                 issue = qualify_query_source(
                     owner,
+                    stage,
                     read,
                     frozenset(integer_identities.get(identifier, set())),
                     frozenset(
@@ -762,7 +777,7 @@ def native_query_relation(
                 if issue is not None:
                     return issue
             admitted = {"__identity_null", "__population_classify_invalid"}
-            reduction = stage.reduction
+            reduction = read_reduction(stage)
             if reduction is None:
                 if owner.provider.name == "postgres" and any(
                     (
@@ -823,7 +838,7 @@ def native_query_relation(
                 return "aggregate producer retains an unqualified source finish"
             if (
                 set(stage.inputs) != {parameter.stage_id for parameter in stage.parameters}
-                or stage.component_layout is not None
+                or read_components(stage) is not None
                 or any(name not in admitted for name, _, _ in stage.preparation_checks)
             ):
                 return "producer retains dynamic inputs, components or unsupported checks"
@@ -845,9 +860,11 @@ def native_query_relation(
             )
         if not isinstance(stage, LocalCompute):
             return "fixed Frame data is outside source fusion"
-        if stage.fused_steps:
+        if local_steps(stage):
             return "producer retains a registered local fusion boundary"
-        if stage.result is not None and isinstance(stage.result.operation, LiteralValues):
+        if isinstance(stage.program, ResultProgram) and isinstance(
+            stage.program.operation, LiteralValues
+        ):
             return (
                 "literal inputs retain their typed bulk key transport without per-row SQL expansion"
             )
@@ -858,7 +875,7 @@ def native_query_relation(
                 return result
             inputs.append(result)
         sources = tuple(
-            {item.stage.stage_id: item for value in inputs for item in value.sources}.values()
+            {item.stage_id: item for value in inputs for item in value.sources}.values()
         )
         members = frozenset({identifier}).union(*(value.stages for value in inputs))
         checks = tuple(check for value in inputs for check in value.checks)
@@ -870,7 +887,7 @@ def native_query_relation(
                     return "native inputs retain conflicting Attribute parent parameters"
                 parameter_map[parameter.placeholder] = parameter
         parameters = tuple(parameter_map.values())
-        if stage.program is not None:
+        if isinstance(stage.program, FormulaProgram):
             formula = stage.program
             if formula.values:
                 arithmetic = owner.provider.name in ("duckdb", "trino", "clickhouse")
@@ -943,7 +960,7 @@ def native_query_relation(
                 owner.provider.name,
             )
             return NativeQueryRelation(expression, members, sources, checks, parameters)
-        program = stage.result
+        program = local_result(stage)
         if program is not None and isinstance(program.operation, PopulationValues):
             expression = _population_relation(program, tuple(inputs), owner.provider.name)
             if isinstance(expression, str):
@@ -1217,6 +1234,7 @@ def native_query_relation(
 def _attach_relation_checks(
     expression: ir.Table,
     native: NativeQueryRelation,
+    plan: QueryPlan,
     preparation: tuple[tuple[str, str, str], ...] = (),
     numeric: tuple[tuple[str, NumericCheck], ...] = (),
 ) -> tuple[ir.Table, tuple[tuple[str, str, str], ...], tuple[tuple[str, NumericCheck], ...]]:
@@ -1233,7 +1251,9 @@ def _attach_relation_checks(
                 expression = expression.mutate(__numeric_present=ibis.literal(True))
             expression = summary.left_join(expression, ibis.literal(True))
             checks.append((alias, NumericCheck(summary[alias], check.expected, check.received)))
-            if any(name == item[0] for item in source.stage.preparation_checks):
+            if any(
+                name == item[0] for item in plan.source_read(source.stage_id).preparation_checks
+            ):
                 prepared_checks.append((alias, check.expected, check.received))
     for check in native.checks:
         alias = f"__query_numeric_{len(checks)}"
@@ -1281,11 +1301,11 @@ def fuse_query_terminal(prepared: PreparedSources, lowered: LoweredQuery) -> Low
     # presentation operations so display order is restored over the bounded rows.
     endpoint = final
     cursor = final
-    while len(cursor.inputs) == 1 and cursor.result is not None:
-        if isinstance(cursor.result.operation, TopValues):
+    while len(cursor.inputs) == 1 and isinstance(cursor.program, ResultProgram):
+        if isinstance(cursor.program.operation, TopValues):
             endpoint = cursor
             break
-        if not isinstance(cursor.result.operation, (FilterValues, SelectValues)):
+        if not isinstance(cursor.program.operation, (FilterValues, SelectValues)):
             break
         parent = by_id[cursor.inputs[0]]
         if not isinstance(parent, LocalCompute):
@@ -1298,16 +1318,18 @@ def fuse_query_terminal(prepared: PreparedSources, lowered: LoweredQuery) -> Low
         if isinstance(native, str) or not native.sources:
             continue
         finish: NativeQueryFinish | None = None
-        if endpoint.result is not None and isinstance(endpoint.result.operation, PopulationValues):
+        if isinstance(endpoint.program, ResultProgram) and isinstance(
+            endpoint.program.operation, PopulationValues
+        ):
             if any(
                 isinstance(item, LocalCompute)
-                and item.result is not None
-                and isinstance(item.result.operation, (TopValues, ReduceValues, PopulationValues))
+                and isinstance(item.program, ResultProgram)
+                and isinstance(item.program.operation, (TopValues, ReduceValues, PopulationValues))
                 for item in lowered.plan.stages
                 if item.stage_id in native.stages and item.stage_id != endpoint.stage_id
             ):
                 continue
-            domain = endpoint.result.operation.definition
+            domain = endpoint.program.operation.definition
             if (
                 isinstance(domain, PopulationProgram)
                 and isinstance(domain.root, PopulationSet)
@@ -1316,7 +1338,7 @@ def fuse_query_terminal(prepared: PreparedSources, lowered: LoweredQuery) -> Low
                 left_position = next(
                     (
                         index
-                        for index, atom in enumerate(endpoint.result.population_inputs)
+                        for index, atom in enumerate(endpoint.program.population_inputs)
                         if computation_fingerprint(atom)
                         == computation_fingerprint(domain.root.left)
                     ),
@@ -1324,9 +1346,9 @@ def fuse_query_terminal(prepared: PreparedSources, lowered: LoweredQuery) -> Low
                 )
                 if left_position is None or any(
                     isinstance(item, LocalCompute)
-                    and item.result is not None
+                    and isinstance(item.program, ResultProgram)
                     and isinstance(
-                        item.result.operation,
+                        item.program.operation,
                         (TopValues, ReduceValues, PopulationValues),
                     )
                     for item in lowered.plan.stages
@@ -1345,7 +1367,7 @@ def fuse_query_terminal(prepared: PreparedSources, lowered: LoweredQuery) -> Low
                     continue
                 source_keys = tuple(
                     key
-                    for group in endpoint.result.population_layouts[left_position]
+                    for group in endpoint.program.population_layouts[left_position]
                     for key in group
                 )
                 key_relation = _distinct(
@@ -1376,11 +1398,15 @@ def fuse_query_terminal(prepared: PreparedSources, lowered: LoweredQuery) -> Low
                 finish = NativeQueryFinish(
                     endpoint.columns,
                     ("__query_union_order", *endpoint.keys),
-                    endpoint.result.output_layout,
+                    endpoint.program.output_layout,
                 )
-        expression, preparation, checks = _attach_relation_checks(native.expression, native)
-        source_id = native.sources[0].stage.source_id
-        keep_top = endpoint.result is not None and isinstance(endpoint.result.operation, TopValues)
+        expression, preparation, checks = _attach_relation_checks(
+            native.expression, native, lowered.plan
+        )
+        source_id = lowered.plan.source_read(native.sources[0].stage_id).source_id
+        keep_top = isinstance(endpoint.program, ResultProgram) and isinstance(
+            endpoint.program.operation, TopValues
+        )
         identifier = "source:terminal:" + endpoint.stage_id if keep_top else endpoint.stage_id
         stage = SourceRead(
             identifier,
@@ -1388,14 +1414,14 @@ def fuse_query_terminal(prepared: PreparedSources, lowered: LoweredQuery) -> Low
             (),
             endpoint.columns,
             endpoint.keys,
-            (),
+            NativeRead(native.reductions(lowered.plan), finish),
             (),
             (),
             None,
             preparation_checks=preparation,
-            native_reductions=native.reductions,
-            native_reads=_logical_reads(tuple(read.stage for read in native.sources)),
-            native_query_finish=finish,
+            native_reads=_logical_reads(
+                tuple(lowered.plan.source_read(read.stage_id) for read in native.sources)
+            ),
             inputs=tuple(dict.fromkeys(parameter.stage_id for parameter in native.parameters)),
             parameters=native.parameters,
         )
@@ -1433,19 +1459,19 @@ def fuse_query_terminal(prepared: PreparedSources, lowered: LoweredQuery) -> Low
         return LoweredQuery(
             plan,
             (
-                *(read for read in lowered.reads if read.stage.stage_id not in native.stages),
-                LoweredRead(stage, expression, checks),
+                *(read for read in lowered.reads if read.stage_id not in native.stages),
+                LoweredRead(stage.stage_id, expression, checks),
             ),
         )
     return lowered
 
 
 def _qualified_parameter_consumer(
-    prepared: PreparedSources, read: LoweredRead, owner: SourceSession
+    prepared: PreparedSources, stage: SourceRead, read: LoweredRead, owner: SourceSession
 ) -> bool:
-    if prepared.sources.get(read.stage.source_id, prepared.source) is not owner:
+    if prepared.sources.get(stage.source_id, prepared.source) is not owner:
         return False
-    placeholders = {parameter.placeholder for parameter in read.stage.parameters}
+    placeholders = {parameter.placeholder for parameter in stage.parameters}
     allowed = frozenset(
         node for node in read.expression.op().find(ops.UnboundTable) if node.name in placeholders
     )
@@ -1453,7 +1479,7 @@ def _qualified_parameter_consumer(
         return False
     return owner.provider.name == "duckdb" or (
         owner.provider.name in ("trino", "clickhouse")
-        and qualify_query_source(owner, read, frozenset()) is None
+        and qualify_query_source(owner, stage, read, frozenset()) is None
     )
 
 
@@ -1463,58 +1489,79 @@ def _fuse_shared_query_keys(prepared: PreparedSources, lowered: LoweredQuery) ->
 
     producers = tuple(
         dict.fromkeys(
-            parameter.stage_id for read in lowered.reads for parameter in read.stage.parameters
+            parameter.stage_id
+            for read in lowered.reads
+            for parameter in lowered.plan.source_read(read.stage_id).parameters
         )
     )
     for producer in producers:
         candidate, pruned = _prune_transport(lowered.plan, producer)
         final = next(stage for stage in candidate.stages if stage.stage_id == candidate.publish)
-        if not isinstance(final, LocalCompute) or final.program is None:
+        if not isinstance(final, LocalCompute) or not isinstance(final.program, FormulaProgram):
             continue
         reads = tuple(
             read
             for read in lowered.reads
-            if any(parameter.stage_id == producer for parameter in read.stage.parameters)
+            if any(
+                parameter.stage_id == producer
+                for parameter in lowered.plan.source_read(read.stage_id).parameters
+            )
         )
         if len(reads) < 2 or set(candidate.consumers_of(producer)) != {
-            read.stage.stage_id for read in reads
+            read.stage_id for read in reads
         }:
             continue
         first = reads[0]
-        first_reduction = first.stage.reduction
+        first_reduction = read_reduction(lowered.plan.source_read(first.stage_id))
         if first_reduction is None:
             continue
-        owner = prepared.sources.get(first.stage.source_id, prepared.source)
+        owner = prepared.sources.get(
+            lowered.plan.source_read(first.stage_id).source_id, prepared.source
+        )
         first_keys = tuple(
-            column for column in first.stage.columns if column.slot_id in first.stage.keys
+            column
+            for column in lowered.plan.source_read(first.stage_id).columns
+            if column.slot_id in lowered.plan.source_read(first.stage_id).keys
         )
         if any(
-            not _qualified_parameter_consumer(prepared, read, owner)
-            or read.stage.keys != first.stage.keys
-            or tuple(column for column in read.stage.columns if column.slot_id in read.stage.keys)
+            not _qualified_parameter_consumer(
+                prepared, lowered.plan.source_read(read.stage_id), read, owner
+            )
+            or lowered.plan.source_read(read.stage_id).keys
+            != lowered.plan.source_read(first.stage_id).keys
+            or tuple(
+                column
+                for column in lowered.plan.source_read(read.stage_id).columns
+                if column.slot_id in lowered.plan.source_read(read.stage_id).keys
+            )
             != first_keys
-            or read.stage.reduction is None
-            or read.stage.reduction.axes != first_reduction.axes
-            or read.stage.common_reads
-            or read.stage.native_query_finish is not None
-            or read.stage.component_layout is not None
-            or read.stage.reduction.duration is not None
-            or read.stage.reduction.calendar is not None
-            or read.stage.reduction.calendars
-            or read.stage.reduction.window_key is not None
-            or read.stage.reduction.preserve_sample_presence
+            or read_reduction(lowered.plan.source_read(read.stage_id)) is None
+            or require_reduction(lowered.plan.source_read(read.stage_id)).axes
+            != first_reduction.axes
+            or read_members(lowered.plan.source_read(read.stage_id))
+            or read_finish(lowered.plan.source_read(read.stage_id)) is not None
+            or read_components(lowered.plan.source_read(read.stage_id)) is not None
+            or require_reduction(lowered.plan.source_read(read.stage_id)).duration is not None
+            or require_reduction(lowered.plan.source_read(read.stage_id)).calendar is not None
+            or require_reduction(lowered.plan.source_read(read.stage_id)).calendars
+            or require_reduction(lowered.plan.source_read(read.stage_id)).window_key is not None
+            or require_reduction(lowered.plan.source_read(read.stage_id)).preserve_sample_presence
             or (
-                isinstance(read.stage.reduction.node, SourceAggregate)
+                isinstance(
+                    (node := require_reduction(lowered.plan.source_read(read.stage_id)).node),
+                    SourceAggregate,
+                )
                 and (
-                    read.stage.reduction.node.reducer in ("median", "quantile")
+                    node.reducer in ("median", "quantile")
                     and any(
-                        isinstance(column.dtype, DecimalDataType) for column in read.stage.columns
+                        isinstance(column.dtype, DecimalDataType)
+                        for column in lowered.plan.source_read(read.stage_id).columns
                     )
                 )
             )
-            or read.stage.inputs != (producer,)
-            or len(read.stage.parameters) != 1
-            or candidate.consumers_of(read.stage.stage_id) != (final.stage_id,)
+            or lowered.plan.source_read(read.stage_id).inputs != (producer,)
+            or len(lowered.plan.source_read(read.stage_id).parameters) != 1
+            or candidate.consumers_of(read.stage_id) != (final.stage_id,)
             for read in reads
         ):
             continue
@@ -1529,7 +1576,7 @@ def _fuse_shared_query_keys(prepared: PreparedSources, lowered: LoweredQuery) ->
         checks: list[tuple[str, NumericCheck]] = []
         columns: list[DataColumn] = []
         for index, read in enumerate(reads):
-            parameter = read.stage.parameters[0]
+            parameter = lowered.plan.source_read(read.stage_id).parameters[0]
             keys = _distinct(
                 native.expression.select(
                     **dict(
@@ -1549,31 +1596,34 @@ def _fuse_shared_query_keys(prepared: PreparedSources, lowered: LoweredQuery) ->
                 parameter.placeholder,
                 keys,
             )
-            preparation = read.stage.preparation_checks
+            preparation = lowered.plan.source_read(read.stage_id).preparation_checks
             numeric = read.numeric_checks
             if index == 0:
                 expression, preparation, numeric = _attach_relation_checks(
-                    expression, native, preparation, numeric
+                    expression, native, lowered.plan, preparation, numeric
                 )
             if "__numeric_present" not in expression.columns:
                 expression = expression.mutate(__numeric_present=ibis.literal(True))
             member = replace(
-                read.stage,
+                lowered.plan.source_read(read.stage_id),
                 inputs=(),
                 parameters=(),
                 preparation_checks=preparation,
-                columns=read.stage.columns
-                if any(column.slot_id == "__numeric_present" for column in read.stage.columns)
+                columns=lowered.plan.source_read(read.stage_id).columns
+                if any(
+                    column.slot_id == "__numeric_present"
+                    for column in lowered.plan.source_read(read.stage_id).columns
+                )
                 else (
-                    *read.stage.columns,
+                    *lowered.plan.source_read(read.stage_id).columns,
                     DataColumn(
                         "__numeric_present", "__numeric_present", ScalarDataType("boolean"), False
                     ),
                 ),
             )
             members.append(member)
-            assert member.reduction is not None
-            value_slot = member.reduction.value_slot
+            assert read_reduction(member) is not None
+            value_slot = require_reduction(member).value_slot
             names = {
                 name: name
                 if name in member.keys or name == value_slot
@@ -1596,28 +1646,31 @@ def _fuse_shared_query_keys(prepared: PreparedSources, lowered: LoweredQuery) ->
             checks.extend((names[name], check) for name, check in numeric)
         expression = expressions[0]
         for other in expressions[1:]:
-            if first.stage.keys:
+            if lowered.plan.source_read(first.stage_id).keys:
                 left, right = expression.view(), other.view()
                 joined = left.join(
                     right,
                     [
                         _same_key(left[key], right[key], owner.provider.name)
-                        for key in first.stage.keys
+                        for key in lowered.plan.source_read(first.stage_id).keys
                     ],
                     how="outer",
                 )
                 expression = joined.select(
                     **{
-                        **{key: ibis.coalesce(left[key], right[key]) for key in first.stage.keys},
+                        **{
+                            key: ibis.coalesce(left[key], right[key])
+                            for key in lowered.plan.source_read(first.stage_id).keys
+                        },
                         **{
                             name: left[name]
                             for name in left.columns
-                            if name not in first.stage.keys
+                            if name not in lowered.plan.source_read(first.stage_id).keys
                         },
                         **{
                             name: right[name]
                             for name in right.columns
-                            if name not in first.stage.keys
+                            if name not in lowered.plan.source_read(first.stage_id).keys
                         },
                     }
                 )
@@ -1626,35 +1679,31 @@ def _fuse_shared_query_keys(prepared: PreparedSources, lowered: LoweredQuery) ->
         head = replace(
             members[0],
             columns=tuple(columns),
-            common_reads=tuple(members),
             preparation_checks=(),
-            native_reductions=(*members[0].native_reductions, *native.reductions),
-            native_reads=_logical_reads((*members, *(read.stage for read in native.sources))),
+            native_reductions=(*members[0].native_reductions, *native.reductions(lowered.plan)),
+            native_reads=_logical_reads(
+                (*members, *(lowered.plan.source_read(read.stage_id) for read in native.sources))
+            ),
+            program=common_program(members[0], tuple(members)),
         )
         indices = {member.stage_id: index for index, member in enumerate(members)}
 
-        def remap(
-            program: FormulaProgram | None, indexes: dict[str, int] = indices
-        ) -> FormulaProgram | None:
-            return (
-                None
-                if program is None
-                else replace(
-                    program,
-                    values=tuple(
-                        replace(
-                            binding,
-                            presence=common_slot(indexes[binding.stage_id], "__numeric_present"),
-                            checks=tuple(
-                                (common_slot(indexes[binding.stage_id], name), expected, received)
-                                for name, expected, received in binding.checks
-                            ),
-                        )
-                        if binding.stage_id in indexes
-                        else binding
-                        for binding in program.values
-                    ),
-                )
+        def remap(program: FormulaProgram, indexes: dict[str, int] = indices) -> FormulaProgram:
+            return replace(
+                program,
+                values=tuple(
+                    replace(
+                        binding,
+                        presence=common_slot(indexes[binding.stage_id], "__numeric_present"),
+                        checks=tuple(
+                            (common_slot(indexes[binding.stage_id], name), expected, received)
+                            for name, expected, received in binding.checks
+                        ),
+                    )
+                    if binding.stage_id in indexes
+                    else binding
+                    for binding in program.values
+                ),
             )
 
         final = replace(
@@ -1676,7 +1725,7 @@ def _fuse_shared_query_keys(prepared: PreparedSources, lowered: LoweredQuery) ->
             candidate,
             stages=stages,
             consumers=_consumers(stages),
-            original=remap(candidate.original),
+            original=remap(candidate.original) if candidate.original is not None else None,
             fusion_groups=tuple(
                 group for group in candidate.fusion_groups if group.output not in removed
             ),
@@ -1694,11 +1743,11 @@ def _fuse_shared_query_keys(prepared: PreparedSources, lowered: LoweredQuery) ->
         lowered = LoweredQuery(
             plan,
             tuple(
-                LoweredRead(head, expression, tuple(checks))
-                if read.stage.stage_id == head.stage_id
+                LoweredRead(head.stage_id, expression, tuple(checks))
+                if read.stage_id == head.stage_id
                 else read
                 for read in lowered.reads
-                if read.stage.stage_id not in removed
+                if read.stage_id not in removed
             ),
         )
     return lowered
@@ -1707,18 +1756,25 @@ def _fuse_shared_query_keys(prepared: PreparedSources, lowered: LoweredQuery) ->
 def _fuse_parameter_blocks(prepared: PreparedSources, lowered: LoweredQuery) -> LoweredQuery:
     """Replace mutually shared parameter producers atomically in one consumer."""
     for original in tuple(lowered.reads):
-        if len(original.stage.parameters) < 2 or original.stage.component_layout is not None:
+        if (
+            len(lowered.plan.source_read(original.stage_id).parameters) < 2
+            or read_components(lowered.plan.source_read(original.stage_id)) is not None
+        ):
             continue
-        owner = prepared.sources.get(original.stage.source_id, prepared.source)
-        if not _qualified_parameter_consumer(prepared, original, owner):
+        owner = prepared.sources.get(
+            lowered.plan.source_read(original.stage_id).source_id, prepared.source
+        )
+        if not _qualified_parameter_consumer(
+            prepared, lowered.plan.source_read(original.stage_id), original, owner
+        ):
             continue
         candidate = lowered.plan
         pruned: set[str] = set()
-        for parameter in original.stage.parameters:
+        for parameter in lowered.plan.source_read(original.stage_id).parameters:
             candidate, transport = _prune_transport(candidate, parameter.stage_id)
             pruned.update(transport)
         by_id = {stage.stage_id: stage for stage in candidate.stages}
-        closure = {original.stage.stage_id}
+        closure = {original.stage_id}
 
         def include(
             identifier: str, members: set[str] = closure, stages: dict[str, QueryStage] = by_id
@@ -1728,7 +1784,7 @@ def _fuse_parameter_blocks(prepared: PreparedSources, lowered: LoweredQuery) -> 
                 for dependency in stages[identifier].inputs:
                     include(dependency, members, stages)
 
-        for parameter in original.stage.parameters:
+        for parameter in lowered.plan.source_read(original.stage_id).parameters:
             include(parameter.stage_id)
         natives = tuple(
             native_query_relation(
@@ -1739,7 +1795,7 @@ def _fuse_parameter_blocks(prepared: PreparedSources, lowered: LoweredQuery) -> 
                 shared=True,
                 allowed_consumers=frozenset(closure),
             )
-            for parameter in original.stage.parameters
+            for parameter in lowered.plan.source_read(original.stage_id).parameters
         )
         if any(isinstance(native, str) for native in natives):
             continue
@@ -1752,7 +1808,9 @@ def _fuse_parameter_blocks(prepared: PreparedSources, lowered: LoweredQuery) -> 
             continue
         expression = original.expression
         compatible = True
-        for parameter, native in zip(original.stage.parameters, native_inputs, strict=True):
+        for parameter, native in zip(
+            lowered.plan.source_read(original.stage_id).parameters, native_inputs, strict=True
+        ):
             producer = by_id[parameter.stage_id]
             if len(producer.keys) != len(parameter.columns):
                 compatible = False
@@ -1782,23 +1840,40 @@ def _fuse_parameter_blocks(prepared: PreparedSources, lowered: LoweredQuery) -> 
             expression,
             frozenset().union(*(value.stages for value in native_inputs)),
             tuple(
-                {
-                    read.stage.stage_id: read for value in native_inputs for read in value.sources
-                }.values()
+                {read.stage_id: read for value in native_inputs for read in value.sources}.values()
             ),
             tuple(check for value in native_inputs for check in value.checks),
         )
         expression, preparation, checks = _attach_relation_checks(
-            expression, native, original.stage.preparation_checks, original.numeric_checks
+            expression,
+            native,
+            lowered.plan,
+            lowered.plan.source_read(original.stage_id).preparation_checks,
+            original.numeric_checks,
         )
-        producers = {parameter.stage_id for parameter in original.stage.parameters}
+        producers = {
+            parameter.stage_id
+            for parameter in lowered.plan.source_read(original.stage_id).parameters
+        }
         stage = replace(
-            original.stage,
-            inputs=tuple(value for value in original.stage.inputs if value not in producers),
+            lowered.plan.source_read(original.stage_id),
+            inputs=tuple(
+                value
+                for value in lowered.plan.source_read(original.stage_id).inputs
+                if value not in producers
+            ),
             parameters=(),
             preparation_checks=preparation,
-            native_reductions=(*original.stage.native_reductions, *native.reductions),
-            native_reads=_logical_reads((original.stage, *(read.stage for read in native.sources))),
+            native_reductions=(
+                *lowered.plan.source_read(original.stage_id).native_reductions,
+                *native.reductions(lowered.plan),
+            ),
+            native_reads=_logical_reads(
+                (
+                    lowered.plan.source_read(original.stage_id),
+                    *(lowered.plan.source_read(read.stage_id) for read in native.sources),
+                )
+            ),
         )
         removed = native.stages | frozenset(pruned)
         stages = tuple(
@@ -1827,11 +1902,11 @@ def _fuse_parameter_blocks(prepared: PreparedSources, lowered: LoweredQuery) -> 
         lowered = LoweredQuery(
             plan,
             tuple(
-                LoweredRead(stage, expression, checks)
-                if read.stage.stage_id == stage.stage_id
+                LoweredRead(stage.stage_id, expression, checks)
+                if read.stage_id == stage.stage_id
                 else read
                 for read in lowered.reads
-                if read.stage.stage_id not in removed
+                if read.stage_id not in removed
             ),
         )
     return lowered
@@ -1844,8 +1919,8 @@ def _fold_population_checks(prepared: PreparedSources, lowered: LoweredQuery) ->
     for candidate in tuple(lowered.plan.stages):
         if (
             not isinstance(candidate, LocalCompute)
-            or candidate.program is None
-            or candidate.fused_steps
+            or not isinstance(candidate.program, FormulaProgram)
+            or local_steps(candidate)
         ):
             continue
         program = candidate.program
@@ -1887,10 +1962,12 @@ def _fold_population_checks(prepared: PreparedSources, lowered: LoweredQuery) ->
         else:
             continue
         carrier_stage = by_id.get(carrier_id)
-        if not isinstance(carrier_stage, SourceRead) or carrier_stage.component_layout is not None:
+        if not isinstance(carrier_stage, SourceRead) or read_components(carrier_stage) is not None:
             continue
         carrier = lowered.read(carrier_id)
-        owner = prepared.sources.get(carrier.stage.source_id, prepared.source)
+        owner = prepared.sources.get(
+            lowered.plan.source_read(carrier.stage_id).source_id, prepared.source
+        )
         if not qualified_query_provider(owner):
             continue
         removed = {binding.stage_id for binding in redundant}
@@ -1920,23 +1997,27 @@ def _fold_population_checks(prepared: PreparedSources, lowered: LoweredQuery) ->
                 sources.append(request)
             elif (
                 not isinstance(stage, LocalCompute)
-                or stage.result is None
-                or not isinstance(stage.result.operation, PopulationValues)
+                or not isinstance(stage.program, ResultProgram)
+                or not isinstance(stage.program.operation, PopulationValues)
             ):
                 compatible = False
                 break
         if not compatible:
             continue
         # Preserve the original source-check order rather than set iteration order.
-        sources.sort(key=lambda request: tuple(by_id).index(request.stage.stage_id))
-        parameters = {parameter.placeholder: parameter for parameter in carrier.stage.parameters}
+        sources.sort(key=lambda request: tuple(by_id).index(request.stage_id))
+        parameters = {
+            parameter.placeholder: parameter
+            for parameter in lowered.plan.source_read(carrier.stage_id).parameters
+        }
         for request in sources:
-            if set(request.stage.inputs) != {
-                parameter.stage_id for parameter in request.stage.parameters
+            if set(lowered.plan.source_read(request.stage_id).inputs) != {
+                parameter.stage_id
+                for parameter in lowered.plan.source_read(request.stage_id).parameters
             }:
                 compatible = False
                 break
-            for parameter in request.stage.parameters:
+            for parameter in lowered.plan.source_read(request.stage_id).parameters:
                 existing = parameters.get(parameter.placeholder)
                 if existing is not None and existing != parameter:
                     compatible = False
@@ -1950,14 +2031,23 @@ def _fold_population_checks(prepared: PreparedSources, lowered: LoweredQuery) ->
             continue
         native = NativeQueryRelation(carrier.expression, frozenset(removed), tuple(sources))
         expression, preparation, checks = _attach_relation_checks(
-            carrier.expression, native, carrier.stage.preparation_checks, carrier.numeric_checks
+            carrier.expression,
+            native,
+            lowered.plan,
+            lowered.plan.source_read(carrier.stage_id).preparation_checks,
+            carrier.numeric_checks,
         )
         stage = replace(
-            carrier.stage,
+            lowered.plan.source_read(carrier.stage_id),
             inputs=inputs,
             parameters=tuple(parameters.values()),
             preparation_checks=preparation,
-            native_reads=_logical_reads((carrier.stage, *(source.stage for source in sources))),
+            native_reads=_logical_reads(
+                (
+                    lowered.plan.source_read(carrier.stage_id),
+                    *(lowered.plan.source_read(source.stage_id) for source in sources),
+                )
+            ),
         )
         updated = replace(program, populations=kept, counts=())
         compute = replace(
@@ -2006,11 +2096,13 @@ def _fold_population_checks(prepared: PreparedSources, lowered: LoweredQuery) ->
         lowered = LoweredQuery(
             plan,
             tuple(
-                replace(request, stage=stage, expression=expression, numeric_checks=checks)
-                if request.stage.stage_id == carrier_id
+                replace(
+                    request, stage_id=stage.stage_id, expression=expression, numeric_checks=checks
+                )
+                if request.stage_id == carrier_id
                 else request
                 for request in lowered.reads
-                if request.stage.stage_id in retained
+                if request.stage_id in retained
             ),
         )
     return lowered
@@ -2040,13 +2132,21 @@ def fuse_query_keys(prepared: PreparedSources, lowered: LoweredQuery) -> Lowered
     decisions = list(lowered.plan.optimization_decisions)
     host_selections = _host_domain_selections(lowered.plan)
     for original in lowered.reads:
-        for parameter in original.stage.parameters:
-            if original.stage.stage_id not in {read.stage.stage_id for read in lowered.reads}:
+        for parameter in lowered.plan.source_read(original.stage_id).parameters:
+            if original.stage_id not in {read.stage_id for read in lowered.reads}:
                 break
-            current = lowered.read(original.stage.stage_id)
-            owner = prepared.sources.get(current.stage.source_id, prepared.source)
-            pair = (parameter.stage_id, current.stage.stage_id)
-            if sum(value.stage_id == parameter.stage_id for value in current.stage.parameters) != 1:
+            current = lowered.read(original.stage_id)
+            owner = prepared.sources.get(
+                lowered.plan.source_read(current.stage_id).source_id, prepared.source
+            )
+            pair = (parameter.stage_id, current.stage_id)
+            if (
+                sum(
+                    value.stage_id == parameter.stage_id
+                    for value in lowered.plan.source_read(current.stage_id).parameters
+                )
+                != 1
+            ):
                 decisions.append(
                     RuleDecision(
                         "source_key_fusion",
@@ -2115,19 +2215,35 @@ def fuse_query_keys(prepared: PreparedSources, lowered: LoweredQuery) -> Lowered
                 keys,
             )
             expression, preparation, checks = _attach_relation_checks(
-                expression, native, current.stage.preparation_checks, current.numeric_checks
+                expression,
+                native,
+                lowered.plan,
+                lowered.plan.source_read(current.stage_id).preparation_checks,
+                current.numeric_checks,
             )
-            parameters = tuple(value for value in current.stage.parameters if value != parameter)
+            parameters = tuple(
+                value
+                for value in lowered.plan.source_read(current.stage_id).parameters
+                if value != parameter
+            )
             stage = replace(
-                current.stage,
+                lowered.plan.source_read(current.stage_id),
                 inputs=tuple(
-                    value for value in current.stage.inputs if value != parameter.stage_id
+                    value
+                    for value in lowered.plan.source_read(current.stage_id).inputs
+                    if value != parameter.stage_id
                 ),
                 parameters=parameters,
                 preparation_checks=tuple(preparation),
-                native_reductions=(*current.stage.native_reductions, *native.reductions),
+                native_reductions=(
+                    *lowered.plan.source_read(current.stage_id).native_reductions,
+                    *native.reductions(lowered.plan),
+                ),
                 native_reads=_logical_reads(
-                    (current.stage, *(read.stage for read in native.sources))
+                    (
+                        lowered.plan.source_read(current.stage_id),
+                        *(lowered.plan.source_read(read.stage_id) for read in native.sources),
+                    )
                 ),
             )
             rewritten = {
@@ -2178,14 +2294,17 @@ def fuse_query_keys(prepared: PreparedSources, lowered: LoweredQuery) -> Lowered
             )
             plan = replace(plan, required_slots=required_slots(plan))
             read = replace(
-                current, stage=stage, expression=expression, numeric_checks=tuple(checks)
+                current,
+                stage_id=stage.stage_id,
+                expression=expression,
+                numeric_checks=tuple(checks),
             )
             lowered = LoweredQuery(
                 plan,
                 tuple(
-                    read if item.stage.stage_id == stage.stage_id else item
+                    read if item.stage_id == stage.stage_id else item
                     for item in lowered.reads
-                    if item.stage.stage_id not in removed
+                    if item.stage_id not in removed
                 ),
             )
     return replace(lowered, plan=replace(lowered.plan, optimization_decisions=tuple(decisions)))

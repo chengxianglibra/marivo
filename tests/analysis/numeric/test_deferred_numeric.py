@@ -112,12 +112,7 @@ def test_combine_checks_only_demanded_completed_slots() -> None:
     program = FormulaProgram((("value", metric),), (), values)
     key = DataColumn("key.0", "key", ScalarDataType("string"), False)
     stage = LocalCompute(
-        "combine",
-        ("a", "b"),
-        "query.combine",
-        (key, *formula_columns(program)),
-        ("key.0",),
-        program,
+        "combine", ("a", "b"), (key, *formula_columns(program)), ("key.0",), program
     )
     left = pd.DataFrame({"key.0": ["yes", "no"], "a": [1, 0]})
     right = pd.DataFrame({"key.0": ["yes", "no"], "b": [10, None], "bad": [False, True]})
@@ -266,9 +261,7 @@ def test_per_reduces_completed_ratios_and_retains_literal_zero_activity_samples(
         ),
     )
     program = FormulaProgram((("mean", metric),), (), values)
-    stage = LocalCompute(
-        "combine", ("a", "b"), "query.combine", formula_columns(program), (), program
-    )
+    stage = LocalCompute("combine", ("a", "b"), formula_columns(program), (), program)
     left = pd.DataFrame({"key.0": ["alice", "bob"], "a": [10, 90]})
     right = pd.DataFrame({"key.0": ["alice", "bob"], "b": [2, 3]})
     assert query_combine(stage, (left, right))["value.0"].tolist() == [17.5]
@@ -279,7 +272,7 @@ def test_per_reduces_completed_ratios_and_retains_literal_zero_activity_samples(
         (),
         (FormulaInput((0, 0), "a", values[0].column, True, keys=("key.0",)),),
     )
-    stage = LocalCompute("combine", ("a",), "query.combine", formula_columns(program), (), program)
+    stage = LocalCompute("combine", ("a",), formula_columns(program), (), program)
     assert query_combine(stage, (left,))["value.0"].tolist() == pytest.approx([100 / 3])
 
 
@@ -332,7 +325,7 @@ def test_state_sample_coverage_is_checked_only_when_per_value_is_demanded() -> N
         {"key.0": [days[0]], "a": [10], "__numeric_present": [True], "__sample_present": [True]}
     )
     program = FormulaProgram((("mean", per),), (), (binding,))
-    stage = LocalCompute("combine", ("a",), "query.combine", formula_columns(program), (), program)
+    stage = LocalCompute("combine", ("a",), formula_columns(program), (), program)
     with pytest.raises(SemanticExpressionError, match="complete fixed-cadence state samples"):
         query_combine(stage, (frame,))
     value = Deferred(Variable("slot_0"))
@@ -340,7 +333,7 @@ def test_state_sample_coverage_is_checked_only_when_per_value_is_demanded() -> N
     from dataclasses import replace
 
     program = FormulaProgram((("mean", guarded),), (), (replace(binding, occurrence=(0, 0, 0)),))
-    stage = LocalCompute("combine", ("a",), "query.combine", formula_columns(program), (), program)
+    stage = LocalCompute("combine", ("a",), formula_columns(program), (), program)
     assert query_combine(stage, (frame,))["value.0"].tolist() == [0]
 
 
@@ -412,9 +405,7 @@ def test_sample_coverage_respects_calendar_axis_position(
     )
     program = FormulaProgram((("value", node),), (), (binding,))
     columns = tuple(DataColumn(key, key, ScalarDataType("string"), False) for key in keys)
-    stage = LocalCompute(
-        "combine", ("read",), "query.combine", (*columns, *formula_columns(program)), keys, program
-    )
+    stage = LocalCompute("combine", ("read",), (*columns, *formula_columns(program)), keys, program)
     frame = pd.DataFrame(
         {
             customer_slot: ["alice"],

@@ -41,10 +41,10 @@ def endpoint(graph: BoundGraph, plan: QueryPlan) -> ComparisonEndpoint:
     stage = next(item for item in plan.stages if item.stage_id == plan.publish)
     if (
         isinstance(stage, LocalCompute)
-        and stage.result is not None
-        and stage.result.output_layout is not None
+        and isinstance(stage.program, ResultProgram)
+        and stage.program.output_layout is not None
     ):
-        return stage.result.output_layout
+        return stage.program.output_layout
     return ComparisonEndpoint(
         stage.columns,
         stage.keys,
@@ -154,10 +154,9 @@ def plan_read(
     stage = LocalCompute(
         "local:read:" + graph.fingerprint,
         (source.stage_id,),
-        "query.result@v1",
         (*keys, *values),
         key_names,
-        result=ResultProgram(
+        ResultProgram(
             ReadFields(root.positions),
             source.columns,
             source.keys,
@@ -358,9 +357,8 @@ def plan_literal(
     stage = LocalCompute(
         "literal:" + graph.fingerprint,
         (),
-        "query.result@v1",
         tuple(columns),
         keys,
-        result=ResultProgram(operation, (), (), (), (), tuple(groups)),
+        ResultProgram(operation, (), (), (), (), tuple(groups)),
     )
     return QueryPlan((stage,), (), (), stage.stage_id, tuple(groups))

@@ -15,7 +15,7 @@ from marivo._definition.correspondence import CalendarCorrespondence
 from marivo._temporal_grid import builtin_nominal_ordinal
 from marivo.analysis.compiler.frame_plan import CompiledFramePlan
 from marivo.analysis.compiler.graph_lowering import LoweredRead
-from marivo.analysis.compiler.graph_plan import FrameCompute, FrameInput, LocalCompute
+from marivo.analysis.compiler.graph_plan import FrameCompute, FrameInput, LocalCompute, SourceRead
 from marivo.analysis.compiler.query_program import FrameCompareProgram
 from marivo.analysis.core.artifact_data import OutputAttachment
 from marivo.analysis.core.data_schema import (
@@ -484,7 +484,7 @@ def test_source_plus_fixed_calendar_match_runs_one_existing_schedule(
         source_prepared: Mapping[str, PreparedSources],
         read_fixed: Callable[[FrameInput], CompletedFrameData],
         adapt_source: Callable[[str, StageOutput], StageOutput],
-        observe_read: Callable[[LoweredRead, StageOutput], None] | None = None,
+        observe_read: Callable[[SourceRead, LoweredRead, StageOutput], None] | None = None,
         observe_local: Callable[[LocalCompute | FrameCompute, StageOutput], None] | None = None,
     ) -> StageOutput:
         schedules.append(compiled)
@@ -838,7 +838,8 @@ def test_pending_unary_shared_and_paired_axes_retain_exact_frozen_facts(
     assert shared._schema.axes[0] == captured
     pair = paired._schema.axes[0]
     assert isinstance(pair, PairedDataAxis)
-    assert pair.left.frozen is not None and pair.right.frozen is not None
+    assert isinstance(pair.left.frozen, FrozenCalendarData)
+    assert isinstance(pair.right.frozen, FrozenCalendarData)
     assert captured.frozen is not None
     assert pair.left.frozen.definition == pair.right.frozen.definition == captured.frozen.definition
     grouped = paired.reduce({"amount": paired["left.amount"].sum()}, by=paired.axes)
@@ -1005,7 +1006,11 @@ def test_named_compare_consumes_direct_frozen_relations_and_equivalent_explicit_
     assert rows[("value", "yoy.absolute.amount")].tolist() == [8, 15]
     assert rows[("value", "mom.relative.amount")].tolist() == [1.0, 1.0]
     assert len(_memory_backing(result).data.copy_attachments()) == 5
-    assert len({fact.binding.baseline.token for fact in result._schema.comparisons}) == 2
+    baseline_tokens = set()
+    for fact in result._schema.comparisons:
+        assert isinstance(fact.binding, CalendarComparisonBinding)
+        baseline_tokens.add(fact.binding.baseline.token)
+    assert len(baseline_tokens) == 2
     equivalent = current.compare({"yoy": yoy}, match={"yoy": mv.offset(periods=-12)}).compute()
     assert equivalent.to_pandas()[("value", "yoy.absolute.amount")].tolist() == [8, 15]
     with pytest.raises(AnalysisError, match="target intentions"):

@@ -18,16 +18,22 @@ from marivo._definition.query import (
 from marivo._definition.relations import AttributeKeys, FrameKeys
 from marivo.analysis.compiler.graph_lowering import LoweredQuery, LoweredRead
 from marivo.analysis.compiler.graph_plan import (
+    AttributeRead,
+    CommonRead,
     FrameCompute,
     FrameInput,
     FrameKeysInput,
+    FusedLocalProgram,
     LocalCompute,
     PlannedCheck,
     QueryPlan,
     QueryStage,
     SourceRead,
+    read_attribute,
+    require_attribute,
 )
 from marivo.analysis.compiler.observation import FormulaProgram
+from marivo.analysis.compiler.optimization import FusionGroup, RuleDecision
 from marivo.analysis.compiler.query_program import (
     DurationBinary,
     FrameCombineProgram,
@@ -73,61 +79,67 @@ class CompiledFramePlan:
     frame_operations: tuple[tuple[str, FrameOperation], ...]
 
 
-def _name(names: Mapping[str, str], identifier: str) -> str:
-    prefix = next(iter(names.values())).split("/", 1)[0]
-    return names.get(identifier, prefix + "/" + identifier)
+def _name(names: Mapping[str, str], identifier: str, namespace: str) -> str:
+    return names.get(identifier, namespace + "/" + identifier)
 
 
-def _required_formula(program: FormulaProgram, names: Mapping[str, str]) -> FormulaProgram:
+def _required_formula(
+    program: FormulaProgram, names: Mapping[str, str], namespace: str
+) -> FormulaProgram:
     return replace(
         program,
         values=tuple(
-            replace(value, stage_id=_name(names, value.stage_id)) for value in program.values
+            replace(value, stage_id=_name(names, value.stage_id, namespace))
+            for value in program.values
         ),
         populations=tuple(
-            replace(value, stage_id=_name(names, value.stage_id)) for value in program.populations
+            replace(value, stage_id=_name(names, value.stage_id, namespace))
+            for value in program.populations
         ),
     )
 
 
-def _formula(program: FormulaProgram | None, names: Mapping[str, str]) -> FormulaProgram | None:
-    if program is None:
-        return None
-    return _required_formula(program, names)
-
-
-def _prefix(stage: QueryStage, names: Mapping[str, str]) -> QueryStage:
-    inputs = tuple(_name(names, name) for name in stage.inputs)
+def _prefix(stage: QueryStage, names: Mapping[str, str], namespace: str) -> QueryStage:
+    inputs = tuple(_name(names, name, namespace) for name in stage.inputs)
     if isinstance(stage, SourceRead):
+        source_program = stage.program
+        if isinstance(source_program, (CommonRead, AttributeRead)):
+            source_program = replace(
+                source_program,
+                members=tuple(_prefix_read(s, names, namespace) for s in source_program.members),
+            )
         return replace(
             stage,
-            stage_id=_name(names, stage.stage_id),
+            stage_id=_name(names, stage.stage_id, namespace),
             inputs=inputs,
             parameters=tuple(
-                replace(p, stage_id=_name(names, p.stage_id)) for p in stage.parameters
+                replace(p, stage_id=_name(names, p.stage_id, namespace)) for p in stage.parameters
             ),
-            common_reads=tuple(_prefix_read(s, names) for s in stage.common_reads),
-            native_reads=tuple(_prefix_read(s, names) for s in stage.native_reads),
+            native_reads=tuple(_prefix_read(s, names, namespace) for s in stage.native_reads),
+            program=source_program,
         )
     if isinstance(stage, LocalCompute):
+        program = stage.program
+        if isinstance(program, FormulaProgram):
+            program = _required_formula(program, names, namespace)
+        elif isinstance(program, FusedLocalProgram):
+            program = replace(
+                program, steps=tuple(_prefix_local(s, names, namespace) for s in program.steps)
+            )
         return replace(
-            stage,
-            stage_id=_name(names, stage.stage_id),
-            inputs=inputs,
-            program=_formula(stage.program, names),
-            fused_steps=tuple(_prefix_local(s, names) for s in stage.fused_steps),
+            stage, stage_id=_name(names, stage.stage_id, namespace), inputs=inputs, program=program
         )
-    return replace(stage, stage_id=_name(names, stage.stage_id), inputs=inputs)
+    return replace(stage, stage_id=_name(names, stage.stage_id, namespace), inputs=inputs)
 
 
-def _prefix_read(stage: SourceRead, names: Mapping[str, str]) -> SourceRead:
-    result = _prefix(stage, names)
+def _prefix_read(stage: SourceRead, names: Mapping[str, str], namespace: str) -> SourceRead:
+    result = _prefix(stage, names, namespace)
     assert isinstance(result, SourceRead)
     return result
 
 
-def _prefix_local(stage: LocalCompute, names: Mapping[str, str]) -> LocalCompute:
-    result = _prefix(stage, names)
+def _prefix_local(stage: LocalCompute, names: Mapping[str, str], namespace: str) -> LocalCompute:
+    result = _prefix(stage, names, namespace)
     assert isinstance(result, LocalCompute)
     return result
 
@@ -195,6 +207,8 @@ def plan_frame(
     stages: list[QueryStage] = []
     reads: list[LoweredRead] = []
     checks: list[PlannedCheck] = []
+    groups: list[FusionGroup] = []
+    decisions: list[RuleDecision] = []
     owners: list[tuple[str, str]] = []
     boundaries: list[tuple[str, str]] = []
     leaves: dict[str, tuple[str, DataSchema]] = {}
@@ -263,24 +277,40 @@ def plan_frame(
                     stages.append(projection)
                     projections[projection.stage_id] = projection.stage_id
                 external[key_stage.stage_id] = projection.stage_id
+            namespace = f"source:{len(leaves)}"
             names = {
-                s.stage_id: f"source:{len(leaves)}/{s.stage_id}"
+                s.stage_id: namespace + "/" + s.stage_id
                 for s in child.lowered.plan.stages
                 if not isinstance(s, FrameKeysInput)
             }
             names.update(external)
             prefixed = tuple(
-                _prefix(s, names)
+                _prefix(s, names, namespace)
                 for s in child.lowered.plan.stages
                 if not isinstance(s, FrameKeysInput)
             )
-            by_id = {s.stage_id: s for s in prefixed}
             stages.extend(prefixed)
             for item in child.lowered.reads:
-                read_stage = by_id[names[item.stage.stage_id]]
-                assert isinstance(read_stage, SourceRead)
-                reads.append(replace(item, stage=read_stage))
+                reads.append(replace(item, stage_id=names[item.stage_id]))
             checks.extend(replace(c, stage_id=names[c.stage_id]) for c in child.lowered.plan.checks)
+            groups.extend(
+                replace(
+                    group,
+                    members=tuple(namespace + "/" + member for member in group.members),
+                    output=_name(names, group.output, namespace),
+                    checks=tuple(
+                        (_name(names, stage_id, namespace), check_id)
+                        for stage_id, check_id in group.checks
+                    ),
+                )
+                for group in child.lowered.plan.fusion_groups
+            )
+            decisions.extend(
+                replace(
+                    decision, members=tuple(namespace + "/" + member for member in decision.members)
+                )
+                for decision in child.lowered.plan.optimization_decisions
+            )
             owners.extend((s.stage_id, node.input_id) for s in prefixed)
             output = names[child.lowered.plan.publish]
             boundaries.append((output, node.input_id))
@@ -335,7 +365,7 @@ def plan_frame(
                 for stage_index, local_stage in enumerate(stages):
                     if (
                         isinstance(local_stage, LocalCompute)
-                        and local_stage.program is not None
+                        and isinstance(local_stage.program, FormulaProgram)
                         and source_owners.get(local_stage.stage_id) == endpoint_node.input_id
                     ):
                         stages[stage_index] = replace(
@@ -354,7 +384,7 @@ def plan_frame(
                 formula = next(
                     s.program
                     for s in reversed(source_plans[endpoint_node.input_id].lowered.plan.stages)
-                    if isinstance(s, LocalCompute) and s.program is not None
+                    if isinstance(s, LocalCompute) and isinstance(s.program, FormulaProgram)
                 )
                 formulas.append(formula)
             contribution_program = AttributeContributionProgram(
@@ -390,9 +420,9 @@ def plan_frame(
             right, right_schema = visit(node.inputs[2])
             layouts = tuple(
                 tuple(
-                    stage.attribute_layout
+                    require_attribute(stage)
                     for stage in source_plans[endpoint.input_id].lowered.plan.stages
-                    if isinstance(stage, SourceRead) and stage.attribute_layout is not None
+                    if isinstance(stage, SourceRead) and read_attribute(stage) is not None
                 )
                 for endpoint in node.inputs[1:]
                 if isinstance(endpoint, SourceFrameInput)
@@ -415,7 +445,7 @@ def plan_frame(
                 for stage_index, source_stage in enumerate(stages):
                     if (
                         isinstance(source_stage, SourceRead)
-                        and source_stage.attribute_layout is not None
+                        and read_attribute(source_stage) is not None
                         and source_owners.get(source_stage.stage_id) == endpoint_node.input_id
                     ):
                         dependencies = source_stage.inputs
@@ -429,9 +459,6 @@ def plan_frame(
                             ),
                         )
                         stages[stage_index] = updated_source
-                        for read_index, read in enumerate(reads):
-                            if read.stage.stage_id == updated_source.stage_id:
-                                reads[read_index] = replace(read, stage=updated_source)
             compute = FrameCompute(
                 f"frame:{len(stages)}", (parent, left, right, *bridges), input_program
             )
@@ -546,6 +573,8 @@ def plan_frame(
         consumers,
         output,
         tuple(tuple(c.slot_id for c in axis.columns) for axis in schema.axes),
+        fusion_groups=tuple(groups),
+        optimization_decisions=tuple(decisions),
     )
     return CompiledFramePlan(
         LoweredQuery(plan, tuple(reads)),

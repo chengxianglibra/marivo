@@ -176,10 +176,9 @@ def plan_frame_keys(
     return LocalCompute(
         "bridge:" + computation_fingerprint(parameter.definition),
         (source,),
-        "query.result@v1",
         parameter.columns,
         tuple(column.slot_id for column in parameter.columns),
-        result=ResultProgram(
+        ResultProgram(
             PopulationValues(parameter.definition),
             schema.columns,
             schema.key_fields,

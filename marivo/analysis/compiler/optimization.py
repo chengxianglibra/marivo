@@ -29,15 +29,27 @@ from marivo._definition.query import (
 )
 from marivo._definition.types import RULE_VERSION, Owner
 from marivo.analysis.compiler.graph_plan import (
+    ComponentRead,
     FrameCompute,
     FrameInput,
     FrameKeysInput,
     LocalCompute,
+    ProjectionRead,
     QueryPlan,
     QueryStage,
+    ReductionRead,
     SourceCheckRoute,
     SourceRead,
     SourceSchema,
+    common_program,
+    local_result,
+    read_components,
+    read_presence,
+    read_projections,
+    read_reduction,
+    require_components,
+    require_reduction,
+    require_result,
 )
 from marivo.analysis.compiler.observation import FormulaProgram, common_slot
 from marivo.analysis.compiler.original import component_layout
@@ -103,8 +115,8 @@ def _support(stage: QueryStage) -> set[str]:
                 ("numeric_check.", "predicate_check.", "__numeric_present", "__sample_present")
             )
         )
-    elif stage.result is not None and stage.result.output_layout is not None:
-        layout = stage.result.output_layout
+    elif isinstance(stage.program, ResultProgram) and stage.program.output_layout is not None:
+        layout = stage.program.output_layout
         values = {column.slot_id for column in layout.values}
         required.update(column.slot_id for column in layout.columns if column.slot_id not in values)
     return required
@@ -130,7 +142,7 @@ def _expressions(expression: ValueExpression, program: ResultProgram) -> set[str
 
 
 def _input_columns(stage: LocalCompute, wanted: set[str]) -> set[str]:
-    program = stage.result
+    program = local_result(stage)
     if program is None:
         return set()
     operation = program.operation
@@ -225,7 +237,7 @@ def required_slots(plan: QueryPlan) -> tuple[RequiredSlots, ...]:
                 wanted[source].update(column.slot_id for column in stages[source].columns)
             continue
         needed = set(components[stage.stage_id])
-        if stage.program is not None:
+        if isinstance(stage.program, FormulaProgram):
             # The formula completes before downstream projection. Its source
             # check flags remain data for native branch demand, never eagerly
             # raised merely because the full static graph contains a branch.
@@ -262,7 +274,7 @@ def _fuse(plan: QueryPlan) -> QueryPlan:
     for original in plan.stages:
         stage = stages[original.stage_id]
         if isinstance(stage, SourceRead):
-            if stage.reduction is not None and stage.source_id in source_roots:
+            if read_reduction(stage) is not None and stage.source_id in source_roots:
                 prior = source_roots[stage.source_id]
                 decisions.append(
                     RuleDecision(
@@ -274,35 +286,39 @@ def _fuse(plan: QueryPlan) -> QueryPlan:
                 )
             source_roots[stage.source_id] = stage
             continue
-        if not isinstance(stage, LocalCompute) or stage.result is None or len(stage.inputs) != 1:
+        if (
+            not isinstance(stage, LocalCompute)
+            or not isinstance(stage.program, ResultProgram)
+            or len(stage.inputs) != 1
+        ):
             continue
         inner = stages[stage.inputs[0]]
-        if not isinstance(inner, LocalCompute) or inner.result is None:
+        if not isinstance(inner, LocalCompute) or not isinstance(inner.program, ResultProgram):
             continue
-        first, second = inner.result.operation, stage.result.operation
+        first, second = inner.program.operation, stage.program.operation
         pair = (inner.stage_id, stage.stage_id)
         if isinstance(second, FilterValues) and isinstance(first, FilterValues):
             values = (
-                inner.result.input_layout.values
-                if inner.result.input_layout is not None
+                inner.program.input_layout.values
+                if inner.program.input_layout is not None
                 else tuple(
                     column
-                    for column in inner.result.columns
-                    if column.slot_id not in inner.result.keys
+                    for column in inner.program.columns
+                    if column.slot_id not in inner.program.keys
                 )
             )
             same = (
                 inner.columns == stage.columns
                 and inner.keys == stage.keys
-                and inner.result.key_groups == stage.result.key_groups
-                and inner.result.columns == stage.result.columns
+                and inner.program.key_groups == stage.program.key_groups
+                and inner.program.columns == stage.program.columns
             )
             issue = query_selection_fusion_issue(
                 first,
                 second,
                 values,
-                inner.result.columns,
-                inner.result.key_groups,
+                inner.program.columns,
+                inner.program.key_groups,
                 single_consumer=consumers[inner.stage_id] == {stage.stage_id}
                 and inner.stage_id != plan.publish,
                 same_layout=same,
@@ -314,7 +330,9 @@ def _fuse(plan: QueryPlan) -> QueryPlan:
                 assert isinstance(second.predicate, ValueExpression)
                 operation = FilterValues(ValueBinary("and", first.predicate, second.predicate))
                 stages[stage.stage_id] = replace(
-                    stage, inputs=inner.inputs, result=replace(stage.result, operation=operation)
+                    stage,
+                    inputs=inner.inputs,
+                    program=replace(require_result(stage), operation=operation),
                 )
                 removed.add(inner.stage_id)
                 for source in inner.inputs:
@@ -364,9 +382,9 @@ def _common_sources(plan: QueryPlan) -> QueryPlan:
     consumers = dict(plan.consumers)
     check_stages = {check.stage_id for check in plan.checks}
     for stage in plan.stages:
-        if not isinstance(stage, SourceRead) or stage.reduction is None:
+        if not isinstance(stage, SourceRead) or read_reduction(stage) is None:
             continue
-        reduction = stage.reduction
+        reduction = require_reduction(stage)
         node = reduction.node
         value = next(column for column in stage.columns if column.slot_id == reduction.value_slot)
         eligible = (
@@ -398,28 +416,28 @@ def _common_sources(plan: QueryPlan) -> QueryPlan:
             stage.source_id,
             *policy,
             consumers[stage.stage_id],
-            stage.component_layout is not None,
+            read_components(stage) is not None,
         )
         group = groups.get(identity)
         if group is None:
             groups[identity] = [stage]
             continue
         prior = group[0]
-        assert prior.reduction is not None
+        assert read_reduction(prior) is not None
         if (
             prior.period == stage.period
             and prior.predicates == stage.predicates
             and prior.field_columns == stage.field_columns
             and prior.keys == stage.keys
-            and prior.reduction.axes == reduction.axes
+            and require_reduction(prior).axes == reduction.axes
             and tuple(column for column in prior.columns if column.slot_id in prior.keys)
             == tuple(column for column in stage.columns if column.slot_id in stage.keys)
             and (
-                (prior.component_layout is None and stage.component_layout is None)
+                (read_components(prior) is None and read_components(stage) is None)
                 or (
-                    prior.component_layout is not None
-                    and stage.component_layout is not None
-                    and prior.component_layout.identity == stage.component_layout.identity
+                    read_components(prior) is not None
+                    and read_components(stage) is not None
+                    and require_components(prior).identity == require_components(stage).identity
                 )
             )
         ):
@@ -430,9 +448,7 @@ def _common_sources(plan: QueryPlan) -> QueryPlan:
     aliases = {read.stage_id: group[0].stage_id for group in selected for read in group}
     indexes = {read.stage_id: index for group in selected for index, read in enumerate(group)}
 
-    def program(value: FormulaProgram | None) -> FormulaProgram | None:
-        if value is None:
-            return None
+    def program(value: FormulaProgram) -> FormulaProgram:
         return replace(
             value,
             values=tuple(
@@ -463,20 +479,22 @@ def _common_sources(plan: QueryPlan) -> QueryPlan:
                     replace(
                         column,
                         slot_id=common_slot(index, column.slot_id)
-                        if column.slot_id != read.reduction.value_slot
+                        if column.slot_id != require_reduction(read).value_slot
                         else column.slot_id,
                     )
                     for index, read in enumerate(block)
-                    if read.reduction is not None
+                    if read_reduction(read) is not None
                     for column in read.columns
                     if column.slot_id not in read.keys
                 )
-                stage = replace(stage, columns=columns, common_reads=block, component_layout=None)
+                stage = replace(stage, columns=columns, program=common_program(stage, block))
         elif isinstance(stage, LocalCompute):
             stage = replace(
                 stage,
                 inputs=tuple(aliases.get(item, item) for item in stage.inputs),
-                program=program(stage.program),
+                program=program(stage.program)
+                if isinstance(stage.program, FormulaProgram)
+                else stage.program,
             )
         stages.append(stage)
     decisions = tuple(
@@ -492,7 +510,7 @@ def _common_sources(plan: QueryPlan) -> QueryPlan:
         plan,
         stages=tuple(stages),
         consumers=_consumers(tuple(stages)),
-        original=program(plan.original),
+        original=program(plan.original) if plan.original is not None else None,
         fusion_groups=(
             *plan.fusion_groups,
             *(
@@ -530,21 +548,26 @@ def optimize_query(plan: QueryPlan) -> QueryPlan:
         demand = by_stage[stage.stage_id]
         columns = tuple(column for column in stage.columns if column.slot_id in demand.columns)
         if isinstance(stage, SourceRead):
-            layout = stage.component_layout
+            layout = read_components(stage)
             if layout is not None and layout.reduction.value_slot not in demand.components:
-                stage = replace(stage, component_layout=None)
-            if stage.reduction is None:
+                stage = replace(stage, program=ReductionRead(require_reduction(stage)))
+            if read_reduction(stage) is None:
                 stage = replace(
                     stage,
                     columns=columns,
-                    projections=tuple(
-                        (slot, source)
-                        for slot, source in stage.projections
-                        if slot in demand.columns
+                    program=ProjectionRead(
+                        tuple(
+                            (
+                                (slot, source)
+                                for slot, source in read_projections(stage)
+                                if slot in demand.columns
+                            )
+                        ),
+                        read_presence(stage),
                     ),
                 )
-        elif isinstance(stage, LocalCompute) and stage.result is not None:
-            operation = stage.result.operation
+        elif isinstance(stage, LocalCompute) and isinstance(stage.program, ResultProgram):
+            operation = stage.program.operation
             if isinstance(operation, LiteralValues):
                 values = tuple(
                     column for column in stage.columns if column.slot_id not in stage.keys
@@ -561,7 +584,9 @@ def optimize_query(plan: QueryPlan) -> QueryPlan:
                     ),
                 )
                 stage = replace(
-                    stage, columns=columns, result=replace(stage.result, operation=operation)
+                    stage,
+                    columns=columns,
+                    program=replace(require_result(stage), operation=operation),
                 )
             elif isinstance(operation, (FilterValues, TopValues)):
                 stage = replace(stage, columns=columns)
@@ -733,8 +758,8 @@ def retain_components(plan: QueryPlan, schemas: tuple[SourceSchema, ...]) -> Que
     for stage in plan.stages:
         if (
             not isinstance(stage, SourceRead)
-            or stage.reduction is None
-            or stage.component_layout is not None
+            or read_reduction(stage) is None
+            or read_components(stage) is not None
         ):
             stages.append(stage)
             continue
@@ -753,7 +778,7 @@ def retain_components(plan: QueryPlan, schemas: tuple[SourceSchema, ...]) -> Que
             for index, column in enumerate(schema.original_identity or schema.keys)
         )
         layout = component_layout(
-            stage.reduction, stage.columns, identity, table, dict(stage.field_columns)
+            require_reduction(stage), stage.columns, identity, table, dict(stage.field_columns)
         )
-        stages.append(replace(stage, component_layout=layout))
+        stages.append(replace(stage, program=ComponentRead(layout)))
     return replace(plan, stages=tuple(stages))

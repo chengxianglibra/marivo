@@ -134,10 +134,9 @@ def plan_parameters(
             stages[stage.stage_id] = LocalCompute(
                 stage.stage_id,
                 tuple(plan.publish for plan in input_plans),
-                "query.result@v1",
                 stage.columns,
                 stage.keys,
-                result=ResultProgram(
+                ResultProgram(
                     PopulationValues(schema.inline_population),
                     (),
                     (),
@@ -176,16 +175,10 @@ def plan_parameters(
             stages[stage.stage_id] = LocalCompute(
                 stage.stage_id,
                 (producer.publish,),
-                "query.result@v1",
                 stage.columns,
                 stage.keys,
-                result=ResultProgram(
-                    KeyImage(),
-                    output.columns,
-                    output.keys,
-                    input_axes,
-                    groups,
-                    output_groups,
+                ResultProgram(
+                    KeyImage(), output.columns, output.keys, input_axes, groups, output_groups
                 ),
             )
             continue

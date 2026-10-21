@@ -21,6 +21,7 @@ from marivo.analysis.compiler.graph_plan import (
     FrameInput,
     FrameKeysInput,
     LocalCompute,
+    SourceRead,
 )
 from marivo.analysis.core.artifact_data import DataAxis, DataColumn, DataSchema
 from marivo.analysis.core.data_types import ScalarDataType
@@ -279,7 +280,7 @@ def test_one_final_schedule_resolves_every_compiler_leaf(
         source_prepared: Mapping[str, PreparedSources],
         read_fixed: Callable[[FrameInput], CompletedFrameData],
         adapt_source: Callable[[str, StageOutput], StageOutput],
-        observe_read: Callable[[LoweredRead, StageOutput], None] | None = None,
+        observe_read: Callable[[SourceRead, LoweredRead, StageOutput], None] | None = None,
         observe_local: Callable[[LocalCompute | FrameCompute, StageOutput], None] | None = None,
     ) -> StageOutput:
         plans.append(compiled)
@@ -348,10 +349,14 @@ def test_producer_checks_survive_top_zero_before_dependent_source_read(
     calls: list[str] = []
 
     def read(
-        prepared: PreparedSources, lowered: LoweredRead, *, value_keys: tuple[str, ...] = ()
+        prepared: PreparedSources,
+        stage: SourceRead,
+        lowered: LoweredRead,
+        *,
+        value_keys: tuple[str, ...] = (),
     ) -> StageOutput:
         calls.append("read")
-        return original(prepared, lowered, value_keys=value_keys)
+        return original(prepared, stage, lowered, value_keys=value_keys)
 
     monkeypatch.setattr(executor, "read_stage", read)
     region = session.catalog.fields.get("sales.facts.region")

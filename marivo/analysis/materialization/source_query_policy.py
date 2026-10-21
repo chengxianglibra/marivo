@@ -8,6 +8,7 @@ import ibis.expr.types as ir
 from marivo._definition.expressions import EntityCount, SourceAggregate, SourceWeightedMean
 from marivo._definition.query import PairStatistic, ReduceValues
 from marivo.analysis.compiler.graph_lowering import LoweredRead
+from marivo.analysis.compiler.graph_plan import SourceRead, read_reduction, require_reduction
 from marivo.analysis.compiler.query_program import ResultProgram
 from marivo.analysis.core.data_types import DecimalDataType, ScalarDataType
 from marivo.datasource.adapters import SourceSession
@@ -21,6 +22,7 @@ def qualified_query_provider(owner: SourceSession) -> bool:
 
 def qualify_query_source(
     owner: SourceSession,
+    stage: SourceRead,
     read: LoweredRead,
     identity_slots: frozenset[str],
     attribute_slots: frozenset[str] = frozenset(),
@@ -44,7 +46,7 @@ def qualify_query_source(
                 owner._query_decoded_strings[identity] = decoded_string_columns(
                     owner._backend, owner.datasource, bound.source
                 )
-            for column in read.stage.columns:
+            for column in stage.columns:
                 if column.dtype != ScalarDataType("string"):
                     continue
                 if any(
@@ -56,8 +58,7 @@ def qualify_query_source(
             matched.add(bound.relation.op())
         if not leaves or not leaves <= matched:
             return "ClickHouse Query fusion has an unqualified physical table"
-    stage = read.stage
-    if stage.reduction is None:
+    if read_reduction(stage) is None:
         if any(
             column.dtype != ScalarDataType("string")
             and not (column.slot_id in identity_slots and column.dtype == ScalarDataType("int64"))
@@ -73,7 +74,7 @@ def qualify_query_source(
         ):
             return "remote field relations retain numeric, time and complete integer carrier boundaries"
         return None
-    node = stage.reduction.node
+    node = require_reduction(stage).node
     if not (
         isinstance(node, EntityCount)
         or (isinstance(node, SourceAggregate) and node.reducer in ("count", "count_distinct"))

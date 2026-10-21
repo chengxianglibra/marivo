@@ -21,6 +21,14 @@ from marivo._definition.expressions import (
     SourceWeightedMean,
 )
 from marivo.analysis.binding.attribute_rules import AttributeComponentRole, AttributeSourceRequest
+from marivo.analysis.compiler.graph_plan import (
+    AttributeRead,
+    read_components,
+    read_members,
+    read_reduction,
+    require_components,
+    require_reduction,
+)
 from marivo.analysis.compiler.observation import FormulaProgram
 from marivo.analysis.core.attribute import (
     AttributeInputError,
@@ -277,7 +285,7 @@ def bundle_attribute_plan(
         (
             stage.program
             for stage in reversed(plan.stages)
-            if isinstance(stage, LocalCompute) and stage.program is not None
+            if isinstance(stage, LocalCompute) and isinstance(stage.program, FormulaProgram)
         ),
         None,
     )
@@ -292,16 +300,19 @@ def bundle_attribute_plan(
             for member in members
             for column in member.columns
             if column.slot_id
-            in (*member.keys, member.reduction.value_slot if member.reduction is not None else "")
+            in (
+                *member.keys,
+                require_reduction(member).value_slot if read_reduction(member) is not None else "",
+            )
         }
         for member in members:
             request = by_occurrence[member.occurrence]
-            if member.component_layout is None or member.reduction is None:
+            if read_components(member) is None or read_reduction(member) is None:
                 input_failure("missing_component_proof", f"{root}: no original input layout")
             if member.keys != first.keys:
                 input_failure("unqualified_contribution_route", f"{root}: incompatible root scopes")
-            reduction = member.reduction
-            component = member.component_layout
+            reduction = read_reduction(member)
+            component = read_components(member)
             assert reduction is not None and component is not None
             token = ".".join(map(str, member.occurrence))
             roles = tuple(
@@ -356,7 +367,9 @@ def bundle_attribute_plan(
                         dict.fromkeys(
                             (
                                 item.period,
-                                item.reduction.window_key if item.reduction is not None else None,
+                                require_reduction(item).window_key
+                                if read_reduction(item) is not None
+                                else None,
                             )
                             for item in members
                         )
@@ -418,12 +431,12 @@ def bundle_attribute_plan(
                 columns[column.slot_id] = column
                 if len(path) == 1:
                     native_bindings[path[0]] = (first.stage_id, column)
-        assert first.component_layout is not None
+        assert read_components(first) is not None
         layout = AttributeRootLayout(
             tuple(leaves),
             tuple(columns.values()),
             parent_keys,
-            first.component_layout.identity,
+            require_components(first).identity,
             scoped_columns[root],
             next(
                 parameter
@@ -439,8 +452,7 @@ def bundle_attribute_plan(
             field_columns=tuple(
                 dict(pair for member in members for pair in member.field_columns).items()
             ),
-            component_layout=None,
-            attribute_layout=layout,
+            program=AttributeRead(layout, require_reduction(first), read_members(first)),
         )
     stages: list[QueryStage] = []
     for stage in plan.stages:
@@ -448,7 +460,7 @@ def bundle_attribute_plan(
             if stage.stage_id in bundles:
                 stages.append(bundles[stage.stage_id])
             continue
-        if isinstance(stage, LocalCompute) and stage.program is not None:
+        if isinstance(stage, LocalCompute) and isinstance(stage.program, FormulaProgram):
             from marivo.analysis.compiler.observation import FormulaInput
 
             original_values = stage.program.values
@@ -523,11 +535,11 @@ def lower_attribute_inputs(
         checks.extend(local_checks)
         if preparation_checks:
             prepared = preparation.filter(preparation[layout.fiber] == fiber)
-            assert leaves[0].read.reduction is not None
+            assert read_reduction(leaves[0].read) is not None
             axes = {slot: prepared[name] for slot, name in layout.scoped_columns}
             axes.update(
                 (slot, prepared[field_columns[path]])
-                for slot, path in leaves[0].read.reduction.axes
+                for slot, path in require_reduction(leaves[0].read).axes
                 if field_columns[path] in prepared.columns
             )
             actual_columns = tuple(column for column in layout.columns if column.slot_id in axes)
@@ -570,12 +582,12 @@ def _lower_attribute_fiber(
     """Transport parent/fine aggregates and pre-classification coverage together."""
     fields = {path: table[column] for path, column in field_columns.items()}
     representative = layout.leaves[0].read
-    assert representative.reduction is not None
-    axes = {slot: fields[path] for slot, path in representative.reduction.axes}
+    assert read_reduction(representative) is not None
+    axes = {slot: fields[path] for slot, path in require_reduction(representative).axes}
     axes.update(
         (slot, table[column])
         for slot, column in layout.scoped_columns
-        if slot in {slot for slot, _ in representative.reduction.calendars}
+        if slot in {slot for slot, _ in require_reduction(representative).calendars}
     )
     parent_axes = {slot: table[column] for slot, column in layout.scoped_columns}
     identities = {column.slot_id: table[name] for column, name in layout.identity}
@@ -585,11 +597,11 @@ def _lower_attribute_fiber(
         **parent_axes, **identities, __attribute_root_duplicate=table["__attribute_root_duplicate"]
     ).distinct()
     distinct_values = {
-        leaf.distinct.slot_id: lower_row(leaf.read.reduction.node.operand, fields).value
+        leaf.distinct.slot_id: lower_row(node.operand, fields).value
         for leaf in layout.leaves
         if leaf.distinct is not None
-        and leaf.read.reduction is not None
-        and isinstance(leaf.read.reduction.node, SourceAggregate)
+        and read_reduction(leaf.read) is not None
+        and isinstance(node := require_reduction(leaf.read).node, SourceAggregate)
     }
     assigned = (
         table.filter(table[layout.assigned])
@@ -621,7 +633,7 @@ def _lower_attribute_fiber(
         values: dict[str, ir.Value] = {}
         originals: list[ir.Table] = []
         for leaf in layout.leaves:
-            reduction = leaf.read.reduction
+            reduction = read_reduction(leaf.read)
             assert reduction is not None
             node = reduction.node
             from marivo.analysis.compiler.observation import lower_observation
@@ -867,7 +879,7 @@ def attribute_input_program(
                 tuple[tuple[int, ...], str], list[tuple[AttributeMatrixSource, DataColumn]]
             ] = {}
             for leaf in layout.leaves:
-                reduction = leaf.read.reduction
+                reduction = read_reduction(leaf.read)
                 assert reduction is not None
                 window = None
                 if reduction.window_key is not None:
@@ -907,9 +919,9 @@ def attribute_input_program(
                     assert (
                         binding.period is not None
                         and binding.time is not None
-                        and leaf.read.reduction is not None
+                        and read_reduction(leaf.read) is not None
                     )
-                    slot, calendar = next(iter(leaf.read.reduction.calendars))
+                    slot, calendar = next(iter(require_reduction(leaf.read).calendars))
                     from marivo._definition.types import CalendarCoordinate
 
                     assert isinstance(calendar, CalendarCoordinate)

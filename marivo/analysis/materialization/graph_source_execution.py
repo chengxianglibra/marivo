@@ -15,6 +15,20 @@ import pyarrow as pa
 from ibis.common.exceptions import IbisError
 
 from marivo._definition.types import IntervalCoordinate
+from marivo.analysis.compiler.graph_plan import (
+    AttributeRead,
+    ReductionRead,
+    local_steps,
+    read_attribute,
+    read_components,
+    read_finish,
+    read_members,
+    read_reduction,
+    require_attribute,
+    require_components,
+    require_finish,
+    require_reduction,
+)
 
 if TYPE_CHECKING:
     from marivo._definition.observations import ObservationPeriod
@@ -38,6 +52,7 @@ from marivo.analysis.compiler.graph_plan import (
     SourceField,
     SourceRead,
     SourceSchema,
+    read_native_reductions,
 )
 from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import (
@@ -295,11 +310,11 @@ def qualify_original_source(
 
     coordinate_columns: list[str] = []
     for read in reads:
-        if read.component_layout is not None:
-            coordinate_columns.extend(name for _, name in read.component_layout.identity)
-        if read.reduction is not None:
+        if read_components(read) is not None:
+            coordinate_columns.extend(name for _, name in require_components(read).identity)
+        if read_reduction(read) is not None:
             coordinate_columns.extend(
-                dict(read.field_columns)[path] for _, path in read.reduction.axes
+                dict(read.field_columns)[path] for _, path in require_reduction(read).axes
             )
         coordinate_columns.extend(
             name for _, name in read.field_columns if raw[name].type().is_string()
@@ -312,10 +327,10 @@ def qualify_original_source(
     if issue is not None:
         return issue
     for read in reads:
-        reduction = read.reduction
+        reduction = read_reduction(read)
         if (
             reduction is None
-            or read.component_layout is None
+            or read_components(read) is None
             or not read.binding_id
             or reduction.duration is not None
             or (
@@ -336,7 +351,7 @@ def qualify_original_source(
             return "Remote original numeric coordinates retain their pandas key boundary"
         if any(
             not physical_value(raw[name], role="identity")
-            for _, name in read.component_layout.identity
+            for _, name in require_components(read).identity
         ):
             return (
                 "Remote original identity requires direct physically nonnull integer or string keys"
@@ -1038,9 +1053,8 @@ def open_query_sources(
 
 
 def _qualify_query_read(
-    prepared: PreparedSources, lowered: LoweredRead
+    prepared: PreparedSources, stage: SourceRead, lowered: LoweredRead
 ) -> tuple[QualifiedSource, ...]:
-    stage = lowered.stage
     expression = lowered.expression
     source = prepared.sources.get(stage.source_id, prepared.source)
     relations = set(expression.op().find(ops.Relation))
@@ -1057,10 +1071,11 @@ def _qualify_query_read(
 def qualify_query_sources(prepared: PreparedSources, lowered: LoweredQuery) -> None:
     """Qualify every schema-bound read template before a Run is admitted."""
     for read in lowered.reads:
+        stage = lowered.plan.source_read(read.stage_id)
         from marivo.analysis.materialization.query_parameters import instantiate
 
         expression = read.expression
-        for parameter in read.stage.parameters:
+        for parameter in stage.parameters:
             empty = StageOutput.from_frame(
                 pd.DataFrame(columns=[column.slot_id for column in parameter.columns]),
                 parameter.columns,
@@ -1071,15 +1086,15 @@ def qualify_query_sources(prepared: PreparedSources, lowered: LoweredQuery) -> N
                 parameter.placeholder,
                 parameter.columns,
                 empty,
-                provider=prepared.sources.get(read.stage.source_id, prepared.source).provider.name,
-                source=prepared.sources.get(read.stage.source_id, prepared.source),
+                provider=prepared.sources.get(stage.source_id, prepared.source).provider.name,
+                source=prepared.sources.get(stage.source_id, prepared.source),
             )
         read = replace(read, expression=expression)
-        _admit_numeric_method(prepared.sources.get(read.stage.source_id, prepared.source), read)
-        read = replace(read, expression=_native_query_expression(prepared, read))
+        _admit_numeric_method(prepared.sources.get(stage.source_id, prepared.source), stage, read)
+        read = replace(read, expression=_native_query_expression(prepared, stage, read))
         expression = read.expression
-        qualified = _qualify_query_read(prepared, read)
-        source = prepared.sources.get(read.stage.source_id, prepared.source)
+        qualified = _qualify_query_read(prepared, stage, read)
+        source = prepared.sources.get(stage.source_id, prepared.source)
         _qualify_clickhouse_joins(source, qualified)
         try:
             source.compile(
@@ -1142,18 +1157,18 @@ def _qualify_clickhouse_joins(
             )
 
 
-def _admit_numeric_method(source: SourceSession, read: LoweredRead) -> None:
+def _admit_numeric_method(source: SourceSession, stage: SourceRead, read: LoweredRead) -> None:
     from marivo._definition.expressions import SourceAggregate
 
     if source.provider.name == "duckdb":
         return
     reductions = (
         *(
-            stage.reduction
-            for stage in read.stage.common_reads or (read.stage,)
-            if stage.reduction is not None
+            require_reduction(stage)
+            for stage in read_members(stage) or (stage,)
+            if read_reduction(stage) is not None
         ),
-        *read.stage.native_reductions,
+        *read_native_reductions(stage),
     )
     for reduction in reductions:
         node = reduction.node
@@ -1174,10 +1189,12 @@ def _admit_numeric_method(source: SourceSession, read: LoweredRead) -> None:
             )
 
 
-def _native_query_expression(prepared: PreparedSources, read: LoweredRead) -> ir.Table:
+def _native_query_expression(
+    prepared: PreparedSources, stage: SourceRead, read: LoweredRead
+) -> ir.Table:
     from marivo.analysis.materialization.temporal_sql import lower_temporal
 
-    source = prepared.sources.get(read.stage.source_id, prepared.source)
+    source = prepared.sources.get(stage.source_id, prepared.source)
     expression = lower_temporal(read.expression, source.provider.name)
     assert isinstance(expression, ir.Table)
     if source.provider.name == "mysql":
@@ -1241,21 +1258,24 @@ def _actual_attribute_layout(
 
 
 def read_stage(
-    prepared: PreparedSources, lowered: LoweredRead, *, value_keys: tuple[str, ...] = ()
+    prepared: PreparedSources,
+    stage: SourceRead,
+    lowered: LoweredRead,
+    *,
+    value_keys: tuple[str, ...] = (),
 ) -> StageOutput:
     """Submit one lowered SourceRead and normalize its pandas result."""
-    stage = lowered.stage
-    if stage.attribute_layout is not None and stage.attribute_layout.parent_context is None:
+    if read_attribute(stage) is not None and require_attribute(stage).parent_context is None:
         from marivo.analysis.compiler.attribute_inputs import input_failure
 
         input_failure(
             "missing_component_proof",
             "the source read lacks its checked original-parent association",
         )
-    expression = _native_query_expression(prepared, lowered)
+    expression = _native_query_expression(prepared, stage, lowered)
     lowered = replace(lowered, expression=expression)
     source = prepared.sources.get(stage.source_id, prepared.source)
-    qualified = _qualify_query_read(prepared, lowered)
+    qualified = _qualify_query_read(prepared, stage, lowered)
     issued = source.compile(
         qualified,
         expression,
@@ -1274,13 +1294,13 @@ def read_stage(
             stage="source_conversion",
             help_target="analysis_frame.compute",
         ) from error
-    if stage.attribute_layout is not None:
+    if read_attribute(stage) is not None:
         from marivo.analysis.materialization.query_components import complete_attribute_inputs
 
         _validate_source_checks(stage, frame, lowered.numeric_checks)
         from marivo.analysis.compiler.attribute_inputs import original_input_slot
 
-        layout = stage.attribute_layout
+        layout = require_attribute(stage)
         originals: dict[tuple[int, str], pd.DataFrame] = {}
         for kind, keys in ((0, layout.keys), (1, layout.parent_keys)):
             selected = frame.loc[frame[layout.kind] == kind].reset_index(drop=True)
@@ -1288,7 +1308,7 @@ def read_stage(
                 selected = frame.loc[
                     (frame[layout.kind] == kind) & (frame[layout.fiber] == leaf.fiber)
                 ].reset_index(drop=True)
-                reduction = leaf.read.reduction
+                reduction = read_reduction(leaf.read)
                 assert reduction is not None
                 prefix = original_input_slot(kind, leaf.read.occurrence, "")
                 names = {
@@ -1301,12 +1321,12 @@ def read_stage(
                 original_stage = replace(
                     leaf.read,
                     keys=keys,
-                    component_layout=None,
                     columns=tuple(
                         column
                         for column in leaf.read.columns
                         if column.slot_id not in leaf.read.keys or column.slot_id in keys
                     ),
+                    program=ReductionRead(require_reduction(leaf.read)),
                 )
                 checks = tuple(
                     (name.removeprefix(prefix), check)
@@ -1337,7 +1357,7 @@ def read_stage(
             attribute_inputs=(inputs,),
             source_rows=len(frame),
         )
-    if stage.common_reads:
+    if read_members(stage):
         return _complete_common_read(stage, frame, lowered.numeric_checks)
     return _complete_source_frame(stage, frame, lowered.numeric_checks, value_keys=value_keys)
 
@@ -1359,7 +1379,7 @@ def _validate_source_checks(
     for name, check in numeric_checks:
         if name in retained_checks:
             continue
-        layout = stage.attribute_layout
+        layout = read_attribute(stage)
         if layout is not None:
             from marivo.analysis.core.attribute import AttributeCheckWitness
             from marivo.analysis.core.data_validation import normalize_stage_frame
@@ -1479,10 +1499,10 @@ def _complete_source_frame(
     from marivo.analysis.materialization.query_components import ComponentFrame
 
     components: tuple[ComponentFrame, ...] = ()
-    if stage.component_layout is not None:
+    if read_components(stage) is not None:
         from marivo.analysis.materialization.query_components import complete_components
 
-        frame, component = complete_components(stage.component_layout, frame)
+        frame, component = complete_components(require_components(stage), frame)
         components = (component,)
     _validate_source_checks(stage, frame, numeric_checks)
     from marivo.semantic._numeric_lowering import numeric_failure
@@ -1512,15 +1532,15 @@ def _complete_source_frame(
             numeric_failure(check.expected, received)
     if "__numeric_present" in frame.columns and "__numeric_present" not in retained_checks:
         frame = frame.loc[frame["__numeric_present"].fillna(False)]
-    if stage.native_query_finish is not None:
+    if read_finish(stage) is not None:
         from marivo.analysis.materialization.query_key_fusion import finish_native_query
 
-        frame = finish_native_query(stage.native_query_finish, frame)
+        frame = finish_native_query(require_finish(stage), frame)
     from fractions import Fraction
 
     from marivo._definition.expressions import SourceAggregate, SourceWeightedMean
 
-    reduction = stage.reduction
+    reduction = read_reduction(stage)
     if (
         reduction is not None
         and reduction.duration is not None
@@ -1611,7 +1631,7 @@ def _complete_source_frame(
             except (pa.ArrowException, OverflowError, ValueError, TypeError) as error:
                 numeric_failure("lossless signed int64 Duration ticks", str(error))
     output = frame.loc[:, [c.slot_id for c in stage.columns]]
-    if stage.keys and stage.native_query_finish is None:
+    if stage.keys and read_finish(stage) is None:
         output = output.sort_values(
             list(stage.keys), kind="stable", na_position="last"
         ).reset_index(drop=True)
@@ -1623,8 +1643,8 @@ def _complete_source_frame(
         value_keys=value_keys,
         source_rows=source_rows,
     )
-    if stage.native_query_finish is not None:
-        completed = replace(completed, layout=stage.native_query_finish.layout)
+    if read_finish(stage) is not None:
+        completed = replace(completed, layout=require_finish(stage).layout)
     return completed
 
 
@@ -1639,11 +1659,12 @@ def _complete_common_read(
 
     tables: list[pd.DataFrame] = []
     components: list[ComponentFrame] = []
-    for index, member in enumerate(stage.common_reads):
-        assert member.reduction is not None
+    for index, member in enumerate(read_members(stage)):
+        assert read_reduction(member) is not None
         names = {
             column.slot_id: column.slot_id
-            if column.slot_id in member.keys or column.slot_id == member.reduction.value_slot
+            if column.slot_id in member.keys
+            or column.slot_id == require_reduction(member).value_slot
             else common_slot(index, column.slot_id)
             for column in member.columns
         }
@@ -1654,16 +1675,16 @@ def _complete_common_read(
         names.update(
             {name.removesuffix(suffix): name for name, _ in numeric_checks if name.endswith(suffix)}
         )
-        if member.component_layout is not None:
+        if read_components(member) is not None:
             names.update(
                 {
                     column.slot_id: common_slot(index, column.slot_id)
-                    for column in member.component_layout.raw_columns
+                    for column in require_components(member).raw_columns
                     if column.slot_id not in member.keys
                 }
             )
-            names[member.component_layout.present] = common_slot(
-                index, member.component_layout.present
+            names[require_components(member).present] = common_slot(
+                index, require_components(member).present
             )
         local = (
             frame.loc[:, list(names.values())]
@@ -1683,7 +1704,7 @@ def _complete_common_read(
                     column.slot_id: common_slot(index, column.slot_id)
                     for column in member.columns
                     if column.slot_id not in member.keys
-                    and column.slot_id != member.reduction.value_slot
+                    and column.slot_id != require_reduction(member).value_slot
                 }
             )
         )
@@ -1698,7 +1719,7 @@ def _complete_common_read(
     retained_checks = {name for name, _ in numeric_checks}
     retained_checks.update(
         common_slot(index, name)
-        for index in range(len(stage.common_reads))
+        for index in range(len(read_members(stage)))
         for name in ("__numeric_present", "__sample_present")
     )
     for column in stage.columns:
@@ -1721,7 +1742,7 @@ def execute_numeric_query(
     prepared: PreparedSources | None,
     lowered: LoweredQuery,
     *,
-    observe_read: Callable[[LoweredRead, StageOutput], None] | None = None,
+    observe_read: Callable[[SourceRead, LoweredRead, StageOutput], None] | None = None,
     observe_local: Callable[[LocalCompute, StageOutput], None] | None = None,
     prepared_by_stage: Mapping[str, PreparedSources] | None = None,
     read_fixed: Callable[[FrameInput], CompletedFrameData] | None = None,
@@ -1786,15 +1807,15 @@ def execute_numeric_query(
                 "analysis.query_source",
             )
         request = lowered.read(stage.stage_id)
-        output = read_stage(selected, request, value_keys=value_keys.get(stage.stage_id, ()))
+        output = read_stage(selected, stage, request, value_keys=value_keys.get(stage.stage_id, ()))
         if observe_read is not None:
-            observe_read(request, output)
+            observe_read(stage, request, output)
         return output
 
     def local(stage: LocalCompute, inputs: tuple[StageOutput, ...]) -> StageOutput:
         from marivo.analysis.materialization.query_runtime_types import effective_local
 
-        stage = effective_local(stage, inputs) if not stage.fused_steps else stage
+        stage = effective_local(stage, inputs) if not local_steps(stage) else stage
         output = run_local(stage, inputs)
         if observe_local is not None:
             observe_local(stage, output)
@@ -1847,7 +1868,7 @@ def execute_numeric_query(
                     "Reduce the explicit domain or use a datasource/type with an admitted native expression route.",
                 ) from error
         request = replace(request, expression=expression)
-        if request.stage.attribute_layout is not None:
+        if read_attribute(stage) is not None:
             from marivo.analysis.compiler.attribute_inputs import input_failure
             from marivo.analysis.core.attribute import AttributeParentContext
             from marivo.analysis.methods.frame_attribute import attribute_parent_mapping
@@ -1858,7 +1879,7 @@ def execute_numeric_query(
                     "missing_component_proof",
                     "the Attribute source lacks its exact parent projection dependency",
                 )
-            layout = request.stage.attribute_layout
+            layout = require_attribute(stage)
             parent_columns = {column.slot_id: column for column in layout.columns}
             projection = inputs[binding.projection_input_index]
             parent_context = AttributeParentContext(
@@ -1869,15 +1890,17 @@ def execute_numeric_query(
                     tuple(parent_columns[name] for name in layout.parent_keys),
                 ),
             )
-            request = replace(
-                request,
-                stage=replace(
-                    request.stage, attribute_layout=replace(layout, parent_context=parent_context)
+            stage = replace(
+                stage,
+                program=AttributeRead(
+                    replace(layout, parent_context=parent_context),
+                    require_reduction(stage),
+                    read_members(stage),
                 ),
             )
-        output = read_stage(selected, request, value_keys=value_keys.get(stage.stage_id, ()))
+        output = read_stage(selected, stage, request, value_keys=value_keys.get(stage.stage_id, ()))
         if observe_read is not None:
-            observe_read(request, output)
+            observe_read(stage, request, output)
         return output
 
     def fixed(stage: FrameInput) -> StageOutput:
@@ -1959,7 +1982,7 @@ def run_frame_plan(
     source_prepared: Mapping[str, PreparedSources],
     read_fixed: Callable[[FrameInput], CompletedFrameData],
     adapt_source: Callable[[str, StageOutput], StageOutput],
-    observe_read: Callable[[LoweredRead, StageOutput], None] | None = None,
+    observe_read: Callable[[SourceRead, LoweredRead, StageOutput], None] | None = None,
     observe_local: Callable[[LocalCompute | FrameCompute, StageOutput], None] | None = None,
 ) -> StageOutput:
     """Bind explicit inputs to the existing one-invocation numeric scheduler."""

@@ -238,7 +238,7 @@ def test_multi_root_plan_combines_locally_without_mutating_shared_reads(
         lowered = lower_query(plan, prepared.relations)
 
         def read(stage: SourceRead) -> StageOutput:
-            outputs[stage.stage_id] = read_stage(prepared, lowered.read(stage.stage_id))
+            outputs[stage.stage_id] = read_stage(prepared, stage, lowered.read(stage.stage_id))
             return outputs[stage.stage_id]
 
         published = run_query_plan(
@@ -252,11 +252,14 @@ def test_multi_root_plan_combines_locally_without_mutating_shared_reads(
     assert len(seen) == 1
 
 
-def test_unknown_local_kernel_is_rejected_before_dispatch() -> None:
-    stage = LocalCompute("local:unsupported", (), "legacy.kernel@v1", (), ())
-    with pytest.raises(MaterializationError, match="Query compiler") as error:
-        run_local(stage, ())
-    assert error.value.stage == "local_compute"
+def test_local_program_has_no_independent_kernel_selector() -> None:
+    from dataclasses import fields
+
+    from marivo.analysis.compiler.observation import FormulaProgram
+
+    stage = LocalCompute("local:formula", (), (), (), FormulaProgram((), (), ()))
+    assert stage.kernel == QUERY_COMBINE_KERNEL
+    assert {field.name for field in fields(stage)}.isdisjoint({"kernel", "result", "fused_steps"})
 
 
 def test_lossy_source_type_rejects_before_any_business_read(
@@ -351,7 +354,7 @@ def test_source_check_runs_on_its_exact_output_before_consumption(
 
         def read(stage: SourceRead) -> StageOutput:
             events.append(stage.source_id)
-            return read_stage(prepared, lowered.read(stage.stage_id))
+            return read_stage(prepared, stage, lowered.read(stage.stage_id))
 
         def check(requirement: PlannedCheck, output: StageOutput) -> None:
             assert requirement.obligation == obligation

@@ -6,27 +6,45 @@ import gc
 import weakref
 from dataclasses import replace
 from pathlib import Path
+from typing import Literal
 
+import ibis
 import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo._definition.query import PairStatistic, ReduceValues, SelectValues, Statistic, ValueSlot
+from marivo._definition.query import (
+    FilterValues,
+    PairStatistic,
+    ReduceValues,
+    SelectValues,
+    Statistic,
+    ValueBinary,
+    ValueLiteral,
+    ValueSlot,
+)
 from marivo.analysis.compiler.frame_plan import CompiledSourceFrame, plan_frame
 from marivo.analysis.compiler.graph_lowering import LoweredQuery, lower_query
 from marivo.analysis.compiler.graph_plan import (
     FrameCompute,
     FrameInput,
+    FusedLocalProgram,
     LocalCompute,
+    NativeRead,
     PlannedCheck,
+    ProjectionRead,
     QueryPlan,
     SourceRead,
+    local_steps,
     plan_query,
+    read_finish,
+    read_members,
+    require_finish,
 )
 from marivo.analysis.compiler.native_query import NativeQueryFinish
 from marivo.analysis.compiler.observation import FormulaInput, FormulaProgram
 from marivo.analysis.compiler.optimization import optimize_query
-from marivo.analysis.compiler.query_program import FrameProgram, SourceParameter
+from marivo.analysis.compiler.query_program import FrameProgram, ResultProgram, SourceParameter
 from marivo.analysis.core.artifact_data import DataAxis, DataColumn, DataSchema
 from marivo.analysis.core.data_types import ScalarDataType
 from marivo.analysis.core.frame_data import (
@@ -36,6 +54,7 @@ from marivo.analysis.core.frame_data import (
     SourceFrameBinding,
 )
 from marivo.analysis.core.frame_expression import (
+    AlignFrameValues,
     FixedFrameInput,
     FrameOperation,
     SourceFrameInput,
@@ -72,6 +91,183 @@ def _schema() -> DataSchema:
     key = DataColumn("key", "key", ScalarDataType("int64"), False)
     value = DataColumn("amount", "amount", ScalarDataType("int64"), True, "CNY")
     return DataSchema((DataAxis("key", (key,), name="key"),), (value,), value_paths=(("amount",),))
+
+
+def _filter_stage(
+    identifier: str, source: SourceRead | LocalCompute, operation: Literal["ge", "lt"], limit: int
+) -> LocalCompute:
+    groups = (source.keys,) if source.keys else ()
+    return LocalCompute(
+        identifier,
+        (source.stage_id,),
+        source.columns,
+        source.keys,
+        ResultProgram(
+            FilterValues(ValueBinary(operation, ValueSlot(0), ValueLiteral(limit))),
+            source.columns,
+            source.keys,
+            (),
+            groups,
+            groups,
+        ),
+    )
+
+
+def test_two_fused_children_keep_disjoint_live_and_historical_namespaces(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    session = mv.session.create("history", timezone="UTC")
+    captured = _captured_graph(
+        session.values(by=(), columns={"amount": "CNY"}, rows=(((), {"amount": 7}),))
+    )
+    schema = _schema()
+    read = SourceRead(
+        "read",
+        "source",
+        (),
+        schema.columns,
+        schema.key_fields,
+        ProjectionRead((("key", "key"), ("amount", "amount"))),
+        (),
+        (),
+        None,
+    )
+    first = _filter_stage("first", read, "ge", 0)
+    second = _filter_stage("second", first, "lt", 100)
+    operation = ReduceValues((("amount", Statistic("sum", ValueSlot(0))),), ())
+    first_reduce = LocalCompute(
+        "reduce:first",
+        (second.stage_id,),
+        schema.values,
+        (),
+        ResultProgram(operation, schema.columns, schema.key_fields, (), (schema.key_fields,), ()),
+    )
+    second_reduce = LocalCompute(
+        "reduce:second",
+        (first_reduce.stage_id,),
+        schema.values,
+        (),
+        ResultProgram(operation, schema.values, (), (), (), ()),
+    )
+    stages = (read, first, second, first_reduce, second_reduce)
+    child = optimize_query(
+        QueryPlan(
+            stages,
+            (),
+            tuple(
+                (stage.stage_id, tuple(c.stage_id for c in stages if stage.stage_id in c.inputs))
+                for stage in stages
+            ),
+            second_reduce.stage_id,
+        )
+    )
+    assert child.fusion_groups[0].members == ("first", "second")
+    assert "first" not in {stage.stage_id for stage in child.stages}
+    assert [(decision.rule, decision.status) for decision in child.optimization_decisions] == [
+        ("L1", "adopted"),
+        ("L8", "refused"),
+    ]
+    lowered = lower_query(child, {"source": ibis.table({"key": "int64", "amount": "int64"})})
+    output = DataSchema((), schema.values, value_paths=(("amount",),))
+    compiled = plan_frame(
+        FrameOperation(
+            (SourceFrameInput("left", captured), SourceFrameInput("right", captured)),
+            AlignFrameValues(()),
+        ),
+        {name: CompiledSourceFrame(lowered, output) for name in ("left", "right")},
+    ).lowered
+    live = {stage.stage_id for stage in compiled.plan.stages}
+    assert len(live) == len(compiled.plan.stages)
+    assert [payload.stage_id for payload in compiled.reads] == ["source:0/read", "source:1/read"]
+    for index in (0, 1):
+        namespace = f"source:{index}/"
+        group = compiled.plan.fusion_groups[index]
+        assert group.members == (namespace + "first", namespace + "second")
+        assert group.output == namespace + "second" and group.output in live
+        assert namespace + "first" not in live
+        actual = compiled.plan.optimization_decisions[2 * index : 2 * index + 2]
+        for prior, decision in zip(child.optimization_decisions, actual, strict=True):
+            assert decision.members == tuple(namespace + member for member in prior.members)
+            assert (decision.rule, decision.status, decision.reason) == (
+                prior.rule,
+                prior.status,
+                prior.reason,
+            )
+    assert all(dependency in live for stage in compiled.plan.stages for dependency in stage.inputs)
+    assert compiled.plan.publish in live
+    assert all(
+        compiled.plan.source_read(payload.stage_id).stage_id == payload.stage_id
+        for payload in compiled.reads
+    )
+
+
+def test_later_native_rewrite_removes_invalid_group_output_but_keeps_decisions(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    amount = case.session.catalog.fields.get("sales.order.amount")
+    query = case.session.observe({"amount": amount.sum()})
+    graph = _captured_graph(query)
+    with open_query_sources(
+        case.session._runtime.connection_service(), graph, case.session.catalog._state
+    ) as prepared:
+        original = plan_query(graph, prepared.schemas)
+        read = original.source_read(original.publish)
+        first = _filter_stage("first", read, "ge", 0)
+        second = _filter_stage("second", first, "lt", 1000)
+        child = optimize_query(
+            replace(
+                original,
+                stages=(read, first, second),
+                publish=second.stage_id,
+                consumers=(
+                    (read.stage_id, (first.stage_id,)),
+                    (first.stage_id, (second.stage_id,)),
+                    (second.stage_id, ()),
+                ),
+            )
+        )
+        assert child.fusion_groups[0].output == second.stage_id
+        fused = fuse_query_terminal(prepared, lower_query(child, prepared.relations))
+        assert isinstance(fused.plan.source_read(fused.plan.publish).program, NativeRead)
+        assert fused.plan.fusion_groups == ()
+        assert (
+            fused.plan.optimization_decisions[: len(child.optimization_decisions)]
+            == child.optimization_decisions
+        )
+        assert fused.plan.optimization_decisions[-1].rule == "source_terminal_fusion"
+        assert {payload.stage_id for payload in fused.reads} == {fused.plan.publish}
+
+
+def test_composed_common_members_keep_embedded_prefixed_identity(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    amount = case.session.catalog.fields.get("sales.order.amount")
+    query = case.session.observe({"one": amount.sum(), "two": amount.sum()})
+    graph = _captured_graph(query)
+    with open_query_sources(
+        case.session._runtime.connection_service(), graph, case.session.catalog._state
+    ) as prepared:
+        child = optimize_query(plan_query(graph, prepared.schemas))
+        common = next(
+            stage for stage in child.stages if isinstance(stage, SourceRead) and read_members(stage)
+        )
+        final = next(stage for stage in child.stages if stage.stage_id == child.publish)
+        schema = DataSchema((), final.columns, value_paths=(("one",), ("two",)))
+        compiled = plan_frame(
+            SourceFrameInput("exact", graph),
+            {"exact": CompiledSourceFrame(lower_query(child, prepared.relations), schema)},
+        ).lowered
+    prefixed = compiled.plan.source_read("source:0/" + common.stage_id)
+    assert tuple(member.stage_id for member in read_members(prefixed)) == tuple(
+        "source:0/" + member.stage_id for member in read_members(common)
+    )
+    assert read_members(prefixed)[1].stage_id not in {
+        stage.stage_id for stage in compiled.plan.stages
+    }
+    assert {payload.stage_id for payload in compiled.reads} == {prefixed.stage_id}
 
 
 def test_concrete_and_pending_inference_share_directories_and_units() -> None:
@@ -302,7 +498,15 @@ def test_source_prefix_covers_native_fused_parameter_and_check_references(
     schema = _schema()
     formula = FormulaProgram((), (), (FormulaInput((), "removed-read", schema.values[0], False),))
     producer = SourceRead(
-        "producer", "source", (), schema.columns, schema.key_fields, (), (), (), None
+        "producer",
+        "source",
+        (),
+        schema.columns,
+        schema.key_fields,
+        ProjectionRead((), None),
+        (),
+        (),
+        None,
     )
     hidden = replace(producer, stage_id="removed-read")
     consumer = replace(
@@ -311,18 +515,12 @@ def test_source_prefix_covers_native_fused_parameter_and_check_references(
         inputs=("producer",),
         parameters=(SourceParameter("producer", "parameter", schema.columns),),
         native_reads=(hidden,),
-        common_reads=(hidden,),
-        native_query_finish=NativeQueryFinish(schema.columns, schema.key_fields, None),
+        program=NativeRead((), NativeQueryFinish(schema.columns, schema.key_fields, None)),
     )
     removed = LocalCompute(
-        "removed-local",
-        ("consumer",),
-        "query.combine@v1",
-        schema.columns,
-        schema.key_fields,
-        program=formula,
+        "removed-local", ("consumer",), schema.columns, schema.key_fields, formula
     )
-    final = replace(removed, stage_id="final", fused_steps=(removed,))
+    final = replace(removed, stage_id="final", program=FusedLocalProgram((removed,)))
     obligation = Obligation(
         Fact("finite_numeric", Binding("session", "store", "input", "scope"), "value", "v1"),
         "source.finite_numeric@v1",
@@ -342,15 +540,17 @@ def test_source_prefix_covers_native_fused_parameter_and_check_references(
     read = stages[1]
     assert isinstance(read, SourceRead)
     assert read.parameters[0].stage_id == "source:0/producer"
-    assert read.native_reads[0].stage_id == read.common_reads[0].stage_id == "source:0/removed-read"
-    assert isinstance(read.native_query_finish, NativeQueryFinish)
-    assert read.native_query_finish.columns == schema.columns
-    assert read.native_query_finish.order == schema.key_fields
+    assert read.native_reads[0].stage_id == "source:0/removed-read"
+    assert isinstance(read_finish(read), NativeQueryFinish)
+    assert require_finish(read).columns == schema.columns
+    assert require_finish(read).order == schema.key_fields
     local = stages[2]
     assert isinstance(local, LocalCompute) and local.program is not None
-    assert local.fused_steps[0].stage_id == "source:0/removed-local"
-    assert local.fused_steps[0].inputs == ("source:0/consumer",)
-    assert local.program.values[0].stage_id == "source:0/removed-read"
+    assert local_steps(local)[0].stage_id == "source:0/removed-local"
+    assert local_steps(local)[0].inputs == ("source:0/consumer",)
+    assert isinstance(local.program, FusedLocalProgram)
+    assert isinstance(local.program.steps[0].program, FormulaProgram)
+    assert local.program.steps[0].program.values[0].stage_id == "source:0/removed-read"
     assert compiled.lowered.plan.checks[0].stage_id == "source:0/consumer"
     assert compiled.lowered.plan.checks[0].deadline == "publish"
 
@@ -390,7 +590,7 @@ def test_native_source_child_keeps_one_prefixed_schedule(
             source_prepared={"source": prepared},
             read_fixed=no_fixed,
             adapt_source=adapt,
-            observe_read=lambda read, value: seen.append(read.stage.stage_id),
+            observe_read=lambda stage, read, value: seen.append(stage.stage_id),
         )
         fixed = plan_frame(
             FrameOperation(

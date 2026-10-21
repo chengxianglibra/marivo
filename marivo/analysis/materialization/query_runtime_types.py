@@ -23,9 +23,19 @@ from marivo._definition.query import (
 )
 from marivo.analysis.binding.correspondence import ComparisonEndpoint
 from marivo.analysis.compiler.frame_plan import frame_program
-from marivo.analysis.compiler.graph_plan import FrameCompute, LocalCompute, QueryPlan, SourceRead
+from marivo.analysis.compiler.graph_plan import (
+    FrameCompute,
+    LocalCompute,
+    QueryPlan,
+    SourceRead,
+    local_result,
+)
 from marivo.analysis.compiler.observation import FormulaProgram, formula_columns
-from marivo.analysis.compiler.query_program import FrameCombineProgram, FrameCompareProgram
+from marivo.analysis.compiler.query_program import (
+    FrameCombineProgram,
+    FrameCompareProgram,
+    ResultProgram,
+)
 from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import (
     DataColumn,
@@ -190,14 +200,14 @@ def source_value_keys(plan: QueryPlan) -> dict[str, tuple[str, ...]]:
     for stage in plan.stages:
         if (
             not isinstance(stage, LocalCompute)
-            or stage.result is None
-            or not isinstance(stage.result.operation, ReadFields)
+            or not isinstance(stage.program, ResultProgram)
+            or not isinstance(stage.program.operation, ReadFields)
         ):
             continue
         receiver = by_id[stage.inputs[0]]
         if (
             not isinstance(receiver, LocalCompute)
-            or receiver.program is None
+            or not isinstance(receiver.program, FormulaProgram)
             or receiver.program.values
         ):
             continue
@@ -213,8 +223,8 @@ def source_value_keys(plan: QueryPlan) -> dict[str, tuple[str, ...]]:
                 continue
             result[source.stage_id] = tuple(
                 population.keys[receiver.keys.index(slot)]
-                for position in stage.result.operation.positions
-                for slot in stage.result.key_groups[position]
+                for position in stage.program.operation.positions
+                for slot in stage.program.key_groups[position]
             )
     return result
 
@@ -302,7 +312,7 @@ def effective_local(stage: LocalCompute, inputs: tuple[StageOutput, ...]) -> Loc
     actual.update(
         {column.slot_id: column for source in reversed(inputs) for column in source.columns}
     )
-    if stage.program is not None:
+    if isinstance(stage.program, FormulaProgram):
         formula = _formula(stage.program, actual)
         assert formula is not None
         types = {column.slot_id: column.dtype for column in formula_columns(formula)}
@@ -335,7 +345,7 @@ def effective_local(stage: LocalCompute, inputs: tuple[StageOutput, ...]) -> Loc
                 for column in stage.columns
             ),
         )
-    program = stage.result
+    program = local_result(stage)
     if program is None or not inputs:
         return stage
     receiver = {column.slot_id: column for column in inputs[0].columns}
@@ -419,7 +429,7 @@ def effective_local(stage: LocalCompute, inputs: tuple[StageOutput, ...]) -> Loc
     return replace(
         stage,
         columns=columns,
-        result=replace(
+        program=replace(
             program,
             output_layout=_endpoint(
                 program.output_layout, {column.slot_id: column for column in columns}

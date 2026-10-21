@@ -1,6 +1,7 @@
 """Explicit source leaves, fixed Frame operations and typed Population constraints."""
 
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -9,12 +10,73 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
+from marivo._definition.graph import computation_fingerprint
+from marivo._definition.query import PopulationValues, TopValues
+from marivo.analysis.binding.correspondence import ComparisonEndpoint
+from marivo.analysis.compiler.graph_lowering import LoweredRead, lower_query
+from marivo.analysis.compiler.graph_plan import (
+    FrameCompute,
+    LocalCompute,
+    NativeRead,
+    SourceRead,
+    plan_query,
+)
+from marivo.analysis.compiler.observation import FormulaProgram
+from marivo.analysis.compiler.query_program import FrameProgram, ResultProgram
+from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization import graph_local_execution, graph_source_execution
 from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.materialization.graph_exchange import StageOutput
+from marivo.analysis.materialization.graph_local_execution import LocalKernel
+from marivo.analysis.materialization.graph_source_execution import PreparedSources
+from marivo.analysis.materialization.query_key_fusion import fuse_query_terminal
 from marivo.analysis.session.core import Session
+from marivo.semantic._numeric_lowering import NumericCheck
+from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import DslCaseFactory, terminal_runs
 from tests.support.source_trace import capture_source
+
+
+def _capture_stages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[
+    list[tuple[SourceRead, LoweredRead]],
+    list[StageOutput],
+    list[tuple[LocalCompute | FrameCompute, tuple[StageOutput, ...], StageOutput]],
+]:
+    reads: list[tuple[SourceRead, LoweredRead]] = []
+    outputs: list[StageOutput] = []
+    locals_: list[tuple[LocalCompute | FrameCompute, tuple[StageOutput, ...], StageOutput]] = []
+    read_stage = graph_source_execution.read_stage
+    run_local = graph_local_execution.run_local
+
+    def read(
+        prepared: PreparedSources,
+        stage: SourceRead,
+        request: LoweredRead,
+        *,
+        value_keys: tuple[str, ...] = (),
+    ) -> StageOutput:
+        assert stage.stage_id == request.stage_id
+        reads.append((stage, request))
+        output = read_stage(prepared, stage, request, value_keys=value_keys)
+        outputs.append(output)
+        return output
+
+    def local(
+        stage: LocalCompute | FrameCompute,
+        inputs: tuple[StageOutput, ...],
+        kernel: LocalKernel | None = None,
+    ) -> StageOutput:
+        output = run_local(stage, inputs, kernel)
+        locals_.append((stage, inputs, output))
+        return output
+
+    monkeypatch.setattr(graph_source_execution, "read_stage", read)
+    monkeypatch.setattr(graph_local_execution, "run_local", local)
+    return reads, outputs, locals_
 
 
 @pytest.fixture
@@ -186,6 +248,7 @@ def test_terminal_relation_returns_only_selected_rows(
         else source
     )
     trace = capture_source(monkeypatch)
+    reads, outputs, locals_ = _capture_stages(monkeypatch)
     rows = query.compute().to_pandas()
     assert (
         len(rows) == {"read": 4, "where": 2, "select": 4, "top": 2, "sum": 1, "rows": 1}[operation]
@@ -206,19 +269,220 @@ def test_terminal_relation_returns_only_selected_rows(
             assert rows["value", "amount"].iloc[:3].tolist() == [10, 30, 20]
             assert pd.isna(rows["value", "amount"].iloc[3])
     assert trace.returned_rows == [4]
+    assert len(trace.native_sql) == len(reads) == len(outputs) == 1
+    assert isinstance(reads[0][0].program, NativeRead)
+    assert reads[0][0].program.finish is None
+    assert tuple(outputs[0].table.columns) == ("key.0", "value.0", "value.1")
+    assert tuple(str(dtype) for dtype in outputs[0].table.dtypes) == (
+        "int64[pyarrow]",
+        "int64[pyarrow]",
+        "string[pyarrow]",
+    )
+    if operation == "top":
+        tops = [
+            (stage, inputs, output)
+            for stage, inputs, output in locals_
+            if isinstance(stage.program, (FrameProgram, ResultProgram))
+            and isinstance(stage.program.operation, TopValues)
+        ]
+        assert len(tops) == 1
+        stage, inputs, output = tops[0]
+        assert stage.inputs == (reads[0][0].stage_id,)
+        assert inputs[0].table.iloc[:, 0].tolist() == [1, 2, 3, 4]
+        assert output.table.iloc[:, 0].tolist() == [2, 3]
     assert trace.uploaded_key_rows == []
     assert terminal_runs(source_query_session) == ()
 
 
-def test_top_and_where_keep_call_order(source_query_session: Session) -> None:
+def test_top_and_where_keep_call_order(
+    source_query_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
     source = _attributes(source_query_session)
     top = source.top(2, by=source["amount"])
     filtered = source.where(source["amount"] < 30)
+    trace = capture_source(monkeypatch)
+    reads, outputs, locals_ = _capture_stages(monkeypatch)
     assert top.where(top["amount"] < 30).compute().to_pandas().iloc[:, 0].tolist() == [3]
     assert filtered.top(2, by=filtered["amount"]).compute().to_pandas().iloc[:, 0].tolist() == [
         3,
         1,
     ]
+    assert trace.returned_rows == [4, 4]
+    assert len(trace.native_sql) == len(reads) == len(outputs) == 2
+    assert trace.uploaded_key_rows == []
+    assert all(
+        isinstance(stage.program, NativeRead) and stage.program.finish is None for stage, _ in reads
+    )
+    tops = [
+        (inputs[0].table.iloc[:, 0].tolist(), output.table.iloc[:, 0].tolist())
+        for stage, inputs, output in locals_
+        if isinstance(stage.program, (FrameProgram, ResultProgram))
+        and isinstance(stage.program.operation, TopValues)
+    ]
+    assert tops == [([1, 2, 3, 4], [2, 3]), ([1, 3], [3, 1])]
+
+
+@pytest.mark.parametrize("operation", ("union", "intersection", "difference"))
+def test_source_population_set_terminal_preserves_native_layout(
+    source_query_session: Session, monkeypatch: pytest.MonkeyPatch, operation: str
+) -> None:
+    session = source_query_session
+    entity = session.catalog.entities.get("sales.orders")
+    amount = session.catalog.fields.get("sales.orders.amount")
+    left = session.members(entity, where=amount >= 20)
+    right = session.members(entity, where=amount <= 20)
+    selected = (
+        left.union(right)
+        if operation == "union"
+        else left.intersection(right)
+        if operation == "intersection"
+        else left.difference(right)
+    )
+    trace = capture_source(monkeypatch)
+    reads, outputs, locals_ = _capture_stages(monkeypatch)
+    result = session.frame(selected).compute()
+    rows = result.to_pandas()
+    assert (
+        rows.iloc[:, 0].tolist()
+        == {"union": [1, 2, 3], "intersection": [3], "difference": [2]}[operation]
+    )
+    assert len(reads) == len(outputs) == len(trace.native_sql) == 1
+    stage, request = reads[0]
+    assert isinstance(stage.program, NativeRead)
+    assert stage.program.finish is None
+    assert stage.keys == ("key.0",)
+    assert tuple(column.slot_id for column in stage.columns) == ("key.0",)
+    assert tuple(outputs[0].table.columns) == ("key.0",)
+    assert outputs[0].layout is None
+    assert outputs[0].key_groups == ()
+    assert rows.columns.equals(
+        pd.MultiIndex.from_tuples([("coordinate", "axis.0")], names=("kind", "name"))
+    )
+    assert str(rows.dtypes.iloc[0]) == "int64[pyarrow]"
+    assert all(column.nullable for column in outputs[0].columns)
+    assert len(request.numeric_checks) == 2
+    assert trace.returned_rows == [len(rows)]
+    assert locals_ == []
+    assert trace.uploaded_key_rows == []
+    assert session.runs().items == ()
+
+
+def test_private_native_union_finish_executes_source_order_layout_and_checks(
+    source_query_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Exercise the existing private finish builder without enabling a public route."""
+    session = source_query_session
+    entity = session.catalog.entities.get("sales.orders")
+    amount = session.catalog.fields.get("sales.orders.amount")
+    left = session.members(entity, where=amount >= 20)
+    right = session.members(entity, where=amount <= 20)
+    union = left.union(right)
+    pending = session.frame(union)
+    assert isinstance(pending._backing, ExpressionFrameBacking)
+    assert isinstance(pending._backing.root, SourceFrameBinding)
+    graph = pending._backing.root.graph
+    trace = capture_source(monkeypatch)
+    raw_frames: list[pd.DataFrame] = []
+    complete = graph_source_execution._complete_source_frame
+
+    def capture_complete(
+        stage: SourceRead,
+        frame: pd.DataFrame,
+        numeric_checks: tuple[tuple[str, NumericCheck], ...],
+        *,
+        value_keys: tuple[str, ...] = (),
+    ) -> StageOutput:
+        raw_frames.append(frame.copy())
+        return complete(stage, frame, numeric_checks, value_keys=value_keys)
+
+    monkeypatch.setattr(graph_source_execution, "_complete_source_frame", capture_complete)
+    with graph_source_execution.open_query_sources(
+        session._runtime.connection_service(), graph, session.catalog._state
+    ) as prepared:
+        plan = plan_query(graph, prepared.schemas)
+        endpoint = next(stage for stage in plan.stages if stage.stage_id == plan.publish)
+        assert isinstance(endpoint, LocalCompute)
+        assert isinstance(endpoint.program, FormulaProgram)
+        atoms = (left._definition, right._definition)
+        bindings = tuple(
+            next(
+                binding
+                for binding in endpoint.program.populations
+                if computation_fingerprint(binding.definition) == computation_fingerprint(atom)
+            )
+            for atom in atoms
+        )
+        layout = ComparisonEndpoint(
+            endpoint.columns, endpoint.keys, graph.signature.axes, plan.output_groups
+        )
+        endpoint = replace(
+            endpoint,
+            inputs=tuple(binding.stage_id for binding in bindings),
+            program=ResultProgram(
+                PopulationValues(union._definition),
+                endpoint.columns,
+                endpoint.keys,
+                graph.signature.axes,
+                plan.output_groups,
+                plan.output_groups,
+                population_inputs=atoms,
+                population_layouts=tuple(binding.key_groups for binding in bindings),
+                output_layout=layout,
+            ),
+        )
+        stages = tuple(
+            endpoint if stage.stage_id == endpoint.stage_id else stage
+            for stage in plan.stages
+            if stage.stage_id in (*endpoint.inputs, endpoint.stage_id)
+        )
+        plan = replace(
+            plan,
+            stages=stages,
+            consumers=tuple(
+                (
+                    stage.stage_id,
+                    tuple(item.stage_id for item in stages if stage.stage_id in item.inputs),
+                )
+                for stage in stages
+            ),
+        )
+        lowered = fuse_query_terminal(prepared, lower_query(plan, prepared.relations))
+        assert len(lowered.plan.stages) == len(lowered.reads) == 1
+        stage = lowered.plan.source_read(lowered.plan.publish)
+        assert isinstance(stage.program, NativeRead)
+        finish = stage.program.finish
+        assert finish is not None
+        assert finish.order == ("__query_union_order", "key.0")
+        assert finish.columns == stage.columns == layout.columns
+        assert finish.layout == layout
+        request = lowered.read(stage.stage_id)
+        assert len(request.numeric_checks) == 2
+        output = graph_source_execution.execute_numeric_query(prepared, lowered)
+    assert output.table.iloc[:, 0].tolist() == [2, 3, 1]
+    assert tuple(output.table.columns) == ("key.0",)
+    assert output.layout == layout
+    assert output.key_groups == (("key.0",),)
+    assert output.layout.key_groups == (("key.0",),)
+    assert output.columns[0].nullable
+    assert str(output.table.dtypes.iloc[0]) == "int64[pyarrow]"
+    assert trace.returned_rows == [3]
+    assert len(trace.native_sql) == 1
+    assert trace.uploaded_key_rows == []
+    assert len(raw_frames) == 1
+    raw = raw_frames[0]
+    assert "__query_union_order" in raw.columns
+    assert all(name in raw.columns for name, _ in request.numeric_checks)
+    # The actual finish payload must check failures before projection can discard flags.
+    name, check = request.numeric_checks[0]
+    raw["__finish_numeric_failure"] = True
+    with pytest.raises(SemanticExpressionError, match="non-NA source values"):
+        complete(
+            stage,
+            raw,
+            (("__finish_numeric_failure", replace(check, expected="non-NA source values")),),
+        )
+    assert name not in output.table.columns
+    assert session.runs().items == ()
 
 
 def test_fixed_top_identity_bridge_reads_explicit_source(
@@ -246,27 +510,53 @@ def test_fixed_top_identity_bridge_reads_explicit_source(
 
 
 def test_empty_selection_retains_full_identity_checks(
-    source_query_session: Session, tmp_path: Path
+    source_query_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = _attributes(source_query_session)
     filtered = source.where(source["amount"] > 100)
     query = filtered.top(0, by=filtered["amount"])
     with duckdb.connect(str(tmp_path / "query.duckdb")) as db:
         db.execute("INSERT INTO orders VALUES (1,'different',99,0)")
-    with pytest.raises(MaterializationError, match="exactly one attribute row"):
+    trace = capture_source(monkeypatch)
+    reads, outputs, locals_ = _capture_stages(monkeypatch)
+    with pytest.raises(MaterializationError, match="exactly one attribute row") as caught:
         query.compute()
+    assert caught.value.stage == "scalar_field_lookup"
+    assert caught.value.expected == "exactly one attribute row for every requested identity"
+    assert caught.value.location == "dataset.scalar_field_lookup"
+    assert caught.value.run_ref is None
+    assert len(reads) == len(trace.native_sql) == 1
+    assert isinstance(reads[0][0].program, NativeRead)
+    assert reads[0][0].program.finish is None
+    assert reads[0][1].numeric_checks
+    assert outputs == []
+    assert locals_ == []
+    assert trace.returned_rows == [4]
+    assert trace.uploaded_key_rows == []
     assert terminal_runs(source_query_session) == ()
 
 
 def test_cell_sum_overflow_is_checked_before_empty_filter(
-    source_query_session: Session, tmp_path: Path
+    source_query_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = _attributes(source_query_session)
     total = source.reduce({"total": source["amount"].sum()})
     with duckdb.connect(str(tmp_path / "query.duckdb")) as db:
         db.execute("UPDATE orders SET amount=9223372036854775807 WHERE id IN (1,2)")
-    with pytest.raises(AnalysisError, match=r"overflow|current-row statistic"):
+    trace = capture_source(monkeypatch)
+    reads, outputs, locals_ = _capture_stages(monkeypatch)
+    with pytest.raises(AnalysisError, match=r"overflow|current-row statistic") as caught:
         total.where(total["total"] < 0).compute()
+    assert isinstance(caught.value, MaterializationError)
+    assert caught.value.stage == "numeric_value"
+    assert caught.value.expected == "a qualified finite current-row statistic"
+    assert caught.value.received == "int64 state overflow"
+    assert caught.value.run_ref is None
+    assert len(reads) == len(outputs) == len(trace.native_sql) == 1
+    assert locals_ == []
+    assert trace.returned_rows == [4]
+    assert trace.uploaded_key_rows == []
+    assert source_query_session.runs().items == ()
 
 
 def test_fixed_aggregate_axis_bridge_reads_explicit_source(
@@ -314,7 +604,7 @@ def test_shared_frame_key_constraint_keeps_complement_masks(
 
 @pytest.mark.parametrize("method", ("sum", "mean"))
 def test_aggregate_selection_retains_parent_strict_null_check(
-    source_query_session: Session, method: str
+    source_query_session: Session, method: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = source_query_session
     amount = session.catalog.fields.get("sales.orders.amount")
@@ -326,8 +616,23 @@ def test_aggregate_selection_retains_parent_strict_null_check(
     query = session.observe(
         {"total": amount.sum()}, where=mv.in_population(_regions(session, chosen))
     )
-    with pytest.raises(MaterializationError, match="non-NA"):
+    trace = capture_source(monkeypatch)
+    reads, outputs, locals_ = _capture_stages(monkeypatch)
+    with pytest.raises(MaterializationError, match="non-NA") as caught:
         query.compute()
+    assert caught.value.stage == "numeric_value"
+    assert caught.value.expected == "non-NA source values"
+    assert (
+        caught.value.received
+        == f"{method}(nulls='error'); source=sales.orders; coordinates=[{{'key.0': None}}]"
+    )
+    assert caught.value.run_ref is None
+    assert len(reads) == len(trace.native_sql) == 1
+    assert reads[0][1].numeric_checks
+    assert outputs == []
+    assert locals_ == []
+    assert trace.returned_rows == [3]
+    assert trace.uploaded_key_rows == []
     assert terminal_runs(session) == ()
 
 
@@ -399,14 +704,30 @@ def test_shared_source_frames_keep_complete_endpoint_presence(
 
 
 def test_same_source_exact_alignment_failure_survives_top_zero(
-    source_query_session: Session,
+    source_query_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = _attributes(source_query_session)
     left = source.where(source["amount"] <= 20)
     right = source.where(source["amount"] >= 20)
     paired = left.align(right, on=((left.axes[0], right.axes[0]),))
-    with pytest.raises(AnalysisError, match=r"complete|exact"):
+    trace = capture_source(monkeypatch)
+    reads, outputs, locals_ = _capture_stages(monkeypatch)
+    with pytest.raises(AnalysisError, match=r"complete|exact") as caught:
         paired.top(0, by=paired["left.amount"]).compute()
+    assert isinstance(caught.value, MaterializationError)
+    assert caught.value.stage == "frame_combine"
+    assert caught.value.expected == "equal actual complete row-key domains"
+    assert caught.value.run_ref is None
+    assert len(reads) == len(outputs) == len(trace.native_sql) == 1
+    assert len(locals_) == 2
+    assert not any(
+        isinstance(stage.program, (FrameProgram, ResultProgram))
+        and isinstance(stage.program.operation, TopValues)
+        for stage, _, _ in locals_
+    )
+    assert trace.returned_rows == [4]
+    assert trace.uploaded_key_rows == []
+    assert source_query_session.runs().items == ()
 
 
 def test_source_compare_keeps_large_integer_and_na_zero_policy(
@@ -519,11 +840,19 @@ def test_grouped_shared_population_consumers_keep_independent_grids(
 def test_population_set_terminal_uses_complete_frame_keys(
     source_query_session: Session, monkeypatch: pytest.MonkeyPatch, operation: str
 ) -> None:
-    rows = source_query_session.frame(_sets(source_query_session, operation)).compute().to_pandas()
+    selected = _sets(source_query_session, operation)
+    trace = capture_source(monkeypatch)
+    rows = source_query_session.frame(selected).compute().to_pandas()
     assert (
-        sorted(rows.iloc[:, 0].tolist())
-        == {"union": [1, 2, 3], "intersection": [3], "difference": [2]}[operation]
+        rows.iloc[:, 0].tolist()
+        == {"union": [2, 3, 1], "intersection": [3], "difference": [2]}[operation]
     )
+    assert rows.columns.equals(
+        pd.MultiIndex.from_tuples([("coordinate", "axis.0")], names=("kind", "name"))
+    )
+    assert str(rows.dtypes.iloc[0]) == "int64[pyarrow]"
+    assert trace.native_sql == []
+    assert trace.uploaded_key_rows == []
 
 
 @pytest.mark.parametrize("operation", ("product", "project", "filter"))

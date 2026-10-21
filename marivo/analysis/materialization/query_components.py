@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Literal
 import pandas as pd
 
 from marivo.analysis.compiler.attribute_inputs import AttributeLeafInput, AttributeRootLayout
+from marivo.analysis.compiler.graph_plan import read_reduction, require_reduction
 from marivo.analysis.compiler.original import (
     ComponentLayout,
 )
@@ -364,8 +365,8 @@ def complete_attribute_inputs(
     )
     fine = frame.loc[frame[layout.kind] == 0, fine_names].drop_duplicates().reset_index(drop=True)
     for leaf in layout.leaves:
-        assert leaf.read.reduction is not None
-        slot = leaf.read.reduction.value_slot
+        assert read_reduction(leaf.read) is not None
+        slot = require_reduction(leaf.read).value_slot
         for kind, target, keys in ((1, parent, parent_columns), (0, fine, full_columns)):
             completed = originals[(kind, slot)]
             completed_keys = frozen_key_rows(completed, keys)
@@ -375,9 +376,9 @@ def complete_attribute_inputs(
             active = tuple(
                 i
                 for i in range(len(target))
-                if leaf.read.reduction.window_key is None
-                or target[leaf.read.reduction.calendars[0][0]].iloc[i]
-                == leaf.read.reduction.window_key
+                if require_reduction(leaf.read).window_key is None
+                or target[require_reduction(leaf.read).calendars[0][0]].iloc[i]
+                == require_reduction(leaf.read).window_key
             )
             target_keys = frozen_key_rows(key_frame.iloc[list(active)].reset_index(drop=True), keys)
             if len(set(completed_keys)) != len(completed_keys) or set(completed_keys) != set(
@@ -458,8 +459,8 @@ def complete_attribute_parent_domain(
     calendar_slots = {
         slot
         for leaf in root.layout.leaves
-        if leaf.read.reduction is not None
-        for slot, _ in leaf.read.reduction.calendars
+        if read_reduction(leaf.read) is not None
+        for slot, _ in require_reduction(leaf.read).calendars
     }
     projection_order = (
         *(key for key in root.layout.parent_keys if key not in calendar_slots),
@@ -487,7 +488,7 @@ def complete_attribute_parent_domain(
             name: selected[name].iloc[index] for name in root.layout.parent_keys
         }
         for leaf in root.layout.leaves:
-            reduction = leaf.read.reduction
+            reduction = read_reduction(leaf.read)
             assert reduction is not None
             node = reduction.node
             if isinstance(node, SourceWeightedMean) and node.zero_denominator == "error":

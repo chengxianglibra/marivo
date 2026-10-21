@@ -28,7 +28,7 @@ from marivo._definition.query import (
     ValueSlot,
     ValueUnary,
 )
-from marivo.analysis.compiler.graph_plan import LocalCompute
+from marivo.analysis.compiler.graph_plan import LocalCompute, local_result
 from marivo.analysis.compiler.query_program import FrameProgram, ResultProgram
 from marivo.analysis.core.data_types import DecimalDataType, DurationDataType, ScalarDataType
 from marivo.analysis.core.data_validation import stage_arrow_type
@@ -276,7 +276,7 @@ def expression_series(
 
 
 def evaluate_result(stage: LocalCompute, inputs: tuple[pd.DataFrame, ...]) -> pd.DataFrame:
-    program = stage.result
+    program = local_result(stage)
     assert program is not None
     operation = program.operation
     if isinstance(operation, KeyImage):

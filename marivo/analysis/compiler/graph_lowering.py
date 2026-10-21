@@ -2,22 +2,36 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import ibis
 import ibis.expr.types as ir
 
 from marivo._definition.expressions import PredicateExpression
 from marivo.analysis.compiler.errors import compilation_error
-from marivo.analysis.compiler.graph_plan import QueryPlan, SourceRead
+from marivo.analysis.compiler.graph_plan import (
+    AttributeRead,
+    NativeRead,
+    QueryPlan,
+    SourceRead,
+    read_attribute,
+    read_components,
+    read_members,
+    read_presence,
+    read_projections,
+    read_reduction,
+    require_attribute,
+    require_components,
+    require_reduction,
+)
 from marivo.semantic._numeric_lowering import NumericCheck
 
 
 @dataclass(frozen=True, slots=True, eq=False)
 class LoweredRead:
-    """One SourceRead and the exact Ibis table for its source ID."""
+    """An Ibis payload associated with the authoritative plan stage by ID."""
 
-    stage: SourceRead
+    stage_id: str
     expression: ir.Table
     numeric_checks: tuple[tuple[str, NumericCheck], ...] = ()
 
@@ -29,7 +43,7 @@ class LoweredQuery:
 
     def read(self, stage_id: str) -> LoweredRead:
         for item in self.reads:
-            if item.stage.stage_id == stage_id:
+            if item.stage_id == stage_id:
                 return item
         raise compilation_error(f"a lowered read for {stage_id}", "missing lowered stage")
 
@@ -72,9 +86,15 @@ def _query_predicate(
 def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery:
     """Lower every SourceRead over its bound relation, keeping its exact source ID."""
     lowered: list[LoweredRead] = []
+    effective_stages: dict[str, SourceRead] = {}
     for stage in plan.stages:
         if not isinstance(stage, SourceRead):
             continue
+        if isinstance(stage.program, NativeRead):
+            raise compilation_error(
+                "a native source payload supplied by its physical rewrite",
+                "a native program sent through ordinary source lowering",
+            )
         table = relations.get(stage.stage_id)
         if table is None:
             table = relations.get(stage.source_id)
@@ -82,7 +102,7 @@ def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery
             raise compilation_error(f"a bound relation for {stage.source_id}", "unbound source")
         columns = dict(stage.field_columns)
         conditions: list[ir.BooleanValue] = []
-        if stage.period is not None and stage.attribute_layout is None:
+        if stage.period is not None and read_attribute(stage) is None:
             from marivo.analysis.compiler.observation import temporal_bound
 
             time = table[stage.period.column]
@@ -92,7 +112,7 @@ def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery
                 )
             conditions.append(time < temporal_bound(time, stage.period.end, stage.period.timezone))
         filtered = table.filter(*conditions) if conditions else table
-        if stage.attribute_layout is not None:
+        if read_attribute(stage) is not None:
             from marivo.analysis.compiler.attribute_inputs import (
                 attribute_preparation_key,
                 lower_attribute_inputs,
@@ -101,14 +121,12 @@ def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery
             selected = tuple(_query_predicate(node, filtered, columns) for node in stage.predicates)
             scoped = filtered.filter(*selected) if selected else filtered
             expression, checks, check_scopes = lower_attribute_inputs(
-                stage.attribute_layout,
+                require_attribute(stage),
                 scoped,
                 columns,
                 relations[attribute_preparation_key(stage.stage_id)],
                 stage.preparation_checks,
             )
-            from dataclasses import replace
-
             from marivo.analysis.core.data_types import DurationDataType
             from marivo.analysis.core.value_types import data_type
 
@@ -116,20 +134,20 @@ def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery
                 column.slot_id: replace(
                     column,
                     nullable=column.nullable
-                    or len({leaf.fiber for leaf in stage.attribute_layout.leaves}) > 1,
+                    or len({leaf.fiber for leaf in require_attribute(stage).leaves}) > 1,
                     dtype=column.dtype
                     if isinstance(column.dtype, DurationDataType)
                     and column.slot_id
                     in {
-                        leaf.read.reduction.value_slot
-                        for leaf in stage.attribute_layout.leaves
-                        if leaf.read.reduction is not None
+                        require_reduction(leaf.read).value_slot
+                        for leaf in require_attribute(stage).leaves
+                        if read_reduction(leaf.read) is not None
                     }
                     else data_type(expression[column.slot_id].type()),
                 )
                 for column in stage.columns
             }
-            layout = stage.attribute_layout
+            layout = require_attribute(stage)
             layout = replace(
                 layout,
                 columns=tuple(effective.values()),
@@ -146,51 +164,65 @@ def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery
                     for leaf in layout.leaves
                 ),
             )
-            stage = replace(stage, columns=layout.columns, attribute_layout=layout)
-            lowered.append(LoweredRead(stage, expression, checks))
+            stage = replace(
+                stage,
+                columns=layout.columns,
+                program=AttributeRead(layout, require_reduction(stage), read_members(stage)),
+            )
+            effective_stages[stage.stage_id] = stage
+            lowered.append(LoweredRead(stage.stage_id, expression, checks))
             continue
-        if stage.common_reads:
+        if read_members(stage):
             from marivo.analysis.compiler.original import lower_common_components
 
             expression, checks = lower_common_components(
-                tuple(read.reduction for read in stage.common_reads if read.reduction is not None),
-                tuple(read.component_layout for read in stage.common_reads),
+                tuple(
+                    require_reduction(read)
+                    for read in read_members(stage)
+                    if read_reduction(read) is not None
+                ),
+                tuple(read_components(read) for read in read_members(stage)),
                 filtered,
                 columns,
                 stage.predicates,
             )
-            lowered.append(LoweredRead(stage, expression, checks))
+            lowered.append(LoweredRead(stage.stage_id, expression, checks))
             continue
-        if stage.reduction is not None:
+        if read_reduction(stage) is not None:
             from marivo.analysis.compiler.observation import lower_observation
 
-            if stage.component_layout is not None:
+            if read_components(stage) is not None:
                 from marivo.analysis.compiler.original import lower_components
 
                 expression, checks = lower_components(
-                    stage.component_layout, filtered, columns, stage.predicates
+                    require_components(stage), filtered, columns, stage.predicates
                 )
             else:
                 expression, checks = lower_observation(
-                    stage.reduction, filtered, columns, stage.predicates
+                    require_reduction(stage), filtered, columns, stage.predicates
                 )
             expression, checks = _attach_preparation_checks(
                 expression, table, checks, stage.preparation_checks
             )
-            lowered.append(LoweredRead(stage, expression, checks))
+            lowered.append(LoweredRead(stage.stage_id, expression, checks))
         else:
             conditions = [_query_predicate(p, filtered, columns) for p in stage.predicates]
             filtered = filtered.filter(*conditions) if conditions else filtered
             expression = filtered.select(
-                **{slot: filtered[column] for slot, column in stage.projections},
+                **{slot: filtered[column] for slot, column in read_projections(stage)},
                 **(
-                    {"__numeric_present": filtered[stage.presence].fill_null(False)}
-                    if stage.presence
+                    {"__numeric_present": filtered[read_presence(stage)].fill_null(False)}
+                    if read_presence(stage)
                     else {}
                 ),
             )
             expression, checks = _attach_preparation_checks(
                 expression, table, (), stage.preparation_checks
             )
-            lowered.append(LoweredRead(stage, expression, checks))
-    return LoweredQuery(plan, tuple(lowered))
+            lowered.append(LoweredRead(stage.stage_id, expression, checks))
+    return LoweredQuery(
+        replace(
+            plan, stages=tuple(effective_stages.get(stage.stage_id, stage) for stage in plan.stages)
+        ),
+        tuple(lowered),
+    )

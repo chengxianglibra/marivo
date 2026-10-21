@@ -9,7 +9,11 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.dsl.attribute import attribute_endpoint
+from marivo.analysis.compiler.graph_plan import SourceRead, require_reduction
+from marivo.analysis.core.frame_data import MemoryFrameBacking
+from marivo.analysis.dsl.attribute import AttributeEndpoint
 from marivo.analysis.session.core import Session
+from marivo.datasource.adapters import CompiledRead
 from marivo.semantic.reader import SemanticProject
 
 
@@ -86,7 +90,7 @@ def test_plain_calendar_complete_parent_order_one_statement(
     reads: list[object] = []
     original = SourceSession.execute
 
-    def execute(self: SourceSession, issued: object) -> pd.DataFrame:
+    def execute(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
         reads.append(issued)
         return original(self, issued)
 
@@ -135,7 +139,7 @@ def test_cross_period_paired_calendar_parent(
     calls: list[object] = []
     original = SourceSession.execute
 
-    def execute(self: SourceSession, issued: object) -> pd.DataFrame:
+    def execute(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
         calls.append(issued)
         return original(self, issued)
 
@@ -193,7 +197,7 @@ def test_fixed_window_lookback_and_repeated_identity_one_statement(
     calls: list[object] = []
     original = SourceSession.execute
 
-    def execute(self: SourceSession, issued: object) -> pd.DataFrame:
+    def execute(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
         calls.append(issued)
         return original(self, issued)
 
@@ -202,9 +206,13 @@ def test_fixed_window_lookback_and_repeated_identity_one_statement(
     read_original = execution.read_stage
 
     def read(
-        prepared: PreparedSources, lowered: LoweredRead, *, value_keys: tuple[str, ...] = ()
+        prepared: PreparedSources,
+        stage: SourceRead,
+        lowered: LoweredRead,
+        *,
+        value_keys: tuple[str, ...] = (),
     ) -> StageOutput:
-        output = read_original(prepared, lowered, value_keys=value_keys)
+        output = read_original(prepared, stage, lowered, value_keys=value_keys)
         captured.extend(output.attribute_inputs)
         return output
 
@@ -225,8 +233,10 @@ def test_fixed_window_lookback_and_repeated_identity_one_statement(
         assert [leaf.request.binding.window_key for leaf in root.layout.leaves] == [0, 1]
         assert len({leaf.use.logical_occurrence for leaf in root.layout.leaves}) == 1
         assert len({leaf.use.occurrence for leaf in root.layout.leaves}) == 2
-        assert all(leaf.request.binding.period.start is None for leaf in root.layout.leaves)
-        assert [leaf.request.binding.period.end.isoformat() for leaf in root.layout.leaves] == [
+        assert all(leaf.request.binding.period is not None for leaf in root.layout.leaves)
+        periods = tuple(leaf.request.binding.period for leaf in root.layout.leaves)
+        assert all(period is not None and period.start is None for period in periods)
+        assert [period.end.isoformat() for period in periods if period is not None] == [
             "2026-08-02T00:00:00+00:00",
             "2026-08-03T00:00:00+00:00",
         ]
@@ -236,7 +246,7 @@ def test_fixed_window_lookback_and_repeated_identity_one_statement(
             "attribute.parent_fine_component_coverage",
         } <= {receipt.check_id for receipt in root.receipts}
         for leaf in root.layout.leaves:
-            reduction = leaf.read.reduction
+            reduction = require_reduction(leaf.read)
             calendar_slot = reduction.calendars[0][0]
             active = root.parent.loc[root.parent[calendar_slot] == reduction.window_key]
             assert len(active) == 1
@@ -345,6 +355,7 @@ def test_temporal_native_numeric_check_keeps_actual_scope(
         ).compute()
     assert actual.value.location == ordinary.value.location == "dataset.numeric_value"
     assert actual.value.expected == ordinary.value.expected
+    assert actual.value.repair is not None and ordinary.value.repair is not None
     assert actual.value.repair.action == ordinary.value.repair.action
     context = actual.value.attribute_context
     assert context is not None
@@ -485,7 +496,7 @@ def test_paired_complete_frozen_authority_survives_parent_selection(
     calls = []
     original = SourceSession.execute
 
-    def execute(self: SourceSession, issued: object) -> pd.DataFrame:
+    def execute(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
         calls.append(issued)
         return original(self, issued)
 
@@ -556,6 +567,7 @@ def test_calendar_pre_predicate_check_keeps_real_failure_scope(
         ).compute()
     assert actual.value.location == ordinary.value.location == "dataset.scalar_field_lookup"
     assert actual.value.expected == ordinary.value.expected
+    assert actual.value.repair is not None and ordinary.value.repair is not None
     assert actual.value.repair.action == ordinary.value.repair.action
     context = actual.value.attribute_context
     assert context is not None and isinstance(context.fiber, AttributeParentFiber)
@@ -610,7 +622,7 @@ def test_calendar_selected_known_empty_parent_has_checked_zero_support(session: 
         assert root.parent_state.count("known_empty") == 1
         empty = root.parent.iloc[root.parent_state.index("known_empty")]
         assert empty[leaf.support.slot_id] == 0
-        assert empty[leaf.read.reduction.value_slot] == 0
+        assert empty[require_reduction(leaf.read).value_slot] == 0
         assert len(root.parent) == 2
 
 
@@ -682,6 +694,7 @@ def test_paired_source_failure_retains_original_full_parent(
         MaterializationError if failure == "native" else AttributeInputError
     ) as actual:
         pending.top(0, by=pending["contribution.q"]).compute()
+    assert isinstance(actual.value, (MaterializationError, AttributeInputError))
     context = actual.value.attribute_context
     assert context is not None
     fiber = (
@@ -693,6 +706,7 @@ def test_paired_source_failure_retains_original_full_parent(
     )
     from marivo.analysis.core.frozen_calendar import frozen_key_rows
 
+    assert isinstance(parent._backing, MemoryFrameBacking)
     assert fiber.parent in frozen_key_rows(parent._backing.data.copy_rows(), fiber.parent_columns)
     assert context.uses[0].metric == "q"
     assert context.uses[0].endpoint == ("right" if failure == "native" else "left")
@@ -701,6 +715,7 @@ def test_paired_source_failure_retains_original_full_parent(
         assert isinstance(context.witness, AttributeCheckWitness)
         assert context.witness.columns != fiber.parent_columns
         assert {value for _, value in context.witness.coordinates[0]} == {0, "east"}
+        assert actual.value.received is not None
         assert "key.0" in actual.value.received
     else:
         assert isinstance(context.fiber, AttributeWindowFiber)
@@ -729,6 +744,7 @@ def test_weighted_integer_pair_sums_preserve_native_admitted_range(
     from marivo.datasource.adapters import SourceSession
 
     x = 2**62
+    data: list[tuple[int, str, str, int | None, int]]
     if wide_role == "numerator":
         data = [(1, "base", "A", x, 1), (2, "base", "B", x, 1)]
         data.extend([(3, "current", "A", x + 1024, 1), (4, "current", "B", x + 2048, 1)])
@@ -765,7 +781,7 @@ def test_weighted_integer_pair_sums_preserve_native_admitted_range(
     calls: list[object] = []
     execute_original = SourceSession.execute
 
-    def execute(self: SourceSession, issued: object) -> pd.DataFrame:
+    def execute(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
         calls.append(issued)
         return execute_original(self, issued)
 
@@ -774,9 +790,13 @@ def test_weighted_integer_pair_sums_preserve_native_admitted_range(
     read_original = execution.read_stage
 
     def read(
-        prepared: PreparedSources, lowered: LoweredRead, *, value_keys: tuple[str, ...] = ()
+        prepared: PreparedSources,
+        stage: SourceRead,
+        lowered: LoweredRead,
+        *,
+        value_keys: tuple[str, ...] = (),
     ) -> StageOutput:
-        output = read_original(prepared, lowered, value_keys=value_keys)
+        output = read_original(prepared, stage, lowered, value_keys=value_keys)
         captured.extend(output.attribute_inputs)
         return output
 
@@ -847,6 +867,7 @@ def test_weighted_wide_pair_sums_keep_original_row_product_overflow(
     assert actual.value.location == ordinary.value.location == "dataset.numeric_value"
     assert actual.value.expected == ordinary.value.expected == "signed int64 arithmetic"
     assert actual.value.received == ordinary.value.received
+    assert actual.value.repair is not None and ordinary.value.repair is not None
     assert actual.value.repair.action == ordinary.value.repair.action
     context = actual.value.attribute_context
     assert context is not None

@@ -279,12 +279,7 @@ def _original(
             )
         return empty
     stage = LocalCompute(
-        "attribute.original",
-        (),
-        "query.combine@v1",
-        (*keys, *outputs),
-        tuple(c.slot_id for c in keys),
-        formula,
+        "attribute.original", (), (*keys, *outputs), tuple(c.slot_id for c in keys), formula
     )
     parent_columns = tuple(c for a in program.input_program.parent_schema.axes for c in a.columns)
     uses = tuple(

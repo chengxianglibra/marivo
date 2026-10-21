@@ -1,17 +1,28 @@
 """Private Attribute preparation uses one checked input per endpoint/root."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
+from typing import NoReturn
 
 import duckdb
+import ibis.expr.types as ir
 import pandas as pd
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 from marivo.analysis.binding.attribute import attribute_input_request
 from marivo.analysis.dsl.attribute import attribute_endpoint
+from marivo.analysis.binding.observe import ContributionBinding
+from marivo.analysis.compiler.frame_plan import CompiledFramePlan, CompiledSourceFrame, plan_frame
+from marivo.analysis.compiler.graph_plan import SourceRead, read_attribute, require_reduction
+from marivo.analysis.core.frame_expression import FrameExpression
+from marivo.analysis.dsl.attribute import AttributeEndpoint
 from marivo.analysis.materialization.frame_evaluation import evaluate_attribute_inputs
 from marivo.analysis.session.core import Session
+from marivo.datasource.adapters import CompiledRead
+from marivo.datasource.timezone import DatasourceEngineTimezone
+from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import terminal_runs
 
@@ -84,7 +95,7 @@ def test_same_root_ratio_one_actual_read_per_endpoint(
     reads = []
     original = SourceSession.execute
 
-    def execute(self: SourceSession, issued: object) -> pd.DataFrame:
+    def execute(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
         reads.append(issued)
         return original(self, issued)
 
@@ -104,8 +115,12 @@ def test_same_root_ratio_one_actual_read_per_endpoint(
     )
     for root in prepared.attribute_inputs:
         assert len(root.parent) == 1
-        columns = [column for column in root.parent if column.endswith("additive_value")]
-        assert root.parent.loc[0, columns].tolist() == [40, 13]
+        columns = []
+        for column in root.parent:
+            assert isinstance(column, str)
+            if column.endswith("additive_value"):
+                columns.append(column)
+        assert root.parent.loc[[0], columns].iloc[0].tolist() == [40, 13]
     assert len(prepared.table) == 2
 
 
@@ -125,7 +140,7 @@ def test_native_components_share_exact_effective_mask(session: Session, weighted
         values = {role: root.parent.loc[0, column.slot_id] for role, column in leaf.roles}
         assert root.parent.loc[0, leaf.support.slot_id] == 2
         assert root.parent.loc[0, leaf.effective.slot_id] == 1
-        assert root.parent.loc[0, leaf.read.reduction.value_slot] == 10
+        assert root.parent.loc[0, require_reduction(leaf.read).value_slot] == 10
         if weighted:
             assert values == {"pair_product_sum": 10, "pair_weight_sum": 1, "pair_count": 1}
         else:
@@ -196,7 +211,7 @@ def test_selected_empty_parent_retains_known_empty_without_fine_rows(
         if not empty:
             leaf = root.layout.leaves[0]
             assert root.parent.loc[0, leaf.support.slot_id] == 0
-            assert pd.isna(root.parent.loc[0, leaf.read.reduction.value_slot])
+            assert pd.isna(root.parent.loc[0, require_reduction(leaf.read).value_slot])
             assert root.parent.loc[0, leaf.roles[0][1].slot_id] == 0
 
 
@@ -325,8 +340,15 @@ def test_unknown_physical_leaf_fails_before_business_read(
     original = query_preparation.prepare_fields
     calls = []
 
-    def prepare(*args: object, **kwargs: object) -> query_preparation.PreparedFields:
-        result = original(*args, **kwargs)
+    def prepare(
+        contribution: ContributionBinding,
+        entities: Mapping[str, ir.Table],
+        state: CompiledSemanticState,
+        reader: DatasourceEngineTimezone,
+        *,
+        root_table: ir.Table | None = None,
+    ) -> query_preparation.PreparedFields:
+        result = original(contribution, entities, state, reader, root_table=root_table)
         unknown = ibis.table({"unknown": "int64"}, name="unknown_source")
         return replace(result, table=result.table.cross_join(unknown))
 
@@ -369,7 +391,7 @@ def test_decimal_native_mean_preserves_original_finisher_and_component_types(
         original = next(
             column
             for column in root.layout.columns
-            if column.slot_id == leaf.read.reduction.value_slot
+            if column.slot_id == require_reduction(leaf.read).value_slot
         )
         components = dict(leaf.roles)
         assert isinstance(original.dtype, DecimalDataType)
@@ -404,7 +426,7 @@ def test_duration_native_mean_keeps_exact_ticks_and_original_finisher(
         original = next(
             column
             for column in root.layout.columns
-            if column.slot_id == leaf.read.reduction.value_slot
+            if column.slot_id == require_reduction(leaf.read).value_slot
         )
         assert original.dtype == DurationDataType("us")
         assert pa.array(root.parent[original.slot_id]).cast(pa.int64()).to_pylist() == [
@@ -449,7 +471,7 @@ def test_one_additional_root_adds_one_read_per_endpoint_without_fact_fanout(
     calls = []
     original = SourceSession.execute
 
-    def execute(self: SourceSession, issued: object) -> pd.DataFrame:
+    def execute(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
         calls.append(issued)
         return original(self, issued)
 
@@ -481,20 +503,26 @@ def test_plan_and_mutating_execute_batches_bind_parent_and_all_fine_inputs(
     channel = session.catalog.fields.get("sales.facts.channel")
     endpoint = attribute_endpoint({"q": value.sum()})
     captured = []
-    compile_plan = frame_evaluation.plan_frame
+    compile_plan = plan_frame
 
-    def plan(*args: object, **kwargs: object) -> object:
-        compiled = compile_plan(*args, **kwargs)
+    def plan(
+        root: FrameExpression,
+        source_plans: Mapping[str, CompiledSourceFrame],
+        *,
+        frame_inputs: Mapping[str, FrameExpression] | None = None,
+    ) -> CompiledFramePlan:
+        compiled = compile_plan(root, source_plans, frame_inputs=frame_inputs)
         captured.append(compiled)
         return compiled
 
     execute = SourceSession.execute
     calls = []
 
-    def read(self: SourceSession, issued: object) -> pd.DataFrame:
+    def read(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
         rows = execute(self, issued).copy()
         calls.append(issued)
         for name in rows:
+            assert isinstance(name, str)
             if name.endswith("/value") or name.endswith(".additive_value"):
                 rows[name] = rows[name] * len(calls)
         return rows
@@ -509,7 +537,7 @@ def test_plan_and_mutating_execute_batches_bind_parent_and_all_fine_inputs(
     roots = [
         stage
         for stage in stages
-        if isinstance(stage, SourceRead) and stage.attribute_layout is not None
+        if isinstance(stage, SourceRead) and read_attribute(stage) is not None
     ]
     bridges = [stage for stage in stages if stage.stage_id.startswith("attribute-bridge:")]
     assert len(roots) == len(bridges) == 2
@@ -556,7 +584,7 @@ def test_duplicate_complete_compound_parent_aggregate_is_rejected(
     execute = SourceSession.execute
     duplicated: list[tuple[object, object]] = []
 
-    def read(self: SourceSession, issued: object) -> pd.DataFrame:
+    def read(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
         rows = execute(self, issued)
         if duplicated or "__attribute_kind" not in rows:
             return rows
@@ -601,7 +629,7 @@ def test_missing_checked_parent_aggregate_cannot_turn_into_known_empty(
 
     execute = SourceSession.execute
 
-    def read(self: SourceSession, issued: object) -> pd.DataFrame:
+    def read(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
         rows = execute(self, issued)
         return rows.loc[rows["__attribute_kind"] != 1].reset_index(drop=True)
 
@@ -669,7 +697,7 @@ def test_finished_originals_follow_complete_keys_after_actual_batch_permutation(
     original = SourceSession.execute
     reads = []
 
-    def execute(self: SourceSession, issued: object) -> pd.DataFrame:
+    def execute(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
         frame = original(self, issued)
         if "__attribute_kind" in frame:
             reads.append(issued)
@@ -696,7 +724,7 @@ def test_finished_originals_follow_complete_keys_after_actual_batch_permutation(
     assert len(reads) == 2
     for root in output.attribute_inputs:
         leaf = root.layout.leaves[0]
-        value_slot = leaf.read.reduction.value_slot
+        value_slot = require_reduction(leaf.read).value_slot
         component = leaf.roles[0][1].slot_id
         for slot in (value_slot, component):
             assert _keyed_values(root.parent, root.layout.parent_keys, slot) == {
@@ -706,7 +734,7 @@ def test_finished_originals_follow_complete_keys_after_actual_batch_permutation(
             fine = _keyed_values(root.fine, root.layout.keys, slot)
             assert fine[(None, "A")] == 30
             assert fine[("east", "A")] == 10
-            assert pd.isna(fine[("east", "B")])
+            assert pd.isna([fine[("east", "B")]])[0]
 
 
 def test_native_mean_originals_follow_correlated_null_membership_parent_keys(
@@ -736,7 +764,7 @@ def test_native_mean_originals_follow_correlated_null_membership_parent_keys(
     for root in output.attribute_inputs:
         leaf = root.layout.leaves[0]
         assert _keyed_values(
-            root.parent, root.layout.parent_keys, leaf.read.reduction.value_slot
+            root.parent, root.layout.parent_keys, require_reduction(leaf.read).value_slot
         ) == {
             (None, None): 30,
             ("x", "online"): 10,
@@ -771,10 +799,10 @@ def test_mixed_known_empty_parent_preserves_exact_nullable_integer(
     for root in output.attribute_inputs:
         leaf = root.layout.leaves[0]
         original = _keyed_values(
-            root.parent, root.layout.parent_keys, leaf.read.reduction.value_slot
+            root.parent, root.layout.parent_keys, require_reduction(leaf.read).value_slot
         )
         assert original[("east",)] == exact
-        assert pd.isna(original[("absent",)])
+        assert pd.isna([original[("absent",)]])[0]
         assert _keyed_values(root.parent, root.layout.parent_keys, leaf.support.slot_id) == {
             ("east",): 2,
             ("absent",): 0,
@@ -829,7 +857,7 @@ def test_nullable_integer_parent_keys_remain_exact_through_formula_and_completio
     for root in output.attribute_inputs:
         leaf = root.layout.leaves[0]
         assert _keyed_values(
-            root.parent, root.layout.parent_keys, leaf.read.reduction.value_slot
+            root.parent, root.layout.parent_keys, require_reduction(leaf.read).value_slot
         ) == {
             (exact,): 1,
             (None,): 1,
@@ -869,7 +897,7 @@ def test_original_scalar_lookup_check_domain_owner_and_repair(
         )
         for root in output.attribute_inputs:
             leaf = root.layout.leaves[0]
-            assert root.parent[leaf.read.reduction.value_slot].tolist() == [10]
+            assert root.parent[require_reduction(leaf.read).value_slot].tolist() == [10]
         return
     with pytest.raises(MaterializationError) as ordinary:
         session.observe({"q": value.sum()}, by=(channel,), where=where).compute()
@@ -879,7 +907,9 @@ def test_original_scalar_lookup_check_domain_owner_and_repair(
         )
     assert actual.value.location == ordinary.value.location == "dataset.scalar_field_lookup"
     assert actual.value.expected == ordinary.value.expected
+    assert actual.value.repair is not None and ordinary.value.repair is not None
     assert actual.value.repair.action == ordinary.value.repair.action
+    assert actual.value.received is not None
     assert "source=sales.otherfacts" in actual.value.received
     assert "coordinates=" in actual.value.received
 
@@ -904,7 +934,7 @@ def test_preparation_check_domain_respects_genuine_parent_scope(
     )
     for root in output.attribute_inputs:
         leaf = root.layout.leaves[0]
-        assert root.parent[leaf.read.reduction.value_slot].tolist() == [10]
+        assert root.parent[require_reduction(leaf.read).value_slot].tolist() == [10]
 
 
 def test_known_empty_weighted_parent_retains_original_numeric_source_context(
@@ -930,6 +960,7 @@ def test_known_empty_weighted_parent_retains_original_numeric_source_context(
             )
         )
     assert actual.value.location == "dataset.numeric_value"
+    assert actual.value.received is not None
     assert "source=sales.facts" in actual.value.received
     assert "coordinates=[{'key.0': 'absent'}]" in actual.value.received
 
@@ -954,6 +985,7 @@ def test_original_numeric_failure_uses_actual_aggregate_coordinate_scope(
         if failing_scope == "fine":
             connection.execute("UPDATE facts SET value=? WHERE id=2", [-valid])
             connection.execute("INSERT INTO facts VALUES ('t',4,'east','A',?,1)", [valid])
+    failed_axes: tuple[Deferred, ...]
     if failing_scope == "parent":
         valid_children = (
             session.observe({"q": value.sum()}, by=(region, channel), where=region == "east")
@@ -975,9 +1007,11 @@ def test_original_numeric_failure_uses_actual_aggregate_coordinate_scope(
     coordinates = []
     failure = graph_source_execution._source_check_failure
 
-    def failed(stage, name, expected, received, rows):
+    def failed(
+        stage: SourceRead, name: str, expected: str, received: str, rows: pd.DataFrame
+    ) -> NoReturn:
         coordinates.append(rows.to_dict(orient="records"))
-        return failure(stage, name, expected, received, rows)
+        failure(stage, name, expected, received, rows)
 
     monkeypatch.setattr(graph_source_execution, "_source_check_failure", failed)
     with pytest.raises(MaterializationError) as ordinary:
@@ -985,7 +1019,7 @@ def test_original_numeric_failure_uses_actual_aggregate_coordinate_scope(
     reads = []
     execute = SourceSession.execute
 
-    def read(self: SourceSession, issued: object) -> pd.DataFrame:
+    def read(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
         reads.append(issued)
         return execute(self, issued)
 
@@ -1005,6 +1039,7 @@ def test_original_numeric_failure_uses_actual_aggregate_coordinate_scope(
     assert coordinates == [expected_coordinates, expected_coordinates]
     assert actual.value.location == ordinary.value.location == "dataset.numeric_value"
     assert actual.value.expected == ordinary.value.expected
+    assert actual.value.repair is not None and ordinary.value.repair is not None
     assert actual.value.repair.action == ordinary.value.repair.action
     assert actual.value.received == ordinary.value.received
 

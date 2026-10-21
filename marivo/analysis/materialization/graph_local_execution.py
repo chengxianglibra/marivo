@@ -7,8 +7,19 @@ from typing import TYPE_CHECKING, TypeAlias
 
 import pandas as pd
 
-from marivo.analysis.compiler.graph_plan import FrameCompute, LocalCompute
-from marivo.analysis.compiler.query_program import FrameCombineProgram, FrameCompareProgram
+from marivo.analysis.compiler.graph_plan import (
+    FrameCompute,
+    LocalCompute,
+    local_steps,
+    read_reduction,
+    require_reduction,
+)
+from marivo.analysis.compiler.observation import FormulaProgram
+from marivo.analysis.compiler.query_program import (
+    FrameCombineProgram,
+    FrameCompareProgram,
+    ResultProgram,
+)
 from marivo.analysis.core.artifact_data import OutputAttachment
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
@@ -153,22 +164,13 @@ def run_local(
             tuple(FrozenAttachment(a.name, a.schema, a.rows) for a in attachments),
         )
         return output
-    if stage.fused_steps:
+    if local_steps(stage):
         from marivo.analysis.materialization.query_runtime_types import effective_local
 
         output = inputs[0]
-        for member in stage.fused_steps:
+        for member in local_steps(stage):
             output = run_local(effective_local(member, (output,)), (output,))
         return output
-    expected_kernel = "query.result@v1" if stage.result is not None else "query.combine@v1"
-    if stage.kernel != expected_kernel:
-        raise MaterializationError(
-            expected=f"the Query compiler's {expected_kernel} route",
-            received=stage.kernel,
-            repair="Construct local stages through the Query compiler.",
-            stage="local_compute",
-            help_target="analysis_frame.compute",
-        )
     components = tuple(
         {
             component.layout.reduction.value_slot: component
@@ -178,13 +180,13 @@ def run_local(
     )
     population_frames = (
         inputs[0].population_frames
-        if inputs and stage.result is not None
+        if inputs and isinstance(stage.program, ResultProgram)
         else tuple(item.table for item in inputs[len(stage.program.values) :])
-        if stage.program is not None
+        if isinstance(stage.program, FormulaProgram)
         else ()
     )
     if kernel is None:
-        if stage.result is not None:
+        if isinstance(stage.program, ResultProgram):
             from marivo.analysis.methods.query_values import evaluate_result
 
             kernel = evaluate_result
@@ -194,7 +196,7 @@ def run_local(
             kernel = query_combine
     with pd.option_context("mode.copy_on_write", True):
         views = tuple(item.table.copy(deep=False) for item in inputs)
-        if stage.program is not None and stage.attribute is not None:
+        if isinstance(stage.program, FormulaProgram) and stage.attribute is not None:
             selected_views = list(views)
             for index, binding in enumerate(stage.program.values):
                 native = next(
@@ -212,11 +214,11 @@ def run_local(
                     for leaf in root.layout.leaves
                     if (native is not None and leaf.use == native.use)
                     or (
-                        leaf.read.reduction is not None
-                        and leaf.read.reduction.value_slot == binding.column.slot_id
+                        read_reduction(leaf.read) is not None
+                        and require_reduction(leaf.read).value_slot == binding.column.slot_id
                     )
                 )
-                reduction = leaf.read.reduction
+                reduction = read_reduction(leaf.read)
                 assert reduction is not None
                 view = views[index]
                 if reduction.window_key is not None:
@@ -280,7 +282,7 @@ def run_local(
             stage="local_compute",
             help_target="analysis_frame.compute",
         )
-    if stage.program is not None:
+    if isinstance(stage.program, FormulaProgram):
         # Formula values occupy the ordered input prefix, including repeated
         # aliases of one bundled root. Domain/projection dependencies own no mass.
         attribute_inputs = tuple(
@@ -294,8 +296,8 @@ def run_local(
         frame,
         stage.columns,
         stage.keys,
-        layout=stage.result.output_layout if stage.result is not None else None,
-        components=components if stage.program is not None else (),
-        population_frames=population_frames if stage.program is not None else (),
+        layout=stage.program.output_layout if isinstance(stage.program, ResultProgram) else None,
+        components=components if isinstance(stage.program, FormulaProgram) else (),
+        population_frames=population_frames if isinstance(stage.program, FormulaProgram) else (),
         attribute_inputs=attribute_inputs,
     )
