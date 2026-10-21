@@ -131,7 +131,37 @@ period(level, key), period_on(level, date) and occurrence(key) return exact
 TimeScope values directly. Period/occurrence pages contain those same scopes;
 there are no independent level/occurrence collections or public scope factories.
 Periods are ordered by global ordinal. Occurrence filters select overlap with
-[start,end) and must match the set's civil-date/timestamp kind.
+[start,end) and must match the set's civil-date/timestamp kind: use Python date
+for civil-date sets and datetime for timestamp sets. Omitted bounds leave that
+side unfiltered. Explicit bounds must lie inside certified coverage; timestamp
+coverage endpoints are local midnights in the certified boundary timezone.
+Coverage endpoints themselves are valid filter boundaries. Covered filters with
+no matches return an empty page; uncovered filters fail rather than implying
+that no occurrences exist.
+
+Overlap selection never clips the returned occurrence's original bounds.
+category is an exact nonempty string filter; None accepts all categories.
+Occurrences are ordered by start, end and canonical key. Continue with
+page.next_cursor until None, keeping the same snapshot and filters. A page's
+show displays key, original start/exclusive end, category, boundary timezone
+and has_more; individual scopes also disclose their frozen boundary timezone.
+
+For holidays, give each occurrence a unique key and, when useful, a stable
+cross-year category such as spring_festival. Separate sets and their business
+context state regional or organizational authority. Agents select the actual
+occurrences and comparison ranges; categories do not imply unique cross-year
+pairing. Existing interval or daily ordinal matching expresses the resulting
+comparison without a holiday-specific alignment policy.
+
+Daily working status can remain an ordinary Entity with a civil-date
+TimeDimension and a final is_workday Dimension, including compensatory working
+days. Multiple schedules require their own identity component. Read all dates
+and states over the explicit counting range with session.members/session.read
+before selecting working days. Missing rows or NULL states are unknown, not
+rest days; source uniqueness/non-null checks do not prove a complete date spine.
+A TemporalSet can alternatively disclose explicit working/rest intervals, but
+its certification permits gaps and overlaps and does not prove one state per
+date. Neither representation introduces a new semantic kind or alignment rule.
 
 Keys are non-null canonical JSON scalars; date-like business keys normalize to
 ISO strings. Bounded pages use limit 1..100 and opaque cursors bound to the

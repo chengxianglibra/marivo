@@ -106,7 +106,7 @@ def _catalog_inputs() -> tuple[ReadCapability, ...]:
             id="catalog.temporal_sets.occurrence",
             public_entrypoint="temporal_set.occurrence(key)",
             help_target="temporal_set.occurrence",
-            summary="Return one exact certified TimeScope for a named temporal occurrence.",
+            summary="Return one original half-open certified TimeScope with key, category, boundary timezone and snapshot identity; no source reads.",
             constraint_ids=(),
             callable_path="marivo.semantic.catalog.TemporalSetEntry.occurrence",
             receiver_family="TemporalSetEntry",
@@ -119,7 +119,17 @@ def _catalog_inputs() -> tuple[ReadCapability, ...]:
             id="catalog.temporal_sets.occurrences",
             public_entrypoint="temporal_set.occurrences(limit=20, cursor=None)",
             help_target="temporal_set.occurrences",
-            summary="Browse one bounded filtered page of certified temporal occurrences.",
+            summary=(
+                "Browse certified occurrences by overlap without clipping their original bounds. "
+                "Use date filters for civil-date sets and datetime filters for timestamp sets; "
+                "explicit bounds must lie within certified coverage, whose timestamp boundaries "
+                "are local midnights in the captured timezone. Omitted bounds leave that side unfiltered. "
+                "category is an exact nonempty string or None for all categories. "
+                "Pages are ordered by start, end and key; limit is 1..100. "
+                "Follow next_cursor until None, keeping the same snapshot and filters. "
+                "A covered empty page means no matching occurrences; unavailable authority rejects. "
+                "page.show() displays keys, original bounds, categories, timezones and has_more."
+            ),
             constraint_ids=(),
             callable_path="marivo.semantic.catalog.TemporalSetEntry.occurrences",
             receiver_family="TemporalSetEntry",

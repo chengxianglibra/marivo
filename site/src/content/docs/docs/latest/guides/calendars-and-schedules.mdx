@@ -74,6 +74,59 @@ query = session.observe({'revenue': revenue}, by=mv.product(launch, members))
 
 Keep occurrence identity and interval semantics explicit; a selected occurrence is not a global time filter for every unrelated quantity.
 
+## Browse holidays and choose comparison ranges
+
+A holiday set uses the same `TemporalSet` contract. Give each occurrence a unique
+key, such as `spring_festival_2026`, and optionally a stable category such as
+`spring_festival`. The set's business definition identifies its region,
+organization and holiday policy. The agent selects the actual occurrences;
+matching category labels do not automatically pair them across years.
+
+For a civil-date set, browse with Python `date` bounds and an optional exact
+category. For example, using the certified `campaigns` set above:
+
+```python
+page = campaigns.occurrences(
+    start=date(2026, 3, 1), end=date(2026, 4, 1),
+    category="promotion", limit=20,
+)
+page.show()
+```
+
+The page displays keys, original start/exclusive end, categories, boundary
+timezones and `has_more`. Its `.items` are the same exact `TimeScope` values
+returned by `.occurrence(key)`. Continue with `.next_cursor` until it is `None`,
+passing the same filters. Page limits are 1–100; a single page is not necessarily
+the complete result.
+
+Filters select occurrences overlapping `[start, end)` and never clip their
+original boundaries. Omitted bounds leave that side unfiltered; `category=None`
+accepts all categories. Explicit bounds must be inside the certified coverage
+shown by `campaigns.details().show()`, including equality at its endpoints.
+Timestamp sets use `datetime` filters and coverage instants at local midnight
+in the certified boundary timezone. Covered queries with no matches return an
+empty page; uncovered queries and unavailable snapshots raise errors.
+
+For whole-holiday comparisons, select two occurrence scopes and use existing
+`mv.ordinal()` matching. For holiday-day comparisons, use their complete daily
+axes. The agent chooses comparable ranges, including any explicit restriction
+for unequal holiday lengths; no holiday-specific alignment rule is required.
+
+## Read working-day facts from ordinary fields
+
+A date Entity can expose a civil-date TimeDimension and a final `is_workday`
+Dimension that includes compensatory working days. Identify separate schedules
+explicitly when regions or organizations differ. Use the existing
+`session.members` and `session.read` entries to read all dates and states in the
+counting range, then select the Nth working date from that fixed result.
+
+Check the expected date set and non-null states before selecting working days:
+missing dates or unknown states are not rest days. Ordinary reads do not certify
+a complete date spine. A `TemporalSet` may instead expose explicit working/rest
+intervals, but its certification allows gaps and overlaps and does not establish
+one working status per date. No additional semantic type or alignment strategy
+is needed to disclose these facts.
+
 `mv.grain` describes builtin units; `ms.calendar_grain` captures a source-free
 lookup, while `calendar.grain(level)` retains the certified snapshot.
 `scope.by(grain).scope` is the original scope. A shifted axis may have

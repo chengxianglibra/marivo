@@ -71,6 +71,50 @@ query = session.observe({'revenue': revenue}, by=mv.product(launch, members))
 
 明确 occurrence identity 和区间语义；选中的 occurrence 不是所有无关数量的全局时间过滤器。
 
+## 浏览节假日并选择比较范围
+
+节假日集合使用相同的 `TemporalSet` 契约。每次发生项使用唯一 key，例如
+`spring_festival_2026`，并可提供跨年稳定的 category，例如 `spring_festival`。
+集合的业务定义说明地区、组织及节假日口径。Agent 选择具体发生项；相同 category
+不会自动建立跨年配对。
+
+民用日期集合使用 Python `date` 边界和可选的精确 category 查询。例如，使用上文
+已认证的 `campaigns` 集合：
+
+```python
+page = campaigns.occurrences(
+    start=date(2026, 3, 1), end=date(2026, 4, 1),
+    category="promotion", limit=20,
+)
+page.show()
+```
+
+页面展示 key、原始开始／排他结束边界、category、边界时区及 `has_more`。
+`.items` 与 `.occurrence(key)` 返回相同的精确 `TimeScope` 值。
+保持筛选条件不变，通过 `.next_cursor` 继续读取，直到它为 `None`。
+每页上限为 1–100；一页结果不一定代表完整结果。
+
+筛选选择与 `[start, end)` 相交的发生项，不裁剪其原始边界。省略的边界不限制该侧；
+`category=None` 接受所有类别。显式边界必须位于 `campaigns.details().show()`
+披露的认证覆盖范围内，允许等于覆盖端点。时间戳集合使用 `datetime` 筛选，认证覆盖
+边界对应认证时区的本地午夜时刻。覆盖内无匹配时返回空页；超出覆盖或快照不可用时报错。
+
+比较完整节假日时，选择两个 occurrence scope，使用现有 `mv.ordinal()` 配对。
+比较假期第几天时，使用两端的完整日轴。Agent 选择可比较范围，包括对不同假期长度
+作出的显式限制；无需专用节假日对齐规则。
+
+## 用普通字段读取工作日事实
+
+日期 Entity 可以提供民用日期 TimeDimension 和最终 `is_workday` Dimension，
+工作状态包含调休结果。地区或组织不同时，明确区分排班身份。使用已有
+`session.members` 与 `session.read` 入口读取计数范围内所有日期和状态，再从该固定
+结果中选择第 N 个工作日期。
+
+先检查预期日期集合和状态非空，再筛选工作日：缺日期或未知状态不是休息日。
+普通读取不会认证日期脊柱完整。也可以用 `TemporalSet` 披露明确的工作／休息区间，
+但其认证允许间隙和重叠，不证明每天恰好一个工作状态。披露这些事实不需要新增
+语义类型或对齐策略。
+
 `mv.grain` 描述内置单位；`ms.calendar_grain` 捕获源自由 lookup，
 `calendar.grain(level)` 保留已认证快照。`scope.by(grain).scope` 是原 scope；
 shift 后的轴可为 `scope is None`，读取不以 grid 包络补齐。`axis.grid` 保留冻结的桶和

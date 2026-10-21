@@ -587,13 +587,27 @@ class TemporalOccurrencePage(RenderableResult):
         return f"TemporalOccurrencePage items={len(self.items)}"
 
     def _card(self) -> Card:
-        return Card(
-            identity=self._repr_identity(),
-            available=(".items", ".next_cursor", ".show()"),
-        ).table(
-            columns=("scope",),
-            rows=((repr(item),) for item in self.items),
-            row_count=len(self.items),
+        return (
+            Card(
+                identity=self._repr_identity(),
+                available=(".items", ".next_cursor", ".show()"),
+            )
+            .field(label="has_more", value=str(self.next_cursor is not None))
+            .table(
+                columns=("temporal_set", "key", "start", "end", "category", "boundary_timezone"),
+                rows=(
+                    (
+                        item.temporal_set.key,
+                        repr(item.key),
+                        item.start.isoformat(),
+                        item.end.isoformat(),
+                        repr(item.occurrence_category),
+                        item.boundary_timezone,
+                    )
+                    for item in self.items
+                ),
+                row_count=len(self.items),
+            )
         )
 
 
@@ -1021,9 +1035,15 @@ class TemporalSetEntry(CatalogEntry[TemporalSetKind]):
         Args:
             key: Exact occurrence key in the current certified snapshot; unknown keys are rejected.
 
+        Returns:
+            The original half-open scope with category, boundary timezone and snapshot identity.
+
         Example:
             >>> temporal_set = catalog.temporal_sets.get("sales.campaigns")
             >>> scope = temporal_set.occurrence("spring_launch")
+
+        Constraints:
+            Reads certified local facts only; missing, stale or invalid snapshots reject.
         """
         try:
             return self._snapshot().occurrence_scope(key)
@@ -1047,16 +1067,28 @@ class TemporalSetEntry(CatalogEntry[TemporalSetKind]):
         """Return deterministic, bounded certified occurrence scopes.
 
         Args:
-            start: Optional inclusive overlap filter with the snapshot's temporal type.
-            end: Optional exclusive overlap filter, compatible with start.
+            start: Optional inclusive overlap filter inside certified coverage; date for
+                civil-date sets or datetime for timestamp sets.
+            end: Optional exclusive overlap filter inside certified coverage, compatible
+                with start. Timestamp coverage uses local midnights in boundary_timezone.
             category: Exact non-empty category filter; None accepts every category.
             limit: Integer page size in [1, 100].
             cursor: Previous page.next_cursor for the same snapshot and filters; omit for the first page.
+
+        Returns:
+            Original occurrence scopes ordered by start, end and key, plus next_cursor.
+            Covered filters with no matches return an empty page.
 
         Example:
             >>> temporal_set = catalog.temporal_sets.get("sales.campaigns")
             >>> page = temporal_set.occurrences(category="promotion", limit=20)
             >>> page.show()
+
+        Constraints:
+            Overlap filters never clip returned scopes. Omitted bounds leave that side
+            unfiltered. Read next_cursor until None before treating results as complete.
+            Explicit bounds outside coverage reject rather than implying no occurrences.
+            Reads certified local facts only; unavailable snapshots reject.
         """
         if type(limit) is not int or isinstance(limit, bool) or not 1 <= limit <= 100:
             _raise_temporal_set_lookup(
@@ -1353,7 +1385,7 @@ def _raise_temporal_set_lookup(
             LiveHelpTarget(surface="analysis", canonical_id="temporal_set.occurrences"),
             (
                 "Inspect the temporal-set details, then retry temporal_set.occurrences(...) with "
-                "valid bounds, a non-empty category or None, a limit in [1, 100], and either no "
+                "valid bounds inside certified coverage, a non-empty category or None, a limit in [1, 100], and either no "
                 "cursor or the cursor returned for the same current snapshot and filters."
             ),
         ),
@@ -1434,6 +1466,27 @@ def _normalize_occurrence_filters(
         end = _normalize_temporal_timestamp(end, boundary_timezone=snapshot.boundary_timezone)
     if start is not None and end is not None and start >= end:
         raise ValueError("occurrence filter requires start < end")
+    coverage_start: date | datetime = snapshot.coverage[0]
+    coverage_end: date | datetime = snapshot.coverage[1]
+    if snapshot.encoding == "timestamp":
+        from marivo._temporal import _normalize_temporal_timestamp
+
+        coverage_start = _normalize_temporal_timestamp(
+            datetime.combine(snapshot.coverage[0], datetime.min.time()),
+            boundary_timezone=snapshot.boundary_timezone,
+        )
+        coverage_end = _normalize_temporal_timestamp(
+            datetime.combine(snapshot.coverage[1], datetime.min.time()),
+            boundary_timezone=snapshot.boundary_timezone,
+        )
+    if any(
+        bound is not None and not coverage_start <= bound <= coverage_end for bound in (start, end)
+    ):
+        raise ValueError(
+            "occurrence filters must lie within certified coverage "
+            f"[{coverage_start.isoformat()}, {coverage_end.isoformat()}) "
+            f"in {snapshot.boundary_timezone}"
+        )
     return start, end
 
 

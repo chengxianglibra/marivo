@@ -888,7 +888,7 @@ class TimeScope(BaseModel):
             f"start={_scope_bound_text(self.start)}",
             f"end={_scope_bound_text(self.end)}",
         ]
-        if isinstance(self, _SessionTimeScope):
+        if isinstance(self, (_SessionTimeScope, _TemporalOccurrenceTimeScope)):
             values.append(f"boundary_timezone={self.boundary_timezone}")
         if self.kind == "calendar_period":
             calendar_scope = cast("_CalendarPeriodTimeScope", self)
