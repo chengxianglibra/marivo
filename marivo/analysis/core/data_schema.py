@@ -7,15 +7,8 @@ from datetime import datetime, timezone
 from typing import Literal
 
 from marivo.analysis.core.data_types import DataColumn as DataColumn
-from marivo.analysis.core.data_types import ScalarDataType
+from marivo.analysis.core.data_types import ScalarDataType, require_data_text
 from marivo.analysis.core.model import reject
-
-
-def _text(value: str, location: str) -> None:
-    if type(value) is not str or not value or any(c in value for c in "\n\r\t"):
-        reject(
-            "nonempty single-line data text", repr(value), "Use exact output metadata.", location
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,9 +22,9 @@ class DataAxis:
     at: datetime | None = field(default=None, kw_only=True)
 
     def __post_init__(self) -> None:
-        _text(self.token, "data.axis")
+        require_data_text(self.token, "data.axis")
         if self.name:
-            _text(self.name, "data.axis.name")
+            require_data_text(self.name, "data.axis.name")
         if self.at is not None and (
             type(self.at) is not datetime or self.at.tzinfo is not timezone.utc
         ):
@@ -82,9 +75,9 @@ class NamedCalendarData:
     level: str
 
     def __post_init__(self) -> None:
-        _text(self.identity, "data.calendar.identity")
-        _text(self.snapshot_digest, "data.calendar.snapshot")
-        _text(self.level, "data.calendar.level")
+        require_data_text(self.identity, "data.calendar.identity")
+        require_data_text(self.snapshot_digest, "data.calendar.snapshot")
+        require_data_text(self.level, "data.calendar.level")
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,7 +101,7 @@ class FrozenCalendarData:
                 "Freeze the builtin or named calendar and its finite directory.",
                 "data.calendar",
             )
-        _text(self.directory_name, "data.calendar.directory")
+        require_data_text(self.directory_name, "data.calendar.directory")
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,7 +113,7 @@ class CalendarDataAxis(DataAxis):
 
     def __post_init__(self) -> None:
         DataAxis.__post_init__(self)
-        _text(self.timezone, "data.calendar.timezone")
+        require_data_text(self.timezone, "data.calendar.timezone")
         if self.frozen is not None and type(self.frozen) is not FrozenCalendarData:
             reject(
                 "a frozen calendar descriptor",
@@ -167,7 +160,7 @@ class FrozenCalendarOrigin:
                 "Freeze only the direct input directory and closed shift facts.",
                 "data.calendar.origin",
             )
-        _text(self.mapping_name, "data.calendar.mapping")
+        require_data_text(self.mapping_name, "data.calendar.mapping")
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,7 +171,7 @@ class FrozenIntervalData:
     rule_version: Literal["interval.v1"] = "interval.v1"
 
     def __post_init__(self) -> None:
-        _text(self.directory_name, "data.interval.directory")
+        require_data_text(self.directory_name, "data.interval.directory")
         if self.rule_version != "interval.v1":
             reject(
                 "the interval.v1 descriptor",
@@ -224,7 +217,7 @@ class PairedDataAxis(DataAxis):
                 "Retain the two complete time endpoints.",
                 "data.paired",
             )
-        _text(self.mapping_name, "data.paired.mapping")
+        require_data_text(self.mapping_name, "data.paired.mapping")
         if len({self.token, self.left.token, self.right.token}) != 3:
             reject(
                 "distinct paired and endpoint tokens",
@@ -270,8 +263,8 @@ class CalendarComparisonBinding:
     mapping_name: str
 
     def __post_init__(self) -> None:
-        _text(self.current_axis_token, "data.comparison.current")
-        _text(self.mapping_name, "data.comparison.mapping")
+        require_data_text(self.current_axis_token, "data.comparison.current")
+        require_data_text(self.mapping_name, "data.comparison.mapping")
         if (
             type(self.baseline) is not CalendarDataAxis
             or self.baseline.frozen is None
@@ -294,8 +287,8 @@ class IntervalComparisonBinding:
     mapping_name: str
 
     def __post_init__(self) -> None:
-        _text(self.current_axis_token, "data.comparison.current")
-        _text(self.mapping_name, "data.comparison.mapping")
+        require_data_text(self.current_axis_token, "data.comparison.current")
+        require_data_text(self.mapping_name, "data.comparison.mapping")
         if type(self.baseline) is not IntervalDataAxis:
             reject(
                 "a frozen baseline interval descriptor",

@@ -251,10 +251,7 @@ def frame(
     )
 
 
-def values(
-    local: LocalFrameServices, *, columns: Mapping[str, str | None], rows: tuple[ValueRow, ...]
-) -> AnalysisFrame:
-    """Capture zero-axis literal values without source configuration or scope."""
+def _validate_value_columns(columns: Mapping[str, str | None], rows: tuple[ValueRow, ...]) -> None:
     if not isinstance(columns, Mapping) or not columns:
         reject(
             "named columns and finite typed literal rows",
@@ -264,6 +261,13 @@ def values(
         )
     for name in columns:
         value_name(name, location="frame.values")
+
+
+def values(
+    local: LocalFrameServices, *, columns: Mapping[str, str | None], rows: tuple[ValueRow, ...]
+) -> AnalysisFrame:
+    """Capture zero-axis literal values without source configuration or scope."""
+    _validate_value_columns(columns, rows)
     graph = capture_values(by=(), columns=columns, rows=rows, owner=local.owner)
     schema, _ = pending_schema(graph, None)
     return AnalysisFrame._from_expression(local, schema, LiteralFrameBinding(graph))
@@ -278,15 +282,7 @@ def coordinate_values(
     columns: Mapping[str, str | None],
     rows: tuple[ValueRow, ...],
 ) -> AnalysisFrame:
-    if not isinstance(columns, Mapping) or not columns:
-        reject(
-            "named columns and finite typed literal rows",
-            repr((columns, rows)),
-            "Provide at least one literal row to establish value kinds; filter the Frame when an empty typed result is needed.",
-            "Session.values",
-        )
-    for name in columns:
-        value_name(name, location="frame.values")
+    _validate_value_columns(columns, rows)
     return _capture(
         local,
         capture_values(by=by, columns=columns, rows=rows, owner=local.owner),

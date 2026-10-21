@@ -13,10 +13,10 @@ import pyarrow.compute as pc
 
 from marivo._definition.query import (
     CoordinateSlot,
-    PairStatistic,
     ReadFields,
     ReduceValues,
     SelectValues,
+    Statistic,
     ValueExpression,
     ValueSlot,
     ValueUnary,
@@ -44,7 +44,6 @@ from marivo.analysis.core.frame_expression import (
     infer_frame_combine_schema,
     infer_frame_compare_schema,
 )
-from marivo.analysis.core.model import reject
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import StageOutput
 
@@ -389,19 +388,13 @@ def effective_local(stage: LocalCompute, inputs: tuple[StageOutput, ...]) -> Loc
             for column in columns
         )
     elif isinstance(operation, ReduceValues):
-        legacy_types: list[DataType] = []
+        input_types: list[DataType] = []
         for _, statistic in operation.values:
-            if isinstance(statistic, PairStatistic):
-                reject(
-                    "ordinary Frame execution for paired statistics",
-                    "a paired statistic in a legacy ResultProgram",
-                    "Construct paired statistics through AnalysisFrame.correlate or reduce.",
-                    statistic.location,
-                )
-            legacy_types.append(
+            assert isinstance(statistic, Statistic)  # Enforced by ResultProgram.__post_init__.
+            input_types.append(
                 dtype(statistic.value) if statistic.value is not None else ScalarDataType("int64")
             )
-        statistic_types = tuple(legacy_types)
+        statistic_types = tuple(input_types)
         program = replace(program, statistic_types=statistic_types)
         output_types = {
             f"value.{index}": ScalarDataType("float64")

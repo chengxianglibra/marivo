@@ -13,7 +13,8 @@ from typing import Literal, TypeAlias
 from marivo.analysis.core.model import reject
 
 
-def _text(value: str, location: str) -> None:
+def require_data_text(value: str, location: str) -> None:
+    """Validate single-line data metadata with its owning error location."""
     if type(value) is not str or not value or any(c in value for c in "\n\r\t"):
         reject(
             "nonempty single-line data text", repr(value), "Use exact output metadata.", location
@@ -62,7 +63,7 @@ class TimestampDataType:
     def __post_init__(self) -> None:
         _time_unit(self.unit)
         if self.timezone is not None:
-            _text(self.timezone, "data.timezone")
+            require_data_text(self.timezone, "data.timezone")
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,8 +91,8 @@ class DataColumn:
     unit: str | None = None
 
     def __post_init__(self) -> None:
-        _text(self.slot_id, "data.slot_id")
-        _text(self.name, "data.column_name")
+        require_data_text(self.slot_id, "data.slot_id")
+        require_data_text(self.name, "data.column_name")
         if (
             type(self.dtype)
             not in (ScalarDataType, DecimalDataType, TimestampDataType, DurationDataType)
@@ -104,4 +105,4 @@ class DataColumn:
                 "data.column",
             )
         if self.unit is not None:
-            _text(self.unit, "data.unit")
+            require_data_text(self.unit, "data.unit")

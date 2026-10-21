@@ -26,6 +26,7 @@ from marivo.analysis.core.data_types import DecimalDataType as DecimalDataType
 from marivo.analysis.core.data_types import DurationDataType as DurationDataType
 from marivo.analysis.core.data_types import ScalarDataType as ScalarDataType
 from marivo.analysis.core.data_types import TimestampDataType as TimestampDataType
+from marivo.analysis.core.data_types import require_data_text
 from marivo.analysis.core.frame_audit import FrameResultMetadata
 from marivo.analysis.core.frame_structure import require_complete_structure
 from marivo.analysis.core.model import reject
@@ -39,13 +40,6 @@ from marivo.analysis.core.output_records import (
     OutputFinding as OutputFinding,
 )
 from marivo.analysis.materialization.contracts import LocalReceipt
-
-
-def _text(value: str, location: str) -> None:
-    if type(value) is not str or not value or any(c in value for c in "\n\r\t"):
-        reject(
-            "nonempty single-line data text", repr(value), "Use exact output metadata.", location
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,7 +68,7 @@ class SavedAttachment:
     rows: ParquetHandle
 
     def __post_init__(self) -> None:
-        _text(self.name, "artifact.attachment")
+        require_data_text(self.name, "artifact.attachment")
         if type(self.schema) is not DataSchema or type(self.rows) is not ParquetHandle:
             reject(
                 "saved output schema and receipt",
@@ -110,7 +104,7 @@ class SavedFrameMethodFacts:
     payload: SavedAttachment
 
     def __post_init__(self) -> None:
-        _text(self.origin_result_id, "artifact.method.origin")
+        require_data_text(self.origin_result_id, "artifact.method.origin")
         counts = (
             self.parent_axis_count,
             self.parent_count,
@@ -202,7 +196,7 @@ class ArtifactManifest:
 
     def __post_init__(self) -> None:
         for name in ("store_id", "artifact_id", "session_id", "run_id"):
-            _text(getattr(self, name), f"artifact.{name}")
+            require_data_text(getattr(self, name), f"artifact.{name}")
         if (
             type(self.data) is not ArtifactData
             or type(self.metadata) is not FrameResultMetadata
@@ -245,7 +239,7 @@ class OutputAttachment:
     rows: pd.DataFrame
 
     def __post_init__(self) -> None:
-        _text(self.name, "publication.attachment")
+        require_data_text(self.name, "publication.attachment")
         _output_table(self.schema, self.rows)
 
 
