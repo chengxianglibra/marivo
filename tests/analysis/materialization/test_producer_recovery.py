@@ -81,7 +81,7 @@ def producer_recovery(
             indexed = frame.set_index(frame.columns[0])
             assert indexed[("value", "value")].to_dict() == {
                 ("a", 9007199254740992, 1): 2,
-                ("a", 9007199254740993, 2): 0,
+                ("a", 9007199254740993, 2): None,
                 ("b", 9007199254740993, 1): 4,
             }
             frames.append(frame)

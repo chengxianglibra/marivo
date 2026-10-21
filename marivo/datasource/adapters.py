@@ -568,14 +568,14 @@ class SourceSession:
         try:
             with cr.backend_errors(self._backend):
                 table = proof.expression.as_table()
-                if self.provider.name == "duckdb" or (
+                if self.provider.name in {"duckdb", "trino"} or (
                     self.provider.name == "postgres"
                     and all(
                         requirement.method_id == "query.source_read" and requirement.version == 1
                         for requirement in proof.requirements
                     )
                 ):
-                    # Preserve integer values and nulls before pandas can infer float64.
+                    # Preserve native integer/Decimal values and nulls before pandas rounding.
                     arrow = self._backend.to_pyarrow(table, params=dict(proof.params), limit=None)
                     result = arrow.to_pandas(
                         types_mapper=lambda dtype: (

@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
+import pandas as pd
+
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
@@ -36,7 +38,8 @@ def run(root: Path, phase: str, output: Path) -> None:
             result = session.persisted_frame(artifact)
             frame = result.to_pandas()
             assert snapshot(result, frame=frame) == obj(saved)
-            assert frame[("value", "value")].tolist() == [2, 0, 4]
+            values = frame[("value", "value")].tolist()
+            assert [None if pd.isna(value) else value for value in values] == [2, None, 4]
             assert frame[("value", "value")].sum() == 6
             assert frame.loc[frame[("value", "value")] > 0].shape[0] == 2
             result.show(n=1)

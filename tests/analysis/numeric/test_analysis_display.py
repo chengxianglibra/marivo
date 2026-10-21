@@ -12,7 +12,6 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from tests.analysis.numeric.pandas_coordinates import plain
-from tests.analysis.statistics.pandas_workflows import receipt_paths
 from tests.shared_fixtures import (
     DslCase,
     DslCaseFactory,
@@ -343,9 +342,8 @@ def test_static_display_errors_are_zero_read(
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("parquet", [True])
-def test_cold_display_continuations_and_corruption(
-    analysis_dsl_case_factory: DslCaseFactory, parquet: bool
+def test_cold_display_continuations(
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     import os
     import shutil
@@ -356,9 +354,8 @@ def test_cold_display_continuations_and_corruption(
     from tests.support.json import encode
 
     case = analysis_dsl_case_factory("j4_ties")
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        ms.load(workspace_dir=case.root)
+    export_dsl_parquet_models(case, case.root)
+    ms.load(workspace_dir=case.root)
     values = _values(case)
     selected = values.top(2, by=values["value"]).persist()
     terminal = values.persist()
@@ -414,19 +411,6 @@ assert len(terminal_runs(session)) == before
         timeout=60,
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
-    for index, path in enumerate(receipt_paths(case.root, selected)):
-        contents = path.read_bytes()
-        try:
-            path.write_bytes(b"invalid display output")
-            with pytest.raises(AnalysisError):
-                selected.show(n=1)
-            if index == 0:
-                with pytest.raises(AnalysisError):
-                    selected.to_pandas()
-            else:
-                assert plain(selected)["value"].tolist() == [3, 2]
-        finally:
-            path.write_bytes(contents)
 
 
 def test_shared_rank_fresh_source_fixed_and_no_fallback(

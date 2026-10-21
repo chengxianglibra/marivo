@@ -8,6 +8,7 @@ import os
 import sqlite3
 import sys
 from pathlib import Path
+from typing import Literal
 from unittest.mock import patch
 
 import marivo.analysis as mv
@@ -65,20 +66,31 @@ def contend(project: Path, session: str, metric: str, artifact: str) -> dict[str
 
 
 def create_race(project: Path) -> dict[str, object]:
-    original = SessionStore.session_by_name
-    first = True
+    original = SessionStore.create_session
 
-    def synchronized(store: SessionStore, name: str) -> SessionRecord | None:
-        nonlocal first
-        result = original(store, name)
-        if first:
-            first = False
-            assert result is None
-            print("ready", flush=True)
-            assert sys.stdin.readline().strip() == "go"
-        return result
+    def synchronized(
+        store: SessionStore,
+        name: str,
+        *,
+        question: str | None = None,
+        session_ref: str | None = None,
+        report_timezone_name: str = "UTC",
+        report_timezone_resolution: Literal["iana", "fixed_offset"] = "iana",
+        domains: tuple[str, ...] | None = None,
+    ) -> SessionRecord:
+        print("ready", flush=True)
+        assert sys.stdin.readline().strip() == "go"
+        return original(
+            store,
+            name,
+            question=question,
+            session_ref=session_ref,
+            report_timezone_name=report_timezone_name,
+            report_timezone_resolution=report_timezone_resolution,
+            domains=domains,
+        )
 
-    with patch.object(SessionStore, "session_by_name", synchronized):
+    with patch.object(SessionStore, "create_session", synchronized):
         try:
             runtime = DatasetRuntime.create(project, "raced")
             return {"pid": os.getpid(), "session": runtime.session_ref, "status": "created"}

@@ -19,6 +19,7 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.execution_fixtures import source_graph
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
+from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case
 from tests.shared_fixtures import terminal_runs
 from tests.support.source_trace import capture_source
@@ -189,7 +190,8 @@ def test_long_path_sum_and_count(
             } == {tuple(f"sales.hop{index}" for index in range(depth))}
             result = logical.persist()
             frame = result.to_pandas()
-            assert dict(zip(frame.iloc[:, 0], frame[("value", "value")], strict=True)) == dict(
+            coordinate = ordinary_columns(frame)[0]
+            assert dict(zip(frame[coordinate], frame[("value", "value")], strict=True)) == dict(
                 zip(expected_keys, expected, strict=True)
             )
             outputs[metric] = result
@@ -205,8 +207,9 @@ def test_long_path_sum_and_count(
                     ),
                 ).persist()
                 selected_frame = selected.to_pandas()
+                coordinate = ordinary_columns(selected_frame)[0]
                 assert dict(
-                    zip(selected_frame.iloc[:, 0], selected_frame[("value", "value")], strict=True)
+                    zip(selected_frame[coordinate], selected_frame[("value", "value")], strict=True)
                 ) == dict(zip(expected_keys, (2, 0, 0), strict=True))
                 outputs["sliced"] = selected
         assert trace.native_sql

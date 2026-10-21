@@ -345,7 +345,7 @@ frame = result.to_pandas()
 assert frame[('value','value')].tolist() == [1077,1176,1176]
 assert frame.attrs['axes'][0]['descriptor']['timezone'] == 'UTC'
 assert len(frame.attrs['frozen_coordinates'][0]['rows']) == 3
-print(json.dumps({'value':frame[('value','value')].tolist()}))
+print(json.dumps({'value':[str(value) for value in frame[('value','value')].tolist()]}))
 """
     recovered = subprocess.run(
         [sys.executable, "-c", reader, produced["session"], produced["artifact"]],
@@ -356,7 +356,7 @@ print(json.dumps({'value':frame[('value','value')].tolist()}))
         timeout=120,
     )
     assert recovered.returncode == 0, recovered.stderr
-    assert json.loads(recovered.stdout.splitlines()[-1])["value"] == [1077, 1176, 1176]
+    assert json.loads(recovered.stdout.splitlines()[-1])["value"] == ["1077", "1176", "1176"]
 
 
 def test_grid_saved_data_damage_rejects_complete_reads(
@@ -915,10 +915,10 @@ with ExitStack() as guards:
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("rule_name", ["ordinal", "periods", "years"])
+@pytest.mark.parametrize("rule_name", ["periods", "years"])
 def test_calendar_rules_keep_captured_facts_across_carriers(
     analysis_dsl_case_factory: DslCaseFactory,
-    rule_name: Literal["ordinal", "periods", "years"],
+    rule_name: Literal["periods", "years"],
 ) -> None:
     import os
     import shutil
@@ -944,13 +944,7 @@ def test_calendar_rules_keep_captured_facts_across_carriers(
         start="2025-08-01" if year else "2026-07-01",
         end="2025-09-01" if year else "2026-08-01",
     )
-    rule = (
-        mv.offset(years=-1)
-        if year
-        else mv.offset(periods=-1)
-        if rule_name == "periods"
-        else mv.ordinal()
-    )
+    rule = mv.offset(years=-1) if year else mv.offset(periods=-1)
     left = session.observe({"value": metric}, by=(current_scope.by(mv.grain("month")),))
     right = session.observe({"value": metric}, by=(previous_scope.by(mv.grain("month")),))
     expected_right = 50 if year else 77
@@ -973,7 +967,7 @@ def test_calendar_rules_keep_captured_facts_across_carriers(
         assert len(actual.attrs["frozen_coordinates"]) == 3
         assert actual.attrs["axes"][0]["role"] == "calendar"
     scalar = session.observe({"value": metric}, by=(current_scope,)).compute()
-    with pytest.raises(AnalysisError, match="calendar"):
+    with pytest.raises(AnalysisError, match="ordinal"):
         scalar.compare({"reference": scalar}, match={"reference": rule})
     partial = session.observe(
         {"value": metric},

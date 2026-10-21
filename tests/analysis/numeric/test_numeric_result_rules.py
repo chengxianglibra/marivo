@@ -38,6 +38,10 @@ def test_bound_result_type(operation: str, left: str, right: str, expected: str)
     sql = str(ibis.to_sql(table.select(value=result.value), dialect="duckdb"))
     if expected.startswith("decimal"):
         assert "CAST(" in sql and expected.upper() in sql.replace(" ", "")
+    if operation == "subtract" and right == "int64":
+        assert "DECIMAL(19, 0)" in sql
+    if operation == "divide" and left.startswith("decimal"):
+        assert sql.count("AS DOUBLE") == 2
 
 
 def test_explicit_decimal_product_reaches_native_arrow_reader() -> None:

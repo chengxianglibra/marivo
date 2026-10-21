@@ -303,8 +303,16 @@ def test_branch_and_consumed_coverage(analysis_dsl_case_factory: DslCaseFactory)
     metric = session.catalog.metrics.get(LINE_REVENUE.path)
     automatic = session.observe({"value": metric}, by=(_window(session), category))
     explicit = session.observe({"value": metric}, by=(_window(session), category.via((route,))))
-    (automatic_axis,) = source_graph(automatic).signature.axes
-    (explicit_axis,) = source_graph(explicit).signature.axes
+    automatic_axis = next(
+        axis
+        for axis in source_graph(automatic).signature.axes
+        if isinstance(axis, AxisBinding) and axis.role == "field"
+    )
+    explicit_axis = next(
+        axis
+        for axis in source_graph(explicit).signature.axes
+        if isinstance(axis, AxisBinding) and axis.role == "field"
+    )
     assert isinstance(automatic_axis, AxisBinding) and isinstance(explicit_axis, AxisBinding)
     assert automatic_axis.entity == explicit_axis.entity
     assert automatic_axis.field == explicit_axis.field

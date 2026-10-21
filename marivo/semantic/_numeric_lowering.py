@@ -100,6 +100,8 @@ def numeric_binary(
                 ),
             )
         safe = zero.ifelse(ibis.null().cast(b.type().copy(nullable=True)), b)
+        if a.type().is_decimal() or safe.type().is_decimal():
+            a, safe = a.cast("float64"), safe.cast("float64")
         value = a / safe
     elif operation == "add":
         value = add_numeric(a, b)
@@ -364,6 +366,13 @@ def _binary_numeric(operation: str, left: ir.Value, right: ir.Value) -> ir.Value
     elif b.is_floating() and a.is_decimal():
         left = left.cast(b)
     target = decimal_result_type(operation, a, b)
+    if target is not None:
+        if a.is_decimal() and b.is_integer():
+            precision = len(str(2 ** (b.nbytes * 8 - int(b.is_signed_integer())) - 1))
+            right = right.cast(dt.Decimal(precision, 0))
+        elif b.is_decimal() and a.is_integer():
+            precision = len(str(2 ** (a.nbytes * 8 - int(a.is_signed_integer())) - 1))
+            left = left.cast(dt.Decimal(precision, 0))
     try:
         result = (
             left * right
@@ -376,7 +385,10 @@ def _binary_numeric(operation: str, left: ir.Value, right: ir.Value) -> ir.Value
         if target is None:
             raise
         # Ibis requires comparable Decimal metadata for some mixed p/s pairs.
-        scale = max(a.scale or 0, b.scale or 0)
+        scale = max(
+            a.scale or 0 if isinstance(a, dt.Decimal) else 0,
+            b.scale or 0 if isinstance(b, dt.Decimal) else 0,
+        )
         common = dt.Decimal(38, scale)
         left, right = left.cast(common), right.cast(common)
         result = (

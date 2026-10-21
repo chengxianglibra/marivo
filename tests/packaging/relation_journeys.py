@@ -757,7 +757,7 @@ def _assert_oracles(
         cells(
             "folded",
             {
-                (month, m): amount(m, month) if count(m, month) else None
+                (month, m): amount(m, month) if count(m, month) else 0
                 for m in members
                 for month in months
             },

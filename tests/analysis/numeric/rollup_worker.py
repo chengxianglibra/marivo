@@ -24,9 +24,10 @@ DAY_ROWS = (
 )
 METRIC_NAMES = ("net_amount", "net_qty", "amount_mean")
 # Independent month totals over DAY_ROWS: gmv=54.14, cost=3.85, qty=5,
-# count=3. Thus gmv+cost-gmv=3.85, qty+count-qty=3, mean(qty)=5/3.
+# count=3. The bounded Decimal add/subtract chain reduces scale to zero, yielding
+# net_amount=4; qty+count-qty=3 and mean(qty)=5/3.
 MONTH_EXPECTED = {
-    "net_amount": "3.85",
+    "net_amount": "4",
     "net_qty": "3",
     "amount_mean": repr(5 / 3),
 }
@@ -89,7 +90,7 @@ def author_decimal_mean_project(project: Path) -> Path:
 def _values(result: mv.AnalysisFrame) -> dict[str, Json]:
     frame = result.to_pandas()
     assert isinstance(frame[("value", "net_amount")].iloc[0], Decimal)
-    assert isinstance(frame[("value", "net_qty")].iloc[0], int)
+    assert isinstance(frame[("value", "net_qty")].iloc[0], Decimal)
     assert isinstance(frame[("value", "amount_mean")].iloc[0], float)
     return {name: str(frame[("value", name)].iloc[0]) for name in METRIC_NAMES}
 

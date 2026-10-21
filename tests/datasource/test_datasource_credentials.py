@@ -563,7 +563,6 @@ def test_public_semantic_analysis_and_resume(
 import sys
 import marivo.analysis as mv
 import marivo.datasource as md
-import marivo.semantic as ms
 class Resolver:
     def __init__(self):
         self.value = sys.stdin.read()
@@ -572,7 +571,11 @@ class Resolver:
 with md.credential_scope(resolver=Resolver()):
     session = mv.session.resume(sys.argv[1])
 try:
-    frame = session.observe({'revenue': session.catalog.metrics.get('sales.revenue')}, members=session.members(ms.ref.entity('sales.orders')), during=None).compute()
+    members = session.members(session.catalog.entities.get('sales.orders'))
+    frame = session.observe(
+        {'revenue': session.catalog.metrics.get('sales.revenue')},
+        where=mv.in_population(members),
+    ).compute()
     assert not frame.to_pandas().empty
 finally:
     pass

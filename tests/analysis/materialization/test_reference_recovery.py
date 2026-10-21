@@ -71,7 +71,7 @@ def test_native_reference_independent_fixed_and_cold(
         }
         outputs = {name: query.persist() for name, query in queries.items()}
         derived = recipes(outputs)
-        assert derived["ranks"] == [2, 3, 1]
+        assert derived["ranks"] == [2, None, 1]
         assert derived["opportunity_count"] == 6
         state: dict[str, Json] = {
             "session": session.id,
@@ -95,7 +95,7 @@ def test_native_reference_independent_fixed_and_cold(
                     ["b", 9007199254740993, 1],
                 ],
                 "share": [1 / 3, 0, 2 / 3],
-                "ranks": [2, 3, 1],
+                "ranks": [2, None, 1],
                 "cohort": [0, 2],
                 "cohort_two": [],
                 "penetration": 2 / 3,

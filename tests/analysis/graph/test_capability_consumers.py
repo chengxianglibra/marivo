@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from typing import Literal, NoReturn
 from zoneinfo import ZoneInfo
@@ -238,14 +239,16 @@ def test_source_coordinates_statistics_and_original_state(
         assert list(frame.iloc[:, 1]) == [1, 2]
         assert frame[("value", "value")].tolist() == [1, 1]
         summed = values.reduce({"value": values["value"].sum()}, by=(values.axes[1],)).persist()
-        assert _value(summed).tolist() == [2]
+        expected_sum = Decimal("2") if numeric_type == "int64" else 2.0
+        assert _value(summed).tolist() == [expected_sum]
         defined_values = values.where(~values["value"].is_null())
         defined = defined_values.reduce(
             {"value": mv.row_count()}, by=(defined_values.axes[1],)
         ).persist()
-        assert _value(defined).tolist() == [2]
+        assert _value(defined).tolist() == [1]
         mean = values.reduce({"value": values["value"].mean()}, by=(values.axes[1],)).persist()
-        assert _value(mean).tolist() == [1.0]
+        expected_mean = Decimal("2") if numeric_type == "int64" else 2.0
+        assert _value(mean).tolist() == [expected_mean]
         original = session.observe(
             {"value": session.catalog.metrics.get("sales.total")},
             by=(bucket,),
@@ -275,24 +278,30 @@ def test_source_coordinates_statistics_and_original_state(
                 .persist()
                 .to_pandas()
             )
+            differences = difference["value", "reference.absolute.value"].tolist()
             assert dict(
                 zip(
                     difference.iloc[:, 1],
-                    difference["value", "reference.absolute.value"],
+                    [None if pd.isna(value) else value for value in differences],
                     strict=True,
                 )
             ) == {
                 ("a", 9007199254740992, 1): 2,
-                ("a", 9007199254740993, 2): 0,
+                ("a", 9007199254740993, 2): None,
                 ("b", 9007199254740993, 1): 4,
             }
         full_sum = 6 if numeric_type == "int64" else 6.5
         assert _value(
             session.observe({"value": session.catalog.metrics.get("sales.total")}).persist()
         ).tolist() == [full_sum]
-        assert _value(
-            full.reduce({"value": full["value"].mean()}).persist()
-        ).tolist() == pytest.approx([full_sum / 3], abs=1e-12, rel=0)
+        full_mean = full.reduce({"value": full["value"].mean()}).persist()
+        expected_full_mean = Decimal("3") if numeric_type == "int64" else 3.25
+        if numeric_type == "int64":
+            assert _value(full_mean).tolist() == [expected_full_mean]
+        else:
+            assert _value(full_mean).tolist() == pytest.approx(
+                [expected_full_mean], abs=1e-12, rel=0
+            )
         average = _full(session, "sales.average")
         assert _value(average.reduce({"value": mv.row_count()}).persist()).tolist() == [3]
         supported = average.where(~average["value"].is_null())
@@ -305,9 +314,7 @@ def test_source_coordinates_statistics_and_original_state(
         ]
         before = set(tmp_path.rglob("*.parquet"))
         with pytest.raises(AnalysisError):
-            full.select(
-                {"value": full["value"].divide(full["value"], zero_denominator="error")}
-            ).persist()
+            full.select({"value": full["value"].divide(0, zero_denominator="error")}).persist()
         assert set(tmp_path.rglob("*.parquet")) == before
         assert _value(original).tolist() == [2]
         absent = read.where(read["value"] == "missing")

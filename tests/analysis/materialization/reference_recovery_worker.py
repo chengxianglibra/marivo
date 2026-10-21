@@ -27,7 +27,7 @@ def recipes(outputs: Mapping[str, mv.AnalysisFrame]) -> dict[str, Json]:
     """Compute explicit pandas reference, ranking and cohort recipes from saved facts."""
     current = plain(outputs["current"])
     assert current.key_0.tolist() == list(KEYS)
-    assert current.value.tolist() == [2, 0, 4]
+    assert [None if pd.isna(value) else value for value in current.value.tolist()] == [2, None, 4]
     bucket = plain(outputs["bucket"])
     assert bucket.key_0.tolist() == list(KEYS) and bucket.bucket.tolist() == ["a", "a", "b"]
     raw = plain(outputs["basis"])
@@ -46,10 +46,14 @@ def recipes(outputs: Mapping[str, mv.AnalysisFrame]) -> dict[str, Json]:
     assert math.isclose(sum(fractions.values()), 1)
     shares = plain(outputs["share"])
     assert shares.key_0.tolist() == list(KEYS)
-    assert shares["share"].tolist() == [1 / 3, 0, 2 / 3]
-    ranks = current.value.rank(method="dense", ascending=False).astype("int64")
-    assert ranks.tolist() == [2, 3, 1]
-    standardized = sum(row.value * fractions[row.key_0] for row in groups.itertuples())
+    assert [None if pd.isna(value) else value for value in shares["share"].tolist()] == [
+        1 / 3,
+        None,
+        2 / 3,
+    ]
+    ranks = current.value.rank(method="dense", ascending=False).astype("Int64")
+    assert [None if pd.isna(value) else value for value in ranks.tolist()] == [2, None, 1]
+    standardized = sum(float(row.value) * fractions[row.key_0] for row in groups.itertuples())
     assert math.isclose(standardized, 2 * (1 / 3) + 4 * (2 / 3))
     opportunities = plain(outputs["opportunities"])
     assert len(opportunities) == 6
@@ -78,7 +82,7 @@ def recipes(outputs: Mapping[str, mv.AnalysisFrame]) -> dict[str, Json]:
     empty_penetration = None if empty.empty else len(empty) / len(empty)
     assert empty_penetration is None
     return {
-        "ranks": ranks.tolist(),
+        "ranks": [None if pd.isna(value) else value for value in ranks.tolist()],
         "cohort": [list(key) for key in cohort],
         "cohort_two": [],
         "penetration": penetration,

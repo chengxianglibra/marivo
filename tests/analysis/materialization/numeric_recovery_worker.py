@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
 
@@ -45,9 +46,11 @@ def run_process(project: str, session_id: str, phase: str) -> None:
             .reduce({"value": mv.row_count()})
             .persist(),
         }
-        assert results["sum"].to_pandas()[("value", "value")].tolist() == [140, 7]
-        assert results["mean"].to_pandas()[("value", "value")].tolist() == [70, 7]
-        assert results["count"].to_pandas()[("value", "value")].tolist() == [2, 1]
+        sums = results["sum"].to_pandas()[("value", "value")].tolist()
+        assert sums == [Decimal("120"), Decimal("20"), Decimal("7")], sums
+        assert all(isinstance(value, Decimal) for value in sums)
+        assert results["mean"].to_pandas()[("value", "value")].tolist() == [120, 20, 7]
+        assert results["count"].to_pandas()[("value", "value")].tolist() == [1, 1, 1]
         raw = observed.persist().to_pandas()[("value", "value")]
         assert raw.min() == 7 and raw.max() == 120
         for name in ("distinct", "approx_distinct", "quantile"):

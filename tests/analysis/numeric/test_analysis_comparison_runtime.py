@@ -517,7 +517,11 @@ def test_relative_and_ratio_cold_fixed_composition(
     _numeric_source(case, "BIGINT", True)
     current, baseline = _monthly(case, 8), _monthly(case, 7)
     current_total, baseline_total = _monthly(case, 8, overall=True), _monthly(case, 7, overall=True)
-    totals = current_total.compare({"reference": baseline_total})
+    totals = current_total.compare(
+        {"reference": baseline_total},
+        on={"reference": tuple(zip(current_total.axes, baseline_total.axes, strict=True))},
+        match={"reference": mv.ordinal()},
+    )
     positive = current.where(current["value"] > 0)
     ratio = positive.select({"value": positive["value"] / positive["value"]})
     individual = current.compare(
