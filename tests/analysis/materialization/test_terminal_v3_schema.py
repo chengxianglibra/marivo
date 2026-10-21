@@ -51,13 +51,12 @@ def manifest() -> ArtifactManifest:
     ["marivo.frame_output/v1", "marivo.frame_output/v2", "marivo.frame_output/v3"],
 )
 def test_historical_output_envelope_is_rejected_without_rewrite(historical_format: str) -> None:
-    before = FROZEN
     historical = parse_json(FROZEN)
     assert isinstance(historical, dict)
     historical["format"] = historical_format
     with pytest.raises(IntegrityError, match="expected Frame output v4"):
         protocol.decode(canonical_json(historical), ArtifactManifest)
-    assert before == FROZEN
+    assert Path(__file__).with_name("terminal_v1_frozen.json").read_text().strip() == FROZEN
 
 
 def test_one_explicit_closed_type_and_field_inventory() -> None:

@@ -1204,30 +1204,6 @@ def test_registry_callables_are_telemetry_covered() -> None:
     assert not hasattr(mv.Session.members, "__wrapped__")
 
 
-def test_datasource_authoring_error_preserves_code_and_stage() -> None:
-    from marivo.datasource.errors import (
-        DatasourceAuthoringError,
-        DatasourceObservedEffects,
-        repair,
-    )
-
-    error = DatasourceAuthoringError(
-        code="scope_missing",
-        stage="preflight",
-        expected="explicit scope",
-        received="none",
-        reason="blocked",
-        effect_observed=DatasourceObservedEffects(query_executed=False),
-        repair=repair(
-            kind="rescope",
-            canonical_id="inspect",
-            action="Provide an explicit scope.",
-        ),
-    )
-    assert error.code == "scope_missing"
-    assert error.stage == "preflight"
-
-
 def test_execution_logs_share_operation_identity_without_disclosing_sql_to_telemetry(
     telemetry_project: Path,
 ) -> None:

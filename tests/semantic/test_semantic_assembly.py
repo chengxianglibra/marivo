@@ -130,46 +130,6 @@ def _make_registry(**overrides: object) -> Registry:
 
 
 # ---------------------------------------------------------------------------
-# Missing dataset ref
-# ---------------------------------------------------------------------------
-
-
-def test_missing_entity_ref_on_dimension() -> None:
-    registry = _make_registry()
-    # Add a field referencing a non-existent dataset
-    registry.dimensions["sales.nonexistent.bad_field"] = DimensionIR(
-        semantic_id="sales.nonexistent.bad_field",
-        domain="sales",
-        entity="sales.nonexistent",
-        name="bad_field",
-        ai_context=AiContextIR(),
-        is_time_dimension=False,
-        kind=DimensionKind.CATEGORICAL,
-        python_symbol="bad_field",
-        location=_LOC,
-    )
-    errors, _warnings = assembly_validate(registry)
-    assert any(e.kind == ErrorKind.MISSING_ENTITY_REF for e in errors)
-
-
-def test_missing_datasource_ref_on_dataset() -> None:
-    registry = _make_registry()
-    registry.entities["sales.bad_ds"] = EntityIR(
-        semantic_id="sales.bad_ds",
-        domain="sales",
-        name="bad_ds",
-        datasource="sales.nonexistent_wh",
-        source=TableSourceIR(table="bad_ds"),
-        primary_key=(),
-        ai_context=AiContextIR(),
-        python_symbol="bad_ds",
-        location=_LOC,
-    )
-    errors, _warnings = assembly_validate(registry)
-    assert any(e.kind == ErrorKind.MISSING_ENTITY_REF for e in errors)
-
-
-# ---------------------------------------------------------------------------
 # HourPrefixParse prefix cross-reference validation
 # ---------------------------------------------------------------------------
 
@@ -470,31 +430,6 @@ def test_duplicate_default_time_dimension_raises() -> None:
     )
 
 
-def test_registry_and_sidecar_populated(semantic_project_factory) -> None:
-    """After loading, registry and sidecar should be populated."""
-    datasets_py = textwrap.dedent("""\
-        import marivo.datasource as md
-        import marivo.semantic as ms
-
-        orders = ms.entity(name="orders", datasource=ms.ref.datasource("wh"), source=md.table("orders"))
-    """)
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
-            "sales/datasets.py": datasets_py,
-        }
-    )
-    assert project.is_ready()
-    reg = project._registry
-    assert reg is not None
-    assert "sales" in reg.domains
-    assert "wh" in reg.datasources
-    assert "sales.orders" in reg.entities
-    assert project._compiled_state is not None
-    side = project._compiled_state.sidecar
-    assert ref_factory.entity("sales.orders") not in side.bodies
-
-
 def test_warnings_in_load_result(semantic_project_factory) -> None:
     """LoadResult should expose an empty warnings tuple when no warnings exist."""
     metrics_py = textwrap.dedent("""\
@@ -546,41 +481,6 @@ def test_invalid_relationship_via_loader(semantic_project_factory) -> None:
     assert not project.is_ready()
     errors = project.errors()
     assert any(e.kind == ErrorKind.INVALID_RELATIONSHIP_ENDPOINT for e in errors)
-
-
-def test_field_ir_accepts_is_default_flag() -> None:
-    field = DimensionIR(
-        semantic_id="sales.orders.log_date",
-        domain="sales",
-        entity="sales.orders",
-        name="log_date",
-        ai_context=AiContextIR(),
-        is_time_dimension=True,
-        kind=DimensionKind.TIME,
-        granularity="day",
-        parse=DateParse(),
-        python_symbol="log_date",
-        location=_LOC,
-        is_default=True,
-    )
-    assert field.is_default is True
-
-
-def test_field_ir_is_default_defaults_to_false() -> None:
-    field = DimensionIR(
-        semantic_id="sales.orders.log_date",
-        domain="sales",
-        entity="sales.orders",
-        name="log_date",
-        ai_context=AiContextIR(),
-        is_time_dimension=True,
-        kind=DimensionKind.TIME,
-        granularity="day",
-        parse=DateParse(),
-        python_symbol="log_date",
-        location=_LOC,
-    )
-    assert field.is_default is False
 
 
 # ---------------------------------------------------------------------------

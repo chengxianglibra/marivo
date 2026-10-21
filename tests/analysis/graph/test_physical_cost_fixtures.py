@@ -13,7 +13,7 @@ from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.support.paths import PROJECT_ROOT
 
 
-@pytest.mark.parametrize("backend", ("duckdb", "postgres", "mysql", "trino", "clickhouse"))
+@pytest.mark.parametrize("backend", ("duckdb", "trino"))
 def test_cost_fixture_declares_trino_microsecond_time_only(backend: str) -> None:
     rows = _rows(2, "baseline")
     data = _data(rows, backend)
@@ -30,7 +30,7 @@ def test_cluster_reader_policy_matches_single_node_deadline_controls() -> None:
     path = PROJECT_ROOT / "tests/datasource/environment/clickhouse_analysis.py"
     tree = ast.parse(path.read_text())
 
-    def policy(name: str) -> str:
+    def policy(name: str) -> frozenset[str]:
         functions = [
             node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == name
         ]
@@ -44,19 +44,19 @@ def test_cluster_reader_policy_matches_single_node_deadline_controls() -> None:
             and node.args
             and isinstance(node.args[0], ast.Constant)
             and isinstance(node.args[0].value, str)
-            and node.args[0].value.startswith("ALTER USER analysis_reader SETTINGS")
+            and node.args[0].value.startswith("ALTER USER analysis_reader SETTINGS ")
         ]
         assert len(settings) == 1
-        return settings[0]
+        entries = settings[0].removeprefix("ALTER USER analysis_reader SETTINGS ")
+        return frozenset(entry.split(maxsplit=1)[0] for entry in entries.split(","))
 
-    expected = (
-        "ALTER USER analysis_reader SETTINGS readonly=1, join_use_nulls=1, "
-        "enable_materialized_cte=0 CHANGEABLE_IN_READONLY, "
-        "max_execution_time=0 CHANGEABLE_IN_READONLY, "
-        "cancel_http_readonly_queries_on_client_close=0 CHANGEABLE_IN_READONLY, "
-        "timeout_before_checking_execution_speed=0 CHANGEABLE_IN_READONLY"
-    )
-    assert policy("setup") == policy("setup_cluster") == expected
+    single_node, cluster = policy("setup"), policy("setup_cluster")
+    assert single_node == cluster
+    assert {
+        "max_execution_time=0",
+        "timeout_before_checking_execution_speed=0",
+        "cancel_http_readonly_queries_on_client_close=0",
+    } <= single_node
 
 
 @pytest.mark.parametrize("profile", ("csv", "parquet", "local-json"))

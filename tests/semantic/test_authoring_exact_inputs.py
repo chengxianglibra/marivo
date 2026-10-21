@@ -323,8 +323,9 @@ def test_capture_helpers_are_frozen_computational_records() -> None:
 
 @pytest.mark.parametrize("policy_kind", ("over", "except"))
 @pytest.mark.parametrize("mode", ("same", "updated", "lookup"))
+@pytest.mark.parametrize("helper_copy", (None, "copy", "deepcopy"))
 def test_pure_measure_additivity_uses_its_frozen_row_scope(
-    policy_kind: str, mode: str, helper_copy: str | None = None
+    policy_kind: str, mode: str, helper_copy: str | None
 ) -> None:
     with loader_context(_context()):
         _dependencies()
@@ -388,12 +389,3 @@ def test_exact_versions_include_physical_helper_dependencies(family: str, select
             _dependencies(changed=changed, skip_entity=skip)
             versions.append(_version(ms.finalize(), target))
     assert versions[0] != versions[1]
-
-
-@pytest.mark.parametrize("policy_kind", ("over", "except"))
-@pytest.mark.parametrize("mode", ("same", "updated", "lookup"))
-@pytest.mark.parametrize("helper_copy", ("copy", "deepcopy"))
-def test_copied_policies_use_pure_measure_coordinate_facts(
-    policy_kind: str, mode: str, helper_copy: str
-) -> None:
-    test_pure_measure_additivity_uses_its_frozen_row_scope(policy_kind, mode, helper_copy)

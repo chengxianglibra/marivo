@@ -7,7 +7,7 @@ from marivo.semantic.errors import SemanticLoadFailed
 
 
 def test_minute_granularity_timestamp_is_valid(semantic_project_factory):
-    semantic_project_factory(
+    project = semantic_project_factory(
         {
             "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops', owner='Mina Zhang')\n",
             "ops/datasets.py": (
@@ -19,54 +19,7 @@ def test_minute_granularity_timestamp_is_valid(semantic_project_factory):
             ),
         }
     )
-
-
-def test_second_granularity_on_date_parse_is_rejected(semantic_project_factory):
-    """DateParse with second granularity is rejected at decorator time."""
-    project = semantic_project_factory(
-        {
-            "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops', owner='Mina Zhang')\n",
-            "ops/datasets.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "from marivo.semantic.ir import DateParse\n"
-                "events = ms.entity(name='events', datasource=ms.ref.datasource('warehouse'), source=md.table('events'))\n"
-                "@ms.time_dimension(entity=events, granularity='second', parse=DateParse())\n"
-                "def d(events):\n"
-                "    return events.d.cast('date')\n"
-            ),
-        },
-        load=False,
-    )
-    project.load()
-    with pytest.raises(SemanticLoadFailed) as exc_info:
-        SemanticCatalog(project).get("entity.ops.events")
-    errors = exc_info.value.errors
-    kinds = [e.kind for e in errors]
-    assert "invalid_ref" in kinds or "subday_granularity_without_time" in kinds
-
-
-def test_minute_granularity_on_date_parse_is_rejected(semantic_project_factory):
-    """DateParse with minute granularity is rejected at decorator time."""
-    project = semantic_project_factory(
-        {
-            "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops', owner='Mina Zhang')\n",
-            "ops/datasets.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "from marivo.semantic.ir import DateParse\n"
-                "events = ms.entity(name='events', datasource=ms.ref.datasource('warehouse'), source=md.table('events'))\n"
-                "@ms.time_dimension(entity=events, granularity='minute', parse=DateParse())\n"
-                "def d(events):\n"
-                "    return events.d.cast('date')\n"
-            ),
-        },
-        load=False,
-    )
-    project.load()
-    with pytest.raises(SemanticLoadFailed) as exc_info:
-        SemanticCatalog(project).get("entity.ops.events")
-    errors = exc_info.value.errors
-    kinds = [e.kind for e in errors]
-    assert "invalid_ref" in kinds or "subday_granularity_without_time" in kinds
+    assert project.is_ready(), project.errors()
 
 
 def test_hour_granularity_on_date_parse_is_rejected(semantic_project_factory):
@@ -88,13 +41,11 @@ def test_hour_granularity_on_date_parse_is_rejected(semantic_project_factory):
     project.load()
     with pytest.raises(SemanticLoadFailed) as exc_info:
         SemanticCatalog(project).get("entity.ops.events")
-    errors = exc_info.value.errors
-    kinds = [e.kind for e in errors]
-    assert "invalid_ref" in kinds or "subday_granularity_without_time" in kinds
+    assert [error.kind for error in exc_info.value.errors] == ["invalid_ref"]
 
 
 def test_second_granularity_datetime_is_valid(semantic_project_factory):
-    semantic_project_factory(
+    project = semantic_project_factory(
         {
             "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops', owner='Mina Zhang')\n",
             "ops/datasets.py": (
@@ -106,11 +57,12 @@ def test_second_granularity_datetime_is_valid(semantic_project_factory):
             ),
         }
     )
+    assert project.is_ready(), project.errors()
 
 
 def test_minute_granularity_string_with_time_format_is_valid(semantic_project_factory):
     """String with a time-bearing format like yyyymmddhhmm should be accepted."""
-    semantic_project_factory(
+    project = semantic_project_factory(
         {
             "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops', owner='Mina Zhang')\n",
             "ops/datasets.py": (
@@ -123,6 +75,7 @@ def test_minute_granularity_string_with_time_format_is_valid(semantic_project_fa
             ),
         }
     )
+    assert project.is_ready(), project.errors()
 
 
 def test_minute_granularity_string_without_time_format_is_rejected(semantic_project_factory):

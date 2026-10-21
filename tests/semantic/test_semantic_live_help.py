@@ -95,7 +95,7 @@ def test_semantic_live_surface_rejects_cross_surface_target() -> None:
     from marivo.introspection.live.resolve import resolve_live_target
     from marivo.semantic._capabilities.surface import SEMANTIC_LIVE_SURFACE
 
-    with pytest.raises(Exception):
+    with pytest.raises(SemanticHelpTargetError):
         resolve_live_target(mv.Session, SEMANTIC_LIVE_SURFACE)
 
 

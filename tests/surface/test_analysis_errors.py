@@ -123,25 +123,3 @@ def test_help_target_error_carries_suggestions_as_candidates() -> None:
 def test_help_target_error_location_is_help_target() -> None:
     err = HelpTargetError(target="observ", suggestions=("observe",))
     assert err.location == "marivo.help.target"
-
-
-# ---------------------------------------------------------------------------
-# semantic_authoring vs retry repair dispatch for metric/dimension lookup
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# CumulativeFrameUnsupportedError uses _derive_fields pattern
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Issue #65: the three _load/candidate helpers must carry typed repairs
-# ---------------------------------------------------------------------------
-# Review (note_19814717) corrected the baseline from 22 to 54 raise points:
-# three helpers construct the error and are raised 32 times. The class-level
-# _derive_fields dispatch is removed (construction sites carry the repair
-# explicitly), so the helpers must pass a typed repair themselves. These tests
-# pin the helper contracts so removing the class-level derivation does not
-# regress any of the 14 (_current_metric_state_error) / 9 (invalid) raise
-# sites.

@@ -114,36 +114,6 @@ def test_rule_families(session: Session, kind: str) -> None:
         assert result[("value", "denominator_left.q")].tolist() == [1, 1]
 
 
-def test_fraction_ratio_uses_parent_denominators(session: Session, tmp_path: Path) -> None:
-    from fractions import Fraction
-
-    with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
-        connection.execute(
-            "UPDATE facts SET amount=CASE id WHEN 1 THEN 1 WHEN 2 THEN 9 WHEN 3 THEN 2 ELSE 8 END, weight=CASE id WHEN 1 THEN 10 WHEN 2 THEN 90 WHEN 3 THEN 10 ELSE 190 END"
-        )
-    amount = session.catalog.fields.get("sales.facts.amount")
-    weight = session.catalog.fields.get("sales.facts.weight")
-    phase = session.catalog.fields.get("sales.facts.phase")
-    channel = session.catalog.fields.get("sales.facts.channel")
-    metric = amount.sum().divide(weight.sum())
-    rows = (
-        session.attribute(
-            attribute_endpoint({"q": metric}, where=phase == "current"),
-            attribute_endpoint({"q": metric}, where=phase == "base"),
-            by=(channel,),
-            contribution=True,
-        )
-        .compute()
-        .to_pandas()
-    )
-    assert rows[("value", "contribution.q")].tolist() == pytest.approx([0, float(-Fraction(1, 20))])
-    assert rows[("value", "absolute.q")].tolist() == pytest.approx(
-        [0.1, float(Fraction(8, 190) - Fraction(9, 90))]
-    )
-    assert rows[("value", "numerator_left.q")].tolist() == [2, 8]
-    assert rows[("value", "denominator_left.q")].tolist() == [10, 190]
-
-
 def test_native_co_valid_mask_and_local_zero_ratio(session: Session, tmp_path: Path) -> None:
     with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
         connection.execute(

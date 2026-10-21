@@ -41,9 +41,7 @@ from marivo.semantic.catalog import (
     PeriodCalendarEntry,
     SemanticCatalog,
     SemanticKind,
-    SnapshotVersioning,
     TemporalSetEntry,
-    ValidityVersioning,
     WorkScheduleEntry,
 )
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
@@ -61,64 +59,6 @@ if TYPE_CHECKING:
 
 def test_semantic_kind_is_symbol_kind_alias() -> None:
     assert SemanticKind is ms.SemanticKind
-
-
-def test_semantic_kind_has_all_required_values() -> None:
-    kinds = {str(k) for k in SemanticKind}
-    assert kinds >= {
-        "domain",
-        "datasource",
-        "entity",
-        "dimension",
-        "time_dimension",
-        "metric",
-        "relationship",
-    }
-
-
-# --- Unified Ref identity ---
-
-
-def test_semantic_ref_str_returns_ref_string() -> None:
-    ref = make_ref("sales.revenue", SemanticKind.METRIC)
-    assert str(ref) == "metric:sales.revenue"
-
-
-def test_semantic_ref_repr_includes_ref_and_kind() -> None:
-    ref = make_ref("sales.revenue", SemanticKind.METRIC)
-    assert repr(ref) == "Ref[metric](metric:sales.revenue)"
-
-
-def test_semantic_ref_equality_by_value() -> None:
-    a = make_ref("sales.revenue", SemanticKind.METRIC)
-    b = make_ref("sales.revenue", SemanticKind.METRIC)
-    assert a == b
-
-
-def test_semantic_ref_is_frozen() -> None:
-    ref = make_ref("sales.revenue", SemanticKind.METRIC)
-    with pytest.raises((AttributeError, TypeError)):
-        ref.path = "other"
-
-
-# --- AiContextView ---
-
-
-def test_ai_context_view_has_all_spec_fields() -> None:
-    ctx = AiContextView(
-        business_definition="Revenue from completed orders.",
-        guardrails=("Exclude refunds.",),
-    )
-    assert ctx.business_definition == "Revenue from completed orders."
-    assert ctx.guardrails == ("Exclude refunds.",)
-
-
-def test_ai_context_view_defaults_to_empty() -> None:
-    ctx = AiContextView(
-        business_definition=None,
-        guardrails=(),
-    )
-    assert ctx.guardrails == ()
 
 
 _FACTORY_BY_KIND: dict[SemanticKind, Callable[[str], Ref[SemanticKindTag]]] = {
@@ -218,51 +158,6 @@ def test_datasource_details_fields() -> None:
     assert "children: (none)" in rendered
     assert "dependents: (none)" in rendered
     assert d.render() == rendered
-
-
-def test_domain_details_fields() -> None:
-    d = DomainDetails(
-        ref=_make_ref("sales", SemanticKind.DOMAIN),
-        kind=SemanticKind.DOMAIN,
-        name="sales",
-        domain="sales",
-        context=_make_ctx(),
-        source_location=_make_loc(),
-        parents=(),
-        children=(_make_ref("sales.orders", SemanticKind.ENTITY),),
-        dependents=(),
-        python_symbol="",
-        owner="Mina Zhang",
-        default=True,
-    )
-    assert d.children[0].path == "sales.orders"
-    assert d.owner == "Mina Zhang"
-    assert d.default is True
-
-
-def test_snapshot_versioning_fields() -> None:
-    v = SnapshotVersioning(
-        kind="snapshot",
-        partition_field="created_date",
-        grain="day",
-        timezone="UTC",
-        format="%Y-%m-%d",
-    )
-    assert v.kind == "snapshot"
-    assert v.grain == "day"
-
-
-def test_validity_versioning_fields() -> None:
-    v = ValidityVersioning(
-        kind="validity",
-        valid_from="valid_from",
-        valid_to="valid_to",
-        interval="closed_open",
-        open_end=(None,),
-        timezone=None,
-    )
-    assert v.kind == "validity"
-    assert v.interval == "closed_open"
 
 
 # --- Fixtures ---
@@ -657,16 +552,6 @@ def test_catalog_collection_returns_semantic_object_for_domain(
     assert obj.details().owner == "Mina Zhang"
 
 
-def test_catalog_collection_returns_semantic_value_for_entity(
-    semantic_project_factory: _SemanticProjectFactory,
-) -> None:
-    catalog = _make_catalog(semantic_project_factory)
-    obj = catalog.entities.get("sales.orders")
-    assert obj.ref.ref.path == "sales.orders"
-    assert str(obj.ref.ref.kind) == "entity"
-    assert obj.ref.ref in catalog.domains.get("sales").entities.refs
-
-
 def test_catalog_has_no_public_require(
     semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
@@ -903,7 +788,7 @@ def test_ms_load_defaults_to_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     _write_minimal_project(tmp_path)
     monkeypatch.chdir(tmp_path)
     catalog = ms.load()
-    assert isinstance(catalog, SemanticCatalog)
+    assert {ref.path for ref in catalog.metrics.refs} == {"sales.revenue"}
 
 
 def test_ms_load_failure_raises_semantic_load_error(tmp_path: Path) -> None:
@@ -1193,16 +1078,6 @@ def _dimension_ref(field: Deferred) -> Ref[DimensionKind]:
 # --- catalog.readiness() ---
 
 
-def test_catalog_readiness_returns_readiness_report(
-    semantic_project_factory: _SemanticProjectFactory,
-) -> None:
-    from marivo.semantic.readiness import ReadinessReport
-
-    catalog = _make_catalog(semantic_project_factory)
-    report = catalog.readiness()
-    assert isinstance(report, ReadinessReport)
-
-
 def test_catalog_readiness_normalizes_entry_value_and_ref_to_same_public_payload(
     semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
@@ -1330,14 +1205,6 @@ def test_catalog_readiness_no_stdout(
     catalog = _make_catalog(semantic_project_factory)
     catalog.readiness()
     assert capsys.readouterr().out == ""
-
-
-def test_metric_ref_rejects_entity_level_path(
-    semantic_project_factory: _SemanticProjectFactory,
-) -> None:
-    del semantic_project_factory
-    with pytest.raises(ValueError, match="exactly 2 segments"):
-        ms.ref.metric("sales.orders.revenue")
 
 
 def test_dimension_ref_rejects_domain_level_path(

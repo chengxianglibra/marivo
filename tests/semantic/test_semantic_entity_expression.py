@@ -352,18 +352,6 @@ def test_entity_body_hash_changes_with_expression_change() -> None:
     assert _compile_entity_body(body_a).body_ast_hash != _compile_entity_body(body_b).body_ast_hash
 
 
-def test_entity_body_hash_differs_from_field_expression_hash() -> None:
-    def entity_body(raw: object) -> object:
-        return raw
-
-    def field_body(orders: object) -> object:
-        return orders.amount
-
-    entity_body_hash = _compile_entity_body(entity_body).body_ast_hash
-    field_body_hash = _compile_entity_body(field_body)
-    assert entity_body_hash != field_body_hash.body_ast_hash
-
-
 # ---------------------------------------------------------------------------
 # Ref family parity
 # ---------------------------------------------------------------------------

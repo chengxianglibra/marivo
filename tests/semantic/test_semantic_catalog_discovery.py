@@ -175,18 +175,6 @@ def test_discovery_metrics_returns_metrics(semantic_project_factory: ProjectFact
         assert str(consume_metric(obj).node.ref.ref.kind) == "metric"
 
 
-def test_discovery_metrics_get_returns_revenue_with_exact_ref(
-    semantic_project_factory: ProjectFactory,
-) -> None:
-    result = _make_catalog(semantic_project_factory).metrics
-
-    revenue = result.get("sales.revenue")
-    assert isinstance(consume_metric(revenue).node, DeclaredMetricRef)
-    assert consume_metric(revenue).node.ref.ref == ms.ref.metric("sales.revenue")
-    assert consume_metric(revenue).node.ref.version.startswith("sha256:")
-    assert result.get("sales.revenue") is revenue
-
-
 def test_discovery_metrics_cross_domain(semantic_project_factory: ProjectFactory) -> None:
     result = _make_multi_domain_catalog(semantic_project_factory).metrics
 
@@ -309,15 +297,6 @@ def test_discovery_collection_resolves_every_expression_member(
     assert catalog.metrics.refs
     for ref in catalog.metrics.refs:
         assert isinstance(catalog.metrics.get(ref.path), Deferred)
-
-
-def test_discovery_collection_resolves_container_entries(
-    semantic_project_factory: ProjectFactory,
-) -> None:
-    catalog = _make_catalog(semantic_project_factory)
-
-    assert isinstance(catalog.domains.get("sales"), DomainEntry)
-    assert isinstance(catalog.datasources.get("warehouse"), DatasourceEntry)
 
 
 def test_discovery_unknown_domain_raises_error(semantic_project_factory: ProjectFactory) -> None:

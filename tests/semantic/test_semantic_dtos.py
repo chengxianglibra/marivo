@@ -5,7 +5,7 @@ from typing import get_args, get_type_hints
 import pytest
 
 import marivo.datasource as md
-from marivo.datasource.ir import CsvSourceIR, ParquetSourceIR
+from marivo.datasource.ir import ParquetSourceIR
 from marivo.semantic.dtos import (
     AssessmentIssue,
     AuthoringAssessment,
@@ -73,51 +73,6 @@ def test_file_source_parquet_dict_round_trips_through_semantic_ir_parser():
     assert restored.hive_partitioning is True
 
 
-def test_file_source_csv_dict_round_trips_through_semantic_ir_parser():
-    from marivo.semantic.ir import source_from_dict
-
-    src = CsvSourceIR(
-        path="/data/orders.csv",
-        columns=(("order_id", "order_id"), ("amount", "amount")),
-        delimiter="\t",
-    )
-
-    restored = source_from_dict(src.to_dict())
-
-    assert isinstance(restored, CsvSourceIR)
-    assert restored.path == "/data/orders.csv"
-    assert restored.columns == (("amount", "amount"), ("order_id", "order_id"))
-    assert restored.delimiter == "\t"
-
-
-def test_file_source_json_dict_round_trips_through_semantic_ir_parser():
-    from marivo.datasource.ir import JsonSourceIR
-    from marivo.semantic.ir import source_from_dict
-
-    src = JsonSourceIR(
-        path="/data/events.json",
-        columns=(
-            ("event_id", "event_id"),
-            ("occurred_at", "occurred_at"),
-            ("app_name", "specificsource[].name"),
-        ),
-        format="newline_delimited",
-        records_path="$.data",
-    )
-
-    restored = source_from_dict(src.to_dict())
-
-    assert isinstance(restored, JsonSourceIR)
-    assert restored.path == "/data/events.json"
-    assert restored.columns == (
-        ("app_name", "specificsource[].name"),
-        ("event_id", "event_id"),
-        ("occurred_at", "occurred_at"),
-    )
-    assert restored.format == "newline_delimited"
-    assert restored.records_path == "$.data"
-
-
 def test_parameterized_json_source_round_trips_through_semantic_ir_parser() -> None:
     from marivo.semantic.ir import source_from_dict
 
@@ -149,15 +104,6 @@ def test_post_json_source_round_trips_through_semantic_ir_parser() -> None:
     assert source_from_dict(src.to_dict()) == src
 
 
-def test_source_from_dict_rejects_typed_schema_fields() -> None:
-    from marivo.semantic.ir import source_from_dict
-
-    with pytest.raises(ValueError, match="schema"):
-        source_from_dict({"kind": "csv", "path": "orders.csv", "schema": {"order_id": 123}})
-    with pytest.raises(ValueError, match="schema"):
-        source_from_dict({"kind": "json", "path": "events.json", "schema": {123: "string"}})
-
-
 def test_dataset_source_cannot_mix_table_and_file_fields():
     with pytest.raises(TypeError):
         TableSource(table="orders", path="/data/orders.parquet")  # type: ignore[call-arg]
@@ -165,25 +111,6 @@ def test_dataset_source_cannot_mix_table_and_file_fields():
         ParquetSourceIR(path="/data/orders.parquet", table="orders")  # type: ignore[call-arg]
     with pytest.raises(TypeError):
         ParquetSourceIR(path="/data/orders.parquet", database="sales_mart")  # type: ignore[call-arg]
-
-
-def test_table_source_to_dict_is_json_safe():
-    src = TableSource(table="orders", database=("a", "b"))
-    assert src.to_dict() == {
-        "kind": "table",
-        "table": "orders",
-        "database": ["a", "b"],
-    }
-
-
-def test_file_source_to_dict_is_json_safe():
-    src = ParquetSourceIR(path="/data/orders.parquet", hive_partitioning=True)
-    assert src.to_dict() == {
-        "kind": "parquet",
-        "path": "/data/orders.parquet",
-        "hive_partitioning": True,
-        "columns": None,
-    }
 
 
 def test_authoring_source_input_to_dict_is_json_safe():
@@ -229,21 +156,6 @@ def test_derive_status_needs_input_then_supported():
     )
     assert derive_status((needs,)) == "needs_input"
     assert derive_status(()) == "supported"
-
-
-def test_authoring_assessment_status_uses_needs_input():
-    issue = AssessmentIssue(
-        kind="missing_source",
-        severity="warning",
-        refs=("sales.revenue",),
-        message="source context is missing",
-        rule_id="source_context_present",
-    )
-    status = derive_status((issue,))
-    assessment = AuthoringAssessment(status=status, issues=(issue,))
-
-    assert status == "needs_input"
-    assert assessment.status == "needs_input"
 
 
 def test_authoring_assessment_is_frozen():

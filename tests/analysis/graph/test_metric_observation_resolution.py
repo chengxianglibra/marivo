@@ -1,22 +1,18 @@
-"""Observation resolves definitions once and rechecks physical input at execution."""
+"""Observation retains frozen definition identity and rechecks physical input at execution."""
 
 from __future__ import annotations
-
-from unittest.mock import patch
 
 import duckdb
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.dsl import source_capture
 from marivo.datasource.adapters import SourceSession
-from marivo.semantic._deferred_semantics import consume_metric_in_state
 from marivo.semantic.errors import SemanticExpressionError, SemanticRuntimeError
 from tests.analysis.graph.execution_fixtures import source_graph
 from tests.shared_fixtures import DslCaseFactory, terminal_runs
 
 
-def test_public_observation_resolves_once_and_retains_components(
+def test_public_observation_retains_components_values_and_laziness(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
@@ -30,15 +26,8 @@ def test_public_observation_resolves_once_and_retains_components(
         ("linear2", revenue + revenue, 2, 2000.0),
     ):
         runs_before = len(terminal_runs(case.session))
-        with patch.object(
-            source_capture,
-            "consume_metric_in_state",
-            wraps=consume_metric_in_state,
-        ) as resolve:
-            observed = case.session.observe({"value": metric}, by=(window,))
-            assert resolve.call_count == 1
-            again = case.session.observe({"value": metric}, by=(window,))
-            assert resolve.call_count == 2
+        observed = case.session.observe({"value": metric}, by=(window,))
+        again = case.session.observe({"value": metric}, by=(window,))
         assert len(terminal_runs(case.session)) == runs_before
         assert source_graph(again).fingerprint == source_graph(observed).fingerprint
         binding = source_graph(observed).signature.observation

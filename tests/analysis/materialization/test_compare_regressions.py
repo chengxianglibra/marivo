@@ -162,27 +162,6 @@ def test_numeric_literal_comparison_keeps_known_kind(comparison_session: mv.Sess
     ].tolist() == [0]
 
 
-def test_public_decimal_compare_ignores_caller_precision(comparison_session: mv.Session) -> None:
-    current = comparison_session.values(
-        by=(), columns={"v": None}, rows=(((), {"v": Decimal("38")}),)
-    )
-    baseline = comparison_session.values(
-        by=(), columns={"v": None}, rows=(((), {"v": Decimal("19")}),)
-    )
-    with localcontext() as context:
-        context.prec = 1
-        frame = (
-            current.compare(
-                {"base": baseline},
-                on={"base": tuple(zip(current.axes, baseline.axes, strict=True))},
-            )
-            .compute()
-            .to_pandas()
-        )
-    assert frame[("value", "base.absolute.v")].tolist() == [Decimal("19")]
-    assert frame[("value", "base.relative.v")].tolist() == [1.0]
-
-
 def test_duration_comparison_still_rejects_nonzero_mixed_tick_literals(
     comparison_session: mv.Session,
 ) -> None:

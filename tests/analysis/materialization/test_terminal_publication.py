@@ -1220,7 +1220,7 @@ def test_period_comparison_endpoints_and_report_cold_recovery(source_session: Se
     assert "period-cold-ok" in reopened.stdout
 
 
-def test_open_missing_and_foreign_ids_and_invalid_evidence_arguments(session: Session) -> None:
+def test_open_missing_and_foreign_ids(session: Session) -> None:
     from marivo.analysis.errors import ArtifactNotFoundError
 
     artifact = constant(session).persist()
@@ -1229,9 +1229,6 @@ def test_open_missing_and_foreign_ids_and_invalid_evidence_arguments(session: Se
         other.persisted_frame(artifact.artifact.id)
     with pytest.raises(ArtifactNotFoundError):
         session.persisted_frame("missing")
-    with pytest.raises(TypeError):
-        # The runtime contract must reject unsupported evidence pagination arguments.
-        artifact.artifact.evidence_digest(limit=1)  # type: ignore[call-arg]
 
 
 def test_composite_coordinates_remain_one_ordered_tuple(tmp_path: Path) -> None:

@@ -89,6 +89,7 @@ def test_resolver_dimension_on_accepts_semantic_ref(semantic_project_factory):
     )
 
     assert isinstance(value, ibis.expr.types.Value)
+    assert value.get_name() == "amount"
 
 
 def test_resolver_measure_on_rejects_wrong_kind(semantic_project_factory):

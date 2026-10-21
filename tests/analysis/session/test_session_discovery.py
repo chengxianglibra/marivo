@@ -74,8 +74,6 @@ def test_session_creation_and_history_preserve_foreign_entries(
         return
     first = mv.session.resume(original.id)
     assert first.id == original.id
-    if original is not None:
-        assert first.id == original.id
     assert mv.session.resume(first.id).id == first.id
     second = mv.session.create("second", timezone="UTC")
 
@@ -96,41 +94,6 @@ def test_session_creation_and_history_preserve_foreign_entries(
         path is not None and path.read_bytes() == b"preserve-unreadable-legacy-bytes"
         for path in foreign
     )
-
-
-def test_history_cursor_is_decoded_once_per_public_read(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from marivo.analysis.materialization.terminal_store import admit
-    from marivo.analysis.session import _lazy_runtime_reads
-
-    monkeypatch.chdir(tmp_path)
-    mv.session.create("first", timezone="UTC")
-    session = mv.session.create("second", timezone="UTC")
-    for run_id in ("run_first", "run_second"):
-        admit(
-            session._runtime.store,
-            session.id,
-            run_id,
-            "result_" + run_id,
-        )
-        mv.session.resume(session.id)
-    cursor = mv.session.recent(limit=1).next_cursor
-    assert cursor is not None
-    from marivo.analysis._pages import decode_keyset_cursor
-
-    decode = decode_keyset_cursor
-    calls = 0
-
-    def counted(value: str) -> tuple[str | int, str]:
-        nonlocal calls
-        calls += 1
-        return decode(value)
-
-    monkeypatch.setattr(_lazy_runtime_reads, "decode_keyset_cursor", counted)
-    page = mv.session.recent(limit=1, cursor=cursor)
-    assert [item.name for item in page.items] == ["first"]
-    assert calls == 1
 
 
 def test_history_invalid_cursor_precedes_store_lookup_and_preserves_repair(

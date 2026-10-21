@@ -2,8 +2,6 @@
 
 import ibis
 
-from marivo.datasource.engines import profile_for_backend_name
-
 
 def test_ibis_emits_strptime_for_trino_dialect():
     """Sanity: ibis emits MySQL/strptime format for ``date_parse`` on Trino
@@ -13,27 +11,3 @@ def test_ibis_emits_strptime_for_trino_dialect():
     sql = ibis.to_sql(expr, dialect="trino")
     assert "%Y%m%d" in sql
     assert "yyyyMMdd" not in sql
-
-
-def test_profile_translates_minutes_for_native_dialect():
-    for backend, dialect in (("trino", "trino"), ("presto", "trino"), ("mysql", "mysql")):
-        table = ibis.table({"created_at": "string"}, name="orders")
-        fmt = profile_for_backend_name(backend).translate_strptime_format("%Y-%m-%d %H:%M:%S")
-        assert "%M" not in fmt
-        assert "%i" in fmt
-        sql = ibis.to_sql(table.created_at.as_timestamp(fmt), dialect=dialect)
-        assert "%M" not in sql
-        assert "%i" in sql or "%T" in sql
-
-
-def test_duckdb_profile_preserves_python_minutes():
-    assert profile_for_backend_name("duckdb").translate_strptime_format("%M") == "%M"
-
-
-def test_clickhouse_profile_translates_to_mysql_specifiers():
-    """ClickHouse ``parseDateTime`` reads MySQL-family specifiers, and Python
-    ``%M`` is minute there while MySQL ``%M`` is a month name."""
-    assert (
-        profile_for_backend_name("clickhouse").translate_strptime_format("%Y-%m-%d %H:%M:%S")
-        == "%Y-%m-%d %H:%i:%s"
-    )

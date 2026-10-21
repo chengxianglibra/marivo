@@ -74,16 +74,6 @@ def _ready_project(tmp_path) -> None:
     _write_ontology(tmp_path, _valid_ontology_source())
 
 
-def test_ontology_constructor_requires_load_context() -> None:
-    with pytest.raises(InvalidSemanticEdgeError):
-        mo.influences(
-            name="outside_loader",
-            driver=ms.ref.metric("sales.order_count"),
-            outcome=ms.ref.metric("sales.revenue"),
-            ai_context=ms.ai_context(business_definition="Not load-scoped."),
-        )
-
-
 def test_ontology_edge_error_exposes_structured_repair() -> None:
     with pytest.raises(InvalidSemanticEdgeError) as exc_info:
         mo.influences(

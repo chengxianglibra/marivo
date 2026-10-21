@@ -18,8 +18,6 @@ import dataclasses
 import json
 import subprocess
 import sys
-from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -51,79 +49,6 @@ from marivo.semantic.ir import (
 def test_all_symbols_importable() -> None:
     for name in ms.__all__:
         assert hasattr(ms, name), f"ms.{name} not found on module"
-
-
-def test_all_list_matches_expected() -> None:
-    expected = {
-        "CalendarLevelDetails",
-        "CalendarPeriodPage",
-        "CatalogCollection",
-        "CatalogEntry",
-        "DatasourceDetails",
-        "DatasourceEntry",
-        "DomainDetails",
-        "DomainEntry",
-        "ExpressionContract",
-        "JoinKey",
-        "PeriodCalendarDetails",
-        "PeriodCalendarEntry",
-        "PeriodCalendarKind",
-        "PreviewBatchResult",
-        "ReadinessReport",
-        "Ref",
-        "SemanticCatalog",
-        "SemanticKind",
-        "SourceCheck",
-        "SourceHealthReport",
-        "TemporalOccurrencePage",
-        "TemporalSetDetails",
-        "TemporalSetEntry",
-        "TemporalSetKind",
-        "WorkScheduleDetails",
-        "WorkScheduleEntry",
-        "WorkScheduleKind",
-        "additive",
-        "additive_all",
-        "ai_context",
-        "bind",
-        "calendar_grain",
-        "datetime",
-        "dimension",
-        "dimension_column",
-        "domain",
-        "entity",
-        "errors",
-        "finalize",
-        "hour_prefix",
-        "join_on",
-        "load",
-        "measure",
-        "measure_column",
-        "metric",
-        "non_additive",
-        "period_calendar",
-        "period_correspondence",
-        "ref",
-        "relationship",
-        "snapshot",
-        "source_check",
-        "strptime",
-        "temporal_set",
-        "time_dimension",
-        "time_dimension_column",
-        "timestamp",
-        "typing",
-        "validity",
-        "work_schedule",
-    }
-    assert set(ms.__all__) == expected
-
-
-def test_reader_project_class() -> None:
-    from marivo.semantic.reader import SemanticProject
-
-    project = SemanticProject(root="/tmp/test")
-    assert not project.is_ready()
 
 
 def test_readiness_public_dtos() -> None:
@@ -355,8 +280,6 @@ _EXPECTED_RUNTIME_KINDS = {
     "filter_value_runtime_incompatible",
 }
 
-_EXPECTED_PARITY_KINDS: set[str] = set()
-
 
 def test_error_kind_decorator_kinds() -> None:
     values = {k.value for k in errors_mod.ErrorKind if k.value in _EXPECTED_DECORATOR_KINDS}
@@ -373,11 +296,6 @@ def test_error_kind_runtime_kinds() -> None:
     assert values == _EXPECTED_RUNTIME_KINDS
 
 
-def test_error_kind_parity_kinds() -> None:
-    values = {k.value for k in errors_mod.ErrorKind if k.value in _EXPECTED_PARITY_KINDS}
-    assert values == _EXPECTED_PARITY_KINDS
-
-
 def test_constraint_ids_all_registered() -> None:
     missing = [
         constraint_id.value
@@ -388,12 +306,7 @@ def test_constraint_ids_all_registered() -> None:
 
 
 def test_error_kind_all_covered() -> None:
-    expected = (
-        _EXPECTED_DECORATOR_KINDS
-        | _EXPECTED_ASSEMBLY_KINDS
-        | _EXPECTED_RUNTIME_KINDS
-        | _EXPECTED_PARITY_KINDS
-    )
+    expected = _EXPECTED_DECORATOR_KINDS | _EXPECTED_ASSEMBLY_KINDS | _EXPECTED_RUNTIME_KINDS
     actual = {k.value for k in errors_mod.ErrorKind}
     assert actual == expected
 
@@ -530,11 +443,6 @@ def test_relationship_ref() -> None:
     assert ref.kind == SemanticKind.RELATIONSHIP
 
 
-def test_base_ref_repr() -> None:
-    ref = ms.ref.entity("sales.orders")
-    assert repr(ref) == "Ref[entity](entity:sales.orders)"
-
-
 # ---------------------------------------------------------------------------
 # typing module
 # ---------------------------------------------------------------------------
@@ -603,58 +511,6 @@ def test_structured_warning_is_frozen() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Validator module
-# ---------------------------------------------------------------------------
-
-
-def test_validate_decorator_call_works() -> None:
-    from marivo.semantic.validator import validate_decorator_call
-
-    # No longer a stub; should not raise for valid input
-    validate_decorator_call("test", {})
-
-
-def test_validate_metric_body_ast_works() -> None:
-    from marivo.semantic.validator import validate_metric_body_ast
-
-    # No longer a stub; should return a hash string for valid bodies
-    def good_fn(table: Any) -> Any:
-        return table.amount.sum()
-
-    result = validate_metric_body_ast(good_fn, "base")
-    assert isinstance(result, str)
-    assert len(result) > 0
-
-
-def test_assembly_validate_works() -> None:
-    from marivo.semantic.validator import Registry, assembly_validate
-
-    # No longer a stub; should return (errors, warnings) for empty registry
-    registry = Registry()
-    errors, warnings = assembly_validate(registry)
-    assert isinstance(errors, list)
-    assert isinstance(warnings, list)
-
-
-# ---------------------------------------------------------------------------
-# Materializer module
-# ---------------------------------------------------------------------------
-
-
-def test_materializer_class_exists() -> None:
-    from marivo.semantic.errors import SemanticRuntimeError
-    from marivo.semantic.materializer import Materializer
-
-    m = Materializer(project=None, backend_factory=lambda x: None)
-    with pytest.raises(SemanticRuntimeError):
-        m.entity("test")
-    with pytest.raises(SemanticRuntimeError):
-        m.dimension("test")
-    with pytest.raises(SemanticRuntimeError):
-        m.measure("test")
-
-
-# ---------------------------------------------------------------------------
 # Removed SQL provenance entry
 # ---------------------------------------------------------------------------
 
@@ -680,17 +536,3 @@ def test_reader_project_init() -> None:
     project = SemanticProject(root="/tmp/test")
     assert not project.is_ready()
     assert project.errors() == ()
-
-
-def test_reader_project_load_works() -> None:
-    """SemanticProject.load() now works (implemented in Slice 1)."""
-    import tempfile
-
-    from marivo.semantic.reader import SemanticProject
-
-    with tempfile.TemporaryDirectory() as tmp:
-        semantic_root = Path(tmp) / "models" / "semantic"
-        semantic_root.mkdir(parents=True)
-        project = SemanticProject(root=semantic_root)
-        result = project.load()
-        assert result.status == "ready"

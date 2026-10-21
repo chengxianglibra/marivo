@@ -270,9 +270,9 @@ def test_duckdb_file_bindings_preserve_projection_and_json_params(tmp_path: Path
     json_path.write_text('[{"id":1,"amount":2},{"id":2,"amount":3}]')
     backend = ibis.duckdb.connect(tmp_path / "files.duckdb")
     with SourceSession(provider_for("duckdb"), _datasource("duckdb"), backend) as file_session:
-        cases: tuple[tuple[SourceIR, dict[str, int] | None], ...] = (
-            (CsvSourceIR(str(csv_path), columns=(("value", "amount"),)), None),
-            (ParquetSourceIR(str(parquet_path), columns=("amount",)), None),
+        cases: tuple[tuple[SourceIR, dict[str, int] | None, str], ...] = (
+            (CsvSourceIR(str(csv_path), columns=(("value", "amount"),)), None, "value"),
+            (ParquetSourceIR(str(parquet_path), columns=("amount",)), None, "amount"),
             (
                 JsonSourceIR(
                     str(json_path),
@@ -280,9 +280,10 @@ def test_duckdb_file_bindings_preserve_projection_and_json_params(tmp_path: Path
                     query_params=(("page", SourceParamIR("page")),),
                 ),
                 {"page": 1},
+                "value",
             ),
         )
-        for index, (source, params) in enumerate(cases):
+        for index, (source, params, projected) in enumerate(cases):
             identity = f"file-{index}"
             bound = file_session.bind(source, source_identity=identity, source_params=params)
             frame = file_session.collect_bounded(
@@ -291,7 +292,8 @@ def test_duckdb_file_bindings_preserve_projection_and_json_params(tmp_path: Path
                 purpose="authoring.sample",
                 max_rows=2,
             )
-            assert len(frame) == 2
+            assert tuple(frame.columns) == (projected,)
+            assert sorted(frame[projected].tolist()) == [2, 3]
         with pytest.raises(ValueError, match="missing"):
             file_session.bind(cases[2][0], source_identity="missing-param")
 

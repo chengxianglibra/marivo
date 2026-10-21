@@ -582,7 +582,6 @@ def test_projected_source_render_preserves_database_identity_shape(
     "engine,physical,logical",
     [
         ("mysql", "tinyint(1)", "int8"),
-        ("mysql", "tinyint(1)", "int8"),
         ("mysql", "bigint unsigned", "uint64"),
     ],
 )

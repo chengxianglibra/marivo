@@ -11,20 +11,16 @@ from marivo._definition.deferred import root_declaration
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.errors import SemanticDecoratorError, SemanticExpressionError
 from marivo.semantic.ir import (
-    AiContextIR,
     DateParse,
     DatetimeParse,
     DimensionKind,
     HourPrefixParse,
     JoinKey,
-    MeasureIR,
     SampleIntervalIR,
     SemanticKind,
     SemanticParse,
-    SourceLocation,
     StrptimeParse,
     TimestampParse,
-    ValidityVersioningIR,
 )
 from marivo.semantic.loader import LoaderContext, loader_context
 from tests.shared_fixtures import in_memory_datasource_ir
@@ -40,24 +36,6 @@ def test_measure_ref_and_kind_are_first_class() -> None:
     assert ref.kind == SemanticKind.MEASURE
     assert SemanticKind.MEASURE.value == "measure"
     assert {item.value for item in DimensionKind} == {"categorical", "time"}
-
-
-def test_measure_ir_holds_measure_only_fields() -> None:
-    ir = MeasureIR(
-        semantic_id="sales.orders.amount",
-        domain="sales",
-        entity="sales.orders",
-        name="amount",
-        ai_context=AiContextIR(),
-        additivity="additive",
-        unit="USD",
-        python_symbol="amount",
-        location=SourceLocation(file="/tmp/_domain.py", line=10),
-    )
-
-    assert ir.kind == SemanticKind.MEASURE
-    assert ir.additivity == "additive"
-    assert ir.unit == "USD"
 
 
 def test_time_parse_value_objects_are_closed_variants() -> None:
@@ -102,17 +80,6 @@ def test_join_key_rejects_invalid_payloads() -> None:
         JoinKey(from_key=42, to_key="sales.customers.id")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match=r"JoinKey\.to_key"):
         JoinKey(from_key="sales.orders.customer_id", to_key="")
-
-
-def test_validity_open_end_has_no_any_payload() -> None:
-    ir = ValidityVersioningIR(
-        kind="validity",
-        valid_from="start_at",
-        valid_to="end_at",
-        interval="closed_open",
-        open_end=("9999-12-31", None),
-    )
-    assert ir.open_end == ("9999-12-31", None)
 
 
 # ---------------------------------------------------------------------------

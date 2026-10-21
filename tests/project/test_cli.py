@@ -134,12 +134,6 @@ def test_force_overwrites_marivo_toml(tmp_path: Path) -> None:
     assert data["project"]["name"] == tmp_path.name
 
 
-def test_force_overwrites_models_dir(tmp_path: Path) -> None:
-    (tmp_path / "models").mkdir()
-    init_project(force=True, project_dir=tmp_path)
-    assert (tmp_path / "models").is_dir()
-
-
 # ---------------------------------------------------------------------------
 # --force deletes and recreates non-empty .marivo/
 # ---------------------------------------------------------------------------

@@ -3,7 +3,7 @@
 These tests verify:
 - Result-producing public APIs do not write stdout.
 - repr() is one line and points to .show().
-- render() + show() are present and well-behaved.
+- render() + show() are present and well-behaved on result types that own render().
 - available: sections are present and non-empty.
 - display= parameter is absent.
 """
@@ -128,27 +128,8 @@ def test_catalog_collection_repr_is_one_line(semantic_project_factory) -> None:
 
 
 # ---------------------------------------------------------------------------
-# render() + show() contract
+# render() + show() contract (result types that own render())
 # ---------------------------------------------------------------------------
-
-
-def test_dataset_contract_render_is_silent(analysis_dsl_case_factory, capsys) -> None:
-    case = analysis_dsl_case_factory("j2")
-    result = case.session.observe({"revenue": case.catalog.metrics.get("sales.revenue")})
-    assert result.output_names == ("revenue",)
-    assert capsys.readouterr().out == ""
-
-
-def test_dataset_contract_show_prints_render_plus_newline(
-    analysis_dsl_case_factory, capsys
-) -> None:
-    case = analysis_dsl_case_factory("j2")
-    result = case.session.observe({"revenue": case.catalog.metrics.get("sales.revenue")})
-    assert result.show() is None
-    first = capsys.readouterr().out
-    assert first and len(first) <= 8192
-    result.show()
-    assert capsys.readouterr().out == first
 
 
 def test_catalog_collection_render_contains_refs_affordance(semantic_project_factory) -> None:

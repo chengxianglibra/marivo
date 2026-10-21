@@ -302,7 +302,10 @@ def test_dataset_projected_table_uses_observed_lookup_schema(
             return ibis.table({"order_id": "int64", "amount": "float32"}, name=name)
 
     with patch_semantic_connections(project, lambda _: _LookupOnlyBackend()) as connections:
-        _materialize_dataset(project, connections, "sales.orders")
+        table = _materialize_dataset(project, connections, "sales.orders")
+
+    # Projection applies the declared output aliases to the observed schema.
+    assert table.columns == ("order_key", "value")
 
 
 def test_dataset_file_source_reads_parquet(semantic_project_factory) -> None:
@@ -512,7 +515,7 @@ def test_dataset_json_source_requires_backend_reader(semantic_project_factory) -
 
 
 def test_field_materialize(semantic_project_factory, backend_factory) -> None:
-    """Materializing a field should return an ibis Value expression."""
+    """Materializing a physical field returns its source column expression."""
     project = semantic_project_factory(
         {
             "sales/_domain.py": _DOMAIN_PY,
@@ -521,8 +524,8 @@ def test_field_materialize(semantic_project_factory, backend_factory) -> None:
     )
     with patch_semantic_connections(project, backend_factory) as connections:
         field_expr = _materialize_field(project, connections, "sales.orders.amount")
-    # ibis Value is the base of column expressions
-    assert field_expr is not None
+    assert isinstance(field_expr, ibis.expr.types.Value)
+    assert field_expr.get_name() == "amount"
 
 
 # ---------------------------------------------------------------------------
@@ -591,80 +594,6 @@ def test_materializer_dimension_on_is_not_ref_cached(
 
     assert "first_orders" in repr(first_value)
     assert "second_orders" in repr(second_value)
-
-
-# ---------------------------------------------------------------------------
-# Backend cache
-# ---------------------------------------------------------------------------
-
-
-def test_backend_by_datasource_within_single_materializer(semantic_project_factory) -> None:
-    """Within one Materializer, the same datasource should only call factory once."""
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/datasets.py": _DATASET_AND_METRIC_PY,
-        }
-    )
-
-    call_count = 0
-
-    def counting_factory(datasource_id: str):
-        nonlocal call_count
-        call_count += 1
-        con = ibis.duckdb.connect(":memory:")
-        con.con.execute(
-            "CREATE TABLE orders (order_id INT, amount FLOAT, region TEXT, created_at TIMESTAMP)"
-        )
-        con.con.execute(
-            "INSERT INTO orders VALUES (1, 100.0, 'US', '2025-01-01'), "
-            "(2, 200.0, 'EU', '2025-02-01')"
-        )
-        return con
-
-    # Use the Materializer directly to test internal caching
-    mat = Materializer(project, counting_factory)
-    mat.entity("sales.orders")
-    assert call_count == 1
-
-    # Calling again should use cache
-    mat.entity("sales.orders")
-    assert call_count == 1
-
-    # Materialize a physical field on the same datasource; reuse its backend
-    mat.dimension("sales.orders.amount")
-    assert call_count == 1
-
-
-# ---------------------------------------------------------------------------
-# Dataset cache
-# ---------------------------------------------------------------------------
-
-
-def test_dataset_cache_reuses_table(semantic_project_factory) -> None:
-    """Same dataset should return the same table object within a Materializer."""
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/datasets.py": _DATASET_AND_METRIC_PY,
-        }
-    )
-
-    con = ibis.duckdb.connect(":memory:")
-    con.con.execute(
-        "CREATE TABLE orders (order_id INT, amount FLOAT, region TEXT, created_at TIMESTAMP)"
-    )
-    con.con.execute(
-        "INSERT INTO orders VALUES (1, 100.0, 'US', '2025-01-01'), (2, 200.0, 'EU', '2025-02-01')"
-    )
-
-    def factory(ds_id: str):
-        return con
-
-    mat = Materializer(project, factory)
-    table1 = mat.entity("sales.orders")
-    table2 = mat.entity("sales.orders")
-    assert table1 is table2
 
 
 # ---------------------------------------------------------------------------
@@ -808,46 +737,6 @@ def test_missing_semantic_refs_raise_not_found(semantic_project_factory, backend
             with pytest.raises(SemanticRuntimeError) as exc_info:
                 operation()
             assert exc_info.value.kind == ErrorKind.NOT_FOUND
-
-
-# ---------------------------------------------------------------------------
-# Fresh Materializer per call
-# ---------------------------------------------------------------------------
-
-
-def test_fresh_materializer_per_resolver_call(semantic_project_factory) -> None:
-    """Each resolver helper call should create a new Materializer."""
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/datasets.py": _DATASET_AND_METRIC_PY,
-        }
-    )
-
-    factory_calls = []
-
-    def tracking_factory(ds_id: str):
-        factory_calls.append(ds_id)
-        con = ibis.duckdb.connect(":memory:")
-        con.con.execute(
-            "CREATE TABLE orders (order_id INT, amount FLOAT, region TEXT, created_at TIMESTAMP)"
-        )
-        con.con.execute(
-            "INSERT INTO orders VALUES (1, 100.0, 'US', '2025-01-01'), "
-            "(2, 200.0, 'EU', '2025-02-01')"
-        )
-        return con
-
-    # First call creates a Materializer and calls factory
-    with patch_semantic_connections(project, tracking_factory) as connections:
-        _materialize_dataset(project, connections, "sales.orders")
-    assert len(factory_calls) == 1
-
-    # A separate physical-field resolver call creates another Materializer.
-    with patch_semantic_connections(project, tracking_factory) as connections:
-        _materialize_field(project, connections, "sales.orders.amount")
-    assert len(factory_calls) == 2
-    assert factory_calls == ["warehouse", "warehouse"]
 
 
 # ---------------------------------------------------------------------------

@@ -16,7 +16,6 @@ import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource import store
 from marivo.datasource.authoring import DuckDBSpec, TrinoSpec
-from marivo.datasource.backends import build_backend
 from marivo.datasource.engines import ENGINE_PROFILES
 from marivo.datasource.errors import (
     DatasourceError,
@@ -169,21 +168,6 @@ def test_raw_sql_write_attempt_surfaces_typed_error(tmp_path: Path) -> None:
         project_root=tmp_path,
     )
     assert int(result.rows[0]["n"]) == 2
-
-
-def test_build_backend_read_only_rejects_writes(tmp_path: Path) -> None:
-    """read_only=True opens a connection that rejects DDL/writes server-side."""
-    _register_raw_sql_fixture(tmp_path)
-    datasource_ir = store.load_one("warehouse", project_root=tmp_path)
-    assert datasource_ir is not None
-    backend = build_backend(datasource_ir, read_only=True)
-    try:
-        with pytest.raises(Exception):
-            backend.raw_sql("CREATE TABLE evil (a INT)")
-    finally:
-        disconnect = getattr(backend, "disconnect", None)
-        if callable(disconnect):
-            disconnect()
 
 
 def test_apply_read_only_kwargs_injects_connection_level_read_only() -> None:

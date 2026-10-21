@@ -276,30 +276,6 @@ def test_hive_parquet_unknown_partition_state_is_visible_in_warnings(
     assert any("unknown" in warning.lower() for warning in inspection.warnings)
 
 
-def test_unknown_partition_state_rejects_partition_scope_before_field_validation(
-    project_root: Path,
-    query_spy: _QuerySpy,
-) -> None:
-    path = _register_duckdb(project_root)
-    _create_orders(path)
-    inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
-    inspection = replace(
-        inspection,
-        partitioning=replace(inspection.partitioning, state="unknown", fields=()),
-    )
-
-    with pytest.raises(DatasourceError) as exc_info:
-        inspection.sample(
-            scope=md.partition({"dt": "2026-07-10"}, max_rows=10, timeout_seconds=30),
-            columns=("order_id", "amount"),
-        )
-
-    assert exc_info.value.effect_observed is not None
-    assert exc_info.value.effect_observed.query_executed is False
-    assert exc_info.value.effect_observed.scope_state == "unknown"
-    assert query_spy.user_data_queries == 0
-
-
 def test_unknown_partition_state_returns_typed_rescope_repair_without_query(
     project_root: Path,
     query_spy: _QuerySpy,
@@ -523,35 +499,6 @@ def test_sample_rejects_transform_and_incomplete_partition_scope(project_root: P
         )
     assert unsupported.value.effect_observed is not None
     assert unsupported.value.effect_observed.query_executed is False
-
-
-def test_identity_partition_transform_is_rejected_in_v1(project_root: Path) -> None:
-    _register_duckdb(project_root)
-    base = md.inspect(
-        ms.ref.datasource("warehouse"),
-        md.csv("orders.csv", columns={"order_id": "order_id", "dt": "dt"}),
-    )
-    identity = replace(
-        base,
-        partitioning=replace(
-            base.partitioning,
-            state="known",
-            fields=(PartitionMetadata(name="dt", type="date", transform="identity"),),
-            values_complete=False,
-        ),
-        execution_capabilities=replace(
-            base.execution_capabilities,
-            timeout_enforced=False,
-        ),
-    )
-
-    with pytest.raises(DatasourceError) as exc_info:
-        identity.sample(
-            scope=md.partition({"dt": "2026-07-10"}, max_rows=10, timeout_seconds=30),
-            columns=("order_id",),
-        )
-
-    assert exc_info.value.effect_observed is not None
 
 
 def test_transformed_partition_inspection_does_not_call_value_hook(

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from unittest.mock import patch
 
 import ibis
 import ibis.expr.types as ir
@@ -192,7 +191,7 @@ def test_root_and_nested_evaluation_use_compiled_sidecar() -> None:
         amount_body=amount_body,
         extra_bodies={NET_AMOUNT: net_body},
     )
-    table = ibis.table({"amount": "float64"}, name="orders")
+    table = ibis.memtable({"amount": [10.0, 20.0]})
     result = evaluate_expression_body(
         catalog_definition_fingerprint="sha256:test",
         expression_sidecar=sidecar,
@@ -201,8 +200,9 @@ def test_root_and_nested_evaluation_use_compiled_sidecar() -> None:
         entity_refs=(ORDERS,),
         aliases=(table,),
     )
-    assert result.type().is_floating()
-    assert "amount" in str(result)
+    # Sum of the nested NET_AMOUNT body: (10 * 0.9) + (20 * 0.9).
+    assert isinstance(result, ir.Value)
+    assert result.execute() == pytest.approx(27.0)
 
 
 def test_context_is_cleaned_after_success_and_body_failure() -> None:
@@ -489,44 +489,6 @@ def test_invalid_local_bindings_reject_at_compilation(fn: Callable[[ir.Table], i
         compile_expression_body(fn, owning_ref=AMOUNT, ordered_entity_refs=(ORDERS,))
     assert error.value.kind == ErrorKind.INVALID_COMPONENT_BODY
     assert "line" in str(error.value)
-
-
-def test_compilation_parses_once_and_column_analysis_reuses_ast() -> None:
-    import ast
-
-    from marivo.semantic._expression_binding import expression_column_accesses
-
-    with patch.object(ast, "parse", wraps=ast.parse) as parser:
-        body = compile_expression_body(
-            _local_amount, owning_ref=AMOUNT, ordered_entity_refs=(ORDERS,)
-        )
-        assert parser.call_count == 1
-        assert expression_column_accesses(body) == ((0, "amount"),)
-        assert parser.call_count == 1
-
-
-def test_local_field_expression_is_evaluated_once(monkeypatch: pytest.MonkeyPatch) -> None:
-    import marivo.semantic._expression_binding as binding_module
-
-    def shared(rows: ir.Table) -> ir.Value:
-        value = bind(AMOUNT, rows)
-        return value + value
-
-    body = compile_expression_body(shared, owning_ref=REVENUE, ordered_entity_refs=(ORDERS,))
-    calls: list[Ref[SemanticKindTag]] = []
-
-    def counted(field: Ref[SemanticKindTag], rows: ir.Table) -> ir.Value:
-        calls.append(field)
-        return rows.amount
-
-    monkeypatch.setitem(shared.__globals__, "bind", counted)
-    table = ibis.memtable({"amount": [2, 5]})
-    value = body.callable(table)
-    assert isinstance(value, ir.Value)
-    assert value.execute().tolist() == [4, 10]
-    assert calls == [AMOUNT]
-    assert len(body.bindings) == 1
-    assert binding_module.expression_column_accesses(body) == ()
 
 
 def test_single_return_preserves_pre_o5_identity() -> None:

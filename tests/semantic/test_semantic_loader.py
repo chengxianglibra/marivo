@@ -21,7 +21,7 @@ import pytest
 import marivo.semantic as ms
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.catalog import SemanticCatalog, SemanticKind
-from marivo.semantic.errors import ErrorKind
+from marivo.semantic.errors import ErrorKind, SemanticLoadFailed
 from marivo.semantic.reader import SemanticProject
 from tests.support.refs import make_ref
 
@@ -198,7 +198,7 @@ def test_datasources_loaded_when_model_load_errors(semantic_project_factory) -> 
     assert sorted(source.name for source in datasources) == ["default", "warehouse"]
     assert datasources[0].backend_type == "duckdb"
 
-    with pytest.raises(Exception):
+    with pytest.raises(SemanticLoadFailed):
         SemanticCatalog(project).list()
 
 
@@ -402,8 +402,9 @@ def test_one_bad_model_does_not_block_good_one(semantic_project_factory) -> None
         load=False,
     )
     result = project.load()
-    # At least one error from the bad model
-    assert len(result.errors) >= 1
+    # The valid model contributes no error: only the broken model is reported.
+    assert result.status == "errored"
+    assert {ref for error in result.errors for ref in error.semantic_refs} == {"bad"}
 
 
 # ---------------------------------------------------------------------------
@@ -497,29 +498,9 @@ def test_reader_project_nonexistent_root() -> None:
 
     project = SemanticProject(workspace_dir=Path("/nonexistent/path"))
     result = project.load()
-    # Should handle gracefully — either ready (empty) or errored
-    assert result.status in ("ready", "errored")
-
-
-# ---------------------------------------------------------------------------
-# Model directory without _domain.py but with other .py files
-# ---------------------------------------------------------------------------
-
-
-def test_directory_with_py_but_no_model_file(semantic_project_factory) -> None:
-    """A directory that has .py files but no _domain.py should not be treated as a model."""
-    content = textwrap.dedent("""\
-        # Just a random Python file, not a model
-        x = 42
-    """)
-    project = semantic_project_factory(
-        {
-            "notamodel/utils.py": content,
-        }
-    )
-    # notamodel has no _domain.py, so it should produce DOMAIN_FILE_MISSING
-    # but the project should still report errors
-    assert not project.is_ready()
+    # A workspace that does not exist is an empty project, not a load failure.
+    assert result.status == "ready"
+    assert result.errors == ()
 
 
 # ---------------------------------------------------------------------------
@@ -736,38 +717,19 @@ def test_cross_file_missing_entity_ref(semantic_project_factory) -> None:
 
 
 # ---------------------------------------------------------------------------
-# LoadResult warnings
-# ---------------------------------------------------------------------------
-
-
-def test_load_result_has_warnings_field(semantic_project_factory) -> None:
-    """LoadResult should have a warnings tuple."""
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
-        },
-        load=False,
-    )
-    result = project.load()
-    assert hasattr(result, "warnings")
-    assert isinstance(result.warnings, tuple)
-
-
-# ---------------------------------------------------------------------------
 # Registry and Sidecar access
 # ---------------------------------------------------------------------------
 
 
 def test_warnings_accessible_after_load(semantic_project_factory) -> None:
-    """SemanticProject should expose warnings after load."""
+    """A valid project exposes no structured warnings after load."""
     project = semantic_project_factory(
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
         }
     )
 
-    warnings = project.warnings()
-    assert isinstance(warnings, tuple)
+    assert project.warnings() == ()
 
 
 # ---------------------------------------------------------------------------
@@ -1005,7 +967,7 @@ def test_field_ref_resolves_after_load(semantic_project_factory) -> None:
     table = resolver.entity(make_ref("sales.orders", SemanticKind.ENTITY))
 
     field_expr = resolver.dimension(make_ref("sales.orders.region", SemanticKind.DIMENSION))
-    assert field_expr is not None
+    assert field_expr.get_name() == "region"
 
 
 # ---------------------------------------------------------------------------

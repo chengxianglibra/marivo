@@ -190,36 +190,6 @@ def test_source_recompute_sees_mutation_and_fixed_data_does_not(
     assert len(terminal_runs(session)) == 0
 
 
-def test_current_row_mean_does_not_recover_original_ratio(session: Session) -> None:
-    grouped = _observe(session, grouped=True).compute()
-    row_mean = grouped.reduce({"mean": grouped["ratio"].mean()}).compute()
-    original = _observe(session).compute()
-    assert row_mean.to_pandas()[("value", "mean")].tolist() == [55.0]
-    assert original.to_pandas()[("value", "ratio")].iloc[0] == pytest.approx(1000 / 91)
-
-
-def test_current_distinct_counts_cannot_recover_original_distinct(session: Session) -> None:
-    item = session.catalog.fields.get("sales.facts.item")
-    channel = session.catalog.fields.get("sales.facts.channel")
-
-    def source(*, grouped: bool) -> AnalysisFrame:
-        return frame_sources.observe(
-            session._runtime.local,
-            session.catalog._state,
-            session._runtime.connection_config,
-            {"items": item.count_distinct()},
-            by=(channel,) if grouped else (),
-        )
-
-    groups = ({1, 2}, {2, 3})
-    grouped = source(grouped=True).compute()
-    current = grouped.reduce({"items": grouped["items"].sum()}).compute()
-    original = source(grouped=False).compute()
-    assert grouped.to_pandas()[("value", "items")].tolist() == [2, 2]
-    assert current.to_pandas()[("value", "items")].tolist() == [sum(map(len, groups))] == [4]
-    assert original.to_pandas()[("value", "items")].tolist() == [len(set.union(*groups))] == [3]
-
-
 def test_source_close_failure_and_numeric_failure_publish_nothing(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:

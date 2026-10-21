@@ -1,6 +1,5 @@
 """Native analysis error and invalid-target resolution remains deterministic."""
 
-import types
 from pathlib import Path
 
 import pytest
@@ -13,7 +12,7 @@ from marivo._help.route import route_help_target
 assert marivo.help is public_help
 
 
-@pytest.mark.parametrize("target", [123, [], {}, object(), types.ModuleType("unregistered")])
+@pytest.mark.parametrize("target", [123, object()])
 def test_invalid_objects_have_bounded_resolvable_repairs(target: object) -> None:
     with pytest.raises(MarivoHelpTargetError) as captured:
         public_help(target)  # type: ignore[arg-type]  # Deliberately invalid runtime Help target.

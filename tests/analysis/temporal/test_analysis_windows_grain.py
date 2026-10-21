@@ -53,41 +53,47 @@ def test_count_must_be_positive():
 
 
 # -- Grain ordering -----------------------------------------------------------
+# Grain supports __lt__/__gt__/__le__/__ge__ for granularity comparison.
+# Kept as module-level tests: pytest.ini restricts class collection to
+# unittest.TestCase subclasses, so a plain test class would not run.
 
 
-class TestGrainOrdering:
-    """Grain supports __lt__/__gt__/__le__/__ge__ for granularity comparison."""
+def test_grain_ordering_subday_same_unit():
+    assert grain("minute", count=5) < grain("minute", count=15)
+    assert grain("minute", count=15) > grain("minute", count=5)
 
-    def test_subday_same_unit(self):
-        assert grain("minute", count=5) < grain("minute", count=15)
-        assert grain("minute", count=15) > grain("minute", count=5)
 
-    def test_subday_different_unit(self):
-        assert grain("minute", count=1) < grain("hour", count=1)
-        assert grain("hour", count=1) > grain("minute", count=1)
+def test_grain_ordering_subday_different_unit():
+    assert grain("minute", count=1) < grain("hour", count=1)
+    assert grain("hour", count=1) > grain("minute", count=1)
 
-    def test_subday_vs_calendar(self):
-        assert grain("hour", count=1) < grain("day", count=1)
-        assert grain("day", count=1) > grain("hour", count=1)
 
-    def test_calendar_ordering(self):
-        assert grain("day", count=1) < grain("week", count=1)
-        assert grain("week", count=1) < grain("month", count=1)
-        assert grain("month", count=1) < grain("year", count=1)
+def test_grain_ordering_subday_vs_calendar():
+    assert grain("hour", count=1) < grain("day", count=1)
+    assert grain("day", count=1) > grain("hour", count=1)
 
-    def test_le_ge(self):
-        g5 = grain("minute", count=5)
-        g15 = grain("minute", count=15)
-        assert g5 <= g15
-        assert g15 >= g5
-        assert g5 <= grain("minute", count=5)
 
-    def test_same_grain_not_lt_not_gt(self):
-        g = grain("hour", count=1)
-        assert not (g < g)
-        assert not (g > g)
+def test_grain_ordering_calendar():
+    assert grain("day", count=1) < grain("week", count=1)
+    assert grain("week", count=1) < grain("month", count=1)
+    assert grain("month", count=1) < grain("year", count=1)
 
-    def test_comparison_with_non_grain_returns_not_implemented(self):
-        g = grain("hour", count=1)
-        assert g.__lt__("hour") is NotImplemented
-        assert g.__gt__("hour") is NotImplemented
+
+def test_grain_ordering_le_ge():
+    g5 = grain("minute", count=5)
+    g15 = grain("minute", count=15)
+    assert g5 <= g15
+    assert g15 >= g5
+    assert g5 <= grain("minute", count=5)
+
+
+def test_grain_ordering_same_grain_not_lt_not_gt():
+    g = grain("hour", count=1)
+    assert not (g < g)
+    assert not (g > g)
+
+
+def test_grain_ordering_comparison_with_non_grain_returns_not_implemented():
+    g = grain("hour", count=1)
+    assert g.__lt__("hour") is NotImplemented
+    assert g.__gt__("hour") is NotImplemented

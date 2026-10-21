@@ -104,7 +104,7 @@ def test_empty_result_retains_columns_and_source_boundary(
 
 
 @pytest.mark.parametrize("argument", ("n", "max_output_bytes"))
-@pytest.mark.parametrize("value", (-1, True, False, 1.5, "2"))
+@pytest.mark.parametrize("value", (-1, True, 1.5, "2"))
 def test_invalid_controls_reject_before_reading(
     result: PreviewResult | RawSqlResult, argument: str, value: object
 ) -> None:

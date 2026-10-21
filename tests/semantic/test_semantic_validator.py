@@ -54,16 +54,6 @@ def test_base_leading_docstring_allowed() -> None:
     assert len(result) > 0
 
 
-def test_base_method_calls_on_dataset_arg() -> None:
-    """Method calls on the dataset argument are allowed."""
-
-    def revenue(table):  # type: ignore[no-untyped-def]
-        return table.filter(table.status == "active").amount.sum()
-
-    result = validate_metric_body_ast(revenue, "base")
-    assert isinstance(result, str)
-
-
 def test_base_field_ref_bind() -> None:
     """Explicit semantic field binding is allowed in base metrics."""
 
@@ -349,16 +339,6 @@ def test_base_ms_component_call_rejected() -> None:
 
     assert exc_info.value.kind == ErrorKind.INVALID_COMPONENT_BODY
     assert exc_info.value.constraint_id == "metric_component_scope"
-
-
-def test_derived_validation_mode_rejected() -> None:
-    """The old derived-body validation mode should fail fast."""
-
-    def revenue(table):  # type: ignore[no-untyped-def]
-        return table.amount.sum()
-
-    with pytest.raises(ValueError, match="unsupported metric body AST validation mode"):
-        validate_metric_body_ast(revenue, "derived")  # type: ignore[arg-type]
 
 
 def test_base_lambda_error() -> None:

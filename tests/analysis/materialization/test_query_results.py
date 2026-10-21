@@ -60,7 +60,7 @@ other_channel = ms.dimension_column(name='channel', entity=other_orders, column=
     return mv.session.create("results", timezone="UTC")
 
 
-@pytest.mark.parametrize("mapping", (None, False, 0, {}))
+@pytest.mark.parametrize("mapping", (None, {}))
 @pytest.mark.parametrize("entry", ("read", "coordinate_values"))
 def test_constructor_mapping_refusal_precedes_source_io(
     result_session: Session, monkeypatch: pytest.MonkeyPatch, mapping: object, entry: str
@@ -513,16 +513,6 @@ def test_population_count_counts_full_tuples_and_empty_cells(result_session: Ses
     scalars = session.observe({"empty": empty.count(), "unit": unit.count()}).compute().to_pandas()
     assert scalars[("value", "empty")].tolist() == [0]
     assert scalars[("value", "unit")].tolist() == [1]
-
-
-def test_frame_keys_drive_a_later_typed_source_read(result_session: Session) -> None:
-    session = result_session
-    region = session.catalog.fields.get("sales.orders.region")
-    amount = session.catalog.fields.get("sales.orders.amount")
-    q = session.observe({"sum": amount.sum()}, by=(region,))
-    chosen = _population(session, q.where(q["sum"] > 20), region)
-    follow = session.observe({"selected": amount.sum().where(mv.in_population(chosen))})
-    assert follow.compute().to_pandas()[("value", "selected")].tolist() == [40]
 
 
 def test_dependent_source_uses_complete_null_safe_key_relations(

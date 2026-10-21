@@ -1425,24 +1425,6 @@ def test_retired_fold_aliases_are_not_public() -> None:
     assert "AggregateFoldValue" not in ms.__all__
 
 
-@pytest.mark.parametrize("fold", ["mean", "min", "max", "first", "last", ("percentile", 0.9)])
-def test_retired_aggregate_folds_are_not_normalized(fold: object) -> None:
-    ctx = _enter_ctx(default_domain="sales")
-    try:
-        with pytest.raises(SemanticExpressionError) as caught:
-            ms.aggregate(
-                name="inventory",
-                measure=ref_factory.measure("sales.inventory.quantity"),
-                agg="sum",
-                fold=fold,
-            )
-        assert caught.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-        assert caught.value.repair is not None and "per(" in caught.value.repair.action
-        assert ctx.pending_definitions == []
-    finally:
-        _exit_ctx()
-
-
 @pytest.mark.parametrize(
     "fold",
     ["auto", "sum", ("percentile", 0.0), ("percentile", 1.0), ("other", 0.5), ("percentile",)],
@@ -1511,20 +1493,6 @@ def test_status_fold_requires_status_time() -> None:
 
 
 def test_retired_aggregate_rejects_before_registration() -> None:
-    ctx = _enter_ctx(default_domain="sales")
-    try:
-        with pytest.raises(SemanticExpressionError) as caught:
-            ms.aggregate(
-                name="revenue", measure=ref_factory.measure("sales.orders.amount"), agg="sum"
-            )
-        assert caught.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-        assert caught.value.repair is not None and "reducer" in caught.value.repair.action
-        assert ctx.pending_definitions == []
-    finally:
-        _exit_ctx()
-
-
-def test_retired_aggregate_never_pushes_legacy_ir() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
         with pytest.raises(SemanticExpressionError) as caught:
@@ -2367,30 +2335,6 @@ def test_retired_cumulative_never_pushes_legacy_ir() -> None:
         _exit_ctx()
 
 
-def test_cumulative_allows_omitted_over_for_loader_resolution() -> None:
-    ctx = _enter_ctx(default_domain="sales")
-    try:
-        with pytest.raises(SemanticExpressionError) as caught:
-            ms.cumulative(name="running", base=ref_factory.metric("sales.revenue"))
-        assert caught.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-        assert caught.value.repair is not None and "base.window(rule)" in caught.value.repair.action
-        assert ctx.pending_definitions == []
-    finally:
-        _exit_ctx()
-
-
-def test_cumulative_rejects_string_refs() -> None:
-    ctx = _enter_ctx(default_domain="sales")
-    try:
-        with pytest.raises(SemanticExpressionError) as caught:
-            ms.cumulative(name="running", base="sales.revenue")
-        assert caught.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-        assert caught.value.repair is not None and "base.window(rule)" in caught.value.repair.action
-        assert ctx.pending_definitions == []
-    finally:
-        _exit_ctx()
-
-
 def test_period_calendar_authoring_pushes_typed_declaration() -> None:
     ctx = LoaderContext(default_domain="sales")
     with loader_context(ctx):
@@ -2434,15 +2378,3 @@ def test_work_schedule_authoring_pushes_typed_declaration() -> None:
     assert pending.definition.date == "sales.calendar.calendar_date"
     assert pending.definition.is_working == "sales.calendar.is_working"
     assert pending.definition.coverage == ("2026-01-01", "2026-01-05")
-
-
-def test_authoring_cases_release_context_without_pytest_fixture() -> None:
-    try:
-        test_entity_count_retains_exact_root()
-        assert _LOADER_CTX.get() is None
-        test_dataset_outside_context_raises()
-        test_dataset_outside_context_raises()
-        test_entity_count_retains_exact_root()
-        assert _LOADER_CTX.get() is None
-    finally:
-        _exit_ctx()

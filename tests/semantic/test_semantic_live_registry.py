@@ -34,7 +34,6 @@ from marivo.semantic._capabilities.model import (
     SemanticObjectRelationship,
     SemanticRepairContract,
     SemanticRootSection,
-    SemanticTypeContract,
 )
 from marivo.semantic._capabilities.registry import (
     ERROR_TYPES,
@@ -179,7 +178,6 @@ def test_slice3_activates_native_navigation_and_object_descriptors() -> None:
     } <= set(REGISTRY.canonical_ids())
     assert len(REGISTRY.object_contracts) == 10
     assert all(contract in REGISTRY.help_descriptors for contract in REGISTRY.object_contracts)
-    assert len(REGISTRY.object_contracts) == 10
 
 
 REQUIRED_DECISION_IDS = MappingProxyType(
@@ -515,11 +513,6 @@ def test_every_active_descriptor_has_one_registry_owned_render_class() -> None:
     )
 
 
-def test_registry_canonical_ids_are_unique() -> None:
-    ids = REGISTRY.canonical_ids()
-    assert len(ids) == len(set(ids))
-
-
 def test_registry_rejects_duplicate_help_canonical_ids_eagerly() -> None:
     duplicate = REGISTRY.descriptors[0].model_copy()
     with pytest.raises(ValueError, match="duplicate semantic help canonical id"):
@@ -553,12 +546,6 @@ def test_registry_rejects_invokable_navigation_before_rendering(field_name: str)
     object.__setattr__(topic, field_name, "marivo.semantic.load")
     with pytest.raises(ValueError, match="navigation descriptor must not be invokable"):
         _finalize_fixture(help_descriptors=(*REGISTRY.help_descriptors, topic))
-
-
-def test_type_contract_type_is_dataclass() -> None:
-    import dataclasses
-
-    assert dataclasses.is_dataclass(SemanticTypeContract)
 
 
 def test_validate_semantic_live_surface_passes() -> None:
@@ -805,10 +792,6 @@ def test_terminal_result_help_matrix_accepts_type_string_and_instance() -> None:
             assert isinstance(route, NativeHelpRoute)
             assert route.owner == "semantic"
             assert route.resolved.type_name == contract.name
-
-
-def test_registry_includes_authoring_topic() -> None:
-    assert "authoring" in REGISTRY.canonical_ids()
 
 
 def test_source_contracts_cover_every_source_authored_ref_constructor() -> None:

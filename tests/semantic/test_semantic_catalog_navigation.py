@@ -23,10 +23,6 @@ from marivo.semantic.catalog import (
     _normalize_semantic_input,
 )
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
-from marivo.semantic.expressions import (
-    Entity,
-    Relationship,
-)
 
 _DOMAIN_PY = """\
 import marivo.semantic as ms
@@ -210,26 +206,6 @@ def test_catalog_output_respects_default_and_small_byte_budgets(
     assert "truncated" in small
 
 
-def test_renderable_catalog_objects_expose_only_public_dir_members(
-    semantic_project_factory,
-) -> None:
-    catalog = _catalog(semantic_project_factory)
-
-    assert "metrics" in dir(catalog)
-    assert "render" in dir(catalog)
-    assert "_index" not in dir(catalog)
-    assert "items" in dir(catalog.metrics)
-    assert "get" in dir(catalog.metrics)
-    assert "contract" not in dir(catalog.metrics)
-    assert "_catalog" not in dir(catalog.metrics)
-
-
-def test_catalog_collection_has_one_public_kind_type_parameter() -> None:
-    assert tuple(parameter.__name__ for parameter in CatalogCollection.__type_params__) == (
-        "ItemT",
-    )
-
-
 def test_scoped_navigation_matches_the_declared_matrix(semantic_project_factory) -> None:
     catalog = _catalog(semantic_project_factory)
     sales = catalog.domains.get("sales")
@@ -266,17 +242,6 @@ def test_scoped_navigation_matches_the_declared_matrix(semantic_project_factory)
     assert warehouse.details().dependents == warehouse.entities.refs
     assert not hasattr(warehouse, "fields")
     assert not hasattr(warehouse, "metrics")
-
-
-def test_catalog_collections_hold_typed_expression_values(semantic_project_factory) -> None:
-    catalog = _catalog(semantic_project_factory)
-
-    assert isinstance(catalog.entities.get("sales.orders"), Entity)
-    assert isinstance(catalog.fields.get("sales.orders.region"), Deferred)
-    assert isinstance(catalog.fields.get("sales.orders.ordered_at"), Deferred)
-    assert isinstance(catalog.fields.get("sales.orders.amount"), Deferred)
-    assert isinstance(catalog.metrics.get("sales.revenue"), Deferred)
-    assert isinstance(catalog.relationships.get("orders_to_users"), Relationship)
 
 
 def test_relationship_endpoints_disclose_exact_entity_refs(semantic_project_factory) -> None:

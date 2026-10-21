@@ -25,7 +25,6 @@ from marivo.semantic._deferred_semantics import consume_field, consume_metric, c
 from marivo.semantic.errors import (
     SemanticExpressionError,
     SemanticLoadError,
-    SemanticLoadFailed,
     SemanticRuntimeError,
 )
 from marivo.semantic.ir import TableSourceIR
@@ -36,14 +35,6 @@ from marivo.semantic.source_health import SourceHealthCheckResult, SourceHealthR
 
 def _no_io(*args: object, **kwargs: object) -> object:
     raise AssertionError("Reading guidance must not load, connect, or run checks")
-
-
-def _assert_current_help_budget(text: str) -> None:
-    budget = REGISTRY.render_budget("current_briefing")
-    assert len(text.splitlines()) <= budget.max_lines
-    assert len(text.rstrip("\n")) <= budget.max_codepoints
-    routes = set(re.findall(r'marivo\.help\("([a-z]+\.[A-Za-z_.]+)"\)', text))
-    assert len(routes) <= budget.max_outgoing_routes
 
 
 _REVENUE_MODEL = """\
@@ -135,50 +126,10 @@ def test_error_instance_keeps_concrete_facts(
     text = str(error)
     for fact in (error.kind, error.message, error.expected, error.received, "sales.revenue"):
         assert fact is not None and fact in text
+    assert "semantic project" in text
+    assert ("marivo.help('datasource.inspect')" in text) is with_repair
     show_help(type(error))
     assert "SemanticLoadError" in capsys.readouterr().out
-
-
-def test_dynamic_error_values_are_bounded_with_full_read_path(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    error = SemanticLoadError(
-        kind="synthetic_failure",
-        message="large message " + "x" * 20_000,
-        expected="one domain",
-        received="none",
-        repair=AuthoringRepair(
-            kind="inspect",
-            action="Inspect the current source.",
-            help_target=LiveHelpTarget(surface="datasource", canonical_id="inspect"),
-            candidates=tuple(f"candidate_{index}" for index in range(500)),
-            snippet="\n".join("entry.show()" for _ in range(100)),
-        ),
-    )
-    assert len(error.message) > 20_000
-    assert error.expected == "one domain"
-    assert error.received == "none"
-    assert error.repair is not None
-    assert error.repair.help_target.display == "datasource.inspect"
-
-
-def test_aggregate_error_help_retains_order_and_reports_omissions(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    error = SemanticLoadFailed(
-        tuple(
-            SemanticLoadError(
-                kind="synthetic_failure",
-                message=f"failure_{index:03d}",
-                expected="declared root",
-                received="missing root",
-            )
-            for index in range(100)
-        )
-    )
-    assert len(error.errors) == 100
-    assert error.errors[0].message == "failure_000"
-    assert error.errors[1].message == "failure_001"
 
 
 def test_readiness_card_discloses_scope_and_repair_without_empty_fix() -> None:

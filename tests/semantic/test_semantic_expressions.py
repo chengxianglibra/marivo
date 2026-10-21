@@ -1785,11 +1785,6 @@ def test_enabled_telemetry_preserves_oversized_quantile_errors(
     monkeypatch.setattr(telemetry, "_write_entry", write_memory)
     test_oversized_integer_quantile_fails_structurally(catalog)
     assert entries == []  # Native Deferred methods have no Marivo telemetry wrappers.
-    for entry in entries:
-        rendered = json.dumps(entry)
-        assert "SemanticExpressionError" in rendered
-        assert "invalid_expression_value" in rendered
-        assert "marivo.repair.help_target" in rendered
     assert not (tmp_path / ".marivo").exists()
 
 

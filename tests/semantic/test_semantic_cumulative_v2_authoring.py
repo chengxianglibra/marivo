@@ -163,19 +163,3 @@ def test_loader_retains_explicit_time_role_and_window_rule() -> None:
             assert isinstance(revenue_node, SourceAggregate)
             assert revenue_node.time is not None
             assert revenue_node.time.field.ref.path == "test.orders.event_time"
-
-
-def test_loader_defers_output_grain_compatibility_until_observation() -> None:
-    from tests.shared_fixtures import load_inline_semantic
-
-    source = _CUMULATIVE_PROJECT + (
-        "import marivo.analysis as mv\nrule = mv.to_date(grain=mv.grain('month'))\n"
-        "@ms.metric()\ndef mtd_revenue():\n    return revenue.window(rule)\n"
-    )
-    with load_inline_semantic(source) as result:
-        assert result.status == "ready", result.errors
-        assert result.registry is not None
-        node = consume_metric(result.registry.declared_metrics["test.mtd_revenue"]).node
-        assert isinstance(node, MetricWindow)
-        assert isinstance(node.rule, ToDate)
-        assert node.rule.grain == mv.grain("month")

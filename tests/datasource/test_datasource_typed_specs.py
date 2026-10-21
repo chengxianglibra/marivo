@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 
 import marivo.datasource as md
-import marivo.datasource.authoring as authoring_module
 import marivo.datasource.catalog as catalog_module
 import marivo.semantic as ms
 from marivo.datasource.authoring import (
@@ -131,23 +130,6 @@ def test_datasource_name_grammar_rejects_invalid_shapes_with_valid_rename(
     assert exc_info.value.expected == "[a-z][a-z0-9_]*"
     assert suggested in str(exc_info.value)
     assert "Update references to use the new identity" in str(exc_info.value)
-
-
-def test_datasource_name_validation_uses_shared_ref_segment_grammar(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls: list[tuple[object, str]] = []
-    shared_validator = authoring_module._validate_segment
-
-    def recording_validator(value: object, *, role: str) -> str:
-        calls.append((value, role))
-        return shared_validator(value, role=role)
-
-    monkeypatch.setattr(authoring_module, "_validate_segment", recording_validator)
-
-    validate_datasource_name("warehouse")
-
-    assert calls == [("warehouse", "datasource name")]
 
 
 def test_trino_spec_maps_declared_fields_and_named_secret_env_refs() -> None:

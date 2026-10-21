@@ -42,6 +42,13 @@ _TEMPORAL_TYPES = tuple(
         DurationDataType(unit),
     )
 )
+# Error-path checks below are carrier-generic; the exact-tick matrix above owns the
+# per-unit carrier evidence, so these tests keep one representative of each family.
+_TEMPORAL_CARRIERS = (
+    TimestampDataType("ns", None),
+    TimestampDataType("ns", "UTC"),
+    DurationDataType("ns"),
+)
 _MINIMUM = -(2**63)
 _TICKS = (_MINIMUM, None, _MINIMUM + 1, 0)
 
@@ -99,7 +106,7 @@ def test_exact_temporal_complete_keys_preserve_validity_ticks_and_sequence(
         assert keys.cast(pa.int64()).to_pylist() == list(ticks)
 
 
-@pytest.mark.parametrize("dtype", _TEMPORAL_TYPES)
+@pytest.mark.parametrize("dtype", _TEMPORAL_CARRIERS)
 @pytest.mark.parametrize("duplicate", (_MINIMUM, None, _MINIMUM + 1, 0))
 @pytest.mark.parametrize("composite", (False, True))
 def test_true_temporal_complete_key_duplicates_retain_typed_stage_error(
@@ -115,7 +122,7 @@ def test_true_temporal_complete_key_duplicates_retain_typed_stage_error(
     assert caught.value.stage == "stage_output"
 
 
-@pytest.mark.parametrize("dtype", _TEMPORAL_TYPES)
+@pytest.mark.parametrize("dtype", _TEMPORAL_CARRIERS)
 def test_nonnullable_temporal_null_remains_a_typed_materialization_error(
     dtype: TimestampDataType | DurationDataType,
 ) -> None:

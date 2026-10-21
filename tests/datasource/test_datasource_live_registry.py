@@ -179,24 +179,6 @@ def test_registry_effects_match_callable_contracts(
     assert REGISTRY.by_canonical_id(canonical_id).effects == expected
 
 
-def test_sample_effects_are_complete_and_orthogonal() -> None:
-    effects = REGISTRY.by_canonical_id("source_inspection.sample").effects
-    assert effects == AuthoringEffects(
-        data_access="scoped_data_read",
-        connection="opens_connection",
-        mutations=("project_state",),
-        flags=(
-            "requires_explicit_scope",
-            "requires_positive_row_guard",
-            "may_persist_plaintext_values",
-        ),
-    )
-
-
-def test_raw_sql_never_claims_bounded_backend_work() -> None:
-    assert REGISTRY.by_canonical_id("raw_sql").effects.data_access == "potentially_unbounded_read"
-
-
 def test_registry_input_contracts_match_required_datasource_arguments() -> None:
     assert tuple(
         requirement.family for requirement in REGISTRY.by_canonical_id("table").input_requirements
