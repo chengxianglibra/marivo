@@ -8,10 +8,9 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.dsl.attribute import attribute_endpoint
 from marivo.analysis.compiler.graph_plan import SourceRead, require_reduction
 from marivo.analysis.core.frame_data import MemoryFrameBacking
-from marivo.analysis.dsl.attribute import AttributeEndpoint
+from marivo.analysis.dsl.attribute import attribute_endpoint
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead
 from marivo.semantic.reader import SemanticProject

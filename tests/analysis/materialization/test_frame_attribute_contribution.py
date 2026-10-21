@@ -8,7 +8,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.dsl.attribute import attribute_endpoint
 from marivo.analysis.core.attribute import (
     AttributeFineFiber,
     AttributeNumericWitness,
@@ -21,7 +20,7 @@ from marivo.analysis.core.frame_data import (
     OperationFrameBinding,
 )
 from marivo.analysis.core.frame_expression import AttributeContributionValues
-from marivo.analysis.dsl.attribute import AttributeEndpoint
+from marivo.analysis.dsl.attribute import attribute_endpoint
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead
