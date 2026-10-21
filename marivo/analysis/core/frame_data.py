@@ -71,6 +71,34 @@ def _attachments(schema: DataSchema, names: tuple[str, ...]) -> None:
         )
 
 
+def normalize_completed_data(
+    schema: DataSchema, rows: pd.DataFrame, attachments: tuple[OutputAttachment, ...]
+) -> tuple[pd.DataFrame, tuple[OutputAttachment, ...]]:
+    """Validate complete data and detach its typed rows and coordinate tables."""
+    require_complete_structure(schema)
+    if type(attachments) is not tuple or any(type(a) is not OutputAttachment for a in attachments):
+        reject(
+            "immutable typed coordinate attachments",
+            type(attachments).__name__,
+            "Extract complete data attachments before returning a memory root.",
+            "frame.attachments",
+        )
+    _attachments(schema, tuple(attachment.name for attachment in attachments))
+    normalized_rows = _table(schema, rows)
+    normalized_attachments = tuple(
+        OutputAttachment(
+            attachment.name, attachment.schema, _table(attachment.schema, attachment.rows)
+        )
+        for attachment in attachments
+    )
+    validate_frozen_coordinates(
+        schema,
+        normalized_rows,
+        tuple(FrozenAttachment(a.name, a.schema, a.rows) for a in normalized_attachments),
+    )
+    return normalized_rows, normalized_attachments
+
+
 @dataclass(frozen=True, slots=True, init=False, repr=False)
 class CompletedFrameData:
     """Concrete schema and private owned rows; no graph or source state."""
@@ -82,34 +110,12 @@ class CompletedFrameData:
     def __init__(
         self, schema: DataSchema, rows: pd.DataFrame, attachments: tuple[OutputAttachment, ...] = ()
     ) -> None:
-        require_complete_structure(schema)
-        if type(attachments) is not tuple or any(
-            type(a) is not OutputAttachment for a in attachments
-        ):
-            reject(
-                "immutable typed coordinate attachments",
-                type(attachments).__name__,
-                "Extract complete data attachments before returning a memory root.",
-                "frame.attachments",
-            )
-        _attachments(schema, tuple(attachment.name for attachment in attachments))
+        normalized_rows, normalized_attachments = normalize_completed_data(
+            schema, rows, attachments
+        )
         object.__setattr__(self, "schema", schema)
-        object.__setattr__(self, "_rows", _table(schema, rows))
-        object.__setattr__(
-            self,
-            "_attachments",
-            tuple(
-                OutputAttachment(
-                    attachment.name, attachment.schema, _table(attachment.schema, attachment.rows)
-                )
-                for attachment in attachments
-            ),
-        )
-        validate_frozen_coordinates(
-            self.schema,
-            self._rows,
-            tuple(FrozenAttachment(a.name, a.schema, a.rows) for a in self._attachments),
-        )
+        object.__setattr__(self, "_rows", normalized_rows)
+        object.__setattr__(self, "_attachments", normalized_attachments)
 
     @property
     def row_count(self) -> int:

@@ -66,7 +66,7 @@ from marivo.analysis.core.data_types import (
     TimestampDataType,
 )
 from marivo.analysis.core.data_validation import normalize_complete_frame
-from marivo.analysis.core.frame_data import CompletedFrameData
+from marivo.analysis.core.frame_data import CompletedFrameData, normalize_completed_data
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import reject
 from marivo.analysis.materialization.errors import MaterializationError
@@ -1905,15 +1905,17 @@ def execute_numeric_query(
                 "Use this input's complete descriptor.",
                 "frame.input",
             )
-        checked = CompletedFrameData(data.schema, data.copy_rows(), data.copy_attachments())
+        rows, attachments = normalize_completed_data(
+            data.schema, data.copy_rows(), data.copy_attachments()
+        )
         return complete(
             StageOutput.from_frame(
-                checked.copy_rows(),
+                rows,
                 stage.columns,
                 stage.keys,
                 key_groups=tuple(tuple(c.slot_id for c in a.columns) for a in stage.schema.axes),
-                frame_attachments=checked.copy_attachments(),
-                frame_schema=checked.schema,
+                frame_attachments=attachments,
+                frame_schema=data.schema,
             )
         )
 

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import gc
 import sqlite3
+import weakref
 from collections.abc import Callable
 from dataclasses import fields, replace
 from datetime import datetime, timedelta, timezone
@@ -483,9 +485,14 @@ def test_memory_stored_lifecycle_and_detached_copy(local: LocalFrameServices) ->
     assert saved.persist() is saved
     loaded.to_pandas()
     loaded.persist().to_pandas()
+    derived = loaded.select({"twice": loaded["amount"] * 2}).compute()
+    assert derived.to_pandas()[("value", "twice")].tolist() == [pd.NA, 2, 4]
+    assert _complete_schema(derived).axes == _complete_schema(loaded).axes
+    published = derived.persist()
+    pd.testing.assert_frame_equal(published.to_pandas(), derived.to_pandas())
     with pytest.raises(AnalysisError):
         saved.compute()
-    assert counts(local) == (3, 3)
+    assert counts(local) == (4, 4)
 
 
 def test_exports_and_attrs_are_isolated(local: LocalFrameServices) -> None:
@@ -498,6 +505,17 @@ def test_exports_and_attrs_are_isolated(local: LocalFrameServices) -> None:
         again = frame.to_pandas()
         assert again.iloc[0, 1] != 999
         assert again.attrs["frozen_coordinates"][0]["rows"].iloc[0, 1] == "2024-01-01"
+        branch = frame.select({"twice": frame["amount"] * 2}).compute()
+        sibling = frame.where(frame["amount"] > 0).compute()
+        exported_branch = branch.to_pandas()
+        exported_branch.iloc[0, 1] = 999
+        exported_branch.attrs["frozen_coordinates"][0]["rows"].iloc[0, 1] = "changed"
+        assert branch.to_pandas()[("value", "twice")].tolist() == [0, 2, 4]
+        assert sibling.to_pandas()[("value", "amount")].tolist() == [1, 2]
+        for independent in (frame, branch, sibling):
+            exported_again = independent.to_pandas()
+            assert exported_again.iloc[0, 1] != 999
+            assert exported_again.attrs["frozen_coordinates"][0]["rows"].iloc[0, 1] == "2024-01-01"
 
 
 @pytest.mark.parametrize("n", [True, -1, 1.5, "1"])
@@ -1409,6 +1427,71 @@ for artifact_id, keys, others, scores in json.loads(sys.argv[3]):
     assert cold.returncode == 0, cold.stdout + cold.stderr
 
 
+def test_stored_two_selects_keep_data_and_remove_duplicate_fixed_adaptation(
+    local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.analysis.core.frame_audit import StoredInput
+
+    saved = ordinary(local).persist()
+    first = saved.select({"twice": saved["amount"] * 2})
+    pending = first.select({"adjusted": first["twice"] + 1})
+    calls = {"construct": 0, "copy_rows": 0, "read_complete": 0}
+    construct = CompletedFrameData.__init__
+    copy_rows = CompletedFrameData.copy_rows
+    read_complete = LocalFrameServices.read_complete
+
+    def initialized(
+        data: CompletedFrameData,
+        schema: DataSchema,
+        rows: pd.DataFrame,
+        attachments: tuple[OutputAttachment, ...] = (),
+    ) -> None:
+        calls["construct"] += 1
+        construct(data, schema, rows, attachments)
+
+    def copied(data: CompletedFrameData) -> pd.DataFrame:
+        calls["copy_rows"] += 1
+        return copy_rows(data)
+
+    def read(self: LocalFrameServices, backing: StoredFrameBacking) -> CompletedFrameResult:
+        calls["read_complete"] += 1
+        return read_complete(self, backing)
+
+    with monkeypatch.context() as capture:
+        capture.setattr(CompletedFrameData, "__init__", initialized)
+        capture.setattr(CompletedFrameData, "copy_rows", copied)
+        capture.setattr(LocalFrameServices, "read_complete", read)
+        result = pending.compute()
+    # Accepted D4's independently measured ordinary two-select route used three
+    # complete-data constructions and two copy_rows calls per single stored read.
+    assert 1 <= calls["construct"] < 3
+    assert calls["copy_rows"] < 2
+    assert calls["read_complete"] == 1
+    rows = result.to_pandas()
+    assert rows.iloc[:, 0].tolist() == [2, 1, 0]
+    assert rows[("value", "adjusted")].tolist() == [pd.NA, 3, 5]
+    assert str(rows[("value", "adjusted")].dtype) == "int64[pyarrow]"
+    assert _complete_schema(result) == DataSchema(
+        _complete_schema(saved).axes,
+        (DataColumn("value.0", "adjusted", ScalarDataType("int64"), True, "USD"),),
+        value_paths=(("adjusted",),),
+    )
+    assert _complete_schema(result).key_fields == ("key",)
+    audit = _memory_backing(result).metadata.audit
+    assert audit.evaluation.operations == ("select", "select")
+    assert audit.evaluation.inputs == (
+        StoredInput(
+            saved._input_id,
+            _stored_backing(saved).metadata.result_id,
+            local.store.store_id,
+            local.session_ref,
+            saved.artifact.id,
+        ),
+    )
+    assert audit.source_facts == metadata().audit.source_facts
+    assert counts(local) == (1, 1)
+
+
 @pytest.mark.parametrize("kind", ["ordinary", "calendar", "named_calendar"])
 def test_actual_stored_inputs_derive_without_sources_and_republish_detached(
     local: LocalFrameServices,
@@ -1416,10 +1499,15 @@ def test_actual_stored_inputs_derive_without_sources_and_republish_detached(
     kind: str,
 ) -> None:
     from marivo._definition.correspondence import CalendarCorrespondence
+    from marivo._definition.query import TopValues
+    from marivo.analysis.compiler.graph_plan import FrameCompute, LocalCompute
+    from marivo.analysis.compiler.query_program import FrameProgram
     from marivo.analysis.core import frame_calendar
     from marivo.analysis.core.artifact_data import NamedCalendarData
     from marivo.analysis.core.frame_audit import StoredInput
-    from marivo.analysis.materialization import frame_source_preparation
+    from marivo.analysis.materialization import frame_source_preparation, graph_local_execution
+    from marivo.analysis.materialization.graph_exchange import StageOutput
+    from marivo.analysis.materialization.graph_local_execution import LocalKernel
     from marivo.analysis.session.core import Session
     from marivo.datasource.adapters import SourceSession
 
@@ -1461,8 +1549,44 @@ def test_actual_stored_inputs_derive_without_sources_and_republish_detached(
     before = counts(local)
     loaded = saved.compute()
     assert _memory_backing(loaded).metadata == _stored_backing(saved).metadata
+    read_calls = 0
+    row_references: list[weakref.ReferenceType[pd.DataFrame]] = []
+    release_checked = False
+    read_complete = LocalFrameServices.read_complete
+    run_local = graph_local_execution.run_local
+
+    def read(self: LocalFrameServices, backing: StoredFrameBacking) -> CompletedFrameResult:
+        nonlocal read_calls
+        result = read_complete(self, backing)
+        read_calls += 1
+        row_references.append(weakref.ref(result.data._rows))
+        return result
+
+    def local_kernel(
+        stage: LocalCompute | FrameCompute,
+        inputs: tuple[StageOutput, ...],
+        kernel: LocalKernel | None = None,
+    ) -> StageOutput:
+        nonlocal release_checked
+        if (
+            isinstance(stage, FrameCompute)
+            and isinstance(stage.program, FrameProgram)
+            and isinstance(stage.program.operation, TopValues)
+        ):
+            # The first select already consumed the fixed input; observe the original
+            # deserialized pandas wrapper, independently from scheduler StageOutputs.
+            gc.collect()
+            assert row_references and all(reference() is None for reference in row_references)
+            release_checked = True
+        return run_local(stage, inputs, kernel)
+
+    if kind == "ordinary":
+        monkeypatch.setattr(LocalFrameServices, "read_complete", read)
+        monkeypatch.setattr(graph_local_execution, "run_local", local_kernel)
     derived = saved.select({"twice": saved["amount"] * 2})
     result = derived.top(2, by=derived["twice"]).compute()
+    if kind == "ordinary":
+        assert read_calls == 1 and release_checked
     assert result.to_pandas()[("value", "twice")].tolist() == [4, 2]
     captured = _memory_backing(result).metadata.audit.evaluation.inputs
     assert captured == (
@@ -1477,6 +1601,7 @@ def test_actual_stored_inputs_derive_without_sources_and_republish_detached(
     assert _memory_backing(result).metadata.result_id != _stored_backing(saved).metadata.result_id
     positive = saved.where(saved["amount"] > 0).compute()
     assert positive.to_pandas()[("value", "amount")].tolist() == [1, 2]
+    read_calls = 0
     compared = (
         saved.compare({"base": saved}, on={"base": ((saved.axes[0], saved.axes[0]),)})
         if kind == "ordinary"
@@ -1485,6 +1610,28 @@ def test_actual_stored_inputs_derive_without_sources_and_republish_detached(
     assert compared.to_pandas()[("value", "base.absolute.amount")].tolist() == (
         [pd.NA, 0, 0] if kind == "ordinary" else [0, 0, 0]
     )
+    if kind == "ordinary":
+        assert read_calls == 1
+        reopened_backing = local.open_frame(saved.artifact.id)
+        reopened = AnalysisFrame._from_stored(
+            local,
+            reopened_backing.data,
+            artifact_id=reopened_backing.artifact_id,
+            metadata=reopened_backing.metadata,
+        )
+        assert reopened._input_id == saved._input_id
+        read_calls = 0
+        shared = saved.compare(
+            {"base": reopened}, on={"base": ((saved.axes[0], reopened.axes[0]),)}
+        ).compute()
+        assert read_calls == 1
+        pd.testing.assert_frame_equal(shared.to_pandas(), compared.to_pandas())
+        # Ancestor and sibling values remain independent of the completed branch.
+        exported = result.to_pandas()
+        exported.iloc[0, 1] = 999
+        assert result.to_pandas()[("value", "twice")].tolist() == [4, 2]
+        assert positive.to_pandas()[("value", "amount")].tolist() == [1, 2]
+        pd.testing.assert_frame_equal(loaded.to_pandas(), memory.to_pandas())
     assert counts(local) == before
     import subprocess
     import sys

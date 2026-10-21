@@ -203,13 +203,10 @@ def _evaluate_frame(
     fixed_frames = captured.fixed_frames
     expressions = captured.expressions
     collected = captured.collected
-    completed_inputs: dict[str, CompletedFrameResult] = {}
+    fixed_method_facts: dict[str, tuple[FrameMethodFacts, ...]] = {}
     method_productions: list[tuple[str, AttributeMethodPayload]] = []
 
-    def complete_input(input_id: str) -> CompletedFrameResult:
-        previous = completed_inputs.get(input_id)
-        if previous is not None:
-            return previous
+    def read_input(input_id: str) -> CompletedFrameResult:
         current = fixed_frames[input_id]
         backing = current._backing
         if isinstance(backing, MemoryFrameBacking):
@@ -219,8 +216,16 @@ def _evaluate_frame(
             result = current._local.read_complete(backing)
         for facts in result.method_facts:
             validate_method_facts(facts)
-        completed_inputs[input_id] = result
+        fixed_method_facts[input_id] = result.method_facts
         return result
+
+    def input_facts(input_id: str) -> tuple[FrameMethodFacts, ...]:
+        previous = fixed_method_facts.get(input_id)
+        if previous is not None:
+            return previous
+        # Preserve the existing history cache-miss full read and validation.
+        # Scheduled inputs already supplied facts; retain no data for this late path.
+        return read_input(input_id).method_facts
 
     source_facts: list[OutputEvidence] = list(captured.inherited)
     checks: list[OutputEvidence] = []
@@ -249,7 +254,7 @@ def _evaluate_frame(
                 )
 
         def read_fixed(stage: FrameInput) -> CompletedFrameData:
-            return complete_input(stage.input_id).data
+            return read_input(stage.input_id).data
 
         def adapt_source(input_id: str, output: StageOutput) -> StageOutput:
             current = source_frames[input_id]
@@ -502,7 +507,7 @@ def _evaluate_frame(
         frozenset(fixed_frames),
         completed_method_productions,
         metadata.result_id,
-        lambda identifier: complete_input(identifier).method_facts,
+        input_facts,
     )
     return CompletedFrameResult(data, metadata, method_facts)
 
