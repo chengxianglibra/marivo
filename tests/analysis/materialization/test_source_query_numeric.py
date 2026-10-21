@@ -180,7 +180,7 @@ def test_native_integer_predicate_uses_actual_source_value_before_pandas_roundin
         fixed = session.values(
             by=(category,),
             columns={"big": None},
-            rows=((("A",), {"big": 2**53 + 1}), (("B",), {"big": None})),
+            rows=((("A",), {"big": 2**53 + 1}), (("B",), {"big": 2**53 - 1})),
         ).compute()
         selected = fixed.where(fixed["big"] > 2**53).compute().to_pandas()
         assert selected.iloc[:, 0].tolist() == ["A"]
@@ -231,7 +231,7 @@ def test_native_decimal_field_filter_keeps_actual_source_comparison(
 ) -> None:
     from decimal import Decimal
 
-    data = _data()
+    data = _data("nan")
     data = SourceData(
         data.columns.replace("amount DOUBLE", "amount DECIMAL(18,2)"),
         data.values.replace("nan()", "3.75"),

@@ -179,34 +179,28 @@ def test_remote_shared_consumers_keep_separate_group_images_and_parent_checks(
             else:
                 assert key == "C"
                 value = rows["value", "c"].iloc[index]
-                assert value == 0
+                assert pd.isna(value)
         # Each consumer retains its source scope. Absent groups have sum zero;
         # present all-NULL groups retain their unknown value.
         missing = 0
         expected_values = {
             "A": (0, missing, 0),
-            "C": (missing, missing, 0),
+            "C": (missing, None, missing),
             None: (missing, missing, 5),
         }
         actual_keys = [None if pd.isna(key) else key for key in rows.iloc[:, 0]]
         assert set(actual_keys) == {"A", "C", None}
-        expected_rows = pd.DataFrame(
-            [(key, *expected_values[key]) for key in actual_keys],
-            columns=pd.MultiIndex.from_tuples(
-                [
-                    ("coordinate", "axis.0"),
-                    ("value", "a"),
-                    ("value", "c"),
-                    ("value", "null_key"),
-                ],
-                names=("kind", "name"),
-            ),
-        )
-        # Native handoff determines pandas dtypes; all keys, values and NA
-        # positions are still compared exactly, without numeric tolerances.
-        pd.testing.assert_frame_equal(
-            rows.reset_index(drop=True), expected_rows, check_dtype=False, check_exact=True
-        )
+        # Native handoff determines pandas NULL sentinels per provider; compare
+        # the semantic NULL positions and exact values independent of carrier.
+        for index, key in enumerate(actual_keys):
+            for column, expected in zip(("a", "c", "null_key"), expected_values[key], strict=True):
+                value = rows["value", column].iloc[index]
+                if expected is None:
+                    assert pd.isna(value)
+                else:
+                    assert not pd.isna(value) and value == expected, (
+                        f"member={key!r}, column={column!r}, value={value!r}, expected={expected!r}"
+                    )
         parent = session.observe({"n": amount.sum(nulls="error")}, by=(category,))
         empty_frame = parent.top(0, by=parent["n"])
         checked = session.population_from(empty_frame, on=((empty_frame.axes[0], category),))

@@ -91,7 +91,8 @@ def test_native_cell_sum_keeps_each_na_mask_and_native_value(
         direct_sql = (
             f"SELECT SUM(amount) FROM ({ibis.to_sql(table, dialect=backend)}) AS input_rows"
         )
-        direct = case.session._backend.raw_sql(direct_sql).fetchone()
+        result = case.session._backend.raw_sql(direct_sql)
+        direct = result.result_rows[0] if backend == "clickhouse" else result.fetchone()
         assert direct is not None
         assert native.value.iloc[0] == direct[0]
         source_trace = capture_source(monkeypatch)

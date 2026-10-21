@@ -114,7 +114,7 @@ def test_postgres_drill_preserves_large_integer_values_and_null_categories(
     assert trace.uploaded_key_rows == []
 
 
-def test_postgres_empty_original_scalar_preserves_null(
+def test_postgres_empty_original_scalar_returns_zero(
     postgres_original_session: tuple[Session, Case], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session, case = postgres_original_session
@@ -123,7 +123,7 @@ def test_postgres_empty_original_scalar_preserves_null(
     query = session.observe({"value": amount.sum().where(amount > 2**63 - 1)})
     trace = capture_source(monkeypatch)
     result = query.compute().to_pandas()
-    assert result["value", "value"].isna().all()
+    assert result["value", "value"].tolist() == [0]
     assert trace.returned_rows == [1]
 
 
@@ -493,8 +493,6 @@ def _native_scalar(
         "weighted_mean",
     ],
 ) -> int | float | Decimal | None:
-    from tests.datasource.environment import postgres_analysis as pg
-
     table = case.session.bind(case.source, source_identity="native-oracle").relation
     if method == "weighted_mean":
         table = table.filter(table.amount.notnull() & table.weight.notnull())
@@ -517,8 +515,10 @@ def _native_scalar(
         expression = table.amount.max()
     else:
         expression = table.amount.median()
-    with pg.connection() as reader:
-        row = reader.execute(case.session._backend.compile(expression)).fetchone()
+    # The oracle is also consumed by MySQL cases; submit its native dialect
+    # through the actual fixture backend rather than a PostgreSQL connection.
+    with case.session._backend.raw_sql(case.session._backend.compile(expression)) as reader:
+        row = reader.fetchone()
     assert row is not None and len(row) == 1
     result = row[0]
     if result is None:

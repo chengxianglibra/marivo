@@ -148,7 +148,7 @@ def test_postgres_sparse_calendar_keeps_window_contributions(
 
 
 @pytest.mark.parametrize("backend,profile", source_params([("mysql", "innodb-table")]))
-def test_mysql_direct_declared_utc_time_preserves_instants(
+def test_mysql_direct_physical_utc_time_preserves_instants(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -170,10 +170,11 @@ def test_mysql_direct_declared_utc_time_preserves_instants(
                 "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='Data',default=True)\n",
                 "sales/facts.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 + f"facts=ms.entity(name='facts',datasource=ms.ref.datasource('warehouse'),source=md.table({case.source.table!r},database={case.source.database!r}),primary_key=['id'])\n"
-                + "happened=ms.time_dimension_column(name='happened',entity=facts,column='happened',parse=ms.timestamp(timezone='UTC'),is_default=True)\n",
+                + "happened=ms.time_dimension_column(name='happened',entity=facts,column='happened',parse=ms.timestamp(),is_default=True)\n",
             }
         )
         table = case.session.bind(case.source, source_identity="utc-native-oracle").relation
+        assert table.happened.type().timezone == "UTC"
         native = case.session._backend.execute(table.order_by("id"))
         assert isinstance(native, pd.DataFrame)
         session = mv.session.create("mysql_utc_read", timezone="America/New_York")
@@ -230,11 +231,12 @@ def test_clickhouse_dst_fold_preserves_instants_and_half_open_boundaries(
                 "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='Data',default=True)\n",
                 "sales/facts.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 + f"facts=ms.entity(name='facts',datasource=ms.ref.datasource('warehouse'),source=md.table({case.source.table!r},database={case.source.database!r}),primary_key=['id'])\n"
-                + "happened=ms.time_dimension_column(name='happened',entity=facts,column='happened',parse=ms.timestamp(timezone='UTC'),is_default=True)\n"
+                + "happened=ms.time_dimension_column(name='happened',entity=facts,column='happened',parse=ms.timestamp(),is_default=True)\n"
                 + "amount=ms.measure_column(name='amount',entity=facts,column='amount',additivity=ms.additive_all())\n",
             }
         )
         table = case.session.bind(case.source, source_identity="dst-native-oracle").relation
+        assert table.happened.type().timezone == "UTC"
         native = case.session._backend.execute(
             table.filter(
                 table.happened >= ibis.timestamp(points[0][1]),
