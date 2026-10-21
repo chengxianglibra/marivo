@@ -306,7 +306,7 @@ def provider() -> DisclosureProvider:
             "sum",
             (),
             "_Statistic",
-            "Request ignore-NA current-row sum; empty input is zero and nonempty all-NA is NA. Retain the expression's unit without certifying original Metric additivity. Complete with AnalysisFrame.reduce.",
+            "Request ignore-NA current-row sum: int64 returns Decimal(38,0), Decimal returns Decimal(38,input_scale); count and Duration retain their types. Empty input is zero and nonempty all-NA is NA. Retain the expression's unit without certifying original Metric additivity. Complete with AnalysisFrame.reduce.",
             "result = column.sum()",
             ("column",),
             "methods.metric.summary",
@@ -413,7 +413,7 @@ def provider() -> DisclosureProvider:
                 "column." + name,
                 function,
                 bindings=(bind(function, Column),),
-                summary="Construct a finite pointwise result expression on one exact AnalysisFrame input.",
+                summary="Construct a pointwise result expression on one exact Frame input.",
                 parameters=()
                 if unary
                 else (
@@ -424,6 +424,7 @@ def provider() -> DisclosureProvider:
                 ),
                 output="Column",
                 constraints=(
+                    "Decimal add/subtract/multiply bind capped p/s with ties-away convergence; division is float64. Local integers are checked; source overflow follows its backend, including ClickHouse wrapping. Float64 may lose low bits beyond 2**53; identity/count/time/Duration stay exact.",
                     "Nullable values propagate; known units and literal kinds must agree. Division defaults to null at zero; divide(...,zero_denominator='error') is explicit.",
                 ),
                 effects="Capture a result expression without I/O.",

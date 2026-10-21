@@ -30,6 +30,7 @@ from marivo.analysis.methods.numeric_state import (
     checked_sum,
     finish_division,
     finish_float64,
+    sum_values,
 )
 from marivo.analysis.methods.physical import DecimalType, DurationType
 from marivo.analysis.methods.query_values import expression_series
@@ -178,7 +179,7 @@ def evaluate_frame(program: FrameProgram, inputs: tuple[pd.DataFrame, ...]) -> p
                 try:
                     if not positions and statistic.method == "sum":
                         value = (
-                            checked_sum((), stage_arrow_type(dtype))
+                            sum_values((), stage_arrow_type(dtype))
                             if not isinstance(dtype, DurationDataType)
                             else 0
                         )
@@ -225,7 +226,9 @@ def evaluate_frame(program: FrameProgram, inputs: tuple[pd.DataFrame, ...]) -> p
                                 else float(exact)
                             )
                     else:
-                        total = checked_sum(active.tolist(), stage_arrow_type(dtype))
+                        total = (sum_values if statistic.method == "sum" else checked_sum)(
+                            active.tolist(), stage_arrow_type(dtype)
+                        )
                         value = (
                             None
                             if not len(active)

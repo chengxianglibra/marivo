@@ -60,8 +60,10 @@ value NA and inherited `<alias>.presence.*`. See
 
 
 
-Division policies apply to that new operation, not strict children. Nonfinite,
-overflow and required coverage failures block completion. An unavailable route
+Division policies apply to that new operation, not strict children. Nonfinite and
+required coverage failures block completion. Local integer arithmetic is checked;
+ordinary source overflow follows the backend, including ClickHouse silent wrapping.
+Unevaluated source arithmetic need not raise. An unavailable route
 is not permission to change algorithm, source or requested precision.
 
 ## Explicit Attribute and full explanation reads

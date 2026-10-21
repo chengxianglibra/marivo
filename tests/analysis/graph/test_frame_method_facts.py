@@ -629,11 +629,11 @@ def test_saved_numeric_consistency_reuses_original_order_and_exact_carriers() ->
 
 
 @pytest.mark.parametrize("duration", [False, True])
-def test_saved_ratio_finishes_decimal_and_duration_half_even(duration: bool) -> None:
+def test_saved_ratio_finishes_decimal_half_up_and_duration_half_even(duration: bool) -> None:
     from marivo.analysis.methods.frame_method_facts import validate_method_facts
 
     dtype = DurationDataType("ns") if duration else DecimalDataType(12, 2)
-    left_value = 2 if duration else Decimal("0.12")
+    left_value = 2 if duration else Decimal("0.13")
     right_value = 2 if duration else Decimal("0.25")
     numerator_left = 5 if duration else Decimal("1.00")
     numerator_right = 3 if duration else Decimal("2.00")
@@ -643,7 +643,9 @@ def test_saved_ratio_finishes_decimal_and_duration_half_even(duration: bool) -> 
         "ratio_component",
         FrameMethodValue(column("left.rate", dtype), left_value),
         FrameMethodValue(column("right.rate", dtype), right_value),
-        FrameMethodValue(column("absolute.rate", dtype), change),
+        FrameMethodValue(
+            column("absolute.rate", dtype if duration else DecimalDataType(13, 2)), change
+        ),
         FrameMethodValue(column("numerator_left.rate", dtype), numerator_left),
         FrameMethodValue(column("numerator_right.rate", dtype), numerator_right),
         FrameMethodValue(column("denominator_left.rate", unit="1"), denominator),
@@ -682,7 +684,7 @@ def test_pure_decimal_scale_uses_captured_actual_carrier_and_preserves_direct_sc
         "additive",
         FrameMethodValue(column("left.sales", dtype), Decimal("20.000000000")),
         FrameMethodValue(column("right.sales", dtype), Decimal("12.000000000")),
-        FrameMethodValue(column("absolute.sales", dtype), Decimal("8.000000000")),
+        FrameMethodValue(column("absolute.sales", DecimalDataType(38, 8)), Decimal("8.00000000")),
         (support(),),
     )
     scalar = Decimal("0.500")

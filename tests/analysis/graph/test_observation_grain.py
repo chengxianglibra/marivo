@@ -541,6 +541,10 @@ def test_member_groups_preserve_live_and_fixed_comparisons(
         session.persisted_frame(fixed_baseline.artifact.id).to_pandas(),
     )
     assert dict(
-        zip(left.iloc[:, 1], left[("value", "value")] - right[("value", "value")], strict=True)
+        zip(
+            left.iloc[:, 1],
+            left[("value", "value")].astype(object) - right[("value", "value")].astype(object),
+            strict=True,
+        )
     ) == {key[0]: value for key, value in expected.items()}
     assert session.persisted_frame(saved.artifact.id).to_pandas().equals(saved.to_pandas())

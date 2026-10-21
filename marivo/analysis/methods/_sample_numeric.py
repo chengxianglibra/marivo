@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from decimal import ROUND_HALF_EVEN, Decimal, localcontext
+from decimal import ROUND_HALF_UP, Decimal, localcontext
 from fractions import Fraction
 
 import pandas as pd
@@ -165,12 +165,11 @@ def reduce_samples(
                 with localcontext() as context:
                     context.prec = 120
                     finished = Decimal(str(result)).quantize(
-                        Decimal(1).scaleb(-output_type.scale), rounding=ROUND_HALF_EVEN
+                        Decimal(1).scaleb(-output_type.scale), rounding=ROUND_HALF_UP
                     )
-                record["sample.numeric"] = finished.copy_abs() >= Decimal(1).scaleb(
-                    output_type.precision - output_type.scale
-                )
-                result = finished
+                result = pa.scalar(
+                    finished, type=pa.decimal128(output_type.precision, output_type.scale)
+                ).as_py()
             except (ArithmeticError, ValueError):
                 record["sample.numeric"] = True
         if (

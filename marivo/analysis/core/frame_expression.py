@@ -503,6 +503,11 @@ def infer_frame_schema(
                 if item.value is None
                 else expression_type(schema, item.value)
             )
+            if item.method == "sum":
+                if dtype == ScalarDataType("int64"):
+                    dtype = DecimalDataType(38, 0)
+                elif isinstance(dtype, DecimalDataType):
+                    dtype = DecimalDataType(38, dtype.scale)
             if item.method == "mean" and dtype == ScalarDataType("int64"):
                 dtype = ScalarDataType("float64")
             unit, nullable = (
@@ -539,12 +544,12 @@ def _compare_type(left: DataType, right: DataType) -> DataType:
         decimals = tuple(dtype for dtype in (left, right) if isinstance(dtype, DecimalDataType))
         if not decimals:
             return ScalarDataType("int64")
-        scale = max(dtype.scale for dtype in decimals)
-        integer = max(
-            dtype.precision - dtype.scale if isinstance(dtype, DecimalDataType) else 19
-            for dtype in (left, right)
-        )
-        return DecimalDataType(min(38, integer + scale), scale)
+        from marivo._numeric_types import decimal_result_type
+        from marivo.analysis.core.value_types import data_type, ibis_type
+
+        result = decimal_result_type("subtract", ibis_type(left), ibis_type(right))
+        assert result is not None
+        return data_type(result)
     reject(
         "compatible numeric types or matching exact Duration units",
         repr((left, right)),

@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.core.data_types import ScalarDataType
+from marivo.analysis.core.data_types import DecimalDataType, ScalarDataType
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.semantic.reader import SemanticProject
@@ -26,7 +26,7 @@ def _scalar_output(result: mv.AnalysisFrame, total: int | None) -> None:
     values = result.to_pandas()[("value", "value")]
     assert values.isna().all() if total is None else values.tolist() == [total]
     assert tuple(axis.role for axis in result.axes) in ((), ("interval",))
-    assert result.artifact._manifest.data.schema.values[0].dtype == ScalarDataType("int64")
+    assert result.artifact._manifest.data.schema.values[0].dtype == DecimalDataType(38, 0)
     assert all(item.name != "original_state" for item in result.artifact._manifest.data.attachments)
 
 

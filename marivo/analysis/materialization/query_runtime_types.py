@@ -404,6 +404,11 @@ def effective_local(stage: LocalCompute, inputs: tuple[StageOutput, ...]) -> Loc
         output_types = {
             f"value.{index}": ScalarDataType("float64")
             if statistic.method == "mean" and input_type == ScalarDataType("int64")
+            else DecimalDataType(
+                38, input_type.scale if isinstance(input_type, DecimalDataType) else 0
+            )
+            if statistic.method == "sum"
+            and (input_type == ScalarDataType("int64") or isinstance(input_type, DecimalDataType))
             else input_type
             for index, ((_, statistic), input_type) in enumerate(
                 zip(operation.values, statistic_types, strict=True)

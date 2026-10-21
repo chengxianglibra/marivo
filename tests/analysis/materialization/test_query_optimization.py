@@ -655,15 +655,19 @@ def test_source_per_group_keeps_middle_overflow_before_cancellation(
     value = session.catalog.fields.get("sales.orders." + field)
     region = session.catalog.fields.get("sales.orders.region")
     query = session.observe({"sum": value.sum().per(region).sum()})
-    errors: list[tuple[type[BaseException], str]] = []
-    for optimized in (False, True):
-        with pytest.raises(
-            (AnalysisError, SemanticExpressionError),
-            match=("overflow" if field == "amount" else "Decimal precision"),
-        ) as error:
-            _execute(session, query, optimized=optimized)
-        errors.append((type(error.value), str(error.value)))
-    assert errors[0] == errors[1]
+    if field == "amount":
+        for optimized in (False, True):
+            output, _, _, _ = _execute(session, query, optimized=optimized)
+            assert output.table["value.0"].tolist() == [Decimal(0)]
+    else:
+        errors: list[tuple[type[BaseException], str]] = []
+        for optimized in (False, True):
+            with pytest.raises(
+                (AnalysisError, SemanticExpressionError), match=r"precision|Decimal|decimal"
+            ) as error:
+                _execute(session, query, optimized=optimized)
+            errors.append((type(error.value), str(error.value)))
+        assert errors[0] == errors[1]
     assert terminal_runs(session) == ()
 
 
@@ -894,7 +898,13 @@ def test_explicit_source_weights_preserve_standardized_and_fixed_results(
         .iloc[0]
     )
     assert denominator == 2000
-    weights = dict(zip(sizes.iloc[:, 0], sizes[("value", "inspected")] / denominator, strict=True))
+    weights = dict(
+        zip(
+            sizes.iloc[:, 0],
+            sizes[("value", "inspected")].astype("float64") / float(denominator),
+            strict=True,
+        )
+    )
     fixed = (
         session.values(
             by=(detail,),
@@ -960,8 +970,8 @@ def test_decimal_source_quantile_keeps_exact_endpoints_and_windows(
     assert windowed.compute().to_pandas()[("value", "p95")].tolist() == [expected, expected]
 
 
-@pytest.mark.parametrize(("first", "expected"), (("1.00", "1.00"), ("1.01", "1.02")))
-def test_decimal_median_and_result_mean_finish_declared_scale_half_even(
+@pytest.mark.parametrize(("first", "expected"), (("1.00", "1.01"), ("1.01", "1.02")))
+def test_decimal_median_and_result_mean_finish_declared_scale_half_up(
     optimization_session: Session,
     first: str,
     expected: str,

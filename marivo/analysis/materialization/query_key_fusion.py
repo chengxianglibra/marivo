@@ -1127,9 +1127,7 @@ def native_query_relation(
                     if issue is not None:
                         return issue
                 aggregates: dict[str, ir.Value] = {}
-                checked_sums: list[str] = []
                 floating_sums: list[str] = []
-                decimal_sums: dict[str, DecimalDataType] = {}
                 for index, (_, statistic) in enumerate(operation.values):
                     slot = f"value.{index}"
                     if isinstance(statistic, PairStatistic):
@@ -1139,11 +1137,12 @@ def native_query_relation(
                     elif statistic.method == "sum" and isinstance(statistic.value, ValueSlot):
                         value = values[statistic.value.index]
                         if value.type().is_integer():
-                            total = value.cast("decimal(38,0)").sum()
+                            from marivo.semantic._numeric_lowering import _source_sum
+
+                            total = _source_sum(value)
                             aggregates[slot] = (expression.count() == 0).ifelse(
                                 ibis.literal(0).cast(total.type()), total
                             )
-                            checked_sums.append(slot)
                         elif value.type().is_floating() or value.type().is_decimal():
                             if value.type().is_floating():
                                 floating_sums.append(slot)
@@ -1155,11 +1154,9 @@ def native_query_relation(
                                         "float64 state has a nonfinite component",
                                     ),
                                 )
-                            else:
-                                dtype = program.statistic_types[index]
-                                assert isinstance(dtype, DecimalDataType)
-                                decimal_sums[slot] = dtype
-                            total = value.sum()
+                            from marivo.semantic._numeric_lowering import _source_sum
+
+                            total = _source_sum(value)
                             aggregates[slot] = (expression.count() == 0).ifelse(
                                 ibis.literal(0).cast(total.type()), total
                             )
@@ -1182,17 +1179,6 @@ def native_query_relation(
                 expression = expression.aggregate(**aggregates, by=groups).select(
                     *stage.keys, *value_slots
                 )
-                for slot in checked_sums:
-                    total = expression[slot]
-                    checks = (
-                        *checks,
-                        NumericCheck(
-                            (total < ibis.literal(Decimal(-(2**63)), type="decimal(38,0)"))
-                            | (total >= ibis.literal(Decimal(2**63), type="decimal(38,0)")),
-                            "a qualified finite value statistic",
-                            "int64 state overflow",
-                        ),
-                    )
                 for slot in floating_sums:
                     total = expression[slot]
                     checks = (
@@ -1202,25 +1188,6 @@ def native_query_relation(
                             "a qualified finite value statistic",
                             "float64 state overflow",
                         ),
-                    )
-                for slot, dtype in decimal_sums.items():
-                    total = expression[slot]
-                    # ClickHouse parses bare Decimal SQL literals through Float64;
-                    # this range boundary must remain exact even for precision 38.
-                    limit = ibis.literal(
-                        str(Decimal((0, (9,) * dtype.precision, -dtype.scale)))
-                    ).cast(ibis_type(dtype))
-                    checks = (
-                        *checks,
-                        NumericCheck(
-                            total.notnull() & ((total < -limit) | (total > limit)),
-                            "a qualified finite value statistic",
-                            "Decimal state precision overflow",
-                        ),
-                    )
-                if checked_sums:
-                    expression = expression.mutate(
-                        **{slot: expression[slot].try_cast("int64") for slot in checked_sums}
                     )
         else:
             return "producer operation is outside the admitted field relation grammar"

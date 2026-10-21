@@ -13,7 +13,6 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.compiler import source_time
 from marivo.analysis.core.time_authority import SourceTimeAuthority
-from marivo.analysis.errors import AnalysisError
 from marivo.datasource import engines
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.engines.base import PartitionProbeRequest, PartitionProbeResult
@@ -342,7 +341,7 @@ def test_outside_window_relationship_mismatch_preserves_observation_scope(
     pd.testing.assert_frame_equal(optimized, previous)
 
 
-def test_encoded_and_parsed_time_failures_preserve_error_fields_and_run_ownership(
+def test_encoded_and_parsed_time_wide_sums_preserve_values_and_run_ownership(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     case = analysis_dsl_case_factory("j2")
@@ -358,27 +357,22 @@ def test_encoded_and_parsed_time_failures_preserve_error_fields_and_run_ownershi
         )
     population = case.session.members(case.session.catalog.entities.get("sales.customer"))
 
-    def execute() -> None:
-        case.session.observe(
-            {"value": case.session.catalog.metrics.get("sales.revenue")},
-            by=mv.product(
-                case.session.time_scope(start="2026-08-01", end="2026-09-01"), population
-            ),
-        ).compute()
+    def execute() -> pd.DataFrame:
+        return (
+            case.session.observe(
+                {"value": case.session.catalog.metrics.get("sales.revenue")},
+                by=mv.product(
+                    case.session.time_scope(start="2026-08-01", end="2026-09-01"), population
+                ),
+            )
+            .compute()
+            .to_pandas()
+        )
 
-    with pytest.raises(AnalysisError) as optimized:
-        execute()
+    optimized = execute()
     with monkeypatch.context() as baseline:
         baseline.setattr(source_time, "encoded_time_predicate", _no_inverse)
-        with pytest.raises(type(optimized.value)) as previous:
-            execute()
-    first, second = optimized.value, previous.value
-    assert (first.message, first.expected, first.received, first.location, first.repair) == (
-        second.message,
-        second.expected,
-        second.received,
-        second.location,
-        second.repair,
-    )
-    assert not hasattr(first, "run_ref") and not hasattr(second, "run_ref")
+        previous = execute()
+    pd.testing.assert_frame_equal(optimized, previous)
+    assert optimized["value", "value"].iloc[0] == 2 * (2**63 - 1)
     assert terminal_runs(case.session) == ()

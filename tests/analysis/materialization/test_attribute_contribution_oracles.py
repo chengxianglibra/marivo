@@ -175,7 +175,7 @@ def test_fraction_b_subgroups_use_global_or_fresh_local_population(
             ("denominator_right.q", [10, 40, 50], "1"),
         ):
             assert rows[("value", path)].tolist() == expected[start:]
-            assert columns[path].dtype == ScalarDataType("int64")
+            assert columns[path].dtype == DecimalDataType(38, 0)
             assert columns[path].unit == unit
         assert columns["contribution.q"].unit == "USD"
         assert columns["contribution_share.q"].unit == "1"

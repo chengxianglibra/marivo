@@ -97,7 +97,7 @@ def test_remote_per_rollup_combines_shared_sample_before_empty_domain_mean(
         query = session.observe({"value": metric})
         trace = capture_source(monkeypatch)
         frame = query.compute().to_pandas()
-        assert frame["value", "value"].tolist() == [400 / 3]
+        assert frame["value", "value"].tolist() == [133]
         assert not any(
             "__original_value" in name for names in trace.returned_columns for name in names
         )
@@ -190,7 +190,7 @@ def test_remote_selected_per_rollup_recomputes_complete_shared_sample_union(
             .compute()
             .to_pandas()
         )
-        assert frame["value", "value"].tolist() == [0.0 if selection == "empty" else 400 / 3]
+        assert frame["value", "value"].tolist() == [0 if selection == "empty" else 133]
         assert trace.returned_rows
 
 
@@ -330,6 +330,6 @@ def test_remote_selected_sample_target_uses_current_contributions_without_rerank
             .compute()
             .to_pandas()
         )
-        assert result["value", "value"].tolist() == [307 / 3]
+        assert result["value", "value"].tolist() == [102]
         assert fixed.to_pandas().iloc[:, 0].tolist() == ["store"]
         assert trace.returned_rows

@@ -535,7 +535,7 @@ def test_empty_selection_retains_full_identity_checks(
     assert terminal_runs(source_query_session) == ()
 
 
-def test_cell_sum_overflow_is_checked_before_empty_filter(
+def test_cell_sum_widens_before_empty_filter(
     source_query_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = _attributes(source_query_session)
@@ -544,15 +544,10 @@ def test_cell_sum_overflow_is_checked_before_empty_filter(
         db.execute("UPDATE orders SET amount=9223372036854775807 WHERE id IN (1,2)")
     trace = capture_source(monkeypatch)
     reads, outputs, locals_ = _capture_stages(monkeypatch)
-    with pytest.raises(AnalysisError, match=r"overflow|current-row statistic") as caught:
-        total.where(total["total"] < 0).compute()
-    assert isinstance(caught.value, MaterializationError)
-    assert caught.value.stage == "numeric_value"
-    assert caught.value.expected == "a qualified finite current-row statistic"
-    assert caught.value.received == "int64 state overflow"
-    assert len(reads) == len(outputs) == len(trace.native_sql) == 1
-    assert locals_ == []
-    assert trace.returned_rows == [4]
+    assert total.compute().to_pandas()["value", "total"].tolist() == [2 * (2**63 - 1) + 20]
+    assert total.where(total["total"] < 0).compute().to_pandas().empty
+    assert len(reads) == len(outputs) == len(trace.native_sql) == 2
+    assert trace.returned_rows == [4, 4]
     assert trace.uploaded_key_rows == []
     assert terminal_runs(source_query_session) == ()
 

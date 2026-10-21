@@ -5,12 +5,13 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from datetime import timedelta
-from decimal import ROUND_HALF_EVEN, Decimal, localcontext
+from decimal import ROUND_HALF_UP, Decimal, localcontext
 from fractions import Fraction
 from typing import TypeAlias
 
 import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
 
 from marivo.analysis.core.data_types import DataType, DurationDataType, ScalarDataType
 from marivo.analysis.methods.physical import DecimalType, DurationType, ValueType
@@ -26,8 +27,7 @@ def checked_sum(values: Sequence[object], physical: pa.DataType) -> Number:
         with localcontext() as context:
             context.prec = 120
             result = sum((value for value in values if isinstance(value, Decimal)), Decimal(0))
-            if abs(result) >= Decimal(10) ** (physical.precision - physical.scale):
-                raise OverflowError("Decimal state precision overflow")
+        pa.scalar(result, type=physical)
         return result
     if pa.types.is_floating(physical):
         if any(type(value) is not float or not math.isfinite(value) for value in values):
@@ -39,9 +39,43 @@ def checked_sum(values: Sequence[object], physical: pa.DataType) -> Number:
     if physical != pa.int64() or any(type(value) is not int for value in values):
         raise ValueError("state requires its declared int64/float64/Decimal components")
     integer = sum(value for value in values if type(value) is int)
-    if not -(2**63) <= integer < 2**63:
-        raise OverflowError("int64 state overflow")
+    pa.scalar(integer, type=pa.int64())
     return integer
+
+
+def sum_values(values: Sequence[object], physical: pa.DataType) -> Number:
+    """Run one primary sum into the declared widened numeric output."""
+    if physical == pa.int64():
+        if any(type(value) is not int for value in values):
+            raise ValueError("integer sum requires int64 components")
+        result = Decimal(sum(value for value in values if type(value) is int))
+        pa.scalar(result, type=pa.decimal128(38, 0))
+        return result
+    if pa.types.is_decimal(physical):
+        physical = pa.decimal128(38, physical.scale)
+    return checked_sum(values, physical)
+
+
+def finish_decimal(values: pd.Series, precision: int, scale: int) -> pd.Series:
+    """Round once with ties away from zero, then safely admit the target carrier.
+
+    Decimal quantize avoids Arrow's input-precision carry limit, including p=38.
+    """
+    from marivo.semantic._numeric_lowering import numeric_failure
+
+    try:
+        with localcontext() as context:
+            context.prec = 120
+            rounded = [
+                None
+                if pd.isna(value)
+                else Decimal(str(value)).quantize(Decimal(1).scaleb(-scale), rounding=ROUND_HALF_UP)
+                for value in values
+            ]
+        array = pa.array(rounded).cast(pa.decimal128(precision, scale), safe=True)
+    except (pa.ArrowException, ArithmeticError, TypeError, ValueError) as error:
+        numeric_failure(f"a representable Decimal({precision},{scale}) result", str(error))
+    return pd.Series(pd.arrays.ArrowExtensionArray(array), index=values.index)
 
 
 def finish_division(numerator: Number, denominator: Number, output: ValueType) -> Number:
@@ -57,10 +91,9 @@ def finish_division(numerator: Number, denominator: Number, output: ValueType) -
         with localcontext() as context:
             context.prec = 120
             value = (Decimal(exact.numerator) / Decimal(exact.denominator)).quantize(
-                Decimal(1).scaleb(-output.scale), rounding=ROUND_HALF_EVEN
+                Decimal(1).scaleb(-output.scale), rounding=ROUND_HALF_UP
             )
-            if abs(value) >= Decimal(10) ** (output.precision - output.scale):
-                raise OverflowError("Decimal finish precision overflow")
+            pa.scalar(value, type=pa.decimal128(output.precision, output.scale))
             return value
     value_float = float(numerator) / float(denominator)
     if not math.isfinite(value_float):
@@ -78,8 +111,8 @@ def nullable_arithmetic(
 ) -> pd.Series:
     """Compute over nullable pandas values, masking zeros before division.
 
-    Object arithmetic preserves int64 precision until the shared output
-    normalizer checks overflow. Decimal work uses the existing wide context.
+    Integer add/subtract/multiply use Arrow checked kernels. Decimal work uses
+    the existing wide context; the bound consumer owns result convergence.
     """
     from marivo.semantic._numeric_lowering import numeric_failure
 
@@ -106,7 +139,26 @@ def nullable_arithmetic(
     try:
         with localcontext() as context:
             context.prec = 120
-            if operation == "add":
+            if (
+                operation in ("add", "subtract", "multiply")
+                and all(pd.isna(value) or type(value) is int for value in (*a, *b))
+                and not exact_duration
+            ):
+                kernel = {
+                    "add": pc.add_checked,
+                    "subtract": pc.subtract_checked,
+                    "multiply": pc.multiply_checked,
+                }[operation]
+                result = pd.Series(
+                    pd.arrays.ArrowExtensionArray(
+                        kernel(
+                            pa.array(a, type=pa.int64(), from_pandas=True),
+                            pa.array(b, type=pa.int64(), from_pandas=True),
+                        )
+                    ),
+                    index=a.index,
+                )
+            elif operation == "add":
                 result = a + b
             elif operation == "subtract":
                 result = a - b
@@ -119,8 +171,6 @@ def nullable_arithmetic(
     except (ArithmeticError, TypeError, ValueError) as error:
         numeric_failure("valid numeric arithmetic", f"{operation}: {error}")
     result = result.astype(object).mask(a.isna() | b.isna(), pd.NA)
-    if any(isinstance(value, int) and not -(2**63) <= value < 2**63 for value in result):
-        numeric_failure("signed int64 arithmetic", f"{operation}: integer overflow")
     if any(
         (isinstance(value, float) and not math.isfinite(value))
         or (isinstance(value, Decimal) and not value.is_finite())

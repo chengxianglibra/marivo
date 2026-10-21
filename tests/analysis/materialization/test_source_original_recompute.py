@@ -8,7 +8,6 @@ import duckdb
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.publication_fixtures import publication_counts
@@ -141,7 +140,7 @@ def test_native_top_drill_returns_only_selected_group_values(
 
 
 @pytest.mark.parametrize("failure", ["null", "overflow", "denominator"])
-def test_source_original_preserves_parent_failure_after_empty_selection(
+def test_source_original_preserves_parent_numeric_contract_after_empty_selection(
     original_session: Session, failure: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from marivo.analysis.errors import AnalysisError
@@ -163,8 +162,12 @@ def test_source_original_preserves_parent_failure_after_empty_selection(
             metric = amount.sum().divide(amount.sum(), zero_denominator="error")
     fine = session.observe({"metric": metric}, by=(bucket,))
     trace = capture_source(monkeypatch)
-    with pytest.raises(AnalysisError):
-        fine.top(0, by=fine["metric"]).compute()
+    if failure == "overflow":
+        assert fine.compute().to_pandas()["value", "metric"].max() == 2**63
+        assert fine.top(0, by=fine["metric"]).compute().to_pandas().empty
+    else:
+        with pytest.raises(AnalysisError):
+            fine.top(0, by=fine["metric"]).compute()
     assert trace.uploaded_key_rows == []
 
 
@@ -390,7 +393,7 @@ def test_compact_original_prefix_keeps_outer_local_consumer(
     assert trace.uploaded_key_rows == []
 
 
-def test_source_original_keeps_fused_intermediate_overflow(
+def test_source_original_keeps_widened_fused_intermediates(
     original_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = original_session
@@ -405,8 +408,7 @@ def test_source_original_keeps_fused_intermediate_overflow(
     fine = session.observe({"metric": amount.sum()}, by=(bucket,))
     trace = capture_source(monkeypatch)
     before = publication_counts(session)
-    with pytest.raises(MaterializationError, match="signed int64 sum"):
-        fine.compute()
+    assert fine.compute().to_pandas()["value", "metric"].tolist() == [2**63, -(2**63)]
     assert publication_counts(session) == before
 
 

@@ -80,8 +80,9 @@ Marivo does not add a per-value Arrow round-trip audit. Source schema and
 projection admission, requested row/time bounds, and downstream key, nullable-value,
 time, and persistence-schema checks remain in force.
 
-Analysis consumes actual native return types at its pandas/stage boundary; it
-does not add casts solely to make a transport appear exact. Business-required
+Analysis binds numeric output types before execution and writes required Decimal
+result casts into Ibis expressions; the existing pandas/stage boundary consumes
+their actual native results. Business-required
 conversions and complete key, null, unit and time checks remain explicit.
 Datasource access alone grants no operation-specific Analysis qualification.
 
@@ -391,3 +392,16 @@ Physical descriptors live in [source.py](../../../marivo/datasource/source.py),
 [runtime.py](../../../marivo/datasource/runtime.py) owns governed source sessions;
 [adapters.py](../../../marivo/datasource/adapters.py) and the
 [engine adapters](../../../marivo/datasource/engines/) own provider submission and transport.
+
+### Typed analysis numeric results
+
+Typed analysis retains this reader and supplies explicit Ibis result casts for
+bound Decimal arithmetic, Decimal mean and SUM. Integer SUM accumulates once in
+Decimal and returns Decimal(38,0); Decimal SUM fixes Decimal(38,input_scale).
+Ordinary source integer/Decimal overflow follows the actual provider, including
+ClickHouse silent wrapping and native exceptions. A wrapped value that fits the
+output carrier can be committed and influence later formulas/selection; safe
+conversion does not reconstruct its mathematical value. No independent widened
+verification or check-only SUM runs. Unevaluated source arithmetic may not fail.
+Explicit finite/null/zero/domain checks and exact identity/count/time/Duration
+contracts retain their scope. See [numeric carriers](../analysis/operators-and-frames.md).

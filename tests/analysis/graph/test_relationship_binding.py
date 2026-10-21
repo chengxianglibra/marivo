@@ -221,7 +221,9 @@ def test_roles_and_independent_read_paths(analysis_dsl_case_factory: DslCaseFact
         ("east", "east"): 150,
         ("south", "east"): 400,
     }
-    assert current_values.subtract(baseline_values, fill_value=0).to_dict() == {
+    assert current_values.astype(object).subtract(
+        baseline_values.astype(object), fill_value=0
+    ).to_dict() == {
         ("east", "south"): 450,
         ("east", "east"): 73,
         ("south", "east"): 400,

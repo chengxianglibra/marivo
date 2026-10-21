@@ -164,7 +164,7 @@ def test_per_completes_ratio_per_sample_and_retains_empty_samples(
         .to_pandas()
     )
     assert result[("value", "aov_mean")].tolist() == [60.0]
-    assert result[("value", "fixed_revenue_mean")].tolist() == [pytest.approx(140 / 3)]
+    assert result[("value", "fixed_revenue_mean")].tolist() == [47]
     assert population_keys(
         full.difference(mv.coordinates(by=(customer,), keys=((2,),)))._definition
     ) == ((1,), (3,))
@@ -289,9 +289,10 @@ def test_nested_per_keeps_each_layers_membership_rule(
     )
     # Association/direct bucket pairs carry 40, 10, 100 across nine complete cells.
     # Reversing the layers preserves their sum but changes their three maxima.
-    assert result[("value", "mean_of_means")].tolist() == [pytest.approx(150 / 9)]
-    maxima = (40, 100, 0) if outer_route == "direct" else (40, 10, 100)
-    assert result[("value", "mean_of_maxima")].tolist() == [pytest.approx(sum(maxima) / 3)]
+    # Bound Decimal(38,0) rounds each inner mean: direct layers produce
+    # [17,33,0], association layers [13,3,33], before the outer mean.
+    assert result[("value", "mean_of_means")].tolist() == [17 if outer_route == "direct" else 16]
+    assert result[("value", "mean_of_maxima")].tolist() == [47 if outer_route == "direct" else 50]
 
 
 def test_population_filters_and_relationship_images_preserve_typed_keys(

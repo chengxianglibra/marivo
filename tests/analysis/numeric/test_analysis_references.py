@@ -170,7 +170,7 @@ def test_public_references_source_and_fixed(
         saved.to_pandas(), case.session.persisted_frame(saved.artifact.id).to_pandas()
     )
     fixed_values = _plain(values.compute()).set_index("key_0")
-    pandas_shares = fixed_values.value / fixed_values.value.sum()
+    pandas_shares = fixed_values.value.astype("float64") / float(fixed_values.value.sum())
     assert pandas_shares.to_dict() == expected_shares
 
 
@@ -529,9 +529,9 @@ def test_fixed_selected_original_can_use_retained_full_reference(
         "B": float(Fraction(2, 3)),
     }
     assert external.value.sum() == 180
-    assert (external.value[external.value > 0] / external.value.sum()).to_dict() == selected[
-        "value.share"
-    ].to_dict()
+    assert (
+        external.value[external.value > 0].astype("float64") / float(external.value.sum())
+    ).to_dict() == selected["value.share"].to_dict()
     pd.testing.assert_frame_equal(
         full.to_pandas(), case.session.persisted_frame(full.artifact.id).to_pandas()
     )
@@ -571,7 +571,7 @@ def test_reference_preparation_captures_independent_source_origins(
     assert trace.native_sql and trace.owners and all(owner._closed for owner in trace.owners)
     # Line-derived weights remain an explicit pandas reference; no statistical
     # unit proof or hidden origin payload is inferred from matching output keys.
-    weights = table.lines / table.lines.sum()
+    weights = table.lines.astype(object) / sum(table.lines)
     assert sum(
         Fraction(value) * Fraction(weight)
         for value, weight in zip(table["count"], weights, strict=True)

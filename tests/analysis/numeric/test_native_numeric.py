@@ -3,7 +3,7 @@
 import json
 import os
 from datetime import date
-from decimal import ROUND_HALF_EVEN, Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 import duckdb
@@ -113,9 +113,9 @@ def test_native_weighted_and_mean(
     if value_type.startswith("DECIMAL"):
         assert all(isinstance(value, Decimal) for value in raw[("value", "value")].dropna())
         expected_a = ((Decimal("1.01") + Decimal("1.02")) / 2).quantize(
-            Decimal("0.01"), rounding=ROUND_HALF_EVEN
+            Decimal("0.01"), rounding=ROUND_HALF_UP
         )
-        # Current rows have their own HalfEven arithmetic. This is not source
+        # Current rows use ties-away Decimal convergence. This is not source
         # mean reconstruction: each admitted fact is one represented row here.
         represented = session.observe(
             {"value": session.catalog.metrics.get("sales.mean")},
@@ -170,13 +170,13 @@ def _model(tmp_path: Path) -> None:
 
 @pytest.mark.runtime
 @pytest.mark.parametrize("fixed", [False, True], ids=["source", "fixed"])
-def test_clickhouse_weight_state_overflow(
+def test_clickhouse_weight_sum_uses_decimal_carrier(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fixed: bool
 ) -> None:
-    _clickhouse_weight_state_overflow(tmp_path, monkeypatch, fixed=fixed)
+    _clickhouse_weight_sum_uses_decimal_carrier(tmp_path, monkeypatch, fixed=fixed)
 
 
-def _clickhouse_weight_state_overflow(
+def _clickhouse_weight_sum_uses_decimal_carrier(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -227,8 +227,6 @@ def _clickhouse_weight_state_overflow(
         session = mv.session.create("native_remote", timezone="UTC")
         members = session.members(session.catalog.entities.get("sales.facts"))
         scope = session.time_scope(start="2026-07-01", end="2026-07-02")
-        from marivo.analysis.materialization.errors import MaterializationError
-
         saved = (
             session.read(
                 members, {"value": session.catalog.fields.get("sales.facts.value")}
@@ -242,22 +240,13 @@ def _clickhouse_weight_state_overflow(
                 members, {"weight": session.catalog.fields.get("sales.facts.weight")}
             ).compute()
             assert weights.to_pandas()[("value", "weight")].tolist() == [2**63 - 1] * 2
-        before = publication_counts(session)
-        with pytest.raises(MaterializationError) as raised:
-            session.observe(
-                {"value": session.catalog.metrics.get("sales.weighted")},
-                by=(scope,),
-                where=mv.in_population(members),
-            ).compute()
-        cause = str(raised.value.__cause__)
-        assert (
-            "retained numeric sum within declared carrier" in str(raised.value)
-            or "int64 state overflow" in str(raised.value)
-            or "DECIMAL_OVERFLOW" in cause
-            or ("CANNOT_PARSE_TEXT" in cause and "numeric carrier overflow" in cause)
-        )
-        assert raised.value.expected and raised.value.received and raised.value.repair
-        assert publication_counts(session) == before
+        result = session.observe(
+            {"value": session.catalog.metrics.get("sales.weighted")},
+            by=(scope,),
+            where=mv.in_population(members),
+        ).persist()
+        assert _value(result).tolist() == pytest.approx([1.015])
+        assert session.persisted_frame(result.artifact.id).to_pandas().equals(result.to_pandas())
         assert session._runtime.store.resources(session.id) == ()
         if saved is not None:
             assert previous is not None
@@ -273,11 +262,10 @@ def _clickhouse_weight_state_overflow(
                         "values": data.values,
                         "raw_rows": data.rows,
                         "mathematical_weight_sum": 2 * (2**63 - 1),
-                        "weight_carrier": "int64",
+                        "weight_carrier": "decimal(38,0)",
                         "route": "source_original_after_capture" if fixed else "source_ibis",
-                        "expected": "overflow_refusal",
-                        "error": str(raised.value),
-                        "publication_counts_before": before,
+                        "expected": "decimal_accumulation",
+                        "actual": _value(result).tolist(),
                         "publication_counts_after": publication_counts(session),
                         "resources": 0,
                     },
@@ -447,7 +435,7 @@ def test_linear_promotes_before_signed_intermediate_arithmetic(
     scope = session.time_scope(start="2026-08-01", end="2026-09-01")
     members = session.members(session.catalog.entities.get("sales.facts"))
     logical = session.observe({"value": metric}, by=mv.product(scope, members))
-    if family in {"duration", "float_prefix"}:
+    if family == "duration":
         with pytest.raises(AnalysisError):
             logical.compute()
         metric = (total - cancel) + weights if family == "duration" else total + (weights - cancel)
@@ -507,12 +495,12 @@ def test_narrow_decimal_mean_difference_preserves_fixed_attribution_carrier(
         dtype = values.dtype
         precision = int(value_type.split("(")[1].split(",")[0])
         assert isinstance(dtype, pd.ArrowDtype) and dtype.pyarrow_dtype == pa.decimal128(
-            precision, scale
+            min(38, precision + 1), scale
         )
 
 
 @pytest.mark.parametrize("duration", [False, True])
-def test_linear_still_rejects_final_carrier_overflow(
+def test_linear_uses_widened_sums_and_keeps_duration_overflow(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, duration: bool
 ) -> None:
     monkeypatch.chdir(tmp_path)
@@ -545,12 +533,16 @@ def test_linear_still_rejects_final_carrier_overflow(
     )
     fixed = logical.persist()
     previous = fixed.to_pandas()
-    with pytest.raises(AnalysisError):
-        session.observe(
-            {"value": metric},
-            by=(session.time_scope(start="2026-08-01", end="2026-09-01"),),
-            where=mv.in_population(session.members(session.catalog.entities.get("sales.facts"))),
-        ).compute()
+    overall = session.observe(
+        {"value": metric},
+        by=(session.time_scope(start="2026-08-01", end="2026-09-01"),),
+        where=mv.in_population(session.members(session.catalog.entities.get("sales.facts"))),
+    )
+    if duration:
+        with pytest.raises(AnalysisError):
+            overall.compute()
+    else:
+        assert _value(overall.compute()).tolist() == [Decimal(2**63)]
     assert fixed.to_pandas().equals(previous)
     assert session.persisted_frame(fixed.artifact.id).to_pandas().equals(previous)
 

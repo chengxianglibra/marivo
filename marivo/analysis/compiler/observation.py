@@ -259,6 +259,8 @@ def lower_observation(
     if prepared.duration is not None and isinstance(prepared.node, SourceAggregate):
         node = prepared.node
         ticks = lower_row(node.operand, fields).value
+        if node.reducer == "sum":
+            metrics[prepared.value_slot] = ops.Cast(item.value, to=dt.int64).to_expr()
         if node.reducer == "mean":
             metrics[prepared.value_slot] = ops.Cast(ticks.sum().fill_null(0), to=dt.int64).to_expr()
             metrics["__duration_count"] = ticks.count()

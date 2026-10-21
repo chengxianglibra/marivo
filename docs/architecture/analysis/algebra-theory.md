@@ -643,7 +643,7 @@ r 是 `K′⊆K` 的包含映射时，得到“求值后限制”与“在 `a^{-
 
 | 本文内容 | 当前规则与状态 | 实现入口及边界 |
 | --- | --- | --- |
-| L1 固定载体选择 | 编译器 L1，受限实现 | [query_selection_fusion_issue](../../../marivo/analysis/core/local_laws.py) 检查同实际输入、同布局、单消费者、无待完成检查的闭合 int64 比较；nullable 谓词只保留 True。通过后由 [optimization.py](../../../marivo/analysis/compiler/optimization.py) 合并过滤 |
+| L1 固定载体选择 | 编译器 L1，受限实现 | [query_selection_fusion_issue](../../../marivo/analysis/core/local_laws.py) 检查同实际输入、同布局、单消费者、无待完成检查的闭合 int64 或 Decimal(38,0) 比较；nullable 谓词只保留 True。通过后由 [optimization.py](../../../marivo/analysis/compiler/optimization.py) 合并过滤 |
 | L4 上下文变换与取值的合成 | 未实现通用映射复合改写 | 无 compose_mapping 入口；普通算子组合不等于编译器已消除中间映射 |
 | L6 摘要分区与上卷 | 编译器 L8，明确拒绝 | [optimization.py](../../../marivo/analysis/compiler/optimization.py) 对相邻 ReduceValues 记录 refused；缺少保持中间掩码、数值边界与原完成检查的固定状态证明 |
 | L7 拉回与限制 | 未实现通用限制改写 | 无 restrict_state 入口；当前行筛选不等于按完整原像限制来源状态 |

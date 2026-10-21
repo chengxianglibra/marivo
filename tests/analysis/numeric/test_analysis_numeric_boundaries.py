@@ -180,21 +180,6 @@ def test_decimal_boundary_fixed_rollup_does_not_round_range_check(
         {"value": metric},
         by=session.members(session.catalog.entities.get("sales.customer")),
     )
-    if kind == "sum" and scale == 0:
-        from marivo.analysis.materialization.errors import MaterializationError
-        from tests.analysis.materialization.publication_fixtures import publication_counts
-
-        before = publication_counts(session)
-        with pytest.raises(MaterializationError, match="native Ibis pandas"):
-            logical.compute()
-        assert publication_counts(session) == before
-        # Ibis infers SUM(decimal(38,0)) as decimal(38,2); its native pandas
-        # conversion cannot represent this value. The independent local
-        # Decimal contract still admits the actual 38-digit value.
-        literal = session.values(by=(), columns={"value": None}, rows=(((), {"value": value}),))
-        local = literal.reduce({"value": literal["value"].sum()}).compute()
-        assert local.to_pandas()[("value", "value")].tolist() == [value]
-        return
     fixed = logical.persist()
     for result in (
         session.observe(

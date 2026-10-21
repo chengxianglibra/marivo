@@ -151,8 +151,14 @@ def test_native_cell_sum_retains_numeric_errors_before_top_zero(
         total = source.reduce({"total": source["value"].sum()})
         query = total.top(0, by=total["total"])
         trace = capture_source(monkeypatch)
-        with pytest.raises(
-            (AnalysisError, MaterializationError), match=r"nonfinite|overflow|finite"
-        ):
-            query.compute()
+        if boundary == "decimal_overflow":
+            assert total.compute().to_pandas()["value", "total"].tolist() == [
+                Decimal("10000000000000000.00")
+            ]
+            assert query.compute().to_pandas().empty
+        else:
+            with pytest.raises(
+                (AnalysisError, MaterializationError), match=r"nonfinite|overflow|finite"
+            ):
+                query.compute()
         assert trace.uploaded_key_rows == []

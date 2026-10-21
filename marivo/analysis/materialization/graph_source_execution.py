@@ -475,6 +475,16 @@ def _admitted(schema: pa.Schema, path: str, column: str) -> SourceField:
     return SourceField(path, column, admit_source_type(item, path), item.nullable)
 
 
+def _bound_physical_field(physical: ops.Field, bound: BoundSource) -> pa.Field | None:
+    """Recover captured carrier metadata through the source's declared projection."""
+    from marivo.analysis.materialization.query_preparation import physical_fields
+
+    for captured in bound.facts.schema:
+        if physical in physical_fields(bound.relation[captured.name]):
+            return captured
+    return None
+
+
 def _population_field(
     table: ir.Table, column: str, bounds: Mapping[str, BoundSource]
 ) -> SourceField:
@@ -487,9 +497,9 @@ def _population_field(
     duration: DurationDataType | None = None
     for physical in physical_fields(table[column]):
         for bound in bounds.values():
-            if physical.rel != bound.relation.op():
+            field = _bound_physical_field(physical, bound)
+            if field is None:
                 continue
-            field = bound.facts.schema.field(physical.name)
             if DURATION_UNIT_METADATA_KEY not in (field.metadata or {}):
                 continue
             dtype = admit_source_type(field, column)
@@ -709,8 +719,8 @@ def prepare_query_sources(
         for dependency in prepared.dependencies:
             for physical in physical_fields(dependency):
                 for bound in bounds.values():
-                    if physical.rel == bound.relation.op():
-                        raw = bound.facts.schema.field(physical.name)
+                    raw = _bound_physical_field(physical, bound)
+                    if raw is not None:
                         metadata = raw.metadata or {}
                         if TIMESTAMP_UNIT_METADATA_KEY in metadata:
                             _validate_timestamp_precision(raw, f"{root}: {physical.name}")
@@ -778,8 +788,8 @@ def prepare_query_sources(
             duration = DurationDataType("us") if expression.type().is_interval() else None
             for physical in physical_fields(expression):
                 for bound in bounds.values():
-                    if physical.rel == bound.relation.op():
-                        raw = bound.facts.schema.field(physical.name)
+                    raw = _bound_physical_field(physical, bound)
+                    if raw is not None:
                         metadata = raw.metadata or {}
                         if not (
                             DURATION_UNIT_METADATA_KEY in metadata
@@ -1297,6 +1307,18 @@ def read_stage(
             received=f"{source.provider.name}: {type(error).__name__}: {error}",
             repair="Use a method and value range supported by the backend's native Ibis pandas conversion, or author an explicit business-specific expression.",
             stage="source_conversion",
+            help_target="analysis_frame.compute",
+        ) from error
+    except Exception as error:
+        from marivo._errors import MarivoError
+
+        if isinstance(error, MarivoError):
+            raise
+        raise MaterializationError(
+            expected="successful native source execution for the compiled expression",
+            received=f"{source.provider.name}: {type(error).__name__}: {error}",
+            repair="Inspect the native backend failure and correct the input range or expression. Retry frame.compute(); source failures do not switch execution paths.",
+            stage="source_execution",
             help_target="analysis_frame.compute",
         ) from error
     if read_attribute(stage) is not None:

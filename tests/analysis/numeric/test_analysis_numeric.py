@@ -358,7 +358,8 @@ def test_numeric_composition_matrix(analysis_dsl_case_factory: DslCaseFactory) -
                 float(expected)
                 if floating or kind in ("weighted", "ratio")
                 else (Decimal(expected.numerator) / Decimal(expected.denominator)).quantize(
-                    Decimal("0.000001"), rounding=ROUND_HALF_EVEN
+                    Decimal("0.00001") if kind == "linear" else Decimal("0.000001"),
+                    rounding=ROUND_HALF_EVEN,
                 )
             )
         rolled = session.observe({"value": expression}, where=mv.in_population(members))
@@ -780,7 +781,7 @@ def test_numeric_boundary_facts(analysis_dsl_case_factory: DslCaseFactory, case_
     metric = amount.mean() if case_kind == "large_mean" else amount.sum()
     customer = case.session.catalog.fields.get("sales.order.customer_id")
     logical = case.session.observe({"boundary": metric}, by=(customer,))
-    if case_kind in ("overflow", "nonfinite", "calendar"):
+    if case_kind in ("nonfinite", "calendar"):
         with pytest.raises(AnalysisError):
             logical.compute()
     else:
@@ -874,23 +875,9 @@ def test_linear_cancellation_checks_final_integer_and_float_bound(
     )
     members = session.members(session.catalog.entities.get("sales.customer"))
     original = session.observe({"value": first + small - cancel}, by=members)
-    if not floating:
-        # Each binary node checks its own domain; subtraction cannot erase the
-        # overflowing maxint+1 child.
-        for query in (
-            original,
-            session.observe({"value": first + small - cancel}, where=mv.in_population(members)),
-        ):
-            before = terminal_runs(session)
-            with pytest.raises(AnalysisError) as caught:
-                query.compute()
-            assert isinstance(caught.value.__cause__, ms.errors.SemanticExpressionError)
-            assert caught.value.__cause__.expected == "signed int64 arithmetic"
-            assert terminal_runs(session) == before
-    # This distinct bounded expression preserves the business cancellation.
-    logical = (
-        original if floating else session.observe({"value": (first - cancel) + small}, by=members)
-    )
+    # Integer SUM outputs are Decimal, so this formerly overflowing int64 child
+    # is now representable without changing the equation.
+    logical = original
     oracle = Fraction(large) + 1 - Fraction(large)
     for result in (
         logical.compute(),

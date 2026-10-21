@@ -109,7 +109,9 @@ def expression_value(
                     "Query.prepare",
                 )
             return ibis.literal(Decimal(expression.value), type=f"decimal({digits},0)")
-        return ibis.literal(expression.value)
+        from marivo._numeric_types import bind_numeric_literal
+
+        return bind_numeric_literal(ibis.literal(expression.value))
     if isinstance(expression, ValueUnary):
         value = expression_value(expression.operand, values, keys)
         if expression.operation == "is_null":

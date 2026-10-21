@@ -30,8 +30,12 @@ multiplier or empty output cannot suppress a required error.
 Division uses `zero_denominator="null"` by default and masks zero before dividing.
 Explicit `"error"` fails only the demanded non-NA division. The parameter belongs
 to that new operation; a parent comparison or formula cannot overwrite a child's
-strict policy. Nonfinite values, invalid arithmetic and overflow are errors,
-not additional missing states or a reason to retry another algorithm. Source
+strict policy. Nonfinite results and invalid domains are errors, never missing states
+or a reason to retry another algorithm. Ordinary source integer and Decimal
+arithmetic follows backend overflow behavior, including ClickHouse wrapping.
+Local integer arithmetic uses checked kernels. An unevaluated source subexpression
+need not trigger overflow, including under empty output; explicit null/zero/domain
+checks retain their own demanded domains. Source
 field reads check actual NaN/Infinity before selection, ordering or a pandas
 carrier can hide them. A pandas missing-value encoding remains NULL; an Arrow
 valid NaN is a nonfinite value, not NULL.
@@ -56,9 +60,28 @@ casting them back after loss. Datasource schema metadata remains authoritative
 when a provider exposes a different Timestamp or Duration carrier. Source
 admission and saved-output export are separate guarantees.
 
-Source arithmetic uses admitted native Ibis operations. Local arithmetic preserves
-exact integer/Decimal intermediates until its declared output conversion and
-checks finite results and signed overflow. Duration keeps its exact tick unit;
+Source arithmetic uses admitted native Ibis operations with explicit bound result
+casts. Integer SUM returns Decimal(38,0); Decimal SUM returns Decimal(38,input_scale).
+Both use one primary accumulation; count remains int64. Decimal add/subtract uses
+p=max(p1-s1,p2-s2)+max(s1,s2)+1, s=max(s1,s2); multiply uses p=p1+p2, s=s1+s2.
+When p exceeds 38, reduce s by the excess (minimum zero) and cap p at 38.
+Mixed Decimal/integer uses the bound integer width (int64: 19 decimal digits).
+An unspecified Ibis Decimal literal binds p/s from its literal digits and exponent;
+an explicitly typed literal keeps that type. Business row values never select types;
+ordinary integer arithmetic remains integer. Division/ratio returns float64;
+mean retains its method-declared type, with an explicit Decimal output cast.
+Local Decimal work keeps context precision 120 and converges once per bound result
+with HALF_UP (ties away from zero), including carry at precision 38. Explicit
+round retains its own semantics. Final carrier conversion is safe. Float64 admits
+binary approximation, integer low-bit loss beyond 2**53 and ordinary underflow;
+new nonfinite results fail. Identity, count, time and Duration remain exact.
+Native intermediate precision, AVG algorithms, floating order and overflow may
+differ between source and local execution. ClickHouse may silently return a wrapped
+value with a different sign/magnitude; an admitted result may be used in formulas,
+filters and ordering. Safe conversion cannot detect prior native wrapping.
+Saved results preserve committed values, scale, dtype, NA and keys without rounding
+or recomputation on export/cold read. Existing terminal fusion consumes the same
+bound result types; its chosen native path determines overflow behavior. Duration keeps its exact tick unit;
 a calendar month is not an elapsed duration. DuckDB native INTERVAL is admitted
 as microseconds only after a source-native check rejects year, month and day
 components. It does not invent nanosecond precision. Arrow Duration metadata and

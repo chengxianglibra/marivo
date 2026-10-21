@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from marivo._definition.query import FilterValues
-from marivo.analysis.core.data_types import DataColumn, ScalarDataType
+from marivo.analysis.core.data_types import DataColumn, DecimalDataType, ScalarDataType
 
 
 def query_selection_fusion_issue(
@@ -17,7 +17,7 @@ def query_selection_fusion_issue(
     same_layout: bool,
     original_boundary: bool,
 ) -> tuple[str, str] | None:
-    """L1 adapter for AnalysisFrame's same-mask nullable int64 comparisons.
+    """L1 adapter for AnalysisFrame's same-mask nullable int64/integer-SUM comparisons.
 
     Both filters retain only True, so a common nullable comparison mask has
     exactly the same selected keys under sequential application and Kleene
@@ -46,7 +46,7 @@ def query_selection_fusion_issue(
         if isinstance(expression, ValueSlot):
             return 0 <= expression.index < len(value_columns) and value_columns[
                 expression.index
-            ].dtype == ScalarDataType("int64")
+            ].dtype in (ScalarDataType("int64"), DecimalDataType(38, 0))
         if isinstance(expression, CoordinateSlot):
             return (
                 0 <= expression.index < len(key_groups)
@@ -71,7 +71,7 @@ def query_selection_fusion_issue(
 
     if not predicate(first.predicate) or not predicate(second.predicate):
         return (
-            "closed int64 comparisons with the same drop-NA mask policy",
+            "closed int64 or Decimal(38,0) comparisons with the same drop-NA mask policy",
             "unqualified predicate or numeric operation",
         )
     return None

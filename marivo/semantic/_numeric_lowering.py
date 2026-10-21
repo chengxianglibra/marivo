@@ -8,6 +8,7 @@ from typing import NoReturn
 
 import ibis
 import ibis.expr.datatypes as dt
+import ibis.expr.operations as ops
 import ibis.expr.types as ir
 from ibis.common.exceptions import IbisTypeError
 
@@ -29,6 +30,7 @@ from marivo._definition.expressions import (
     SourceWeightedMean,
 )
 from marivo._definition.types import ExactRef
+from marivo._numeric_types import bind_numeric_literal, decimal_result_type
 from marivo.refs import (
     SemanticKind,
 )
@@ -80,7 +82,7 @@ def numeric_binary(
     operation: str, left: NumericValue, right: NumericValue, *, zero_denominator: str = "null"
 ) -> NumericValue:
     """Emit arithmetic with the denominator masked before division."""
-    a, b = left.value, right.value
+    a, b = bind_numeric_literal(left.value), bind_numeric_literal(right.value)
     if a.type().is_floating() and b.type().is_decimal():
         b = b.cast("float64")
     elif b.type().is_floating() and a.type().is_decimal():
@@ -102,30 +104,11 @@ def numeric_binary(
     elif operation == "add":
         value = add_numeric(a, b)
     elif operation == "subtract":
-        value = add_numeric(a, -b)
+        value = _binary_numeric("subtract", a, b)
     elif operation == "multiply":
         value = multiply_numeric(a, b)
     else:
         numeric_failure("add/subtract/multiply/divide", operation)
-    if (
-        operation in ("add", "subtract", "multiply")
-        and a.type().is_integer()
-        and b.type().is_integer()
-    ):
-        wide_a, wide_b = a.cast("decimal(38,0)"), b.cast("decimal(38,0)")
-        wide = (
-            wide_a + wide_b
-            if operation == "add"
-            else wide_a - wide_b
-            if operation == "subtract"
-            else wide_a * wide_b
-        )
-        overflow = (wide < -(2**63)) | (wide > 2**63 - 1)
-        checks = (
-            *checks,
-            NumericCheck(overflow, "signed int64 arithmetic", f"{operation}: integer overflow"),
-        )
-        value = overflow.ifelse(ibis.null().cast("int64"), wide.cast("int64"))
     return NumericValue(value, (*checks, *_finite_check(value, operation)))
 
 
@@ -197,8 +180,22 @@ def lower_predicate(
     return NumericValue(result.value, (*checks, *result.checks))
 
 
+def force_cast(value: ir.Value, dtype: dt.DataType) -> ir.Value:
+    """Retain a result CAST in SQL even when Ibis infers the same type."""
+    return ops.Cast(value, to=dtype).to_expr()
+
+
 def _source_sum(value: ir.Value) -> ir.Value:
-    return value.sum()
+    dtype = value.type()
+    if dtype.is_integer():
+        value = value.cast("decimal(38,0)")
+        dtype = value.type()
+    result = value.sum()
+    return (
+        force_cast(result, dt.Decimal(38, dtype.scale or 0))
+        if isinstance(dtype, dt.Decimal)
+        else result
+    )
 
 
 def lower_source_reduction(
@@ -249,14 +246,6 @@ def lower_source_reduction(
         result = value.nunique()
     elif node.reducer == "sum":
         result = _source_sum(value)
-        aggregate_checks: tuple[NumericCheck, ...] = ()
-        if value.type().is_integer():
-            wide = value.cast("decimal(38,0)").sum()
-            overflow = (wide < -(2**63)) | (wide > 2**63 - 1)
-            aggregate_checks = (
-                NumericCheck(overflow, "signed int64 sum", "sum: integer overflow"),
-            )
-            result = overflow.ifelse(ibis.null().cast("int64"), wide.cast("int64"))
         # An absent contribution is additive zero; existing unknown values are not.
         result = (table.count() == 0).ifelse(
             ibis.literal(0).cast(result.type()),
@@ -268,7 +257,6 @@ def lower_source_reduction(
             result,
             (
                 *(_aggregate_check(c) for c in checks),
-                *aggregate_checks,
                 *_finite_check(result, node.reducer),
             ),
         )
@@ -283,6 +271,8 @@ def lower_source_reduction(
         )
     elif node.reducer == "mean":
         result = value.mean()
+        if result.type().is_decimal():
+            result = force_cast(result, result.type())
     elif node.reducer == "min":
         result = value.min()
     elif node.reducer == "max":
@@ -351,7 +341,7 @@ def lower_metric_formula(
                 if node.reducer == "mean"
                 else value.quantile(node.q if node.q is not None else 0.5)
             )
-        return NumericValue(value.sum() if node.reducer == "sum" else value.min())
+        return NumericValue(_source_sum(value) if node.reducer == "sum" else value.min())
     if isinstance(node, PerWeightedMean):
         value = lower_metric_formula(node.value, (*occurrence, 0), values, declared)
         weight = lower_metric_formula(node.weight, (*occurrence, 1), values, declared)
@@ -367,42 +357,52 @@ def lower_metric_formula(
     )
 
 
-def multiply_numeric(left: ir.Value, right: ir.Value) -> ir.Value:
-    """Use native multiplication with necessary Decimal/float and scale adaptation."""
+def _binary_numeric(operation: str, left: ir.Value, right: ir.Value) -> ir.Value:
     a, b = left.type(), right.type()
-    if a.is_floating() and isinstance(b, dt.Decimal):
+    if a.is_floating() and b.is_decimal():
         right = right.cast(a)
-    elif b.is_floating() and isinstance(a, dt.Decimal):
+    elif b.is_floating() and a.is_decimal():
         left = left.cast(b)
+    target = decimal_result_type(operation, a, b)
     try:
-        return left * right
-    except IbisTypeError:
-        a, b = left.type(), right.type()
-        if not isinstance(a, dt.Decimal) or not isinstance(b, dt.Decimal):
-            raise
-        scale = max(a.scale or 0, b.scale or 0)
-        precision = (
-            max((a.precision or 38) - (a.scale or 0), (b.precision or 38) - (b.scale or 0)) + scale
+        result = (
+            left * right
+            if operation == "multiply"
+            else left - right
+            if operation == "subtract"
+            else left + right
         )
-        common = dt.Decimal(min(38, precision), scale)
-        return left.cast(common) * right.cast(common)
+    except IbisTypeError:
+        if target is None:
+            raise
+        # Ibis requires comparable Decimal metadata for some mixed p/s pairs.
+        scale = max(a.scale or 0, b.scale or 0)
+        common = dt.Decimal(38, scale)
+        left, right = left.cast(common), right.cast(common)
+        result = (
+            left * right
+            if operation == "multiply"
+            else left - right
+            if operation == "subtract"
+            else left + right
+        )
+    if target is not None:
+        left_scale = (a.scale or 0) if isinstance(a, dt.Decimal) else 0
+        right_scale = (b.scale or 0) if isinstance(b, dt.Decimal) else 0
+        scale = (
+            left_scale + right_scale if operation == "multiply" else max(left_scale, right_scale)
+        )
+        if target.scale < scale:
+            result = result.round(target.scale)
+        return force_cast(result, target)
+    return result
+
+
+def multiply_numeric(left: ir.Value, right: ir.Value) -> ir.Value:
+    """Multiply with a bound Decimal result cast and native backend arithmetic."""
+    return _binary_numeric("multiply", left, right)
 
 
 def add_numeric(left: ir.Value, right: ir.Value) -> ir.Value:
-    """Add numeric components with the minimal Ibis Decimal adaptation."""
-    a, b = left.type(), right.type()
-    if a.is_floating() and isinstance(b, dt.Decimal):
-        right = right.cast(a)
-    elif b.is_floating() and isinstance(a, dt.Decimal):
-        left = left.cast(b)
-    try:
-        return left + right
-    except IbisTypeError:
-        if not isinstance(a, dt.Decimal) or not isinstance(b, dt.Decimal):
-            raise
-        scale = max(a.scale or 0, b.scale or 0)
-        precision = (
-            max((a.precision or 38) - (a.scale or 0), (b.precision or 38) - (b.scale or 0)) + scale
-        )
-        common = dt.Decimal(min(38, precision), scale)
-        return left.cast(common) + right.cast(common)
+    """Add with a bound Decimal result cast and native backend arithmetic."""
+    return _binary_numeric("add", left, right)

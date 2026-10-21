@@ -31,7 +31,7 @@ becoming monthly inventory or an overall ratio.
 An explicit Population retains members without facts. Their source sum is zero;
 existing facts whose values are all NULL still produce NULL. For members A/B/C
 with revenue 100/no facts/no facts, the completed member values are 100/0/0 and
-their mean is 100/3. If C instead has facts with unknown revenue, its value is
+their mathematical mean is 100/3; a mean over these Decimal(38,0) SUM cells keeps scale 0 and returns 33. If C instead has facts with unknown revenue, its value is
 NULL: an ignore-NA mean skips C and is not a complete-Population average. Request
 strict internal sample checks when unknown members must reject the computation.
 A missing alignment endpoint remains separate from a present member with no facts.
@@ -57,7 +57,7 @@ reduce or a retired rollup method.
 {/* example: pandas-descriptive-statistics */}
 
 ```python
-values = current.to_pandas()["value"].copy()
+values = current.to_pandas()["value"].astype("float64")
 revenue_values = values["revenue"]
 statistics = revenue_values.agg(["count", "sum", "mean", "median", "min", "max"])
 print(statistics)
@@ -87,7 +87,7 @@ comparison = current.compare(
     match={"reference": mv.ordinal()},
 ).compute().to_pandas()
 present = comparison[("presence", "current.present")] & comparison[("presence", "reference.present")]
-pairs = comparison.loc[present, "value"][["revenue", "reference.baseline.revenue"]].dropna()
+pairs = comparison.loc[present, "value"][["revenue", "reference.baseline.revenue"]].dropna().astype("float64")
 paired_difference = pairs["revenue"] - pairs["reference.baseline.revenue"]
 print(paired_difference.mean())
 ```
@@ -101,3 +101,20 @@ Unfinished statistics expose only read-only `unit` and are consumed by
 consuming it does not modify the request. Column sum/mean/corr/pair_count bind the
 exact Frame and Session; another input with equal names, structure or values
 cannot substitute. See `marivo.help("analysis.value_statistic")`.
+
+## Numeric results and overflow
+
+Integer SUM returns Decimal(38,0); Decimal SUM returns Decimal(38,input_scale).
+Count stays int64. Decimal add/subtract uses p=max(p1-s1,p2-s2)+max(s1,s2)+1,
+s=max(s1,s2); multiply uses p=p1+p2, s=s1+s2. Cap p at 38 and reduce s by
+the excess, down to zero. Bound integer types supply their digit width (int64: 19);
+float mixing and division use float64. Mean retains its declared output type.
+Decimal results converge with ties away from zero (1.245→1.25 and -1.245→-1.25).
+Local integer arithmetic is checked. Source arithmetic follows backend precision
+and overflow behavior, including ClickHouse silent wrapping that can change sign
+and magnitude and affect formulas, filters and order. Unevaluated source arithmetic
+may not raise. Explicit null/zero/domain checks keep their own scope.
+Float64 permits binary approximation, low-bit loss beyond 2**53 and underflow;
+new nonfinite results fail. Identity, count, time and Duration remain exact.
+Saved data and cold reads preserve committed values, dtype, scale, NA and keys
+without recomputation or further rounding.

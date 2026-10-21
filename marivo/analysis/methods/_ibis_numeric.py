@@ -10,6 +10,8 @@ from fractions import Fraction
 
 import ibis.expr.operations as ops
 import pandas as pd
+import pyarrow as pa
+import pyarrow.compute as pc
 
 from marivo.semantic._numeric_lowering import numeric_failure
 
@@ -131,6 +133,19 @@ def evaluate_numeric(
                 node.right,
                 lambda left, right: Fraction(str(left)) / Fraction(str(right)),
             )
+        if isinstance(node, (ops.Add, ops.Subtract, ops.Multiply)) and node.dtype.is_integer():
+            kernel = {
+                ops.Add: pc.add_checked,
+                ops.Subtract: pc.subtract_checked,
+                ops.Multiply: pc.multiply_checked,
+            }[type(node)]
+            return binary(
+                node.left,
+                node.right,
+                lambda a, b: kernel(
+                    pa.scalar(a, type=pa.int64()), pa.scalar(b, type=pa.int64())
+                ).as_py(),
+            )
         if type(node) in binary_functions:
             return binary(node.left, node.right, binary_functions[type(node)])
         if isinstance(node, (ops.Cast, ops.TryCast)):
@@ -152,14 +167,11 @@ def evaluate_numeric(
                         with localcontext() as context:
                             context.prec = 120
                             decimal = Decimal(str(value)).quantize(
-                                Decimal(1).scaleb(-(node.to.scale or 0))
+                                Decimal(1).scaleb(-(node.to.scale or 0)), rounding=ROUND_HALF_UP
                             )
-                        return (
-                            decimal
-                            if abs(decimal)
-                            < Decimal(10) ** ((node.to.precision or 38) - (node.to.scale or 0))
-                            else None
-                        )
+                        return pa.scalar(
+                            decimal, type=pa.decimal128(node.to.precision or 38, node.to.scale or 0)
+                        ).as_py()
                     if node.to.is_boolean():
                         return bool(value)
                     if node.to.is_string():
@@ -201,11 +213,14 @@ def evaluate_numeric(
             return unary(
                 node.arg, lambda value: isinstance(value, float) and math.isinf(value), nulls=True
             )
+        if isinstance(node, (ops.Abs, ops.Negate)) and node.dtype.is_integer():
+            kernel = pc.abs_checked if isinstance(node, ops.Abs) else pc.negate_checked
+            return unary(node.arg, lambda value: kernel(pa.scalar(value, type=pa.int64())).as_py())
         if isinstance(node, ops.Abs):
             return unary(
                 node.arg,
                 lambda value: (
-                    abs(Decimal(str(value)))
+                    value.copy_abs()
                     if isinstance(value, Decimal)
                     else abs(float(str(value)))
                     if isinstance(value, float)
@@ -216,7 +231,7 @@ def evaluate_numeric(
             return unary(
                 node.arg,
                 lambda value: (
-                    -Decimal(str(value))
+                    value.copy_negate()
                     if isinstance(value, Decimal)
                     else -float(str(value))
                     if isinstance(value, float)

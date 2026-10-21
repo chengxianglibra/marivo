@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 
 import ibis
@@ -214,11 +215,15 @@ def test_native_numeric_parent_failures_survive_top_zero(
         )
         fine = session.observe({"value": metric}, by=(category,))
         trace = capture_source(monkeypatch)
-        with pytest.raises(
-            MaterializationError,
-            match={"overflow": "overflow", "strict": "non-NA", "zero": "zero"}[boundary],
-        ):
-            fine.top(0, by=fine["value"]).compute()
+        if boundary == "overflow":
+            actual = fine.compute().to_pandas()["value", "value"]
+            assert actual.iloc[0] == Decimal(2**63)
+            assert fine.top(0, by=fine["value"]).compute().to_pandas().empty
+        else:
+            with pytest.raises(
+                MaterializationError, match={"strict": "non-NA", "zero": "zero"}[boundary]
+            ):
+                fine.top(0, by=fine["value"]).compute()
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
@@ -323,3 +328,117 @@ def test_nonnullable_float_source_rejects_nan_before_filter_and_top(
             with pytest.raises(MaterializationError, match="finite"):
                 frame.compute()
         assert trace.uploaded_key_rows == []
+
+
+@pytest.mark.parametrize(
+    "backend,profile", source_params([("duckdb", "table"), ("clickhouse", "mergetree")])
+)
+def test_native_integer_overflow_keeps_backend_behavior_and_fixed_values(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    backend: str,
+    profile: str,
+) -> None:
+    """Native wrapping is an accepted value, while fixed integer arithmetic is checked."""
+    monkeypatch.chdir(tmp_path)
+    with source_case(backend, profile, tmp_path, monkeypatch, _data("overflow")) as case:
+        _project(backend, case, monkeypatch, semantic_project_factory)
+        session = mv.session.create("native-overflow", timezone="UTC")
+        big = session.catalog.fields.get("sales.facts.big")
+        category = session.catalog.fields.get("sales.facts.category")
+        source = session.observe({"value": (big + 1).sum() + 1}, by=(category,))
+        trace = capture_source(monkeypatch)
+        if backend == "duckdb":
+            with pytest.raises(MaterializationError, match=r"overflow|Overflow") as error:
+                source.compute()
+            assert error.value.expected and error.value.received and error.value.repair
+        else:
+            selected = source.where(source["value"] < 0)
+            selected = selected.top(1, by=selected["value"])
+            saved = selected.persist()
+            values = saved.to_pandas()["value", "value"]
+            assert values.tolist() == [Decimal(-(2**63) + 3)]
+            assert str(values.dtype) == "decimal128(38, 0)[pyarrow]"
+            assert session.persisted_frame(saved.artifact.id).to_pandas().equals(saved.to_pandas())
+            assert trace.native_sql
+        fixed = session.read(
+            session.members(session.catalog.entities.get("sales.facts")), {"big": big}
+        ).compute()
+        with pytest.raises(MaterializationError, match="overflow"):
+            fixed.select({"value": fixed["big"] + 1}).compute()
+
+
+@pytest.mark.parametrize(
+    "backend,profile", source_params([("duckdb", "table"), ("clickhouse", "mergetree")])
+)
+@pytest.mark.parametrize("operation", ["add", "sum"])
+def test_decimal_overflow_matches_native_result_or_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    backend: str,
+    profile: str,
+    operation: str,
+) -> None:
+    from dataclasses import replace
+
+    import duckdb
+    import pyarrow as pa
+
+    from marivo.datasource.errors import DatasourceError
+
+    maximum = Decimal("9" * 38)
+    original = _data()
+    raw_rows = [
+        {**row, "big": maximum if index < 2 else None} for index, row in enumerate(original.rows)
+    ]
+    data = replace(
+        original,
+        columns=original.columns.replace("big BIGINT", "big DECIMAL(38,0)"),
+        clickhouse_columns=original.clickhouse_columns.replace(
+            "Nullable(Int64)", "Nullable(Decimal(38,0))", 1
+        ),
+        rows=raw_rows,
+        values=",".join(
+            f"({row['id']},'{row['tenant']}','{row['category']}',0,{row['big'] if row['big'] is not None else 'NULL'},1,DATE '2026-07-01')"
+            for row in raw_rows
+        ),
+    )
+    monkeypatch.chdir(tmp_path)
+    with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
+        _project(backend, case, monkeypatch, semantic_project_factory)
+        session = mv.session.create("decimal-native-overflow", timezone="UTC")
+        big = session.catalog.fields.get("sales.facts.big")
+        native = case.session.bind(case.source, source_identity="decimal-overflow-oracle").relation
+        operand = (
+            "CAST(big + CAST(1 AS DECIMAL(1,0)) AS DECIMAL(38,0))" if operation == "add" else "big"
+        )
+        sql = f"SELECT CAST(SUM({operand}) AS DECIMAL(38,0)) FROM ({ibis.to_sql(native, dialect=backend)}) AS input_rows"
+        native_error: type[Exception] = duckdb.Error
+        if backend == "clickhouse":
+            from clickhouse_connect.driver.exceptions import ClickHouseError
+
+            native_error = ClickHouseError
+        expected: Decimal | None = None
+        failed = False
+        try:
+            cursor = case.session._backend.raw_sql(sql)
+            row = cursor.result_rows[0] if backend == "clickhouse" else cursor.fetchone()
+            assert row is not None
+            expected = row[0]
+            assert isinstance(expected, Decimal)
+            pa.scalar(expected, type=pa.decimal128(38, 0))
+        except (native_error, pa.ArrowInvalid):
+            failed = True
+        source = session.observe(
+            {"value": (big + Decimal(1)).sum() if operation == "add" else big.sum()}
+        )
+        if failed:
+            with pytest.raises((MaterializationError, DatasourceError)) as error:
+                source.compute()
+            assert error.value.expected and error.value.received and error.value.repair
+        else:
+            saved = source.persist()
+            assert saved.to_pandas()["value", "value"].tolist() == [expected]
+            assert session.persisted_frame(saved.artifact.id).to_pandas().equals(saved.to_pandas())

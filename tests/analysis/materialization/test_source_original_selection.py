@@ -302,14 +302,13 @@ def test_selected_bulk_keys_preserve_large_integer_tuple_correlation(
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
-def test_empty_selection_does_not_bypass_parent_overflow(
+def test_empty_selection_retains_widened_parent_sum(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     backend: str,
     profile: str,
 ) -> None:
-    from marivo.analysis.materialization.errors import MaterializationError
 
     data = _data()
     data = SourceData(
@@ -327,10 +326,10 @@ def test_empty_selection_does_not_bypass_parent_overflow(
         fine = session.observe({"value": amount.sum()}, by=(category,))
         query = fine.top(0, by=fine["value"])
         trace = capture_source(monkeypatch)
-        with pytest.raises(MaterializationError, match="integer overflow"):
-            query.compute()
-        assert len(trace.returned_rows) == 1
-        assert trace.returned_rows[0] == 2
+        assert fine.compute().to_pandas()["value", "value"].max() >= 2**63
+        assert query.compute().to_pandas().empty
+        assert len(trace.returned_rows) == 2
+        assert trace.returned_rows == [2, 2]
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))

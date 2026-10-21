@@ -53,6 +53,7 @@ from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.methods.local import query_combine
 from marivo.analysis.methods.numeric_state import (
     duration_arithmetic,
+    finish_decimal,
     finish_division,
     finish_float64,
     nullable_arithmetic,
@@ -114,6 +115,8 @@ def _numeric_binary(
             except (ArithmeticError, TypeError, ValueError) as error:
                 numeric_failure("valid typed Decimal division", str(error))
             values = pd.Series(finished, dtype=object)
+        if isinstance(dtype, DecimalDataType) and operation != "div":
+            values = finish_decimal(values, dtype.precision, dtype.scale)
         if dtype == ScalarDataType("float64"):
             values = finish_float64(values, "Attribute contribution")
     from marivo.semantic.unit_algebra import ratio_unit

@@ -1,6 +1,6 @@
 """Current-row means keep exact wide intermediates until output conversion."""
 
-from decimal import ROUND_HALF_EVEN, Decimal, localcontext
+from decimal import ROUND_HALF_UP, Decimal, localcontext
 from fractions import Fraction
 
 import duckdb
@@ -56,11 +56,11 @@ def test_integer_mean_uses_exact_wide_total(
     assert result._backing.data.schema.values[0].dtype == ScalarDataType("float64")
     if values == (2**53 + 1, 1, 1):
         assert expected != float(sum(values)) / len(values)
-    if not -(2**63) <= sum(values) < 2**63:
-        total = frame.reduce({"sum": frame["x"].sum()})
-        for candidate in (total, total.top(0, by=total["sum"])):
-            with pytest.raises(MaterializationError, match="int64 state overflow"):
-                candidate.compute()
+    total = frame.reduce({"sum": frame["x"].sum()}).compute()
+    exported_sum = total.to_pandas()["value", "sum"]
+    assert exported_sum.tolist() == [Decimal(sum(values))]
+    assert pa.array(exported_sum).type == pa.decimal128(38, 0)
+    assert total.top(0, by=total["sum"]).compute().to_pandas().empty
     assert terminal_runs(case.session) == ()
 
 
@@ -85,7 +85,7 @@ def test_decimal_mean_finishes_only_after_exact_division(
     with localcontext() as context:
         context.prec = 120
         expected = (Decimal(exact.numerator) / Decimal(exact.denominator)).quantize(
-            Decimal(1).scaleb(-dtype.scale), rounding=ROUND_HALF_EVEN
+            Decimal(1).scaleb(-dtype.scale), rounding=ROUND_HALF_UP
         )
     result = _mean(frame)
     assert isinstance(result._backing, MemoryFrameBacking)
@@ -93,9 +93,14 @@ def test_decimal_mean_finishes_only_after_exact_division(
     assert result.to_pandas()["value", "mean"].tolist() == [expected]
     assert expected.as_tuple().exponent == -dtype.scale
     total = frame.reduce({"sum": frame["x"].sum()})
-    for candidate in (total, total.top(0, by=total["sum"])):
-        with pytest.raises(MaterializationError, match="Decimal state precision overflow"):
-            candidate.compute()
+    if values[0].adjusted() >= 35:
+        with pytest.raises(MaterializationError, match=r"precision|decimal|Decimal"):
+            total.compute()
+    else:
+        assert total.compute().to_pandas()["value", "sum"].tolist() == [sum(values)]
+        assert pa.array(total.compute().to_pandas()["value", "sum"]).type == pa.decimal128(
+            38, dtype.scale
+        )
     assert terminal_runs(case.session) == ()
 
 
@@ -170,7 +175,7 @@ def test_grouped_mean_masks_na_independently_and_keeps_empty_policy(
     assert terminal_runs(case.session) == ()
 
 
-def test_source_read_wide_mean_retains_receipts_and_sum_stays_strict(
+def test_source_read_wide_mean_retains_receipts_and_decimal_sum(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     case = analysis_dsl_case_factory("j1")
@@ -196,9 +201,9 @@ def test_source_read_wide_mean_retains_receipts_and_sum_stays_strict(
     assert mean._backing.metadata.audit.source_facts == fixed._backing.metadata.audit.source_facts
     for frame in (source, fixed):
         total = frame.reduce({"sum": frame["x"].sum()})
-        with pytest.raises(MaterializationError, match="int64 state overflow"):
-            total.top(0, by=total["sum"]).compute()
-    assert trace.returned_rows == [2, 2]
+        assert total.compute().to_pandas()["value", "sum"].tolist() == [Decimal(2**63)]
+        assert total.top(0, by=total["sum"]).compute().to_pandas().empty
+    assert trace.returned_rows == [2, 2, 2]
     assert all(owner._closed for owner in trace.owners)
     assert terminal_runs(case.session) == ()
 

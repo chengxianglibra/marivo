@@ -602,8 +602,8 @@ def test_exact_carrier_failure_is_checked_before_projection(
             )
         )
     else:
-        left_type = right_type = DecimalDataType(4, 2)
-        left_value, right_value = [Decimal("99.99")], [Decimal("-99.99")]
+        left_type = right_type = DecimalDataType(38, 0)
+        left_value, right_value = [Decimal("9" * 38)], [Decimal("-" + "9" * 38)]
 
     def frame(dtype: DataType, value: object) -> AnalysisFrame:
         return _data_frame(

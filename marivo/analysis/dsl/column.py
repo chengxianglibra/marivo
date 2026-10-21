@@ -428,6 +428,10 @@ class Column:
 
         Args: None. Returns: An unfinished statistic; empty input returns zero, all-NA returns NA.
         Constraints: Numeric or Duration values; evaluation belongs to AnalysisFrame.reduce.
+        Integer sums return Decimal(38,0); Decimal sums return Decimal(38,input_scale).
+        Count and Duration keep their own carriers. Empty input is zero; nonempty
+        all-NA input is NA.
+
         Example: ``q.reduce({'total': q['value'].sum()})``.
         """
         return self._statistic("sum")

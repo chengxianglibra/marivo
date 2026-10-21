@@ -26,7 +26,8 @@ row_count 计算所有当前行。reduce 只能保留现有完整 Frame 轴，�
 sum/mean 保留当前表达式的单位；单位不认证原 Metric 的可加性，也不授予沿被移除轴上卷的能力。
 每日库存之和仍可标为件，比率之和仍可无量纲，但这不使它们成为月库存或整体比率。
 显式 Population 保留没有事实的成员，其来源 sum 为零；有事实但值全 NULL 的成员仍返回 NULL。
-A/B/C 的收入分别为 100/无事实/无事实时，完成的成员值为 100/0/0，均值为 100/3。
+A/B/C 的收入分别为 100/无事实/无事实时，完成的成员值为 100/0/0，数学均值为 100/3。
+对这些 Decimal(38,0) SUM 单元格求 mean 会保留 scale=0，返回 33。
 若 C 改为有事实但收入未知，其值为 NULL；忽略 NA 的均值会跳过 C，不能称为全体成员均值。
 未知成员必须阻断计算时，使用严格内部样本检查。对齐中缺少端点与成员存在但没有事实仍是两回事。
 SQL SUM 在空输入时返回 NULL，pandas sum 默认将全 NA 变为零；两者均不完全等于 Marivo 的固定区分。
@@ -46,7 +47,7 @@ Top 是全局操作，使用精确输入的 Column，其确定行序在持久保
 {/* example: pandas-descriptive-statistics */}
 
 ```python
-values = current.to_pandas()["value"].copy()
+values = current.to_pandas()["value"].astype("float64")
 revenue_values = values["revenue"]
 statistics = revenue_values.agg(["count", "sum", "mean", "median", "min", "max"])
 print(statistics)
@@ -74,7 +75,7 @@ comparison = current.compare(
     match={"reference": mv.ordinal()},
 ).compute().to_pandas()
 present = comparison[("presence", "current.present")] & comparison[("presence", "reference.present")]
-pairs = comparison.loc[present, "value"][["revenue", "reference.baseline.revenue"]].dropna()
+pairs = comparison.loc[present, "value"][["revenue", "reference.baseline.revenue"]].dropna().astype("float64")
 paired_difference = pairs["revenue"] - pairs["reference.baseline.revenue"]
 print(paired_difference.mean())
 ```
@@ -86,3 +87,18 @@ presence 与值有效性独立。保留完整键与共同存在、共同非 NA �
 可复用于不同 Frame，消费不修改原请求。Column 的 sum/mean/corr/pair_count 绑定精确
 Frame 与 Session；名称、结构或值相同的另一输入不能替换。
 见 `marivo.help("analysis.value_statistic")`。
+
+## 数值结果与溢出
+
+整数 SUM 返回 Decimal(38,0)，Decimal SUM 返回 Decimal(38,输入 scale)，count 仍为 int64。
+Decimal 加减使用 p=max(p1-s1,p2-s2)+max(s1,s2)+1、s=max(s1,s2)，乘法使用
+p=p1+p2、s=s1+s2。p 超过 38 时封顶为 38，scale 同量缩减，最低为 0。
+混合整数使用已绑定类型的十进制位数（int64 为 19）；混合浮点和除法使用 float64。
+mean 保留方法声明的结果类型。Decimal 结果按最近值舍入，恰好一半时远离零，
+例如 1.245→1.25、-1.245→-1.25。
+本地整数运算使用 checked 内核，源端遵循后端原生精度与溢出行为，包括 ClickHouse
+可能静默回绕、改变符号和数量级，并影响后续公式、筛选与排序。未实际求值的源端
+算术不保证报溢出；显式 null/zero/domain 检查继续负责自身需求域。
+float64 允许二进制近似、超过 2**53 后的整数低位损失和正常下溢，新产生的非有限结果报错。
+身份、count、时间和 Duration 保持精确合同。已保存数据和冷读原样保留值、dtype、scale、
+NA 与完整键，不重新计算或舍入。

@@ -199,7 +199,7 @@ def test_single_root_plan_reads_once_and_publishes_its_source_stage(
     assert output.keys == ()
     assert output.table["value.0"].tolist() == [BIG]
     assert output.columns[-1].unit == "CNY"
-    assert str(output.table["value.0"].dtype) == "int64[pyarrow]"
+    assert str(output.table["value.0"].dtype) == "decimal128(38, 0)[pyarrow]"
     assert terminal_runs(session) == ()
 
 
@@ -707,8 +707,9 @@ def test_nonfinite_and_overflow_fail_without_a_run(warehouse_session: Session) -
         connection.close()
     with pytest.raises(SemanticExpressionError, match="finite numeric"):
         _compute(session, {"mean": weight.mean()})
-    with pytest.raises(SemanticExpressionError, match="integer overflow"):
-        _compute(session, {"overflow": amount.sum() * (2**62)})
+    assert _compute(session, {"wide": amount.sum() * (2**62)}).table["value.0"].tolist() == [
+        60 * (2**62)
+    ]
     assert terminal_runs(session) == ()
 
 
@@ -752,8 +753,10 @@ def test_preview_rejects_sample_preparation_before_opening_source(
     ):
         session.catalog.preview(metric, scope=md.unpruned(max_rows=100, timeout_seconds=10))
     monkeypatch.undo()
+    from decimal import Decimal
+
     assert _compute(session, {"sample": metric}).table["value.0"].tolist() == [
-        pytest.approx((9007199254740993 + 11) / 2)
+        Decimal("4503599627370503")
     ]
 
 
@@ -886,16 +889,14 @@ def test_scalar_relationship_preparation(warehouse_session: Session, invalid: st
         assert output.table["value.0"].tolist() == [60]
 
 
-def test_later_zero_cannot_hide_integer_overflow(warehouse_session: Session) -> None:
+def test_native_zero_product_can_elide_integer_overflow(warehouse_session: Session) -> None:
     import marivo.datasource as md
 
     session = warehouse_session
     amount, _ = _numeric_inputs(session)
-    with pytest.raises(SemanticExpressionError, match="integer overflow"):
-        _compute(session, {"v": (amount.sum() * (2**62)) * 0})
-    with pytest.raises(SemanticExpressionError, match="integer overflow"):
-        _compute(session, {"v": ((amount * (2**62)) * 0).sum()})
+    assert _compute(session, {"v": (amount.sum() * (2**62)) * 0}).table["value.0"].tolist() == [0]
+    assert _compute(session, {"v": ((amount * (2**62)) * 0).sum()}).table["value.0"].tolist() == [0]
     metric = session.catalog.metrics.get("sales.masked_overflow")
     assert isinstance(metric, Deferred)
-    with pytest.raises(SemanticExpressionError, match="integer overflow"):
-        session.catalog.preview(metric, scope=md.unpruned(max_rows=100, timeout_seconds=10))
+    preview = session.catalog.preview(metric, scope=md.unpruned(max_rows=100, timeout_seconds=10))
+    assert preview.rows[0]["value"] == 0

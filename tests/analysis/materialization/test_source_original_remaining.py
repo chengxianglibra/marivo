@@ -27,7 +27,7 @@ def test_dynamic_sample_domain_is_transported_with_actual_leaf_batches(
     metric = amount.sum().per(samples).mean()
     trace = capture_source(monkeypatch)
     result = session.observe({"value": metric}).compute().to_pandas()
-    assert result["value", "value"].tolist() == [1000 / 3]
+    assert result["value", "value"].tolist() == [333]
 
 
 @pytest.mark.parametrize("selection", ["top", "where", "empty"])
@@ -153,7 +153,7 @@ def test_complex_top_uses_the_exact_completed_parent_score(
                 ("A", "A", 2**53),
                 ("A", "B", 0),
                 ("A", "C", 0),
-                ("Z", "A", 2**53 + 1),
+                ("Z", "A", 2**53 + 4),
                 ("Z", "B", 0),
                 ("Z", "C", 0),
             )
@@ -169,7 +169,7 @@ def test_complex_top_uses_the_exact_completed_parent_score(
     fine = session.observe({"value": amount.sum().per(customer).mean()}, by=(channel,))
     trace = capture_source(monkeypatch)
     result = fine.top(1, by=fine["value"]).compute().to_pandas()
-    assert result["value", "value"].tolist() == [(2**53 + 1) / 3]
+    assert result["value", "value"].tolist() == [(2**53 + 4) // 3]
     assert result.iloc[:, 0].tolist() == ["Z"]
 
 

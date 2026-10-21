@@ -56,7 +56,7 @@ def total():
 
 来源 Ibis 在所选声明 datasource 执行并返回 pandas；字面量/参照和本地域/值阶段使用 pandas，PyArrow 负责编码与读取终端输出。完整固定 Frame 与本地数据操作使用同一调度器。Artifact 只读审计；没有 Artifact 操作数、固定数据远端上传或隐藏本地 SQL 引擎。
 
-来源计算遵循 Ibis/provider 原生数值精度限制，整数传输保证见下文。Ibis lowering 不为统一后端返回类型或传输保真添加 cast，业务语义必需的转换仍保留。pandas 交接为直接字段、规约值和内部组件确定有效数值类型，供后续本地计算和发布使用，保留完整键、空值政策、单位和时间语义。cast 不能恢复来源精度；产物往返保真针对实际已提交值。
+来源计算遵循 Ibis/provider 原生数值精度限制，整数传输保证见下文。Ibis lowering 显式转换已绑定的 Decimal 算术、mean 与 SUM 结果，业务语义必需的转换仍保留。pandas 交接为直接字段、规约值和内部组件确定有效数值类型，供后续本地计算和发布使用，保留完整键、空值政策、单位和时间语义。cast 不能恢复来源精度；产物往返保真针对实际已提交值。
 
 DuckDB 的受治理 `SourceSession` 读取与合格的 typed PostgreSQL Analysis 读取先取原生 Ibis Arrow 结果，再构造采用 nullable Arrow extension dtype 的 pandas 整数列。能由原生 Arrow 结果类型表示的整数与 null 共存时保持精确，不经过 float64 中间转换。非整数保留原生 Ibis Arrow 类型、可表示性与精度限制；pandas 表示可以与原生 Ibis `execute()` 结果不同，包括 DATE 使用 Python date 值，以及保留同一时刻的不同 timestamp 单位。本地计算仍使用 pandas。
 
@@ -66,7 +66,7 @@ DuckDB 的受治理 `SourceSession` 读取与合格的 typed PostgreSQL Analysis
 
 DuckDB 原生 INTERVAL 仅在来源侧检查拒绝 year、month、day 分量后按微秒准入，不能仅靠 cast 当作 elapsed time，也不会产生纳秒精度。合格文件路线中的 Arrow Duration 保留文件声明的 tick 单位。
 
-PostgreSQL、MySQL、Trino 和 ClickHouse 的普通模板按真实类型和表达式准入 count、count_distinct、sum、min、max、mean 和 weighted_mean。精确来源 median/quantile 当前仅准入 DuckDB 和 PostgreSQL。MySQL、Trino 和 ClickHouse 在 发布前按具体方法拒绝；ClickHouse 的 Ibis Quantile lowering 是近似算法，不能满足精确请求。精确/近似规约保留定义所属算法。缺必需映射、非有限、溢出及必要覆盖错误阻止发布。
+PostgreSQL、MySQL、Trino 和 ClickHouse 的普通模板按真实类型和表达式准入 count、count_distinct、sum、min、max、mean 和 weighted_mean。精确来源 median/quantile 当前仅准入 DuckDB 和 PostgreSQL。MySQL、Trino 和 ClickHouse 在 发布前按具体方法拒绝；ClickHouse 的 Ibis Quantile lowering 是近似算法，不能满足精确请求。精确/近似规约保留定义所属算法。缺必需映射、非有限及必要覆盖错误阻止发布；普通数值溢出遵循下述后端原生行为。
 
 ClickHouse Distributed 准入合格的普通分组聚合。需要 Distributed IN/JOIN 的来源路线（包括按键交接的 `Session.read`）因尚未具备 `distributed_product_mode` 下的 join 资格而在 发布前拒绝。MergeTree join 单独准入，不隐式扩展到 view 或其它 engine 拓扑。Marivo 不修改服务器设置或替换为本地表。
 
@@ -92,3 +92,10 @@ Store 15 保存完整项目本地 Frame 数据与审计。新 Frame 与重开 Fr
 所有 Frame 使用 `marivo.frame_output/v4`、`frame.v4` 和 `frame-output-v4`。
 `to_pandas()` 只验证当前数据，`method_facts` 只验证 owned 解释载荷，stored compute 与
 派生求值消费两者。元数据卡片和预览不打开方法文件；保存派生结果自己的载荷不依赖原 Artifact。
+
+数值 lowering 显式转换已绑定的 Decimal 算术、mean 与 SUM 结果。整数 SUM 使用一次
+Decimal 主累加并返回 Decimal(38,0)，Decimal SUM 返回 Decimal(38,输入 scale)。
+普通源端整数/Decimal 溢出遵循后端原生行为，包括 ClickHouse 静默回绕；能进入输出载体
+的回绕值可保存并参与公式、筛选与排序。安全转换无法识别此前的回绕，未实际求值的
+源端算术不保证报溢出。本地整数使用 checked 内核，显式 finite/null/zero/domain
+检查及身份、count、时间和 Duration 的原合同不变。

@@ -9,6 +9,7 @@ from decimal import Decimal, localcontext
 
 import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
 
 from marivo._definition.query import (
     CoordinateSlot,
@@ -33,7 +34,7 @@ from marivo.analysis.compiler.query_program import FrameProgram, ResultProgram
 from marivo.analysis.core.data_types import DecimalDataType, DurationDataType, ScalarDataType
 from marivo.analysis.core.data_validation import stage_arrow_type
 from marivo.analysis.core.model import reject
-from marivo.analysis.methods.numeric_state import checked_sum, finish_division
+from marivo.analysis.methods.numeric_state import checked_sum, finish_division, sum_values
 from marivo.analysis.methods.physical import DecimalType, DurationType
 from marivo.semantic._numeric_lowering import numeric_failure
 
@@ -185,6 +186,13 @@ def expression_series(
                 pd.arrays.ArrowExtensionArray(pa.array(output, type=pa.int64()).cast(array.type)),
                 index=values.index,
             )
+        if all(pd.isna(value) or isinstance(value, int) for value in values):
+            kernel = pc.negate_checked if expression.operation == "neg" else pc.abs_checked
+            return pd.Series(
+                pd.arrays.ArrowExtensionArray(
+                    kernel(pa.array(values, type=pa.int64(), from_pandas=True))
+                )
+            )
         return pd.Series(
             [
                 None
@@ -221,7 +229,7 @@ def expression_series(
                 zero_denominator=expression.zero_denominator,
             )
 
-        return nullable_arithmetic(
+        computed = nullable_arithmetic(
             {"add": "add", "sub": "subtract", "mul": "multiply", "div": "divide"}[
                 expression.operation
             ],
@@ -229,6 +237,32 @@ def expression_series(
             right,
             zero_denominator=expression.zero_denominator,
         )
+        import ibis
+
+        from marivo.analysis.core.value_types import data_type, expression_value, ibis_type
+        from marivo.analysis.methods.numeric_state import finish_decimal, finish_float64
+
+        if isinstance(program, FrameProgram):
+            from marivo.analysis.core.frame_expression import expression_type
+
+            target = expression_type(program.input_schema, expression)
+        else:
+            columns = (
+                program.input_layout.values
+                if program.input_layout is not None
+                else tuple(c for c in program.columns if c.slot_id not in program.keys)
+            )
+            placeholders = tuple(ibis.param(ibis_type(c.dtype)) for c in columns)
+            by_slot = {c.slot_id: c for c in program.columns}
+            coordinates = tuple(
+                ibis.param(ibis_type(by_slot[group[0]].dtype)) for group in program.key_groups
+            )
+            target = data_type(expression_value(expression, placeholders, coordinates).type())
+        if isinstance(target, DecimalDataType):
+            return finish_decimal(computed, target.precision, target.scale)
+        if target == ScalarDataType("float64"):
+            return finish_float64(computed, "Column arithmetic")
+        return computed
     if expression.operation in ("and", "or"):
         a, b = left.astype("boolean"), right.astype("boolean")
         return a & b if expression.operation == "and" else a | b
@@ -405,7 +439,7 @@ def evaluate_result(stage: LocalCompute, inputs: tuple[pd.DataFrame, ...]) -> pd
                         input_type = program.statistic_types[index]
                         if subset.empty and statistic.method == "sum":
                             value = (
-                                checked_sum((), stage_arrow_type(input_type))
+                                sum_values((), stage_arrow_type(input_type))
                                 if not isinstance(input_type, DurationDataType)
                                 else 0
                             )
@@ -430,7 +464,9 @@ def evaluate_result(stage: LocalCompute, inputs: tuple[pd.DataFrame, ...]) -> pd
                                 else None
                             )
                         else:
-                            total = checked_sum(active, stage_arrow_type(input_type))
+                            total = (sum_values if statistic.method == "sum" else checked_sum)(
+                                active, stage_arrow_type(input_type)
+                            )
                             value = (
                                 total
                                 if active and statistic.method == "sum"

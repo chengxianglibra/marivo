@@ -52,7 +52,7 @@ def test_decimal_quantile_rollup_returns_fractional_native_value(
     metric = amount.median() if method == "median" else amount.quantile(0.25)
     trace = capture_source(monkeypatch)
     frame = session.observe({"value": metric}).compute().to_pandas()
-    expected = Decimal("2.00") if method == "median" else Decimal("1.62")
+    expected = Decimal("2.00") if method == "median" else Decimal("1.63")
     assert frame["value", "value"].tolist() == [expected]
     assert trace.returned_rows == [1]
     assert trace.uploaded_key_rows == []
@@ -82,7 +82,7 @@ def test_decimal_quantile_selected_parent_keeps_native_fractional_value(
         .compute()
         .to_pandas()
     )
-    assert frame["value", "value"].tolist() == [Decimal("1.62")]
+    assert frame["value", "value"].tolist() == [Decimal("1.63")]
     assert trace.returned_rows
 
 
@@ -150,5 +150,5 @@ def test_decimal_sample_quantiles_finish_before_per_mean(
     metric = amount.quantile(0.25).per(category).mean()
     trace = capture_source(monkeypatch)
     frame = session.observe({"value": metric}).compute().to_pandas()
-    assert frame["value", "value"].tolist() == [Decimal("1.62")]
+    assert frame["value", "value"].tolist() == [Decimal("1.63")]
     assert not any("__original_upper" in name for names in trace.returned_columns for name in names)

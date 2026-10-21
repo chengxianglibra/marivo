@@ -35,7 +35,7 @@ def test_source_rollup_keeps_internal_identity_and_empty_samples(
     trace = capture_source(monkeypatch)
     artifact = session.observe({"mean": metric}).persist()
     frame = artifact.to_pandas()
-    expected = 1000 / 3 if explicit else 1000
+    expected = 333 if explicit else 1000
     assert frame["value", "mean"].tolist() == [expected]
     assert not any("__original_value" in names for names in trace.returned_columns)
     reads = [

@@ -202,12 +202,11 @@ def test_postgres_original_period_binding_preserves_selected_input(
     assert trace.returned_rows == [1]
 
 
-def test_postgres_original_parent_overflow_prevents_publication(
+def test_postgres_original_parent_sum_widens_before_publication(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
-    from marivo.analysis.errors import AnalysisError
     from tests.analysis.materialization.publication_fixtures import publication_counts
 
     data = SourceData(
@@ -224,12 +223,11 @@ def test_postgres_original_parent_overflow_prevents_publication(
         category = session.catalog.fields.get("sales.facts.category")
         query = session.observe({"value": amount.sum()}, by=(category,))
         before = publication_counts(session)
-        with pytest.raises(AnalysisError, match="signed int64 sum"):
-            query.compute()
+        assert query.compute().to_pandas()["value", "value"].tolist() == [2**63, -(2**63)]
         trace = capture_source(monkeypatch)
-        with pytest.raises(AnalysisError, match="signed int64 sum"):
-            query.persist()
-        assert publication_counts(session) == before
+        saved = query.persist()
+        assert session.persisted_frame(saved.artifact.id).to_pandas().equals(saved.to_pandas())
+        assert publication_counts(session) != before
         assert trace.returned_rows == [2]
         assert trace.uploaded_key_rows == []
 

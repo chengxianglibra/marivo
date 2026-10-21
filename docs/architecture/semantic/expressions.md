@@ -192,3 +192,14 @@ Detailed current-value and native-carrier policies belong to
 - [validator.py](../../../marivo/semantic/validator.py) owns authored syntax restrictions.
 - [expressions.py](../../../marivo/semantic/expressions.py) owns finalization; [_authoring_declarations.py](../../../marivo/semantic/_authoring_declarations.py) owns named Metric capture.
 - [_definition](../../../marivo/_definition/) owns closed computation graphs; [_numeric_recipe.py](../../../marivo/semantic/_numeric_recipe.py) and [_numeric_lowering.py](../../../marivo/semantic/_numeric_lowering.py) own actual-type numeric preparation.
+
+## Bound numeric results
+
+Integer sums return Decimal(38,0); Decimal sums return Decimal(38,input_scale),
+using a single primary accumulation. Counts retain int64. Bound Decimal arithmetic
+uses the [numeric carrier rules](../analysis/operators-and-frames.md), with explicit
+Ibis result casts and ties-away Decimal convergence. Division is float64; Decimal
+mean keeps its declared p/s without promising an exact backend AVG algorithm.
+Ordinary source overflow follows the backend, including ClickHouse silent wrapping;
+local integer kernels are checked. Explicit null/zero/domain policies, identity and
+Duration contracts are unchanged. No extra arithmetic is run to verify overflow.

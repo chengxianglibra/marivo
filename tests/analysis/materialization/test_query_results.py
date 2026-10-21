@@ -7,6 +7,7 @@ from pathlib import Path
 
 import duckdb
 import pandas as pd
+import pyarrow as pa
 import pytest
 from ibis.common.deferred import Deferred
 
@@ -126,7 +127,13 @@ def test_actual_source_failure_compute_help_resolves_without_run(
 
     def incompatible(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
         rows = execute(owner, read)
-        numeric = rows.select_dtypes(include="number").columns
+        numeric = [
+            field.name
+            for field in read.schema
+            if pa.types.is_integer(field.type)
+            or pa.types.is_floating(field.type)
+            or pa.types.is_decimal(field.type)
+        ]
         assert len(numeric)
         rows[numeric[0]] = "incompatible numeric carrier"
         return rows
@@ -1188,7 +1195,7 @@ def test_nullable_source_sum_preserves_large_integer_through_local_consumers(
     frame = artifact.to_pandas()
     assert frame[("value", "total")].to_dict() == {0: large, 1: 20, 2: None}
     assert frame[("value", "shifted")].to_dict() == {0: large + 10, 1: 30, 2: None}
-    assert pd.api.types.is_integer_dtype(frame[("value", "total")].dtype)
+    assert pa.array(frame[("value", "total")]).type == pa.decimal128(38, 0)
     pd.testing.assert_frame_equal(session.persisted_frame(artifact.artifact.id).to_pandas(), frame)
     for reduced in (
         query.reduce({"total": query["total"].sum()}),

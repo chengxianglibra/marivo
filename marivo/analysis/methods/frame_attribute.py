@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from decimal import Decimal
 from typing import Literal
 
 import pandas as pd
@@ -43,6 +42,7 @@ from marivo.analysis.materialization.query_components import AttributeRootInputs
 from marivo.analysis.methods.frame_comparison import _take
 from marivo.analysis.methods.numeric_state import (
     duration_arithmetic,
+    finish_decimal,
     finish_float64,
     nullable_arithmetic,
 )
@@ -301,9 +301,7 @@ def attribute_frame_data(
             else nullable_arithmetic("subtract", x, y)
         )
         if isinstance(dtype, DecimalDataType):
-            delta = delta.map(
-                lambda v: Decimal(v) if pd.notna(v) and not isinstance(v, Decimal) else v
-            )
+            delta = finish_decimal(delta, dtype.precision, dtype.scale)
         elif dtype == ScalarDataType("float64"):
             delta = finish_float64(delta, "Attribute absolute")
         for column, values in zip(output.values[3 * i : 3 * i + 3], (x, y, delta), strict=True):

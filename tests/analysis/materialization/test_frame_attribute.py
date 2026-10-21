@@ -6,6 +6,7 @@ from typing import cast
 
 import duckdb
 import pandas as pd
+import pyarrow as pa
 import pytest
 from ibis.common.deferred import Deferred
 
@@ -14,6 +15,7 @@ from marivo.analysis.compiler.frame_plan import CompiledFramePlan
 from marivo.analysis.compiler.graph_lowering import LoweredRead
 from marivo.analysis.compiler.graph_plan import FrameCompute, FrameInput, LocalCompute, SourceRead
 from marivo.analysis.core.data_schema import DataSchema
+from marivo.analysis.core.data_types import DecimalDataType
 from marivo.analysis.core.frame_data import CompletedFrameData, MemoryFrameBacking
 from marivo.analysis.dsl.attribute import attribute_endpoint
 from marivo.analysis.dsl.frame import AnalysisFrame
@@ -101,9 +103,15 @@ def test_default_q_major_outer_presence_canonical_and_continuation(session: Sess
     assert rows["presence.right_present"].tolist() == [True, True, False, True]
     expected = pd.DataFrame(
         {
-            "left.q": pd.Series([2, None, 100, None], dtype="int64[pyarrow]").array,
-            "right.q": pd.Series([2, 2, None, None], dtype="int64[pyarrow]").array,
-            "absolute.q": pd.Series([0, None, None, None], dtype="int64[pyarrow]").array,
+            "left.q": pd.Series(
+                [2, None, 100, None], dtype=pd.ArrowDtype(pa.decimal128(38, 0))
+            ).array,
+            "right.q": pd.Series(
+                [2, 2, None, None], dtype=pd.ArrowDtype(pa.decimal128(38, 0))
+            ).array,
+            "absolute.q": pd.Series(
+                [0, None, None, None], dtype=pd.ArrowDtype(pa.decimal128(38, 0))
+            ).array,
         }
     )
     pd.testing.assert_frame_equal(rows.loc[:, list(expected)], expected)
@@ -243,7 +251,7 @@ def test_ordinary_compare_population_bridge_uses_fixed_keys_and_fresh_values(
     assert isinstance(fixed._schema, DataSchema)
     for column in fixed._schema.values:
         share = column.name == "contribution_share.q"
-        assert column.dtype == ScalarDataType("float64" if share else "int64")
+        assert column.dtype == (ScalarDataType("float64") if share else DecimalDataType(38, 0))
         assert column.unit == ("1" if share else "USD")
         assert column.nullable
     pd.testing.assert_frame_equal(_flat(selected.to_pandas()), frozen)
@@ -253,7 +261,6 @@ def test_joint_product_and_correlated_population_preserve_complete_keys(
     session: Session, tmp_path: Path
 ) -> None:
     from marivo.analysis.core.data_schema import DataSchema
-    from marivo.analysis.core.data_types import ScalarDataType
 
     amount = session.catalog.fields.get("sales.facts.amount").sum()
     region = session.catalog.fields.get("sales.facts.region")
@@ -296,18 +303,21 @@ def test_joint_product_and_correlated_population_preserve_complete_keys(
         rows = _flat(fixed.to_pandas())
         expected_keys = [(row[1], row[0]) if reverse else row[:2] for row in oracle]
         assert list(rows.iloc[:, :2].itertuples(index=False, name=None)) == expected_keys
-        expected_values = pd.Series([row[2] for row in oracle], dtype="int64[pyarrow]")
+        expected_values = pd.Series(
+            [row[2] for row in oracle], dtype=pd.ArrowDtype(pa.decimal128(38, 0))
+        )
         for name in ("left.q", "right.q"):
             pd.testing.assert_series_equal(rows[name], expected_values, check_names=False)
         expected_change = pd.Series(
-            [None if row[2] is None else 0 for row in oracle], dtype="int64[pyarrow]"
+            [None if row[2] is None else 0 for row in oracle],
+            dtype=pd.ArrowDtype(pa.decimal128(38, 0)),
         )
         pd.testing.assert_series_equal(rows["absolute.q"], expected_change, check_names=False)
         assert rows["presence.left_present"].tolist() == [True] * len(oracle)
         assert rows["presence.right_present"].tolist() == [True] * len(oracle)
         assert isinstance(fixed._schema, DataSchema)
         assert all(
-            column.dtype == ScalarDataType("int64") and column.nullable and column.unit == "USD"
+            column.dtype == DecimalDataType(38, 0) and column.nullable and column.unit == "USD"
             for column in fixed._schema.values
         )
     with pytest.raises(AnalysisError) as mixed:
@@ -381,10 +391,14 @@ def test_default_max_and_cancelling_sum_match_native_sql(session: Session, tmp_p
             "absolute.peak": pd.Series(
                 [row[1] - row[2] for row in groups], dtype="int64[pyarrow]"
             ).array,
-            "left.net": pd.Series([row[3] for row in groups], dtype="int64[pyarrow]").array,
-            "right.net": pd.Series([row[4] for row in groups], dtype="int64[pyarrow]").array,
+            "left.net": pd.Series(
+                [row[3] for row in groups], dtype=pd.ArrowDtype(pa.decimal128(38, 0))
+            ).array,
+            "right.net": pd.Series(
+                [row[4] for row in groups], dtype=pd.ArrowDtype(pa.decimal128(38, 0))
+            ).array,
             "absolute.net": pd.Series(
-                [row[3] - row[4] for row in groups], dtype="int64[pyarrow]"
+                [row[3] - row[4] for row in groups], dtype=pd.ArrowDtype(pa.decimal128(38, 0))
             ).array,
         }
     )
@@ -398,7 +412,9 @@ def test_default_max_and_cancelling_sum_match_native_sql(session: Session, tmp_p
     assert rows["presence.right_present"].tolist() == [True, True, True]
     assert isinstance(fixed._schema, DataSchema)
     for column in fixed._schema.values:
-        assert column.dtype == ScalarDataType("int64")
+        assert column.dtype == (
+            ScalarDataType("int64") if column.name.endswith(".peak") else DecimalDataType(38, 0)
+        )
         assert column.nullable
         assert column.unit == ("1" if column.name.endswith(".peak") else "USD")
     assert all(
@@ -1167,11 +1183,11 @@ def test_default_native_decimal_formula_preserves_actual_carrier_and_parent_scop
         for axes in ((), (channel,))
     )
     parent_left, fine_left, parent_right, fine_right = originals
-    assert parent_left.to_pandas()["value", "q"].tolist() == [Decimal("240.500000000")]
-    assert parent_right.to_pandas()["value", "q"].tolist() == [Decimal("200.000000000")]
+    assert parent_left.to_pandas()["value", "q"].tolist() == [Decimal("240.5")]
+    assert parent_right.to_pandas()["value", "q"].tolist() == [Decimal("200.0")]
     for original in originals:
         assert isinstance(original._schema, DataSchema)
-        assert original._schema.values[0].dtype == DecimalDataType(38, 9)
+        assert original._schema.values[0].dtype == DecimalDataType(38, 1)
         assert original._schema.values[0].unit == "USD"
     before = len(fused)
     fixed = pending.compute()
@@ -1187,12 +1203,18 @@ def test_default_native_decimal_formula_preserves_actual_carrier_and_parent_scop
     assert fixed.method_facts == () and terminal_runs(session) == ()
     assert isinstance(fixed._schema, DataSchema)
     assert all(
-        column.dtype == DecimalDataType(38, 9) and column.unit == "USD" and column.nullable
+        column.dtype == DecimalDataType(38, 0 if column.name.startswith("absolute.") else 1)
+        and column.unit == "USD"
+        and column.nullable
         for column in fixed._schema.values
     )
     value_rows = fixed.to_pandas()["value"]
     assert isinstance(value_rows, pd.DataFrame)
-    assert all(str(dtype) == "decimal128(38, 9)[pyarrow]" for dtype in value_rows.dtypes)
+    assert [pa.array(value_rows[name]).type for name in value_rows] == [
+        pa.decimal128(38, 1),
+        pa.decimal128(38, 1),
+        pa.decimal128(38, 0),
+    ]
 
     def keyed(frame: pd.DataFrame) -> dict[str | None, pd.Series]:
         rows = _flat(frame)
@@ -1210,8 +1232,8 @@ def test_default_native_decimal_formula_preserves_actual_carrier_and_parent_scop
                 assert pd.isna(row[name])
             else:
                 assert row[name] == value
-    assert rows["A"]["absolute.q"] == Decimal("60.250000000")
-    assert rows["B"]["absolute.q"] == Decimal("-19.750000000")
+    assert rows["A"]["absolute.q"] == Decimal("60")
+    assert rows["B"]["absolute.q"] == Decimal("-20")
     assert pd.isna(rows[None]["absolute.q"])
 
     with duckdb.connect(str(tmp_path / "attribute.duckdb")) as connection:
@@ -1224,7 +1246,7 @@ def test_default_native_decimal_formula_preserves_actual_carrier_and_parent_scop
     )
     assert selected_rows.iloc[:, 0].tolist() == ["east", "east", "east"]
     assert "outside" not in selected_rows.iloc[:, 1].dropna().tolist()
-    assert selected_rows["absolute.q"].dropna().tolist() == [Decimal("60.25"), Decimal("-19.75")]
+    assert selected_rows["absolute.q"].dropna().tolist() == [Decimal("60"), Decimal("-20")]
     unit = session.values(by=(), columns={"parent": "1"}, rows=(((), {"parent": 1}),)).compute()
     empty = unit.where(unit["parent"] < 0).compute()
     assert session.attribute(left, right, by=(channel,), parents=empty).compute().to_pandas().empty

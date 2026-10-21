@@ -347,7 +347,7 @@ def test_real_producer_association_and_inert_parent_payload(
             )
 
 
-def test_exact_decimal_contribution(session: Session, tmp_path: Path) -> None:
+def test_decimal_contribution_finishes_bound_scale(session: Session, tmp_path: Path) -> None:
     from decimal import Decimal
 
     with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
@@ -368,7 +368,7 @@ def test_exact_decimal_contribution(session: Session, tmp_path: Path) -> None:
         .compute()
         .to_pandas()
     )
-    assert rows[("value", "contribution.q")].tolist() == [Decimal("60.02"), Decimal("-20.01")]
+    assert rows[("value", "contribution.q")].tolist() == [Decimal("60.0"), Decimal("-20.0")]
     assert all(type(value) is Decimal for value in rows[("value", "contribution.q")])
 
 
@@ -413,8 +413,10 @@ def test_parent_difference_overflow_has_exact_context_even_under_top0(
 
     with duckdb.connect(str(tmp_path / "contribution.duckdb")) as connection:
         connection.execute("DELETE FROM facts WHERE id IN (2,4)")
+        connection.execute("ALTER TABLE facts ALTER amount TYPE DECIMAL(38,0)")
         connection.execute(
-            "UPDATE facts SET amount=CASE WHEN phase='current' THEN 9223372036854775807 ELSE -1 END"
+            "UPDATE facts SET amount=CASE WHEN phase='current' THEN CAST(? AS DECIMAL(38,0)) ELSE -1 END",
+            ["9" * 38],
         )
     amount = session.catalog.fields.get("sales.facts.amount")
     phase = session.catalog.fields.get("sales.facts.phase")
@@ -829,7 +831,7 @@ def test_fractional_decimal_scalar_keeps_actual_native_originals_and_facts(
     base_parent = session.observe({"q": metric}, where=phase == "base").compute()
     current = session.observe({"q": metric}, where=phase == "current", by=(channel,)).compute()
     base = session.observe({"q": metric}, where=phase == "base", by=(channel,)).compute()
-    expected_dtype = ScalarDataType("float64") if mean else DecimalDataType(38, 9)
+    expected_dtype = ScalarDataType("float64") if mean else DecimalDataType(38, 1)
     assert _schema(current).values[0].dtype == _schema(base).values[0].dtype == expected_dtype
     assert (
         _schema(current_parent).values[0].dtype
@@ -864,7 +866,7 @@ def test_fractional_decimal_scalar_keeps_actual_native_originals_and_facts(
     default = ordinary_attribute.to_pandas()
     left = current.to_pandas()[("value", "q")].tolist()
     right = base.to_pandas()[("value", "q")].tolist()
-    assert left == ([160.0, 80.0] if mean else [Decimal("160.250000000"), Decimal("80.250000000")])
+    assert left == ([160.0, 80.0] if mean else [Decimal("160.3"), Decimal("80.3")])
     assert right == (
         [100.0, 100.0] if mean else [Decimal("100.000000000"), Decimal("100.000000000")]
     )
@@ -887,10 +889,10 @@ def test_fractional_decimal_scalar_keeps_actual_native_originals_and_facts(
     assert data[("presence", "left_present")].tolist() == [True, True]
     assert data[("presence", "right_present")].tolist() == [True, True]
     assert data[("value", "contribution.q")].tolist() == (
-        [30.0, -10.0] if mean else [Decimal("60.250000000"), Decimal("-19.750000000")]
+        [30.0, -10.0] if mean else [Decimal("60"), Decimal("-20")]
     )
     assert data[("value", "contribution_share.q")].tolist() == pytest.approx(
-        [1.5, -0.5] if mean else [float(Fraction(241, 162)), float(Fraction(-79, 162))]
+        [1.5, -0.5] if mean else [float(Fraction(60, 41)), float(Fraction(-20, 41))]
     )
     facts = fixed.method_facts
     method = facts[0].parents[0].metrics[0].method
@@ -906,7 +908,7 @@ def test_fractional_decimal_scalar_keeps_actual_native_originals_and_facts(
     assert method.left.column.dtype == method.right.column.dtype == expected_dtype
     assert method.left.value == (120.0 if mean else Decimal("240.500000000"))
     assert method.right.value == (100.0 if mean else Decimal("200.000000000"))
-    assert method.change.value == (20.0 if mean else Decimal("40.500000000"))
+    assert method.change.value == (20.0 if mean else Decimal("41"))
     saved = fixed.persist()
     assert saved.method_facts == facts and saved.compute().method_facts == facts
     assert len(reads) == 2
@@ -929,9 +931,9 @@ with patch.object(Session,'catalog',property(forbidden)), patch.object(SourceSes
     session=mv.session.resume(sys.argv[1])
     saved=session.persisted_frame(sys.argv[2])
     method=saved.method_facts[0].parents[0].metrics[0].method
-    assert method.left.column.dtype==DecimalDataType(38,9)
+    assert method.left.column.dtype==DecimalDataType(38,1)
     assert method.left.value==Decimal('240.500000000')
-    assert method.change.value==Decimal('40.500000000')
+    assert method.change.value==Decimal('41')
     assert saved.compute().method_facts==saved.method_facts
 """
         cold = subprocess.run(
@@ -943,5 +945,5 @@ with patch.object(Session,'catalog',property(forbidden)), patch.object(SourceSes
         )
         assert cold.returncode == 0, cold.stdout + cold.stderr
     assert pa.array(data[("value", "left.q")]).type == (
-        pa.float64() if mean else pa.decimal128(38, 9)
+        pa.float64() if mean else pa.decimal128(38, 1)
     )

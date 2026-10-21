@@ -2484,6 +2484,10 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             else:
                 summary += (
                     "sum requires business permission; empty input returns zero and nonempty all-NA input returns null. "
+                    "Integer sum returns Decimal(38,0); Decimal sum returns Decimal(38,input_scale); count stays int64. "
+                    "Decimal results use bound p/s and ties-away convergence; divide is float64 and mean keeps its declared type. "
+                    "Source overflow follows the backend, including ClickHouse silent wrapping; local integers are checked. "
+                    "Unevaluated source arithmetic need not fail. Identity/count/time/Duration stay exact. "
                     "Numeric inputs must be finite or NULL; actual NaN/Infinity are errors. "
                     "window accepts a source-free rule and rejects nested windows. "
                     "Divide defaults to null for a zero denominator; error stays on this operation."
@@ -3368,7 +3372,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             ),
             SemanticNavigationTopic(
                 canonical_id="expressions",
-                summary="Constructed fields retain kinds and consumed definition identities. Row arithmetic uses one contribution root; reduce before Metric arithmetic. Numeric Dimensions never gain sum permission. Per produces internal samples; finish with a reducer. Bare Refs are lookup keys. Local declarations do not publish Catalog Metrics or execute queries.",
+                summary="Constructed fields retain kinds and consumed definition identities. Row arithmetic uses one contribution root; reduce before Metric arithmetic. Numeric Dimensions never gain sum permission. Per produces internal samples; finish with a reducer. Bare Refs are lookup keys. Local declarations do not publish Catalog Metrics or execute queries. Decimal add/subtract uses p=max(p1-s1,p2-s2)+max(s1,s2)+1, s=max(s1,s2); multiply uses p=p1+p2, s=s1+s2. Cap p at 38 and reduce s by the excess, down to zero. Mixed integers supply their bound digit width (int64: 19); untyped Decimal literals bind their own digits/exponent. Result convergence uses ties away from zero. SUM returns Decimal(38,input_scale), with integer scale 0; count stays int64. Division is float64; mean keeps its declared type. Source overflow follows the backend, including ClickHouse wrapping; local integers are checked. Saved results keep committed types and values without new rounding.",
                 members=tuple(
                     _navigation_route(label, _target(target))
                     for label, target in (

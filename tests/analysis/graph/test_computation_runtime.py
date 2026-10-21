@@ -17,7 +17,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import duckdb
-import pandas as pd
+import pyarrow as pa
 import pytest
 from trino.dbapi import Connection, Cursor
 
@@ -164,14 +164,14 @@ def test_computed_measure_integer_arithmetic_aggregates_exactly(
         assert _semantic_value(computation_session, metric) == expected
 
 
-def test_runtime_linear_over_int64_measures_stays_int64(
+def test_runtime_linear_over_integer_sums_returns_decimal(
     computation_session: mv.Session,
 ) -> None:
     quantity = computation_session.catalog.metrics.get("sales.quantity_total")
     count = computation_session.catalog.metrics.get("sales.gmv_quantity")
     result = computation_session.observe({"value": quantity + count - quantity}).persist()
     rows = result.to_pandas()
-    assert pd.api.types.is_integer_dtype(rows[("value", "value")])
+    assert pa.array(rows[("value", "value")]).type == pa.decimal128(38, 0)
     assert rows[("value", "value")].iloc[0] == 2
 
 

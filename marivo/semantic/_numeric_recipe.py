@@ -26,6 +26,7 @@ from ibis.common.deferred import (
 )
 
 from marivo._definition.deferred import attribute_name, canonical_recipe
+from marivo._numeric_types import bind_numeric_literal
 
 if TYPE_CHECKING:
     from marivo.semantic._numeric_lowering import NumericCheck, NumericValue
@@ -115,7 +116,7 @@ def _lower_operation(
     if isinstance(node, ops.Field):
         return slots[node.name]
     if isinstance(node, ops.Literal):
-        return NumericValue(node.to_expr())
+        return NumericValue(bind_numeric_literal(node.to_expr()))
     if isinstance(node, ops.Alias):
         return visit(node.arg)
     if isinstance(node, (ops.Add, ops.Subtract, ops.Multiply, ops.Divide)):
@@ -131,8 +132,10 @@ def _lower_operation(
             visit(node.right),
             zero_denominator=policies.get(id(node), "null"),
         )
-    if isinstance(node, ops.Negate):
-        return numeric_binary("multiply", visit(node.arg), NumericValue(ibis.literal(-1)))
+    if isinstance(node, (ops.Negate, ops.Abs)):
+        item = visit(node.arg)
+        value = node.copy(arg=item.value.op()).to_expr()
+        return NumericValue(value, (*item.checks, *_finite_check(value, type(node).__name__)))
     if isinstance(node, ops.IfElse):
         condition, yes, no = (
             visit(node.bool_expr),
@@ -194,16 +197,6 @@ def _lower_operation(
         return NumericValue(value, (*checks, *_finite_check(value, type(node).__name__)))
     # These operations have no eager invalid-value behavior. Cast is handled with
     # TryCast so invalid demanded inputs become a structured check, not a backend exception.
-    if isinstance(node, ops.Abs) and node.arg.dtype.is_integer():
-        item = visit(node.arg)
-        negative = item.value < 0
-        negated = numeric_binary(
-            "multiply", NumericValue(item.value), NumericValue(ibis.literal(-1))
-        )
-        return NumericValue(
-            negative.ifelse(negated.value, item.value),
-            (*item.checks, *_masked(negated.checks, negative)),
-        )
     if isinstance(node, ops.Round) and node.dtype.is_integer():
         item, digits = visit(node.arg), visit(node.digits)
         overflow = (item.value < -(2**63)) | (item.value >= float(2**63))

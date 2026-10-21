@@ -61,6 +61,7 @@ from marivo.analysis.core.frozen_calendar import (
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.methods.numeric_state import (
     duration_arithmetic,
+    finish_decimal,
     finish_float64,
     nullable_arithmetic,
 )
@@ -359,6 +360,10 @@ def _comparison_values(
         )
     else:
         delta = nullable_arithmetic("subtract", x, y)
+        if isinstance(absolute_type, DecimalDataType):
+            delta = finish_decimal(delta, absolute_type.precision, absolute_type.scale)
+        elif absolute_type == ScalarDataType("float64"):
+            delta = finish_float64(delta, "Frame.compare absolute")
         denominator = y.map(
             lambda v: v.copy_abs() if isinstance(v, Decimal) else abs(v) if pd.notna(v) else pd.NA
         )
@@ -368,12 +373,6 @@ def _comparison_values(
             denominator,
             zero_denominator=zero_denominator,
         )
-        if isinstance(absolute_type, DecimalDataType):
-            delta = delta.map(
-                lambda v: Decimal(v) if pd.notna(v) and not isinstance(v, Decimal) else v
-            )
-        elif absolute_type == ScalarDataType("float64"):
-            delta = finish_float64(delta, "Frame.compare absolute")
     return delta, finish_float64(relative, "Frame.compare relative")
 
 

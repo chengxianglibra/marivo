@@ -325,14 +325,15 @@ def test_temporal_native_numeric_check_keeps_actual_scope(
     from marivo.analysis.materialization.errors import MaterializationError
 
     with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
+        connection.execute("ALTER TABLE facts ALTER amount TYPE DOUBLE")
         connection.execute("UPDATE facts SET amount=0")
-        connection.execute("UPDATE facts SET amount=? WHERE id=1", [2**62])
+        connection.execute("UPDATE facts SET amount=? WHERE id=1", [1e308])
         connection.execute(
-            "UPDATE facts SET amount=? WHERE id=2", [2**62 if scope == "parent" else -(2**62)]
+            "UPDATE facts SET amount=? WHERE id=2", [1e308 if scope == "parent" else -(1e308)]
         )
         if scope == "fine":
             connection.execute(
-                "INSERT INTO facts VALUES (15,'current','east','A',?,1,'2026-08-01')", [2**62]
+                "INSERT INTO facts VALUES (15,'current','east','A',?,1,'2026-08-01')", [1e308]
             )
     amount = session.catalog.fields.get("sales.facts.amount")
     day = session.catalog.fields.get("sales.facts.day")
@@ -540,7 +541,7 @@ def test_calendar_original_nullable_integer_stays_exact(session: Session, tmp_pa
     assert int(rows[("value", "left.q")].iloc[0]) == exact
     assert int(rows[("value", "right.q")].iloc[0]) == exact - 60
     assert rows[("value", "contribution.q")].tolist() == [60, -20]
-    assert str(rows[("value", "left.q")].dtype) == "int64[pyarrow]"
+    assert str(rows[("value", "left.q")].dtype) == "decimal128(38, 0)[pyarrow]"
 
 
 def test_calendar_pre_predicate_check_keeps_real_failure_scope(
@@ -660,7 +661,8 @@ def test_paired_source_failure_retains_original_full_parent(
     ).compute()
     if failure == "native":
         with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
-            connection.execute("UPDATE facts SET amount=? WHERE id IN (9,10)", [2**62])
+            connection.execute("UPDATE facts SET amount=NULL WHERE id IN (9,10)")
+        original = amount.sum(time=day, nulls="error")
         left_endpoint = attribute_endpoint(
             {"q": original}, during=current, where=phase == "current"
         )
@@ -839,7 +841,6 @@ def test_weighted_integer_pair_sums_preserve_native_admitted_range(
 def test_weighted_wide_pair_sums_keep_original_row_product_overflow(
     session: Session, tmp_path: Path
 ) -> None:
-    from marivo.analysis.core.attribute import AttributeCheckWitness, AttributeParentFiber
     from marivo.analysis.materialization.errors import MaterializationError
 
     with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
@@ -863,18 +864,17 @@ def test_weighted_wide_pair_sums_keep_original_row_product_overflow(
             by=(channel,),
             contribution=True,
         ).compute()
-    assert actual.value.location == ordinary.value.location == "dataset.numeric_value"
-    assert actual.value.expected == ordinary.value.expected == "signed int64 arithmetic"
-    assert actual.value.received == ordinary.value.received
+    assert actual.value.location == ordinary.value.location == "dataset.source_execution"
+    assert (
+        actual.value.expected
+        == ordinary.value.expected
+        == "successful native source execution for the compiled expression"
+    )
+    assert "Overflow" in str(actual.value.received) and "Overflow" in str(ordinary.value.received)
     assert actual.value.repair is not None and ordinary.value.repair is not None
     assert actual.value.repair.action == ordinary.value.repair.action
-    context = actual.value.attribute_context
-    assert context is not None
-    assert isinstance(context.fiber, AttributeParentFiber)
-    assert context.fiber.parent == ()
-    assert isinstance(context.witness, AttributeCheckWitness)
-    assert context.uses[0].endpoint == "left"
-    assert context.uses[0].metric == "q"
+    # A native engine failure has no evaluated aggregate coordinate witness.
+    assert actual.value.attribute_context is None
 
 
 @pytest.mark.parametrize("contribution", (False, True))

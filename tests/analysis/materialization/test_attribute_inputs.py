@@ -978,8 +978,9 @@ def test_original_numeric_failure_uses_actual_aggregate_coordinate_scope(
     value = session.catalog.fields.get("sales.facts.value")
     region = session.catalog.fields.get("sales.facts.region")
     channel = session.catalog.fields.get("sales.facts.channel")
-    valid = 2**62
+    valid = 1e308
     with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
+        connection.execute("ALTER TABLE facts ALTER value TYPE DOUBLE")
         connection.execute("UPDATE facts SET value=? WHERE region='east'", [valid])
         if failing_scope == "fine":
             connection.execute("UPDATE facts SET value=? WHERE id=2", [-valid])

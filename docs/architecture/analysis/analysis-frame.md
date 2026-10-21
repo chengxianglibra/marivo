@@ -228,3 +228,9 @@ AnalysisFrame 的计算逻辑决定结果行序；物化、存储、恢复、sho
 [frame_structure.py](../../../marivo/analysis/core/frame_structure.py) 和
 [data_schema.py](../../../marivo/analysis/core/data_schema.py) 拥有结构推导/完整性。
 [frame_comparison.py](../../../marivo/analysis/methods/frame_comparison.py) 拥有组合数值与行序。
+
+Numeric operations bind their result types before execution. Integer Column SUM
+returns Decimal(38,0), Decimal SUM widens to Decimal(38,input_scale), and mean keeps
+its declared result type. [Numeric carrier rules](operators-and-frames.md) own
+Decimal convergence, float approximation and source/local overflow differences.
+Persistence and cold reads preserve the committed values and types without new rounding.

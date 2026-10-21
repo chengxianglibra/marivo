@@ -8,7 +8,6 @@ import duckdb
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
@@ -86,7 +85,7 @@ def test_calendar_rollup_reduces_each_root_before_host_formula(
 
 
 @pytest.mark.parametrize("same_owner", (False, True))
-def test_calendar_parent_formula_failure_precedes_valid_target_totals(
+def test_calendar_parent_formula_uses_widened_sums(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -103,8 +102,7 @@ def test_calendar_parent_formula_failure_precedes_valid_target_totals(
     metric = one.sum(time=one_day) + two.sum(time=two_day)
     query = session.observe({"net": metric}, by=(days,))
     trace = capture_source(monkeypatch)
-    with pytest.raises(AnalysisError, match="overflow"):
-        query.compute()
+    assert query.compute().to_pandas()["value", "net"].tolist() == [2**63, -(2**63)]
     assert trace.uploaded_key_rows == []
 
 
@@ -154,7 +152,7 @@ def test_plain_calendar_coarsening_recomputes_with_original_clipped_period(
     assert trace.uploaded_key_rows == []
 
 
-def test_plain_calendar_coarsening_checks_daily_formula_before_legal_month_total(
+def test_daily_formula_keeps_widened_source_sum(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -168,8 +166,7 @@ def test_plain_calendar_coarsening_checks_daily_formula_before_legal_month_total
     days, month = (scope.by(mv.grain("day")), scope.by(mv.grain("month")))
     query = session.observe({"value": amount.sum(time=day) + 1}, by=(days,))
     trace = capture_source(monkeypatch)
-    with pytest.raises(AnalysisError, match="overflow"):
-        query.compute()
+    assert query.compute().to_pandas()["value", "value"].tolist()[:2] == [2**63, -(2**63) + 2]
 
 
 @pytest.mark.parametrize(
@@ -258,8 +255,7 @@ def test_remote_cross_owner_calendar_compacts_before_global_host_formula(
         )
         trace = capture_source(monkeypatch)
         if boundary == "overflow":
-            with pytest.raises(AnalysisError, match="overflow"):
-                query.compute()
+            assert query.compute().to_pandas()["value", "net"].tolist() == [2**63 + 1, -(2**63) - 1]
         else:
             result = query.compute().to_pandas()
             assert result["value", "net"].tolist() == [-60 if boundary == "partial" else -120]
